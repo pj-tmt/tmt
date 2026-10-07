@@ -45,12 +45,12 @@
   "frames": [
     {
       "lines": [
-        "  alpha   beta   gamma   delta-with-a-long-squad-name   epsilon  ▚ [tmt]",
+        "  alpha   beta   gamma   delta-with-a-long-squad-name   epsilon  ▚ tmt",
         "5 squads · 12 members   ◆ 3 waiting on you  ✗ 3 blocked  ◐ 1 review  ● 4 working  ○ 3 idle",
         "",
         "",
         "── ◆ needs you · 3 ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
-        ">◆ lead-a                  alpha",
+        " ◆ lead-a                  alpha",
         " ◆ worker-one              alpha",
         " ◆ worker-two              alpha",
         "",
@@ -107,7 +107,7 @@
         "Focus: HOME rows  ↑↓ move  ⏎ open  a write  e expand  A ask lead  / search  ? more  q quit"
       ],
       "styles": [
-        "0:7=s0 7:1=s1 8:6=s0 14:1=s1 15:7=s0 22:1=s1 23:30=s0 53:1=s1 54:9=s0 63:1=s1 64:9=s2 73:87=s1",
+        "0:7=s0 7:1=s1 8:6=s0 14:1=s1 15:7=s0 22:1=s1 23:30=s0 53:1=s1 54:9=s0 63:1=s1 64:7=s2 71:89=s1",
         "0:24=s3 24:1=s4 25:17=s3 42:2=s5 44:1=s6 45:10=s3 55:2=s5 57:1=s7 58:9=s3 67:2=s5 69:1=s8 70:10=s3 80:3=s5 83:7=s3 90:2=s5 92:68=s1",
         "0:160=s1",
         "0:160=s1",
@@ -189,7 +189,7 @@
         34,
         35
       ],
-      "tabs": "[TabHit { y: 0, x: 0, width: 7, tab: 0 }, TabHit { y: 0, x: 8, width: 6, tab: 1 }, TabHit { y: 0, x: 15, width: 7, tab: 2 }, TabHit { y: 0, x: 23, width: 30, tab: 3 }, TabHit { y: 0, x: 54, width: 9, tab: 4 }, TabHit { y: 0, x: 64, width: 9, tab: 5 }]",
+      "tabs": "[TabHit { y: 0, x: 0, width: 7, tab: 0 }, TabHit { y: 0, x: 8, width: 6, tab: 1 }, TabHit { y: 0, x: 15, width: 7, tab: 2 }, TabHit { y: 0, x: 23, width: 30, tab: 3 }, TabHit { y: 0, x: 54, width: 9, tab: 4 }, TabHit { y: 0, x: 64, width: 7, tab: 5 }]",
       "input": "None",
       "state": "base",
       "look": "tmt",
@@ -197,12 +197,12 @@
     },
     {
       "lines": [
-        "  alpha   beta   gamma   delta-with-a-long-squad-name   epsilon  ▚ [tmt]",
+        "  alpha   beta   gamma   delta-with-a-long-squad-name   epsilon  ▚ tmt",
         "5 squads · 12 members   ◆ 3 waiting on you  ✗ 3 blocked  ◐ 1 review  ● 4 working  ○ 3 idle",
         "",
         "",
         "── ◆ needs you · 3 ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
-        ">◆ lead-a                  alpha",
+        " ◆ lead-a                  alpha",
         " ◆ worker-one              alpha",
         " ◆ worker-two              alpha",
         "",
@@ -259,7 +259,7 @@
         "Focus: HOME rows  ↑↓ move  ⏎ open  a write  e expand  A ask lead  / search  ? more  q quit"
       ],
       "styles": [
-        "0:7=s0 7:1=s1 8:6=s0 14:1=s1 15:7=s0 22:1=s1 23:30=s0 53:1=s1 54:9=s0 63:1=s1 64:9=s2 73:67=s1",
+        "0:7=s0 7:1=s1 8:6=s0 14:1=s1 15:7=s0 22:1=s1 23:30=s0 53:1=s1 54:9=s0 63:1=s1 64:7=s2 71:69=s1",
         "0:24=s3 24:1=s4 25:17=s3 42:2=s5 44:1=s6 45:10=s3 55:2=s5 57:1=s7 58:9=s3 67:2=s5 69:1=s8 70:10=s3 80:3=s5 83:7=s3 90:2=s5 92:48=s1",
         "0:140=s1",
         "0:140=s1",
@@ -341,7 +341,7 @@
         34,
         35
       ],
-      "tabs": "[TabHit { y: 0, x: 0, width: 7, tab: 0 }, TabHit { y: 0, x: 8, width: 6, tab: 1 }, TabHit { y: 0, x: 15, width: 7, tab: 2 }, TabHit { y: 0, x: 23, width: 30, tab: 3 }, TabHit { y: 0, x: 54, width: 9, tab: 4 }, TabHit { y: 0, x: 64, width: 9, tab: 5 }]",
+      "tabs": "[TabHit { y: 0, x: 0, width: 7, tab: 0 }, TabHit { y: 0, x: 8, width: 6, tab: 1 }, TabHit { y: 0, x: 15, width: 7, tab: 2 }, TabHit { y: 0, x: 23, width: 30, tab: 3 }, TabHit { y: 0, x: 54, width: 9, tab: 4 }, TabHit { y: 0, x: 64, width: 7, tab: 5 }]",
       "input": "None",
       "state": "base",
       "look": "tmt",
@@ -349,12 +349,12 @@
     },
     {
       "lines": [
-        "  alpha   beta   gamma   delta-with-a-long-squad-name   epsilon  ▚ [tmt]",
+        "  alpha   beta   gamma   delta-with-a-long-squad-name   epsilon  ▚ tmt",
         "5 squads  ◆ 3  ✗ 3  ◐ 1  ● 4  ○ 3",
         "",
         "",
         "── ◆ needs you · 3 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
-        ">◆ lead-a                  alpha",
+        " ◆ lead-a                  alpha",
         " ◆ worker-one              alpha",
         " ◆ worker-two              alpha",
         "",
@@ -411,7 +411,7 @@
         "Focus: HOME rows  ↑↓ move  ⏎ open  a write  e expand  A ask lead  / search  ? more  q quit"
       ],
       "styles": [
-        "0:7=s0 7:1=s1 8:6=s0 14:1=s1 15:7=s0 22:1=s1 23:30=s0 53:1=s1 54:9=s0 63:1=s1 64:9=s2 73:66=s1",
+        "0:7=s0 7:1=s1 8:6=s0 14:1=s1 15:7=s0 22:1=s1 23:30=s0 53:1=s1 54:9=s0 63:1=s1 64:7=s2 71:68=s1",
         "0:10=s3 10:1=s4 11:2=s3 13:2=s5 15:1=s6 16:2=s3 18:2=s5 20:1=s7 21:2=s3 23:2=s5 25:1=s8 26:2=s3 28:3=s5 31:2=s3 33:2=s5 35:104=s1",
         "0:139=s1",
         "0:139=s1",
@@ -493,7 +493,7 @@
         34,
         35
       ],
-      "tabs": "[TabHit { y: 0, x: 0, width: 7, tab: 0 }, TabHit { y: 0, x: 8, width: 6, tab: 1 }, TabHit { y: 0, x: 15, width: 7, tab: 2 }, TabHit { y: 0, x: 23, width: 30, tab: 3 }, TabHit { y: 0, x: 54, width: 9, tab: 4 }, TabHit { y: 0, x: 64, width: 9, tab: 5 }]",
+      "tabs": "[TabHit { y: 0, x: 0, width: 7, tab: 0 }, TabHit { y: 0, x: 8, width: 6, tab: 1 }, TabHit { y: 0, x: 15, width: 7, tab: 2 }, TabHit { y: 0, x: 23, width: 30, tab: 3 }, TabHit { y: 0, x: 54, width: 9, tab: 4 }, TabHit { y: 0, x: 64, width: 7, tab: 5 }]",
       "input": "None",
       "state": "base",
       "look": "tmt",
@@ -501,12 +501,12 @@
     },
     {
       "lines": [
-        "  alpha   beta   gamma   delta-with-a-long-squad-name   epsilon  ▚ [tmt]",
+        "  alpha   beta   gamma   delta-with-a-long-squad-name   epsilon  ▚ tmt",
         "5 squads  ◆ 3  ✗ 3  ◐ 1  ● 4  ○ 3",
         "",
         "",
         "── ◆ needs you · 3 ─────────────────────────────────────────────────────────────────────────────────────────────────────",
-        ">◆ lead-a                  alpha",
+        " ◆ lead-a                  alpha",
         " ◆ worker-one              alpha",
         " ◆ worker-two              alpha",
         "",
@@ -563,7 +563,7 @@
         "Focus: HOME rows  ↑↓ move  ⏎ open  a write  e expand  A ask lead  / search  ? more  q quit"
       ],
       "styles": [
-        "0:7=s0 7:1=s1 8:6=s0 14:1=s1 15:7=s0 22:1=s1 23:30=s0 53:1=s1 54:9=s0 63:1=s1 64:9=s2 73:47=s1",
+        "0:7=s0 7:1=s1 8:6=s0 14:1=s1 15:7=s0 22:1=s1 23:30=s0 53:1=s1 54:9=s0 63:1=s1 64:7=s2 71:49=s1",
         "0:10=s3 10:1=s4 11:2=s3 13:2=s5 15:1=s6 16:2=s3 18:2=s5 20:1=s7 21:2=s3 23:2=s5 25:1=s8 26:2=s3 28:3=s5 31:2=s3 33:2=s5 35:85=s1",
         "0:120=s1",
         "0:120=s1",
@@ -645,7 +645,7 @@
         34,
         35
       ],
-      "tabs": "[TabHit { y: 0, x: 0, width: 7, tab: 0 }, TabHit { y: 0, x: 8, width: 6, tab: 1 }, TabHit { y: 0, x: 15, width: 7, tab: 2 }, TabHit { y: 0, x: 23, width: 30, tab: 3 }, TabHit { y: 0, x: 54, width: 9, tab: 4 }, TabHit { y: 0, x: 64, width: 9, tab: 5 }]",
+      "tabs": "[TabHit { y: 0, x: 0, width: 7, tab: 0 }, TabHit { y: 0, x: 8, width: 6, tab: 1 }, TabHit { y: 0, x: 15, width: 7, tab: 2 }, TabHit { y: 0, x: 23, width: 30, tab: 3 }, TabHit { y: 0, x: 54, width: 9, tab: 4 }, TabHit { y: 0, x: 64, width: 7, tab: 5 }]",
       "input": "None",
       "state": "base",
       "look": "tmt",
@@ -653,12 +653,12 @@
     },
     {
       "lines": [
-        "  alpha   beta   gamma   delta-with-a-long-squad-name   epsilon  ▚ [tmt]",
+        "  alpha   beta   gamma   delta-with-a-long-squad-name   epsilon  ▚ tmt",
         "5 squads  ◆ 3  ✗ 3  ◐ 1  ● 4  ○ 3",
         "",
         "",
         "── ◆ needs you · 3 ─────────────────────────────────────────────────────────────────────────────────",
-        ">◆ lead-a                  alpha",
+        " ◆ lead-a                  alpha",
         " ◆ worker-one              alpha",
         " ◆ worker-two              alpha",
         "",
@@ -715,7 +715,7 @@
         "Focus: HOME rows  ↑↓ move  ⏎ open  a write  e expand  A ask lead  / search  ? more  q quit"
       ],
       "styles": [
-        "0:7=s0 7:1=s1 8:6=s0 14:1=s1 15:7=s0 22:1=s1 23:30=s0 53:1=s1 54:9=s0 63:1=s1 64:9=s2 73:27=s1",
+        "0:7=s0 7:1=s1 8:6=s0 14:1=s1 15:7=s0 22:1=s1 23:30=s0 53:1=s1 54:9=s0 63:1=s1 64:7=s2 71:29=s1",
         "0:10=s3 10:1=s4 11:2=s3 13:2=s5 15:1=s6 16:2=s3 18:2=s5 20:1=s7 21:2=s3 23:2=s5 25:1=s8 26:2=s3 28:3=s5 31:2=s3 33:2=s5 35:65=s1",
         "0:100=s1",
         "0:100=s1",
@@ -797,7 +797,7 @@
         34,
         35
       ],
-      "tabs": "[TabHit { y: 0, x: 0, width: 7, tab: 0 }, TabHit { y: 0, x: 8, width: 6, tab: 1 }, TabHit { y: 0, x: 15, width: 7, tab: 2 }, TabHit { y: 0, x: 23, width: 30, tab: 3 }, TabHit { y: 0, x: 54, width: 9, tab: 4 }, TabHit { y: 0, x: 64, width: 9, tab: 5 }]",
+      "tabs": "[TabHit { y: 0, x: 0, width: 7, tab: 0 }, TabHit { y: 0, x: 8, width: 6, tab: 1 }, TabHit { y: 0, x: 15, width: 7, tab: 2 }, TabHit { y: 0, x: 23, width: 30, tab: 3 }, TabHit { y: 0, x: 54, width: 9, tab: 4 }, TabHit { y: 0, x: 64, width: 7, tab: 5 }]",
       "input": "None",
       "state": "base",
       "look": "tmt",
@@ -805,12 +805,12 @@
     },
     {
       "lines": [
-        "  alpha   beta   gamma   delta-with-a-long-squad-name   epsilon  ▚ [tmt]",
+        "  alpha   beta   gamma   delta-with-a-long-squad-name   epsilon  ▚ tmt",
         "5 squads  ◆ 3  ✗ 3  ◐ 1  ● 4  ○ 3",
         "",
         "",
         "── ◆ needs you · 3 ────────────────────────────────────────────────────────────────────────────────",
-        ">◆ lead-a                  alpha",
+        " ◆ lead-a                  alpha",
         " ◆ worker-one              alpha",
         " ◆ worker-two              alpha",
         "",
@@ -867,7 +867,7 @@
         "Focus: HOME rows  ↑↓ move  ⏎ open  a write  e expand  A ask  / search  ? more  q quit"
       ],
       "styles": [
-        "0:7=s0 7:1=s1 8:6=s0 14:1=s1 15:7=s0 22:1=s1 23:30=s0 53:1=s1 54:9=s0 63:1=s1 64:9=s2 73:26=s1",
+        "0:7=s0 7:1=s1 8:6=s0 14:1=s1 15:7=s0 22:1=s1 23:30=s0 53:1=s1 54:9=s0 63:1=s1 64:7=s2 71:28=s1",
         "0:10=s3 10:1=s4 11:2=s3 13:2=s5 15:1=s6 16:2=s3 18:2=s5 20:1=s7 21:2=s3 23:2=s5 25:1=s8 26:2=s3 28:3=s5 31:2=s3 33:2=s5 35:64=s1",
         "0:99=s1",
         "0:99=s1",
@@ -949,7 +949,7 @@
         34,
         35
       ],
-      "tabs": "[TabHit { y: 0, x: 0, width: 7, tab: 0 }, TabHit { y: 0, x: 8, width: 6, tab: 1 }, TabHit { y: 0, x: 15, width: 7, tab: 2 }, TabHit { y: 0, x: 23, width: 30, tab: 3 }, TabHit { y: 0, x: 54, width: 9, tab: 4 }, TabHit { y: 0, x: 64, width: 9, tab: 5 }]",
+      "tabs": "[TabHit { y: 0, x: 0, width: 7, tab: 0 }, TabHit { y: 0, x: 8, width: 6, tab: 1 }, TabHit { y: 0, x: 15, width: 7, tab: 2 }, TabHit { y: 0, x: 23, width: 30, tab: 3 }, TabHit { y: 0, x: 54, width: 9, tab: 4 }, TabHit { y: 0, x: 64, width: 7, tab: 5 }]",
       "input": "None",
       "state": "base",
       "look": "tmt",
@@ -957,12 +957,12 @@
     },
     {
       "lines": [
-        "  alpha   beta   gamma   delta-with-a-long-squad-name   epsilon  ▚ [tmt]",
+        "  alpha   beta   gamma   delta-with-a-long-squad-name   epsilon  ▚ tmt",
         "5 squads  ◆ 3  ✗ 3  ◐ 1  ● 4  ○ 3",
         "",
         "",
         "── ◆ needs you · 3 ─────────────────────────────────────────────────────────────",
-        ">◆ lead-a                  alpha",
+        " ◆ lead-a                  alpha",
         " ◆ worker-one              alpha",
         " ◆ worker-two              alpha",
         "",
@@ -1019,7 +1019,7 @@
         "Focus: HOME rows  ↑↓ move  ⏎ open  a write  e expand  A ask  ? more  q quit"
       ],
       "styles": [
-        "0:7=s0 7:1=s1 8:6=s0 14:1=s1 15:7=s0 22:1=s1 23:30=s0 53:1=s1 54:9=s0 63:1=s1 64:9=s2 73:7=s1",
+        "0:7=s0 7:1=s1 8:6=s0 14:1=s1 15:7=s0 22:1=s1 23:30=s0 53:1=s1 54:9=s0 63:1=s1 64:7=s2 71:9=s1",
         "0:10=s3 10:1=s4 11:2=s3 13:2=s5 15:1=s6 16:2=s3 18:2=s5 20:1=s7 21:2=s3 23:2=s5 25:1=s8 26:2=s3 28:3=s5 31:2=s3 33:2=s5 35:45=s1",
         "0:80=s1",
         "0:80=s1",
@@ -1101,7 +1101,7 @@
         34,
         35
       ],
-      "tabs": "[TabHit { y: 0, x: 0, width: 7, tab: 0 }, TabHit { y: 0, x: 8, width: 6, tab: 1 }, TabHit { y: 0, x: 15, width: 7, tab: 2 }, TabHit { y: 0, x: 23, width: 30, tab: 3 }, TabHit { y: 0, x: 54, width: 9, tab: 4 }, TabHit { y: 0, x: 64, width: 9, tab: 5 }]",
+      "tabs": "[TabHit { y: 0, x: 0, width: 7, tab: 0 }, TabHit { y: 0, x: 8, width: 6, tab: 1 }, TabHit { y: 0, x: 15, width: 7, tab: 2 }, TabHit { y: 0, x: 23, width: 30, tab: 3 }, TabHit { y: 0, x: 54, width: 9, tab: 4 }, TabHit { y: 0, x: 64, width: 7, tab: 5 }]",
       "input": "None",
       "state": "base",
       "look": "tmt",
@@ -1109,12 +1109,12 @@
     },
     {
       "lines": [
-        "  alpha   beta   gamma   delta-with-a-long-squad-name   epsilon  ▚ [tmt]",
+        "  alpha   beta   gamma   delta-with-a-long-squad-name   epsilon  ▚ tmt",
         "5 squads  ◆ 3  ✗ 3  ◐ 1  ● 4  ○ 3",
         "",
         "",
         "── ◆ needs you · 3 ────────────────────────────────────────────────────────────",
-        ">◆ lead-a                  alpha",
+        " ◆ lead-a                  alpha",
         " ◆ worker-one              alpha",
         " ◆ worker-two              alpha",
         "",
@@ -1171,7 +1171,7 @@
         "Focus: HOME rows  ↑↓ move  ⏎ open  a write  e expand  A ask  ? more  q quit"
       ],
       "styles": [
-        "0:7=s0 7:1=s1 8:6=s0 14:1=s1 15:7=s0 22:1=s1 23:30=s0 53:1=s1 54:9=s0 63:1=s1 64:9=s2 73:6=s1",
+        "0:7=s0 7:1=s1 8:6=s0 14:1=s1 15:7=s0 22:1=s1 23:30=s0 53:1=s1 54:9=s0 63:1=s1 64:7=s2 71:8=s1",
         "0:10=s3 10:1=s4 11:2=s3 13:2=s5 15:1=s6 16:2=s3 18:2=s5 20:1=s7 21:2=s3 23:2=s5 25:1=s8 26:2=s3 28:3=s5 31:2=s3 33:2=s5 35:44=s1",
         "0:79=s1",
         "0:79=s1",
@@ -1253,7 +1253,7 @@
         34,
         35
       ],
-      "tabs": "[TabHit { y: 0, x: 0, width: 7, tab: 0 }, TabHit { y: 0, x: 8, width: 6, tab: 1 }, TabHit { y: 0, x: 15, width: 7, tab: 2 }, TabHit { y: 0, x: 23, width: 30, tab: 3 }, TabHit { y: 0, x: 54, width: 9, tab: 4 }, TabHit { y: 0, x: 64, width: 9, tab: 5 }]",
+      "tabs": "[TabHit { y: 0, x: 0, width: 7, tab: 0 }, TabHit { y: 0, x: 8, width: 6, tab: 1 }, TabHit { y: 0, x: 15, width: 7, tab: 2 }, TabHit { y: 0, x: 23, width: 30, tab: 3 }, TabHit { y: 0, x: 54, width: 9, tab: 4 }, TabHit { y: 0, x: 64, width: 7, tab: 5 }]",
       "input": "None",
       "state": "base",
       "look": "tmt",
@@ -1261,7 +1261,7 @@
     },
     {
       "lines": [
-        "  alpha   beta   gamma   delta-with-a-long-squad-name   epsilon  ▚ [tmt]",
+        "  alpha   beta   gamma   delta-with-a-long-squad-name   epsilon  ▚ tmt",
         "5 squads · 12 members   ◆ 3 waiting on you  ✗ 3 blocked  ◐ 1 review  ● 4 working  ○ 3 idle",
         "",
         "",
@@ -1283,7 +1283,7 @@
         "  … lead-g                     gamma                                                                                                                       12h",
         "   no reply yet to: Please review the draft",
         "",
-        " >✓ lead-b                     beta                                                                                                                         1d",
+        "  ✓ lead-b                     beta                                                                                                                         1d",
         "   The public replies and results reads are merged.",
         "",
         "    lead-delta-with-a-long-…   delta-with-a-long-squad-name                                                                                                  –",
@@ -1323,7 +1323,7 @@
         "Focus: HOME rows  ↑↓ move  ⏎ open  a write  e expand  A ask lead  / search  ? more  q quit"
       ],
       "styles": [
-        "0:7=s0 7:1=s1 8:6=s0 14:1=s1 15:7=s0 22:1=s1 23:30=s0 53:1=s1 54:9=s0 63:1=s1 64:9=s2 73:87=s1",
+        "0:7=s0 7:1=s1 8:6=s0 14:1=s1 15:7=s0 22:1=s1 23:30=s0 53:1=s1 54:9=s0 63:1=s1 64:7=s2 71:89=s1",
         "0:24=s3 24:1=s4 25:17=s3 42:2=s5 44:1=s6 45:10=s3 55:2=s5 57:1=s7 58:9=s3 67:2=s5 69:1=s8 70:10=s3 80:3=s5 83:7=s3 90:2=s5 92:68=s1",
         "0:160=s1",
         "0:160=s1",
@@ -1405,7 +1405,7 @@
         34,
         35
       ],
-      "tabs": "[TabHit { y: 0, x: 0, width: 7, tab: 0 }, TabHit { y: 0, x: 8, width: 6, tab: 1 }, TabHit { y: 0, x: 15, width: 7, tab: 2 }, TabHit { y: 0, x: 23, width: 30, tab: 3 }, TabHit { y: 0, x: 54, width: 9, tab: 4 }, TabHit { y: 0, x: 64, width: 9, tab: 5 }]",
+      "tabs": "[TabHit { y: 0, x: 0, width: 7, tab: 0 }, TabHit { y: 0, x: 8, width: 6, tab: 1 }, TabHit { y: 0, x: 15, width: 7, tab: 2 }, TabHit { y: 0, x: 23, width: 30, tab: 3 }, TabHit { y: 0, x: 54, width: 9, tab: 4 }, TabHit { y: 0, x: 64, width: 7, tab: 5 }]",
       "input": "None",
       "state": "lead-selected",
       "look": "tmt",
@@ -1413,7 +1413,7 @@
     },
     {
       "lines": [
-        "  alpha   beta   gamma   delta-with-a-long-squad-name   epsilon  ▚ [tmt]",
+        "  alpha   beta   gamma   delta-with-a-long-squad-name   epsilon  ▚ tmt",
         "5 squads  ◆ 3  ✗ 3  ◐ 1  ● 4  ○ 3",
         "",
         "",
@@ -1435,7 +1435,7 @@
         "  … lead-g                                                                 12h",
         "   no reply yet to: Please review the draft",
         "",
-        " >✓ lead-b                                                                  1d",
+        "  ✓ lead-b                                                                  1d",
         "   The public replies and results reads are merged.",
         "",
         "    lead-delta-with-a-long-…                                                 –",
@@ -1475,7 +1475,7 @@
         "Focus: HOME rows  ↑↓ move  ⏎ open  a write  e expand  A ask  ? more  q quit"
       ],
       "styles": [
-        "0:7=s0 7:1=s1 8:6=s0 14:1=s1 15:7=s0 22:1=s1 23:30=s0 53:1=s1 54:9=s0 63:1=s1 64:9=s2 73:7=s1",
+        "0:7=s0 7:1=s1 8:6=s0 14:1=s1 15:7=s0 22:1=s1 23:30=s0 53:1=s1 54:9=s0 63:1=s1 64:7=s2 71:9=s1",
         "0:10=s3 10:1=s4 11:2=s3 13:2=s5 15:1=s6 16:2=s3 18:2=s5 20:1=s7 21:2=s3 23:2=s5 25:1=s8 26:2=s3 28:3=s5 31:2=s3 33:2=s5 35:45=s1",
         "0:80=s1",
         "0:80=s1",
@@ -1557,7 +1557,7 @@
         34,
         35
       ],
-      "tabs": "[TabHit { y: 0, x: 0, width: 7, tab: 0 }, TabHit { y: 0, x: 8, width: 6, tab: 1 }, TabHit { y: 0, x: 15, width: 7, tab: 2 }, TabHit { y: 0, x: 23, width: 30, tab: 3 }, TabHit { y: 0, x: 54, width: 9, tab: 4 }, TabHit { y: 0, x: 64, width: 9, tab: 5 }]",
+      "tabs": "[TabHit { y: 0, x: 0, width: 7, tab: 0 }, TabHit { y: 0, x: 8, width: 6, tab: 1 }, TabHit { y: 0, x: 15, width: 7, tab: 2 }, TabHit { y: 0, x: 23, width: 30, tab: 3 }, TabHit { y: 0, x: 54, width: 9, tab: 4 }, TabHit { y: 0, x: 64, width: 7, tab: 5 }]",
       "input": "None",
       "state": "lead-selected",
       "look": "tmt",
@@ -1565,7 +1565,7 @@
     },
     {
       "lines": [
-        "  alpha   beta   gamma   delta-with-a-long-squad-name   epsilon  ▚ [tmt]",
+        "  alpha   beta   gamma   delta-with-a-long-squad-name   epsilon  ▚ tmt",
         "5 squads · 12 members   ◆ 3 waiting on you  ✗ 3 blocked  ◐ 1 review  ● 4 working  ○ 3 idle",
         "",
         "",
@@ -1627,7 +1627,7 @@
         "Focus: HOME rows  ↑↓ move  ⏎ open  a write  e expand  A ask lead  / search  ? more  q quit"
       ],
       "styles": [
-        "0:7=s0 7:1=s1 8:6=s0 14:1=s1 15:7=s0 22:1=s1 23:30=s0 53:1=s1 54:9=s0 63:1=s1 64:9=s2 73:87=s1",
+        "0:7=s0 7:1=s1 8:6=s0 14:1=s1 15:7=s0 22:1=s1 23:30=s0 53:1=s1 54:9=s0 63:1=s1 64:7=s2 71:89=s1",
         "0:24=s3 24:1=s4 25:17=s3 42:2=s5 44:1=s6 45:10=s3 55:2=s5 57:1=s7 58:9=s3 67:2=s5 69:1=s8 70:10=s3 80:3=s5 83:7=s3 90:2=s5 92:68=s1",
         "0:160=s1",
         "0:160=s1",
@@ -1709,7 +1709,7 @@
         34,
         35
       ],
-      "tabs": "[TabHit { y: 0, x: 0, width: 7, tab: 0 }, TabHit { y: 0, x: 8, width: 6, tab: 1 }, TabHit { y: 0, x: 15, width: 7, tab: 2 }, TabHit { y: 0, x: 23, width: 30, tab: 3 }, TabHit { y: 0, x: 54, width: 9, tab: 4 }, TabHit { y: 0, x: 64, width: 9, tab: 5 }]",
+      "tabs": "[TabHit { y: 0, x: 0, width: 7, tab: 0 }, TabHit { y: 0, x: 8, width: 6, tab: 1 }, TabHit { y: 0, x: 15, width: 7, tab: 2 }, TabHit { y: 0, x: 23, width: 30, tab: 3 }, TabHit { y: 0, x: 54, width: 9, tab: 4 }, TabHit { y: 0, x: 64, width: 7, tab: 5 }]",
       "input": "None",
       "state": "squad-selected",
       "look": "tmt",
@@ -1717,7 +1717,7 @@
     },
     {
       "lines": [
-        "  alpha   beta   gamma   delta-with-a-long-squad-name   epsilon  ▚ [tmt]",
+        "  alpha   beta   gamma   delta-with-a-long-squad-name   epsilon  ▚ tmt",
         "5 squads  ◆ 3  ✗ 3  ◐ 1  ● 4  ○ 3",
         "",
         "",
@@ -1779,7 +1779,7 @@
         "Focus: HOME rows  ↑↓ move  ⏎ open  a write  e expand  A ask lead  / search  ? more  q quit"
       ],
       "styles": [
-        "0:7=s0 7:1=s1 8:6=s0 14:1=s1 15:7=s0 22:1=s1 23:30=s0 53:1=s1 54:9=s0 63:1=s1 64:9=s2 73:27=s1",
+        "0:7=s0 7:1=s1 8:6=s0 14:1=s1 15:7=s0 22:1=s1 23:30=s0 53:1=s1 54:9=s0 63:1=s1 64:7=s2 71:29=s1",
         "0:10=s3 10:1=s4 11:2=s3 13:2=s5 15:1=s6 16:2=s3 18:2=s5 20:1=s7 21:2=s3 23:2=s5 25:1=s8 26:2=s3 28:3=s5 31:2=s3 33:2=s5 35:65=s1",
         "0:100=s1",
         "0:100=s1",
@@ -1861,7 +1861,7 @@
         34,
         35
       ],
-      "tabs": "[TabHit { y: 0, x: 0, width: 7, tab: 0 }, TabHit { y: 0, x: 8, width: 6, tab: 1 }, TabHit { y: 0, x: 15, width: 7, tab: 2 }, TabHit { y: 0, x: 23, width: 30, tab: 3 }, TabHit { y: 0, x: 54, width: 9, tab: 4 }, TabHit { y: 0, x: 64, width: 9, tab: 5 }]",
+      "tabs": "[TabHit { y: 0, x: 0, width: 7, tab: 0 }, TabHit { y: 0, x: 8, width: 6, tab: 1 }, TabHit { y: 0, x: 15, width: 7, tab: 2 }, TabHit { y: 0, x: 23, width: 30, tab: 3 }, TabHit { y: 0, x: 54, width: 9, tab: 4 }, TabHit { y: 0, x: 64, width: 7, tab: 5 }]",
       "input": "None",
       "state": "squad-selected",
       "look": "tmt",
@@ -1869,7 +1869,7 @@
     },
     {
       "lines": [
-        "  alpha   beta   gamma   delta-with-a-long-squad-name   epsilon  ▚ [tmt]",
+        "  alpha   beta   gamma   delta-with-a-long-squad-name   epsilon  ▚ tmt",
         "5 squads  ◆ 3  ✗ 3  ◐ 1  ● 4  ○ 3",
         "",
         "",
@@ -1931,7 +1931,7 @@
         "Focus: HOME rows  ↑↓ move  ⏎ open  a write  e expand  A ask  / search  ? more  q quit"
       ],
       "styles": [
-        "0:7=s0 7:1=s1 8:6=s0 14:1=s1 15:7=s0 22:1=s1 23:30=s0 53:1=s1 54:9=s0 63:1=s1 64:9=s2 73:26=s1",
+        "0:7=s0 7:1=s1 8:6=s0 14:1=s1 15:7=s0 22:1=s1 23:30=s0 53:1=s1 54:9=s0 63:1=s1 64:7=s2 71:28=s1",
         "0:10=s3 10:1=s4 11:2=s3 13:2=s5 15:1=s6 16:2=s3 18:2=s5 20:1=s7 21:2=s3 23:2=s5 25:1=s8 26:2=s3 28:3=s5 31:2=s3 33:2=s5 35:64=s1",
         "0:99=s1",
         "0:99=s1",
@@ -2013,7 +2013,7 @@
         34,
         35
       ],
-      "tabs": "[TabHit { y: 0, x: 0, width: 7, tab: 0 }, TabHit { y: 0, x: 8, width: 6, tab: 1 }, TabHit { y: 0, x: 15, width: 7, tab: 2 }, TabHit { y: 0, x: 23, width: 30, tab: 3 }, TabHit { y: 0, x: 54, width: 9, tab: 4 }, TabHit { y: 0, x: 64, width: 9, tab: 5 }]",
+      "tabs": "[TabHit { y: 0, x: 0, width: 7, tab: 0 }, TabHit { y: 0, x: 8, width: 6, tab: 1 }, TabHit { y: 0, x: 15, width: 7, tab: 2 }, TabHit { y: 0, x: 23, width: 30, tab: 3 }, TabHit { y: 0, x: 54, width: 9, tab: 4 }, TabHit { y: 0, x: 64, width: 7, tab: 5 }]",
       "input": "None",
       "state": "squad-selected",
       "look": "tmt",
@@ -2021,7 +2021,7 @@
     },
     {
       "lines": [
-        "  alpha   beta   gamma   delta-with-a-long-squad-name   epsilon  ▚ [tmt]",
+        "  alpha   beta   gamma   delta-with-a-long-squad-name   epsilon  ▚ tmt",
         "5 squads  ◆ 3  ✗ 3  ◐ 1  ● 4  ○ 3",
         "",
         "",
@@ -2083,7 +2083,7 @@
         "Focus: HOME rows  ↑↓ move  ⏎ open  a write  e expand  A ask  ? more  q quit"
       ],
       "styles": [
-        "0:7=s0 7:1=s1 8:6=s0 14:1=s1 15:7=s0 22:1=s1 23:30=s0 53:1=s1 54:9=s0 63:1=s1 64:9=s2 73:7=s1",
+        "0:7=s0 7:1=s1 8:6=s0 14:1=s1 15:7=s0 22:1=s1 23:30=s0 53:1=s1 54:9=s0 63:1=s1 64:7=s2 71:9=s1",
         "0:10=s3 10:1=s4 11:2=s3 13:2=s5 15:1=s6 16:2=s3 18:2=s5 20:1=s7 21:2=s3 23:2=s5 25:1=s8 26:2=s3 28:3=s5 31:2=s3 33:2=s5 35:45=s1",
         "0:80=s1",
         "0:80=s1",
@@ -2165,7 +2165,7 @@
         34,
         35
       ],
-      "tabs": "[TabHit { y: 0, x: 0, width: 7, tab: 0 }, TabHit { y: 0, x: 8, width: 6, tab: 1 }, TabHit { y: 0, x: 15, width: 7, tab: 2 }, TabHit { y: 0, x: 23, width: 30, tab: 3 }, TabHit { y: 0, x: 54, width: 9, tab: 4 }, TabHit { y: 0, x: 64, width: 9, tab: 5 }]",
+      "tabs": "[TabHit { y: 0, x: 0, width: 7, tab: 0 }, TabHit { y: 0, x: 8, width: 6, tab: 1 }, TabHit { y: 0, x: 15, width: 7, tab: 2 }, TabHit { y: 0, x: 23, width: 30, tab: 3 }, TabHit { y: 0, x: 54, width: 9, tab: 4 }, TabHit { y: 0, x: 64, width: 7, tab: 5 }]",
       "input": "None",
       "state": "squad-selected",
       "look": "tmt",
@@ -2173,7 +2173,7 @@
     },
     {
       "lines": [
-        "  alpha   beta   gamma   delta-with-a-long-squad-name   epsilon  ▚ [tmt]",
+        "  alpha   beta   gamma   delta-with-a-long-squad-name   epsilon  ▚ tmt",
         "5 squads · 12 members   ◆ 3 waiting on you  ✗ 3 blocked  ◐ 1 review  ● 4 working  ○ 3 idle",
         "",
         "",
@@ -2189,7 +2189,7 @@
         "",
         "── leads · latest from each · t hides replies ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
         "────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
-        " >◆ lead-a                     alpha                                                                                                                        2d",
+        "  ◆ lead-a                     alpha                                                                                                                        2d",
         "   asks: Approve this change?",
         "",
         "  … lead-g                     gamma                                                                                                                       12h",
@@ -2235,7 +2235,7 @@
         "Focus: HOME rows  ↑↓ move  ⏎ open  a write  e expand  A ask lead  / search  ? more  q quit"
       ],
       "styles": [
-        "0:7=s0 7:1=s1 8:6=s0 14:1=s1 15:7=s0 22:1=s1 23:30=s0 53:1=s1 54:9=s0 63:1=s1 64:9=s2 73:87=s1",
+        "0:7=s0 7:1=s1 8:6=s0 14:1=s1 15:7=s0 22:1=s1 23:30=s0 53:1=s1 54:9=s0 63:1=s1 64:7=s2 71:89=s1",
         "0:24=s3 24:1=s4 25:17=s3 42:2=s5 44:1=s6 45:10=s3 55:2=s5 57:1=s7 58:9=s3 67:2=s5 69:1=s8 70:10=s3 80:3=s5 83:7=s3 90:2=s5 92:68=s1",
         "0:160=s1",
         "0:160=s1",
@@ -2317,7 +2317,7 @@
         34,
         35
       ],
-      "tabs": "[TabHit { y: 0, x: 0, width: 7, tab: 0 }, TabHit { y: 0, x: 8, width: 6, tab: 1 }, TabHit { y: 0, x: 15, width: 7, tab: 2 }, TabHit { y: 0, x: 23, width: 30, tab: 3 }, TabHit { y: 0, x: 54, width: 9, tab: 4 }, TabHit { y: 0, x: 64, width: 9, tab: 5 }]",
+      "tabs": "[TabHit { y: 0, x: 0, width: 7, tab: 0 }, TabHit { y: 0, x: 8, width: 6, tab: 1 }, TabHit { y: 0, x: 15, width: 7, tab: 2 }, TabHit { y: 0, x: 23, width: 30, tab: 3 }, TabHit { y: 0, x: 54, width: 9, tab: 4 }, TabHit { y: 0, x: 64, width: 7, tab: 5 }]",
       "input": "None",
       "state": "replies-hidden",
       "look": "tmt",
@@ -2325,7 +2325,7 @@
     },
     {
       "lines": [
-        "  alpha   beta   gamma   delta-with-a-long-squad-name   epsilon  ▚ [tmt]",
+        "  alpha   beta   gamma   delta-with-a-long-squad-name   epsilon  ▚ tmt",
         "5 squads · 12 members   ◆ 3 waiting on you  ✗ 3 blocked  ◐ 1 review  ● 4 working  ○ 3 idle",
         "",
         "",
@@ -2341,7 +2341,7 @@
         "",
         "── leads · latest from each · t hides replies ──────────────────────────────────────────────────────────────────────────────────────────────",
         "────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
-        " >◆ lead-a                     alpha                                                                                                    2d",
+        "  ◆ lead-a                     alpha                                                                                                    2d",
         "   asks: Approve this change?",
         "",
         "  … lead-g                     gamma                                                                                                   12h",
@@ -2387,7 +2387,7 @@
         "Focus: HOME rows  ↑↓ move  ⏎ open  a write  e expand  A ask lead  / search  ? more  q quit"
       ],
       "styles": [
-        "0:7=s0 7:1=s1 8:6=s0 14:1=s1 15:7=s0 22:1=s1 23:30=s0 53:1=s1 54:9=s0 63:1=s1 64:9=s2 73:67=s1",
+        "0:7=s0 7:1=s1 8:6=s0 14:1=s1 15:7=s0 22:1=s1 23:30=s0 53:1=s1 54:9=s0 63:1=s1 64:7=s2 71:69=s1",
         "0:24=s3 24:1=s4 25:17=s3 42:2=s5 44:1=s6 45:10=s3 55:2=s5 57:1=s7 58:9=s3 67:2=s5 69:1=s8 70:10=s3 80:3=s5 83:7=s3 90:2=s5 92:48=s1",
         "0:140=s1",
         "0:140=s1",
@@ -2469,7 +2469,7 @@
         34,
         35
       ],
-      "tabs": "[TabHit { y: 0, x: 0, width: 7, tab: 0 }, TabHit { y: 0, x: 8, width: 6, tab: 1 }, TabHit { y: 0, x: 15, width: 7, tab: 2 }, TabHit { y: 0, x: 23, width: 30, tab: 3 }, TabHit { y: 0, x: 54, width: 9, tab: 4 }, TabHit { y: 0, x: 64, width: 9, tab: 5 }]",
+      "tabs": "[TabHit { y: 0, x: 0, width: 7, tab: 0 }, TabHit { y: 0, x: 8, width: 6, tab: 1 }, TabHit { y: 0, x: 15, width: 7, tab: 2 }, TabHit { y: 0, x: 23, width: 30, tab: 3 }, TabHit { y: 0, x: 54, width: 9, tab: 4 }, TabHit { y: 0, x: 64, width: 7, tab: 5 }]",
       "input": "None",
       "state": "replies-hidden",
       "look": "tmt",
@@ -2477,7 +2477,7 @@
     },
     {
       "lines": [
-        "  alpha   beta   gamma   delta-with-a-long-squad-name   epsilon  ▚ [tmt]",
+        "  alpha   beta   gamma   delta-with-a-long-squad-name   epsilon  ▚ tmt",
         "5 squads  ◆ 3  ✗ 3  ◐ 1  ● 4  ○ 3",
         "",
         "",
@@ -2493,7 +2493,7 @@
         "",
         "── leads · latest from each · t hides replies ─────────────────────────────────────────────────────────────────────────────────────────────",
         "───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
-        " >◆ lead-a                     alpha                                                                                                   2d",
+        "  ◆ lead-a                     alpha                                                                                                   2d",
         "   asks: Approve this change?",
         "",
         "  … lead-g                     gamma                                                                                                  12h",
@@ -2539,7 +2539,7 @@
         "Focus: HOME rows  ↑↓ move  ⏎ open  a write  e expand  A ask lead  / search  ? more  q quit"
       ],
       "styles": [
-        "0:7=s0 7:1=s1 8:6=s0 14:1=s1 15:7=s0 22:1=s1 23:30=s0 53:1=s1 54:9=s0 63:1=s1 64:9=s2 73:66=s1",
+        "0:7=s0 7:1=s1 8:6=s0 14:1=s1 15:7=s0 22:1=s1 23:30=s0 53:1=s1 54:9=s0 63:1=s1 64:7=s2 71:68=s1",
         "0:10=s3 10:1=s4 11:2=s3 13:2=s5 15:1=s6 16:2=s3 18:2=s5 20:1=s7 21:2=s3 23:2=s5 25:1=s8 26:2=s3 28:3=s5 31:2=s3 33:2=s5 35:104=s1",
         "0:139=s1",
         "0:139=s1",
@@ -2621,7 +2621,7 @@
         34,
         35
       ],
-      "tabs": "[TabHit { y: 0, x: 0, width: 7, tab: 0 }, TabHit { y: 0, x: 8, width: 6, tab: 1 }, TabHit { y: 0, x: 15, width: 7, tab: 2 }, TabHit { y: 0, x: 23, width: 30, tab: 3 }, TabHit { y: 0, x: 54, width: 9, tab: 4 }, TabHit { y: 0, x: 64, width: 9, tab: 5 }]",
+      "tabs": "[TabHit { y: 0, x: 0, width: 7, tab: 0 }, TabHit { y: 0, x: 8, width: 6, tab: 1 }, TabHit { y: 0, x: 15, width: 7, tab: 2 }, TabHit { y: 0, x: 23, width: 30, tab: 3 }, TabHit { y: 0, x: 54, width: 9, tab: 4 }, TabHit { y: 0, x: 64, width: 7, tab: 5 }]",
       "input": "None",
       "state": "replies-hidden",
       "look": "tmt",
@@ -2629,7 +2629,7 @@
     },
     {
       "lines": [
-        "  alpha   beta   gamma   delta-with-a-long-squad-name   epsilon  ▚ [tmt]",
+        "  alpha   beta   gamma   delta-with-a-long-squad-name   epsilon  ▚ tmt",
         "5 squads  ◆ 3  ✗ 3  ◐ 1  ● 4  ○ 3",
         "",
         "",
@@ -2645,7 +2645,7 @@
         "",
         "── leads · latest from each · t hides replies ──────────────────────────────────────────────────────────────────────────",
         "────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
-        " >◆ lead-a                     alpha                                                                                2d",
+        "  ◆ lead-a                     alpha                                                                                2d",
         "   asks: Approve this change?",
         "",
         "  … lead-g                     gamma                                                                               12h",
@@ -2691,7 +2691,7 @@
         "Focus: HOME rows  ↑↓ move  ⏎ open  a write  e expand  A ask lead  / search  ? more  q quit"
       ],
       "styles": [
-        "0:7=s0 7:1=s1 8:6=s0 14:1=s1 15:7=s0 22:1=s1 23:30=s0 53:1=s1 54:9=s0 63:1=s1 64:9=s2 73:47=s1",
+        "0:7=s0 7:1=s1 8:6=s0 14:1=s1 15:7=s0 22:1=s1 23:30=s0 53:1=s1 54:9=s0 63:1=s1 64:7=s2 71:49=s1",
         "0:10=s3 10:1=s4 11:2=s3 13:2=s5 15:1=s6 16:2=s3 18:2=s5 20:1=s7 21:2=s3 23:2=s5 25:1=s8 26:2=s3 28:3=s5 31:2=s3 33:2=s5 35:85=s1",
         "0:120=s1",
         "0:120=s1",
@@ -2773,7 +2773,7 @@
         34,
         35
       ],
-      "tabs": "[TabHit { y: 0, x: 0, width: 7, tab: 0 }, TabHit { y: 0, x: 8, width: 6, tab: 1 }, TabHit { y: 0, x: 15, width: 7, tab: 2 }, TabHit { y: 0, x: 23, width: 30, tab: 3 }, TabHit { y: 0, x: 54, width: 9, tab: 4 }, TabHit { y: 0, x: 64, width: 9, tab: 5 }]",
+      "tabs": "[TabHit { y: 0, x: 0, width: 7, tab: 0 }, TabHit { y: 0, x: 8, width: 6, tab: 1 }, TabHit { y: 0, x: 15, width: 7, tab: 2 }, TabHit { y: 0, x: 23, width: 30, tab: 3 }, TabHit { y: 0, x: 54, width: 9, tab: 4 }, TabHit { y: 0, x: 64, width: 7, tab: 5 }]",
       "input": "None",
       "state": "replies-hidden",
       "look": "tmt",
@@ -2781,7 +2781,7 @@
     },
     {
       "lines": [
-        "  alpha   beta   gamma   delta-with-a-long-squad-name   epsilon  ▚ [tmt]",
+        "  alpha   beta   gamma   delta-with-a-long-squad-name   epsilon  ▚ tmt",
         "5 squads  ◆ 3  ✗ 3  ◐ 1  ● 4  ○ 3",
         "",
         "",
@@ -2797,7 +2797,7 @@
         "",
         "── leads · latest from each · t hides replies ──────────────────────────────────────────────────────",
         "────────────────────────────────────────────────────────────────────────────────────────────────────",
-        " >◆ lead-a                     alpha                                                            2d",
+        "  ◆ lead-a                     alpha                                                            2d",
         "   asks: Approve this change?",
         "",
         "  … lead-g                     gamma                                                           12h",
@@ -2843,7 +2843,7 @@
         "Focus: HOME rows  ↑↓ move  ⏎ open  a write  e expand  A ask lead  / search  ? more  q quit"
       ],
       "styles": [
-        "0:7=s0 7:1=s1 8:6=s0 14:1=s1 15:7=s0 22:1=s1 23:30=s0 53:1=s1 54:9=s0 63:1=s1 64:9=s2 73:27=s1",
+        "0:7=s0 7:1=s1 8:6=s0 14:1=s1 15:7=s0 22:1=s1 23:30=s0 53:1=s1 54:9=s0 63:1=s1 64:7=s2 71:29=s1",
         "0:10=s3 10:1=s4 11:2=s3 13:2=s5 15:1=s6 16:2=s3 18:2=s5 20:1=s7 21:2=s3 23:2=s5 25:1=s8 26:2=s3 28:3=s5 31:2=s3 33:2=s5 35:65=s1",
         "0:100=s1",
         "0:100=s1",
@@ -2925,7 +2925,7 @@
         34,
         35
       ],
-      "tabs": "[TabHit { y: 0, x: 0, width: 7, tab: 0 }, TabHit { y: 0, x: 8, width: 6, tab: 1 }, TabHit { y: 0, x: 15, width: 7, tab: 2 }, TabHit { y: 0, x: 23, width: 30, tab: 3 }, TabHit { y: 0, x: 54, width: 9, tab: 4 }, TabHit { y: 0, x: 64, width: 9, tab: 5 }]",
+      "tabs": "[TabHit { y: 0, x: 0, width: 7, tab: 0 }, TabHit { y: 0, x: 8, width: 6, tab: 1 }, TabHit { y: 0, x: 15, width: 7, tab: 2 }, TabHit { y: 0, x: 23, width: 30, tab: 3 }, TabHit { y: 0, x: 54, width: 9, tab: 4 }, TabHit { y: 0, x: 64, width: 7, tab: 5 }]",
       "input": "None",
       "state": "replies-hidden",
       "look": "tmt",
@@ -2933,7 +2933,7 @@
     },
     {
       "lines": [
-        "  alpha   beta   gamma   delta-with-a-long-squad-name   epsilon  ▚ [tmt]",
+        "  alpha   beta   gamma   delta-with-a-long-squad-name   epsilon  ▚ tmt",
         "5 squads  ◆ 3  ✗ 3  ◐ 1  ● 4  ○ 3",
         "",
         "",
@@ -2949,7 +2949,7 @@
         "",
         "── leads · latest from each · t hides replies ─────────────────────────────────────────────────────",
         "───────────────────────────────────────────────────────────────────────────────────────────────────",
-        " >◆ lead-a                                                                                     2d",
+        "  ◆ lead-a                                                                                     2d",
         "   asks: Approve this change?",
         "",
         "  … lead-g                                                                                    12h",
@@ -2995,7 +2995,7 @@
         "Focus: HOME rows  ↑↓ move  ⏎ open  a write  e expand  A ask  / search  ? more  q quit"
       ],
       "styles": [
-        "0:7=s0 7:1=s1 8:6=s0 14:1=s1 15:7=s0 22:1=s1 23:30=s0 53:1=s1 54:9=s0 63:1=s1 64:9=s2 73:26=s1",
+        "0:7=s0 7:1=s1 8:6=s0 14:1=s1 15:7=s0 22:1=s1 23:30=s0 53:1=s1 54:9=s0 63:1=s1 64:7=s2 71:28=s1",
         "0:10=s3 10:1=s4 11:2=s3 13:2=s5 15:1=s6 16:2=s3 18:2=s5 20:1=s7 21:2=s3 23:2=s5 25:1=s8 26:2=s3 28:3=s5 31:2=s3 33:2=s5 35:64=s1",
         "0:99=s1",
         "0:99=s1",
@@ -3077,7 +3077,7 @@
         34,
         35
       ],
-      "tabs": "[TabHit { y: 0, x: 0, width: 7, tab: 0 }, TabHit { y: 0, x: 8, width: 6, tab: 1 }, TabHit { y: 0, x: 15, width: 7, tab: 2 }, TabHit { y: 0, x: 23, width: 30, tab: 3 }, TabHit { y: 0, x: 54, width: 9, tab: 4 }, TabHit { y: 0, x: 64, width: 9, tab: 5 }]",
+      "tabs": "[TabHit { y: 0, x: 0, width: 7, tab: 0 }, TabHit { y: 0, x: 8, width: 6, tab: 1 }, TabHit { y: 0, x: 15, width: 7, tab: 2 }, TabHit { y: 0, x: 23, width: 30, tab: 3 }, TabHit { y: 0, x: 54, width: 9, tab: 4 }, TabHit { y: 0, x: 64, width: 7, tab: 5 }]",
       "input": "None",
       "state": "replies-hidden",
       "look": "tmt",
@@ -3085,7 +3085,7 @@
     },
     {
       "lines": [
-        "  alpha   beta   gamma   delta-with-a-long-squad-name   epsilon  ▚ [tmt]",
+        "  alpha   beta   gamma   delta-with-a-long-squad-name   epsilon  ▚ tmt",
         "5 squads  ◆ 3  ✗ 3  ◐ 1  ● 4  ○ 3",
         "",
         "",
@@ -3101,7 +3101,7 @@
         "",
         "── leads · latest from each · t hides replies ──────────────────────────────────",
         "────────────────────────────────────────────────────────────────────────────────",
-        " >◆ lead-a                                                                  2d",
+        "  ◆ lead-a                                                                  2d",
         "   asks: Approve this change?",
         "",
         "  … lead-g                                                                 12h",
@@ -3147,7 +3147,7 @@
         "Focus: HOME rows  ↑↓ move  ⏎ open  a write  e expand  A ask  ? more  q quit"
       ],
       "styles": [
-        "0:7=s0 7:1=s1 8:6=s0 14:1=s1 15:7=s0 22:1=s1 23:30=s0 53:1=s1 54:9=s0 63:1=s1 64:9=s2 73:7=s1",
+        "0:7=s0 7:1=s1 8:6=s0 14:1=s1 15:7=s0 22:1=s1 23:30=s0 53:1=s1 54:9=s0 63:1=s1 64:7=s2 71:9=s1",
         "0:10=s3 10:1=s4 11:2=s3 13:2=s5 15:1=s6 16:2=s3 18:2=s5 20:1=s7 21:2=s3 23:2=s5 25:1=s8 26:2=s3 28:3=s5 31:2=s3 33:2=s5 35:45=s1",
         "0:80=s1",
         "0:80=s1",
@@ -3229,7 +3229,7 @@
         34,
         35
       ],
-      "tabs": "[TabHit { y: 0, x: 0, width: 7, tab: 0 }, TabHit { y: 0, x: 8, width: 6, tab: 1 }, TabHit { y: 0, x: 15, width: 7, tab: 2 }, TabHit { y: 0, x: 23, width: 30, tab: 3 }, TabHit { y: 0, x: 54, width: 9, tab: 4 }, TabHit { y: 0, x: 64, width: 9, tab: 5 }]",
+      "tabs": "[TabHit { y: 0, x: 0, width: 7, tab: 0 }, TabHit { y: 0, x: 8, width: 6, tab: 1 }, TabHit { y: 0, x: 15, width: 7, tab: 2 }, TabHit { y: 0, x: 23, width: 30, tab: 3 }, TabHit { y: 0, x: 54, width: 9, tab: 4 }, TabHit { y: 0, x: 64, width: 7, tab: 5 }]",
       "input": "None",
       "state": "replies-hidden",
       "look": "tmt",
@@ -3237,7 +3237,7 @@
     },
     {
       "lines": [
-        "  alpha   beta   gamma   delta-with-a-long-squad-name   epsilon  ▚ [tmt]",
+        "  alpha   beta   gamma   delta-with-a-long-squad-name   epsilon  ▚ tmt",
         "5 squads  ◆ 3  ✗ 3  ◐ 1  ● 4  ○ 3",
         "",
         "",
@@ -3253,7 +3253,7 @@
         "",
         "── leads · latest from each · t hides replies ─────────────────────────────────",
         "───────────────────────────────────────────────────────────────────────────────",
-        " >◆ lead-a                                                                 2d",
+        "  ◆ lead-a                                                                 2d",
         "   asks: Approve this change?",
         "",
         "  … lead-g                                                                12h",
@@ -3299,7 +3299,7 @@
         "Focus: HOME rows  ↑↓ move  ⏎ open  a write  e expand  A ask  ? more  q quit"
       ],
       "styles": [
-        "0:7=s0 7:1=s1 8:6=s0 14:1=s1 15:7=s0 22:1=s1 23:30=s0 53:1=s1 54:9=s0 63:1=s1 64:9=s2 73:6=s1",
+        "0:7=s0 7:1=s1 8:6=s0 14:1=s1 15:7=s0 22:1=s1 23:30=s0 53:1=s1 54:9=s0 63:1=s1 64:7=s2 71:8=s1",
         "0:10=s3 10:1=s4 11:2=s3 13:2=s5 15:1=s6 16:2=s3 18:2=s5 20:1=s7 21:2=s3 23:2=s5 25:1=s8 26:2=s3 28:3=s5 31:2=s3 33:2=s5 35:44=s1",
         "0:79=s1",
         "0:79=s1",
@@ -3381,7 +3381,7 @@
         34,
         35
       ],
-      "tabs": "[TabHit { y: 0, x: 0, width: 7, tab: 0 }, TabHit { y: 0, x: 8, width: 6, tab: 1 }, TabHit { y: 0, x: 15, width: 7, tab: 2 }, TabHit { y: 0, x: 23, width: 30, tab: 3 }, TabHit { y: 0, x: 54, width: 9, tab: 4 }, TabHit { y: 0, x: 64, width: 9, tab: 5 }]",
+      "tabs": "[TabHit { y: 0, x: 0, width: 7, tab: 0 }, TabHit { y: 0, x: 8, width: 6, tab: 1 }, TabHit { y: 0, x: 15, width: 7, tab: 2 }, TabHit { y: 0, x: 23, width: 30, tab: 3 }, TabHit { y: 0, x: 54, width: 9, tab: 4 }, TabHit { y: 0, x: 64, width: 7, tab: 5 }]",
       "input": "None",
       "state": "replies-hidden",
       "look": "tmt",
@@ -3389,7 +3389,7 @@
     },
     {
       "lines": [
-        "  alpha   beta   gamma   delta-with-a-long-squad-name   epsilon  ▚ [tmt]",
+        "  alpha   beta   gamma   delta-with-a-long-squad-name   epsilon  ▚ tmt",
         "5 squads · 12 members   ◆ 3 waiting on you  ✗ 3 blocked  ◐ 1 review  ● 4 working  ○ 3 idle",
         "",
         "",
@@ -3451,7 +3451,7 @@
         "Focus: HOME rows  ↑↓ move  ⏎ open  a write  e expand  A ask lead  / search  ? more  q quit"
       ],
       "styles": [
-        "0:7=s0 7:1=s1 8:6=s0 14:1=s1 15:7=s0 22:1=s1 23:30=s0 53:1=s1 54:9=s0 63:1=s1 64:9=s2 73:87=s1",
+        "0:7=s0 7:1=s1 8:6=s0 14:1=s1 15:7=s0 22:1=s1 23:30=s0 53:1=s1 54:9=s0 63:1=s1 64:7=s2 71:89=s1",
         "0:24=s3 24:1=s4 25:17=s3 42:2=s5 44:1=s6 45:10=s3 55:2=s5 57:1=s7 58:9=s3 67:2=s5 69:1=s8 70:10=s3 80:3=s5 83:7=s3 90:2=s5 92:68=s1",
         "0:160=s1",
         "0:160=s1",
@@ -3533,7 +3533,7 @@
         34,
         35
       ],
-      "tabs": "[TabHit { y: 0, x: 0, width: 7, tab: 0 }, TabHit { y: 0, x: 8, width: 6, tab: 1 }, TabHit { y: 0, x: 15, width: 7, tab: 2 }, TabHit { y: 0, x: 23, width: 30, tab: 3 }, TabHit { y: 0, x: 54, width: 9, tab: 4 }, TabHit { y: 0, x: 64, width: 9, tab: 5 }]",
+      "tabs": "[TabHit { y: 0, x: 0, width: 7, tab: 0 }, TabHit { y: 0, x: 8, width: 6, tab: 1 }, TabHit { y: 0, x: 15, width: 7, tab: 2 }, TabHit { y: 0, x: 23, width: 30, tab: 3 }, TabHit { y: 0, x: 54, width: 9, tab: 4 }, TabHit { y: 0, x: 64, width: 7, tab: 5 }]",
       "input": "None",
       "state": "cron-selected",
       "look": "tmt",
@@ -3541,7 +3541,7 @@
     },
     {
       "lines": [
-        "  alpha   beta   gamma   delta-with-a-long-squad-name   epsilon  ▚ [tmt]",
+        "  alpha   beta   gamma   delta-with-a-long-squad-name   epsilon  ▚ tmt",
         "5 squads  ◆ 3  ✗ 3  ◐ 1  ● 4  ○ 3",
         "",
         "",
@@ -3603,7 +3603,7 @@
         "Focus: HOME rows  ↑↓ move  ⏎ open  a write  e expand  A ask  ? more  q quit"
       ],
       "styles": [
-        "0:7=s0 7:1=s1 8:6=s0 14:1=s1 15:7=s0 22:1=s1 23:30=s0 53:1=s1 54:9=s0 63:1=s1 64:9=s2 73:7=s1",
+        "0:7=s0 7:1=s1 8:6=s0 14:1=s1 15:7=s0 22:1=s1 23:30=s0 53:1=s1 54:9=s0 63:1=s1 64:7=s2 71:9=s1",
         "0:10=s3 10:1=s4 11:2=s3 13:2=s5 15:1=s6 16:2=s3 18:2=s5 20:1=s7 21:2=s3 23:2=s5 25:1=s8 26:2=s3 28:3=s5 31:2=s3 33:2=s5 35:45=s1",
         "0:80=s1",
         "0:80=s1",
@@ -3685,7 +3685,7 @@
         34,
         35
       ],
-      "tabs": "[TabHit { y: 0, x: 0, width: 7, tab: 0 }, TabHit { y: 0, x: 8, width: 6, tab: 1 }, TabHit { y: 0, x: 15, width: 7, tab: 2 }, TabHit { y: 0, x: 23, width: 30, tab: 3 }, TabHit { y: 0, x: 54, width: 9, tab: 4 }, TabHit { y: 0, x: 64, width: 9, tab: 5 }]",
+      "tabs": "[TabHit { y: 0, x: 0, width: 7, tab: 0 }, TabHit { y: 0, x: 8, width: 6, tab: 1 }, TabHit { y: 0, x: 15, width: 7, tab: 2 }, TabHit { y: 0, x: 23, width: 30, tab: 3 }, TabHit { y: 0, x: 54, width: 9, tab: 4 }, TabHit { y: 0, x: 64, width: 7, tab: 5 }]",
       "input": "None",
       "state": "cron-selected",
       "look": "tmt",
@@ -3693,7 +3693,7 @@
     },
     {
       "lines": [
-        "  alpha   beta   gamma   delta-with-a-long-squad-name   epsilon  ▚ [tmt]",
+        "  alpha   beta   gamma   delta-with-a-long-squad-name   epsilon  ▚ tmt",
         "5 squads · 12 members   ◆ 3 waiting on you  ✗ 3 blocked  ◐ 1 review  ● 4 working  ○ 3 idle",
         "",
         "",
@@ -3755,7 +3755,7 @@
         "Focus: HOME rows  ↑↓ move  ⏎ open  a write  e expand  A ask lead  / search  ? more  q quit"
       ],
       "styles": [
-        "0:7=s0 7:1=s1 8:6=s0 14:1=s1 15:7=s0 22:1=s1 23:30=s0 53:1=s1 54:9=s0 63:1=s1 64:9=s2 73:87=s1",
+        "0:7=s0 7:1=s1 8:6=s0 14:1=s1 15:7=s0 22:1=s1 23:30=s0 53:1=s1 54:9=s0 63:1=s1 64:7=s2 71:89=s1",
         "0:24=s3 24:1=s4 25:17=s3 42:2=s5 44:1=s6 45:10=s3 55:2=s5 57:1=s7 58:9=s3 67:2=s5 69:1=s8 70:10=s3 80:3=s5 83:7=s3 90:2=s5 92:68=s1",
         "0:160=s1",
         "0:160=s1",
@@ -3837,7 +3837,7 @@
         34,
         35
       ],
-      "tabs": "[TabHit { y: 0, x: 0, width: 7, tab: 0 }, TabHit { y: 0, x: 8, width: 6, tab: 1 }, TabHit { y: 0, x: 15, width: 7, tab: 2 }, TabHit { y: 0, x: 23, width: 30, tab: 3 }, TabHit { y: 0, x: 54, width: 9, tab: 4 }, TabHit { y: 0, x: 64, width: 9, tab: 5 }]",
+      "tabs": "[TabHit { y: 0, x: 0, width: 7, tab: 0 }, TabHit { y: 0, x: 8, width: 6, tab: 1 }, TabHit { y: 0, x: 15, width: 7, tab: 2 }, TabHit { y: 0, x: 23, width: 30, tab: 3 }, TabHit { y: 0, x: 54, width: 9, tab: 4 }, TabHit { y: 0, x: 64, width: 7, tab: 5 }]",
       "input": "None",
       "state": "all-leads-selected",
       "look": "tmt",
@@ -3845,7 +3845,7 @@
     },
     {
       "lines": [
-        "  alpha   beta   gamma   delta-with-a-long-squad-name   epsilon  ▚ [tmt]",
+        "  alpha   beta   gamma   delta-with-a-long-squad-name   epsilon  ▚ tmt",
         "5 squads  ◆ 3  ✗ 3  ◐ 1  ● 4  ○ 3",
         "",
         "",
@@ -3907,7 +3907,7 @@
         "Focus: HOME rows  ↑↓ move  ⏎ open  a write  e expand  A ask  ? more  q quit"
       ],
       "styles": [
-        "0:7=s0 7:1=s1 8:6=s0 14:1=s1 15:7=s0 22:1=s1 23:30=s0 53:1=s1 54:9=s0 63:1=s1 64:9=s2 73:7=s1",
+        "0:7=s0 7:1=s1 8:6=s0 14:1=s1 15:7=s0 22:1=s1 23:30=s0 53:1=s1 54:9=s0 63:1=s1 64:7=s2 71:9=s1",
         "0:10=s3 10:1=s4 11:2=s3 13:2=s5 15:1=s6 16:2=s3 18:2=s5 20:1=s7 21:2=s3 23:2=s5 25:1=s8 26:2=s3 28:3=s5 31:2=s3 33:2=s5 35:45=s1",
         "0:80=s1",
         "0:80=s1",
@@ -3989,7 +3989,7 @@
         34,
         35
       ],
-      "tabs": "[TabHit { y: 0, x: 0, width: 7, tab: 0 }, TabHit { y: 0, x: 8, width: 6, tab: 1 }, TabHit { y: 0, x: 15, width: 7, tab: 2 }, TabHit { y: 0, x: 23, width: 30, tab: 3 }, TabHit { y: 0, x: 54, width: 9, tab: 4 }, TabHit { y: 0, x: 64, width: 9, tab: 5 }]",
+      "tabs": "[TabHit { y: 0, x: 0, width: 7, tab: 0 }, TabHit { y: 0, x: 8, width: 6, tab: 1 }, TabHit { y: 0, x: 15, width: 7, tab: 2 }, TabHit { y: 0, x: 23, width: 30, tab: 3 }, TabHit { y: 0, x: 54, width: 9, tab: 4 }, TabHit { y: 0, x: 64, width: 7, tab: 5 }]",
       "input": "None",
       "state": "all-leads-selected",
       "look": "tmt",
@@ -3997,12 +3997,12 @@
     },
     {
       "lines": [
-        "  alpha   beta   gamma   delta-with-a-long-squad-name   epsilon  ▚ [tmt]",
+        "  alpha   beta   gamma   delta-with-a-long-squad-name   epsilon  ▚ tmt",
         "5 squads · 12 members   ◆ 3 waiting on you  ✗ 3 blocked  ◐ 1 review  ● 4 working  ○ 3 idle",
         "",
         "",
         "── ◆ needs you · 3 ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
-        ">◆ lead-a                  alpha",
+        " ◆ lead-a                  alpha",
         "────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
         "  → lead-a (alpha) · answer",
         "  ◆ “Approve this change?”",
@@ -4059,7 +4059,7 @@
         "↑↓ move  ⏎ open  a write  e expand  A ask lead  / search  ? more  q quit"
       ],
       "styles": [
-        "0:7=s0 7:1=s1 8:6=s0 14:1=s1 15:7=s0 22:1=s1 23:30=s0 53:1=s1 54:9=s0 63:1=s1 64:9=s2 73:87=s1",
+        "0:7=s0 7:1=s1 8:6=s0 14:1=s1 15:7=s0 22:1=s1 23:30=s0 53:1=s1 54:9=s0 63:1=s1 64:7=s2 71:89=s1",
         "0:24=s3 24:1=s4 25:17=s3 42:2=s5 44:1=s6 45:10=s3 55:2=s5 57:1=s7 58:9=s3 67:2=s5 69:1=s8 70:10=s3 80:3=s5 83:7=s3 90:2=s5 92:68=s1",
         "0:160=s1",
         "0:160=s1",
@@ -4141,7 +4141,7 @@
         40,
         41
       ],
-      "tabs": "[TabHit { y: 0, x: 0, width: 7, tab: 0 }, TabHit { y: 0, x: 8, width: 6, tab: 1 }, TabHit { y: 0, x: 15, width: 7, tab: 2 }, TabHit { y: 0, x: 23, width: 30, tab: 3 }, TabHit { y: 0, x: 54, width: 9, tab: 4 }, TabHit { y: 0, x: 64, width: 9, tab: 5 }]",
+      "tabs": "[TabHit { y: 0, x: 0, width: 7, tab: 0 }, TabHit { y: 0, x: 8, width: 6, tab: 1 }, TabHit { y: 0, x: 15, width: 7, tab: 2 }, TabHit { y: 0, x: 23, width: 30, tab: 3 }, TabHit { y: 0, x: 54, width: 9, tab: 4 }, TabHit { y: 0, x: 64, width: 7, tab: 5 }]",
       "input": "Some(Rect { x: 0, y: 6, width: 160, height: 6 })",
       "state": "composer-needs-you",
       "look": "tmt",
@@ -4149,12 +4149,12 @@
     },
     {
       "lines": [
-        "  alpha   beta   gamma   delta-with-a-long-squad-name   epsilon  ▚ [tmt]",
+        "  alpha   beta   gamma   delta-with-a-long-squad-name   epsilon  ▚ tmt",
         "5 squads  ◆ 3  ✗ 3  ◐ 1  ● 4  ○ 3",
         "",
         "",
         "── ◆ needs you · 3 ─────────────────────────────────────────────────────────────",
-        ">◆ lead-a                  alpha",
+        " ◆ lead-a                  alpha",
         "────────────────────────────────────────────────────────────────────────────────",
         "  → lead-a (alpha) · answer",
         "  ◆ “Approve this change?”",
@@ -4211,7 +4211,7 @@
         "↑↓ move  ⏎ open  a write  e expand  A ask  / search  ? more  q quit"
       ],
       "styles": [
-        "0:7=s0 7:1=s1 8:6=s0 14:1=s1 15:7=s0 22:1=s1 23:30=s0 53:1=s1 54:9=s0 63:1=s1 64:9=s2 73:7=s1",
+        "0:7=s0 7:1=s1 8:6=s0 14:1=s1 15:7=s0 22:1=s1 23:30=s0 53:1=s1 54:9=s0 63:1=s1 64:7=s2 71:9=s1",
         "0:10=s3 10:1=s4 11:2=s3 13:2=s5 15:1=s6 16:2=s3 18:2=s5 20:1=s7 21:2=s3 23:2=s5 25:1=s8 26:2=s3 28:3=s5 31:2=s3 33:2=s5 35:45=s1",
         "0:80=s1",
         "0:80=s1",
@@ -4293,7 +4293,7 @@
         40,
         41
       ],
-      "tabs": "[TabHit { y: 0, x: 0, width: 7, tab: 0 }, TabHit { y: 0, x: 8, width: 6, tab: 1 }, TabHit { y: 0, x: 15, width: 7, tab: 2 }, TabHit { y: 0, x: 23, width: 30, tab: 3 }, TabHit { y: 0, x: 54, width: 9, tab: 4 }, TabHit { y: 0, x: 64, width: 9, tab: 5 }]",
+      "tabs": "[TabHit { y: 0, x: 0, width: 7, tab: 0 }, TabHit { y: 0, x: 8, width: 6, tab: 1 }, TabHit { y: 0, x: 15, width: 7, tab: 2 }, TabHit { y: 0, x: 23, width: 30, tab: 3 }, TabHit { y: 0, x: 54, width: 9, tab: 4 }, TabHit { y: 0, x: 64, width: 7, tab: 5 }]",
       "input": "Some(Rect { x: 0, y: 6, width: 80, height: 6 })",
       "state": "composer-needs-you",
       "look": "tmt",
@@ -4301,7 +4301,7 @@
     },
     {
       "lines": [
-        "  alpha   beta   gamma   delta-with-a-long-squad-name   epsilon  ▚ [tmt]",
+        "  alpha   beta   gamma   delta-with-a-long-squad-name   epsilon  ▚ tmt",
         "5 squads · 12 members   ◆ 3 waiting on you  ✗ 3 blocked  ◐ 1 review  ● 4 working  ○ 3 idle",
         "",
         "",
@@ -4317,7 +4317,7 @@
         "",
         "── leads · latest from each · t hides replies ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
         "────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
-        " >◆ lead-a                     alpha                                                                                                                        2d",
+        "  ◆ lead-a                     alpha                                                                                                                        2d",
         "   asks: Approve this change?",
         " ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
         "   → lead-a (alpha) · answer",
@@ -4363,7 +4363,7 @@
         "↑↓ move  ⏎ open  a write  e expand  A ask lead  / search  ? more  q quit"
       ],
       "styles": [
-        "0:7=s0 7:1=s1 8:6=s0 14:1=s1 15:7=s0 22:1=s1 23:30=s0 53:1=s1 54:9=s0 63:1=s1 64:9=s2 73:87=s1",
+        "0:7=s0 7:1=s1 8:6=s0 14:1=s1 15:7=s0 22:1=s1 23:30=s0 53:1=s1 54:9=s0 63:1=s1 64:7=s2 71:89=s1",
         "0:24=s3 24:1=s4 25:17=s3 42:2=s5 44:1=s6 45:10=s3 55:2=s5 57:1=s7 58:9=s3 67:2=s5 69:1=s8 70:10=s3 80:3=s5 83:7=s3 90:2=s5 92:68=s1",
         "0:160=s1",
         "0:160=s1",
@@ -4445,7 +4445,7 @@
         40,
         41
       ],
-      "tabs": "[TabHit { y: 0, x: 0, width: 7, tab: 0 }, TabHit { y: 0, x: 8, width: 6, tab: 1 }, TabHit { y: 0, x: 15, width: 7, tab: 2 }, TabHit { y: 0, x: 23, width: 30, tab: 3 }, TabHit { y: 0, x: 54, width: 9, tab: 4 }, TabHit { y: 0, x: 64, width: 9, tab: 5 }]",
+      "tabs": "[TabHit { y: 0, x: 0, width: 7, tab: 0 }, TabHit { y: 0, x: 8, width: 6, tab: 1 }, TabHit { y: 0, x: 15, width: 7, tab: 2 }, TabHit { y: 0, x: 23, width: 30, tab: 3 }, TabHit { y: 0, x: 54, width: 9, tab: 4 }, TabHit { y: 0, x: 64, width: 7, tab: 5 }]",
       "input": "Some(Rect { x: 1, y: 18, width: 158, height: 6 })",
       "state": "composer-lead",
       "look": "tmt",
@@ -4453,7 +4453,7 @@
     },
     {
       "lines": [
-        "  alpha   beta   gamma   delta-with-a-long-squad-name   epsilon  ▚ [tmt]",
+        "  alpha   beta   gamma   delta-with-a-long-squad-name   epsilon  ▚ tmt",
         "5 squads  ◆ 3  ✗ 3  ◐ 1  ● 4  ○ 3",
         "",
         "",
@@ -4469,7 +4469,7 @@
         "",
         "── leads · latest from each · t hides replies ──────────────────────────────────",
         "────────────────────────────────────────────────────────────────────────────────",
-        " >◆ lead-a                                                                  2d",
+        "  ◆ lead-a                                                                  2d",
         "   asks: Approve this change?",
         " ──────────────────────────────────────────────────────────────────────────────",
         "   → lead-a (alpha) · answer",
@@ -4515,7 +4515,7 @@
         "↑↓ move  ⏎ open  a write  e expand  A ask  / search  ? more  q quit"
       ],
       "styles": [
-        "0:7=s0 7:1=s1 8:6=s0 14:1=s1 15:7=s0 22:1=s1 23:30=s0 53:1=s1 54:9=s0 63:1=s1 64:9=s2 73:7=s1",
+        "0:7=s0 7:1=s1 8:6=s0 14:1=s1 15:7=s0 22:1=s1 23:30=s0 53:1=s1 54:9=s0 63:1=s1 64:7=s2 71:9=s1",
         "0:10=s3 10:1=s4 11:2=s3 13:2=s5 15:1=s6 16:2=s3 18:2=s5 20:1=s7 21:2=s3 23:2=s5 25:1=s8 26:2=s3 28:3=s5 31:2=s3 33:2=s5 35:45=s1",
         "0:80=s1",
         "0:80=s1",
@@ -4597,7 +4597,7 @@
         40,
         41
       ],
-      "tabs": "[TabHit { y: 0, x: 0, width: 7, tab: 0 }, TabHit { y: 0, x: 8, width: 6, tab: 1 }, TabHit { y: 0, x: 15, width: 7, tab: 2 }, TabHit { y: 0, x: 23, width: 30, tab: 3 }, TabHit { y: 0, x: 54, width: 9, tab: 4 }, TabHit { y: 0, x: 64, width: 9, tab: 5 }]",
+      "tabs": "[TabHit { y: 0, x: 0, width: 7, tab: 0 }, TabHit { y: 0, x: 8, width: 6, tab: 1 }, TabHit { y: 0, x: 15, width: 7, tab: 2 }, TabHit { y: 0, x: 23, width: 30, tab: 3 }, TabHit { y: 0, x: 54, width: 9, tab: 4 }, TabHit { y: 0, x: 64, width: 7, tab: 5 }]",
       "input": "Some(Rect { x: 1, y: 18, width: 78, height: 6 })",
       "state": "composer-lead",
       "look": "tmt",
@@ -4605,7 +4605,7 @@
     },
     {
       "lines": [
-        "  alpha   beta   gamma   delta-with-a-long-squad-name   epsilon  ▚ [tmt]",
+        "  alpha   beta   gamma   delta-with-a-long-squad-name   epsilon  ▚ tmt",
         "5 squads · 12 members   ◆ 3 waiting on you  ✗ 3 blocked  ◐ 1 review  ● 4 working  ○ 3 idle",
         "",
         "",
@@ -4667,7 +4667,7 @@
         "↑↓ move  ⏎ open  a write  e expand  A ask lead  / search  ? more  q quit"
       ],
       "styles": [
-        "0:7=s0 7:1=s1 8:6=s0 14:1=s1 15:7=s0 22:1=s1 23:30=s0 53:1=s1 54:9=s0 63:1=s1 64:9=s2 73:87=s1",
+        "0:7=s0 7:1=s1 8:6=s0 14:1=s1 15:7=s0 22:1=s1 23:30=s0 53:1=s1 54:9=s0 63:1=s1 64:7=s2 71:89=s1",
         "0:24=s3 24:1=s4 25:17=s3 42:2=s5 44:1=s6 45:10=s3 55:2=s5 57:1=s7 58:9=s3 67:2=s5 69:1=s8 70:10=s3 80:3=s5 83:7=s3 90:2=s5 92:68=s1",
         "0:160=s1",
         "0:160=s1",
@@ -4749,7 +4749,7 @@
         39,
         40
       ],
-      "tabs": "[TabHit { y: 0, x: 0, width: 7, tab: 0 }, TabHit { y: 0, x: 8, width: 6, tab: 1 }, TabHit { y: 0, x: 15, width: 7, tab: 2 }, TabHit { y: 0, x: 23, width: 30, tab: 3 }, TabHit { y: 0, x: 54, width: 9, tab: 4 }, TabHit { y: 0, x: 64, width: 9, tab: 5 }]",
+      "tabs": "[TabHit { y: 0, x: 0, width: 7, tab: 0 }, TabHit { y: 0, x: 8, width: 6, tab: 1 }, TabHit { y: 0, x: 15, width: 7, tab: 2 }, TabHit { y: 0, x: 23, width: 30, tab: 3 }, TabHit { y: 0, x: 54, width: 9, tab: 4 }, TabHit { y: 0, x: 64, width: 7, tab: 5 }]",
       "input": "Some(Rect { x: 0, y: 35, width: 160, height: 5 })",
       "state": "composer-squad",
       "look": "tmt",
@@ -4757,7 +4757,7 @@
     },
     {
       "lines": [
-        "  alpha   beta   gamma   delta-with-a-long-squad-name   epsilon  ▚ [tmt]",
+        "  alpha   beta   gamma   delta-with-a-long-squad-name   epsilon  ▚ tmt",
         "5 squads  ◆ 3  ✗ 3  ◐ 1  ● 4  ○ 3",
         "",
         "",
@@ -4819,7 +4819,7 @@
         "↑↓ move  ⏎ open  a write  e expand  A ask  / search  ? more  q quit"
       ],
       "styles": [
-        "0:7=s0 7:1=s1 8:6=s0 14:1=s1 15:7=s0 22:1=s1 23:30=s0 53:1=s1 54:9=s0 63:1=s1 64:9=s2 73:7=s1",
+        "0:7=s0 7:1=s1 8:6=s0 14:1=s1 15:7=s0 22:1=s1 23:30=s0 53:1=s1 54:9=s0 63:1=s1 64:7=s2 71:9=s1",
         "0:10=s3 10:1=s4 11:2=s3 13:2=s5 15:1=s6 16:2=s3 18:2=s5 20:1=s7 21:2=s3 23:2=s5 25:1=s8 26:2=s3 28:3=s5 31:2=s3 33:2=s5 35:45=s1",
         "0:80=s1",
         "0:80=s1",
@@ -4901,7 +4901,7 @@
         39,
         40
       ],
-      "tabs": "[TabHit { y: 0, x: 0, width: 7, tab: 0 }, TabHit { y: 0, x: 8, width: 6, tab: 1 }, TabHit { y: 0, x: 15, width: 7, tab: 2 }, TabHit { y: 0, x: 23, width: 30, tab: 3 }, TabHit { y: 0, x: 54, width: 9, tab: 4 }, TabHit { y: 0, x: 64, width: 9, tab: 5 }]",
+      "tabs": "[TabHit { y: 0, x: 0, width: 7, tab: 0 }, TabHit { y: 0, x: 8, width: 6, tab: 1 }, TabHit { y: 0, x: 15, width: 7, tab: 2 }, TabHit { y: 0, x: 23, width: 30, tab: 3 }, TabHit { y: 0, x: 54, width: 9, tab: 4 }, TabHit { y: 0, x: 64, width: 7, tab: 5 }]",
       "input": "Some(Rect { x: 0, y: 35, width: 80, height: 5 })",
       "state": "composer-squad",
       "look": "tmt",
@@ -4909,12 +4909,12 @@
     },
     {
       "lines": [
-        "  alpha   beta   gamma   delta-with-a-long-squad-name   epsilon  ▚ [tmt]",
+        "  alpha   beta   gamma   delta-with-a-long-squad-name   epsilon  ▚ tmt",
         "5 squads · 12 members   ◆ 3 waiting on you  ✗ 3 blocked  ◐ 1 review  ● 4 working  ○ 3 idle",
         "",
         "",
         "── ◆ needs you · 3 ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
-        ">◆ lead-a                  alpha",
+        " ◆ lead-a                  alpha",
         "   ✓ sent",
         " ◆ worker-one              alpha",
         " ◆ worker-two              alpha",
@@ -4971,7 +4971,7 @@
         "Focus: HOME rows  ↑↓ move  ⏎ open  a write  e expand  A ask lead  / search  ? more  q quit"
       ],
       "styles": [
-        "0:7=s0 7:1=s1 8:6=s0 14:1=s1 15:7=s0 22:1=s1 23:30=s0 53:1=s1 54:9=s0 63:1=s1 64:9=s2 73:87=s1",
+        "0:7=s0 7:1=s1 8:6=s0 14:1=s1 15:7=s0 22:1=s1 23:30=s0 53:1=s1 54:9=s0 63:1=s1 64:7=s2 71:89=s1",
         "0:24=s3 24:1=s4 25:17=s3 42:2=s5 44:1=s6 45:10=s3 55:2=s5 57:1=s7 58:9=s3 67:2=s5 69:1=s8 70:10=s3 80:3=s5 83:7=s3 90:2=s5 92:68=s1",
         "0:160=s1",
         "0:160=s1",
@@ -5053,7 +5053,7 @@
         35,
         36
       ],
-      "tabs": "[TabHit { y: 0, x: 0, width: 7, tab: 0 }, TabHit { y: 0, x: 8, width: 6, tab: 1 }, TabHit { y: 0, x: 15, width: 7, tab: 2 }, TabHit { y: 0, x: 23, width: 30, tab: 3 }, TabHit { y: 0, x: 54, width: 9, tab: 4 }, TabHit { y: 0, x: 64, width: 9, tab: 5 }]",
+      "tabs": "[TabHit { y: 0, x: 0, width: 7, tab: 0 }, TabHit { y: 0, x: 8, width: 6, tab: 1 }, TabHit { y: 0, x: 15, width: 7, tab: 2 }, TabHit { y: 0, x: 23, width: 30, tab: 3 }, TabHit { y: 0, x: 54, width: 9, tab: 4 }, TabHit { y: 0, x: 64, width: 7, tab: 5 }]",
       "input": "None",
       "state": "sent-needs-you",
       "look": "tmt",
@@ -5061,12 +5061,12 @@
     },
     {
       "lines": [
-        "  alpha   beta   gamma   delta-with-a-long-squad-name   epsilon  ▚ [tmt]",
+        "  alpha   beta   gamma   delta-with-a-long-squad-name   epsilon  ▚ tmt",
         "5 squads  ◆ 3  ✗ 3  ◐ 1  ● 4  ○ 3",
         "",
         "",
         "── ◆ needs you · 3 ─────────────────────────────────────────────────────────────",
-        ">◆ lead-a                  alpha",
+        " ◆ lead-a                  alpha",
         "   ✓ sent",
         " ◆ worker-one              alpha",
         " ◆ worker-two              alpha",
@@ -5123,7 +5123,7 @@
         "Focus: HOME rows  ↑↓ move  ⏎ open  a write  e expand  A ask  ? more  q quit"
       ],
       "styles": [
-        "0:7=s0 7:1=s1 8:6=s0 14:1=s1 15:7=s0 22:1=s1 23:30=s0 53:1=s1 54:9=s0 63:1=s1 64:9=s2 73:7=s1",
+        "0:7=s0 7:1=s1 8:6=s0 14:1=s1 15:7=s0 22:1=s1 23:30=s0 53:1=s1 54:9=s0 63:1=s1 64:7=s2 71:9=s1",
         "0:10=s3 10:1=s4 11:2=s3 13:2=s5 15:1=s6 16:2=s3 18:2=s5 20:1=s7 21:2=s3 23:2=s5 25:1=s8 26:2=s3 28:3=s5 31:2=s3 33:2=s5 35:45=s1",
         "0:80=s1",
         "0:80=s1",
@@ -5205,7 +5205,7 @@
         35,
         36
       ],
-      "tabs": "[TabHit { y: 0, x: 0, width: 7, tab: 0 }, TabHit { y: 0, x: 8, width: 6, tab: 1 }, TabHit { y: 0, x: 15, width: 7, tab: 2 }, TabHit { y: 0, x: 23, width: 30, tab: 3 }, TabHit { y: 0, x: 54, width: 9, tab: 4 }, TabHit { y: 0, x: 64, width: 9, tab: 5 }]",
+      "tabs": "[TabHit { y: 0, x: 0, width: 7, tab: 0 }, TabHit { y: 0, x: 8, width: 6, tab: 1 }, TabHit { y: 0, x: 15, width: 7, tab: 2 }, TabHit { y: 0, x: 23, width: 30, tab: 3 }, TabHit { y: 0, x: 54, width: 9, tab: 4 }, TabHit { y: 0, x: 64, width: 7, tab: 5 }]",
       "input": "None",
       "state": "sent-needs-you",
       "look": "tmt",
@@ -5213,7 +5213,7 @@
     },
     {
       "lines": [
-        "  alpha   beta   gamma   delta-with-a-long-squad-name   epsilon  ▚ [tmt]",
+        "  alpha   beta   gamma   delta-with-a-long-squad-name   epsilon  ▚ tmt",
         "5 squads · 12 members   ◆ 3 waiting on you  ✗ 3 blocked  ◐ 1 review  ● 4 working  ○ 3 idle",
         "",
         "",
@@ -5235,7 +5235,7 @@
         "  … lead-g                     gamma                                                                                                                       12h",
         "   no reply yet to: Please review the draft",
         "",
-        " >✓ lead-b                     beta                                                                                                                         1d",
+        "  ✓ lead-b                     beta                                                                                                                         1d",
         "   The public replies and results reads are merged.",
         "   ✓ sent",
         "",
@@ -5275,7 +5275,7 @@
         "Focus: HOME rows  ↑↓ move  ⏎ open  a write  e expand  A ask lead  / search  ? more  q quit"
       ],
       "styles": [
-        "0:7=s0 7:1=s1 8:6=s0 14:1=s1 15:7=s0 22:1=s1 23:30=s0 53:1=s1 54:9=s0 63:1=s1 64:9=s2 73:87=s1",
+        "0:7=s0 7:1=s1 8:6=s0 14:1=s1 15:7=s0 22:1=s1 23:30=s0 53:1=s1 54:9=s0 63:1=s1 64:7=s2 71:89=s1",
         "0:24=s3 24:1=s4 25:17=s3 42:2=s5 44:1=s6 45:10=s3 55:2=s5 57:1=s7 58:9=s3 67:2=s5 69:1=s8 70:10=s3 80:3=s5 83:7=s3 90:2=s5 92:68=s1",
         "0:160=s1",
         "0:160=s1",
@@ -5357,7 +5357,7 @@
         35,
         36
       ],
-      "tabs": "[TabHit { y: 0, x: 0, width: 7, tab: 0 }, TabHit { y: 0, x: 8, width: 6, tab: 1 }, TabHit { y: 0, x: 15, width: 7, tab: 2 }, TabHit { y: 0, x: 23, width: 30, tab: 3 }, TabHit { y: 0, x: 54, width: 9, tab: 4 }, TabHit { y: 0, x: 64, width: 9, tab: 5 }]",
+      "tabs": "[TabHit { y: 0, x: 0, width: 7, tab: 0 }, TabHit { y: 0, x: 8, width: 6, tab: 1 }, TabHit { y: 0, x: 15, width: 7, tab: 2 }, TabHit { y: 0, x: 23, width: 30, tab: 3 }, TabHit { y: 0, x: 54, width: 9, tab: 4 }, TabHit { y: 0, x: 64, width: 7, tab: 5 }]",
       "input": "None",
       "state": "sent-lead",
       "look": "tmt",
@@ -5365,7 +5365,7 @@
     },
     {
       "lines": [
-        "  alpha   beta   gamma   delta-with-a-long-squad-name   epsilon  ▚ [tmt]",
+        "  alpha   beta   gamma   delta-with-a-long-squad-name   epsilon  ▚ tmt",
         "5 squads  ◆ 3  ✗ 3  ◐ 1  ● 4  ○ 3",
         "",
         "",
@@ -5387,7 +5387,7 @@
         "  … lead-g                                                                 12h",
         "   no reply yet to: Please review the draft",
         "",
-        " >✓ lead-b                                                                  1d",
+        "  ✓ lead-b                                                                  1d",
         "   The public replies and results reads are merged.",
         "   ✓ sent",
         "",
@@ -5427,7 +5427,7 @@
         "Focus: HOME rows  ↑↓ move  ⏎ open  a write  e expand  A ask  ? more  q quit"
       ],
       "styles": [
-        "0:7=s0 7:1=s1 8:6=s0 14:1=s1 15:7=s0 22:1=s1 23:30=s0 53:1=s1 54:9=s0 63:1=s1 64:9=s2 73:7=s1",
+        "0:7=s0 7:1=s1 8:6=s0 14:1=s1 15:7=s0 22:1=s1 23:30=s0 53:1=s1 54:9=s0 63:1=s1 64:7=s2 71:9=s1",
         "0:10=s3 10:1=s4 11:2=s3 13:2=s5 15:1=s6 16:2=s3 18:2=s5 20:1=s7 21:2=s3 23:2=s5 25:1=s8 26:2=s3 28:3=s5 31:2=s3 33:2=s5 35:45=s1",
         "0:80=s1",
         "0:80=s1",
@@ -5509,7 +5509,7 @@
         35,
         36
       ],
-      "tabs": "[TabHit { y: 0, x: 0, width: 7, tab: 0 }, TabHit { y: 0, x: 8, width: 6, tab: 1 }, TabHit { y: 0, x: 15, width: 7, tab: 2 }, TabHit { y: 0, x: 23, width: 30, tab: 3 }, TabHit { y: 0, x: 54, width: 9, tab: 4 }, TabHit { y: 0, x: 64, width: 9, tab: 5 }]",
+      "tabs": "[TabHit { y: 0, x: 0, width: 7, tab: 0 }, TabHit { y: 0, x: 8, width: 6, tab: 1 }, TabHit { y: 0, x: 15, width: 7, tab: 2 }, TabHit { y: 0, x: 23, width: 30, tab: 3 }, TabHit { y: 0, x: 54, width: 9, tab: 4 }, TabHit { y: 0, x: 64, width: 7, tab: 5 }]",
       "input": "None",
       "state": "sent-lead",
       "look": "tmt",
@@ -5517,7 +5517,7 @@
     },
     {
       "lines": [
-        "  alpha   beta   gamma   delta-with-a-long-squad-name   epsilon  ▚ [tmt]",
+        "  alpha   beta   gamma   delta-with-a-long-squad-name   epsilon  ▚ tmt",
         "5 squads · 12 members   ◆ 3 waiting on you  ✗ 3 blocked  ◐ 1 review  ● 4 working  ○ 3 idle",
         "",
         "",
@@ -5579,7 +5579,7 @@
         "Focus: HOME rows  ↑↓ move  ⏎ open  a write  e expand  A ask lead  / search  ? more  q quit"
       ],
       "styles": [
-        "0:7=s0 7:1=s1 8:6=s0 14:1=s1 15:7=s0 22:1=s1 23:30=s0 53:1=s1 54:9=s0 63:1=s1 64:9=s2 73:87=s1",
+        "0:7=s0 7:1=s1 8:6=s0 14:1=s1 15:7=s0 22:1=s1 23:30=s0 53:1=s1 54:9=s0 63:1=s1 64:7=s2 71:89=s1",
         "0:24=s3 24:1=s4 25:17=s3 42:2=s5 44:1=s6 45:10=s3 55:2=s5 57:1=s7 58:9=s3 67:2=s5 69:1=s8 70:10=s3 80:3=s5 83:7=s3 90:2=s5 92:68=s1",
         "0:160=s1",
         "0:160=s1",
@@ -5661,7 +5661,7 @@
         35,
         36
       ],
-      "tabs": "[TabHit { y: 0, x: 0, width: 7, tab: 0 }, TabHit { y: 0, x: 8, width: 6, tab: 1 }, TabHit { y: 0, x: 15, width: 7, tab: 2 }, TabHit { y: 0, x: 23, width: 30, tab: 3 }, TabHit { y: 0, x: 54, width: 9, tab: 4 }, TabHit { y: 0, x: 64, width: 9, tab: 5 }]",
+      "tabs": "[TabHit { y: 0, x: 0, width: 7, tab: 0 }, TabHit { y: 0, x: 8, width: 6, tab: 1 }, TabHit { y: 0, x: 15, width: 7, tab: 2 }, TabHit { y: 0, x: 23, width: 30, tab: 3 }, TabHit { y: 0, x: 54, width: 9, tab: 4 }, TabHit { y: 0, x: 64, width: 7, tab: 5 }]",
       "input": "None",
       "state": "sent-squad",
       "look": "tmt",
@@ -5669,7 +5669,7 @@
     },
     {
       "lines": [
-        "  alpha   beta   gamma   delta-with-a-long-squad-name   epsilon  ▚ [tmt]",
+        "  alpha   beta   gamma   delta-with-a-long-squad-name   epsilon  ▚ tmt",
         "5 squads  ◆ 3  ✗ 3  ◐ 1  ● 4  ○ 3",
         "",
         "",
@@ -5731,7 +5731,7 @@
         "Focus: HOME rows  ↑↓ move  ⏎ open  a write  e expand  A ask  ? more  q quit"
       ],
       "styles": [
-        "0:7=s0 7:1=s1 8:6=s0 14:1=s1 15:7=s0 22:1=s1 23:30=s0 53:1=s1 54:9=s0 63:1=s1 64:9=s2 73:7=s1",
+        "0:7=s0 7:1=s1 8:6=s0 14:1=s1 15:7=s0 22:1=s1 23:30=s0 53:1=s1 54:9=s0 63:1=s1 64:7=s2 71:9=s1",
         "0:10=s3 10:1=s4 11:2=s3 13:2=s5 15:1=s6 16:2=s3 18:2=s5 20:1=s7 21:2=s3 23:2=s5 25:1=s8 26:2=s3 28:3=s5 31:2=s3 33:2=s5 35:45=s1",
         "0:80=s1",
         "0:80=s1",
@@ -5813,7 +5813,7 @@
         35,
         36
       ],
-      "tabs": "[TabHit { y: 0, x: 0, width: 7, tab: 0 }, TabHit { y: 0, x: 8, width: 6, tab: 1 }, TabHit { y: 0, x: 15, width: 7, tab: 2 }, TabHit { y: 0, x: 23, width: 30, tab: 3 }, TabHit { y: 0, x: 54, width: 9, tab: 4 }, TabHit { y: 0, x: 64, width: 9, tab: 5 }]",
+      "tabs": "[TabHit { y: 0, x: 0, width: 7, tab: 0 }, TabHit { y: 0, x: 8, width: 6, tab: 1 }, TabHit { y: 0, x: 15, width: 7, tab: 2 }, TabHit { y: 0, x: 23, width: 30, tab: 3 }, TabHit { y: 0, x: 54, width: 9, tab: 4 }, TabHit { y: 0, x: 64, width: 7, tab: 5 }]",
       "input": "None",
       "state": "sent-squad",
       "look": "tmt",
@@ -5821,7 +5821,7 @@
     },
     {
       "lines": [
-        "  alpha   beta   gamma   delta-with-a-long-squad-name   epsilon  ▚ [tmt]",
+        "  alpha   beta   gamma   delta-with-a-long-squad-name   epsilon  ▚ tmt",
         "5 squads · 12 members   ◆ 3 waiting on you  ✗ 3 blocked  ◐ 1 review  ● 4 working  ○ 3 idle",
         "",
         "",
@@ -5837,7 +5837,7 @@
         "",
         "── leads · latest from each · t hides replies ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
         "────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
-        " >◆ lead-a                     alpha                                                                                                                        2d",
+        "  ◆ lead-a                     alpha                                                                                                                        2d",
         " ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
         "   (reading message…)",
         "",
@@ -5883,7 +5883,7 @@
         "↑↓ move  ⏎ open  a write  e expand  A ask lead  / search  ? more  q quit"
       ],
       "styles": [
-        "0:7=s0 7:1=s1 8:6=s0 14:1=s1 15:7=s0 22:1=s1 23:30=s0 53:1=s1 54:9=s0 63:1=s1 64:9=s2 73:87=s1",
+        "0:7=s0 7:1=s1 8:6=s0 14:1=s1 15:7=s0 22:1=s1 23:30=s0 53:1=s1 54:9=s0 63:1=s1 64:7=s2 71:89=s1",
         "0:24=s3 24:1=s4 25:17=s3 42:2=s5 44:1=s6 45:10=s3 55:2=s5 57:1=s7 58:9=s3 67:2=s5 69:1=s8 70:10=s3 80:3=s5 83:7=s3 90:2=s5 92:68=s1",
         "0:160=s1",
         "0:160=s1",
@@ -5965,7 +5965,7 @@
         38,
         39
       ],
-      "tabs": "[TabHit { y: 0, x: 0, width: 7, tab: 0 }, TabHit { y: 0, x: 8, width: 6, tab: 1 }, TabHit { y: 0, x: 15, width: 7, tab: 2 }, TabHit { y: 0, x: 23, width: 30, tab: 3 }, TabHit { y: 0, x: 54, width: 9, tab: 4 }, TabHit { y: 0, x: 64, width: 9, tab: 5 }]",
+      "tabs": "[TabHit { y: 0, x: 0, width: 7, tab: 0 }, TabHit { y: 0, x: 8, width: 6, tab: 1 }, TabHit { y: 0, x: 15, width: 7, tab: 2 }, TabHit { y: 0, x: 23, width: 30, tab: 3 }, TabHit { y: 0, x: 54, width: 9, tab: 4 }, TabHit { y: 0, x: 64, width: 7, tab: 5 }]",
       "input": "Some(Rect { x: 1, y: 17, width: 158, height: 5 })",
       "state": "read-lead",
       "look": "tmt",
@@ -5973,7 +5973,7 @@
     },
     {
       "lines": [
-        "  alpha   beta   gamma   delta-with-a-long-squad-name   epsilon  ▚ [tmt]",
+        "  alpha   beta   gamma   delta-with-a-long-squad-name   epsilon  ▚ tmt",
         "5 squads  ◆ 3  ✗ 3  ◐ 1  ● 4  ○ 3",
         "",
         "",
@@ -5989,7 +5989,7 @@
         "",
         "── leads · latest from each · t hides replies ──────────────────────────────────",
         "────────────────────────────────────────────────────────────────────────────────",
-        " >◆ lead-a                                                                  2d",
+        "  ◆ lead-a                                                                  2d",
         " ──────────────────────────────────────────────────────────────────────────────",
         "   (reading message…)",
         "",
@@ -6035,7 +6035,7 @@
         "↑↓ move  ⏎ open  a write  e expand  A ask  / search  ? more  q quit"
       ],
       "styles": [
-        "0:7=s0 7:1=s1 8:6=s0 14:1=s1 15:7=s0 22:1=s1 23:30=s0 53:1=s1 54:9=s0 63:1=s1 64:9=s2 73:7=s1",
+        "0:7=s0 7:1=s1 8:6=s0 14:1=s1 15:7=s0 22:1=s1 23:30=s0 53:1=s1 54:9=s0 63:1=s1 64:7=s2 71:9=s1",
         "0:10=s3 10:1=s4 11:2=s3 13:2=s5 15:1=s6 16:2=s3 18:2=s5 20:1=s7 21:2=s3 23:2=s5 25:1=s8 26:2=s3 28:3=s5 31:2=s3 33:2=s5 35:45=s1",
         "0:80=s1",
         "0:80=s1",
@@ -6117,7 +6117,7 @@
         38,
         39
       ],
-      "tabs": "[TabHit { y: 0, x: 0, width: 7, tab: 0 }, TabHit { y: 0, x: 8, width: 6, tab: 1 }, TabHit { y: 0, x: 15, width: 7, tab: 2 }, TabHit { y: 0, x: 23, width: 30, tab: 3 }, TabHit { y: 0, x: 54, width: 9, tab: 4 }, TabHit { y: 0, x: 64, width: 9, tab: 5 }]",
+      "tabs": "[TabHit { y: 0, x: 0, width: 7, tab: 0 }, TabHit { y: 0, x: 8, width: 6, tab: 1 }, TabHit { y: 0, x: 15, width: 7, tab: 2 }, TabHit { y: 0, x: 23, width: 30, tab: 3 }, TabHit { y: 0, x: 54, width: 9, tab: 4 }, TabHit { y: 0, x: 64, width: 7, tab: 5 }]",
       "input": "Some(Rect { x: 1, y: 17, width: 78, height: 5 })",
       "state": "read-lead",
       "look": "tmt",
@@ -6125,12 +6125,12 @@
     },
     {
       "lines": [
-        "  alpha   beta   gamma   delta-with-a-long-squad-name   epsilon  ▚ [tmt]",
+        "  alpha   beta   gamma   delta-with-a-long-squad-name   epsilon  ▚ tmt",
         "5 squads · 12 members   ◆ 3 waiting on you  ✗ 3 blocked  ◐ 1 review  ● 4 working  ○ 3 idle",
         "",
         "",
         "── ◆ needs you · 1 ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
-        ">◆ lead-a                  alpha",
+        " ◆ lead-a                  alpha",
         "",
         "── leads · latest from each · t hides replies ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
         "────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
@@ -6187,7 +6187,7 @@
         "/lea▏"
       ],
       "styles": [
-        "0:7=s0 7:1=s1 8:6=s0 14:1=s1 15:7=s0 22:1=s1 23:30=s0 53:1=s1 54:9=s0 63:1=s1 64:9=s2 73:87=s1",
+        "0:7=s0 7:1=s1 8:6=s0 14:1=s1 15:7=s0 22:1=s1 23:30=s0 53:1=s1 54:9=s0 63:1=s1 64:7=s2 71:89=s1",
         "0:24=s3 24:1=s4 25:17=s3 42:2=s5 44:1=s6 45:10=s3 55:2=s5 57:1=s7 58:9=s3 67:2=s5 69:1=s8 70:10=s3 80:3=s5 83:7=s3 90:2=s5 92:68=s1",
         "0:160=s1",
         "0:160=s1",
@@ -6262,7 +6262,7 @@
         24,
         25
       ],
-      "tabs": "[TabHit { y: 0, x: 0, width: 7, tab: 0 }, TabHit { y: 0, x: 8, width: 6, tab: 1 }, TabHit { y: 0, x: 15, width: 7, tab: 2 }, TabHit { y: 0, x: 23, width: 30, tab: 3 }, TabHit { y: 0, x: 54, width: 9, tab: 4 }, TabHit { y: 0, x: 64, width: 9, tab: 5 }]",
+      "tabs": "[TabHit { y: 0, x: 0, width: 7, tab: 0 }, TabHit { y: 0, x: 8, width: 6, tab: 1 }, TabHit { y: 0, x: 15, width: 7, tab: 2 }, TabHit { y: 0, x: 23, width: 30, tab: 3 }, TabHit { y: 0, x: 54, width: 9, tab: 4 }, TabHit { y: 0, x: 64, width: 7, tab: 5 }]",
       "input": "None",
       "state": "searching",
       "look": "tmt",
@@ -6270,12 +6270,12 @@
     },
     {
       "lines": [
-        "  alpha   beta   gamma   delta-with-a-long-squad-name   epsilon  ▚ [tmt]",
+        "  alpha   beta   gamma   delta-with-a-long-squad-name   epsilon  ▚ tmt",
         "5 squads  ◆ 3  ✗ 3  ◐ 1  ● 4  ○ 3",
         "",
         "",
         "── ◆ needs you · 1 ─────────────────────────────────────────────────────────────",
-        ">◆ lead-a                  alpha",
+        " ◆ lead-a                  alpha",
         "",
         "── leads · latest from each · t hides replies ──────────────────────────────────",
         "────────────────────────────────────────────────────────────────────────────────",
@@ -6332,7 +6332,7 @@
         "/lea▏"
       ],
       "styles": [
-        "0:7=s0 7:1=s1 8:6=s0 14:1=s1 15:7=s0 22:1=s1 23:30=s0 53:1=s1 54:9=s0 63:1=s1 64:9=s2 73:7=s1",
+        "0:7=s0 7:1=s1 8:6=s0 14:1=s1 15:7=s0 22:1=s1 23:30=s0 53:1=s1 54:9=s0 63:1=s1 64:7=s2 71:9=s1",
         "0:10=s3 10:1=s4 11:2=s3 13:2=s5 15:1=s6 16:2=s3 18:2=s5 20:1=s7 21:2=s3 23:2=s5 25:1=s8 26:2=s3 28:3=s5 31:2=s3 33:2=s5 35:45=s1",
         "0:80=s1",
         "0:80=s1",
@@ -6407,7 +6407,7 @@
         24,
         25
       ],
-      "tabs": "[TabHit { y: 0, x: 0, width: 7, tab: 0 }, TabHit { y: 0, x: 8, width: 6, tab: 1 }, TabHit { y: 0, x: 15, width: 7, tab: 2 }, TabHit { y: 0, x: 23, width: 30, tab: 3 }, TabHit { y: 0, x: 54, width: 9, tab: 4 }, TabHit { y: 0, x: 64, width: 9, tab: 5 }]",
+      "tabs": "[TabHit { y: 0, x: 0, width: 7, tab: 0 }, TabHit { y: 0, x: 8, width: 6, tab: 1 }, TabHit { y: 0, x: 15, width: 7, tab: 2 }, TabHit { y: 0, x: 23, width: 30, tab: 3 }, TabHit { y: 0, x: 54, width: 9, tab: 4 }, TabHit { y: 0, x: 64, width: 7, tab: 5 }]",
       "input": "None",
       "state": "searching",
       "look": "tmt",
@@ -6415,13 +6415,13 @@
     },
     {
       "lines": [
-        "  alpha   beta   gamma   delta-with-a-long-squad-name   epsilon  ▚ [tmt]",
+        "  alpha   beta   gamma   delta-with-a-long-squad-name   epsilon  ▚ tmt",
         "5 squads · 12 members   ◆ 3 waiting on you  ✗ 3 blocked  ◐ 1 review  ● 4 working  ○ 3 idle",
         "",
         "◆ needs to know who you are: tmt squad me <name>",
         "",
         "── ◆ needs you · 3 ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
-        ">◆ lead-a                  alpha",
+        " ◆ lead-a                  alpha",
         " ◆ worker-one              alpha",
         " ◆ worker-two              alpha",
         "",
@@ -6477,7 +6477,7 @@
         "Focus: HOME rows  ↑↓ move  ⏎ open  a write  e expand  A ask lead  / search  ? more  q quit"
       ],
       "styles": [
-        "0:7=s0 7:1=s1 8:6=s0 14:1=s1 15:7=s0 22:1=s1 23:30=s0 53:1=s1 54:9=s0 63:1=s1 64:9=s2 73:87=s1",
+        "0:7=s0 7:1=s1 8:6=s0 14:1=s1 15:7=s0 22:1=s1 23:30=s0 53:1=s1 54:9=s0 63:1=s1 64:7=s2 71:89=s1",
         "0:24=s3 24:1=s4 25:17=s3 42:2=s5 44:1=s6 45:10=s3 55:2=s5 57:1=s7 58:9=s3 67:2=s5 69:1=s8 70:10=s3 80:3=s5 83:7=s3 90:2=s5 92:68=s1",
         "0:160=s1",
         "0:160=s4",
@@ -6559,7 +6559,7 @@
         35,
         36
       ],
-      "tabs": "[TabHit { y: 0, x: 0, width: 7, tab: 0 }, TabHit { y: 0, x: 8, width: 6, tab: 1 }, TabHit { y: 0, x: 15, width: 7, tab: 2 }, TabHit { y: 0, x: 23, width: 30, tab: 3 }, TabHit { y: 0, x: 54, width: 9, tab: 4 }, TabHit { y: 0, x: 64, width: 9, tab: 5 }]",
+      "tabs": "[TabHit { y: 0, x: 0, width: 7, tab: 0 }, TabHit { y: 0, x: 8, width: 6, tab: 1 }, TabHit { y: 0, x: 15, width: 7, tab: 2 }, TabHit { y: 0, x: 23, width: 30, tab: 3 }, TabHit { y: 0, x: 54, width: 9, tab: 4 }, TabHit { y: 0, x: 64, width: 7, tab: 5 }]",
       "input": "None",
       "state": "no-user",
       "look": "tmt",
@@ -6567,13 +6567,13 @@
     },
     {
       "lines": [
-        "  alpha   beta   gamma   delta-with-a-long-squad-name   epsilon  ▚ [tmt]",
+        "  alpha   beta   gamma   delta-with-a-long-squad-name   epsilon  ▚ tmt",
         "5 squads  ◆ 3  ✗ 3  ◐ 1  ● 4  ○ 3",
         "",
         "◆ needs to know who you are: tmt squad me <name>",
         "",
         "── ◆ needs you · 3 ─────────────────────────────────────────────────────────────",
-        ">◆ lead-a                  alpha",
+        " ◆ lead-a                  alpha",
         " ◆ worker-one              alpha",
         " ◆ worker-two              alpha",
         "",
@@ -6629,7 +6629,7 @@
         "Focus: HOME rows  ↑↓ move  ⏎ open  a write  e expand  A ask  ? more  q quit"
       ],
       "styles": [
-        "0:7=s0 7:1=s1 8:6=s0 14:1=s1 15:7=s0 22:1=s1 23:30=s0 53:1=s1 54:9=s0 63:1=s1 64:9=s2 73:7=s1",
+        "0:7=s0 7:1=s1 8:6=s0 14:1=s1 15:7=s0 22:1=s1 23:30=s0 53:1=s1 54:9=s0 63:1=s1 64:7=s2 71:9=s1",
         "0:10=s3 10:1=s4 11:2=s3 13:2=s5 15:1=s6 16:2=s3 18:2=s5 20:1=s7 21:2=s3 23:2=s5 25:1=s8 26:2=s3 28:3=s5 31:2=s3 33:2=s5 35:45=s1",
         "0:80=s1",
         "0:80=s4",
@@ -6711,7 +6711,7 @@
         35,
         36
       ],
-      "tabs": "[TabHit { y: 0, x: 0, width: 7, tab: 0 }, TabHit { y: 0, x: 8, width: 6, tab: 1 }, TabHit { y: 0, x: 15, width: 7, tab: 2 }, TabHit { y: 0, x: 23, width: 30, tab: 3 }, TabHit { y: 0, x: 54, width: 9, tab: 4 }, TabHit { y: 0, x: 64, width: 9, tab: 5 }]",
+      "tabs": "[TabHit { y: 0, x: 0, width: 7, tab: 0 }, TabHit { y: 0, x: 8, width: 6, tab: 1 }, TabHit { y: 0, x: 15, width: 7, tab: 2 }, TabHit { y: 0, x: 23, width: 30, tab: 3 }, TabHit { y: 0, x: 54, width: 9, tab: 4 }, TabHit { y: 0, x: 64, width: 7, tab: 5 }]",
       "input": "None",
       "state": "no-user",
       "look": "tmt",
@@ -6719,12 +6719,12 @@
     },
     {
       "lines": [
-        "  alpha   beta   gamma   delta-with-a-long-squad-name   epsilon  ▚ [tmt]",
+        "  alpha   beta   gamma   delta-with-a-long-squad-name   epsilon  ▚ tmt",
         "5 squads · 12 members   ◆ 3 waiting on you  ✗ 3 blocked  ◐ 1 review  ● 4 working  ○ 3 idle",
         "",
         "",
         "── ◆ needs you · 3 ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
-        ">◆ lead-a                  alpha",
+        " ◆ lead-a                  alpha",
         " ◆ worker-one              alpha",
         " ◆ worker-two              alpha",
         "",
@@ -6781,7 +6781,7 @@
         "Focus: HOME rows  ↑↓ move  ⏎ open  a write  e expand  A ask lead  / search  ? more  q quit"
       ],
       "styles": [
-        "0:7=s0 7:1=s1 8:6=s0 14:1=s1 15:7=s0 22:1=s1 23:30=s0 53:1=s1 54:9=s0 63:1=s1 64:9=s2 73:87=s1",
+        "0:7=s0 7:1=s1 8:6=s0 14:1=s1 15:7=s0 22:1=s1 23:30=s0 53:1=s1 54:9=s0 63:1=s1 64:7=s2 71:89=s1",
         "0:24=s3 24:1=s4 25:17=s3 42:2=s5 44:1=s6 45:10=s3 55:2=s5 57:1=s7 58:9=s3 67:2=s5 69:1=s8 70:10=s3 80:3=s5 83:7=s3 90:2=s5 92:68=s1",
         "0:160=s1",
         "0:160=s1",
@@ -6863,7 +6863,7 @@
         34,
         35
       ],
-      "tabs": "[TabHit { y: 0, x: 0, width: 7, tab: 0 }, TabHit { y: 0, x: 8, width: 6, tab: 1 }, TabHit { y: 0, x: 15, width: 7, tab: 2 }, TabHit { y: 0, x: 23, width: 30, tab: 3 }, TabHit { y: 0, x: 54, width: 9, tab: 4 }, TabHit { y: 0, x: 64, width: 9, tab: 5 }]",
+      "tabs": "[TabHit { y: 0, x: 0, width: 7, tab: 0 }, TabHit { y: 0, x: 8, width: 6, tab: 1 }, TabHit { y: 0, x: 15, width: 7, tab: 2 }, TabHit { y: 0, x: 23, width: 30, tab: 3 }, TabHit { y: 0, x: 54, width: 9, tab: 4 }, TabHit { y: 0, x: 64, width: 7, tab: 5 }]",
       "input": "None",
       "state": "cron-failed",
       "look": "tmt",
@@ -6871,12 +6871,12 @@
     },
     {
       "lines": [
-        "  alpha   beta   gamma   delta-with-a-long-squad-name   epsilon  ▚ [tmt]",
+        "  alpha   beta   gamma   delta-with-a-long-squad-name   epsilon  ▚ tmt",
         "5 squads  ◆ 3  ✗ 3  ◐ 1  ● 4  ○ 3",
         "",
         "",
         "── ◆ needs you · 3 ─────────────────────────────────────────────────────────────────────────────────",
-        ">◆ lead-a                  alpha",
+        " ◆ lead-a                  alpha",
         " ◆ worker-one              alpha",
         " ◆ worker-two              alpha",
         "",
@@ -6933,7 +6933,7 @@
         "Focus: HOME rows  ↑↓ move  ⏎ open  a write  e expand  A ask lead  / search  ? more  q quit"
       ],
       "styles": [
-        "0:7=s0 7:1=s1 8:6=s0 14:1=s1 15:7=s0 22:1=s1 23:30=s0 53:1=s1 54:9=s0 63:1=s1 64:9=s2 73:27=s1",
+        "0:7=s0 7:1=s1 8:6=s0 14:1=s1 15:7=s0 22:1=s1 23:30=s0 53:1=s1 54:9=s0 63:1=s1 64:7=s2 71:29=s1",
         "0:10=s3 10:1=s4 11:2=s3 13:2=s5 15:1=s6 16:2=s3 18:2=s5 20:1=s7 21:2=s3 23:2=s5 25:1=s8 26:2=s3 28:3=s5 31:2=s3 33:2=s5 35:65=s1",
         "0:100=s1",
         "0:100=s1",
@@ -7015,7 +7015,7 @@
         34,
         35
       ],
-      "tabs": "[TabHit { y: 0, x: 0, width: 7, tab: 0 }, TabHit { y: 0, x: 8, width: 6, tab: 1 }, TabHit { y: 0, x: 15, width: 7, tab: 2 }, TabHit { y: 0, x: 23, width: 30, tab: 3 }, TabHit { y: 0, x: 54, width: 9, tab: 4 }, TabHit { y: 0, x: 64, width: 9, tab: 5 }]",
+      "tabs": "[TabHit { y: 0, x: 0, width: 7, tab: 0 }, TabHit { y: 0, x: 8, width: 6, tab: 1 }, TabHit { y: 0, x: 15, width: 7, tab: 2 }, TabHit { y: 0, x: 23, width: 30, tab: 3 }, TabHit { y: 0, x: 54, width: 9, tab: 4 }, TabHit { y: 0, x: 64, width: 7, tab: 5 }]",
       "input": "None",
       "state": "cron-failed",
       "look": "tmt",
@@ -7023,12 +7023,12 @@
     },
     {
       "lines": [
-        "  alpha   beta   gamma   delta-with-a-long-squad-name   epsilon  ▚ [tmt]",
+        "  alpha   beta   gamma   delta-with-a-long-squad-name   epsilon  ▚ tmt",
         "5 squads  ◆ 3  ✗ 3  ◐ 1  ● 4  ○ 3",
         "",
         "",
         "── ◆ needs you · 3 ─────────────────────────────────────────────────────────────",
-        ">◆ lead-a                  alpha",
+        " ◆ lead-a                  alpha",
         " ◆ worker-one              alpha",
         " ◆ worker-two              alpha",
         "",
@@ -7085,7 +7085,7 @@
         "Focus: HOME rows  ↑↓ move  ⏎ open  a write  e expand  A ask  ? more  q quit"
       ],
       "styles": [
-        "0:7=s0 7:1=s1 8:6=s0 14:1=s1 15:7=s0 22:1=s1 23:30=s0 53:1=s1 54:9=s0 63:1=s1 64:9=s2 73:7=s1",
+        "0:7=s0 7:1=s1 8:6=s0 14:1=s1 15:7=s0 22:1=s1 23:30=s0 53:1=s1 54:9=s0 63:1=s1 64:7=s2 71:9=s1",
         "0:10=s3 10:1=s4 11:2=s3 13:2=s5 15:1=s6 16:2=s3 18:2=s5 20:1=s7 21:2=s3 23:2=s5 25:1=s8 26:2=s3 28:3=s5 31:2=s3 33:2=s5 35:45=s1",
         "0:80=s1",
         "0:80=s1",
@@ -7167,7 +7167,7 @@
         34,
         35
       ],
-      "tabs": "[TabHit { y: 0, x: 0, width: 7, tab: 0 }, TabHit { y: 0, x: 8, width: 6, tab: 1 }, TabHit { y: 0, x: 15, width: 7, tab: 2 }, TabHit { y: 0, x: 23, width: 30, tab: 3 }, TabHit { y: 0, x: 54, width: 9, tab: 4 }, TabHit { y: 0, x: 64, width: 9, tab: 5 }]",
+      "tabs": "[TabHit { y: 0, x: 0, width: 7, tab: 0 }, TabHit { y: 0, x: 8, width: 6, tab: 1 }, TabHit { y: 0, x: 15, width: 7, tab: 2 }, TabHit { y: 0, x: 23, width: 30, tab: 3 }, TabHit { y: 0, x: 54, width: 9, tab: 4 }, TabHit { y: 0, x: 64, width: 7, tab: 5 }]",
       "input": "None",
       "state": "cron-failed",
       "look": "tmt",
@@ -7175,12 +7175,12 @@
     },
     {
       "lines": [
-        "‹ 3   delta-with-a-long-squad-name   epsilon  ▚ [tmt]",
+        "‹ 3   delta-with-a-long-squad-name   epsilon  ▚ tmt",
         "5 squads  ◆ 3  ✗ 3  ◐ 1  ● 4  ○ 3",
         "",
         "",
         "── ◆ needs you · 3 ─────────────────────────────────────────",
-        ">◆ lead-a                  alpha",
+        " ◆ lead-a                  alpha",
         " ◆ worker-one              alpha",
         " ◆ worker-two              alpha",
         "",
@@ -7237,7 +7237,7 @@
         "Focus: HOME rows  ↑↓ move  ⏎ open  a write  ? more  q quit"
       ],
       "styles": [
-        "0:4=s5 4:30=s0 34:1=s1 35:9=s0 44:1=s1 45:9=s2 54:6=s1",
+        "0:4=s5 4:30=s0 34:1=s1 35:9=s0 44:1=s1 45:7=s2 52:8=s1",
         "0:10=s3 10:1=s4 11:2=s3 13:2=s5 15:1=s6 16:2=s3 18:2=s5 20:1=s7 21:2=s3 23:2=s5 25:1=s8 26:2=s3 28:3=s5 31:2=s3 33:2=s5 35:25=s1",
         "0:60=s1",
         "0:60=s1",
@@ -7319,7 +7319,7 @@
         34,
         35
       ],
-      "tabs": "[TabHit { y: 0, x: 4, width: 30, tab: 3 }, TabHit { y: 0, x: 35, width: 9, tab: 4 }, TabHit { y: 0, x: 45, width: 9, tab: 5 }]",
+      "tabs": "[TabHit { y: 0, x: 4, width: 30, tab: 3 }, TabHit { y: 0, x: 35, width: 9, tab: 4 }, TabHit { y: 0, x: 45, width: 7, tab: 5 }]",
       "input": "None",
       "state": "cron-failed",
       "look": "tmt",
@@ -7327,12 +7327,12 @@
     },
     {
       "lines": [
-        "  alpha   beta   gamma   delta-with-a-long-squad-name   epsilon  ▚ [tmt]",
+        "  alpha   beta   gamma   delta-with-a-long-squad-name   epsilon  ▚ tmt",
         "5 squads · 12 members   ◆ 3 waiting on you  ✗ 3 blocked  ◐ 1 review  ● 4 working  ○ 3 idle",
         "",
         "",
         "── ◆ needs you · 3 ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
-        ">◆ lead-a                  alpha",
+        " ◆ lead-a                  alpha",
         " ◆ worker-one              alpha",
         " ◆ worker-two              alpha",
         "",
@@ -7389,7 +7389,7 @@
         "Focus: HOME rows  ↑↓ move  ⏎ open  a write  e expand  A ask lead  / search  ? more  q quit"
       ],
       "styles": [
-        "0:7=s0 7:1=s1 8:6=s0 14:1=s1 15:7=s0 22:1=s1 23:30=s0 53:1=s1 54:9=s0 63:1=s1 64:9=s2 73:87=s1",
+        "0:7=s0 7:1=s1 8:6=s0 14:1=s1 15:7=s0 22:1=s1 23:30=s0 53:1=s1 54:9=s0 63:1=s1 64:7=s2 71:89=s1",
         "0:24=s3 24:1=s4 25:17=s3 42:2=s5 44:1=s6 45:10=s3 55:2=s5 57:1=s7 58:9=s3 67:2=s5 69:1=s8 70:10=s3 80:3=s5 83:7=s3 90:2=s5 92:68=s1",
         "0:160=s1",
         "0:160=s1",
@@ -7471,7 +7471,7 @@
         34,
         35
       ],
-      "tabs": "[TabHit { y: 0, x: 0, width: 7, tab: 0 }, TabHit { y: 0, x: 8, width: 6, tab: 1 }, TabHit { y: 0, x: 15, width: 7, tab: 2 }, TabHit { y: 0, x: 23, width: 30, tab: 3 }, TabHit { y: 0, x: 54, width: 9, tab: 4 }, TabHit { y: 0, x: 64, width: 9, tab: 5 }]",
+      "tabs": "[TabHit { y: 0, x: 0, width: 7, tab: 0 }, TabHit { y: 0, x: 8, width: 6, tab: 1 }, TabHit { y: 0, x: 15, width: 7, tab: 2 }, TabHit { y: 0, x: 23, width: 30, tab: 3 }, TabHit { y: 0, x: 54, width: 9, tab: 4 }, TabHit { y: 0, x: 64, width: 7, tab: 5 }]",
       "input": "None",
       "state": "cron-stale",
       "look": "tmt",
@@ -7479,12 +7479,12 @@
     },
     {
       "lines": [
-        "  alpha   beta   gamma   delta-with-a-long-squad-name   epsilon  ▚ [tmt]",
+        "  alpha   beta   gamma   delta-with-a-long-squad-name   epsilon  ▚ tmt",
         "5 squads  ◆ 3  ✗ 3  ◐ 1  ● 4  ○ 3",
         "",
         "",
         "── ◆ needs you · 3 ─────────────────────────────────────────────────────────────────────────────────",
-        ">◆ lead-a                  alpha",
+        " ◆ lead-a                  alpha",
         " ◆ worker-one              alpha",
         " ◆ worker-two              alpha",
         "",
@@ -7541,7 +7541,7 @@
         "Focus: HOME rows  ↑↓ move  ⏎ open  a write  e expand  A ask lead  / search  ? more  q quit"
       ],
       "styles": [
-        "0:7=s0 7:1=s1 8:6=s0 14:1=s1 15:7=s0 22:1=s1 23:30=s0 53:1=s1 54:9=s0 63:1=s1 64:9=s2 73:27=s1",
+        "0:7=s0 7:1=s1 8:6=s0 14:1=s1 15:7=s0 22:1=s1 23:30=s0 53:1=s1 54:9=s0 63:1=s1 64:7=s2 71:29=s1",
         "0:10=s3 10:1=s4 11:2=s3 13:2=s5 15:1=s6 16:2=s3 18:2=s5 20:1=s7 21:2=s3 23:2=s5 25:1=s8 26:2=s3 28:3=s5 31:2=s3 33:2=s5 35:65=s1",
         "0:100=s1",
         "0:100=s1",
@@ -7623,7 +7623,7 @@
         34,
         35
       ],
-      "tabs": "[TabHit { y: 0, x: 0, width: 7, tab: 0 }, TabHit { y: 0, x: 8, width: 6, tab: 1 }, TabHit { y: 0, x: 15, width: 7, tab: 2 }, TabHit { y: 0, x: 23, width: 30, tab: 3 }, TabHit { y: 0, x: 54, width: 9, tab: 4 }, TabHit { y: 0, x: 64, width: 9, tab: 5 }]",
+      "tabs": "[TabHit { y: 0, x: 0, width: 7, tab: 0 }, TabHit { y: 0, x: 8, width: 6, tab: 1 }, TabHit { y: 0, x: 15, width: 7, tab: 2 }, TabHit { y: 0, x: 23, width: 30, tab: 3 }, TabHit { y: 0, x: 54, width: 9, tab: 4 }, TabHit { y: 0, x: 64, width: 7, tab: 5 }]",
       "input": "None",
       "state": "cron-stale",
       "look": "tmt",
@@ -7631,12 +7631,12 @@
     },
     {
       "lines": [
-        "  alpha   beta   gamma   delta-with-a-long-squad-name   epsilon  ▚ [tmt]",
+        "  alpha   beta   gamma   delta-with-a-long-squad-name   epsilon  ▚ tmt",
         "5 squads  ◆ 3  ✗ 3  ◐ 1  ● 4  ○ 3",
         "",
         "",
         "── ◆ needs you · 3 ─────────────────────────────────────────────────────────────",
-        ">◆ lead-a                  alpha",
+        " ◆ lead-a                  alpha",
         " ◆ worker-one              alpha",
         " ◆ worker-two              alpha",
         "",
@@ -7693,7 +7693,7 @@
         "Focus: HOME rows  ↑↓ move  ⏎ open  a write  e expand  A ask  ? more  q quit"
       ],
       "styles": [
-        "0:7=s0 7:1=s1 8:6=s0 14:1=s1 15:7=s0 22:1=s1 23:30=s0 53:1=s1 54:9=s0 63:1=s1 64:9=s2 73:7=s1",
+        "0:7=s0 7:1=s1 8:6=s0 14:1=s1 15:7=s0 22:1=s1 23:30=s0 53:1=s1 54:9=s0 63:1=s1 64:7=s2 71:9=s1",
         "0:10=s3 10:1=s4 11:2=s3 13:2=s5 15:1=s6 16:2=s3 18:2=s5 20:1=s7 21:2=s3 23:2=s5 25:1=s8 26:2=s3 28:3=s5 31:2=s3 33:2=s5 35:45=s1",
         "0:80=s1",
         "0:80=s1",
@@ -7775,7 +7775,7 @@
         34,
         35
       ],
-      "tabs": "[TabHit { y: 0, x: 0, width: 7, tab: 0 }, TabHit { y: 0, x: 8, width: 6, tab: 1 }, TabHit { y: 0, x: 15, width: 7, tab: 2 }, TabHit { y: 0, x: 23, width: 30, tab: 3 }, TabHit { y: 0, x: 54, width: 9, tab: 4 }, TabHit { y: 0, x: 64, width: 9, tab: 5 }]",
+      "tabs": "[TabHit { y: 0, x: 0, width: 7, tab: 0 }, TabHit { y: 0, x: 8, width: 6, tab: 1 }, TabHit { y: 0, x: 15, width: 7, tab: 2 }, TabHit { y: 0, x: 23, width: 30, tab: 3 }, TabHit { y: 0, x: 54, width: 9, tab: 4 }, TabHit { y: 0, x: 64, width: 7, tab: 5 }]",
       "input": "None",
       "state": "cron-stale",
       "look": "tmt",
@@ -7783,12 +7783,12 @@
     },
     {
       "lines": [
-        "‹ 3   delta-with-a-long-squad-name   epsilon  ▚ [tmt]",
+        "‹ 3   delta-with-a-long-squad-name   epsilon  ▚ tmt",
         "5 squads  ◆ 3  ✗ 3  ◐ 1  ● 4  ○ 3",
         "",
         "",
         "── ◆ needs you · 3 ─────────────────────────────────────────",
-        ">◆ lead-a                  alpha",
+        " ◆ lead-a                  alpha",
         " ◆ worker-one              alpha",
         " ◆ worker-two              alpha",
         "",
@@ -7845,7 +7845,7 @@
         "Focus: HOME rows  ↑↓ move  ⏎ open  a write  ? more  q quit"
       ],
       "styles": [
-        "0:4=s5 4:30=s0 34:1=s1 35:9=s0 44:1=s1 45:9=s2 54:6=s1",
+        "0:4=s5 4:30=s0 34:1=s1 35:9=s0 44:1=s1 45:7=s2 52:8=s1",
         "0:10=s3 10:1=s4 11:2=s3 13:2=s5 15:1=s6 16:2=s3 18:2=s5 20:1=s7 21:2=s3 23:2=s5 25:1=s8 26:2=s3 28:3=s5 31:2=s3 33:2=s5 35:25=s1",
         "0:60=s1",
         "0:60=s1",
@@ -7927,7 +7927,7 @@
         34,
         35
       ],
-      "tabs": "[TabHit { y: 0, x: 4, width: 30, tab: 3 }, TabHit { y: 0, x: 35, width: 9, tab: 4 }, TabHit { y: 0, x: 45, width: 9, tab: 5 }]",
+      "tabs": "[TabHit { y: 0, x: 4, width: 30, tab: 3 }, TabHit { y: 0, x: 35, width: 9, tab: 4 }, TabHit { y: 0, x: 45, width: 7, tab: 5 }]",
       "input": "None",
       "state": "cron-stale",
       "look": "tmt",
@@ -7935,12 +7935,12 @@
     },
     {
       "lines": [
-        "‹ 3   delta-with-a-long-squad-name   epsilon  ▚ [tmt]",
+        "‹ 3   delta-with-a-long-squad-name   epsilon  ▚ tmt",
         "5 squads  ◆ 3  ✗ 3  ◐ 1  ● 4  ○ 3",
         "",
         "",
         "── ◆ needs you · 3 ─────────────────────────────────────────",
-        ">◆ lead-a                  alpha",
+        " ◆ lead-a                  alpha",
         " ◆ worker-one              alpha",
         " ◆ worker-two              alpha",
         "",
@@ -7997,7 +7997,7 @@
         "Focus: HOME rows  ↑↓ move  ⏎ open  a write  ? more  q quit"
       ],
       "styles": [
-        "0:4=s5 4:30=s0 34:1=s1 35:9=s0 44:1=s1 45:9=s2 54:6=s1",
+        "0:4=s5 4:30=s0 34:1=s1 35:9=s0 44:1=s1 45:7=s2 52:8=s1",
         "0:10=s3 10:1=s4 11:2=s3 13:2=s5 15:1=s6 16:2=s3 18:2=s5 20:1=s7 21:2=s3 23:2=s5 25:1=s8 26:2=s3 28:3=s5 31:2=s3 33:2=s5 35:25=s1",
         "0:60=s1",
         "0:60=s1",
@@ -8079,7 +8079,7 @@
         34,
         35
       ],
-      "tabs": "[TabHit { y: 0, x: 4, width: 30, tab: 3 }, TabHit { y: 0, x: 35, width: 9, tab: 4 }, TabHit { y: 0, x: 45, width: 9, tab: 5 }]",
+      "tabs": "[TabHit { y: 0, x: 4, width: 30, tab: 3 }, TabHit { y: 0, x: 35, width: 9, tab: 4 }, TabHit { y: 0, x: 45, width: 7, tab: 5 }]",
       "input": "None",
       "state": "narrow",
       "look": "tmt",
@@ -8087,12 +8087,12 @@
     },
     {
       "lines": [
-        "‹ 4   epsilon  ▚ [tmt]",
+        "‹ 4   epsilon  ▚ tmt",
         "5 squads  ◆ 3  ✗ 3  ◐ 1  ● 4  ○ 3",
         "",
         "",
         "── ◆ needs you · 3 ───────────────────────────────",
-        ">◆ lead-a                 alpha",
+        " ◆ lead-a                 alpha",
         " ◆ worker-one             alpha",
         " ◆ worker-two             alpha",
         "",
@@ -8149,7 +8149,7 @@
         "Focus: HOME rows  ↑↓ move  ⏎ open  ? more  q quit"
       ],
       "styles": [
-        "0:4=s5 4:9=s0 13:1=s1 14:9=s2 23:27=s1",
+        "0:4=s5 4:9=s0 13:1=s1 14:7=s2 21:29=s1",
         "0:10=s3 10:1=s4 11:2=s3 13:2=s5 15:1=s6 16:2=s3 18:2=s5 20:1=s7 21:2=s3 23:2=s5 25:1=s8 26:2=s3 28:3=s5 31:2=s3 33:2=s5 35:15=s1",
         "0:50=s1",
         "0:50=s1",
@@ -8231,7 +8231,7 @@
         34,
         35
       ],
-      "tabs": "[TabHit { y: 0, x: 4, width: 9, tab: 4 }, TabHit { y: 0, x: 14, width: 9, tab: 5 }]",
+      "tabs": "[TabHit { y: 0, x: 4, width: 9, tab: 4 }, TabHit { y: 0, x: 14, width: 7, tab: 5 }]",
       "input": "None",
       "state": "narrow",
       "look": "tmt",
@@ -8239,13 +8239,13 @@
     },
     {
       "lines": [
-        "  alpha   beta   gamma   delta-with-a-long-squad-name   epsilon  ▚ [tmt]",
+        "  alpha   beta   gamma   delta-with-a-long-squad-name   epsilon  ▚ tmt",
         "5 squads · 12 members   ◆ 3 waiting on you  ✗ 3 blocked  ◐ 1 review  ● 4 working  ○ 3 idle",
         "tok 1m – · 5m ~1k · 1h ~2k · share 1h: worker ~60% · models sol ~60%, opus ~40% · 2 members without data",
         "",
         "",
         "── ◆ needs you · 3 ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
-        ">◆ lead-a                  alpha",
+        " ◆ lead-a                  alpha",
         " ◆ worker-one              alpha",
         " ◆ worker-two              alpha",
         "",
@@ -8301,7 +8301,7 @@
         "Focus: HOME rows  ↑↓ move  ⏎ open  a write  e expand  A ask lead  / search  ? more  q quit"
       ],
       "styles": [
-        "0:7=s0 7:1=s1 8:6=s0 14:1=s1 15:7=s0 22:1=s1 23:30=s0 53:1=s1 54:9=s0 63:1=s1 64:9=s2 73:87=s1",
+        "0:7=s0 7:1=s1 8:6=s0 14:1=s1 15:7=s0 22:1=s1 23:30=s0 53:1=s1 54:9=s0 63:1=s1 64:7=s2 71:89=s1",
         "0:24=s3 24:1=s4 25:17=s3 42:2=s5 44:1=s6 45:10=s3 55:2=s5 57:1=s7 58:9=s3 67:2=s5 69:1=s8 70:10=s3 80:3=s5 83:7=s3 90:2=s5 92:68=s1",
         "0:26=s3 26:3=s5 29:21=s3 50:3=s5 53:26=s3 79:3=s5 82:22=s3 104:56=s1",
         "0:160=s1",
@@ -8383,7 +8383,7 @@
         34,
         35
       ],
-      "tabs": "[TabHit { y: 0, x: 0, width: 7, tab: 0 }, TabHit { y: 0, x: 8, width: 6, tab: 1 }, TabHit { y: 0, x: 15, width: 7, tab: 2 }, TabHit { y: 0, x: 23, width: 30, tab: 3 }, TabHit { y: 0, x: 54, width: 9, tab: 4 }, TabHit { y: 0, x: 64, width: 9, tab: 5 }]",
+      "tabs": "[TabHit { y: 0, x: 0, width: 7, tab: 0 }, TabHit { y: 0, x: 8, width: 6, tab: 1 }, TabHit { y: 0, x: 15, width: 7, tab: 2 }, TabHit { y: 0, x: 23, width: 30, tab: 3 }, TabHit { y: 0, x: 54, width: 9, tab: 4 }, TabHit { y: 0, x: 64, width: 7, tab: 5 }]",
       "input": "None",
       "state": "header-usage",
       "look": "tmt",
@@ -8391,13 +8391,13 @@
     },
     {
       "lines": [
-        "  alpha   beta   gamma   delta-with-a-long-squad-name   epsilon  ▚ [tmt]",
+        "  alpha   beta   gamma   delta-with-a-long-squad-name   epsilon  ▚ tmt",
         "5 squads · 12 members   ◆ 3 waiting on you  ✗ 3 blocked  ◐ 1 review  ● 4 working  ○ 3 idle",
         "tok 1m – · 5m ~1k · 1h ~2k · share 1h: worker ~60% · models sol ~60%, opus ~40% · 2 members without data",
         "",
         "",
         "── ◆ needs you · 3 ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
-        ">◆ lead-a                  alpha",
+        " ◆ lead-a                  alpha",
         " ◆ worker-one              alpha",
         " ◆ worker-two              alpha",
         "",
@@ -8453,7 +8453,7 @@
         "Focus: HOME rows  ↑↓ move  ⏎ open  a write  e expand  A ask lead  / search  ? more  q quit"
       ],
       "styles": [
-        "0:7=s0 7:1=s1 8:6=s0 14:1=s1 15:7=s0 22:1=s1 23:30=s0 53:1=s1 54:9=s0 63:1=s1 64:9=s2 73:67=s1",
+        "0:7=s0 7:1=s1 8:6=s0 14:1=s1 15:7=s0 22:1=s1 23:30=s0 53:1=s1 54:9=s0 63:1=s1 64:7=s2 71:69=s1",
         "0:24=s3 24:1=s4 25:17=s3 42:2=s5 44:1=s6 45:10=s3 55:2=s5 57:1=s7 58:9=s3 67:2=s5 69:1=s8 70:10=s3 80:3=s5 83:7=s3 90:2=s5 92:48=s1",
         "0:26=s3 26:3=s5 29:21=s3 50:3=s5 53:26=s3 79:3=s5 82:22=s3 104:36=s1",
         "0:140=s1",
@@ -8535,7 +8535,7 @@
         34,
         35
       ],
-      "tabs": "[TabHit { y: 0, x: 0, width: 7, tab: 0 }, TabHit { y: 0, x: 8, width: 6, tab: 1 }, TabHit { y: 0, x: 15, width: 7, tab: 2 }, TabHit { y: 0, x: 23, width: 30, tab: 3 }, TabHit { y: 0, x: 54, width: 9, tab: 4 }, TabHit { y: 0, x: 64, width: 9, tab: 5 }]",
+      "tabs": "[TabHit { y: 0, x: 0, width: 7, tab: 0 }, TabHit { y: 0, x: 8, width: 6, tab: 1 }, TabHit { y: 0, x: 15, width: 7, tab: 2 }, TabHit { y: 0, x: 23, width: 30, tab: 3 }, TabHit { y: 0, x: 54, width: 9, tab: 4 }, TabHit { y: 0, x: 64, width: 7, tab: 5 }]",
       "input": "None",
       "state": "header-usage",
       "look": "tmt",
@@ -8543,13 +8543,13 @@
     },
     {
       "lines": [
-        "  alpha   beta   gamma   delta-with-a-long-squad-name   epsilon  ▚ [tmt]",
+        "  alpha   beta   gamma   delta-with-a-long-squad-name   epsilon  ▚ tmt",
         "5 squads  ◆ 3  ✗ 3  ◐ 1  ● 4  ○ 3",
         "tok 5m ~1k · 1h ~2k · share 1h: worker ~60%",
         "",
         "",
         "── ◆ needs you · 3 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
-        ">◆ lead-a                  alpha",
+        " ◆ lead-a                  alpha",
         " ◆ worker-one              alpha",
         " ◆ worker-two              alpha",
         "",
@@ -8605,7 +8605,7 @@
         "Focus: HOME rows  ↑↓ move  ⏎ open  a write  e expand  A ask lead  / search  ? more  q quit"
       ],
       "styles": [
-        "0:7=s0 7:1=s1 8:6=s0 14:1=s1 15:7=s0 22:1=s1 23:30=s0 53:1=s1 54:9=s0 63:1=s1 64:9=s2 73:66=s1",
+        "0:7=s0 7:1=s1 8:6=s0 14:1=s1 15:7=s0 22:1=s1 23:30=s0 53:1=s1 54:9=s0 63:1=s1 64:7=s2 71:68=s1",
         "0:10=s3 10:1=s4 11:2=s3 13:2=s5 15:1=s6 16:2=s3 18:2=s5 20:1=s7 21:2=s3 23:2=s5 25:1=s8 26:2=s3 28:3=s5 31:2=s3 33:2=s5 35:104=s1",
         "0:19=s3 19:3=s5 22:21=s3 43:96=s1",
         "0:139=s1",
@@ -8687,7 +8687,7 @@
         34,
         35
       ],
-      "tabs": "[TabHit { y: 0, x: 0, width: 7, tab: 0 }, TabHit { y: 0, x: 8, width: 6, tab: 1 }, TabHit { y: 0, x: 15, width: 7, tab: 2 }, TabHit { y: 0, x: 23, width: 30, tab: 3 }, TabHit { y: 0, x: 54, width: 9, tab: 4 }, TabHit { y: 0, x: 64, width: 9, tab: 5 }]",
+      "tabs": "[TabHit { y: 0, x: 0, width: 7, tab: 0 }, TabHit { y: 0, x: 8, width: 6, tab: 1 }, TabHit { y: 0, x: 15, width: 7, tab: 2 }, TabHit { y: 0, x: 23, width: 30, tab: 3 }, TabHit { y: 0, x: 54, width: 9, tab: 4 }, TabHit { y: 0, x: 64, width: 7, tab: 5 }]",
       "input": "None",
       "state": "header-usage",
       "look": "tmt",
@@ -8695,13 +8695,13 @@
     },
     {
       "lines": [
-        "  alpha   beta   gamma   delta-with-a-long-squad-name   epsilon  ▚ [tmt]",
+        "  alpha   beta   gamma   delta-with-a-long-squad-name   epsilon  ▚ tmt",
         "5 squads  ◆ 3  ✗ 3  ◐ 1  ● 4  ○ 3",
         "tok 5m ~1k · 1h ~2k · share 1h: worker ~60%",
         "",
         "",
         "── ◆ needs you · 3 ─────────────────────────────────────────────────────────────────────────────────",
-        ">◆ lead-a                  alpha",
+        " ◆ lead-a                  alpha",
         " ◆ worker-one              alpha",
         " ◆ worker-two              alpha",
         "",
@@ -8757,7 +8757,7 @@
         "Focus: HOME rows  ↑↓ move  ⏎ open  a write  e expand  A ask lead  / search  ? more  q quit"
       ],
       "styles": [
-        "0:7=s0 7:1=s1 8:6=s0 14:1=s1 15:7=s0 22:1=s1 23:30=s0 53:1=s1 54:9=s0 63:1=s1 64:9=s2 73:27=s1",
+        "0:7=s0 7:1=s1 8:6=s0 14:1=s1 15:7=s0 22:1=s1 23:30=s0 53:1=s1 54:9=s0 63:1=s1 64:7=s2 71:29=s1",
         "0:10=s3 10:1=s4 11:2=s3 13:2=s5 15:1=s6 16:2=s3 18:2=s5 20:1=s7 21:2=s3 23:2=s5 25:1=s8 26:2=s3 28:3=s5 31:2=s3 33:2=s5 35:65=s1",
         "0:19=s3 19:3=s5 22:21=s3 43:57=s1",
         "0:100=s1",
@@ -8839,7 +8839,7 @@
         34,
         35
       ],
-      "tabs": "[TabHit { y: 0, x: 0, width: 7, tab: 0 }, TabHit { y: 0, x: 8, width: 6, tab: 1 }, TabHit { y: 0, x: 15, width: 7, tab: 2 }, TabHit { y: 0, x: 23, width: 30, tab: 3 }, TabHit { y: 0, x: 54, width: 9, tab: 4 }, TabHit { y: 0, x: 64, width: 9, tab: 5 }]",
+      "tabs": "[TabHit { y: 0, x: 0, width: 7, tab: 0 }, TabHit { y: 0, x: 8, width: 6, tab: 1 }, TabHit { y: 0, x: 15, width: 7, tab: 2 }, TabHit { y: 0, x: 23, width: 30, tab: 3 }, TabHit { y: 0, x: 54, width: 9, tab: 4 }, TabHit { y: 0, x: 64, width: 7, tab: 5 }]",
       "input": "None",
       "state": "header-usage",
       "look": "tmt",
@@ -8847,12 +8847,12 @@
     },
     {
       "lines": [
-        "  alpha   beta   gamma   delta-with-a-long-squad-name   epsilon  ▚ [tmt]",
+        "  alpha   beta   gamma   delta-with-a-long-squad-name   epsilon  ▚ tmt",
         "5 squads  ◆ 3  ✗ 3  ◐ 1  ● 4  ○ 3",
         "",
         "",
         "── ◆ needs you · 3 ────────────────────────────────────────────────────────────────────────────────",
-        ">◆ lead-a                  alpha",
+        " ◆ lead-a                  alpha",
         " ◆ worker-one              alpha",
         " ◆ worker-two              alpha",
         "",
@@ -8909,7 +8909,7 @@
         "Focus: HOME rows  ↑↓ move  ⏎ open  a write  e expand  A ask  / search  ? more  q quit"
       ],
       "styles": [
-        "0:7=s0 7:1=s1 8:6=s0 14:1=s1 15:7=s0 22:1=s1 23:30=s0 53:1=s1 54:9=s0 63:1=s1 64:9=s2 73:26=s1",
+        "0:7=s0 7:1=s1 8:6=s0 14:1=s1 15:7=s0 22:1=s1 23:30=s0 53:1=s1 54:9=s0 63:1=s1 64:7=s2 71:28=s1",
         "0:10=s3 10:1=s4 11:2=s3 13:2=s5 15:1=s6 16:2=s3 18:2=s5 20:1=s7 21:2=s3 23:2=s5 25:1=s8 26:2=s3 28:3=s5 31:2=s3 33:2=s5 35:64=s1",
         "0:99=s1",
         "0:99=s1",
@@ -8991,7 +8991,7 @@
         34,
         35
       ],
-      "tabs": "[TabHit { y: 0, x: 0, width: 7, tab: 0 }, TabHit { y: 0, x: 8, width: 6, tab: 1 }, TabHit { y: 0, x: 15, width: 7, tab: 2 }, TabHit { y: 0, x: 23, width: 30, tab: 3 }, TabHit { y: 0, x: 54, width: 9, tab: 4 }, TabHit { y: 0, x: 64, width: 9, tab: 5 }]",
+      "tabs": "[TabHit { y: 0, x: 0, width: 7, tab: 0 }, TabHit { y: 0, x: 8, width: 6, tab: 1 }, TabHit { y: 0, x: 15, width: 7, tab: 2 }, TabHit { y: 0, x: 23, width: 30, tab: 3 }, TabHit { y: 0, x: 54, width: 9, tab: 4 }, TabHit { y: 0, x: 64, width: 7, tab: 5 }]",
       "input": "None",
       "state": "header-usage",
       "look": "tmt",
@@ -8999,12 +8999,12 @@
     },
     {
       "lines": [
-        "  alpha   beta   gamma   delta-with-a-long-squad-name   epsilon  ▚ [tmt]",
+        "  alpha   beta   gamma   delta-with-a-long-squad-name   epsilon  ▚ tmt",
         "5 squads  ◆ 3  ✗ 3  ◐ 1  ● 4  ○ 3",
         "",
         "",
         "── ◆ needs you · 3 ─────────────────────────────────────────────────────────────",
-        ">◆ lead-a                  alpha",
+        " ◆ lead-a                  alpha",
         " ◆ worker-one              alpha",
         " ◆ worker-two              alpha",
         "",
@@ -9061,7 +9061,7 @@
         "Focus: HOME rows  ↑↓ move  ⏎ open  a write  e expand  A ask  ? more  q quit"
       ],
       "styles": [
-        "0:7=s0 7:1=s1 8:6=s0 14:1=s1 15:7=s0 22:1=s1 23:30=s0 53:1=s1 54:9=s0 63:1=s1 64:9=s2 73:7=s1",
+        "0:7=s0 7:1=s1 8:6=s0 14:1=s1 15:7=s0 22:1=s1 23:30=s0 53:1=s1 54:9=s0 63:1=s1 64:7=s2 71:9=s1",
         "0:10=s3 10:1=s4 11:2=s3 13:2=s5 15:1=s6 16:2=s3 18:2=s5 20:1=s7 21:2=s3 23:2=s5 25:1=s8 26:2=s3 28:3=s5 31:2=s3 33:2=s5 35:45=s1",
         "0:80=s1",
         "0:80=s1",
@@ -9143,7 +9143,7 @@
         34,
         35
       ],
-      "tabs": "[TabHit { y: 0, x: 0, width: 7, tab: 0 }, TabHit { y: 0, x: 8, width: 6, tab: 1 }, TabHit { y: 0, x: 15, width: 7, tab: 2 }, TabHit { y: 0, x: 23, width: 30, tab: 3 }, TabHit { y: 0, x: 54, width: 9, tab: 4 }, TabHit { y: 0, x: 64, width: 9, tab: 5 }]",
+      "tabs": "[TabHit { y: 0, x: 0, width: 7, tab: 0 }, TabHit { y: 0, x: 8, width: 6, tab: 1 }, TabHit { y: 0, x: 15, width: 7, tab: 2 }, TabHit { y: 0, x: 23, width: 30, tab: 3 }, TabHit { y: 0, x: 54, width: 9, tab: 4 }, TabHit { y: 0, x: 64, width: 7, tab: 5 }]",
       "input": "None",
       "state": "header-usage",
       "look": "tmt",
@@ -9151,12 +9151,12 @@
     },
     {
       "lines": [
-        "  alpha   beta   gamma   delta-with-a-long-squad-name   epsilon  ▚ [tmt]",
+        "  alpha   beta   gamma   delta-with-a-long-squad-name   epsilon  ▚ tmt",
         "5 squads · 12 members   ◆ 3 waiting on you  ✗ 3 blocked  ◐ 1 review  ● 4 working  ○ 3 idle",
         "",
         "",
         "── ◆ needs you · 3 ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
-        ">◆ lead-a                  alpha",
+        " ◆ lead-a                  alpha",
         " ◆ worker-one              alpha",
         " ◆ worker-two              alpha",
         "",
@@ -9213,7 +9213,7 @@
         "Focus: HOME rows  ↑↓ move  ⏎ open  a write  e expand  A ask lead  / search  ? more  q quit"
       ],
       "styles": [
-        "0:7=s18 7:1=s1 8:6=s18 14:1=s1 15:7=s18 22:1=s1 23:30=s18 53:1=s1 54:9=s18 63:1=s1 64:9=s19 73:87=s1",
+        "0:7=s18 7:1=s1 8:6=s18 14:1=s1 15:7=s18 22:1=s1 23:30=s18 53:1=s1 54:9=s18 63:1=s1 64:7=s19 71:89=s1",
         "0:24=s20 24:1=s21 25:17=s20 42:2=s22 44:1=s23 45:10=s20 55:2=s22 57:1=s24 58:9=s20 67:2=s22 69:1=s25 70:10=s20 80:3=s22 83:7=s20 90:2=s22 92:68=s1",
         "0:160=s1",
         "0:160=s1",
@@ -9295,7 +9295,7 @@
         34,
         35
       ],
-      "tabs": "[TabHit { y: 0, x: 0, width: 7, tab: 0 }, TabHit { y: 0, x: 8, width: 6, tab: 1 }, TabHit { y: 0, x: 15, width: 7, tab: 2 }, TabHit { y: 0, x: 23, width: 30, tab: 3 }, TabHit { y: 0, x: 54, width: 9, tab: 4 }, TabHit { y: 0, x: 64, width: 9, tab: 5 }]",
+      "tabs": "[TabHit { y: 0, x: 0, width: 7, tab: 0 }, TabHit { y: 0, x: 8, width: 6, tab: 1 }, TabHit { y: 0, x: 15, width: 7, tab: 2 }, TabHit { y: 0, x: 23, width: 30, tab: 3 }, TabHit { y: 0, x: 54, width: 9, tab: 4 }, TabHit { y: 0, x: 64, width: 7, tab: 5 }]",
       "input": "None",
       "state": "base",
       "look": "tmt-light",
@@ -9303,12 +9303,12 @@
     },
     {
       "lines": [
-        "  alpha   beta   gamma   delta-with-a-long-squad-name   epsilon  ▚ [tmt]",
+        "  alpha   beta   gamma   delta-with-a-long-squad-name   epsilon  ▚ tmt",
         "5 squads  ◆ 3  ✗ 3  ◐ 1  ● 4  ○ 3",
         "",
         "",
         "── ◆ needs you · 3 ─────────────────────────────────────────────────────────────",
-        ">◆ lead-a                  alpha",
+        " ◆ lead-a                  alpha",
         " ◆ worker-one              alpha",
         " ◆ worker-two              alpha",
         "",
@@ -9365,7 +9365,7 @@
         "Focus: HOME rows  ↑↓ move  ⏎ open  a write  e expand  A ask  ? more  q quit"
       ],
       "styles": [
-        "0:7=s18 7:1=s1 8:6=s18 14:1=s1 15:7=s18 22:1=s1 23:30=s18 53:1=s1 54:9=s18 63:1=s1 64:9=s19 73:7=s1",
+        "0:7=s18 7:1=s1 8:6=s18 14:1=s1 15:7=s18 22:1=s1 23:30=s18 53:1=s1 54:9=s18 63:1=s1 64:7=s19 71:9=s1",
         "0:10=s20 10:1=s21 11:2=s20 13:2=s22 15:1=s23 16:2=s20 18:2=s22 20:1=s24 21:2=s20 23:2=s22 25:1=s25 26:2=s20 28:3=s22 31:2=s20 33:2=s22 35:45=s1",
         "0:80=s1",
         "0:80=s1",
@@ -9447,7 +9447,7 @@
         34,
         35
       ],
-      "tabs": "[TabHit { y: 0, x: 0, width: 7, tab: 0 }, TabHit { y: 0, x: 8, width: 6, tab: 1 }, TabHit { y: 0, x: 15, width: 7, tab: 2 }, TabHit { y: 0, x: 23, width: 30, tab: 3 }, TabHit { y: 0, x: 54, width: 9, tab: 4 }, TabHit { y: 0, x: 64, width: 9, tab: 5 }]",
+      "tabs": "[TabHit { y: 0, x: 0, width: 7, tab: 0 }, TabHit { y: 0, x: 8, width: 6, tab: 1 }, TabHit { y: 0, x: 15, width: 7, tab: 2 }, TabHit { y: 0, x: 23, width: 30, tab: 3 }, TabHit { y: 0, x: 54, width: 9, tab: 4 }, TabHit { y: 0, x: 64, width: 7, tab: 5 }]",
       "input": "None",
       "state": "base",
       "look": "tmt-light",
@@ -9455,7 +9455,7 @@
     },
     {
       "lines": [
-        "  alpha   beta   gamma   delta-with-a-long-squad-name   epsilon  ▚ [tmt]",
+        "  alpha   beta   gamma   delta-with-a-long-squad-name   epsilon  ▚ tmt",
         "5 squads · 12 members   ◆ 3 waiting on you  ✗ 3 blocked  ◐ 1 review  ● 4 working  ○ 3 idle",
         "",
         "",
@@ -9477,7 +9477,7 @@
         "  … lead-g                     gamma                                                                                                                       12h",
         "   no reply yet to: Please review the draft",
         "",
-        " >✓ lead-b                     beta                                                                                                                         1d",
+        "  ✓ lead-b                     beta                                                                                                                         1d",
         "   The public replies and results reads are merged.",
         "",
         "    lead-delta-with-a-long-…   delta-with-a-long-squad-name                                                                                                  –",
@@ -9517,7 +9517,7 @@
         "Focus: HOME rows  ↑↓ move  ⏎ open  a write  e expand  A ask lead  / search  ? more  q quit"
       ],
       "styles": [
-        "0:7=s18 7:1=s1 8:6=s18 14:1=s1 15:7=s18 22:1=s1 23:30=s18 53:1=s1 54:9=s18 63:1=s1 64:9=s19 73:87=s1",
+        "0:7=s18 7:1=s1 8:6=s18 14:1=s1 15:7=s18 22:1=s1 23:30=s18 53:1=s1 54:9=s18 63:1=s1 64:7=s19 71:89=s1",
         "0:24=s20 24:1=s21 25:17=s20 42:2=s22 44:1=s23 45:10=s20 55:2=s22 57:1=s24 58:9=s20 67:2=s22 69:1=s25 70:10=s20 80:3=s22 83:7=s20 90:2=s22 92:68=s1",
         "0:160=s1",
         "0:160=s1",
@@ -9599,7 +9599,7 @@
         34,
         35
       ],
-      "tabs": "[TabHit { y: 0, x: 0, width: 7, tab: 0 }, TabHit { y: 0, x: 8, width: 6, tab: 1 }, TabHit { y: 0, x: 15, width: 7, tab: 2 }, TabHit { y: 0, x: 23, width: 30, tab: 3 }, TabHit { y: 0, x: 54, width: 9, tab: 4 }, TabHit { y: 0, x: 64, width: 9, tab: 5 }]",
+      "tabs": "[TabHit { y: 0, x: 0, width: 7, tab: 0 }, TabHit { y: 0, x: 8, width: 6, tab: 1 }, TabHit { y: 0, x: 15, width: 7, tab: 2 }, TabHit { y: 0, x: 23, width: 30, tab: 3 }, TabHit { y: 0, x: 54, width: 9, tab: 4 }, TabHit { y: 0, x: 64, width: 7, tab: 5 }]",
       "input": "None",
       "state": "lead-selected",
       "look": "tmt-light",
@@ -9607,7 +9607,7 @@
     },
     {
       "lines": [
-        "  alpha   beta   gamma   delta-with-a-long-squad-name   epsilon  ▚ [tmt]",
+        "  alpha   beta   gamma   delta-with-a-long-squad-name   epsilon  ▚ tmt",
         "5 squads  ◆ 3  ✗ 3  ◐ 1  ● 4  ○ 3",
         "",
         "",
@@ -9629,7 +9629,7 @@
         "  … lead-g                                                                 12h",
         "   no reply yet to: Please review the draft",
         "",
-        " >✓ lead-b                                                                  1d",
+        "  ✓ lead-b                                                                  1d",
         "   The public replies and results reads are merged.",
         "",
         "    lead-delta-with-a-long-…                                                 –",
@@ -9669,7 +9669,7 @@
         "Focus: HOME rows  ↑↓ move  ⏎ open  a write  e expand  A ask  ? more  q quit"
       ],
       "styles": [
-        "0:7=s18 7:1=s1 8:6=s18 14:1=s1 15:7=s18 22:1=s1 23:30=s18 53:1=s1 54:9=s18 63:1=s1 64:9=s19 73:7=s1",
+        "0:7=s18 7:1=s1 8:6=s18 14:1=s1 15:7=s18 22:1=s1 23:30=s18 53:1=s1 54:9=s18 63:1=s1 64:7=s19 71:9=s1",
         "0:10=s20 10:1=s21 11:2=s20 13:2=s22 15:1=s23 16:2=s20 18:2=s22 20:1=s24 21:2=s20 23:2=s22 25:1=s25 26:2=s20 28:3=s22 31:2=s20 33:2=s22 35:45=s1",
         "0:80=s1",
         "0:80=s1",
@@ -9751,7 +9751,7 @@
         34,
         35
       ],
-      "tabs": "[TabHit { y: 0, x: 0, width: 7, tab: 0 }, TabHit { y: 0, x: 8, width: 6, tab: 1 }, TabHit { y: 0, x: 15, width: 7, tab: 2 }, TabHit { y: 0, x: 23, width: 30, tab: 3 }, TabHit { y: 0, x: 54, width: 9, tab: 4 }, TabHit { y: 0, x: 64, width: 9, tab: 5 }]",
+      "tabs": "[TabHit { y: 0, x: 0, width: 7, tab: 0 }, TabHit { y: 0, x: 8, width: 6, tab: 1 }, TabHit { y: 0, x: 15, width: 7, tab: 2 }, TabHit { y: 0, x: 23, width: 30, tab: 3 }, TabHit { y: 0, x: 54, width: 9, tab: 4 }, TabHit { y: 0, x: 64, width: 7, tab: 5 }]",
       "input": "None",
       "state": "lead-selected",
       "look": "tmt-light",
@@ -9759,7 +9759,7 @@
     },
     {
       "lines": [
-        "  alpha   beta   gamma   delta-with-a-long-squad-name   epsilon  ▚ [tmt]",
+        "  alpha   beta   gamma   delta-with-a-long-squad-name   epsilon  ▚ tmt",
         "5 squads · 12 members   ◆ 3 waiting on you  ✗ 3 blocked  ◐ 1 review  ● 4 working  ○ 3 idle",
         "",
         "",
@@ -9775,7 +9775,7 @@
         "",
         "── leads · latest from each · t hides replies ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
         "────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
-        " >◆ lead-a                     alpha                                                                                                                        2d",
+        "  ◆ lead-a                     alpha                                                                                                                        2d",
         "   asks: Approve this change?",
         " ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
         "   → lead-a (alpha) · answer",
@@ -9821,7 +9821,7 @@
         "↑↓ move  ⏎ open  a write  e expand  A ask lead  / search  ? more  q quit"
       ],
       "styles": [
-        "0:7=s18 7:1=s1 8:6=s18 14:1=s1 15:7=s18 22:1=s1 23:30=s18 53:1=s1 54:9=s18 63:1=s1 64:9=s19 73:87=s1",
+        "0:7=s18 7:1=s1 8:6=s18 14:1=s1 15:7=s18 22:1=s1 23:30=s18 53:1=s1 54:9=s18 63:1=s1 64:7=s19 71:89=s1",
         "0:24=s20 24:1=s21 25:17=s20 42:2=s22 44:1=s23 45:10=s20 55:2=s22 57:1=s24 58:9=s20 67:2=s22 69:1=s25 70:10=s20 80:3=s22 83:7=s20 90:2=s22 92:68=s1",
         "0:160=s1",
         "0:160=s1",
@@ -9903,7 +9903,7 @@
         40,
         41
       ],
-      "tabs": "[TabHit { y: 0, x: 0, width: 7, tab: 0 }, TabHit { y: 0, x: 8, width: 6, tab: 1 }, TabHit { y: 0, x: 15, width: 7, tab: 2 }, TabHit { y: 0, x: 23, width: 30, tab: 3 }, TabHit { y: 0, x: 54, width: 9, tab: 4 }, TabHit { y: 0, x: 64, width: 9, tab: 5 }]",
+      "tabs": "[TabHit { y: 0, x: 0, width: 7, tab: 0 }, TabHit { y: 0, x: 8, width: 6, tab: 1 }, TabHit { y: 0, x: 15, width: 7, tab: 2 }, TabHit { y: 0, x: 23, width: 30, tab: 3 }, TabHit { y: 0, x: 54, width: 9, tab: 4 }, TabHit { y: 0, x: 64, width: 7, tab: 5 }]",
       "input": "Some(Rect { x: 1, y: 18, width: 158, height: 6 })",
       "state": "composer-lead",
       "look": "tmt-light",
@@ -9911,7 +9911,7 @@
     },
     {
       "lines": [
-        "  alpha   beta   gamma   delta-with-a-long-squad-name   epsilon  ▚ [tmt]",
+        "  alpha   beta   gamma   delta-with-a-long-squad-name   epsilon  ▚ tmt",
         "5 squads  ◆ 3  ✗ 3  ◐ 1  ● 4  ○ 3",
         "",
         "",
@@ -9927,7 +9927,7 @@
         "",
         "── leads · latest from each · t hides replies ──────────────────────────────────",
         "────────────────────────────────────────────────────────────────────────────────",
-        " >◆ lead-a                                                                  2d",
+        "  ◆ lead-a                                                                  2d",
         "   asks: Approve this change?",
         " ──────────────────────────────────────────────────────────────────────────────",
         "   → lead-a (alpha) · answer",
@@ -9973,7 +9973,7 @@
         "↑↓ move  ⏎ open  a write  e expand  A ask  / search  ? more  q quit"
       ],
       "styles": [
-        "0:7=s18 7:1=s1 8:6=s18 14:1=s1 15:7=s18 22:1=s1 23:30=s18 53:1=s1 54:9=s18 63:1=s1 64:9=s19 73:7=s1",
+        "0:7=s18 7:1=s1 8:6=s18 14:1=s1 15:7=s18 22:1=s1 23:30=s18 53:1=s1 54:9=s18 63:1=s1 64:7=s19 71:9=s1",
         "0:10=s20 10:1=s21 11:2=s20 13:2=s22 15:1=s23 16:2=s20 18:2=s22 20:1=s24 21:2=s20 23:2=s22 25:1=s25 26:2=s20 28:3=s22 31:2=s20 33:2=s22 35:45=s1",
         "0:80=s1",
         "0:80=s1",
@@ -10055,7 +10055,7 @@
         40,
         41
       ],
-      "tabs": "[TabHit { y: 0, x: 0, width: 7, tab: 0 }, TabHit { y: 0, x: 8, width: 6, tab: 1 }, TabHit { y: 0, x: 15, width: 7, tab: 2 }, TabHit { y: 0, x: 23, width: 30, tab: 3 }, TabHit { y: 0, x: 54, width: 9, tab: 4 }, TabHit { y: 0, x: 64, width: 9, tab: 5 }]",
+      "tabs": "[TabHit { y: 0, x: 0, width: 7, tab: 0 }, TabHit { y: 0, x: 8, width: 6, tab: 1 }, TabHit { y: 0, x: 15, width: 7, tab: 2 }, TabHit { y: 0, x: 23, width: 30, tab: 3 }, TabHit { y: 0, x: 54, width: 9, tab: 4 }, TabHit { y: 0, x: 64, width: 7, tab: 5 }]",
       "input": "Some(Rect { x: 1, y: 18, width: 78, height: 6 })",
       "state": "composer-lead",
       "look": "tmt-light",
@@ -10063,7 +10063,7 @@
     },
     {
       "lines": [
-        "  alpha   beta   gamma   delta-with-a-long-squad-name   epsilon  ▚ [tmt]",
+        "  alpha   beta   gamma   delta-with-a-long-squad-name   epsilon  ▚ tmt",
         "5 squads · 12 members   ◆ 3 waiting on you  ✗ 3 blocked  ◐ 1 review  ● 4 working  ○ 3 idle",
         "",
         "",
@@ -10079,7 +10079,7 @@
         "",
         "── leads · latest from each · t hides replies ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
         "────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
-        " >◆ lead-a                     alpha                                                                                                                        2d",
+        "  ◆ lead-a                     alpha                                                                                                                        2d",
         " ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
         "   (reading message…)",
         "",
@@ -10125,7 +10125,7 @@
         "↑↓ move  ⏎ open  a write  e expand  A ask lead  / search  ? more  q quit"
       ],
       "styles": [
-        "0:7=s18 7:1=s1 8:6=s18 14:1=s1 15:7=s18 22:1=s1 23:30=s18 53:1=s1 54:9=s18 63:1=s1 64:9=s19 73:87=s1",
+        "0:7=s18 7:1=s1 8:6=s18 14:1=s1 15:7=s18 22:1=s1 23:30=s18 53:1=s1 54:9=s18 63:1=s1 64:7=s19 71:89=s1",
         "0:24=s20 24:1=s21 25:17=s20 42:2=s22 44:1=s23 45:10=s20 55:2=s22 57:1=s24 58:9=s20 67:2=s22 69:1=s25 70:10=s20 80:3=s22 83:7=s20 90:2=s22 92:68=s1",
         "0:160=s1",
         "0:160=s1",
@@ -10207,7 +10207,7 @@
         38,
         39
       ],
-      "tabs": "[TabHit { y: 0, x: 0, width: 7, tab: 0 }, TabHit { y: 0, x: 8, width: 6, tab: 1 }, TabHit { y: 0, x: 15, width: 7, tab: 2 }, TabHit { y: 0, x: 23, width: 30, tab: 3 }, TabHit { y: 0, x: 54, width: 9, tab: 4 }, TabHit { y: 0, x: 64, width: 9, tab: 5 }]",
+      "tabs": "[TabHit { y: 0, x: 0, width: 7, tab: 0 }, TabHit { y: 0, x: 8, width: 6, tab: 1 }, TabHit { y: 0, x: 15, width: 7, tab: 2 }, TabHit { y: 0, x: 23, width: 30, tab: 3 }, TabHit { y: 0, x: 54, width: 9, tab: 4 }, TabHit { y: 0, x: 64, width: 7, tab: 5 }]",
       "input": "Some(Rect { x: 1, y: 17, width: 158, height: 5 })",
       "state": "read-lead",
       "look": "tmt-light",
@@ -10215,7 +10215,7 @@
     },
     {
       "lines": [
-        "  alpha   beta   gamma   delta-with-a-long-squad-name   epsilon  ▚ [tmt]",
+        "  alpha   beta   gamma   delta-with-a-long-squad-name   epsilon  ▚ tmt",
         "5 squads  ◆ 3  ✗ 3  ◐ 1  ● 4  ○ 3",
         "",
         "",
@@ -10231,7 +10231,7 @@
         "",
         "── leads · latest from each · t hides replies ──────────────────────────────────",
         "────────────────────────────────────────────────────────────────────────────────",
-        " >◆ lead-a                                                                  2d",
+        "  ◆ lead-a                                                                  2d",
         " ──────────────────────────────────────────────────────────────────────────────",
         "   (reading message…)",
         "",
@@ -10277,7 +10277,7 @@
         "↑↓ move  ⏎ open  a write  e expand  A ask  / search  ? more  q quit"
       ],
       "styles": [
-        "0:7=s18 7:1=s1 8:6=s18 14:1=s1 15:7=s18 22:1=s1 23:30=s18 53:1=s1 54:9=s18 63:1=s1 64:9=s19 73:7=s1",
+        "0:7=s18 7:1=s1 8:6=s18 14:1=s1 15:7=s18 22:1=s1 23:30=s18 53:1=s1 54:9=s18 63:1=s1 64:7=s19 71:9=s1",
         "0:10=s20 10:1=s21 11:2=s20 13:2=s22 15:1=s23 16:2=s20 18:2=s22 20:1=s24 21:2=s20 23:2=s22 25:1=s25 26:2=s20 28:3=s22 31:2=s20 33:2=s22 35:45=s1",
         "0:80=s1",
         "0:80=s1",
@@ -10359,7 +10359,7 @@
         38,
         39
       ],
-      "tabs": "[TabHit { y: 0, x: 0, width: 7, tab: 0 }, TabHit { y: 0, x: 8, width: 6, tab: 1 }, TabHit { y: 0, x: 15, width: 7, tab: 2 }, TabHit { y: 0, x: 23, width: 30, tab: 3 }, TabHit { y: 0, x: 54, width: 9, tab: 4 }, TabHit { y: 0, x: 64, width: 9, tab: 5 }]",
+      "tabs": "[TabHit { y: 0, x: 0, width: 7, tab: 0 }, TabHit { y: 0, x: 8, width: 6, tab: 1 }, TabHit { y: 0, x: 15, width: 7, tab: 2 }, TabHit { y: 0, x: 23, width: 30, tab: 3 }, TabHit { y: 0, x: 54, width: 9, tab: 4 }, TabHit { y: 0, x: 64, width: 7, tab: 5 }]",
       "input": "Some(Rect { x: 1, y: 17, width: 78, height: 5 })",
       "state": "read-lead",
       "look": "tmt-light",
@@ -10367,13 +10367,13 @@
     },
     {
       "lines": [
-        "  alpha   beta   gamma   delta-with-a-long-squad-name   epsilon  ▚ [tmt]",
+        "  alpha   beta   gamma   delta-with-a-long-squad-name   epsilon  ▚ tmt",
         "5 squads · 12 members   ◆ 3 waiting on you  ✗ 3 blocked  ◐ 1 review  ● 4 working  ○ 3 idle",
         "tok 1m – · 5m ~1k · 1h ~2k · share 1h: worker ~60% · models sol ~60%, opus ~40% · 2 members without data",
         "",
         "",
         "── ◆ needs you · 3 ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
-        ">◆ lead-a                  alpha",
+        " ◆ lead-a                  alpha",
         " ◆ worker-one              alpha",
         " ◆ worker-two              alpha",
         "",
@@ -10429,7 +10429,7 @@
         "Focus: HOME rows  ↑↓ move  ⏎ open  a write  e expand  A ask lead  / search  ? more  q quit"
       ],
       "styles": [
-        "0:7=s18 7:1=s1 8:6=s18 14:1=s1 15:7=s18 22:1=s1 23:30=s18 53:1=s1 54:9=s18 63:1=s1 64:9=s19 73:87=s1",
+        "0:7=s18 7:1=s1 8:6=s18 14:1=s1 15:7=s18 22:1=s1 23:30=s18 53:1=s1 54:9=s18 63:1=s1 64:7=s19 71:89=s1",
         "0:24=s20 24:1=s21 25:17=s20 42:2=s22 44:1=s23 45:10=s20 55:2=s22 57:1=s24 58:9=s20 67:2=s22 69:1=s25 70:10=s20 80:3=s22 83:7=s20 90:2=s22 92:68=s1",
         "0:26=s20 26:3=s22 29:21=s20 50:3=s22 53:26=s20 79:3=s22 82:22=s20 104:56=s1",
         "0:160=s1",
@@ -10511,7 +10511,7 @@
         34,
         35
       ],
-      "tabs": "[TabHit { y: 0, x: 0, width: 7, tab: 0 }, TabHit { y: 0, x: 8, width: 6, tab: 1 }, TabHit { y: 0, x: 15, width: 7, tab: 2 }, TabHit { y: 0, x: 23, width: 30, tab: 3 }, TabHit { y: 0, x: 54, width: 9, tab: 4 }, TabHit { y: 0, x: 64, width: 9, tab: 5 }]",
+      "tabs": "[TabHit { y: 0, x: 0, width: 7, tab: 0 }, TabHit { y: 0, x: 8, width: 6, tab: 1 }, TabHit { y: 0, x: 15, width: 7, tab: 2 }, TabHit { y: 0, x: 23, width: 30, tab: 3 }, TabHit { y: 0, x: 54, width: 9, tab: 4 }, TabHit { y: 0, x: 64, width: 7, tab: 5 }]",
       "input": "None",
       "state": "header-usage",
       "look": "tmt-light",
@@ -10519,12 +10519,12 @@
     },
     {
       "lines": [
-        "  alpha   beta   gamma   delta-with-a-long-squad-name   epsilon  ▚ [tmt]",
+        "  alpha   beta   gamma   delta-with-a-long-squad-name   epsilon  ▚ tmt",
         "5 squads  ◆ 3  ✗ 3  ◐ 1  ● 4  ○ 3",
         "",
         "",
         "── ◆ needs you · 3 ─────────────────────────────────────────────────────────────",
-        ">◆ lead-a                  alpha",
+        " ◆ lead-a                  alpha",
         " ◆ worker-one              alpha",
         " ◆ worker-two              alpha",
         "",
@@ -10581,7 +10581,7 @@
         "Focus: HOME rows  ↑↓ move  ⏎ open  a write  e expand  A ask  ? more  q quit"
       ],
       "styles": [
-        "0:7=s18 7:1=s1 8:6=s18 14:1=s1 15:7=s18 22:1=s1 23:30=s18 53:1=s1 54:9=s18 63:1=s1 64:9=s19 73:7=s1",
+        "0:7=s18 7:1=s1 8:6=s18 14:1=s1 15:7=s18 22:1=s1 23:30=s18 53:1=s1 54:9=s18 63:1=s1 64:7=s19 71:9=s1",
         "0:10=s20 10:1=s21 11:2=s20 13:2=s22 15:1=s23 16:2=s20 18:2=s22 20:1=s24 21:2=s20 23:2=s22 25:1=s25 26:2=s20 28:3=s22 31:2=s20 33:2=s22 35:45=s1",
         "0:80=s1",
         "0:80=s1",
@@ -10663,7 +10663,7 @@
         34,
         35
       ],
-      "tabs": "[TabHit { y: 0, x: 0, width: 7, tab: 0 }, TabHit { y: 0, x: 8, width: 6, tab: 1 }, TabHit { y: 0, x: 15, width: 7, tab: 2 }, TabHit { y: 0, x: 23, width: 30, tab: 3 }, TabHit { y: 0, x: 54, width: 9, tab: 4 }, TabHit { y: 0, x: 64, width: 9, tab: 5 }]",
+      "tabs": "[TabHit { y: 0, x: 0, width: 7, tab: 0 }, TabHit { y: 0, x: 8, width: 6, tab: 1 }, TabHit { y: 0, x: 15, width: 7, tab: 2 }, TabHit { y: 0, x: 23, width: 30, tab: 3 }, TabHit { y: 0, x: 54, width: 9, tab: 4 }, TabHit { y: 0, x: 64, width: 7, tab: 5 }]",
       "input": "None",
       "state": "header-usage",
       "look": "tmt-light",
@@ -10671,12 +10671,12 @@
     },
     {
       "lines": [
-        "  alpha   beta   gamma   delta-with-a-long-squad-name   epsilon  ▚ [tmt]",
+        "  alpha   beta   gamma   delta-with-a-long-squad-name   epsilon  ▚ tmt",
         "5 squads · 12 members   ◆ 3 waiting on you  ✗ 3 blocked  ◐ 1 review  ● 4 working  ○ 3 idle",
         "",
         "",
         "── ◆ needs you · 3 ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
-        ">◆ lead-a                  alpha",
+        " ◆ lead-a                  alpha",
         " ◆ worker-one              alpha",
         " ◆ worker-two              alpha",
         "",
@@ -10733,7 +10733,7 @@
         "Focus: HOME rows  ↑↓ move  ⏎ open  a write  e expand  A ask lead  / search  ? more  q quit"
       ],
       "styles": [
-        "0:64=s1 64:9=s34 73:87=s1",
+        "0:64=s1 64:7=s34 71:89=s1",
         "0:160=s1",
         "0:160=s1",
         "0:160=s1",
@@ -10815,7 +10815,7 @@
         34,
         35
       ],
-      "tabs": "[TabHit { y: 0, x: 0, width: 7, tab: 0 }, TabHit { y: 0, x: 8, width: 6, tab: 1 }, TabHit { y: 0, x: 15, width: 7, tab: 2 }, TabHit { y: 0, x: 23, width: 30, tab: 3 }, TabHit { y: 0, x: 54, width: 9, tab: 4 }, TabHit { y: 0, x: 64, width: 9, tab: 5 }]",
+      "tabs": "[TabHit { y: 0, x: 0, width: 7, tab: 0 }, TabHit { y: 0, x: 8, width: 6, tab: 1 }, TabHit { y: 0, x: 15, width: 7, tab: 2 }, TabHit { y: 0, x: 23, width: 30, tab: 3 }, TabHit { y: 0, x: 54, width: 9, tab: 4 }, TabHit { y: 0, x: 64, width: 7, tab: 5 }]",
       "input": "None",
       "state": "base",
       "look": "NO_COLOR",
@@ -10823,12 +10823,12 @@
     },
     {
       "lines": [
-        "  alpha   beta   gamma   delta-with-a-long-squad-name   epsilon  ▚ [tmt]",
+        "  alpha   beta   gamma   delta-with-a-long-squad-name   epsilon  ▚ tmt",
         "5 squads  ◆ 3  ✗ 3  ◐ 1  ● 4  ○ 3",
         "",
         "",
         "── ◆ needs you · 3 ─────────────────────────────────────────────────────────────",
-        ">◆ lead-a                  alpha",
+        " ◆ lead-a                  alpha",
         " ◆ worker-one              alpha",
         " ◆ worker-two              alpha",
         "",
@@ -10885,7 +10885,7 @@
         "Focus: HOME rows  ↑↓ move  ⏎ open  a write  e expand  A ask  ? more  q quit"
       ],
       "styles": [
-        "0:64=s1 64:9=s34 73:7=s1",
+        "0:64=s1 64:7=s34 71:9=s1",
         "0:80=s1",
         "0:80=s1",
         "0:80=s1",
@@ -10967,7 +10967,7 @@
         34,
         35
       ],
-      "tabs": "[TabHit { y: 0, x: 0, width: 7, tab: 0 }, TabHit { y: 0, x: 8, width: 6, tab: 1 }, TabHit { y: 0, x: 15, width: 7, tab: 2 }, TabHit { y: 0, x: 23, width: 30, tab: 3 }, TabHit { y: 0, x: 54, width: 9, tab: 4 }, TabHit { y: 0, x: 64, width: 9, tab: 5 }]",
+      "tabs": "[TabHit { y: 0, x: 0, width: 7, tab: 0 }, TabHit { y: 0, x: 8, width: 6, tab: 1 }, TabHit { y: 0, x: 15, width: 7, tab: 2 }, TabHit { y: 0, x: 23, width: 30, tab: 3 }, TabHit { y: 0, x: 54, width: 9, tab: 4 }, TabHit { y: 0, x: 64, width: 7, tab: 5 }]",
       "input": "None",
       "state": "base",
       "look": "NO_COLOR",
@@ -10975,7 +10975,7 @@
     },
     {
       "lines": [
-        "  alpha   beta   gamma   delta-with-a-long-squad-name   epsilon  ▚ [tmt]",
+        "  alpha   beta   gamma   delta-with-a-long-squad-name   epsilon  ▚ tmt",
         "5 squads · 12 members   ◆ 3 waiting on you  ✗ 3 blocked  ◐ 1 review  ● 4 working  ○ 3 idle",
         "",
         "",
@@ -10997,7 +10997,7 @@
         "  … lead-g                     gamma                                                                                                                       12h",
         "   no reply yet to: Please review the draft",
         "",
-        " >✓ lead-b                     beta                                                                                                                         1d",
+        "  ✓ lead-b                     beta                                                                                                                         1d",
         "   The public replies and results reads are merged.",
         "",
         "    lead-delta-with-a-long-…   delta-with-a-long-squad-name                                                                                                  –",
@@ -11037,7 +11037,7 @@
         "Focus: HOME rows  ↑↓ move  ⏎ open  a write  e expand  A ask lead  / search  ? more  q quit"
       ],
       "styles": [
-        "0:64=s1 64:9=s34 73:87=s1",
+        "0:64=s1 64:7=s34 71:89=s1",
         "0:160=s1",
         "0:160=s1",
         "0:160=s1",
@@ -11119,7 +11119,7 @@
         34,
         35
       ],
-      "tabs": "[TabHit { y: 0, x: 0, width: 7, tab: 0 }, TabHit { y: 0, x: 8, width: 6, tab: 1 }, TabHit { y: 0, x: 15, width: 7, tab: 2 }, TabHit { y: 0, x: 23, width: 30, tab: 3 }, TabHit { y: 0, x: 54, width: 9, tab: 4 }, TabHit { y: 0, x: 64, width: 9, tab: 5 }]",
+      "tabs": "[TabHit { y: 0, x: 0, width: 7, tab: 0 }, TabHit { y: 0, x: 8, width: 6, tab: 1 }, TabHit { y: 0, x: 15, width: 7, tab: 2 }, TabHit { y: 0, x: 23, width: 30, tab: 3 }, TabHit { y: 0, x: 54, width: 9, tab: 4 }, TabHit { y: 0, x: 64, width: 7, tab: 5 }]",
       "input": "None",
       "state": "lead-selected",
       "look": "NO_COLOR",
@@ -11127,7 +11127,7 @@
     },
     {
       "lines": [
-        "  alpha   beta   gamma   delta-with-a-long-squad-name   epsilon  ▚ [tmt]",
+        "  alpha   beta   gamma   delta-with-a-long-squad-name   epsilon  ▚ tmt",
         "5 squads  ◆ 3  ✗ 3  ◐ 1  ● 4  ○ 3",
         "",
         "",
@@ -11149,7 +11149,7 @@
         "  … lead-g                                                                 12h",
         "   no reply yet to: Please review the draft",
         "",
-        " >✓ lead-b                                                                  1d",
+        "  ✓ lead-b                                                                  1d",
         "   The public replies and results reads are merged.",
         "",
         "    lead-delta-with-a-long-…                                                 –",
@@ -11189,7 +11189,7 @@
         "Focus: HOME rows  ↑↓ move  ⏎ open  a write  e expand  A ask  ? more  q quit"
       ],
       "styles": [
-        "0:64=s1 64:9=s34 73:7=s1",
+        "0:64=s1 64:7=s34 71:9=s1",
         "0:80=s1",
         "0:80=s1",
         "0:80=s1",
@@ -11271,7 +11271,7 @@
         34,
         35
       ],
-      "tabs": "[TabHit { y: 0, x: 0, width: 7, tab: 0 }, TabHit { y: 0, x: 8, width: 6, tab: 1 }, TabHit { y: 0, x: 15, width: 7, tab: 2 }, TabHit { y: 0, x: 23, width: 30, tab: 3 }, TabHit { y: 0, x: 54, width: 9, tab: 4 }, TabHit { y: 0, x: 64, width: 9, tab: 5 }]",
+      "tabs": "[TabHit { y: 0, x: 0, width: 7, tab: 0 }, TabHit { y: 0, x: 8, width: 6, tab: 1 }, TabHit { y: 0, x: 15, width: 7, tab: 2 }, TabHit { y: 0, x: 23, width: 30, tab: 3 }, TabHit { y: 0, x: 54, width: 9, tab: 4 }, TabHit { y: 0, x: 64, width: 7, tab: 5 }]",
       "input": "None",
       "state": "lead-selected",
       "look": "NO_COLOR",
@@ -11279,7 +11279,7 @@
     },
     {
       "lines": [
-        "  alpha   beta   gamma   delta-with-a-long-squad-name   epsilon  ▚ [tmt]",
+        "  alpha   beta   gamma   delta-with-a-long-squad-name   epsilon  ▚ tmt",
         "5 squads · 12 members   ◆ 3 waiting on you  ✗ 3 blocked  ◐ 1 review  ● 4 working  ○ 3 idle",
         "",
         "",
@@ -11295,7 +11295,7 @@
         "",
         "── leads · latest from each · t hides replies ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
         "────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
-        " >◆ lead-a                     alpha                                                                                                                        2d",
+        "  ◆ lead-a                     alpha                                                                                                                        2d",
         "   asks: Approve this change?",
         " ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
         "   → lead-a (alpha) · answer",
@@ -11341,7 +11341,7 @@
         "↑↓ move  ⏎ open  a write  e expand  A ask lead  / search  ? more  q quit"
       ],
       "styles": [
-        "0:64=s1 64:9=s34 73:87=s1",
+        "0:64=s1 64:7=s34 71:89=s1",
         "0:160=s1",
         "0:160=s1",
         "0:160=s1",
@@ -11423,7 +11423,7 @@
         40,
         41
       ],
-      "tabs": "[TabHit { y: 0, x: 0, width: 7, tab: 0 }, TabHit { y: 0, x: 8, width: 6, tab: 1 }, TabHit { y: 0, x: 15, width: 7, tab: 2 }, TabHit { y: 0, x: 23, width: 30, tab: 3 }, TabHit { y: 0, x: 54, width: 9, tab: 4 }, TabHit { y: 0, x: 64, width: 9, tab: 5 }]",
+      "tabs": "[TabHit { y: 0, x: 0, width: 7, tab: 0 }, TabHit { y: 0, x: 8, width: 6, tab: 1 }, TabHit { y: 0, x: 15, width: 7, tab: 2 }, TabHit { y: 0, x: 23, width: 30, tab: 3 }, TabHit { y: 0, x: 54, width: 9, tab: 4 }, TabHit { y: 0, x: 64, width: 7, tab: 5 }]",
       "input": "Some(Rect { x: 1, y: 18, width: 158, height: 6 })",
       "state": "composer-lead",
       "look": "NO_COLOR",
@@ -11431,7 +11431,7 @@
     },
     {
       "lines": [
-        "  alpha   beta   gamma   delta-with-a-long-squad-name   epsilon  ▚ [tmt]",
+        "  alpha   beta   gamma   delta-with-a-long-squad-name   epsilon  ▚ tmt",
         "5 squads  ◆ 3  ✗ 3  ◐ 1  ● 4  ○ 3",
         "",
         "",
@@ -11447,7 +11447,7 @@
         "",
         "── leads · latest from each · t hides replies ──────────────────────────────────",
         "────────────────────────────────────────────────────────────────────────────────",
-        " >◆ lead-a                                                                  2d",
+        "  ◆ lead-a                                                                  2d",
         "   asks: Approve this change?",
         " ──────────────────────────────────────────────────────────────────────────────",
         "   → lead-a (alpha) · answer",
@@ -11493,7 +11493,7 @@
         "↑↓ move  ⏎ open  a write  e expand  A ask  / search  ? more  q quit"
       ],
       "styles": [
-        "0:64=s1 64:9=s34 73:7=s1",
+        "0:64=s1 64:7=s34 71:9=s1",
         "0:80=s1",
         "0:80=s1",
         "0:80=s1",
@@ -11575,7 +11575,7 @@
         40,
         41
       ],
-      "tabs": "[TabHit { y: 0, x: 0, width: 7, tab: 0 }, TabHit { y: 0, x: 8, width: 6, tab: 1 }, TabHit { y: 0, x: 15, width: 7, tab: 2 }, TabHit { y: 0, x: 23, width: 30, tab: 3 }, TabHit { y: 0, x: 54, width: 9, tab: 4 }, TabHit { y: 0, x: 64, width: 9, tab: 5 }]",
+      "tabs": "[TabHit { y: 0, x: 0, width: 7, tab: 0 }, TabHit { y: 0, x: 8, width: 6, tab: 1 }, TabHit { y: 0, x: 15, width: 7, tab: 2 }, TabHit { y: 0, x: 23, width: 30, tab: 3 }, TabHit { y: 0, x: 54, width: 9, tab: 4 }, TabHit { y: 0, x: 64, width: 7, tab: 5 }]",
       "input": "Some(Rect { x: 1, y: 18, width: 78, height: 6 })",
       "state": "composer-lead",
       "look": "NO_COLOR",
@@ -11583,7 +11583,7 @@
     },
     {
       "lines": [
-        "  alpha   beta   gamma   delta-with-a-long-squad-name   epsilon  ▚ [tmt]",
+        "  alpha   beta   gamma   delta-with-a-long-squad-name   epsilon  ▚ tmt",
         "5 squads · 12 members   ◆ 3 waiting on you  ✗ 3 blocked  ◐ 1 review  ● 4 working  ○ 3 idle",
         "",
         "",
@@ -11599,7 +11599,7 @@
         "",
         "── leads · latest from each · t hides replies ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
         "────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
-        " >◆ lead-a                     alpha                                                                                                                        2d",
+        "  ◆ lead-a                     alpha                                                                                                                        2d",
         " ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
         "   (reading message…)",
         "",
@@ -11645,7 +11645,7 @@
         "↑↓ move  ⏎ open  a write  e expand  A ask lead  / search  ? more  q quit"
       ],
       "styles": [
-        "0:64=s1 64:9=s34 73:87=s1",
+        "0:64=s1 64:7=s34 71:89=s1",
         "0:160=s1",
         "0:160=s1",
         "0:160=s1",
@@ -11727,7 +11727,7 @@
         38,
         39
       ],
-      "tabs": "[TabHit { y: 0, x: 0, width: 7, tab: 0 }, TabHit { y: 0, x: 8, width: 6, tab: 1 }, TabHit { y: 0, x: 15, width: 7, tab: 2 }, TabHit { y: 0, x: 23, width: 30, tab: 3 }, TabHit { y: 0, x: 54, width: 9, tab: 4 }, TabHit { y: 0, x: 64, width: 9, tab: 5 }]",
+      "tabs": "[TabHit { y: 0, x: 0, width: 7, tab: 0 }, TabHit { y: 0, x: 8, width: 6, tab: 1 }, TabHit { y: 0, x: 15, width: 7, tab: 2 }, TabHit { y: 0, x: 23, width: 30, tab: 3 }, TabHit { y: 0, x: 54, width: 9, tab: 4 }, TabHit { y: 0, x: 64, width: 7, tab: 5 }]",
       "input": "Some(Rect { x: 1, y: 17, width: 158, height: 5 })",
       "state": "read-lead",
       "look": "NO_COLOR",
@@ -11735,7 +11735,7 @@
     },
     {
       "lines": [
-        "  alpha   beta   gamma   delta-with-a-long-squad-name   epsilon  ▚ [tmt]",
+        "  alpha   beta   gamma   delta-with-a-long-squad-name   epsilon  ▚ tmt",
         "5 squads  ◆ 3  ✗ 3  ◐ 1  ● 4  ○ 3",
         "",
         "",
@@ -11751,7 +11751,7 @@
         "",
         "── leads · latest from each · t hides replies ──────────────────────────────────",
         "────────────────────────────────────────────────────────────────────────────────",
-        " >◆ lead-a                                                                  2d",
+        "  ◆ lead-a                                                                  2d",
         " ──────────────────────────────────────────────────────────────────────────────",
         "   (reading message…)",
         "",
@@ -11797,7 +11797,7 @@
         "↑↓ move  ⏎ open  a write  e expand  A ask  / search  ? more  q quit"
       ],
       "styles": [
-        "0:64=s1 64:9=s34 73:7=s1",
+        "0:64=s1 64:7=s34 71:9=s1",
         "0:80=s1",
         "0:80=s1",
         "0:80=s1",
@@ -11879,7 +11879,7 @@
         38,
         39
       ],
-      "tabs": "[TabHit { y: 0, x: 0, width: 7, tab: 0 }, TabHit { y: 0, x: 8, width: 6, tab: 1 }, TabHit { y: 0, x: 15, width: 7, tab: 2 }, TabHit { y: 0, x: 23, width: 30, tab: 3 }, TabHit { y: 0, x: 54, width: 9, tab: 4 }, TabHit { y: 0, x: 64, width: 9, tab: 5 }]",
+      "tabs": "[TabHit { y: 0, x: 0, width: 7, tab: 0 }, TabHit { y: 0, x: 8, width: 6, tab: 1 }, TabHit { y: 0, x: 15, width: 7, tab: 2 }, TabHit { y: 0, x: 23, width: 30, tab: 3 }, TabHit { y: 0, x: 54, width: 9, tab: 4 }, TabHit { y: 0, x: 64, width: 7, tab: 5 }]",
       "input": "Some(Rect { x: 1, y: 17, width: 78, height: 5 })",
       "state": "read-lead",
       "look": "NO_COLOR",
@@ -11887,13 +11887,13 @@
     },
     {
       "lines": [
-        "  alpha   beta   gamma   delta-with-a-long-squad-name   epsilon  ▚ [tmt]",
+        "  alpha   beta   gamma   delta-with-a-long-squad-name   epsilon  ▚ tmt",
         "5 squads · 12 members   ◆ 3 waiting on you  ✗ 3 blocked  ◐ 1 review  ● 4 working  ○ 3 idle",
         "tok 1m – · 5m ~1k · 1h ~2k · share 1h: worker ~60% · models sol ~60%, opus ~40% · 2 members without data",
         "",
         "",
         "── ◆ needs you · 3 ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
-        ">◆ lead-a                  alpha",
+        " ◆ lead-a                  alpha",
         " ◆ worker-one              alpha",
         " ◆ worker-two              alpha",
         "",
@@ -11949,7 +11949,7 @@
         "Focus: HOME rows  ↑↓ move  ⏎ open  a write  e expand  A ask lead  / search  ? more  q quit"
       ],
       "styles": [
-        "0:64=s1 64:9=s34 73:87=s1",
+        "0:64=s1 64:7=s34 71:89=s1",
         "0:160=s1",
         "0:160=s1",
         "0:160=s1",
@@ -12031,7 +12031,7 @@
         34,
         35
       ],
-      "tabs": "[TabHit { y: 0, x: 0, width: 7, tab: 0 }, TabHit { y: 0, x: 8, width: 6, tab: 1 }, TabHit { y: 0, x: 15, width: 7, tab: 2 }, TabHit { y: 0, x: 23, width: 30, tab: 3 }, TabHit { y: 0, x: 54, width: 9, tab: 4 }, TabHit { y: 0, x: 64, width: 9, tab: 5 }]",
+      "tabs": "[TabHit { y: 0, x: 0, width: 7, tab: 0 }, TabHit { y: 0, x: 8, width: 6, tab: 1 }, TabHit { y: 0, x: 15, width: 7, tab: 2 }, TabHit { y: 0, x: 23, width: 30, tab: 3 }, TabHit { y: 0, x: 54, width: 9, tab: 4 }, TabHit { y: 0, x: 64, width: 7, tab: 5 }]",
       "input": "None",
       "state": "header-usage",
       "look": "NO_COLOR",
@@ -12039,12 +12039,12 @@
     },
     {
       "lines": [
-        "  alpha   beta   gamma   delta-with-a-long-squad-name   epsilon  ▚ [tmt]",
+        "  alpha   beta   gamma   delta-with-a-long-squad-name   epsilon  ▚ tmt",
         "5 squads  ◆ 3  ✗ 3  ◐ 1  ● 4  ○ 3",
         "",
         "",
         "── ◆ needs you · 3 ─────────────────────────────────────────────────────────────",
-        ">◆ lead-a                  alpha",
+        " ◆ lead-a                  alpha",
         " ◆ worker-one              alpha",
         " ◆ worker-two              alpha",
         "",
@@ -12101,7 +12101,7 @@
         "Focus: HOME rows  ↑↓ move  ⏎ open  a write  e expand  A ask  ? more  q quit"
       ],
       "styles": [
-        "0:64=s1 64:9=s34 73:7=s1",
+        "0:64=s1 64:7=s34 71:9=s1",
         "0:80=s1",
         "0:80=s1",
         "0:80=s1",
@@ -12183,7 +12183,7 @@
         34,
         35
       ],
-      "tabs": "[TabHit { y: 0, x: 0, width: 7, tab: 0 }, TabHit { y: 0, x: 8, width: 6, tab: 1 }, TabHit { y: 0, x: 15, width: 7, tab: 2 }, TabHit { y: 0, x: 23, width: 30, tab: 3 }, TabHit { y: 0, x: 54, width: 9, tab: 4 }, TabHit { y: 0, x: 64, width: 9, tab: 5 }]",
+      "tabs": "[TabHit { y: 0, x: 0, width: 7, tab: 0 }, TabHit { y: 0, x: 8, width: 6, tab: 1 }, TabHit { y: 0, x: 15, width: 7, tab: 2 }, TabHit { y: 0, x: 23, width: 30, tab: 3 }, TabHit { y: 0, x: 54, width: 9, tab: 4 }, TabHit { y: 0, x: 64, width: 7, tab: 5 }]",
       "input": "None",
       "state": "header-usage",
       "look": "NO_COLOR",

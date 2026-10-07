@@ -97,9 +97,6 @@ cron_service` and the native `squad.test.ts` cron cases cover actor permission, 
   squads with isolated state. The board glyph guard reads registered marks from
   `design/tokens/tokens.json`, rejects Ambiguous and emoji-presentation decorations,
   and requires spaces before and after state marks, including overflow tab labels.
-  Only the admitted local selection prefixes (`◆>`, `>◆ ` and `│>◆ `, with the
-  existing semantic mark) substitute one adjacent blank; embedded or misplaced
-  cues do not relax spacing. Flat lists retain one blank former-wall cell before `>◆`.
   Structural exceptions have explicit
   reasons in the guard; dynamic names, tasks and notebooks are outside its scope.
   Decode cell/style/hit differences from current main parity before requesting approval
