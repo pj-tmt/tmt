@@ -1,4 +1,4 @@
-//! Admitted room-owned checklist service. Commands and board actions are not exposed yet.
+//! Admitted room-owned checklist service; commands reuse this admission and persistence owner. Board actions are not exposed yet.
 
 pub mod model;
 mod store;
