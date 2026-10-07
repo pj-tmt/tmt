@@ -247,6 +247,8 @@ for (const width of [1440, 390]) {
         useInnerText: true,
       });
       await expect(input).toHaveAttribute('contenteditable', 'false');
+      await expect(composer).toBeVisible();
+      await expect(composer.locator('blockquote')).toHaveText('Exact selected text');
       await expect(page.locator('#ask-page-fixture iframe')).toHaveCount(0);
       await page.screenshot({ path: `${captureDir}/annotation-${width}-${theme}-failure.png` });
       expect((await run(page, 'proof')).sends).toHaveLength(1);

@@ -64,8 +64,19 @@ function SelectionAnnotation({
   useEffect(() => {
     const place = () => {
       const frame = host?.querySelector('iframe')?.getBoundingClientRect();
+      const width = expanded ? Math.min(380, innerWidth - 24) : 100;
+      const height = element.current?.offsetHeight ?? (expanded ? 200 : 38);
       if (!frame || !rectangle) {
-        setPosition(null);
+        // A failed renderer has no geometry; keep an open draft at its last
+        // viewport position so the person can still read or close it.
+        setPosition((previous) =>
+          expanded && previous
+            ? {
+                left: Math.max(8, Math.min(innerWidth - width - 8, previous.left)),
+                top: Math.max(inset + 4, Math.min(innerHeight - height - 8, previous.top)),
+              }
+            : null,
+        );
         return;
       }
       const top = frame.top + Math.max(0, Math.min(frame.height, rectangle.y)),
@@ -76,8 +87,6 @@ function SelectionAnnotation({
         setPosition(null);
         return;
       }
-      const width = expanded ? Math.min(380, innerWidth - 24) : 100;
-      const height = element.current?.offsetHeight ?? (expanded ? 200 : 38);
       const beside = !expanded && right + width + 8 <= Math.min(frame.right, innerWidth - 8);
       const below = bottom + height + 8 <= innerHeight - 8;
       setPosition({

@@ -53,7 +53,9 @@ Source loading does not block
 discussion input or explicit sends, which use the frozen quote and verified
 connection; renderer failures and connection errors still block them. It
 releases the old channel before replacement without clearing parent selection or
-removing the old frame; failures and ordinary abort/destroy still remove it. It
+removing the old frame; failures and ordinary abort/destroy still remove it. An
+open annotation retains its last viewport placement when renderer geometry is gone,
+with input and sending disabled by the current failure. It
 retains the previous frame height during replacement and restores the window
 offset on its first admitted height report, clamped by the new document's bounds.
 The [UI contract](../../../../extensions/tmt-colab/contracts/colab-v1.md#own-stream-discussion-records-1427)
