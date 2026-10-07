@@ -24,7 +24,8 @@
   outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
   outline-offset: var(--tmt-ui-host-focus-offset);
 }
-.tmt-ui-field-control:disabled {
+.tmt-ui-field-control:disabled,
+.tmt-ui-field-control[aria-disabled='true'] {
   color: var(--tmt-ui-color-disabled-text);
   background: var(--tmt-ui-surface-disabled);
   opacity: 1;
