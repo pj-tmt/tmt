@@ -4,6 +4,9 @@
 
 - `squad.toml` sits beside the global config that `tmt config show` reports. It is the
   user's file; agents never write it.
+- Core executable discovery refuses `TMT_EXECUTABLE` or the first `tmt` on PATH when
+  it names the running Squad executable, including symbolic and hard links. This
+  prevents recursive configuration loading; select the Core `tmt` executable instead.
 - `Config::write` owns format-preserving replacement for `me`/`me_id`, tab order, board
   views, theme bases and settings edits. It checks the original bytes, edits a cloned
   document, skips unchanged bytes and assigns the new document only after successful
