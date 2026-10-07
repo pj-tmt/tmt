@@ -48,7 +48,7 @@ Office SPA, local-service and companion producers never run. Native process
 verification excludes Office-owned suites and requires no Office companion;
 core discovery stays nonempty and other fixtures are built independently.
 
-For current small packages, apt acquisition allows three 60 s attempts per phase with 10 s termination grace and 5/10 s backoff; native-process contracts have a 20 min job budget without changing test deadlines.
+For current small packages, apt acquisition allows three attempts per phase (60 s for update, 120 s for install), with 10 s termination grace and 5/10 s backoff; native-process contracts have a 20 min job budget without changing test deadlines.
 
 `Docker E2E` gates the two shard jobs selected by
 `typescript/scripts/e2e-shards.mjs` and committed `test/e2e/shard-weights.json`.

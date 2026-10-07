@@ -27,4 +27,4 @@ runs:
         "$retry" 3 5 sudo timeout --verbose --kill-after=10s 60s apt-get "${apt_options[@]}" update
         # The package list is intentionally split into separate arguments.
         # shellcheck disable=SC2086
-        "$retry" 3 5 sudo timeout --verbose --kill-after=10s 60s apt-get "${apt_options[@]}" install --no-install-recommends -y $PACKAGES
+        "$retry" 3 5 sudo timeout --verbose --kill-after=10s 120s apt-get "${apt_options[@]}" install --no-install-recommends -y $PACKAGES
