@@ -252,7 +252,7 @@ pub fn apply_waiting(document: &mut Value, squad: &str, me: &str, inbox: &Window
     apply(document, squad, me, &room, inbox);
 }
 
-/// Finals to the user's requests in the squad room, newest final first:
+/// Recipient finals to the user's requests in the squad room, newest final first:
 /// `{requestId, to, prompt, status, submittedAtMs, response}`. `response`
 /// is filled by [`bodies`]; listing never reads or acknowledges one.
 pub fn replies(sent: &Sent, document: &Value) -> Vec<Value> {
@@ -275,9 +275,9 @@ pub fn replies(sent: &Sent, document: &Value) -> Vec<Value> {
         .filter(|item| {
             item["kind"] == "request"
                 && sender(item) == Some(sent.me.as_str())
-                && !matches!(
+                && matches!(
                     item["final"]["status"].as_str(),
-                    None | Some("not_submitted" | "not_required")
+                    Some("retained" | "expired" | "unavailable")
                 )
         })
         .map(|item| {
@@ -354,7 +354,7 @@ mod tests {
         json!({
             "requestId": id, "kind": "request", "recipientId": to,
             "sender": {"kind": "explicit", "identityId": from},
-            "final": {"status": if done { "submitted" } else { "not_submitted" }},
+            "final": {"status": if done { "retained" } else { "not_submitted" }},
             "preview": preview, "preparedAtMs": 1,
         })
     }
@@ -369,6 +369,12 @@ mod tests {
         let room = Window {
             items: vec![
                 item("mine", "ME", "L", &preview, false),
+                {
+                    let mut withdrawn = item("withdrawn", "ME", "L", &preview, false);
+                    withdrawn["final"] =
+                        json!({"status": "withdrawn", "reason": "obsolete", "withdrawnAtMs": 2});
+                    withdrawn
+                },
                 item("answered", "ME", "L", &preview, true),
                 item("other", "OTHER", "L", &preview, false),
                 item("foreign", "ME", "OTHER", &preview, false),
@@ -444,6 +450,27 @@ mod tests {
             final_item("c", "X", "L", 40, "retained"),
             final_item("d", "ME", "L", 20, "expired"),
             item("e", "ME", "L", "still open", false),
+            final_item("unavailable", "ME", "L", 25, "unavailable"),
+            {
+                let mut withdrawn = item("withdrawn", "ME", "L", "withdrawn prompt", false);
+                withdrawn["final"] = json!({
+                    "status": "withdrawn", "reason": "superseded", "withdrawnAtMs": 50,
+                });
+                withdrawn
+            },
+            {
+                let mut announcement = item("announcement", "ME", "L", "notice", false);
+                announcement["kind"] = json!("announcement");
+                announcement["final"] = json!({"status": "not_required"});
+                announcement
+            },
+            final_item("unknown", "ME", "L", 60, "future_status"),
+            final_item("not-required", "ME", "L", 70, "not_required"),
+            {
+                let mut missing = item("missing", "ME", "L", "missing final", false);
+                missing.as_object_mut().unwrap().remove("final");
+                missing
+            },
         ];
         for index in 0..10 {
             items.push(final_item(
@@ -461,6 +488,7 @@ mod tests {
                 complete: true,
             },
         };
+        let history = sent.room.items.clone();
         let document = json!({
             "squad": {"lead": {"id": "L", "name": "sol"}},
             "sections": [{"rows": [{"id": "A", "name": "auth-fix"}]}]
@@ -468,27 +496,35 @@ mod tests {
         let mut list = replies(&sent, &document);
         let order: Vec<&str> = list
             .iter()
-            .take(3)
+            .take(4)
             .map(|r| r["requestId"].as_str().unwrap())
             .collect();
         assert_eq!(
             order,
-            ["b", "d", "a"],
+            ["b", "unavailable", "d", "a"],
             "only mine, finals only, newest first"
         );
         assert_eq!(list[0]["to"], "auth-fix");
-        assert_eq!(list.len(), 13);
+        assert_eq!(list.len(), 14);
+        assert!(list.iter().all(|reply| matches!(
+            reply["status"].as_str(),
+            Some("retained" | "expired" | "unavailable")
+        )));
+        assert_eq!(
+            sent.room.items, history,
+            "projection preserves Core history"
+        );
 
-        let reads = std::cell::Cell::new(0);
-        let mut cache = BTreeMap::new();
+        let reads = std::cell::RefCell::new(Vec::new());
+        let mut cache = BTreeMap::from([("withdrawn".into(), "obsolete body".into())]);
         let show = |id: &str| {
-            reads.set(reads.get() + 1);
+            reads.borrow_mut().push(id.to_owned());
             Ok(json!({"final": {"response": format!("body of {id}")}}))
         };
         bodies(show, &mut list, &mut cache).unwrap();
         assert_eq!(list[0]["response"], "body of b");
         assert_eq!(
-            list[1]["response"],
+            list[2]["response"],
             Value::Null,
             "an expired final has no body"
         );
@@ -496,13 +532,27 @@ mod tests {
             list[BODIES]["response"].is_null(),
             "older ones stay headers"
         );
+        assert!(
+            list[1]["response"].is_null(),
+            "an unavailable final has no body"
+        );
+        let expected = ["b", "a", "old9", "old8", "old7", "old6"];
         assert_eq!(
-            reads.get(),
-            BODIES - 1,
-            "retained ones among the newest eight"
+            *reads.borrow(),
+            expected,
+            "only retained finals in the body window"
+        );
+        assert!(
+            !cache.contains_key("withdrawn"),
+            "withdrawals cannot retain cached bodies"
         );
         bodies(show, &mut list, &mut cache).unwrap();
-        assert_eq!(reads.get(), BODIES - 1, "cached bodies are not read again");
+        assert_eq!(
+            *reads.borrow(),
+            expected,
+            "cached bodies are not read again"
+        );
+        assert_eq!(sent.room.items, history, "body reads preserve Core history");
         assert!(cache.len() <= BODIES);
     }
 
@@ -516,6 +566,18 @@ mod tests {
         });
         let room = Window {
             items: vec![
+                {
+                    let mut withdrawn = item(
+                        "withdrawn",
+                        "ME",
+                        "L",
+                        "[product · auth-fix] obsolete",
+                        false,
+                    );
+                    withdrawn["final"] =
+                        json!({"status": "withdrawn", "reason": "obsolete", "withdrawnAtMs": 2});
+                    withdrawn
+                },
                 item("r3", "ME", "L", "[product · auth-fix] newest note", false),
                 item("r2", "ME", "A", "[product · auth-fix] older note", false),
                 item("r1", "ME", "L", "[product · docs] answered", true),

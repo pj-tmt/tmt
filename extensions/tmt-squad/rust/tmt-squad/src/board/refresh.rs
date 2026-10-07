@@ -73,6 +73,7 @@ pub struct Worker {
     requests: Sender<Work>,
     generation: Arc<Generation>,
     thread: Option<std::thread::JoinHandle<()>>,
+    checklist_stop: crate::runner::Cancellation,
 }
 
 impl Worker {
@@ -81,7 +82,10 @@ impl Worker {
         let (requests, pending) = mpsc::channel();
         let generation = Arc::new(Generation::default());
         let read_generation = Arc::clone(&generation);
+        let checklist_stop = crate::runner::Cancellation::default();
+        let checklist_reader = core.cancellable(checklist_stop.clone());
         let thread = std::thread::spawn(move || {
+            let mut checklist = super::checklist::load::Lane::default();
             let initial = core.cancellable(read_generation.cancellation(0));
             let mut kept = Kept {
                 bodies: BTreeMap::new(),
@@ -121,9 +125,17 @@ impl Worker {
                     )
                 },
                 |job, generation| {
+                    if let Deferred::Checklist(task) = job {
+                        return events
+                            .send(super::BoardEvent::Checklist(
+                                checklist.complete(&checklist_reader, task),
+                            ))
+                            .is_ok();
+                    }
                     let cancellation = read_generation.cancellation(generation);
                     let reader = core.cancellable(cancellation.clone());
                     let event = match job {
+                        Deferred::Checklist(_) => unreachable!("handled above"),
                         Deferred::History(job) => super::BoardEvent::History {
                             read: job.complete(&reader, &mut history),
                             cancellation: cancellation.clone(),
@@ -210,6 +222,7 @@ impl Worker {
             requests,
             generation,
             thread: Some(thread),
+            checklist_stop,
         }
     }
 
@@ -226,6 +239,9 @@ impl Worker {
             preview_panes,
         }));
     }
+    pub fn checklist(&self, task: super::checklist::load::Task) {
+        let _ = self.requests.send(Work::Checklist(task));
+    }
     pub fn selected(&self, revision: u64, read: Option<SelectedRead>) {
         let generation = self.generation.number.load(Ordering::Acquire);
         let _ = self.requests.send(Work::Selected {
@@ -239,6 +255,7 @@ impl Worker {
 impl Drop for Worker {
     fn drop(&mut self) {
         self.generation.advance();
+        self.checklist_stop.cancel();
         // Disconnect before joining: the worker exits its bounded cancelled
         // child read, and an idle worker exits recv immediately.
         let (replacement, _) = mpsc::channel();
@@ -250,6 +267,7 @@ impl Drop for Worker {
 }
 
 enum Work {
+    Checklist(super::checklist::load::Task),
     Reload(Reload),
     Selected {
         read: Option<SelectedRead>,
@@ -349,6 +367,7 @@ impl HistoryJob {
 
 /// The existing worker's lower-priority work, behind full reloads.
 enum Deferred {
+    Checklist(super::checklist::load::Task),
     History(HistoryJob),
     HomeLeads(super::home_leads::Fetch),
     Attention(Box<AttentionJob>),
@@ -487,14 +506,24 @@ fn serve(
         };
         let mut wanted = None;
         let mut selected = None;
+        let mut checklist = Vec::new();
         for work in std::iter::once(received).chain(pending.try_iter()) {
             match work {
+                Work::Checklist(task) => checklist.push(task),
                 Work::Reload(reload) => wanted = Some(reload),
                 Work::Selected {
                     read,
                     revision,
                     generation,
                 } => selected = Some((read, revision, generation)),
+            }
+        }
+        for task in checklist {
+            if !deferred(
+                Deferred::Checklist(task),
+                generation.load(Ordering::Acquire),
+            ) {
+                return;
             }
         }
         let Some(wanted) = wanted else {
@@ -1081,6 +1110,48 @@ mod tests {
     }
 
     const WAIT: Duration = Duration::from_millis(300);
+
+    #[test]
+    fn checklist_jobs_are_fifo_and_survive_board_read_generation_changes() {
+        let (sender, pending) = mpsc::channel();
+        for serial in 1..=3 {
+            sender
+                .send(Work::Checklist(super::super::checklist::load::Task {
+                    key: super::super::checklist::load::Key {
+                        controller: 9,
+                        serial,
+                        room: None,
+                    },
+                    job: super::super::checklist::load::Job::Ids,
+                }))
+                .unwrap();
+            sender
+                .send(Work::Selected {
+                    read: Some(SelectedRead::Notebook("obsolete".into())),
+                    revision: serial,
+                    generation: 0,
+                })
+                .unwrap();
+        }
+        drop(sender);
+        let mut completed = Vec::new();
+        serve(
+            &pending,
+            |_, _| panic!("no reload"),
+            Duration::from_secs(1),
+            &AtomicU64::new(2),
+            |_| Stamp::cursor(0),
+            |_, _, _, _| panic!("no reload"),
+            |job, _| {
+                let Deferred::Checklist(task) = job else {
+                    panic!("obsolete selected read must not run")
+                };
+                completed.push(task.key.serial);
+                true
+            },
+        );
+        assert_eq!(completed, [1, 2, 3]);
+    }
 
     #[test]
     fn selected_home_message_uses_the_existing_worker_and_read_only_public_api() {

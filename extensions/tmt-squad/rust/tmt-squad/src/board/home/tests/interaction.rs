@@ -12,6 +12,7 @@ use ratatui::{
     widgets::Paragraph,
 };
 use tmt_cli_style::breakpoint::{LG, MD};
+use unicode_width::UnicodeWidthStr;
 
 pub(super) fn press(app: &mut App, key: KeyCode) -> Effect {
     app.key(KeyEvent::new(key, KeyModifiers::NONE))
@@ -58,7 +59,9 @@ fn home_footer_keeps_search_after_row_actions_when_it_fits() {
         assert!(!hints.contains("t replies"), "{width}: {hints}");
         if width >= 100 {
             assert!(
-                hints.starts_with("↑↓ move  ⏎ open  a write  e expand  A ask lead  / search"),
+                hints.starts_with(
+                    "Focus: HOME rows  ↑↓ move  ⏎ open  a write  e expand  A ask lead  / search"
+                ),
                 "{width}: {hints}"
             );
         }
@@ -974,6 +977,63 @@ fn header_usage_formats_thresholds_real_labels_and_partial_missing_values() {
     usage.models.clear();
     let line = paint::usage(&usage, 160, app.look()).unwrap().to_string();
     assert!(line.contains("24h 0 · share 24h: – · models – · 1 member without data"));
+}
+
+#[test]
+fn flat_header_words_counts_and_missing_evidence_are_text_while_marks_keep_roles() {
+    use tmt_cli_style::{Base, Depth, Role, Theme};
+    for (base, depth) in [
+        (Base::Tmt, Depth::TrueColor),
+        (Base::TmtLight, Depth::TrueColor),
+        (Base::Terminal, Depth::Ansi16),
+        (Base::Tmt, Depth::None),
+    ] {
+        let app = board(&[(
+            "product",
+            document(
+                "product",
+                row("L", "lead", "working"),
+                vec![row("W", "worker", "blocked")],
+            ),
+        )]);
+        let look = crate::look::Look {
+            theme: Theme::new(base),
+            depth,
+        };
+        let line = paint::summary(app.view.as_ref().unwrap().home.as_ref().unwrap(), 160, look);
+        let fg = |role| look.role(role).fg.unwrap_or_default();
+        let mut terminal = Terminal::new(TestBackend::new(160, 1)).unwrap();
+        terminal
+            .draw(|frame| frame.render_widget(Paragraph::new(line), frame.area()))
+            .unwrap();
+        let buffer = terminal.backend().buffer();
+        let text = buffer
+            .content
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect::<String>();
+        for word in ["squads", "members", "blocked", "idle"] {
+            let x = text[..text.find(word).unwrap()].width() as u16;
+            assert_eq!(buffer[(x, 0)].fg, fg(Role::Text), "{word}");
+        }
+        let x = text[..text.find("✗").unwrap()].width() as u16;
+        assert_eq!(buffer[(x, 0)].fg, fg(Role::Blocked));
+        let usage = header_usage();
+        let line = paint::usage(&usage, 160, look).unwrap();
+        terminal
+            .draw(|frame| frame.render_widget(Paragraph::new(line), frame.area()))
+            .unwrap();
+        let buffer = terminal.backend().buffer();
+        let text = buffer
+            .content
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect::<String>();
+        for word in ["–", "~1k", "worker", "without data"] {
+            let x = text[..text.find(word).unwrap()].width() as u16;
+            assert_eq!(buffer[(x, 0)].fg, fg(Role::Text), "{word}");
+        }
+    }
 }
 
 #[test]

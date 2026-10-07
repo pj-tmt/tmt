@@ -81,8 +81,9 @@ through `reconnect(page)` in `acceptance/ask.spec.ts`.
 - `space.db` schemas are append-only (`store/schema.rs`): 1 ciphertext (pages, streams,
   receipts, checkpoints), 2 owner authority (membership log, recipients, devices, epoch
   secrets, wraps, `owner_operations`), 3 `device_registrations`, 4 `baselines`,
-  5 nullable checked server-observed content time on `pages`. Migration leaves legacy
-  times null without backfill. Epoch
+  5 nullable checked server-observed content time on `pages`, 6 nullable original content
+  publication scope on `owner_operations`. Migration leaves legacy times null and legacy
+  outcomes unscoped without backfill. Epoch
   secrets are local key material, not an encrypted-at-rest guarantee.
 - `Store::open` creates and migrates. `Store::read` and `Store::write_existing` open only
   existing 0600 state owned by the user, create nothing and never migrate;
@@ -124,6 +125,15 @@ through `reconnect(page)` in `acceptance/ask.spec.ts`.
 - Signed statement, secrets, baseline, wraps, page epoch and the operation receipt commit in
   one transaction or not at all; `owner_operations` makes an exact retry return the saved
   outcome with its original head. Callers propagate mutation errors so everything rolls back.
+- Unintegrated `page::commit_publication` reuses the immediate device transaction and a
+  content savepoint for a verified sealed batch plus one scoped terminal outcome. Expected
+  admitted rejection rolls back content/stream/receipt/device/time changes before retaining the rejection;
+  unexpected failure rolls back the enclosing transaction. Original-key replay returns exact
+  bytes after current writer admission, without effect fences, quota charge or time refresh.
+  `publication_status` is a read-only original-key lookup with caller-supplied current authority;
+  it never issues a chain or persists UNKNOWN. Shared capacity includes scoped outcomes in
+  existing page budgets across epochs, without eviction. The contract owns wire details;
+  existing Save/CLI callers and v1 IPC remain unchanged.
 - Link seeds are borrowed for key derivation and never persisted or returned
   (`transitions/links.rs`).
 

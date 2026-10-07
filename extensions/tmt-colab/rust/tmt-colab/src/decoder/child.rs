@@ -7,6 +7,18 @@ use yrs::{
 };
 
 pub(super) fn run() -> std::process::ExitCode {
+    if !initialize() {
+        return std::process::ExitCode::FAILURE;
+    }
+    match execute() {
+        Ok(()) => std::process::ExitCode::SUCCESS,
+        Err(_) => {
+            diagnostic("decoder rejected");
+            std::process::ExitCode::FAILURE
+        }
+    }
+}
+fn initialize() -> bool {
     // Linux enforces RLIMIT_AS. macOS accepts it without enforcing it, so report
     // unavailable rather than claiming memory containment or refusing to run.
     #[cfg(target_os = "linux")]
@@ -16,34 +28,130 @@ pub(super) fn run() -> std::process::ExitCode {
             || getrlimit(Resource::RLIMIT_AS).ok() != Some((MEMORY_BYTES, MEMORY_BYTES))
         {
             diagnostic("decoder memory limit failed");
-            return std::process::ExitCode::FAILURE;
+            return false;
         }
     }
     if memory_limit() == MemoryLimit::Unavailable {
         diagnostic("memory limit unavailable");
     }
     std::panic::set_hook(Box::new(|_| diagnostic("decoder panic")));
-    match execute() {
-        Ok(()) => std::process::ExitCode::SUCCESS,
-        Err(_) => {
-            diagnostic("decoder rejected");
-            std::process::ExitCode::FAILURE
+    true
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Stage {
+    #[cfg(test)]
+    Memory,
+    Input,
+    Json,
+    Binary,
+    Decode,
+    Apply,
+    OwnValidation,
+    Project,
+    Merge,
+    Edit,
+    Generation,
+    Bounds,
+    Replay,
+    Prefix,
+    ReplyBuild,
+    ReplySerialize,
+    ReplyWrite,
+}
+impl Stage {
+    #[cfg(test)]
+    pub(super) fn label(self) -> &'static str {
+        match self {
+            Self::Memory => "memory",
+            Self::Input => "input",
+            Self::Json => "json",
+            Self::Binary => "binary",
+            Self::Decode => "decode",
+            Self::Apply => "apply",
+            Self::OwnValidation => "own",
+            Self::Project => "project",
+            Self::Merge => "merge",
+            Self::Edit => "edit",
+            Self::Generation => "generation",
+            Self::Bounds => "bounds",
+            Self::Replay => "replay",
+            Self::Prefix => "prefix",
+            Self::ReplyBuild => "reply-build",
+            Self::ReplySerialize => "reply-json",
+            Self::ReplyWrite => "reply-write",
         }
     }
 }
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum CheckpointBoundary {
+    Enter,
+    Leave,
+}
+type Checkpoint<'a> = dyn FnMut(Stage, CheckpointBoundary, usize) + 'a;
+fn noop(_: Stage, _: CheckpointBoundary, _: usize) {}
+
+#[cfg(test)]
+pub(super) fn observed_request(
+    reader: impl Read,
+    command: Option<&str>,
+    writer: &mut impl Write,
+    checkpoint: &mut Checkpoint<'_>,
+) -> Result<(), DecodeFault> {
+    checkpoint(Stage::Memory, CheckpointBoundary::Enter, 0);
+    if !initialize() {
+        return Err(DecodeFault::InvalidInput);
+    }
+    checkpoint(Stage::Memory, CheckpointBoundary::Leave, 0);
+    // Baseline composition remains production-only; this helper observes the two reached paths.
+    if command == Some("baseline") {
+        return Err(DecodeFault::InvalidInput);
+    }
+    execute_with(reader, command, writer, checkpoint)
+}
+#[cfg(test)]
+pub(super) fn request_for_test(
+    reader: impl Read,
+    command: Option<&str>,
+    writer: &mut impl Write,
+    checkpoint: &mut Checkpoint<'_>,
+) -> Result<(), DecodeFault> {
+    execute_with(reader, command, writer, checkpoint)
+}
 fn execute() -> Result<(), DecodeFault> {
+    execute_with(
+        std::io::stdin(),
+        std::env::args().nth(2).as_deref(),
+        &mut ProductionReply,
+        &mut noop,
+    )
+}
+fn execute_with(
+    reader: impl Read,
+    command: Option<&str>,
+    writer: &mut impl Write,
+    checkpoint: &mut Checkpoint<'_>,
+) -> Result<(), DecodeFault> {
+    checkpoint(Stage::Input, CheckpointBoundary::Enter, 0);
     let mut input = Vec::new();
-    std::io::stdin()
+    reader
         .take((STREAM_BYTES + 1) as u64)
         .read_to_end(&mut input)
         .map_err(|_| DecodeFault::InvalidInput)?;
     if input.len() > STREAM_BYTES {
         return Err(DecodeFault::InvalidInput);
     }
-    if std::env::args().nth(2).as_deref() == Some("baseline") {
+    checkpoint(Stage::Input, CheckpointBoundary::Leave, input.len());
+    if command == Some("baseline") {
         return baseline(&input);
     }
-    let wire: WireBatch = serde_json::from_slice(&input).map_err(|_| DecodeFault::InvalidInput)?;
+    if command == Some("prepare-content") {
+        return prepare_content(&input, writer, checkpoint);
+    }
+    checkpoint(Stage::Json, CheckpointBoundary::Enter, 0);
+    let wire: WireBatch<BorrowedWireText<'_>> =
+        serde_json::from_slice(&input).map_err(|_| DecodeFault::InvalidInput)?;
+    checkpoint(Stage::Json, CheckpointBoundary::Leave, 0);
     if wire.version != 1
         || wire.updates.len() > UPDATES
         || wire
@@ -54,6 +162,7 @@ fn execute() -> Result<(), DecodeFault> {
     {
         return Err(DecodeFault::InvalidInput);
     }
+    checkpoint(Stage::Binary, CheckpointBoundary::Enter, 0);
     let baseline = binary(&wire.baseline, STATE_BYTES)?;
     let updates: Vec<_> = wire
         .updates
@@ -63,6 +172,7 @@ fn execute() -> Result<(), DecodeFault> {
     if baseline.len() + updates.iter().map(Vec::len).sum::<usize>() > STATE_BYTES {
         return Err(DecodeFault::InvalidInput);
     }
+    checkpoint(Stage::Binary, CheckpointBoundary::Leave, updates.len());
     let doc = Doc::new();
     let names: &[&str] = match wire.namespace {
         Namespace::Content => &["html", "meta"],
@@ -76,15 +186,21 @@ fn execute() -> Result<(), DecodeFault> {
         }
     }
     let mut discussion = std::collections::BTreeMap::new();
-    for bytes in std::iter::once(&baseline)
+    for (index, bytes) in std::iter::once(&baseline)
         .filter(|v| !v.is_empty())
         .chain(updates.iter())
+        .enumerate()
     {
+        checkpoint(Stage::Decode, CheckpointBoundary::Enter, index);
         let update = Update::decode_v1(bytes).map_err(|_| DecodeFault::Rejected)?;
+        checkpoint(Stage::Decode, CheckpointBoundary::Leave, index + 1);
+        checkpoint(Stage::Apply, CheckpointBoundary::Enter, index);
         doc.transact_mut()
             .apply_update(update)
             .map_err(|_| DecodeFault::Rejected)?;
+        checkpoint(Stage::Apply, CheckpointBoundary::Leave, index + 1);
         if wire.namespace == Namespace::Own {
+            checkpoint(Stage::OwnValidation, CheckpointBoundary::Enter, index);
             let next = discussion_records(&doc)?;
             if discussion
                 .iter()
@@ -93,47 +209,44 @@ fn execute() -> Result<(), DecodeFault> {
                 return Err(DecodeFault::Rejected);
             }
             discussion = next;
+            checkpoint(Stage::OwnValidation, CheckpointBoundary::Leave, index + 1);
         }
     }
     if wire.merge_only {
         if wire.source.is_some() {
             return Err(DecodeFault::InvalidInput);
         }
+        checkpoint(Stage::Merge, CheckpointBoundary::Enter, 0);
         let merged = yrs::merge_updates_v1(updates.iter().map(Vec::as_slice))
             .map_err(|_| DecodeFault::Rejected)?;
         if merged.len() > STATE_BYTES {
             return Err(DecodeFault::Rejected);
         }
-        return write_reply(&WireResult {
+        checkpoint(Stage::Merge, CheckpointBoundary::Leave, 0);
+        checkpoint(Stage::ReplyBuild, CheckpointBoundary::Enter, 0);
+        let reply = WireResult {
             version: 1,
             namespace: wire.namespace,
             input_hash: URL_SAFE_NO_PAD.encode(Sha256::digest(&input)),
-            merged: URL_SAFE_NO_PAD.encode(merged),
+            merged: EncodedBytes(&merged),
             projection: Value::Null,
             memory_limit: memory_limit(),
             pid: std::process::id(),
-        });
+        };
+        checkpoint(Stage::ReplyBuild, CheckpointBoundary::Leave, 0);
+        return write_reply_with(&reply, writer, checkpoint);
     }
+    checkpoint(Stage::Project, CheckpointBoundary::Enter, 0);
     let before = project(&doc, wire.namespace)?;
+    checkpoint(Stage::Project, CheckpointBoundary::Leave, 0);
     // Edit only the admitted structs. The delta never reattributes foreign content.
-    let merged = if let Some(source) = &wire.source {
+    let (merged, projection) = if let Some(source) = &wire.source {
         if wire.namespace != Namespace::Content || source.len() > BASELINE_BYTES {
             return Err(DecodeFault::InvalidInput);
         }
+        checkpoint(Stage::Edit, CheckpointBoundary::Enter, 0);
         let old = before["html"].as_str().ok_or(DecodeFault::Rejected)?;
-        let start = old
-            .chars()
-            .zip(source.chars())
-            .take_while(|(a, b)| a == b)
-            .map(|(c, _)| c.len_utf8())
-            .sum::<usize>();
-        let end = old[start..]
-            .chars()
-            .rev()
-            .zip(source[start..].chars().rev())
-            .take_while(|(a, b)| a == b)
-            .map(|(c, _)| c.len_utf8())
-            .sum::<usize>();
+        let (start, end) = content_diff(old, source);
         let vector = doc.transact().state_vector();
         let text = doc.get_or_insert_text("html");
         let meta = doc.get_or_insert_map("meta");
@@ -155,13 +268,21 @@ fn execute() -> Result<(), DecodeFault> {
         } else {
             meta.remove(&mut tx, "publisherAgent");
         }
-        tx.encode_state_as_update_v1(&vector)
+        let merged = tx.encode_state_as_update_v1(&vector);
+        drop(tx);
+        checkpoint(Stage::Edit, CheckpointBoundary::Leave, 0);
+        checkpoint(Stage::Project, CheckpointBoundary::Enter, 1);
+        let projection = project(&doc, wire.namespace)?;
+        checkpoint(Stage::Project, CheckpointBoundary::Leave, 1);
+        (merged, projection)
     } else {
         // Merge the author's updates, never encode the shared document.
-        yrs::merge_updates_v1(updates.iter().map(Vec::as_slice))
-            .map_err(|_| DecodeFault::Rejected)?
+        checkpoint(Stage::Merge, CheckpointBoundary::Enter, 0);
+        let merged = yrs::merge_updates_v1(updates.iter().map(Vec::as_slice))
+            .map_err(|_| DecodeFault::Rejected)?;
+        checkpoint(Stage::Merge, CheckpointBoundary::Leave, 0);
+        (merged, before)
     };
-    let projection = project(&doc, wire.namespace)?;
     // A prepared edit is one update; a read's merged tail may be the whole state.
     if merged.len()
         > if wire.source.is_some() {
@@ -172,16 +293,222 @@ fn execute() -> Result<(), DecodeFault> {
     {
         return Err(DecodeFault::Rejected);
     }
+    checkpoint(Stage::ReplyBuild, CheckpointBoundary::Enter, 0);
     let reply = WireResult {
         version: 1,
         namespace: wire.namespace,
         input_hash: URL_SAFE_NO_PAD.encode(Sha256::digest(&input)),
-        merged: URL_SAFE_NO_PAD.encode(merged),
+        merged: EncodedBytes(&merged),
         projection,
         memory_limit: memory_limit(),
         pid: std::process::id(),
     };
-    write_reply(&reply)
+    checkpoint(Stage::ReplyBuild, CheckpointBoundary::Leave, 0);
+    write_reply_with(&reply, writer, checkpoint)
+}
+fn content_diff(old: &str, source: &str) -> (usize, usize) {
+    let start = old
+        .chars()
+        .zip(source.chars())
+        .take_while(|(a, b)| a == b)
+        .map(|(c, _)| c.len_utf8())
+        .sum::<usize>();
+    let end = old[start..]
+        .chars()
+        .rev()
+        .zip(source[start..].chars().rev())
+        .take_while(|(a, b)| a == b)
+        .map(|(c, _)| c.len_utf8())
+        .sum::<usize>();
+    (start, end)
+}
+fn content_document(
+    baseline: &[u8],
+    updates: &[Vec<u8>],
+    checkpoint: &mut Checkpoint<'_>,
+) -> Result<Doc, DecodeFault> {
+    let doc = Doc::new();
+    doc.get_or_insert_text("html");
+    doc.get_or_insert_map("meta");
+    for (index, bytes) in std::iter::once(baseline)
+        .filter(|v| !v.is_empty())
+        .chain(updates.iter().map(Vec::as_slice))
+        .enumerate()
+    {
+        let mut tx = doc.transact_mut();
+        checkpoint(Stage::Decode, CheckpointBoundary::Enter, index);
+        let update = Update::decode_v1(bytes).map_err(|_| DecodeFault::Rejected)?;
+        checkpoint(Stage::Decode, CheckpointBoundary::Leave, index + 1);
+        checkpoint(Stage::Apply, CheckpointBoundary::Enter, index);
+        tx.apply_update(update).map_err(|_| DecodeFault::Rejected)?;
+        drop(tx);
+        checkpoint(Stage::Apply, CheckpointBoundary::Leave, index + 1);
+    }
+    Ok(doc)
+}
+#[cfg(test)]
+fn replay_content(
+    baseline: &[u8],
+    admitted: &[Vec<u8>],
+    updates: &[Vec<u8>],
+    expected: &Value,
+) -> Result<(), DecodeFault> {
+    replay_content_with(baseline, admitted, updates, expected, &mut noop)
+}
+fn replay_content_with(
+    baseline: &[u8],
+    admitted: &[Vec<u8>],
+    updates: &[Vec<u8>],
+    expected: &Value,
+    checkpoint: &mut Checkpoint<'_>,
+) -> Result<(), DecodeFault> {
+    checkpoint(Stage::Replay, CheckpointBoundary::Enter, 0);
+    let replay = content_document(baseline, admitted, checkpoint)?;
+    for (index, bytes) in updates.iter().enumerate() {
+        let mut tx = replay.transact_mut();
+        checkpoint(Stage::Decode, CheckpointBoundary::Enter, index);
+        let update = Update::decode_v1(bytes).map_err(|_| DecodeFault::Rejected)?;
+        checkpoint(Stage::Decode, CheckpointBoundary::Leave, index + 1);
+        checkpoint(Stage::Apply, CheckpointBoundary::Enter, index);
+        tx.apply_update(update).map_err(|_| DecodeFault::Rejected)?;
+        drop(tx);
+        checkpoint(Stage::Apply, CheckpointBoundary::Leave, index + 1);
+        checkpoint(Stage::Prefix, CheckpointBoundary::Enter, index);
+        project(&replay, Namespace::Content)?; // Reject unresolved causal prefixes, not only the final state.
+        checkpoint(Stage::Prefix, CheckpointBoundary::Leave, index + 1);
+    }
+    checkpoint(Stage::Project, CheckpointBoundary::Enter, updates.len());
+    if project(&replay, Namespace::Content)? != *expected {
+        return Err(DecodeFault::Rejected);
+    }
+    checkpoint(Stage::Project, CheckpointBoundary::Leave, updates.len());
+    checkpoint(Stage::Replay, CheckpointBoundary::Leave, updates.len());
+    Ok(())
+}
+fn prepare_content(
+    input: &[u8],
+    writer: &mut impl Write,
+    checkpoint: &mut Checkpoint<'_>,
+) -> Result<(), DecodeFault> {
+    checkpoint(Stage::Json, CheckpointBoundary::Enter, 0);
+    let wire: WireContentPreparation<BorrowedWireText<'_>, Value, BorrowedWireText<'_>> =
+        serde_json::from_slice(input).map_err(|_| DecodeFault::InvalidInput)?;
+    checkpoint(Stage::Json, CheckpointBoundary::Leave, 0);
+    if wire.version != 1
+        || wire.source.len() > BASELINE_BYTES
+        || wire.updates.len() > UPDATES
+        || wire
+            .publisher_agent
+            .as_deref()
+            .is_some_and(|v| !valid_publisher_agent(v))
+    {
+        return Err(DecodeFault::InvalidInput);
+    }
+    checkpoint(Stage::Binary, CheckpointBoundary::Enter, 0);
+    let baseline = binary(&wire.baseline, STATE_BYTES)?;
+    let admitted = wire
+        .updates
+        .iter()
+        .map(|v| binary(v, STATE_BYTES))
+        .collect::<Result<Vec<_>, _>>()?;
+    if baseline.len() + admitted.iter().map(Vec::len).sum::<usize>() > STATE_BYTES {
+        return Err(DecodeFault::InvalidInput);
+    }
+    checkpoint(Stage::Binary, CheckpointBoundary::Leave, admitted.len());
+    let doc = content_document(&baseline, &admitted, checkpoint)?;
+    checkpoint(Stage::Project, CheckpointBoundary::Enter, 0);
+    let before = project(&doc, Namespace::Content)?;
+    checkpoint(Stage::Project, CheckpointBoundary::Leave, 0);
+    if before != wire.expected_base {
+        return Err(DecodeFault::Rejected);
+    }
+    let edit = ContentEdit {
+        source: &wire.source,
+        publisher_agent: wire.publisher_agent.as_deref(),
+    };
+    let expected = edited_projection(&before, edit);
+    checkpoint(Stage::Generation, CheckpointBoundary::Enter, 0);
+    let mut updates = Vec::new();
+    if expected != before {
+        let old = before["html"].as_str().ok_or(DecodeFault::Rejected)?;
+        let (start, end) = content_diff(old, &wire.source);
+        let mut rest = &wire.source[start..wire.source.len() - end];
+        let html = doc.get_or_insert_text("html");
+        let meta = doc.get_or_insert_map("meta");
+        let mut first = true;
+        let mut offset = start;
+        while first || !rest.is_empty() {
+            let mut cut = rest.len().min(CREATE_CHUNK_BYTES);
+            while !rest.is_char_boundary(cut) {
+                cut -= 1;
+            }
+            let (piece, tail) = rest.split_at(cut);
+            let mut tx = doc.transact_mut();
+            if first {
+                let remove = old.len() - start - end;
+                if remove > 0 {
+                    html.remove_range(&mut tx, start as u32, remove as u32);
+                }
+                if before["meta"]["publisherAgent"].as_str() != edit.publisher_agent {
+                    if let Some(agent) = edit.publisher_agent {
+                        meta.insert(&mut tx, "publisherAgent", agent);
+                    } else {
+                        meta.remove(&mut tx, "publisherAgent");
+                    }
+                }
+            }
+            if !piece.is_empty() {
+                html.insert(&mut tx, offset as u32, piece);
+            }
+            updates.push(tx.encode_update_v1());
+            offset += piece.len();
+            rest = tail;
+            first = false;
+        }
+        if updates.len() > WRITE_TAIL_UPDATES
+            || updates.iter().any(|v| v.len() > UPDATE_BYTES)
+            || updates.iter().map(Vec::len).sum::<usize>() > WRITE_TAIL_BYTES
+        {
+            return Err(DecodeFault::Rejected);
+        }
+    }
+    checkpoint(Stage::Generation, CheckpointBoundary::Leave, updates.len());
+    checkpoint(Stage::Project, CheckpointBoundary::Enter, 1);
+    let projection = project(&doc, Namespace::Content)?;
+    checkpoint(Stage::Project, CheckpointBoundary::Leave, 1);
+    checkpoint(Stage::Bounds, CheckpointBoundary::Enter, 0);
+    if projection != expected
+        || doc
+            .transact()
+            .encode_state_as_update_v1(&StateVector::default())
+            .len()
+            > STATE_BYTES
+        || serde_json::to_vec(&projection)
+            .map_err(|_| DecodeFault::Rejected)?
+            .len()
+            > STATE_BYTES
+    {
+        return Err(DecodeFault::Rejected);
+    }
+    checkpoint(Stage::Bounds, CheckpointBoundary::Leave, 0);
+    replay_content_with(&baseline, &admitted, &updates, &expected, checkpoint)?;
+    checkpoint(Stage::ReplyBuild, CheckpointBoundary::Enter, 0);
+    let reply = WirePreparedContent {
+        version: 1,
+        input_hash: URL_SAFE_NO_PAD.encode(Sha256::digest(input)),
+        batch: if updates.is_empty() {
+            WireContentBatch::Noop
+        } else {
+            WireContentBatch::Updates {
+                updates: updates.iter().map(|v| EncodedBytes(v)).collect(),
+            }
+        },
+        projection,
+        memory_limit: memory_limit(),
+        pid: std::process::id(),
+    };
+    checkpoint(Stage::ReplyBuild, CheckpointBoundary::Leave, 0);
+    write_reply_with(&reply, writer, checkpoint)
 }
 // Capture only materialized typed records, allowing existing checkpoint steps
 // with pending dependencies. A later update cannot replace or remove a record.
@@ -208,14 +535,42 @@ fn discussion_records(
     Ok(records)
 }
 
+struct ProductionReply;
+impl Write for ProductionReply {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        tmt_cli_style::stream::stdout(true).write(bytes)
+    }
+    fn write_all(&mut self, bytes: &[u8]) -> std::io::Result<()> {
+        tmt_cli_style::stream::stdout(true).write_all(bytes)
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
 fn write_reply(reply: &impl Serialize) -> Result<(), DecodeFault> {
+    write_reply_with(reply, &mut ProductionReply, &mut noop)
+}
+fn write_reply_with(
+    reply: &impl Serialize,
+    writer: &mut impl Write,
+    checkpoint: &mut Checkpoint<'_>,
+) -> Result<(), DecodeFault> {
+    checkpoint(Stage::ReplySerialize, CheckpointBoundary::Enter, 0);
     let output = serde_json::to_vec(reply).map_err(|_| DecodeFault::InvalidOutput)?;
     if output.len() > STREAM_BYTES {
         return Err(DecodeFault::InvalidOutput);
     }
-    tmt_cli_style::stream::stdout(true)
+    checkpoint(
+        Stage::ReplySerialize,
+        CheckpointBoundary::Leave,
+        output.len(),
+    );
+    checkpoint(Stage::ReplyWrite, CheckpointBoundary::Enter, 0);
+    writer
         .write_all(&output)
-        .map_err(|_| DecodeFault::InvalidOutput)
+        .map_err(|_| DecodeFault::InvalidOutput)?;
+    checkpoint(Stage::ReplyWrite, CheckpointBoundary::Leave, output.len());
+    Ok(())
 }
 
 fn diagnostic(message: &str) {
@@ -469,5 +824,239 @@ mod baseline_tests {
                 vector["commitment"]
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod content_preparation_tests {
+    use super::*;
+    #[test]
+    fn causal_replay_rejects_unordered_unresolved_and_wrong_projection_with_a_positive_control() {
+        let doc = Doc::with_client_id(123);
+        let html = doc.get_or_insert_text("html");
+        doc.get_or_insert_map("meta")
+            .insert(&mut doc.transact_mut(), "title", "T");
+        html.insert(&mut doc.transact_mut(), 0, "old");
+        let baseline = doc
+            .transact()
+            .encode_state_as_update_v1(&StateVector::default());
+        let mut first = doc.transact_mut();
+        html.remove_range(&mut first, 0, 3);
+        html.insert(&mut first, 0, "A");
+        let a = first.encode_update_v1();
+        drop(first);
+        let mut second = doc.transact_mut();
+        html.insert(&mut second, 1, "B");
+        let b = second.encode_update_v1();
+        drop(second);
+        let expected = serde_json::json!({"html":"AB","meta":{"title":"T"}});
+        replay_content(&baseline, &[], &[a.clone(), b.clone()], &expected).unwrap();
+        assert!(replay_content(&baseline, &[], &[b.clone(), a.clone()], &expected).is_err());
+        assert!(replay_content(&baseline, &[], &[b], &expected).is_err());
+        assert!(replay_content(&baseline, &[], &[a], &expected).is_err());
+    }
+
+    #[test]
+    fn reply_final_cap_precedes_output_and_serialization_failure_discards_partial_bytes() {
+        struct Ascii(usize);
+        impl std::fmt::Display for Ascii {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                const CHUNK: &str = concat!(
+                    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                );
+                for _ in 0..self.0 / CHUNK.len() {
+                    f.write_str(CHUNK)?;
+                }
+                f.write_str(&CHUNK[..self.0 % CHUNK.len()])
+            }
+        }
+        impl Serialize for Ascii {
+            fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+                serializer.collect_str(self)
+            }
+        }
+        #[derive(Default)]
+        struct Count(usize);
+        impl Write for Count {
+            fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+                self.0 += bytes.len();
+                Ok(bytes.len())
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+        // Only the unchanged production Vec holds the large serialized reply.
+        // Quotes contribute two bytes; the oracle and destination allocate none.
+        for (characters, accepted) in [(STREAM_BYTES - 2, true), (STREAM_BYTES - 1, false)] {
+            let mut writer = Count::default();
+            let mut events = Vec::new();
+            let result = write_reply_with(&Ascii(characters), &mut writer, &mut |s, e, n| {
+                events.push((s, e, n));
+            });
+            assert_eq!(result.is_ok(), accepted);
+            assert_eq!(writer.0, if accepted { STREAM_BYTES } else { 0 });
+            assert_eq!(
+                events.last(),
+                Some(&if accepted {
+                    (Stage::ReplyWrite, CheckpointBoundary::Leave, STREAM_BYTES)
+                } else {
+                    (Stage::ReplySerialize, CheckpointBoundary::Enter, 0)
+                })
+            );
+            if !accepted {
+                assert!(matches!(result, Err(DecodeFault::InvalidOutput)));
+            }
+        }
+        struct Broken;
+        impl Serialize for Broken {
+            fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+                use serde::ser::SerializeSeq;
+                let mut seq = serializer.serialize_seq(Some(2))?;
+                seq.serialize_element("private partial reply")?;
+                Err(serde::ser::Error::custom("serialization failed"))
+            }
+        }
+        let mut writer = Count::default();
+        let mut events = Vec::new();
+        assert!(matches!(
+            write_reply_with(&Broken, &mut writer, &mut |s, e, n| events.push((s, e, n))),
+            Err(DecodeFault::InvalidOutput)
+        ));
+        assert_eq!(writer.0, 0);
+        assert_eq!(
+            events,
+            [(Stage::ReplySerialize, CheckpointBoundary::Enter, 0)]
+        );
+    }
+
+    #[test]
+    fn reply_write_failure_preserves_original_error_and_has_no_completed_write_checkpoint() {
+        struct Partial(usize);
+        impl Write for Partial {
+            fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+                if self.0 == 0 {
+                    self.0 = bytes.len().min(3);
+                    Ok(self.0)
+                } else {
+                    Err(std::io::Error::other("private writer failure"))
+                }
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+        let mut writer = Partial(0);
+        let mut events = Vec::new();
+        assert!(matches!(
+            write_reply_with(&"abcdef", &mut writer, &mut |s, e, n| events
+                .push((s, e, n))),
+            Err(DecodeFault::InvalidOutput)
+        ));
+        assert_eq!(writer.0, 3);
+        assert_eq!(
+            events.last(),
+            Some(&(Stage::ReplyWrite, CheckpointBoundary::Enter, 0))
+        );
+        assert!(
+            !events
+                .iter()
+                .any(|v| v.0 == Stage::ReplyWrite && v.1 == CheckpointBoundary::Leave)
+        );
+    }
+}
+
+#[cfg(test)]
+mod projection_reuse_tests {
+    use super::*;
+
+    #[test]
+    fn unchanged_content_and_own_projection_matches_independent_values_after_merge() {
+        for namespace in [Namespace::Content, Namespace::Own] {
+            let doc = Doc::with_client_id(818);
+            let expected = match namespace {
+                Namespace::Content => {
+                    doc.get_or_insert_text("html")
+                        .insert(&mut doc.transact_mut(), 0, "old 🐈\n");
+                    let meta = doc.get_or_insert_map("meta");
+                    meta.insert(&mut doc.transact_mut(), "title", "T");
+                    meta.insert(&mut doc.transact_mut(), "publisherAgent", "agent");
+                    serde_json::json!({"html":"old 🐈\n","meta":{"title":"T","publisherAgent":"agent"}})
+                }
+                Namespace::Own => {
+                    for name in ["threads", "messages", "intents", "replies"] {
+                        doc.get_or_insert_map(name);
+                    }
+                    doc.get_or_insert_map("threads").insert(
+                        &mut doc.transact_mut(),
+                        "legacy",
+                        "retained 🐈",
+                    );
+                    serde_json::json!({"threads":{"legacy":"retained 🐈"},"messages":{},"intents":{},"replies":{}})
+                }
+            };
+            let original = doc
+                .transact()
+                .encode_state_as_update_v1(&StateVector::default());
+            let admitted = project(&doc, namespace).unwrap();
+            let merged = yrs::merge_updates_v1([original.as_slice()]).unwrap();
+            assert_eq!(admitted, expected);
+            assert_eq!(project(&doc, namespace).unwrap(), admitted);
+            let reader = Doc::new();
+            match namespace {
+                Namespace::Content => {
+                    reader.get_or_insert_text("html");
+                    reader.get_or_insert_map("meta");
+                }
+                Namespace::Own => {
+                    for name in ["threads", "messages", "intents", "replies"] {
+                        reader.get_or_insert_map(name);
+                    }
+                }
+            }
+            reader
+                .transact_mut()
+                .apply_update(Update::decode_v1(&merged).unwrap())
+                .unwrap();
+            assert_eq!(project(&reader, namespace).unwrap(), admitted);
+            assert_eq!(
+                doc.transact()
+                    .encode_state_as_update_v1(&StateVector::default()),
+                original
+            );
+        }
+    }
+
+    #[test]
+    fn projection_rejects_foreign_and_mixed_roots_and_is_fresh_after_edit() {
+        let doc = Doc::with_client_id(819);
+        let html = doc.get_or_insert_text("html");
+        html.insert(&mut doc.transact_mut(), 0, "old");
+        doc.get_or_insert_map("meta")
+            .insert(&mut doc.transact_mut(), "title", "T");
+        let before = project(&doc, Namespace::Content).unwrap();
+        html.insert(&mut doc.transact_mut(), 3, " new");
+        let after = project(&doc, Namespace::Content).unwrap();
+        assert_eq!(before["html"], "old");
+        assert_eq!(after["html"], "old new");
+        assert_eq!(before["meta"], after["meta"]);
+        doc.get_or_insert_map("html")
+            .insert(&mut doc.transact_mut(), "mixed", "bad");
+        assert!(matches!(
+            project(&doc, Namespace::Content),
+            Err(DecodeFault::Rejected)
+        ));
+        let own = Doc::new();
+        for name in ["threads", "messages", "intents", "replies"] {
+            own.get_or_insert_map(name);
+        }
+        assert!(project(&own, Namespace::Own).is_ok());
+        own.get_or_insert_map("foreign")
+            .insert(&mut own.transact_mut(), "x", "bad");
+        assert!(matches!(
+            project(&own, Namespace::Own),
+            Err(DecodeFault::Rejected)
+        ));
     }
 }

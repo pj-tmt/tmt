@@ -14,7 +14,7 @@ use tmt_cli_style::Base;
 use tmt_tui::components::{ListRow, PickerEvent, PickerField, PickerInput, surface};
 
 const FILE: &str = "squad.theme-picker.xml";
-const MARKUP: &str = r#"<tmt-view version="1"><tmt-modal id="theme-picker" title="theme · all boards" placement="center" class="w-72"><tmt-scroll id="choices-body"><tmt-table id="choices" bind="$.rows"><tmt-row class="grid grid-cols-[10_1fr] gap-1"><tmt-cell bind="row.name" token="text"/><tmt-cell bind="row.description" wrap="true" token="text"/></tmt-row></tmt-table><tmt-repeat each="$.notes" as="note"><tmt-text bind="note.text" token="muted" wrap="true"/></tmt-repeat></tmt-scroll><tmt-text id="scope" slot="query" bind="$.query" token="accent"/><tmt-text slot="status" bind="$.status" token="blocked"/><tmt-text slot="footer" bind="$.footer" token="muted"/></tmt-modal></tmt-view>"#;
+const MARKUP: &str = r#"<tmt-view version="1"><tmt-modal id="theme-picker" title="theme · all boards" placement="center" class="w-72"><tmt-scroll id="choices-body"><tmt-table id="choices" bind="$.rows"><tmt-row class="grid grid-cols-[10_1_1fr] gap-0"><tmt-cell bind="row.name" token="text"/><tmt-cell bind="row.cursor" token="text"/><tmt-cell bind="row.description" wrap="true" token="text"/></tmt-row></tmt-table><tmt-repeat each="$.notes" as="note"><tmt-text bind="note.text" token="muted" wrap="true"/></tmt-repeat></tmt-scroll><tmt-text id="scope" slot="query" bind="$.query" token="accent"/><tmt-text slot="status" bind="$.status" token="blocked"/><tmt-text slot="footer" bind="$.footer" token="muted"/></tmt-modal></tmt-view>"#;
 fn template(squad: bool) -> &'static surface::Template<()> {
     static BOARD: OnceLock<surface::Template<()>> = OnceLock::new();
     static SQUAD: OnceLock<surface::Template<()>> = OnceLock::new();
@@ -27,7 +27,7 @@ fn template(squad: bool) -> &'static surface::Template<()> {
             } else {
                 MARKUP.into()
             },
-            picker_surface::schema(&["name", "description"]),
+            picker_surface::schema(&["name", "cursor", "description"]),
         )
     })
 }
@@ -183,8 +183,15 @@ pub(super) fn render(frame: &mut Frame, picker: &Picker, look: Look, body: Rect)
     } else {
         "all boards"
     };
+    let selected = picker
+        .surface
+        .borrow()
+        .picker
+        .list
+        .selected()
+        .map(str::to_owned);
     let value = json!({
-        "rows": Base::ALL.into_iter().map(|base| json!({"id":base.name(), "disabled":false,"name":base.name(),"description":base.description()})).collect::<Vec<_>>(),
+        "rows": Base::ALL.into_iter().map(|base| json!({"id":base.name(), "disabled":false,"name":base.name(),"cursor":if selected.as_deref() == Some(base.name()) {"›"} else {""},"description":base.description()})).collect::<Vec<_>>(),
         "query":query, "notes":notes, "status":picker.notice.as_deref().unwrap_or(""),
         "footer":"Enter save · Esc cancel · Tab scope",
     });
@@ -436,8 +443,8 @@ mod tests {
             );
             assert_eq!(
                 buffer[(find(1, " · 1 waiting"), 1)].fg,
-                expected,
-                "summary uses the preview, including retained tokens"
+                app.look().role(Role::Text).fg.unwrap_or_default(),
+                "summary uses previewed text while the mark keeps its retained token"
             );
             if override_text.is_empty() {
                 assert_eq!(expected, ratatui::style::Color::Reset);
@@ -500,6 +507,50 @@ mod tests {
                     .unwrap();
             }
         }
+        std::fs::remove_dir_all(path.parent().unwrap()).unwrap();
+    }
+    #[test]
+    fn theme_cursor_uses_only_the_gap_and_keeps_description_start() {
+        let original = "[board.theme]\nbase = 'tmt'\n";
+        let (path, config) = fixture("cursor-track", original);
+        let picker = Picker::open(config, None).unwrap();
+        for (variant, look) in picker_surface::evidence::looks().into_iter().enumerate() {
+            for (width, height) in [(80, 30), (100, 30), (160, 30), (180, 30), (80, 8)] {
+                for selected in ["tmt", "tmt-light"] {
+                    picker.surface.borrow_mut().select(selected);
+                    let mut screen = Terminal::new(TestBackend::new(width, height)).unwrap();
+                    screen
+                        .draw(|frame| render(frame, &picker, look, frame.area()))
+                        .unwrap();
+                    let state = picker.surface.borrow();
+                    let buffer = screen.backend().buffer();
+                    for id in ["tmt", "tmt-light"] {
+                        let row = picker_surface::evidence::row(&state, id);
+                        if row.height == 0 {
+                            continue;
+                        }
+                        assert_eq!(buffer[(row.x, row.y)].symbol(), "t");
+                        assert_eq!(
+                            buffer[(row.x + 10, row.y)].symbol(),
+                            if id == selected { "›" } else { " " }
+                        );
+                        assert_eq!(
+                            buffer[(row.x + 11, row.y)].symbol(),
+                            if id == "tmt" { "s" } else { "t" }
+                        );
+                        for y in row.y + 1..row.bottom() {
+                            assert_ne!(buffer[(row.x + 10, y)].symbol(), "›");
+                        }
+                    }
+                    picker_surface::evidence::capture(
+                        &format!("theme-{width}x{height}-{variant}-{selected}"),
+                        buffer,
+                        &state,
+                    );
+                }
+            }
+        }
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), original);
         std::fs::remove_dir_all(path.parent().unwrap()).unwrap();
     }
 }

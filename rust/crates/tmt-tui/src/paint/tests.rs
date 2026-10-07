@@ -183,13 +183,13 @@ fn themes_inheritance_overrides_depth_and_caller_selection_are_exact() {
         (
             Base::Tmt,
             Depth::TrueColor,
-            Color::Rgb(122, 131, 174),
+            Color::Rgb(133, 133, 133),
             Modifier::empty(),
         ),
         (
             Base::TmtLight,
             Depth::TrueColor,
-            Color::Rgb(104, 112, 154),
+            Color::Rgb(118, 118, 118),
             Modifier::empty(),
         ),
         (Base::Terminal, Depth::Ansi16, Color::Reset, Modifier::DIM),

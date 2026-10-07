@@ -141,6 +141,9 @@ fn inspect_markup_parity_diff() {
     }
     let expected: Value = serde_json::from_str(include_str!("parity.json")).unwrap();
     let actual = baseline();
+    if let Some(path) = std::env::var_os("TMT_PARITY_OUT") {
+        std::fs::write(path, serde_json::to_string(&actual).unwrap()).unwrap();
+    }
     assert_eq!(expected["source"], actual["source"]);
     assert_eq!(
         expected["fixtures"].as_array().unwrap().len(),

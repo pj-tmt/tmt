@@ -66,6 +66,7 @@ pub fn eligible_for_drift(parsed: &Parsed) -> bool {
                 | Invocation::Upgrade { .. }
                 | Invocation::NativeInstall { .. }
                 | Invocation::NativeInstallHandoff { .. }
+                | Invocation::NativeSchema { .. }
                 | Invocation::NativeRefreshSkills { .. }
                 | Invocation::NativeUpgradeExtensions { .. }
                 | Invocation::Office { .. }
@@ -100,6 +101,7 @@ pub fn eligible_for_driver_hint(parsed: &Parsed) -> bool {
                 | Invocation::ProviderHook { .. }
                 | Invocation::NativeInstall { .. }
                 | Invocation::NativeInstallHandoff { .. }
+                | Invocation::NativeSchema { .. }
                 | Invocation::NativeRefreshSkills { .. }
                 | Invocation::NativeUpgradeExtensions { .. }
         )
@@ -344,6 +346,7 @@ mod tests {
                 exact: None,
                 unpin: false,
                 yes: false,
+                allow_schema_ahead: false,
             },
             Invocation::NativeRefreshSkills { managed: false },
             Invocation::NativeUpgradeExtensions { plan: true },

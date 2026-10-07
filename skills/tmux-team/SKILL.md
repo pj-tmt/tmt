@@ -1,6 +1,6 @@
 ---
 name: tmux-team
-description: "Coordinate local agents with TMT: send `tmt talk` through a host pane (tmux, or Herdr after `tmt driver install herdr`) or local inbox, wait or detach, read `tmt result`, and answer with receipt-bound `tmt reply`."
+description: 'Coordinate local agents with TMT: send `tmt talk` through a host pane (tmux, or Herdr after `tmt driver install herdr`) or local inbox, wait or detach, read `tmt result`, and answer with receipt-bound `tmt reply`.'
 ---
 
 # tmux-team
@@ -162,7 +162,16 @@ Detached success is `{status:"sent",requestId,target,pane,identity?}`, not task
 completion. Completed talk adds the exact `response`, `bodyBytes` and
 `submittedAtMs` to request/target/pane correlation. Preserve that request ID.
 
-Identified offline recipients instead return queued with an offline notice.
+An identity with no recorded binding receives through inbox pull. Ordinary
+`talk` waits for its durable reply, using the same 180-second default,
+`defaults.timeout` / `defaults.pollInterval` and `--timeout`; `--detach` returns
+queued immediately. The recipient must actively inspect its inbox or use the
+bounded listener described in `tmt-inbox`. Timeout means no reply within that
+budget, leaves the request available for a late reply, and gives result plus
+exact recipient-UUID inbox/inspection commands. It does not start or wake an
+inactive agent.
+
+Identified offline recipients with a recorded endpoint instead return queued with an offline notice.
 Their request stays in Inbox; no automatic re-wake occurs when they come online.
 Confirmed live delivery does not leave duplicate incoming attention. Explicit
 `--inbox` remains queue-only. Detached or interrupted originators can receive
@@ -436,8 +445,8 @@ may explicitly select the same identity; this is not authentication.
 Create returns `{identity:{id,name,canonicalName,lifetime},created}`; show returns
 `{identity:{id,name,canonicalName,lifetime}}`; ls returns `{identities:[...]}` in
 canonical-name order, including unbound identities. It does not report presence.
-Use ordinary `tmt ls` for verified active pane destinations. A new identity
-receives ordinary talk in Inbox while offline; `--inbox` explicitly suppresses
+Use ordinary `tmt ls` for verified active pane destinations. A new unbound identity
+receives ordinary talk through Inbox with the foreground wait; `--inbox` suppresses
 live delivery even after binding with `add`, `name` or `this`.
 
 Use shared identity metadata for exact local discovery:
@@ -472,12 +481,12 @@ with `NAME_ALREADY_ACTIVE` (exit 5).
 
 ### Committed identity retention
 
-Once identity creation commits, a later binding failure does not delete the
-identity. A valid new name tried on an occupied pane can therefore return
-`PANE_ALREADY_BOUND` (exit 5) while leaving that name unbound in SQLite.
-It is not an active `ls`/`talk` destination, but explicit `role --identity`
-and `preamble` commands can access it. A later successful bind reuses its UUID
-and profiles. Invalid names and missing preflight panes create no identity.
+An existing identity survives a refused binding with its UUID and profiles.
+If unbound, `ls` shows it as offline and ordinary `talk` uses Inbox with the
+foreground wait. Explicit `role --identity` and `preamble` remain available;
+a later successful bind reuses its UUID and profiles. A newly created temporary
+identity is retired on proven bind refusal; uncertain publication preserves it.
+Invalid names and missing preflight panes create no identity.
 Do not treat a failed bind as permission to delete data or try unrelated names.
 
 ### Pane bindings and commands

@@ -110,8 +110,13 @@ impl List {
         if let Some(failure) = &state.failure {
             status.push_str(&format!(" · ! {}", first_line(failure)));
         }
+        // Reconcile before projecting the cursor, including when refresh removes
+        // the selected job. The list remains the sole selection owner.
+        let mut surface = self.surface.borrow_mut();
+        surface.reconcile(list_rows(state));
+        let selected = surface.picker.list.selected().map(str::to_owned);
         let value = json!({
-            "rows": project(&jobs, None, now_ms),
+            "rows": project(&jobs, None, selected.as_deref(), now_ms),
             "query": "",
             "status": status,
             "footer": super::hints::overlay(usize::from(inside)),
@@ -120,9 +125,7 @@ impl List {
             "columns": format!("{columns:?}/{height}"),
         });
         let (_, template) = template.as_ref().expect("compiled");
-        self.surface
-            .borrow_mut()
-            .render("squad.cron.xml", template, value, frame, look, body);
+        surface.render("squad.cron.xml", template, value, frame, look, body);
     }
 
     /// `None` is an event the list does not take, so the caller's router can offer

@@ -1,3 +1,4 @@
+import { colabEmbedDev } from "./scripts/colab-embed-dev.ts";
 import mdx from "@mdx-js/rollup";
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
@@ -13,6 +14,9 @@ const base = process.env.SITE_BASE ?? "/tmt/";
 
 export default defineConfig({
   base,
+  server: {
+    watch: process.env.VITE_COLAB_EMBED === "1" ? { usePolling: true, interval: 250 } : undefined,
+  },
   plugins: lazyPlugins(() => [
     {
       enforce: "pre",
@@ -25,6 +29,7 @@ export default defineConfig({
     },
     react({ include: /\.(mdx|tsx|ts)$/ }),
     designTokens(),
+    ...(process.env.VITE_COLAB_EMBED === "1" ? [colabEmbedDev()] : []),
     tailwindcss(),
   ]),
 });

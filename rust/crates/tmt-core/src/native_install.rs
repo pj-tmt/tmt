@@ -2,6 +2,8 @@
 
 mod product;
 pub use product::Product;
+mod pr;
+pub use pr::{PrCandidateIdentity, PrNumber, SchemaAdmission, SchemaError, admit_schema};
 
 pub fn native_target(os: &str, architecture: &str) -> Option<&'static str> {
     match (os, architecture) {
@@ -14,21 +16,24 @@ pub fn native_target(os: &str, architecture: &str) -> Option<&'static str> {
 }
 
 use semver::Version;
-use std::{cmp::Ordering, error::Error, fmt};
+use std::{borrow::Cow, cmp::Ordering, error::Error, fmt};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Channel {
     Stable,
     Alpha,
+    Pr(PrNumber),
 }
 
 impl Channel {
+    /// Published channel families; parameterized PR channels use `parse`.
     pub const ALL: [Self; 2] = [Self::Stable, Self::Alpha];
 
-    pub const fn as_str(self) -> &'static str {
+    pub fn as_str(self) -> Cow<'static, str> {
         match self {
-            Self::Stable => "stable",
-            Self::Alpha => "alpha",
+            Self::Stable => Cow::Borrowed("stable"),
+            Self::Alpha => Cow::Borrowed("alpha"),
+            Self::Pr(number) => Cow::Owned(format!("pr{number}")),
         }
     }
 
@@ -36,12 +41,21 @@ impl Channel {
         Self::ALL
             .into_iter()
             .find(|channel| channel.as_str().eq_ignore_ascii_case(value))
+            .or_else(|| {
+                value
+                    .strip_prefix("pr")
+                    .and_then(PrNumber::parse)
+                    .map(Self::Pr)
+            })
     }
 
     pub fn accepts(self, version: &Version) -> bool {
         match self {
             Self::Stable => version.pre.is_empty(),
             Self::Alpha => version.pre.as_str().split('.').next() == Some("alpha"),
+            // PR admission verifies the archived version and source independently;
+            // the channel must never manufacture a replacement SemVer.
+            Self::Pr(_) => true,
         }
     }
 }
@@ -88,6 +102,10 @@ pub enum VersionError {
     Pinned,
     Downgrade,
     EqualPrecedenceChange,
+    StalePrCandidate,
+    MissingPrEvidence,
+    ExplicitChannelRequired,
+    SameVersionPrCandidate,
 }
 
 impl fmt::Display for VersionError {
@@ -101,6 +119,10 @@ impl fmt::Display for VersionError {
             Self::EqualPrecedenceChange => {
                 "Build metadata alone cannot select a different installed release."
             }
+            Self::StalePrCandidate => "The PR candidate must be newer than the installed run.",
+            Self::MissingPrEvidence => "PR channel policy requires matching PR, head and run evidence.",
+            Self::ExplicitChannelRequired => "Explicitly select a different channel to switch a PR installation.",
+            Self::SameVersionPrCandidate => "A different PR candidate at the same archived version requires an explicitly selected different channel.",
         })
     }
 }
@@ -149,7 +171,9 @@ pub fn select_upgrade(
         PinAction::Preserve
     };
     if let Some(version) = &exact {
-        plan_version(Some(current), version, channel, pin)?;
+        // Discovery has not supplied candidate identity yet. Preserve the existing
+        // exact-version/pin checks here; PR evidence is required before publication.
+        plan_numeric_version(Some(current), version, channel, pin)?;
     }
     Ok(UpgradeSelection::Fetch {
         channel,
@@ -162,6 +186,10 @@ pub fn latest_in_channel(
     versions: &[Version],
     channel: Channel,
 ) -> Result<Option<&Version>, VersionError> {
+    if matches!(channel, Channel::Pr(_)) {
+        // PR discovery requires exact-source/run evidence, not release tag precedence.
+        return Err(VersionError::InvalidSelection);
+    }
     let selected = versions
         .iter()
         .filter(|version| channel.accepts(version))
@@ -181,6 +209,73 @@ pub fn latest_in_channel(
 /// Filesystem ownership and equal-version artifact integrity are separate
 /// adapter checks. A version no-op never authorizes ignoring those checks.
 pub fn plan_version(
+    current: Option<&InstalledVersion>,
+    candidate: &Version,
+    channel: Channel,
+    pin: PinAction,
+) -> Result<VersionPlan, VersionError> {
+    plan_candidate_version(
+        current,
+        candidate,
+        channel,
+        pin,
+        PrVersionContext::default(),
+    )
+}
+
+/// Receipt-derived identities and explicit channel intent for the same version owner.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct PrVersionContext<'a> {
+    pub current: Option<&'a PrCandidateIdentity>,
+    pub candidate: Option<&'a PrCandidateIdentity>,
+    pub explicit_channel: bool,
+}
+
+pub fn plan_candidate_version(
+    current: Option<&InstalledVersion>,
+    candidate: &Version,
+    channel: Channel,
+    pin: PinAction,
+    evidence: PrVersionContext<'_>,
+) -> Result<VersionPlan, VersionError> {
+    let matches_channel =
+        |channel, identity: Option<&PrCandidateIdentity>| match (channel, identity) {
+            (Channel::Pr(number), Some(identity)) => identity.pr() == number,
+            (Channel::Pr(_), None) | (_, Some(_)) => false,
+            (_, None) => true,
+        };
+    if !matches_channel(channel, evidence.candidate)
+        || !current.is_none_or(|state| matches_channel(state.channel, evidence.current))
+        || (current.is_none() && evidence.current.is_some())
+    {
+        return Err(VersionError::MissingPrEvidence);
+    }
+    if current.is_none() && matches!(channel, Channel::Pr(_)) && !evidence.explicit_channel {
+        return Err(VersionError::ExplicitChannelRequired);
+    }
+    if let Some(current) = current {
+        if current.channel != channel
+            && (matches!(current.channel, Channel::Pr(_)) || matches!(channel, Channel::Pr(_)))
+            && !evidence.explicit_channel
+        {
+            return Err(VersionError::ExplicitChannelRequired);
+        }
+        if current.channel == channel
+            && let (Some(previous), Some(next)) = (evidence.current, evidence.candidate)
+        {
+            let changed = previous.successor_changed(next)?;
+            if changed && candidate.cmp_precedence(&current.version) == Ordering::Equal {
+                return Err(VersionError::SameVersionPrCandidate);
+            }
+            if !changed && candidate != &current.version {
+                return Err(VersionError::InvalidSelection);
+            }
+        }
+    }
+    plan_numeric_version(current, candidate, channel, pin)
+}
+
+fn plan_numeric_version(
     current: Option<&InstalledVersion>,
     candidate: &Version,
     channel: Channel,

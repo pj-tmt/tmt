@@ -5,12 +5,30 @@ import path from 'node:path';
 import { describe, expect, it } from 'vite-plus/test';
 import { withE2EFixture, type E2EFixture } from './harness.js';
 import { expectJsonResult } from './cli-assertions.js';
+import { durableIdentity, durableState } from './identity-state-oracle.js';
 
 // These routing scenarios isolate immediate delivery; reply-batching owns windows.
 function immediateNotices(fixture: E2EFixture) {
   fs.writeFileSync(
     path.join(fixture.globalDir, 'config.json'),
     JSON.stringify({ notifications: { replyBatchWindowMs: 0, typingQuietMs: 0 } })
+  );
+}
+
+async function bindOfflineRecipient(fixture: E2EFixture) {
+  const previous = await fixture.createMockPane('offline-before-disappearance');
+  expectJsonResult(await fixture.runJsonCli(['name', 'offline', '-s'], { pane: previous.pane }));
+  const identity = durableIdentity(fixture, 'offline');
+  fixture.tmux(['kill-pane', '-t', previous.pane]);
+  await fixture.waitFor(
+    () => !fixture.mockProcessIsRunning(previous.pid),
+    2_000,
+    'offline recipient process exit'
+  );
+  // An offline recorded endpoint differs from an identity created without a
+  // binding: keep testing the background observer without reconciling it away.
+  expect(durableState(fixture).bindings).toContainEqual(
+    expect.objectContaining({ identity_id: identity.id })
   );
 }
 
@@ -448,7 +466,7 @@ describe('session-aware durable routing', { concurrent: false }, () => {
     await withE2EFixture(async (fixture) => {
       immediateNotices(fixture);
       expectJsonResult(await fixture.runJsonCli(['name', 'sender']));
-      expectJsonResult(await fixture.runJsonCli(['identity', 'create', 'offline']));
+      await bindOfflineRecipient(fixture);
       const sent = expectJsonResult(
         await fixture.runJsonCli(['talk', 'offline', 'worker crash', '--timeout', '60'])
       );
@@ -509,7 +527,7 @@ describe('session-aware durable routing', { concurrent: false }, () => {
     await withE2EFixture(async (fixture) => {
       immediateNotices(fixture);
       expectJsonResult(await fixture.runJsonCli(['name', 'sender']));
-      expectJsonResult(await fixture.runJsonCli(['identity', 'create', 'offline']));
+      await bindOfflineRecipient(fixture);
       const result = expectJsonResult(
         await fixture.runJsonCli(['talk', 'offline', 'kept offline', '--timeout', '1'])
       );

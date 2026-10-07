@@ -51,6 +51,12 @@ configuration. The owner map is in
   `open_requests` applies it, so "waiting on you" is an open-request question, not an attention
   one. `answer_target` selects one open request by recipient and originator, never guessing, and
   derives the route proof in process.
+- Originator withdrawal and final submission share the IMMEDIATE transaction. Withdrawal
+  metadata stays on the attempt, separate from delivery and the final-submission marker;
+  same-reason retries retain the first timestamp. It releases waiters without a recipient
+  notification, attention revision, acknowledgment or retention renewal. The open SQL query
+  excludes withdrawn rows before its limit, and the shared first-final rule rejects replies.
+  Results and history project this terminal state without inventing a final or approval.
 - A UUID-prefix result lookup (at least eight hex characters, optional `req_`) resolves and reads
   under one transaction; `retained_request_ids` returns at most five ordered ambiguity candidates.
 - `enqueue` prepares the attempt, stores the prompt and publishes recipient attention in one
@@ -61,6 +67,12 @@ configuration. The owner map is in
 - Listeners use an indexed watermark and one bounded snapshot; `exchange_command` owns the
   monotonic deadline and trailing debounce; polls do no tmux inventory, cleanup or held
   transaction, and there is no daemon or event bus.
+- Delivery availability distinguishes an active unbound identity from an offline recorded
+  endpoint. `talk_command::preparation` captures one waiter decision; unbound destinations
+  use the existing foreground observer by default, without a host wake. Notification/waiter
+  ownership precedes pull-visible queue publication, so an immediate recipient final cannot
+  race notification registration. A timeout releases that waiter and leaves the queue intact;
+  recorded offline endpoints retain their separate bounded background-observer policy.
 - `reply_receipt` is the one receipt codec: bounded and validated before storage effects, with
   malformed receipt, stale revision, unknown identity and uncertain transport as distinct failures.
   Talk renders `<tmt-reply from="…">` with the resolved originator's display name or `unknown`:
@@ -114,6 +126,10 @@ configuration. The owner map is in
   `tmt-core::settings`; `json_document` keeps number compatibility and raw object order on targeted
   edits. `init` creates the local file as `{}\n` exclusively and refuses existing paths. The three
   `defaults.*` settings are global-file-only.
+- `config set --global theme.base` uses the CLI style's base registry (excluding board-only
+  `auto`); the config adapter changes only `theme.base`, preserving opaque keys and token overrides.
+  A malformed theme container refuses the write. Token writes remain file-only; `config rm` still
+  clears local runtime overrides only.
 - The global `theme` object is presentation: `ConfigFiles::theme` checks only its shape (a wrong
   one is a `ThemeProblem`, never a configuration error), `config show` reports `themeError` and
   still succeeds because Squad reads it, and `tmt` configures the process theme once only when

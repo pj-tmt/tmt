@@ -262,6 +262,23 @@ impl Keyring {
     ) -> tmt_colab_model::Result<tmt_colab_model::object::Envelope> {
         tmt_colab_model::object::seal(context, secret, &self.local_signer()?, update)
     }
+    /// Sign one admitted content manifest with the existing local writer, without exporting keys.
+    pub(crate) fn sign_content_publication(
+        &self,
+        manifest: crate::publication::Manifest,
+    ) -> tmt_colab_model::Result<crate::publication::SignedJob> {
+        use ed25519_dalek::Signer;
+        let signature = self
+            .local_signer()?
+            .sign(&manifest.signature_input()?)
+            .to_bytes();
+        let job = crate::publication::SignedJob {
+            manifest,
+            signature: tmt_colab_model::values::encode_binary(&signature),
+        };
+        job.to_json()?;
+        Ok(job)
+    }
     pub fn owner_public(&self) -> [u8; 32] {
         self.owner.verifying_key().to_bytes()
     }

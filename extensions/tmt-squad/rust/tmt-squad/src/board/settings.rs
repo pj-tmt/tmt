@@ -56,6 +56,12 @@ fn config_picks(
     };
     Ok(vec![
         Pick {
+            id: "actions",
+            name: "Actions…",
+            value: String::new(),
+            hint: "Enter open",
+        },
+        Pick {
             id: "theme",
             name: "Theme",
             value: theme,
@@ -203,7 +209,7 @@ impl Overlay {
             value,
             hint: "Enter next",
         }));
-        // A fresh list: the menu opens on its first row, the theme.
+        // A fresh list: the menu opens on its first row, Actions….
         overlay.surface = RefCell::new(picker_surface::State::new(
             None,
             list_rows(&overlay.settings, &overlay.picks),
@@ -458,15 +464,19 @@ fn value_lines(text: &str, width: usize, structured: bool) -> Vec<String> {
 
 fn list_rows(settings: &BoardSettings, picks: &[Pick]) -> Vec<ListRow> {
     let mut rows = Vec::new();
-    if !picks.is_empty() {
+    let mut grouped = false;
+    for pick in picks {
+        if pick.id != "actions" && !grouped {
+            rows.push(ListRow {
+                id: format!("group:{PICK_GROUP}"),
+                disabled: true,
+            });
+            grouped = true;
+        }
         rows.push(ListRow {
-            id: format!("group:{PICK_GROUP}"),
-            disabled: true,
-        });
-        rows.extend(picks.iter().map(|pick| ListRow {
             id: pick_row_id(pick),
             disabled: false,
-        }));
+        });
     }
     let mut previous = None;
     for entry in &settings.entries {
@@ -606,10 +616,12 @@ pub(super) fn render(frame: &mut Frame, overlay: &Overlay, look: Look, body: Rec
         .selected()
         .map(str::to_owned);
     let mut rows = Vec::new();
-    if !overlay.picks.is_empty() {
-        rows.push(json!({"id":format!("group:{PICK_GROUP}"), "disabled":true, "lines":[], "description":[], "heading":[{"text":PICK_GROUP}]}));
-    }
+    let mut grouped = false;
     for pick in &overlay.picks {
+        if pick.id != "actions" && !grouped {
+            rows.push(json!({"id":format!("group:{PICK_GROUP}"),"disabled":true,"lines":[],"description":[],"heading":[{"text":PICK_GROUP}]}));
+            grouped = true;
+        }
         let id = pick_row_id(pick);
         let mark = if selected.as_deref() == Some(&id) {
             "›"
@@ -856,6 +868,13 @@ mod tests {
         let paint = |frame: &mut Frame, app: &crate::board::app::App| {
             render(frame, app.settings.as_ref().unwrap(), look, frame.area());
         };
+        f.app
+            .settings
+            .as_ref()
+            .unwrap()
+            .surface
+            .borrow_mut()
+            .select("board.sizes");
         terminal.draw(|frame| paint(frame, &f.app)).unwrap();
         let hit = f
             .app
@@ -1413,7 +1432,11 @@ mod tests {
         // No meter: no token window row.
         assert_eq!(
             names(&f),
-            [("Theme", "auto".to_owned()), ("View", "custom".to_owned())]
+            [
+                ("Actions…", String::new()),
+                ("Theme", "auto".to_owned()),
+                ("View", "custom".to_owned())
+            ]
         );
         assert_eq!(
             f.app
@@ -1425,9 +1448,23 @@ mod tests {
                 .picker
                 .list
                 .selected(),
-            Some("pick:theme"),
+            Some("pick:actions"),
             "the menu opens on its first row"
         );
+        assert_eq!(press(&mut f.app, KeyCode::Enter), Effect::None);
+        assert!(f.app.settings.is_none());
+        assert!(
+            f.app
+                .menu
+                .as_ref()
+                .unwrap()
+                .entries
+                .iter()
+                .any(|entry| entry.choice == crate::board::app::Choice::Checklist)
+        );
+        f.app.menu = None;
+        f.app.open_settings(config()).unwrap();
+        select(&mut f, "pick:theme");
         assert_eq!(press(&mut f.app, KeyCode::Enter), Effect::PickTheme);
         assert!(f.app.settings.is_none(), "the picker replaces the menu");
         f.app.open_settings(config()).unwrap();
@@ -1445,12 +1482,12 @@ mod tests {
         ));
         f.app.open_settings(config()).unwrap();
         let before = f.app.token_window.label().to_owned();
-        assert_eq!(names(&f)[2], ("Token window", before.clone()));
+        assert_eq!(names(&f)[3], ("Token window", before.clone()));
         select(&mut f, "pick:window");
         assert_eq!(press(&mut f.app, KeyCode::Enter), Effect::None);
         let after = f.app.token_window.label().to_owned();
         assert_ne!(before, after);
-        assert_eq!(names(&f)[2], ("Token window", after));
+        assert_eq!(names(&f)[3], ("Token window", after));
         assert!(f.app.settings.is_some(), "cycling keeps the menu open");
         // Config rows still edit, and the picker rows never reach squad.toml.
         edit(&mut f.app, "board.home_replies", "false");
@@ -1545,8 +1582,13 @@ mod tests {
             f.app.view.as_ref().unwrap().board,
             saved.board("product").unwrap()
         );
-        press(&mut f.app, KeyCode::Home);
-        press(&mut f.app, KeyCode::Down);
+        f.app
+            .settings
+            .as_ref()
+            .unwrap()
+            .surface
+            .borrow_mut()
+            .select("pick:view");
         let row = quick_row(&f, "View");
         assert!(row.contains('›') && row.contains("team"), "{row}");
         assert_eq!(f.app.token_window, live_window);
@@ -1580,8 +1622,13 @@ mod tests {
                 "members"
             );
             press(&mut f.app, KeyCode::Esc);
-            press(&mut f.app, KeyCode::Home);
-            press(&mut f.app, KeyCode::Down);
+            f.app
+                .settings
+                .as_ref()
+                .unwrap()
+                .surface
+                .borrow_mut()
+                .select("pick:view");
             let row = quick_row(&f, "View");
             assert!(
                 row.contains('›') && row.contains("members") && !row.contains("team"),

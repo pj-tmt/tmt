@@ -237,9 +237,18 @@ fn verified_update_pins_noops_and_unpins_through_one_publisher() {
     );
     assert_eq!(fs::read(&old_executable).unwrap(), old_bytes);
     let receipt = layout.current().unwrap().unwrap();
-    assert_eq!(receipt.provenance.as_ref().unwrap().release_id, 42);
     assert_eq!(
-        receipt.provenance.as_ref().unwrap().manifest_sha256.len(),
+        receipt
+            .provenance
+            .as_ref()
+            .unwrap()
+            .release()
+            .unwrap()
+            .release_id,
+        42
+    );
+    assert_eq!(
+        receipt.provenance.as_ref().unwrap().manifest_sha256().len(),
         64
     );
     let active = report.installation.active_executable;

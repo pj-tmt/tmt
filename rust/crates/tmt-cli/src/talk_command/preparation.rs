@@ -23,6 +23,7 @@ pub(super) fn prepare(
         .map(|selector| crate::room_command::resolve(storage, selector))
         .transpose()?;
     let mut offline = false;
+    let mut unbound = false;
     let names_pane = !input.options.inbox
         && tmt_core::identity::addresses_pane(storage, &input.target).map_err(|error| {
             Failure::new("IDENTITY_ERROR", "Could not read recipient identity.", 1).caused_by(error)
@@ -42,16 +43,18 @@ pub(super) fn prepare(
             }
         };
         if let Some(identity) = identity {
+            let availability = crate::delivery::status(storage, &identity.id).map_err(|error| {
+                Failure::new(
+                    "DELIVERY_PREPARATION_FAILED",
+                    "Could not read recipient state.",
+                    1,
+                )
+                .caused_by(error)
+            })?;
+            unbound = availability == crate::delivery::Availability::Unbound;
             offline = matches!(
-                crate::delivery::status(storage, &identity.id).map_err(|error| {
-                    Failure::new(
-                        "DELIVERY_PREPARATION_FAILED",
-                        "Could not read recipient state.",
-                        1,
-                    )
-                    .caused_by(error)
-                })?,
-                crate::delivery::Availability::Offline
+                availability,
+                crate::delivery::Availability::Unbound | crate::delivery::Availability::Offline
             );
             Some(identity)
         } else {
@@ -115,6 +118,7 @@ pub(super) fn prepare(
         inbox: input.options.inbox || offline,
         explicit_inbox: input.options.inbox,
         offline,
+        unbound,
         delivery_uncertain: false,
     };
     if let Some(room) = &room
@@ -189,13 +193,14 @@ pub(super) fn prepare(
             )
         })?;
     let notify_originator = originator.identity_id().is_some() && !input.options.inbox;
+    let wait = !input.options.detach && (!offline || unbound);
     let request = PrepareRequest {
         room_id: room.map(|room| room.id),
         kind: tmt_core::request::RequestKind::Request,
         request_id: correlation.request_id.clone(),
         message: input.message.clone(),
         route: route.clone(),
-        wait: !input.options.detach && !offline,
+        wait,
         expires_at_ms,
         originator,
         recipient_identity_id: correlation
@@ -232,7 +237,7 @@ pub(super) fn prepare(
         escape_sender_attribute(&sender),
         correlation.request_id
     );
-    let wake = !input.options.inbox && correlation.identity.is_some();
+    let wake = !input.options.inbox && !unbound && correlation.identity.is_some();
     Ok(Prepared {
         correlation,
         attempt_id,
@@ -244,6 +249,7 @@ pub(super) fn prepare(
         previous_request_id: prepared.previous_request_id,
         notify_originator,
         wake,
+        wait,
     })
 }
 

@@ -93,6 +93,10 @@ pub const HIDDEN: &[(&str, &str)] = &[
         "offline installation handoff from the bootstrap and upgrade",
     ),
     (
+        "tmt __native-schema",
+        "compiled application-schema evidence exported by native preparation and archive verification",
+    ),
+    (
         "tmt __native-refresh-skills",
         "managed skill refresh run by tmt upgrade",
     ),
