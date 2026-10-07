@@ -1227,6 +1227,8 @@ fn a_page_of_one_and_a_half_mib_is_replaced_whole_three_times_offline_and_servin
             assert_eq!(written["changed"], true);
             assert_eq!(written["pageId"], id);
             let read = pilot.call(&["page", "read", id, "--json"]);
+            // The receipt carries the revision after the write's own combine, so it fences the next write.
+            assert_eq!(written["revision"], read["revision"]);
             revisions.push(read["revision"].as_str().unwrap().to_owned());
             assert_eq!(
                 read["source"], source,

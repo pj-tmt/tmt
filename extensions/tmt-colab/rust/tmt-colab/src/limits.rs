@@ -40,6 +40,14 @@ pub const PAGE_BYTES: usize = 64 * 1024 * 1024;
 pub const PAGE_RECEIPTS: usize = 100_000;
 pub const ACQUISITION: Duration = Duration::from_secs(2);
 pub const RESPONSE: Duration = Duration::from_secs(1);
+/// A publish reply also waits for the serve to combine the writer's own tail: at most this many
+/// isolated decoder runs (a merge per namespace, then the before/after projections).
+pub const PUBLISH_DECODES: u32 = 4;
+/// Absolute wait for a publish reply. The serve abandons a combine that cannot publish
+/// `RESPONSE` before this, so the page never changes after the reply that reports it.
+pub const PUBLISH_REPLY: Duration = ACQUISITION
+    .saturating_add(RESPONSE)
+    .saturating_add(crate::decoder::DEADLINE.saturating_mul(PUBLISH_DECODES));
 
 /// Per-page sync namespace inventory / cursor budget. Store writes are unaffected.
 pub const SYNC_NAMESPACES: usize = 256;

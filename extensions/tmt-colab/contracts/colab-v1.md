@@ -2429,7 +2429,9 @@ retries return the original outcome bytes without re-signing, re-appending or ov
 later content; changed bytes conflict. JSON success is
 `{spaceId,pageId,epoch,membershipHead,revision,sourceSha256,memoryLimit,changed}` plus,
 when `changed` is true, `{operationId,streamId,count,seq,envelopeHash}`. `revision` is the
-committed revision; `seq` and `envelopeHash` are the batch's last position. Hashes use
+page revision read after the write and its best-effort combine, the token a next
+`--expected-revision` carries (the retained outcome's `committedRevision` is the one
+before the combine); `seq` and `envelopeHash` are the batch's last position. Hashes use
 lowercase hex except the model envelope hash, which is canonical base64url. A rejected
 outcome exits 1 with its code: `COLAB_STALE_BASE`, `COLAB_CAPACITY`, `COLAB_PAGE_INACTIVE`,
 `COLAB_STATE_MISSING` or `COLAB_STREAM_GAP` (this device's stream moved on; read again).
@@ -2445,7 +2447,11 @@ device-context or event headers are DENIED; wrong methods/upgrades and unknown/d
 fields reject. The reserved router shares management's local-header denial. The route's
 body cap is the standalone write bound (`LOCAL_WRITE_BYTES`); other HTTP routes keep
 64 KiB. Acquisition, frame, queue and response bounds remain in force; the client bounds
-its response and absolute read deadline.
+its response and absolute read deadline. A publish reply waits up to `PUBLISH_REPLY`
+(acquisition, response and four decoder deadlines) because the serve combines this device's
+own tail before it answers. A combine that cannot publish a response interval before that
+bound is abandoned without publishing, so a reply is never followed by a change to the page
+it reports and an immediately following write is prepared against the page it was told about.
 
 An IPC failure never falls back to an offline writer, changes the operation identity or
 resends. A failure before the request was fully written is a plain `COLAB_UNAVAILABLE`:

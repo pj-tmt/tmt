@@ -684,9 +684,47 @@ fn compact_now(f: &mut Fixture, updates: usize) -> Option<tmt_colab::page::compa
         tmt_colab::page::compact::Trigger {
             updates,
             bytes: usize::MAX,
+            until: None,
         },
     )
     .unwrap()
+}
+
+#[test]
+fn a_combine_past_its_deadline_publishes_nothing_so_the_page_never_moves_after_its_reply() {
+    let mut f = Fixture::new();
+    let mut source = String::from("old 🐈\r\n");
+    for i in 0..3 {
+        source.push_str(&format!("<p>{i}</p>"));
+        f.write(&source);
+    }
+    let late = std::time::Instant::now()
+        .checked_sub(std::time::Duration::from_secs(1))
+        .unwrap();
+    let revision = f.read().revision;
+    let before = f.bytes();
+    let mut decoder = f.decoder();
+    let combine = |f: &mut Fixture, decoder: &mut Decoder, until| {
+        page::compact::compact(
+            &mut f.store,
+            &f.key,
+            PAGE,
+            decoder,
+            page::compact::Trigger {
+                updates: 1,
+                bytes: usize::MAX,
+                until,
+            },
+        )
+        .unwrap()
+    };
+    assert_eq!(combine(&mut f, &mut decoder, Some(late)), None);
+    assert_eq!(f.bytes(), before, "a late combine changed the page state");
+    assert_eq!(f.read().revision, revision);
+    // Positive control: the same combine with time left does publish and moves the revision.
+    assert!(combine(&mut f, &mut decoder, None).is_some());
+    assert_ne!(f.read().revision, revision);
+    assert_eq!(f.read().source, source);
 }
 
 #[test]
@@ -737,6 +775,7 @@ sys.stdout.write(json.dumps(reply))
             page::compact::Trigger {
                 updates: 10,
                 bytes: usize::MAX,
+                until: None,
             },
         )
         .unwrap(),

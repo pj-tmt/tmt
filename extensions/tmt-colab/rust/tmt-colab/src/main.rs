@@ -609,7 +609,19 @@ fn page(root: &std::path::Path, args: &clap::ArgMatches) -> Result<()> {
             ),
             page::PublicationPreparation::Write(frozen) => {
                 let record = publish_write(&layout, &key, &id, &frozen, &mut decoder, now)?;
-                page::publication_receipt(frozen.job(), &record)?
+                let mut receipt = page::publication_receipt(frozen.job(), &record)?;
+                // The write's combine may have moved the revision after its outcome was retained;
+                // report the one a next `--expected-revision` must carry.
+                if let Ok(current) = Store::read(&layout).and_then(|store| {
+                    let current = page::revision(&store, &key, &id);
+                    let closed = store.close();
+                    let current = current?;
+                    closed?;
+                    Ok(current)
+                }) {
+                    receipt.revision = current;
+                }
+                receipt
             }
         };
         if json_output {

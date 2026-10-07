@@ -292,6 +292,8 @@ impl Server<crate::registration::OwnerAdmission> {
         now: u64,
     ) -> crate::Result<crate::page::PublicationRecord> {
         use crate::{page::Fault, publication};
+        // The client stops waiting at PUBLISH_REPLY; a combine must be done, or give up, before.
+        let combine_until = std::time::Instant::now() + limits::PUBLISH_REPLY - limits::RESPONSE;
         let author = self
             .0
             .lock()
@@ -336,7 +338,7 @@ impl Server<crate::registration::OwnerAdmission> {
             .0
             .lock()
             .map_err(|_| Fault::Unavailable)?
-            .publish(job, &packet, &chain, now)?;
+            .publish(job, &packet, &chain, now, combine_until)?;
         if committed.accepted == Accepted::New
             && matches!(
                 committed.record.outcome,

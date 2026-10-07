@@ -290,6 +290,7 @@ impl Registration {
         packet: &[u8],
         chain: &[u8],
         now: u64,
+        combine_until: std::time::Instant,
     ) -> crate::Result<crate::page::PublicationCommitted> {
         let committed = crate::page::commit_publication(
             &mut self.store,
@@ -314,7 +315,10 @@ impl Registration {
                     &self.keyring,
                     page,
                     decoder,
-                    crate::page::compact::Trigger::default(),
+                    crate::page::compact::Trigger {
+                        until: Some(combine_until),
+                        ..Default::default()
+                    },
                 )
             });
         }

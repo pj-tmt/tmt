@@ -4,6 +4,7 @@ use super::{Fault, FrozenPublication, PublicationRecord};
 use crate::{
     Result,
     keyring::{Keyring, Layout},
+    limits,
     publication::{LocalWrite, Outcome, WriteAction},
 };
 use serde::{Deserialize, Serialize};
@@ -87,7 +88,7 @@ pub fn publish(
     .to_json(&key.local_writer()?.1)?;
     // Nothing was sent: the server acts only on a complete body, so this is a plain refusal.
     let socket = crate::ipc::send(layout, PATH, &body).map_err(|_| Fault::Unavailable)?;
-    let Ok((code, response)) = crate::ipc::receive(socket) else {
+    let Ok((code, response)) = crate::ipc::receive(socket, limits::PUBLISH_REPLY) else {
         return Ok(None);
     };
     if code != 200 {

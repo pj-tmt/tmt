@@ -94,7 +94,9 @@ and `limits.rs`; do not restate them.
   by one read-only `publication_status` in `main.rs::publish_write`, else
   `COLAB_OUTCOME_UNKNOWN` with the original operation ID. `Server::publish` prepares one
   broadcast per entry before the transaction and fans out only for a new committed
-  outcome. The write signs with a purpose-separated local device certified by the
+  outcome, then combines the own tail (`Trigger::until` makes a combine that would publish
+  after `PUBLISH_REPLY` minus the response interval publish nothing, so the page does not
+  move after the reply the client waits for). The write signs with a purpose-separated local device certified by the
   management member; it is not a Remote registration.
 - `export.rs` snapshots exact source and title through `fold::Snapshot` and the decoder and
   writes `page.html`, `conversations.json`, `conversations.md` and `manifest.json` (format and

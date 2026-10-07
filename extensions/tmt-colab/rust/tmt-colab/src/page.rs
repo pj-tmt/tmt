@@ -267,6 +267,14 @@ fn snapshot(store: &Store, key: &Keyring, page: &str, writing: bool) -> Result<S
     })?;
     Snapshot::capture(store, key, page)
 }
+/// The revision a next write fences on, read in one owner snapshot. A write's own best-effort
+/// combine can move it after the write's outcome was retained.
+pub fn revision(store: &Store, key: &Keyring, page: &str) -> Result<String> {
+    values::generated_id(page)?;
+    store.owner_read(&key.space_id, &key.owner_public(), |tx| {
+        current_token(tx, key, page)
+    })
+}
 pub fn read(store: &Store, key: &Keyring, page: &str, decoder: &mut Decoder) -> Result<Page> {
     let s = snapshot(store, key, page, false)?;
     let view = s.materialize(key, page, decoder)?;
