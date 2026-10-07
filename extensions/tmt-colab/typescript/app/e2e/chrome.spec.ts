@@ -69,8 +69,8 @@ async function nativeScreen(page: Page, name: 'private' | 'owner') {
 }
 
 async function metrics(page: Page) {
-  await expect(page.locator('.colab-header:visible')).toHaveCount(1);
-  return page.locator('.colab-header:visible').evaluate((header) => {
+  await expect(page.locator('.tmt-ui-header:visible')).toHaveCount(1);
+  return page.locator('.tmt-ui-header:visible').evaluate((header) => {
     const style = getComputedStyle(header);
     const font = (selector: string) => {
       const value = getComputedStyle(header.querySelector(selector)!);
@@ -79,7 +79,6 @@ async function metrics(page: Page) {
         size: value.fontSize,
         weight: value.fontWeight,
         lineHeight: value.lineHeight,
-        color: value.color,
       };
     };
     return {
@@ -87,10 +86,11 @@ async function metrics(page: Page) {
       padding: [style.paddingLeft, style.paddingRight],
       gap: style.gap,
       background: style.backgroundColor,
-      mark: font('.colab-mark'),
-      wordmark: font('.colab-wordmark'),
-      title: font('.colab-title'),
-      actions: font('.colab-actions'),
+      foreground: style.color,
+      mark: font('.tmt-ui-mark'),
+      wordmark: font('.tmt-ui-wordmark'),
+      title: font('.tmt-ui-title'),
+      actions: font('.tmt-ui-actions'),
     };
   });
 }
@@ -113,7 +113,7 @@ async function containment(page: Page) {
   expect(result).toEqual({ nested: [], window: true, horizontal: false });
 }
 
-for (const width of [1440, 390])
+for (const width of [1440, 390, 320])
   for (const theme of ['light', 'dark'] as const) {
     test(`every screen shares chrome and window scrolling: ${width}px ${theme}`, async ({
       page,
@@ -155,11 +155,10 @@ for (const width of [1440, 390])
           );
           expect(current.title.size).toBe(tokens.header['title-size']);
           expect(current.wordmark.size).toBe(tokens.header['wordmark-size']);
-          expect(current.wordmark.color).not.toBe(current.title.color);
-          await expect(page.locator('.colab-header:visible')).toHaveCSS('position', 'fixed');
-          await expect(page.locator('.colab-header:visible')).toHaveCSS('flex-wrap', 'nowrap');
+          await expect(page.locator('.tmt-ui-header:visible')).toHaveCSS('position', 'fixed');
+          await expect(page.locator('.tmt-ui-header:visible')).toHaveCSS('flex-wrap', 'nowrap');
           await containment(page);
-          const card = page.locator('.notice:visible');
+          const card = page.locator('.tmt-ui-notice:visible');
           if (await card.count()) {
             const geometry = await card.evaluate((node) => {
               const style = getComputedStyle(node);
@@ -171,6 +170,7 @@ for (const width of [1440, 390])
                 font: style.font,
                 title: title.font,
                 background: style.backgroundColor,
+                foreground: style.color,
               };
             });
             cardReference ??= geometry;
@@ -192,11 +192,22 @@ for (const width of [1440, 390])
               return value;
             }, role);
             await expect(card.locator('svg.lucide')).toHaveCSS('color', color);
-            expect(await card.evaluate((node) => getComputedStyle(node).boxShadow)).toContain(
-              color,
-            );
+            await expect(card).toHaveCSS('box-shadow', 'none');
+            await expect(card).toHaveCSS('border-top-width', '1px');
+            await expect(card).toHaveCSS('border-radius', '0px');
+            const stateWord =
+              screen === 'rust-owner'
+                ? 'running'
+                : screen === 'rust-private'
+                  ? 'waiting'
+                  : screen.includes('opening')
+                    ? 'opening'
+                    : screen === 'reader-ended'
+                      ? 'ended'
+                      : 'failed';
+            await expect(card.locator('.tmt-ui-notice-mark')).toContainText(stateWord);
             await expect(card.locator('h2')).not.toBeEmpty();
-            await expect(card.locator('.notice-eyebrow, .guidance-eyebrow')).not.toBeEmpty();
+            await expect(card.locator('.tmt-ui-notice-eyebrow')).not.toBeEmpty();
           }
           if (screen === 'pages') {
             const card = page.locator('.page-card:visible').first();
@@ -229,7 +240,7 @@ for (const width of [1440, 390])
             scrollTo(0, (document.documentElement.scrollHeight - innerHeight) / 2);
           });
           await expect.poll(() => page.evaluate(() => scrollY)).toBeGreaterThan(0);
-          expect((await page.locator('.colab-header:visible').boundingBox())!.y).toBe(0);
+          expect((await page.locator('.tmt-ui-header:visible').boundingBox())!.y).toBe(0);
           expect(await metrics(page)).toEqual(reference);
           await containment(page);
           if (screen === 'page' || screen === 'reader') {
@@ -259,36 +270,41 @@ test('the page list filters archived pages with a square text toggle, not a nati
   });
   await expect(page.locator('input[type="checkbox"]')).toHaveCount(0);
   const toggle = page.getByRole('button', { name: 'Show archived', exact: true });
-  const box = toggle.locator('.toggle-box');
+  const box = toggle.locator('.tmt-ui-toggle-indicator');
   await expect(toggle).toHaveAttribute('aria-pressed', 'false');
   await expect(page.locator('#chrome-fixture ul.pages li').first()).toContainText('Release notes');
   const before = await toggle.boundingBox();
-  const off = await box.evaluate((node) => getComputedStyle(node).backgroundColor);
+  await expect(box).toHaveText('');
+  // Synthetic activation cannot bypass Colab admission after adopting BrowserToggle.
+  await toggle.evaluate((node) => (node as HTMLButtonElement).click());
+  await expect(toggle).toHaveAttribute('aria-pressed', 'false');
   // Space and Enter both toggle; the label is fixed, so the toggle never changes width.
   await toggle.focus();
   await page.keyboard.press('Space');
   await expect(toggle).toHaveAttribute('aria-pressed', 'true');
   await expect(page.getByText('No archived pages.', { exact: true })).toBeVisible();
   expect((await toggle.boundingBox())!.width).toBe(before!.width);
-  expect(await box.evaluate((node) => getComputedStyle(node).backgroundColor)).not.toBe(off);
+  await expect(box).toHaveText('✓');
   await page.keyboard.press('Enter');
   await expect(toggle).toHaveAttribute('aria-pressed', 'false');
   await expect(page.locator('#chrome-fixture ul.pages li').first()).toContainText('Release notes');
   await expect(toggle).toBeFocused();
-  // Pressed or not, it stays a light text button: no fill, no border.
+  // Space also reverses a trusted keyboard selection without changing geometry.
   await page.keyboard.press('Space');
   await expect(toggle).toHaveAttribute('aria-pressed', 'true');
-  await expect(toggle).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
-  await expect(toggle).toHaveCSS('border-top-width', '0px');
+  await expect(box).toHaveText('✓');
+  expect((await toggle.boundingBox())!.width).toBe(before!.width);
   await page.keyboard.press('Space');
   await expect(toggle).toHaveAttribute('aria-pressed', 'false');
-  // Light text button on the token colors: no border, no radius, transparent.
-  await expect(toggle).toHaveCSS('border-top-width', '0px');
-  await expect(toggle).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
+  // Shared selected presentation keeps the label and square indicator in place.
+  await expect(toggle).toHaveClass('tmt-ui-toggle');
+  await expect(toggle).toHaveCSS('border-top-width', '1px');
+  await expect(toggle).toHaveCSS('box-shadow', 'none');
   await expect(box).toHaveCSS('border-radius', '0px');
+  await expect(box).toHaveText('');
 });
 
-for (const width of [1440, 390])
+for (const width of [1440, 390, 320])
   for (const theme of ['light', 'dark'] as const)
     test(`archived toggle captures: ${width}px ${theme}`, async ({ page }) => {
       await page.setViewportSize({ width, height: 700 });
@@ -309,7 +325,7 @@ for (const width of [1440, 390])
       await page.screenshot({ path: `/tmp/1716-${width}-${theme}-on.png` });
     });
 
-for (const width of [1440, 390])
+for (const width of [1440, 390, 320])
   for (const theme of ['light', 'dark'] as const)
     test(`page header shows only labeled actions until they overflow, with a text-sized live dot: ${width}px ${theme}`, async ({
       page,
@@ -324,7 +340,7 @@ for (const width of [1440, 390])
         const path = '/test/chrome-browser.tsx';
         await (await import(path)).mount('page');
       });
-      const header = page.locator('#chrome-fixture .colab-header');
+      const header = page.locator('#chrome-fixture .tmt-ui-header');
       await expect(header).toBeVisible();
       const overflow = header.locator('.page-overflow-toggle');
       const close = header.locator('.page-menu-close');

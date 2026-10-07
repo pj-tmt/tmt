@@ -27,10 +27,13 @@ test('an old short link opens a chooser after a new page collides and never gues
   await expect(page.getByRole('link', { name: /Later proposal/ })).toBeVisible();
   await expect(page.locator('iframe')).toHaveCount(0);
   await expect(page.locator('#short-fixture header')).toHaveCount(1);
-  await expect(page.locator('#short-fixture .colab-header .colab-mark')).toHaveText('tmt');
-  await expect(page.getByTestId('short-page-choice')).toHaveAttribute('role', 'status');
+  await expect(page.locator('#short-fixture .tmt-ui-header .tmt-ui-mark')).toHaveText('▚');
+  await expect(page.getByTestId('short-page-choice').locator('section')).toHaveAttribute(
+    'role',
+    'status',
+  );
   await expect(
-    page.getByTestId('short-page-choice').locator('.notice-mark svg.lucide-diamond'),
+    page.getByTestId('short-page-choice').locator('.tmt-ui-notice-mark svg.lucide-diamond'),
   ).toBeVisible();
   const original = page.getByRole('link', { name: /Original proposal/ });
   await expect(original.locator('svg.lucide-arrow-up-right')).toBeVisible();
@@ -70,11 +73,14 @@ test('deleting the original page reserves old prefixes and never exposes its tit
   await expect(page.getByRole('heading', { name: 'This page was deleted' })).toBeVisible();
   await expect(page.getByText('Original proposal')).toHaveCount(0);
   await expect(page.locator('[aria-disabled="true"]')).toContainText('Deleted page');
-  await expect(page.getByTestId('short-page-choice')).toHaveAttribute('role', 'alert');
+  await expect(page.getByTestId('short-page-choice').locator('section')).toHaveAttribute(
+    'role',
+    'alert',
+  );
   await expect(
-    page.getByTestId('short-page-choice').locator('.notice-mark svg.lucide-x'),
+    page.getByTestId('short-page-choice').locator('.tmt-ui-notice-mark svg.lucide-x'),
   ).toBeVisible();
-  await expect(page.locator('#short-fixture .colab-header')).toHaveCount(1);
+  await expect(page.locator('#short-fixture .tmt-ui-header')).toHaveCount(1);
   await expect(
     page.getByText('Its owner deleted it. Ask them for a new link if you still need it.'),
   ).toBeVisible();

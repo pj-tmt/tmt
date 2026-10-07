@@ -18,7 +18,11 @@ font fallbacks and makes no third-party asset requests. The static route, fallba
 and CSP contract is owned by
 [colab-v1](../../contracts/colab-v1.md#implemented-mounted-browser-assets-1253).
 
-Trusted chrome uses the shared design tokens. Page HTML runs in an opaque frame
+Trusted app/reader chrome consumes the private `@tmt/browser-ui` React/static exports and
+checked stylesheet. Colab supplies content, viewport placement, metric inputs and original
+trusted action callbacks. Native guidance embeds the same checked CSS at compile time and
+serves `/assets/chrome.css` even without an optional app build. Cargo and installed serving
+need no Node generator. Page HTML runs in an opaque frame
 under the [renderer contract](../../contracts/colab-v1.md#renderer-and-live-anchors).
 The frame loads the same-mount build-owned `renderer.html` with its own response
 CSP and accepts bounded source/render metadata once from its parent. Its policy

@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@tanstack/react-router": "1.170.33",
+    "@tmt/browser-ui": "workspace:*",
     "@tmt/colab-client": "workspace:*",
     "lucide-react": "1.52.0",
     "react": "19.2.8",
