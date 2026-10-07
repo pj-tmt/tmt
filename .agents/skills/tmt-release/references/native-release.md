@@ -496,6 +496,64 @@ bounded real API qualification remain separate gates. Producer admission, Core
 catalog/eligibility/schema/trust ownership, actual upload/close cleanup, ordinary
 CI artifacts, caches, releases, upstream provenance and local installs are unchanged.
 
+## Unarmed trusted reuse-only PR RC coordination
+
+`typescript/scripts/pr-rc-coordinator.mjs` composes the delivered planner and checkpoint
+owners for one CLI generation: four sorted existing targets, unchanged archive versions,
+final manifest bytes and frozen revision2 catalog fields. It supplies fixed root regular
+byte members to an injected upload owner; it has no command entry point, default live
+transport, ZIP parser, extraction, PR executable invocation or workflow caller.
+
+The externally reviewed approval port supplies the publisher tuple and complete preparation
+workflow/action/verifier/dependency closure. Authenticated bounded observations bind the
+actual workflow blob, same-repository open/current-head PR, current label and unique latest
+UTC-second enable epoch, and current trusted-main writer run/attempt. Preparation exports
+separately identify actual prepared PR source, possible synthetic API head and trusted tooling;
+a successful run or `complete:true` alone supplies none of these facts. Existing source/schema,
+native manifest/inventory and no-follow bounded file readers admit only known raw hashes and
+lengths. All four final matching-host proofs must bind authenticated preparation artifact IDs,
+source snapshot, schema output/binary, final manifest/archive and notices/inventory digests.
+
+Current `native-release-prepare.yml` and schema sidecars do not export that complete
+authenticated closure/run/artifact/final-verification record. Missing fields refuse with the
+preparation owner's exact export obligation. The future observation adapter must provide
+complete authenticated raw pull/timeline/run/workflow and upstream evidence; no adapter or
+approval is activated here. The local injected projections accept compact JSON (optional
+newline) or the existing two-space/newline manifest encoding, reject duplicate keys and unknown
+projected proof/receipt fields, and enforce raw byte/depth/integer bounds. Unsupported service encoding remains unavailable.
+
+Before payload effects the coordinator commits and independently reads back the complete
+worst-case reservation through `prepareRCCheckpoint`/`commitRCCheckpoint`: four 69 MiB payload
+transports, one 2 MiB catalog transport and 20 MiB metadata, plus retained checkpoint overlap.
+Four copies of the final manifest must fit the existing 1 MiB aggregate manifest-content limit.
+A finite 16 MiB recovery envelope (measured with raw bytes as base64) is covered by that metadata;
+the same checkpoint recovery port must preserve the extended record exactly and enforce its
+bound. This does not enlarge the 128 KiB checkpoint wire or introduce a second store. Immutable
+reserved generations and original charges remain unchanged; upload identities and observations
+stay alongside them in recovery evidence. Checkpoint and publication metadata share the
+256-request/8 MiB pass budget and original ten-minute deadline, with ten seconds per operation.
+
+An intent is durable before upload. Each returned ID, independently parsed raw-body ID and
+original response is durable before asynchronous readback or finalization. Exact run, attempt,
+name, ZIP size/digest and fixed raw member descriptors must independently agree. Authenticated
+finalization exports bind the exact upload's ended-writer, settlement and inventory references;
+a successful upload, cancellation202 or custody Boolean cannot replace them. Real upload
+ownership, quiescence and service permission remain unqualified. Source controls inject those
+facts; they do not prove their existence on a real backend.
+
+Fresh eligibility precedes each payload and catalog publication. Four verified/finalized payloads
+supply the catalog; its sole `catalog.json` upload is last and independently read back, followed
+by eligibility recheck for a close during publication. A partial or changed observation freezes
+subsequent publication and retains all IDs, raw evidence and charges. The result is explicitly
+unarmed `readback-confirmed`, never a live current/complete channel. Existing recovery, including
+completed operations, requires qualified owning disposition before any new operation; no
+automatic retry, older fallback, inferred bootstrap or deletion is exposed. Ordinary preparation
+artifacts remain read-only reuse provenance, with no deletion rights.
+
+Source controls prove ordering, catalog bytes and refusal sensitivity only. Production approval, actual workflow/transport, backend/recovery
+custody, finalization, catalog-first close/missed-event/late-upload/reader-race cleanup, physical
+absence, measured cost and representative installs remain #1889/#1639 work.
+
 ## Packed verifier cleanup
 
 Packed verifiers use bounded synchronous subprocesses and own their isolated process
