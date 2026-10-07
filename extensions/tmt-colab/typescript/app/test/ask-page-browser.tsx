@@ -385,3 +385,18 @@ export function windowReply(count = 0) {
   };
   publish?.(current);
 }
+
+/** A source-independent publication still clones thread/Ask records like Live. */
+export function unrelatedWindowUpdate() {
+  current = { ...structuredClone(current), title: 'Unrelated live title' };
+  publish?.(current);
+}
+
+/** Update the admitted reply on the same operation/thread, without another send. */
+export function updateWindowReply() {
+  current = {
+    ...structuredClone(current),
+    asks: current.asks!.map((record) => ({ ...record, reply: 'Updated associated agent reply.' })),
+  };
+  publish?.(current);
+}

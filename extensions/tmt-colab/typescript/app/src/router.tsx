@@ -62,7 +62,9 @@ function SelectionAnnotation({
 }) {
   const expanded = children !== undefined;
   const element = useRef<HTMLDivElement>(null);
-  const [position, setPosition] = useState<{ left: number; top: number } | null>(null);
+  const [position, setPosition] = useState<{ left: number; top: number; height?: number } | null>(
+    null,
+  );
   useEffect(() => {
     const notice = noticeVisible
       ? host?.parentElement?.querySelector<HTMLElement>('.tmt-ui-notice')
@@ -71,20 +73,31 @@ function SelectionAnnotation({
       const frame = host?.querySelector('iframe')?.getBoundingClientRect();
       const width = expanded ? Math.min(380, innerWidth - 24) : 100;
       const height = expanded ? Math.min(480, innerHeight - inset - 16) : 38;
+      const grow = (top: number) => {
+        if (!expanded) return undefined;
+        const messages = element.current?.querySelector<HTMLElement>('.thread-messages');
+        const wanted = messages
+          ? element.current!.offsetHeight -
+            messages.clientHeight +
+            Math.max(240, messages.scrollHeight)
+          : 480;
+        return Math.max(0, Math.min(innerHeight - top - 8, Math.max(480, wanted)));
+      };
       if (!frame || !rectangle) {
         // Keep the failure notice readable while retaining the mounted draft.
         const belowNotice = notice?.getBoundingClientRect().bottom;
-        setPosition((previous) =>
-          expanded && previous
-            ? {
-                left: Math.max(8, Math.min(innerWidth - width - 8, previous.left)),
-                top:
-                  belowNotice !== undefined
-                    ? Math.max(inset + 4, belowNotice + 8)
-                    : Math.max(inset + 4, Math.min(innerHeight - height - 8, previous.top)),
-              }
-            : null,
-        );
+        setPosition((previous) => {
+          if (!expanded || !previous) return null;
+          const top =
+            belowNotice !== undefined
+              ? Math.max(inset + 4, belowNotice + 8)
+              : Math.max(inset + 4, Math.min(innerHeight - height - 8, previous.top));
+          return {
+            left: Math.max(8, Math.min(innerWidth - width - 8, previous.left)),
+            top,
+            height: grow(top),
+          };
+        });
         return;
       }
       const top = frame.top + Math.max(0, Math.min(frame.height, rectangle.y)),
@@ -97,20 +110,25 @@ function SelectionAnnotation({
       }
       const beside = !expanded && right + width + 8 <= Math.min(frame.right, innerWidth - 8);
       const below = bottom + height + 8 <= innerHeight - 8;
+      const windowTop = Math.max(
+        inset + 4,
+        Math.min(innerHeight - height - 8, beside ? top : below ? bottom + 6 : top - height - 6),
+      );
       setPosition({
         left: Math.max(
           8,
           Math.min(innerWidth - width - 8, frame.right - width - 8, beside ? right + 8 : left),
         ),
-        top: Math.max(
-          inset + 4,
-          Math.min(innerHeight - height - 8, beside ? top : below ? bottom + 6 : top - height - 6),
-        ),
+        top: windowTop,
+        height: grow(windowTop),
       });
     };
     place();
     const observer = new ResizeObserver(place);
     if (element.current) observer.observe(element.current);
+    element.current
+      ?.querySelectorAll('.thread-messages, .annotation-compose, .thread-bar')
+      .forEach((node) => observer.observe(node));
     if (notice) observer.observe(notice);
     window.addEventListener('scroll', place, { passive: true });
     window.addEventListener('resize', place);
@@ -119,7 +137,7 @@ function SelectionAnnotation({
       window.removeEventListener('scroll', place);
       window.removeEventListener('resize', place);
     };
-  }, [host, rectangle, inset, expanded, noticeVisible]);
+  }, [host, rectangle, inset, expanded, noticeVisible, children]);
   return (
     <div
       ref={element}
@@ -716,7 +734,10 @@ function Page() {
     closeRef.current(false);
     renderer.current?.scrollAnchor(`${ref.writer}:${ref.id}`);
     const rectangle = renderer.current?.anchorRectangle(`${ref.writer}:${ref.id}`);
-    if (!rectangle) return;
+    if (!rectangle) {
+      openThread(ref);
+      return;
+    }
     setAnnotation({
       key: crypto.randomUUID(),
       selector: structuredClone(thread.anchor),

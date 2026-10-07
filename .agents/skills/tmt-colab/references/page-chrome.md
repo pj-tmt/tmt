@@ -69,7 +69,8 @@ or resolving. Page-owned drafts keep the exact edit and recipient for reopening
 the known thread. Current renderer anchor positions locate marker-opened windows;
 viewport dimensions clamp their square, shadow-free surface independently of
 document height. Header/composer stay in place while messages scroll, including
-an associated delayed reply to an earlier turn. This changes no renderer messages,
+an associated delayed reply to an earlier turn. Unrelated live publications keep
+the reader's message-history position. This changes no renderer messages,
 subscription, publication admission or reply association. Comments remains the
 explicit full-history/details view.
 

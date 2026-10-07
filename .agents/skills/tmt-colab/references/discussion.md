@@ -29,12 +29,13 @@ owns record fields, limits, revision semantics and trust boundaries.
   (including an empty reply), then the status disappears.
 - `thread-panel.tsx` exports `ThreadWindow`/`ThreadWindowProps` for the shared
   conversation body, including the initial selection before a thread exists. The
-  anchored layout keeps its header and parent composer stationary while only its
-  messages scroll; new turns and associated replies move that area to the arrival.
+  anchored layout grows toward the viewport bottom before its messages scroll;
+  its header and parent composer stay stationary during message scrolling. First
+  open, new comment IDs and changed associated replies move that area to the
+  arrival. Unrelated cloned publications preserve a reader's history position.
   A parent composer slot preserves the same input instance through first commit;
-  an optional awaited status callback delegates one trusted action to the parent,
-  with busy/error display and no notification or storage capability. Without that
-  callback, existing writer-owned controls use the discussion binding.
+  existing writer-owned controls await the discussion binding with busy/error
+  display and no notification or storage capability.
   It owns muted author/time labels with device-ID tooltips, Resolve/Reopen/Close
   Lucide controls (visible labels in Comments, hover/focus captions in the anchored
   window), plain-text

@@ -161,7 +161,7 @@ export function editingProof() {
 
 let statusCalls = 0;
 let finishStatus: ((failed: boolean) => void) | undefined;
-/** Presentation-only window callback double, with no status store or dispatch adapter. */
+/** Presentation-only writer binding double, with no status store or dispatch adapter. */
 export function mountWindow(mode = 'ready') {
   root?.unmount();
   document.getElementById('annotation-fixture')?.remove();
@@ -171,6 +171,9 @@ export function mountWindow(mode = 'ready') {
   document.body.append(host);
   statusCalls = closes = 0;
   finishStatus = undefined;
+  const unused = async () => {
+    throw new Error('Not used');
+  };
   const thread: ThreadView = {
     version: 1,
     kind: 'thread',
@@ -206,22 +209,26 @@ export function mountWindow(mode = 'ready') {
         composer={
           <MessageComposer label="Window draft" edit={edit} onChange={setEdit} disabled={false} />
         }
-        onStatusChange={
-          mode === 'readonly'
-            ? undefined
-            : async (_thread, nextResolved) => {
-                statusCalls++;
-                await new Promise<void>((resolve, reject) => {
-                  finishStatus = (failed) => {
-                    if (failed) reject(new Error('Unavailable'));
-                    else {
-                      setCurrent((previous) => ({ ...previous, resolved: nextResolved }));
-                      resolve();
-                    }
-                  };
-                });
-              }
-        }
+        binding={{
+          deviceId: mode === 'readonly' ? id(7) : id(4),
+          create: unused,
+          createChat: unused,
+          reply: unused,
+          edit: unused,
+          deleteComment: unused,
+          updateThread: async (_ref, _revision, change) => {
+            statusCalls++;
+            await new Promise<void>((resolve, reject) => {
+              finishStatus = (failed) => {
+                if (failed) reject(new Error('Unavailable'));
+                else {
+                  setCurrent((previous) => ({ ...previous, ...change }));
+                  resolve();
+                }
+              };
+            });
+          },
+        }}
       />
     );
   }

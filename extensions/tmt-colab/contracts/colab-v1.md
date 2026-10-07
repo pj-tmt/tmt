@@ -1550,7 +1550,10 @@ small anchored window at that span. On the first committed turn, the same input
 continues below the thread's user turns, agent state and admitted replies; Comments
 and Chat do not open automatically. The header and composer stay stationary, only
 messages scroll, and new turns/replies scroll that area to the new content. The
-window is sized and clamped to the viewport, independently of document bounds.
+window grows toward the viewport bottom before scrolling, with about 240 px for
+messages when space permits, independently of document bounds. First open, new
+comment IDs and changed associated replies scroll into view; unrelated live
+publications preserve a reader's position in history.
 Its placement is cosmetic; the captured quote
 selector owns the thread anchor. Enter sends, Shift+Enter inserts a newline, and Esc closes the input (an unsent draft is kept). There
 is no confirmation screen or automatic send. The popover closes with its ×, with Escape from anywhere

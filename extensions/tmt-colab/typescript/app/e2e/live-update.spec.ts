@@ -363,7 +363,6 @@ for (const width of [1440, 390]) {
       await expect(thread.getByTestId('ask-reply')).toHaveText('Exact associated agent reply.');
       const messages = thread.locator('.thread-messages');
       await expect(thread.getByTestId('ask-reply')).toBeInViewport({ ratio: 1 });
-      await page.screenshot({ path: `${captureDir}/window-${width}-${theme}-reply.png` });
       expect(await messages.evaluate((node) => node.scrollHeight > node.clientHeight)).toBe(true);
       const header = thread.locator('.thread-bar');
       const headerBefore = (await header.boundingBox())!;
@@ -373,9 +372,19 @@ for (const width of [1440, 390]) {
       });
       expect((await header.boundingBox())!.y).toBe(headerBefore.y);
       expect((await input.boundingBox())!.y).toBe(inputBefore.y);
+      await run(page, 'unrelatedWindowUpdate');
+      await expect(
+        page.getByRole('heading', { name: 'Unrelated live title', exact: true }),
+      ).toBeVisible();
+      expect(await messages.evaluate((node) => node.scrollTop)).toBe(0);
       await page.screenshot({ path: `${captureDir}/window-${width}-${theme}-history.png` });
+      await run(page, 'updateWindowReply');
+      await expect(thread.getByTestId('ask-reply')).toHaveText('Updated associated agent reply.');
+      await expect(thread.getByTestId('ask-reply')).toBeInViewport({ ratio: 1 });
+      expect(await messages.evaluate((node) => node.clientHeight)).toBeGreaterThanOrEqual(240);
+      await page.screenshot({ path: `${captureDir}/window-${width}-${theme}-reply.png` });
       await input.fill('Exact unsent draft retained on collapse.');
-      await page.getByRole('heading', { name: 'Changed live title', exact: true }).click();
+      await page.getByRole('heading', { name: 'Unrelated live title', exact: true }).click();
       await expect(dialog).toHaveCount(0);
       // Reopening via the associated marker restores the thread, quote and selected recipient.
       const marker = page
@@ -387,6 +396,7 @@ for (const width of [1440, 390]) {
         useInnerText: true,
       });
       await expect(dialog.getByText('Recipient: Agent 1', { exact: false })).toBeVisible();
+      await expect(thread.getByTestId('ask-reply')).toBeInViewport({ ratio: 1 });
       await expect(thread.locator('blockquote')).toHaveText('Exact selected text');
       await expect(page.locator('.page-drawer[open]')).toHaveCount(0);
       const box = (await dialog.boundingBox())!;
