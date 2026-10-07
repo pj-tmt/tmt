@@ -1,3 +1,4 @@
+import { browserUiClasses as ui } from '@tmt/browser-ui/static';
 import { Check } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { DISCLOSURE, Downloads, EXPORT_FILES, type ExportFile } from './export.js';
@@ -94,6 +95,8 @@ export function ExportPanel({
   return (
     <div className="export-control">
       <button
+        className={ui.action}
+        data-variant="text"
         disabled={!binding || blocked}
         title={!binding ? text.exportUnavailable : undefined}
         onClick={(event) => {

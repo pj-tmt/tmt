@@ -3,7 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { RouterProvider } from '@tanstack/react-router';
 import { createAppRouter } from './router.js';
 import { previewTransport } from './local-pages.js';
-import 'virtual:tokens.css';
+import '@tmt/browser-ui/static.css';
 import './style.css';
 
 import { MountedApp } from './mounted-app.js';

@@ -76,6 +76,9 @@ importers:
       '@tanstack/react-router':
         specifier: 1.170.33
         version: 1.170.33(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+      '@tmt/browser-ui':
+        specifier: workspace:*
+        version: link:../../../../design/browser-ui
       '@tmt/colab-client':
         specifier: workspace:*
         version: link:../colab-client

@@ -539,6 +539,15 @@ encodings, queries and fragments MUST reject with 400. No request path is
 normalized, joined to a filesystem directory or given a SPA fallback. Existing
 API routes and registered-owner `/sync` admission/transport are unchanged.
 
+App and reader chrome consume `@tmt/browser-ui/react`, `/static` and `/static.css`.
+Native guidance embeds the same checked `design/browser-ui/generated/static.css` at
+compile time, with Colab-owned host metrics and viewport styles. Cargo and installed
+serving MUST NOT run Node or generate CSS. The same-origin `/assets/chrome.css` response
+uses `text/css; charset=utf-8`, including when the optional app build is absent. Shared
+presentation owns no routing, admission, page state or action/recovery capability.
+Guidance MUST render its recovery status/script only when the admitted app inventory
+actually contains `/assets/recovery.js`; without it, pairing/build guidance stays visible.
+
 Vite output MUST use relative URLs beneath `/r/<prefix>/x/colab/`, with no
 third-party requests. The current app declares installed/system font fallbacks;
 no external font service is used. App and native guidance responses share this

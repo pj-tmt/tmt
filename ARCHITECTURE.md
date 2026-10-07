@@ -51,11 +51,9 @@ tracked-file guard. Handbook language exceptions belong to
 [AGENTS](AGENTS.md#repository-content-language) and the allowlist.
 
 Shared visual tokens have one owner, `design/tokens/tokens.json`, maintained by
-the design lead. Its Vite projection, Rust CLI theme tests and native Colab guidance consume the same
-source. The `header` group is the one header contract: Colab projects it into React and static native CSS,
-and Remote's static browser pages ship the same metrics in `pages.css`, which a Remote test checks against it.
-Native Colab embeds the token JSON and the app header/reader/state-card stylesheets at compile time;
-Docker build stages preserve those source paths, and their CI rules retain native checks.
+the design lead. Its Vite projection and Rust CLI theme tests consume that source; `design/browser-ui` projects browser roles, fonts and `header` metrics into checked static CSS.
+Colab app/reader use the leaf's React/static exports; native guidance embeds its CSS plus Colab host metrics and viewport styles at compile time, without running a generator in Cargo or serving.
+Docker stages preserve those inputs and CI retains native checks. Remote's current static pages still ship header metrics in `pages.css`, checked by a Remote test; adoption is separate.
 The private design-tokens component attributes token changes to Colab through `releaseConsumers`.
 Release procedures belong to the
 [release skill](.agents/skills/tmt-release/SKILL.md), including the archive's
@@ -1225,6 +1223,7 @@ core discovery or storage access.
   tab claim; all other app assets stay owner-gated. With core: `Product::Colab` registers
   the executable with the installer, and the app is served from `serve --app-dir`, else
   bytes embedded from `TMT_COLAB_APP_DIR`, else the checkout's Vite output.
+  Shared chrome serves native `/assets/chrome.css` even without an app build; Colab owns layout, routing, state words and trusted action/recovery. See the [browser contract](extensions/tmt-colab/contracts/colab-v1.md#implemented-mounted-browser-assets-1253).
   One `tmt colab serve` is enough for a browser: it attaches to a running door through
   `tmt remote status --json`, else starts `tmt remote serve --json` as a supervised child
   in its own process group, reading pairing from `tmt remote devices --json`. This optional

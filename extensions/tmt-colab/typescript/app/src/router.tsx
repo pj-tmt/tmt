@@ -1,3 +1,5 @@
+import { BrowserAction, BrowserToggle } from '@tmt/browser-ui/react';
+import { browserUiClasses as ui } from '@tmt/browser-ui/static';
 import { validPagePrefix } from './short-links.js';
 import {
   FileText,
@@ -133,7 +135,7 @@ const root = createRootRouteWithContext<{ transport: PageTransport }>()({
           eyebrow={text.product}
           title={text.error}
           actions={
-            <Link className="notice-action" to="/">
+            <Link className={ui.action} data-variant="text" to="/">
               {text.retry}
             </Link>
           }
@@ -150,7 +152,7 @@ const root = createRootRouteWithContext<{ transport: PageTransport }>()({
         eyebrow={text.product}
         title={text.error}
         actions={
-          <Link className="notice-action" to="/">
+          <Link className={ui.action} data-variant="text" to="/">
             {text.retry}
           </Link>
         }
@@ -207,7 +209,7 @@ function ShortPageChoice() {
       testId="short-page-choice"
       actions={
         deleted ? (
-          <Link className="notice-action" to="/">
+          <Link className={ui.action} data-variant="text" to="/">
             Back to pages
           </Link>
         ) : undefined
@@ -268,7 +270,7 @@ export function AppHeader({
       home={
         linked
           ? (brand) => (
-              <Link className="colab-brand" to="/" aria-label={text.home}>
+              <Link className={ui.brand} to="/" aria-label={text.home}>
                 {brand}
               </Link>
             )
@@ -288,7 +290,12 @@ function ThemeButton({ menuLabel = false }: { menuLabel?: boolean }) {
     document.documentElement.dataset.theme = dark ? 'dark' : 'light';
   }, [dark]);
   return (
-    <button className="theme" aria-label={text.theme} onClick={() => setDark(!dark)}>
+    <button
+      className={`theme ${ui.action}`}
+      data-variant="text"
+      aria-label={text.theme}
+      onClick={() => setDark(!dark)}
+    >
       <span className="theme-symbol" aria-hidden>
         {dark ? <Moon aria-hidden /> : <Sun aria-hidden />}
       </span>
@@ -337,13 +344,14 @@ function ManageButton({
   if (!port) return null;
   return (
     <>
-      <button
-        onClick={(event) => {
+      <BrowserAction
+        type="button"
+        variant="text"
+        label="Manage page"
+        onActivate={(event) => {
           if (event.isTrusted) setOpen(true);
         }}
-      >
-        Manage page
-      </button>
+      />
       {open &&
         createPortal(
           <ShareDialog
@@ -382,17 +390,13 @@ function Home() {
       <h1>{space.title}</h1>
       <p className="intro">{text.intro}</p>
       {transport.management && (
-        <button
-          type="button"
-          className="archive-toggle"
-          aria-pressed={archived}
-          onClick={(event) => {
+        <BrowserToggle
+          pressed={archived}
+          label="Show archived"
+          onActivate={(event) => {
             if (event.isTrusted) setArchived(!archived);
           }}
-        >
-          <span className="toggle-box" aria-hidden="true" />
-          Show archived
-        </button>
+        />
       )}
       {pages.length ? (
         <ul className="pages">
@@ -715,7 +719,7 @@ function Page() {
         menuOpen={menu}
         title={view.title || snapshot.title || text.unknownPageTitle}
         home={(brand) => (
-          <Link className="colab-brand" to="/" aria-label={text.home}>
+          <Link className={ui.brand} to="/" aria-label={text.home}>
             {brand}
           </Link>
         )}
@@ -749,7 +753,8 @@ function Page() {
               </span>
             </span>
             <button
-              className="page-overflow-toggle"
+              className={`page-overflow-toggle ${ui.action}`}
+              data-variant="text"
               aria-label="More page actions"
               aria-expanded={menu}
               onClick={(event) => {
@@ -772,7 +777,8 @@ function Page() {
               }}
             >
               <button
-                className="page-menu-close"
+                className={`page-menu-close ${ui.action}`}
+                data-variant="text"
                 aria-label="Close page actions"
                 onClick={() => setMenu(false)}
               >
@@ -783,6 +789,8 @@ function Page() {
                 <span>{text[snapshot.sharing]}</span>
               </div>
               <button
+                className={ui.action}
+                data-variant="text"
                 data-testid="chat-toggle"
                 aria-label="Chat"
                 aria-expanded={panel === 'chat'}
@@ -793,6 +801,8 @@ function Page() {
                 Chat
               </button>
               <button
+                className={ui.action}
+                data-variant="text"
                 data-testid="agents-toggle"
                 aria-expanded={panel === 'agents'}
                 onClick={(event) => {
@@ -802,6 +812,8 @@ function Page() {
                 {text.agentStatus}
               </button>
               <button
+                className={ui.action}
+                data-variant="text"
                 data-testid="comments-toggle"
                 aria-expanded={panel === 'comments'}
                 onClick={(event) => {
@@ -811,6 +823,8 @@ function Page() {
                 {text.comments}
               </button>
               <button
+                className={ui.action}
+                data-variant="text"
                 aria-pressed={panel === 'source'}
                 onClick={(event) => {
                   if (event.isTrusted) toggle('source');
@@ -839,7 +853,7 @@ function Page() {
               />
               <ThemeButton menuLabel />
               <details className="page-information">
-                <summary aria-label="Page information">
+                <summary className={ui.action} data-variant="text" aria-label="Page information">
                   <span className="info-symbol" aria-hidden>
                     <Info aria-hidden />
                   </span>
@@ -877,6 +891,8 @@ function Page() {
               )}
               {liveError === 'Sync disconnected' && snapshot.binding?.reconnect && (
                 <button
+                  className={ui.action}
+                  data-variant="text"
                   disabled={reconnecting}
                   data-testid="colab-reconnect"
                   onClick={(event) => {
