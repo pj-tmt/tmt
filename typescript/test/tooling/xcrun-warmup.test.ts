@@ -24,8 +24,8 @@ function runtimeModuleConsumers(sources = scriptSources): string[] {
     .sort();
 }
 
-/** Only the reviewed, complete bare host-check declaration avoids proof treatment. */
-function hasOnlyHostImport(text: string): boolean {
+/** Only reviewed, complete bare declarations without tool lookup avoid proof treatment. */
+function hasOnlyPureImport(text: string): boolean {
   if (text.split(runtimeModule).length !== 2) return false;
   const source = ts.createSourceFile('consumer.mjs', text, ts.ScriptTarget.Latest, true);
   const declarations = source.statements
@@ -35,13 +35,13 @@ function hasOnlyHostImport(text: string): boolean {
         ts.isStringLiteralLike(node.moduleSpecifier) && node.moduleSpecifier.text === runtimeModule
     );
   if (declarations.length !== 1) return false;
-  return /^import\s*\{\s*(?:assertNativeTarget(?:\s*,\s*nativeHostTarget)?|nativeHostTarget(?:\s*,\s*assertNativeTarget)?)\s*,?\s*\}\s*from\s*(['"])\.\/native-runtime-proof\.mjs\1\s*;\s*$/.test(
+  return /^import\s*\{\s*(?:assertHerdrCapabilities|assertNativeTarget(?:\s*,\s*nativeHostTarget)?|nativeHostTarget(?:\s*,\s*assertNativeTarget)?)\s*,?\s*\}\s*from\s*(['"])\.\/native-runtime-proof\.mjs\1\s*;\s*$/.test(
     declarations[0].getText(source)
   );
 }
 
 function proofConsumers(sources = scriptSources): string[] {
-  return runtimeModuleConsumers(sources).filter((name) => !hasOnlyHostImport(sources[name]));
+  return runtimeModuleConsumers(sources).filter((name) => !hasOnlyPureImport(sources[name]));
 }
 
 /** Jobs as their raw text, keyed by name; a workflow lists them at two spaces. */
@@ -96,14 +96,16 @@ const expectedProofConsumers = [
   'verify-public-install.mjs',
 ];
 const hostConsumer = 'native-application-schema.mjs';
-const expectedModuleConsumers = [...expectedProofConsumers, hostConsumer].sort();
+const capabilityConsumer = 'release-version-injection.mjs';
+const pureConsumers = [hostConsumer, capabilityConsumer].sort();
+const expectedModuleConsumers = [...expectedProofConsumers, ...pureConsumers].sort();
 
 function assertConsumerInventory(sources = scriptSources): void {
   expect(runtimeModuleConsumers(sources)).toEqual(expectedModuleConsumers);
   expect(proofConsumers(sources)).toEqual(expectedProofConsumers);
   expect(
-    runtimeModuleConsumers(sources).filter((name) => hasOnlyHostImport(sources[name]))
-  ).toEqual([hostConsumer]);
+    runtimeModuleConsumers(sources).filter((name) => hasOnlyPureImport(sources[name]))
+  ).toEqual(pureConsumers);
 }
 
 function proofJobs(text: string, consumers = proofConsumers()): [string, string][] {
@@ -174,7 +176,7 @@ jobs:
 `;
 
 describe('macOS toolchain warm-up before the native runtime proof', () => {
-  it('finds all module consumers and exactly the real proof and host-only inventories', () => {
+  it('finds all module consumers and exactly the real proof and pure declaration inventories', () => {
     assertConsumerInventory();
     const prepare = read('.github/workflows/native-release-prepare.yml');
     expect(proofJobs(prepare).map(([name]) => name)).toEqual(['verify']);
@@ -191,12 +193,31 @@ describe('macOS toolchain warm-up before the native runtime proof', () => {
     `import { nativeHostTarget, assertNativeTarget } from '${runtimeModule}';`,
     `import {\n  nativeHostTarget,\n  assertNativeTarget,\n} from "${runtimeModule}";`,
   ])('recognizes only complete bare host bindings: %s', (source) => {
-    expect(hasOnlyHostImport(source)).toBe(true);
+    expect(hasOnlyPureImport(source)).toBe(true);
     expect(runtimeModuleConsumers({ 'different-name.mjs': source })).toEqual([
       'different-name.mjs',
     ]);
     expect(proofConsumers({ 'different-name.mjs': source })).toEqual([]);
     assertConsumerInventory(withHostSource(source));
+  });
+
+  it('admits only the complete bare capability binding, with all other references conservative', () => {
+    const declaration = `import { assertHerdrCapabilities } from '${runtimeModule}';`;
+    expect(hasOnlyPureImport(declaration)).toBe(true);
+    assertConsumerInventory({ ...scriptSources, [capabilityConsumer]: declaration });
+    for (const rejected of [
+      `import { assertHerdrCapabilities as check } from '${runtimeModule}';`,
+      `import { assertHerdrCapabilities, verifyNativeRuntime } from '${runtimeModule}';`,
+      `import { unknown } from '${runtimeModule}';`,
+      `// ${declaration}`,
+      `const example = ${JSON.stringify(declaration)};`,
+      `${declaration}\nawait import('${runtimeModule}');`,
+    ]) {
+      const sources = { ...scriptSources, [capabilityConsumer]: rejected };
+      expect(hasOnlyPureImport(rejected)).toBe(false);
+      expect(proofConsumers(sources)).toContain(capabilityConsumer);
+      expect(() => assertConsumerInventory(sources)).toThrow();
+    }
   });
 
   it.each(['assertMacOsArchitecture', 'verifyNativeRuntime'])(
@@ -205,7 +226,7 @@ describe('macOS toolchain warm-up before the native runtime proof', () => {
       for (const bindings of [entry, `${entry} as proof`, `assertNativeTarget, ${entry}`]) {
         const source = `import { ${bindings} } from '${runtimeModule}';`;
         const sources = withHostSource(source);
-        expect(hasOnlyHostImport(source)).toBe(false);
+        expect(hasOnlyPureImport(source)).toBe(false);
         expect(proofConsumers(sources)).toContain(hostConsumer);
         expect(() => assertConsumerInventory(sources)).toThrow();
         expect(() =>
@@ -239,7 +260,7 @@ describe('macOS toolchain warm-up before the native runtime proof', () => {
     'const source = `' + hostImport + '`;',
   ])('keeps unsupported references conservative: %s', (source) => {
     const sources = withHostSource(source);
-    expect(hasOnlyHostImport(source)).toBe(false);
+    expect(hasOnlyPureImport(source)).toBe(false);
     expect(runtimeModuleConsumers(sources)).toEqual(expectedModuleConsumers);
     expect(proofConsumers(sources)).toContain(hostConsumer);
     expect(() => assertConsumerInventory(sources)).toThrow();
@@ -259,7 +280,7 @@ describe('macOS toolchain warm-up before the native runtime proof', () => {
       expect(runtimeModuleConsumers(sources)).toEqual(expectedModuleConsumers);
       expect(() => assertConsumerInventory(sources)).toThrow();
     }
-    // The old module-only classification is sensitive to the actual nine/eight distinction.
+    // The old module-only classification is sensitive to the actual module/proof distinction.
     expect(() => expect(runtimeModuleConsumers()).toEqual(expectedProofConsumers)).toThrow();
     expect(() =>
       assertWorkflowWarmup(

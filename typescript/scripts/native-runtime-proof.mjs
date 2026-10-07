@@ -23,6 +23,16 @@ export function assertNativeTarget(target, message) {
   assert.equal(target, nativeHostTarget(), message);
 }
 
+/** Validate the existing model-free driver declaration without tool or service lookup. */
+export function assertHerdrCapabilities(raw, expectedVersion, subject) {
+  assert.equal(typeof expectedVersion, 'string', 'Herdr proof requires its independent version');
+  const answer = JSON.parse(raw);
+  assert.equal(answer.ok?.name, 'herdr', `${subject} Herdr driver name mismatch`);
+  assert.equal(answer.ok?.kind, 'host', `${subject} Herdr driver kind mismatch`);
+  assert.equal(answer.ok?.version, expectedVersion, `${subject} Herdr driver version mismatch`);
+  assert(answer.ok?.protocols?.includes(1), `${subject} Herdr driver protocol mismatch`);
+}
+
 function macOsTool(name, cwd, inspect = runPackedCommand) {
   // Resolve outside the product's isolated HOME to avoid Xcode shim diagnostics.
   const tool = inspect('/usr/bin/xcrun', ['--find', name], {
@@ -245,13 +255,11 @@ export async function verifyNativeRuntime({
         'string',
         'Herdr proof requires its independent version'
       );
-      const answer = JSON.parse(
-        runPackedCommand(driver, ['__tmt-driver', '1', 'capabilities'], { cwd, env })
+      assertHerdrCapabilities(
+        runPackedCommand(driver, ['__tmt-driver', '1', 'capabilities'], { cwd, env }),
+        expectedVersion,
+        subject
       );
-      assert.equal(answer.ok?.name, 'herdr', `${subject} Herdr driver name mismatch`);
-      assert.equal(answer.ok?.kind, 'host', `${subject} Herdr driver kind mismatch`);
-      assert.equal(answer.ok?.version, expectedVersion, `${subject} Herdr driver version mismatch`);
-      assert(answer.ok?.protocols?.includes(1), `${subject} Herdr driver protocol mismatch`);
     };
     if (product === 'driver-herdr') {
       proveHerdr(executable, version);
