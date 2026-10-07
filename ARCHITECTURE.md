@@ -942,8 +942,8 @@ declares nothing beyond what the user approved. Core, not the driver, decides
 evidence: server identity is core's own process start token and a missing or changed
 driver is `Unavailable`, never proof of loss. `rust/crates/tmt-driver-herdr` is the
 first driver; its library depends only on the protocol crate, `tmt-invoke`,
-`serde_json` and `semver`, and the CLI archive carries its executable as a
-companion. Details are in the
+`serde_json` and `semver`. Its standalone alpha archives use the main release cut;
+the CLI retains its companion until #1084. Details are in the
 [hosts and drivers reference](.agents/skills/tmt-core-runtime/references/hosts-drivers.md#external-host-drivers).
 
 ## Managed skills and native installation

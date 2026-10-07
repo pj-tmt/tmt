@@ -15,7 +15,7 @@ on:
         required: false
         default: all
         type: choice
-        options: [all, cli, squad, remote, colab]
+        options: [all, cli, squad, driver-herdr, remote, colab]
       version:
         description: Optional explicit stable or alpha version; requires a product and owner authorization
         required: false

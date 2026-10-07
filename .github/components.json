@@ -71,7 +71,8 @@
     },
     "browser-addon": {
       "owns": ["extensions/tmt-remote/typescript/browser-addon"],
-      "release": false
+      "release": false,
+      "releaseStatus": "parked"
     },
     "colab-app": {
       "releaseConsumers": ["tmt-colab"],
@@ -168,8 +169,9 @@
     "driver-herdr": {
       "package": "tmt-driver-herdr",
       "owns": ["rust/crates/tmt-driver-herdr"],
-      "release": false,
-      "bootstrapSha": "6ed7f3f9f0070076d4ca78e9fcc2f4de4457fbbd"
+      "release": true,
+      "bootstrapSha": "6ed7f3f9f0070076d4ca78e9fcc2f4de4457fbbd",
+      "initialVersion": "0.1.0-alpha.1"
     },
     "tmt-release-tool": {
       "releaseStatus": "never",
