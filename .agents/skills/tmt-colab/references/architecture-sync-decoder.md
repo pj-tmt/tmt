@@ -85,7 +85,16 @@ and `limits.rs`; do not restate them.
   `identity show --json` command in `core.rs`; failures leave no label. The decoder's
   `ContentEdit` replaces/clears `meta.publisherAgent` atomically with source. Browser
   edits preserve it, and owner epoch baselines carry it in their committed update.
-  No label selects an identity or grant.
+  No label selects an identity or grant. Creation reuses that single bounded identity
+  snapshot and one optional same-root public machine-status observation to freeze
+  `decoder::CreationRecipient`; the browser projection uses the canonical
+  `CreationRecipient` in `fold-protocol.ts`. Strict metadata admission, source-edit
+  before/after checks, fresh/chunked baselines, epoch, checkpoint/history and frozen
+  export preserve the pair. Source edits cannot set it, and absence never backfills.
+  There is no second acquisition, descriptor cache, service startup, private Remote
+  state, HTTP or Session lookup. The [Colab contract](../../../../extensions/tmt-colab/contracts/colab-v1.md)
+  owns the complete-pair grammar and strict-reader compatibility rules; the future
+  #1817 UI default is not integrated by this native/non-UI boundary.
 - `page write` freezes one batch (`prepare_publication`). Offline it holds the serve lifecycle
   lock, uses `Store::write_existing` and `commit_publication`; when `serve` holds the lock,
   `page/ipc.rs` posts one `LocalWrite` v2 to `/.tmt/colab/local/page-publish` and never

@@ -239,6 +239,7 @@ fn execute_with(
     checkpoint(Stage::Project, CheckpointBoundary::Enter, 0);
     let before = project(&doc, wire.namespace)?;
     checkpoint(Stage::Project, CheckpointBoundary::Leave, 0);
+    let recipient = before["meta"].get("creationRecipient").cloned();
     // Edit only the admitted structs. The delta never reattributes foreign content.
     let (merged, projection) = if let Some(source) = &wire.source {
         if wire.namespace != Namespace::Content || source.len() > BASELINE_BYTES {
@@ -283,6 +284,9 @@ fn execute_with(
         checkpoint(Stage::Merge, CheckpointBoundary::Leave, 0);
         (merged, before)
     };
+    if wire.source.is_some() && projection["meta"].get("creationRecipient") != recipient.as_ref() {
+        return Err(DecodeFault::Rejected);
+    }
     // A prepared edit is one update; a read's merged tail may be the whole state.
     if merged.len()
         > if wire.source.is_some() {
@@ -637,6 +641,7 @@ fn baseline(input: &[u8]) -> Result<(), DecodeFault> {
     let wire: WireBaseline =
         serde_json::from_slice(input).map_err(|_| DecodeFault::InvalidInput)?;
     if wire.version != 1
+        || wire.creation_recipient.as_ref().is_some_and(|v| !v.valid())
         || wire
             .publisher_agent
             .as_deref()
@@ -664,6 +669,7 @@ fn baseline(input: &[u8]) -> Result<(), DecodeFault> {
                         source_text,
                         &wire.title,
                         wire.publisher_agent.as_deref(),
+                        wire.creation_recipient.as_ref(),
                         size,
                     );
                     doc.transact()
@@ -675,6 +681,7 @@ fn baseline(input: &[u8]) -> Result<(), DecodeFault> {
                     source_text,
                     &wire.title,
                     wire.publisher_agent.as_deref(),
+                    wire.creation_recipient.as_ref(),
                 ),
             };
             (update, Some(source), None)
@@ -709,6 +716,13 @@ fn baseline(input: &[u8]) -> Result<(), DecodeFault> {
     if projection["meta"]["title"].as_str() != Some(wire.title.as_str())
         || (producing
             && projection["meta"]["publisherAgent"].as_str() != wire.publisher_agent.as_deref())
+        || (producing
+            && projection["meta"].get("creationRecipient")
+                != wire
+                    .creation_recipient
+                    .as_ref()
+                    .map(|v| serde_json::to_value(v).expect("typed recipient"))
+                    .as_ref())
         || expected_source.is_some_and(|source| source != source_text.as_bytes())
     {
         return Err(DecodeFault::Rejected);
@@ -756,6 +770,7 @@ fn chunked_baseline(
     source: &str,
     title: &str,
     publisher_agent: Option<&str>,
+    creation_recipient: Option<&CreationRecipient>,
     size: usize,
 ) -> Vec<Vec<u8>> {
     let html = doc.get_or_insert_text("html");
@@ -777,6 +792,9 @@ fn chunked_baseline(
             if let Some(agent) = publisher_agent {
                 meta.insert(&mut txn, "publisherAgent", agent);
             }
+            if let Some(recipient) = creation_recipient {
+                meta.insert(&mut txn, "creationRecipient", recipient_any(recipient));
+            }
         }
         updates.push(txn.encode_update_v1());
         rest = tail;
@@ -784,7 +802,13 @@ fn chunked_baseline(
     }
     updates
 }
-fn fresh_baseline(doc: Doc, source: &str, title: &str, publisher_agent: Option<&str>) -> Vec<u8> {
+fn fresh_baseline(
+    doc: Doc,
+    source: &str,
+    title: &str,
+    publisher_agent: Option<&str>,
+    creation_recipient: Option<&CreationRecipient>,
+) -> Vec<u8> {
     let html = doc.get_or_insert_text("html");
     let meta = doc.get_or_insert_map("meta");
     let mut txn = doc.transact_mut();
@@ -793,7 +817,22 @@ fn fresh_baseline(doc: Doc, source: &str, title: &str, publisher_agent: Option<&
     if let Some(agent) = publisher_agent {
         meta.insert(&mut txn, "publisherAgent", agent);
     }
+    if let Some(recipient) = creation_recipient {
+        meta.insert(&mut txn, "creationRecipient", recipient_any(recipient));
+    }
     txn.encode_state_as_update_v1(&StateVector::default())
+}
+fn recipient_any(recipient: &CreationRecipient) -> Any {
+    Any::Map(std::sync::Arc::new(std::collections::HashMap::from([
+        (
+            "machineId".to_owned(),
+            Any::String(recipient.machine_id.clone().into()),
+        ),
+        (
+            "agentId".to_owned(),
+            Any::String(recipient.agent_id.clone().into()),
+        ),
+    ])))
 }
 
 #[cfg(test)]
@@ -813,15 +852,25 @@ mod baseline_tests {
                 source,
                 title,
                 vector["publisherAgent"].as_str(),
+                vector
+                    .get("creationRecipient")
+                    .map(|v| serde_json::from_value::<CreationRecipient>(v.clone()).unwrap())
+                    .as_ref(),
             );
-            assert_eq!(URL_SAFE_NO_PAD.encode(&update), vector["update"]);
+            let encoded = URL_SAFE_NO_PAD.encode(&update);
+            let expected_commitment = if encoded == vector["update"] {
+                &vector["commitment"]
+            } else {
+                assert_eq!(encoded, vector["alternateUpdate"]);
+                &vector["alternateCommitment"]
+            };
             assert_eq!(
                 URL_SAFE_NO_PAD.encode(Sha256::digest(source.as_bytes())),
                 vector["sourceDigest"]
             );
             assert_eq!(
                 URL_SAFE_NO_PAD.encode(baseline_commitment(source.as_bytes(), &update).unwrap()),
-                vector["commitment"]
+                *expected_commitment
             );
         }
     }

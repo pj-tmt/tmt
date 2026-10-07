@@ -233,8 +233,14 @@ it('admitted discussion updates cannot overwrite or remove existing immutable ke
 });
 
 function snapshot(value: FoldResult): ContentSnapshot {
-  const { source, title, publisherAgent, own } = value;
-  return { source, title, ...(publisherAgent === undefined ? {} : { publisherAgent }), own };
+  const { source, title, publisherAgent, creationRecipient, own } = value;
+  return {
+    source,
+    title,
+    ...(publisherAgent === undefined ? {} : { publisherAgent }),
+    ...(Object.hasOwn(value, 'creationRecipient') ? { creationRecipient } : {}),
+    own,
+  };
 }
 it('prepares a full 1.5 MiB causal replacement, preserves foreign structs and never commits the draft', async () => {
   const run = await worker();
@@ -352,4 +358,116 @@ it('Worker replay rejects unordered, unresolved and incomplete causal deltas wit
   expect(base.getText('html').toString()).toBe('old');
   base.destroy();
   candidate.destroy();
+});
+
+const creationPreference = {
+  machineId: '40000000-0000-4000-8000-000000000001',
+  agentId: '50000000-0000-1000-8000-000000000001',
+};
+it('causal Worker preparation preserves creation preference or true absence without committing', async () => {
+  for (const preference of [undefined, creationPreference]) {
+    const run = await worker();
+    const doc = new Y.Doc();
+    try {
+      doc.getText('html').insert(0, 'old');
+      doc.getMap('meta').set('title', 'T');
+      if (preference) doc.getMap('meta').set('creationRecipient', preference);
+      const admitted = await run({ type: 'apply', updates: [Y.encodeStateAsUpdate(doc)] });
+      const before = snapshot(admitted);
+      for (const source of ['old', 'new']) {
+        const made = await run({ type: 'prepare-content', source, base: before });
+        expect(made.projection).toEqual({ ...before, source });
+        expect(Object.hasOwn(made.projection, 'creationRecipient')).toBe(!!preference);
+        if (made.kind === 'updates') {
+          const replay = new Y.Doc();
+          try {
+            Y.applyUpdate(replay, Y.encodeStateAsUpdate(doc));
+            for (const bytes of made.updates) Y.applyUpdate(replay, bytes);
+            expect(replay.getText('html').toString()).toBe('new');
+            expect(replay.getMap('meta').has('creationRecipient')).toBe(!!preference);
+            expect(replay.getMap('meta').get('creationRecipient')).toEqual(preference);
+          } finally {
+            replay.destroy();
+          }
+        }
+        const unchanged = snapshot(await run({ type: 'apply', updates: [] }));
+        expect(unchanged).toEqual(before);
+      }
+    } finally {
+      doc.destroy();
+    }
+  }
+});
+it('Worker preparation rejects missing or mismatched admitted creation preference members', async () => {
+  const run = await worker();
+  const doc = new Y.Doc();
+  try {
+    doc.getText('html').insert(0, 'old');
+    doc.getMap('meta').set('creationRecipient', creationPreference);
+    const before = snapshot(await run({ type: 'apply', updates: [Y.encodeStateAsUpdate(doc)] }));
+    const { creationRecipient: _preference, ...absent } = before;
+    for (const base of [
+      absent,
+      {
+        ...before,
+        creationRecipient: {
+          ...creationPreference,
+          machineId: '40000000-0000-4000-8000-000000000002',
+        },
+      },
+      {
+        ...before,
+        creationRecipient: {
+          ...creationPreference,
+          agentId: '50000000-0000-1000-8000-000000000002',
+        },
+      },
+      { ...before, creationRecipient: undefined },
+    ]) {
+      await expect(run({ type: 'prepare-content', source: 'new', base })).rejects.toThrow();
+    }
+    const unchanged = snapshot(await run({ type: 'apply', updates: [] }));
+    expect(unchanged).toEqual(before);
+  } finally {
+    doc.destroy();
+  }
+});
+it('Worker causal replay compares creation preference presence and both members', async () => {
+  await worker();
+  const { replayContent } = await import('../src/fold.worker.js');
+  const doc = new Y.Doc();
+  const candidate = new Y.Doc();
+  try {
+    doc.getText('html').insert(0, 'old');
+    doc.getMap('meta').set('creationRecipient', creationPreference);
+    Y.applyUpdate(candidate, Y.encodeStateAsUpdate(doc));
+    const vector = Y.encodeStateVector(candidate);
+    candidate.getText('html').insert(0, 'new ');
+    const updates = [Y.encodeStateAsUpdate(candidate, vector)];
+    const expected = { source: 'new old', title: '', creationRecipient: creationPreference };
+    expect(() => replayContent(doc, updates, expected)).not.toThrow();
+    for (const projection of [
+      { source: 'new old', title: '' },
+      {
+        ...expected,
+        creationRecipient: {
+          ...creationPreference,
+          machineId: '40000000-0000-4000-8000-000000000002',
+        },
+      },
+      {
+        ...expected,
+        creationRecipient: {
+          ...creationPreference,
+          agentId: '50000000-0000-1000-8000-000000000002',
+        },
+      },
+      { ...expected, creationRecipient: undefined },
+    ])
+      expect(() => replayContent(doc, updates, projection)).toThrow();
+    expect(doc.getText('html').toString()).toBe('old');
+  } finally {
+    doc.destroy();
+    candidate.destroy();
+  }
 });

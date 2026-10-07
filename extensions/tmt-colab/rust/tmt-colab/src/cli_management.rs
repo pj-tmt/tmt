@@ -658,7 +658,16 @@ pub fn create_page(root: &Path, args: &ArgMatches, source: String) -> Result<()>
     if title.len() > tmt_colab::decoder::BASELINE_TITLE_BYTES {
         return Err(management_error("CAPACITY"));
     }
-    let publisher_agent = crate::core::publisher_agent();
+    let caller = crate::core::caller_snapshot();
+    let observation = crate::door::creation_observation();
+    let machine = observation.machine_id.clone();
+    let creation_recipient = caller.as_ref().and_then(|caller| {
+        Some(tmt_colab::decoder::CreationRecipient {
+            machine_id: machine?,
+            agent_id: caller.agent_id.clone()?,
+        })
+    });
+    let publisher_agent = caller.map(|caller| caller.name);
     let operation_id = fresh_id()?;
     let page_id = fresh_id()?;
     let layout = Layout::open(root)?;
@@ -666,6 +675,9 @@ pub fn create_page(root: &Path, args: &ArgMatches, source: String) -> Result<()>
     let mut payload = json!({"pageId":page_id,"title":title,"source":source});
     if let Some(agent) = publisher_agent {
         payload["publisherAgent"] = json!(agent);
+    }
+    if let Some(recipient) = creation_recipient {
+        payload["creationRecipient"] = serde_json::to_value(recipient)?;
     }
     let request = |key: &Keyring, store: &Store| -> Result<Vec<u8>> {
         let revision = store
@@ -729,7 +741,7 @@ pub fn create_page(root: &Path, args: &ArgMatches, source: String) -> Result<()>
         .as_str()
         .ok_or_else(|| input("Missing created page path."))?
         .to_owned();
-    let reach = crate::reach::Reach::gather().with_pages(&ids);
+    let reach = crate::reach::Reach::from_creation(observation).with_pages(&ids);
     if args.get_flag("json") {
         reach.annotate(&mut result, &relative);
         return output(&result, true);

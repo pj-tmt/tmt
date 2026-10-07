@@ -122,6 +122,7 @@ pub(crate) struct View {
     pub source: String,
     pub title: String,
     pub publisher_agent: Option<String>,
+    pub creation_recipient: Option<crate::decoder::CreationRecipient>,
     /// The complete content metadata projection, including keys not surfaced by the CLI.
     pub meta: serde_json::Value,
     pub memory_limit: crate::decoder::MemoryLimit,
@@ -467,6 +468,7 @@ impl Snapshot {
                     source: body.source.as_bytes(),
                     title: &d.title,
                     publisher_agent: None,
+                    creation_recipient: None,
                     source_digest: binary32(&d.source_digest)?,
                 },
                 &baseline,
@@ -721,6 +723,10 @@ impl MaterializationInput {
             self.admit_gzip(page, std::iter::once(folded.merged.as_slice()))?;
         }
         Ok(View {
+            creation_recipient: folded.projection["meta"]
+                .get("creationRecipient")
+                .map(|v| serde_json::from_value(v.clone()))
+                .transpose()?,
             publisher_agent: folded.projection["meta"]["publisherAgent"]
                 .as_str()
                 .map(str::to_owned),

@@ -36,6 +36,7 @@ impl Prepared {
                 source: view.source.as_bytes(),
                 title: &view.title,
                 publisher_agent: view.publisher_agent.as_deref(),
+                creation_recipient: view.creation_recipient.as_ref(),
                 source_digest: crypto::digest(view.source.as_bytes()),
             },
             None,
