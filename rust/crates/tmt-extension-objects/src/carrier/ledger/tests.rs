@@ -74,6 +74,7 @@ fn every_out_of_order_stale_or_mismatched_frame_is_refused_in_both_roles() {
         ("result for no request", vec![from_remote(done(1, t1))], Reason::Unknown),
         ("result given twice", vec![from_extension(request(1, t1)), from_remote(done(1, t1)), from_remote(done(1, t1))], Reason::Unknown),
         ("result of another operation", vec![from_extension(request(1, t1)), from_remote(big_read_result(1))], Reason::Mismatch),
+        ("result naming another transfer", vec![from_extension(request(1, t1)), from_remote(done(1, t2))], Reason::Mismatch),
         ("result while a callback is outstanding", vec![from_extension(request(1, t1)), from_remote(admit(1, 1, t1)), from_remote(done(1, t1))], Reason::Busy),
         ("answer after the request ended", vec![from_extension(request(1, t1)), from_remote(done(1, t1)), from_extension(answer(1, 1))], Reason::Unknown),
         ("result sent by the extension", vec![from_extension(request(1, t1)), from_extension(done(1, t1))], Reason::Direction),

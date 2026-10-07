@@ -157,6 +157,25 @@ fn a_late_reply_never_satisfies_a_successor() {
 }
 
 #[test]
+fn a_result_naming_another_transfer_is_refused_on_both_ends() {
+    let (t1, t2) = (transfer(1), transfer(2));
+    // Received: the extension asked about t1, the result names t2.
+    let (extension, mut peer) = bus_and_peer(Role::Extension);
+    extension.send(&request(1, t1)).unwrap();
+    write(&mut peer, &done(1, t2));
+    let fault = Fault::Correlation(Reason::Mismatch);
+    assert_eq!(next(&extension), Err(fault));
+    assert_eq!(extension.fault(), Some(fault));
+    // Sent: Remote refuses it locally, writes nothing and stays usable.
+    let (remote, mut peer) = bus_and_peer(Role::Remote);
+    write(&mut peer, &request(1, t1));
+    assert_eq!(next(&remote).unwrap(), request(1, t1));
+    assert_eq!(remote.send(&done(1, t2)), Err(fault));
+    assert_eq!(remote.fault(), None);
+    remote.send(&done(1, t1)).unwrap();
+}
+
+#[test]
 fn bad_bytes_end_the_channel_with_the_exact_fault() {
     let good = crate::encode(&request(1, transfer(1))).unwrap();
     let rows: Vec<(&str, Vec<u8>, Fault)> = vec![

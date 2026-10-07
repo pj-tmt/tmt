@@ -203,7 +203,7 @@ impl Ledger {
             Frame::Result(result) => {
                 let id = result.request_id.get();
                 let open = self.requests.get(&id).ok_or(Reason::Unknown)?;
-                if open.method != result.method {
+                if open.method != result.method || open.transfer != result.transfer_id {
                     return Err(Reason::Mismatch);
                 }
                 if open.callback.is_some() {

@@ -1047,7 +1047,7 @@ identifiers are strictly increasing per issuer against a remembered high-water m
 requests and 8 callbacks are outstanding per channel (32 and 32 per installation, counted by the caller's shared budget
 and returned when a channel ends). A request has at most one callback outstanding and ends only with its result when none
 is. An admit must name an outstanding request with the same method and transfer; an admission must name the outstanding
-callback and its request; a result must repeat the request's method. A frame the local end may not send, or that the
+callback and its request; a result must repeat the request's method and transfer. A frame the local end may not send, or that the
 ledger refuses, is returned to the caller with nothing written and the channel stays usable. A received frame the ledger
 refuses ends the channel, so a duplicate, stale, mismatched or out-of-order frame never satisfies a successor.
 
