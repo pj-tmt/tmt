@@ -1000,7 +1000,8 @@ Module/drawing ownership and guard verification: [Squad](.agents/skills/tmt-squa
   `checklist` caller/room admission, `model` revisions/tombstones and `store` versioned room-UUID JSON
   under `<dataRoot>/squad/checklist`. Reads create nothing; locked admission precedes synced replacement outside a Core/file transaction.
   Prepublication failure preserves bytes; uncertainty remains Unknown after readback. The board Checklist controller consumes the same typed service, retaining exact previews and uncertain outcomes without dispatch.
-- **Public JSON.** Display-ready documents exclude board-only home/meter/`usage.*` data.
+- **Row detail.** `board/row_detail.rs` owns the shared in-place details and full-reply reader; the [board reference](.agents/skills/tmt-squad-dev/references/board.md) owns behavior and worker fences.
+- **Entry and public JSON.** The [Squad reference](.agents/skills/tmt-squad-dev/references/config-and-effects.md#cli-entry-and-public-json) owns CLI entry and display-document contracts.
 
 Contracts index: the [embedded lead skill](extensions/tmt-squad/skills/tmt-squad/SKILL.md)
 owns shapes, checked by `typescript/test/native/squad.test.ts`:

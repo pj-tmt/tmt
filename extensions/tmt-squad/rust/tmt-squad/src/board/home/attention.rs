@@ -164,6 +164,7 @@ pub(super) fn paint(
                 "squad": fit(&escape(&entry.target.squad), available.saturating_sub(name_width)),
                 "age": format!(" {age}"),
                 "after": after,
+                "detail": app.detail_value(index,&[]),
             })
         })
         .collect::<Vec<_>>();
@@ -228,7 +229,7 @@ fn build(key: &Key) -> Block {
             (style, Align::Left)
         },
     );
-    let rows = (0..reserving.len())
+    let mut rows: Vec<RowSpan> = (0..reserving.len())
         .map(|local| {
             let block = painted
                 .lines(&[&id(local)])
@@ -242,8 +243,31 @@ fn build(key: &Key) -> Block {
             }
         })
         .collect();
-    Block {
-        lines: painted.lines,
-        rows,
+    let mut lines = painted.lines;
+    let mut shift = 0;
+    for row in &mut rows {
+        row.start += shift;
+        row.end += shift;
+        if let Some(range) = &mut row.reserve {
+            range.start += shift;
+            range.end += shift;
+        }
+        let count = crate::board::row_detail::insert(
+            &mut lines,
+            row.start + 1,
+            &key.data["rows"][row.local]["detail"],
+            key.width,
+            3,
+            look,
+            selected == Some(id(row.local).as_str()),
+            false,
+        );
+        row.end += count;
+        if let Some(range) = &mut row.reserve {
+            range.start += count;
+            range.end += count;
+        }
+        shift += count;
     }
+    Block { lines, rows }
 }

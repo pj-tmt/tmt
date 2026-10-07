@@ -3,10 +3,7 @@
 //! row spans and shared-band reservations.
 use super::scene::{self, Key, Part, rule};
 use crate::{
-    board::{
-        app::{App, Compose},
-        view::fit,
-    },
+    board::{app::App, view::fit},
     look::Look,
 };
 use ratatui::{
@@ -205,7 +202,7 @@ pub(in crate::board) fn build(key: &Key) -> Block {
             let part = node.and_then(<[String]>::last).map(String::as_str);
             let line = node.and_then(|node| node.get(1)).map(String::as_str);
             let lead = scope.and_then(<[String]>::first).map(String::as_str);
-            // HOME selects the heading; squad members also select the task line.
+            // Preserve the collapsed entity styling; expanded detail stays outside it.
             let selected = selected.is_some_and(|id| Some(id) == lead)
                 && (line == Some("head") || (key.data["members"] == true && line == Some("task")));
             let boxed = |style: Style| {
@@ -236,7 +233,7 @@ pub(in crate::board) fn build(key: &Key) -> Block {
             (style, Align::Left)
         },
     );
-    let leads = (0..reserving.len())
+    let mut leads: Vec<LeadSpan> = (0..reserving.len())
         .map(|local| {
             let lead = painted.lines(&[&id(local)]).expect("every lead is a block");
             let head = painted
@@ -254,10 +251,37 @@ pub(in crate::board) fn build(key: &Key) -> Block {
             }
         })
         .collect();
-    Block {
-        lines: painted.lines,
-        leads,
+    let mut lines = painted.lines;
+    let mut shift = 0;
+    for row in &mut leads {
+        row.start += shift;
+        row.hit.start += shift;
+        row.hit.end += shift;
+        row.end += shift;
+        if let Some(range) = &mut row.reserve {
+            range.start += shift;
+            range.end += shift;
+        }
+        let at = row.hit.end;
+        let count = crate::board::row_detail::insert(
+            &mut lines,
+            at,
+            &key.data["leads"][row.local]["detail"],
+            key.width,
+            3,
+            look,
+            selected == Some(id(row.local).as_str()),
+            true,
+        );
+        row.hit.end += count;
+        row.end += count;
+        if let Some(range) = &mut row.reserve {
+            range.start += count;
+            range.end += count;
+        }
+        shift += count;
     }
+    Block { lines, leads }
 }
 
 /// Named squad rows use the HOME box template and block builder. Display order,
@@ -275,11 +299,6 @@ pub(in crate::board) fn render_squad(frame: &mut ratatui::Frame, app: &App, area
         ..area
     };
     let now = crate::status::now_ms();
-    let selected_target = app.row_target(app.selected);
-    let reading = app.input.as_ref().is_some_and(|input| {
-        matches!(input.compose, Compose::ReadRow { .. })
-            && input.target() == selected_target.as_ref()
-    });
     let reserved =
         crate::board::view::waiting::reserved_lines(app, app.selected, inner).unwrap_or_default();
     let sent_row = app.sent.as_ref().filter(|sent| sent.sent).and_then(|sent| {
@@ -301,7 +320,6 @@ pub(in crate::board) fn render_squad(frame: &mut ratatui::Frame, app: &App, area
             Item::Row(origin, row) => (origin, row),
         };
         let index = rows.len();
-        let reading = reading && index == app.selected;
         let waits = crate::attention::waits_on_you(row);
         let state = if waits {
             "waits on you"
@@ -323,6 +341,9 @@ pub(in crate::board) fn render_squad(frame: &mut ratatui::Frame, app: &App, area
             .as_str()
             .map(crate::source::model_name)
             .unwrap_or_default();
+        let full_model = row["fields"]["model"].as_str().unwrap_or_default();
+        let model_visible = model == full_model
+            && crate::board::row_detail::uncut(model, 8, tmt_tui::style::TextFlow::Truncate);
         let model = fit(model, 8).trim_end().to_owned();
         let age = row["staleness"]["unchangedSinceMs"]
             .as_u64()
@@ -349,10 +370,9 @@ pub(in crate::board) fn render_squad(frame: &mut ratatui::Frame, app: &App, area
         let name_width = available.saturating_sub(tag.len() + 3).min(26);
         let name = fit(&escape(row["name"].as_str().unwrap_or("–")), name_width);
         let state_width = available.saturating_sub(name_width + tag.len() + 2);
-        let mut after = Vec::new();
-        if !reading {
-            after.push(json!({"id": "task", "text": format!("   {}", fit(&super::super::notes::sanitize(row["fields"]["task"].as_str().unwrap_or_default()), width.saturating_sub(3)).trim_end()), "role": "text"}));
-        }
+        let mut after = vec![
+            json!({"id":"task","text":format!("   {}",fit(&super::super::notes::sanitize(row["fields"]["task"].as_str().unwrap_or_default()),width.saturating_sub(3)).trim_end()),"role":"text"}),
+        ];
         if sent_row == Some(index) {
             after.push(json!({"id": "sent", "text": "   ✓ sent", "role": "working"}));
         }
@@ -364,12 +384,25 @@ pub(in crate::board) fn render_squad(frame: &mut ratatui::Frame, app: &App, area
         for line in &mut before {
             line["text"] = json!(rule(line["text"].as_str().unwrap_or_default(), width));
         }
+        let task =
+            super::super::notes::sanitize(row["fields"]["task"].as_str().unwrap_or_default());
+        let mut visible = Vec::new();
+        if crate::board::row_detail::uncut(
+            &task,
+            width.saturating_sub(3),
+            tmt_tui::style::TextFlow::Truncate,
+        ) {
+            visible.push("task");
+        }
+        if model_visible {
+            visible.push("model");
+        }
         rows.push(json!({"id": id(index), "before": std::mem::take(&mut before), "separator": [],
             "mark": format!(" {mark} "), "mark_role": role.name(), "name": name, "tag": tag,
             "state": format!("  {}", fit(&escape(state), state_width).trim_end()),
             "state_role": if waits { "waiting" } else { row["colors"]["state"].as_str().and_then(crate::look::role).unwrap_or(Role::Text).name() },
             "squad": "", "model": if model.is_empty() { String::new() } else { format!("{model}  ") },
-            "age": format!("{age} "), "after": after}));
+            "age": format!("{age} "), "after": after, "detail":app.detail_value(index,&visible)}));
     }
     // A trailing rule/section is still meaningful when search hides all members.
     // Attach it as an unselectable tail after the last row, before the box closes.
@@ -377,6 +410,7 @@ pub(in crate::board) fn render_squad(frame: &mut ratatui::Frame, app: &App, area
         before.push(json!({"id": "empty", "text": if app.search.is_empty() { "(no members)" } else { "(no matching members)" }, "role": "dim"}));
     }
     let tail = before.iter().enumerate().map(|(index, line)| json!({"id": format!("tail-{index}"), "text": rule(line["text"].as_str().unwrap_or_default(), usize::from(inner.width)), "role": "dim"})).collect::<Vec<_>>();
+    let details: Vec<_> = rows.iter().map(|row| row["detail"].clone()).collect();
     let key = Key {
         width: area.width,
         look,
@@ -409,6 +443,17 @@ pub(in crate::board) fn render_squad(frame: &mut ratatui::Frame, app: &App, area
         .show(frame, Pane::Rows, area, &block.lines, look);
     crate::board::view::waiting::place_input(app, input, inner, offset, viewport);
     for row in block.leads {
+        crate::board::row_detail::more_hit(
+            app,
+            row.local,
+            &details[row.local],
+            inner.width,
+            3,
+            row.start + 2,
+            area,
+            offset,
+            viewport,
+        );
         for line in row.hit.start.max(offset)..row.hit.end.min(offset + viewport) {
             if inner.width > 0 {
                 app.hits.borrow_mut().push(crate::board::app::Hit {

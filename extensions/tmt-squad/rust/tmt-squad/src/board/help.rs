@@ -122,8 +122,12 @@ pub(super) fn model(app: &App) -> KeyHelp {
                     "a → Tab → status",
                     "change chosen manual fields with a reason; notify the row UUID",
                 ),
-                ("e", "expand or collapse the selected lead's full message"),
-                ("t", "show or hide lead previews and save the global choice"),
+                ("e", "expand or collapse the selected row details"),
+                ("t", "talk to the selected member"),
+                (
+                    "v",
+                    "view the selected row’s full reply; no reply does nothing",
+                ),
                 ("A / @", "write to all leads / pick one lead"),
                 (
                     "c",
