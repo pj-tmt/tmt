@@ -29,8 +29,12 @@ async function edit(found: Locator, body: string) {
   await expect(comment.locator('.comment-body')).toHaveText(body);
 }
 async function comments(page: Page) {
-  if ((await page.getByTestId('comments-toggle').getAttribute('aria-expanded')) === 'false')
-    await page.getByTestId('comments-toggle').click();
+  const toggle = page.getByTestId('comments-toggle');
+  if ((await toggle.getAttribute('aria-expanded')) === 'false') {
+    if (!(await toggle.isVisible()))
+      await page.getByRole('button', { name: 'More page actions', exact: true }).click();
+    await toggle.click();
+  }
 }
 
 test.afterEach(disposeActiveWorlds);
@@ -532,7 +536,18 @@ test('composer records plain annotations and replies without a recipient, then s
     await expect(page.frameLocator('iframe').locator('#quote')).toHaveText(
       'Frozen original quote.',
     );
+    await expect(
+      thread.getByRole('button', { name: 'Choose recipient', exact: true }),
+    ).toBeDisabled();
     await page.unroute('**/api/session', unavailableDirectoryContext);
+    // Discovery belongs to the mounted composer; reopening admits the recovered directory.
+    await thread.getByRole('button', { name: text.threadClose, exact: true }).click();
+    await expect(thread).toHaveCount(0);
+    await page.getByTestId('annotation-row').filter({ hasText: 'Frozen original quote.' }).click();
+    await expect(
+      thread.getByRole('button', { name: 'Choose recipient', exact: true }),
+    ).toBeEnabled();
+    await expect(thread.getByTestId('comment-entry')).toHaveCount(2);
     const question =
       'Explain this exact quote, with no mandatory prefix.\n  Keep these spaces and this line.  ';
     await reply.fill(question);

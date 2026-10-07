@@ -130,7 +130,8 @@ test('clearing an annotation immediately before Escape does not restore the remo
   await select(page);
   const composer = page.getByRole('dialog', { name: 'Annotate selection' });
   const input = composer.getByRole('combobox', { name: 'Message', exact: true });
-  await input.fill('@');
+  await expect(input).toBeFocused();
+  await page.keyboard.insertText('@');
   await expect(input).toHaveAttribute('aria-expanded', 'true');
   await input.press('Escape');
   await input.press('ControlOrMeta+A');
@@ -139,6 +140,9 @@ test('clearing an annotation immediately before Escape does not restore the remo
   await expect(composer).toHaveCount(0);
   await select(page);
   await expect(input).toHaveText('', { useInnerText: true });
+  await expect(input).toBeFocused();
+  await page.keyboard.insertText('Typed immediately after reopening.');
+  await expect(input).toHaveText('Typed immediately after reopening.', { useInnerText: true });
   expect((await run(page, 'proof')).sends).toHaveLength(0);
 });
 

@@ -66,7 +66,9 @@ function MessageField(props: MessageComposerProps) {
   }, []);
   const reset = useRef(props.resetKey);
   useEffect(() => {
-    if (props.autoFocus) editor.focus();
+    // Lexical sets the caret; DOM focus must also leave the sandboxed renderer.
+    if (props.autoFocus)
+      editor.focus(() => editor.getRootElement()?.focus({ preventScroll: true }));
   }, [editor, props.autoFocus]);
   const candidates = fuzzyMessageCandidates(
     props.candidates ?? [],
