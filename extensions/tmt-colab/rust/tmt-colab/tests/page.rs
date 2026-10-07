@@ -1005,11 +1005,12 @@ else:
             descriptor = serde_json::to_string(&descriptor.to_string()).unwrap(),
             exit = if success { 0 } else { 1 },
         );
-        tmt_test_support::write_executable(&f.root.join("core"), script.as_bytes(), 0o700).unwrap();
-        let output = f
-            .command()
+        let core = f.root.join("creation-core");
+        tmt_test_support::write_executable(&core, script.as_bytes(), 0o700).unwrap();
+        let output = Command::new(BINARY)
+            .current_dir(&f.root)
             .env_clear()
-            .env("TMT_EXECUTABLE", f.root.join("core"))
+            .env("TMT_EXECUTABLE", &core)
             .env("HOME", &f.root)
             .env("PATH", "/usr/bin:/bin")
             .args(["page", "create", "--title", "Created", "--json"])
