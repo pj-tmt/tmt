@@ -594,6 +594,39 @@ uncertain, retain the reported operation ID and recover it with `dispatch.show`
 through `tmt api` before deciding on another action. Board cron controls (above) are
 separate from the clock lifecycle.
 
+## Use the board checklist
+
+Press `,`, choose the first row **Actions…**, then **Checklist**. A configured
+`menu` binding opens the same action menu. A named squad uses its exact room;
+HOME, leads and aggregate views ask you to choose a room explicitly. Opening
+Checklist does not select or assign a member. Esc from the action menu returns
+directly to the board.
+
+The checklist starts with Open items, Squad-wide assignment scope and archived
+items excluded. Tab/Shift-Tab reaches **Filter** and **Actions**; Enter opens their
+choices. Filters include Complete, All completion, Unassigned, an explicit member
+and archived inclusion. Counts show visible items and all nondeleted items in the
+same archive scope. Arrows/j/k, Home/End and PgUp/PgDn select or scroll items;
+Enter opens details without completing an item. In details, arrows and paging keys
+read the content; Tab switches between reading and the named action choices.
+
+Actions offers Create and Refresh, and Reorder for a current manager. Create starts
+unassigned. Details offers Edit, Complete/Reopen and an explicit Open reference;
+current managers can Assign/Unassign, Archive/Restore and Delete. Archived items
+expose Restore/Delete. Reorder includes the full inventory, including archived
+items, and uses Move up/Move down followed by a separate preview and Confirm.
+Forms accept typing or paste; Tab moves fields and Ctrl-U clears a field.
+
+Every update previews exact actor, room, checklist, item and required revisions.
+Delete starts on Cancel; enlarge the terminal when its exact target and controls
+cannot fit readably. Conflicts and refusals retain the draft and target. Refresh
+reads current state, then Review explicitly adopts its expectations before a fresh
+Confirm. An original unknown outcome stays unknown after observation or later
+updates. Esc from a child screen retains intent and returns to the list; Esc from
+the list returns to the board. Resume retained work through Actions, or explicitly
+Cancel to discard it. Checklist completion changes no member state, requests or
+attention, and opens references only when you choose Open reference.
+
 ## Inspect board settings
 
 Press `,` to open settings for the shown squad or tab; `settings` is bindable.
@@ -687,7 +720,7 @@ this-squad preview works, but scoped save is refused with a manual-removal hint.
 An all-boards choice saves while this squad keeps its custom layout; the picker
 names that masking setting.
 A failed or stale save stays open; cancel and reopen to read the changed file.
-Theme, View and Token window are rows of the `,` settings menu, which help lists. No preset binds `jump lead`:
+Actions…, Theme, View and Token window are rows of the `,` settings menu, which help lists. No preset binds `jump lead`:
 the lead is the first row of its tab. Bind it yourself (`[bind] L = "jump lead"`)
 to go to the lead's pane from any row.
 Agents change views only when requested.

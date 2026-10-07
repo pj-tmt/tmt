@@ -1,4 +1,4 @@
-//! Admitted room-owned checklist service; commands reuse this admission and persistence owner. Board actions are not exposed yet.
+//! Admitted room-owned checklist service; commands reuse this admission and persistence owner.
 
 pub mod model;
 mod store;
@@ -109,6 +109,14 @@ pub struct Applied {
     pub item_id: Option<Id>,
     pub item_revision: Option<u64>,
     pub changed: bool,
+}
+
+/// Read-only board context, admitted by the same service as command operations.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Preview {
+    pub actor_id: Id,
+    pub current: Current,
+    pub members: Vec<(Id, String)>,
 }
 
 struct Admission {
@@ -264,6 +272,22 @@ impl Service {
             },
             assignee,
         ))
+    }
+
+    /// Full inventory and eligible identities for an explicit board preview.
+    /// This does not initialize storage or turn a projection into write authority.
+    pub fn preview(&self) -> Result<Preview, Error> {
+        let (admission, _) = self.admit(false, false, None)?;
+        let document = self.store.read()?;
+        Ok(Preview {
+            actor_id: self.actor_id.clone(),
+            current: project(&admission, document.as_ref(), None),
+            members: admission
+                .roster
+                .iter()
+                .map(|member| Ok((Id::parse(&member.id)?, member.name.clone())))
+                .collect::<Result<_, Error>>()?,
+        })
     }
 
     pub fn list(&self, filter: &Filter) -> Result<List, Error> {

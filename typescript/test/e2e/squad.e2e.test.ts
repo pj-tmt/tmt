@@ -340,6 +340,100 @@ describe('squad on a private tmux server', { concurrent: false }, () => {
     });
   });
 
+  it('uses comma Actions for an empty room and persists explicit checklist updates without dispatch', async () => {
+    await withE2EFixture(async (fixture) => {
+      installSquad(fixture);
+      expectJsonResult(await fixture.runJsonCli(['identity', 'create', 'Ben']));
+      expectJsonResult(await squadCli(fixture, ['init', 'product', '--me', 'Ben']));
+      await fixture.attachSessionClient('e2e');
+      const shell = fixture.createShellPane('checklist-board');
+      fixture.tmux(['select-window', '-t', shell.pane]);
+      const config = fs.readFileSync(path.join(fixture.globalDir, 'squad.toml'));
+      const state = durableState(fixture);
+      const beforeRequests = requestAttempts(fixture);
+      {
+        fixture.tmux([
+          'send-keys',
+          '-t',
+          shell.pane,
+          'tmt squad board --squad product; echo CHECKLIST_BOARD_EXIT=$?',
+          'Enter',
+        ]);
+        await fixture.waitForCapture(
+          (screen) => screen.includes('product') && screen.includes('(no members)'),
+          shell.pane
+        );
+        fixture.tmux(['send-keys', '-t', shell.pane, ',']);
+        await fixture.waitForCapture((screen) => screen.includes('Actions…'), shell.pane);
+        fixture.tmux(['send-keys', '-t', shell.pane, 'Enter']);
+        await fixture.waitForCapture(
+          (screen) => screen.includes('Checklist') && screen.includes('Esc closes'),
+          shell.pane
+        );
+        fixture.tmux(['send-keys', '-t', shell.pane, ...Array(20).fill('Down'), 'Enter']);
+        await fixture.waitForCapture((screen) => screen.includes('No checklist yet'), shell.pane);
+        fixture.tmux(['send-keys', '-t', shell.pane, 'Tab', 'Tab', 'Enter']);
+        await fixture.waitForCapture((screen) => screen.includes('Create item'), shell.pane);
+        fixture.tmux(['send-keys', '-t', shell.pane, 'Down', 'Enter']);
+        await fixture.waitForCapture((screen) => screen.includes('Authored fields'), shell.pane);
+        fixture.tmux(['send-keys', '-l', '-t', shell.pane, 'Native board item']);
+        fixture.tmux(['send-keys', '-t', shell.pane, 'End', 'Enter']);
+        await fixture.waitForCapture(
+          (screen) => screen.includes('Review exact update') && screen.includes('inventory Absent'),
+          shell.pane
+        );
+        const shown = expectJsonResult(
+          await fixture.runJsonCli<{ room: { id: string } }>(['room', 'show', 'squad-product'])
+        );
+        const roomId = shown.room.id;
+        const file = path.join(fixture.globalDir, 'squad', 'checklist', roomId, 'items.json');
+        expect(fs.existsSync(file)).toBe(false);
+        fixture.tmux(['send-keys', '-t', shell.pane, 'Down', 'Enter']);
+        await fixture.waitFor(() => fs.existsSync(file), 5_000, 'checklist publication');
+        let stored = JSON.parse(fs.readFileSync(file, 'utf8'));
+        expect(stored.items).toHaveLength(1);
+        expect(stored.items[0]).toMatchObject({
+          title: 'Native board item',
+          completion: 'open',
+          archived: false,
+          assignee: null,
+          revision: 1,
+        });
+        await fixture.waitForCapture((screen) => screen.includes('acknowledged'), shell.pane);
+        fixture.tmux(['send-keys', '-t', shell.pane, 'Enter']);
+        await fixture.waitForCapture((screen) => screen.includes('Complete'), shell.pane);
+        fixture.tmux(['send-keys', '-t', shell.pane, 'Tab', 'Down', 'Enter']);
+        await fixture.waitForCapture(
+          (screen) => screen.includes('Review exact update') && screen.includes('item revision 1'),
+          shell.pane
+        );
+        fixture.tmux(['send-keys', '-t', shell.pane, 'Down', 'Enter']);
+        await fixture.waitFor(
+          () => JSON.parse(fs.readFileSync(file, 'utf8')).items[0].completion === 'complete',
+          5_000,
+          'explicit completion'
+        );
+        stored = JSON.parse(fs.readFileSync(file, 'utf8'));
+        expect(stored.items[0].revision).toBe(2);
+        expect(stored.inventoryRevision).toBe(1);
+        expect(durableState(fixture)).toEqual(state);
+        expect(requestAttempts(fixture)).toEqual(beforeRequests);
+        expect(fs.readFileSync(path.join(fixture.globalDir, 'squad.toml'))).toEqual(config);
+        await fixture.waitForCapture((screen) => screen.includes('hidden by filters'), shell.pane);
+        fixture.tmux(['send-keys', '-t', shell.pane, 'Escape']);
+        await fixture.waitForCapture(
+          (screen) => !screen.includes('Checklist') && screen.includes('Focus: rows'),
+          shell.pane
+        );
+        fixture.tmux(['send-keys', '-t', shell.pane, 'q']);
+        await fixture.waitForCapture(
+          (screen) => screen.includes('CHECKLIST_BOARD_EXIT=0'),
+          shell.pane
+        );
+      }
+    });
+  });
+
   it('closes a --popup board after its jump and keeps the pane board open', async () => {
     await withE2EFixture(async (fixture) => {
       const member = await squadWithMember(fixture);

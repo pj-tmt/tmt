@@ -106,7 +106,7 @@ and covered-hit removal. Ask-lead, settings, pickers and cron overlays stay squa
   `Action::footer_rank` (`None` keeps an action out of the footer, in `?` help only) with a
   fixed `↑↓ move` first; `s switch` shows only while `App::tabs_overflow` (set by the tab
   painter) is true. HOME's key line (`home/bar.rs`) follows the same list. `,` settings
-  rows (Theme, View, Token window) are `settings::Pick`s beside the config entries, never
+  rows (Actions…, Theme, View, Token window) are `settings::Pick`s beside the config entries, never
   config keys. After a successful settings save, their config-backed values are
   resolved again through the same Config readers as opening; the component keeps
   selection and the token-window row keeps its live session value. Failed saves
@@ -235,7 +235,7 @@ is omitted; optional hints still fit whole through the existing owner.
 
 ## Overlays and offline validation
 
-`App::overlay_event` synchronizes help/settings/theme/view/switcher/cron controllers
+`App::overlay_event` synchronizes help/settings/theme/view/switcher/cron/checklist controllers
 with one caller-owned `FocusStack` before base dispatch. Controllers own saves,
 rollback and worker effects; `picker_surface::State` owns component cursor/query,
 admitted scenes and clipped frame maps. Refresh follows stable selected identity;
@@ -272,3 +272,35 @@ board never loads the file. The shipped skill owns the
 the frozen parity approval/regeneration gate. Relevant tests live in `view/tests`
 (cells, styles, hits, footer, menu and parity), `composition`, `scroll`, `app`,
 `markup` and `layout`. Text-list projection is corroborated by the native Squad test.
+
+## Checklist controller
+
+`App::context_menu` owns the context action menu for configured Menu bindings and
+`,` → Actions… (the first settings row on every host). It adds Checklist before
+member-row admission; no selected member exposes only context actions. No default
+Menu binding or hint changes. Closing that menu returns directly to the board.
+
+`checklist::{controller,forms,surface,load}` owns one centered square modal and its
+room chooser, independent filters, item selection, authored fields and exact
+confirmation. The shown named room freezes its UUID; other contexts require an
+explicit room choice. Default scope is Open / Squad-wide / archived excluded.
+The unfiltered total uses the same archive scope as the matched count. Item Enter
+opens details; explicit named controls perform edits, assignment, completion,
+archive, delete and full inventory reorder. Archived items expose Restore/Delete.
+Delete uses Review delete / Confirm delete, with its title in text colour and
+muted UUID/revision context outside the selectable choices. Details keeps IDs
+muted; single-line Body previews show only the first line, followed by an ellipsis
+when more follows. Delete starts on Cancel and requires all exact identities/revisions and both
+controls to fit in current shared geometry. Clipped/stale hits cannot submit.
+
+The existing refresh worker queues checklist jobs without collapsing writes. Its
+lane retains Service actor/context for a controller and exact room, with a separate
+shutdown cancellation token so board-read preemption cannot erase a started write.
+Controller/serial/room keys fence every result. UUID allocation reuses the same
+`id::new_v4` helper as explicit sends; each caller retains its own error mapping. Conflict/refusal retains intent and
+fields; Refresh observes and Review explicitly adopts current expectations before
+fresh Confirm. Original Unknown targets remain unknown after reads and subsequent
+acknowledgements. Closing retains drafts and stable base return context; explicit
+Cancel discards intent. This flow never contributes attention or changes Core
+requests, member state, metadata or configuration. Storage/service invariants live
+in [data-and-state.md](data-and-state.md#checklist-storage-and-service).

@@ -3,6 +3,7 @@
 
 mod app;
 mod changes;
+mod checklist;
 mod composition;
 mod cronboard;
 mod derived;
@@ -91,6 +92,7 @@ pub fn exit_status(signal: Option<i32>) -> u8 {
 /// terminal hangs up, so the board never waits on it directly; the thread ends
 /// with the process, and a read error disconnects the channel.
 pub(super) enum BoardEvent {
+    Checklist(checklist::load::Completed),
     Input(Event),
     InputClosed,
     Snapshot {
@@ -280,13 +282,14 @@ fn reload_interval(app: &App) -> Option<Duration> {
 
 /// The board loop, independent of the real terminal. It always returns within
 /// one input wait of a stop signal or a closed input, whatever the reader does.
-#[allow(clippy::too_many_arguments)] // The terminal-independent loop injects both worker request kinds.
+#[allow(clippy::too_many_arguments)] // The terminal-independent loop injects worker requests and effects.
 fn session<T: Into<ActionOutcome>>(
     app: &mut App,
     stop: &AtomicUsize,
     input: &Receiver<BoardEvent>,
     request: impl Fn(Option<String>, bool, bool),
     selected_read: impl Fn(u64, Option<refresh::SelectedRead>),
+    checklist: impl Fn(checklist::load::Task),
     mut act: impl FnMut(Request) -> Result<T, String>,
     mut load_config: impl FnMut() -> Result<Config, String>,
     mut draw: impl FnMut(&mut App) -> io::Result<()>,
@@ -335,6 +338,11 @@ fn session<T: Into<ActionOutcome>>(
             wait = wait.min(interval.saturating_sub(refreshed.elapsed()));
         }
         let effect = match input.recv_timeout(wait) {
+            Ok(BoardEvent::Checklist(completed)) => {
+                app.finished_checklist(completed);
+                dirty = true;
+                Effect::None
+            }
             Ok(BoardEvent::Snapshot {
                 cancellation,
                 snapshot,
@@ -461,6 +469,10 @@ fn session<T: Into<ActionOutcome>>(
                 dirty = true;
                 app.mouse(mouse, Instant::now())
             }
+            Ok(BoardEvent::Input(event @ Event::Paste(_))) if app.checklist_shown() => {
+                dirty = true;
+                app.overlay_event(&event).unwrap_or(Effect::None)
+            }
             Ok(BoardEvent::Input(Event::Resize(_, _))) => {
                 app.invalidate_overlay_frames();
                 dirty = true;
@@ -528,6 +540,7 @@ fn session<T: Into<ActionOutcome>>(
                     }
                 }
             }
+            Effect::Checklist(task) => checklist(task),
             Effect::Settings => {
                 match load_config()
                     .and_then(|config| app.open_settings(config).map_err(|error| error.message))
@@ -758,6 +771,7 @@ pub fn run(
         &input,
         |squad, preempt, preview| worker.request(squad, preempt, preview),
         |revision, identity| worker.selected(revision, identity),
+        |task| worker.checklist(task),
         |request| execute(&core, request),
         || Config::load(&core).map_err(|error| error.message),
         |app| {
@@ -821,6 +835,7 @@ mod tests {
                 &input,
                 |_, _, _| reloads.set(reloads.get() + 1),
                 |_, _| {},
+                |_| {},
                 no_actions,
                 || {
                     if conflict {
@@ -916,6 +931,7 @@ mod tests {
                     events.send(key(KeyCode::Char('q'))).unwrap();
                 }
             },
+                |_| {},
             no_actions,
             no_load_config,
             |app| {
@@ -995,6 +1011,7 @@ mod tests {
             &input,
             |_, preempt, preview| reloads.borrow_mut().push((preempt, preview)),
             |_, _| {},
+            |_| {},
             |request| {
                 assert_eq!(request, Request::Jump("coder".into()));
                 actions += 1;
@@ -1048,6 +1065,7 @@ mod tests {
             &input,
             |_, _, _| reloads.set(reloads.get() + 1),
             |_, _| {},
+            |_| {},
             |request| {
                 assert_eq!(request, Request::Jump("coder".into()));
                 actions += 1;
@@ -1095,6 +1113,7 @@ mod tests {
             &input,
             |_, _, _| {},
             |_, _| {},
+            |_| {},
             no_actions,
             || Config::read(path.clone()).map_err(|error| error.message),
             |app| {
@@ -1140,6 +1159,7 @@ mod tests {
             &input,
             |_, _, _| panic!("a failed save must not reload or retry"),
             |_, _| {},
+            |_| {},
             no_actions,
             || Config::read(path.clone()).map_err(|error| error.message),
             |app| {
@@ -1244,6 +1264,7 @@ mod tests {
                 &input,
                 |_, _, _| {},
                 |_, _| {},
+                |_| {},
                 no_actions,
                 no_load_config,
                 |_| Ok(()),
@@ -1282,6 +1303,7 @@ mod tests {
                 &input,
                 |_, _, _| {},
                 |_, _| {},
+                |_| {},
                 |request| {
                     assert_eq!(request, Request::Jump("auth-fix".into()));
                     jumps += 1;
@@ -1310,6 +1332,7 @@ mod tests {
             &input,
             |_, _, _| {},
             |_, _| {},
+            |_| {},
             no_actions,
             no_load_config,
             |_| Err(io::Error::other("terminal gone")),
@@ -1335,6 +1358,7 @@ mod tests {
                 &input,
                 |_, _, _| {},
                 |_, _| {},
+                |_| {},
                 no_actions,
                 no_load_config,
                 |app| {
@@ -1394,6 +1418,7 @@ mod tests {
                         requested.send(squad).unwrap();
                     },
                     |_, _| {},
+                    |_| {},
                     no_actions,
                     no_load_config,
                     |_| {
@@ -1436,6 +1461,7 @@ mod tests {
                 &input,
                 |_, _, _| {},
                 |_, _| {},
+                |_| {},
                 no_actions,
                 no_load_config,
                 |_| {
@@ -1490,6 +1516,7 @@ mod tests {
                 &input,
                 |_, _, _| {},
                 |_, _| {},
+                |_| {},
                 no_actions,
                 no_load_config,
                 |_| {
@@ -1530,6 +1557,7 @@ mod tests {
                 &input,
                 |_, _, _| panic!("automatic refresh was turned off by the snapshot"),
                 |_, _| {},
+                |_| {},
                 no_actions,
                 no_load_config,
                 |_| Ok(())

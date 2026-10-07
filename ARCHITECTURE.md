@@ -1001,7 +1001,7 @@ Module/drawing ownership and guard verification: [Squad](.agents/skills/tmt-squa
 - **Checklist.** `checklist_command` exposes native grammar and scoped output over the existing
   `checklist` caller/room admission, `model` revisions/tombstones and `store` versioned room-UUID JSON
   under `<dataRoot>/squad/checklist`. Reads create nothing; locked admission precedes synced replacement outside a Core/file transaction.
-  Prepublication failure preserves bytes; uncertainty remains Unknown after readback. No board action is exposed.
+  Prepublication failure preserves bytes; uncertainty remains Unknown after readback. The board Checklist controller consumes the same typed service, retaining exact previews and uncertain outcomes without dispatch.
 - **Public JSON.** Display-ready documents exclude board-only home/meter/`usage.*` data.
 
 Contracts index: the [embedded lead skill](extensions/tmt-squad/skills/tmt-squad/SKILL.md)
