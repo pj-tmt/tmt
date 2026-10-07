@@ -20,6 +20,7 @@ mod pick;
 mod picker_surface;
 mod rate;
 mod refresh;
+mod row_detail;
 mod scroll;
 mod settings;
 mod status_update;
@@ -457,6 +458,7 @@ fn session<T: Into<ActionOutcome>>(
             Ok(BoardEvent::Cron { cancellation, read }) => {
                 if !cancellation.cancelled() {
                     app.cron.replace(read);
+                    app.reconcile_row_details();
                     dirty = true;
                 }
                 Effect::None
@@ -687,34 +689,6 @@ fn session<T: Into<ActionOutcome>>(
                     refreshed = Instant::now();
                 }
             }
-            Effect::HomeReplies(shown) => {
-                match load_config().and_then(|mut config| {
-                    config
-                        .set_setting(
-                            None,
-                            "board.home_replies",
-                            if shown { "true" } else { "false" },
-                        )
-                        .map_err(|error| error.to_string())
-                }) {
-                    Ok(_) => {
-                        if let Some(view) = &mut app.view {
-                            view.home_replies = shown;
-                        }
-                        app.say(format!(
-                            "Reply previews {}.",
-                            if shown { "shown" } else { "hidden" }
-                        ));
-                        revision += 1;
-                        requested = None;
-                        request(app.current.clone(), false, false);
-                        refreshed = Instant::now();
-                    }
-                    Err(error) => {
-                        app.say(error);
-                    }
-                }
-            }
             Effect::None => {}
         }
         // A snapshot may change the interval, including turning reload off.
@@ -738,7 +712,6 @@ pub(super) fn selection(
     input: Option<&str>,
     initial: Option<&str>,
 ) -> Result<(pick::Picks, Option<String>), SquadError> {
-    config.home_replies()?;
     if input.is_none() {
         return Ok((pick::Picks::default(), initial.map(str::to_owned)));
     }
@@ -811,6 +784,7 @@ pub fn run(
     );
     worker.request(squad.clone(), false, false);
     let mut app = App::new(squad);
+    app.notice = config.obsolete_board_notice().map(str::to_owned);
     app.initial_look = Some(crate::look::Look::new(initial_theme));
     app.picks = picks;
     app.popup = popup;
@@ -850,71 +824,6 @@ mod tests {
     use super::*;
     use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
     use std::sync::{atomic::Ordering, mpsc::channel};
-
-    #[test]
-    fn home_reply_toggle_uses_global_writer_and_a_conflict_keeps_the_displayed_choice() {
-        use serde_json::json;
-        for conflict in [false, true] {
-            let root = std::env::temp_dir().join(format!(
-                "squad-home-toggle-{}-{conflict}",
-                std::process::id()
-            ));
-            std::fs::create_dir_all(&root).unwrap();
-            let path = root.join("squad.toml");
-            std::fs::write(&path, "# original\n[board]\nhome_replies=true\n").unwrap();
-            let baseline = Config::read(path.clone()).unwrap();
-            let mut snapshot = app::tests::snapshot(ALL, json!([]));
-            let view = snapshot.view.as_mut().unwrap();
-            view.bindings = crate::action::all_preset();
-            view.refresh = None;
-            view.home = Some(home::Home {
-                windows: crate::config::TokenWindow::DEFAULTS,
-                summary: Default::default(),
-                sections: vec![],
-                squads: vec![],
-                failures: vec![],
-                incomplete: false,
-            });
-            let mut app = App::new(Some(ALL.into()));
-            app.apply(snapshot);
-            let (events, input) = mpsc::channel();
-            events.send(key(KeyCode::Char('t'))).unwrap();
-            events.send(key(KeyCode::Char('q'))).unwrap();
-            let reloads = std::cell::Cell::new(0);
-            session(
-                &mut app,
-                &AtomicUsize::new(0),
-                &input,
-                |_, _, _| reloads.set(reloads.get() + 1),
-                |_, _| {},
-                |_| {},
-                no_actions,
-                || {
-                    if conflict {
-                        std::fs::write(&path, "# concurrent edit\n[board]\nhome_replies=true\n")
-                            .unwrap();
-                    }
-                    Ok(baseline.clone())
-                },
-                |_| Ok(()),
-            )
-            .unwrap();
-            assert_eq!(app.view.as_ref().unwrap().home_replies, conflict);
-            assert_eq!(
-                Config::read(path.clone()).unwrap().home_replies().unwrap(),
-                conflict
-            );
-            assert_eq!(reloads.get(), usize::from(!conflict));
-            if conflict {
-                assert!(
-                    std::fs::read_to_string(&path)
-                        .unwrap()
-                        .starts_with("# concurrent edit")
-                );
-            }
-            std::fs::remove_dir_all(root).unwrap();
-        }
-    }
 
     #[test]
     fn selected_notebooks_are_lazy_and_late_selection_or_refresh_results_are_ignored() {

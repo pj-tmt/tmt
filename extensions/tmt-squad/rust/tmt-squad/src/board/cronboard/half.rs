@@ -4,7 +4,7 @@
 
 use super::{
     line::{clock, first_line},
-    rows::{Columns, key_of, project, row_id},
+    rows::{Columns, project},
 };
 use crate::{board::app::App, board::view::fit, look::Look};
 use ratatui::{
@@ -41,29 +41,33 @@ pub(in crate::board) fn wanted(app: &App, body: Rect) -> Option<u16> {
         .cron
         .as_ref()
         .map_or(0, |cron| cron.of_room(room).count());
-    // The rule, one line per job (at least one for the empty note), and the
-    // detail of the selected job while the half has focus: its wrapped
-    // message (at most four lines) and the next-runs line.
-    let detail = if app.jobs_focus && jobs > 0 {
-        let message = app
-            .cron
-            .cron
-            .iter()
-            .flat_map(|cron| cron.of_room(room))
-            .find(|view| Some(row_id(&key_of(view))) == app.jobs_selected())
-            .map_or(1, |view| {
-                tmt_tui::text::lines(
-                    &crate::board::notes::sanitize(&view.job.message).replace('\n', " ↵ "),
-                    body.width.saturating_sub(9).max(1),
-                    tmt_tui::style::TextFlow::Wrap,
-                )
-                .len()
-                .clamp(1, 4)
-            });
-        message + 1
-    } else {
-        0
-    };
+    let detail = app
+        .cron
+        .cron
+        .iter()
+        .flat_map(|cron| cron.of_room(room))
+        .filter(|job| {
+            app.row_details
+                .contains(&crate::board::row_detail::Target::Job(
+                    super::rows::detail_id(job),
+                ))
+        })
+        .map(|job| {
+            crate::board::row_detail::render(
+                &super::rows::expanded_detail(
+                    job,
+                    app.cron.now_ms(),
+                    Columns::for_width(false, body.width.saturating_sub(1)),
+                    body.width,
+                ),
+                body.width,
+                7,
+                app.look(),
+                false,
+            )
+            .len()
+        })
+        .sum::<usize>();
     let want = 1 + jobs.max(1) + detail;
     // Content height, at most two fifths of the body, never fewer than three lines.
     Some(want.min(usize::from(body.height) * 2 / 5).max(3) as u16)
@@ -143,12 +147,15 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
     app.jobs_area.set(area);
     let mut panes = app.jobs.borrow_mut();
     let pane = panes.entry(room.to_owned()).or_default();
-    // The selected job expands in place only while the half has focus.
-    let selected = app
-        .jobs_focus
-        .then(|| pane.list.selected().map(str::to_owned))
-        .flatten();
-    let rows = project(&jobs, selected.as_deref(), None, now);
+    let rows = project(
+        &jobs,
+        &app.row_details.expanded,
+        None,
+        now,
+        area.width,
+        look,
+        Columns::for_width(false, area.width.saturating_sub(1)),
+    );
     let empty = if app.cron.cron.is_some() {
         "(no jobs · n new)"
     } else {

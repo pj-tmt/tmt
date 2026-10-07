@@ -55,13 +55,11 @@ fn home_footer_keeps_search_after_row_actions_when_it_fits() {
     for width in [160, 100, 80] {
         let hints = paint::hints(width, false);
         assert!(unicode_width::UnicodeWidthStr::width(hints.as_str()) <= width);
-        // The key line keeps to the keys that matter; `t` and the rest are in help.
+        // Talk stays at rank 1; search follows row actions.
         assert!(!hints.contains("t replies"), "{width}: {hints}");
         if width >= 100 {
             assert!(
-                hints.starts_with(
-                    "Focus: HOME rows  ↑↓ move  ⏎ open  a write  e expand  A ask lead  / search"
-                ),
+                hints.starts_with("↑↓ move  ⏎ open  t talk  e expand  / search"),
                 "{width}: {hints}"
             );
         }

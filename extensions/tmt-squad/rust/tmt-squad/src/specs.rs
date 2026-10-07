@@ -158,7 +158,7 @@ pub const ROOT: &CommandSpec = spec!(
     "squad",
     "Leads, members and one board for a team of agents (alias: tmt sq)",
     [
-        "Open the board, or list the members without a terminal" => "tmt squad",
+        "Open the board" => "tmt squad board",
         "Create a squad" => "tmt squad init product",
         "List every member and what it needs from you" => "tmt squad ls",
     ]

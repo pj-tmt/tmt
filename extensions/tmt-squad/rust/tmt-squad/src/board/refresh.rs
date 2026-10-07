@@ -872,7 +872,6 @@ fn squad_view(
         derived: Default::default(),
         rows,
         render: config.notes_render(&squad.name)?,
-        home_replies: config.home_replies()?,
         ask_lead: config.ask_lead(&squad.name)?,
         bindings: config.bindings_for_tab(&squad.name, tmux, &board.panes)?,
         section_bindings: sections.into_iter().map(|section| section.bind).collect(),
@@ -933,7 +932,6 @@ fn member_view(
     });
     let view = View {
         history_pending: false,
-        home_replies: config.home_replies()?,
         ask_lead: config.ask_lead("")?,
         token_rate: None,
         home_rate: Default::default(),
@@ -984,7 +982,6 @@ fn all_view(
     let bindings = config.bindings_for_tab(ALL, false, &[])?;
     let view = View {
         history_pending: false,
-        home_replies: config.home_replies()?,
         ask_lead: config.ask_lead("")?,
         token_rate: None,
         home_rate,

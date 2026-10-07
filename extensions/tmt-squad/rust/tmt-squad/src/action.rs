@@ -28,8 +28,8 @@ pub enum Verb {
     Tab,
     Talk,
     AskLead,
-    HomeReplies,
     HomeMessage,
+    ViewReply,
     HomeWrite,
     HomePick,
     Reply,
@@ -57,8 +57,8 @@ impl Verb {
             "tab" => Self::Tab,
             "talk" => Self::Talk,
             "ask-lead" => Self::AskLead,
-            "home-replies" => Self::HomeReplies,
             "home-message" => Self::HomeMessage,
+            "view-reply" => Self::ViewReply,
             "home-write" => Self::HomeWrite,
             "home-pick" => Self::HomePick,
             "reply" => Self::Reply,
@@ -103,8 +103,8 @@ impl Verb {
             Self::Tab => "tab",
             Self::Talk => "talk",
             Self::AskLead => "ask-lead",
-            Self::HomeReplies => "home-replies",
             Self::HomeMessage => "home-message",
+            Self::ViewReply => "view-reply",
             Self::HomeWrite => "home-write",
             Self::HomePick => "home-pick",
             Self::Reply => "reply",
@@ -186,8 +186,8 @@ impl Action {
             Verb::Run => 7,
             Verb::Tab => 8,
             Verb::AskLead
-            | Verb::HomeReplies
             | Verb::HomeMessage
+            | Verb::ViewReply
             | Verb::HomeWrite
             | Verb::HomePick => 10,
             Verb::Jump => 11,
@@ -205,20 +205,21 @@ impl Action {
     /// Where the action sits in the base footer, which is also the order whole
     /// hints drop from the end when width runs short: lowest first, `None` for
     /// actions the footer never lists (they stay bound and appear in `?` help).
-    /// The footer names the decision and the way in: open, write, expand and
-    /// ask, then search. The match is exhaustive so a new verb must choose.
+    /// The footer names the way in: open and expand, then search.
+    /// The match is exhaustive so a new verb must choose.
     pub fn footer_rank(&self) -> Option<u8> {
         let lead = self.args.first().and_then(Template::literal) == Some("lead");
         Some(match self.verb {
             Verb::Jump if !lead => 0,
             Verb::Menu | Verb::Tab => 0,
-            Verb::Annotate => 1,
             Verb::Reply => 2,
-            Verb::Talk => 3,
+            Verb::Talk => 1,
             Verb::HomeMessage => 4,
-            Verb::AskLead => 5,
+            Verb::ViewReply => 5,
             // FOOTER_SEARCH_RANK (6) is the board's own `/ search`.
             Verb::Jump
+            | Verb::Annotate
+            | Verb::AskLead
             | Verb::Back
             | Verb::Open
             | Verb::Copy
@@ -232,7 +233,6 @@ impl Action {
             | Verb::PickTab
             | Verb::Settings
             | Verb::Run
-            | Verb::HomeReplies
             | Verb::HomeWrite
             | Verb::HomePick => return None,
         })
@@ -273,8 +273,8 @@ impl Action {
             Verb::Tab => "open the selected squad".into(),
             Verb::Talk => "send the member a message".into(),
             Verb::AskLead => "ask the lead what waits on you".into(),
-            Verb::HomeReplies => "show or hide reply previews".into(),
-            Verb::HomeMessage => "expand the selected row in the shared band".into(),
+            Verb::HomeMessage => "expand or collapse the selected row details".into(),
+            Verb::ViewReply => "view the selected row’s full reply".into(),
             Verb::HomeWrite => "write to all HOME leads".into(),
             Verb::HomePick => "pick a HOME lead to write to".into(),
             Verb::Reply => "answer the member's request, or note its pending decision".into(),
@@ -437,13 +437,14 @@ pub fn preset(tmux: bool, panes: &[crate::config::Pane]) -> Bindings {
         ("enter", enter),
         ("double-click", enter),
         ("backspace", "back"),
-        ("t", "home-replies"),
+        ("t", "talk"),
         ("a", "annotate lead"),
         ("A", "ask-lead"),
         ("o", "open"),
         ("y", "copy"),
         ("n", "notes"),
         ("e", "home-message"),
+        ("v", "view-reply"),
         ("tab", "next-pane"),
         ("ctrl-r", "refresh"),
         (",", "settings"),
@@ -459,7 +460,7 @@ pub fn preset(tmux: bool, panes: &[crate::config::Pane]) -> Bindings {
     .collect()
 }
 
-/// Fixtures that press a key the presets no longer bind (`t` talk, `r` reply,
+/// Fixtures that press a key the presets no longer bind (`r` reply,
 /// `w` token window, `T` theme, `l` view) bind it as a user would.
 #[cfg(test)]
 pub(crate) fn with_action_keys(mut bindings: Bindings) -> Bindings {
@@ -496,8 +497,9 @@ pub fn all_preset() -> Bindings {
         [
             ("tab", Some("next-pane")),
             ("a", Some("annotate lead")),
-            ("t", Some("home-replies")),
+            ("t", Some("talk")),
             ("e", Some("home-message")),
+            ("v", Some("view-reply")),
             ("A", Some("home-write")),
             ("@", Some("home-pick")),
             ("enter", Some("tab")),
@@ -555,20 +557,10 @@ mod tests {
     fn presets_leave_the_picker_and_composer_keys_to_the_menu_and_the_composer() {
         for bindings in [preset(true, &[]), preset(false, &[]), all_preset()] {
             let verbs: Vec<Verb> = bindings.values().map(|action| action.verb).collect();
-            for gone in [
-                Verb::Talk,
-                Verb::Reply,
-                Verb::Theme,
-                Verb::View,
-                Verb::TokenWindow,
-            ] {
+            for gone in [Verb::Reply, Verb::Theme, Verb::View, Verb::TokenWindow] {
                 assert!(!verbs.contains(&gone), "{gone:?} has no default key");
             }
-            assert_eq!(
-                bindings["t"].verb,
-                Verb::HomeReplies,
-                "t is one key everywhere"
-            );
+            assert_eq!(bindings["t"].verb, Verb::Talk, "t is one key everywhere");
             assert_eq!(bindings[","].verb, Verb::Settings);
         }
         // They stay bindable, like every other action.

@@ -8,7 +8,7 @@
 use super::interaction::{board, keys, press};
 use super::*;
 use crate::board::{
-    app::{App, Compose, RowFeedback, RowTarget},
+    app::{App, RowFeedback, RowTarget},
     cronboard::{TEST_NOW, test_cron, test_view},
     home::paint,
     home_leads::{Kind, LeadPreview},
@@ -258,10 +258,13 @@ fn state(name: &str) -> App {
         "read-lead" => {
             select(&mut app, "leads", "alpha");
             press(&mut app, Char('e'));
-            assert!(matches!(
-                app.input.as_ref().map(|input| &input.compose),
-                Some(Compose::ReadLead { .. })
-            ));
+            assert!(app.input.is_none());
+            assert!(
+                app.row_details
+                    .contains(&crate::board::row_detail::Target::Row(
+                        app.row_target(app.selected).unwrap()
+                    ))
+            );
         }
         "searching" => {
             keys(&mut app, &[Char('/'), Char('l'), Char('e'), Char('a')]);

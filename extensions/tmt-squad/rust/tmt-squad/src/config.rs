@@ -1677,28 +1677,10 @@ impl Config {
         Ok(draft)
     }
 
-    /// HOME preview visibility is global; squad-local copies are invalid.
-    pub fn home_replies(&self) -> Result<bool, SquadError> {
-        if let Some(squads) = self.document.get("squad").and_then(Item::as_table_like) {
-            for (name, table) in squads.iter() {
-                if table
-                    .get("board")
-                    .and_then(|board| board.get("home_replies"))
-                    .is_some()
-                {
-                    return Err(invalid(format!(
-                        "`squad.{name}.board.home_replies` is global-only; use `board.home_replies`."
-                    )));
-                }
-            }
-        }
+    /// Recognize the removed preview setting without interpreting or rewriting it.
+    pub fn obsolete_board_notice(&self) -> Option<&'static str> {
         self.source_item(&["board", "home_replies"])
-            .map(|item| {
-                item.as_bool()
-                    .ok_or_else(|| invalid("`board.home_replies` must be true or false."))
-            })
-            .transpose()
-            .map(|value| value.unwrap_or(true))
+            .map(|_| "board.home_replies is deprecated and ignored; e expands row details.")
     }
 
     /// Validate both layers even when the squad masks the global question.
@@ -2571,52 +2553,53 @@ mod tests {
     }
 
     #[test]
-    fn home_replies_is_global_boolean_and_failed_edits_preserve_the_file() {
-        let path = temp("home-replies");
-        let mut config = Config::read(path.clone()).unwrap();
-        assert!(config.home_replies().unwrap());
-        assert!(config.can_edit_setting("board.home_replies", None));
-        assert!(!config.can_edit_setting("board.home_replies", Some("x")));
-        config
-            .set_setting(None, "board.home_replies", "false")
-            .unwrap();
-        assert!(!Config::read(path.clone()).unwrap().home_replies().unwrap());
-        let shown = config
-            .settings(Some(crate::tabs::ALL), false, None)
-            .unwrap()
-            .value();
-        let entry = shown["entries"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .find(|entry| entry["key"] == "board.home_replies")
-            .unwrap();
-        assert_eq!(entry["value"], false);
-        assert_eq!(entry["source"], "board.home_replies");
-        assert_eq!(entry["editable"], true);
-        let before = std::fs::read(&path).unwrap();
-        for (scope, text) in [(None, "yes"), (None, "'false'"), (Some("x"), "true")] {
+    fn obsolete_home_replies_is_ignored_with_one_notice_and_preserves_authored_toml() {
+        let path = temp("obsolete-home-replies");
+        for value in ["false", "true", "'obsolete'", "42"] {
+            let body = format!("# keep this comment\n[board]\nhome_replies={value}\n");
+            fs::write(&path, &body).unwrap();
+            let mut config = Config::read(path.clone()).unwrap();
+            assert!(config.refresh("").is_ok());
+            assert_eq!(
+                config.obsolete_board_notice(),
+                Some("board.home_replies is deprecated and ignored; e expands row details.")
+            );
+            let shown = config
+                .settings(Some(crate::tabs::ALL), false, None)
+                .unwrap()
+                .value();
+            assert!(
+                !shown["entries"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .any(|entry| entry["key"] == "board.home_replies")
+            );
+            assert_eq!(
+                shown["notices"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .filter(|notice| notice.as_str() == config.obsolete_board_notice())
+                    .count(),
+                1
+            );
+            assert!(!config.can_edit_setting("board.home_replies", None));
             assert!(
                 config
-                    .set_setting(scope, "board.home_replies", text)
+                    .set_setting(None, "board.home_replies", "false")
                     .is_err()
             );
-            assert_eq!(std::fs::read(&path).unwrap(), before);
+            assert_eq!(fs::read_to_string(&path).unwrap(), body);
         }
-        for body in [
-            "[board]\nhome_replies='false'\n",
-            "[squad.x.board]\nhome_replies=false\n",
-        ] {
-            std::fs::write(&path, body).unwrap();
-            let invalid = Config::read(path.clone()).unwrap();
-            assert!(invalid.home_replies().is_err());
-            assert!(
-                invalid
-                    .settings(Some(crate::tabs::ALL), false, None)
-                    .is_err()
-            );
-        }
-        std::fs::remove_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(&path, "[board]\nunknown=true\n").unwrap();
+        let config = Config::read(path.clone()).unwrap();
+        assert!(
+            config.refresh("").is_err(),
+            "other unknown board keys remain errors"
+        );
+        assert!(config.obsolete_board_notice().is_none());
+        fs::remove_dir_all(path.parent().unwrap()).unwrap();
     }
 
     #[test]

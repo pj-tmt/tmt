@@ -2,7 +2,7 @@
 use super::controller::HomeEntry;
 use crate::{
     board::{
-        app::{App, Compose, RowTarget},
+        app::{App, RowTarget},
         home_leads::{Kind, Lead},
         view::{
             fit,
@@ -20,37 +20,6 @@ pub(super) struct Section<'a> {
     pub first: usize,
     pub entries: &'a [HomeEntry<'a>],
     pub leads: &'a [&'a Lead],
-    pub replies: bool,
-}
-
-/// The one line under a heading: the latest exchange, or why there is none.
-fn preview(lead: &Lead, width: u16) -> Value {
-    let (text, role) = lead.exchange.as_ref().map_or_else(
-        || {
-            (
-                if lead.failure.is_some() {
-                    "(exchange unavailable)"
-                } else {
-                    "–"
-                }
-                .into(),
-                Role::Dim,
-            )
-        },
-        |exchange| match exchange.kind {
-            Kind::Question => (format!("asks: {}", exchange.preview), Role::Waiting),
-            Kind::Asked => (format!("no reply yet to: {}", exchange.preview), Role::Dim),
-            Kind::Reply => (exchange.preview.clone(), Role::Text),
-        },
-    );
-    json!({
-        "id": "preview",
-        "text": format!(
-            "  {}",
-            fit(&text, usize::from(width.saturating_sub(5))).trim_end()
-        ),
-        "role": role.name(),
-    })
 }
 
 fn heading(lead: &Lead, width: u16, now: u64) -> Value {
@@ -102,7 +71,6 @@ pub(super) fn paint(
         width: area.width.saturating_sub(2),
         ..area
     };
-    let mut previous_exchange = false;
     let rows =
         section
             .leads
@@ -111,21 +79,7 @@ pub(super) fn paint(
             .map(|(local, lead)| {
                 let index = section.first + local;
                 let target = RowTarget::Home(section.entries[local].target.clone());
-                let reading = app.input.as_ref().is_some_and(|input| {
-                    matches!(input.compose, Compose::ReadLead { .. })
-                        && input
-                            .row_send
-                            .as_ref()
-                            .is_some_and(|send| send.target == target)
-                });
-                // One blank boxed line keeps a lead with an exchange apart from the
-                // next lead, whether that one has an exchange or not.
-                let separator = local > 0 && section.replies && previous_exchange;
-                previous_exchange = lead.exchange.is_some();
                 let mut after = Vec::new();
-                if section.replies && lead.exchange.is_some() && !reading {
-                    after.push(preview(lead, area.width));
-                }
                 if app
                     .sent
                     .as_ref()
@@ -145,12 +99,9 @@ pub(super) fn paint(
                     row[field] = json!("");
                 }
                 row["state_role"] = json!("text");
-                row["separator"] = json!(if separator {
-                    vec![json!({"id": "gap"})]
-                } else {
-                    Vec::new()
-                });
+                row["separator"] = json!([]);
                 row["after"] = json!(after);
+                row["detail"] = app.detail_value(index, &[]);
                 row
             })
             .collect::<Vec<_>>();
@@ -169,10 +120,7 @@ pub(super) fn paint(
                 {
                     "id": "rule",
                     "text": rule(
-                        &format!(
-                            "leads · latest from each · t {} replies",
-                            if section.replies { "hides" } else { "shows" }
-                        ),
+                        "leads",
                         usize::from(area.width),
                     ),
                     "role": Role::Muted.name(),

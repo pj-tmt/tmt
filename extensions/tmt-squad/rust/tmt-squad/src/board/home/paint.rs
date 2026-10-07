@@ -41,12 +41,19 @@ pub(crate) fn usage_of(
     )
 }
 
-pub(crate) fn hints_of(view: &View, width: usize, overflow: bool, receiving: bool) -> String {
+pub(crate) fn hints_of(
+    view: &View,
+    width: usize,
+    overflow: bool,
+    receiving: bool,
+    view_reply: bool,
+) -> String {
     super::bar::hints_in(
         &mut view.derived.borrow_mut().home.hints,
         width,
         overflow,
         receiving,
+        view_reply,
     )
 }
 
@@ -194,7 +201,13 @@ pub(super) fn render_at(frame: &mut Frame, app: &App, area: Rect, now: u64) {
             for row in block.rows {
                 let at = index + row.local;
                 starts.push(base + row.start);
-                regions.push((at, base + row.start..base + row.start + 1, 0, area.width));
+                regions.push((
+                    at,
+                    base + row.start
+                        ..base + row.reserve.as_ref().map_or(row.end, |range| range.start),
+                    0,
+                    area.width,
+                ));
                 if at == app.selected {
                     selected_range = base + row.start..base + row.end;
                 }
@@ -234,7 +247,6 @@ pub(super) fn render_at(frame: &mut Frame, app: &App, area: Rect, now: u64) {
                     first: index,
                     entries: group,
                     leads: &leads,
-                    replies: view.home_replies,
                 },
                 member_list,
             );
@@ -367,6 +379,24 @@ pub(super) fn render_at(frame: &mut Frame, app: &App, area: Rect, now: u64) {
     }
     let (offset, shown) = app.scrolls.show(frame, Pane::Rows, area, &lines, look);
     crate::board::view::waiting::place_input(app, input_range, input_area, offset, shown);
+    for (row, start) in starts.iter().enumerate() {
+        let boxed = entries
+            .get(row)
+            .is_some_and(|entry| entry.target.section == super::LEADS);
+        let width = area.width.saturating_sub(if boxed { 2 } else { 0 });
+        crate::board::row_detail::more_hit(
+            app,
+            row,
+            &app.detail_value(row, &[]),
+            width,
+            3,
+            start + 1,
+            area,
+            offset,
+            shown,
+        );
+    }
+
     for (row, range, x, width) in regions {
         for line in range.start.max(offset)..range.end.min(offset + shown) {
             if width > 0 {

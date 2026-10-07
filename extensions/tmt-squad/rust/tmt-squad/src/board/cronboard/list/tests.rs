@@ -25,7 +25,7 @@ fn paint(list: &List, state: &State, width: u16, height: u16) -> Vec<String> {
     let mut screen = Terminal::new(TestBackend::new(width, height)).unwrap();
     screen
         .draw(|frame| {
-            list.render(state, NOW, None, frame, Look::default(), frame.area());
+            list.render(state, &[], NOW, None, frame, Look::default(), frame.area());
         })
         .unwrap();
     let buffer = screen.backend().buffer();
@@ -65,7 +65,7 @@ fn the_list_shows_every_squad_clock_and_keys_inside_its_box_at_each_width() {
         assert!(text.contains("alpha") && text.contains("beta"), "{text}");
         assert!(text.contains("2 jobs · no clock"), "{text}");
         assert!(
-            text.contains("↑↓ choose · ⏎ open squad") && text.contains("Esc close"),
+            text.contains("↑↓ choose  ⏎ open squad") && text.contains("Esc close"),
             "{text}"
         );
         assert_eq!(
@@ -272,7 +272,7 @@ fn cursor_uses_the_mark_id_gap_and_tracks_refresh_survivors_without_state_change
                 }
                 let mut screen = Terminal::new(TestBackend::new(width, height)).unwrap();
                 screen
-                    .draw(|frame| list.render(&state, NOW, None, frame, look, frame.area()))
+                    .draw(|frame| list.render(&state, &[], NOW, None, frame, look, frame.area()))
                     .unwrap();
                 let surface = list.surface.borrow();
                 let buffer = screen.backend().buffer();
@@ -361,6 +361,17 @@ fn inspect_list_cursor_snapshot_diff() {
     std::fs::write(
         path,
         serde_json::to_vec_pretty(&json!({"decodedChanges":changes,"actual":actual})).unwrap(),
+    )
+    .unwrap();
+}
+
+#[test]
+#[ignore = "read-only candidate export before fixture approval"]
+fn dump_list_snapshots() {
+    let path = std::env::var("SQUAD_CRON_LIST_OUT").expect("task-owned candidate path");
+    std::fs::write(
+        path,
+        serde_json::to_string_pretty(&snapshots()).unwrap() + "\n",
     )
     .unwrap();
 }

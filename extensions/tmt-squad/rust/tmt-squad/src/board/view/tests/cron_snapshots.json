@@ -4,7 +4,7 @@
     "width": 160,
     "height": 24,
     "lines": [
-      "  product   reviews",
+      "  product    reviews",
       "lead sol · 3 members",
       "  MEMBER     STATE    TASK",
       "  sol  lead  –        –",
@@ -27,7 +27,7 @@
       "── cron · 1 ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── no clock · tmt sq cron run",
       "● c0   someone          job for u1                                                                                       every 30m              Mon 10-05 00:30",
       "",
-      "Focus: rows  ↑↓ move  ⏎ open  a write  t talk  e expand  A ask lead  / search  ◆ needs to know who you are: tmt squad me <name>  ? more  q quit"
+      "↑↓ move  ⏎ open  t talk  e expand  / search  ◆ needs to know who you are: tmt squad me <name>  ? more  q quit"
     ],
     "hits": "[Hit { y: 3, x: 0, width: 160, row: 0 }, Hit { y: 5, x: 0, width: 160, row: 1 }, Hit { y: 6, x: 0, width: 160, row: 2 }, Hit { y: 7, x: 0, width: 160, row: 3 }]"
   },
@@ -36,7 +36,7 @@
     "width": 100,
     "height": 24,
     "lines": [
-      "  product   reviews",
+      "  product    reviews",
       "lead sol · 3 members",
       "  MEMBER     STATE    TASK",
       "  sol  lead  –        –",
@@ -59,7 +59,7 @@
       "── cron · 1 ──────────────────────────────────────────────────────────── no clock · tmt sq cron run",
       "● c0   someone          job for u1                           every 30m              Mon 10-05 00:30",
       "",
-      "Focus: rows  ↑↓ move  ⏎ open  a write  t talk  e expand  A ask lead  / search  ? more  q quit"
+      "↑↓ move  ⏎ open  t talk  e expand  / search  ? more  q quit"
     ],
     "hits": "[Hit { y: 3, x: 0, width: 100, row: 0 }, Hit { y: 5, x: 0, width: 100, row: 1 }, Hit { y: 6, x: 0, width: 100, row: 2 }, Hit { y: 7, x: 0, width: 100, row: 3 }]"
   },
@@ -68,7 +68,7 @@
     "width": 80,
     "height": 24,
     "lines": [
-      "  product   reviews",
+      "  product    reviews",
       "lead sol · 3 members",
       "  MEMBER     STATE    TASK",
       "  sol  lead  –        –",
@@ -91,7 +91,7 @@
       "── cron · 1 ──────────────────────────────────────── no clock · tmt sq cron run",
       "● c0   someone          job for u1       every 30m              Mon 10-05 00:30",
       "",
-      "Focus: rows  ↑↓ move  ⏎ open  a write  t talk  e expand  ? more  q quit"
+      "↑↓ move  ⏎ open  t talk  e expand  / search  ? more  q quit"
     ],
     "hits": "[Hit { y: 3, x: 0, width: 80, row: 0 }, Hit { y: 5, x: 0, width: 80, row: 1 }, Hit { y: 6, x: 0, width: 80, row: 2 }, Hit { y: 7, x: 0, width: 80, row: 3 }]"
   },
@@ -100,7 +100,7 @@
     "width": 160,
     "height": 24,
     "lines": [
-      "  product   reviews",
+      "  product    reviews",
       "lead sol · 3 members",
       "  MEMBER     STATE    TASK",
       "  sol  lead  –        –",
@@ -119,11 +119,11 @@
       "",
       "",
       "",
+      "",
       "── cron · 1 ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── no clock · tmt sq cron run",
       "● c0   someone          job for u1                                                                                       every 30m              Mon 10-05 00:30",
-      "message  job for u1",
-      "next     Mon 10-05 00:00 · Mon 10-05 00:30 · Mon 10-05 01:00   tz Asia/Tokyo",
-      "⏎ owner  n new  e edit  p pause  x send  o reassign  d delete  tab members  c all squads  q quit  ? more"
+      "",
+      "⏎ owner  n new  e expand  E edit  p pause  x send  o reassign  d delete  tab members  c all squads  q quit  ? more"
     ],
     "hits": "[Hit { y: 3, x: 0, width: 160, row: 0 }, Hit { y: 5, x: 0, width: 160, row: 1 }, Hit { y: 6, x: 0, width: 160, row: 2 }, Hit { y: 7, x: 0, width: 160, row: 3 }]"
   },
@@ -132,7 +132,7 @@
     "width": 100,
     "height": 24,
     "lines": [
-      "  product   reviews",
+      "  product    reviews",
       "lead sol · 3 members",
       "  MEMBER     STATE    TASK",
       "  sol  lead  –        –",
@@ -151,11 +151,11 @@
       "",
       "",
       "",
+      "",
       "── cron · 1 ──────────────────────────────────────────────────────────── no clock · tmt sq cron run",
       "● c0   someone          job for u1                           every 30m              Mon 10-05 00:30",
-      "message  job for u1",
-      "next     Mon 10-05 00:00 · Mon 10-05 00:30 · Mon 10-05 01:00   tz Asia/Tokyo",
-      "⏎ owner  n new  e edit  p pause  x send  o reassign  d delete  tab members  q quit  ? more"
+      "",
+      "⏎ owner  n new  e expand  E edit  p pause  x send  o reassign  d delete  tab members  q quit  ? more"
     ],
     "hits": "[Hit { y: 3, x: 0, width: 100, row: 0 }, Hit { y: 5, x: 0, width: 100, row: 1 }, Hit { y: 6, x: 0, width: 100, row: 2 }, Hit { y: 7, x: 0, width: 100, row: 3 }]"
   },
@@ -164,7 +164,7 @@
     "width": 80,
     "height": 24,
     "lines": [
-      "  product   reviews",
+      "  product    reviews",
       "lead sol · 3 members",
       "  MEMBER     STATE    TASK",
       "  sol  lead  –        –",
@@ -183,11 +183,11 @@
       "",
       "",
       "",
+      "",
       "── cron · 1 ──────────────────────────────────────── no clock · tmt sq cron run",
       "● c0   someone          job for u1       every 30m              Mon 10-05 00:30",
-      "message  job for u1",
-      "next     Mon 10-05 00:00 · Mon 10-05 00:30 · Mon 10-05 01:00   tz Asia/Tokyo",
-      "⏎ owner  n new  e edit  p pause  x send  o reassign  d delete  q quit  ? more"
+      "",
+      "⏎ owner  n new  e expand  E edit  p pause  x send  o reassign  q quit  ? more"
     ],
     "hits": "[Hit { y: 3, x: 0, width: 80, row: 0 }, Hit { y: 5, x: 0, width: 80, row: 1 }, Hit { y: 6, x: 0, width: 80, row: 2 }, Hit { y: 7, x: 0, width: 80, row: 3 }]"
   }

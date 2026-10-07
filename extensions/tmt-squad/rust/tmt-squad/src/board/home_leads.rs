@@ -11,14 +11,6 @@ use std::{collections::BTreeMap, time::Instant};
 
 const LIMIT: usize = 50;
 
-/// Retained bodies preserve paragraph breaks; the shared fitter escapes each
-/// logical line and wraps it to the band's recorded content width.
-pub(super) fn message_lines(text: &str, width: u16) -> Vec<String> {
-    text.split('\n')
-        .flat_map(|line| tmt_tui::text::lines(line, width, tmt_tui::style::TextFlow::Wrap))
-        .collect()
-}
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Kind {
     Question,
@@ -118,6 +110,7 @@ pub(super) struct Fetch {
 pub struct Read {
     sender: Option<String>,
     pub(super) leads: Vec<Lead>,
+    pub(super) replies: Vec<Value>,
     pub(super) failure: Option<String>,
     pub(super) incomplete: bool,
     /// Measured subprocess cost, including the shared originator results page.
@@ -132,6 +125,7 @@ impl Read {
         Self {
             sender: Some(sender.into()),
             leads,
+            replies: Vec::new(),
             failure: None,
             incomplete: false,
             calls: 0,
@@ -144,6 +138,8 @@ impl Read {
 pub(super) struct State {
     sender: Option<String>,
     pub leads: Vec<Lead>,
+    /// Bounded result metadata from the same originator read, for HOME members.
+    pub replies: Vec<Value>,
     pub failure: Option<String>,
     pub incomplete: bool,
 }
@@ -185,12 +181,13 @@ impl Fetch {
         let mut read = Read {
             sender: self.sender.as_ref().map(|me| me.id.clone()),
             leads: self.leads,
+            replies: Vec::new(),
             failure: None,
             incomplete: false,
             calls: 0,
             elapsed_ms: 0,
         };
-        let Some(sender) = self.sender.filter(|_| !read.leads.is_empty()) else {
+        let Some(sender) = self.sender else {
             return read;
         };
         read.calls += 1;
@@ -206,6 +203,7 @@ impl Fetch {
                 Vec::new()
             }
         };
+        collect_replies(&mut read.replies, &results, &sender.id);
         let mut histories = BTreeMap::new();
         for lead in &mut read.leads {
             let history = histories.entry(lead.id().to_owned()).or_insert_with(|| {
@@ -222,8 +220,11 @@ impl Fetch {
                     &[]
                 }
             };
+            collect_replies(&mut read.replies, items, &sender.id);
             lead.exchange = latest(lead, &sender.id, &results, items, now);
         }
+        read.replies
+            .sort_by_key(|reply| std::cmp::Reverse(reply["submittedAtMs"].as_u64()));
         sort(&mut read.leads);
         read.elapsed_ms = start.elapsed().as_millis();
         read
@@ -248,6 +249,7 @@ impl State {
                 }
             }
         } else {
+            self.replies.clear();
             self.failure = None;
             self.incomplete = false;
         }
@@ -259,6 +261,9 @@ impl State {
     pub fn replace(&mut self, mut read: Read) {
         if self.sender != read.sender {
             return;
+        }
+        if read.failure.is_none() {
+            self.replies = std::mem::take(&mut read.replies);
         }
         read.leads.retain(|lead| {
             self.leads
@@ -288,6 +293,25 @@ impl State {
         self.leads = read.leads;
         self.failure = read.failure;
         self.incomplete = read.incomplete;
+    }
+}
+
+/// Bounded pages already acquired for HOME supply reply identities, not bodies.
+fn collect_replies(replies: &mut Vec<Value>, items: &[Value], sender: &str) {
+    for item in items {
+        if item["kind"] != "request"
+            || item["sender"]["identityId"] != sender
+            || !matches!(
+                item["final"]["status"].as_str(),
+                Some("retained" | "expired" | "unavailable")
+            )
+            || replies
+                .iter()
+                .any(|reply| reply["requestId"] == item["requestId"])
+        {
+            continue;
+        }
+        replies.push(json!({"requestId":item["requestId"],"recipientId":item["recipientId"],"submittedAtMs":item["final"]["submittedAtMs"],"status":item["final"]["status"]}));
     }
 }
 
