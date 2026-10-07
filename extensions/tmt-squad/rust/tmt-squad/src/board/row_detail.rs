@@ -219,6 +219,13 @@ impl App {
             }
         }
         let now = crate::status::now_ms();
+        if !visible.contains(&"focus") {
+            detail.add(
+                "focus",
+                crate::focus::detail(row, now).as_deref(),
+                Role::Muted,
+            );
+        }
         let (squad, id) = match target {
             RowTarget::Home(target) => (&target.squad, target.member.as_deref()?),
             RowTarget::Member { squad, id, .. } | RowTarget::Lead { squad, id, .. } => {

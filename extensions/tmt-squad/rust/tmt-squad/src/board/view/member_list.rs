@@ -19,6 +19,7 @@ use tmt_tui::{
     binding::{Schema, Template},
     components::Outline,
 };
+use unicode_width::UnicodeWidthStr;
 
 const FILE: &str = "squad.home.leads.xml";
 
@@ -38,6 +39,7 @@ const MARKUP: &str = r#"<tmt-view version="1">
 <tmt-text id="state" bind="lead.state" token-bind="lead.state_role" class="shrink-0"/>
 <tmt-text id="squad" bind="lead.squad" token="muted" class="shrink-0" hide-below="md"/>
 <tmt-text id="fill" class="grow h-1"/>
+<tmt-repeat each="lead.focus" as="focus"><tmt-text id="focus-gap" class="shrink-0"> </tmt-text><tmt-text id="focus-word" bind="focus.word" token="text" class="shrink-0"/><tmt-text id="focus-suffix" bind="focus.suffix" token="muted" class="shrink-0"/><tmt-text id="focus-after-gap" class="shrink-0"> </tmt-text></tmt-repeat>
 <tmt-text id="model" bind="lead.model" token="muted" class="shrink-0"/>
 <tmt-text id="age" bind="lead.age" token="dim" class="shrink-0"/>
 <tmt-text id="right" bind="$.right" class="shrink-0"/>
@@ -88,6 +90,13 @@ fn schema() -> Schema {
                 ("name", Schema::Scalar),
                 ("squad", Schema::Scalar),
                 ("age", Schema::Scalar),
+                (
+                    "focus",
+                    list(object(vec![
+                        ("word", Schema::Scalar),
+                        ("suffix", Schema::Scalar),
+                    ])),
+                ),
                 ("after", list(line())),
             ])),
         ),
@@ -185,6 +194,11 @@ pub(in crate::board) fn build(key: &Key) -> Block {
         })
         .collect::<Vec<_>>();
     let mut data = key.data.clone();
+    for row in data["leads"].as_array_mut().into_iter().flatten() {
+        if row.get("focus").is_none() {
+            row["focus"] = json!([]);
+        }
+    }
     data["top"] = json!(chrome.top);
     data["bottom"] = json!(chrome.bottom);
     data["left"] = json!(chrome.left);
@@ -221,9 +235,13 @@ pub(in crate::board) fn build(key: &Key) -> Block {
                     look.role(Role::Text).add_modifier(Modifier::BOLD),
                     true,
                 )),
-                (Some("squad" | "state" | "tag" | "model" | "age"), _) => {
-                    boxed(look.row_span(selected, look.role(role), false))
-                }
+                (
+                    Some(
+                        "squad" | "state" | "tag" | "model" | "age" | "focus-word" | "focus-suffix"
+                        | "focus-gap" | "focus-after-gap",
+                    ),
+                    _,
+                ) => boxed(look.row_span(selected, look.role(role), false)),
                 (Some("fill"), _) if selected => look.selection(),
                 (Some("fill"), _) => look.role(Role::Text),
                 (Some("text"), Some("sent")) => look.role(Role::Working),
@@ -357,6 +375,11 @@ pub(in crate::board) fn render_squad(frame: &mut ratatui::Frame, app: &App, area
         let right = format!("{}  {} ", model, age);
         let available =
             width.saturating_sub(3 + unicode_width::UnicodeWidthStr::width(right.as_str()));
+        let focus = crate::focus::pieces(row, now, available / 2);
+        let focus_width = focus.as_array().unwrap().first().map_or(0, |piece| {
+            piece["word"].as_str().unwrap().width() + piece["suffix"].as_str().unwrap().width() + 2
+        });
+        let available = available.saturating_sub(focus_width);
         let tag = if origin == RowOrigin::Lead {
             "  lead"
         } else {
@@ -397,9 +420,12 @@ pub(in crate::board) fn render_squad(frame: &mut ratatui::Frame, app: &App, area
         if model_visible {
             visible.push("model");
         }
-        rows.push(json!({"id": id(index), "before": std::mem::take(&mut before), "separator": [],
+        if crate::focus::fitted(row, now, (available + focus_width) / 2).2 {
+            visible.push("focus");
+        }
+        rows.push(json!({"focus": focus, "id": id(index), "before": std::mem::take(&mut before), "separator": [],
             "mark": format!(" {mark} "), "mark_role": role.name(), "name": name, "tag": tag,
-            "state": format!("  {}", fit(&escape(state), state_width).trim_end()),
+            "state": if state_width == 0 { String::new() } else { format!("  {}", fit(&escape(state), state_width).trim_end()) },
             "state_role": if waits { "waiting" } else { row["colors"]["state"].as_str().and_then(crate::look::role).unwrap_or(Role::Text).name() },
             "squad": "", "model": if model.is_empty() { String::new() } else { format!("{model}  ") },
             "age": format!("{age} "), "after": after, "detail":app.detail_value(index,&visible)}));

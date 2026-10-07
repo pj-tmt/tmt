@@ -2,7 +2,6 @@
 use crate::{
     config::Config,
     core::{Core, SquadError},
-    me,
     squad::{Member, Squad},
 };
 use serde_json::{Value, json};
@@ -28,19 +27,7 @@ fn failure(code: &str, message: &str) -> SquadError {
     SquadError::new(code, message)
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CronActor {
-    pub id: String,
-    pub name: String,
-}
-impl From<me::Me> for CronActor {
-    fn from(value: me::Me) -> Self {
-        Self {
-            id: value.id,
-            name: value.name,
-        }
-    }
-}
+pub use crate::management::ManagementActor as CronActor;
 
 /// Retained selectors never silently follow a reused room name or c-id.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -137,56 +124,21 @@ fn store(core: &Core) -> Result<Store, SquadError> {
     Ok(Store::new(&root(core)?)?)
 }
 
-/// Resolve once at invocation/opening. Apply revalidates this explicit UUID;
-/// an identified member or ambiguous runtime never falls back to the user.
 pub fn actor(
     core: &Core,
     config: &Config,
     explicit: Option<&str>,
 ) -> Result<CronActor, SquadError> {
-    if let Some(selector) = explicit {
-        return member(core, selector);
-    }
-    if let Some(caller) = me::caller(core)? {
-        return Ok(caller.me.into());
-    }
-    me::current(core, config)?
-        .map(CronActor::from)
-        .ok_or_else(|| {
-            failure(
-                "SQUAD_SENDER_UNKNOWN",
-                "Record yourself with tmt squad me <name>, or supply --identity.",
-            )
-        })
+    crate::management::actor(core, config, explicit, &crate::management::CRON)
 }
-/// Resolves an identity selector to its UUID and name through public core.
-/// It admits nothing: roster membership and permission stay with `apply`.
 pub fn member(core: &Core, selector: &str) -> Result<CronActor, SquadError> {
-    let shown = core.json(&["identity", "show", selector])?;
-    let value = &shown["identity"];
-    Ok(CronActor {
-        id: text(value, "id")?,
-        name: text(value, "name")?,
-    })
+    crate::management::member(core, selector, &crate::management::CRON)
 }
 fn text(value: &Value, key: &str) -> Result<String, SquadError> {
-    value[key].as_str().map(str::to_owned).ok_or_else(|| {
-        failure(
-            "SQUAD_CORE_UNAVAILABLE",
-            "Core returned an incomplete cron reference.",
-        )
-    })
+    crate::management::text(value, key, &crate::management::CRON)
 }
 fn active_identity(core: &Core, id: &str) -> Result<String, SquadError> {
-    let refs = core.api("references.resolve", json!({"identityIds": [id]}))?;
-    let value = &refs["identities"][0];
-    if value["id"] != id || value["found"] != true || value["retired"] != false {
-        return Err(failure(
-            "SQUAD_CRON_IDENTITY_UNAVAILABLE",
-            "The selected identity no longer exists or has retired.",
-        ));
-    }
-    text(value, "name")
+    crate::management::active_identity(core, id, &crate::management::CRON)
 }
 fn room(core: &Core, name: &str, expected: &str) -> Result<Squad, SquadError> {
     let selected = Squad::resolve(core, Some(name))?;
@@ -204,20 +156,7 @@ fn admit(
     selected: &Squad,
     actor: &CronActor,
 ) -> Result<Vec<Member>, SquadError> {
-    active_identity(core, &actor.id)?;
-    let roster = selected.roster(core)?;
-    let user = me::current(core, config)?.is_some_and(|user| user.id == actor.id);
-    if !user
-        && !roster
-            .iter()
-            .any(|member| member.id == actor.id && member.is_lead())
-    {
-        return Err(failure(
-            "SQUAD_CRON_PERMISSION_DENIED",
-            "Only the recorded user or this squad's lead can change jobs.",
-        ));
-    }
-    Ok(roster)
+    crate::management::admit(core, config, selected, actor, &crate::management::CRON)
 }
 fn owner(core: &Core, roster: &[Member], id: &str) -> Result<(), SquadError> {
     active_identity(core, id)?;

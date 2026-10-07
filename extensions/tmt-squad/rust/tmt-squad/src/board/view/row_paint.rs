@@ -37,6 +37,7 @@ pub(in crate::board) struct Extra {
     /// Blank lines under the row for the inline input band.
     pub reserve: usize,
     pub detail: Value,
+    pub focus: Option<String>,
 }
 
 /// The row-end label candidates, longest first: the age mark then `cron next`, then
@@ -48,6 +49,30 @@ pub(in crate::board) fn row_end(age: Option<String>, next: Option<String>) -> Ve
         (None, Some(next)) => vec![next],
         (None, None) => vec![],
     }
+}
+
+/// Focus uses the existing heading tail; narrow headings retain the word.
+pub(in crate::board) fn heading_labels(
+    age: Option<String>,
+    next: Option<String>,
+    focus: Option<&str>,
+    width: usize,
+) -> Vec<String> {
+    let mut labels = row_end(age, next);
+    if let Some(focus) = focus {
+        let focus = if focus.width() <= width.saturating_sub(2) / 2 {
+            focus
+        } else {
+            "focus"
+        };
+        labels = labels
+            .into_iter()
+            .map(|label| format!("{focus}  {label}"))
+            .collect();
+        labels.push(focus.into());
+        labels.retain(|label| label.width() <= width.saturating_sub(2) / 2);
+    }
+    labels
 }
 
 struct Part {
@@ -258,7 +283,7 @@ impl RowPaint {
         let age = crate::staleness::label(&row["staleness"]);
         self.stale.push(age.is_some());
         let waits = crate::attention::waits_on_you(row);
-        let labels = row_end(age, extra.next.clone());
+        let labels = heading_labels(age, extra.next.clone(), extra.focus.as_deref(), width);
         let mut identity = admitted.clone();
         identity.children.clear();
         let root = self.add(identity, (0, y, width, 1), None);
@@ -500,30 +525,61 @@ impl RowPaint {
         );
     }
 
-    /// Right-align the first label that fits after `used` cells of the line.
+    /// Focus may clip heading cells while keeping their continuation geometry;
+    /// other labels still need unused space after the cells.
     fn row_end(&mut self, root: usize, labels: &[String], used: usize, y: usize, width: usize) {
         let Some(label) = labels
             .iter()
-            .find(|label| used + GAP + label.width() <= width)
+            .find(|label| label.starts_with("focus") || used + GAP + label.width() <= width)
         else {
             return;
         };
         let at = width - label.width();
+        let used = used.min(at.saturating_sub(GAP));
         // The gap before the label keeps the row's base style.
         self.label(
-            None,
+            Some(" ".repeat(width - used)),
             (used, y, width - used, 1),
             None,
             TextFlow::Clip,
             Some(root),
         );
-        self.label(
-            Some(label.clone()),
-            (at, y, label.width(), 1),
-            Some(Role::Dim),
-            TextFlow::Clip,
-            Some(root),
-        );
+        if label.starts_with("focus") {
+            let (focus, tail) = label
+                .split_once("  ")
+                .map_or((label.as_str(), ""), |(focus, tail)| (focus, tail));
+            self.label(
+                Some("focus".into()),
+                (at, y, 5, 1),
+                Some(Role::Text),
+                TextFlow::Clip,
+                Some(root),
+            );
+            self.label(
+                Some(focus[5..].into()),
+                (at + 5, y, focus.width() - 5, 1),
+                Some(Role::Muted),
+                TextFlow::Clip,
+                Some(root),
+            );
+            if !tail.is_empty() {
+                self.label(
+                    Some(tail.into()),
+                    (at + focus.width() + 2, y, tail.width(), 1),
+                    Some(Role::Dim),
+                    TextFlow::Clip,
+                    Some(root),
+                );
+            }
+        } else {
+            self.label(
+                Some(label.clone()),
+                (at, y, label.width(), 1),
+                Some(Role::Dim),
+                TextFlow::Clip,
+                Some(root),
+            );
+        }
     }
 
     /// Paint into `body`, `offset` lines down the scene, and return one hit per
