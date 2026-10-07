@@ -40,10 +40,13 @@
   explicit evidence; no room scan or unbounded pagination fills gaps. Observations
   belong to the user's UUID and current lead occurrence, and share the refresh
   generation's cancellation. Preview text is sanitized separately from retained bodies.
-  An expanded message schedules `requests.show` on that same worker through the
-  selected-read queue. The user/lead/request/kind key and selection revision fence
-  delivery; detail verifies both participants before displaying the retained body.
-- Priorities: full loads outrank selection jobs (detail notebook or expanded HOME message) and usage-only reads.
+  The same results page supplies HOME member reply metadata. Expanded row replies
+  and the full-reply reader schedule `requests.show` on that same worker through
+  the selected-read queue. The user/recipient/request/kind key and selection
+  revision fence delivery; detail verifies both participants before displaying
+  the retained body. `board::row_detail` drops late bodies for collapsed or removed
+  targets and prunes expansion/cache entries when their rows disappear.
+- Priorities: full loads outrank selection jobs (detail notebook or row reply) and usage-only reads.
 
 ## Token window meter
 

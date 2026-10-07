@@ -85,9 +85,15 @@ impl App {
             .cloned()
     }
 
-    /// `n e p x o d` on the selected job. `row` is that job's row id, from the
+    /// `n E p x o d` on the selected job. `row` is that job's row id, from the
     /// jobs half or the `c` list; `n` also works with none, in the shown squad.
     pub(in crate::board) fn cron_key(&mut self, key: char, row: Option<&str>) -> Effect {
+        if key == 'e' {
+            return self.toggle_row_detail();
+        }
+        if key == 'v' {
+            return self.view_row_reply();
+        }
         let job = row.and_then(|id| self.cron_job(id));
         if key == 'n' {
             return self.cron_new(job);
@@ -142,7 +148,7 @@ impl App {
                 });
                 Effect::None
             }
-            'e' | 'o' => {
+            'E' | 'o' => {
                 let zone = job.job.schedule.document()["zone"]
                     .as_str()
                     .unwrap_or("UTC")
@@ -151,14 +157,14 @@ impl App {
                 let editable =
                     !message.chars().any(char::is_control) && message.chars().count() <= LINE_LIMIT;
                 let draft = Draft {
-                    kind: if key == 'e' {
+                    kind: if key == 'E' {
                         Kind::Edit
                     } else {
                         Kind::Reassign
                     },
-                    step: if key == 'e' && editable {
+                    step: if key == 'E' && editable {
                         Step::Message
-                    } else if key == 'e' {
+                    } else if key == 'E' {
                         Step::Schedule
                     } else {
                         Step::Owner
@@ -177,7 +183,7 @@ impl App {
                     Step::Message => draft.original.as_ref().expect("edit").0.clone(),
                     Step::Schedule => draft.original.as_ref().expect("edit").1.clone(),
                 };
-                let note = (key == 'e' && !editable).then(|| {
+                let note = (key == 'E' && !editable).then(|| {
                     "the message has several lines or is long: kept as stored, use tmt sq cron edit --message".to_owned()
                 });
                 self.cron_ask(draft, prefill, note.map(|text| Hint { text, error: false }))

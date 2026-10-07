@@ -991,15 +991,15 @@ fn ls_document(
     Ok(document.into())
 }
 
-/// `tmt squad` with no command (options such as `--json` aside) is `board`,
-/// which is the board for a person at a terminal and `ls` anywhere else.
-fn bare_is_board(argv: Vec<OsString>) -> Vec<OsString> {
+/// `tmt squad` with no command (options such as `--json` aside) is `ls`,
+/// which always lists members; only an explicit `board` opens the TUI.
+fn bare_is_list(argv: Vec<OsString>) -> Vec<OsString> {
     if argv.iter().skip(1).all(|word| {
         word.to_str().is_some_and(|word| word.starts_with('-'))
             && !matches!(word.to_str(), Some("-h" | "--help" | "-V" | "--version"))
     }) {
         let mut words = argv;
-        words.insert(1.min(words.len()), "board".into());
+        words.insert(1.min(words.len()), "ls".into());
         return words;
     }
     argv
@@ -1015,7 +1015,9 @@ fn main() -> ExitCode {
         return hook_protocol::run(&argv[1..]);
     }
     let json = argv.iter().skip(1).any(|arg| arg == "--json");
-    let matches = match request(&bare_is_board(argv)) {
+    let routed = bare_is_list(argv.clone());
+    let bare = routed != argv;
+    let matches = match request(&routed) {
         Ok(Request::Run(matches)) => matches,
         Ok(Request::Help(mut command)) => return print_help(&command.render_help(), json),
         Err(error) if error.kind() == ErrorKind::DisplayHelp => {
@@ -1068,7 +1070,10 @@ fn main() -> ExitCode {
                 return print_document(&outcome.document, code);
             }
             let mut stdout = tmt_cli_style::stream::stdout(false);
-            let body = human(command, &outcome.document, stdout.terminal());
+            let mut body = human(command, &outcome.document, stdout.terminal());
+            if bare {
+                body.push_str("\ntmt sq board opens the board\n");
+            }
             let written = stdout
                 .write_all(body.as_bytes())
                 .and_then(|()| stdout.flush());
@@ -1430,15 +1435,15 @@ mod tests {
     }
 
     #[test]
-    fn a_bare_invocation_is_the_board_but_help_and_version_are_not() {
+    fn a_bare_invocation_lists_members_but_help_and_version_are_not() {
         let argv = |words: &[&str]| -> Vec<OsString> {
             std::iter::once("tmt-squad")
                 .chain(words.iter().copied())
                 .map(Into::into)
                 .collect()
         };
-        assert_eq!(bare_is_board(argv(&[])), argv(&["board"]));
-        assert_eq!(bare_is_board(argv(&["--json"])), argv(&["board", "--json"]));
+        assert_eq!(bare_is_list(argv(&[])), argv(&["ls"]));
+        assert_eq!(bare_is_list(argv(&["--json"])), argv(&["ls", "--json"]));
         for kept in [
             &["-h"][..],
             &["--help"],
@@ -1447,7 +1452,7 @@ mod tests {
             &["ls"],
             &["help"],
         ] {
-            assert_eq!(bare_is_board(argv(kept)), argv(kept), "{kept:?}");
+            assert_eq!(bare_is_list(argv(kept)), argv(kept), "{kept:?}");
         }
     }
 

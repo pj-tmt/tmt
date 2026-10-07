@@ -45,13 +45,14 @@ pub(super) fn tab_label(
     } else {
         (" ", 0, &colors.waiting)
     };
+    let mark_style = look.role(Role::Muted);
     let mut spans = vec![
         Span::styled(
             mark,
             if count > 0 {
-                tab_attention_style(look, color, style)
+                tab_attention_style(look, color, mark_style)
             } else {
-                style
+                mark_style
             },
         ),
         Span::styled(" ", style),
@@ -67,7 +68,8 @@ pub(super) fn tab_label(
             tab_attention_style(look, &colors.blocked, style),
         ));
     }
-    Line::from(spans).style(style)
+    spans.push(Span::styled(" ", style));
+    Line::from(spans)
 }
 
 fn tab_attention_style(look: Look, color: &str, style: Style) -> Style {
@@ -95,6 +97,7 @@ pub(super) fn fit_tab_label(mut line: Line<'static>, width: usize) -> Line<'stat
         return line;
     }
     let text = line.to_string();
+    let suffix_style = line.spans.last().map_or(line.style, |span| span.style);
     let fitted = fit(&text, width);
     let mut retained: usize = text
         .chars()
@@ -114,7 +117,7 @@ pub(super) fn fit_tab_label(mut line: Line<'static>, width: usize) -> Line<'stat
             break;
         }
     }
-    spans.push(Span::styled(fitted[prefix..].to_owned(), line.style));
+    spans.push(Span::styled(fitted[prefix..].to_owned(), suffix_style));
     Line::from(spans).style(line.style)
 }
 
@@ -171,7 +174,7 @@ fn tab_style(look: Look, selected: bool, pending: bool) -> Style {
     }
 }
 
-/// Selection covers the entire tab; attention decorates only its marks.
+/// Selection covers the padded name and counts, outside the fixed mark slot.
 pub(super) fn tab(
     look: crate::look::Look,
     name: &str,
@@ -608,7 +611,7 @@ pub(super) fn paint(app: &App, area: Rect) -> Line<'static> {
         );
         label
             .spans
-            .insert(3, Span::styled(" (hidden)", label.style));
+            .insert(3, Span::styled(" (hidden)", label.spans[2].style));
         label
     });
     let hidden_width = shown_hidden.as_ref().map_or(0, |label| label.width() + 1);
@@ -850,7 +853,7 @@ mod tests {
         for selected in [false, true] {
             let label = tab(look, name, selected, false, Attention::default(), &colors);
             assert_eq!(label.spans[2].content, escaped);
-            assert_eq!(label.width(), 2 + escaped.width());
+            assert_eq!(label.width(), 3 + escaped.width());
         }
         assert_eq!(pane_tab(look, "[detail]", true).content, "[detail]");
     }
@@ -884,7 +887,7 @@ mod tests {
                 Attention::default(),
                 &TabColors::default(),
             );
-            assert_eq!(home.style, named.style);
+            assert_eq!(home.style, named.spans[2].style);
             assert_eq!(home.style.fg, look.role(Role::Text).fg);
             assert_eq!(home.style.bg, look.selection().bg);
             assert_eq!(
@@ -924,8 +927,13 @@ mod tests {
                 } else {
                     tabs::label(key)
                 };
-                assert!(shown.contains(name), "{key}/{width}: {shown}");
-                let name_start = shown.find(name).unwrap() as u16 + hit.x;
+                let fitted_name = if width == 32 && key == "tmt-core" {
+                    "tmt-co…"
+                } else {
+                    name
+                };
+                assert!(shown.contains(fitted_name), "{key}/{width}: {shown}");
+                let name_start = shown.find(fitted_name).unwrap() as u16 + hit.x;
                 for x in [hit.x, name_start, hit.x + hit.width - 1] {
                     assert_eq!(
                         app.mouse(
@@ -1207,7 +1215,8 @@ mod tests {
             assert_eq!(buffer[(0, 0)].fg, Style::new().fg.unwrap_or_default());
             assert_eq!(buffer[(12, 0)].fg, Style::new().fg.unwrap_or_default());
             assert_eq!(buffer[(2, 0)].fg, look.role(Role::Text).fg.unwrap());
-            for x in 0..width {
+            assert_eq!(buffer[(0, 0)].bg, ratatui::style::Color::Reset);
+            for x in 1..width {
                 assert_eq!(buffer[(x, 0)].bg, look.selection().bg.unwrap());
             }
         }
@@ -1282,15 +1291,15 @@ mod tests {
             for (width, expected) in [
                 (
                     160,
-                    " ▚ tmt ◆ 3 ✗ 2    leads   mamezu tmt · ◆ colab 1 ✗ core 1   infra ◆ remote 2 ✗ 1   squad   design   docs ✗ perf 2   tools   long-running-squad +3 › quiet ops …",
+                    " ▚ tmt ◆ 3 ✗ 2    leads    mamezu  tmt · ◆ colab 1  ✗ core 1    infra  ◆ remote 2 ✗ 1    squad    design    docs  ✗ perf 2    tools  +4 › long-running-squad …",
                 ),
                 (
                     100,
-                    " ▚ tmt ◆ 3 ✗ 2    leads   mamezu tmt · ◆ colab 1 ✗ core 1   infra ◆ remote 2 ✗ 1 +9 › perf ✗ 2 …",
+                    " ▚ tmt ◆ 3 ✗ 2    leads    mamezu  tmt · ◆ colab 1  ✗ core 1    infra  +10 › tmt-remote ◆ 2 ✗ 1 …",
                 ),
                 (
                     80,
-                    " ▚ tmt ◆ 3 ✗ 2    leads   mamezu ◆ tmt-colab 1 +12 › tmt-remote ◆ 2 ✗ 1 …",
+                    " ▚ tmt ◆ 3 ✗ 2    leads    mamezu  ◆ tmt-colab 1  +12 › tmt-remote ◆ 2 ✗ 1 …",
                 ),
             ] {
                 for (current, selected) in [(tabs::ALL, true), ("tmt-colab", false)] {

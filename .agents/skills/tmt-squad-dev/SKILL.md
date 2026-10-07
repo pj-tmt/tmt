@@ -24,6 +24,11 @@ Its surface modules under `board/view/` retain the existing painters:
 | `waiting`   | Acquired decision text, inline composer bands and docked ask-lead  |
 | `overlays`  | Overlay dispatch and switcher painting                             |
 
+`board/row_detail.rs` owns the shared in-place detail projection and renderer,
+expansion reconciliation, worker-acquired reply cache and read-only full-reply
+reader. Member, HOME and cron surfaces reserve lines and retain their existing
+list geometry; they call this owner for detail content.
+
 `row_paint` builds the rows scene (admitted cells, solved boxes, ages, waiting line,
 annotation, `✓ sent` line, reserved input lines) and paints it through
 `tmt-tui::paint::paint_with`; `rows` only prepares and caches it.
@@ -90,8 +95,8 @@ grammar or key tables into the references below.
   on workers (see [refresh-and-meter.md](references/refresh-and-meter.md)).
 - Command grammar, help and human output go through `tmt-cli-style`
   (`CommandSpec`, `Interaction`); `board` runs only when `Interaction::view()` is
-  `Interactive`, decided once in `main`, otherwise it is `ls`. `tmt squad` with no
-  command is `board`. Consent for hotkeys and playbooks is a `Consent` decided in
+  `Interactive`, decided once in `main`, otherwise it is `ls`. Bare `tmt squad` lists members and adds
+  `tmt sq board opens the board`; bare `--json` is identical to `ls --json`. Consent for hotkeys and playbooks is a `Consent` decided in
   `main` from `--yes` and `prompt()`.
 - Squad's dependencies must not change the CLI product: prove it package-scoped
   (`cargo ... -p tmt-cli` alone), because combined workspace builds can unify

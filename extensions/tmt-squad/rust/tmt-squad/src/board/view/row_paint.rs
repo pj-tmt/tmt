@@ -36,6 +36,7 @@ pub(in crate::board) struct Extra {
     pub sent: bool,
     /// Blank lines under the row for the inline input band.
     pub reserve: usize,
+    pub detail: Value,
 }
 
 /// The row-end label candidates, longest first: the age mark then `cron next`, then
@@ -68,6 +69,7 @@ struct Part {
 pub(in crate::board) struct RowPaint {
     parts: Vec<Part>,
     stale: Vec<bool>,
+    pub details: Vec<(usize, usize, Value)>,
     /// First and one-past-last scene line of each row, annotation included.
     pub starts: Vec<usize>,
     pub ends: Vec<usize>,
@@ -155,6 +157,7 @@ impl RowPaint {
         let mut scene = Self {
             parts: Vec::new(),
             stale: Vec::new(),
+            details: Vec::new(),
             starts: Vec::new(),
             ends: Vec::new(),
             height: 1,
@@ -418,6 +421,18 @@ impl RowPaint {
                 y += 1;
             }
         }
+        let detail_height = crate::board::row_detail::render(
+            &extra.detail,
+            width as u16,
+            2,
+            Look::default(),
+            false,
+        )
+        .len();
+        if detail_height > 0 {
+            self.details.push((at, y, extra.detail.clone()));
+            y += detail_height;
+        }
         if extra.sent {
             let text = "    ✓ sent";
             let index = self.label(
@@ -577,6 +592,20 @@ impl RowPaint {
                 part.align,
             )
         });
+        for (row, start, data) in &self.details {
+            let lines =
+                crate::board::row_detail::render(data, body.width, 2, look, *row == selected);
+            for (index, line) in lines.into_iter().enumerate() {
+                let at = start + index;
+                if at >= offset && at < offset + usize::from(body.height) {
+                    tmt_tui::components::strip::paint_left(
+                        buffer,
+                        Rect::new(body.x, body.y + (at - offset) as u16, body.width, 1),
+                        line,
+                    );
+                }
+            }
+        }
         let mut hits = Vec::new();
         for (index, part) in self.parts.iter().enumerate().filter(|(_, part)| part.root) {
             // Anonymous display rows keep click coverage without inventing IDs.
