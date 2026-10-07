@@ -4,6 +4,7 @@
 
 pub mod ancestry;
 pub mod detached;
+pub mod handoff;
 pub mod interactive;
 mod process_info;
 pub mod ps;

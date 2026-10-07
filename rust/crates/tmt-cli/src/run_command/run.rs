@@ -250,18 +250,28 @@ pub(super) fn run_bound(
     {
         diagnostic("identity bound, but its cosmetic badge could not be updated.");
     }
-    // Mark the resumed session pending before the child can start, so its
-    // first provider start (which clears the mark) cannot race ahead of it.
-    let hooks_installed = match &launch.resumed {
-        Some(session) => {
-            mark_resume_pending(storage, &binding.identity_id, session)?;
-            Registry::builtin()
-                .find(session.harness.as_str())
-                .is_some_and(start_hook_installed)
-        }
+    let mut hooks_installed = match &launch.resumed {
+        Some(session) => Registry::builtin()
+            .find(session.harness.as_str())
+            .is_some_and(start_hook_installed),
         None => false,
     };
     let owner = incarnation(std::process::id());
+    let hook_command = prepare_launch_hooks(lifecycle, &launch.command, binding, owner.as_ref())
+        .inspect_err(|_| {
+            // No provider was spawned: reuse the failed-launch authority fence.
+            if auto_named && bound.created
+                && binding::retire_failed_auto_launch(storage, &mut host.session(), binding).is_err() {
+                diagnostic("could not retire the failed launch's temporary identity; inspect it before retrying.");
+            }
+        })?;
+    // Mark pending only after settings composition, but before any provider can
+    // start. A refused launch must not leave a phantom resume attempt.
+    if let Some(session) = &launch.resumed {
+        mark_resume_pending(storage, &binding.identity_id, session)?;
+    }
+    hooks_installed |= hook_command.is_some();
+    let launch_command = hook_command.as_ref().unwrap_or(&launch.command);
     // Held for the child's whole lifetime. It is retired only for a failed spawn
     // (`never_spawned`) or a wait that returned (`settle_wait`); on every other path
     // out of here it is dropped and the driver's record stays. Declared before the
@@ -303,7 +313,7 @@ pub(super) fn run_bound(
                     pane_pid: binding.pane_pid,
                 },
                 owner,
-                command: &launch.command,
+                command: launch_command,
                 resume_session: launch
                     .resumed
                     .as_ref()
@@ -335,7 +345,7 @@ pub(super) fn run_bound(
             if save { "Saved" } else { "Temporary" }
         );
     }
-    let planned = lease.command(&launch.command);
+    let planned = lease.command(launch_command);
     let child =
         InteractiveChild::start_with(&planned.executable, &planned.args, lease.environment())
             .map_err(|error| {
@@ -654,3 +664,40 @@ pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] = &[
         &[],
     ),
 ];
+
+/// Provider-owned session settings are composed before enrollment or spawn.
+fn prepare_launch_hooks(
+    lifecycle: &dyn RuntimeLifecycle,
+    command: &tmt_adapters::runtime::RuntimeCommand,
+    binding: &Binding,
+    owner: Option<&ProcessIncarnation>,
+) -> Result<Option<tmt_adapters::runtime::RuntimeCommand>, Failure> {
+    let Some(owner) = owner else {
+        return Ok(None);
+    };
+    let failure = |error| {
+        Failure::new(
+            "LAUNCH_HOOKS_UNAVAILABLE",
+            "Could not compose session-only hooks; preserve and inspect the provider settings.",
+            1,
+        )
+        .caused_by(error)
+    };
+    let environment =
+        tmt_adapters::skill_installation::ProviderEnvironment::capture().map_err(failure)?;
+    let tmt = tmt_adapters::core_executable::selected().map_err(failure)?;
+    let launch = tmt_adapters::runtime::hook_protocol::HookLaunch {
+        identity_id: binding.identity_id.clone(),
+        binding_id: binding.id.clone(),
+        owner_pid: owner.pid(),
+        owner_start: owner.start_identity().to_owned(),
+    };
+    lifecycle
+        .prepare_launch_hooks(&tmt_adapters::runtime::hook_protocol::LaunchHooks {
+            command,
+            launch: &launch,
+            tmt: &tmt,
+            environment: &environment,
+        })
+        .map_err(failure)
+}

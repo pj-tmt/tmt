@@ -351,6 +351,31 @@ function pauseBeforeAdmission(fixture: E2EFixture, name: string): void {
 }
 
 describe('Claude channel delivery', { concurrent: false }, () => {
+  it('refused launch settings never spawn a provider or leave an automatic temporary identity', async () => {
+    await withE2EFixture(async (fixture) => {
+      const pane = fixture.createShellPane('refused-launch').pane;
+      const started = path.join(fixture.root, 'provider-started');
+      writeExecutable(
+        path.join(fixture.wrapperDir, 'claude'),
+        `#!/bin/sh\nprintf started > ${quote(started)}\n`
+      );
+      const result = await fixture.runJsonCli<Record<string, unknown>>(
+        ['run', '--no-channel', 'claude', '--settings', '{"disableAllHooks":true}'],
+        { pane }
+      );
+      expect(failureCode(result)).toBe('LAUNCH_HOOKS_UNAVAILABLE');
+      expect(fs.existsSync(started)).toBe(false);
+      expect(
+        sql(fixture, (db) =>
+          db.prepare('SELECT COUNT(*) AS count FROM identities WHERE retired_at_ms IS NULL').get()
+        )
+      ).toEqual({ count: 0 });
+      expect(
+        sql(fixture, (db) => db.prepare('SELECT COUNT(*) AS count FROM bindings').get())
+      ).toEqual({ count: 0 });
+    });
+  });
+
   it('an enrolled live channel retains delivery when provider bookkeeping is Unknown', async () => {
     await withE2EFixture(async (fixture) => {
       const worker = start(fixture, 'UnknownProvider', { channel: true });
@@ -522,6 +547,363 @@ describe('Claude channel delivery', { concurrent: false }, () => {
     },
     60_000
   );
+
+  it.each([
+    { channel: true, setup: false, resume: false },
+    { channel: false, setup: false, resume: true },
+    { channel: true, setup: true, resume: true },
+    { channel: false, setup: true, resume: false },
+  ])(
+    'Focus launch hooks channel=$channel setup=$setup resume=$resume deliver one Stop continuation',
+    async ({ channel, setup, resume }) => {
+      await withE2EFixture(async (fixture) => {
+        const name = 'BoundaryClaude';
+        const sessionId = randomUUID();
+        const home = path.join(fixture.root, `home-${name}`);
+        const settingsFile = path.join(home, '.claude', 'settings.json');
+        fs.mkdirSync(path.dirname(settingsFile), { recursive: true });
+        if (setup) {
+          const observer = {
+            hooks: [
+              {
+                type: 'command',
+                command: `${quote(fixture.executables.cli.executable)} __hook claude`,
+                timeout: 3,
+              },
+            ],
+          };
+          fs.writeFileSync(
+            settingsFile,
+            JSON.stringify({
+              unknown: 'preserved',
+              hooks: Object.fromEntries(
+                ['SessionStart', 'SessionEnd', 'UserPromptSubmit', 'Stop'].map((event) => [
+                  event,
+                  [observer],
+                ])
+              ),
+            })
+          );
+        }
+        const settingsBefore = fs.existsSync(settingsFile) ? fs.readFileSync(settingsFile) : null;
+        writeExecutable(
+          path.join(fixture.wrapperDir, 'claude'),
+          fs.readFileSync('/opt/tmt-tests/claude'),
+          0o755
+        );
+        const worker = start(fixture, name, {
+          channel,
+          ...(resume ? { resume: sessionId } : {}),
+          env: {
+            MOCK_SESSION_ID: sessionId,
+            MOCK_LAUNCH_HOOKS: '1',
+            MOCK_AUTOREPLY: '0',
+            TMT_TEST_CLAUDE_MOCK: mock,
+            TMT_TEST_CLAUDE_NODE: process.execPath,
+            TMT_TEST_CLAUDE_NATIVE_CHANNEL: '1',
+          },
+        });
+        const oracle = <T>(read: (db: Database.Database) => T): T => {
+          const db = new Database(path.join(fixture.globalDir, 'tmux-team.db'), { readonly: true });
+          try {
+            return read(db);
+          } finally {
+            db.close();
+          }
+        };
+        const batches = () =>
+          oracle((db) =>
+            db.prepare('SELECT id,state FROM focus_checklists ORDER BY created_at_ms,id').all()
+          ) as { id: string; state: string }[];
+        const focusStep = async (event: string, extra: Record<string, unknown> = {}) => {
+          fs.writeFileSync(`${worker.log}.focus-step`, JSON.stringify({ event, ...extra }));
+          await waitForEvent(fixture, worker, event);
+        };
+        await withCompletedSession(fixture, worker, async () => {
+          await waitForEvent(fixture, worker, 'prompt-recorded');
+          if (channel) await waitForReady(fixture, 1);
+          const id = identityId(fixture, name);
+          const created = await fixture.runJsonCli<{ identity: { id: string } }>([
+            'identity',
+            'create',
+            'BoundaryOwner',
+          ]);
+          expect(created.code).toBe(0);
+          const owner = created.json!.identity.id;
+          const api = (operation: string, input: unknown) =>
+            JSON.parse(
+              execFileSync(
+                fixture.executables.cli.executable,
+                [...fixture.executables.cli.args, 'api'],
+                {
+                  input: JSON.stringify({ version: 1, operation, input }),
+                  encoding: 'utf8',
+                  timeout: 5000,
+                  env: { PATH: process.env.PATH, HOME: home, TMUX_TEAM_HOME: fixture.globalDir },
+                }
+              )
+            );
+          const policy = {
+            identityId: id,
+            ownerIdentityId: owner,
+            setterIdentityId: owner,
+            expectedRevision: 0,
+          };
+          expect(
+            api('focus.policy.set', { ...policy, untilMs: Date.now() + 600_000 })
+          ).toMatchObject({ active: true });
+          const requests: string[] = [];
+          for (const text of ['First held boundary decision', 'Second held boundary review']) {
+            const result = await talk(fixture, name, text, ['--kind', 'decision']);
+            expect(result.json).toMatchObject({ status: 'queued', focus: true });
+            requests.push(String(result.json!.requestId));
+          }
+          expect((await fixture.runJsonCli(['identity', 'create', 'BoundaryPeer'])).code).toBe(0);
+          const outbound = await talk(fixture, 'BoundaryPeer', 'Await held result', [
+            '--identity',
+            name,
+            '--detach',
+          ]);
+          expect(outbound.code).toBe(0);
+          const resultId = String(outbound.json!.requestId);
+          const shown = await fixture.runJsonCli<{ exchange: { reply: { receipt: string } } }>([
+            'x',
+            'show',
+            resultId,
+            '--incoming',
+            '--identity',
+            'BoundaryPeer',
+          ]);
+          expect(shown.code).toBe(0);
+          expect(
+            (
+              await fixture.runJsonCli([
+                'reply',
+                resultId,
+                '--receipt',
+                shown.json!.exchange.reply.receipt,
+                '--message',
+                'Held boundary result',
+              ])
+            ).code
+          ).toBe(0);
+          expect(
+            oracle((db) =>
+              db
+                .prepare(
+                  'SELECT kind,source FROM focus_items WHERE identity_id=? ORDER BY sequence'
+                )
+                .all(id)
+            )
+          ).toEqual([
+            { kind: 'decision', source: 'incoming' },
+            { kind: 'decision', source: 'incoming' },
+            { kind: 'result', source: 'result' },
+          ]);
+          // Stale and recursive events cannot claim. The following valid event
+          // is a positive control against a hook that simply refuses everything.
+          await focusStep('stale-stop', { session: 'old-session' });
+          await focusStep('already-continuing-stop', { active: true });
+          expect(batches()).toEqual([]);
+          expect(named(worker, 'focus-continuation')).toEqual([]);
+          expect(named(worker, 'channel')).toEqual([]);
+          expect(named(worker, 'paste')).toEqual([]);
+          // Both bypasses remain ordinary transport while Focus is active.
+          for (const [text, extra] of [
+            ['Urgent bypass', ['--urgent', '--detach']],
+            ['Owner bypass', ['--identity', 'BoundaryOwner', '--detach']],
+          ] as const) {
+            const result = await talk(fixture, name, text, [...extra]);
+            expect(result.code).toBe(0);
+            expect(result.json!.focus).toBeUndefined();
+            await fixture.waitFor(
+              () =>
+                channel
+                  ? contents(worker).some((value) => value.includes(text))
+                  : named(worker, 'paste').some((event) => String(event.line).includes(text)),
+              5000,
+              'Focus bypass consumed'
+            );
+          }
+          const channelBefore = named(worker, 'channel').length;
+          const pasteBefore = named(worker, 'paste').length;
+          // A cleared window still waits for this boundary: clearing never
+          // creates a scheduler. Active windows use the same boundary primitive.
+          if (resume)
+            expect(api('focus.policy.clear', { ...policy, expectedRevision: 1 })).toMatchObject({
+              heldCount: 3,
+            });
+          const rejectsOutput = channel && !setup;
+          if (rejectsOutput) {
+            await focusStep('rejected-output-stop', { rejectFocusOutput: true });
+            expect(batches()).toMatchObject([{ state: 'definitely_unsent' }]);
+            expect(named(worker, 'focus-continuation')).toEqual([]);
+            expect(
+              oracle((db) =>
+                db
+                  .prepare(
+                    'SELECT COUNT(*) AS count FROM focus_items WHERE identity_id=? AND checklist_id IS NULL'
+                  )
+                  .get(id)
+              )
+            ).toEqual({ count: 3 });
+          }
+          await focusStep('boundary-stop');
+          await waitForEvent(fixture, worker, 'recursive-stop');
+          const feedback = named(worker, 'focus-continuation');
+          expect(feedback).toHaveLength(1);
+          const reason = String(feedback[0].reason);
+          expect(reason.match(/TMT Focus checklist/g)).toHaveLength(1);
+          for (const request of requests)
+            expect(reason).toContain(`tmt reply ${request} --receipt `);
+          expect(reason).toContain('Remaining in this checklist: 0');
+          expect(batches().filter((batch) => batch.state === 'delivered')).toHaveLength(1);
+          expect(batches()).toHaveLength(rejectsOutput ? 2 : 1);
+          expect(reason).toContain(`tmt result ${resultId} --json`);
+          expect(reason).toContain('Held boundary result');
+          expect(named(worker, 'channel')).toHaveLength(channelBefore);
+          expect(named(worker, 'paste')).toHaveLength(pasteBefore);
+          const callbacks = named(worker, 'installed-hook');
+          for (const event of ['SessionStart', 'UserPromptSubmit']) {
+            expect(
+              callbacks.filter(
+                (entry) => entry.hookEvent === event && String(entry.command).includes('__hook ')
+              )
+            ).toHaveLength(1);
+          }
+          const stops = callbacks.filter(
+            (entry) => entry.hookEvent === 'Stop' && String(entry.command).includes('__hook ')
+          );
+          // stale, recursion guard, ordinary boundary, provider continuation.
+          expect(stops).toHaveLength(rejectsOutput ? 5 : 4);
+          expect(stops.every((entry) => String(entry.command).includes('--activity-only'))).toBe(
+            !setup
+          );
+          expect(
+            oracle((db) =>
+              db
+                .prepare(
+                  'SELECT recipient_attention_acknowledged_revision,response_submitted_at_ms FROM request_attempts WHERE request_id IN (?,?)'
+                )
+                .all(...requests)
+            )
+          ).toEqual(
+            requests.map(() => ({
+              recipient_attention_acknowledged_revision: 0,
+              response_submitted_at_ms: null,
+            }))
+          );
+          await focusStep('empty-stop');
+          expect(named(worker, 'focus-continuation')).toHaveLength(1);
+          expect(batches()).toHaveLength(rejectsOutput ? 2 : 1);
+        });
+        expect(fs.existsSync(settingsFile) ? fs.readFileSync(settingsFile) : null).toEqual(
+          settingsBefore
+        );
+      });
+    },
+    60_000
+  );
+
+  it('keeps a real partial Stop handoff sealed and never replays it or absorbs later arrivals', async () => {
+    await withE2EFixture(async (fixture) => {
+      const name = 'PartialBoundaryClaude';
+      const sessionId = randomUUID();
+      writeExecutable(
+        path.join(fixture.wrapperDir, 'claude'),
+        fs.readFileSync('/opt/tmt-tests/claude'),
+        0o755
+      );
+      const worker = start(fixture, name, {
+        channel: true,
+        env: {
+          MOCK_SESSION_ID: sessionId,
+          MOCK_LAUNCH_HOOKS: '1',
+          MOCK_AUTOREPLY: '0',
+          TMT_TEST_CLAUDE_MOCK: mock,
+          TMT_TEST_CLAUDE_NODE: process.execPath,
+          TMT_TEST_CLAUDE_NATIVE_CHANNEL: '1',
+        },
+      });
+      const snapshot = () =>
+        sql(fixture, (db) => ({
+          batches: db.prepare('SELECT id,state FROM focus_checklists').all(),
+          sealed: db
+            .prepare('SELECT COUNT(*) AS count FROM focus_items WHERE checklist_id IS NOT NULL')
+            .get(),
+          pending: db
+            .prepare('SELECT COUNT(*) AS count FROM focus_items WHERE checklist_id IS NULL')
+            .get(),
+        }));
+      await withCompletedSession(fixture, worker, async () => {
+        await waitForEvent(fixture, worker, 'prompt-recorded');
+        await waitForReady(fixture, 1);
+        const id = identityId(fixture, name);
+        expect((await fixture.runJsonCli(['identity', 'create', 'PartialOwner'])).code).toBe(0);
+        const owner = identityId(fixture, 'PartialOwner');
+        const policy = JSON.parse(
+          execFileSync(
+            fixture.executables.cli.executable,
+            [...fixture.executables.cli.args, 'api'],
+            {
+              input: JSON.stringify({
+                version: 1,
+                operation: 'focus.policy.set',
+                input: {
+                  identityId: id,
+                  ownerIdentityId: owner,
+                  setterIdentityId: owner,
+                  expectedRevision: 0,
+                  untilMs: Date.now() + 600_000,
+                },
+              }),
+              encoding: 'utf8',
+              timeout: 5000,
+              env: {
+                PATH: process.env.PATH,
+                HOME: path.join(fixture.root, `home-${name}`),
+                TMUX_TEAM_HOME: fixture.globalDir,
+              },
+            }
+          )
+        );
+        expect(policy.active).toBe(true);
+        // Escaped previews make the bounded reason's JSON exceed the pipe's
+        // capacity. This is data, not a provider output or permission shortcut.
+        for (let index = 0; index < 10; index++) {
+          const held = await talk(fixture, name, `${index}: ${'"'.repeat(155)}`, [
+            '--kind',
+            'review',
+          ]);
+          expect(held.json).toMatchObject({ status: 'queued', focus: true });
+        }
+        fs.writeFileSync(
+          `${worker.log}.focus-step`,
+          JSON.stringify({ event: 'partial-stop', partialFocusOutput: true })
+        );
+        await waitForEvent(fixture, worker, 'partial-stop');
+        expect(named(worker, 'focus-partial-handoff')).toMatchObject([
+          { partialBytes: 4096, code: 0 },
+        ]);
+        expect(named(worker, 'focus-continuation')).toEqual([]);
+        const before = snapshot();
+        expect(before).toMatchObject({
+          batches: [{ state: 'claimed' }],
+          sealed: { count: 10 },
+          pending: { count: 0 },
+        });
+        expect((await talk(fixture, name, 'Later boundary work')).json).toMatchObject({
+          focus: true,
+        });
+        fs.writeFileSync(`${worker.log}.focus-step`, JSON.stringify({ event: 'no-replay-stop' }));
+        await waitForEvent(fixture, worker, 'no-replay-stop');
+        expect(snapshot()).toEqual({ ...before, pending: { count: 1 } });
+        expect(named(worker, 'focus-continuation')).toEqual([]);
+        expect(named(worker, 'channel')).toEqual([]);
+        expect(named(worker, 'paste')).toEqual([]);
+      });
+    });
+  }, 60_000);
 
   it.each([
     { channel: true, nativeParent: true },

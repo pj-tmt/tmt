@@ -573,16 +573,12 @@ impl crate::runtime::lifecycle::RuntimeLifecycle for CodexLifecycle {
 
     fn observe_in_pane(
         &self,
+        runner: &dyn crate::process::CommandRunner,
         caller: u64,
         pane: u64,
         deadline: std::time::Instant,
     ) -> Option<ProcessIncarnation> {
-        observe_in_pane(
-            &crate::process::SupervisedProbeRunner,
-            caller,
-            pane,
-            deadline,
-        )
+        observe_in_pane(&runner, caller, pane, deadline)
     }
 
     fn mode(

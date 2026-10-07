@@ -5,6 +5,43 @@ pub const HOOK_INPUT_LIMIT: usize = 64 * 1024;
 pub const CONTEXT_LIMIT: usize = 4096;
 pub const HOOK_TIMEOUT_SECONDS: u64 = 3;
 
+/// Coordinates select a launch; fresh host/process evidence grants admission.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct HookLaunch {
+    pub identity_id: String,
+    pub binding_id: String,
+    pub owner_pid: u64,
+    pub owner_start: String,
+}
+
+impl HookLaunch {
+    pub fn owner(&self) -> Option<tmt_core::endpoint::ProcessIncarnation> {
+        tmt_core::endpoint::ProcessIncarnation::new(self.owner_pid, &self.owner_start).ok()
+    }
+    pub fn valid(&self) -> bool {
+        tmt_core::dispatch::canonical_id(&self.identity_id)
+            && tmt_core::dispatch::canonical_id(&self.binding_id)
+            && self.owner().is_some()
+    }
+}
+
+pub struct LaunchHooks<'a> {
+    pub command: &'a super::RuntimeCommand,
+    pub launch: &'a HookLaunch,
+    pub tmt: &'a std::path::Path,
+    pub environment: &'a crate::skill_installation::ProviderEnvironment,
+}
+
+/// Internal worker result, never provider output or evidence of delivery.
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct FocusHandoff {
+    pub checklist_id: String,
+    pub attempt_token: String,
+    pub digest: String,
+}
+
 pub fn encode_context(context: &str) -> Option<String> {
     encode_event_context("SessionStart", context)
 }

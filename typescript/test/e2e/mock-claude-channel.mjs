@@ -56,6 +56,7 @@ function execPeer(args, callback) {
 
 function emitHook(payload, event) {
   if (stopping) return Promise.reject(new Error('fixture shutdown already started'));
+  if (process.env.MOCK_LAUNCH_HOOKS === '1') return emitInstalledHooks(payload, event);
   return new Promise((resolve, reject) => {
     const child = execPeer(['__hook', 'claude'], (error, stdout, stderr) => {
       if (error || stderr) reject(error ?? new Error(stderr));
@@ -68,8 +69,121 @@ function emitHook(payload, event) {
   });
 }
 
+// Linux-only negative handoff fixture. An empty pipe with exactly 4096 bytes
+// capacity is left unread until the real generated hook exits. A larger JSON
+// response therefore publishes a prefix, exhausts its own deadline, and leaves
+// the sealed attempt uncertain/claimed. The fixture owns and reaps its child;
+// it never substitutes a settlement or changes the product work budget.
+const partialFocusHandoff = `
+import fcntl, json, os, signal, subprocess, sys
+payload = sys.stdin.buffer.read()
+read, write = os.pipe()
+assert fcntl.fcntl(write, fcntl.F_SETPIPE_SZ, 4096) == 4096
+child = None
+try:
+    child = subprocess.Popen(['/bin/sh', '-c', 'exec ' + sys.argv[1]], stdin=subprocess.PIPE,
+                             stdout=write, stderr=subprocess.PIPE, start_new_session=True)
+    os.close(write)
+    write = None
+    _, error = child.communicate(payload, timeout=5)
+    if error or child.returncode != 0:
+        raise RuntimeError('generated Focus hook failed')
+    chunks = []
+    while True:
+        chunk = os.read(read, 4096)
+        if not chunk:
+            break
+        chunks.append(chunk)
+    published = b''.join(chunks)
+    assert len(published) == 4096, 'fixture requires a real partial publication'
+    try:
+        json.loads(published)
+    except (ValueError, UnicodeDecodeError):
+        pass
+    else:
+        raise AssertionError('fixture received complete JSON, not a partial handoff')
+    print(json.dumps({'partialBytes':len(published), 'code':child.returncode}))
+finally:
+    if child is not None and child.poll() is None:
+        os.killpg(child.pid, signal.SIGKILL)
+        child.wait()
+    if write is not None:
+        os.close(write)
+    os.close(read)
+`;
+
+// Focus scenarios execute the actual per-launch configuration. Other channel
+// scenarios deliberately retain their observation-only fake provider contract.
+async function emitInstalledHooks(
+  payload,
+  event,
+  rejectFocusOutput = false,
+  partialOutput = false
+) {
+  const index = args.indexOf('--settings');
+  if (index < 0) throw new Error('tmt run did not install launch settings');
+  const globalFile = `${process.env.CLAUDE_CONFIG_DIR ?? `${process.env.HOME}/.claude`}/settings.json`;
+  const global = fs.existsSync(globalFile) ? JSON.parse(fs.readFileSync(globalFile, 'utf8')) : {};
+  const inline = JSON.parse(args[index + 1]);
+  const commands = new Set(
+    [global, inline].flatMap((settings) =>
+      (settings.hooks?.[payload.hook_event_name] ?? []).flatMap((entry) =>
+        entry.hooks.map((hook) => hook.command)
+      )
+    )
+  );
+  const outputs = await Promise.all(
+    [...commands].map(
+      (command) =>
+        new Promise((resolve, reject) => {
+          const effectiveCommand =
+            rejectFocusOutput && command.includes(' __focus-hook ')
+              ? `${command} >/dev/full`
+              : command;
+          const partial = partialOutput && command.includes(' __focus-hook ');
+          const child = execFile(
+            partial ? 'python3' : '/bin/sh',
+            partial ? ['-c', partialFocusHandoff, command] : ['-c', effectiveCommand],
+            { env: process.env },
+            (error, stdout, stderr) => {
+              if (error || stderr) reject(error ?? new Error(stderr));
+              else {
+                log({
+                  event: 'installed-hook',
+                  hookEvent: payload.hook_event_name,
+                  command,
+                  stdout,
+                });
+                if (partial) {
+                  log({ event: 'focus-partial-handoff', ...JSON.parse(stdout) });
+                  resolve('');
+                } else resolve(stdout);
+              }
+            }
+          );
+          const closed = new Promise((resolve) => child.once('close', resolve));
+          peerCompletions.add(closed);
+          void closed.then(() => peerCompletions.delete(closed));
+          child.stdin.end(JSON.stringify(payload));
+        })
+    )
+  );
+  const continuations = outputs
+    .filter(Boolean)
+    .map((text) => JSON.parse(text))
+    .filter((value) => value.decision === 'block');
+  log({ event, stdout: outputs.join('') });
+  for (const continuation of continuations) {
+    log({ event: 'focus-continuation', reason: continuation.reason });
+    // The provider's causal continuation invokes Stop again with its loop guard.
+    // That second event must not claim a later arrival or repeat the batch.
+    await emitInstalledHooks({ ...payload, stop_hook_active: true }, 'recursive-stop');
+  }
+}
+
 let turnReady = false;
 let turnSubmitted = false;
+let focusStepRunning = false;
 
 let server;
 let serverClosed;
@@ -192,6 +306,34 @@ const control = setInterval(() => {
     fs.rmSync(`${logPath}.kill-server`);
     server?.kill('SIGKILL');
   }
+  if (
+    !stopping &&
+    turnReady &&
+    !focusStepRunning &&
+    process.env.MOCK_LAUNCH_HOOKS === '1' &&
+    fs.existsSync(`${logPath}.focus-step`)
+  ) {
+    const step = JSON.parse(fs.readFileSync(`${logPath}.focus-step`, 'utf8'));
+    fs.rmSync(`${logPath}.focus-step`);
+    focusStepRunning = true;
+    void emitInstalledHooks(
+      {
+        hook_event_name: 'Stop',
+        session_id: step.session ?? process.env.MOCK_SESSION_ID,
+        stop_hook_active: step.active ?? false,
+      },
+      step.event,
+      step.rejectFocusOutput === true,
+      step.partialFocusOutput === true
+    )
+      .catch((error) => {
+        log({ event: 'hook-error', message: error.message });
+        process.exitCode = 1;
+      })
+      .finally(() => {
+        focusStepRunning = false;
+      });
+  }
   if (!stopping && turnReady && !turnSubmitted && fs.existsSync(`${logPath}.stop-turn`)) {
     turnSubmitted = true;
     void emitHook(
@@ -199,6 +341,7 @@ const control = setInterval(() => {
         hook_event_name: 'Stop',
         session_id: process.env.MOCK_SESSION_ID,
         transcript_path: process.env.MOCK_TURN_TRANSCRIPT,
+        ...(process.env.MOCK_LAUNCH_HOOKS === '1' ? { stop_hook_active: false } : {}),
       },
       'turn-recorded'
     ).catch((error) => {
@@ -246,7 +389,7 @@ if (process.env.MOCK_SESSION_ID) {
         : {}),
     };
     await emitHook(payload, 'hook-recorded');
-    if (process.env.MOCK_TURN_TRANSCRIPT) {
+    if (process.env.MOCK_TURN_TRANSCRIPT || process.env.MOCK_LAUNCH_HOOKS === '1') {
       await emitHook({ ...payload, hook_event_name: 'UserPromptSubmit' }, 'prompt-recorded');
       turnReady = true;
     }
