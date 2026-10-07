@@ -18,7 +18,7 @@ pub(super) fn pane_tab(look: crate::look::Look, name: &str, selected: bool) -> S
     if selected {
         let selection = look.selection();
         Span::styled(
-            format!("[{name}]"),
+            tmt_cli_style::table::escape(name),
             Style {
                 bg: selection.bg,
                 ..look
@@ -37,7 +37,6 @@ pub(super) fn tab_label(
     attention: Attention,
     colors: &TabColors,
     style: Style,
-    selected: bool,
 ) -> Line<'static> {
     let (mark, count, color) = if attention.waiting > 0 {
         (Mark::Decision.symbol(), attention.waiting, &colors.waiting)
@@ -56,7 +55,7 @@ pub(super) fn tab_label(
             },
         ),
         Span::styled(" ", style),
-        Span::styled(shown_name(name, selected), style),
+        Span::styled(tmt_cli_style::table::escape(name), style),
     ];
     if count > 0 {
         spans.push(Span::styled(format!(" {count}"), style));
@@ -119,22 +118,15 @@ pub(super) fn fit_tab_label(mut line: Line<'static>, width: usize) -> Line<'stat
     Line::from(spans).style(line.style)
 }
 
-/// Brackets belong to the measured name, never to attention marks or counts.
-fn shown_name(name: &str, selected: bool) -> String {
-    let name = tmt_cli_style::table::escape(name);
-    if selected { format!("[{name}]") } else { name }
-}
-
-/// Fit a shown label's name before its semantic suffix. If even one meaningful
-/// name grapheme and both brackets cannot fit, omit the complete cue and use
-/// the ordinary prefix fallback. No unmatched application bracket is painted.
+/// Fit the shown name before its semantic suffix when a name grapheme fits.
+/// Otherwise retain the ordinary prefix fallback; a one-cell attention mark wins.
 fn fit_shown_tab_label(mut line: Line<'static>, width: usize) -> Line<'static> {
     if line.width() <= width {
         return fit_tab_label(line, width);
     }
-    let name = line.spans[2].content[1..line.spans[2].content.len() - 1].to_owned();
+    let name = line.spans[2].content.to_string();
     let fixed = line.width() - line.spans[2].width();
-    let room = width.saturating_sub(fixed + 2);
+    let room = width.saturating_sub(fixed);
     let clipped = tmt_tui::text::fit_line(
         &name,
         room.min(usize::from(u16::MAX)) as u16,
@@ -149,7 +141,7 @@ fn fit_shown_tab_label(mut line: Line<'static>, width: usize) -> Line<'static> {
         } else {
             fitted
         };
-        line.spans[2].content = format!("[{fitted}]").into();
+        line.spans[2].content = fitted.into();
         line
     } else {
         line.spans[2].content = name.into();
@@ -189,7 +181,7 @@ pub(super) fn tab(
     colors: &TabColors,
 ) -> Line<'static> {
     let style = tab_style(look, selected, pending);
-    tab_label(look, name, attention, colors, style, selected)
+    tab_label(look, name, attention, colors, style)
 }
 
 /// The home keeps its public `all` key; focus changes only its presentation.
@@ -204,7 +196,7 @@ fn home_tab(
     let mut spans = vec![
         Span::styled(" ", style),
         Span::styled("▚ ", style),
-        Span::styled(shown_name("tmt", selected), style),
+        Span::styled("tmt", style),
     ];
     for (count, mark, color) in [
         (attention.waiting, Mark::Decision, &colors.waiting),
@@ -761,13 +753,13 @@ mod tests {
     }
 
     #[test]
-    fn shown_name_fitting_keeps_matched_cues_and_attention_outside_at_exact_widths() {
+    fn shown_name_fitting_keeps_graphemes_and_semantic_suffixes_at_exact_widths() {
         let look = Look::default();
         let colors = TabColors::default();
         for (name, minimum, smallest) in [
-            ("product", 5, "[p]"),
-            ("界界", 6, "[界]"),
-            ("e\u{301}clair", 5, "[e\u{301}]"),
+            ("product", 3, "p"),
+            ("界界", 4, "界"),
+            ("e\u{301}clair", 3, "e\u{301}"),
         ] {
             for attention in [
                 Attention::default(),
@@ -793,10 +785,10 @@ mod tests {
                         "{text}"
                     );
                     if width >= minimum {
-                        assert!(text.contains('[') && text.contains(']'), "{text}");
+                        assert!(!text.contains('[') && !text.contains(']'), "{text}");
                         if attention.waiting > 0 {
                             assert!(
-                                text.starts_with("◆ [") && text.trim_end().ends_with(" 2 ✗ 1"),
+                                text.starts_with("◆ ") && text.trim_end().ends_with(" 2 ✗ 1"),
                                 "{text}"
                             );
                             assert_eq!(fitted.spans[0].style.fg, look.role(Role::Waiting).fg);
@@ -817,7 +809,7 @@ mod tests {
                     } else {
                         assert!(
                             !text.contains('[') && !text.contains(']'),
-                            "uncovered name cue: {text}"
+                            "fitted names have no decoration: {text}"
                         );
                         if width == 1 && attention.waiting > 0 {
                             assert_eq!(text, "◆");
@@ -843,13 +835,24 @@ mod tests {
             let text = line.to_string();
             assert_eq!(line.width(), width);
             assert_eq!(text.matches('[').count(), text.matches(']').count());
-            if width >= 15 {
-                assert!(
-                    text.contains("[t]") || text.contains("[tmt]") || text.contains("[t…]"),
-                    "{text}"
-                );
+            if width >= 13 {
+                assert!(text.contains("▚ t"), "{text}");
             }
         }
+    }
+
+    #[test]
+    fn authored_tab_brackets_and_escaped_controls_are_preserved() {
+        let look = Look::default();
+        let colors = TabColors::default();
+        let name = "[authored]\n界e\u{301}";
+        let escaped = tmt_cli_style::table::escape(name);
+        for selected in [false, true] {
+            let label = tab(look, name, selected, false, Attention::default(), &colors);
+            assert_eq!(label.spans[2].content, escaped);
+            assert_eq!(label.width(), 2 + escaped.width());
+        }
+        assert_eq!(pane_tab(look, "[detail]", true).content, "[detail]");
     }
 
     #[test]
@@ -893,7 +896,7 @@ mod tests {
     }
 
     #[test]
-    fn shown_brackets_are_inside_measured_hits_and_overflow_remains_reachable() {
+    fn shown_names_are_inside_measured_hits_and_overflow_remains_reachable() {
         for key in [tabs::ALL, tabs::LEADS, "@tab:authored", "tmt-core"] {
             let mut app = tabline_board();
             app.tabs.insert(2, "@tab:authored".into());
@@ -911,12 +914,19 @@ mod tests {
                     .take(hit.width as usize)
                     .collect();
                 assert!(
-                    shown.contains('[') && shown.contains(']'),
+                    !shown.contains('[') && !shown.contains(']'),
                     "{key}/{width}: {line}"
                 );
-                let open = shown.find('[').unwrap() as u16 + hit.x;
-                let close = shown.find(']').unwrap() as u16 + hit.x;
-                for x in [hit.x, open, close, hit.x + hit.width - 1] {
+                let name = if key == tabs::ALL {
+                    "tmt"
+                } else if key == "tmt-core" && line.contains("tmt ·") {
+                    "core"
+                } else {
+                    tabs::label(key)
+                };
+                assert!(shown.contains(name), "{key}/{width}: {shown}");
+                let name_start = shown.find(name).unwrap() as u16 + hit.x;
+                for x in [hit.x, name_start, hit.x + hit.width - 1] {
                     assert_eq!(
                         app.mouse(
                             MouseEvent {
@@ -1195,7 +1205,7 @@ mod tests {
                 .unwrap();
             let buffer = terminal.backend().buffer();
             assert_eq!(buffer[(0, 0)].fg, Style::new().fg.unwrap_or_default());
-            assert_eq!(buffer[(14, 0)].fg, Style::new().fg.unwrap_or_default());
+            assert_eq!(buffer[(12, 0)].fg, Style::new().fg.unwrap_or_default());
             assert_eq!(buffer[(2, 0)].fg, look.role(Role::Text).fg.unwrap());
             for x in 0..width {
                 assert_eq!(buffer[(x, 0)].bg, look.selection().bg.unwrap());
@@ -1231,7 +1241,7 @@ mod tests {
             .collect();
         assert!(line.starts_with("‹ "), "{line:?}");
         assert!(
-            line.contains(" [sq4] "),
+            line.contains(" sq4 "),
             "the current tab stays in view: {line:?}"
         );
         assert!(line.contains(" ›") && line.contains("sq8 ◆ 2"), "{line:?}");
@@ -1249,7 +1259,7 @@ mod tests {
         let hits = app.tab_hits.borrow().clone();
         assert!(hits.iter().all(|hit| hit.tab >= app.tab_start.get()));
         let current = hits.iter().find(|hit| hit.tab == 4).unwrap();
-        let at = line[..line.find("  [sq4]").unwrap()].chars().count() as u16;
+        let at = line[..line.find("  sq4").unwrap()].chars().count() as u16;
         assert_eq!(current.x, at);
     }
 
@@ -1272,15 +1282,15 @@ mod tests {
             for (width, expected) in [
                 (
                     160,
-                    " ▚ [tmt] ◆ 3 ✗ 2    leads   mamezu tmt · ◆ colab 1 ✗ core 1   infra ◆ remote 2 ✗ 1   squad   design   docs ✗ perf 2   tools   long-running-squad +3 › quiet …",
+                    " ▚ tmt ◆ 3 ✗ 2    leads   mamezu tmt · ◆ colab 1 ✗ core 1   infra ◆ remote 2 ✗ 1   squad   design   docs ✗ perf 2   tools   long-running-squad +3 › quiet ops …",
                 ),
                 (
                     100,
-                    " ▚ [tmt] ◆ 3 ✗ 2    leads   mamezu tmt · ◆ colab 1 ✗ core 1   infra ◆ remote 2 ✗ 1 +9 › perf ✗ 2 …",
+                    " ▚ tmt ◆ 3 ✗ 2    leads   mamezu tmt · ◆ colab 1 ✗ core 1   infra ◆ remote 2 ✗ 1 +9 › perf ✗ 2 …",
                 ),
                 (
                     80,
-                    " ▚ [tmt] ◆ 3 ✗ 2    leads   mamezu ◆ tmt-colab 1 +12 › tmt-remote ◆ 2 ✗ 1 …",
+                    " ▚ tmt ◆ 3 ✗ 2    leads   mamezu ◆ tmt-colab 1 +12 › tmt-remote ◆ 2 ✗ 1 …",
                 ),
             ] {
                 for (current, selected) in [(tabs::ALL, true), ("tmt-colab", false)] {
@@ -1369,10 +1379,7 @@ mod tests {
             let assert_selected = |app: &App, expected: usize| {
                 let width = 113;
                 let line = draw(app, width, 20)[0].clone();
-                assert!(
-                    (line.contains("▚ [tmt]") || line.contains("▚ tmt")) && line.contains("ux"),
-                    "{line}"
-                );
+                assert!(line.contains("▚ tmt") && line.contains("ux"), "{line}");
                 let mut terminal = Terminal::new(TestBackend::new(width, 20)).unwrap();
                 terminal.draw(|frame| render(frame, app)).unwrap();
                 let buffer = terminal.backend().buffer();
@@ -1637,7 +1644,7 @@ mod tests {
         let app = tabline_board();
         app.tab_start.set(10);
         let line = draw(&app, 32, 6)[0].clone();
-        assert!(line.contains("▚ [tmt]"), "{line}");
+        assert!(line.contains("▚ tmt"), "{line}");
         assert!(line.contains("‹ 10"), "{line}");
         let hits = app.tab_hits.borrow();
         assert_eq!(hits.len(), 1);
@@ -1652,7 +1659,7 @@ mod tests {
         app.hidden = vec!["hidden-squad".into()];
         app.pinned = app.tabs.len();
         let line = draw(&app, 32, 6)[0].clone();
-        assert!(line.starts_with("  [hidden-squad] (hidden)"), "{line}");
+        assert!(line.starts_with("  hidden-squad (hidden)"), "{line}");
         assert!(
             app.tab_hits.borrow().is_empty(),
             "hidden current leaves no room for pins"
@@ -1737,7 +1744,7 @@ mod tests {
         let line: String = (0..42)
             .map(|x| buffer[(x, 0)].symbol().to_owned())
             .collect();
-        assert!(line.starts_with("◆ [quiet] (hidden) 1 ✗ 2 "), "{line:?}");
+        assert!(line.starts_with("◆ quiet (hidden) 1 ✗ 2 "), "{line:?}");
         assert!(buffer[(2, 0)].modifier.contains(Modifier::BOLD));
         // The selected tab's name is a word on the selection background.
         assert_eq!(buffer[(2, 0)].fg, app.look().role(Role::Text).fg.unwrap());
@@ -1746,7 +1753,7 @@ mod tests {
             app.look().role(Role::Waiting).fg.unwrap()
         );
         assert_eq!(
-            buffer[(21, 0)].fg,
+            buffer[(19, 0)].fg,
             app.look().role(Role::Blocked).fg.unwrap()
         );
         assert!(
@@ -1777,7 +1784,7 @@ mod tests {
             "the pin stays first: {line:?}"
         );
         assert!(
-            line.contains(" [sq8]"),
+            line.contains(" sq8"),
             "the current tab is in view: {line:?}"
         );
         let hits = app.tab_hits.borrow().clone();

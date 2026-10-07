@@ -194,18 +194,10 @@ fn build(key: &Key) -> Block {
             })
         })
         .collect::<Vec<_>>();
-    let mut data = key.data.clone();
-    for row in data["rows"].as_array_mut().into_iter().flatten() {
-        if row["id"].as_str() == selected
-            && let Some(mark) = row["mark"].as_str()
-        {
-            row["mark"] = json!(look.selected_prefix(mark, true));
-        }
-    }
     let painted: Painted = scene::paint(
         FILE,
         template(),
-        &data,
+        &key.data,
         key.width,
         &mut |Part {
                   id: node,

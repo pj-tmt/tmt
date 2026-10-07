@@ -41,16 +41,9 @@ pub(crate) fn glyph_error(text: &str) -> Option<String> {
         .chain(['◐', '✎'])
         .collect::<std::collections::BTreeSet<_>>();
     for line in text.lines() {
-        // Selection occupies one existing prefix blank. Recognize only the admitted
-        // local row prefixes; surrounding canvas/pane text is not a prefix.
-        let prefix = line.chars().take(4).collect::<Vec<_>>();
-        let grid_cue = prefix.len() >= 2
-            && states.contains(&prefix[0])
-            && prefix[1] == '>'
-            && prefix.get(2) != Some(&'>');
-        let mut chars = line.chars().enumerate().peekable();
+        let mut chars = line.chars().peekable();
         let mut previous: Option<char> = None;
-        while let Some((column, character)) = chars.next() {
+        while let Some(character) = chars.next() {
             let structural = STRUCTURAL_GLYPHS.iter().any(|(glyphs, reason)| {
                 assert!(!reason.is_empty());
                 glyphs.contains(character)
@@ -68,16 +61,10 @@ pub(crate) fn glyph_error(text: &str) -> Option<String> {
             if states.contains(&character)
                 && !character.is_ascii()
                 && previous.is_some_and(|previous| !previous.is_whitespace())
-                && !((column == 1 && prefix.first() == Some(&'>'))
-                    || (column == 2
-                        && (prefix.starts_with(&['│', '>']) || prefix.starts_with(&[' ', '>']))))
             {
                 return Some(format!("state mark {character:?} needs a leading space"));
             }
-            if states.contains(&character)
-                && chars.peek().map(|(_, c)| *c) != Some(' ')
-                && !(column == 0 && grid_cue)
-            {
+            if states.contains(&character) && chars.peek().copied() != Some(' ') {
                 return Some(format!("state mark {character:?} needs a trailing space"));
             }
             previous = Some(character);
@@ -117,34 +104,11 @@ fn glyph_guard_rejects_unregistered_ambiguous_and_emoji_decorations_and_unspaced
 }
 
 #[test]
-fn selection_prefix_exceptions_are_local_single_cell_and_keep_other_guards() {
-    use unicode_width::UnicodeWidthStr;
-    for (before, after) in [
-        ("◆ row", "◆>row"),
-        (" ◆ row", ">◆ row"),
-        ("│ ◆ row", "│>◆ row"),
-        ("  ◆ row", " >◆ row"),
-    ] {
-        assert_eq!(before.width(), after.width());
-        assert_eq!(glyph_error(after), None);
-    }
-    assert_eq!(glyph_error("◆>row\n>◆ row\n│>◆ row\n >◆ row"), None);
-    for bad in [
-        " ◆>row",
-        "label>◆ row",
-        "◆>>row",
-        ">>◆ row",
-        "│>>◆ row",
-        " >>◆ row",
-        "  >◆ row",
-        ">◆row",
-        "│>◆row",
-        " >◆row",
-        "◆>row ✗bad",
-        "◆>row\nlabel>◆ row",
-        ">◆ row\n◆✗",
-        "│>◆ row\n😀 decoration",
-    ] {
+fn retired_occurrence_prefixes_do_not_relax_semantic_mark_spacing() {
+    for bad in ["◆>row", ">◆ row", "│>◆ row", " >◆ row", "label>◆ row"] {
         assert!(glyph_error(bad).is_some(), "negative control {bad:?}");
+    }
+    for good in ["◆ row", " ◆ row", "  ◆ row", " │ ◆ row"] {
+        assert_eq!(glyph_error(good), None, "positive control {good:?}");
     }
 }
