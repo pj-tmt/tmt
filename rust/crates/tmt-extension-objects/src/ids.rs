@@ -1,6 +1,9 @@
 //! Canonical identifiers and fixed-width binary values. Every constructor accepts
 //! exactly one spelling of a value, so a parsed value re-encodes to the same text.
-use crate::error::ErrorClass;
+use crate::{
+    error::ErrorClass,
+    limits::{CHUNK_BYTES, POLICY_BYTES},
+};
 use base64::{
     Engine,
     alphabet::URL_SAFE,
@@ -165,6 +168,67 @@ impl Sha256Hex {
 impl fmt::Display for Sha256Hex {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write_hex(f, &self.0)
+    }
+}
+
+/// Characters of unpadded base64url that spell `bytes` bytes.
+const fn encoded_len(bytes: usize) -> usize {
+    bytes / 3 * 4 + [0, 2, 3][bytes % 3]
+}
+/// Decode canonical unpadded base64url of at most `max` bytes. The text length is
+/// checked first, so nothing is sized from input beyond the bound.
+fn bounded_bytes(text: &str, max: usize) -> Result<Vec<u8>, ErrorClass> {
+    if text.len() > encoded_len(max) {
+        return Err(ErrorClass::Value);
+    }
+    BASE64URL.decode(text).map_err(|_| ErrorClass::Value)
+}
+
+/// Opaque policy input of at most [`POLICY_BYTES`], spelled as unpadded base64url.
+/// It carries no meaning here and grants no authority.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct Policy(Vec<u8>);
+impl Policy {
+    pub fn new(bytes: Vec<u8>) -> Result<Self, ErrorClass> {
+        if bytes.len() > POLICY_BYTES {
+            return Err(ErrorClass::Value);
+        }
+        Ok(Self(bytes))
+    }
+    pub fn parse(text: &str) -> Result<Self, ErrorClass> {
+        bounded_bytes(text, POLICY_BYTES).map(Self)
+    }
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.0
+    }
+}
+impl fmt::Display for Policy {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&BASE64URL.encode(&self.0))
+    }
+}
+
+/// Opaque payload bytes of at most [`CHUNK_BYTES`], spelled as unpadded base64url.
+/// Empty is a valid value here; a frame that needs a non-empty part says so itself.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct Chunk(Vec<u8>);
+impl Chunk {
+    pub fn new(bytes: Vec<u8>) -> Result<Self, ErrorClass> {
+        if bytes.len() > CHUNK_BYTES {
+            return Err(ErrorClass::Value);
+        }
+        Ok(Self(bytes))
+    }
+    pub fn parse(text: &str) -> Result<Self, ErrorClass> {
+        bounded_bytes(text, CHUNK_BYTES).map(Self)
+    }
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.0
+    }
+}
+impl fmt::Display for Chunk {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&BASE64URL.encode(&self.0))
     }
 }
 

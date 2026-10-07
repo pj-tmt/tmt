@@ -15,7 +15,7 @@ and `transport` have no I/O, clock, storage or `CoreClient` access):
 | `pairing`, `control`, `devices`        | One pairing offer per run, owner-only control socket for discovery/stop and device list/revoke/rename                                                                                                                 |
 | `mount`, `pages`                       | Extension mounts (allowlisted extensions only), static landing/pairing/error pages and embedded stylesheet/SDK assets                                                                                                 |
 | `objects`                              | Object backend trait and `LocalFs`: the `objects.db` ledger and extension-private payload trees under the serve lease; no route, config or consumer yet                                                               |
-| `tmt-extension-objects` (leaf)         | Remote-owned protocol leaf awaiting product integration: canonical IDs/encodings, protocol bounds and bounded strict JSON admission only; no I/O, backend, policy or Remote/Colab types, and no crate consumes it yet |
+| `tmt-extension-objects` (leaf)         | Remote-owned protocol leaf awaiting product integration: canonical IDs/encodings, bounds, strict JSON admission and typed request/result frames only; no I/O, backend, policy or Remote/Colab types, no consumers yet |
 
 Rules that are easy to get wrong:
 
@@ -82,8 +82,10 @@ library-only and shared with Colab:
 
 Synced publication tests prove filesystem behavior, not power-loss recovery.
 
-The wire leaf `tmt-extension-objects` is library-only and has no consumer yet; its
-tests are in-crate, so run it alone and keep it in the architecture guard:
+The wire leaf `tmt-extension-objects` is library-only and has no consumer yet. It owns the wire
+bounds (`limits`: chunk, policy input, payload); the `tmt-remote` limits of the same value do not
+depend on it, so consumer slices must reuse the leaf bounds or equality-test them against the
+backend limits. Its tests are in-crate, so run it alone and keep it in the architecture guard:
 
 ```bash
 (cd rust && CARGO_BUILD_JOBS=2 cargo test --offline --locked -p tmt-extension-objects)
