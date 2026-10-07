@@ -3,21 +3,21 @@
 use super::*;
 use crate::limits::POLICY_BYTES;
 
-const GENERATION: &str = "7f3c1a52-9d4e-4b86-8a21-5c0e9b7d3f14";
-const ORIGIN: &str = "c1d2e3f4-a5b6-4c7d-9e8f-0a1b2c3d4e5f";
-const TRANSFER: &str = "0b5e6d1c-2a47-4f93-b8e0-61c4d7a92f35";
+pub(super) const GENERATION: &str = "7f3c1a52-9d4e-4b86-8a21-5c0e9b7d3f14";
+pub(super) const ORIGIN: &str = "c1d2e3f4-a5b6-4c7d-9e8f-0a1b2c3d4e5f";
+pub(super) const TRANSFER: &str = "0b5e6d1c-2a47-4f93-b8e0-61c4d7a92f35";
 /// 32 bytes of 0x01 and 0x02, spelled by hand from the base64url alphabet.
-const ONES: &str = "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE";
-const TWOS: &str = "AgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgI";
+pub(super) const ONES: &str = "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE";
+pub(super) const TWOS: &str = "AgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgI";
 /// SHA-256 of the three bytes `abc`.
-const DIGEST: &str = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad";
+pub(super) const DIGEST: &str = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad";
 /// The ASCII bytes `policy` and `abc`.
-const POLICY: &str = "cG9saWN5";
-const ABC: &str = "YWJj";
+pub(super) const POLICY: &str = "cG9saWN5";
+pub(super) const ABC: &str = "YWJj";
 const LOCAL: &str = r#"{"kind":"local-extension"}"#;
 const BROWSER_LIMITS: &str = r#"{"payloadBytes":12582912,"chunkBytes":32768}"#;
 const LOCAL_LIMITS: &str = r#"{"payloadBytes":12582912,"chunkBytes":32768,"namespaceBytes":67108864,"extensionBytes":536870912,"installationBytes":1073741824}"#;
-const STATES: [(&str, State); 5] = [
+pub(super) const STATES: [(&str, State); 5] = [
     ("expired", State::Expired),
     ("discarded", State::Discarded),
     ("unavailable", State::Unavailable),
@@ -37,19 +37,19 @@ const LIMITS: [(&str, Limit); 10] = [
     ("requests", Limit::Requests),
 ];
 
-fn uuid(text: &str) -> Uuid4 {
+pub(super) fn uuid(text: &str) -> Uuid4 {
     Uuid4::parse(text).unwrap()
 }
-fn namespace() -> Bytes32 {
+pub(super) fn namespace() -> Bytes32 {
     Bytes32::parse(ONES).unwrap()
 }
-fn key() -> Bytes32 {
+pub(super) fn key() -> Bytes32 {
     Bytes32::parse(TWOS).unwrap()
 }
-fn digest() -> Sha256Hex {
+pub(super) fn digest() -> Sha256Hex {
     Sha256Hex::parse(DIGEST).unwrap()
 }
-fn policy() -> Policy {
+pub(super) fn policy() -> Policy {
     Policy::new(b"policy".to_vec()).unwrap()
 }
 fn abc() -> Chunk {
@@ -122,7 +122,7 @@ fn config_ok(projection: &str, limits: &str) -> String {
         r#""ok":{{"result":"config","projection":"{projection}","backend":{{"id":"local-fs","source":"default","editable":false}},"capabilities":{{"immutableCreate":true,"chunkedRead":true,"recoverByOriginalId":true}},"limits":{limits}}}"#
     )
 }
-fn with_prefix(body: &str) -> Vec<u8> {
+pub(super) fn with_prefix(body: &str) -> Vec<u8> {
     let mut bytes = (body.len() as u32).to_be_bytes().to_vec();
     bytes.extend_from_slice(body.as_bytes());
     bytes
@@ -402,7 +402,7 @@ fn vectors() -> Vec<(String, Frame, String)> {
     }
     all
 }
-fn sample(name: &str) -> String {
+pub(super) fn sample(name: &str) -> String {
     vectors()
         .into_iter()
         .find(|(vector, _, _)| vector == name)
@@ -410,7 +410,7 @@ fn sample(name: &str) -> String {
         .2
 }
 /// `json` with its one occurrence of `from` replaced by `to`.
-fn mutate(json: &str, from: &str, to: &str) -> String {
+pub(super) fn mutate(json: &str, from: &str, to: &str) -> String {
     assert_eq!(json.matches(from).count(), 1, "{from} must occur once");
     json.replacen(from, to, 1)
 }
@@ -450,9 +450,9 @@ fn every_refusal_is_one_token_from_an_accepted_twin() {
     #[rustfmt::skip]
     let cases: Vec<(&str, &str, String, ErrorClass)> = vec![
         // Kinds, versions, discriminators and field structure.
-        (begin, r#""kind":"request""#, r#""kind":"admit""#.into(), Shape),
-        (begin, r#""kind":"request""#, r#""kind":"admission""#.into(), Shape),
-        (begin, r#""kind":"request""#, r#""kind":"origin-state""#.into(), Shape),
+        (begin, r#""kind":"request""#, r#""kind":"callback""#.into(), Shape),
+        (begin, r#""kind":"request""#, r#""kind":"results""#.into(), Shape),
+        (begin, r#""kind":"request""#, r#""kind":"origin_state""#.into(), Shape),
         (begin, r#""kind":"request""#, r#""kind":"Request""#.into(), Shape),
         (begin, r#""version":1"#, r#""version":2"#.into(), Value),
         (begin, r#""version":1"#, r#""version":"1""#.into(), Shape),

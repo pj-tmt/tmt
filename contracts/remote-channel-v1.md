@@ -994,10 +994,12 @@ Visibility is the extension's rule, not a remote grant.
 
 ### Object channel frames
 
-**Status:** library wire schema only. `rust/crates/tmt-extension-objects` implements and tests the request and result
-frames below; no route, channel, handshake, callback or backend is shipped (#1852), and callback and lifecycle frames
-are not defined yet. A frame names no principal, permission, retry or scope: `method` and the result tag are
-correlation only, and an identifier, digest or origin proves nothing about who may use it.
+**Status:** library wire schema only. `rust/crates/tmt-extension-objects` implements and tests the five frame kinds below
+(request, result, admit, admission and origin-state), all decoded and encoded by the same checks; no route, channel,
+handshake, callback executor or backend is shipped (#1852). The leaf decodes every kind: which side may send which, and
+every generation, high-water, ordering and outstanding-request rule, belong to the later channel. A frame names no
+principal, permission, retry or scope: `method`, the result tag and the callback fields are correlation only, and an
+identifier, digest, context or origin proves nothing about who may use it.
 
 **Framing.** A frame is a 4-byte big-endian length (2 to 65,536) and that many bytes of one strict UTF-8 JSON object
 without duplicate member names (compared after decoding escapes), unknown or missing members, trailing bytes, nesting
@@ -1005,7 +1007,7 @@ deeper than 8, or any number that is not an unsigned integer of at most 2^53-1 w
 Counters are canonical decimal strings spanning `u64`. UUIDs are lowercase version 4. Bytes are unpadded base64url
 (canonical: no padding, standard alphabet or nonzero trailing bits), digests 64 lowercase hex digits, and every value
 re-encodes to the same text. Structure faults (unknown or missing member, wrong JSON type, unknown `kind`, `method`,
-origin kind or result tag) and value faults (a spelling, range or association outside its grammar) are distinct
+origin kind, context kind, disclosure class or result tag) and value faults (a spelling, range or association outside its grammar) are distinct
 classes. Encoding applies the same checks, in the canonical member order shown.
 
 **Request** `{"version":1,"kind":"request","generation":<uuid>,"requestId":<counter>,"origin":<origin>,"method":<method>,"input":<input>}`,
@@ -1053,6 +1055,41 @@ and a `limit` member exactly for `capacity`: `namespace-bytes`, `extension-bytes
 `retained-installation` or `requests`. `not-found` answers only `read`; `unknown` only `begin`, `part`, `commit` and
 `discard`, where an effect may have happened. No error carries message text, and none proves that a possibly published
 effect did not happen.
+
+**Admit** `{"version":1,"kind":"admit","generation":<uuid>,"callbackId":<counter>,"requestId":<counter>,"boundary":<boundary>,"context":<context>,"operation":<operation>}`
+asks the extension to decide at one boundary of one request; `requestId` is the request's own counter. `boundary` is
+`acquire` (before work starts), `effect` (before a durable change; only `begin`, `part`, `commit` and `discard` have one)
+or `disclose` (before a result leaves). `context` states how the request actually arrived, as the service established it
+and never as a browser selected it: `{"kind":"owner-session","originId":<uuid>,"deviceId":<uuid>,"grantRevision":<n>}`
+(`grantRevision` 1 to 2^53-1), `{"kind":"mounted","originId":<uuid>}` or `{"kind":"local-extension"}`. `operation` is
+`{"method":<method>,"input":<input>[,"disclosure":<disclosure>]}`, and `disclosure` is present exactly at `disclose`.
+
+For `config`, `begin`, `status` and `read` the admit `input` is the request input. For `part` it is
+`{"transferId","index","length","retained"}` with `length` 1 to 32,768, and for `commit` and `discard`
+`{"transferId","retained"}`; `retained` is what the transfer froze, `{"namespace","opaqueKey","policyInput","payloadSha256","payloadBytes"}`.
+No callback carries the bytes of a part or of a read: a `bytes` member is an unknown member.
+
+A `disclosure` names the exact class of result about to be disclosed, with the values but never the bytes. Its `class`
+decides its members and the methods that may produce it, the same association as the result tags above:
+
+| `class`    | Members                                                  | Result it announces | Methods                      |
+| ---------- | -------------------------------------------------------- | ------------------- | ---------------------------- |
+| `config`   | `projection`                                             | `config`            | `config`                     |
+| `status`   | `nextIndex`, `received`, `expiresAtMs` only for `status` | `pending`           | `begin`, `status`            |
+| `progress` | `nextIndex`, `received`                                  | `progress`          | `part`                       |
+| `receipt`  | `opaqueKey`, `payloadSha256`, `payloadBytes`             | `committed`         | `begin`, `commit`, `status`  |
+| `terminal` | `state`                                                  | `state`             | `begin`, `status`, `discard` |
+| `bytes`    | `offset`, `length` (0 to 32,768)                         | `read`              | `read`                       |
+
+`discard` discloses only `terminal` with `discarded`. A disclosure never turns an unknown, expired or unavailable state
+into permission to retry or into proof that no earlier effect happened.
+
+**Admission** `{"version":1,"kind":"admission","generation":<uuid>,"callbackId":<counter>,"requestId":<counter>,"decision":<decision>}`
+answers one admit. `decision` is `allow`, `deny` or `unavailable`, and nothing else: the reply has no permit, principal,
+role, target or scope member, and `unavailable` is neither permission nor a statement that no effect happened.
+
+**Origin state** `{"version":1,"kind":"origin-state","generation":<uuid>,"originId":<uuid>,"state":<state>}` announces that
+an origin is `established` or `closed`.
 
 ## Backends and deploy
 
