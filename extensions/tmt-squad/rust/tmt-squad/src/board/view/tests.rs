@@ -775,8 +775,8 @@ fn legacy_four_column_grid_draws_exactly_as_before_at_every_width() {
             [
                 "  MEMBER         STATE      TASK    PR",
                 "NEEDS ME",
-                "◆>auth-fix       blocked    rotate… https://git…",
-                " >  approve",
+                "◆ auth-fix       blocked    rotate… https://git…",
+                "    approve",
                 "EVERYONE",
                 "  文件-sweep-lo… working    整理安… –",
                 "  perf           –          –       –",
@@ -788,8 +788,8 @@ fn legacy_four_column_grid_draws_exactly_as_before_at_every_width() {
             [
                 "  MEMBER         STATE      TASK                PR",
                 "NEEDS ME",
-                "◆>auth-fix       blocked    rotate session tok… https://git…",
-                " >  approve",
+                "◆ auth-fix       blocked    rotate session tok… https://git…",
+                "    approve",
                 "EVERYONE",
                 "  文件-sweep-lo… working    整理安装指南和常见… –",
                 "  perf           –          –                   –",
@@ -801,8 +801,8 @@ fn legacy_four_column_grid_draws_exactly_as_before_at_every_width() {
             [
                 "  MEMBER         STATE      TASK                                    PR",
                 "NEEDS ME",
-                "◆>auth-fix       blocked    rotate session tokens without logging … https://git…",
-                " >  approve",
+                "◆ auth-fix       blocked    rotate session tokens without logging … https://git…",
+                "    approve",
                 "EVERYONE",
                 "  文件-sweep-lo… working    整理安装指南和常见问题                  –",
                 "  perf           –          –                                       –",
@@ -814,8 +814,8 @@ fn legacy_four_column_grid_draws_exactly_as_before_at_every_width() {
             [
                 "  MEMBER         STATE      TASK                                                                            PR",
                 "NEEDS ME",
-                "◆>auth-fix       blocked    rotate session tokens without logging everyone out                              https://git…",
-                " >  approve",
+                "◆ auth-fix       blocked    rotate session tokens without logging everyone out                              https://git…",
+                "    approve",
                 "EVERYONE",
                 "  文件-sweep-lo… working    整理安装指南和常见问题                                                          –",
                 "  perf           –          –                                                                               –",
@@ -832,7 +832,7 @@ fn legacy_four_column_grid_draws_exactly_as_before_at_every_width() {
 fn a_narrow_preset_board_drops_the_link_instead_of_clipping() {
     let screen = draw(&preset_board(), 44, 11);
     assert_eq!(screen[2], "  MEMBER         STATE      TASK");
-    assert_eq!(screen[4], "◆>auth-fix       blocked    rotate session …");
+    assert_eq!(screen[4], "◆ auth-fix       blocked    rotate session …");
     assert!(screen[2..10].iter().all(|line| line.width() <= 44));
 }
 
@@ -866,9 +866,9 @@ lines = [
     );
     assert_eq!(
         wide[3],
-        "◆>auth-fix   blocked   rotate session tokens           #4242"
+        "◆ auth-fix   blocked   rotate session tokens           #4242"
     );
-    assert_eq!(wide[4], " >           approve the rollout plan");
+    assert_eq!(wide[4], "             approve the rollout plan");
     // Nothing to show on the second line: the row keeps one line.
     assert_eq!(
         wide[5],
@@ -877,8 +877,8 @@ lines = [
     // Narrow: the prioritized column steps aside and the span shrinks.
     let narrow = draw(&app, 36, 9);
     assert_eq!(narrow[2], "  MEMBER     STATE     TASK");
-    assert_eq!(narrow[3], "◆>auth-fix   blocked   rotate sessi…");
-    assert_eq!(narrow[4], " >           approve the rollout pl…");
+    assert_eq!(narrow[3], "◆ auth-fix   blocked   rotate sessi…");
+    assert_eq!(narrow[4], "             approve the rollout pl…");
 }
 
 #[test]
@@ -896,8 +896,8 @@ columns = [{ name = "member", width = "30%" },
 "#,
     );
     let screen = draw(&app, 20, 10);
-    assert_eq!(screen[3], " >a     alpha beta");
-    assert_eq!(screen[4], " >      gamma delta");
+    assert_eq!(screen[3], "  a     alpha beta");
+    assert_eq!(screen[4], "        gamma delta");
     assert_eq!(*app.row_starts.borrow(), [1, 3, 5, 7]);
     let hits: Vec<_> = app
         .hits
@@ -953,7 +953,7 @@ fn middle_truncation_keeps_both_ends_of_a_link() {
     app.view.as_mut().unwrap().rows = rows_from(
         "[p.rows]\ncolumns = [{ name = \"member\", width = 6 }, { name = \"link\", width = 20, truncate = \"middle\" }]\n",
     );
-    assert_eq!(draw(&app, 40, 4)[2], " >docs   https://gi…pull/4242");
+    assert_eq!(draw(&app, 40, 4)[2], "  docs   https://gi…pull/4242");
 }
 
 #[test]
@@ -965,11 +965,11 @@ fn rows_ignore_retired_notes_and_show_pending_sections_and_aligned_wide_text() {
     lead_sol(&mut app);
     let screen = draw(&app, 48, 12);
     // The tab line holds only the tabs; the summary has its own line.
-    assert_eq!(screen[0], "  [product]   reviews");
+    assert_eq!(screen[0], "  product   reviews");
     assert_eq!(screen[1], "lead sol · 2 members");
     assert_eq!(screen[2], "  MEMBER     STATE    TASK");
     // The lead is the first row; the rule names what follows.
-    assert_eq!(screen[3], " >sol  lead  working  coordinate");
+    assert_eq!(screen[3], "  sol  lead  working  coordinate");
     assert_eq!(screen[4], format!("── members · 2 {}", "─".repeat(33)));
     assert_eq!(screen[5], "NEEDS ME");
     assert_eq!(screen[6], "◆ auth-fix   blocked  rotate session tokens");
@@ -993,13 +993,13 @@ fn the_lead_tag_sits_in_the_name_cell_and_is_the_first_thing_cut() {
     };
     // Room for the tag: it follows the name by two cells; other rows are unchanged.
     let screen = draw_lead(10);
-    assert_eq!(screen[3], " >sol  lead  working");
+    assert_eq!(screen[3], "  sol  lead  working");
     assert_eq!(screen[5], "  docs       working");
     // Narrow cell: the tag shrinks (ellipsis) before the name does, then goes.
-    assert_eq!(draw_lead(8)[3], " >sol  le… working");
-    assert_eq!(draw_lead(7)[3], " >sol  l… working");
-    assert_eq!(draw_lead(6)[3], " >sol    working");
-    assert_eq!(draw_lead(3)[3], " >sol working");
+    assert_eq!(draw_lead(8)[3], "  sol  le… working");
+    assert_eq!(draw_lead(7)[3], "  sol  l… working");
+    assert_eq!(draw_lead(6)[3], "  sol    working");
+    assert_eq!(draw_lead(3)[3], "  sol working");
 }
 
 #[test]
@@ -1566,11 +1566,11 @@ fn team_pending_line_style_snapshots_and_unstyled_control() {
     // Literal text/style snapshots of the real rendered pending span, including padding.
     const TRUE_COLOR: &str = r#""                               approve rollout                                  "
 [(2, "Reset/Reset/Reset/NONE/None"), (17, "Rgb(133, 133, 133)/Reset/Reset/NONE/None"), (1, "Reset/Reset/Reset/NONE/None"), (10, "Rgb(133, 133, 133)/Reset/Reset/NONE/None"), (1, "Reset/Reset/Reset/NONE/None"), (49, "Rgb(255, 158, 100)/Reset/Reset/NONE/None")]
-" >                             approve rollout                                  "
+"                               approve rollout                                  "
 [(80, "Rgb(216, 216, 216)/Rgb(43, 43, 43)/Reset/NONE/None")]"#;
     const ANSI16: &str = r#""                               approve rollout                                  "
 [(2, "Reset/Reset/Reset/NONE/None"), (17, "Reset/Reset/Reset/DIM/None"), (1, "Reset/Reset/Reset/NONE/None"), (10, "Reset/Reset/Reset/DIM/None"), (1, "Reset/Reset/Reset/NONE/None"), (49, "Yellow/Reset/Reset/NONE/None")]
-" >                             approve rollout                                  "
+"                               approve rollout                                  "
 [(31, "Reset/Reset/Reset/REVERSED/None"), (49, "Reset/Reset/Reset/BOLD | REVERSED/None")]"#;
     let config: toml_edit::DocumentMut = "[squad.product]\nlayout='team'\n".parse().unwrap();
     let path = std::env::temp_dir().join(format!("tmt-line-style-{}.toml", std::process::id()));
@@ -1746,7 +1746,7 @@ fn light_body_chrome_and_selection_use_the_theme_and_no_color_keeps_focus() {
 }
 
 #[test]
-fn selected_tabs_add_measured_name_brackets_and_keep_semantic_mark_styles() {
+fn selected_tabs_keep_undecorated_names_and_semantic_mark_styles() {
     for base in tmt_cli_style::Base::ALL {
         for depth in [
             tmt_cli_style::Depth::TrueColor,
@@ -1798,9 +1798,9 @@ fn selected_tabs_add_measured_name_brackets_and_keep_semantic_mark_styles() {
                     attention,
                     &TabColors::default(),
                 );
-                assert_eq!(selected.to_string(), text.replace("product", "[product]"));
+                assert_eq!(selected.to_string(), text);
                 assert_eq!(unselected.to_string(), text);
-                assert_eq!(selected.width(), unselected.width() + 2);
+                assert_eq!(selected.width(), unselected.width());
                 for (label, chosen) in [(selected, true), (unselected, false)] {
                     let normal = if chosen {
                         Style {
@@ -1821,9 +1821,9 @@ fn selected_tabs_add_measured_name_brackets_and_keep_semantic_mark_styles() {
                         .unwrap();
                     let buffer = terminal.backend().buffer();
                     assert_eq!(
-                        buffer[(2 + u16::from(chosen), 0)].symbol(),
+                        buffer[(2, 0)].symbol(),
                         "p",
-                        "the name follows the slot and the admitted opening bracket"
+                        "the undecorated name follows the reserved slot"
                     );
                     for x in 0..width {
                         let role = if x == 0 && attention.waiting > 0 {
@@ -1831,8 +1831,7 @@ fn selected_tabs_add_measured_name_brackets_and_keep_semantic_mark_styles() {
                         } else if (x == 0 && attention.blocked > 0)
                             || (attention.waiting > 0
                                 && attention.blocked > 0
-                                && (12 + u16::from(chosen) * 2..15 + u16::from(chosen) * 2)
-                                    .contains(&x))
+                                && (12..15).contains(&x))
                         {
                             Some(Role::Blocked)
                         } else {
@@ -1857,9 +1856,9 @@ fn selected_tabs_add_measured_name_brackets_and_keep_semantic_mark_styles() {
             }
             let selected = pane_tab(look, "detail", true);
             let unselected = pane_tab(look, "detail", false);
-            assert_eq!(selected.content, "[detail]");
+            assert_eq!(selected.content, "detail");
             assert_eq!(unselected.content, " detail ");
-            assert_eq!(selected.width(), unselected.width());
+            assert_eq!(selected.width() + 2, unselected.width());
             assert_eq!(selected.style.fg, look.role(Role::Accent).fg);
             assert_eq!(selected.style.bg, selection.bg);
             assert!(selected.style.add_modifier.contains(Modifier::BOLD));
@@ -2687,7 +2686,7 @@ fn tabs_carry_attention_by_color_and_count_and_the_summary_has_its_own_line() {
         .map(|x| buffer[(x, 0)].symbol().to_owned())
         .collect();
     // Counts say what the color says, so no meaning is color-only.
-    assert_eq!(tabs.trim_end(), "◆ [product] 1 ✗ 1 ✗ reviews 2");
+    assert_eq!(tabs.trim_end(), "◆ product 1 ✗ 1 ✗ reviews 2");
     let column = |name: &str| tabs[..tabs.find(name).unwrap()].chars().count() as u16;
     let product = &buffer[(column("product"), 0)];
     // Waiting wins over blocked; selection is bold without moving the tab.
@@ -2754,11 +2753,11 @@ fn attention_counts_keep_shared_marks_and_tab_width_without_color() {
     let colors = TabColors::default();
     let plain = tab(app.look(), "product", false, false, counts, &colors);
     let selected = tab(app.look(), "product", true, false, counts, &colors);
-    assert_eq!(selected.to_string(), "◆ [product] 2 ✗ 1");
+    assert_eq!(selected.to_string(), "◆ product 2 ✗ 1");
     assert_eq!(plain.to_string(), "◆ product 2 ✗ 1");
-    assert_eq!(selected.width(), plain.width() + 2);
+    assert_eq!(selected.width(), plain.width());
     assert_eq!(selected.style.fg, None);
-    assert!(draw(&app, 60, 8)[0].contains("◆ [product] 2 ✗ 1"));
+    assert!(draw(&app, 60, 8)[0].contains("◆ product 2 ✗ 1"));
     app.switcher = Some(Switcher::new("product".into()));
     assert!(draw(&app, 60, 18).iter().any(|line| line.contains("[x]")
         && line.contains("product")
@@ -2859,10 +2858,10 @@ fn the_leads_tab_is_labelled_leads_and_counts_squad_leads() {
         view: Ok(view),
     });
     let screen = draw(&app, 60, 6);
-    assert_eq!(screen[0], "  product   [leads]");
+    assert_eq!(screen[0], "  product   leads");
     assert_eq!(screen[1], "2 squad leads");
     assert_eq!(screen[2], "  SQUAD          LEAD           STATE      TASK");
-    assert_eq!(screen[3], " >product        sol            working    plan");
+    assert_eq!(screen[3], "  product        sol            working    plan");
 }
 
 #[test]
@@ -2894,7 +2893,7 @@ fn tabs_move_with_shift_arrows_or_a_drag_and_the_order_is_saved() {
 
     // Drag: press on the first tab (showing it), release over the last.
     let screen = draw(&app, 60, 6);
-    assert_eq!(screen[0], "  reviews   leads   [product]");
+    assert_eq!(screen[0], "  reviews   leads   product");
     let mouse = |kind, column| MouseEvent {
         kind,
         column,
@@ -3022,9 +3021,9 @@ fn switching_squads_never_moves_a_tab_or_blanks_the_frame() {
     // The shown owner remains selected until the requested view is ready.
     assert_eq!(
         before[0], during[0],
-        "pending requests do not move shown-tab brackets"
+        "pending requests retain shown-tab names and positions"
     );
-    assert_eq!(before[0].trim_end(), "  [product]   reviews");
+    assert_eq!(before[0].trim_end(), "  product   reviews");
     assert!(
         during[1].contains("Opening reviews"),
         "a slow switch shows a spinner"
@@ -3047,7 +3046,7 @@ fn tabs_show_one_pane_and_tab_moves_focus() {
     let mut app = paned(tabs, Notes::Missing);
     let screen = draw(&app, 70, 11);
     assert!(
-        screen[2].starts_with("[rows]  replies   notes"),
+        screen[2].starts_with("rows  replies   notes"),
         "{screen:#?}"
     );
     assert!(screen.iter().any(|line| line.contains("auth-fix")));
@@ -3056,9 +3055,9 @@ fn tabs_show_one_pane_and_tab_moves_focus() {
     };
     tab(&mut app);
     let screen = draw(&app, 70, 11);
-    // Same columns as before the switch: only the brackets move.
+    // The selected pane loses only its brackets; other pane padding stays.
     assert!(
-        screen[2].starts_with(" rows  [replies]  notes"),
+        screen[2].starts_with(" rows  replies  notes"),
         "{screen:#?}"
     );
     assert!(
@@ -4722,7 +4721,7 @@ columns = [{name = "member", width = 18}, {name = "task", grow = 1, overflow = "
 }
 
 #[test]
-fn occurrence_cues_follow_content_and_clip_without_changing_hits_or_feedback() {
+fn occurrence_selection_keeps_prefix_blanks_content_hits_and_feedback() {
     let member = row(
         "duplicate",
         "working",
@@ -4771,11 +4770,15 @@ columns = [{name="member", width=12}, {name="task", width=12, overflow="wrap", m
         );
         let lines = detail_text(&selected);
         assert!(
-            lines.iter().filter(|line| line.starts_with(" >")).count() >= 3,
-            "wrapped content and automatic question each carry a cue"
+            lines
+                .iter()
+                .filter(|line| line.starts_with("  ") && !line.trim().is_empty())
+                .count()
+                >= 3,
+            "wrapped content and automatic question retain their prefix blanks"
         );
         assert!(
-            lines[scene.starts[0]].starts_with("◆>"),
+            lines[scene.starts[0]].starts_with("◆ "),
             "attention diamond stays at x0"
         );
         assert!(
@@ -4792,14 +4795,18 @@ columns = [{name="member", width=12}, {name="task", width=12, overflow="wrap", m
             }
         }
         for y in 0..24 {
+            if hits.iter().any(|hit| hit.y == y) {
+                assert_eq!(selected[(1, y)].symbol(), " ", "reserved row prefix at {y}");
+            }
             for x in 0..50 {
-                if selected[(x, y)].symbol() != other[(x, y)].symbol() {
-                    assert_eq!(x, 1, "only the existing prefix changes text");
-                    assert!([" ", ">"].contains(&selected[(x, y)].symbol()));
-                }
+                assert_eq!(
+                    selected[(x, y)].symbol(),
+                    other[(x, y)].symbol(),
+                    "selection changes styles only at {x},{y}"
+                );
             }
         }
-        // A one-cell clip admits the diamond but has no occurrence-cue cell.
+        // A one-cell clip admits the diamond without exposing a prefix cell.
         let clip = Rect::new(0, 0, 1, 24);
         let mut narrow = ratatui::buffer::Buffer::empty(clip);
         let narrow_hits = scene.paint(&mut narrow, clip, 0, 0, app.look());
@@ -4815,7 +4822,7 @@ columns = [{name="member", width=12}, {name="task", width=12, overflow="wrap", m
             0,
             app.look(),
         );
-        assert_eq!(scrolled[(1, 0)].symbol(), ">");
+        assert_eq!(scrolled[(1, 0)].symbol(), " ");
         assert!(visible.iter().all(|hit| hit.y < 2 && hit.row == 0));
         assert_eq!(view.document, document);
     }
@@ -4841,9 +4848,19 @@ fn receiving_focus_labels_keep_title_footer_and_input_ownership_separate() {
     let unfocused = draw(&app, 80, 20);
     assert!(unfocused.iter().any(|line| line.contains("Focus: notes")));
     assert!(!unfocused.iter().any(|line| line.contains("Focus: rows")));
-    assert!(
-        unfocused.iter().any(|line| line.contains(" >selected")),
-        "selection persists outside receiving pane"
+    let y = unfocused
+        .iter()
+        .position(|line| line.contains("  selected"))
+        .unwrap() as u16;
+    let buffer = board_buffer(&app, 80, 20);
+    assert_eq!(buffer[(1, y)].symbol(), " ");
+    assert_eq!(
+        buffer[(2, y)].bg,
+        app.look().selection().bg.unwrap_or_default()
+    );
+    assert_eq!(
+        buffer[(2, y)].modifier.contains(Modifier::REVERSED),
+        app.look().selection().bg.is_none()
     );
     app.focus = 0;
     app.help = true;
@@ -5087,4 +5104,94 @@ fn switcher_cursor_moves_without_changing_picks_attention_or_query() {
             );
         }
     }
+}
+
+#[test]
+fn boxed_duplicate_selection_keeps_heading_task_blanks_targets_and_drafts() {
+    crate::status::with_now_ms(1_900_000_000_000, || {
+        for width in [80, 100, 160, 180] {
+            for (base, depth) in [
+                (tmt_cli_style::Base::Tmt, tmt_cli_style::Depth::TrueColor),
+                (
+                    tmt_cli_style::Base::TmtLight,
+                    tmt_cli_style::Depth::TrueColor,
+                ),
+                (tmt_cli_style::Base::Terminal, tmt_cli_style::Depth::Ansi16),
+                (tmt_cli_style::Base::Tmt, tmt_cli_style::Depth::None),
+            ] {
+                let member = row(
+                    "duplicate",
+                    "working",
+                    "authored > task [draft]",
+                    json!({"id":"SAME"}),
+                );
+                let mut app = boxed_members(json!([
+                    {"title":"first", "rows":[member.clone()]},
+                    {"title":"second", "rows":[member]}
+                ]));
+                app.view.as_mut().unwrap().look = crate::look::Look {
+                    theme: tmt_cli_style::Theme::new(base),
+                    depth,
+                };
+                let document = app.view.as_ref().unwrap().document.clone();
+                let targets = [app.row_target(1).unwrap(), app.row_target(2).unwrap()];
+                assert_ne!(targets[0], targets[1]);
+                app.selected = 1;
+                let first = board_buffer(&app, width, 24);
+                let hits = format!("{:?}", app.hits.borrow());
+                let starts = app.row_starts.borrow().clone();
+                app.selected = 2;
+                let second = board_buffer(&app, width, 24);
+                assert_eq!(format!("{:?}", app.hits.borrow()), hits);
+                assert_eq!(*app.row_starts.borrow(), starts);
+                for (a, b) in first.content.iter().zip(&second.content) {
+                    assert_eq!(a.symbol(), b.symbol(), "selection preserves authored text");
+                }
+                for (index, buffer) in [(1, &first), (2, &second)] {
+                    let y = app
+                        .hits
+                        .borrow()
+                        .iter()
+                        .find(|hit| hit.row == index)
+                        .unwrap()
+                        .y;
+                    for line in [y, y + 1] {
+                        let blank = &buffer[(1, line)];
+                        assert_eq!(blank.symbol(), " ");
+                        assert_eq!(blank.bg, app.look().selection().bg.unwrap_or_default());
+                        assert_eq!(
+                            blank.modifier.contains(Modifier::REVERSED),
+                            app.look().selection().bg.is_none()
+                        );
+                    }
+                    assert!(
+                        detail_text(buffer)[usize::from(y + 1)].contains("authored > task [draft]")
+                    );
+                }
+                assert_eq!(app.row_target(1).as_ref(), Some(&targets[0]));
+                assert_eq!(app.row_target(2).as_ref(), Some(&targets[1]));
+                app.key(KeyEvent::new(KeyCode::Char('e'), KeyModifiers::NONE));
+                let reading = board_buffer(&app, width, 24);
+                let band = app.input_band.get().unwrap();
+                assert_eq!(reading[(1, band.y - 1)].symbol(), " ");
+                assert!(matches!(
+                    app.input.as_ref().unwrap().compose,
+                    crate::board::app::Compose::ReadRow { .. }
+                ));
+                assert!(
+                    !app.hits
+                        .borrow()
+                        .iter()
+                        .any(|hit| (band.y..band.bottom()).contains(&hit.y))
+                );
+                app.key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE));
+                app.input.as_mut().unwrap().text = "Keep > [draft]".into();
+                board_buffer(&app, width, 24);
+                app.key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+                board_buffer(&app, width, 24);
+                assert_eq!(app.input.as_ref().unwrap().text, "Keep > [draft]");
+                assert_eq!(app.view.as_ref().unwrap().document, document);
+            }
+        }
+    });
 }

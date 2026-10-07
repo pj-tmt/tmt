@@ -178,8 +178,7 @@ the lead like any row. A squad without a lead keeps its member rows as they
 are. Text `ls` lists the lead first in its own `LEAD` section before `MEMBERS`;
 `--json` is unchanged.
 
-The home tab is `▚ tmt`, with ◆ waiting and ✗ blocked counts outside
-the shown-name brackets (`▚ [tmt]`). Its command/config name remains `all`. With neither `tabs.order`
+The home tab is `▚ tmt`, with ◆ waiting and ✗ blocked counts after its name. Its command/config name remains `all`. With neither `tabs.order`
 nor `tabs.pin` configured, home is pinned first, followed by leads and squads.
 An explicit order or pin, including an empty array, keeps the existing ordering
 policy; hide always applies. Opening the board writes no configuration.
@@ -217,13 +216,11 @@ blocked, then quiet, retaining arrangement order within each tier. Names remain
 full unless a visible group prefix makes them unambiguous. If configured pins
 leave no room for the current tab, pins step aside from the end, except the
 current pin; their stored order stays unchanged. A label wider than the available
-cells is shortened with `…`. The shown name keeps matched brackets; attention
-marks and counts stay outside. At the minimum name width, a clipped grapheme
-can replace the ellipsis so the cue still identifies a name. If the fixed slots
-and one name grapheme plus both brackets cannot fit, the complete bracket cue
-is omitted and the ordinary prefix is fitted; at one cell a leading attention
-mark wins over the ellipsis. This narrow fallback cannot identify the shown tab
-without selection styling. Hidden tabs opened through the switcher remain
+cells is shortened with `…`. The shown name keeps semantic marks and counts
+when a name grapheme fits. At the minimum name width, a clipped grapheme can
+replace the ellipsis. Otherwise the ordinary prefix is fitted; at one cell a
+leading attention mark wins over the ellipsis. Selection is conveyed by the
+existing background, bold and no-background reverse styling. Hidden tabs opened through the switcher remain
 selected and marked `(hidden)`, without a drag target. There are no number keys.
 
 `ctrl-r` refreshes the board in squad, leads and all views, including while
@@ -244,8 +241,9 @@ partial/unavailable explanations, `muted` for context and key hints, and `dim`
 for separators and incidental metadata. HOME summary state glyphs keep their
 semantic roles; their words and counts use `text`. Tab marks retain configured
 waiting/blocked colors, independently of neutral names. Shown top-level names
-use matched brackets and the theme's `selection` background with bold, including
-HOME. Requested targets are underlined and say `Opening`; the shown document
+use the theme's `selection` background with bold, including
+HOME. Row headings and tasks retain their blank indentation; selection adds no
+prefix glyph. Pane tab names also have no added decoration. Requested targets are underlined and say `Opening`; the shown document
 keeps selection until the request loads or fails. A terminal without a selection
 background uses reverse video, including `NO_COLOR`. On a real selection
 background the final word policy uses readable `text`, while semantic marks

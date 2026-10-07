@@ -52,7 +52,8 @@ and audience effects to [config-and-effects.md](config-and-effects.md#home-lead-
   cursor once more; `select` and the composer clear it. Squad tabs start at row 0.
 - `home::leads` projects deferred exchanges into the shared `view::member_list`
   `Outline` box. Every visible line of
-  a lead maps to the same cursor target. A blank boxed line follows an exchange
+  a lead maps to the same cursor target. Selection styles only its heading,
+  preserving the blank indentation and acquired preview text. A blank boxed line follows an exchange
   before the next lead; consecutive leads without exchanges have no separator.
   Disabling replies removes previews and separators together. Expanded messages
   replace their preview below the header, using the shared band and height cap

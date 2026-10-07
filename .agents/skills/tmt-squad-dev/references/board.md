@@ -76,12 +76,11 @@ and covered-hit removal. Ask-lead, settings, pickers and cron overlays stay squa
   text or end label. The lead tag stays inside the member cell, cuts before the
   name, disappears below two cells and reserves no width on other rows. Age/cron
   room is reserved only if it hides no additional column; cron drops before age.
-- Occurrence selection reuses the existing blank prefix: grid x=1 (keeping the
-  attention diamond at x=0), or the boxed heading/task indentation. Only selected
-  `Part.row` content and measured continuations receive `>`; hit/reveal ranges,
-  annotation, sent feedback, borders and input/read reservations do not define
-  selected paint. Duplicate occurrences remain independent. HOME boxed leads
-  select their heading only; member boxes also select their task line.
+- Occurrence selection changes styles while preserving the existing blank prefixes:
+  grid x=1 beside the attention diamond, and boxed heading/task indentation.
+  Hit/reveal ranges, annotation, sent feedback, borders and input/read reservations
+  do not define selected paint. Duplicate occurrences remain independent. HOME
+  boxed leads select their heading only; member boxes also select their task line.
 - Selection words: `Look::selected_words` is the one owner of what a real selection
   background (`tmt`, `tmt-light`) does to colors. `render_frame` runs it last, over the
   finished buffer: on a cell with the selection background, `muted`, `dim`, `accent`, `link` and the
@@ -153,10 +152,9 @@ is omitted; optional hints still fit whole through the existing owner.
 ## Tabs and retained views
 
 - `view::tabs` measures styled `tab_label` widths for windowing, overflow and hits;
-  shown-name selection adds two measured bracket cells, with attention outside.
-  Its name fitting preserves both brackets and semantic suffixes when a name
-  grapheme fits; otherwise it omits the complete cue and uses the ordinary prefix
-  fallback (a one-cell leading attention mark wins over the ellipsis). `tabs::arrange` owns order/pins. Window admission
+  shown names retain their authored text without added decoration. Shown-name
+  fitting preserves semantic suffixes when a name grapheme fits; otherwise it uses
+  the ordinary prefix fallback (a one-cell attention mark wins over the ellipsis). `tabs::arrange` owns order/pins. Window admission
   uses measured group/overflow widths and preserves the current tab even when other
   pins must step aside. Adjacent squad-prefix groups are display-only; prefixes
   have no hit, suffixes retain canonical keys/indices. An opened globally hidden

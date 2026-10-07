@@ -329,3 +329,79 @@ fn audience_controls_use_one_composer_and_refuse_sender_or_lead_changes() {
         assert!(app.notice.as_ref().unwrap().contains("nothing sent"));
     }
 }
+
+#[test]
+fn home_attention_and_boxed_heading_selection_preserve_blanks_and_acquired_previews() {
+    crate::status::with_now_ms(1_900_000_000_000, || {
+        for width in [80, 100, 160, 180] {
+            for (base, depth) in [
+                (tmt_cli_style::Base::Tmt, tmt_cli_style::Depth::TrueColor),
+                (
+                    tmt_cli_style::Base::TmtLight,
+                    tmt_cli_style::Depth::TrueColor,
+                ),
+                (tmt_cli_style::Base::Terminal, tmt_cli_style::Depth::Ansi16),
+                (tmt_cli_style::Base::Tmt, tmt_cli_style::Depth::None),
+            ] {
+                let mut app = fixture();
+                app.view.as_mut().unwrap().look = crate::look::Look {
+                    theme: tmt_cli_style::Theme::new(base),
+                    depth,
+                };
+                let document = app.view.as_ref().unwrap().document.clone();
+                let selected = draw(&app, width, 40);
+                let hits = format!("{:?}", app.hits.borrow());
+                let starts = app.row_starts.borrow().clone();
+                let heading = app
+                    .hits
+                    .borrow()
+                    .iter()
+                    .find(|hit| hit.row == app.selected)
+                    .unwrap()
+                    .y;
+                let preview = heading + 1;
+                assert!(
+                    lines(&selected)[usize::from(preview)].contains("asks: Approve this change?")
+                );
+                assert_eq!(selected[(1, heading)].symbol(), " ");
+                assert_eq!(selected[(2, heading)].symbol(), "◆");
+                select(&mut app, "needs-you", "a");
+                let attention = draw(&app, width, 40);
+                assert_eq!(format!("{:?}", app.hits.borrow()), hits);
+                assert_eq!(*app.row_starts.borrow(), starts);
+                let y = app
+                    .hits
+                    .borrow()
+                    .iter()
+                    .find(|hit| hit.row == app.selected)
+                    .unwrap()
+                    .y;
+                assert_eq!(attention[(0, y)].symbol(), " ");
+                assert_eq!(attention[(1, y)].symbol(), "◆");
+                assert_eq!(
+                    attention[(0, y)].bg,
+                    app.look().selection().bg.unwrap_or_default()
+                );
+                assert_eq!(
+                    attention[(0, y)]
+                        .modifier
+                        .contains(ratatui::style::Modifier::REVERSED),
+                    app.look().selection().bg.is_none()
+                );
+                for y in 2..39 {
+                    for x in 0..width {
+                        assert_eq!(selected[(x, y)].symbol(), attention[(x, y)].symbol());
+                    }
+                }
+                for x in 0..width {
+                    assert_eq!(
+                        selected[(x, preview)],
+                        attention[(x, preview)],
+                        "preview style is outside selected heading"
+                    );
+                }
+                assert_eq!(app.view.as_ref().unwrap().document, document);
+            }
+        }
+    });
+}
