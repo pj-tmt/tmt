@@ -12,7 +12,7 @@ use super::{
     config::ConfigSource,
     origins::{Events, Next, Origins},
 };
-use crate::mount::Sessions;
+use crate::{mount::Sessions, objects::LocalObjectReader};
 #[cfg(test)]
 use std::sync::Weak;
 use std::{
@@ -34,6 +34,8 @@ use tmt_extension_objects::{
 #[cfg(test)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Pause {
+    /// Before serving a dequeued request, including an early refusal.
+    BeforeRequest,
     /// After the acquire decision, before the disclose callback.
     BetweenAdmissions,
     /// After the disclose decision, before the result is sent.
@@ -55,6 +57,7 @@ pub(super) struct Launch<'a> {
     pub(super) tunnels: usize,
     /// The owner sessions mounted tunnels were admitted under.
     pub(super) sessions: Arc<dyn Sessions>,
+    pub(super) backend: Arc<LocalObjectReader>,
 }
 
 /// The most origin-state notices a channel may hold: an `established` and a `closed` for
@@ -93,7 +96,7 @@ struct Work {
     request: Request,
     received: Instant,
 }
-struct Hub {
+pub(super) struct Hub {
     generation: Uuid4,
     extension: String,
     origins: Origins,
@@ -101,11 +104,12 @@ struct Hub {
     /// Origin-state notices for the announcer, the only sender of them.
     events: Arc<Events>,
     source: ConfigSource,
+    pub(super) backend: Arc<LocalObjectReader>,
     callback: Duration,
     request: Duration,
     #[cfg_attr(not(test), allow(dead_code))]
     hook: Hook,
-    stop: AtomicBool,
+    pub(super) stop: AtomicBool,
     ended: Mutex<Option<ChannelEnd>>,
     queue: Mutex<VecDeque<Work>>,
     queued: Condvar,
@@ -150,6 +154,7 @@ impl Running {
             extension,
             tunnels,
             sessions,
+            backend,
         } = launch;
         let hub = Arc::new(Hub {
             generation: bus.generation(),
@@ -158,6 +163,7 @@ impl Running {
             sessions,
             events: Arc::new(Events::new(notice_limit(tunnels))),
             source,
+            backend,
             callback: bounds.callback,
             request: bounds.request,
             hook,
@@ -220,6 +226,14 @@ impl Running {
             let _ = thread.join();
         }
     }
+    #[cfg(test)]
+    pub(super) fn view(&self) -> Weak<LocalObjectReader> {
+        Arc::downgrade(&self.hub.backend)
+    }
+    #[cfg(test)]
+    pub(super) fn hub(&self) -> Weak<Hub> {
+        Arc::downgrade(&self.hub)
+    }
     /// The bus, which is gone once every thread has ended.
     #[cfg(test)]
     pub(super) fn bus(&self) -> Weak<Bus> {
@@ -230,15 +244,21 @@ impl Running {
 /// The only reader of the bus.
 fn dispatch(hub: &Hub, bus: &Bus) {
     while !hub.stopped() {
-        match bus.recv(Some(Instant::now() + SLICE)) {
-            Ok(Frame::Request(request)) => {
+        match bus.recv_stamped(Some(Instant::now() + SLICE)) {
+            Ok(tmt_extension_objects::StampedObjectFrame {
+                frame: Frame::Request(request),
+                first_prefix,
+            }) => {
                 locked(&hub.queue).push_back(Work {
                     request,
-                    received: Instant::now(),
+                    received: first_prefix,
                 });
                 hub.queued.notify_one();
             }
-            Ok(Frame::Admission(answer)) => {
+            Ok(tmt_extension_objects::StampedObjectFrame {
+                frame: Frame::Admission(answer),
+                ..
+            }) => {
                 locked(&hub.decisions).insert(answer.callback_id.get(), answer.decision);
                 hub.decided.notify_all();
             }
@@ -299,10 +319,15 @@ fn take(hub: &Hub) -> Option<Work> {
 fn serve(hub: &Hub, bus: &Bus, next: Work) -> Result<(), ChannelEnd> {
     let Work { request, received } = next;
     let deadline = received + hub.request;
+    #[cfg(test)]
+    if let Some(hook) = &hub.hook {
+        hook(Pause::BeforeRequest, deadline);
+    }
     let denied = || Outcome::Failure(ErrorCode::Denied);
     match (request.origin, &request.call) {
+        (_, Call::Status(_) | Call::Read(_)) => super::observe::serve(hub, bus, &request, deadline),
         (Origin::LocalExtension, Call::Config(_)) => config(hub, bus, &request, deadline),
-        // The other six methods belong to later slices: no callback and no effect.
+        // Upload methods belong to the next slice: no callback and no effect.
         (Origin::LocalExtension, _) => {
             send_result(hub, bus, &request, Outcome::Failure(ErrorCode::Unavailable))
         }
@@ -339,7 +364,7 @@ fn standing(hub: &Hub, origin: Uuid4) -> Option<Context> {
         grant_revision: revision,
     })
 }
-fn stands(hub: &Hub, origin: Origin) -> Option<Context> {
+pub(super) fn stands(hub: &Hub, origin: Origin) -> Option<Context> {
     match origin {
         Origin::LocalExtension => Some(Context::LocalExtension),
         Origin::Mounted(id) => standing(hub, id),
@@ -423,11 +448,28 @@ fn config(hub: &Hub, bus: &Bus, request: &Request, deadline: Instant) -> Result<
     send_result(hub, bus, request, Outcome::Success(Success::Config(config)))
 }
 
+pub(super) fn between(hub: &Hub, deadline: Instant) {
+    #[cfg(test)]
+    if let Some(hook) = &hub.hook {
+        hook(Pause::BetweenAdmissions, deadline);
+    }
+    #[cfg(not(test))]
+    let _ = (hub, deadline);
+}
+pub(super) fn before_result(hub: &Hub, deadline: Instant) {
+    #[cfg(test)]
+    if let Some(hook) = &hub.hook {
+        hook(Pause::BeforeResult, deadline);
+    }
+    #[cfg(not(test))]
+    let _ = (hub, deadline);
+}
+
 /// Send one admission callback and wait for its decision, within the callback bound and
 /// the request's own deadline. `None` means the request's time was already spent, so no
 /// callback was sent and the request is simply unavailable; a callback that is sent and
 /// not answered in time ends the channel.
-fn ask(
+pub(super) fn ask(
     hub: &Hub,
     bus: &Bus,
     request: &Request,
@@ -454,14 +496,11 @@ fn ask(
             context,
             operation,
         });
-        bus.send(&admit).map_err(ChannelEnd::Bus)?;
+        bus.send_until(&admit, limit).map_err(ChannelEnd::Bus)?;
         *last
     };
     let mut decisions = locked(&hub.decisions);
     loop {
-        if let Some(decision) = decisions.remove(&id) {
-            return Ok(Some(decision));
-        }
         if hub.stopped() {
             return Err(ChannelEnd::Stopped);
         }
@@ -469,6 +508,9 @@ fn ask(
             .checked_duration_since(Instant::now())
             .filter(|left| !left.is_zero())
             .ok_or(ChannelEnd::CallbackTimeout)?;
+        if let Some(decision) = decisions.remove(&id) {
+            return Ok(Some(decision));
+        }
         decisions = hub
             .decided
             .wait_timeout(decisions, left.min(SLICE))
@@ -491,6 +533,30 @@ fn send_result(
         outcome,
     });
     bus.send(&result).map_err(ChannelEnd::Bus)
+}
+/// Observational results share the request's remaining write budget. A spent
+/// budget sends nothing; ending the channel releases its outstanding request.
+pub(super) fn send_until(
+    hub: &Hub,
+    bus: &Bus,
+    request: &Request,
+    outcome: Outcome,
+    deadline: Instant,
+) -> Result<(), ChannelEnd> {
+    if hub.stopped() {
+        return Err(ChannelEnd::Stopped);
+    }
+    bus.send_until(
+        &Frame::Result(ResultFrame {
+            generation: hub.generation,
+            request_id: request.request_id,
+            method: request.call.method(),
+            transfer_id: transfer_of(&request.call),
+            outcome,
+        }),
+        deadline,
+    )
+    .map_err(ChannelEnd::Bus)
 }
 /// The transfer a request names, which its result repeats.
 fn transfer_of(call: &Call) -> Option<Uuid4> {

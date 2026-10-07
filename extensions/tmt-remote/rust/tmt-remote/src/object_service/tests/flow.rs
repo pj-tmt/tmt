@@ -608,9 +608,11 @@ struct Device {
 }
 impl Device {
     fn pair(env: &Env, origin: &str, idle: Duration) -> Self {
+        Self::pair_with_key(env, origin, idle, SigningKey::from_bytes(&[5; 32]))
+    }
+    fn pair_with_key(env: &Env, origin: &str, idle: Duration, key: SigningKey) -> Self {
         let mut store = Store::open(&env.serving).unwrap();
         let machine = store.machine().unwrap();
-        let key = SigningKey::from_bytes(&[5; 32]);
         let client_id = uuid_v4().unwrap();
         store
             .insert_grant(&Grant {
@@ -1088,4 +1090,257 @@ fn a_channel_that_ends_right_after_setup_leaves_no_origin_to_issue() {
     assert!(head.starts_with("HTTP/1.1 101"), "{head}");
     assert!(values(&ext.head(0), "tmt-origin").is_empty());
     assert_eq!(origins.count(), 0);
+}
+
+fn observation_tab(live: &Live, ext: &Ext, index: usize) -> (TcpStream, Uuid4) {
+    let (tab, head) = live.send(&format!(
+        "GET {}/x/alpha/sync HTTP/1.1\r\nHost: {}\r\nOrigin: {}\r\nConnection: Upgrade\r\nUpgrade: websocket\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n\r\n", live.prefix, live.addr, live.origin
+    ));
+    assert!(head.starts_with("HTTP/1.1 101"), "{head}");
+    let origin = origin_of(&ext.head(index));
+    ext.await_established(&[origin]);
+    (tab, origin)
+}
+
+/// Send an observational request on the actual extension channel. A peer close
+/// is an asserted result here, never an unwrap-write in a connection worker.
+fn observe_request(talk: &Talk<'_>, id: u64, origin: Uuid4, call: Call) {
+    talk.0.bus_at(talk.1, |bus| {
+        assert!(
+            bus.send(&Frame::Request(Request {
+                generation: bus.generation(),
+                request_id: counter(id),
+                origin: Origin::Mounted(origin),
+                call,
+            }))
+            .is_ok()
+        )
+    });
+}
+fn observe_allowed(talk: &Talk<'_>, context: Context) -> Outcome {
+    let acquire = talk.callback();
+    assert_eq!(
+        (acquire.boundary, acquire.context),
+        (Checkpoint::Acquire, context)
+    );
+    talk.decide(&acquire, Decision::Allow);
+    let disclose = talk.callback();
+    assert_eq!(
+        (disclose.boundary, disclose.context),
+        (Checkpoint::Disclose, context)
+    );
+    talk.decide(&disclose, Decision::Allow);
+    talk.result().outcome
+}
+
+#[test]
+fn original_observation_owner_scope_survives_a_session_but_not_another_device() {
+    use super::observe::{read_input, seed, spec, status_input};
+    let env = Env::new();
+    let world = real(&env, Duration::from_secs(600), None);
+    let cookie = world.device.open();
+    let (_a, _) = world.live.upgrade(&cookie, "");
+    let origin = origin_of(&world.ext.head(0));
+    world.ext.await_established(&[origin]);
+    let device_id = Uuid4::parse(&world.device.client_id).unwrap();
+    let context = Context::OwnerSession {
+        origin_id: origin,
+        device_id,
+        grant_revision: 1,
+    };
+    let original = spec(context, 7, b"hello");
+    seed(&world.service, &original, b"hello", true);
+    let talk = Talk(&world.ext, 0);
+    observe_request(&talk, 1, origin, status_input(&original));
+    assert!(matches!(
+        observe_allowed(&talk, context),
+        Outcome::Success(Success::Committed { .. })
+    ));
+    observe_request(&talk, 2, origin, read_input(&original, 0, 5));
+    assert!(matches!(
+        observe_allowed(&talk, context),
+        Outcome::Success(Success::Read { .. })
+    ));
+    // New session, same actual device: original identity remains the same.
+    world.device.sessions.end_device(&world.device.client_id);
+    let cookie = world.device.open();
+    let (_b, _) = world.live.upgrade(&cookie, "");
+    let next = origin_of(&world.ext.head(1));
+    world.ext.await_established(&[next]);
+    observe_request(&talk, 3, next, status_input(&original));
+    assert!(matches!(
+        observe_allowed(
+            &talk,
+            Context::OwnerSession {
+                origin_id: next,
+                device_id,
+                grant_revision: 1
+            }
+        ),
+        Outcome::Success(Success::Committed { .. })
+    ));
+    let mut other = Device::pair_with_key(
+        &env,
+        &world.device.origin,
+        Duration::from_secs(600),
+        SigningKey::from_bytes(&[6; 32]),
+    );
+    other.sessions = Arc::clone(&world.device.sessions);
+    other.window_id = world.device.window_id.clone();
+    let cookie = other.open();
+    let (_c, _) = world.live.upgrade(&cookie, "");
+    let foreign = origin_of(&world.ext.head(2));
+    world.ext.await_established(&[foreign]);
+    observe_request(&talk, 4, foreign, status_input(&original));
+    assert_eq!(
+        observe_allowed(
+            &talk,
+            Context::OwnerSession {
+                origin_id: foreign,
+                device_id: Uuid4::parse(&other.client_id).unwrap(),
+                grant_revision: 1
+            }
+        ),
+        Outcome::Success(Success::State(tmt_extension_objects::State::NotObserved))
+    );
+}
+
+#[test]
+fn original_observation_mounted_connections_and_local_owner_scopes_are_distinct() {
+    use super::observe::{read_input, seed, spec, status_input};
+    let env = Env::new();
+    let (service, _origins, live, ext) = world(&env);
+    service.activate(live.mounts(), "alpha").unwrap();
+    let (_a, a) = observation_tab(&live, &ext, 0);
+    let (_b, b) = observation_tab(&live, &ext, 1);
+    let context = Context::Mounted { origin_id: a };
+    let original = spec(context, 7, b"hello");
+    seed(&service, &original, b"hello", true);
+    let talk = Talk(&ext, 0);
+    observe_request(&talk, 1, a, status_input(&original));
+    assert!(matches!(
+        observe_allowed(&talk, context),
+        Outcome::Success(Success::Committed { .. })
+    ));
+    observe_request(&talk, 2, b, status_input(&original));
+    assert_eq!(
+        observe_allowed(&talk, Context::Mounted { origin_id: b }),
+        Outcome::Success(Success::State(tmt_extension_objects::State::NotObserved))
+    );
+    // Reads have current reference policy, not the original upload policy.
+    observe_request(&talk, 3, a, read_input(&original, 1, 3));
+    assert_eq!(
+        observe_allowed(&talk, context),
+        Outcome::Success(Success::Read {
+            offset: 1,
+            total_bytes: 5,
+            bytes: Chunk::new(b"ell".to_vec()).unwrap()
+        })
+    );
+    let local = spec(Context::LocalExtension, 7, b"hello").intent;
+    let owner = spec(
+        Context::OwnerSession {
+            origin_id: a,
+            device_id: a,
+            grant_revision: 1,
+        },
+        7,
+        b"hello",
+    )
+    .intent;
+    assert_ne!(local, owner);
+    assert_ne!(original.intent, local);
+    assert_ne!(original.intent, owner);
+    assert_ne!(
+        original.intent,
+        spec(Context::Mounted { origin_id: b }, 7, b"hello").intent
+    );
+    assert_ne!(
+        original.intent,
+        super::super::observe::original_id(
+            &crate::objects::ExtensionId::new("beta").unwrap(),
+            context,
+            super::observe::transfer()
+        )
+    );
+}
+
+#[test]
+fn original_observation_revoke_during_acquire_disclose_or_actual_io_suppresses_data() {
+    use super::observe::{read_input, seed, spec};
+    for phase in 0..4 {
+        let env = Env::new();
+        let world = real(&env, Duration::from_secs(600), None);
+        let cookie = world.device.open();
+        let (_tab, _) = world.live.upgrade(&cookie, "");
+        let origin = origin_of(&world.ext.head(0));
+        world.ext.await_established(&[origin]);
+        let context = Context::OwnerSession {
+            origin_id: origin,
+            device_id: Uuid4::parse(&world.device.client_id).unwrap(),
+            grant_revision: 1,
+        };
+        let original = spec(context, 7, b"hello");
+        seed(&world.service, &original, b"hello", true);
+        if phase == 2 {
+            let sessions = Arc::clone(&world.device.sessions);
+            let device = world.device.client_id.clone();
+            world.service.storage.observe(Arc::new(move |point| {
+                if point == crate::objects::Milestone::ReadBytes {
+                    sessions.end_device(&device);
+                }
+                true
+            }));
+        }
+        let talk = Talk(&world.ext, 0);
+        observe_request(&talk, 1, origin, read_input(&original, 0, 5));
+        let acquire = talk.callback();
+        if phase == 0 {
+            world.device.sessions.end_device(&world.device.client_id);
+        }
+        if phase == 3 {
+            Store::open(&env.serving)
+                .unwrap()
+                .rename(&world.device.client_id, "Changed binding")
+                .unwrap();
+        }
+        talk.decide(&acquire, Decision::Allow);
+        if phase == 1 {
+            let disclose = talk.callback();
+            world.device.sessions.end_device(&world.device.client_id);
+            talk.decide(&disclose, Decision::Allow);
+        }
+        assert_eq!(talk.result().outcome, Outcome::Failure(ErrorCode::Denied));
+    }
+}
+
+#[test]
+fn original_observation_closed_origin_at_the_io_boundary_cannot_disclose() {
+    use super::observe::{read_input, seed, spec};
+    let env = Env::new();
+    let (service, origins, live, ext) = world(&env);
+    service.activate(live.mounts(), "alpha").unwrap();
+    let (tab, origin) = observation_tab(&live, &ext, 0);
+    let original = spec(Context::Mounted { origin_id: origin }, 7, b"hello");
+    seed(&service, &original, b"hello", true);
+    let held = Arc::new(Mutex::new(Some(tab)));
+    let closing = Arc::clone(&held);
+    let generation = service.active("alpha").unwrap();
+    service.storage.observe(Arc::new(move |point| {
+        if point == crate::objects::Milestone::ReadBytes {
+            drop(closing.lock().unwrap().take());
+            let limit = Instant::now() + Duration::from_secs(5);
+            while origins.established(origin, "alpha", generation).is_some()
+                && Instant::now() < limit
+            {
+                thread::yield_now();
+            }
+        }
+        true
+    }));
+    let talk = Talk(&ext, 0);
+    observe_request(&talk, 1, origin, read_input(&original, 0, 5));
+    let acquire = talk.callback();
+    talk.decide(&acquire, Decision::Allow);
+    assert_eq!(talk.result().outcome, Outcome::Failure(ErrorCode::Denied));
 }

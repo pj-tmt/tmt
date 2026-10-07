@@ -1000,10 +1000,14 @@ carrier below that opens the channel, moves frames with bounded waits and enforc
 or route integration, callback executor or backend is shipped (#1852). Remote's object service (`tmt-remote`, library
 code that is not routed or reachable in production) opens the channel to an extension only when a static, trusted
 per-extension declaration enables it; every production declaration is disabled and nothing in production opens a
-channel. On an opened channel it answers `config` after a current `acquire` admission and before a current `disclose`
-admission, for a local-extension origin (the owner's limits) and for a mounted origin that stands (the reduced browser
-limits, whether or not an owner session is bound); each of the other six methods is answered `unavailable`, without a
-callback or effect, and a mounted request whose origin does not stand is answered `denied` without a callback. Requests, results
+channel. On an opened channel it answers `config` after current `acquire` and `disclose`
+admissions, for a local-extension origin (the owner's limits) and for a mounted origin that stands (the reduced browser
+limits, whether or not an owner session is bound). It also answers observational original-ID `status` and bounded raw-byte
+`read` after fresh acquire and disclose admissions, with an exact current-context, metadata, cancellation and absolute
+request-budget fence before disclosure. Original lookup is scoped by installed extension, caller transfer ID and actual
+owner device, local extension or non-owner connection origin; a non-owner reconnect has a new scope. Status never adopts
+or repairs an original. Upload methods remain `unavailable`, without a callback or effect, and a mounted request whose
+origin does not stand is answered `denied` without a callback. Requests, results
 and admission replies carry no principal, role, permit, retry or scope: `method`, the result tag and the callback
 identifiers are correlation only. An admit `context` states the owner device and grant revision as Remote established
 them, for the extension's own decision; a browser or caller never selects it, and nothing in a context, identifier,

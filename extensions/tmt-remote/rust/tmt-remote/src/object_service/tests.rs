@@ -885,8 +885,11 @@ fn a_mounted_origin_is_denied_and_the_other_methods_are_unavailable_without_a_ca
         result(&peer),
         config_result(&peer, id, Outcome::Failure(ErrorCode::Denied))
     );
-    // The other six methods are later slices: unavailable, with no effect.
-    for (method, transfer_id, call) in calls {
+    // Only uploads remain unavailable; status/read are covered by real admitted fixtures.
+    for (method, transfer_id, call) in calls
+        .into_iter()
+        .filter(|(method, _, _)| !matches!(method, Method::Status | Method::Read))
+    {
         id += 1;
         request(&peer, id, Origin::LocalExtension, call);
         let expected = ResultFrame {
@@ -1120,3 +1123,4 @@ fn time_spent_between_acquire_and_disclose_is_unavailable_with_no_second_callbac
 }
 
 mod flow;
+mod observe;

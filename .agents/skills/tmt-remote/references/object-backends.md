@@ -52,12 +52,19 @@ local-extension origin (owner limits) or a standing mounted origin (reduced limi
 snapshot of the delivered backend taken at `open` (backend identifier, capabilities and
 `Quotas`; no usage, ledger row, path or secret): it asks for `acquire` admission, then for
 `disclose` admission naming the projection, and refuses on anything but an allow. The other
-six methods are `unavailable`, with no callback and no effect; they belong to later slices. No decision is
-remembered. A request whose 30 s is spent before a callback is sent (queued too long, or used
-up between acquire and disclose) is answered `unavailable` with no further callback and the
-channel keeps serving. A sent callback unanswered at its bound (5 s, within the request's
-remaining time) ends the channel without a result: the ledger refuses a result while a
-callback is outstanding.
+four upload methods are `unavailable`, with no callback or effect; they belong to the next slice. No decision is
+remembered. `observe.rs` owns observational `status` and bounded raw-byte `read`: each asks for acquire and disclose,
+compares the exact captured context at every boundary, rechecks the observed backend metadata after disclose, and
+clips the result write by the remaining absolute request time. The bus preserves first-prefix time through decoding
+and queueing. A spent observational budget sends nothing and ends the channel; a sent callback unanswered at its bound
+(5 s within the request's remaining time) also ends it. Existing config pre-callback expiry returns `unavailable`.
+Status derives a domain-separated, length-framed identity from installed extension, caller transfer UUID and trusted
+principal: authenticated owner device (stable across sessions/revisions), installed local extension, or actual
+non-owner connection origin (no cross-origin recovery). It compares retained namespace and frozen policy bytes and
+never adopts, expires, repairs or reconciles. A read compares stat's raw digest and length against the request, then
+reads at most 32,768 bytes; its current reference/history policy need not equal an upload's frozen write policy.
+The crate-private `LocalObjectReader` shares the one `LocalFs` inner coordinator with owned workers; public
+`LocalHandle` stays borrowed. No second opener or mutation interface is available to workers.
 `shutdown`, `Drop` and replacement end the channel: threads are joined and the last one
 drops the bus, which closes the socket. All of this is library code, not routed and not
 reachable in production.
