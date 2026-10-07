@@ -232,8 +232,8 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
         ],
         "tmt-invoke" => &["subprocess", "nix"],
         "tmt-extension-state" => &["nix"],
-        // Wire primitives only: canonical encodings and protocol bounds.
-        "tmt-extension-objects" => &["base64"],
+        // Wire primitives only: canonical encodings, protocol bounds and bounded strict JSON admission.
+        "tmt-extension-objects" => &["base64", "serde", "serde_json"],
         // Case-2 publication reuses the neutral bounded process owner only.
         "tmt-test-support" => &["tmt-invoke"],
         // Private release tooling owns only TOML edits and their JSON transport.
