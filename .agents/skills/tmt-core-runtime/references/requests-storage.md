@@ -126,6 +126,10 @@ configuration. The owner map is in
   `tmt-core::settings`; `json_document` keeps number compatibility and raw object order on targeted
   edits. `init` creates the local file as `{}\n` exclusively and refuses existing paths. The three
   `defaults.*` settings are global-file-only.
+- `config set --global theme.base` uses the CLI style's base registry (excluding board-only
+  `auto`); the config adapter changes only `theme.base`, preserving opaque keys and token overrides.
+  A malformed theme container refuses the write. Token writes remain file-only; `config rm` still
+  clears local runtime overrides only.
 - The global `theme` object is presentation: `ConfigFiles::theme` checks only its shape (a wrong
   one is a `ThemeProblem`, never a configuration error), `config show` reports `themeError` and
   still succeeds because Squad reads it, and `tmt` configures the process theme once only when

@@ -830,7 +830,7 @@ Admitted compaction context reminds saved identities through global `notes.compa
 `tmt-adapters::config::ConfigPaths` is the sole application path owner;
 `config::document` preserves unknown JSON fields and validates known settings
 through `tmt-core::settings`; `init` creates the local file exclusively and never
-opens SQLite or tmux. The global `theme` object is presentation, interpreted only by
+opens SQLite or tmux. Global `theme.base` writes use the CLI style registry; the theme is interpreted by
 `tmt-cli-style` (and read by Squad through `config show`); a bad theme never fails
 configuration loading. Only `tmt-cli-style` names colors. Details are in the
 [storage and requests reference](.agents/skills/tmt-core-runtime/references/requests-storage.md#configuration-and-theme).
