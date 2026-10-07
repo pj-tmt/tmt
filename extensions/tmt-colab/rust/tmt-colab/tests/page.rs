@@ -27,6 +27,7 @@ const BINARY: &str = env!("CARGO_BIN_EXE_tmt-colab");
 const NOW: u64 = 1_791_025_000_000;
 struct Fixture {
     root: PathBuf,
+    retain_diagnostic: bool,
     layout: Layout,
     key: Keyring,
     store: Store,
@@ -132,6 +133,7 @@ impl Fixture {
             .unwrap();
         Self {
             root,
+            retain_diagnostic: false,
             layout,
             key,
             store,
@@ -189,7 +191,9 @@ impl Fixture {
 }
 impl Drop for Fixture {
     fn drop(&mut self) {
-        fs::remove_dir_all(&self.root).unwrap();
+        if !self.retain_diagnostic {
+            fs::remove_dir_all(&self.root).unwrap();
+        }
     }
 }
 #[test]
@@ -1727,6 +1731,317 @@ mod native_preparation {
             NOW,
         )
     }
+
+    fn observation_custody<T>(result: &tmt_colab::Result<T>) -> &'static str {
+        use tmt_colab::decoder::DecodeFault;
+        match result {
+            Ok(_) => "completed",
+            Err(error) => match error.downcast_ref::<DecodeFault>() {
+                Some(DecodeFault::Invoke(error)) => match error.cleanup {
+                    tmt_invoke::Cleanup::NotStarted => "not-started",
+                    tmt_invoke::Cleanup::Confirmed => "confirmed",
+                    _ => "unknown",
+                },
+                // Mapped capacity and every other opaque error may have erased cleanup provenance.
+                _ => "unknown",
+            },
+        }
+    }
+
+    #[test]
+    fn observation_custody_requires_success_or_explicit_original_cleanup() {
+        use tmt_colab::decoder::DecodeFault;
+        use tmt_colab::store::owner::OwnerFault;
+        use tmt_invoke::{Cleanup, FailureKind, InvokeError};
+        assert_eq!(
+            observation_custody(&Ok::<(), Box<dyn std::error::Error + Send + Sync>>(())),
+            "completed"
+        );
+        for (cleanup, expected) in [
+            (Cleanup::NotStarted, "not-started"),
+            (Cleanup::Confirmed, "confirmed"),
+            (Cleanup::CallerOwned, "unknown"),
+            (
+                Cleanup::Unconfirmed(std::io::Error::other("original-cleanup")),
+                "unknown",
+            ),
+        ] {
+            let result: tmt_colab::Result<()> = Err(DecodeFault::Invoke(InvokeError {
+                kind: FailureKind::Deadline,
+                cause: Some(std::io::Error::other("original-cause")),
+                cleanup,
+            })
+            .into());
+            assert_eq!(observation_custody(&result), expected);
+            // Classification borrows the original error; it cannot replace its cause or cleanup.
+            let Some(DecodeFault::Invoke(original)) =
+                result.as_ref().unwrap_err().downcast_ref::<DecodeFault>()
+            else {
+                panic!("original Invoke error replaced");
+            };
+            assert_eq!(original.kind, FailureKind::Deadline);
+            assert_eq!(
+                original.cause.as_ref().unwrap().to_string(),
+                "original-cause"
+            );
+            if let Cleanup::Unconfirmed(cause) = &original.cleanup {
+                assert_eq!(cause.to_string(), "original-cleanup");
+            }
+        }
+        let mapped: tmt_colab::Result<()> = Err(OwnerFault::too_large(
+            PAGE,
+            "decoding its changes did not finish within 2 s".into(),
+        )
+        .into());
+        assert_eq!(observation_custody(&mapped), "unknown");
+        assert!(
+            mapped
+                .as_ref()
+                .unwrap_err()
+                .downcast_ref::<OwnerFault>()
+                .is_some()
+        );
+        for error in [DecodeFault::InvalidOutput, DecodeFault::CleanupBlocked] {
+            let result: tmt_colab::Result<()> = Err(error.into());
+            assert_eq!(observation_custody(&result), "unknown");
+        }
+        let opaque: tmt_colab::Result<()> = Err(std::io::Error::other("opaque failure").into());
+        assert_eq!(observation_custody(&opaque), "unknown");
+        // This pure classifier performs no root reads, removals or runner reuse.
+    }
+
+    fn observation_metadata(path: &std::path::Path, value: &Value) {
+        use std::os::unix::fs::OpenOptionsExt;
+        let mut file = fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(path)
+            .unwrap();
+        file.write_all(&serde_json::to_vec_pretty(value).unwrap())
+            .unwrap();
+    }
+
+    fn observation_bytes(path: &std::path::Path, limit: usize) -> Option<Vec<u8>> {
+        use std::io::Read;
+        let mut bytes = Vec::new();
+        fs::File::open(path)
+            .ok()?
+            .take(limit as u64 + 1)
+            .read_to_end(&mut bytes)
+            .ok()?;
+        (bytes.len() <= limit).then_some(bytes)
+    }
+
+    #[test]
+    #[ignore = "supplementary child stage observation requires explicit compiler/native allocation"]
+    fn native_preparation_observe_source_and_own_deadline_paths() {
+        use base64::Engine as _;
+        use sha2::{Digest, Sha256};
+        use tmt_colab::decoder::{Config, DecodeFault};
+        let artifact_root = fs::canonicalize(PathBuf::from(
+            std::env::var_os("TMT_COLAB_OBSERVER_ARTIFACT_ROOT")
+                .expect("explicit observer artifact root"),
+        ))
+        .unwrap();
+        let program = artifact_root.join("program");
+        assert!(program.is_absolute());
+        for own in [false, true] {
+            let mut f = Fixture::new();
+            // Choose custody before any helper launch. Panic or unknown cleanup still retains it.
+            f.retain_diagnostic = true;
+            fs::set_permissions(&f.root, fs::Permissions::from_mode(0o700)).unwrap();
+            if own {
+                own_checkpoint(&mut f, false);
+            }
+            let text = if own {
+                "new".to_owned()
+            } else {
+                "x".repeat(tmt_colab::decoder::BASELINE_BYTES)
+            };
+            let before_state = f.bytes();
+            let before: std::collections::BTreeSet<_> = fs::read_dir(&artifact_root)
+                .unwrap()
+                .map(|entry| entry.unwrap().path())
+                .collect();
+            let mut decoder = Decoder::with_config(Config::new(program.clone())).unwrap();
+            let result = page::prepare_publication(
+                &f.store,
+                &f.key,
+                PAGE,
+                ContentEdit {
+                    source: &text,
+                    publisher_agent: None,
+                },
+                None,
+                &mut decoder,
+                NOW,
+            );
+            let custody = observation_custody(&result);
+            let deadline = matches!(result.as_ref().err().and_then(|error| error.downcast_ref::<DecodeFault>()),
+                Some(DecodeFault::Invoke(error)) if error.kind == tmt_invoke::FailureKind::Deadline);
+            let case = if own { "own-heavy" } else { "source-boundary" };
+            // Do not inspect/reuse/delete roots while a helper may still own them.
+            if custody == "unknown" {
+                observation_metadata(
+                    &f.root.join("observation-custody.json"),
+                    &json!({
+                        "case":case,"custody":"unknown","evidence_read":false,"retained":true
+                    }),
+                );
+                panic!("observation custody unknown; isolated roots retained");
+            }
+            let mut records = Vec::new();
+            for entry in fs::read_dir(&artifact_root).unwrap() {
+                let root = entry.unwrap().path();
+                if before.contains(&root) || !root.is_dir() {
+                    continue;
+                }
+                let request =
+                    observation_bytes(&root.join("request.json"), tmt_colab::decoder::STREAM_BYTES);
+                let request_complete = root.join("request.complete").exists();
+                let input_hash = request
+                    .as_ref()
+                    .filter(|bytes| {
+                        request_complete && bytes.len() <= tmt_colab::decoder::STREAM_BYTES
+                    })
+                    .map(|bytes| {
+                        base64::engine::general_purpose::URL_SAFE_NO_PAD
+                            .encode(Sha256::digest(bytes))
+                    });
+                let reply_complete = root.join("reply.complete").exists();
+                let reply =
+                    observation_bytes(&root.join("reply.json"), tmt_colab::decoder::STREAM_BYTES);
+                let reply_value = reply
+                    .as_ref()
+                    .filter(|bytes| {
+                        reply_complete && bytes.len() <= tmt_colab::decoder::STREAM_BYTES
+                    })
+                    .and_then(|bytes| serde_json::from_slice::<Value>(bytes).ok());
+                let correlation = reply_value
+                    .as_ref()
+                    .and_then(|reply| reply["input_hash"].as_str())
+                    .zip(input_hash.as_deref())
+                    .map(|(actual, expected)| actual == expected);
+                if let Some(equal) = correlation {
+                    assert!(equal, "actual original reply/input correlation");
+                }
+                let progress =
+                    observation_bytes(&root.join("progress.txt"), 96 * 1024).unwrap_or_default();
+                let mut reached = Vec::new();
+                let mut rows_valid = progress.len() <= 96 * 1024
+                    && progress.is_ascii()
+                    && (progress.is_empty() || progress.last() == Some(&b'\n'));
+                for (index, row) in progress.split_inclusive(|v| *v == b'\n').enumerate() {
+                    if row.len() > 96 || index >= 1024 {
+                        rows_valid = false;
+                        break;
+                    }
+                    let line = std::str::from_utf8(row).unwrap_or("");
+                    let fields: Vec<_> = line.split_whitespace().collect();
+                    if fields.len() != 5
+                        || fields[0] != format!("seq={}", index + 1)
+                        || !matches!(fields[2], "edge=enter" | "edge=leave")
+                        || fields[3]
+                            .strip_prefix("n=")
+                            .and_then(|v| v.parse::<u32>().ok())
+                            .is_none()
+                        || fields[4]
+                            .strip_prefix("ns=")
+                            .and_then(|v| v.parse::<u64>().ok())
+                            .is_none()
+                    {
+                        rows_valid = false;
+                        break;
+                    }
+                    let stage = fields[1].strip_prefix("stage=").unwrap_or("");
+                    if ![
+                        "memory",
+                        "input",
+                        "json",
+                        "binary",
+                        "decode",
+                        "apply",
+                        "own",
+                        "project",
+                        "merge",
+                        "edit",
+                        "generation",
+                        "bounds",
+                        "replay",
+                        "prefix",
+                        "reply-build",
+                        "reply-json",
+                        "reply-write",
+                    ]
+                    .contains(&stage)
+                    {
+                        rows_valid = false;
+                        break;
+                    }
+                    reached.push(line.trim().to_owned());
+                }
+                let quality = observation_bytes(&root.join("quality.txt"), 32).unwrap_or_default();
+                let classification_valid =
+                    rows_valid && !reached.is_empty() && quality == b"terminal-valid\n";
+                // Killed/torn/write-failed/capped helpers provide at most a reached prefix, never a stopping-phase classification.
+                let command = observation_bytes(&root.join("command.txt"), 32);
+                let command = match command.as_deref() {
+                    Some(b"decode") => Some("decode"),
+                    Some(b"prepare-content") => Some("prepare-content"),
+                    _ => None,
+                };
+                let namespace = request
+                    .as_ref()
+                    .and_then(|bytes| serde_json::from_slice::<Value>(bytes).ok())
+                    .and_then(|wire| match wire["namespace"].as_str() {
+                        Some("own") => Some("own"),
+                        Some("content") => Some("content"),
+                        _ => None,
+                    });
+                let child_input_complete = rows_valid
+                    && reached.iter().any(|row| {
+                        row.contains("stage=input edge=leave ")
+                            && request.as_ref().is_some_and(|bytes| {
+                                row.split_whitespace()
+                                    .any(|field| field == format!("n={}", bytes.len()))
+                            })
+                    });
+                records.push(json!({"command":command,"namespace":namespace,
+                    "helper_entered":root.join("progress.txt").exists(),"child_input_complete":child_input_complete,
+                    "request_bytes":request.as_ref().map(Vec::len),"request_complete":request_complete,
+                    "actual_input_hash":input_hash,"reply_complete":reply_complete,"reply_correlation":correlation,
+                    "memory_initialized":rows_valid && reached.iter().any(|row| row.contains("stage=memory edge=leave ")),
+                    "classification_valid":classification_valid,"progress_rows_valid":rows_valid,
+                    "reached_prefix":if rows_valid { reached } else { Vec::new() },
+                    "incomplete":!classification_valid,"historical_input_identity":false}));
+            }
+            assert_eq!(f.bytes(), before_state);
+            if let Ok(PublicationPreparation::Write(write)) = &result {
+                let reader = replay(&f, write);
+                assert_eq!(
+                    reader
+                        .get_or_insert_text("html")
+                        .get_string(&reader.transact()),
+                    text
+                );
+            }
+            observation_metadata(
+                &f.root.join("observation-summary.json"),
+                &json!({
+                    "case":case,"custody":custody,"original_error_deadline":deadline,
+                    "preparation_success":result.is_ok(),"retained":true,
+                    "supplementary_only":true,"original_deadline_ms":2000,"records":records
+                }),
+            );
+            // Only a safe synthetic fixture path is printed, never raw requests/replies or private causes.
+            eprintln!(
+                "supplementary observation fixture retained: {}",
+                f.root.display()
+            );
+        }
+    }
+
     fn write(result: PublicationPreparation) -> FrozenPublication {
         match result {
             PublicationPreparation::Write(w) => w,

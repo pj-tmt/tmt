@@ -845,3 +845,1019 @@ fn preparation_borrowed_unicode_null_grammar_and_source_byte_bounds_match_owned(
         );
     }
 }
+
+// Explicit diagnostic helpers stay in the libtest executable, never in the shipped child.
+struct Progress<W> {
+    writer: W,
+    rows: usize,
+    valid: bool,
+}
+impl<W: std::io::Write> Progress<W> {
+    fn new(writer: W) -> Self {
+        Self {
+            writer,
+            rows: 0,
+            valid: true,
+        }
+    }
+    fn record(
+        &mut self,
+        stage: child::Stage,
+        edge: child::CheckpointBoundary,
+        count: usize,
+        nanos: u64,
+    ) {
+        if !self.valid {
+            return;
+        }
+        if self.rows == 1024 {
+            self.valid = false;
+            return;
+        }
+        let edge = match edge {
+            child::CheckpointBoundary::Enter => "enter",
+            child::CheckpointBoundary::Leave => "leave",
+        };
+        let row = format!(
+            "seq={} stage={} edge={} n={} ns={}\n",
+            self.rows + 1,
+            stage.label(),
+            edge,
+            count.min(u32::MAX as usize),
+            nanos
+        );
+        if row.len() > 96 || !row.is_ascii() || self.writer.write_all(row.as_bytes()).is_err() {
+            self.valid = false;
+            return;
+        }
+        self.rows += 1;
+    }
+}
+
+#[test]
+fn observation_records_are_finite_private_and_do_not_replace_algorithm_errors() {
+    let mut progress = Progress::new(Vec::new());
+    for _ in 0..1024 {
+        progress.record(
+            child::Stage::ReplySerialize,
+            child::CheckpointBoundary::Leave,
+            usize::MAX,
+            u64::MAX,
+        );
+    }
+    assert!(progress.valid);
+    assert!(progress.writer.len() <= 96 * 1024);
+    assert!(progress.writer.is_ascii());
+    assert!(
+        progress
+            .writer
+            .split_inclusive(|v| *v == b'\n')
+            .all(|row| row.len() <= 96)
+    );
+    progress.record(child::Stage::Input, child::CheckpointBoundary::Enter, 0, 0);
+    assert!(!progress.valid);
+    struct Failed;
+    impl std::io::Write for Failed {
+        fn write(&mut self, _: &[u8]) -> std::io::Result<usize> {
+            Err(std::io::Error::other("private-payload/path/identity"))
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    let mut failed = Progress::new(Failed);
+    let mut output = Vec::new();
+    let result = child::request_for_test(
+        b"not-json".as_slice(),
+        None,
+        &mut output,
+        &mut |stage, edge, count| failed.record(stage, edge, count, 0),
+    );
+    assert!(!failed.valid);
+    assert!(matches!(result, Err(DecodeFault::InvalidInput)));
+    assert!(output.is_empty());
+    let input = br#"{"version":1,"namespace":"own","baseline":"","updates":[]}"#;
+    child::request_for_test(
+        input.as_slice(),
+        None,
+        &mut output,
+        &mut |stage, edge, count| failed.record(stage, edge, count, 0),
+    )
+    .unwrap();
+    let reply: WireResult = serde_json::from_slice(&output).unwrap();
+    assert_eq!(
+        reply.input_hash,
+        URL_SAFE_NO_PAD.encode(Sha256::digest(input))
+    );
+    assert!(!failed.valid);
+}
+
+#[test]
+fn observation_reader_reply_preserves_deterministic_read_merge_and_failure_order() {
+    use yrs::{Doc, Map, ReadTxn, StateVector, Text, Transact};
+    for namespace in [Namespace::Own, Namespace::Content] {
+        let doc = Doc::with_client_id(181);
+        let expected = match namespace {
+            Namespace::Own => {
+                for name in ["threads", "messages", "intents", "replies"] {
+                    doc.get_or_insert_map(name);
+                }
+                doc.get_or_insert_map("threads")
+                    .insert(&mut doc.transact_mut(), "legacy", "kept");
+                serde_json::json!({"threads":{"legacy":"kept"},"messages":{},"intents":{},"replies":{}})
+            }
+            Namespace::Content => {
+                doc.get_or_insert_text("html")
+                    .insert(&mut doc.transact_mut(), 0, "old 🐈");
+                doc.get_or_insert_map("meta")
+                    .insert(&mut doc.transact_mut(), "title", "T");
+                serde_json::json!({"html":"old 🐈","meta":{"title":"T"}})
+            }
+        };
+        let update = doc
+            .transact()
+            .encode_state_as_update_v1(&StateVector::default());
+        for merge_only in [false, true] {
+            let wire = WireBatch {
+                version: 1,
+                source: None,
+                publisher_agent: None,
+                namespace,
+                baseline: String::new(),
+                updates: vec![URL_SAFE_NO_PAD.encode(&update)],
+                merge_only,
+            };
+            let input = serde_json::to_vec(&wire).unwrap();
+            let mut plain = Vec::new();
+            child::request_for_test(input.as_slice(), None, &mut plain, &mut |_, _, _| {}).unwrap();
+            let mut observed = Vec::new();
+            let mut checkpoints = Vec::new();
+            child::request_for_test(input.as_slice(), None, &mut observed, &mut |s, e, n| {
+                checkpoints.push((s, e, n))
+            })
+            .unwrap();
+            // Same process, deterministic read/merge: compare all bytes including PID/hash.
+            assert_eq!(plain, observed);
+            let reply: WireResult = serde_json::from_slice(&observed).unwrap();
+            assert_eq!(
+                reply.input_hash,
+                URL_SAFE_NO_PAD.encode(Sha256::digest(&input))
+            );
+            assert_eq!(
+                reply.projection,
+                if merge_only {
+                    Value::Null
+                } else {
+                    expected.clone()
+                }
+            );
+            assert_eq!(
+                checkpoints[0],
+                (child::Stage::Input, child::CheckpointBoundary::Enter, 0)
+            );
+            assert_eq!(
+                checkpoints[1],
+                (
+                    child::Stage::Input,
+                    child::CheckpointBoundary::Leave,
+                    input.len()
+                )
+            );
+            assert_eq!(
+                checkpoints.last(),
+                Some(&(
+                    child::Stage::ReplyWrite,
+                    child::CheckpointBoundary::Leave,
+                    observed.len()
+                ))
+            );
+            for stage in [
+                child::Stage::Json,
+                child::Stage::Binary,
+                child::Stage::Decode,
+                child::Stage::Apply,
+                child::Stage::Merge,
+            ] {
+                assert!(
+                    checkpoints
+                        .iter()
+                        .any(|v| v.0 == stage && v.1 == child::CheckpointBoundary::Enter)
+                );
+                assert!(
+                    checkpoints
+                        .iter()
+                        .any(|v| v.0 == stage && v.1 == child::CheckpointBoundary::Leave)
+                );
+            }
+        }
+    }
+    let mut checkpoints = Vec::new();
+    assert!(
+        child::request_for_test(b"{".as_slice(), None, &mut Vec::new(), &mut |s, e, n| {
+            checkpoints.push((s, e, n))
+        })
+        .is_err()
+    );
+    assert_eq!(
+        checkpoints.last(),
+        Some(&(child::Stage::Json, child::CheckpointBoundary::Enter, 0))
+    );
+}
+
+#[test]
+fn observation_preparation_replays_independently_without_normalizing_fresh_bytes() {
+    use yrs::{Doc, Map, ReadTxn, StateVector, Text, Transact, Update, updates::decoder::Decode};
+    let doc = Doc::with_client_id(182);
+    doc.get_or_insert_text("html")
+        .insert(&mut doc.transact_mut(), 0, "old");
+    doc.get_or_insert_map("meta")
+        .insert(&mut doc.transact_mut(), "title", "T");
+    let baseline = doc
+        .transact()
+        .encode_state_as_update_v1(&StateVector::default());
+    for (source, publisher) in [("old", None), ("new 🐈", Some("agent"))] {
+        let wire = WireContentPreparation {
+            version: 1,
+            baseline: URL_SAFE_NO_PAD.encode(&baseline),
+            updates: Vec::<String>::new(),
+            expected_base: serde_json::json!({"html":"old","meta":{"title":"T"}}),
+            source,
+            publisher_agent: publisher,
+        };
+        let input = serde_json::to_vec(&wire).unwrap();
+        let mut output = Vec::new();
+        let mut checkpoints = Vec::new();
+        child::request_for_test(
+            input.as_slice(),
+            Some("prepare-content"),
+            &mut output,
+            &mut |s, e, n| checkpoints.push((s, e, n)),
+        )
+        .unwrap();
+        let reply: WirePreparedContent = serde_json::from_slice(&output).unwrap();
+        assert_eq!(
+            reply.input_hash,
+            URL_SAFE_NO_PAD.encode(Sha256::digest(&input))
+        );
+        let expected = if publisher.is_some() {
+            serde_json::json!({"html":"new 🐈","meta":{"title":"T","publisherAgent":"agent"}})
+        } else {
+            serde_json::json!({"html":"old","meta":{"title":"T"}})
+        };
+        assert_eq!(reply.projection, expected);
+        let reader = Doc::new();
+        reader.get_or_insert_text("html");
+        reader.get_or_insert_map("meta");
+        reader
+            .transact_mut()
+            .apply_update(Update::decode_v1(&baseline).unwrap())
+            .unwrap();
+        match reply.batch {
+            WireContentBatch::Noop => assert_eq!(source, "old"),
+            WireContentBatch::Updates { updates } => {
+                for delta in updates {
+                    reader
+                        .transact_mut()
+                        .apply_update(
+                            Update::decode_v1(&binary(&delta, UPDATE_BYTES).unwrap()).unwrap(),
+                        )
+                        .unwrap();
+                }
+            }
+        }
+        use yrs::GetString;
+        assert_eq!(
+            reader
+                .get_or_insert_text("html")
+                .get_string(&reader.transact()),
+            source
+        );
+        assert!(
+            checkpoints
+                .iter()
+                .any(|v| v.0 == child::Stage::Replay && v.1 == child::CheckpointBoundary::Leave)
+        );
+        assert!(
+            checkpoints
+                .iter()
+                .any(|v| v.0 == child::Stage::Generation && v.1 == child::CheckpointBoundary::Leave)
+        );
+    }
+}
+
+#[test]
+#[ignore = "explicit supplementary child entry, selected only by the isolated observer wrapper"]
+fn observer_child_entry() {
+    use std::fs::OpenOptions;
+    use std::os::unix::fs::OpenOptionsExt;
+    let Some(root) = std::env::var_os("TMT_COLAB_OBSERVER_CHILD_ROOT") else {
+        return;
+    };
+    let root = PathBuf::from(root);
+    let mode = std::env::var("TMT_COLAB_OBSERVER_CHILD_MODE").unwrap();
+    assert!(mode == "decode" || mode == "prepare-content");
+    let file = |name: &str| {
+        OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(root.join(name))
+            .unwrap()
+    };
+    let mut output = file("reply.json");
+    let mut progress = Progress::new(file("progress.txt"));
+    let started = Instant::now();
+    let result = child::observed_request(
+        std::io::stdin(),
+        if mode == "decode" {
+            None
+        } else {
+            Some("prepare-content")
+        },
+        &mut output,
+        &mut |s, e, n| {
+            progress.record(
+                s,
+                e,
+                n,
+                started.elapsed().as_nanos().min(u64::MAX as u128) as u64,
+            )
+        },
+    );
+    use std::io::Write;
+    if let Ok(mut quality) = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(root.join("quality.txt"))
+    {
+        let _ = quality.write_all(if progress.valid {
+            b"terminal-valid\n"
+        } else {
+            b"invalid\n"
+        });
+    }
+    if result.is_ok()
+        && let Ok(mut complete) = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(root.join("reply.complete"))
+    {
+        let _ = complete.write_all(b"complete\n");
+    }
+    // Do not emit harness assertions/private causes or expose a partial reply as success.
+    std::process::exit(if result.is_ok() { 0 } else { 1 });
+}
+
+#[test]
+#[ignore = "exports an isolated wrapper artifact; does not launch native fixtures"]
+fn observer_wrapper_artifact() {
+    use std::fs;
+    use std::os::unix::fs::PermissionsExt;
+    let root = PathBuf::from(
+        std::env::var_os("TMT_COLAB_OBSERVER_ARTIFACT_ROOT").expect("explicit artifact root"),
+    );
+    fs::create_dir(&root).unwrap();
+    fs::set_permissions(&root, fs::Permissions::from_mode(0o700)).unwrap();
+    let root = fs::canonicalize(root).unwrap();
+    let executable = std::env::current_exe().unwrap();
+    let wrapper = format!(
+        r#"#!/usr/bin/python3
+import os, pathlib, subprocess, sys
+root=pathlib.Path({root})
+case=root / ('invocation-' + str(os.getpid()))
+case.mkdir(mode=0o700)
+def store(name, data):
+    fd=os.open(case / name, os.O_WRONLY|os.O_CREAT|os.O_EXCL, 0o600)
+    with os.fdopen(fd, 'wb') as f: f.write(data)
+mode='prepare-content' if sys.argv[1:]==['__decoder','prepare-content'] else 'decode' if sys.argv[1:]==['__decoder'] else None
+if mode is None: sys.exit(2)
+data=sys.stdin.buffer.read({limit}+1)
+store('request.json', data)
+if len(data)>{limit}: store('request.overflow', b'overflow\n'); sys.exit(2)
+store('request.complete', b'complete\n')
+store('command.txt', mode.encode('ascii'))
+env={{'TMT_COLAB_OBSERVER_CHILD_ROOT':str(case), 'TMT_COLAB_OBSERVER_CHILD_MODE':mode}}
+child=subprocess.run([{executable}, '--ignored', '--exact', 'decoder::tests::observer_child_entry', '--test-threads=1'], input=data, stdout=subprocess.DEVNULL, env=env)
+if child.returncode: sys.exit(1)
+with (case/'reply.json').open('rb') as f: reply=f.read({limit}+1)
+if len(reply)>{limit} or not (case/'reply.complete').exists(): sys.exit(2)
+sys.stdout.buffer.write(reply)
+"#,
+        root = serde_json::to_string(&root).unwrap(),
+        executable = serde_json::to_string(&executable).unwrap(),
+        limit = STREAM_BYTES
+    );
+    tmt_test_support::write_executable(&root.join("program"), wrapper.as_bytes(), 0o700).unwrap();
+    // The artifact path is private; no request payload or data-derived identifier is printed.
+}
+
+#[test]
+fn observation_edit_delta_and_wrong_base_keep_independent_semantics() {
+    use yrs::{
+        Doc, GetString, Map, ReadTxn, StateVector, Text, Transact, Update, updates::decoder::Decode,
+    };
+    let doc = Doc::with_client_id(183);
+    doc.get_or_insert_text("html")
+        .insert(&mut doc.transact_mut(), 0, "old");
+    doc.get_or_insert_map("meta")
+        .insert(&mut doc.transact_mut(), "title", "T");
+    let baseline = doc
+        .transact()
+        .encode_state_as_update_v1(&StateVector::default());
+    let wire = WireBatch {
+        version: 1,
+        source: Some("new 🐈".into()),
+        publisher_agent: Some("agent".into()),
+        namespace: Namespace::Content,
+        baseline: URL_SAFE_NO_PAD.encode(&baseline),
+        updates: Vec::<String>::new(),
+        merge_only: false,
+    };
+    let input = serde_json::to_vec(&wire).unwrap();
+    for observe in [false, true] {
+        let mut output = Vec::new();
+        let mut checkpoints = Vec::new();
+        child::request_for_test(input.as_slice(), None, &mut output, &mut |s, e, n| {
+            if observe {
+                checkpoints.push((s, e, n));
+            }
+        })
+        .unwrap();
+        let reply: WireResult = serde_json::from_slice(&output).unwrap();
+        assert_eq!(
+            reply.projection,
+            serde_json::json!({"html":"new 🐈","meta":{"title":"T","publisherAgent":"agent"}})
+        );
+        assert_eq!(
+            reply.input_hash,
+            URL_SAFE_NO_PAD.encode(Sha256::digest(&input))
+        );
+        let reader = Doc::new();
+        reader.get_or_insert_text("html");
+        reader.get_or_insert_map("meta");
+        reader
+            .transact_mut()
+            .apply_update(Update::decode_v1(&baseline).unwrap())
+            .unwrap();
+        reader
+            .transact_mut()
+            .apply_update(Update::decode_v1(&binary(&reply.merged, UPDATE_BYTES).unwrap()).unwrap())
+            .unwrap();
+        assert_eq!(
+            reader
+                .get_or_insert_text("html")
+                .get_string(&reader.transact()),
+            "new 🐈"
+        );
+        if observe {
+            assert!(
+                checkpoints
+                    .iter()
+                    .any(|v| v.0 == child::Stage::Edit && v.1 == child::CheckpointBoundary::Leave)
+            );
+        }
+    }
+    let wrong = WireContentPreparation {
+        version: 1,
+        baseline: URL_SAFE_NO_PAD.encode(&baseline),
+        updates: Vec::<String>::new(),
+        expected_base: serde_json::json!({"html":"wrong","meta":{"title":"T"}}),
+        source: "new",
+        publisher_agent: None::<&str>,
+    };
+    let mut checkpoints = Vec::new();
+    assert!(matches!(
+        child::request_for_test(
+            serde_json::to_vec(&wrong).unwrap().as_slice(),
+            Some("prepare-content"),
+            &mut Vec::new(),
+            &mut |s, e, n| checkpoints.push((s, e, n))
+        ),
+        Err(DecodeFault::Rejected)
+    ));
+    assert!(!checkpoints.iter().any(|v| v.0 == child::Stage::Generation));
+}
+
+#[test]
+fn observer_prefix_is_incomplete_after_torn_or_capped_records_and_cleanup_is_original() {
+    let mut progress = Progress::new(Vec::new());
+    progress.record(child::Stage::Input, child::CheckpointBoundary::Enter, 0, 0);
+    let row = progress.writer.clone();
+    for end in 1..row.len() {
+        assert_ne!(row[..end].last(), Some(&b'\n'));
+    }
+    for cleanup in [
+        Cleanup::Confirmed,
+        Cleanup::CallerOwned,
+        Cleanup::Unconfirmed(std::io::Error::other("private")),
+    ] {
+        let expected_blocked = cleanup_blocks(&cleanup);
+        let mut blocked = false;
+        let fault = invocation_failure(
+            &mut blocked,
+            tmt_invoke::InvokeError {
+                kind: tmt_invoke::FailureKind::Deadline,
+                cause: None,
+                cleanup,
+            },
+            InvocationObservation {
+                command: ChildCommand::OwnDecode,
+                input_bytes: 9787831,
+                remaining: DEADLINE,
+                elapsed: DEADLINE,
+                parent_timing: None,
+            },
+            Vec::new,
+        );
+        assert_eq!(blocked, expected_blocked);
+        assert!(
+            matches!(fault, DecodeFault::Invoke(error) if error.kind == tmt_invoke::FailureKind::Deadline)
+        );
+        assert_eq!(progress.writer, row);
+        // Reached rows alone are not a valid stopping-phase classification: no terminal quality marker.
+    }
+}
+
+// Fixed whole-wire literals and Python hashlib digests are independent of Rust serialization.
+const REPLY_VECTOR_0: &str = r#"{"version":1,"namespace":"content","input_hash":"input","merged":"AAEC_w","projection":{"html":"🐈\n\"\\","meta":{"title":"T","publisherAgent":"agent"}},"memory_limit":"memory limit unavailable","pid":7}"#;
+const REPLY_DIGEST_0: [u8; 32] = [
+    209, 143, 141, 33, 209, 128, 34, 134, 29, 100, 100, 213, 37, 53, 232, 226, 191, 248, 46, 22,
+    28, 68, 245, 84, 18, 76, 164, 149, 97, 49, 95, 37,
+];
+const REPLY_VECTOR_1: &str = r#"{"version":1,"input_hash":"input","batch":{"kind":"updates","updates":["AAEC_w","","AQ"]},"projection":{"html":"🐈\n","meta":{"title":"T","publisherAgent":"agent"}},"memory_limit":"memory limit unavailable","pid":7}"#;
+const REPLY_DIGEST_1: [u8; 32] = [
+    78, 125, 194, 80, 197, 139, 164, 21, 199, 228, 101, 135, 181, 132, 118, 85, 21, 194, 239, 188,
+    71, 58, 180, 199, 69, 84, 51, 88, 78, 16, 110, 8,
+];
+const REPLY_VECTOR_2: &str = r#"{"version":1,"input_hash":"input","batch":{"kind":"noop"},"projection":{"html":"🐈\n","meta":{"title":"T"}},"memory_limit":"memory limit unavailable","pid":7}"#;
+const REPLY_DIGEST_2: [u8; 32] = [
+    189, 235, 163, 137, 134, 202, 188, 40, 220, 194, 181, 8, 55, 246, 40, 2, 10, 254, 80, 245, 8,
+    85, 113, 78, 100, 121, 127, 157, 245, 24, 117, 62,
+];
+
+#[test]
+fn borrowed_response_vectors_preserve_whole_wire_digest_and_string_default_parse() {
+    let raw = [0, 1, 2, 255];
+    let projection =
+        serde_json::json!({"html":"🐈\n\"\\","meta":{"title":"T","publisherAgent":"agent"}});
+    let owned = WireResult {
+        version: 1,
+        namespace: Namespace::Content,
+        input_hash: "input".into(),
+        merged: "AAEC_w".to_owned(),
+        projection: projection.clone(),
+        memory_limit: MemoryLimit::Unavailable,
+        pid: 7,
+    };
+    let borrowed = WireResult {
+        version: 1,
+        namespace: Namespace::Content,
+        input_hash: "input".into(),
+        merged: EncodedBytes(&raw),
+        projection,
+        memory_limit: MemoryLimit::Unavailable,
+        pid: 7,
+    };
+    let actual = serde_json::to_vec(&borrowed).unwrap();
+    assert_eq!(actual, REPLY_VECTOR_0.as_bytes());
+    assert_eq!(actual, serde_json::to_vec(&owned).unwrap());
+    assert_eq!(Sha256::digest(&actual).as_slice(), &REPLY_DIGEST_0);
+    let parsed: WireResult = serde_json::from_slice(&actual).unwrap();
+    assert_eq!(binary(&parsed.merged, raw.len()).unwrap(), raw);
+    assert!(binary(&parsed.merged, raw.len() - 1).is_err());
+    assert_eq!(parsed.projection, owned.projection);
+    assert_eq!(parsed.memory_limit, owned.memory_limit);
+    assert_eq!(parsed.pid, owned.pid);
+
+    for (noop, literal, digest) in [
+        (false, REPLY_VECTOR_1, REPLY_DIGEST_1),
+        (true, REPLY_VECTOR_2, REPLY_DIGEST_2),
+    ] {
+        let projection = if noop {
+            serde_json::json!({"html":"🐈\n","meta":{"title":"T"}})
+        } else {
+            serde_json::json!({"html":"🐈\n","meta":{"title":"T","publisherAgent":"agent"}})
+        };
+        let raw_updates: [&[u8]; 3] = [&raw, &[], &[1]];
+        let owned = WirePreparedContent {
+            version: 1,
+            input_hash: "input".into(),
+            batch: if noop {
+                WireContentBatch::Noop
+            } else {
+                WireContentBatch::Updates {
+                    updates: vec!["AAEC_w".to_owned(), String::new(), "AQ".to_owned()],
+                }
+            },
+            projection: projection.clone(),
+            memory_limit: MemoryLimit::Unavailable,
+            pid: 7,
+        };
+        let borrowed = WirePreparedContent {
+            version: 1,
+            input_hash: "input".into(),
+            batch: if noop {
+                WireContentBatch::Noop
+            } else {
+                WireContentBatch::Updates {
+                    updates: raw_updates.iter().map(|v| EncodedBytes(v)).collect(),
+                }
+            },
+            projection,
+            memory_limit: MemoryLimit::Unavailable,
+            pid: 7,
+        };
+        let actual = serde_json::to_vec(&borrowed).unwrap();
+        assert_eq!(actual, literal.as_bytes());
+        assert_eq!(actual, serde_json::to_vec(&owned).unwrap());
+        assert_eq!(Sha256::digest(&actual).as_slice(), &digest);
+        let parsed: WirePreparedContent = serde_json::from_slice(&actual).unwrap();
+        assert_eq!(serde_json::to_vec(&parsed).unwrap(), actual);
+        // An empty update is syntactically valid JSON, but remains inadmissible.
+        if !noop {
+            assert!(admit_prepared_content(parsed, "input", &owned.projection, false).is_err());
+        }
+    }
+}
+
+#[test]
+fn borrowed_response_chunk_edges_and_default_parser_equivalence_keep_raw_bounds() {
+    for length in [
+        0,
+        1,
+        2,
+        3,
+        767,
+        768,
+        769,
+        1535,
+        1536,
+        1537,
+        UPDATE_BYTES,
+        STATE_BYTES,
+    ] {
+        let raw: Vec<u8> = (0..length).map(|i| (i % 251) as u8).collect();
+        let owned = WireResult {
+            version: 1,
+            namespace: Namespace::Own,
+            input_hash: "input".into(),
+            merged: URL_SAFE_NO_PAD.encode(&raw),
+            projection: Value::Null,
+            memory_limit: MemoryLimit::Unavailable,
+            pid: 7,
+        };
+        let borrowed = WireResult {
+            version: 1,
+            namespace: Namespace::Own,
+            input_hash: "input".into(),
+            merged: EncodedBytes(&raw),
+            projection: Value::Null,
+            memory_limit: MemoryLimit::Unavailable,
+            pid: 7,
+        };
+        let actual = serde_json::to_vec(&borrowed).unwrap();
+        assert_eq!(actual, serde_json::to_vec(&owned).unwrap());
+        assert_eq!(
+            Sha256::digest(&actual),
+            Sha256::digest(serde_json::to_vec(&owned).unwrap())
+        );
+        let parsed: WireResult = serde_json::from_slice(&actual).unwrap();
+        assert_eq!(binary(&parsed.merged, length).unwrap(), raw);
+        if length > 0 {
+            assert!(binary(&parsed.merged, length - 1).is_err());
+        }
+    }
+    for malformed in ["AA==", "AB", "A", "+/8", "_w=", "AA\n", "AA "] {
+        assert!(binary(malformed, STATE_BYTES).is_err(), "{malformed:?}");
+    }
+    for (case, invalid) in [
+        (
+            "result-null-binary",
+            REPLY_VECTOR_0.replace("\"merged\":\"AAEC_w\"", "\"merged\":null"),
+        ),
+        (
+            "result-array-binary",
+            REPLY_VECTOR_0.replace("\"merged\":\"AAEC_w\"", "\"merged\":[]"),
+        ),
+        (
+            "result-duplicate-version",
+            REPLY_VECTOR_0.replace("\"version\":1", "\"version\":1,\"version\":1"),
+        ),
+        (
+            "result-unknown-field",
+            REPLY_VECTOR_0.replace("\"version\":1", "\"version\":1,\"unknown\":0"),
+        ),
+    ] {
+        assert!(
+            serde_json::from_str::<WireResult>(&invalid).is_err(),
+            "{case}"
+        );
+    }
+    for (case, invalid) in [
+        (
+            "updates-null",
+            REPLY_VECTOR_1.replace("\"updates\":[\"AAEC_w\",\"\",\"AQ\"]", "\"updates\":null"),
+        ),
+        (
+            "unknown-kind",
+            REPLY_VECTOR_1.replace("\"kind\":\"updates\"", "\"kind\":\"unknown\""),
+        ),
+        (
+            "duplicate-kind",
+            REPLY_VECTOR_1.replace(
+                "\"kind\":\"updates\"",
+                "\"kind\":\"updates\",\"kind\":\"updates\"",
+            ),
+        ),
+        (
+            "updates-unknown-field",
+            REPLY_VECTOR_1.replace("\"kind\":\"updates\"", "\"kind\":\"updates\",\"unknown\":0"),
+        ),
+    ] {
+        assert!(
+            serde_json::from_str::<WirePreparedContent>(&invalid).is_err(),
+            "{case}"
+        );
+    }
+
+    // Independent former non-generic DTO: same original String fields and Serde attributes.
+    // A unit Noop consumes extra map fields; no new rejection policy is introduced here.
+    #[derive(Serialize, Deserialize)]
+    #[serde(tag = "kind", rename_all = "lowercase", deny_unknown_fields)]
+    enum FormerContentBatch {
+        Noop,
+        Updates { updates: Vec<String> },
+    }
+    #[derive(Serialize, Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct FormerPreparedContent {
+        version: u8,
+        input_hash: String,
+        batch: FormerContentBatch,
+        projection: Value,
+        memory_limit: MemoryLimit,
+        pid: u32,
+    }
+    let extra_noop = REPLY_VECTOR_2
+        .replace("\"kind\":\"noop\"", "\"kind\":\"noop\",\"updates\":[]")
+        .replace(
+            "\"memory limit unavailable\"",
+            &serde_json::to_string(&memory_limit()).unwrap(),
+        );
+    let former: FormerPreparedContent = serde_json::from_str(&extra_noop).unwrap();
+    let current: WirePreparedContent = serde_json::from_str(&extra_noop).unwrap();
+    assert!(matches!(&former.batch, FormerContentBatch::Noop));
+    assert!(matches!(&current.batch, WireContentBatch::Noop));
+    assert_eq!(current.version, former.version);
+    assert_eq!(current.input_hash, former.input_hash);
+    assert_eq!(current.projection, former.projection);
+    assert_eq!(current.memory_limit, former.memory_limit);
+    assert_eq!(current.pid, former.pid);
+    assert_eq!(
+        serde_json::to_vec(&current).unwrap(),
+        serde_json::to_vec(&former).unwrap()
+    );
+    let expected = serde_json::json!({"html":"🐈\n","meta":{"title":"T"}});
+    assert_eq!(current.projection, expected);
+    assert_eq!(current.memory_limit, memory_limit());
+    let admitted = admit_prepared_content(current, "input", &expected, true).unwrap();
+    assert!(matches!(admitted.batch, ContentBatch::Noop));
+    assert_eq!(admitted.projection, expected);
+    let current: WirePreparedContent = serde_json::from_str(&extra_noop).unwrap();
+    assert!(matches!(
+        admit_prepared_content(current, "input", &expected, false),
+        Err(DecodeFault::InvalidOutput)
+    ));
+}
+
+#[test]
+fn one_generated_reply_preserves_owned_wire_projection_and_independent_replay() {
+    use yrs::{
+        Doc, GetString, Map, ReadTxn, StateVector, Text, Transact, Update, updates::decoder::Decode,
+    };
+    for namespace in [Namespace::Content, Namespace::Own] {
+        let doc = Doc::with_client_id(1934);
+        let expected = match namespace {
+            Namespace::Content => {
+                doc.get_or_insert_text("html")
+                    .insert(&mut doc.transact_mut(), 0, "old 🐈");
+                let meta = doc.get_or_insert_map("meta");
+                meta.insert(&mut doc.transact_mut(), "title", "T");
+                meta.insert(&mut doc.transact_mut(), "publisherAgent", "agent");
+                serde_json::json!({"html":"old 🐈","meta":{"title":"T","publisherAgent":"agent"}})
+            }
+            Namespace::Own => {
+                for root in ["threads", "messages", "intents", "replies"] {
+                    doc.get_or_insert_map(root);
+                }
+                doc.get_or_insert_map("threads")
+                    .insert(&mut doc.transact_mut(), "legacy", "kept");
+                serde_json::json!({"threads":{"legacy":"kept"},"messages":{},"intents":{},"replies":{}})
+            }
+        };
+        let update = doc
+            .transact()
+            .encode_state_as_update_v1(&StateVector::default());
+        for (source, publisher, merge_only) in
+            [(None, None, false), (None, None, true)].into_iter().chain(
+                (namespace == Namespace::Content).then_some((Some("new 🐈"), Some("next"), false)),
+            )
+        {
+            let input = serde_json::to_vec(&WireBatch {
+                version: 1,
+                source: source.map(str::to_owned),
+                publisher_agent: publisher.map(str::to_owned),
+                namespace,
+                baseline: String::new(),
+                updates: vec![URL_SAFE_NO_PAD.encode(&update)],
+                merge_only,
+            })
+            .unwrap();
+            let mut output = Vec::new();
+            child::request_for_test(input.as_slice(), None, &mut output, &mut |_, _, _| {})
+                .unwrap();
+            let reply: WireResult = serde_json::from_slice(&output).unwrap();
+            let merged = binary(&reply.merged, STATE_BYTES).unwrap();
+            let borrowed = WireResult {
+                version: reply.version,
+                namespace: reply.namespace,
+                input_hash: reply.input_hash.clone(),
+                merged: EncodedBytes(&merged),
+                projection: reply.projection.clone(),
+                memory_limit: reply.memory_limit,
+                pid: reply.pid,
+            };
+            // One algorithm result: no regenerated Yrs bytes or PID normalization.
+            assert_eq!(serde_json::to_vec(&reply).unwrap(), output);
+            assert_eq!(serde_json::to_vec(&borrowed).unwrap(), output);
+            assert_eq!(
+                reply.input_hash,
+                URL_SAFE_NO_PAD.encode(Sha256::digest(&input))
+            );
+            let reader = Doc::new();
+            match namespace {
+                Namespace::Content => {
+                    reader.get_or_insert_text("html");
+                    reader.get_or_insert_map("meta");
+                }
+                Namespace::Own => {
+                    for root in ["threads", "messages", "intents", "replies"] {
+                        reader.get_or_insert_map(root);
+                    }
+                }
+            }
+            if source.is_some() {
+                reader
+                    .transact_mut()
+                    .apply_update(Update::decode_v1(&update).unwrap())
+                    .unwrap();
+            }
+            reader
+                .transact_mut()
+                .apply_update(Update::decode_v1(&merged).unwrap())
+                .unwrap();
+            if merge_only {
+                assert_eq!(reply.projection, Value::Null);
+            } else if let Some(source) = source {
+                assert_eq!(
+                    reader
+                        .get_or_insert_text("html")
+                        .get_string(&reader.transact()),
+                    source
+                );
+                assert_eq!(
+                    reply.projection,
+                    serde_json::json!({"html":source,"meta":{"title":"T","publisherAgent":"next"}})
+                );
+            } else {
+                assert_eq!(reply.projection, expected);
+                if namespace == Namespace::Content {
+                    assert_eq!(
+                        reader
+                            .get_or_insert_text("html")
+                            .get_string(&reader.transact()),
+                        "old 🐈"
+                    );
+                } else {
+                    assert_eq!(
+                        reader
+                            .get_or_insert_map("threads")
+                            .get(&reader.transact(), "legacy")
+                            .unwrap()
+                            .to_string(&reader.transact()),
+                        "kept"
+                    );
+                }
+            }
+        }
+        if namespace != Namespace::Content {
+            continue;
+        }
+        for (source, publisher) in [
+            ("old 🐈", Some("agent")),
+            ("old 🐈", None),
+            ("new 🐈", Some("next")),
+        ] {
+            let input = serde_json::to_vec(&WireContentPreparation {
+                version: 1,
+                baseline: URL_SAFE_NO_PAD.encode(&update),
+                updates: Vec::<String>::new(),
+                expected_base: expected.clone(),
+                source,
+                publisher_agent: publisher,
+            })
+            .unwrap();
+            let mut output = Vec::new();
+            child::request_for_test(
+                input.as_slice(),
+                Some("prepare-content"),
+                &mut output,
+                &mut |_, _, _| {},
+            )
+            .unwrap();
+            let reply: WirePreparedContent = serde_json::from_slice(&output).unwrap();
+            assert_eq!(serde_json::to_vec(&reply).unwrap(), output);
+            assert_eq!(
+                reply.input_hash,
+                URL_SAFE_NO_PAD.encode(Sha256::digest(&input))
+            );
+            let raw = match &reply.batch {
+                WireContentBatch::Noop => Vec::new(),
+                WireContentBatch::Updates { updates } => updates
+                    .iter()
+                    .map(|v| binary(v, UPDATE_BYTES).unwrap())
+                    .collect::<Vec<_>>(),
+            };
+            let borrowed = WirePreparedContent {
+                version: reply.version,
+                input_hash: reply.input_hash.clone(),
+                batch: if matches!(&reply.batch, WireContentBatch::Noop) {
+                    WireContentBatch::Noop
+                } else {
+                    WireContentBatch::Updates {
+                        updates: raw.iter().map(|v| EncodedBytes(v)).collect(),
+                    }
+                },
+                projection: reply.projection.clone(),
+                memory_limit: reply.memory_limit,
+                pid: reply.pid,
+            };
+            assert_eq!(serde_json::to_vec(&borrowed).unwrap(), output);
+            let reader = Doc::new();
+            reader.get_or_insert_text("html");
+            let meta = reader.get_or_insert_map("meta");
+            reader
+                .transact_mut()
+                .apply_update(Update::decode_v1(&update).unwrap())
+                .unwrap();
+            for delta in &raw {
+                reader
+                    .transact_mut()
+                    .apply_update(Update::decode_v1(delta).unwrap())
+                    .unwrap();
+            }
+            assert_eq!(
+                reader
+                    .get_or_insert_text("html")
+                    .get_string(&reader.transact()),
+                source
+            );
+            assert_eq!(
+                meta.get(&reader.transact(), "title")
+                    .unwrap()
+                    .to_string(&reader.transact()),
+                "T"
+            );
+            assert_eq!(
+                meta.get(&reader.transact(), "publisherAgent")
+                    .map(|v| v.to_string(&reader.transact())),
+                publisher.map(str::to_owned)
+            );
+            let expected = edited_projection(
+                &expected,
+                ContentEdit {
+                    source,
+                    publisher_agent: publisher,
+                },
+            );
+            assert_eq!(reply.projection, expected);
+            let noop = source == "old 🐈" && publisher == Some("agent");
+            assert!(
+                admit_prepared_content(
+                    reply,
+                    &URL_SAFE_NO_PAD.encode(Sha256::digest(&input)),
+                    &expected,
+                    noop
+                )
+                .is_ok()
+            );
+        }
+        assert_eq!(
+            doc.transact()
+                .encode_state_as_update_v1(&StateVector::default()),
+            update
+        );
+    }
+}

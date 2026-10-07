@@ -774,11 +774,11 @@ struct WireBatch<B = String> {
 }
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct WireResult {
+struct WireResult<B = String> {
     version: u8,
     namespace: Namespace,
     input_hash: String,
-    merged: String,
+    merged: B,
     projection: Value,
     memory_limit: MemoryLimit,
     pid: u32,
@@ -795,16 +795,16 @@ struct WireContentPreparation<S = String, V = Value, B = String> {
 }
 #[derive(Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "lowercase", deny_unknown_fields)]
-enum WireContentBatch {
+enum WireContentBatch<B = String> {
     Noop,
-    Updates { updates: Vec<String> },
+    Updates { updates: Vec<B> },
 }
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct WirePreparedContent {
+struct WirePreparedContent<B = String> {
     version: u8,
     input_hash: String,
-    batch: WireContentBatch,
+    batch: WireContentBatch<B>,
     projection: Value,
     memory_limit: MemoryLimit,
     pid: u32,
