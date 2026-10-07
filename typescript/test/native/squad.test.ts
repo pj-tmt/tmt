@@ -3977,6 +3977,7 @@ describe('Ops path migration with unchanged Squad commands', () => {
   it('leaves legacy files untouched for help, completion and embedded skill reads', async () => {
     await withSandbox(async (sandbox) => {
       installSquad(sandbox);
+      mkdirSync(sandbox.globalDir, { recursive: true });
       const old = path.join(sandbox.globalDir, 'squad.toml');
       const bytes = '# not read by offline commands\ninvalid [';
       writeFileSync(old, bytes);
