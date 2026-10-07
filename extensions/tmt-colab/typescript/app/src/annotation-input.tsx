@@ -77,7 +77,9 @@ export function AnnotationInput({
       active = false;
     };
   }, [binding]);
-  useEffect(() => onDraft?.(value, edit), [value, edit]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    onDraft?.(value, edit);
+  }, [value, edit]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => onBusy?.(busy), [busy]); // eslint-disable-line react-hooks/exhaustive-deps
   const prior = conversationAsks(thread, asks)
     .filter((ask) => ask.reply !== undefined)

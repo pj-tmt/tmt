@@ -28,16 +28,26 @@ owns record fields, limits, revision semantics and trust boundaries.
   and trusted delivery actions stay in the requester turn until a reply exists
   (including an empty reply), then the status disappears.
 - `thread-panel.tsx` exports `ThreadWindow`/`ThreadWindowProps` for the shared
-  conversation body. A parent composer slot preserves an existing input instance;
+  conversation body, including the initial selection before a thread exists. The
+  anchored layout keeps its header and parent composer stationary while only its
+  messages scroll; new turns and associated replies move that area to the arrival.
+  A parent composer slot preserves the same input instance through first commit;
   an optional awaited status callback delegates one trusted action to the parent,
   with busy/error display and no notification or storage capability. Without that
   callback, existing writer-owned controls use the discussion binding.
-  It owns muted author/time labels with device-ID tooltips, visible Resolve/Reopen/Close thread labels alongside Lucide icons, plain-text
+  It owns muted author/time labels with device-ID tooltips, Resolve/Reopen/Close
+  Lucide controls (visible labels in Comments, hover/focus captions in the anchored
+  window), plain-text
   parent controls, one all-annotations list, expanded conversation and explicit
   reattach confirmation. `annotation-input.tsx` owns parent draft/recipient/send
   policy around the shared Lexical plaintext message composer: Enter submits the
   current parent action, Shift+Enter adds a line, Escape closes candidates before cancellation. It
-  opens at the selection in a cosmetic parent popover; saved threads open in Comments.
+  opens at the selection in a cosmetic parent window and continues there after
+  Enter; no drawer opens automatically. Known margin markers reopen that exact
+  thread using the current renderer's admitted cosmetic position. The page owner
+  keeps drafts and recipients by thread across collapse and explicit Comments
+  access. Resolve uses the existing writer-owned binding and collapses only after
+  success.
   It extends the same `components/listbox.tsx` used by Manage and the agent list;
   input options portal into its dialog ancestor (otherwise the body) and use the
   browser popover layer with viewport bounds, so mobile modal sheets retain visible,

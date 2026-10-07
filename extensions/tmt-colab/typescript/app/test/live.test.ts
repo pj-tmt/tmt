@@ -307,22 +307,37 @@ it('page observer stops on hidden/close and resumes visible without another cont
   );
   try {
     await live.snapshot();
+    const seen: PageView[] = [];
     const unsubscribe = live.subscribe(
-      () => {},
+      (view) => seen.push(view),
       () => {},
     );
     expect(asks.signals).toHaveLength(1);
     expect(asks.activation).toEqual([true]);
+    const health = asks.instances.at(-1)!.options.observationUnavailable!;
+    health(true);
+    expect(seen.at(-1)?.askUnavailable).toBe(true);
+    connections.at(-1)!.publish({ source: 'new source', title: 'Page' });
+    await live.snapshot();
+    expect(seen.at(-1)?.askUnavailable).toBe(true);
     document.visibilityState = 'hidden';
     document.dispatchEvent(new Event('visibilitychange'));
     expect(asks.signals[0].aborted).toBe(true);
+    const beforeHidden = seen.length;
+    health(false);
+    expect(seen).toHaveLength(beforeHidden);
     document.visibilityState = 'visible';
     document.dispatchEvent(new Event('visibilitychange'));
     await vi.waitFor(() => expect(asks.signals).toHaveLength(2));
     expect(asks.signals[1].aborted).toBe(false);
     expect(asks.activation).toEqual([true, true]);
+    health(false);
+    expect(seen.at(-1)?.askUnavailable).toBe(false);
     unsubscribe();
     await vi.waitFor(() => expect(asks.signals[1].aborted).toBe(true));
+    const beforeClose = seen.length;
+    health(true);
+    expect(seen).toHaveLength(beforeClose);
   } finally {
     live.close();
     vi.unstubAllGlobals();

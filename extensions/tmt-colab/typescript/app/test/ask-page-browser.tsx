@@ -11,6 +11,7 @@ import { fixtureAttempt } from './ask-browser-attempt.js';
 import { destination, id, pageLink, RemoteDouble, selection } from './ask-fixtures.js';
 let root: Root | undefined;
 let sends: RemoteDouble;
+let dispatched: RemoteDouble[];
 let actions: string[];
 let publish: ((value: PageView) => void) | undefined;
 let fail: ((error: Error) => void) | undefined;
@@ -28,6 +29,7 @@ export async function mount() {
   host.id = 'ask-page-fixture';
   document.body.append(host);
   sends = new RemoteDouble();
+  dispatched = [];
   actions = [];
   readRefusal = undefined;
   records = [];
@@ -57,6 +59,7 @@ export async function mount() {
       if (preparing) await preparing;
       const result = await fixture;
       sends = result.remote;
+      dispatched.push(sends);
       return result.attempt;
     },
     async recheck(operationId) {
@@ -195,7 +198,7 @@ export async function mount() {
   );
 }
 export function proof() {
-  return { sends: sends.sends, actions };
+  return { sends: dispatched.flatMap((remote) => remote.sends), actions };
 }
 export function discussionProof() {
   return structuredClone(current.threads);
@@ -339,5 +342,43 @@ export function conversation(options: {
     },
   ];
   current = { ...current, threads: [thread], asks: records };
+  publish?.(current);
+}
+
+/** Admitted reply/history publication double; it never prepares or dispatches an Ask. */
+export function windowReply(count = 0) {
+  const thread = current.threads!.find((value) => value.anchor)!;
+  const opening = thread.comments.at(-1)!;
+  const comments = [...thread.comments];
+  for (let index = 0; index < count; index++) {
+    const messageId = crypto.randomUUID();
+    comments.push({
+      ...opening,
+      ref: { ...opening.ref, id: messageId },
+      messageId,
+      body: `History turn ${index + 1}.`,
+      at: String(Date.now()),
+    });
+  }
+  const record: PageAsk = {
+    thread: thread.threadId,
+    messageIds: [opening.messageId],
+    operationId: dispatched[0]?.sends[0]?.operationId ?? id(43),
+    writer: opening.ref.writer,
+    agent: id(6),
+    agentName: 'Agent 1',
+    deviceName: 'You',
+    issuedAt: Date.now(),
+    machine: id(5),
+    message: opening.body,
+    state: 'accepted',
+    canTrack: true,
+    reply: 'Exact associated agent reply.',
+  };
+  current = {
+    ...current,
+    threads: current.threads!.map((value) => (value === thread ? { ...thread, comments } : value)),
+    asks: [record],
+  };
   publish?.(current);
 }

@@ -820,3 +820,65 @@ it.each(['send', 'operation'] as const)(
     await observed;
   },
 );
+
+it('one aggregate failure per observer cycle clears after a same-request recovery without redispatch', async () => {
+  const { store, remote, key } = await setup();
+  const health: boolean[] = [];
+  let firstCycle!: () => void;
+  const failedCycle = new Promise<void>((resolve) => {
+    firstCycle = resolve;
+  });
+  const controller = new AskController({
+    store,
+    remote,
+    key,
+    selection,
+    observationUnavailable: (unavailable) => {
+      health.push(unavailable);
+      if (unavailable) firstCycle();
+    },
+  });
+  await controller.destinations();
+  const first = controller.prepare(destination());
+  const second = controller.prepare(destination());
+  const accepted = await controller.send(first);
+  await controller.send(second);
+  const before = await store.view(first.view.operationId);
+  let unavailable = true;
+  const result = vi.fn(async (requestId: string) => {
+    if (requestId === accepted.requestId && unavailable) throw new Error('Transient read failure');
+    return {
+      state: 'replied' as const,
+      requestId,
+      message: requestId === accepted.requestId ? 'Exact recovered reply' : '',
+    };
+  });
+  remote.result = result;
+  const stop = new AbortController();
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+  try {
+    const observing = controller.observe(stop.signal);
+    await failedCycle;
+    expect(health).toEqual([true]);
+    expect(await store.view(first.view.operationId)).toEqual(before);
+    expect((await store.view(second.view.operationId)).reply?.body).toBe('');
+    unavailable = false;
+    await vi.advanceTimersByTimeAsync(2000);
+    await observing;
+    expect(health).toEqual([true, false]);
+    expect((await store.view(first.view.operationId)).reply).toMatchObject({
+      requestId: accepted.requestId,
+      body: 'Exact recovered reply',
+    });
+    expect(
+      result.mock.calls.filter(([requestId]) => requestId === accepted.requestId),
+    ).toHaveLength(2);
+    expect(remote.sends).toHaveLength(2);
+    stop.abort();
+    await controller.observe(stop.signal);
+    expect(health).toEqual([true, false]);
+  } finally {
+    stop.abort();
+    vi.useRealTimers();
+  }
+});

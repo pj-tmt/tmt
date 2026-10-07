@@ -1,6 +1,5 @@
 /** Component-only send/keyboard double; durable writer and Remote proof lives in acceptance. */
 import { createRoot, type Root } from 'react-dom/client';
-import { useState } from 'react';
 import { ThreadWindow } from '../src/thread-panel.js';
 import { MessageComposer } from '../src/components/message-composer.js';
 import type { ThreadView } from '../src/thread-records.js';
@@ -205,12 +204,7 @@ export function mountWindow(mode = 'ready') {
           closes++;
         }}
         composer={
-          <MessageComposer
-            label="Window draft"
-            edit={edit}
-            onChange={setEdit}
-            disabled={false}
-          />
+          <MessageComposer label="Window draft" edit={edit} onChange={setEdit} disabled={false} />
         }
         onStatusChange={
           mode === 'readonly'

@@ -38,7 +38,7 @@ async function comments(page: Page) {
 }
 
 test.afterEach(disposeActiveWorlds);
-test('a same-request annotation reply submitted while observation is paused is recovered without another send', async () => {
+test('a same-request annotation reply recovers from a visible transient read failure without another send', async () => {
   await withWorld(async (world) => {
     const door = await startDoor(world, await freePort());
     const agent = await world.startAgent('late-annotation-agent', { gated: true });
@@ -72,12 +72,48 @@ test('a same-request annotation reply submitted while observation is paused is r
       () => agent.rows().some((row) => row.event === 'replied' && row.requestId === requestId),
       'same-request durable reply',
     );
+    let failedReads = 0;
+    const failedResult = async (route: Route) => {
+      const request = route.request();
+      if (request.method() !== 'POST' || request.postDataJSON().operation !== 'result')
+        return route.continue();
+      // Let the real signed read reach Remote, then lose its response. This keeps
+      // admitted session sequences intact and never fabricates a result or send.
+      await route.fetch();
+      failedReads++;
+      await route.abort('failed');
+    };
+    await page.route('**/append', failedResult);
     await page.evaluate(() => {
       Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' });
       document.dispatchEvent(new Event('visibilitychange'));
     });
+    const window = page.getByRole('dialog', { name: 'Annotate selection' });
+    await expect(
+      window.getByText(text.askObservationUnavailable, { exact: true }),
+    ).toBeInViewport();
+    expect(failedReads).toBeGreaterThan(0);
+    await expect(page.locator('.page-drawer[open]')).toHaveCount(0);
+    const failureCaptures = process.env.COLAB_DISCUSSION_CAPTURE_DIR;
+    if (failureCaptures) {
+      mkdirSync(failureCaptures, { recursive: true });
+      for (const width of [1440, 390]) {
+        await page.setViewportSize({ width, height: 900 });
+        for (const theme of ['light', 'dark']) {
+          await page.evaluate((theme) => (document.documentElement.dataset.theme = theme), theme);
+          await expect(
+            window.getByText(text.askObservationUnavailable, { exact: true }),
+          ).toBeInViewport();
+          await page.screenshot({
+            path: `${failureCaptures}/1761-native-${width}-${theme}-read-failure.png`,
+          });
+        }
+      }
+    }
+    await page.unroute('**/append', failedResult);
     const expected = agent.rows().find((row) => row.event === 'replied')!.body as string;
     await expect(page.getByTestId('ask-reply')).toHaveText(expected);
+    await expect(window.getByText(text.askObservationUnavailable, { exact: true })).toHaveCount(0);
     await expect(page.getByTestId('ask-reply-attribution')).toContainText(agent.name);
     await expect(page.getByTestId('ask-reply-attribution')).not.toContainText(
       'late-annotation-author',
@@ -259,12 +295,21 @@ test('paired writers retain anchored annotation conversations, direct exact send
     await expect(compose.locator('blockquote')).toHaveText(quote!);
     await expect(compose.getByText(text.commentQuoteChanged)).toBeVisible();
     expect(Math.abs((await first.evaluate(() => window.scrollY)) - offset)).toBeLessThan(2);
+    await input.evaluate((node) => Object.assign(window, { retainedAnnotationInput: node }));
     await compose.getByRole('button', { name: 'Ask agent', exact: true }).click();
     await until(() => agent.received().length === 1, 'opening annotation delivered');
     expect(agent.received()[0].message).toContain('[remote: discussion-author]\n');
     expect(agent.received()[0].message).toContain(opening);
     expect(agent.received()[0].message).toContain(quote!);
     const t1 = first.getByTestId('comment-thread').first();
+    await expect(first.locator('.page-drawer[open]')).toHaveCount(0);
+    expect(
+      await input.evaluate(
+        (node) =>
+          (window as unknown as { retainedAnnotationInput: Element }).retainedAnnotationInput ===
+          node,
+      ),
+    ).toBe(true);
     await expect(t1).toHaveAttribute('data-anchor', 'detached');
     await expect(t1.getByText(text.commentQuoteChanged)).toBeVisible();
     await replaceSource(html);
@@ -320,6 +365,18 @@ test('paired writers retain anchored annotation conversations, direct exact send
     await expect(reply1.locator('.comment-byline')).toHaveText(
       'discussion-replier · just now · edited',
     );
+    // The anchored history contains both own and foreign turns without opening a drawer.
+    for (const width of [1440, 390]) {
+      await first.setViewportSize({ width, height: 900 });
+      for (const theme of ['light', 'dark']) {
+        await first.evaluate((theme) => (document.documentElement.dataset.theme = theme), theme);
+        await first.screenshot({ path: `${captureDir}/1761-native-${width}-${theme}-window.png` });
+      }
+    }
+    await first.setViewportSize({ width: 1440, height: 900 });
+    await first.evaluate(() => (document.documentElement.dataset.theme = 'light'));
+    await comments(first);
+    await first.locator(`[data-testid=annotation-row][data-thread-id="${threadId}"]`).click();
     await t1.getByRole('button', { name: text.threadResolve, exact: true }).click();
     await expect(row2).toContainText(text.threadResolved);
     await t1.getByRole('button', { name: text.threadReopen, exact: true }).click();
@@ -347,6 +404,7 @@ test('paired writers retain anchored annotation conversations, direct exact send
     await first.getByRole('button', { name: 'Close Comments', exact: true }).click();
     await marker.click();
     await expect(t1).toBeVisible();
+    await expect(first.locator('.page-drawer[open]')).toHaveCount(0);
     const frameWidth = (await first.locator('iframe').boundingBox())!.width;
     expect(frameWidth).toBe(1440);
     await first
@@ -357,9 +415,12 @@ test('paired writers retain anchored annotation conversations, direct exact send
       await first.setViewportSize({ width, height: 900 });
       await first.evaluate(() => window.scrollTo(0, 0));
       await expect(t1).toHaveAttribute('data-anchor', 'attached');
-      await first.getByRole('button', { name: 'Close Comments', exact: true }).click();
+      await t1.getByRole('button', { name: text.threadClose, exact: true }).click();
       await first.screenshot({ path: `${captureDir}/1587-native-${width}-light-markers.png` });
       await marker.click();
+      await expect(first.locator('.page-drawer[open]')).toHaveCount(0);
+      await comments(first);
+      await first.locator(`[data-testid=annotation-row][data-thread-id="${threadId}"]`).click();
       for (const theme of ['light', 'dark']) {
         await first.evaluate((theme) => {
           document.documentElement.dataset.theme = theme;
@@ -392,8 +453,12 @@ test('paired writers retain anchored annotation conversations, direct exact send
       await first.evaluate(() => {
         document.documentElement.dataset.theme = 'light';
       });
+      await first.getByRole('button', { name: 'Close Comments', exact: true }).click();
+      await marker.click();
     }
     await first.setViewportSize({ width: 1440, height: 900 });
+    await comments(first);
+    await first.locator(`[data-testid=annotation-row][data-thread-id="${threadId}"]`).click();
     await first.getByRole('button', { name: 'Source', exact: true }).click();
     const inserted = '<p style="height:300px">Inserted above.</p>' + html;
     const source = first.getByRole('textbox', { name: 'Source', exact: true });
@@ -497,11 +562,10 @@ test('composer records plain annotations and replies without a recipient, then s
     await input.fill(plain);
     await expect(compose.getByRole('button', { name: 'Post comment', exact: true })).toBeEnabled();
     await compose.getByRole('button', { name: 'Post comment', exact: true }).click();
-    // The recorded annotation opens Comments; wait before deciding whether to toggle it.
-    await expect(compose).toHaveCount(0);
-    await comments(page);
-    await page.getByTestId('annotation-row').filter({ hasText: 'Frozen original quote.' }).click();
-    const thread = page.getByTestId('comment-thread').first();
+    // A plain turn becomes the same anchored window, without opening Comments or requesting an agent.
+    const thread = compose.getByTestId('comment-thread');
+    await expect(thread).toBeVisible();
+    await expect(page.locator('.page-drawer[open]')).toHaveCount(0);
     const original = thread
       .getByTestId('comment-entry')
       .filter({ hasText: 'Plain annotation without a recipient.' });
@@ -545,7 +609,8 @@ test('composer records plain annotations and replies without a recipient, then s
     // Discovery belongs to the mounted composer; reopening admits the recovered directory.
     await thread.getByRole('button', { name: text.threadClose, exact: true }).click();
     await expect(thread).toHaveCount(0);
-    await page.getByTestId('annotation-row').filter({ hasText: 'Frozen original quote.' }).click();
+    await page.frameLocator('iframe').locator(`[data-colab-thread$="${threadId}"]`).click();
+    await expect(page.locator('.page-drawer[open]')).toHaveCount(0);
     await expect(
       thread.getByRole('button', { name: 'Choose recipient', exact: true }),
     ).toBeEnabled();

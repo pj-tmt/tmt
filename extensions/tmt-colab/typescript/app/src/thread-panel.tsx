@@ -1,8 +1,9 @@
 import { Check, CircleCheck, CircleDot, RotateCcw, X } from 'lucide-react';
 import { MessageComposer } from './components/message-composer.js';
+import type { ComposerEdit } from './components/message-composer-edit.js';
 import { conversationAsks } from './thread-store.js';
 import { ConversationTurn } from './components/conversation-turn.js';
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { AskPanel, type AskBinding, type PageAsk } from './ask-panel.js';
 import { ActionMenu } from './components/action-menu.js';
 import type { ThreadBinding } from './thread-store.js';
@@ -249,7 +250,10 @@ export function CommentExchange({
 }
 
 export type ThreadWindowProps = {
-  thread: ThreadView;
+  /** Absent until the first committed turn; the composer stays in this same window. */
+  thread?: ThreadView;
+  anchor?: QuoteSelector;
+  layout?: 'panel' | 'anchored';
   attached: boolean;
   anchorsChecked: boolean;
   selection: QuoteSelector | null;
@@ -259,16 +263,19 @@ export type ThreadWindowProps = {
   asks: readonly PageAsk[];
   close(): void;
   blocked: boolean;
-  /** A parent-owned composer can stay mounted as a selection becomes a thread. */
+  observationUnavailable?: boolean;
   composer?: ReactNode;
+  initialEdit?: ComposerEdit;
+  onDraft?(edit: ComposerEdit): void;
   /** Current parent admission owns this explicit action, including publication outcomes. */
   onStatusChange?: (thread: ThreadView, nextResolved: boolean) => Promise<void>;
-  /** The parent keeps outside-close behavior inert while this action is pending. */
   onBusy?(busy: boolean): void;
 };
 
 export function ThreadWindow({
   thread,
+  anchor: initialAnchor,
+  layout = 'panel',
   attached,
   anchorsChecked,
   selection,
@@ -278,16 +285,48 @@ export function ThreadWindow({
   asks,
   close,
   blocked,
+  observationUnavailable,
   composer,
+  initialEdit,
+  onDraft,
   onStatusChange,
   onBusy,
 }: ThreadWindowProps) {
   const [busy, setBusy] = useState(false),
     [error, setError] = useState(false);
-  const owned = binding?.deviceId === thread.ref.writer;
+  const owned = !!thread && binding?.deviceId === thread.ref.writer;
+  const anchor = thread ? thread.anchor : initialAnchor;
+  const history = useRef<HTMLDivElement>(null);
+  const previousReplies = useRef(new Map<string, string>());
+  useEffect(() => {
+    const records = conversationAsks(thread, asks, true);
+    const changed = records.filter(
+      (record) =>
+        record.reply !== undefined &&
+        previousReplies.current.get(record.operationId) !== record.reply,
+    );
+    previousReplies.current = new Map(
+      records
+        .filter((record) => record.reply !== undefined)
+        .map((record) => [record.operationId, record.reply!]),
+    );
+    const node = history.current;
+    if (layout !== 'anchored' || !node) return;
+    node.scrollTop = node.scrollHeight;
+    // A delayed answer may belong to an earlier turn. Scroll this message area,
+    // never the document, so that newly arrived answer is readable too.
+    const latest = changed.at(-1);
+    const reply =
+      latest &&
+      Array.from(node.querySelectorAll<HTMLElement>('[data-operation-id]'))
+        .find((entry) => entry.dataset.operationId === latest.operationId)
+        ?.querySelector<HTMLElement>('[data-testid="ask-reply"]');
+    if (reply)
+      node.scrollTop += reply.getBoundingClientRect().bottom - node.getBoundingClientRect().bottom;
+  }, [thread, asks, layout]);
   const [reattach, setReattach] = useState<QuoteSelector | null>(null);
   const action = (change: Parameters<ThreadBinding['updateThread']>[2]) => {
-    if (busy || blocked) return;
+    if (!thread || busy || blocked) return;
     const nextResolved = 'resolved' in change ? change.resolved : undefined;
     const mutate =
       nextResolved !== undefined && onStatusChange
@@ -299,43 +338,51 @@ export function ThreadWindow({
     setBusy(true);
     onBusy?.(true);
     setError(false);
+    let changed = false;
     void Promise.resolve()
       .then(mutate)
       .then(
-        () => setReattach(null),
+        () => {
+          setReattach(null);
+          changed = true;
+        },
         () => setError(true),
       )
       .finally(() => {
         setBusy(false);
         onBusy?.(false);
+        if (changed && layout === 'anchored' && nextResolved === true) close();
       });
   };
   return (
     <section
       className="comment-thread"
-      data-testid="comment-thread"
-      data-thread-id={thread.threadId}
-      data-writer={thread.ref.writer}
-      data-anchor={thread.deleted || !thread.anchor ? 'page' : attached ? 'attached' : 'detached'}
+      data-layout={layout}
+      data-testid={thread ? 'comment-thread' : 'annotation-window'}
+      data-thread-id={thread?.threadId}
+      data-writer={thread?.ref.writer}
+      data-anchor={thread?.deleted || !anchor ? 'page' : attached ? 'attached' : 'detached'}
     >
       <header className="thread-bar">
         <span className="thread-state">
-          {thread.resolved ? <CircleCheck aria-hidden /> : <CircleDot aria-hidden />}
+          {thread?.resolved ? <CircleCheck aria-hidden /> : <CircleDot aria-hidden />}
           <strong>
-            {thread.deleted
-              ? text.threadDeleted
-              : thread.resolved
-                ? text.threadResolved
-                : text.threadOpen}
+            {!thread
+              ? 'Annotate'
+              : thread.deleted
+                ? text.threadDeleted
+                : thread.resolved
+                  ? text.threadResolved
+                  : text.threadOpen}
           </strong>
         </span>
-        {thread.anchor && (
+        {anchor && thread && (
           <span className="comment-status">
             {attached ? text.commentAnchored : text.commentDetached}
           </span>
         )}
         <span className="thread-bar-actions">
-          {(owned || onStatusChange) && !thread.deleted && (
+          {thread && (owned || onStatusChange) && !thread.deleted && (
             <button
               className="thread-action"
               disabled={blocked || busy}
@@ -346,92 +393,99 @@ export function ThreadWindow({
               }}
             >
               {thread.resolved ? <RotateCcw aria-hidden /> : <Check aria-hidden />}
-              {thread.resolved ? text.threadReopen : text.threadResolve}
+              <span className="thread-action-caption" aria-hidden={layout === 'anchored'}>
+                {thread.resolved ? text.threadReopen : text.threadResolve}
+              </span>
             </button>
           )}
           <button
             className="thread-action"
-            title={text.threadClose}
-            aria-label={text.threadClose}
+            title={thread ? text.threadClose : 'Close annotation'}
+            aria-label={thread ? text.threadClose : 'Close annotation'}
             disabled={busy}
             onClick={(event) => {
               if (event.isTrusted) close();
             }}
           >
             <X aria-hidden />
-            {text.threadClose}
+            <span className="thread-action-caption" aria-hidden={layout === 'anchored'}>
+              {thread ? text.threadClose : 'Close annotation'}
+            </span>
           </button>
         </span>
       </header>
-      {thread.anchor && <blockquote>{thread.anchor.exact}</blockquote>}
-      {thread.anchor && anchorsChecked && !attached && (
-        <p className="annotation-hint">{text.commentQuoteChanged}</p>
+      {observationUnavailable && (
+        <p role="status" className="annotation-hint">
+          {text.askObservationUnavailable}
+        </p>
       )}
-      {thread.comments.map((comment) => (
-        <CommentExchange
-          key={`${comment.ref.writer}:${comment.messageId}`}
-          comment={comment}
-          thread={thread}
-          binding={binding}
-          ask={ask}
-          asks={asks}
-          blocked={blocked || busy}
-        />
-      ))}
-      {binding && !thread.deleted && (
-        <div className="comment-actions">
-          {owned && (
-            <>
-              {thread.anchor && !attached && (
-                <button
-                  disabled={blocked || busy || !selection}
-                  onClick={(event) => {
-                    if (event.isTrusted && selection) setReattach(structuredClone(selection));
-                  }}
-                >
-                  {text.commentReattach}
-                </button>
-              )}
+      <div className="thread-messages" ref={history}>
+        {anchor && <blockquote>{anchor.exact}</blockquote>}
+        {anchor && anchorsChecked && !attached && (
+          <p className="annotation-hint">{text.commentQuoteChanged}</p>
+        )}
+        {thread?.comments.map((comment) => (
+          <CommentExchange
+            key={`${comment.ref.writer}:${comment.messageId}`}
+            comment={comment}
+            thread={thread}
+            binding={binding}
+            ask={ask}
+            asks={asks}
+            blocked={blocked || busy}
+          />
+        ))}
+        {binding && thread && !thread.deleted && owned && (
+          <div className="comment-actions">
+            {thread.anchor && !attached && (
               <button
-                disabled={blocked || busy}
+                disabled={blocked || busy || !selection}
                 onClick={(event) => {
-                  if (event.isTrusted) action({ deleted: true });
+                  if (event.isTrusted && selection) setReattach(structuredClone(selection));
                 }}
               >
-                {text.threadDelete}
+                {text.commentReattach}
               </button>
-            </>
-          )}
-        </div>
-      )}
-      {reattach && !thread.deleted && (
-        <section className="comment-compose">
-          <blockquote>{reattach.exact}</blockquote>
-          <div className="comment-actions">
+            )}
             <button
               disabled={blocked || busy}
               onClick={(event) => {
-                if (event.isTrusted) {
-                  action({ anchor: reattach });
-                }
+                if (event.isTrusted) action({ deleted: true });
               }}
             >
-              {text.commentConfirmReattach}
-            </button>
-            <button
-              disabled={busy}
-              onClick={(event) => {
-                if (event.isTrusted) setReattach(null);
-              }}
-            >
-              {text.commentCancel}
+              {text.threadDelete}
             </button>
           </div>
-        </section>
-      )}
+        )}
+        {reattach && thread && !thread.deleted && (
+          <section className="comment-compose">
+            <blockquote>{reattach.exact}</blockquote>
+            <div className="comment-actions">
+              <button
+                disabled={blocked || busy}
+                onClick={(event) => {
+                  if (event.isTrusted) action({ anchor: reattach });
+                }}
+              >
+                {text.commentConfirmReattach}
+              </button>
+              <button
+                disabled={busy}
+                onClick={(event) => {
+                  if (event.isTrusted) setReattach(null);
+                }}
+              >
+                {text.commentCancel}
+              </button>
+            </div>
+          </section>
+        )}
+        {error && <p role="alert">{text.commentFailed}</p>}
+      </div>
       {composer !== undefined
         ? composer
-        : !thread.deleted &&
+        : thread &&
+          !thread.deleted &&
           binding && (
             <AnnotationInput
               binding={ask}
@@ -441,11 +495,12 @@ export function ThreadWindow({
               asks={asks}
               title={title}
               blocked={blocked || busy}
+              initialEdit={initialEdit}
+              onDraft={(_value, edit) => onDraft?.(edit)}
               cancel={close}
               committed={() => {}}
             />
           )}
-      {error && <p role="alert">{text.commentFailed}</p>}
     </section>
   );
 }
@@ -463,6 +518,8 @@ export function ThreadPanel({
   blocked,
   active,
   select,
+  draft,
+  onDraft,
 }: {
   hideHeader?: boolean;
   threads: readonly ThreadView[];
@@ -476,6 +533,8 @@ export function ThreadPanel({
   blocked: boolean;
   active: string | null;
   select(ref: DiscussionRef | null): void;
+  draft?(ref: DiscussionRef): ComposerEdit | undefined;
+  onDraft?(ref: DiscussionRef, edit: ComposerEdit): void;
 }) {
   const [compose, setCompose] = useState(false);
   const [now, setNow] = useState(0);
@@ -567,6 +626,8 @@ export function ThreadPanel({
                   title={title}
                   close={() => select(null)}
                   blocked={blocked}
+                  initialEdit={draft?.(thread.ref)}
+                  onDraft={(edit) => onDraft?.(thread.ref, edit)}
                 />
               )}
             </section>
