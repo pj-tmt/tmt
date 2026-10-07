@@ -443,16 +443,58 @@ the supplied approved tuple remains unresolved in the incomplete slot. Changed
 approval does not prevent exact owned historical retirement.
 Re-enable/reopen cannot resurrect a retired generation or erase a charged slot.
 
-The remaining adapter/backend/serialization/recovery work must qualify actual
-ownership, authentication, inventory completeness, absence and delayed-upload
-settlement. No storage provider, workflow approval or writer is selected here.
-The accepted 10-minute close budget (including queue/lock wait), three-day TTL
-backstop and proposed finite reconciliation costs (256 requests/8 MiB per pass,
-10 seconds per call within the original deadline) remain follow-on execution gates,
-not effects enforced by this pure planner or service promises. Ordinary CI artifacts,
-caches, releases, upstream reuse evidence and local installs remain protected.
-Focused model controls live in `test/tooling/pr-rc-resources.test.ts`; they do not
-qualify live cleanup, trusted publication, schema-bearing alpha or incremental cost.
+`typescript/scripts/pr-rc-journal.mjs` implements an unarmed Deployment checkpoint
+candidate using only injected custody, authenticated bounded transport and durable
+recovery ports. It has no CLI, credential reader, live transport or workflow caller.
+Strict finite UTF-8 JSON rejects duplicate/unknown checkpoint fields, unsafe integers,
+excess nesting and oversized representations. Immutable bytes bind the official
+repository, writer/approved tooling, exact run/attempt, source revision, predecessor
+ID/digest, complete snapshot digest and bounded terminal records. Accounting and
+reservation admission reuse `planRCResources`/`rcGenerationKey`; previous generations,
+unmatched uncertainty and terminal records cannot disappear at any recorded transition
+or candidate succession. An inconsistent history is refused before transport effects;
+complete original records remain available and accounting is unknown, never the
+smaller candidate-only total.
+Qualified release/terminal compaction remains unsupported rather than inferred.
+
+A captured externally qualified exclusive-writer context and complete bounded
+unfiltered Deployment inventory precede effects. The injected context is not CAS,
+authentication or proof of workflow exclusivity. A future writer/reconciler needs
+one shared concurrency domain with cancellation disabled. Bootstrap requires a
+separate explicit empty-ledger admission; a missing checkpoint is never bootstrap.
+Original returned IDs and raw authenticated responses are retained. Successor
+create, exact readback and complete inventory precede pruning of recorded owned
+predecessors only. Each gets an inactive status with `auto_inactive:false`, exact
+status readback, DELETE, exact authenticated absence and complete inventory.
+Unrelated deployments/environments are never mutation targets. This proves no
+artifact settlement, physical storage reclamation or billing reduction.
+
+An injected durable intent is saved before create/status/delete and at independent
+returned-ID/readback/inactive/delete boundaries. Each actual returned inactive-status
+ID and raw response is saved before asynchronous readback; status identity is reset
+for each predecessor. Unknown outcomes stop later effects;
+recovery preserves the complete candidate, recorded IDs, custody and raw evidence,
+freezes allocations and never retries POST or infers an empty ledger. Completed
+exact-ID evidence also remains durable until an independently qualified handoff. Recovery
+qualification must resolve retained evidence before another operation; no automatic
+resume/replacement or silent alternate store is supplied. All generations and
+worst-case checkpoint overlap stay charged, including after successful pruning.
+
+The candidate enforces 256 requests/8 MiB cumulative request-plus-response bytes per
+pass, at most 10 seconds per call within the original 10-minute deadline including
+queue/custody wait, 1000 inventory records and three checkpoints without eviction.
+Ports must independently enforce bounds, abort, authentication and durable exact-byte
+recovery writes. The three-day TTL remains a future backstop, never absence evidence.
+Deterministic owning controls in `test/tooling/pr-rc-journal.test.ts` and retained
+`pr-rc-resources.test.ts` qualify source behavior only. Official
+[Deployments](https://docs.github.com/en/rest/deployments/deployments),
+[statuses](https://docs.github.com/en/rest/deployments/statuses) and
+[concurrency](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/control-workflow-concurrency)
+semantics do not qualify this repository's permissions, accepted payload size,
+events/integrations, custody or incremental costs. Live backend selection and
+bounded real API qualification remain separate gates. Producer admission, Core
+catalog/eligibility/schema/trust ownership, actual upload/close cleanup, ordinary
+CI artifacts, caches, releases, upstream provenance and local installs are unchanged.
 
 ## Packed verifier cleanup
 
