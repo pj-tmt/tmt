@@ -53,6 +53,7 @@ describe('release rehearsal selection', () => {
     'scripts/run-native-verification.sh',
     'typescript/scripts/verify-native-notices.mjs',
     'typescript/scripts/release-version-injection.mjs',
+    'typescript/scripts/native-application-schema.mjs',
     'typescript/scripts/release-upgrade.mjs',
     'typescript/scripts/publication-gates.mjs',
     'typescript/scripts/verify-native-installation.mjs',

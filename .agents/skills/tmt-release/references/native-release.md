@@ -360,6 +360,33 @@ script and verifies the public download before the README advertises it.
 Replacing npm/pnpm is a fresh installation without data-transfer machinery; never
 delete old state or silently uninstall another manager.
 
+## Compiled CLI schema preparation
+
+New CLI preparation requires Core's accepted `__native-schema --source-sha <cut> --json`
+exporter. A source predating it refuses explicitly; existing published schema-less archive
+readers retain their compatibility. The schema carrier supplies no producer trust
+tuple, RC catalog, cleanup qualification or publishing authorization. Exporter integration and
+separately authorized four-host proof are delivery gates; tooling fixtures prove no native archive.
+
+The existing target jobs export from their verified archive's CLI with matching-host/Rosetta
+execution and no extra build. `native-application-schema.mjs` checks the strict compact v1 record
+against the exact-cut version snapshot: the complete direct `storage/schema/*.sql` inventory,
+`storage/migrations.rs` and `storage/migrations/host_names.rs`, including the separate indexes input.
+Unknown/omitted/extra closure inputs refuse; changing that declared closure requires Core review.
+Core owns domain/version semantics; SQL counts and the descriptive caller SHA prove neither.
+Version-only manifest/lock edits remain with the existing injection owner. Export runs with an
+empty PATH and isolated HOME/cwd/config, no credentials, and refuses observed state writes;
+this observation is not an OS sandbox or proof of no external effects. Red roots are retained.
+
+Target evidence binds captured source, binary/output and unchanged archive hashes. After the
+ordinary global cargo-dist merge, all four records must agree before the carrier adds
+`tmt_application_schema`, still within the 4 MiB final manifest bound. Bootstrap generation and
+final upload follow; final matching-host archive verification independently exports the extracted
+CLI and compares the whole field and target evidence. It refuses a changed manifest through the
+end of runtime verification. Sidecars remain preparation evidence, not a new release asset policy.
+No extension schema is inferred, published manifest rewritten or PR binary executed with writer
+credentials. Source/tooling proof and actual integrated native preparation remain separate gates.
+
 ## Packed verifier cleanup
 
 Packed verifiers use bounded synchronous subprocesses and own their isolated process
@@ -377,22 +404,25 @@ controls, confirmed-absence proof and original subprocess deadlines.
 
 ## Conventional PR titles
 
-`Code quality` runs `node typescript/scripts/pr-title-check.mjs` on `pull_request` and
-`merge_group`. Both check `type(scope)?: subject` with a lowercase type, optional nonempty
-scope and `!`; the cut planner owns release attribution.
+`typescript/scripts/pr-title-check.mjs` owns the exported `CONVENTIONAL_PR_TYPES` policy and
+`type(scope)?: subject` syntax (optional nonempty scope and `!`). It is syntax feedback;
+the cut planner owns release attribution.
 
-- **Pull request: enforcing.** The step reads the current title through `gh api` (a rerun
-  reuses the original event payload, so the event title is stale) and the changed paths from
-  the event's `base...head`. A non-conventional title fails when a path changes a released
-  component, through the planner's own `releasedComponentNamesOfPath` (owned roots plus
-  declared consumers, without the Cargo closure). Note `cli` owns `.` except the other
-  components' roots, so nearly every PR is in scope; only PRs confined to unreleased roots
-  keep any title. Missing title evidence fails closed. After the author edits the title, rerun
-  `Code quality`; full CI has no `edited` trigger.
-- **Merge group: report-only.** Every pending squash subject (after removing GitHub's final
-  `(#PR)`) is checked; findings (PR, SHA, escaped title) go to job output and
-  `GITHUB_STEP_SUMMARY`. Invalid titles, unavailable queue evidence or summary I/O errors
-  still exit zero, and unavailable evidence is never a clean result.
+- **Pull request: enforcing.** Both `Code quality` and the small `pr-title.yml` workflow read
+  the current title through `gh api` (a rerun's event title may be stale) and changed paths
+  from the event's `base...head`. A title outside the approved policy fails when a path
+  changes a released component, using `releasedComponentNamesOfPath` (owned roots plus
+  declared consumers, without Cargo closure). `cli` owns `.` except other components' roots;
+  only PRs confined to unreleased roots keep any title. Missing evidence fails closed.
+  The separate read-only Node job runs on opened/edited/reopened/synchronize with independent
+  concurrency, no dependency install or product build. Editing a title triggers that check;
+  rerun `Code quality` if its previous title step failed. Full CI has no `edited` trigger.
+- **Merge group: enforcing.** `Code quality` checks every pending cumulative squash subject
+  after removing GitHub's final `(#PR)`, not only the queue tip or fresh REST title. Invalid
+  titles and unavailable queue evidence fail the required job; PR/SHA/exact escaped title
+  findings and expected syntax/types are retained in stdout and `GITHUB_STEP_SUMMARY`.
+  Summary I/O cannot change the decision. Explicit `--report-only` retains the former
+  observation command's zero exit on findings/unavailable evidence; required CI never uses it.
 
 The planner is the fail-safe behind the gate: a non-conventional or capitalized top-level
 subject on a released component's paths is releasable and listed under `Other changes`, never
@@ -400,7 +430,7 @@ dropped (#1643). Conventional `docs`, `chore`, `test` and similar types stay hid
 
 Verify with
 `pnpm exec vp test run --config vitest.config.ts test/tooling/pr-title-check.test.ts test/tooling/release-cut.test.ts`,
-`pnpm check:tooling` and `actionlint .github/workflows/ci.yml`.
+`pnpm check:tooling` and `actionlint .github/workflows/ci.yml .github/workflows/pr-title.yml`.
 
 ## Project release tracking
 

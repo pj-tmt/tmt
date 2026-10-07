@@ -1,5 +1,7 @@
 import type { ComponentMap } from './ci-scope.mjs';
 
+export const CONVENTIONAL_PR_TYPES: readonly string[];
+
 export interface QueueReader {
   git(args: string[]): string;
 }

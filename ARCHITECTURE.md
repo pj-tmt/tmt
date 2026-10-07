@@ -644,12 +644,12 @@ declared roots, packaging and canonical generated inputs without cfg/reachabilit
 Required CI covers the component map, declaring crates and release build script; the Node
 Project sweep validates declarations and never executes captured source.
 
-Selected missing, failed, cancelled or unexpectedly skipped work cannot satisfy a
-required gate; empty test discovery never passes. Selection, worker, cache and
-advisory-browser details live in the
-[CI reference](.agents/skills/tmt-release/references/ci-selection.md).
-Publication reuses the native aggregate's scope-skip proof with check-suite
-provenance rather than recomputing historical selection or accepting bare skips.
+Selected missing, failed, cancelled or unexpectedly skipped work and empty discovery
+cannot satisfy required gates; selection, worker, cache and advisory-browser details live in the
+[CI reference](.agents/skills/tmt-release/references/ci-selection.md). `pr-title-check.mjs` owns
+released-path and cumulative squash-title gates; the [release reference](.agents/skills/tmt-release/references/native-release.md#conventional-pr-titles)
+owns edit-only feedback and explicit report-only compatibility. Publication reuses the native
+aggregate's scope-skip proof with check-suite provenance, not recomputed selection or bare skips.
 
 ## Runtime layers
 
@@ -1055,7 +1055,7 @@ shares the native runtime/linkage proof across archive, installer, upgrade and
 public smoke verification. Raw executables do not prove archives or public
 installation. The candidate-owned installer handoff contract is
 [`contracts/native-install-handoff-v1.md`](contracts/native-install-handoff-v1.md).
-Archive, installer, verifier and publication procedures belong to
+Archive, installer, verifier, publication and compiled CLI schema procedures belong to
 [tmt-release](.agents/skills/tmt-release/SKILL.md).
 
 ### Main release cuts
