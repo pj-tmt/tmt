@@ -596,7 +596,41 @@ live serve return the standard `{"error":{"code":"REMOTE_…","message":"…"}}`
 nonzero exit. A running serve that predates `status` or `stop` (alpha.1 answered
 `REMOTE_INPUT_INVALID` "Unknown control operation."; later serves answer
 `REMOTE_CONTROL_UNSUPPORTED`) yields `REMOTE_SERVE_OUTDATED` from either command: it must be
-stopped by hand (Ctrl-C in its terminal) and started again, since `stop` cannot reach it. Status contains no other fields, secrets, cookies or device inventory.
+stopped by hand (Ctrl-C in its terminal) and started again, since `stop` cannot reach it.
+Ordinary status contains no other fields, secrets, cookies or device inventory.
+
+`tmt remote status --machine --json` selects an optional root-local observation; `--machine`
+requires `--json`. It sends exactly `{"op":"status","machine":true}` through the same owner-only
+control request, instead of the ordinary exact `{"op":"status"}`. A running supporting serve
+returns exactly:
+
+```text
+{"running":true,"origin":"http://127.0.0.1:<port>","path":"/r/k7qxm4tz2pbwn6rh","machineId":"<canonical non-nil UUIDv4>"}
+```
+
+All four values come from that connected serving owner; `machineId` is the immutable machine
+already captured for this run. Discovery does not open or initialize Store, read a machine key,
+create a pairing offer or acquire an HTTP descriptor/Session. Ordinary parsing remains exactly
+three keys; the opt-in parser requires exactly four, with the same origin/path validation and
+canonical lowercase non-nil UUIDv4/variant validation for `machineId`. Partial, malformed or extra
+fields fail closed. Stopped/absent inspection remains exactly the two-key document above, without
+`machineId` even when stored state remembers one; legacy state is not migrated.
+
+An old command rejects `--machine` before state work. Against an old live serve, the optional
+projection preserves the standard nonzero error document and its original unsupported code/message:
+`REMOTE_CONTROL_UNSUPPORTED`, or the exact legacy `REMOTE_INPUT_INVALID` / "Unknown control operation."
+It does not rewrite that optional refusal to stop/restart, installation or repair advice.
+Other connected peer errors stay errors; malformed/silent replies and unsafe/unavailable state
+never imply stopped or a machine ID. No preceding ordinary status or second acquisition is required.
+
+This observation uses the invoking executable and inherited core-root context, and grants no
+routing or management authority. A consumer may omit its whole optional machine/identity hint
+when unsupported, stopped, timed out or unavailable; it must not prevent creation, backfill
+historical absence or infer another identity from labels/current agents. A creation hint is not
+an atomic identity-directory/grant proof: use-time routing still requires both stored IDs to match
+the authenticated current machine and a unique admitted agent under the current live grant.
+The first supporting release is recorded after delivery, not inferred from an installed receipt
+or a guessed minimum; a selected new CLI does not prove an old loaded door supports this projection.
 
 `tmt remote stop --json` asks the running serve to shut down through its owner-only control
 socket, then waits up to 40 seconds after acknowledgment for the lifecycle lease to be released
