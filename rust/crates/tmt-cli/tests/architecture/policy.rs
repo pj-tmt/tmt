@@ -232,8 +232,9 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
         ],
         "tmt-invoke" => &["subprocess", "nix"],
         "tmt-extension-state" => &["nix"],
-        // Wire primitives only: canonical encodings, protocol bounds and bounded strict JSON admission.
-        "tmt-extension-objects" => &["base64", "serde", "serde_json"],
+        // Wire primitives (canonical encodings, protocol bounds, strict JSON admission, typed frames)
+        // and the Unix channel carrier, whose `httparse` and `nix` are reviewed for `cfg(unix)` alone.
+        "tmt-extension-objects" => &["base64", "serde", "serde_json", "httparse", "nix"],
         // Case-2 publication reuses the neutral bounded process owner only.
         "tmt-test-support" => &["tmt-invoke"],
         // Private release tooling owns only TOML edits and their JSON transport.
@@ -350,7 +351,11 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
             // Source paths use canonical crate names. Renaming even an allowed
             // package requires an explicit policy review instead of bypassing
             // the source-layer checks through a new external crate alias.
+            let carrier_only = name == "tmt-extension-objects"
+                && ["httparse", "nix"].contains(&dependency)
+                && !((d["kind"].is_null() || d["kind"] == "normal") && d["target"] == "cfg(unix)");
             let unreviewed = !allowed.contains(&dependency)
+                || carrier_only
                 || !d["rename"].is_null()
                 || (["tmt-test-support", "tmt-release-tool"].contains(&name)
                     && !d["kind"].is_null() && d["kind"] != "normal");
@@ -868,6 +873,16 @@ pub fn source_violations(sources: &[Source]) -> Vec<String> {
                 violations.push(format!(
                     "{location}: extension objects leaf cannot reach {}",
                     path.join("::")
+                ));
+            }
+            // The protocol modules stay free of OS dependencies: only the carrier names them.
+            if source.package == "tmt-extension-objects"
+                && ["nix", "httparse"].contains(&root)
+                && source.file != "carrier.rs"
+                && !source.file.starts_with("carrier/")
+            {
+                violations.push(format!(
+                    "{location}: only the extension objects carrier may use {root}"
                 ));
             }
             // No product consumes the leaf yet; each reviewed consumer is added with its edge.

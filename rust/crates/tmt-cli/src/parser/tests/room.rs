@@ -107,7 +107,9 @@ fn room_dispatch_uses_the_shared_request_kind_and_operation_identity() {
     use tmt_core::request::RequestKind;
     assert!(matches!(
         parsed(&["talk", "Alice", "Only Alice", "--room", "Design", "--inbox", "--detach"]).invocation,
-        Invocation::Talk { options: TalkOptions { room: Some(room), inbox: true, .. }, .. } if room == "Design"
+        Invocation::Talk { options: TalkOptions {
+            urgent: false,
+            focus_kind: tmt_core::request::focus::FocusKind::Fyi, room: Some(room), inbox: true, .. }, .. } if room == "Design"
     ));
     for (verb, kind) in [
         ("send", RequestKind::Request),

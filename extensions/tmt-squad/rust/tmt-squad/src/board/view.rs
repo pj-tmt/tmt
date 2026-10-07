@@ -114,6 +114,7 @@ pub(in crate::board) fn render_frame(
     overlays::render(frame, app, body, look);
     waiting::prompt(frame, app, body);
     look.selected_words(frame.buffer_mut());
+    header::finish_meter_styles(frame, app, summary);
 }
 
 #[cfg(test)]

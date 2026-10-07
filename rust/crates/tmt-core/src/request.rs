@@ -3,6 +3,7 @@
 
 pub mod attention;
 pub mod correlation;
+pub mod focus;
 pub mod history;
 pub mod inbox;
 pub mod notification;
@@ -136,6 +137,9 @@ impl WakeState {
 pub struct WakeClaim {
     pub state: WakeState,
     pub claimed: bool,
+    /// Captured with the held decision; Some(0) denotes a cleared policy whose
+    /// request remains owned by its checklist instead of an individual wake.
+    pub focus_until_ms: Option<u64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -245,6 +249,7 @@ pub struct PreparedRequest {
     pub request_id: String,
     pub inject_preamble: bool,
     pub previous_request_id: Option<String>,
+    pub focus_until_ms: Option<u64>,
 }
 
 pub struct SubmitResponse {
@@ -296,6 +301,58 @@ pub struct RequestContext {
 /// remain in RequestService, not in SQL adapters.
 pub trait RequestRecords {
     type Error;
+    fn focus_policy(&self, identity_id: &str) -> Result<Option<focus::FocusPolicy>, Self::Error>;
+    fn write_focus_policy(&mut self, policy: &focus::FocusPolicy) -> Result<(), Self::Error>;
+    fn delivery_policy(&self, request_id: &str) -> Result<focus::DeliveryPolicy, Self::Error>;
+    fn write_delivery_policy(
+        &mut self,
+        request_id: &str,
+        policy: &focus::DeliveryPolicy,
+    ) -> Result<(), Self::Error>;
+    fn hold_focus_item(
+        &mut self,
+        identity_id: &str,
+        request_id: &str,
+        kind: focus::FocusKind,
+        source: focus::FocusSource,
+        now_ms: u64,
+    ) -> Result<(), Self::Error>;
+    fn has_focus_item(
+        &self,
+        identity_id: &str,
+        request_id: &str,
+        source: focus::FocusSource,
+    ) -> Result<bool, Self::Error>;
+    fn focus_inventory(
+        &self,
+        identity_id: &str,
+        checklist_id: Option<&str>,
+        after: u64,
+        now_ms: u64,
+    ) -> Result<(u64, u64), Self::Error>;
+    fn focus_items(
+        &self,
+        identity_id: &str,
+        checklist_id: Option<&str>,
+        after: u64,
+        limit: u64,
+        now_ms: u64,
+    ) -> Result<Vec<focus::FocusItem>, Self::Error>;
+    fn focus_checklist(&self, id: &str) -> Result<Option<focus::FocusChecklist>, Self::Error>;
+    fn active_focus_checklist(
+        &self,
+        identity_id: &str,
+    ) -> Result<Option<focus::FocusChecklist>, Self::Error>;
+    fn create_focus_checklist(
+        &mut self,
+        checklist: &focus::FocusChecklist,
+        now_ms: u64,
+    ) -> Result<(), Self::Error>;
+    fn settle_focus_checklist(
+        &mut self,
+        checklist: &focus::FocusChecklist,
+        state: focus::FocusState,
+    ) -> Result<(), Self::Error>;
     fn notification(
         &self,
         request_id: &str,
@@ -536,6 +593,7 @@ pub enum RequestError<E> {
     Attention(attention::AttentionRejection),
     Answer(inbox::AnswerRejection),
     ResultSelection(ResultSelectionRejection),
+    Focus(focus::FocusRejection),
     Repository(E),
 }
 
@@ -582,6 +640,7 @@ impl<E> fmt::Display for RequestError<E> {
             Self::ResultSelection(ResultSelectionRejection::Ambiguous(_)) => {
                 f.write_str("Request-ID prefix matches several retained requests.")
             }
+            Self::Focus(reason) => f.write_str(reason.code()),
             Self::Repository(_) => f.write_str("Could not access request state."),
         }
     }

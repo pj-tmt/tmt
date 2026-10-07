@@ -348,7 +348,7 @@ fn frame(
         app.hits
             .borrow()
             .iter()
-            .map(|hit| format!("{}:{}+{}#{}", hit.y, hit.x, hit.width, hit.row))
+            .map(|hit| format!("{}:{}+{}#{}", hit.y, hit.x, hit.width, hit.row().unwrap()))
             .collect::<Vec<_>>()
             .join(" ")
     );

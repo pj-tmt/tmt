@@ -2004,8 +2004,6 @@ fn extension_objects_is_a_strict_leaf_with_no_product_consumer_yet() {
                 "tmt-test-support",
                 "tmt-remote",
                 "tmt-colab",
-                "nix",
-                "httparse",
                 "sha2",
                 "getrandom",
                 "ed25519-dalek",
@@ -2014,6 +2012,26 @@ fn extension_objects_is_a_strict_leaf_with_no_product_consumer_yet() {
                 assert!(
                     refuses("tmt-extension-objects", forbidden, kind, target, None),
                     "leaf must not use {forbidden} ({kind}, {target:?})"
+                );
+            }
+            // The carrier's two OS-facing dependencies are reviewed for the Unix target
+            // of a normal dependency alone, and never renamed.
+            for carrier in ["nix", "httparse"] {
+                let reviewed = kind == "normal" && target == Some("cfg(unix)");
+                assert_eq!(
+                    refuses("tmt-extension-objects", carrier, kind, target, None),
+                    !reviewed,
+                    "{carrier} {kind} {target:?}"
+                );
+                assert!(
+                    refuses(
+                        "tmt-extension-objects",
+                        carrier,
+                        kind,
+                        target,
+                        Some("alias")
+                    ),
+                    "renamed {carrier} {kind} {target:?}"
                 );
             }
             // No package, including Remote and Colab, depends on the leaf yet.
@@ -2059,6 +2077,32 @@ fn extension_objects_is_a_strict_leaf_with_no_product_consumer_yet() {
         )],
         &[],
     );
+    // Only the carrier may name the OS-facing crates; the protocol modules may not.
+    for file in ["carrier.rs", "carrier/bounded.rs", "carrier/handshake.rs"] {
+        for source in ["use nix::poll::poll;", "use httparse::Request;"] {
+            assert_exact(&[syntax("tmt-extension-objects", file, source)], &[]);
+        }
+    }
+    for file in [
+        "lib.rs",
+        "codec.rs",
+        "ids.rs",
+        "frame.rs",
+        "frame/read.rs",
+        "carriers.rs",
+    ] {
+        for (source, root) in [
+            ("use nix::poll::poll;", "nix"),
+            ("use httparse::Request;", "httparse"),
+        ] {
+            assert!(
+                policy::source_violations(&[syntax("tmt-extension-objects", file, source)])
+                    .iter()
+                    .any(|violation| violation.contains(root)),
+                "{file} {root}"
+            );
+        }
+    }
 }
 
 #[test]

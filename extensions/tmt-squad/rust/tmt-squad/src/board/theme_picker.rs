@@ -51,11 +51,7 @@ impl Picker {
     pub fn open(config: Config, squad: Option<String>) -> Result<Self, SquadError> {
         let name = squad.as_deref().unwrap_or("");
         let selected = config.theme(name)?.0.base;
-        let scope = if config.theme_source(name)? == "squad" {
-            ThemeScope::Squad(squad.clone().expect("a squad theme has a squad"))
-        } else {
-            ThemeScope::Board
-        };
+        let scope = ThemeScope::Board;
         let preview = config.preview_theme_base(&scope, selected, name)?;
         Ok(Self {
             config,
@@ -98,7 +94,7 @@ impl Picker {
             return None;
         }
         Some(format!(
-            "squad {name} keeps {} (its own setting)",
+            "squad {name} keeps {} (its own setting) · r reset in ,",
             self.config.theme(name).ok()?.0.base.name()
         ))
     }
@@ -113,10 +109,6 @@ impl Picker {
                 .expect("theme choice"),
         )
         .expect("built-in base")
-    }
-    #[cfg(test)]
-    pub fn key(&mut self, key: ratatui::crossterm::event::KeyEvent) -> Input {
-        self.input(&Event::Key(key)).unwrap_or(Input::Preview)
     }
     pub fn input(&mut self, event: &Event) -> Option<Input> {
         if matches!(event, Event::Key(_)) {
@@ -296,6 +288,12 @@ mod tests {
             "no selected row is needed"
         );
         app.theme_picker = Some(Picker::open(config, Some("product".into())).unwrap());
+        assert_eq!(app.theme_picker.as_ref().unwrap().scope, ThemeScope::Board);
+        assert_eq!(
+            app.theme_picker.as_ref().unwrap().masked().as_deref(),
+            Some("squad product keeps mono (its own setting) · r reset in ,")
+        );
+        app.key(key(KeyCode::Tab));
         assert_eq!(
             app.theme_picker.as_ref().unwrap().scope,
             ThemeScope::Squad("product".into())
@@ -310,7 +308,7 @@ mod tests {
         );
         assert_eq!(
             app.theme_picker.as_ref().unwrap().masked().as_deref(),
-            Some("squad product keeps mono (its own setting)")
+            Some("squad product keeps mono (its own setting) · r reset in ,")
         );
         assert_eq!(std::fs::read_to_string(&path).unwrap(), original);
         let mut snapshot = crate::board::app::tests::snapshot("product", json!([]));
@@ -461,8 +459,7 @@ mod tests {
     #[test]
     fn overlay_draws_descriptions_scope_note_footer_and_selection_at_each_depth() {
         let (path, config) = fixture("render", "[squad.product.theme]\nbase = \"mono\"\n");
-        let mut picker = Picker::open(config, Some("product".into())).unwrap();
-        picker.key(key(KeyCode::Tab));
+        let picker = Picker::open(config, Some("product".into())).unwrap();
         for depth in [
             tmt_cli_style::Depth::TrueColor,
             tmt_cli_style::Depth::Ansi16,

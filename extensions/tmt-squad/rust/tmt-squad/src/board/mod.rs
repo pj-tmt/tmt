@@ -41,7 +41,7 @@ use app::{App, Effect, Request, Snapshot};
 use ratatui::{
     Terminal,
     backend::CrosstermBackend,
-    crossterm::event::{self, Event, KeyEventKind},
+    crossterm::event::{self, Event, KeyEventKind, MouseEventKind},
 };
 use std::{
     io,
@@ -466,14 +466,20 @@ fn session<T: Into<ActionOutcome>>(
                 app.key(key)
             }
             Ok(BoardEvent::Input(Event::Mouse(mouse))) => {
-                dirty = true;
-                app.mouse(mouse, Instant::now())
+                if mouse.kind == MouseEventKind::Moved {
+                    dirty |= app.move_pointer(mouse);
+                    Effect::None
+                } else {
+                    dirty = true;
+                    app.mouse(mouse, Instant::now())
+                }
             }
             Ok(BoardEvent::Input(event @ Event::Paste(_))) if app.checklist_shown() => {
                 dirty = true;
                 app.overlay_event(&event).unwrap_or(Effect::None)
             }
             Ok(BoardEvent::Input(Event::Resize(_, _))) => {
+                app.meter_hover = None;
                 app.invalidate_overlay_frames();
                 dirty = true;
                 Effect::None
@@ -561,6 +567,52 @@ fn session<T: Into<ActionOutcome>>(
                     requested = None;
                     request(app.current.clone(), true, true);
                     refreshed = Instant::now();
+                }
+            }
+            Effect::ResetSetting => {
+                if app.settings.as_mut().is_some_and(|overlay| overlay.reset()) {
+                    app.settings_preview();
+                    if let Some(config) = app
+                        .settings
+                        .as_ref()
+                        .and_then(|overlay| overlay.config())
+                        .cloned()
+                    {
+                        app.apply_token_window(&config);
+                    }
+                    revision += 1;
+                    requested = None;
+                    request(app.current.clone(), true, true);
+                    refreshed = Instant::now();
+                }
+            }
+            Effect::CycleTokenWindow => {
+                if let Some(window) = app.next_token_window() {
+                    let result = if let Some(overlay) = &mut app.settings {
+                        if overlay.save_window(window) {
+                            Some(Ok(overlay.config().unwrap().clone()))
+                        } else {
+                            None
+                        }
+                    } else {
+                        Some(load_config().and_then(|mut config| {
+                            config
+                                .set_setting(None, "board.token_rate.window", &window.label())
+                                .map_err(|error| error.message)?;
+                            Ok(config)
+                        }))
+                    };
+                    match result {
+                        Some(Ok(config)) => {
+                            app.notice = Some(app.apply_token_window(&config));
+                            revision += 1;
+                            requested = None;
+                            request(app.current.clone(), true, app.settings.is_some());
+                            refreshed = Instant::now();
+                        }
+                        Some(Err(error)) => app.finished(Err(error)),
+                        None => {}
+                    }
                 }
             }
             Effect::CancelSettings => {
@@ -1395,6 +1447,63 @@ mod tests {
             .unwrap();
         frames.recv_timeout(Duration::from_secs(2)).unwrap();
         assert!(frames.recv_timeout(INPUT_WAIT * 2).is_err());
+        events.send(key(KeyCode::Char('q'))).unwrap();
+        assert_eq!(session.join().unwrap(), None);
+    }
+
+    #[test]
+    fn pointer_motion_repaints_only_when_meter_target_changes() {
+        use ratatui::crossterm::event::{KeyModifiers, MouseEvent};
+        let (events, input) = channel();
+        let (painted, frames) = channel();
+        let session = std::thread::spawn(move || {
+            let mut app = App::new(Some("product".into()));
+            let mut snapshot = app::tests::snapshot("product", serde_json::json!([]));
+            snapshot.view.as_mut().unwrap().refresh = None;
+            app.apply(snapshot);
+            super::session(
+                &mut app,
+                &AtomicUsize::new(0),
+                &input,
+                |_, _, _| {},
+                |_, _| {},
+                |_| {},
+                no_actions,
+                no_load_config,
+                |app| {
+                    *app.hits.borrow_mut() = vec![app::Hit {
+                        y: 1,
+                        x: 40,
+                        width: 10,
+                        target: app::HitTarget::Meter(None),
+                    }];
+                    painted.send(app.meter_hover).unwrap();
+                    Ok(())
+                },
+            )
+            .unwrap()
+        });
+        assert_eq!(frames.recv_timeout(Duration::from_secs(2)).unwrap(), None);
+        let moved = |column| {
+            BoardEvent::Input(Event::Mouse(MouseEvent {
+                kind: MouseEventKind::Moved,
+                column,
+                row: 1,
+                modifiers: KeyModifiers::NONE,
+            }))
+        };
+        events.send(moved(40)).unwrap();
+        assert_eq!(
+            frames.recv_timeout(Duration::from_secs(2)).unwrap(),
+            Some(None)
+        );
+        events.send(moved(45)).unwrap();
+        assert!(
+            frames.recv_timeout(INPUT_WAIT * 2).is_err(),
+            "motion within the same group never repaints"
+        );
+        events.send(moved(39)).unwrap();
+        assert_eq!(frames.recv_timeout(Duration::from_secs(2)).unwrap(), None);
         events.send(key(KeyCode::Char('q'))).unwrap();
         assert_eq!(session.join().unwrap(), None);
     }

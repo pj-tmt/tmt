@@ -260,32 +260,85 @@ pub(super) fn render_meter(frame: &mut Frame, app: &App, summary: Rect) {
     };
     let look = app.look();
     let meter = app.meter.as_ref().expect("visible meter");
+    let hovered = app.meter_hover.is_some();
+    let selected_bar = app.meter_hover.flatten().filter(|_| layout.spark);
     let digits = meter.digits();
-    let mut spans = vec![Span::raw(digits.as_deref().unwrap_or("–"))];
-    spans.push(Span::styled(layout.unit, look.role(Role::Muted)));
-    if let Some(label) = layout.label {
-        spans.push(Span::styled(format!(" {label}"), look.role(Role::Muted)));
-    }
-    if layout.spark {
-        // Keep empty slices: the eight-slot trend grows from the right.
-        spans.push(Span::styled(
-            format!(" {}", meter.sparkline()),
-            look.role(Role::Muted),
-        ));
-    }
-    let line = Line::from(spans);
-    if digits.is_none() {
-        let width = (line.width() as u16).min(area.width);
-        strip::paint_left(
-            frame.buffer_mut(),
-            Rect {
-                x: area.right() - width,
-                width,
-                ..area
-            },
-            line,
-        );
+    let readout_width = usize::from(area.width).saturating_sub(if layout.spark { 9 } else { 0 });
+    let mut spans = if let Some(readout) =
+        selected_bar.and_then(|bar| meter.bar_readout(bar, std::time::Instant::now()))
+    {
+        vec![Span::raw(readout)]
     } else {
-        strip::paint_right(frame.buffer_mut(), area, line);
+        let mut spans = vec![
+            Span::raw(digits.as_deref().unwrap_or("–")),
+            Span::styled(layout.unit, look.role(Role::Muted)),
+        ];
+        if let Some(label) = layout.label {
+            spans.push(Span::styled(format!(" {label}"), look.role(Role::Muted)));
+        }
+        spans
+    };
+    let readout = Line::from(spans.clone()).width();
+    spans.insert(
+        0,
+        Span::raw(" ".repeat(readout_width.saturating_sub(readout))),
+    );
+    if layout.spark {
+        spans.push(Span::raw(" "));
+        for (index, bar) in meter.sparkline().chars().enumerate() {
+            spans.push(Span::styled(
+                bar.to_string(),
+                look.role(if selected_bar == Some(index) {
+                    Role::Text
+                } else {
+                    Role::Muted
+                }),
+            ));
+        }
+    }
+    let mut line = Line::from(spans);
+    if hovered {
+        line.style = look.selection();
+        for span in &mut line.spans {
+            span.style = look.row_span(true, span.style, false);
+        }
+    }
+    strip::paint_right(frame.buffer_mut(), area, line);
+    let mut hits = app.hits.borrow_mut();
+    hits.push(crate::board::app::Hit {
+        y: area.y,
+        x: area.x,
+        width: area.width,
+        target: crate::board::app::HitTarget::Meter(None),
+    });
+    if layout.spark {
+        for index in 0..8 {
+            hits.push(crate::board::app::Hit {
+                y: area.y,
+                x: area.right() - 8 + index as u16,
+                width: 1,
+                target: crate::board::app::HitTarget::Meter(Some(index)),
+            });
+        }
+    }
+}
+
+/// Slice bars retain their own tones on the hover background after the general
+/// selected-word pass; only the pointed slice changes to the text role.
+pub(super) fn finish_meter_styles(frame: &mut Frame, app: &App, summary: Rect) {
+    if app.meter_hover.is_none() || app.look().selection().bg.is_none() {
+        return;
+    }
+    let Some((area, _)) = meter_region(app, summary).filter(|(_, layout)| layout.spark) else {
+        return;
+    };
+    let look = app.look();
+    for index in 0..8 {
+        let role = if app.meter_hover.flatten() == Some(index) {
+            Role::Text
+        } else {
+            Role::Muted
+        };
+        frame.buffer_mut()[(area.right() - 8 + index as u16, area.y)].set_style(look.role(role));
     }
 }

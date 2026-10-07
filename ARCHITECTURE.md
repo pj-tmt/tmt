@@ -845,11 +845,11 @@ are classified once and projected through `tmt-command-output::Failure::storage_
 
 `tmt-core::request::RequestService` owns preparation, delivery-state transitions,
 exact final submission, waiter release, attention revisions and bounded retention
-housekeeping; `storage::requests` owns SQL and cleanup and `request::attention` the
-pure attention contract. It samples clocks at the transaction boundary, never holds
-a transaction across transport, and treats uncertain delivery as uncertain, never as
-replay authorization. Final bodies are immutable and terminal text is never
-completion evidence. Reads never acknowledge; originator and recipient
+housekeeping; `storage::requests` owns SQL and cleanup; `request::attention` owns attention.
+`request::focus` owns held references and sealed checklists; the Focus adapter composes API
+and verified-idle handoff without scheduling. Clocks are sampled at transaction entry;
+no transaction spans transport, and uncertainty never authorizes replay. Finals are
+immutable and terminal text never proves completion. Reads never acknowledge; originator and recipient
 acknowledgment are independent. `RequestRoute` separates unbound pane delivery from
 the durable identity inbox, which settles `queued`. Unbound identity delivery uses
 the foreground observer and recipient pull. Reply notice windows are persisted and composed by
@@ -1171,7 +1171,7 @@ bind the session through a non-secret, cookie-device-checked `tmt-session` ident
 stripped at the door. Last-close touches; every session without a live transport has the existing 60-second inactivity grace.
 Activity renews it; reattach resumes that session. Detached sessions count against the cap until expiry. Idle expiry, explicit end, eviction and authority loss reuse session-owned cleanup.
 Grant-owned held work survives session end; only stop, revoke or grant expiry/revision change cancels it. Uncertain dispatch retains recovery.
-The `objects` backend and the `rust/crates/tmt-extension-objects` wire leaf (canonical identifiers, bounds, strict JSON admission and request, result, callback and lifecycle frames only) are library-only, not yet routed (#1852): see the [Remote internals](.agents/skills/tmt-remote/references/architecture-internals.md) and [object-backends](.agents/skills/tmt-remote/references/object-backends.md) references.
+The `objects` backend and the `rust/crates/tmt-extension-objects` wire leaf (canonical identifiers, bounds, strict JSON admission, request, result, callback and lifecycle frames, and the Unix channel carrier) are library-only, not yet routed (#1852): see the [Remote internals](.agents/skills/tmt-remote/references/architecture-internals.md) and [object-backends](.agents/skills/tmt-remote/references/object-backends.md) references.
 
 System-wide invariants:
 

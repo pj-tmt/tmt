@@ -62,6 +62,8 @@ fn exchange_document<T>(
 ) -> Value {
     let mut document = json!({
         "requestId": exchange.request_id,
+        "urgent": exchange.delivery_policy.urgent,
+        "focusKind": exchange.delivery_policy.kind.as_str(),
         "recipientIdentityId": exchange.recipient_identity_id,
         "preparedAtMs": exchange.prepared_at_ms,
         "delivery": exchange.delivery.as_str(),
@@ -169,7 +171,11 @@ pub(super) fn publish(report: Report, mode: OutputMode) -> io::Result<u8> {
                                 .map_or("-", value::short_id),
                             Token::Dim,
                         ),
-                        Cell::from(item.delivery.as_str()),
+                        Cell::from(if item.delivery_policy.urgent {
+                            format!("{} urgent", item.delivery.as_str())
+                        } else {
+                            item.delivery.as_str().to_owned()
+                        }),
                         Cell::from(item.final_state.as_str()),
                         Cell::styled(format!("r{}", item.revision), Token::Dim),
                     ]);
@@ -201,6 +207,8 @@ pub(super) fn publish(report: Report, mode: OutputMode) -> io::Result<u8> {
                 &item.request_id,
                 &[
                     ("delivery", item.delivery.as_str().to_owned()),
+                    ("urgent", item.delivery_policy.urgent.to_string()),
+                    ("focus kind", item.delivery_policy.kind.as_str().to_owned()),
                     ("final", item.final_state.as_str().to_owned()),
                     ("revision", item.revision.to_string()),
                     ("acknowledged", item.acknowledged.to_string()),

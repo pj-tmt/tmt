@@ -90,7 +90,7 @@ fn native_export_has_exact_compiled_source_closure_without_storage_or_credential
         let bytes = fs::read(root.join(file["path"].as_str().unwrap())).unwrap();
         assert_eq!(file["sha256"], tmt_core::content_digest::sha256(&bytes));
     }
-    assert_eq!(value["source_files"].as_array().unwrap().len(), 51);
+    assert_eq!(value["source_files"].as_array().unwrap().len(), 52);
     // A caller can supply a descriptive SHA; it cannot change compiled authority.
     let (status, other, stderr) =
         fixture.run(&["__native-schema", "--source-sha", &"b".repeat(40), "--json"]);
@@ -266,7 +266,7 @@ fn native_pr_handoff_checks_compiled_schema_and_preserves_installation_on_refusa
 
     // Advance the real ledger after captured admission, without timing or sleeps.
     let connection = rusqlite::Connection::open(&database).unwrap();
-    connection.execute("INSERT INTO _migrations(version,name,applied_at) VALUES (49,'future fixture migration','fixture')", []).unwrap();
+    connection.execute("INSERT INTO _migrations(version,name,applied_at) VALUES (50,'future fixture migration','fixture')", []).unwrap();
     let (status, output, _) = fixture.run_input(&args, Some(&request));
     assert!(!status.success());
     let response: serde_json::Value = serde_json::from_slice(&output).unwrap();
@@ -282,7 +282,7 @@ fn native_pr_handoff_checks_compiled_schema_and_preserves_installation_on_refusa
     assert_eq!(fs::read(&old_receipt_path).unwrap(), old_receipt);
     assert_eq!(fs::read(&first.active_executable).unwrap(), old_bytes);
     connection
-        .execute("DELETE FROM _migrations WHERE version = 49", [])
+        .execute("DELETE FROM _migrations WHERE version = 50", [])
         .unwrap();
     drop(connection);
     let (status, output, stderr) = fixture.run_input(&args, Some(&request));
@@ -324,7 +324,7 @@ fn native_pr_handoff_checks_compiled_schema_and_preserves_installation_on_refusa
     );
     assert_eq!(
         tmt_adapters::storage::Storage::application_schema(&database).unwrap(),
-        48
+        49
     );
 }
 

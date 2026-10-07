@@ -43,6 +43,9 @@ fn run(target: String, lines: Option<u64>) -> Result<Report, Failure> {
         )
     })?;
     let pending = target::resolve(&mut storage, &host, &target).and_then(|observed| {
+        if let Some(identity) = &observed.identity {
+            tmt_adapters::focus::flush_idle(&mut storage,&identity.id,std::time::Duration::from_secs_f64(settings.paste_enter_delay_ms/1000.0)).map_err(|e|Failure::new("FOCUS_DELIVERY_ERROR","Could not confirm Focus checklist delivery; inspect the retained checklist before retrying.",1).caused_by(e))?;
+        }
         let endpoint = RequestEndpoint {
             server: observed.server.clone(),
             pane_id: observed.pane.id.clone(),

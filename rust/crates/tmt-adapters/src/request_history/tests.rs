@@ -64,6 +64,7 @@ fn history_admission_is_scoped_strict_and_bounded() {
 #[test]
 fn history_wire_contains_only_public_metadata_and_exact_detail_text() {
     let item = HistoryItem {
+        delivery_policy: tmt_core::request::focus::DeliveryPolicy::default(),
         request_id: REQUEST.into(),
         room_id: None,
         recipient_identity_id: Some(ID.into()),
@@ -92,12 +93,13 @@ fn history_wire_contains_only_public_metadata_and_exact_detail_text() {
         value,
         json!({"items":[{
         "requestId":REQUEST,"roomId":null,"recipientId":ID,"sender":{"kind":"unknown","identityId":null},
-        "kind":"request","preparedAtMs":1000,"delivery":"queued","recipientAcknowledged":false,
+        "kind":"request","urgent":false,"focusKind":"fyi","preparedAtMs":1000,"delivery":"queued","recipientAcknowledged":false,
         "preview":"Question","final":{"status":"retained","submittedAtMs":2000,"bodyBytes":8,"expiresAtMs":3000}
     }],"nextBefore":null})
     );
     let detail = HistoryDetail {
         item: HistoryItem {
+            delivery_policy: tmt_core::request::focus::DeliveryPolicy::default(),
             request_id: REQUEST.into(),
             room_id: None,
             recipient_identity_id: Some(ID.into()),
@@ -126,7 +128,9 @@ fn history_wire_contains_only_public_metadata_and_exact_detail_text() {
     );
     assert_eq!(value["final"]["response"], "  answer\n");
     assert_eq!(value["recipientAcknowledged"], Value::Null);
-    assert_eq!(value.as_object().unwrap().len(), 10);
+    assert_eq!(value.as_object().unwrap().len(), 12);
+    assert_eq!(value["urgent"], false);
+    assert_eq!(value["focusKind"], "fyi");
     for private in ["proof", "attemptId", "nonce", "socketPath", "paneId"] {
         assert!(value.get(private).is_none());
     }
@@ -173,6 +177,7 @@ fn results_wire_adds_only_preview_metadata_and_submission_cursor() {
     let page = HistoryPage {
         items: vec![HistorySummary {
             item: HistoryItem {
+                delivery_policy: tmt_core::request::focus::DeliveryPolicy::default(),
                 request_id: REQUEST.into(),
                 room_id: None,
                 recipient_identity_id: Some(ID.into()),
@@ -206,5 +211,5 @@ fn results_wire_adds_only_preview_metadata_and_submission_cursor() {
         value["items"][0]["final"],
         json!({"status":"expired","submittedAtMs":2,"expiresAtMs":3})
     );
-    assert_eq!(value["items"][0].as_object().unwrap().len(), 12);
+    assert_eq!(value["items"][0].as_object().unwrap().len(), 14);
 }
