@@ -40,6 +40,8 @@ pub(super) struct Reader {
     stream: UnixStream,
     /// Bytes read past the upgrade head, consumed before the stream.
     first_bytes: Vec<u8>,
+    #[cfg(test)]
+    pub(super) prefix_seen: Option<std::sync::mpsc::Sender<Instant>>,
 }
 impl Reader {
     pub(super) fn new(stream: UnixStream, first_bytes: Vec<u8>) -> io::Result<Self> {
@@ -47,6 +49,8 @@ impl Reader {
         Ok(Self {
             stream,
             first_bytes,
+            #[cfg(test)]
+            prefix_seen: None,
         })
     }
 
@@ -114,16 +118,25 @@ impl Reader {
 
     /// One frame body. The announced length is checked before anything is allocated
     /// from it, and `budget` runs from the first prefix byte without renewal.
-    pub(super) fn frame(&mut self, idle: Idle<'_>, budget: Duration) -> Result<Vec<u8>, Fault> {
+    pub(super) fn frame(
+        &mut self,
+        idle: Idle<'_>,
+        budget: Duration,
+    ) -> Result<(Vec<u8>, Instant), Fault> {
         let first = self.first_prefix_byte(idle)?;
-        let deadline = Instant::now() + budget;
+        let first_prefix = Instant::now();
+        #[cfg(test)]
+        if let Some(seen) = &self.prefix_seen {
+            let _ = seen.send(first_prefix);
+        }
+        let deadline = first_prefix + budget;
         let mut prefix = [0u8; PREFIX_BYTES];
         prefix[0] = first;
         self.fill(&mut prefix[1..], deadline, Stage::Frame)?;
         let length = crate::decode_length(prefix).map_err(Fault::Frame)?;
         let mut body = vec![0u8; length];
         self.fill(&mut body, deadline, Stage::Frame)?;
-        Ok(body)
+        Ok((body, first_prefix))
     }
 
     /// Read a request or reply head: bytes up to and including the blank line, at most
@@ -171,10 +184,6 @@ impl Writer {
         Ok(Self { stream })
     }
 
-    /// Write every byte within `budget` from now, without renewal.
-    pub(super) fn send(&mut self, bytes: &[u8], budget: Duration) -> Result<(), Fault> {
-        self.send_by(bytes, Instant::now() + budget, Stage::Write)
-    }
     pub(super) fn send_by(
         &mut self,
         mut bytes: &[u8],
@@ -182,6 +191,7 @@ impl Writer {
         stage: Stage,
     ) -> Result<(), Fault> {
         while !bytes.is_empty() {
+            remaining(deadline).ok_or(Fault::Timeout(stage))?;
             match self.stream.write(bytes) {
                 Ok(0) => return Err(Fault::Io(io::ErrorKind::WriteZero)),
                 Ok(count) => bytes = &bytes[count..],

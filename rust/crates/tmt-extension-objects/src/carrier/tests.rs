@@ -74,11 +74,13 @@ fn big_result() -> Frame {
 
 impl Link {
     pub(super) fn read_frame(&mut self, idle: Idle<'_>, budgets: &Budgets) -> Result<Frame, Fault> {
-        read_checked(&mut self.reader, self.generation, idle, budgets).map(|(frame, _)| frame)
+        read_checked(&mut self.reader, self.generation, idle, budgets)
+            .map(|(received, _)| received.frame)
     }
     pub(super) fn write_frame(&mut self, frame: &Frame, budgets: &Budgets) -> Result<(), Fault> {
         let bytes = prepared(self.generation, frame)?;
-        self.writer.send(&bytes, budgets.write)
+        self.writer
+            .send_by(&bytes, Instant::now() + budgets.write, Stage::Write)
     }
 }
 

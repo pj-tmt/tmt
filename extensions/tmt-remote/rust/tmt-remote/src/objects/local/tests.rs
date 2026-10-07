@@ -392,14 +392,14 @@ impl Env {
         let ledger = Ledger::open(&self.serving).unwrap();
         LocalFs {
             _lease: &self.serving,
-            inner: Inner {
+            inner: Arc::new(Inner {
                 data_root: self.root.clone(),
                 ledger,
                 flight: Flight::default(),
                 quotas: Quotas::contract(),
                 clock,
                 observer: Mutex::new(None),
-            },
+            }),
         }
     }
 }

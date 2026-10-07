@@ -26,6 +26,7 @@ use tmt_extension_objects::{Budget, Budgets, Bus, Caps, Fault, Offer, Uuid4, ini
 
 mod config;
 mod dispatch;
+mod observe;
 mod origins;
 use config::ConfigSource;
 pub use dispatch::ChannelEnd;
@@ -292,6 +293,9 @@ impl<'s> ObjectService<'s> {
             extension: name,
             tunnels,
             sessions: mounts.sessions(),
+            backend: self
+                .storage
+                .reader(ExtensionId::new(name).map_err(|_| ActivateError::NotDeclared)?),
         };
         Running::start(bus, launch).map_err(ActivateError::Channel)
     }
