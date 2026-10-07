@@ -68,6 +68,7 @@ const UPGRADE: &str = "Connection: Upgrade\r\nUpgrade: websocket\r\nSec-WebSocke
 
 static NEXT: AtomicUsize = AtomicUsize::new(0);
 struct Running {
+    registration: Arc<Mutex<Registration>>,
     root: PathBuf,
     path: PathBuf,
     space: String,
@@ -102,9 +103,10 @@ impl Running {
                 .register(Some(&context(id)), &registration_body(id), now())
                 .unwrap();
         }
+        let registration = Arc::new(Mutex::new(registration));
         let socket = MountSocket::bind(&layout, &space, tunnels)
             .unwrap()
-            .with_registration(&layout, Arc::new(Mutex::new(registration)))
+            .with_registration(&layout, Arc::clone(&registration))
             .unwrap()
             .with_app(app);
         let path = socket.path.clone();
@@ -116,6 +118,7 @@ impl Running {
         let flag = Arc::clone(&stop);
         let worker = std::thread::spawn(move || socket.run(&flag).unwrap());
         Self {
+            registration,
             root,
             path,
             space,
@@ -2692,9 +2695,17 @@ fn root_local_page_publish_broadcasts_each_entry_in_order_and_replays_without_fa
         assert!(denied.contains("COLAB_DENIED"));
         assert_eq!(fs::read(layout.directory.join("space.db")).unwrap(), before);
     }
-    let record = page::ipc::publish(&layout, &key, &frozen)
+    let published = page::ipc::publish(&layout, &key, &frozen)
         .unwrap()
         .expect("the server answered");
+    // The revision rides the reply, read under the lock that excludes every other writer.
+    let store = Store::read(&layout).unwrap();
+    assert_eq!(
+        published.revision.as_deref(),
+        Some(page::revision(&store, &key, PAGE).unwrap().as_str())
+    );
+    store.close().unwrap();
+    let record = published.record;
     let Outcome::Committed { count, .. } = &record.outcome else {
         panic!("{:?}", record.outcome)
     };
@@ -2757,7 +2768,7 @@ fn root_local_page_publish_broadcasts_each_entry_in_order_and_replays_without_fa
     }
     let before = fs::read(layout.directory.join("space.db")).unwrap();
     let replay = page::ipc::publish(&layout, &key, &frozen).unwrap().unwrap();
-    assert_eq!(replay.bytes, record.bytes);
+    assert_eq!(replay.record.bytes, record.bytes);
     assert_eq!(fs::read(layout.directory.join("space.db")).unwrap(), before);
     peer.send(Message::Ping(vec![1].into())).unwrap();
     assert!(
@@ -2766,6 +2777,8 @@ fn root_local_page_publish_broadcasts_each_entry_in_order_and_replays_without_fa
     );
     // A write prepared on the old base is a terminal refusal that publishes nothing.
     let stale = page::ipc::publish(&layout, &key, &base).unwrap().unwrap();
+    assert_eq!(stale.revision, None);
+    let stale = stale.record;
     assert!(matches!(
         stale.outcome,
         Outcome::Rejected {
@@ -2817,6 +2830,70 @@ fn root_local_page_publish_broadcasts_each_entry_in_order_and_replays_without_fa
     );
 }
 
+fn checkpoint_rows(server: &Running) -> i64 {
+    server
+        .oracle()
+        .query_row("SELECT count(*) FROM checkpoints", [], |r| r.get(0))
+        .unwrap()
+}
+/// A write whose own tail passes the combine trigger (1 MiB of updates).
+fn combinable_source() -> String {
+    "wide 🐈\r\n".repeat(110_000)
+}
+
+#[test]
+fn a_publish_combines_before_it_replies() {
+    use tmt_colab::{page, publication::Outcome};
+    let (server, layout, key, _peer) = publish_fixture();
+    let frozen = prepare_write(&layout, &key, &combinable_source());
+    let published = page::ipc::publish(&layout, &key, &frozen).unwrap().unwrap();
+    assert!(matches!(
+        published.record.outcome,
+        Outcome::Committed { .. }
+    ));
+    assert!(
+        checkpoint_rows(&server) > 0,
+        "the control combine did not run"
+    );
+}
+
+#[test]
+fn a_publish_that_starts_after_its_combine_window_commits_but_never_combines() {
+    use tmt_colab::{page, publication::Outcome};
+    let (server, layout, key, _peer) = publish_fixture();
+    let frozen = prepare_write(&layout, &key, &combinable_source());
+    // The serve is busy past the combine window after it has read the request.
+    let registration = Arc::clone(&server.registration);
+    let hold = limits::PUBLISH_COMBINE + Duration::from_millis(500);
+    let (held, wait) = std::sync::mpsc::channel();
+    let holder = std::thread::spawn(move || {
+        let _guard = registration.lock().unwrap();
+        held.send(()).unwrap();
+        std::thread::sleep(hold);
+    });
+    wait.recv().unwrap();
+    let published = page::ipc::publish(&layout, &key, &frozen).unwrap().unwrap();
+    holder.join().unwrap();
+    assert!(matches!(
+        published.record.outcome,
+        Outcome::Committed { .. }
+    ));
+    assert_eq!(
+        checkpoint_rows(&server),
+        0,
+        "a combine published after its window"
+    );
+    // The reply still names the revision of the page it reports, and the page stays put.
+    let store = Store::read(&layout).unwrap();
+    assert_eq!(
+        published.revision.as_deref(),
+        Some(page::revision(&store, &key, PAGE).unwrap().as_str())
+    );
+    store.close().unwrap();
+    std::thread::sleep(Duration::from_secs(3));
+    assert_eq!(checkpoint_rows(&server), 0, "a late combine published");
+}
+
 #[test]
 fn a_batch_wider_than_the_send_queue_commits_and_tells_the_live_peer_to_resync() {
     use tmt_colab::{decoder::Decoder, page, publication::Outcome};
@@ -2826,7 +2903,10 @@ fn a_batch_wider_than_the_send_queue_commits_and_tells_the_live_peer_to_resync()
     let entries = frozen.job().manifest.entries.len();
     // Each over-chunk entry takes two queue slots; the existing slow-peer rule applies.
     assert!(entries * 2 > limits::SEND_QUEUE_FRAMES, "{entries}");
-    let record = page::ipc::publish(&layout, &key, &frozen).unwrap().unwrap();
+    let record = page::ipc::publish(&layout, &key, &frozen)
+        .unwrap()
+        .unwrap()
+        .record;
     assert!(matches!(record.outcome, Outcome::Committed { .. }));
     let mut closed = None;
     for _ in 0..64 {

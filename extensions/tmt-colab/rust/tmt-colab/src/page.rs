@@ -537,6 +537,12 @@ pub struct PublicationRecord {
     pub outcome: crate::publication::Outcome,
     pub bytes: Vec<u8>,
 }
+/// An answered publish: the retained original outcome and, when the writer could read it while no
+/// other writer could run, the page revision after the write and its combine.
+pub struct Published {
+    pub record: PublicationRecord,
+    pub revision: Option<String>,
+}
 pub struct PublicationCommitted {
     pub record: PublicationRecord,
     /// New terminal result (including rejection), or exact original-operation replay.

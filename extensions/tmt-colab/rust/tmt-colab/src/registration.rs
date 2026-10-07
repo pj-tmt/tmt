@@ -291,7 +291,7 @@ impl Registration {
         chain: &[u8],
         now: u64,
         combine_until: std::time::Instant,
-    ) -> crate::Result<crate::page::PublicationCommitted> {
+    ) -> crate::Result<(crate::page::PublicationCommitted, Option<String>)> {
         let committed = crate::page::commit_publication(
             &mut self.store,
             &self.keyring,
@@ -322,7 +322,15 @@ impl Registration {
                 )
             });
         }
-        Ok(committed)
+        // The sync mutex is held, so no other writer can move the page between the combine and
+        // this read: the revision is the one this write's reply reports.
+        let revision = matches!(
+            committed.record.outcome,
+            crate::publication::Outcome::Committed { .. }
+        )
+        .then(|| crate::page::revision(&self.store, &self.keyring, &job.manifest.page_id).ok())
+        .flatten();
+        Ok((committed, revision))
     }
     pub(crate) fn management_device(
         &mut self,

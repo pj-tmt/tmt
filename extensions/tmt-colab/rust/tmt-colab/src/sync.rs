@@ -290,10 +290,12 @@ impl Server<crate::registration::OwnerAdmission> {
         &self,
         body: &[u8],
         now: u64,
-    ) -> crate::Result<crate::page::PublicationRecord> {
+        received: std::time::Instant,
+    ) -> crate::Result<crate::page::Published> {
         use crate::{page::Fault, publication};
-        // The client stops waiting at PUBLISH_REPLY; a combine must be done, or give up, before.
-        let combine_until = std::time::Instant::now() + limits::PUBLISH_REPLY - limits::RESPONSE;
+        // The client stops waiting at PUBLISH_REPLY, counted from when it finished sending; a
+        // combine must be done, or give up, a response interval before that.
+        let combine_until = received + limits::PUBLISH_COMBINE;
         let author = self
             .0
             .lock()
@@ -333,7 +335,7 @@ impl Server<crate::registration::OwnerAdmission> {
             outputs.push((scope, broadcast, transfer));
         }
         let mut state = self.0.lock().map_err(|_| Fault::Unavailable)?;
-        let committed = state
+        let (committed, revision) = state
             .admission
             .0
             .lock()
@@ -349,7 +351,10 @@ impl Server<crate::registration::OwnerAdmission> {
                 state.fanout(&scope, broadcast, transfer);
             }
         }
-        Ok(committed.record)
+        Ok(crate::page::Published {
+            record: committed.record,
+            revision,
+        })
     }
 }
 impl<A: Admission> Server<A> {

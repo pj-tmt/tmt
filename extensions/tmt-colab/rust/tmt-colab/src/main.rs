@@ -608,18 +608,13 @@ fn page(root: &std::path::Path, args: &clap::ArgMatches) -> Result<()> {
                 memory_limit,
             ),
             page::PublicationPreparation::Write(frozen) => {
-                let record = publish_write(&layout, &key, &id, &frozen, &mut decoder, now)?;
-                let mut receipt = page::publication_receipt(frozen.job(), &record)?;
-                // The write's combine may have moved the revision after its outcome was retained;
-                // report the one a next `--expected-revision` must carry.
-                if let Ok(current) = Store::read(&layout).and_then(|store| {
-                    let current = page::revision(&store, &key, &id);
-                    let closed = store.close();
-                    let current = current?;
-                    closed?;
-                    Ok(current)
-                }) {
-                    receipt.revision = current;
+                let published = publish_write(&layout, &key, &id, &frozen, &mut decoder, now)?;
+                let mut receipt = page::publication_receipt(frozen.job(), &published.record)?;
+                // A write's combine can move the revision after its outcome was retained. The
+                // revision read by the writer that excluded every other writer is the one a next
+                // `--expected-revision` must carry; a lost reply leaves the committed one.
+                if let Some(revision) = published.revision {
+                    receipt.revision = revision;
                 }
                 receipt
             }
@@ -681,9 +676,9 @@ fn publish_write(
     frozen: &tmt_colab::page::FrozenPublication,
     decoder: &mut tmt_colab::decoder::Decoder,
     now: u64,
-) -> Result<tmt_colab::page::PublicationRecord> {
+) -> Result<tmt_colab::page::Published> {
     use tmt_colab::{
-        page::{self, OutcomeUnknown},
+        page::{self, OutcomeUnknown, Published},
         publication::Outcome,
         store::Accepted,
     };
@@ -719,17 +714,23 @@ fn publish_write(
                     None,
                 )?;
             }
+            // The serve lifecycle lock excludes every other writer, so this read is the revision
+            // this write and its combine produced.
+            let record = committed.as_ref().ok().map(|done| &done.record);
+            let revision = record
+                .filter(|record| matches!(record.outcome, Outcome::Committed { .. }))
+                .and_then(|_| page::revision(&store, key, page_id).ok());
             let closed = store.close();
             let record = committed?.record;
             closed?;
-            Ok(record)
+            Ok(Published { record, revision })
         }
         Err(error)
             if error.downcast_ref::<tmt_colab::keyring::StateFault>()
                 == Some(&tmt_colab::keyring::StateFault::AlreadyServing) =>
         {
-            if let Some(record) = page::ipc::publish(layout, key, frozen)? {
-                return Ok(record);
+            if let Some(published) = page::ipc::publish(layout, key, frozen)? {
+                return Ok(published);
             }
             let original = frozen.job().key()?;
             let status = Store::read(layout).and_then(|store| {
@@ -740,7 +741,10 @@ fn publish_write(
                 Ok(status)
             });
             match status {
-                Ok(record) if !matches!(record.outcome, Outcome::Unknown { .. }) => Ok(record),
+                Ok(record) if !matches!(record.outcome, Outcome::Unknown { .. }) => Ok(Published {
+                    record,
+                    revision: None,
+                }),
                 _ => Err(OutcomeUnknown {
                     operation_id: original.operation_id,
                 }
