@@ -330,7 +330,14 @@ describe('native Focus held delivery and checklist seam', () => {
           expect(JSON.parse(history.stdout).exchange.urgent).toBe(true);
         }
       }
-      const pull = await runCli(sandbox, ['talk', 'Worker', 'Pull only', '--inbox', '--json']);
+      const pull = await runCli(sandbox, [
+        'talk',
+        'Worker',
+        'Pull only',
+        '--inbox',
+        '--detach',
+        '--json',
+      ]);
       expect(pull.status).toBe(0);
       expect(JSON.parse(pull.stdout)).toMatchObject({
         notification: 'not_attempted',
