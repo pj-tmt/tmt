@@ -105,7 +105,9 @@ versions differ, demonstrate stale-lock rejection with full `cargo metadata
 <checkout> <snapshot>`. Do not rewrite an already-versioned lock. After assembly,
 `manifests <checkout> <snapshot> <plan.json> <build.json>` checks the metadata; after
 archive extraction, `artifact <checkout> <snapshot> <plan.json> <build.json>
-<binary>` additionally checks the binary. Recheck `verify` after each stage.
+<binary>` additionally checks the binary. Herdr reports its compiled version through
+`__tmt-driver 1 capabilities`; the other products retain their `--version` query.
+Both routes require exact tag/plan/build/binary equality. Recheck `verify` after each stage.
 The checkout stays at its captured cut and may differ only in the exact version
 field and implied local lock entries. Never broaden an allowed diff after failure.
 

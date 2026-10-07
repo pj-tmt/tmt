@@ -162,9 +162,9 @@ install and `tmt extension uninstall squad`.
 
 ### Herdr driver archives
 
-`driver-herdr` is `release: false` in the component map and `dist = false` in its Cargo package
-until owner-authorized activation (#1418) changes both for its first standalone alpha; the CLI archive
-keeps shipping its binary until then. Build independently (no `tmt` build):
+`driver-herdr` is activated for independent native alpha cuts (#1418), starting at `0.1.0-alpha.1`.
+The CLI archive retains its companion until released-package acquisition (#1084) is delivered;
+standalone archives use the existing explicit executable-path approval. Build independently (no `tmt` build):
 
 ```sh
 scripts/build-native-artifact.sh aarch64-apple-darwin driver-herdr > /absolute/driver-manifest.json
@@ -448,13 +448,13 @@ For each affected product choose the earliest publication whose tag contains eve
 merge. Only complete product coverage permits `Released`; otherwise retain available
 publication evidence and `Merged`. Private components await their consumers' releases.
 Only never-shipped work or waits confined to parked products reconcile to `Done`, with
-`ships with the first <product> release` for each parked wait. An absent status marker
-preserves activation waits; private consumers cannot name a never-shipped product.
-`release:false` alone is never evidence that work needs no release (Herdr awaits
-activation; activated Remote and Colab wait for their published containing tags); the
-map's `releaseStatus` is valid only with `release:false` (`never`: test support contained
-in no release; `parked`: Office). Style and invoke require CLI, Squad, Remote and Colab
-release evidence; TUI requires only Squad evidence.
+`ships with the first <product> release` for each parked wait. `release:false` alone never
+proves that work needs no release; an absent status marker retains activation waits.
+The map's `releaseStatus` is valid only with `release:false` (`never`: test support contained
+in no release; `parked`: Office and the private browser-addon demo). Private consumers cannot
+name a never-shipped product. Browser-addon publication remains deferred by the v1 freeze
+(#1056 / v1-later), with no release consumer. Released products require published containing tags;
+style and invoke require CLI, Squad, Remote and Colab evidence, and TUI only Squad evidence.
 
 For reviewed leaves inside a component, `neverShippedPaths` in the component map is a
 Project-only list of `{root, reason, testOnlyReferences?}`. Roots are normalized literal

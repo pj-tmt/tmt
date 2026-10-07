@@ -396,7 +396,7 @@ describe('per-tag release run (native-release.yml)', () => {
     expect(job(run, 'plan')).toContain('retry, hold and rerun need prepare turned off.');
   });
 
-  it('refuses parked Office and Herdr before preparation or draft planning, retaining released products', () => {
+  it('refuses parked Office before preparation or draft planning, retaining released products', () => {
     const plan = job(run, 'plan');
     expect(plan).toContain(
       'node typescript/scripts/native-release-policy.mjs require-released "$PRODUCT"'
@@ -417,7 +417,7 @@ describe('per-tag release run (native-release.yml)', () => {
         0o700
       );
       const search = `${directory}${path.delimiter}${process.env.PATH ?? ''}`;
-      for (const [product, prepare] of ['office', 'driver-herdr'].flatMap((product) =>
+      for (const [product, prepare] of ['office'].flatMap((product) =>
         ['true', 'false'].map((prepare) => [product, prepare])
       )) {
         const result = spawnSync('/bin/sh', ['-eu', '-c', shell], {
@@ -433,7 +433,7 @@ describe('per-tag release run (native-release.yml)', () => {
           `${product} is not released (release: false in .github/components.json).`
         );
       }
-      for (const product of ['cli', 'squad', 'remote', 'colab']) {
+      for (const product of ['cli', 'squad', 'driver-herdr', 'remote', 'colab']) {
         const output = path.join(directory, product);
         const result = spawnSync('/bin/sh', ['-eu', '-c', shell], {
           cwd: repository,
@@ -693,9 +693,9 @@ describe('live main release cuts (release.yml)', () => {
     );
   });
   it('keeps owner versions explicit and parked products out of manual selection', () => {
-    expect(release).toContain('options: [all, cli, squad, remote, colab]');
+    expect(release).toContain('options: [all, cli, squad, driver-herdr, remote, colab]');
     expect(release).toContain('VERSION: ${{ inputs.version }}');
-    expect(release).not.toContain('driver-herdr');
+    expect(release).toContain('driver-herdr');
     expect(release).toContain('release-cut-plan.json');
     expect(release).toContain('if: always()');
   });

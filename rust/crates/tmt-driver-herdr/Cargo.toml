@@ -11,10 +11,10 @@ repository.workspace = true
 # protocol crate alone, with tmt-invoke as its bounded process owner. It holds
 # no TMT behavior; core keeps every decision (contracts/driver-protocol-v1.md).
 # This package owns the only driver executable. The CLI archive carries it
-# through the first standalone Herdr release. Release cut (#1399) activates
-# this package with the component map; until then cargo-dist must opt out.
+# as its companion until released-package acquisition (#1084) is delivered.
+# The component map activates independent standalone alpha cuts (#1418).
 [package.metadata.dist]
-dist = false
+dist = true
 [dependencies]
 semver.workspace = true
 serde_json.workspace = true
