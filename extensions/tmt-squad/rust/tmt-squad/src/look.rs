@@ -36,7 +36,7 @@ pub(crate) fn configure_background(signal: Option<Background>) {
     debug_assert!(first, "background detection precedes every board reader");
 }
 
-/// A color named in `squad.toml` or a layout default: a design token, or one
+/// A color named in `ops.toml` or a layout default: a design token, or one
 /// of the names Squad accepted before tokens, kept as their token.
 pub fn role(name: &str) -> Option<Role> {
     Role::parse(name).or(match name {

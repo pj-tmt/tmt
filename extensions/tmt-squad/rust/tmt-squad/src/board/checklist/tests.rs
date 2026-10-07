@@ -118,7 +118,7 @@ fn full_typed_board_actions_persist_without_dispatch_or_metadata_changes() {
         "agent-state",
         "requests",
         "config.json",
-        "squad.toml",
+        "ops.toml",
     ]
     .map(|name| (name, std::fs::read(f.root.join(name)).unwrap()));
     let mut c = controller(&f);
@@ -463,6 +463,7 @@ fn delete_facts_are_separate_from_choices_and_body_preview_has_no_literal_newlin
 #[test]
 fn configuration_read_failure_is_storage_error_in_the_worker_lane() {
     let f = Fixture::new();
+    std::fs::write(f.root.join("ops.toml"), "invalid [").unwrap();
     let mut lane = load::Lane::default();
     let completed = lane.complete(
         &f.core,

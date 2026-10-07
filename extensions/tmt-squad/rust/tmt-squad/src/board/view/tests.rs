@@ -440,7 +440,7 @@ fn footer_hints_follow_rebound_keys_and_show_one_hint_per_action() {
     assert!(!hints(&app, usize::MAX).contains("R run"));
 }
 
-/// Rows read from a squad config snippet, as `squad.toml` would give them.
+/// Rows read from a squad config snippet, as `ops.toml` would give them.
 fn rows_from(text: &str) -> Rows {
     let config: toml_edit::DocumentMut = text.parse().unwrap();
     crate::rows::read(config["p"].as_table_like(), "p").unwrap()

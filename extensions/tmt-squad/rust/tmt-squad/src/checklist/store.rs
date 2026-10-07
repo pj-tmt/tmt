@@ -20,9 +20,10 @@ const LIMIT: u64 = 64 * 1024 * 1024;
 pub(super) struct Store {
     root: PathBuf,
     room_id: Id,
+    subtree: &'static str,
 }
 impl Store {
-    pub(super) fn new(root: &Path, room_id: Id) -> Result<Self, Error> {
+    pub(super) fn new(root: &Path, room_id: Id, subtree: &'static str) -> Result<Self, Error> {
         if !root.is_absolute() {
             return Err(Error::storage(
                 "storage.root must return an absolute dataRoot.",
@@ -35,14 +36,19 @@ impl Store {
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => root.into(),
             Err(e) => return Err(Error::storage(e)),
         };
-        Ok(Self { root, room_id })
+        Ok(Self {
+            root,
+            room_id,
+            subtree,
+        })
     }
     pub(super) fn room_id(&self) -> &Id {
         &self.room_id
     }
     fn directory(&self) -> PathBuf {
         self.root
-            .join("squad/checklist")
+            .join(self.subtree)
+            .join("checklist")
             .join(self.room_id.as_str())
     }
 
@@ -57,7 +63,7 @@ impl Store {
             }
         }
         let mut path = self.root.clone();
-        for component in ["squad", "checklist", self.room_id.as_str()] {
+        for component in [self.subtree, "checklist", self.room_id.as_str()] {
             let parent = path.clone();
             path.push(component);
             match fs::symlink_metadata(&path) {

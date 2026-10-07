@@ -6,6 +6,7 @@ import {
   mkdirSync,
   openSync,
   readFileSync,
+  renameSync,
   readdirSync,
   realpathSync,
   statSync,
@@ -85,7 +86,7 @@ async function reminderFixture(sandbox: Sandbox) {
   const lead = await identity(sandbox, 'Sol');
   expect((await squad(sandbox, ['init', 'product', '--me', 'Sol'])).status).toBe(0);
   expect((await squad(sandbox, ['lead', 'Sol'])).status).toBe(0);
-  const config = path.join(sandbox.globalDir, 'squad.toml');
+  const config = path.join(sandbox.globalDir, 'ops.toml');
   writeFileSync(
     config,
     readFileSync(config, 'utf8') + '\n[squad.product.reminders]\nenabled=true\nstale_after="1m"\n'
@@ -142,7 +143,7 @@ describe('squad extension', () => {
   it('checks layout files offline without core, configuration or board startup', async () => {
     await withSandbox(async (sandbox) => {
       mkdirSync(sandbox.globalDir, { recursive: true });
-      writeFileSync(path.join(sandbox.globalDir, 'squad.toml'), 'invalid [');
+      writeFileSync(path.join(sandbox.globalDir, 'ops.toml'), 'invalid [');
       sandbox.env.TMT_EXECUTABLE = 'relative-core-is-invalid';
       const offline = { ...sandbox, cli: { executable: squadExecutable, args: [] } };
       const file = path.join(sandbox.cwd, 'board.xml');
@@ -182,7 +183,7 @@ describe('squad extension', () => {
       ).toBe('LAYOUT_IO');
       expect((await runCli(offline, ['layout', 'validate', '--json'])).status).toBe(2);
       expect(existsSync(sandbox.database)).toBe(before);
-      expect(readFileSync(path.join(sandbox.globalDir, 'squad.toml'), 'utf8')).toBe('invalid [');
+      expect(readFileSync(path.join(sandbox.globalDir, 'ops.toml'), 'utf8')).toBe('invalid [');
     });
   });
 
@@ -191,7 +192,7 @@ describe('squad extension', () => {
       installSquad(sandbox);
       await identity(sandbox, 'settings-probe');
       const marker = path.join(sandbox.root, 'must-not-exist');
-      const config = path.join(sandbox.globalDir, 'squad.toml');
+      const config = path.join(sandbox.globalDir, 'ops.toml');
       const original = `# keep my comment
 opaque = "kept"
 [board]
@@ -239,7 +240,7 @@ o = "run touch ${marker}"
     await withSandbox(async (sandbox) => {
       installSquad(sandbox);
       await identity(sandbox, 'home-settings-owner');
-      const config = path.join(sandbox.globalDir, 'squad.toml');
+      const config = path.join(sandbox.globalDir, 'ops.toml');
       const before = '# keep this comment\n[board]\nhome_replies=false\n';
       writeFileSync(config, before);
       const shown = await squad(sandbox, ['config', 'show', '--tab', 'all']);
@@ -272,7 +273,7 @@ o = "run touch ${marker}"
         'pr_link=https://example.com/keep-hidden',
       ]);
       const marker = path.join(sandbox.root, 'must-not-run');
-      const config = path.join(sandbox.globalDir, 'squad.toml');
+      const config = path.join(sandbox.globalDir, 'ops.toml');
       const original = `# keep settings comments
 opaque = "retained"
 [squad.product]
@@ -391,7 +392,7 @@ o = "run touch ${marker}"
       for (const name of ['product', 'infra', 'quiet']) {
         expect((await squad(sandbox, ['init', name])).status).toBe(0);
       }
-      const config = path.join(sandbox.globalDir, 'squad.toml');
+      const config = path.join(sandbox.globalDir, 'ops.toml');
       const source =
         '[tabs]\npin = ["tab:product"]\nhide = ["quiet"]\n[tabs.product]\nfilter = "squad = infra"\n[tabs.needs-me]\nfilter = "squad = product"\n';
       writeFileSync(config, source);
@@ -443,7 +444,7 @@ o = "run touch ${marker}"
       expect((await squad(sandbox, ['add', 'worker', '--squad', 'product'])).status).toBe(0);
       expect((await squad(sandbox, ['init', 'quiet'])).status).toBe(0);
       writeFileSync(
-        path.join(sandbox.globalDir, 'squad.toml'),
+        path.join(sandbox.globalDir, 'ops.toml'),
         'me = "Ben"\n[tabs]\norder = ["all", "product", "leads"]\nhide = ["quiet"]\n'
       );
       const leads = await squad(sandbox, ['ls', '--tab', 'leads']);
@@ -469,7 +470,7 @@ o = "run touch ${marker}"
       expect(text.stdout).toContain('Sol');
       expect(text.stdout).toContain('quiet');
       writeFileSync(
-        path.join(sandbox.globalDir, 'squad.toml'),
+        path.join(sandbox.globalDir, 'ops.toml'),
         '[tabs]\nhide = ["product", "tab:members"]\n[tabs.members]\nfilter = "squad = product"\nsort = ["-name"]\n[[tabs.members.section]]\ntitle = "Leads"\nfilter = "name = Sol"\n'
       );
       const members = await squad(sandbox, ['ls', '--tab', 'members']);
@@ -504,7 +505,7 @@ o = "run touch ${marker}"
       installSquad(sandbox);
       await identity(sandbox, 'Ben');
       expect((await squad(sandbox, ['init', 'product', '--me', 'Ben'])).status).toBe(0);
-      const toml = path.join(sandbox.globalDir, 'squad.toml');
+      const toml = path.join(sandbox.globalDir, 'ops.toml');
       writeFileSync(toml, 'me = "Ben"\n');
       expect((await squad(sandbox, ['ls', '--squad', 'product'])).body.squad.layout).toBe('team');
       for (const setting of [
@@ -529,7 +530,7 @@ o = "run touch ${marker}"
       for (const name of ['Ben', 'Sol', 'linked', 'unlinked']) await identity(sandbox, name);
       expect((await squad(sandbox, ['init', 'product', '--me', 'Ben'])).status).toBe(0);
       expect((await squad(sandbox, ['lead', 'Sol'])).status).toBe(0);
-      const toml = path.join(sandbox.globalDir, 'squad.toml');
+      const toml = path.join(sandbox.globalDir, 'ops.toml');
       writeFileSync(toml, 'me = "Ben"\n');
       expect((await squad(sandbox, ['add', 'linked', 'unlinked'])).status).toBe(0);
       expect(
@@ -636,7 +637,7 @@ o = "run touch ${marker}"
       expect((await squad(sandbox, ['init', 'product', '--me', 'Sol'])).status).toBe(0);
       expect((await squad(sandbox, ['lead', 'Sol'])).status).toBe(0);
       expect((await squad(sandbox, ['add', 'Rin'])).status).toBe(0);
-      const config = path.join(sandbox.globalDir, 'squad.toml');
+      const config = path.join(sandbox.globalDir, 'ops.toml');
       writeFileSync(
         config,
         readFileSync(config, 'utf8') +
@@ -829,7 +830,7 @@ o = "run touch ${marker}"
         ['set', 'Rin', 'task=review tokens', 'state=working'],
       ])
         expect((await squad(sandbox, args)).status).toBe(0);
-      const toml = path.join(sandbox.globalDir, 'squad.toml');
+      const toml = path.join(sandbox.globalDir, 'ops.toml');
       writeFileSync(toml, `${readFileSync(toml, 'utf8')}\n[squad.product]\nlayout = "crew"\n`);
       const original = readFileSync(toml, 'utf8');
       const listing = () => squad(sandbox, ['ls', '--squad', 'product']);
@@ -1089,7 +1090,7 @@ o = "run touch ${marker}"
       await identity(sandbox, 'worker');
       expect((await squad(sandbox, ['init', 'product'])).status).toBe(0);
       expect((await squad(sandbox, ['add', 'worker', '--squad', 'product'])).status).toBe(0);
-      const file = path.join(sandbox.globalDir, 'squad.toml');
+      const file = path.join(sandbox.globalDir, 'ops.toml');
       const original =
         "# untouched\n[squad.product]\nlayout = 'crew'\n[squad.product.board]\nview = 'focus' # own\n";
       writeFileSync(file, original);
@@ -1158,7 +1159,7 @@ o = "run touch ${marker}"
     await withSandbox(async (sandbox) => {
       installSquad(sandbox);
       mkdirSync(sandbox.globalDir, { recursive: true });
-      // Squad finds squad.toml through tmt config show; a bad theme must not
+      // Squad finds ops.toml through tmt config show; a bad theme must not
       // stop it (the theme is presentation, reported by config show).
       writeFileSync(sandbox.globalConfig, JSON.stringify({ theme: { waiting: 'orange' } }));
       const none = await squad(sandbox, ['ls']);
@@ -1175,7 +1176,7 @@ o = "run touch ${marker}"
       const bin = installSquad(sandbox);
       const ada = await identity(sandbox, 'ada');
       const rin = await identity(sandbox, 'rin');
-      const squadToml = path.join(sandbox.globalDir, 'squad.toml');
+      const squadToml = path.join(sandbox.globalDir, 'ops.toml');
       const me = () => {
         const text = readFileSync(squadToml, 'utf8');
         return {
@@ -1210,7 +1211,7 @@ o = "run touch ${marker}"
       const edited = await squad(sandbox, ['status']);
       expect(edited.status).toBe(0);
       expect(edited.stderr).toContain(
-        "warning: squad.toml named 'rin' as you, but me_id is ada-3; still acting as ada-3"
+        "warning: ops.toml named 'rin' as you, but me_id is ada-3; still acting as ada-3"
       );
       expect(edited.stderr).toContain('hint: tmt squad me rin');
       expect(me()).toEqual({ me: 'ada-3', id: ada });
@@ -1238,9 +1239,9 @@ o = "run touch ${marker}"
     await withSandbox(async (sandbox) => {
       installSquad(sandbox);
       await identity(sandbox, 'Ben');
-      const squadToml = path.join(sandbox.globalDir, 'squad.toml');
+      const squadToml = path.join(sandbox.globalDir, 'ops.toml');
 
-      // No --me and no terminal question: the room exists, squad.toml does not.
+      // No --me and no terminal question: the room exists, ops.toml does not.
       const created = await squad(sandbox, ['init', 'product']);
       expect(created).toMatchObject({ status: 0, body: { created: true, me: null } });
       expect(observe(sandbox).rooms).toEqual([{ name: 'squad-product', retired: 0 }]);
@@ -1277,7 +1278,7 @@ o = "run touch ${marker}"
     await withSandbox(async (sandbox) => {
       installSquad(sandbox);
       const ben = await identity(sandbox, 'Ben');
-      const squadToml = path.join(sandbox.globalDir, 'squad.toml');
+      const squadToml = path.join(sandbox.globalDir, 'ops.toml');
       await squad(sandbox, ['init', 'product']);
 
       // Nobody yet: outside a pane, nothing is recorded or derived.
@@ -1654,7 +1655,7 @@ o = "run touch ${marker}"
       expect(observe(sandbox)).toEqual(before);
       // A configured legacy note line cannot redisplay the retained metadata.
       writeFileSync(
-        path.join(sandbox.globalDir, 'squad.toml'),
+        path.join(sandbox.globalDir, 'ops.toml'),
         '[squad.product]\nlayout = "crew"\n[squad.product.rows]\ncolumns = [{name = "member"}, {name = "note"}]\nlines = [["member"], ["", "note"]]\n'
       );
       const listed = await squad(sandbox, ['ls', '--squad', 'product']);
@@ -1711,7 +1712,7 @@ o = "run touch ${marker}"
       expect(set.body.applied).toEqual(['squad.product.state', 'squad.product.pending']);
 
       writeFileSync(
-        path.join(sandbox.globalDir, 'squad.toml'),
+        path.join(sandbox.globalDir, 'ops.toml'),
         'me = "Ben"\n[squad.product]\nlayout = "crew"\n'
       );
       const status = await squad(sandbox, ['ls', '--squad', 'product']);
@@ -1923,7 +1924,7 @@ o = "run touch ${marker}"
       installSquad(sandbox);
       for (const name of ['Ben', 'auth-fix']) await identity(sandbox, name);
       await squad(sandbox, ['init', 'product', '--me', 'Ben']);
-      const legacyConfig = path.join(sandbox.globalDir, 'squad.toml');
+      const legacyConfig = path.join(sandbox.globalDir, 'ops.toml');
       writeFileSync(
         legacyConfig,
         `${readFileSync(legacyConfig, 'utf8')}\n[squad.product]\nlayout = "crew"\n`
@@ -1984,7 +1985,7 @@ o = "run touch ${marker}"
       expect(help.stdout).toMatch(/\n {2}ls +List members or a board tab/);
       expect(help.stdout).not.toMatch(/\n {2}status /);
       // Explicit F5 remains valid while the host preset uses ctrl-r.
-      const toml = path.join(sandbox.globalDir, 'squad.toml');
+      const toml = path.join(sandbox.globalDir, 'ops.toml');
       writeFileSync(
         toml,
         `${readFileSync(toml, 'utf8')}\n[bind]\nctrl-r = "refresh"\nf5 = "refresh"\n`
@@ -2000,10 +2001,7 @@ o = "run touch ${marker}"
       installSquad(sandbox);
       await identity(sandbox, 'worker');
       await squad(sandbox, ['init', 'product']);
-      writeFileSync(
-        path.join(sandbox.globalDir, 'squad.toml'),
-        '[squad.product]\nlayout = "crew"\n'
-      );
+      writeFileSync(path.join(sandbox.globalDir, 'ops.toml'), '[squad.product]\nlayout = "crew"\n');
       await squad(sandbox, ['add', 'worker']);
       const task =
         'alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu nu xi omicron';
@@ -2015,7 +2013,7 @@ o = "run touch ${marker}"
         )
       ).toBe(true);
       writeFileSync(
-        path.join(sandbox.globalDir, 'squad.toml'),
+        path.join(sandbox.globalDir, 'ops.toml'),
         [
           '[squad.product]',
           'layout = "crew"',
@@ -2076,7 +2074,7 @@ o = "run touch ${marker}"
         ),
         'utf8'
       );
-      const file = path.join(sandbox.globalDir, 'squad.toml');
+      const file = path.join(sandbox.globalDir, 'ops.toml');
       writeFileSync(file, example);
       const result = await squad(sandbox, ['ls', '--squad', 'checkout']);
       expect(result.status).toBe(0);
@@ -2120,7 +2118,7 @@ o = "run touch ${marker}"
       await squad(sandbox, ['init', 'product', '--me', 'Ben']);
       await squad(sandbox, ['init', 'reviews']);
       writeFileSync(
-        path.join(sandbox.globalDir, 'squad.toml'),
+        path.join(sandbox.globalDir, 'ops.toml'),
         'me = "Ben"\n[squad.reviews]\nlayout = "pr-queue"\n'
       );
       const both = await squad(sandbox, ['ls']);
@@ -2153,7 +2151,7 @@ o = "run touch ${marker}"
         await identity(sandbox, name);
       }
       await squad(sandbox, ['init', 'product', '--me', 'Ben']);
-      const legacyConfig = path.join(sandbox.globalDir, 'squad.toml');
+      const legacyConfig = path.join(sandbox.globalDir, 'ops.toml');
       writeFileSync(
         legacyConfig,
         `${readFileSync(legacyConfig, 'utf8')}\n[squad.product]\nlayout = "crew"\n`
@@ -2162,7 +2160,7 @@ o = "run touch ${marker}"
       await squad(sandbox, ['set', 'exact', 'state=blocked']);
       await squad(sandbox, ['set', 'pattern', 'state=BLOCKED-on-ci']);
       await squad(sandbox, ['set', 'unknown', 'state=unranked']);
-      const squadToml = path.join(sandbox.globalDir, 'squad.toml');
+      const squadToml = path.join(sandbox.globalDir, 'ops.toml');
       const base = readFileSync(squadToml, 'utf8');
       const settings = `
 [squad.product.states]
@@ -2214,7 +2212,7 @@ sort = 9
       expect(JSON.stringify(refused.body)).toContain('squad.product.state_patterns[0].color');
     });
   });
-  it('renders user-defined sections from squad.toml and rejects invalid filters', async () => {
+  it('renders user-defined sections from ops.toml and rejects invalid filters', async () => {
     await withSandbox(async (sandbox) => {
       installSquad(sandbox);
       for (const name of ['Ben', 'Sol', 'auth-fix', 'docs-sweep', 'perf-cache']) {
@@ -2225,7 +2223,7 @@ sort = 9
       await squad(sandbox, ['add', 'auth-fix', 'docs-sweep', 'perf-cache']);
       await squad(sandbox, ['set', 'auth-fix', 'state=blocked', 'pending=approve the plan']);
       await squad(sandbox, ['set', 'docs-sweep', 'state=review']);
-      const squadToml = path.join(sandbox.globalDir, 'squad.toml');
+      const squadToml = path.join(sandbox.globalDir, 'ops.toml');
       const base = readFileSync(squadToml, 'utf8');
       writeFileSync(
         squadToml,
@@ -2303,7 +2301,7 @@ sort = ["-name"]
           (row: { name: string }) => row.name
         );
       expect(await order()).toEqual(['a-work', 'b-review', 'c-parked']);
-      const squadToml = path.join(sandbox.globalDir, 'squad.toml');
+      const squadToml = path.join(sandbox.globalDir, 'ops.toml');
       writeFileSync(
         squadToml,
         `${readFileSync(squadToml, 'utf8')}\n[squad.product.states]\nreview = { sort = 0 }\nparked = { sort = 0, color = "dim" }\n`
@@ -2341,7 +2339,7 @@ sort = ["-name"]
         0o755
       );
       writeExecutable(clipboard, `#!/bin/sh\ncat > '${copied}'\n`, 0o755);
-      const squadToml = path.join(sandbox.globalDir, 'squad.toml');
+      const squadToml = path.join(sandbox.globalDir, 'ops.toml');
       writeFileSync(
         squadToml,
         `${readFileSync(squadToml, 'utf8')}\nopener = ["record-open", "--new-tab"]\nclipboard = ["${clipboard}"]\n`
@@ -2403,7 +2401,7 @@ sort = ["-name"]
       for (const name of ['Ben', 'Sol', 'auth-fix', 'docs'])
         ids[name] = await identity(sandbox, name);
       await squad(sandbox, ['init', 'product', '--me', 'Ben']);
-      const legacyConfig = path.join(sandbox.globalDir, 'squad.toml');
+      const legacyConfig = path.join(sandbox.globalDir, 'ops.toml');
       writeFileSync(
         legacyConfig,
         `${readFileSync(legacyConfig, 'utf8')}\n[squad.product]\nlayout = "crew"\n`
@@ -2804,7 +2802,7 @@ sort = ["-name"]
       expect(taken.body.error.message).toContain('bind S choose-tree -s');
       expect(readFileSync(conf, 'utf8')).toBe(original);
 
-      const squadToml = path.join(sandbox.globalDir, 'squad.toml');
+      const squadToml = path.join(sandbox.globalDir, 'ops.toml');
       writeFileSync(
         squadToml,
         `${readFileSync(squadToml, 'utf8')}\n[tmux]\npopup = "C-s"\nback = "b"\n`
@@ -2903,7 +2901,7 @@ describe('Squad cron clock', () => {
           stdin: JSON.stringify({ version: 1, operation: 'storage.root', input: {} }),
         })
       ).dataRoot as string;
-      const directory = path.join(root, 'squad', 'cron');
+      const directory = path.join(root, 'ops', 'cron');
       const absent = await squad(sandbox, ['cron', 'clock']);
       expect(absent).toMatchObject({ status: 0, body: { clock: { state: 'no clock' } } });
       expect(existsSync(directory)).toBe(false);
@@ -3035,10 +3033,10 @@ describe('Squad cron management', () => {
           stdin: JSON.stringify({ version: 1, operation: 'storage.root', input: {} }),
         })
       ).dataRoot as string;
-      const store = path.join(root, 'squad', 'cron', 'jobs.json');
+      const store = path.join(root, 'ops', 'cron', 'jobs.json');
       expect(JSON.parse(readFileSync(store, 'utf8')).jobs[0].message).toBe(message);
       expect(statSync(store).mode & 0o777).toBe(0o600);
-      const config = path.join(sandbox.globalDir, 'squad.toml');
+      const config = path.join(sandbox.globalDir, 'ops.toml');
       const originalConfig = readFileSync(config, 'utf8');
       const denied = await squad(sandbox, [
         'cron',
@@ -3203,7 +3201,7 @@ describe('Squad checklist native commands', () => {
         stdin: JSON.stringify({ version: 1, operation: 'storage.root', input: {} }),
       })
     ).dataRoot as string;
-    const directory = path.join(root, 'squad', 'checklist', room.id);
+    const directory = path.join(root, 'ops', 'checklist', room.id);
     const selected = ['--room', room.id, '--checklist', checklistId, '--item', itemId];
     return { worker, roomId: room.id, root, directory, selected };
   }
@@ -3227,7 +3225,7 @@ describe('Squad checklist native commands', () => {
                 .sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b))),
             ])
         ),
-        squadConfig: readFileSync(path.join(sandbox.globalDir, 'squad.toml')),
+        squadConfig: readFileSync(path.join(sandbox.globalDir, 'ops.toml')),
         coreConfig: existsSync(sandbox.globalConfig) ? readFileSync(sandbox.globalConfig) : null,
         localConfig: existsSync(sandbox.localConfig) ? readFileSync(sandbox.localConfig) : null,
       };
@@ -3640,7 +3638,7 @@ describe('Squad checklist native commands', () => {
         checklistId: null,
         items: [],
       });
-      expect(existsSync(path.join(f.root, 'squad', 'checklist', otherRoom))).toBe(false);
+      expect(existsSync(path.join(f.root, 'ops', 'checklist', otherRoom))).toBe(false);
       const file = path.join(f.directory, 'items.json');
       const original = readFileSync(file);
       const corrupt = Buffer.from('{"version":999}\n');
@@ -3973,4 +3971,176 @@ sys.exit(result.returncode)
       expect(help.stdout).not.toContain('--every');
     });
   });
+});
+
+describe('Ops path migration with unchanged Squad commands', () => {
+  it('leaves legacy files untouched for help, completion and embedded skill reads', async () => {
+    await withSandbox(async (sandbox) => {
+      installSquad(sandbox);
+      const old = path.join(sandbox.globalDir, 'squad.toml');
+      const bytes = '# not read by offline commands\ninvalid [';
+      writeFileSync(old, bytes);
+      for (const args of [
+        ['squad', '--help'],
+        ['squad', 'cron', '--help'],
+        ['squad', 'skill'],
+      ]) {
+        expect((await runCli(sandbox, args)).status).toBe(0);
+      }
+      expect((await runCli(sandbox, ['squad', '__complete', 'cron'])).status).toBe(0);
+      expect(readFileSync(old, 'utf8')).toBe(bytes);
+      expect(existsSync(path.join(sandbox.globalDir, 'ops.toml'))).toBe(false);
+      expect(existsSync(path.join(sandbox.globalDir, '.ops-paths.lock'))).toBe(false);
+    });
+  });
+
+  it('keeps legacy jobs/config visible while the old clock is live, then preserves cron and checklist bytes and fires the migrated job', async () => {
+    await withSandbox(async (sandbox) => {
+      installSquad(sandbox);
+      await identity(sandbox, 'Ben');
+      const owner = await identity(sandbox, 'worker');
+      expect((await squad(sandbox, ['init', 'product', '--me', 'Ben'])).status).toBe(0);
+      expect((await squad(sandbox, ['add', 'worker'])).status).toBe(0);
+      const added = await squad(sandbox, [
+        'cron',
+        'add',
+        'product',
+        'worker',
+        '--every',
+        '1m',
+        'legacy tmt sq / tmt-squad job',
+      ]);
+      expect(added.status).toBe(0);
+      const room = added.body.job.roomId as string;
+      const checklist = '55555555-5555-4555-8555-555555555555';
+      const item = '66666666-6666-4666-8666-666666666666';
+      expect(
+        (
+          await squad(sandbox, [
+            'checklist',
+            'create',
+            'Retained checklist',
+            '--room',
+            room,
+            '--checklist',
+            checklist,
+            '--item',
+            item,
+            '--expect-inventory',
+            'absent',
+          ])
+        ).status
+      ).toBe(0);
+      const root = parseWholeStdout(
+        await runCli(sandbox, ['api'], {
+          stdin: JSON.stringify({ version: 1, operation: 'storage.root', input: {} }),
+        })
+      ).dataRoot as string;
+      const config = path.join(sandbox.globalDir, 'ops.toml');
+      const configBytes = Buffer.concat([
+        Buffer.from('# user comments survive exactly\n'),
+        readFileSync(config),
+      ]);
+      writeFileSync(config, configBytes);
+      const ops = path.join(root, 'ops');
+      const jobs = path.join(ops, 'cron', 'jobs.json');
+      // This fixture retains the shipped v1 schema and independently chooses a
+      // due anchor; no expected migration output is generated by migration.
+      const stored = JSON.parse(readFileSync(jobs, 'utf8'));
+      stored.jobs[0].schedule.anchorMs = Date.now() - 10_000;
+      writeFileSync(jobs, JSON.stringify(stored));
+      const jobBytes = readFileSync(jobs);
+      const checklistBytes = readFileSync(path.join(ops, 'checklist', room, 'items.json'));
+      renameSync(config, path.join(sandbox.globalDir, 'squad.toml'));
+      renameSync(ops, path.join(root, 'squad'));
+      unlinkSync(path.join(sandbox.globalDir, '.ops-paths-v1'));
+      unlinkSync(path.join(sandbox.globalDir, '.ops-paths-cutover-v1'));
+      const backup = path.join(sandbox.globalDir, 'squad.toml.bak-user');
+      writeFileSync(backup, 'user backup');
+      const lease = path.join(root, 'squad', 'cron', 'clock.json');
+      writeFileSync(path.join(root, 'squad', 'cron', 'clock.lock'), '');
+      writeFileSync(
+        lease,
+        JSON.stringify({
+          version: 1,
+          pid: 123,
+          pane: '%41',
+          sinceMs: Date.now() - 1000,
+          expiresMs: Date.now() + 120_000,
+        })
+      );
+      const pending = await squad(sandbox, ['cron', 'ls', '--squad', 'product']);
+      expect(pending.status).toBe(0);
+      expect(pending.body.jobs).toHaveLength(1);
+      expect(pending.body.jobs[0]).toMatchObject({
+        id: 'c1',
+        ownerId: owner,
+        message: stored.jobs[0].message,
+      });
+      expect(pending.stderr.match(/Ops migration deferred/g)).toHaveLength(1);
+      expect(pending.stderr).toContain('PID 123 in pane %41');
+      expect(pending.stderr).toContain('kill -TERM 123');
+      const board = await squad(sandbox, ['board', '--squad', 'product']);
+      expect(board.status).toBe(0);
+      expect(
+        board.body.sections
+          .flatMap((section: { rows: { name: string }[] }) => section.rows)
+          .map((row: { name: string }) => row.name)
+      ).toContain('worker');
+      expect(board.stderr.match(/Ops migration deferred/g)).toHaveLength(1);
+      const competitor = await squad(sandbox, ['cron', 'tick']);
+      expect(competitor.status).toBe(1);
+      expect(competitor.body.error.code).toBe('SQUAD_CRON_CLOCK_RUNNING');
+      expect(existsSync(config)).toBe(false);
+      expect(existsSync(ops)).toBe(false);
+      expect(readFileSync(path.join(sandbox.globalDir, 'squad.toml'))).toEqual(configBytes);
+      unlinkSync(lease);
+      const migrated = await squad(sandbox, ['cron', 'ls', '--squad', 'product']);
+      expect(migrated.status).toBe(0);
+      expect(migrated.body.jobs[0]).toMatchObject({
+        id: 'c1',
+        revision: 1,
+        ownerId: owner,
+        schedule: stored.jobs[0].schedule,
+      });
+      expect(readFileSync(config)).toEqual(configBytes);
+      expect(readFileSync(path.join(ops, 'cron', 'jobs.json'))).toEqual(jobBytes);
+      expect(readFileSync(path.join(ops, 'checklist', room, 'items.json'))).toEqual(checklistBytes);
+      expect(readFileSync(backup, 'utf8')).toBe('user backup');
+      expect(existsSync(path.join(root, 'squad'))).toBe(false);
+      expect(existsSync(path.join(sandbox.globalDir, 'squad.toml'))).toBe(false);
+      const archives = readdirSync(root).filter((name) => name.startsWith('squad.migrated-'));
+      expect(archives).toHaveLength(1);
+      expect(readFileSync(path.join(root, archives[0]!, 'cron', 'jobs.json'))).toEqual(jobBytes);
+      const retained = await squad(sandbox, ['checklist', 'ls', '--room', room]);
+      expect(retained.status).toBe(0);
+      expect(retained.body.current.items).toMatchObject([
+        { id: item, title: 'Retained checklist', revision: 1 },
+      ]);
+      const tick = await squad(sandbox, ['cron', 'tick']);
+      expect(tick).toMatchObject({ status: 0, body: { accepted: 1, complete: true } });
+      const db = new Database(sandbox.database, { readonly: true });
+      try {
+        expect(
+          db
+            .prepare(
+              "SELECT recipient_identity_id AS recipient, message_text AS message FROM request_attempts WHERE request_kind='request'"
+            )
+            .all()
+        ).toEqual([{ recipient: owner, message: stored.jobs[0].message }]);
+      } finally {
+        db.close();
+      }
+      // After completion even invalid newly created legacy input is ignored.
+      writeFileSync(path.join(sandbox.globalDir, 'squad.toml'), 'invalid legacy [');
+      const reappeared = await squad(sandbox, ['cron', 'ls']);
+      expect(reappeared.status).toBe(0);
+      expect(reappeared.stderr).toContain('has reappeared');
+      expect(reappeared.stderr).toContain('Its settings are not used');
+      expect(reappeared.stderr).toContain('ops.toml');
+      expect(readFileSync(path.join(sandbox.globalDir, 'squad.toml'), 'utf8')).toBe(
+        'invalid legacy ['
+      );
+    });
+  }, 60_000);
 });

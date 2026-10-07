@@ -29,7 +29,7 @@ impl Fixture {
             {"id":WORKER,"name":"worker","lifetime":"saved","metadata":{}}]});
         fs::write(directory.join("model.json"), model.to_string()).unwrap();
         fs::write(
-            directory.join("squad.toml"),
+            directory.join("ops.toml"),
             format!("me='Ben'\nme_id='{USER}'\n"),
         )
         .unwrap();
@@ -51,8 +51,8 @@ if a[0]=='api':
   (p/'blocked.pid').write_text(str(os.getpid()))
   signal.pause()
   fcntl.flock(guard,fcntl.LOCK_EX); m=json.loads((p/'model.json').read_text())
- if (p/'squad/cron/jobs.lock').exists():
-  with open(p/'squad/cron/jobs.lock','r+') as lock:
+ if (p/'ops/cron/jobs.lock').exists():
+  with open(p/'ops/cron/jobs.lock','r+') as lock:
    try: fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
    except BlockingIOError: locked=True
  m['calls'].append({'request':q,'locked':locked})
@@ -135,7 +135,7 @@ else: fail('UNKNOWN_COMMAND')
             ),
         );
         let core = Core::at(executable);
-        let config = Config::read(directory.join("squad.toml")).unwrap();
+        let config = Config::read(directory.join("ops.toml")).unwrap();
         Self {
             directory,
             core,

@@ -215,7 +215,7 @@ projects its typed results/errors. The board consumes the same typed service dir
   validation. Create and Delete change inventory; other item writes do not. Delete drops
   content and retains only room/checklist/item UUIDs and deletion revision, without purge
   or UUID reuse. Completion and archive are independent.
-- `store` owns version 1 JSON at `<dataRoot>/squad/checklist/<canonical-room-UUID>/items.json`.
+- `store` owns version 1 JSON at `<dataRoot>/ops/checklist/<canonical-room-UUID>/items.json`.
   `items.lock` is stable; `items.tmp` belongs to the locked publisher. The document has
   `version`, `roomId`, `checklistId`, `inventoryRevision`, ordered live `items` and minimal
   `deleted` tombstones. It persists no copied membership, actor authority or operation ledger.
@@ -260,7 +260,7 @@ own these layers:
   bundled database. Fixed local times skip DST gaps and take the first occurrence in a fold;
   elapsed intervals keep their stored anchor and duration. Day-of-month and day-of-week use
   the standard alternative rule unless either field starts with `*`.
-- `cron::store` owns the versioned `<dataRoot>/squad/cron/jobs.json` document: per-squad
+- `cron::store` owns the versioned `<dataRoot>/ops/cron/jobs.json` document: per-squad
   counters that survive removal, exact message bytes, room and owner references, schedules,
   revisions and pause attribution. The caller supplies the absolute `storage.root` and admits
   core UUID references; the store resolves no identities, decides no permissions, dispatches

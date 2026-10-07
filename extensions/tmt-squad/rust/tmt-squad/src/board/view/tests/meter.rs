@@ -191,7 +191,7 @@ fn saved_cycle(app: &mut App) {
         NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
     ));
     std::fs::create_dir(&root).unwrap();
-    let path = root.join("squad.toml");
+    let path = root.join("ops.toml");
     let windows = app
         .meter
         .as_ref()

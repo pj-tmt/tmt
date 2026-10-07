@@ -85,7 +85,7 @@ grammar or key tables into the references below.
 | Topic                                                                                | File                                                      |
 | ------------------------------------------------------------------------------------ | --------------------------------------------------------- |
 | Membership, leadership marker, `me`, field providers, staleness, reminders, cron     | [data-and-state.md](references/data-and-state.md)         |
-| `squad.toml` layering and writes, themes, views, settings, link and action effects   | [config-and-effects.md](references/config-and-effects.md) |
+| `ops.toml` layering and writes, themes, views, settings, link and action effects     | [config-and-effects.md](references/config-and-effects.md) |
 | Board frame, row grid, composition, tabs, scrolling, composers, overlays, validation | [board.md](references/board.md)                           |
 | HOME model, section scenes, cursor projection and cache invalidation                 | [board-home.md](references/board-home.md)                 |
 | Lead/member notebooks, links, annotations, detail and replies                        | [board-notebooks.md](references/board-notebooks.md)       |
@@ -102,8 +102,8 @@ grammar or key tables into the references below.
   `tmt-invoke` and `tmt-tui`.
 - A squad is the core room `squad-<name>`. Member fields are identity metadata
   `squad.<name>.<field>`; Squad has no membership store of its own.
-- Squad-owned data lives under `<dataRoot>/squad` (`storage.root` from `tmt api`),
-  plus disposable caches under `$XDG_CACHE_HOME/tmt-squad/`. `squad.toml` is the
+- Squad-owned data lives under `<dataRoot>/ops` (`storage.root` from `tmt api`),
+  plus disposable caches under `$XDG_CACHE_HOME/tmt-squad/`. `ops.toml` is the
   user's file; agents never write it, and no cron data goes into it or the core
   database.
 - Squad never writes `config.json`, a provider directory or tmux state except

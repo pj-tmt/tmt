@@ -11,7 +11,7 @@ fn reads_are_unrestricted_and_actor_admission_never_falls_back_from_a_member() {
             .jobs
             .is_empty()
     );
-    assert!(!f.directory.join("squad").exists());
+    assert!(!f.directory.join("ops").exists());
     let bytes = fs::read(f.config.path()).unwrap();
     f.change_model(|m| m["caller"] = json!(WORKER));
     let member = actor(&f.core, &f.config, None).unwrap();
@@ -42,7 +42,7 @@ fn locked_revision_room_and_membership_guards_preserve_the_published_job() {
     let user = f.actor(USER);
     let job = f.add(&user, WORKER).unwrap().job.job;
     let paused = f.mutate(&user, &job, Mutation::Pause).unwrap().job.job;
-    let before = fs::read(f.directory.join("squad/cron/jobs.json")).unwrap();
+    let before = fs::read(f.directory.join("ops/cron/jobs.json")).unwrap();
     assert_eq!(
         f.mutate(&user, &job, Mutation::Resume).err().unwrap().code,
         "SQUAD_CRON_REVISION_CONFLICT"
@@ -72,7 +72,7 @@ fn locked_revision_room_and_membership_guards_preserve_the_published_job() {
         "SQUAD_CRON_ROOM_CONFLICT"
     );
     assert_eq!(
-        fs::read(f.directory.join("squad/cron/jobs.json")).unwrap(),
+        fs::read(f.directory.join("ops/cron/jobs.json")).unwrap(),
         before
     );
     let calls = f.model()["calls"].as_array().unwrap().clone();
@@ -134,7 +134,11 @@ fn notices_target_owners_suppress_actor_and_never_undo_a_committed_change() {
     assert_eq!(applied.job.job.state(), "on");
     assert_eq!(applied.warnings[0].code, "DISPATCH_FAILURE");
     assert_eq!(
-        Store::new(&f.directory).unwrap().read().unwrap().jobs()[0],
+        Store::new(&f.directory.join("ops"))
+            .unwrap()
+            .read()
+            .unwrap()
+            .jobs()[0],
         applied.job.job
     );
 }
@@ -158,7 +162,11 @@ fn retirement_is_durable_before_ack_and_obsolete_hooks_cannot_clear_a_new_owner(
     f.change_model(|m| m["retired"] = json!([WORKER]));
     assert!(drain_retired(&f.core, &f.config, 200).unwrap().is_empty());
     assert_eq!(
-        Store::new(&f.directory).unwrap().read().unwrap().jobs()[0],
+        Store::new(&f.directory.join("ops"))
+            .unwrap()
+            .read()
+            .unwrap()
+            .jobs()[0],
         new
     );
     let f = Fixture::new();
@@ -197,7 +205,7 @@ fn failed_hook_registration_rolls_back_and_non_members_cannot_own_jobs() {
     f.change_model(|m| m["hookFailure"] = json!(true));
     assert_eq!(f.add(&user, WORKER).err().unwrap().code, "HOOK_FAILURE");
     assert!(
-        Store::new(&f.directory)
+        Store::new(&f.directory.join("ops"))
             .unwrap()
             .read()
             .unwrap()
@@ -224,7 +232,11 @@ fn failed_hook_registration_rolls_back_and_non_members_cannot_own_jobs() {
     );
     assert_eq!(empty.err().unwrap().code, "SQUAD_CRON_MESSAGE_INVALID");
     assert_eq!(
-        Store::new(&f.directory).unwrap().read().unwrap().jobs()[0]
+        Store::new(&f.directory.join("ops"))
+            .unwrap()
+            .read()
+            .unwrap()
+            .jobs()[0]
             .owner_id
             .as_deref(),
         Some(WORKER)

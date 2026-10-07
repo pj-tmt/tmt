@@ -107,21 +107,11 @@ pub enum Change {
 }
 
 pub fn root(core: &Core) -> Result<PathBuf, SquadError> {
-    let value = core.api("storage.root", json!({}))?;
-    let path = value["dataRoot"]
-        .as_str()
-        .map(PathBuf::from)
-        .filter(|path| path.is_absolute())
-        .ok_or_else(|| {
-            failure(
-                "SQUAD_CORE_UNAVAILABLE",
-                "storage.root returned no absolute dataRoot.",
-            )
-        })?;
-    Ok(path)
+    crate::migration::state_root(core)
 }
-fn store(core: &Core) -> Result<Store, SquadError> {
-    Ok(Store::new(&root(core)?)?)
+fn store(core: &Core) -> Result<(Store, crate::migration::LegacyGuard), SquadError> {
+    let guard = crate::migration::state_guard(core)?;
+    Ok((Store::new(&root(core)?)?, guard))
 }
 
 pub fn actor(
@@ -234,7 +224,8 @@ fn admitted_job(
     expected_revision: u64,
     actor: Option<(&Config, &CronActor)>,
 ) -> Result<Job, SquadError> {
-    store(core)?
+    let (store, _migration) = store(core)?;
+    store
         .update(|jobs| {
             let selected = room(core, &key.squad, &key.room_id).map_err(stored)?;
             let roster = match actor {
@@ -291,7 +282,8 @@ pub fn list_jobs(
     } else {
         Squad::list(core)?
     };
-    let jobs = store(core)?
+    let (store, _migration) = store(core)?;
+    let jobs = store
         .read()?
         .jobs()
         .iter()
@@ -313,7 +305,8 @@ pub fn show_job(
 ) -> Result<JobView, SquadError> {
     let warnings = drain_retired(core, config, now_ms)?;
     room(core, &key.squad, &key.room_id)?;
-    let jobs = store(core)?.read()?;
+    let (store, _migration) = store(core)?;
+    let jobs = store.read()?;
     let job = jobs
         .jobs()
         .iter()
@@ -337,7 +330,7 @@ pub fn apply(
     now_ms: i64,
 ) -> Result<Applied, SquadError> {
     let mut warnings = drain_retired(core, config, now_ms)?;
-    let store = store(core)?;
+    let (store, _migration) = store(core)?;
     let (before, after, action, changed) = store.update(|jobs| {
         let (name, room_id) = match &change {
             Change::Add { squad, room_id, .. } => (squad, room_id),

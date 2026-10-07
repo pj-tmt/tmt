@@ -1,4 +1,4 @@
-//! `[bind]` actions: `event = "verb …"`, parsed once when squad.toml loads.
+//! `[bind]` actions: `event = "verb …"`, parsed once when ops.toml loads.
 //! Arguments are split at load time; a `{field}` value later fills (part of)
 //! exactly one argument and is never re-split, re-quoted or shell-parsed.
 
