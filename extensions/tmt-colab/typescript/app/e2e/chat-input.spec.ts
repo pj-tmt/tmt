@@ -138,12 +138,36 @@ test('the row menu flips above its trigger only when it would leave a short scro
   page,
 }) => {
   await page.goto('/');
-  await run(page, 'mountMenu', { tight: true });
+  await run(page, 'mountMenu', { tight: true, spaceAbove: true });
   const trigger = page.getByRole('button', { name: 'Message actions' });
-  await page.getByTestId('row').hover();
+  await trigger.hover();
   await trigger.click();
   const list = (await page.getByRole('menu').boundingBox())!;
   const box = (await trigger.boundingBox())!;
   expect(list.y + list.height).toBeLessThanOrEqual(box.y + 1);
-  await expect(page.getByRole('menu')).toHaveAttribute('data-flip', 'true');
+  await expect(page.getByRole('menuitem').first()).toBeInViewport({ ratio: 1 });
+  const viewport = (await page.getByTestId('menu-viewport').boundingBox())!;
+  expect(list.y).toBeGreaterThanOrEqual(viewport.y);
+  await page.getByRole('menuitem', { name: 'Edit', exact: true }).click();
+  expect((await run(page, 'proof')).selected).toEqual(['edit']);
+});
+
+test('a row menu remains clickable inside a scroll viewport when neither side of its row fits', async ({
+  page,
+}) => {
+  await page.goto('/');
+  await run(page, 'mountMenu', { tight: true });
+  const trigger = page.getByRole('button', { name: 'Message actions' });
+  await trigger.hover();
+  await trigger.click();
+  const list = (await page.getByRole('menu').boundingBox())!;
+  const viewport = (await page.getByTestId('menu-viewport').boundingBox())!;
+  expect(list.y).toBeGreaterThanOrEqual(viewport.y);
+  expect(list.y + list.height).toBeLessThanOrEqual(viewport.y + viewport.height);
+  await expect(page.getByRole('menuitem', { name: 'Delete', exact: true })).toBeInViewport({
+    ratio: 1,
+  });
+  await page.getByRole('menuitem', { name: 'Delete', exact: true }).click();
+  await expect(trigger).toBeFocused();
+  expect((await run(page, 'proof')).selected).toEqual(['delete']);
 });
