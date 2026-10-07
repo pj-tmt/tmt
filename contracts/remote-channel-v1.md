@@ -232,12 +232,15 @@ device context, not a second credential model: every request and upgrade recheck
 revocation and expiry, and a state-changing operation still needs a fresh device signature over
 its exact intent. Door sessions live only in the running remote and do not survive restart.
 Revocation, grant expiry/revision change and stop end all device sessions and tokens.
-`limits::SESSION_IDLE` is 12 hours without activity for a session that has had a transport;
-`limits::SESSION_UNATTACHED_IDLE` is 60 seconds without activity for a session that has never
-had one. Traffic and authenticated requests count as activity. Maintenance runs even without new
-requests: the door's existing 100 ms event loop runs session maintenance at most once per
+`limits::SESSION_IDLE` is 12 hours without activity while a session has a live transport;
+`limits::SESSION_UNATTACHED_IDLE` is a 60-second inactivity grace for every session without
+a live transport, including one that previously attached. Last-transport close starts fresh
+grace; traffic and authenticated requests count as activity. Reattaching within the grace
+resumes the same session. Detached sessions still count against the per-device cap until expiry.
+Maintenance runs even without new requests: the door's existing 100 ms event loop runs session maintenance at most once per
 `limits::SESSION_MAINTENANCE_INTERVAL` (one second). Request paths still check session expiry
-themselves; last-transport closure ends authority immediately. Maintenance prunes persisted
+themselves. Explicit end, revoke, grant expiry/revision change, eviction and stop remain immediate.
+Maintenance prunes persisted
 session rows only when an old run or expired end notice needs removal.
 
 The SDK's `transportUrl(session, mountedWebSocketUrl)` adds exactly `?tmt-session=<sessionId>`
@@ -251,17 +254,17 @@ current door's mount space, without other query parameters or fragments. Existin
 without the parameter attach to the cookie's session.
 
 Opening another session leaves existing sessions and tunnels live. The last upgraded transport
-closing (including tab close or a dropped transport while backgrounded/asleep) ends its session;
-other tabs stay live. A failed upgrade is not an established transport. Ending closes remaining
-tunnels while held work survives the session end, bound to the device grant. Only stop, revoke,
+closing (including tab close or a dropped transport while backgrounded/asleep) starts the
+session's reattach grace; other tabs stay live. A failed upgrade is not an established transport.
+Ending closes remaining tunnels while held work survives the session end, bound to the device grant. Only stop, revoke,
 and grant expiry/revision change cancel held work. Dispatching and uncertain work retain their
 original operation IDs, frozen intent and recovery behavior. A limit eviction uses
 `REMOTE_SESSION_EVICTED` with the active positive `limit` and optional `settingsUrl`; the door
 omits the URL until #1769 adds the Remote settings page. The SDK exposes `RefusalError.limit`
 and optional `settingsUrl`, also on send/operation refused states. Absent/null URLs mean
 command-only guidance; when present, Colab shows the settings link plus `tmt remote settings
-sessions-per-device <n>`. The SDK normalizes the URL and requires the door's origin. Transport
-close/idle expiry uses `REMOTE_SESSION_ENDED`. After verifying the device signature and current
+sessions-per-device <n>`. The SDK normalizes the URL and requires the door's origin. Session
+idle expiry uses `REMOTE_SESSION_ENDED`. After verifying the device signature and current
 grant, Remote can sign the distinct end reason for `limits::SESSION_END_NOTICE` (60 seconds);
 afterward admission is the generic 404, also exposed by the SDK as `REMOTE_SESSION_ENDED`.
 Reopening is silent: the page sends another signed `session.open` from its stored device key,
