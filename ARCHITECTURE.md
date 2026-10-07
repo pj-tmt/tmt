@@ -995,7 +995,7 @@ Module/drawing ownership and guard verification: [Squad](.agents/skills/tmt-squa
   identity metadata `squad.<name>.<field>`, with no Squad membership store. Squad owns
   `<dataRoot>/ops` (`storage.root`) and disposable `$XDG_CACHE_HOME/tmt-squad` caches.
   `ops.toml` is the user's file: agents never write it; Squad uses its compare-and-set
-  writer; `migration` owns locked, byte-preserving legacy cutover and one invocation layout. No Squad data enters Core.
+  writer; `migration` owns locked, byte-preserving legacy cutover and one invocation layout. Cron/checklist documents stay outside Core.
 - **Checklist.** `checklist_command` exposes native grammar and scoped output over the existing
   `checklist` caller/room admission, `model` revisions/tombstones and `store` versioned room-UUID JSON
   under `<dataRoot>/ops/checklist`. Reads create no checklist files; locked admission precedes synced replacement outside a Core/file transaction.
