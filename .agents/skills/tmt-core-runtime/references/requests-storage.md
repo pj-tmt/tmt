@@ -144,7 +144,8 @@ configuration. The owner map is in
 `RequestService` serializes policy CAS, held publication, notice admission and
 checklist membership. Schema 49 adds policy, delivery metadata, held-reference and
 sealed-checklist tables, each with complete change-cursor coverage. Prompt/final
-owners and retention stay unchanged. `storage::requests::focus` owns bounded SQL;
+owners and retention stay unchanged. `storage::requests::focus` owns bounded SQL,
+including empty settled-checklist pruning in existing request housekeeping;
 `api::focus` and the Focus adapter project the trusted local consumer seam.
 
 The ordinary request wake and existing reply-frame/joined-fallback writer claims

@@ -198,3 +198,23 @@ pub(super) fn has_item(
 ) -> Result<bool, StorageError> {
     db.query_row("SELECT EXISTS(SELECT 1 FROM focus_items WHERE identity_id=?1 AND request_id=?2 AND source=?3)",params![identity,request,source.as_str()],|r|r.get(0)).map_err(|e|classify(e,"Read held focus reference"))
 }
+
+pub(super) fn prune_settled(db: &Connection, cutoff: u64, limit: u64) -> Result<(), StorageError> {
+    // Canonical request cleanup cascades expired member links. Definite-unsent
+    // settlement already released its members. Keep claimed/uncertain records
+    // discoverable even after their members expire: age is no replay lease.
+    db.execute(
+        "DELETE FROM focus_checklists WHERE id IN (
+            SELECT id FROM focus_checklists INDEXED BY focus_checklists_settled_cleanup
+            WHERE state IN ('delivered','definitely_unsent') AND created_at_ms<=?1
+              AND NOT EXISTS (SELECT 1 FROM focus_items WHERE checklist_id=focus_checklists.id)
+            ORDER BY created_at_ms,id LIMIT ?2
+        )",
+        params![
+            checked_i64(cutoff, "Focus bookkeeping cutoff")?,
+            checked_limit(limit)?
+        ],
+    )
+    .map_err(|error| classify(error, "Prune settled Focus checklists"))?;
+    Ok(())
+}

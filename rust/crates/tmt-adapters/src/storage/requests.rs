@@ -1094,6 +1094,7 @@ impl RequestRecords for RequestRows<'_> {
                 params![settled_cutoff, now, now, checked_limit(limit)?],
             )
             .map_err(|error| classify(error, "Delete retained requests"))?;
+        focus::prune_settled(self.0, settled_cutoff_ms, limit)?;
         Ok(())
     }
 }

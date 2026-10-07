@@ -20,6 +20,52 @@ async function identity(sandbox: Sandbox, name: string) {
 }
 
 describe('native Focus held delivery and checklist seam', () => {
+  it('diagnoses a target checklist error without rejecting a new talk from its sender', async () => {
+    await withSandbox(async (sandbox) => {
+      const target = await identity(sandbox, 'Worker');
+      const checklist = randomUUID();
+      const db = new Database(sandbox.database);
+      try {
+        // Fault injection is isolated to the target's old checklist decoder;
+        // the new request and its policy remain valid and independently writable.
+        db.pragma('ignore_check_constraints = ON');
+        db.prepare(
+          `INSERT INTO focus_checklists
+           (id,identity_id,attempt_token,through_sequence,state,created_at_ms)
+           VALUES(?,?,?,1,'claimed',-1)`
+        ).run(checklist, target, randomUUID());
+      } finally {
+        db.close();
+      }
+      const result = await runCli(sandbox, [
+        'talk',
+        'Worker',
+        'Independent new request',
+        '--detach',
+        '--json',
+      ]);
+      expect(result.status).toBe(0);
+      expect(result.stderr).toContain(`Could not flush Focus checklist for ${target}`);
+      const queued = JSON.parse(result.stdout);
+      expect(queued).toMatchObject({ status: 'queued', notification: 'not_attempted' });
+      const oracle = new Database(sandbox.database, { readonly: true });
+      try {
+        expect(
+          oracle
+            .prepare('SELECT message_text,status FROM request_attempts WHERE request_id=?')
+            .get(queued.requestId)
+        ).toEqual({ message_text: 'Independent new request', status: 'queued' });
+        expect(
+          oracle
+            .prepare('SELECT state,created_at_ms FROM focus_checklists WHERE id=?')
+            .get(checklist)
+        ).toEqual({ state: 'claimed', created_at_ms: -1 });
+      } finally {
+        oracle.close();
+      }
+    });
+  });
+
   it('does not transfer a retired UUID policy or backlog to a reused name', async () => {
     await withSandbox(async (sandbox) => {
       const original = await identity(sandbox, 'Worker');

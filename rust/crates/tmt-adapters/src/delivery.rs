@@ -598,13 +598,12 @@ pub fn send_reply_notices(
     // not parsed from persisted lines. Old queued notices retain their claims.
     let mut eligible = Vec::with_capacity(notices.len());
     for notice in notices {
-        match RequestService::new(&mut *storage, crate::request_runtime::wall_time_ms)
-            .hold_reply_notice(&notice.request_id)
-        {
-            Ok(false) => eligible.push(notice.clone()),
-            Ok(true) => {}
-            Err(tmt_core::request::RequestError::Repository(error)) => return Err(error),
-            Err(_) => return Ok(()),
+        if !crate::focus::hold_notice(
+            storage,
+            &notice.request_id,
+            tmt_core::request::notification::HintKind::Reply,
+        )? {
+            eligible.push(notice.clone());
         }
     }
     if eligible.is_empty() {
@@ -773,13 +772,9 @@ pub fn hint_text(storage: &mut Storage, hint: &OriginatorHint) -> String {
     notices::hint(storage, hint)
 }
 
-pub fn notify(storage: &mut Storage, hint: &OriginatorHint) -> WakeState {
-    match RequestService::new(&mut *storage, crate::request_runtime::wall_time_ms)
-        .hold_originator_notice(&hint.request_id, hint.kind)
-    {
-        Ok(false) => {}
-        Ok(true) => return WakeState::Unavailable,
-        Err(_) => return WakeState::Claimed,
+pub fn notify(storage: &mut Storage, hint: &OriginatorHint) -> Result<WakeState, StorageError> {
+    if crate::focus::hold_notice(storage, &hint.request_id, hint.kind)? {
+        return Ok(WakeState::Unavailable);
     }
     let (registered, host) = notices::immediate(storage, hint);
     let outcome = match send_messages(
@@ -800,9 +795,9 @@ pub fn notify(storage: &mut Storage, hint: &OriginatorHint) -> WakeState {
         .settle_hint(hint, outcome)
         .is_err()
     {
-        return WakeState::Uncertain;
+        return Ok(WakeState::Uncertain);
     }
-    outcome
+    Ok(outcome)
 }
 
 /// Unavailable process evidence is not proof that a blocking observer died.

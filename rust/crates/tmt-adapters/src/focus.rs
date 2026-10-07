@@ -24,6 +24,24 @@ use tmt_core::{
 const PREVIEW_CHARS: usize = 160;
 pub const DIGEST_BYTES: usize = 4096;
 
+/// A failed hold grants no notice transport permission and is never a claimed
+/// wake outcome. Preserve repository faults at the adapter's storage boundary.
+pub(crate) fn hold_notice(
+    storage: &mut Storage,
+    request: &str,
+    kind: tmt_core::request::notification::HintKind,
+) -> Result<bool, StorageError> {
+    RequestService::new(storage, wall_time_ms)
+        .hold_originator_notice(request, kind)
+        .map_err(|error| match error {
+            RequestError::Repository(error) => error,
+            error => StorageError::new(
+                crate::storage::StorageErrorCode::Unknown,
+                format!("Focus notice admission failed: {error}"),
+            ),
+        })
+}
+
 fn preview(text: &str) -> String {
     crate::request_text::normalized(text)
         .take(PREVIEW_CHARS)

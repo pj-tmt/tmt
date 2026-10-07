@@ -174,13 +174,29 @@ pub(super) fn prepare(
     };
     if !input.options.inbox
         && let Some(identity) = &correlation.identity
-    {
-        tmt_adapters::focus::flush_idle(
+        && let Err(error) = tmt_adapters::focus::flush_idle(
             storage,
             &identity.id,
             Duration::from_secs_f64(settings.paste_enter_delay_ms / 1000.0),
         )
-        .map_err(|e| correlation.state_error(e, true))?;
+    {
+        // This opportunity belongs to the target's existing backlog. Its own
+        // claim/settlement fences must not reject the sender's new request.
+        let detail = match error {
+            RequestError::Repository(error) => error.to_string(),
+            error => error.to_string(),
+        };
+        let mut output = tmt_cli_style::stream::stderr();
+        let terminal = output.terminal();
+        let _ = tmt_cli_style::message::warning(
+            &mut output,
+            terminal,
+            &format!(
+                "Could not flush Focus checklist for {}: {detail}.",
+                identity.id
+            ),
+            None,
+        );
     }
     let route = match (&correlation.identity, &observed) {
         (Some(identity), _) => RequestRoute::Inbox {

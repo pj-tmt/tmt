@@ -14,6 +14,424 @@ use tmt_core::{
     },
 };
 
+#[test]
+fn notice_admission_errors_never_report_a_claimed_wake() {
+    let mut f = Fixture::new();
+    let hint = tmt_core::request::notification::OriginatorHint {
+        request_id: "missing-request".into(),
+        originator_id: f.identity_id.clone(),
+        recipient_id: None,
+        kind: tmt_core::request::notification::HintKind::Reply,
+        timeout_ms: 1000,
+    };
+    let error = crate::delivery::notify(&mut f.storage, &hint).unwrap_err();
+    assert!(error.message.contains("Request attempt was not found"));
+    let error = crate::reply_notice::prepare(&mut f.storage, &hint)
+        .err()
+        .unwrap();
+    assert!(error.message.contains("Request attempt was not found"));
+    f.storage.close().unwrap();
+}
+
+#[test]
+fn reply_notice_admission_error_keeps_unattempted_batch_pending_for_a_fenced_retry() {
+    use tmt_core::{endpoint::ProcessIncarnation, request::notification::batch::SendClaim};
+    let (mut f, target, owner, sender) = start();
+    f.set_now(crate::request_runtime::wall_time_ms());
+    service(&mut f)
+        .write_focus(policy(
+            &target,
+            &owner,
+            1,
+            tmt_core::limits::MAX_JS_SAFE_INTEGER,
+        ))
+        .unwrap();
+    let prepared = held(&mut f, &target, &sender, "admission-error");
+    let (_, hint) = service(&mut f)
+        .submit_response_with_hint(
+            SubmitResponse {
+                request_id: "admission-error".into(),
+                proof: ResponseProof::Compact(tmt_core::request::correlation::response_token(
+                    "admission-error",
+                    &prepared.attempt_id,
+                    &RequestRoute::Inbox {
+                        recipient_identity_id: target,
+                    },
+                )),
+                body: "Durable final".into(),
+            },
+            None,
+        )
+        .unwrap();
+    let hint = hint.unwrap();
+    let binding = new_operation_id();
+    let batch = f
+        .storage
+        .queue_reply_notice(
+            &hint,
+            &binding,
+            "queued",
+            0,
+            0,
+            crate::request_runtime::wall_time_ms(),
+        )
+        .unwrap();
+    let worker = ProcessIncarnation::new(12, "original fixture worker").unwrap();
+    assert!(
+        f.storage
+            .claim_reply_notice_worker(&batch, &worker)
+            .unwrap()
+    );
+    let SendClaim::Ready(notices) = f
+        .storage
+        .claim_reply_notice_send(&batch.id, &worker)
+        .unwrap()
+    else {
+        panic!("original fixture worker must claim the queued frame");
+    };
+    service(&mut f)
+        .write_focus(policy(
+            &sender,
+            &owner,
+            0,
+            tmt_core::limits::MAX_JS_SAFE_INTEGER,
+        ))
+        .unwrap();
+    let db = rusqlite::Connection::open(&f.database).unwrap();
+    db.execute_batch(
+        "CREATE TRIGGER fail_focus_notice BEFORE INSERT ON focus_items
+        BEGIN SELECT RAISE(ABORT, 'injected focus hold failure'); END;",
+    )
+    .unwrap();
+    assert!(crate::delivery::notify(&mut f.storage, &hint).is_err());
+    assert!(
+        crate::delivery::send_reply_notices(
+            &mut f.storage,
+            &batch,
+            &worker,
+            &notices,
+            std::time::Duration::ZERO
+        )
+        .is_err()
+    );
+    let pending = f.storage.reply_notice_batch(&batch.id).unwrap().unwrap();
+    assert!(pending.pending && pending.sending);
+    assert_eq!(
+        f.storage
+            .pending_reply_notice_batches(&binding)
+            .unwrap()
+            .len(),
+        1
+    );
+    assert_eq!(
+        db.query_row(
+            "SELECT attempted FROM reply_notices WHERE request_id='admission-error'",
+            [],
+            |row| row.get::<_, i64>(0)
+        )
+        .unwrap(),
+        0
+    );
+    assert_eq!(
+        service(&mut f)
+            .notification("admission-error")
+            .unwrap()
+            .unwrap()
+            .reply,
+        WakeState::Claimed
+    );
+    assert!(
+        matches!(service(&mut f).get_response("admission-error").unwrap(),
+        tmt_core::request::ResponseLookup::Available(response) if response.body == "Durable final")
+    );
+
+    db.execute_batch("DROP TRIGGER fail_focus_notice").unwrap();
+    // Simulate the caller's independent proof that the exact old fixture worker
+    // is gone. Both release and replacement election remain incarnation-fenced.
+    assert!(f.storage.release_reply_notice_send(&pending).unwrap());
+    let replacement = ProcessIncarnation::new(12, "replacement fixture worker").unwrap();
+    let pending = f.storage.reply_notice_batch(&batch.id).unwrap().unwrap();
+    assert!(
+        f.storage
+            .claim_reply_notice_worker(&pending, &replacement)
+            .unwrap()
+    );
+    let SendClaim::Ready(notices) = f
+        .storage
+        .claim_reply_notice_send(&batch.id, &replacement)
+        .unwrap()
+    else {
+        panic!("replacement must receive the untouched pending frame");
+    };
+    crate::delivery::send_reply_notices(
+        &mut f.storage,
+        &batch,
+        &replacement,
+        &notices,
+        std::time::Duration::ZERO,
+    )
+    .unwrap();
+    assert!(f.storage.reply_notice_batch(&batch.id).unwrap().is_none());
+    assert_eq!(
+        service(&mut f)
+            .focus_checklist_items(&sender, None, 0, 128)
+            .unwrap()
+            .1,
+        1
+    );
+    assert_eq!(
+        service(&mut f)
+            .notification("admission-error")
+            .unwrap()
+            .unwrap()
+            .reply,
+        WakeState::Unavailable
+    );
+    drop(db);
+    f.storage.close().unwrap();
+}
+
+#[test]
+fn request_housekeeping_prunes_empty_settled_checklists_but_retains_unknown_claims() {
+    let (mut f, target, _, sender) = start();
+    held(&mut f, &target, &sender, "retained-focus");
+    let unsent = service(&mut f)
+        .claim_focus_checklist(
+            &target,
+            new_operation_id(),
+            new_operation_id(),
+            FocusOpportunity::TurnBoundary,
+        )
+        .unwrap()
+        .unwrap();
+    service(&mut f)
+        .settle_focus_checklist(
+            &target,
+            &unsent.id,
+            &unsent.attempt_token,
+            FocusState::Unsent,
+        )
+        .unwrap();
+    let delivered = service(&mut f)
+        .claim_focus_checklist(
+            &target,
+            new_operation_id(),
+            new_operation_id(),
+            FocusOpportunity::TurnBoundary,
+        )
+        .unwrap()
+        .unwrap();
+    service(&mut f)
+        .settle_focus_checklist(
+            &target,
+            &delivered.id,
+            &delivered.attempt_token,
+            FocusState::Delivered,
+        )
+        .unwrap();
+    held(&mut f, &target, &sender, "uncertain-focus");
+    let uncertain = service(&mut f)
+        .claim_focus_checklist(
+            &target,
+            new_operation_id(),
+            new_operation_id(),
+            FocusOpportunity::TurnBoundary,
+        )
+        .unwrap()
+        .unwrap();
+    service(&mut f)
+        .settle_focus_checklist(
+            &target,
+            &uncertain.id,
+            &uncertain.attempt_token,
+            FocusState::Uncertain,
+        )
+        .unwrap();
+    held(&mut f, &target, &sender, "claimed-focus");
+    let claimed = service(&mut f)
+        .claim_focus_checklist(
+            &target,
+            new_operation_id(),
+            new_operation_id(),
+            FocusOpportunity::TurnBoundary,
+        )
+        .unwrap()
+        .unwrap();
+    let db = rusqlite::Connection::open(&f.database).unwrap();
+    let count = || {
+        db.query_row("SELECT COUNT(*) FROM focus_checklists", [], |row| {
+            row.get::<_, i64>(0)
+        })
+        .unwrap()
+    };
+    service(&mut f).cleanup().unwrap();
+    assert_eq!(count(), 4);
+    f.set_now(NOW_MS + tmt_core::retention::METADATA_SETTLEMENT_FLOOR_MS);
+    service(&mut f).cleanup().unwrap();
+    assert_eq!(count(), 3); // Empty definitely-unsent bookkeeping only.
+    assert!(
+        db.query_row(
+            "SELECT EXISTS(SELECT 1 FROM focus_checklists WHERE id=?)",
+            [&delivered.id],
+            |row| row.get::<_, bool>(0)
+        )
+        .unwrap()
+    );
+    f.set_now(NOW_MS + 7 * super::support::DAY_MS);
+    service(&mut f).cleanup().unwrap();
+    assert_eq!(count(), 2);
+    assert_eq!(
+        db.query_row("SELECT COUNT(*) FROM focus_items", [], |row| row
+            .get::<_, i64>(0))
+            .unwrap(),
+        0
+    );
+    for (batch, state) in [(&claimed, "claimed"), (&uncertain, "uncertain")] {
+        assert_eq!(
+            db.query_row(
+                "SELECT state FROM focus_checklists WHERE id=?",
+                [&batch.id],
+                |row| row.get::<_, String>(0)
+            )
+            .unwrap(),
+            state
+        );
+    }
+    assert!(
+        service(&mut f)
+            .focus_policies(std::slice::from_ref(&target))
+            .unwrap()[0]
+            .active_checklist
+            .as_ref()
+            .is_some_and(|b| b.id == claimed.id)
+    );
+    assert!(
+        service(&mut f)
+            .claim_focus_checklist(
+                &target,
+                new_operation_id(),
+                new_operation_id(),
+                FocusOpportunity::TurnBoundary
+            )
+            .unwrap()
+            .is_none()
+    );
+    drop(db);
+    f.storage.close().unwrap();
+}
+
+#[test]
+fn a_retired_snapshot_member_does_not_finish_its_untouched_reply_batch_peer() {
+    use tmt_core::{endpoint::ProcessIncarnation, request::notification::batch::SendClaim};
+    let (mut f, target, owner, sender) = start();
+    f.set_now(crate::request_runtime::wall_time_ms());
+    service(&mut f)
+        .write_focus(policy(
+            &target,
+            &owner,
+            1,
+            tmt_core::limits::MAX_JS_SAFE_INTEGER,
+        ))
+        .unwrap();
+    let binding = new_operation_id();
+    let mut batch = None;
+    for id in ["a-retired-member", "b-retained-peer"] {
+        let prepared = held(&mut f, &target, &sender, id);
+        let (_, hint) = service(&mut f)
+            .submit_response_with_hint(
+                SubmitResponse {
+                    request_id: id.into(),
+                    proof: ResponseProof::Compact(tmt_core::request::correlation::response_token(
+                        id,
+                        &prepared.attempt_id,
+                        &RequestRoute::Inbox {
+                            recipient_identity_id: target.clone(),
+                        },
+                    )),
+                    body: format!("Final for {id}"),
+                },
+                None,
+            )
+            .unwrap();
+        let queued = f
+            .storage
+            .queue_reply_notice(
+                &hint.unwrap(),
+                &binding,
+                "queued",
+                1000,
+                0,
+                crate::request_runtime::wall_time_ms(),
+            )
+            .unwrap();
+        if let Some(previous) = &batch {
+            assert_eq!(previous, &queued.id);
+        }
+        batch = Some(queued.id);
+    }
+    let batch = f
+        .storage
+        .reply_notice_batch(&batch.unwrap())
+        .unwrap()
+        .unwrap();
+    let worker = ProcessIncarnation::new(12, "snapshot fixture worker").unwrap();
+    assert!(
+        f.storage
+            .claim_reply_notice_worker(&batch, &worker)
+            .unwrap()
+    );
+    let SendClaim::Ready(notices) = f
+        .storage
+        .claim_reply_notice_send(&batch.id, &worker)
+        .unwrap()
+    else {
+        panic!("fixture worker must snapshot both retained frames");
+    };
+    assert_eq!(notices.len(), 2);
+    // Canonical deletion can race the preflight after its send snapshot. Preserve
+    // real foreign-key cascades; the peer remains valid and never attempted.
+    let db = rusqlite::Connection::open(&f.database).unwrap();
+    db.pragma_update(None, "foreign_keys", true).unwrap();
+    db.execute(
+        "DELETE FROM request_attempts WHERE request_id='a-retired-member'",
+        [],
+    )
+    .unwrap();
+    let error = crate::delivery::send_reply_notices(
+        &mut f.storage,
+        &batch,
+        &worker,
+        &notices,
+        std::time::Duration::ZERO,
+    )
+    .unwrap_err();
+    assert!(error.message.contains("Request attempt was not found"));
+    let pending = f.storage.reply_notice_batch(&batch.id).unwrap().unwrap();
+    assert!(pending.pending && pending.sending);
+    assert_eq!(
+        db.query_row(
+            "SELECT attempted FROM reply_notices WHERE request_id='b-retained-peer'",
+            [],
+            |row| row.get::<_, i64>(0)
+        )
+        .unwrap(),
+        0
+    );
+    assert_eq!(
+        f.storage
+            .pending_reply_notice_batches(&binding)
+            .unwrap()
+            .len(),
+        1
+    );
+    assert!(
+        matches!(service(&mut f).get_response("b-retained-peer").unwrap(),
+        tmt_core::request::ResponseLookup::Available(response) if response.body == "Final for b-retained-peer")
+    );
+    drop(db);
+    f.storage.close().unwrap();
+}
+
 fn identity(f: &mut Fixture, name: &str) -> String {
     create_or_resolve(&mut f.storage, name, Lifetime::Saved)
         .unwrap()

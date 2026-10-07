@@ -20,6 +20,8 @@ CREATE TABLE focus_checklists (
     created_at_ms INTEGER NOT NULL CHECK (created_at_ms BETWEEN 1 AND 9007199254740991)
 );
 CREATE UNIQUE INDEX focus_one_active_checklist ON focus_checklists(identity_id) WHERE state = 'claimed';
+CREATE INDEX focus_checklists_settled_cleanup ON focus_checklists(created_at_ms, id)
+    WHERE state IN ('delivered', 'definitely_unsent');
 CREATE TABLE focus_items (
     sequence INTEGER PRIMARY KEY AUTOINCREMENT CHECK (sequence BETWEEN 1 AND 9007199254740991),
     identity_id TEXT NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
@@ -31,6 +33,7 @@ CREATE TABLE focus_items (
     UNIQUE(identity_id, request_id, source)
 );
 CREATE INDEX focus_items_pending ON focus_items(identity_id, checklist_id, sequence);
+CREATE INDEX focus_items_checklist ON focus_items(checklist_id);
 
 CREATE TRIGGER focus_policies_advances_change_cursor_on_insert AFTER INSERT ON focus_policies
 BEGIN UPDATE change_cursor SET value = value + 1 WHERE id = 1; END;

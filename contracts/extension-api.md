@@ -702,5 +702,9 @@ contains `checklistId`, `identityId`, `attemptToken`, `throughSequence`, `state`
 `turn_boundary` relies on the admitted provider adapter. No core scheduler exists.
 Settlement is exact-token and idempotent; an opposite terminal outcome returns
 `FOCUS_STATE_INVALID`, a wrong scope/token `FOCUS_ATTEMPT_MISMATCH`.
+Existing request housekeeping prunes empty delivered/definitely-unsent checklist
+records after the metadata age floor; retained member links follow canonical
+request retention. Settlement idempotency lasts while the record is retained.
+Claimed and uncertain records remain discoverable even after members expire.
 A crash after claim remains unknown until inspected; no elapsed time reopens it.
 See the [delivery contract](request-response-v1.md#focus-delivery-windows).
