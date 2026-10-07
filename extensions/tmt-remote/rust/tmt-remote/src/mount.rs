@@ -43,14 +43,27 @@ pub struct Extension {
     pub tunnels: usize,
     /// A tunnel with no bytes in either direction for this long is closed.
     pub tunnel_idle: Duration,
+    /// Whether Remote may open the private object channel to this extension.
+    pub objects: ObjectDeclaration,
+}
+/// The trusted, static decision whether an installed extension has an object channel.
+/// Nothing at run time (request, environment, setting or command) can change it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ObjectDeclaration {
+    /// No channel is opened and no object storage is prepared for the extension.
+    Disabled,
+    /// Remote may open the channel and serve this extension's object storage.
+    Local,
 }
 /// Slice 1 mounts exactly colab; a general enabled-extension registry is later work.
+/// Colab's object declaration stays disabled until its real adapter is ready.
 pub static EXTENSIONS: [Extension; 1] = [Extension {
     name: "colab",
     body_bytes: 64 * 1024,
     reply_bytes: 16 * 1024 * 1024,
     tunnels: 16,
     tunnel_idle: Duration::from_secs(120),
+    objects: ObjectDeclaration::Disabled,
 }];
 /// Seconds a client should wait before retrying a refused upgrade.
 pub const RETRY_AFTER_SECONDS: u32 = 5;
@@ -208,6 +221,13 @@ impl Drop for SessionTransport {
             }
         }
     }
+}
+
+/// A connected object channel socket and the values its handshake must offer.
+pub struct ObjectEndpoint {
+    pub stream: UnixStream,
+    pub host: String,
+    pub mount: String,
 }
 
 pub struct Mounts {
@@ -368,6 +388,24 @@ impl Mounts {
         let directory = self.root.join(extension.name);
         let socket = directory.join(SOCKET);
         (private(&directory, false) && private(&socket, true)).then_some(socket)
+    }
+    /// Connect to the owner-only socket of an extension that declares an object channel,
+    /// with the exact `Host` and mount values the door sets on every request it sends
+    /// that extension. Nothing is written: the caller owns the handshake.
+    pub fn open_object_channel(&self, name: &str, deadline: Instant) -> io::Result<ObjectEndpoint> {
+        let extension = self
+            .extensions
+            .iter()
+            .find(|extension| {
+                extension.name == name && extension.objects == ObjectDeclaration::Local
+            })
+            .ok_or(io::ErrorKind::NotFound)?;
+        let path = self.socket(extension).ok_or(io::ErrorKind::NotFound)?;
+        Ok(ObjectEndpoint {
+            stream: connect_event(&path, deadline)?,
+            host: self.host.clone(),
+            mount: self.mount(extension),
+        })
     }
     pub fn admit(&self, head: &Head<'_>) -> Result<usize, Reply> {
         if head.path.contains('?') && !head.upgrade {

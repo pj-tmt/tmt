@@ -303,6 +303,8 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
             // Remote's own state database under <dataRoot>/remote/ (#1039).
             "rusqlite",
             "tmt-extension-state",
+            // Wire frames and the Unix channel carrier; only the object service uses them.
+            "tmt-extension-objects",
         ],
         _ => return vec![format!("unreviewed workspace package {name}")],
     };
@@ -354,8 +356,14 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
             let carrier_only = name == "tmt-extension-objects"
                 && ["httparse", "nix"].contains(&dependency)
                 && !((d["kind"].is_null() || d["kind"] == "normal") && d["target"] == "cfg(unix)");
+            // Remote consumes the leaf as an ordinary, untargeted, unrenamed dependency.
+            let leaf_consumer_only = dependency == "tmt-extension-objects"
+                && !(name == "tmt-remote"
+                    && (d["kind"].is_null() || d["kind"] == "normal")
+                    && d["target"].is_null());
             let unreviewed = !allowed.contains(&dependency)
                 || carrier_only
+                || leaf_consumer_only
                 || !d["rename"].is_null()
                 || (["tmt-test-support", "tmt-release-tool"].contains(&name)
                     && !d["kind"].is_null() && d["kind"] != "normal");
@@ -832,6 +840,7 @@ pub fn source_violations(sources: &[Source]) -> Vec<String> {
                 && root != "tmt_invoke"
                 && !(root == "tmt_extension_state"
                     && ["tmt-remote", "tmt-colab"].contains(&source.package.as_str()))
+                && !(root == "tmt_extension_objects" && source.package == "tmt-remote")
                 && !(source.package == "tmt-squad" && root == "tmt_tui")
                 && !(root == "tmt_colab_model" && colab_model_consumer)
                 && root != source.package.replace('-', "_")
@@ -885,8 +894,14 @@ pub fn source_violations(sources: &[Source]) -> Vec<String> {
                     "{location}: only the extension objects carrier may use {root}"
                 ));
             }
-            // No product consumes the leaf yet; each reviewed consumer is added with its edge.
-            if root == "tmt_extension_objects" && source.package != "tmt-extension-objects" {
+            // Each reviewed consumer is added with its edge: Remote's object service alone.
+            let object_service = source.package == "tmt-remote"
+                && (source.file == "object_service.rs"
+                    || source.file.starts_with("object_service/"));
+            if root == "tmt_extension_objects"
+                && source.package != "tmt-extension-objects"
+                && !object_service
+            {
                 violations.push(format!(
                     "{location}: unreviewed extension objects consumer {}",
                     source.package
