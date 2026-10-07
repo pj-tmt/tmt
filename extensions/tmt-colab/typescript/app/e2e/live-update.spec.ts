@@ -273,6 +273,15 @@ for (const width of [1440, 390]) {
       await expect(composer).toBeVisible();
       await expect(composer.locator('blockquote')).toHaveText('Exact selected text');
       await expect(page.locator('#ask-page-fixture iframe')).toHaveCount(0);
+      const notice = page.getByRole('alert');
+      await expect(notice).toContainText(text.limit);
+      await expect
+        .poll(async () => {
+          const card = await notice.boundingBox();
+          const draft = await composer.boundingBox();
+          return card && draft ? draft.y - (card.y + card.height) : -1;
+        })
+        .toBeGreaterThan(0);
       await page.screenshot({ path: `${captureDir}/annotation-${width}-${theme}-failure.png` });
       expect((await run(page, 'proof')).sends).toHaveLength(1);
     });

@@ -49,12 +49,14 @@ function SelectionAnnotation({
   host,
   rectangle,
   inset,
+  noticeVisible,
   open,
   children,
 }: {
   host: HTMLDivElement | null;
   rectangle: SelectionRect | null;
   inset: number;
+  noticeVisible: boolean;
   open(): void;
   children?: React.ReactNode;
 }) {
@@ -62,18 +64,24 @@ function SelectionAnnotation({
   const element = useRef<HTMLDivElement>(null);
   const [position, setPosition] = useState<{ left: number; top: number } | null>(null);
   useEffect(() => {
+    const notice = noticeVisible
+      ? host?.parentElement?.querySelector<HTMLElement>('.tmt-ui-notice')
+      : null;
     const place = () => {
       const frame = host?.querySelector('iframe')?.getBoundingClientRect();
       const width = expanded ? Math.min(380, innerWidth - 24) : 100;
       const height = element.current?.offsetHeight ?? (expanded ? 200 : 38);
       if (!frame || !rectangle) {
-        // A failed renderer has no geometry; keep an open draft at its last
-        // viewport position so the person can still read or close it.
+        // Keep the failure notice readable while retaining the mounted draft.
+        const belowNotice = notice?.getBoundingClientRect().bottom;
         setPosition((previous) =>
           expanded && previous
             ? {
                 left: Math.max(8, Math.min(innerWidth - width - 8, previous.left)),
-                top: Math.max(inset + 4, Math.min(innerHeight - height - 8, previous.top)),
+                top:
+                  belowNotice !== undefined
+                    ? Math.max(inset + 4, belowNotice + 8)
+                    : Math.max(inset + 4, Math.min(innerHeight - height - 8, previous.top)),
               }
             : null,
         );
@@ -103,6 +111,7 @@ function SelectionAnnotation({
     place();
     const observer = new ResizeObserver(place);
     if (element.current) observer.observe(element.current);
+    if (notice) observer.observe(notice);
     window.addEventListener('scroll', place, { passive: true });
     window.addEventListener('resize', place);
     return () => {
@@ -110,7 +119,7 @@ function SelectionAnnotation({
       window.removeEventListener('scroll', place);
       window.removeEventListener('resize', place);
     };
-  }, [host, rectangle, inset, expanded]);
+  }, [host, rectangle, inset, expanded, noticeVisible]);
   return (
     <div
       ref={element}
@@ -944,6 +953,7 @@ function Page() {
             host={host.current}
             rectangle={annotation?.rectangle ?? rectangle}
             inset={toolbar.current?.offsetHeight ?? 0}
+            noticeVisible={state === 'navigation' || state === 'failed'}
             open={annotate}
           >
             {annotation && (

@@ -54,8 +54,8 @@ discussion input or explicit sends, which use the frozen quote and verified
 connection; renderer failures and connection errors still block them. It
 releases the old channel before replacement without clearing parent selection or
 removing the old frame; failures and ordinary abort/destroy still remove it. An
-open annotation retains its last viewport placement when renderer geometry is gone,
-with input and sending disabled by the current failure. It
+open annotation sits below the failure notice when renderer geometry is gone,
+keeping the full notice readable with input and sending disabled by the current failure. It
 retains the previous frame height during replacement and preserves the current
 window offset through that replacement, clamped by the new document's bounds.
 Later height reports do not replay an older offset over newer scrolling.
