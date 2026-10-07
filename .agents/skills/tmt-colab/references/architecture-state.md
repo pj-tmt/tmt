@@ -95,9 +95,15 @@ reload receives Colab's private guidance page. That page loads the public `asset
 (`colab-recovery:<mount path>`, `src/session-recovery.ts`) spans that reload so a second
 guidance response cannot loop; authenticated boot (`mounted.ts`) clears it. A failed or
 refused reopen, or unavailable session storage, leaves plain pairing guidance and never
-retries an Ask. On an open page's socket close, `Live` makes one read-only old-session
-probe: signed session end silently reopens that tab; signed eviction stops it with the
-limit notice. Transport failures remain distinct and get bounded sync catchup. If recovery
+retries an Ask. On an open page's socket close, `Live` makes one read-only probe of the exact old
+Connection/Registration/Remote owner. A current pending same-session attempt keeps
+that owner while diagnosis settles, even if readiness has already rejected.
+Verified session end starts one existing mounted-owner replacement; verified eviction
+blocks. A pending failed attempt also blocks on a successful read without session end
+or an unverified read failure. A failure during pending Session replacement is terminal.
+Ready-page transport failures retain bounded same-session catchup. Superseded callbacks,
+readiness, publications and diagnosis cannot alter the current attempt. Recovery
+never replays an Ask or mutation. If recovery
 fails, the explicit Reconnect button uses `recoverSession` through `Live.reconnect`, closing
 the page socket, Ask and observer first. The Remote restart cases drive that explicit path
 through `reconnect(page)` in `acceptance/ask.spec.ts`.
