@@ -6559,6 +6559,66 @@ mod link_tests {
         assert_eq!(enter(&mut app), Effect::None);
     }
     #[test]
+    fn answer_selection_uses_core_inbox_after_withdrawal_and_preserves_manual_state() {
+        let mut app = app("tmt:answer/auth-fix?text=answer");
+        let view = app.view.as_mut().unwrap();
+        let row = &mut view.document["sections"][0]["rows"][0];
+        row["pending"] = json!("independent decision");
+        let state = row["state"].clone();
+        let room = crate::requests::Window {
+            items: vec![json!({
+                "requestId":"withdrawn", "kind":"request", "recipientId":"ME",
+                "sender":{"identityId":"auth-fix"}, "preview":"obsolete question",
+                "final":{"status":"withdrawn", "reason":"obsolete", "withdrawnAtMs":20}
+            })],
+            complete: true,
+        };
+        // Core's inbox has already excluded the withdrawal. Squad must use that
+        // projection rather than deriving answer candidates from room history.
+        let mut inbox = crate::requests::Window {
+            items: vec![json!({"requestId":"open", "from":{"identityId":"auth-fix"},
+                "preview":"current question", "preparedAtMs":10})],
+            complete: true,
+        };
+        crate::requests::apply(&mut view.document, "product", "ME", &room, &inbox);
+        assert_eq!(
+            view.document["sections"][0]["rows"][0]["waitingOnYou"],
+            json!([{"requestId":"open", "preview":"current question", "preparedAtMs":10}])
+        );
+        app.activate_link();
+        assert!(app.menu.is_none(), "one Core-open request needs no picker");
+        assert_eq!(
+            enter(&mut app),
+            Effect::Act(Request::Reply {
+                me: "Ben".into(),
+                request: "open".into(),
+                from: "auth-fix".into(),
+                text: "answer".into()
+            })
+        );
+        app.activate_link();
+        assert!(
+            app.input.is_some(),
+            "reopen the still-current answer before refresh"
+        );
+        inbox.items.clear();
+        let view = app.view.as_mut().unwrap();
+        crate::requests::apply(&mut view.document, "product", "ME", &room, &inbox);
+        let row = &view.document["sections"][0]["rows"][0];
+        assert_eq!(row["waitingOnYou"], json!([]));
+        assert_eq!(row["pending"], "independent decision");
+        assert_eq!(row["state"], state);
+        assert!(
+            crate::attention::waits_on_you(row),
+            "manual pending remains independent"
+        );
+        assert_eq!(
+            enter(&mut app),
+            Effect::None,
+            "stale answer cannot be submitted"
+        );
+    }
+    #[test]
     fn all_member_verbs_refuse_nonmembers_and_a_retained_loading_frame() {
         for verb in ["jump", "talk", "answer", "open", "copy", "annotate"] {
             let mut app = app(&format!("tmt:{verb}/missing"));

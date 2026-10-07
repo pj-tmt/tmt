@@ -298,7 +298,10 @@ and recipient/age headers stay on one line. Fenced code and unsupported Markdown
 constructs appear as source text. Focus replies to scroll with arrows or j/k,
 PgUp/PgDn and Home/End, or use the wheel over the pane. The scroll marks show
 remaining content. Older replies without a loaded body retain `tmt result <id>`
-hints; reading and scrolling acknowledge nothing.
+hints; reading and scrolling acknowledge nothing. Only recipient finals
+(`retained`, `expired`, `unavailable`) appear here. An originator withdrawal
+remains in Core request history with its reason and time; it is neither a
+recipient reply nor approval and does not clear independent manual pending/state.
 
 Rows that wait on you show a single decision line: `pending` when set,
 otherwise the oldest unanswered request preview. Text ends in `…` when it does
