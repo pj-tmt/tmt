@@ -937,6 +937,7 @@ fn ls_document(
     };
     let you = me::resolve_you(core, config)?;
     let mut documents = Vec::with_capacity(squads.len());
+    let mut active_ids = std::collections::BTreeSet::new();
     for squad in &squads {
         let layout = config.layout(&squad.name)?;
         let sections = config.sections(&squad.name)?;
@@ -955,6 +956,7 @@ fn ls_document(
                 notes: false,
             }),
         )?;
+        active_ids.extend(observation.members.iter().map(|member| member.id.clone()));
         if refresh_fields {
             provider::refresh(
                 &squad.name,
@@ -992,7 +994,7 @@ fn ls_document(
         (_, Ok([one])) => json!({"squads": [one]}),
         (_, Err(all)) => json!({"squads": all}),
     };
-    focus::enrich(core, &mut [&mut document]);
+    focus::enrich(core, &mut [&mut document], &active_ids);
     document["you"] = you.map_or(
         Value::Null,
         |(me, source)| json!({"id": me.id, "name": me.name, "source": source.as_str()}),

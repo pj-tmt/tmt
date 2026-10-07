@@ -57,6 +57,9 @@ cron retains its original errors and tests. `focus_command.rs` owns bounded comp
 s/m/h duration parsing (1s–24h), command output and Core revision-conflict guidance.
 `focus.rs` owns the typed optional policy projection, UUID deduplication and one
 bounded `focus.policy.show` (up to 256 identities) per list/board acquisition.
+Eligible UUIDs come from the acquired `rooms.roster` snapshots, whose contract
+excludes retired/nonmembers; document-shaped objects cannot add eligible identities.
+Presence (including offline/unknown) is independent of identity retirement.
 Command writes pass exactly the [focus contract](../../../contracts/extension-api.md#focus-policy-and-checklist)
 fields: target, owner `me_id`, setter, expected revision and set-only expiry.
 No policy storage or retry lives in Squad. `ls` enriches once after all source

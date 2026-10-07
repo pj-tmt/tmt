@@ -47,6 +47,7 @@ impl ProjectedRow {
     }
 }
 pub(crate) struct Acquired {
+    active_ids: BTreeSet<String>,
     pub documents: BTreeMap<String, Value>,
     rows: BTreeMap<String, Vec<ProjectedRow>>,
     pub failures: Vec<Value>,
@@ -263,6 +264,7 @@ fn roster_documents_with(
     observe: bool,
 ) -> Acquired {
     let mut acquired = Acquired {
+        active_ids: BTreeSet::new(),
         documents: BTreeMap::new(),
         rows: BTreeMap::new(),
         failures: Vec::new(),
@@ -309,6 +311,11 @@ fn roster_documents_with(
             if let Some(listed) = listed {
                 crate::squad::join_presence(&mut members, listed);
             }
+            // rooms.roster admits non-retired room members; presence is separate.
+            let active_ids = members
+                .iter()
+                .map(|member| member.id.clone())
+                .collect::<BTreeSet<_>>();
             let providers = config.providers(&squad.name)?;
             let cached = crate::provider::Cache::load(&squad.name);
             // Record raw task/state before provider and column projection.
@@ -336,10 +343,11 @@ fn roster_documents_with(
                 ages.apply(&mut flat);
             }
             let projected = project_rows(&squad.name, &flat, &members, &states);
-            Ok::<_, SquadError>((document, projected))
+            Ok::<_, SquadError>((document, projected, active_ids))
         })();
         match result {
-            Ok((document, rows)) => {
+            Ok((document, rows, active_ids)) => {
+                acquired.active_ids.extend(active_ids);
                 acquired.documents.insert(squad.name.clone(), document);
                 acquired.rows.insert(squad.name.clone(), rows);
             }
@@ -397,7 +405,7 @@ impl Acquired {
                     .flat_map(|rows| rows.iter_mut().map(|row| &mut row.value)),
             )
             .collect::<Vec<_>>();
-        crate::focus::enrich(core, &mut values);
+        crate::focus::enrich(core, &mut values, &self.active_ids);
     }
     /// Display names from the same full roster as member_ids, before row filters.
     pub fn member_names(&self, squad: &str) -> BTreeMap<String, String> {

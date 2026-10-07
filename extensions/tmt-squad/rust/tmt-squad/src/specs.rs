@@ -107,7 +107,7 @@ pub const CHECKLIST_REORDER: &CommandSpec = spec!(
 
 pub const FOCUS: &CommandSpec = spec!(
     "focus", "Show, set or clear a member focus window",
-    details = "Only the recorded user or the current squad lead can manage focus. Whole s/m/h segments from 1s through 24h; no recurring cadence. Revision conflicts require reload and retry.",
+    details = "Showing, setting and clearing focus all require the recorded user or the current squad lead. Whole s/m/h segments from 1s through 24h; no recurring cadence. Revision conflicts require reload and retry.",
     ["Focus for thirty minutes" => "tmt squad focus worker 30m",
      "Inspect the current policy" => "tmt squad focus worker",
      "Clear focus" => "tmt squad focus worker off"]

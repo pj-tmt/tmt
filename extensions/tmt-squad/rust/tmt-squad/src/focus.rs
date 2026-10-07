@@ -60,11 +60,12 @@ pub fn read_policies(core: &Core, ids: &[String]) -> Result<BTreeMap<String, Pol
         .collect())
 }
 /// Collect every row occurrence before reading. Duplicate rows and squad membership
-/// share one policy; overflow and optional-Core failures omit focus without noise.
-pub fn enrich(core: &Core, documents: &mut [&mut Value]) {
+/// share one policy; only identities admitted by the acquired active room rosters
+/// are eligible. Overflow and optional-Core failures omit focus without noise.
+pub fn enrich(core: &Core, documents: &mut [&mut Value], active_ids: &BTreeSet<String>) {
     let mut ids = BTreeSet::new();
     for document in documents.iter() {
-        collect(document, &mut ids);
+        collect(document, active_ids, &mut ids);
     }
     let ids: Vec<_> = ids.into_iter().take(LIMIT).collect();
     if ids.is_empty() {
@@ -76,22 +77,23 @@ pub fn enrich(core: &Core, documents: &mut [&mut Value]) {
         }
     }
 }
-fn collect(document: &Value, ids: &mut BTreeSet<String>) {
+fn collect(document: &Value, active_ids: &BTreeSet<String>, ids: &mut BTreeSet<String>) {
     match document {
         Value::Object(object) => {
             if object.get("name").is_some_and(Value::is_string)
                 && object.contains_key("fields")
                 && let Some(id) = object.get("id").and_then(Value::as_str)
+                && active_ids.contains(id)
             {
                 ids.insert(id.to_owned());
             }
             for value in object.values() {
-                collect(value, ids);
+                collect(value, active_ids, ids);
             }
         }
         Value::Array(values) => {
             for value in values {
-                collect(value, ids);
+                collect(value, active_ids, ids);
             }
         }
         _ => {}
@@ -226,13 +228,17 @@ cat '{}/focus-reply'
         let reply = f.directory.join("focus-reply");
         std::fs::write(&reply, json!({"policies":[{"identityId":WORKER,"revision":1,"active":true,"focusUntilMs":100,"remainingMs":99,"heldCount":3}]}).to_string()).unwrap();
         let row = json!({"id":WORKER,"name":"worker","fields":{}});
-        let mut doc = json!({"squad":{"lead":row},"sections":[{"rows":[row,row]}]});
-        enrich(&core, &mut [&mut doc]);
+        let retired = json!({"id":"retired","name":"old member","fields":{}});
+        let absent = json!({"id":"absent","name":"removed member","fields":{}});
+        let mut doc = json!({"squad":{"lead":row},"sections":[{"rows":[row,row,retired,absent]}]});
+        enrich(&core, &mut [&mut doc], &BTreeSet::from([WORKER.into()]));
         assert_eq!(
             doc["squad"]["lead"]["focus"],
             doc["sections"][0]["rows"][0]["focus"]
         );
         assert_eq!(doc["sections"][0]["rows"][1]["focus"]["heldCount"], 3);
+        assert!(doc["sections"][0]["rows"][2].get("focus").is_none());
+        assert!(doc["sections"][0]["rows"][3].get("focus").is_none());
         let request: Value = serde_json::from_str(
             std::fs::read_to_string(f.directory.join("focus-calls"))
                 .unwrap()
@@ -249,7 +255,7 @@ cat '{}/focus-reply'
         ] {
             std::fs::write(&reply, response.to_string()).unwrap();
             let mut fresh = row.clone();
-            enrich(&core, &mut [&mut fresh]);
+            enrich(&core, &mut [&mut fresh], &BTreeSet::from([WORKER.into()]));
             assert!(fresh.get("focus").is_none());
         }
         let mut large = json!(
@@ -257,7 +263,8 @@ cat '{}/focus-reply'
                 .map(|n| json!({"id":format!("id-{n:03}"),"name":"worker","fields":{}}))
                 .collect::<Vec<_>>()
         );
-        enrich(&core, &mut [&mut large]);
+        let active_ids = (0..300).map(|n| format!("id-{n:03}")).collect();
+        enrich(&core, &mut [&mut large], &active_ids);
         let calls = std::fs::read_to_string(f.directory.join("focus-calls")).unwrap();
         let request: Value = serde_json::from_str(calls.lines().last().unwrap()).unwrap();
         assert_eq!(

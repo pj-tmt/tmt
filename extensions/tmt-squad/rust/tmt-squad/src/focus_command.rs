@@ -101,7 +101,9 @@ pub fn run(core: &Core, config: &Config, matches: &ArgMatches) -> Result<Value, 
     let shown = focus::read_policies(core, std::slice::from_ref(&target.id))?;
     let policy = &shown[&target.id];
     if input.is_none() {
-        return Ok(policy_document(policy));
+        let mut document = policy_document(policy);
+        document["member"] = json!(target.name);
+        return Ok(document);
     }
     let owner = config.me_id()?.ok_or_else(|| {
         SquadError::hinted(
@@ -124,13 +126,15 @@ pub fn run(core: &Core, config: &Config, matches: &ArgMatches) -> Result<Value, 
     } else {
         "focus.policy.clear"
     };
-    core.api(operation, fields).map_err(|error| {
+    let mut document = core.api(operation, fields).map_err(|error| {
         if error.code == "FOCUS_REVISION_CONFLICT" {
             SquadError::hinted(&error.code, &error.message, " ", "Reload and retry.")
         } else {
             error
         }
-    })
+    })?;
+    document["member"] = json!(target.name);
+    Ok(document)
 }
 fn policy_document(policy: &focus::Policy) -> Value {
     let mut value = policy.row();
@@ -144,14 +148,11 @@ pub fn text(document: &Value, terminal: Terminal) -> String {
         let row = json!({"focus":document});
         format!(
             "{}: {}",
-            document["identityId"].as_str().unwrap_or("–"),
+            document["member"].as_str().unwrap_or("–"),
             focus::label(&row, crate::status::now_ms()).unwrap_or_else(|| "focus off".into())
         )
     } else {
-        format!(
-            "{}: focus off",
-            document["identityId"].as_str().unwrap_or("–")
-        )
+        format!("{}: focus off", document["member"].as_str().unwrap_or("–"))
     };
     let _ = message::success(&mut bytes, terminal, &line);
     String::from_utf8(bytes).unwrap_or_default()
@@ -159,6 +160,13 @@ pub fn text(document: &Value, terminal: Terminal) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn human_policy_names_the_member_instead_of_its_uuid() {
+        let document = json!({"member":"worker", "identityId":"33333333-3333-4333-8333-333333333333", "active":false});
+        let output = text(&document, Terminal::PLAIN);
+        assert!(output.contains("worker: focus off"));
+        assert!(!output.contains(document["identityId"].as_str().unwrap()));
+    }
     #[test]
     fn duration_segments_have_checked_positive_bounds() {
         for (input, expected) in [
@@ -197,10 +205,12 @@ mod tests {
     fn members_ambiguous_and_retired_callers_never_reach_focus_writes() {
         use crate::cron_service::test_support::{Fixture, LEAD, WORKER};
         let f = Fixture::new();
-        let flags = || {
-            grammar()
-                .try_get_matches_from(["focus", "worker", "30m", "--squad", "product"])
-                .unwrap()
+        let flags = |show: bool| {
+            let mut args = vec!["focus", "worker", "--squad", "product"];
+            if !show {
+                args.push("30m");
+            }
+            grammar().try_get_matches_from(args).unwrap()
         };
         for caller in [WORKER, "ambiguous", LEAD] {
             f.change_model(|m| {
@@ -211,10 +221,12 @@ mod tests {
                     json!([])
                 };
             });
-            assert_eq!(
-                run(&f.core, &f.config, &flags()).unwrap_err().code,
-                "SQUAD_FOCUS_PERMISSION_DENIED"
-            );
+            for show in [false, true] {
+                assert_eq!(
+                    run(&f.core, &f.config, &flags(show)).unwrap_err().code,
+                    "SQUAD_FOCUS_PERMISSION_DENIED"
+                );
+            }
         }
         assert!(f.model()["calls"].as_array().unwrap().iter().all(|call| {
             !call["request"]["operation"]

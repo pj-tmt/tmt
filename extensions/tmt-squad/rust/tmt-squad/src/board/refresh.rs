@@ -830,6 +830,11 @@ fn squad_view(
         settings,
         input: super::rate::Input::observed(&squad.room_id, &observation.members),
     });
+    let active_ids = observation
+        .members
+        .iter()
+        .map(|member| member.id.clone())
+        .collect();
     let crate::observe::Projected {
         mut document,
         sent,
@@ -846,7 +851,7 @@ fn squad_view(
             rows: &rows,
         },
     )?;
-    crate::focus::enrich(core, &mut [&mut document]);
+    crate::focus::enrich(core, &mut [&mut document], &active_ids);
     let attention = BTreeMap::from([(squad.name.clone(), Attention::of(&document))]);
     let mut replies = match &sent {
         Some(sent) if preview_panes || board.members || board.panes.contains(&Pane::Replies) => {
@@ -1595,6 +1600,106 @@ columns = [{ name = "member" }, { name = "ctx", from = "meta.usage.count", forma
             }
         }
         std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn each_refresh_branch_reads_focus_once_including_deferred_attention() {
+        use crate::cron_service::test_support::{Fixture, LEAD, USER, WORKER};
+        let f = Fixture::new();
+        std::fs::write(
+            f.config.path(),
+            format!("me='Ben'\nme_id='{USER}'\n[tabs.active]\nfilter='name'\n"),
+        )
+        .unwrap();
+        f.change_model(|model| {
+            model["members"][2]["metadata"]["squad.product.state"] = json!("blocked")
+        });
+        let executable = f.directory.join("focus-refresh-core");
+        let script = f.directory.join("focus-refresh.py");
+        std::fs::write(&script, r#"import json,sys,pathlib,subprocess
+root=pathlib.Path(__file__).parent
+args=sys.argv[1:]
+body=sys.stdin.buffer.read() if args[0]=='api' else None
+if body:
+ request=json.loads(body)
+ if request['operation']=='focus.policy.show':
+  with open(root/'focus-calls','a') as log: log.write(json.dumps(request)+chr(10))
+  print(json.dumps({'policies':[{'identityId':id,'revision':1,'active':True,'focusUntilMs':9000000000000,'remainingMs':1000,'heldCount':2} for id in request['input']['identities']]})); sys.exit(0)
+ if request['operation']=='requests.list':
+  print(json.dumps({'items':[],'nextBefore':None})); sys.exit(0)
+ if request['operation']=='notes.read':
+  print(json.dumps({'identityId':request['input']['identityId'],'content':''})); sys.exit(0)
+if args[0]=='ls': print(json.dumps({'identities':[]})); sys.exit(0)
+if args[0]=='inbox' or args[:2]==['room','read']:
+ print(json.dumps({'items':[],'more':False})); sys.exit(0)
+sys.exit(subprocess.run([str(root/'tmt')]+args,input=body).returncode)
+"#).unwrap();
+        crate::test_support::write_ready_executable(
+            &executable,
+            &format!(
+                "#!/bin/sh\nexec /usr/bin/python3 '{}' \"$@\"\n",
+                script.display()
+            ),
+        );
+        let core = Core::at(executable);
+        let (fetch, _pending) = mpsc::channel();
+        let mut kept = Kept {
+            bodies: BTreeMap::new(),
+            fetch,
+        };
+        for key in [
+            "product".to_owned(),
+            LEADS.to_owned(),
+            ALL.to_owned(),
+            tabs::user_key("active"),
+        ] {
+            let calls = f.directory.join("focus-calls");
+            let _ = std::fs::remove_file(&calls);
+            let loaded = load(
+                &core,
+                false,
+                None,
+                Some(key.clone()),
+                false,
+                false,
+                &mut kept,
+            );
+            let view = loaded
+                .snapshot
+                .view
+                .unwrap_or_else(|error| panic!("{key}: {error}"));
+            if let Some(job) = loaded.attention {
+                job.complete(&core);
+            }
+            let calls = std::fs::read_to_string(calls).unwrap();
+            let requests = calls
+                .lines()
+                .map(|line| serde_json::from_str::<Value>(line).unwrap())
+                .collect::<Vec<_>>();
+            assert_eq!(requests.len(), 1, "{key}: one show including deferred work");
+            assert_eq!(
+                requests[0]["input"]["identities"],
+                json!([USER, LEAD, WORKER])
+            );
+            if key == ALL {
+                assert_eq!(
+                    view.home
+                        .unwrap()
+                        .sections
+                        .iter()
+                        .flat_map(|section| &section.rows)
+                        .find(|row| row.member["id"] == WORKER)
+                        .unwrap()
+                        .member["focus"]["heldCount"],
+                    2
+                );
+            } else {
+                assert!(
+                    view.document.to_string().contains("heldCount"),
+                    "{key}: policy applied"
+                );
+            }
+        }
     }
 
     #[test]

@@ -3928,6 +3928,17 @@ sys.exit(result.returncode)
         focusUntilMs: 0,
         remainingMs: 0,
       });
+      const human = await runCli(
+        {
+          ...sandbox,
+          cli: { executable: squadExecutable, args: [] },
+          env: { ...sandbox.env, TMT_EXECUTABLE: shim },
+        },
+        ['focus', worker, '--squad', 'product']
+      );
+      expect(human.status, human.stderr).toBe(0);
+      expect(human.stdout).toContain('worker: focus off');
+      expect(human.stdout).not.toContain(worker);
       const lastSet = await focus(['focus', 'worker', '1s', '--squad', 'product']);
       expect(lastSet.body.revision).toBe(4);
       // Seed an already expired persisted window to prove native observation,
@@ -3958,6 +3969,7 @@ sys.exit(result.returncode)
       const help = await runCli(sandbox, ['sq', 'focus', '--help']);
       expect(help.status).toBe(0);
       expect(help.stdout).toContain('24h');
+      expect(help.stdout).toContain('Showing, setting and clearing');
       expect(help.stdout).not.toContain('--every');
     });
   });
