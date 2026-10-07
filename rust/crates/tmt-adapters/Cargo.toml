@@ -46,3 +46,7 @@ nix = { workspace = true, features = ["term", "net"] }
 
 [lints]
 workspace = true
+
+[[example]]
+name = "claude-hook-fixture"
+test = true
