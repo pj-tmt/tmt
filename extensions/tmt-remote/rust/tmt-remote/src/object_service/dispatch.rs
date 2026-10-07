@@ -7,7 +7,11 @@
 //! unanswered past its bound, or the service stops, every thread ends and the last one
 //! drops the bus, which shuts the socket down and joins its reader. No frame spawns a
 //! thread, and nothing is retried.
-use super::{ServiceBounds, config::ConfigSource};
+use super::{
+    ServiceBounds,
+    config::ConfigSource,
+    origins::{Events, Next, Origins},
+};
 #[cfg(test)]
 use std::sync::Weak;
 use std::{
@@ -21,8 +25,8 @@ use std::{
 };
 use tmt_extension_objects::{
     Admit, AdmitInput, Bus, Call, Checkpoint, Context, Counter, Decision, Disclosure, ErrorCode,
-    Fault, Frame, Operation, Origin, Outcome, Projection, Reason, Request, ResultFrame, Stage,
-    Success, Uuid4,
+    Fault, Frame, Operation, Origin, OriginState, Outcome, Projection, Reason, Request,
+    ResultFrame, Stage, Success, Uuid4,
 };
 
 /// A test-only pause between the two admissions of a request.
@@ -30,6 +34,12 @@ use tmt_extension_objects::{
 pub(super) type Hook = Option<Arc<dyn Fn(Instant) + Send + Sync>>;
 #[cfg(not(test))]
 pub(super) type Hook = ();
+
+/// The most origin-state notices a channel may hold: an `established` and a `closed` for
+/// every tunnel the extension may have.
+pub(super) const fn notice_limit(tunnels: usize) -> usize {
+    2 * tunnels
+}
 
 /// Workers per channel. A request waits for its callbacks, so more than one is needed for
 /// requests not to queue behind each other; the bus holds at most eight outstanding.
@@ -47,6 +57,8 @@ pub enum ChannelEnd {
     CallbackTimeout,
     /// The service stopped or replaced the channel.
     Stopped,
+    /// The extension stopped reading origin-state notices and the backlog hit its bound.
+    Backlog,
 }
 
 fn locked<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -61,6 +73,10 @@ struct Work {
 }
 struct Hub {
     generation: Uuid4,
+    extension: String,
+    origins: Origins,
+    /// Origin-state notices for the announcer, the only sender of them.
+    events: Arc<Events>,
     source: ConfigSource,
     callback: Duration,
     request: Duration,
@@ -84,6 +100,9 @@ impl Hub {
         self.stop.store(true, Ordering::Release);
         self.queued.notify_all();
         self.decided.notify_all();
+        self.events.wake();
+        // Every origin of this channel is gone with it, so none can reach a successor.
+        self.origins.detach(&self.extension, self.generation);
     }
     fn stopped(&self) -> bool {
         self.stop.load(Ordering::Acquire)
@@ -103,9 +122,15 @@ impl Running {
         source: ConfigSource,
         bounds: &ServiceBounds,
         hook: Hook,
+        origins: &Origins,
+        extension: &str,
+        tunnels: usize,
     ) -> Result<Self, Fault> {
         let hub = Arc::new(Hub {
             generation: bus.generation(),
+            extension: extension.to_owned(),
+            origins: origins.clone(),
+            events: Arc::new(Events::new(notice_limit(tunnels))),
             source,
             callback: bounds.callback,
             request: bounds.request,
@@ -120,20 +145,18 @@ impl Running {
         });
         let bus = Arc::new(bus);
         let mut threads = Vec::new();
-        for index in 0..=WORKERS {
+        for index in 0..=WORKERS + 1 {
             let (thread_hub, thread_bus) = (Arc::clone(&hub), Arc::clone(&bus));
             let spawned = thread::Builder::new()
-                .name(if index == 0 {
-                    "tmt-object-dispatch".into()
-                } else {
-                    format!("tmt-object-worker-{index}")
+                .name(match index {
+                    0 => "tmt-object-dispatch".into(),
+                    i if i > WORKERS => "tmt-object-announce".into(),
+                    i => format!("tmt-object-worker-{i}"),
                 })
-                .spawn(move || {
-                    if index == 0 {
-                        dispatch(&thread_hub, &thread_bus);
-                    } else {
-                        work(&thread_hub, &thread_bus);
-                    }
+                .spawn(move || match index {
+                    0 => dispatch(&thread_hub, &thread_bus),
+                    i if i > WORKERS => announce(&thread_hub, &thread_bus),
+                    _ => work(&thread_hub, &thread_bus),
                 });
             match spawned {
                 Ok(thread) => threads.push(thread),
@@ -146,6 +169,7 @@ impl Running {
                 }
             }
         }
+        origins.attach(extension, hub.generation, Arc::clone(&hub.events));
         Ok(Self {
             hub,
             #[cfg(test)]
@@ -194,6 +218,27 @@ fn dispatch(hub: &Hub, bus: &Bus) {
             Ok(_) => {}
             Err(Fault::Timeout(Stage::Idle)) => {}
             Err(fault) => hub.end(ChannelEnd::Bus(fault)),
+        }
+    }
+}
+
+/// The only sender of origin-state notices, so each origin's `established` precedes its
+/// `closed` on the wire. A write that fails or stalls ends the channel and every record.
+fn announce(hub: &Hub, bus: &Bus) {
+    while !hub.stopped() {
+        match hub.events.next(SLICE) {
+            Next::Notice(origin, phase) => {
+                let notice = Frame::OriginState(OriginState {
+                    generation: hub.generation,
+                    origin_id: origin,
+                    phase,
+                });
+                if let Err(fault) = bus.send(&notice) {
+                    hub.end(ChannelEnd::Bus(fault));
+                }
+            }
+            Next::Overflow => hub.end(ChannelEnd::Backlog),
+            Next::Idle => {}
         }
     }
 }

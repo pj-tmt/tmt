@@ -947,10 +947,10 @@ On a mounted WebSocket upgrade, the door forwards the client's `Sec-WebSocket-Pr
 unchanged, including every offered subprotocol in its original order, and returns the extension's
 selected `Sec-WebSocket-Protocol` value in its `101` response unchanged. These values may carry
 extension-issued bearer tokens; the door never logs, audits or persists them. On every mounted
-request, including upgrades, client-supplied `tmt-device-context`, `tmt-device-event` and `tmt-mount`
+request, including upgrades, client-supplied `tmt-device-context`, `tmt-device-event`, `tmt-mount` and `tmt-origin`
 headers are stripped. Only the door sets these headers: `tmt-mount` identifies the actual mount,
-`tmt-device-context` is added only for an authenticated owner-device session, and `tmt-device-event`
-is reserved for the local callback above.
+`tmt-device-context` is added only for an authenticated owner-device session, `tmt-device-event`
+is reserved for the local callback above, and `tmt-origin` is the origin of an object-channel tunnel, below.
 
 **Relay.** Remote carries opaque, namespaced logs for extensions and never decrypts or interprets
 their payloads. A namespace is `<extension>:<path>` (for example `colab:<space>/<page>/<stream>`).
@@ -1066,6 +1066,19 @@ refuses ends the channel, so a duplicate, stale, mismatched or out-of-order fram
 frames and 524,288 bytes; reading pauses while it is full, and the peer's own write bound ends a peer that outruns it.
 Frames received before a fault are delivered before it is reported. The first fault is kept and every later call reports
 it. Closing, or dropping, shuts the socket down, wakes every waiter and joins the thread.
+
+**Origins.** Remote sets `tmt-origin: <originId>` only on a WebSocket upgrade to an extension that declares objects and has
+an active channel, exactly once, as one lowercase canonical UUIDv4 it just generated, and never on any other request. A
+connection without the header never gets object work: the extension denies it and the browser reconnects. An origin is
+Pending while Remote forwards the upgrade, is established only after the owner session is attached, the browser has its
+`101` and the tunnel runs, and ends at the first close: a close that wins is never followed by `established`. Every
+upgrade is a new origin, so a reconnect, including within the session's reload grace, gets a new id, and no object work
+carries across origins. An origin belongs to one channel generation; ending or replacing the channel ends all its origins
+and a successor starts with none. `originId` is not a capability: only the extension, on the private bus, can name it, and
+Remote's registry, not any frame, is authoritative when a request arrives and when its result is about to leave. Origin
+state frames are lifecycle notices written in order by one sender, with a bounded backlog (an `established` and a `closed`
+per tunnel); a write that fails or stalls, or a backlog past its bound, ends the channel and with it every origin, so a
+late `closed` is safe and nothing relies on one. Closing an origin never waits on a socket or on the session owner.
 
 **Admission outcomes.** Remote asks the extension afresh for every request and remembers no decision for a later one.
 `deny` is answered `denied` and an `unavailable` decision `unavailable`; neither, and no missing answer, is ever treated

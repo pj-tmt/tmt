@@ -29,7 +29,17 @@ eight buses in all, and opens a channel only on an explicit `activate` (no retry
 polling). `activate` is not called by production code. Its extension names come only from
 the declaration list and it names no extension itself.
 
-Each running channel has one dispatcher thread, the only reader of the bus, and two workers.
+Origins (`object_service/origins.rs`, shared with `Mounts` through the `mount::OriginSink`
+trait, so mounts name neither the service nor the protocol) are the only owner of origin
+phases: Pending while an upgrade to a declared extension with an active channel is
+forwarded (`tmt-origin` is the id), established only after the owner session attached,
+the browser has its 101 and `adopt` ran the tunnel, gone at the first close. A close wins
+over a later establish, a channel's end removes its origins and a successor inherits none.
+`established`/`closed` notices go through a bounded ordered queue to one announcer thread;
+the registry never calls sessions or writes a frame, and a ticket drop never blocks. Nothing
+yet answers a mounted origin's request (that is the next commit's session check).
+
+Each running channel has one dispatcher thread, the only reader of the bus, two workers and one announcer.
 The dispatcher queues requests and hands callback decisions to the worker that waits for
 them, so a decision is never stuck behind a request. A worker answers `config` for a
 local-extension origin from a snapshot of the delivered backend taken at `open` (backend

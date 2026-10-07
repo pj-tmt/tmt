@@ -73,6 +73,9 @@ pub const SOCKET: &str = "door.sock";
 pub const CONTEXT_HEADER: &str = "tmt-device-context";
 /// The mount the forwarded path was taken from, for example `/r/<prefix>/x/colab/`.
 pub const MOUNT_HEADER: &str = "tmt-mount";
+/// The origin of a websocket upgrade to an extension with an object channel: one lowercase
+/// UUIDv4 set only by Remote, never copied from a client, and never on a non-upgrade request.
+pub const ORIGIN_HEADER: &str = "tmt-origin";
 /// Reserved for remote-to-extension callbacks, never browser mount traffic.
 pub const DEVICE_EVENT_PATH: &str = "/.tmt/remote/device-events";
 pub const DEVICE_EVENT_HEADER: &str = "tmt-device-event";
@@ -154,6 +157,34 @@ impl Sessions for NoSessions {
 pub struct Admitted {
     pub context: DeviceContext,
     pub session: Arc<SessionState>,
+}
+/// The owner session an upgrade was admitted under, retained for as long as the tunnel
+/// lives so the session can be checked again; it proves nothing by itself.
+#[derive(Clone)]
+pub struct OwnerBinding {
+    pub session: Arc<SessionState>,
+    pub device_id: String,
+    pub grant_revision: u64,
+}
+/// Where the life of tunnels to object-declared extensions is reported. The object service
+/// implements it; mounts name neither it nor the object protocol.
+pub trait OriginSink: Send + Sync {
+    /// A websocket upgrade to `extension` is about to be forwarded. `None` when the
+    /// extension has no active object channel: that connection gets no object work.
+    fn pending(
+        &self,
+        extension: &str,
+        owner: Option<OwnerBinding>,
+    ) -> Option<Arc<dyn OriginTicket>>;
+}
+/// One tunnel's origin. It is Pending until the tunnel is adopted, then established, and a
+/// close ends it for good: establishing after a close does nothing. Dropping the last
+/// handle closes it, and closing never blocks on a socket or on sessions.
+pub trait OriginTicket: Send + Sync {
+    /// The origin as the one lowercase UUIDv4 the extension is given.
+    fn id(&self) -> String;
+    fn establish(&self);
+    fn close(&self);
 }
 /// Monotonic time source shared by session idle checks and activity touches.
 pub type IdleClock = Arc<dyn Fn() -> Instant + Send + Sync>;
@@ -241,6 +272,8 @@ pub struct Mounts {
     /// Live tunnels per extension, indexed like `extensions`.
     active: Vec<Arc<AtomicUsize>>,
     tunnels: Mutex<Tunnels>,
+    /// Receives the origins of upgrades to object-declared extensions, when there is one.
+    origins: Option<Arc<dyn OriginSink>>,
 }
 #[derive(Default)]
 struct Tunnels {
@@ -277,7 +310,13 @@ impl Mounts {
             extensions,
             active: extensions.iter().map(|_| Arc::default()).collect(),
             tunnels: Mutex::default(),
+            origins: None,
         }
+    }
+    /// Report the origins of upgrades to object-declared extensions to `origins`.
+    pub fn with_origins(mut self, origins: Arc<dyn OriginSink>) -> Self {
+        self.origins = Some(origins);
+        self
     }
     /// Close every live tunnel and join its thread; later tunnels are refused.
     pub fn shutdown(&self) {
@@ -304,7 +343,8 @@ impl Mounts {
             .ok()?;
         Some(TunnelSlot(Arc::clone(active)))
     }
-    /// Run a splice on its own thread so it leaves the door's edge sockets.
+    /// Run a splice on its own thread so it leaves the door's edge sockets. `true` once the
+    /// tunnel is retained and its thread runs; when the splice ends the origin is closed.
     fn adopt(
         &self,
         client: TcpStream,
@@ -312,17 +352,18 @@ impl Mounts {
         slot: TunnelSlot,
         idle: Duration,
         session: Option<SessionTransport>,
-    ) {
+        origin: Option<Arc<dyn OriginTicket>>,
+    ) -> bool {
         let Ok(mut tunnels) = self.tunnels.lock() else {
-            return;
+            return false;
         };
         tunnels.running.retain(|(_, thread)| !thread.is_finished());
         let Ok(retained) = client.try_clone() else {
-            return;
+            return false;
         };
         if tunnels.closed {
             let _ = client.shutdown(Shutdown::Both);
-            return;
+            return false;
         }
         let spawned = thread::Builder::new()
             .name("remote-tunnel".into())
@@ -334,9 +375,16 @@ impl Mounts {
                     idle,
                     session.as_ref().map(|t| t.0.as_ref()),
                 );
+                if let Some(origin) = origin {
+                    origin.close();
+                }
             });
-        if let Ok(thread) = spawned {
-            tunnels.running.push((retained, thread));
+        match spawned {
+            Ok(thread) => {
+                tunnels.running.push((retained, thread));
+                true
+            }
+            Err(_) => false,
         }
     }
     /// Whether `path` is in the mount space; everything there is the
@@ -473,7 +521,28 @@ impl Mounts {
         };
         let deadline = Instant::now() + limits::MOUNT_RESPONSE;
         let context = admitted.as_ref().map(|a| &a.context);
-        let forwarded = self.forward(&request, rest, extension, context, websocket);
+        // An origin exists only for a websocket upgrade to an extension that declares
+        // objects and has an active channel; anything else carries no origin header.
+        let origin = match (&self.origins, websocket) {
+            (Some(sink), true) if extension.objects == ObjectDeclaration::Local => sink.pending(
+                extension.name,
+                admitted.as_ref().map(|a| OwnerBinding {
+                    session: Arc::clone(&a.session),
+                    device_id: a.context.device_id.clone(),
+                    grant_revision: a.context.grant_revision,
+                }),
+            ),
+            _ => None,
+        };
+        let origin_id = origin.as_ref().map(|ticket| ticket.id());
+        let forwarded = self.forward(
+            &request,
+            rest,
+            extension,
+            context,
+            websocket,
+            origin_id.as_deref(),
+        );
         if send(&mut stream, forwarded.as_bytes(), deadline)
             .and_then(|()| send(&mut stream, &request.body, deadline))
             .is_err()
@@ -504,13 +573,19 @@ impl Mounts {
                     .and_then(|()| write_all(client, &body, deadline))
                     .is_ok()
             {
-                self.adopt(
+                let adopted = self.adopt(
                     owned,
                     stream,
                     slot,
                     extension.tunnel_idle,
                     session_transport,
+                    origin.clone(),
                 );
+                // Established only once the session is attached, the browser has its
+                // 101 and the tunnel runs; a close that already happened wins.
+                if let (true, Some(origin)) = (adopted, &origin) {
+                    origin.establish();
+                }
             }
             return None;
         }
@@ -589,6 +664,7 @@ impl Mounts {
         extension: &Extension,
         context: Option<&DeviceContext>,
         websocket: bool,
+        origin: Option<&str>,
     ) -> String {
         let mut text = format!(
             "{} {rest} HTTP/1.1\r\nhost: {}\r\n{MOUNT_HEADER}: {}\r\n",
@@ -603,6 +679,9 @@ impl Mounts {
             if FORWARDED.contains(&name.as_str()) {
                 text.push_str(&format!("{name}: {value}\r\n"));
             }
+        }
+        if let Some(origin) = origin {
+            text.push_str(&format!("{ORIGIN_HEADER}: {origin}\r\n"));
         }
         if let Some(context) = context {
             text.push_str(&format!("{CONTEXT_HEADER}: {}\r\n", context.header_value()));

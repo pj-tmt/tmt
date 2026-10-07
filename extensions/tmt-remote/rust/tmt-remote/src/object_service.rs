@@ -26,9 +26,11 @@ use tmt_extension_objects::{Budget, Budgets, Bus, Caps, Fault, Offer, Uuid4, ini
 
 mod config;
 mod dispatch;
+mod origins;
 use config::ConfigSource;
 pub use dispatch::ChannelEnd;
 use dispatch::Running;
+pub use origins::Origins;
 
 /// Bounds of the service; [`ServiceBounds::contract`] is the proposed contract set and
 /// tests inject smaller values.
@@ -88,6 +90,8 @@ struct Declared {
     id: ExtensionId,
     /// What `objects.config` projects for this extension, fixed when the service opens.
     source: ConfigSource,
+    /// The tunnel cap the extension is mounted with, which bounds its origins.
+    tunnels: usize,
     /// A candidate is being set up outside the lock.
     setup: bool,
     active: Option<Running>,
@@ -112,7 +116,7 @@ struct State {
 /// use std::{sync::atomic::AtomicBool, time::Instant};
 /// use tmt_remote::{
 ///     mount::EXTENSIONS,
-///     object_service::{ObjectService, ServiceBounds},
+///     object_service::{ObjectService, Origins, ServiceBounds},
 ///     objects::{IoBudget, Quotas, system_clock},
 ///     state::Layout,
 /// };
@@ -121,7 +125,8 @@ struct State {
 ///     let cancelled = AtomicBool::new(false);
 ///     let io = IoBudget { deadline: Instant::now(), cancelled: &cancelled };
 ///     let service = ObjectService::open(
-///         &serving, &EXTENSIONS, Quotas::contract(), system_clock(), ServiceBounds::contract(), &io,
+///         &serving, &EXTENSIONS, Quotas::contract(), system_clock(), ServiceBounds::contract(),
+///         Origins::default(), &io,
 ///     ).unwrap();
 ///     drop(serving);
 ///     let _ = service.is_some();
@@ -132,6 +137,8 @@ pub struct ObjectService<'s> {
     bounds: ServiceBounds,
     /// Outstanding entries shared by every bus of the installation.
     budget: Budget,
+    /// Where the origins of this service's channels are kept, shared with the mounts.
+    origins: Origins,
     state: Mutex<State>,
     /// Pauses a worker between a request's two admissions, so a test can spend its time.
     #[cfg(test)]
@@ -148,6 +155,7 @@ impl<'s> ObjectService<'s> {
         quotas: Quotas,
         clock: Clock,
         bounds: ServiceBounds,
+        origins: Origins,
         io: &IoBudget<'_>,
     ) -> Result<Option<Self>, RemoteError> {
         let mut declared = Vec::new();
@@ -161,7 +169,7 @@ impl<'s> ObjectService<'s> {
                     "An extension declares object storage under an invalid name.",
                 )
             })?;
-            declared.push((extension.name, id));
+            declared.push((extension.name, id, extension.tunnels));
         }
         if declared.is_empty() {
             return Ok(None);
@@ -169,7 +177,7 @@ impl<'s> ObjectService<'s> {
         let storage = LocalFs::open(serving, quotas, clock, io)?;
         let slots = declared
             .into_iter()
-            .map(|(name, id)| {
+            .map(|(name, id, tunnels)| {
                 let backend = storage.handle(id.clone());
                 let source = ConfigSource {
                     backend_id: backend.id(),
@@ -180,6 +188,7 @@ impl<'s> ObjectService<'s> {
                     name,
                     id,
                     source,
+                    tunnels,
                     setup: false,
                     active: None,
                 }
@@ -189,6 +198,7 @@ impl<'s> ObjectService<'s> {
             storage,
             bounds,
             budget: Budget::new(bounds.installation.requests, bounds.installation.callbacks),
+            origins,
             state: Mutex::new(State {
                 stopped: false,
                 slots,
@@ -210,11 +220,11 @@ impl<'s> ObjectService<'s> {
     /// `mounts` with exactly the `Host` and mount values the door sets on every request
     /// it sends that extension.
     pub fn activate(&self, mounts: &Mounts, name: &str) -> Result<Uuid4, ActivateError> {
-        let (index, source) = self.begin_setup(name)?;
-        let built = self.connect(mounts, name, source);
+        let (index, source, tunnels) = self.begin_setup(name)?;
+        let built = self.connect(mounts, name, source, tunnels);
         self.finish_setup(index, built)
     }
-    fn begin_setup(&self, name: &str) -> Result<(usize, ConfigSource), ActivateError> {
+    fn begin_setup(&self, name: &str) -> Result<(usize, ConfigSource, usize), ActivateError> {
         let mut state = self.locked();
         if state.stopped {
             return Err(ActivateError::Stopped);
@@ -236,13 +246,14 @@ impl<'s> ObjectService<'s> {
             return Err(ActivateError::Capacity);
         }
         state.slots[index].setup = true;
-        Ok((index, state.slots[index].source))
+        Ok((index, state.slots[index].source, state.slots[index].tunnels))
     }
     fn connect(
         &self,
         mounts: &Mounts,
         name: &str,
         source: ConfigSource,
+        tunnels: usize,
     ) -> Result<Running, ActivateError> {
         let setup = Instant::now() + self.bounds.setup;
         let endpoint = mounts
@@ -273,7 +284,16 @@ impl<'s> ObjectService<'s> {
             .clone();
         #[cfg(not(test))]
         let hook = ();
-        Running::start(bus, source, &self.bounds, hook).map_err(ActivateError::Channel)
+        Running::start(
+            bus,
+            source,
+            &self.bounds,
+            hook,
+            &self.origins,
+            name,
+            tunnels,
+        )
+        .map_err(ActivateError::Channel)
     }
     fn finish_setup(
         &self,
