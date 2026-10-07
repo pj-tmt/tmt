@@ -2087,7 +2087,7 @@ describe('required CI gate', () => {
     }
   });
 
-  it('normalizes every CI cache consumer through one install owner before restore', () => {
+  it('normalizes every CI cache consumer and Colab through one install owner before restore', () => {
     const workflow = readFileSync(
       new URL('../../../.github/workflows/ci.yml', import.meta.url),
       'utf8'
@@ -2123,6 +2123,16 @@ describe('required CI gate', () => {
     expect(
       workflow.match(/install-ci-rust\.sh 1\.97\.0 --profile minimal --component rustfmt,clippy/g)
     ).toHaveLength(5);
+    const colab = readFileSync(
+      new URL('../../../.github/workflows/colab-browser.yml', import.meta.url),
+      'utf8'
+    );
+    const install = colab.indexOf('sh scripts/install-ci-rust.sh 1.97.0 --profile minimal');
+    expect(colab.match(/sh scripts\/install-ci-rust\.sh /g)).toHaveLength(1);
+    expect(install).toBeGreaterThan(0);
+    expect(install).toBeLessThan(colab.indexOf('uses: Swatinem/rust-cache@'));
+    expect(colab).toContain('shared-key: native-rust');
+    expect(colab).toContain('save-if: false');
   });
 
   it('gives every native step and job an explicit scope, and gates on exactly those results', () => {
