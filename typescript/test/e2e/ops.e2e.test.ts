@@ -190,18 +190,21 @@ describe('squad on a private tmux server', { concurrent: false }, () => {
         );
         expect(fs.readFileSync(config)).toEqual(beforeConfig);
         expect(fs.readFileSync(path.join(ops, 'cron', 'jobs.json'))).toEqual(beforeJobs);
-        // A newly authored Ops-only header proves refresh reads the promoted file.
+        // A newly authored Ops-only view proves refresh reads the promoted file.
         const adoptedConfig = Buffer.concat([
           beforeConfig,
-          Buffer.from(
-            '\n[squad.product.rows]\ncolumns = [{ name = "member", title = "ADOPTED" }]\n'
-          ),
+          Buffer.from('\n[squad.product.board]\nview = "focus"\n'),
         ]);
+        expect(fixture.capture(24, shell.pane)).toContain('(the squad has no lead)');
         fs.writeFileSync(config, adoptedConfig);
         fixture.tmux(['send-keys', '-t', shell.pane, 'C-r']);
-        await fixture.waitForCapture(
-          (screen) => screen.includes('worker') && screen.includes('ADOPTED'),
-          shell.pane
+        await fixture.waitFor(
+          () => {
+            const screen = fixture.tmux(['capture-pane', '-p', '-t', shell.pane]);
+            return screen.includes('worker') && !screen.includes('(the squad has no lead)');
+          },
+          5_000,
+          'manual refresh adopting the Ops-only focus view'
         );
         fixture.tmux(['send-keys', '-t', shell.pane, 'q']);
         await fixture.waitForCapture(
