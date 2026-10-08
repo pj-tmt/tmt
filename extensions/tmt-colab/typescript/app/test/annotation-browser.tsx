@@ -4,6 +4,7 @@ import { ThreadPanel, ThreadWindow } from '../src/thread-panel.js';
 import { MessageComposer } from '../src/components/message-composer.js';
 import type { ThreadView } from '../src/thread-records.js';
 import { useEffect, useState } from 'react';
+import type { AgentDestination } from '../src/live-ask.js';
 import { AnnotationInput } from '../src/annotation-input.js';
 import { AskPanel, type AskBinding, type PageAsk } from '../src/ask-panel.js';
 import { ReadRefusedError } from '../src/ask-remote.js';
@@ -18,13 +19,21 @@ let closes = 0;
 let commits = 0;
 let draft = '';
 let captured: unknown[] = [];
-let remote: RemoteDouble | undefined;
 /** What the next directory read does: answer, fail, or wait until released. */
 let directoryMode: 'ok' | 'fail' | 'refuse' | 'park' = 'ok';
 let directoryReads = 0;
 let parkedReads: { resolve(): void; reject(error: Error): void }[] = [];
 let reconnect: (() => void) | undefined;
 /** Which composer surface the next mount shows: a new annotation, a reply, or Chat. */
+let creator: { machineId: string; agentId: string } | undefined;
+let customAgents: AgentDestination[] | undefined;
+let allSends: RemoteDouble['sends'] = [];
+export function setCreator(value: boolean) {
+  creator = value ? { machineId: destination().machine, agentId: destination().agent } : undefined;
+}
+export function setAgents(value: AgentDestination[]) {
+  customAgents = value;
+}
 let surface: 'annotation' | 'reply' | 'chat' = 'annotation';
 export function setSurface(next: 'annotation' | 'reply' | 'chat') {
   surface = next;
@@ -51,6 +60,10 @@ export function mount(
     | 'held'
     | 'throw'
     | 'prepare-failure'
+    | 'partial-preparation'
+    | 'partial-refusal'
+    | 'no-adoption'
+    | 'unknown-adoption'
     | 'multi'
     | 'discovery-failure'
     | 'write-failure' = 'held',
@@ -62,12 +75,12 @@ export function mount(
   host.id = 'annotation-fixture';
   document.body.append(host);
   writes = preparations = closes = commits = 0;
-  directoryMode = mode === 'discovery-failure' ? 'fail' : 'ok';
+  if (mode === 'discovery-failure') directoryMode = 'fail';
   directoryReads = 0;
   parkedReads = [];
-  remote = undefined;
   draft = '';
   captured = [];
+  allSends = [];
   location.hash = `space=${selection().space}&path=${encodeURIComponent(`/pages/${id(1)}`)}`;
   const target = destination();
   const ref = { writer: id(4), id: id(2) };
@@ -90,11 +103,11 @@ export function mount(
         messageRevision: '1',
       };
     },
-    async createChat() {
-      throw new Error('Not used');
+    async createChat(body) {
+      return this.create(body, null);
     },
-    async reply() {
-      throw new Error('Not used');
+    async reply(_ref, body) {
+      return this.create(body, null);
     },
     async edit() {
       throw new Error('Not used');
@@ -134,30 +147,51 @@ export function mount(
         if (directoryMode === 'refuse') throw new ReadRefusedError('REMOTE_STATE_UNAVAILABLE');
         if (directoryMode === 'park')
           await new Promise<void>((resolve, reject) => parkedReads.push({ resolve, reject }));
-        return mode === 'multi'
-          ? [
-              target,
-              { ...target, agent: id(8), agentName: 'Disabled agent', presence: 'offline' },
-              { ...target, agent: id(9), agentName: 'Other agent' },
-            ]
-          : [target];
+        return (
+          customAgents ??
+          (mode === 'multi'
+            ? [
+                target,
+                { ...target, agent: id(8), agentName: 'Disabled agent', presence: 'offline' },
+                { ...target, agent: id(9), agentName: 'Other agent' },
+              ]
+            : [target])
+        );
       },
       async prepare(input) {
         preparations++;
-        if (mode === 'prepare-failure') throw new Error('Preparation refused');
+        if (mode === 'prepare-failure' || (mode === 'partial-preparation' && preparations === 1))
+          throw new Error('Preparation refused');
         captured.push(input);
+        const refused = mode === 'partial-refusal' && preparations === 1;
         const result = await fixtureAttempt({ ...selection(), ...input }, input.destination, {
           mode:
-            mode === 'multi' || mode === 'discovery-failure' || mode === 'write-failure'
-              ? 'held'
-              : mode,
+            mode === 'partial-preparation' ||
+            mode === 'partial-refusal' ||
+            mode === 'no-adoption' ||
+            mode === 'unknown-adoption'
+              ? 'accepted'
+              : mode === 'multi' || mode === 'discovery-failure' || mode === 'write-failure'
+                ? 'held'
+                : mode,
           operationId: crypto.randomUUID(),
         });
-        remote = result.remote;
+        if (refused)
+          result.remote.send = async (input) => {
+            result.remote.sends.push(input);
+            return {
+              state: 'refused',
+              operationId: input.operationId,
+              reason: 'REMOTE_RATE_LIMITED',
+            };
+          };
         return {
           ...result.attempt,
           async send() {
+            if (mode === 'unknown-adoption') return { state: 'uncertain' as const };
+            if (mode === 'no-adoption') return { state: 'failed' as const, adopted: false };
             const state = await result.attempt.send();
+            allSends.push(...result.remote.sends);
             const record: PageAsk = {
               thread: ref.id,
               messageIds: [id(3)],
@@ -165,15 +199,16 @@ export function mount(
               writer: id(4),
               message: result.attempt.preview.view.message,
               deliveredMessage: result.attempt.preview.view.deliveredMessage,
-              agent: target.agent,
-              agentName: target.agentName,
+              agent: input.destination.agent,
+              agentName: input.destination.agentName,
               deviceName: target.deviceName,
               issuedAt: Date.now(),
               machine: target.machine,
               state: state.state as PageAsk['state'],
               canTrack: true,
+              ...(refused ? { reason: 'REMOTE_RATE_LIMITED' } : {}),
             };
-            setRecords((previous) => (mode === 'accepted' ? [...previous, record] : [record]));
+            setRecords((previous) => [...previous, record]);
             return state;
           },
         };
@@ -189,6 +224,7 @@ export function mount(
       <>
         {!cancelled && (
           <AnnotationInput
+            creationRecipient={creator}
             binding={binding}
             discussion={discussion}
             chat={surface === 'chat'}
@@ -217,7 +253,7 @@ export function mount(
   root.render(<Fixture />);
 }
 export function proof() {
-  return { writes, preparations, closes, commits, sends: remote?.sends ?? [] };
+  return { writes, preparations, closes, commits, sends: allSends };
 }
 export function directoryProof() {
   return { reads: directoryReads, parked: parkedReads.length };

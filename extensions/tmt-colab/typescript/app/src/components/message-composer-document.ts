@@ -15,11 +15,13 @@ import {
   type SerializedTextNode,
   type Spread,
 } from 'lexical';
+import { resolveMessageMentions } from '../message-recipient.js';
+import type { AgentDestination } from '../live-ask.js';
 import type { ComposerEdit, RecipientKey } from './message-composer-edit.js';
 
 type SerializedMention = Spread<{ recipient: RecipientKey; token: string }, SerializedTextNode>;
 
-/** Editing metadata only: routing remains in the parent's independent recipient state. */
+/** Editing tokens only; the parent revalidates their UUID keys before every Send. */
 export class MessageMentionNode extends TextNode {
   __recipient: RecipientKey;
   __token: string;
@@ -67,46 +69,68 @@ export function $messageText() {
     .join('\n');
 }
 
-export function $replaceMessage(value: string, mention?: ComposerEdit['mention']) {
+export function $replaceMessage(value: string, mentions: ComposerEdit['mentions'] = []) {
   const root = $getRoot();
   root.clear();
   let offset = 0;
   for (const line of value.split('\n')) {
     const paragraph = $createParagraphNode();
-    const start = mention ? mention.range.start - offset : -1;
-    const end = mention ? mention.range.end - offset : -1;
-    if (mention && start >= 0 && end > start && end <= line.length) {
-      if (start) paragraph.append($createTextNode(line.slice(0, start)));
+    let cursor = 0;
+    for (const mention of mentions) {
+      const start = mention.range.start - offset,
+        end = mention.range.end - offset;
+      if (start < cursor || end <= start || end > line.length) continue;
+      if (start > cursor) paragraph.append($createTextNode(line.slice(cursor, start)));
       paragraph.append(new MessageMentionNode(line.slice(start, end), mention.key));
-      if (end < line.length) paragraph.append($createTextNode(line.slice(end)));
-    } else if (line) paragraph.append($createTextNode(line));
+      cursor = end;
+    }
+    if (cursor < line.length) paragraph.append($createTextNode(line.slice(cursor)));
     root.append(paragraph);
     offset += line.length + 1;
   }
+  root.selectEnd();
 }
 
-/** Node identity/history retains the token through surrounding edits; edited tokens are invalidated. */
-export function $messageMention(): ComposerEdit['mention'] {
+/** Node identity/history retains every intact token through surrounding edits. */
+export function $messageMentions(): NonNullable<ComposerEdit['mentions']> {
   let offset = 0;
-  let mention: ComposerEdit['mention'];
+  const mentions: NonNullable<ComposerEdit['mentions']> = [];
   function visit(node: LexicalNode) {
     if ($isTextNode(node)) {
       if (node instanceof MessageMentionNode && node.getTextContent() === node.__token)
-        mention = {
+        mentions.push({
           key: node.__recipient,
           range: { start: offset, end: offset + node.getTextContentSize() },
-        };
+        });
       offset += node.getTextContentSize();
-    } else if ($isElementNode(node)) {
-      for (const child of node.getChildren()) visit(child);
-    } else offset += node.getTextContentSize();
+    } else if ($isElementNode(node)) node.getChildren().forEach(visit);
+    else offset += node.getTextContentSize();
   }
-  const paragraphs = $getRoot().getChildren();
-  paragraphs.forEach((node, index) => {
-    if (index) offset++;
-    visit(node);
-  });
-  return mention;
+  $getRoot()
+    .getChildren()
+    .forEach((node, index) => {
+      if (index) offset++;
+      visit(node);
+    });
+  return mentions;
+}
+
+/** Replace only newly completed tokens, keeping the caret, surrounding nodes and history. */
+export function $bindMessageMentions(agents: readonly AgentDestination[], includeEnd = false) {
+  const value = $messageText(),
+    existing = $messageMentions(),
+    caret = $messageCaret();
+  const result = resolveMessageMentions({ value, mentions: existing }, agents, includeEnd);
+  if (caret !== undefined) {
+    for (const token of [...result.mentions].reverse()) {
+      if (existing.some((old) => old.range.start === token.range.start)) continue;
+      $selectMessageRange(token.range.start, token.range.end).insertNodes([
+        new MessageMentionNode(value.slice(token.range.start, token.range.end), token.key),
+      ]);
+    }
+    $selectMessageRange(caret, caret);
+  }
+  return { value, mentions: $messageMentions() };
 }
 
 /**
@@ -212,12 +236,4 @@ export function $selectMessageRange(start: number, end: number) {
   setPoint(selection.focus, end);
   $setSelection(selection);
   return selection;
-}
-
-export function $clearMessageMentions() {
-  function visit(node: LexicalNode) {
-    if (node instanceof MessageMentionNode) node.replace($createTextNode(node.getTextContent()));
-    else if ($isElementNode(node)) node.getChildren().forEach(visit);
-  }
-  $getRoot().getChildren().forEach(visit);
 }

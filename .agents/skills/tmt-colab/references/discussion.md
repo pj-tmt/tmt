@@ -76,13 +76,13 @@ owns record fields, limits, revision semantics and trust boundaries.
   parent controls, one all-annotations list, expanded conversation and explicit
   reattach confirmation. Row action menus choose below/above placement when it
   fits, otherwise clamp inside their scroll container so the stationary window
-  header cannot cover Edit/Delete. `annotation-input.tsx` owns parent draft/recipient/send
+  header cannot cover Edit/Delete. `annotation-input.tsx` owns parent draft/mention/send
   policy around the shared Lexical plaintext message composer: Enter submits the
-  current parent action, Shift+Enter adds a line, Escape closes candidates before cancellation. It
+  single Send, Shift+Enter adds a line, Escape closes candidates before cancellation. It
   opens at the selection in a cosmetic parent window and continues there after
   Enter; no drawer opens automatically. Known margin markers reopen that exact
   thread using the current renderer's admitted cosmetic position. The page owner
-  keeps drafts and recipients by thread across collapse and explicit Comments
+  keeps drafts and bound mention UUIDs by thread across collapse and explicit Comments
   access. Resolve/Reopen is the parent's `onStatusChange` seam over
   `ThreadStatusCoordinator`, not a thread edit: the window receives the thread's
   `ThreadPresentation.status` and awaits one status change (shown only when

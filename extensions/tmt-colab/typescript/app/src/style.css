@@ -1151,3 +1151,8 @@ footer {
 .annotation-status-row > [data-agent-retry] {
   flex: none;
 }
+
+.annotation-status-row > .tmt-ui-action {
+  margin-inline-start: auto;
+  flex: none;
+}

@@ -98,7 +98,7 @@ test('page-visible device Chat threads send exact bytes once, preserve drafts, k
     await openChat(first);
     const panel = first.getByTestId('chat-panel');
     const input = panel.getByRole('combobox', { name: 'Message' });
-    await expect(input).toHaveText('', { useInnerText: true });
+    await expect(input).toHaveText(`@${agent.name} `, { useInnerText: true });
     await expect(panel.locator('.annotation-compose details')).toHaveCount(0);
     await expect(panel).toContainText('Visible to everyone with page access.');
     await expect(panel.getByRole('button', { name: 'Delete thread', exact: true })).toHaveCount(0);
@@ -129,7 +129,7 @@ test('page-visible device Chat threads send exact bytes once, preserve drafts, k
       'ask-reply:' + createHash('sha256').update(draft.delivered()).digest('hex').slice(0, 16);
     await expect(askEntry(first, sent.operationId).getByTestId('ask-reply')).toHaveText(reply);
     const exchange = askEntry(first, sent.operationId);
-    const userTurn = exchange.locator('.chat-user-turn');
+    const userTurn = exchange.locator('.conversation-turn[data-turn-role=user]');
     await expect(userTurn.locator('header')).toContainText('You · just now');
     await expect(exchange.getByTestId('ask-state')).toHaveCount(0);
     await expect(exchange).toHaveAttribute('data-ledger-state', 'accepted');
@@ -141,9 +141,11 @@ test('page-visible device Chat threads send exact bytes once, preserve drafts, k
     await expect(userTurn.getByRole('menuitem')).toHaveCount(0);
     await expect(userTurn.locator('details')).toHaveCount(0);
     await expect(panel).not.toContainText('Show exactly what');
-    await expect(exchange.locator('.chat-agent-turn')).toHaveCount(1);
+    await expect(exchange.locator('.conversation-turn[data-turn-role=agent]')).toHaveCount(1);
     await expect(exchange.getByTestId('ask-reply-attribution')).toContainText(agent.name);
-    await expect(exchange.locator('.chat-agent-turn details')).toHaveCount(0);
+    await expect(exchange.locator('.conversation-turn[data-turn-role=agent] details')).toHaveCount(
+      0,
+    );
     await openChat(second);
     await expect(
       second.getByTestId('chat-thread').filter({ hasText: 'private Chat turn' }),

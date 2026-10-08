@@ -26,12 +26,12 @@ test('completion preserves surrounding text, caret, token range and history thro
   await input.press('Enter');
   await expect.poll(async () => (await proof(page)).edit.value).toBe('Before @Other agent \nAfter');
   const completed = (await proof(page)).edit;
-  expect(completed.mention.range).toEqual({ start: 7, end: 19 });
+  expect(completed.mentions[0].range).toEqual({ start: 7, end: 19 });
   await input.pressSequentially('X');
   await expect
     .poll(async () => (await proof(page)).edit.value)
     .toBe('Before @Other agent X\nAfter');
-  expect((await proof(page)).edit.mention).toEqual(completed.mention);
+  expect((await proof(page)).edit.mentions).toEqual(completed.mentions);
   await page.getByRole('button', { name: 'Echo', exact: true }).click();
   await input.focus();
   await input.press(undo);
@@ -55,11 +55,11 @@ test('completion after Shift+Enter accounts for line-break nodes and keeps the c
   await input.press('Enter');
   await input.pressSequentially('Follow');
   await expect.poll(async () => (await proof(page)).edit.value).toBe('First\n@Other agent Follow');
-  expect((await proof(page)).edit.mention.range).toEqual({ start: 6, end: 18 });
+  expect((await proof(page)).edit.mentions[0].range).toEqual({ start: 6, end: 18 });
   expect((await proof(page)).submitted).toBe(0);
 });
 
-test('close/reopen keeps recipient and bytes; token deletion does not clear recipient and reset clears undo', async ({
+test('close/reopen keeps bound tokens and bytes; token deletion clears recipients and reset clears undo', async ({
   page,
 }) => {
   const input = await mount(page);
@@ -71,8 +71,7 @@ test('close/reopen keeps recipient and bytes; token deletion does not clear reci
   await page.getByRole('button', { name: 'Reopen', exact: true }).click();
   expect((await proof(page)).edit).toEqual(before);
   await input.fill('No mention needed');
-  expect((await proof(page)).edit.recipient).toEqual(before.recipient);
-  expect((await proof(page)).edit.mention).toBeUndefined();
+  expect((await proof(page)).edit.mentions).toEqual([]);
   await page.getByRole('button', { name: 'Reset', exact: true }).click();
   await input.focus();
   await input.press(undo);

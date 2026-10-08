@@ -1,4 +1,4 @@
-import { BrowserAction, BrowserField } from '@tmt/browser-ui/react';
+import { BrowserField } from '@tmt/browser-ui/react';
 import { useCallback, useEffect, useId, useRef, useState, type Ref } from 'react';
 import { LexicalExtensionComposer } from '@lexical/react/LexicalExtensionComposer';
 import { ReactExtension } from '@lexical/react/ReactExtension';
@@ -8,18 +8,20 @@ import { PlainTextExtension } from '@lexical/plain-text';
 import { HistoryExtension } from '@lexical/history';
 import {
   $createTextNode,
+  TextNode,
   $getSelection,
   $isRangeSelection,
   CLEAR_HISTORY_COMMAND,
   defineExtension,
   HISTORY_PUSH_TAG,
 } from 'lexical';
+import { resolveMessageMentions } from '../message-recipient.js';
 import { Listbox } from './listbox.js';
 import type { MessageComposerProps } from './message-composer-edit.js';
 import {
-  $clearMessageMentions,
+  $bindMessageMentions,
   $messageCaret,
-  $messageMention,
+  $messageMentions,
   $messageText,
   $replaceMessage,
   $selectMessageRange,
@@ -41,7 +43,7 @@ const extension = defineExtension({
   },
 });
 
-/** One plaintext editing boundary; the parent owns draft, recipient, admission and effects. */
+/** One plaintext editing boundary; the parent owns draft, recipients, admission and effects. */
 export function MessageComposer(props: MessageComposerProps) {
   return (
     <LexicalExtensionComposer extension={extension} contentEditable={null}>
@@ -55,12 +57,10 @@ function MessageField(props: MessageComposerProps) {
   const controlId = useId();
   const current = useRef(props);
   current.current = props;
-  const recipient = useRef(props.edit.recipient);
-  recipient.current = props.edit.recipient;
-  const [{ query, open, explicit }, setSuggestions] = useState<{
+  const navigated = useRef(false);
+  const [{ query, open }, setSuggestions] = useState<{
     query?: ReturnType<typeof mentionQuery>;
     open: boolean;
-    explicit?: boolean;
   }>({ open: false });
   const setOpen = useCallback((open: boolean) => {
     setSuggestions((previous) => (previous.open === open ? previous : { ...previous, open }));
@@ -71,14 +71,11 @@ function MessageField(props: MessageComposerProps) {
     if (props.autoFocus)
       editor.focus(() => editor.getRootElement()?.focus({ preventScroll: true }));
   }, [editor, props.autoFocus]);
-  const candidates = fuzzyMessageCandidates(
-    props.candidates ?? [],
-    explicit ? '' : (query?.query ?? ''),
-  );
+  const candidates = fuzzyMessageCandidates(props.candidates ?? [], query?.query ?? '');
   const options = candidates.map((agent) => ({
     value: `${agent.machine}:${agent.agent}`,
-    label: `@${agent.agentName} · ${agent.machineName}`,
-    disabled: agent.online !== 'online' || agent.presence === 'offline',
+    label: `@${agent.agentName} · ${agent.machineName}${agent.presence === 'offline' ? ' · offline' : ''}`,
+    disabled: agent.online !== 'online',
   }));
   const wasDisabled = useRef(props.disabled);
   useEffect(() => {
@@ -98,43 +95,46 @@ function MessageField(props: MessageComposerProps) {
     reset.current = props.resetKey;
     const value = editor.getEditorState().read($messageText);
     if (explicit || value !== props.edit.value) {
-      editor.update(() => $replaceMessage(props.edit.value, props.edit.mention), {
+      editor.update(() => $replaceMessage(props.edit.value, props.edit.mentions), {
         tag: 'parent-message-reset',
         discrete: true,
       });
       setOpen(false);
       editor.dispatchCommand(CLEAR_HISTORY_COMMAND, undefined);
     }
-  }, [editor, props.edit.value, props.edit.mention, props.resetKey, setOpen]);
+  }, [editor, props.edit.value, props.edit.mentions, props.resetKey, setOpen]);
   useEffect(() => {
     const transform = editor.registerNodeTransform(MessageMentionNode, (node) => {
       if (node.getTextContent() !== node.__token)
         node.replace($createTextNode(node.getTextContent()));
+    });
+    const bind = editor.registerNodeTransform(TextNode, () => {
+      if (!editor.isComposing() && current.current.candidates)
+        $bindMessageMentions(current.current.candidates);
     });
     const listener = editor.registerUpdateListener(
       ({ editorState, tags, dirtyElements, dirtyLeaves }) => {
         editorState.read(() => {
           const value = $messageText();
           const caret = $messageCaret();
-          const nextQuery = caret === undefined ? undefined : mentionQuery(value, caret);
-          const mention = $messageMention();
+          const mentions = $messageMentions();
+          const ambiguous = resolveMessageMentions({ value, mentions }, current.current.candidates)
+            .ambiguousTokens[0];
+          const nextQuery =
+            (caret === undefined ? undefined : mentionQuery(value, caret)) ??
+            (ambiguous ? { ...ambiguous.range, query: ambiguous.name } : undefined);
           const previous = current.current.edit;
           // Selection/normalization updates are not parent draft edits.
           const changed =
             !tags.has('parent-message-reset') &&
             !!(dirtyElements.size || dirtyLeaves.size) &&
             (value !== previous.value ||
-              recipient.current?.machine !== previous.recipient?.machine ||
-              recipient.current?.agent !== previous.recipient?.agent ||
-              mention?.key.machine !== previous.mention?.key.machine ||
-              mention?.key.agent !== previous.mention?.key.agent ||
-              mention?.range.start !== previous.mention?.range.start ||
-              mention?.range.end !== previous.mention?.range.end);
+              JSON.stringify(mentions) !== JSON.stringify(previous.mentions ?? []));
           if (changed)
             current.current.onChange({
               value,
-              recipient: recipient.current,
-              ...(mention ? { mention } : {}),
+              mentions,
+              edited: previous.edited,
             });
           setSuggestions((previous) => {
             const queryChanged =
@@ -148,15 +148,15 @@ function MessageField(props: MessageComposerProps) {
               : queryChanged || changed
                 ? nextQuery !== undefined
                 : previous.open;
-            return queryChanged || open !== previous.open || (changed && previous.explicit)
-              ? { query: nextQuery, open, explicit: changed ? false : previous.explicit }
-              : previous;
+            if (queryChanged) navigated.current = false;
+            return queryChanged || open !== previous.open ? { query: nextQuery, open } : previous;
           });
         });
       },
     );
     return () => {
       transform();
+      bind();
       listener();
     };
   }, [editor]);
@@ -164,16 +164,10 @@ function MessageField(props: MessageComposerProps) {
     const agent = candidates.find((candidate) => `${candidate.machine}:${candidate.agent}` === key);
     if (!agent || props.disabled) return;
     const chosen = { machine: agent.machine, agent: agent.agent };
-    recipient.current = chosen;
-    // A picker without an @ query changes only the explicit recipient.
-    if (explicit || !query) {
-      props.onChange({ ...props.edit, recipient: chosen });
-      setOpen(false);
-      return;
-    }
+
+    if (!query) return;
     editor.update(
       () => {
-        $clearMessageMentions();
         const selection = $selectMessageRange(query.start, query.end);
         const token = `@${agent.agentName}`;
         const mention = new MessageMentionNode(token, chosen);
@@ -190,11 +184,7 @@ function MessageField(props: MessageComposerProps) {
       <Listbox
         label={props.label}
         options={options}
-        value={
-          props.edit.recipient
-            ? `${props.edit.recipient.machine}:${props.edit.recipient.agent}`
-            : ''
-        }
+        value=""
         disabled={props.disabled}
         onChange={choose}
         inputTrigger={{
@@ -204,6 +194,7 @@ function MessageField(props: MessageComposerProps) {
             <BrowserField
               controlId={controlId}
               label={props.label}
+              describedByIds={props.describedBy ? [props.describedBy] : []}
               renderControl={(field) => (
                 <ContentEditable
                   {...trigger}
@@ -226,12 +217,45 @@ function MessageField(props: MessageComposerProps) {
                       props.disabled
                     )
                       return;
-                    trigger.onKeyDown?.(event);
+                    if (query && ['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key))
+                      navigated.current = true;
+                    if (event.key === 'Enter' && !event.shiftKey && !navigated.current) {
+                      let next = props.edit;
+                      editor.update(
+                        () => {
+                          next = {
+                            ...$bindMessageMentions(props.candidates ?? [], true),
+                            edited: props.edit.edited,
+                          };
+                        },
+                        { discrete: true },
+                      );
+                      const resolution = resolveMessageMentions(next, props.candidates);
+                      if (resolution.ambiguous.length) {
+                        const ambiguous = resolution.ambiguousTokens[0];
+                        setSuggestions({
+                          open: true,
+                          query: { ...ambiguous.range, query: ambiguous.name },
+                        });
+                        event.preventDefault();
+                        event.stopPropagation();
+                        return;
+                      }
+                      if (props.onSubmit) {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        setOpen(false);
+                        props.onSubmit(native, next);
+                        return;
+                      }
+                    }
+                    if (query || open) trigger.onKeyDown?.(event);
+                    if (event.key === 'Enter' || event.key === 'Escape') navigated.current = false;
                     if (event.defaultPrevented) return;
                     if (event.key === 'Enter' && !event.shiftKey && props.onSubmit) {
                       event.preventDefault();
                       event.stopPropagation();
-                      props.onSubmit(native);
+                      props.onSubmit(native, props.edit);
                     } else if (event.key === 'Escape' && props.onCancel) {
                       event.preventDefault();
                       event.stopPropagation();
@@ -244,24 +268,6 @@ function MessageField(props: MessageComposerProps) {
           ),
         }}
       />
-      {props.recipientPickerLabel && (
-        <BrowserAction
-          type="button"
-          label={props.recipientPickerLabel}
-          variant="text"
-          disabled={
-            props.disabled ||
-            !props.candidates?.some(
-              (candidate) => candidate.online === 'online' && candidate.presence !== 'offline',
-            )
-          }
-          onActivate={(event) => {
-            if (!event.isTrusted) return;
-            editor.focus();
-            setSuggestions((previous) => ({ ...previous, open: true, explicit: true }));
-          }}
-        />
-      )}
     </>
   );
 }

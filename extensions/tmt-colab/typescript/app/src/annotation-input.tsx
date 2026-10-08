@@ -1,13 +1,14 @@
 import { BrowserAction } from '@tmt/browser-ui/react';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { useAgentDirectory } from './agent-directory.js';
 import { MessageComposer } from './components/message-composer.js';
-import type { ComposerEdit, RecipientKey } from './components/message-composer-edit.js';
+import type { ComposerEdit } from './components/message-composer-edit.js';
+import type { CreationRecipient } from './fold-protocol.js';
 import { messageRecipient } from './message-recipient.js';
 import { text } from './strings.js';
 import type { AskBinding, PageAsk } from './ask-panel.js';
 import type { ThreadBinding } from './thread-store.js';
-import { captureConversation, conversationAsks } from './thread-store.js';
+import { captureConversation } from './thread-store.js';
 import type { DiscussionRef, QuoteSelector, ThreadView } from './thread-records.js';
 
 /** One trusted input. Enter is the explicit effect; disclosure never prepares or sends an intent. */
@@ -18,7 +19,7 @@ export function AnnotationInput({
   thread,
   asks,
   title,
-  replier,
+  creationRecipient,
   initialValue,
   initialEdit,
   onDraft,
@@ -35,8 +36,8 @@ export function AnnotationInput({
   thread?: ThreadView;
   asks: readonly PageAsk[];
   title: string;
-  /** Chat only: the agent that answered last. */
-  replier?: RecipientKey;
+  /** Stable creation UUIDs from the admitted page projection, never a publisher label. */
+  creationRecipient?: CreationRecipient;
   /** A draft kept from an earlier close of the same selection. */
   initialValue?: string;
   initialEdit?: ComposerEdit;
@@ -53,6 +54,11 @@ export function AnnotationInput({
 }) {
   const [edit, setEdit] = useState<ComposerEdit>(initialEdit ?? { value: initialValue ?? '' });
   const value = edit.value;
+  const statusId = useId();
+  const initialized = useRef(initialEdit !== undefined || !!initialValue);
+  const [failures, setFailures] = useState<
+    { agent: string; message: string; uncertain: boolean }[]
+  >([]);
   const [resetKey, setResetKey] = useState(0);
   const [busy, setBusy] = useState(false);
   const sending = useRef(false);
@@ -80,50 +86,73 @@ export function AnnotationInput({
     onDraft?.(value, edit);
   }, [value, edit]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => onBusy?.(busy), [busy]); // eslint-disable-line react-hooks/exhaustive-deps
-  const prior = conversationAsks(thread, asks)
-    .filter((ask) => ask.reply !== undefined)
-    .map((ask) => ({ machine: ask.machine, agent: ask.agent }));
-  const decide = (intent: 'comment' | 'agent') =>
+  useEffect(() => {
+    if (initialized.current || directory.state !== 'ready') return;
+    initialized.current = true;
+    const matches = creationRecipient
+      ? directory.agents.filter(
+          (agent) =>
+            agent.machine === creationRecipient.machineId &&
+            agent.agent === creationRecipient.agentId,
+        )
+      : [];
+    setEdit((previous) => {
+      if (previous.value || previous.edited || matches.length !== 1)
+        return { ...previous, edited: previous.edited ?? false };
+      const agent = matches[0],
+        token = `@${agent.agentName}`;
+      return {
+        value: `${token} `,
+        edited: false,
+        mentions: [
+          {
+            key: { machine: agent.machine, agent: agent.agent },
+            range: { start: 0, end: token.length },
+          },
+        ],
+      };
+    });
+  }, [directory, creationRecipient]);
+  const decide = (current: ComposerEdit) =>
     messageRecipient({
       writable: !blocked && !!discussion,
-      intent,
+      edit: current,
       destinations: agents,
-      selected: edit.recipient,
-      replyRecipients: chat ? [] : prior,
-      lastReplier: replier,
     });
-  const decision = decide('agent');
-  const destination = decision.kind === 'agent' ? decision.destination : undefined;
+  const decision = decide(edit);
   const quote = thread?.anchor?.exact ?? anchor?.exact ?? '';
-  const defaultIntent = chat || prior.length || edit.recipient ? 'agent' : 'comment';
+  const audience = decision.agents
+    .map((agent) => `@${agent.agentName}${agent.presence === 'offline' ? ' (offline)' : ''}`)
+    .join(', ');
+  const status = decision.tooMany
+    ? text.messageRecipientLimit
+    : decision.ambiguous.length
+      ? text.messageAmbiguous(decision.ambiguous[0])
+      : decision.unavailable.length
+        ? text.messageRecipientUnavailable(decision.unavailable[0])
+        : decision.unknown.length
+          ? text.messageUnknown(decision.unknown[0], audience)
+          : audience
+            ? text.messageAsks(audience)
+            : agents?.length === 0
+              ? text.messageAgentsEmpty
+              : text.messageComment;
   function clearDraft() {
-    setEdit((previous) => ({ value: '', recipient: previous.recipient }));
+    initialized.current = true;
+    setEdit({ value: '', edited: true });
     setResetKey((key) => key + 1);
   }
-  async function send(intent: 'comment' | 'agent') {
-    if (sending.current || recorded || (blocked && recoveryRequired)) return;
-    // No Ask before the current directory is read: nothing to say, nothing to send.
-    if (intent === 'agent' && directory.state !== 'ready') return;
-    const admitted = decide(intent);
-    if (admitted.kind === 'blocked' || !discussion || (intent === 'agent' && !binding)) {
-      setError(text.messageUnavailable);
-      return;
-    }
-    if (intent === 'agent' && admitted.kind !== 'agent') {
-      setError(
-        decision.kind === 'unavailable'
-          ? text.messageAgentsUnavailable
-          : text.messageChooseRecipient,
-      );
-      return;
-    }
-    if (!value.trim()) {
+  async function send(current: ComposerEdit = edit) {
+    if (sending.current || recorded || blocked || !discussion) return;
+    const admitted = decide(current);
+    if (!admitted.allowed || (admitted.agents.length && !binding)) return;
+    if (!current.value.trim()) {
       setError(text.messageWrite);
       return;
     }
     const captured = {
-      value,
-      destination: admitted.kind === 'agent' ? structuredClone(admitted.destination) : undefined,
+      value: current.value,
+      destinations: structuredClone(admitted.agents),
       anchor: structuredClone(anchor),
       thread: thread?.ref,
       threadRevision: thread?.revision,
@@ -141,18 +170,46 @@ export function AnnotationInput({
         : chat
           ? await discussion.createChat(captured.value)
           : await discussion.create(captured.value, captured.anchor);
-      if (captured.destination && binding) {
-        const attempt = await binding.prepare({
-          quote,
-          comment: captured.value,
-          title: captured.title,
-          url: captured.url,
-          destination: captured.destination,
-          context: { ...origin, conversation: captured.conversation },
-        });
-        const outcome = await attempt.send();
-        if (!['accepted', 'held', 'uncertain'].includes(outcome.state))
-          setError(text.messageRecordedDeliveryFailed);
+      for (const destination of captured.destinations) {
+        if (!binding) break;
+        let attempt: Awaited<ReturnType<AskBinding['prepare']>>;
+        try {
+          attempt = await binding.prepare({
+            quote,
+            comment: captured.value,
+            title: captured.title,
+            url: captured.url,
+            destination,
+            context: { ...origin, conversation: captured.conversation },
+          });
+        } catch {
+          // Failed preparation grants no authority to invent an Ask record or retry a sibling.
+          setFailures((previous) => [
+            ...previous,
+            { agent: destination.agentName, message: origin!.message.id, uncertain: false },
+          ]);
+          continue;
+        }
+        try {
+          const result = await attempt.send();
+          if (
+            result.adopted === false ||
+            (result.adopted === undefined && result.state === 'uncertain')
+          )
+            setFailures((previous) => [
+              ...previous,
+              {
+                agent: destination.agentName,
+                message: origin!.message.id,
+                uncertain: result.adopted !== false,
+              },
+            ]);
+        } catch {
+          setFailures((previous) => [
+            ...previous,
+            { agent: destination.agentName, message: origin!.message.id, uncertain: true },
+          ]);
+        }
       }
       clearDraft();
       committed(origin.thread);
@@ -172,21 +229,19 @@ export function AnnotationInput({
       <MessageComposer
         edit={edit}
         onChange={(next) => {
-          setEdit(next);
+          initialized.current = true;
+          setEdit({ ...next, edited: true });
           setError(undefined);
         }}
         label={text.messageLabel}
         placeholder={text.messagePlaceholder}
         candidates={agents}
-        recipientPickerLabel={
-          destination ? text.messageChangeRecipient : text.messageSelectRecipient
-        }
+        describedBy={statusId}
         resetKey={resetKey}
         autoFocus
         disabled={busy || (blocked && !recoveryRequired) || !!recorded || !discussion}
-        onSubmit={(event) => {
-          if (event.isTrusted && !event.isComposing && event.keyCode !== 229)
-            void send(defaultIntent);
+        onSubmit={(event, current) => {
+          if (event.isTrusted && !event.isComposing && event.keyCode !== 229) void send(current);
         }}
         onCancel={(event) => {
           if (event.isTrusted && !event.isComposing && event.keyCode !== 229 && !sending.current)
@@ -194,7 +249,7 @@ export function AnnotationInput({
         }}
       />
       <div className="annotation-status-row">
-        <p role="status" className="annotation-hint">
+        <p id={statusId} role="status" className="annotation-hint">
           {busy
             ? text.messageSending
             : recoveryRequired
@@ -202,10 +257,8 @@ export function AnnotationInput({
               : binding && directory.state === 'loading'
                 ? text.messageAgentsChecking
                 : binding && directory.state === 'failed'
-                  ? chat
-                    ? text.messageAgentsUnavailable
-                    : `${text.messageAgentsUnavailable} ${text.messageCommentAvailable}`
-                  : text.messageKeys}
+                  ? `${text.messageAgentsUnavailable} ${text.messageCommentAvailable}`
+                  : status}
           {!busy &&
             !recoveryRequired &&
             binding &&
@@ -218,6 +271,7 @@ export function AnnotationInput({
                 </small>
               </>
             )}
+
         </p>
         {binding && !busy && !recoveryRequired && (directory.state === 'failed' || retrying) && (
           <span data-agent-retry>
@@ -235,43 +289,39 @@ export function AnnotationInput({
             />
           </span>
         )}
-      </div>
-      {destination && (
-        <p className="annotation-hint">
-          {text.messageRecipient}: {destination.agentName} · {destination.machineName}
-        </p>
-      )}
-      <div className="comment-actions">
-        {!chat && (
-          <BrowserAction
-            type="button"
-            label={thread ? text.commentPostReply : text.commentPost}
-            variant={defaultIntent === 'comment' ? 'primary' : 'text'}
-            busy={busy}
-            disabled={blocked || !!recorded || !discussion || !value.trim()}
-            onActivate={(event) => {
-              if (event.isTrusted) void send('comment');
-            }}
-          />
-        )}
         <BrowserAction
           type="button"
-          label={chat ? text.askSend : text.ask}
-          variant={defaultIntent === 'agent' ? 'primary' : 'text'}
+          label={text.askSend}
+          variant="primary"
           busy={busy}
           disabled={
             blocked ||
             !!recorded ||
             !discussion ||
-            !binding ||
-            directory.state !== 'ready' ||
-            !value.trim()
+            !value.trim() ||
+            !decision.allowed ||
+            (!!decision.agents.length && !binding)
           }
           onActivate={(event) => {
-            if (event.isTrusted) void send('agent');
+            if (event.isTrusted) void send();
           }}
         />
       </div>
+      {failures.map((failure, index) => (
+        <div
+          role="status"
+          data-testid="recipient-failure"
+          data-message-id={failure.message}
+          key={index}
+        >
+          <p>
+            @{failure.agent} · {failure.uncertain ? text.askUnconfirmed : text.askNotDelivered}
+          </p>
+          <p className="ask-supporting">
+            {failure.uncertain ? text.askUncertain : text.messageAskAgain(failure.agent)}
+          </p>
+        </div>
+      ))}
       {error && <p role="alert">{error}</p>}
       {recorded && (chat || !thread) && (
         <BrowserAction
