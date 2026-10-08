@@ -77,9 +77,10 @@ for (const width of [1440, 390])
           await expect(
             window.getByRole('button', { name: 'Delete thread', exact: true }),
           ).toHaveAttribute('data-variant', 'text');
-          await expect(
-            page.getByRole('button', { name: 'Post reply', exact: true }),
-          ).toHaveAttribute('data-variant', 'primary');
+          await expect(page.getByRole('button', { name: 'Send', exact: true })).toHaveAttribute(
+            'data-variant',
+            'primary',
+          );
           const label = window
             .getByRole('button', { name: 'Delete thread', exact: true })
             .locator('.tmt-ui-action-label');

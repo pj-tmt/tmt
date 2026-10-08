@@ -8,7 +8,8 @@ export interface PreviewAttempt {
   readonly preview: FrozenAsk;
   readonly available: boolean;
   readonly state: Readonly<{ state: LedgerState | 'preview' | 'preparing' }>;
-  send(): Promise<Readonly<{ state: LedgerState | 'preview' | 'preparing' }>>;
+  /** False proves adoption never started; omitted means adoption is unknown. */
+  send(): Promise<Readonly<{ state: LedgerState | 'preview' | 'preparing'; adopted?: boolean }>>;
 }
 import { escapedPreview } from './ask-intent.js';
 import { text } from './strings.js';

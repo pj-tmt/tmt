@@ -296,7 +296,8 @@ for (const selected of [false, true]) {
     });
     expect((await run(page, 'proof')).sends).toEqual([]);
     expect(await run(page, 'discussionProof')).toEqual([]);
-    await drawer.getByRole('button', { name: 'Choose recipient', exact: true }).click();
+    await input.press('End');
+    await input.pressSequentially(' @');
     await drawer.getByRole('option').first().click();
     await input.press('Enter');
     await expect.poll(async () => (await run(page, 'proof')).sends.length).toBe(1);

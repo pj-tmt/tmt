@@ -3,7 +3,7 @@ import { CircleAlert, Clock, Pause } from 'lucide-react';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { PreviewAttempt } from './ask-preview.js';
 import { ASK_OBSERVATION_MS, type LedgerState } from './ask-records.js';
-import { ReadRefusedError } from './ask-remote.js';
+import { ReadRefusedError, REMOTE_REFUSAL_CODES } from './ask-remote.js';
 import type { RemoteAgent } from './ask-remote.js';
 import type { AskDestination } from './ask-intent.js';
 import type { AgentDirectoryObservation } from './live-ask.js';
@@ -145,6 +145,142 @@ export function AskPanel({
     abandoned: text.askAbandoned,
   };
 
+  const turns = records.map((record) => {
+    const timedOut =
+      record.state === 'accepted' &&
+      !record.resultUnavailable &&
+      record.reply === undefined &&
+      now >= record.issuedAt + ASK_OBSERVATION_MS;
+    const stateCopy =
+      record.state === 'refused'
+        ? (refusals[record.reason ?? ''] ?? states.refused)
+        : record.state === 'accepted' && (record.reply !== undefined || record.resultUnavailable)
+          ? text.askDeliveryAccepted
+          : states[record.state];
+    const agent = record.agentName || text.askAgentLabel;
+    const deliveryState: { mark: ReactNode; tone: string; label: string } = timedOut
+      ? { mark: <Clock />, tone: 'waiting', label: text.askNoReply(agent) }
+      : ['dispatching', 'accepted'].includes(record.state) && !record.resultUnavailable
+        ? { mark: <Clock />, tone: 'waiting', label: text.askWaiting(agent) }
+        : record.state === 'held'
+          ? { mark: <Pause />, tone: 'held', label: text.askApproval }
+          : {
+              mark: <CircleAlert />,
+              tone: 'problem',
+              label: record.resultUnavailable
+                ? text.askResultUnavailable
+                : record.state === 'uncertain'
+                  ? text.askUnconfirmed
+                  : record.state === 'abandoned'
+                    ? text.askTrackingAbandoned
+                    : text.askNotDelivered,
+            };
+    const canRecheck =
+      ['uncertain', 'held', 'dispatching', 'accepted'].includes(record.state) &&
+      record.reply === undefined &&
+      !record.resultUnavailable;
+    const disabled = !binding || blocked || !record.canTrack || pending.has(record.operationId);
+    const status = record.reply === undefined && (
+      <span className="conversation-status" aria-label={`Ask ${agent}`}>
+        <span role="status" data-testid="ask-state" data-state={record.state}>
+          <span className="ask-state" data-tone={deliveryState.tone}>
+            <span className="ask-state-mark" aria-hidden>
+              {deliveryState.mark}
+            </span>
+            {records.length > 1 ? `@${agent} · ` : ''}
+            {deliveryState.label}
+          </span>
+        </span>
+        {canRecheck && (
+          <>
+            <button
+              className="ask-status-action"
+              disabled={disabled}
+              onClick={(event) => {
+                if (event.isTrusted && record.canTrack) void action(record, 'recheck');
+              }}
+            >
+              {text.askRecheck}
+            </button>
+            {record.state === 'uncertain' && (
+              <button
+                className="ask-status-action"
+                disabled={disabled}
+                onClick={(event) => {
+                  if (event.isTrusted) void action(record, 'abandon');
+                }}
+              >
+                {text.askAbandon}
+              </button>
+            )}
+          </>
+        )}
+      </span>
+    );
+    // Only the page-level ask list carries identities; no surface shows the delivered bytes on demand.
+    const details = inline ? null : (
+      <details>
+        <summary>{text.askDetails}</summary>
+        <dl className="ask-identities">
+          <dt>{text.askAgent}</dt>
+          <dd>{record.agent}</dd>
+          <dt>{text.askDeviceLabel}</dt>
+          <dd>{record.writer}</dd>
+          <dt>{text.askMachine}</dt>
+          <dd>{record.machine}</dd>
+          <dt>{text.askOperation}</dt>
+          <dd>{record.operationId}</dd>
+        </dl>
+      </details>
+    );
+    const supporting = record.resultUnavailable
+      ? `${text.askDeliveryAccepted} ${text.askFinalUnavailable}`
+      : record.reply === undefined && !['dispatching', 'accepted'].includes(record.state)
+        ? stateCopy
+        : undefined;
+    const controls = (
+      <>
+        {supporting && (
+          <p className="ask-supporting">
+            {records.length > 1 ? `@${agent} · ` : ''}
+            {supporting}
+          </p>
+        )}
+        {record.reply === undefined &&
+          record.state === 'refused' &&
+          REMOTE_REFUSAL_CODES.some((code) => code === record.reason) && (
+            <p className="ask-supporting">{text.messageAskAgain(agent)}</p>
+          )}
+        {record.state === 'uncertain' &&
+          ['REMOTE_SESSION_ENDED', 'REMOTE_SEQUENCE_UNAVAILABLE'].includes(record.reason ?? '') && (
+            <p className="ask-supporting">{text.askSessionEnded}</p>
+          )}
+        {errors.has(record.operationId) && <p role="alert">{errors.get(record.operationId)}</p>}
+      </>
+    );
+    const reply = record.reply !== undefined && (
+      <ConversationTurn
+        role="agent"
+        author={record.agentName || text.askAgentLabel}
+        at={record.issuedAt}
+        authorTitle={record.agent}
+        bylineTestId="ask-reply-attribution"
+        aria-label={text.askReply}
+      >
+        <pre data-testid="ask-reply" data-empty={record.reply === ''}>
+          <MessageText value={record.reply} names={[record.agentName]} />
+        </pre>
+        {record.reply === '' && <p>{text.askEmptyReply}</p>}
+      </ConversationTurn>
+    );
+    const delivery = (
+      <>
+        {controls}
+        {details}
+      </>
+    );
+    return { record, status, delivery, reply };
+  });
   return (
     <section className="ask-panel" aria-label={text.asks} data-testid="ask-panel">
       {!inline && (
@@ -154,130 +290,7 @@ export function AskPanel({
         </>
       )}
       {!inline && records.length === 0 && <p>{text.askEmpty}</p>}
-      {records.map((record) => {
-        const timedOut =
-          record.state === 'accepted' &&
-          !record.resultUnavailable &&
-          record.reply === undefined &&
-          now >= record.issuedAt + ASK_OBSERVATION_MS;
-        const stateCopy =
-          record.state === 'refused'
-            ? (refusals[record.reason ?? ''] ?? states.refused)
-            : record.state === 'accepted' &&
-                (record.reply !== undefined || record.resultUnavailable)
-              ? text.askDeliveryAccepted
-              : states[record.state];
-        const agent = record.agentName || text.askAgentLabel;
-        const deliveryState: { mark: ReactNode; tone: string; label: string } = timedOut
-          ? { mark: <Clock />, tone: 'waiting', label: text.askNoReply(agent) }
-          : ['dispatching', 'accepted'].includes(record.state) && !record.resultUnavailable
-            ? { mark: <Clock />, tone: 'waiting', label: text.askWaiting(agent) }
-            : record.state === 'held'
-              ? { mark: <Pause />, tone: 'held', label: text.askApproval }
-              : {
-                  mark: <CircleAlert />,
-                  tone: 'problem',
-                  label: record.resultUnavailable
-                    ? text.askResultUnavailable
-                    : record.state === 'uncertain'
-                      ? text.askUnconfirmed
-                      : record.state === 'abandoned'
-                        ? text.askTrackingAbandoned
-                        : text.askNotDelivered,
-                };
-        const canRecheck =
-          ['uncertain', 'held', 'dispatching', 'accepted'].includes(record.state) &&
-          record.reply === undefined &&
-          !record.resultUnavailable;
-        const disabled = !binding || blocked || !record.canTrack || pending.has(record.operationId);
-        const status = record.reply === undefined && (
-          <span className="conversation-status">
-            <span role="status" data-testid="ask-state" data-state={record.state}>
-              <span className="ask-state" data-tone={deliveryState.tone}>
-                <span className="ask-state-mark" aria-hidden>
-                  {deliveryState.mark}
-                </span>
-                {deliveryState.label}
-              </span>
-            </span>
-            {canRecheck && (
-              <>
-                <button
-                  className="ask-status-action"
-                  disabled={disabled}
-                  onClick={(event) => {
-                    if (event.isTrusted && record.canTrack) void action(record, 'recheck');
-                  }}
-                >
-                  {text.askRecheck}
-                </button>
-                {record.state === 'uncertain' && (
-                  <button
-                    className="ask-status-action"
-                    disabled={disabled}
-                    onClick={(event) => {
-                      if (event.isTrusted) void action(record, 'abandon');
-                    }}
-                  >
-                    {text.askAbandon}
-                  </button>
-                )}
-              </>
-            )}
-          </span>
-        );
-        // Only the page-level ask list carries identities; no surface shows the delivered bytes on demand.
-        const details = inline ? null : (
-          <details>
-            <summary>{text.askDetails}</summary>
-            <dl className="ask-identities">
-              <dt>{text.askAgent}</dt>
-              <dd>{record.agent}</dd>
-              <dt>{text.askDeviceLabel}</dt>
-              <dd>{record.writer}</dd>
-              <dt>{text.askMachine}</dt>
-              <dd>{record.machine}</dd>
-              <dt>{text.askOperation}</dt>
-              <dd>{record.operationId}</dd>
-            </dl>
-          </details>
-        );
-        const supporting = record.resultUnavailable
-          ? `${text.askDeliveryAccepted} ${text.askFinalUnavailable}`
-          : record.reply === undefined && !['dispatching', 'accepted'].includes(record.state)
-            ? stateCopy
-            : undefined;
-        const controls = (
-          <>
-            {supporting && <p className="ask-supporting">{supporting}</p>}
-            {record.state === 'uncertain' &&
-              ['REMOTE_SESSION_ENDED', 'REMOTE_SEQUENCE_UNAVAILABLE'].includes(
-                record.reason ?? '',
-              ) && <p className="ask-supporting">{text.askSessionEnded}</p>}
-            {errors.has(record.operationId) && <p role="alert">{errors.get(record.operationId)}</p>}
-          </>
-        );
-        const reply = record.reply !== undefined && (
-          <ConversationTurn
-            role="agent"
-            author={record.agentName || text.askAgentLabel}
-            at={record.issuedAt}
-            authorTitle={record.agent}
-            bylineTestId="ask-reply-attribution"
-            aria-label={text.askReply}
-          >
-            <pre data-testid="ask-reply" data-empty={record.reply === ''}>
-              <MessageText value={record.reply} names={[record.agentName]} />
-            </pre>
-            {record.reply === '' && <p>{text.askEmptyReply}</p>}
-          </ConversationTurn>
-        );
-        const delivery = (
-          <>
-            {controls}
-            {details}
-          </>
-        );
+      {turns.map(({ record, status, delivery, reply }, index) => {
         return (
           <div
             className="conversation-exchange"
@@ -290,7 +303,20 @@ export function AskPanel({
             aria-label={`${text.ask} ${record.operationId}`}
           >
             {renderUser ? (
-              renderUser(record, status, delivery)
+              index === 0 &&
+              renderUser(
+                record,
+                <>
+                  {turns.map((turn) => (
+                    <span key={turn.record.operationId}>{turn.status}</span>
+                  ))}
+                </>,
+                <>
+                  {turns.map((turn) => (
+                    <div key={turn.record.operationId}>{turn.delivery}</div>
+                  ))}
+                </>,
+              )
             ) : (
               <ConversationTurn
                 role="user"

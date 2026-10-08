@@ -17,13 +17,18 @@ export const text = {
   messageCommentAvailable: 'You can still post a comment.',
   messageAgentsChecking: 'Checking for agents…',
   messageAgentsRetry: 'Try again',
-  messageChooseRecipient: 'Choose a recipient to ask an agent.',
   messageWrite: 'Write a message.',
   messageSending: 'Sending…',
-  messageKeys: 'Enter sends · Shift+Enter adds a line · Esc closes',
-  messageRecipient: 'Recipient',
-  messageSelectRecipient: 'Choose recipient',
-  messageChangeRecipient: 'Change recipient',
+  messageComment: 'Posts as a comment.',
+  messageAsks: (audience: string) => `Asks ${audience}.`,
+  messageUnknown: (name: string, audience: string) =>
+    `No agent named @${name}. ${audience ? `Asks ${audience}.` : 'This posts as a comment.'}`,
+  messageAmbiguous: (name: string) => `Several agents are named @${name}. Choose one.`,
+  messageRecipientUnavailable: (name: string) =>
+    `@${name} is unavailable. Remove the mention to post.`,
+  messageRecipientLimit: 'Mention up to 8 agents per message.',
+  messageAgentsEmpty: 'No agents are available. This posts as a comment.',
+  messageAskAgain: (name: string) => `Mention @${name} in a new message to ask again.`,
   messageRecordedDeliveryFailed: 'Delivery failed. The recorded turn was kept.',
   messageRecordedUncertain:
     'The turn was recorded, but delivery is unavailable or uncertain. Check the thread before sending again.',

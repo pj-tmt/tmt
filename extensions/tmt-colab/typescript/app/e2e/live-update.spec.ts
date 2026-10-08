@@ -333,12 +333,12 @@ for (const width of [1440, 390]) {
       expect(Math.abs((await dialog.boundingBox())!.y - before.y)).toBeLessThan(2);
       expect(Math.abs((await page.evaluate(() => window.scrollY)) - scroll)).toBeLessThan(2);
       await annotationInput(dialog, 'Agent 1');
-      await input.fill('Second turn from the same window.');
+      await input.fill('@Agent 1 Second turn from the same window.');
       await input.press('Enter');
       await expect(thread.getByTestId('comment-entry')).toHaveCount(2);
       await expect.poll(async () => (await run(page, 'proof')).sends.length).toBe(1);
       await expect(
-        thread.getByText('Second turn from the same window.', { exact: true }),
+        thread.getByText('@Agent 1 Second turn from the same window.', { exact: true }),
       ).toBeInViewport({ ratio: 1 });
       const threadId = await thread.getAttribute('data-thread-id');
       const editorBox = (await input.boundingBox())!;
@@ -384,19 +384,19 @@ for (const width of [1440, 390]) {
       await expect(thread.getByTestId('ask-reply')).toBeInViewport({ ratio: 1 });
       expect(await messages.evaluate((node) => node.clientHeight)).toBeGreaterThanOrEqual(240);
       await page.screenshot({ path: `${captureDir}/window-${width}-${theme}-reply.png` });
-      await input.fill('Exact unsent draft retained on collapse.');
+      await input.fill('@Agent 1 Exact unsent draft retained on collapse.');
       await page.getByRole('heading', { name: 'Unrelated live title', exact: true }).click();
       await expect(dialog).toHaveCount(0);
-      // Reopening via the associated marker restores the thread, quote and selected recipient.
+      // Reopening via the associated marker restores the thread, quote and bound mention.
       const marker = page
         .frameLocator('#ask-page-fixture iframe')
         .locator(`[data-colab-thread$="${threadId}"]`);
       await marker.click();
       await expect(thread).toHaveAttribute('data-thread-id', threadId!);
-      await expect(input).toHaveText('Exact unsent draft retained on collapse.', {
+      await expect(input).toHaveText('@Agent 1 Exact unsent draft retained on collapse.', {
         useInnerText: true,
       });
-      await expect(dialog.getByText('Recipient: Agent 1', { exact: false })).toBeVisible();
+      await expect(dialog.locator('.annotation-status-row')).toContainText('Asks @Agent 1.');
       await expect(thread.getByTestId('ask-reply')).toBeInViewport({ ratio: 1 });
       await expect(thread.locator('blockquote')).toHaveText('Exact selected text');
       await expect(page.locator('.page-drawer[open]')).toHaveCount(0);

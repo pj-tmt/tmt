@@ -23,7 +23,7 @@ function host() {
   return main;
 }
 
-export function mountComposer(options: { agents: string[]; selected?: number; replier?: string }) {
+export function mountComposer(options: { agents: string[] }) {
   const base = destination();
   const agents = options.agents.map((agentName, index) => ({
     ...base,
@@ -56,16 +56,7 @@ export function mountComposer(options: { agents: string[]; selected?: number; re
       anchor={null}
       asks={[]}
       title="Chat page"
-      initialEdit={{
-        value: '',
-        recipient: options.selected === undefined ? undefined : agents[options.selected],
-      }}
-      replier={(() => {
-        const matches = agents.filter((agent) => agent.agentName === options.replier);
-        return matches.length === 1
-          ? { machine: matches[0].machine, agent: matches[0].agent }
-          : undefined;
-      })()}
+      initialEdit={{ value: '', edited: true }}
       blocked={false}
       cancel={() => {}}
       committed={() => {}}
