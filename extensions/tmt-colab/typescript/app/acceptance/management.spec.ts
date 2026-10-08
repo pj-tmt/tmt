@@ -98,7 +98,7 @@ test('native sharing and lifecycle verification preserve Ask, page recovery and 
     await expect(dialog.getByRole('status')).toContainText('Change verified');
     await dialog.getByRole('button', { name: 'Manage another change' }).click();
     await dialog.getByRole('button', { name: 'Create link', exact: true }).click();
-    await expect(dialog).toContainText('Shared links open in a separate read-only browser view.');
+    await expect(dialog).toContainText('Shared links open read-only, whatever their role.');
     const captureCopy = async (phase: 'confirm' | 'verified') => {
       for (const width of [1440, 390]) {
         await page.setViewportSize({ width, height: 900 });
@@ -121,9 +121,7 @@ test('native sharing and lifecycle verification preserve Ask, page recovery and 
     await expect(dialog.getByLabel('Link seed')).toHaveCount(0);
     await dialog.getByRole('button', { name: 'Confirm create link' }).click();
     await expect(dialog.getByLabel('Link seed')).toHaveValue(/^[A-Za-z0-9_-]{43}$/);
-    await expect(dialog).toContainText(
-      'This dialog shows the ID and seed, not an openable reader URL.',
-    );
+    await expect(dialog).toContainText('This dialog does not create a URL to open.');
     await captureCopy('verified');
     const oldLink = await dialog.getByLabel('Link ID', { exact: true }).inputValue();
     await dialog.getByRole('button', { name: 'Manage another change' }).click();
