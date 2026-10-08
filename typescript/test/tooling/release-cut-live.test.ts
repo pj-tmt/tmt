@@ -1,7 +1,7 @@
 import { spawnSync, type SpawnSyncReturns } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { availableParallelism, cpus, loadavg, tmpdir } from 'node:os';
-import { performance } from 'node:perf_hooks';
+import { performance, type EventLoopUtilization } from 'node:perf_hooks';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 import {
@@ -17,6 +17,7 @@ import { checkMigration, releaseCommits } from '../../scripts/publication-gates.
 import { writeReleaseWorkspace } from '../support/release-workspace-fixture.js';
 
 // This observer belongs to this real-Git scenario; it never changes subprocess or test deadlines.
+// CPU covers the process (including sibling threads); ELU covers this worker, including blocked calls.
 function releaseCutDiagnostics(
   now: () => number,
   context: {
@@ -25,6 +26,12 @@ function releaseCutDiagnostics(
     availableParallelism: number;
     workerId: string | null;
     poolId: string | null;
+    workerCount: number | null;
+  },
+  observations = {
+    cpuUsage: () => process.cpuUsage(),
+    eventLoopUtilization: (...args: Parameters<typeof performance.eventLoopUtilization>) =>
+      performance.eventLoopUtilization(...args),
   }
 ) {
   const startedMs = now();
@@ -35,16 +42,45 @@ function releaseCutDiagnostics(
     signal: string | null;
     error: string | null;
   }[] = [];
-  const phases: { name: string; elapsedMs: number }[] = [];
-  let phase: { name: string; startedMs: number } | undefined;
-  const finishPhase = (endedMs: number) => {
-    if (phase) phases.push({ name: phase.name, elapsedMs: endedMs - phase.startedMs });
+  let phase:
+    | {
+        name: string;
+        startedMs: number;
+        cpuUsage: NodeJS.CpuUsage;
+        eventLoopUtilization: EventLoopUtilization;
+      }
+    | undefined;
+  const phaseReport = (
+    current: NonNullable<typeof phase>,
+    endedMs: number,
+    cpuUsage: NodeJS.CpuUsage,
+    eventLoopUtilization: EventLoopUtilization
+  ) => {
+    const user = (cpuUsage.user - current.cpuUsage.user) / 1_000;
+    const system = (cpuUsage.system - current.cpuUsage.system) / 1_000;
+    const elu = observations.eventLoopUtilization(
+      eventLoopUtilization,
+      current.eventLoopUtilization
+    );
+    return {
+      name: current.name,
+      elapsedMs: endedMs - current.startedMs,
+      processCpuMs: { user, system, total: user + system },
+      eventLoopUtilization: {
+        idleMs: elu.idle,
+        activeMs: elu.active,
+        utilization: elu.utilization,
+      },
+    };
   };
+  const phases: ReturnType<typeof phaseReport>[] = [];
   return {
     phase(name: string) {
       const startedMs = now();
-      finishPhase(startedMs);
-      phase = { name, startedMs };
+      const cpuUsage = observations.cpuUsage();
+      const eventLoopUtilization = observations.eventLoopUtilization();
+      if (phase) phases.push(phaseReport(phase, startedMs, cpuUsage, eventLoopUtilization));
+      phase = { name, startedMs, cpuUsage, eventLoopUtilization };
     },
     git(args: string[], execute: () => SpawnSyncReturns<string>) {
       const startedMs = now();
@@ -73,7 +109,16 @@ function releaseCutDiagnostics(
       const elapsedMs = endedMs - startedMs;
       if (elapsedMs <= 5_000) return null;
       // Include an unfinished phase when the await/assertion fails; do not add a timer.
-      const current = phase ? [{ name: phase.name, elapsedMs: endedMs - phase.startedMs }] : [];
+      const current = phase
+        ? [
+            phaseReport(
+              phase,
+              endedMs,
+              observations.cpuUsage(),
+              observations.eventLoopUtilization()
+            ),
+          ]
+        : [];
       return {
         elapsedMs,
         context,
@@ -95,6 +140,8 @@ beforeEach(() => {
     availableParallelism: availableParallelism(),
     workerId: process.env.VITEST_WORKER_ID ?? null,
     poolId: process.env.VITEST_POOL_ID ?? null,
+    // The public test API has no pool-size getter; IDs and the static config are not a live count.
+    workerCount: null,
   });
 });
 afterEach(({ task }) => {
@@ -642,6 +689,7 @@ describe('release cut slow-case diagnostics', () => {
     availableParallelism: 6,
     workerId: '2',
     poolId: '1',
+    workerCount: 2,
   };
   const success: SpawnSyncReturns<string> = {
     pid: 1,
@@ -660,6 +708,65 @@ describe('release cut slow-case diagnostics', () => {
     expect(trace.report()).toBeNull();
     elapsedMs = 5_001;
     expect(trace.report()).toMatchObject({ elapsedMs: 5_001, context, gitCallCount: 0 });
+  });
+  it('records exact CPU and worker ELU deltas for closed and unfinished slow-case phases', () => {
+    let elapsedMs = 0;
+    let cpuUsage = { user: 1_000, system: 2_000 };
+    let elu = { idle: 100, active: 200, utilization: 2 / 3 };
+    const observations = {
+      cpuUsage: () => cpuUsage,
+      eventLoopUtilization: vi.fn((end?: EventLoopUtilization, start?: EventLoopUtilization) => {
+        if (!end || !start) return elu;
+        const idle = end.idle - start.idle;
+        const active = end.active - start.active;
+        return { idle, active, utilization: active / (idle + active) };
+      }),
+    };
+    const trace = releaseCutDiagnostics(() => elapsedMs, context, observations);
+    trace.phase('fixture');
+    elapsedMs = 200;
+    cpuUsage = { user: 126_000, system: 52_000 };
+    elu = { idle: 125, active: 375, utilization: 0.75 };
+    trace.phase('coordinator');
+    elapsedMs = 6_200;
+    cpuUsage = { user: 1_376_000, system: 302_000 };
+    elu = { idle: 4_625, active: 1_875, utilization: 1_875 / 6_500 };
+    const report = trace.report();
+    expect(report).toEqual({
+      elapsedMs: 6_200,
+      context,
+      phases: [
+        {
+          name: 'fixture',
+          elapsedMs: 200,
+          processCpuMs: { user: 125, system: 50, total: 175 },
+          eventLoopUtilization: { idleMs: 25, activeMs: 175, utilization: 0.875 },
+        },
+        {
+          name: 'coordinator',
+          elapsedMs: 6_000,
+          processCpuMs: { user: 1_250, system: 250, total: 1_500 },
+          eventLoopUtilization: { idleMs: 4_500, activeMs: 1_500, utilization: 0.25 },
+        },
+      ],
+      gitCallCount: 0,
+      gitElapsedMs: 0,
+      slowestGitCalls: [],
+    });
+    expect(observations.eventLoopUtilization).toHaveBeenLastCalledWith(elu, {
+      idle: 125,
+      active: 375,
+      utilization: 0.75,
+    });
+    // Reporting does not reset the unfinished phase or reuse the prior delta as a baseline.
+    expect(trace.report()).toEqual(report);
+    const unknownWorkers = releaseCutDiagnostics(
+      () => elapsedMs,
+      { ...context, workerCount: null },
+      observations
+    );
+    elapsedMs += 5_001;
+    expect(unknownWorkers.report()?.context.workerCount).toBeNull();
   });
   it('keeps only the slowest twelve bounded argv records while retaining complete totals', () => {
     let elapsedMs = 0;
