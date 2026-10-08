@@ -4,6 +4,6 @@ expression: text
 ---
 EXTENSIONS 2
   office  not installed        update: available
-  squad   0.1.0-alpha.1…       update: current
+  ops     0.1.0-alpha.1…       update: current
           shadowed on PATH b…
           shadowed on PATH b…
