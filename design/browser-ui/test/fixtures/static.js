@@ -1,5 +1,36 @@
 import { placeIconActionTooltip } from '../../src/icon-action-tooltip.ts';
 
+for (const variant of ['text', 'primary', 'destructive']) {
+  for (const suppliedMark of [false, true]) {
+    for (const busy of [false, true]) {
+      const cell = document.createElement('div');
+      cell.className = 'fixture-action';
+      const caption = document.createElement('span');
+      caption.textContent = `${variant}, ${suppliedMark ? 'mark' : 'no mark'}, ${busy ? 'busy' : 'ready'}`;
+      const button = document.createElement('button');
+      button.className = 'tmt-ui-action';
+      button.type = 'button';
+      button.dataset.variant = variant;
+      button.disabled = busy;
+      if (busy) button.setAttribute('aria-busy', 'true');
+      if (suppliedMark) {
+        const mark = document.createElement('span');
+        mark.className = 'tmt-ui-action-mark';
+        mark.setAttribute('aria-hidden', 'true');
+        mark.dataset.busy = String(busy);
+        mark.textContent = '◌';
+        button.append(mark);
+      }
+      const label = document.createElement('span');
+      label.className = 'tmt-ui-action-label';
+      label.textContent = 'Reconnect';
+      button.append(label);
+      cell.append(caption, button);
+      document.querySelector('#busy-actions').append(cell);
+    }
+  }
+}
+
 // Fixture host for the static markup contract; no React or product runtime.
 function action(label, variant, state, disabled = false) {
   const cell = document.createElement('div');

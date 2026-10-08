@@ -12,6 +12,38 @@ import {
 } from '../src/react';
 
 describe('presentation contracts', () => {
+  it('retains decorative mark and label slots across every action variant and busy state', () => {
+    for (const variant of ['text', 'primary', 'destructive'] as const) {
+      for (const busyMark of [undefined, '◌']) {
+        for (const busy of [false, true]) {
+          const html = renderToStaticMarkup(
+            <BrowserAction
+              type="button"
+              label="Reconnect"
+              variant={variant}
+              busy={busy}
+              busyMark={busyMark}
+              onActivate={() => {}}
+            />,
+          );
+          expect(html).toContain(`data-variant="${variant}"`);
+          expect(html).toContain('tmt-ui-action-label">Reconnect</span>');
+          if (busyMark === undefined) expect(html).not.toContain('tmt-ui-action-mark');
+          else
+            expect(html).toContain(
+              `tmt-ui-action-mark" aria-hidden="true" data-busy="${busy}">◌</span><span class="tmt-ui-action-label"`,
+            );
+          if (busy) {
+            expect(html).toContain('disabled=""');
+            expect(html).toContain('aria-busy="true"');
+          } else {
+            expect(html).not.toContain('disabled=');
+            expect(html).not.toContain('aria-busy=');
+          }
+        }
+      }
+    }
+  });
   it('retains complete header copy and explicit caption association without a caption when absent', () => {
     const withCaption = renderToStaticMarkup(
       <BrowserHeader
