@@ -36,6 +36,7 @@ export function BrowserIconAction({
     const dispose = placeIconActionTooltip(anchor, node);
     const escape = (event: KeyboardEvent) => {
       if (event.key !== 'Escape' || !node.matches(':popover-open')) return;
+      event.preventDefault();
       event.stopPropagation();
       setDismissed(true);
     };
