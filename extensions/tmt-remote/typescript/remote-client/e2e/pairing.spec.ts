@@ -1254,6 +1254,9 @@ test('settings draft preserves authority, exact values, drafts and unknown self-
   ) as { devices: { clientId: string }[] };
   const clientId = inventory.devices[0]!.clientId;
   async function descriptions(editable: boolean): Promise<void> {
+    await expect(page.locator('.device-summary').first()).toContainText(
+      ' · This device · browser · Paired · ',
+    );
     const guidance =
       'Read-only in this browser. Change Remote settings or manage devices with the local CLI.';
     const help = 'Default is 8. Off means unlimited. Changes apply at the next session open.';
@@ -1497,7 +1500,9 @@ test('settings draft preserves authority, exact values, drafts and unknown self-
   } finally {
     release();
   }
-  await expect(page.locator('#outcome')).toContainText('unknown');
+  await expect(page.locator('#outcome')).toHaveText(
+    'Outcome unknown. Read the original operation; do not submit it again.',
+  );
   await expect(name).toHaveValue('Unsent next name');
   expect(await name.evaluate((input) => (input as HTMLInputElement).selectionStart)).toBe(2);
   await expect(name).toBeFocused();
