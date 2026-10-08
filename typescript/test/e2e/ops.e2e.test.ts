@@ -134,7 +134,10 @@ describe('squad on a private tmux server', { concurrent: false }, () => {
         ]);
         await fixture.waitForCapture(
           (screen) =>
-            screen.includes('product') && screen.includes('PID 123') && screen.includes('retrying'),
+            screen.includes('worker') &&
+            !screen.includes('Opening product') &&
+            screen.includes('PID 123') &&
+            screen.includes('retrying'),
           shell.pane
         );
         const screen = fixture.capture(24, shell.pane);
@@ -182,13 +185,22 @@ describe('squad on a private tmux server', { concurrent: false }, () => {
         await fixture.waitFor(() => fs.existsSync(nextLease), 5_000, 'Ops UI clock publication');
         expect(JSON.parse(fs.readFileSync(nextLease, 'utf8')).pid).not.toBe(123);
         await fixture.waitForCapture(
-          (screen) => screen.includes('product') && !screen.includes('Ops migration pending'),
+          (screen) => screen.includes('worker') && !screen.includes('Ops migration pending'),
           shell.pane
         );
-        // refresh=off still adopts promotion. A manual refresh must read Ops too.
+        expect(fs.readFileSync(config)).toEqual(beforeConfig);
+        expect(fs.readFileSync(path.join(ops, 'cron', 'jobs.json'))).toEqual(beforeJobs);
+        // A newly authored Ops-only header proves refresh reads the promoted file.
+        const adoptedConfig = Buffer.concat([
+          beforeConfig,
+          Buffer.from(
+            '\n[squad.product.rows]\ncolumns = [{ name = "member", title = "ADOPTED" }]\n'
+          ),
+        ]);
+        fs.writeFileSync(config, adoptedConfig);
         fixture.tmux(['send-keys', '-t', shell.pane, 'C-r']);
         await fixture.waitForCapture(
-          (screen) => screen.includes('product') && !screen.includes('Legacy config moved'),
+          (screen) => screen.includes('worker') && screen.includes('ADOPTED'),
           shell.pane
         );
         fixture.tmux(['send-keys', '-t', shell.pane, 'q']);
@@ -197,7 +209,7 @@ describe('squad on a private tmux server', { concurrent: false }, () => {
           shell.pane
         );
         expect(fs.existsSync(nextLease)).toBe(false);
-        expect(fs.readFileSync(config)).toEqual(beforeConfig);
+        expect(fs.readFileSync(config)).toEqual(adoptedConfig);
         expect(fs.readFileSync(path.join(ops, 'cron', 'jobs.json'))).toEqual(beforeJobs);
         expect(fs.existsSync(path.join(fixture.globalDir, 'squad'))).toBe(false);
       });
