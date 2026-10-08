@@ -25,6 +25,7 @@ const fn declaration(objects: ObjectDeclaration) -> Extension {
 }
 static LOCAL: [Extension; 1] = [declaration(ObjectDeclaration::Local)];
 static DISABLED: [Extension; 1] = [declaration(ObjectDeclaration::Disabled)];
+const LEASE_RELEASE_WAIT: Duration = Duration::from_secs(3);
 
 struct ServeObjectFixture {
     root: PathBuf,
@@ -67,7 +68,15 @@ impl ServeObjectFixture {
     }
     fn released(&self) {
         let layout = Layout::open(&self.data()).unwrap();
-        let lease = layout.serve_lock().expect("serve leaked its lease");
+        let started = Instant::now();
+        let lease = layout
+            .wait_for_release(started + LEASE_RELEASE_WAIT)
+            .expect("serve leaked its lease")
+            .expect("serve leaked its lease");
+        eprintln!(
+            "serve fixture lease release wait: {} ns",
+            started.elapsed().as_nanos()
+        );
         assert!(!layout.directory.join(control::SOCKET).exists());
         drop(lease);
     }
