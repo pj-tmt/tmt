@@ -43,8 +43,6 @@ const SAVE_REPLY_MS = 30_000;
 /** Bytes the socket may hold unsent before the next chunk waits; keeps a 2 MiB save paced. */
 const SAVE_BUFFER_BYTES = 256 * 1024;
 
-/** A connection owns one reader/Worker. Queued messages and all local Worker
- * requests share one executor; no authority or keys enter the decoder. */
 /** The refusal codes a sync error frame may carry; the terminal card words each one. */
 export const SYNC_ERROR_CODES = [
   'DENIED',
@@ -57,6 +55,8 @@ export const SYNC_ERROR_CODES = [
   'RESYNC_REQUIRED',
 ] as const;
 
+/** A connection owns one reader/Worker. Queued messages and all local Worker
+ * requests share one executor; no authority or keys enter the decoder. */
 export class Connection {
   readonly objects: Objects;
   readonly fold = new Fold();
