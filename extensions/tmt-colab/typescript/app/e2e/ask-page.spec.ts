@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { capturePath } from './captures.js';
 import { text } from '../src/strings.js';
 const fixture = '/test/ask-page-browser.tsx';
 async function run(page: Page, method: string, argument?: string) {
@@ -148,7 +149,7 @@ test('verified refusal reasons use actionable copy without exposing a resend', a
   }
   expect((await run(page, 'proof')).sends).toEqual([]);
   await page.screenshot({
-    path: '/private/tmp/colab-1110-design/ask-refused-session.png',
+    path: capturePath('ask-refused-session.png'),
     fullPage: true,
   });
 });
@@ -170,7 +171,7 @@ test('read refusals show ephemeral copy without changing the admitted operation 
     expect((await run(page, 'proof')).sends).toEqual([]);
   }
   await page.screenshot({
-    path: '/private/tmp/colab-1110-design/ask-read-refused.png',
+    path: capturePath('ask-read-refused.png'),
     fullPage: true,
   });
 });

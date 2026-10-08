@@ -22,8 +22,11 @@
   opacity: 1;
 }
 .tmt-ui-field-control:focus-visible {
-  outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
-  outline-offset: var(--tmt-ui-host-focus-offset);
+  border-color: var(--tmt-ui-color-focus);
+  /* The border and adjacent inset pixel form one edge without changing layout. */
+  outline: calc(var(--tmt-ui-focus-width) - var(--tmt-ui-field-border-width)) solid
+    var(--tmt-ui-color-focus);
+  outline-offset: calc(-1 * var(--tmt-ui-focus-width));
 }
 .tmt-ui-field-control:disabled,
 .tmt-ui-field-control[aria-disabled='true'] {

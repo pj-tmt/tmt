@@ -6,7 +6,11 @@ import {
   mkdirSync,
   openSync,
   readFileSync,
+  readlinkSync,
   renameSync,
+  rmSync,
+  copyFileSync,
+  chmodSync,
   readdirSync,
   realpathSync,
   statSync,
@@ -16,11 +20,15 @@ import {
 } from 'node:fs';
 import { writeExecutable } from '../support/executable-fixture.mjs';
 import Database from 'better-sqlite3';
+import { createHash } from 'node:crypto';
+import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it, vi } from 'vite-plus/test';
 import { workspaceVersion } from '../support/workspace-version.js';
 import { parseWholeStdout, runCli, withSandbox, type Sandbox } from '../support/cli-process.js';
+import { createArtifact, type ArtifactFixture } from '../support/native-artifact.js';
+import { install, installFormerSquad } from '../support/native-installation.js';
 
 // Scenario-local selector: the built squad extension, never an installed copy.
 const squadExecutable =
@@ -1027,7 +1035,7 @@ o = "run touch ${marker}"
       expect(rootCandidates).not.toContain('sq');
       const direct = { ...sandbox, cli: { executable: path.join(bin, 'tmt-ops'), args: [] } };
       expect((await runCli(direct, ['__complete', '--', ''])).stdout).toBe(
-        'help\nhotkeys\nplaybook\nskill\nsquad\nui\n'
+        'help\nhotkeys\nmigration\nplaybook\nskill\nsquad\nui\n'
       );
     });
   });
@@ -4178,7 +4186,7 @@ describe('Ops path migration with unchanged Squad commands', () => {
       });
       expect(pending.stderr.match(/Ops migration deferred/g)).toHaveLength(1);
       expect(pending.stderr).toContain('PID 123 in pane %41');
-      expect(pending.stderr).toContain('kill -TERM 123');
+      expect(pending.stderr).toContain('board switch completes');
       const board = await ops(sandbox, ['ui', '--squad', 'product']);
       expect(board.status).toBe(0);
       expect(
@@ -4242,6 +4250,475 @@ describe('Ops path migration with unchanged Squad commands', () => {
       expect(readFileSync(path.join(sandbox.globalDir, 'squad.toml'), 'utf8')).toBe(
         'invalid legacy ['
       );
+    });
+  }, 60_000);
+});
+
+// #2073 explicitly requires native process/pane coverage. Every tmux effect
+// here names this sandbox's socket; no default server or installed host tmt.
+const formerBoardFixture = fileURLToPath(
+  new URL('../../../rust/target/debug/examples/former-board-fixture', import.meta.url)
+);
+
+type SwitchFixture = {
+  sandbox: Sandbox;
+  prefix: string;
+  socket: string;
+  tmux: (args: string[]) => string;
+  old: (
+    name: string,
+    tabs: string | undefined,
+    clock?: boolean,
+    shell?: boolean,
+    executable?: string
+  ) => Promise<{ pane: string; pid: number; cwd: string; proof: string }>;
+  candidate: ArtifactFixture;
+  oldConfig: Buffer;
+  oldState: Buffer;
+  dataRoot: string;
+};
+
+function liveOps(sandbox: Sandbox, prefix: string, tmux: (args: string[]) => string, pane: string) {
+  const tty = tmux(['display-message', '-p', '-t', pane, '#{pane_tty}']).replace('/dev/', '');
+  const active = realpathSync(path.join(prefix, 'bin/tmt-ops'));
+  const command = (program: string, args: string[]) => {
+    const result = spawnSync(program, args, { env: sandbox.env, encoding: 'utf8', timeout: 3000 });
+    if (result.status !== 0) throw new Error(`Owned process observation failed: ${result.stderr}`);
+    return result.stdout.trimEnd();
+  };
+  for (const line of command('/bin/ps', ['-axo', 'pid=,tty=']).split('\n')) {
+    const [pid, observedTty] = line.trim().split(/\s+/);
+    if (observedTty !== tty) continue;
+    let executable: string;
+    let cwd: string;
+    if (process.platform === 'linux') {
+      executable = readlinkSync(`/proc/${pid}/exe`);
+      cwd = readlinkSync(`/proc/${pid}/cwd`);
+    } else {
+      const files = command('/usr/sbin/lsof', ['-a', '-p', pid!, '-d', 'txt,cwd', '-Fn']);
+      const names = files
+        .split('\n')
+        .filter((line) => line.startsWith('n'))
+        .map((line) => line.slice(1));
+      [cwd, executable] = names as [string, string];
+    }
+    if (executable !== active) continue;
+    const args = command('/bin/ps', ['-ww', '-p', pid!, '-o', 'args=']);
+    return { pid: Number(pid), cwd, args };
+  }
+  throw new Error(`No live Ops executable in test-owned pane ${pane}`);
+}
+
+async function withBoardSwitch<T>(body: (fixture: SwitchFixture) => Promise<T>): Promise<T> {
+  return withSandbox(async (sandbox) => {
+    const found = spawnSync('/usr/bin/which', ['tmux'], { encoding: 'utf8' });
+    if (found.status !== 0)
+      throw new Error('Build/install tmux for the isolated board-switch tests');
+    const tmuxExecutable = found.stdout.trim();
+    const prefix = path.join(sandbox.root, 'board switch prefix');
+    const socket = path.join(sandbox.root, 'switch.sock');
+    sandbox.env.PATH = [
+      path.join(prefix, 'bin'),
+      path.dirname(tmuxExecutable),
+      sandbox.env.PATH,
+    ].join(path.delimiter);
+    sandbox.env.NO_COLOR = '1';
+    sandbox.env.TERM = 'xterm-256color';
+    const tmux = (args: string[]) => {
+      const result = spawnSync(tmuxExecutable, ['-S', socket, ...args], {
+        env: sandbox.env,
+        encoding: 'utf8',
+        timeout: 5000,
+      });
+      if (result.status !== 0) throw new Error(`Private tmux failed: ${result.stderr}`);
+      return result.stdout.trimEnd();
+    };
+    await installFormerSquad(sandbox, prefix);
+    const former = realpathSync(path.join(prefix, 'bin/tmt-squad'));
+    copyFileSync(formerBoardFixture, former);
+    chmodSync(former, 0o755);
+    const receiptFile = path.join(path.dirname(former), 'receipt.json');
+    const receipt = JSON.parse(readFileSync(receiptFile, 'utf8'));
+    receipt.file_sha256['tmt-squad'] = createHash('sha256')
+      .update(readFileSync(former))
+      .digest('hex');
+    writeFileSync(receiptFile, JSON.stringify(receipt));
+    const candidate = await createArtifact(sandbox, '0.1.0-alpha.2', new Uint8Array(), 'ops');
+    await install(sandbox, candidate, prefix, ['--product', 'ops']);
+    expect((await runCli(sandbox, ['identity', 'create', 'Ben', '--json'])).status).toBe(0);
+    expect((await squad(sandbox, ['init', 'product', '--me', 'Ben'])).status).toBe(0);
+    expect((await squad(sandbox, ['lead', 'Ben'])).status).toBe(0);
+    const config = path.join(sandbox.globalDir, 'ops.toml');
+    writeFileSync(config, readFileSync(config, 'utf8') + '\n[board]\nrefresh="off"\n');
+    const dataRoot = parseWholeStdout(
+      await runCli(sandbox, ['api'], {
+        stdin: JSON.stringify({ version: 1, operation: 'storage.root', input: {} }),
+      })
+    ).dataRoot as string;
+    const oldState = Buffer.from('board-switch state retained exactly\n');
+    mkdirSync(path.join(dataRoot, 'ops'), { recursive: true });
+    writeFileSync(path.join(dataRoot, 'ops', 'switch-proof.txt'), oldState);
+    const oldConfig = readFileSync(config);
+    renameSync(config, path.join(sandbox.globalDir, 'squad.toml'));
+    renameSync(path.join(dataRoot, 'ops'), path.join(dataRoot, 'squad'));
+    for (const marker of ['.ops-paths-v1', '.ops-paths-cutover-v1'])
+      rmSync(path.join(sandbox.globalDir, marker), { force: true });
+    tmux([
+      '-f',
+      '/dev/null',
+      'new-session',
+      '-d',
+      '-s',
+      'switch',
+      '-x',
+      '100',
+      '-y',
+      '24',
+      '/bin/sh',
+    ]);
+    const serverPid = tmux(['display-message', '-p', '#{pid}']);
+    sandbox.env.TMUX = `${socket},${serverPid},0`;
+    const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
+    const old = async (
+      name: string,
+      tabs: string | undefined,
+      clock = false,
+      shell = false,
+      executable = former
+    ) => {
+      const proof = path.join(sandbox.root, `${name}.json`);
+      const cwd = path.join(sandbox.root, `${name} cwd`);
+      mkdirSync(cwd);
+      const args = [executable, 'board', ...(tabs === undefined ? [] : ['--tabs', tabs])];
+      const line = `/usr/bin/env ${quote(`TMT_FORMER_PROOF=${proof}`)} ${clock ? quote(`TMT_FORMER_CLOCK_ROOT=${path.join(dataRoot, 'squad')}`) : ''} ${args.map(quote).join(' ')}`;
+      const pane = tmux([
+        'new-window',
+        '-d',
+        '-P',
+        '-F',
+        '#{pane_id}',
+        '-n',
+        name,
+        '-c',
+        cwd,
+        ...(shell ? ['exec /bin/sh'] : [`exec ${line}`]),
+      ]);
+      if (shell) {
+        tmux(['send-keys', '-t', pane, '-l', line]);
+        tmux(['send-keys', '-t', pane, 'Enter']);
+      }
+      await vi.waitFor(() => expect(existsSync(proof)).toBe(true), { timeout: 5000, interval: 25 });
+      const reported = JSON.parse(readFileSync(proof, 'utf8'));
+      expect(reported.pane).toBe(pane);
+      return { pane, pid: reported.pid as number, cwd, proof };
+    };
+    try {
+      return await body({
+        sandbox,
+        prefix,
+        socket,
+        tmux,
+        old,
+        candidate,
+        oldConfig,
+        oldState,
+        dataRoot,
+      });
+    } finally {
+      // kill-server acknowledges the request before its panes and their HUP
+      // handlers finish. Observe natural exit; never mask a board leak by killing it.
+      const server = tmux(['display-message', '-p', '#{pid}']);
+      const ttys = new Set(
+        tmux(['list-panes', '-a', '-F', '#{pane_tty}'])
+          .split('\n')
+          .map((tty) => tty.replace('/dev/', ''))
+      );
+      const table = spawnSync('/bin/ps', ['-axo', 'pid=,tty='], {
+        env: sandbox.env,
+        encoding: 'utf8',
+        timeout: 5000,
+      });
+      expect(table.status, table.stderr).toBe(0);
+      const incarnation = (pid: string): string | undefined => {
+        if (process.platform === 'linux') {
+          try {
+            const stat = readFileSync(`/proc/${pid}/stat`, 'utf8');
+            return stat.slice(stat.lastIndexOf(') ') + 2).split(' ')[19];
+          } catch (error) {
+            if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined;
+            throw error;
+          }
+        }
+        const result = spawnSync('/bin/ps', ['-p', pid, '-o', 'lstart='], {
+          env: sandbox.env,
+          encoding: 'utf8',
+          timeout: 5000,
+        });
+        expect(result.error).toBeUndefined();
+        expect([0, 1]).toContain(result.status);
+        return result.stdout.trim() || undefined;
+      };
+      const occupants = table.stdout
+        .split('\n')
+        .map((line) => line.trim().split(/\s+/))
+        .filter(([pid, tty]) => pid === server || ttys.has(tty!))
+        .map(([pid]) => ({ pid: pid!, start: incarnation(pid!) }))
+        .filter(({ start }) => start !== undefined);
+      tmux(['kill-server']);
+      await vi.waitFor(
+        () => expect(occupants.filter(({ pid, start }) => incarnation(pid) === start)).toEqual([]),
+        { timeout: 5000, interval: 25 }
+      );
+    }
+  });
+}
+
+describe('verified former-board switching', () => {
+  it.each([false, true])(
+    'switches several former boards after namespace removal=%s',
+    async (removed) => {
+      await withBoardSwitch(
+        async ({ sandbox, prefix, tmux, old, oldConfig, oldState, dataRoot }) => {
+          const boards = [
+            await old('first', 'product,leads', true),
+            await old('second', 'product', false, true),
+          ];
+          const formerRoot = path.join(prefix, 'lib/tmt-squad');
+          if (removed) {
+            rmSync(formerRoot, { recursive: true });
+            for (const name of ['tmt-squad', 'tmt-sq']) unlinkSync(path.join(prefix, 'bin', name));
+          }
+          const result = await runCli(sandbox, ['ops', 'migration', 'switch', '--yes', '--json'], {
+            deadlineMs: 30_000,
+          });
+          expect(result.status, result.stdout + result.stderr).toBe(0);
+          expect(parseWholeStdout(result)).toEqual({ complete: true, switched: 2 });
+          for (const board of boards) {
+            expect(readFileSync(board.proof.replace(/\.json$/, '.stopped'), 'utf8')).toBe(
+              'TERM observed; lease released'
+            );
+            expect(tmux(['display-message', '-p', '-t', board.pane, '#{pane_dead}'])).toBe('0');
+            await vi.waitFor(
+              () => expect(tmux(['capture-pane', '-p', '-t', board.pane])).toContain('Ben'),
+              { timeout: 5000, interval: 50 }
+            );
+            expect(tmux(['capture-pane', '-p', '-t', board.pane])).not.toContain(
+              'Ops migration pending'
+            );
+            const launched = liveOps(sandbox, prefix, tmux, board.pane);
+            expect(launched.pid).not.toBe(board.pid);
+            expect(launched.cwd).toBe(realpathSync(board.cwd));
+            expect(launched.args).toContain(
+              board === boards[0] ? 'ui --tabs product,leads' : 'ui --tabs product'
+            );
+          }
+          expect(readFileSync(path.join(sandbox.globalDir, 'ops.toml')).equals(oldConfig)).toBe(
+            true
+          );
+          expect(
+            readFileSync(path.join(dataRoot, 'ops', 'switch-proof.txt')).equals(oldState)
+          ).toBe(true);
+          expect(existsSync(path.join(dataRoot, 'squad'))).toBe(false);
+          expect(existsSync(path.join(sandbox.globalDir, '.ops-paths-v1'))).toBe(true);
+          expect(existsSync(path.join(dataRoot, '.ops-board-switch-v1.json'))).toBe(false);
+          const again = await runCli(sandbox, ['ops', 'migration', 'switch', '--yes', '--json']);
+          expect(parseWholeStdout(again)).toEqual({ complete: true, switched: 0 });
+        }
+      );
+    },
+    60_000
+  );
+
+  it('keeps a new Ops board and non-board panes alive while replacement switches the old board', async () => {
+    await withBoardSwitch(async ({ sandbox, prefix, tmux, old, candidate }) => {
+      const former = await old('former', 'product', true);
+      const newPane = tmux(['new-window', '-d', '-P', '-F', '#{pane_id}', 'exec /bin/sh']);
+      tmux(['send-keys', '-t', newPane, '-l', `'${sandbox.cli.executable}' ops ui --tabs product`]);
+      tmux(['send-keys', '-t', newPane, 'Enter']);
+      // Decline the single interactive switch offer, then keep this new UI live.
+      tmux(['send-keys', '-t', newPane, 'n', 'Enter']);
+      await vi.waitFor(
+        () =>
+          expect(tmux(['capture-pane', '-p', '-t', newPane])).toContain('Ops migration pending'),
+        { timeout: 5000, interval: 50 }
+      );
+      const newPid = liveOps(sandbox, prefix, tmux, newPane).pid;
+      const userPane = tmux(['new-window', '-d', '-P', '-F', '#{pane_id}', 'exec /bin/sleep 60']);
+      const userPid = tmux(['display-message', '-p', '-t', userPane, '#{pane_pid}']);
+      const result = await runCli(
+        sandbox,
+        [
+          'extension',
+          'install',
+          'ops',
+          '--yes',
+          '--archive',
+          candidate.archive,
+          '--manifest',
+          candidate.manifest,
+          '--prefix',
+          prefix,
+          '--json',
+        ],
+        { deadlineMs: 30_000 }
+      );
+      expect(result.status, result.stdout + result.stderr).toBe(0);
+      expect(parseWholeStdout(result).boardSwitch).toEqual({ complete: true, switched: 1 });
+      expect(existsSync(path.join(prefix, 'lib/tmt-squad'))).toBe(false);
+      expect(existsSync(former.proof.replace(/\.json$/, '.stopped'))).toBe(true);
+      expect(tmux(['display-message', '-p', '-t', userPane, '#{pane_pid}'])).toBe(userPid);
+      expect(liveOps(sandbox, prefix, tmux, newPane).pid).toBe(newPid);
+      await vi.waitFor(
+        () =>
+          expect(tmux(['capture-pane', '-p', '-t', newPane])).not.toContain(
+            'Ops migration pending'
+          ),
+        { timeout: 5000, interval: 50 }
+      );
+    });
+  }, 60_000);
+
+  it('retains evidence without tmux and prints one non-interactive recovery command', async () => {
+    await withBoardSwitch(async ({ sandbox, prefix, socket, old }) => {
+      const former = await old('former', undefined, true);
+      delete sandbox.env.TMUX;
+      const ordinary = await runCli(sandbox, ['ops', 'squad', 'ls', '--json']);
+      expect(ordinary.status, ordinary.stdout + ordinary.stderr).toBe(0);
+      expect(
+        ordinary.stderr.split('\n').filter((line) => line.startsWith('tmt ops migration switch'))
+      ).toHaveLength(1);
+      const result = await runCli(sandbox, ['ops', 'migration', 'switch', '--yes', '--json']);
+      expect(result.status).toBe(1);
+      const report = JSON.parse(result.stdout);
+      expect(report).toMatchObject({ complete: false, switched: 0 });
+      expect(result.stderr.trim().split('\n')).toEqual([report.command]);
+      expect(report.command).toContain('tmt ops migration switch --yes');
+      expect(existsSync(former.proof.replace(/\.json$/, '.stopped'))).toBe(false);
+      const resumed = await runCli(
+        sandbox,
+        ['ops', 'migration', 'switch', '--yes', '--socket', socket, '--json'],
+        { deadlineMs: 30_000 }
+      );
+      expect(resumed.status, resumed.stdout + resumed.stderr).toBe(0);
+      expect(parseWholeStdout(resumed)).toEqual({ complete: true, switched: 1 });
+      expect(existsSync(path.join(prefix, 'lib/tmt-squad'))).toBe(true);
+    });
+  }, 60_000);
+  it('defers malformed former argv and never signals a same-named user executable', async () => {
+    await withBoardSwitch(async ({ sandbox, prefix, tmux, old, dataRoot }) => {
+      const former = await old('malformed', 'product cron run', true);
+      const userExecutable = path.join(sandbox.root, 'tmt-squad');
+      copyFileSync(formerBoardFixture, userExecutable);
+      chmodSync(userExecutable, 0o755);
+      const user = await old('user', 'product', false, false, userExecutable);
+      const result = await runCli(sandbox, ['ops', 'migration', 'switch', '--yes', '--json']);
+      expect(result.status).toBe(1);
+      expect(JSON.parse(result.stdout)).toMatchObject({ complete: false, switched: 0 });
+      for (const board of [former, user]) {
+        expect(existsSync(board.proof.replace(/\.json$/, '.stopped'))).toBe(false);
+        expect(tmux(['display-message', '-p', '-t', board.pane, '#{pane_pid}'])).toBe(
+          String(board.pid)
+        );
+      }
+      const lease = JSON.parse(
+        readFileSync(path.join(dataRoot, 'squad', 'cron', 'clock.json'), 'utf8')
+      );
+      expect(lease.pid).toBe(former.pid);
+      expect(existsSync(path.join(prefix, 'lib/tmt-squad'))).toBe(true);
+    });
+  }, 60_000);
+
+  it('offers one interactive switch before an ordinary Ops command', async () => {
+    await withBoardSwitch(async ({ sandbox, prefix, tmux, old }) => {
+      const former = await old('former', 'product', true);
+      const promptPane = tmux(['new-window', '-d', '-P', '-F', '#{pane_id}', 'exec /bin/sh']);
+      tmux(['send-keys', '-t', promptPane, '-l', `'${sandbox.cli.executable}' ops squad ls`]);
+      tmux(['send-keys', '-t', promptPane, 'Enter']);
+      await vi.waitFor(
+        () => expect(tmux(['capture-pane', '-p', '-t', promptPane])).toContain('Switch now?'),
+        { timeout: 5000, interval: 50 }
+      );
+      tmux(['send-keys', '-t', promptPane, 'y', 'Enter']);
+      await vi.waitFor(
+        () =>
+          expect(tmux(['capture-pane', '-p', '-t', promptPane])).toContain(
+            'switched 1 boards to Ops'
+          ),
+        { timeout: 15_000, interval: 50 }
+      );
+      const output = tmux(['capture-pane', '-p', '-S', '-', '-t', promptPane]);
+      expect(output.split('Switch now?')).toHaveLength(2);
+      await vi.waitFor(
+        () =>
+          expect(tmux(['capture-pane', '-p', '-S', '-', '-t', promptPane])).toContain('product'),
+        { timeout: 5000, interval: 50 }
+      );
+      expect(existsSync(former.proof.replace(/\.json$/, '.stopped'))).toBe(true);
+      expect(liveOps(sandbox, prefix, tmux, former.pane).pid).not.toBe(former.pid);
+    });
+  }, 60_000);
+  it('retains private stopped progress through a cutover failure and resumes once repaired', async () => {
+    await withBoardSwitch(async ({ sandbox, prefix, tmux, old, dataRoot, oldState }) => {
+      const former = await old('former', 'product', true);
+      const foreign = path.join(sandbox.root, 'foreign-state');
+      mkdirSync(foreign);
+      writeFileSync(path.join(foreign, 'sentinel'), 'untouched');
+      symlinkSync(foreign, path.join(dataRoot, 'squad', 'foreign'));
+      const failed = await runCli(sandbox, ['ops', 'migration', 'switch', '--yes', '--json']);
+      expect(failed.status).toBe(1);
+      expect(JSON.parse(failed.stdout)).toMatchObject({ complete: false, switched: 0 });
+      expect(existsSync(former.proof.replace(/\.json$/, '.stopped'))).toBe(true);
+      const pending = path.join(dataRoot, '.ops-board-switch-v1.json');
+      expect(statSync(pending).mode & 0o777).toBe(0o600);
+      expect(statSync(pending).size).toBeLessThanOrEqual(1024 * 1024);
+      const record = JSON.parse(readFileSync(pending, 'utf8'));
+      expect(record.boards).toHaveLength(1);
+      expect(record.boards[0]).toMatchObject({ pid: former.pid, state: 'stopped' });
+      expect(record.boards[0]).not.toHaveProperty('env');
+      expect(tmux(['display-message', '-p', '-t', former.pane, '#{pane_dead}'])).toBe('1');
+      // Remove only the test-owned unsafe link; source bytes and foreign state remain intact.
+      unlinkSync(path.join(dataRoot, 'squad', 'foreign'));
+      expect(readFileSync(path.join(foreign, 'sentinel'), 'utf8')).toBe('untouched');
+      const resumed = await runCli(sandbox, ['ops', 'migration', 'switch', '--yes', '--json'], {
+        deadlineMs: 30_000,
+      });
+      expect(resumed.status, resumed.stdout + resumed.stderr).toBe(0);
+      expect(parseWholeStdout(resumed)).toEqual({ complete: true, switched: 1 });
+      expect(liveOps(sandbox, prefix, tmux, former.pane).pid).not.toBe(former.pid);
+      expect(readFileSync(path.join(dataRoot, 'ops', 'switch-proof.txt')).equals(oldState)).toBe(
+        true
+      );
+      expect(existsSync(pending)).toBe(false);
+    });
+  }, 60_000);
+  it('keeps the non-tmux fallback after the layout has already migrated', async () => {
+    await withBoardSwitch(async ({ sandbox, socket, dataRoot }) => {
+      const cutover = await runCli(sandbox, ['ops', 'migration', 'switch', '--yes', '--json']);
+      expect(parseWholeStdout(cutover)).toEqual({ complete: true, switched: 0 });
+      delete sandbox.env.TMUX;
+      const pending = await runCli(sandbox, ['ops', 'migration', 'switch', '--yes', '--json']);
+      expect(pending.status).toBe(1);
+      const report = JSON.parse(pending.stdout);
+      expect(pending.stderr.trim()).toBe(report.command);
+      const file = path.join(dataRoot, '.ops-board-switch-v1.json');
+      expect(JSON.parse(readFileSync(file, 'utf8'))).toMatchObject({ socket: '', boards: [] });
+      expect(statSync(file).mode & 0o777).toBe(0o600);
+      const ordinary = await runCli(sandbox, ['ops', 'squad', 'ls', '--json']);
+      expect(ordinary.status).toBe(0);
+      expect(ordinary.stderr.trim()).toBe(report.command);
+      const resumed = await runCli(sandbox, [
+        'ops',
+        'migration',
+        'switch',
+        '--yes',
+        '--socket',
+        socket,
+        '--json',
+      ]);
+      expect(parseWholeStdout(resumed)).toEqual({ complete: true, switched: 0 });
+      expect(existsSync(file)).toBe(false);
+      const settled = await runCli(sandbox, ['ops', 'squad', 'ls', '--json']);
+      expect(settled.stderr).toBe('');
     });
   }, 60_000);
 });

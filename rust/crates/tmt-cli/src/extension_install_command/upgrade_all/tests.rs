@@ -108,3 +108,24 @@ fn child_protocol_rejects_duplicate_products_unknown_fields_and_unbounded_report
             .is_none()
     );
 }
+
+#[test]
+fn root_upgrade_keeps_ops_switch_summary_and_deferred_recovery_command() {
+    let complete = upgraded(
+        Product::Ops,
+        json!({"changed":true,"version":"1.1.0","boardSwitch":{"complete":true,"switched":3}}),
+    );
+    assert_eq!(complete["message"], "switched 3 boards to Ops");
+    assert!(parse_results(&serde_json::to_vec(&json!({"products":[complete]})).unwrap()).is_some());
+    let deferred = upgraded(
+        Product::Ops,
+        json!({"changed":true,"version":"1.1.0","boardSwitch":{"complete":false,"switched":0,"command":"tmt ops migration switch --yes"}}),
+    );
+    assert_eq!(deferred["hint"], "tmt ops migration switch --yes");
+    assert!(deferred.get("message").is_none());
+    assert!(
+        upgraded(Product::Remote, json!({"changed":true,"version":"1.1.0"}))
+            .get("message")
+            .is_none()
+    );
+}

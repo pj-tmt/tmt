@@ -58,6 +58,16 @@ h2 {
   display: grid;
   gap: var(--tmt-ui-toggle-gap);
 }
+.fixture-busy-mark {
+  width: var(--tmt-ui-header-icon-size);
+  height: var(--tmt-ui-header-icon-size);
+}
+.fixture-stretched-action > .tmt-ui-action {
+  width: 100%;
+}
+#busy-actions > .fixture-action {
+  justify-items: start;
+}
 .fixture-edges {
   display: flex;
   justify-content: space-between;

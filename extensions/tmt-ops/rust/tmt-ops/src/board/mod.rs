@@ -93,6 +93,7 @@ pub fn exit_status(signal: Option<i32>) -> u8 {
 /// terminal hangs up, so the board never waits on it directly; the thread ends
 /// with the process, and a read error disconnects the channel.
 pub(super) enum BoardEvent {
+    Migration(Option<String>),
     Checklist(checklist::load::Completed),
     Input(Event),
     InputClosed,
@@ -339,6 +340,11 @@ fn session<T: Into<ActionOutcome>>(
             wait = wait.min(interval.saturating_sub(refreshed.elapsed()));
         }
         let effect = match input.recv_timeout(wait) {
+            Ok(BoardEvent::Migration(notice)) => {
+                app.migration_notice = notice;
+                dirty = true;
+                Effect::None
+            }
             Ok(BoardEvent::Checklist(completed)) => {
                 app.finished_checklist(completed);
                 dirty = true;
@@ -784,13 +790,16 @@ pub fn run(
     );
     worker.request(squad.clone(), false, false);
     let mut app = App::new(squad);
+    app.migration_notice = core.paths.board_notice();
     app.notice = crate::migration::paths(&core, None)?
         .notice
+        .filter(|_| app.migration_notice.is_none())
         .or_else(|| config.obsolete_board_notice().map(str::to_owned));
     app.initial_look = Some(crate::look::Look::new(initial_theme));
     app.picks = picks;
     app.popup = popup;
     let mut screen = Terminal::new(CrosstermBackend::new(io::stdout())).map_err(failed)?;
+    let mut switch_ready = crate::board_switch::ready(&core)?;
     let mut clock = crate::cron_clock::ClockWorker::spawn(core.clone(), config, false);
     spawn_input(events, filter);
     let result = session(
@@ -809,7 +818,15 @@ pub fn run(
                     app.set_body_width(frame.area().width);
                     view::render(frame, app);
                 })
-                .map(|_| ())
+                .and_then(|_| {
+                    if app.view.is_some()
+                        && !app.loading()
+                        && let Some(mut file) = switch_ready.take()
+                    {
+                        crate::board_switch::acknowledge(&mut file)?;
+                    }
+                    Ok(())
+                })
         },
     );
     // Restore first, whatever happened; then report the session's outcome.

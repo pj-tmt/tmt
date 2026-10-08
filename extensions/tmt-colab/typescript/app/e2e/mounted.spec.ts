@@ -507,7 +507,7 @@ test('trusted sharing confirms narrowing, retries frozen bytes and exposes a new
   await dialog.getByRole('button', { name: 'Confirm create link' }).click();
   await expect(dialog.getByLabel('Link seed')).toHaveValue(/^[A-Za-z0-9_-]{43}$/);
   await expect(dialog).toContainText(
-    'Opening shared links in this browser app is not available yet',
+    'Shared links open in a separate read-only view, whatever their role',
   );
   await dialog.getByRole('button', { name: 'Manage another change' }).click();
   await choose(dialog, 'Audience', 'Private');

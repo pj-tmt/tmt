@@ -2,6 +2,7 @@ import { act, createRef } from 'react';
 import type { MouseEvent } from 'react';
 import { createRoot } from 'react-dom/client';
 import { BrowserAction, BrowserField, BrowserIconAction } from '../../src/react.js';
+import { checkFieldFocus } from './field-focus.js';
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
   true;
@@ -34,6 +35,36 @@ async function run() {
   assertions = 0;
   activations = 0;
   parentEscapes = 0;
+  await act(() =>
+    root.render(
+      <>
+        <BrowserField
+          controlId="focus-native"
+          label="Native message"
+          renderControl={(props) => <textarea {...props} defaultValue="Native draft" />}
+        />
+        <BrowserField
+          controlId="focus-editable"
+          label="Editable message"
+          renderControl={(props) => (
+            <div
+              {...props}
+              role="textbox"
+              tabIndex={0}
+              contentEditable
+              suppressContentEditableWarning
+            >
+              Editable draft
+            </div>
+          )}
+        />
+      </>,
+    ),
+  );
+  assertions += checkFieldFocus([
+    document.getElementById('focus-native')!,
+    document.getElementById('focus-editable')!,
+  ]);
   const ref = createRef<HTMLDivElement>();
   let compositions = 0;
   const field = (readonly: boolean) => (
@@ -179,6 +210,82 @@ async function run() {
     document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })),
   );
   check(parentEscapes === 2, 'Tooltip listener survived component removal');
+  for (const variant of ['text', 'primary', 'destructive'] as const) {
+    for (const busyMark of [
+      undefined,
+      '◌',
+      <svg
+        key="busy-mark"
+        className="fixture-busy-mark"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+      >
+        <circle cx="12" cy="12" r="8" />
+      </svg>,
+    ]) {
+      for (const stretched of [false, true]) {
+        const description = `${variant}, ${busyMark === undefined ? 'no mark' : typeof busyMark === 'string' ? 'text mark' : 'SVG mark'}, ${stretched ? 'stretched' : 'intrinsic'}`;
+        const renderAction = (busy: boolean) => (
+          <div className={stretched ? 'fixture-stretched-action' : undefined}>
+            <BrowserAction
+              type="button"
+              label="Reconnect"
+              variant={variant}
+              busy={busy}
+              busyMark={busyMark}
+              onActivate={onActivate}
+            />
+          </div>
+        );
+        await act(() => root.render(renderAction(false)));
+        const originalButton = host.querySelector('button')!;
+        const readyBounds = originalButton.getBoundingClientRect();
+        for (const busy of [false, true, false]) {
+          await act(() => root.render(renderAction(busy)));
+          const currentButton = host.querySelector('button')!;
+          const bounds = currentButton.getBoundingClientRect();
+          const labelBounds = currentButton
+            .querySelector('.tmt-ui-action-label')!
+            .getBoundingClientRect();
+          check(currentButton === originalButton, `Action remounted: ${description}`);
+          check(
+            Math.abs(bounds.width - readyBounds.width) <= 1 &&
+              Math.abs(bounds.height - readyBounds.height) <= 1,
+            `Busy changed action geometry: ${description}`,
+          );
+          check(
+            Math.abs(labelBounds.left - bounds.left - (bounds.right - labelBounds.right)) <= 1,
+            `Action label is off center: ${description}, busy=${busy}`,
+          );
+          check(currentButton.disabled === busy, `Busy activation fence changed: ${description}`);
+          const mark = currentButton.querySelector('.tmt-ui-action-mark');
+          if (busyMark === undefined) {
+            check(mark === null, `No-mark action reserved a mark: ${description}`);
+            check(
+              getComputedStyle(currentButton).display === 'inline-flex',
+              `No-mark action lost label-only layout: ${description}`,
+            );
+          } else {
+            check(
+              mark?.getAttribute('aria-hidden') === 'true',
+              `Mark lost decoration: ${description}`,
+            );
+            check(
+              getComputedStyle(mark!).visibility === (busy ? 'visible' : 'hidden'),
+              `Mark visibility disagrees with busy state: ${description}`,
+            );
+          }
+          if (stretched)
+            check(
+              Math.abs(bounds.width - currentButton.parentElement!.getBoundingClientRect().width) <=
+                1,
+              `Host did not stretch the action: ${description}`,
+            );
+        }
+      }
+    }
+  }
   for (const state of [{}, { disabled: true }, { busy: true }]) {
     await act(() =>
       root.render(
@@ -212,6 +319,13 @@ async function run() {
       <>
         {field(false)}
         <div className="fixture-actions">
+          <BrowserAction
+            type="button"
+            label="Reconnect"
+            variant="primary"
+            busyMark="◌"
+            onActivate={onActivate}
+          />
           <BrowserAction
             type="button"
             label="Change recipient"

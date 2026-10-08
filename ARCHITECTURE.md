@@ -995,7 +995,7 @@ Independent releases use `tmt-ops-v<version>`; module/drawing ownership and guar
   identity metadata `squad.<name>.<field>`, with no Ops membership store. Ops owns
   `<dataRoot>/ops` (`storage.root`) and disposable `$XDG_CACHE_HOME/tmt-ops` caches.
   `ops.toml` is the user's file: agents never write it; Ops uses its compare-and-set
-  writer; `migration` owns the locked, byte-preserving legacy cutover. No Ops data goes into `config.json` or the core database.
+  writer; `migration` owns the locked, byte-preserving legacy cutover. Ops switches verified former boards before install cleanup; new UIs defer automatic clock acquisition until cutover and retry through the existing clock worker. No Ops data goes into `config.json` or the core database.
 - **Checklist.** `checklist_command` exposes native grammar and scoped output over the existing
   `checklist` caller/room admission, `model` revisions/tombstones and `store` versioned room-UUID JSON
   under `<dataRoot>/ops/checklist`. Reads create no checklist files; locked admission precedes synced replacement outside a Core/file transaction.

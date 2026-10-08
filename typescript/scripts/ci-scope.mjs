@@ -462,6 +462,32 @@ export function selectColabHarness(paths, map = componentMap()) {
   });
 }
 
+// The app component suite renders the app in Chromium against its own dev server, so it
+// reads the app, the client and design system it imports, and the lockfile; it needs no
+// Rust. Native-fixture specs skip there and stay in the weekly/manual acceptance.
+const COLAB_APP_OWNERS = new Set(['colab-app', 'colab-client', 'browser-ui']);
+
+const COLAB_APP_ROOTS = [
+  'extensions/tmt-colab/typescript/app',
+  'extensions/tmt-colab/typescript/colab-client',
+  'design/browser-ui',
+];
+
+const COLAB_APP_INPUTS = new Set([
+  '.github/workflows/colab-browser.yml',
+  'typescript/pnpm-lock.yaml',
+]);
+
+/** Empty/unknown diffs do not select advisory work; weekly/manual runs cover shared drift. */
+export function selectColabApp(paths, map = componentMap()) {
+  return paths.some(
+    (path) =>
+      COLAB_APP_INPUTS.has(path) ||
+      (COLAB_APP_OWNERS.has(ownerOf(path, map)) &&
+        COLAB_APP_ROOTS.some((root) => within(root, path)))
+  );
+}
+
 /**
  * How much of the native work a change needs. `none`: nothing native is selected.
  * A component name (only `ops` declares `scopedChecks`): every path that selects
@@ -723,6 +749,7 @@ export function runCiScope(args, { cwd, stdout, stderr, summaryFile }) {
   }
   const officeBrowser = selectOfficeBrowser(selection.paths);
   const colabHarness = !queue && !seed && !full && selectColabHarness(selection.paths);
+  const colabApp = !queue && !seed && !full && selectColabApp(selection.paths);
   const nativeNotices = !seed && (full || selectNativeNotices(selection.paths));
   const evidence =
     (full || seed || fallback
@@ -730,6 +757,7 @@ export function runCiScope(args, { cwd, stdout, stderr, summaryFile }) {
       : renderSelectionEvidence({ base, head, range, ...selection })) +
     `\nOffice browser selection (retired product): ${officeBrowser}.\n` +
     `\nColab browser PR selection (client, model, vectors or harness workflow): ${colabHarness}.\n` +
+    `\nColab app component suite PR selection (app, client, browser UI, workflow or lockfile): ${colabApp}.\n` +
     `\nNative dependency notices selection: ${nativeNotices}.\n`;
   stderr.write(evidence);
   if (summaryFile) appendFileSync(summaryFile, evidence);
@@ -740,6 +768,7 @@ export function runCiScope(args, { cwd, stdout, stderr, summaryFile }) {
     `native=${areas.native}\noffice=${areas.office}\nnative_office=${areas.nativeOffice}\n` +
       `office_browser=${officeBrowser}\n` +
       `colab_harness=${colabHarness}\n` +
+      `colab_app=${colabApp}\n` +
       `native_notices=${nativeNotices}\n` +
       `native_scope=${nativeScope}\n` +
       `scoped_native_tests=${checks.nativeTests.join(' ')}\n` +

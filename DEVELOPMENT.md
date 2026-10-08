@@ -368,9 +368,12 @@ Tracker rules:
   evidence stay in child issues and PRs.
 - Tracker Status is `In Progress` while any child is active, `Todo` when nothing
   has started or the feature is parked (say "parked" in `Now`), `Merged` when all
-  required delivery is on `main`, and `Released` only after publication and any
-  acceptance or dogfood gate. Keep pending gates under `Blocked`; optional future
-  children must not reopen a delivered milestone.
+  required delivery is on `main`, and `Released` once that delivery is in use and
+  any acceptance or dogfood gate has passed: published for product work, operating
+  on `main` for CI, tooling and release machinery that has no product tag. Release
+  automation skips trackers, so the owning lead sets their Status. Keep pending
+  gates under `Blocked`; optional future children must not reopen a delivered
+  milestone.
 - A tracker is a product item the maintainer set: a lead may propose one through
   tmt-lead and no agent creates one on its own. Below a tracker, leads and the
   project manager open child issues freely: one outcome with acceptance criteria

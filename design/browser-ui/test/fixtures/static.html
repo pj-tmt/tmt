@@ -11,6 +11,8 @@
     <main>
       <h1>Browser leaf controls</h1>
       <p>Static HTML uses the checked stylesheet. Hover or Tab to an icon to read its label.</p>
+      <button type="button" id="run-focus">Run field focus checks</button>
+      <p id="focus-result" role="status">Ready</p>
       <section>
         <h2>One focusable text control</h2>
         <div class="fixture-fields">
@@ -46,6 +48,10 @@ A retained native draft</textarea>
             </div>
           </div>
         </div>
+      </section>
+      <section>
+        <h2>Action busy geometry</h2>
+        <div class="fixture-actions" id="busy-actions"></div>
       </section>
       <section>
         <h2>Icon action states</h2>

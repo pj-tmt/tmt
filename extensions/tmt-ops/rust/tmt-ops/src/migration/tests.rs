@@ -140,8 +140,8 @@ fn live_old_clock_defers_entire_cutover_and_later_invocation_migrates() {
     assert!(paths.legacy);
     let warning = warning.unwrap();
     assert!(warning.contains("PID 123 in pane %41"));
-    assert!(warning.contains("Ctrl-C"));
-    assert!(warning.contains("kill -TERM 123"));
+    assert!(warning.contains("board switch completes"));
+    assert!(!warning.contains("kill -TERM"));
     assert!(!completed(&f.config).unwrap());
     assert!(!f.config.join(PENDING).exists());
     assert!(!f.config.join("ops.toml").exists());
@@ -534,4 +534,84 @@ fn both_present_still_defers_whole_layout_for_a_live_old_clock() {
     assert!(f.config.join("squad.toml").exists());
     assert!(old.join("cron/jobs.json").exists());
     assert_eq!(bytes(&f.config.join("ops.toml")).unwrap(), b"new='wins'\n");
+}
+
+#[test]
+fn deferred_retry_preserves_guard_root_pairing_then_promotes_every_clone() {
+    use crate::cron_service::test_support::Fixture as CronFixture;
+    let f = CronFixture::new();
+    paths(&f.core, None).unwrap();
+    // No state files are needed: a config-only cutover still takes the same lock.
+    fs::rename(f.directory.join("ops.toml"), f.directory.join("squad.toml")).unwrap();
+    fs::remove_file(f.directory.join(COMPLETE)).unwrap();
+    fs::remove_file(f.directory.join(CUTOVER)).unwrap();
+    let old = f.directory.join("squad/cron");
+    fs::create_dir_all(&old).unwrap();
+    let time = jiff::Timestamp::now().as_millisecond();
+    let lease = tmt_ops::cron::Clock::new(&f.directory.join("squad"))
+        .unwrap()
+        .acquire(time, 123, Some("%41".into()))
+        .unwrap()
+        .unwrap();
+    let core = Core::at(f.core.executable().into());
+    let stale = Config::load(&core).unwrap();
+    let clone = core.clone();
+    assert!(paths(&clone, None).unwrap().legacy);
+    assert!(
+        core.paths
+            .board_notice()
+            .unwrap()
+            .contains("PID 123 in pane %41")
+    );
+    lease.release().unwrap();
+    let guard = state_guard(&core).unwrap();
+    assert!(
+        retry(&clone).unwrap().legacy,
+        "cutover must not wait on a retained shared guard"
+    );
+    assert_eq!(state_root(&core).unwrap(), f.directory.join("squad"));
+    drop(guard);
+    assert!(!retry(&clone).unwrap().legacy);
+    assert!(!paths(&core, None).unwrap().legacy);
+    assert!(core.paths.board_notice().is_none());
+    assert_eq!(state_root(&core).unwrap(), f.directory.join("ops"));
+    assert_eq!(
+        config_write_guard(stale.path()).err().unwrap().code,
+        "SQUAD_CONFIG_CHANGED"
+    );
+    assert!(f.directory.join(COMPLETE).exists());
+    assert!(!f.directory.join("squad.toml").exists());
+}
+
+#[test]
+fn retry_writer_deferral_explains_paused_sends_and_migration_failure_is_shared() {
+    use crate::cron_service::test_support::Fixture as CronFixture;
+    let f = CronFixture::new();
+    paths(&f.core, None).unwrap();
+    fs::rename(f.directory.join("ops.toml"), f.directory.join("squad.toml")).unwrap();
+    fs::remove_file(f.directory.join(COMPLETE)).unwrap();
+    fs::remove_file(f.directory.join(CUTOVER)).unwrap();
+    let old = f.directory.join("squad/cron");
+    fs::create_dir_all(&old).unwrap();
+    fs::write(old.join("jobs.lock"), "").unwrap();
+    let guard = lock(&old.join("jobs.lock"), false).unwrap().unwrap();
+    let core = Core::at(f.core.executable().into());
+    assert!(paths(&core, None).unwrap().legacy);
+    assert_eq!(
+        core.paths.board_notice().unwrap(),
+        "Ops migration pending; scheduled sends paused until migration completes."
+    );
+    assert!(retry(&core).unwrap().legacy);
+    drop(guard);
+    fs::write(f.directory.join("squad.toml"), "invalid TOML [").unwrap();
+    assert_eq!(
+        retry(&core).unwrap_err().code,
+        "SQUAD_PATH_MIGRATION_FAILED"
+    );
+    assert_eq!(
+        paths(&core.clone(), None).unwrap_err().code,
+        "SQUAD_PATH_MIGRATION_FAILED"
+    );
+    assert!(!f.directory.join(CUTOVER).exists());
+    assert!(f.directory.join("squad.toml").exists());
 }

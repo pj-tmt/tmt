@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 import { mkdirSync, writeFileSync } from 'node:fs';
 
 const fixture = '/test/message-composer-browser.html';
@@ -109,6 +109,57 @@ test('recipient selection keeps multiline surrounding text and performs no effec
   expect(proof.sends).toHaveLength(0);
   await expect(input).toHaveText('Before @Other agent \nAfter', { useInnerText: true });
 });
+
+// Chinese and Japanese text has no spaces, and a CJK IME may type the full-width ＠: the
+// recipient list must open in both cases, and choosing from it binds a recipient as usual.
+for (const [name, type] of [
+  [
+    'straight after CJK text',
+    async (page: Page) => {
+      await page.keyboard.insertText('請問');
+      await page.keyboard.type('@');
+    },
+  ],
+  [
+    'as the full-width ＠',
+    async (page: Page) => {
+      await page.keyboard.insertText('＠');
+    },
+  ],
+  [
+    'after an IME-committed CJK word',
+    async (page: Page) => {
+      const client = await page.context().newCDPSession(page);
+      await client.send('Input.imeSetComposition', {
+        text: 'ㄋ',
+        selectionStart: 1,
+        selectionEnd: 1,
+      });
+      await client.send('Input.insertText', { text: '你' });
+      await client.send('Input.imeSetComposition', {
+        text: '@',
+        selectionStart: 1,
+        selectionEnd: 1,
+      });
+      await client.send('Input.insertText', { text: '@' });
+    },
+  ],
+] as const)
+  test(`the recipient list opens for @ ${name} and picking binds the recipient`, async ({
+    page,
+  }) => {
+    await page.goto(fixture);
+    const input = page.getByRole('combobox', { name: 'Message', exact: true });
+    await expect(input).toHaveText('', { useInnerText: true });
+    await input.focus();
+    await type(page);
+    const list = page.getByRole('listbox');
+    await expect(list).toBeVisible();
+    await page.getByRole('option').filter({ hasText: '@Other agent' }).click();
+    await expect(list).toBeHidden();
+    // The token is the agent's name; the typed trigger and prefix text are not lost.
+    await expect(input).toContainText('@Other agent', { useInnerText: true });
+  });
 
 test('shared field retains its root, label association and undo history across access changes', async ({
   page,

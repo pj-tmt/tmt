@@ -301,6 +301,30 @@ fn serve(
     cancellation: &Cancellation,
     foreground: bool,
 ) -> Result<Value, SquadError> {
+    let migrated_config;
+    let config = if !foreground && crate::migration::paths(core, None)?.legacy {
+        // The automatic UI clock must not become another legacy migration blocker.
+        // Reuse the clock's interruptible cadence without creating a lease or store.
+        loop {
+            match stop.recv_timeout(EVERY) {
+                Err(RecvTimeoutError::Timeout) if !cancellation.cancelled() => {}
+                _ => return Ok(json!({"action":"run","warnings":[],"complete":true})),
+            }
+            match crate::migration::retry(core) {
+                Ok(paths) if !paths.legacy => break,
+                Ok(_) => {}
+                Err(_) if cancellation.cancelled() => {
+                    return Ok(json!({"action":"run","warnings":[],"complete":true}));
+                }
+                Err(error) if error.code == "SQUAD_CORE_UNAVAILABLE" => {}
+                Err(error) => return Err(error),
+            }
+        }
+        migrated_config = Config::load(core)?;
+        &migrated_config
+    } else {
+        config
+    };
     let root = service::root(core)?;
     let clock = Clock::new(&root)?;
     let mut lease: Option<Lease> = None;

@@ -332,7 +332,7 @@ pub(super) fn render(frame: &mut Frame, app: &App, footer: Rect, look: crate::lo
         Line::from(spans)
     } else if app.searching {
         Line::from(format!("/{}▏", app.search))
-    } else if let Some(notice) = &app.notice {
+    } else if let Some(notice) = app.migration_notice.as_ref().or(app.notice.as_ref()) {
         Line::from(Span::styled(notice.as_str(), look.role(Role::Waiting)))
     } else if let Some(link) = app
         .selected_link()

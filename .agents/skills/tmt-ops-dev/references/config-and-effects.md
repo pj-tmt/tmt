@@ -43,8 +43,9 @@ board-only home/meter/`usage.*` data.
 
 ## Ops path migration
 
-`migration` owns one layout decision per invocation, shared by Core clones and board
-workers before config discovery/loading or state access. Core still supplies both roots
+`migration` owns one synchronized layout decision per invocation, shared by Core clones
+and board workers before config discovery/loading or state access. A deferred decision
+can promote to Ops; completed decisions stay cached. Core still supplies both roots
 through public `config show` and `storage.root`; Squad never discovers Core paths itself.
 The stable `.ops-paths.lock` beside the config serializes first runs and unfinished cleanup; a completed
 `.ops-paths-v1` marker makes later decisions check only completion/legacy-name metadata, with no lock or legacy content reads. The marker is read only when the old config name exists, to distinguish an unchanged ignored file from a reappeared one.
@@ -73,15 +74,62 @@ them; completion suppresses repeated notices. Only old clock evidence is checked
 
 Legacy state locks remain held during copy and cutover; a busy legacy writer defers instead of blocking startup. A live old clock defers the
 whole migration: that invocation continues using legacy config/state and names its
-holder PID/pane, Ctrl-C and verified `kill -TERM <pid>` stop instructions once. An
-existing lease prevents another clock; the next invocation retries migration. A board
-that read the old config before archival fails its normal byte CAS instead of
+holder PID/pane once; command startup offers the automatic board switch.
+A newly started UI stays clock-less while deferred, retrying migration on its existing
+one-second interruptible clock-worker cadence. It acquires an Ops clock only after
+cutover and config reload; foreground cron commands retain explicit legacy behavior.
+When no old clock runs, scheduled sends pause until migration completes; normal clock
+slot windows resume without replaying missed sends. The board keeps a short pending
+notice, retargets its config watcher on promotion, and reloads once even with refresh off.
+Retries use a nonblocking cutover lock and release the decision mutex before file/Core
+work; legacy services keep their shared cutover guard while resolving/using the root.
+A board that read the old config before archival fails its normal byte CAS instead of
 recreating the missing file. Pending new-version writes also hold the cutover lock
 and refuse after completion, even with an initially absent config. After cutover,
 board watching follows `ops.toml` only. Metadata detection notices an exact legacy
-config that reappears; it is never read or merged. Restart boards started before
-an upgrade before editing settings. Config/state migration cannot change already
-running old code; old boards with an absent initial file can recreate the old name.
+config that reappears; it is never read or merged.
+
+`tmt ops migration switch --yes` owns board discovery, stopping, cutover and
+same-pane relaunch. The installer calls the same operation before deleting former
+Squad, and command startup offers one interactive consent question when pending;
+non-interactive runs print the one recovery command on stderr. `--socket` targets
+an explicit tmux socket when caller context is unavailable; `--prefix` must match
+the current receipt-verified Ops installation. Other servers are never scanned.
+Help/version, completion and hook protocols do not offer or execute the switch.
+
+Eligible boards are same-user foreground processes in panes on that socket whose
+kernel executable path is under the verified prefix's `lib/tmt-squad/` and whose
+argv parses as the former `board` command. This evidence remains usable after an
+earlier upgrade deleted the former installation; a name, title, argv[0] or lease
+PID alone is never authority. PID/start, executable, argv, tty, ancestry and
+foreground ownership are rechecked before TERM. Only the board PID is signalled;
+shells, unrelated processes, existing Ops boards, panes and servers are not killed.
+
+On Linux the switch reads exact NUL-delimited `/proc/<pid>/cmdline`; on macOS,
+`ps` text must match the kernel path or former link name, `board`, and only known
+flags with `--tabs`/`--squad` values restricted to `[a-z0-9-,]`.
+Deliberately forged argv[0] can retire another invocation of the same retiring binary; this bounded one-time risk is accepted.
+
+The switch preserves pane IDs, cwd, `--tabs` (including omitted defaults),
+`--squad` and `--popup`. A shell-launched board restarts through the same shell,
+inheriting its environment; a dedicated pane respawns with the tmux pane environment.
+Both set `TMT_EXECUTABLE` to current Core. Process environments are never captured
+from `ps`. The original shell must regain the foreground; dedicated panes are
+retained across exit and respawned without `-k`. Unavailable or changed evidence
+leaves the board running. Successful relaunch requires acknowledgment after the
+first loaded Ops draw.
+
+`<dataRoot>/.ops-board-switch-v1.json` is separate from the migration journal:
+private 0600, same-user regular files with no-follow opens, at most 32 boards and
+1 MiB, serialized by a nonblocking switch lock. A switch without tmux retains an
+empty pending record that binds to the chosen socket before any board effect.
+Launch details are synced before
+TERM; launch submission is recorded before its effect, so an interrupted retry
+recognizes acknowledged Ops processes instead of launching duplicates. Uncertain
+submission is retained and reported rather than blindly resubmitted. Readiness
+markers and the record are removed after completion. Failures retain partial
+progress, the recovery command and former install evidence when still available;
+they never roll back cutover or bypass configuration CAS fences.
 
 ## Team preset
 

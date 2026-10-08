@@ -7,7 +7,7 @@ use std::{
     ffi::OsString,
     fmt,
     path::{Path, PathBuf},
-    sync::{Arc, OnceLock},
+    sync::Arc,
     time::{Duration, Instant},
 };
 
@@ -77,7 +77,7 @@ pub struct Core {
     executable: PathBuf,
     cancellation: Option<runner::Cancellation>,
     deadline: Option<Instant>,
-    pub(crate) paths: Arc<OnceLock<Result<crate::migration::Paths, SquadError>>>,
+    pub(crate) paths: Arc<crate::migration::Decision>,
 }
 
 impl Core {
@@ -111,7 +111,7 @@ impl Core {
             executable,
             cancellation: None,
             deadline: None,
-            paths: Arc::new(OnceLock::new()),
+            paths: Arc::new(crate::migration::Decision::default()),
         })
     }
 
@@ -122,7 +122,7 @@ impl Core {
             executable,
             cancellation: None,
             deadline: None,
-            paths: Arc::new(OnceLock::new()),
+            paths: Arc::new(crate::migration::Decision::default()),
         }
     }
 

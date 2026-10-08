@@ -1,8 +1,9 @@
 import { mkdirSync } from 'node:fs';
 import { expect, test, type Page } from '@playwright/test';
+import { captureDirectory } from './captures.js';
 import { text } from '../src/strings.js';
 const fixture = '/test/ask-page-browser.tsx';
-const captureDir = process.env.COLAB_TURN_CAPTURE_DIR ?? '/private/tmp/ux-1-1707-captures';
+const captureDir = process.env.COLAB_TURN_CAPTURE_DIR ?? captureDirectory();
 const request = 'Explain <img src=x onerror=alert(1)> in this selection.\nKeep the exact text.';
 const reply = 'Keep <script>reply</script> as text.\nThis is Atlas’s answer.';
 async function run(page: Page, method: string, argument?: unknown) {

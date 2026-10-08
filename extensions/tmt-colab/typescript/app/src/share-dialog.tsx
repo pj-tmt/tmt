@@ -254,8 +254,8 @@ export function ShareDialog({
             <div className="bearer">
               <p>
                 Copy this link ID and seed now. They are shown once and are never stored. Anyone
-                with the seed has bearer access. Opening shared links in this browser app is not
-                available yet; there is no reader URL.
+                with the seed has bearer access. Shared links open in a separate read-only view,
+                whatever their role. This dialog does not create a URL to open.
               </p>
               <label>
                 Link ID
@@ -503,7 +503,7 @@ export function ShareDialog({
                 review(
                   { operation: 'link.add', value: newLink(role, [pageId]) },
                   'Create link',
-                  `Grant ${role} bearer access under ${view.page.history} history. Copy the seed once after verification; opening shared links in this browser app is not available yet.`,
+                  `Grant ${role} bearer access under ${view.page.history} history. Copy the seed once after verification. Shared links open read-only, whatever their role.`,
                 )
               }
             >
