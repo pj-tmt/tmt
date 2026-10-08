@@ -1,4 +1,18 @@
 import { placeIconActionTooltip } from '../../src/icon-action-tooltip.ts';
+import { checkFieldFocus } from './field-focus.ts';
+
+document.querySelector('#run-focus').addEventListener('click', () => {
+  const result = document.querySelector('#focus-result');
+  try {
+    const count = checkFieldFocus([
+      document.querySelector('#native'),
+      document.querySelector('#editable'),
+    ]);
+    result.textContent = `Passed ${count} field focus assertions`;
+  } catch (error) {
+    result.textContent = `Failed: ${error.message}`;
+  }
+});
 
 // Fixture host for the static markup contract; no React or product runtime.
 function action(label, variant, state, disabled = false) {
