@@ -106,7 +106,8 @@ readiness, publications and diagnosis cannot alter the current attempt. Recovery
 never replays an Ask or mutation. If recovery
 fails, the explicit Reconnect button uses `recoverSession` through `Live.reconnect`, closing
 the page socket, Ask and observer first. The Remote restart cases drive that explicit path
-through `reconnect(page)` in `acceptance/ask.spec.ts`.
+or admitted mounted-owner replacement in `acceptance/ask.spec.ts`; both restart cases
+stay active expected failures until #2039 restores their fetch-failure recovery path.
 
 ## Persistence layout
 

@@ -25,6 +25,9 @@ before execution. Keep that directory unchanged throughout both acceptance runs.
 
 Run it twice for lifecycle acceptance; it is a recorded manual gate on the PR head, not a CI
 job. Set `TMT_ACCEPTANCE_KEEP=1` to keep a world's root (counter rows, `*.stderr`) after a run.
+Use that setting only for diagnostics: the harness's injected-failure case requires root deletion,
+so a retained-root run cannot satisfy the complete suite's cleanup gate. A Colab PR handoff
+names the acceptance specs it ran and the exact tested executable/asset hashes.
 
 ## World
 
@@ -63,8 +66,10 @@ browsers register: each paired device registers when it first opens the app.
 
 `agent-status.spec.ts` reads the real admitted directory through the Agents drawer,
 checks its served asset hashes and CSP, and injects a labelled context-read refusal
-without sending or reopening. Set `COLAB_STATUS_ASSET_MANIFEST` to the build report
-containing the eleven `distAssets` paths and SHA256 digests; optional
+without sending or reopening. By default it compares every served asset with the app's
+current `dist` build. For a relocated frozen binary run, set `COLAB_STATUS_ASSET_MANIFEST`
+to an independently retained build report containing all eleven `distAssets` paths and SHA256
+digests, including `THIRD-PARTY-NOTICES.txt`; optional
 `COLAB_STATUS_NATIVE_CAPTURE_DIR` saves 1440/390 light/dark originals. Its injected
 refusal does not diagnose an existing browser's session failure.
 
@@ -83,14 +88,22 @@ contracts and focused cases are described in [discussion.md](discussion.md).
 `ask.spec.ts` holds the Ask cases: direct send (the recipient's received text is the oracle for the exact bytes) and a second viewer, browser
 reload, Remote restart after the core accepted, Remote restart before dispatch, Colab restart,
 device revocation and two tabs of one browser staying live at once. They
-drive direct Chat (`composeChat`, `sendChat`, `askEntry`, `askState`) and run against the built binaries. A restarted Remote keeps sessions and door cookies in memory, so the page
-shows "Sync disconnected" and the restart cases recover through its own Reconnect button
-(`reconnect(page)`: the SDK reopens the paired session once, then the page reloads). The
-restored ask is observed read-only under its original operation ID: accepted, or uncertain
+drive direct Chat (`composeChat`, `sendChat`, `askEntry`, `askState`) and run against the built binaries.
+Remote stores sessions and door cookies in memory. The mounted owner can replace a verified
+ended Session after a restart without a reload.
+The cases admit that in-place recovery or the page's explicit Reconnect action before checking
+the original Ask outcome. They observe a fresh successful mounted device registration after
+Remote dies, then require live status and no stopped preview; an old iframe is not recovery.
+The restored ask is observed read-only under its original operation ID: accepted, or uncertain
 with abandon recorded as `MAY_HAVE_BEEN_DELIVERED`, never a second dispatch. An in-flight send
 stays "dispatching" until the SDK deadline, so a case reconnects instead of waiting for it.
 The held case waits for a Remote-provided hold fixture, with held behavior covered by unit
-tests. Enable a case by making its body pass, never with
+tests. Both Remote restart cases remain active expected failures for
+[#2039](https://github.com/pj-tmt/tmt/issues/2039): a pending recovery can stop with
+`Failed to fetch` and no recovery control. They retain their original-operation, uncertain,
+recheck, abandon, no-effect, accepted, one-dispatch and one-wake assertions; an unexpected pass fails the run.
+Neither restart case is skipped. Remove both annotations when #2039 is fixed and both cases pass.
+Enable a case by making its body pass, never with
 a stand-in. Assert the recipient's text equals the disclosed bytes captured on Enter, including the
 `[remote: <device>]` line, and that no delivery state is shown (presence only).
 
