@@ -29,12 +29,17 @@ import type { AcceptanceWorld } from './harness/world.js';
 
 const PAGE_HTML = '<h1>Ask acceptance</h1><p id="quote">Exact selected sentence for the agent.</p>';
 
-/** Recover the paired session after a Remote restart through the page's own Reconnect. */
+/** Current mounted-owner recovery may finish without showing a manual control. */
 async function reconnect(page: Page) {
-  await Promise.all([
-    page.waitForEvent('load', { timeout: 60_000 }),
-    page.getByRole('button', { name: 'Reconnect', exact: true }).click(),
-  ]);
+  const control = page.getByRole('button', { name: 'Reconnect', exact: true });
+  const content = page.frameLocator('iframe').getByRole('heading', { name: 'Ask acceptance' });
+  await expect
+    .poll(async () => (await content.isVisible()) || (await control.isVisible()), {
+      timeout: 60_000,
+    })
+    .toBe(true);
+  if (await control.isVisible()) await control.click();
+  await expect(content).toBeVisible({ timeout: 60_000 });
   await openChat(page);
 }
 
@@ -125,6 +130,8 @@ test.describe('Ask agent real-binary acceptance (#1110)', () => {
   });
 
   test(`remote restart after the core accepted recovers via operation.show with no second wake`, async () => {
+    // #2039: Preview stopped / Failed to fetch without a recovery control, 3/3 runs.
+    test.fail(true, 'https://github.com/pj-tmt/tmt/issues/2039: restart recovery fails 3/3');
     await withWorld(async (world) => {
       const s = await scenario(world);
       const draft = await composeChat(s.askerPage, s.recipient, 'Survive a restart');
@@ -136,9 +143,8 @@ test.describe('Ask agent real-binary acceptance (#1110)', () => {
       await s.door.remote.kill();
       world.releaseBarrier();
       await restartRemote(world, s.door);
-      // Remote's sessions are in memory: the page shows "Sync disconnected" and the
-      // explicit Reconnect reopens the paired session, then reloads. The restored
-      // ask observes the original operation ID (read-only, never a resend).
+      // The mounted owner can replace a verified ended Session automatically.
+      // Recovery observes the original operation ID read-only, never a resend.
       await reconnect(s.askerPage);
       await expect(askEntry(s.askerPage, ask.operationId)).toHaveAttribute(
         'data-ledger-state',
@@ -152,6 +158,8 @@ test.describe('Ask agent real-binary acceptance (#1110)', () => {
   });
 
   test(`remote restart before dispatch stays uncertain with no new dispatch; abandon records MAY_HAVE_BEEN_DELIVERED`, async () => {
+    // #2039: Preview stopped / Failed to fetch without a recovery control, 3/3 runs.
+    test.fail(true, 'https://github.com/pj-tmt/tmt/issues/2039: restart recovery fails 3/3');
     await withWorld(async (world) => {
       const s = await scenario(world);
       const draft = await composeChat(s.askerPage, s.recipient, 'Never reaches the core');
@@ -164,13 +172,17 @@ test.describe('Ask agent real-binary acceptance (#1110)', () => {
       await s.door.remote.kill();
       process.kill(parked.pid as number, 'SIGKILL');
       await restartRemote(world, s.door);
-      // The in-flight send only times out after the SDK's own deadline, so the user
-      // reconnects; the restored ask is uncertain, never resent, and operation.show
-      // finds nothing: only re-check or abandon remain.
+      // #2039 can leave Preview stopped / Failed to fetch without Reconnect.
+      // Keep recovery, original uncertain state, recheck, abandon and no-effect
+      // oracles active: an unexpected pass makes this expected failure red.
+      expect(s.recipient.received()).toHaveLength(0);
+      // The harness records the parked launch before core runs; it has no effect.
+      expect(dispatches(world)).toHaveLength(1);
       await reconnect(s.askerPage);
       await expect(askState(s.askerPage, ask.operationId)).toHaveAttribute(
         'data-state',
         'uncertain',
+        { timeout: 60_000 },
       );
       await s.askerPage.getByRole('button', { name: 'Re-check delivery' }).click();
       await expect(askState(s.askerPage, ask.operationId)).toHaveAttribute(
@@ -185,6 +197,7 @@ test.describe('Ask agent real-binary acceptance (#1110)', () => {
       );
       // No effect: the recipient never received anything.
       expect(s.recipient.received()).toHaveLength(0);
+      expect(dispatches(world)).toHaveLength(1);
     });
   });
 

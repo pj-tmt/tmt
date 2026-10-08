@@ -137,6 +137,25 @@ test('the annotation popover closes by its × , Escape anywhere in it, an outsid
     await expect(popover).toBeVisible();
     release();
     await expect.poll(() => agent.received().length).toBe(1);
+    await expect(popover).toBeVisible();
+    await expect.poll(() => agent.rows().find((row) => row.event === 'replied')?.body).toBeTruthy();
+    const reply = agent.rows().find((row) => row.event === 'replied')!.body as string;
+    await expect(popover.getByTestId('ask-reply')).toHaveText(reply);
+    await expect(page.locator('.page-drawer[open]')).toHaveCount(0);
+    await expect(input).toHaveText('', { useInnerText: true });
+    expect(agent.received()).toHaveLength(1);
+    expect(world.coreCalls().filter((call) => call.operation === 'dispatch.create')).toHaveLength(
+      1,
+    );
+    await input.fill('Continue this annotation.');
+    expect(agent.received()).toHaveLength(1);
+    await input.press('Enter');
+    await expect.poll(() => agent.received().length).toBe(2);
+    await expect(popover.getByTestId('ask-reply')).toHaveCount(2);
+    expect(world.coreCalls().filter((call) => call.operation === 'dispatch.create')).toHaveLength(
+      2,
+    );
+    await popover.getByRole('button', { name: 'Close thread', exact: true }).click();
     await expect(popover).toHaveCount(0);
   });
 });
