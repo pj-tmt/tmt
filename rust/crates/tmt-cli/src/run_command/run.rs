@@ -369,12 +369,13 @@ pub(super) fn run_bound(
         .observe_runtime(Instant::now() + Duration::from_secs(3))
         .unwrap_or(ProcessObservation::Unknown);
     let child_incarnation = match &child_evidence {
-        ProcessObservation::Live(value) | ProcessObservation::UnreapedZombie(value) => {
-            Some(value.clone())
-        }
+        ProcessObservation::Live(value)
+        | ProcessObservation::Stopped(value)
+        | ProcessObservation::UnreapedZombie(value) => Some(value.clone()),
         _ => None,
     };
     let already_exited = matches!(child_evidence, ProcessObservation::UnreapedZombie(_));
+    let already_stopped = matches!(child_evidence, ProcessObservation::Stopped(_));
     // The driver records the exact foreground before admission; if it cannot, the
     // enrollment stays unconfirmed (never "ended") and the child keeps running.
     if let Some(note) = lease.foreground_started(child_incarnation.as_ref()) {
@@ -428,6 +429,18 @@ pub(super) fn run_bound(
             };
             let next = if already_exited {
                 lifecycle.client_exit(&current.session, key, owner.clone(), &preferences)
+            } else if already_stopped {
+                // Keep exact ownership for duplicate refusal, without treating
+                // a stopped child as live evidence or authorizing delivery.
+                current.session.record_stopped_launch(
+                    key,
+                    owner.clone(),
+                    if launch.resumed.is_some() {
+                        SessionTransition::Resumed
+                    } else {
+                        SessionTransition::Started
+                    },
+                )
             } else {
                 current.session.admit_launched(
                     key,
@@ -460,7 +473,13 @@ pub(super) fn run_bound(
             "command started, but runtime ownership could not be recorded; automatic delivery is not established.",
         );
     }
-    let storage_closed = storage.close().is_ok();
+    let (closed, signal_result) = child.with_deferred_suspend(|| storage.close());
+    let storage_closed = closed.is_ok();
+    if signal_result.is_err() {
+        diagnostic(
+            "could not preserve terminal suspension during launch-state close; the command will not be restarted.",
+        );
+    }
     if !storage_closed {
         diagnostic(
             "could not close launch state before waiting; the command will not be restarted.",
