@@ -178,7 +178,7 @@ function render() {
 	more.disabled = page.busy;
 	first.hidden = page.onFirstPage;
 	first.disabled = page.busy;
-	element("outcome").textContent = `${page.outcome?.state ? `${page.outcome.state}: ` : ""}${page.notice || "No change submitted."}`;
+	element("outcome").textContent = `${page.outcome?.state && page.outcome.state !== "unknown" ? `${page.outcome.state}: ` : ""}${page.notice || "No change submitted."}`;
 	element("original").textContent = page.intent ? `Original operation ${page.intent.input.operationId}` : "";
 	if (page.devices) {
 		const current = new Set(page.devices.devices.map((device) => device.clientId));
@@ -225,7 +225,7 @@ function render() {
 					if (!page.writable) return;
 					const target = page.devices?.devices.find((item) => item.clientId === device.clientId);
 					if (!target || target.revoked) return;
-					if (confirm(`Revoke ${target.name}${target.thisBrowser ? " (this browser)" : ""}?`)) change({
+					if (confirm(`Revoke ${target.name}${target.thisBrowser ? " (this device)" : ""}?`)) change({
 						kind: "revoke",
 						input: {
 							operationId: crypto.randomUUID(),
@@ -256,7 +256,7 @@ function render() {
 				rows.set(device.clientId, row);
 				devices.append(row);
 			}
-			row.querySelector(".device-summary").textContent = `${device.name}${device.thisBrowser ? " · This browser" : ""} · ${device.kind} · ${device.revoked ? "Revoked" : "Paired"} · ${device.liveSessionCount} live sessions · Last activity ${device.lastActivityAtMs === null ? "unavailable" : new Date(device.lastActivityAtMs).toLocaleString()}`;
+			row.querySelector(".device-summary").textContent = `${device.name}${device.thisBrowser ? " · This device" : ""} · ${device.kind} · ${device.revoked ? "Revoked" : "Paired"} · ${device.liveSessionCount} live sessions · Last activity ${device.lastActivityAtMs === null ? "unavailable" : new Date(device.lastActivityAtMs).toLocaleString()}`;
 			const name = row.querySelector("input");
 			name.disabled = !editable || device.revoked;
 			if (editable) name.removeAttribute("aria-describedby");

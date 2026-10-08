@@ -98,7 +98,7 @@ function render(): void {
   first.hidden = page.onFirstPage;
   first.disabled = page.busy;
   element('outcome').textContent =
-    `${page.outcome?.state ? `${page.outcome.state}: ` : ''}${page.notice || 'No change submitted.'}`;
+    `${page.outcome?.state && page.outcome.state !== 'unknown' ? `${page.outcome.state}: ` : ''}${page.notice || 'No change submitted.'}`;
   element('original').textContent = page.intent
     ? `Original operation ${page.intent.input.operationId}`
     : '';
@@ -149,7 +149,7 @@ function render(): void {
           // Confirmation is local presentation, never server authority.
           const target = page.devices?.devices.find((item) => item.clientId === device.clientId);
           if (!target || target.revoked) return;
-          if (confirm(`Revoke ${target.name}${target.thisBrowser ? ' (this browser)' : ''}?`))
+          if (confirm(`Revoke ${target.name}${target.thisBrowser ? ' (this device)' : ''}?`))
             void change({
               kind: 'revoke',
               input: { operationId: crypto.randomUUID(), clientId: device.clientId },
@@ -179,7 +179,7 @@ function render(): void {
         devices.append(row);
       }
       row.querySelector('.device-summary')!.textContent =
-        `${device.name}${device.thisBrowser ? ' · This browser' : ''} · ${device.kind} · ${device.revoked ? 'Revoked' : 'Paired'} · ${device.liveSessionCount} live sessions · Last activity ${device.lastActivityAtMs === null ? 'unavailable' : new Date(device.lastActivityAtMs).toLocaleString()}`;
+        `${device.name}${device.thisBrowser ? ' · This device' : ''} · ${device.kind} · ${device.revoked ? 'Revoked' : 'Paired'} · ${device.liveSessionCount} live sessions · Last activity ${device.lastActivityAtMs === null ? 'unavailable' : new Date(device.lastActivityAtMs).toLocaleString()}`;
       const name = row.querySelector<HTMLInputElement>('input')!;
       name.disabled = !editable || device.revoked;
       if (editable) name.removeAttribute('aria-describedby');

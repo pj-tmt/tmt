@@ -485,7 +485,6 @@ original operation, never becomes falsely unsent.
 
 **[#1769](https://github.com/pj-tmt/tmt/issues/1769) implementation: native/SDK and the shared-presentation settings page.** This section owns authority; the fixed management protocol
 below specifies the native/SDK implementation. The local CLI remains the scripting management path.
-Current landing, pairing and error-page presentation adoption does not implement this feature.
 
 A paired channel owner-device is not automatically a settings administrator. Loopback, Host,
 Origin, a route prefix, door cookie, display name or client-supplied owner flag cannot establish

@@ -498,6 +498,9 @@ fn settings_page_and_product_script_reuse_the_same_door_policy_and_sdk() {
     let page = get(&h, "/settings", "");
     assert_eq!(page.status, 200);
     assert_eq!(page.body, include_str!("../assets/settings.html"));
+    assert!(page.body.contains(
+        "<p>“This device” identifies a pairing. It does not grant settings authority.</p>"
+    ));
     assert_eq!(
         page.header("content-type"),
         Some("text/html; charset=utf-8")

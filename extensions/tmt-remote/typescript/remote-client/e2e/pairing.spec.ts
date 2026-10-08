@@ -1254,6 +1254,9 @@ test('settings draft preserves authority, exact values, drafts and unknown self-
   ) as { devices: { clientId: string }[] };
   const clientId = inventory.devices[0]!.clientId;
   async function descriptions(editable: boolean): Promise<void> {
+    await expect(page.locator('.device-summary').first()).toContainText(
+      ' · This device · browser · Paired · ',
+    );
     const guidance =
       'Read-only in this browser. Change Remote settings or manage devices with the local CLI.';
     const help = 'Default is 8. Off means unlimited. Changes apply at the next session open.';
@@ -1497,7 +1500,9 @@ test('settings draft preserves authority, exact values, drafts and unknown self-
   } finally {
     release();
   }
-  await expect(page.locator('#outcome')).toContainText('unknown');
+  await expect(page.locator('#outcome')).toHaveText(
+    'Outcome unknown. Read the original operation; do not submit it again.',
+  );
   await expect(name).toHaveValue('Unsent next name');
   expect(await name.evaluate((input) => (input as HTMLInputElement).selectionStart)).toBe(2);
   await expect(name).toBeFocused();
@@ -1533,8 +1538,16 @@ test('settings draft preserves authority, exact values, drafts and unknown self-
     'Fresh live Session reads committed original; next-name draft retained',
   );
   // Lost self-revoke acknowledgement: one fresh read-only admission, accurate access loss + unknown.
-  page.once('dialog', (dialog) => void dialog.accept());
-  await page.locator('.device button[type=button]').click();
+  const confirmation = page.waitForEvent('dialog');
+  const revokeClick = page.locator('.device button[type=button]').click();
+  const dialog = await confirmation;
+  try {
+    expect(dialog.type()).toBe('confirm');
+    expect(dialog.message()).toBe('Revoke Renamed browser (this device)?');
+  } finally {
+    await dialog.accept();
+  }
+  await revokeClick;
   await expect(page.locator('#outcome')).toContainText('unknown');
   await page.click('#recover');
   await expect(page.locator('#access')).toContainText('refused');
