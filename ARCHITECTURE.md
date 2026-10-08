@@ -1073,11 +1073,11 @@ from the captured source. Build metadata and executable versions must agree;
 nothing is committed back to main. Main retains development versions. Workflow jobs
 own Node architecture selection; version injection preserves it.
 
-Notes, migration comparison and breaking authorization share one boundary: the
-component's newest published ancestor. Drafts and failed/running pipelines never
-advance it. Publication creates an immutable tag on the captured commit only
-after every gate passes. CLI latest converges to its highest published version;
-extensions never change latest.
+Notes, migration comparison and breaking authorization share the newest published
+ancestor. Before its own publication, a map-declared predecessor supplies that
+boundary and both lines reserve versions; retired identities stay historical-only.
+Drafts never advance published evidence. Publication creates an immutable tag only
+after every gate passes; only the CLI converges latest to its highest publication.
 
 Automatic publication covers authorized existing alpha products only. Ben retains
 stable, breaking, version-line changes and manual publication authorization.

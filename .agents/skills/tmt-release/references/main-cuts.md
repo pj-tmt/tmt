@@ -47,7 +47,12 @@ cut and skip reason. Missing draft visibility, pagination or history is a
 blocked plan. Allocation is serialized; inspect each tag-specific native pipeline
 independently. Allocate only when the component has releasable commits after its
 newest allocated ancestor cut (in flight or published), excluding drafts with `verification-failed.json`; failed drafts reserve their numbers but allow a new cut, including at the same main SHA. Notes, migrations and breaking authorization still cover
-the newest published ancestor through the captured main commit.
+the newest published ancestor through the captured main commit. A packaged product may declare
+`predecessor` as an exact registered retired or released product key (no self edges or cycles):
+until its own first publication, it inherits the predecessor boundary and advances beyond every
+allocation in both lines. Its own published history then takes over; `requiresCliSha` still gates
+the first successor cut. Registry `retired: true` preserves old tag/archive identity but admits
+no new cut, preparation or publication; retaining a retired map record requires `release: false`.
 
 For an owner-authorized explicit version, dispatch `release.yml` on main with
 `product=cli|squad|remote|colab`, `version=<canonical stable or alpha version>` and

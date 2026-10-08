@@ -71,6 +71,7 @@ export function readCutRange(
   cut: string
 ): CutCommit[];
 export function releaseCutHistory(input: {
+  map?: ComponentMap;
   releases: NonNullable<CutMetadata['releases']>;
   product: string;
   cut: string;
