@@ -219,8 +219,67 @@ for (const width of [1440, 390]) {
       await page.getByTestId('selection-ask').click();
       const dialog = page.getByRole('dialog', { name: 'Annotate selection' });
       const input = dialog.getByRole('combobox', { name: 'Message', exact: true });
-      const capture = (name: string) =>
-        page.screenshot({ path: `${directory}/${width}-${theme}-${name}.png` });
+      const capture = async (name: string) => {
+        const fields = await page.locator('.message-composer-field:visible').evaluateAll((nodes) =>
+          nodes.map((control) => {
+            const label = control.previousElementSibling!;
+            const style = getComputedStyle(control);
+            const picker = control.closest('.tmt-listbox-input')!.nextElementSibling;
+            const pickerLabel = picker?.querySelector('.tmt-ui-action-label');
+            return {
+              gap: control.getBoundingClientRect().top - label.getBoundingClientRect().bottom,
+              focusClearance:
+                parseFloat(style.getPropertyValue('--tmt-ui-focus-width')) +
+                parseFloat(style.getPropertyValue('--tmt-ui-host-focus-offset')),
+              pickerLabelOffset: pickerLabel
+                ? pickerLabel.getBoundingClientRect().left - control.getBoundingClientRect().left
+                : undefined,
+              pickerPadding: picker ? parseFloat(getComputedStyle(picker).paddingLeft) : undefined,
+            };
+          }),
+        );
+        expect(fields.length).toBeGreaterThan(0);
+        for (const field of fields) {
+          expect(field.gap).toBeGreaterThanOrEqual(field.focusClearance);
+          expect(field.pickerLabelOffset).toBeDefined();
+          expect(Math.abs(field.pickerLabelOffset!)).toBeLessThan(1);
+          expect(field.pickerPadding).toBeGreaterThan(0);
+        }
+        const state = await page.evaluate(() =>
+          [...document.querySelectorAll<HTMLButtonElement>('.tmt-ui-action')].map((button) => {
+            const style = getComputedStyle(button);
+            return {
+              label: button.getAttribute('aria-label') ?? button.textContent,
+              hovered: button.matches(':hover'),
+              focused: button.matches(':focus'),
+              focusVisible: button.matches(':focus-visible'),
+              disabled: button.disabled,
+              variant: button.dataset.variant,
+              background: style.backgroundColor,
+              color: style.color,
+              disabledColor: (() => {
+                const probe = document.createElement('span');
+                probe.style.color = style.getPropertyValue('--tmt-ui-color-disabled-text');
+                return probe.style.color;
+              })(),
+            };
+          }),
+        );
+        for (const button of state) {
+          if (
+            button.variant === 'text' &&
+            ((!button.hovered && !button.focusVisible) || button.disabled)
+          )
+            expect(button.background).toBe('rgba(0, 0, 0, 0)');
+          if (button.disabled && button.variant === 'text')
+            expect(button.color).toBe(button.disabledColor);
+        }
+        writeFileSync(
+          `${directory}/${width}-${theme}-${name}.json`,
+          `${JSON.stringify(state, null, 2)}\n`,
+        );
+        await page.screenshot({ path: `${directory}/${width}-${theme}-${name}.png` });
+      };
       await expect(input).toBeFocused();
       await capture('annotation-empty');
       await input.pressSequentially('A plain comment about the selected text.');
