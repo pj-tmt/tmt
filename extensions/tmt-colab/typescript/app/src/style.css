@@ -256,7 +256,10 @@ footer {
   border: 0;
   box-shadow: none;
 }
-.page-drawer button:not(.tmt-ui-action):not([data-testid='ask-send']):hover:not(:disabled) {
+.page-drawer
+  button:not(.tmt-ui-action):not([data-testid='ask-send']):not(.annotation-row):hover:not(
+    :disabled
+  ) {
   text-decoration: underline;
   text-underline-offset: 4px;
 }

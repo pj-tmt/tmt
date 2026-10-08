@@ -17,8 +17,6 @@ const markers = (page: Page) => page.frameLocator('iframe').locator('[data-colab
 
 test.afterEach(disposeActiveWorlds);
 test('thread status reaches the other device and the CLI, and an agent resolution stays unseen until opened', async () => {
-  const captureDir = process.env.COLAB_STATUS_CAPTURE_DIR ?? test.info().outputPath('captures');
-  mkdirSync(captureDir, { recursive: true });
   await withWorld(async (world) => {
     const door = await startDoor(world, await freePort());
     const agent = await world.startAgent('status-agent');
@@ -100,25 +98,12 @@ test('thread status reaches the other device and the CLI, and an agent resolutio
     await comments(second);
     const reloaded = second.getByTestId('annotation-row').filter({ hasText: 'Quoted passage' });
     await expect(reloaded).toContainText(unseen);
-    for (const [width, theme] of [
-      [1440, 'light'],
-      [1440, 'dark'],
-      [390, 'light'],
-      [390, 'dark'],
-    ] as const) {
-      await second.setViewportSize({ width, height: 900 });
-      await second.evaluate((theme) => (document.documentElement.dataset.theme = theme), theme);
-      await second.screenshot({ path: `${captureDir}/status-unseen-${width}-${theme}.png` });
-    }
-    await second.setViewportSize({ width: 1440, height: 900 });
-    await second.evaluate(() => (document.documentElement.dataset.theme = 'light'));
     await reloaded.click();
     const t2 = second.getByTestId('comment-thread').first();
     await expect(t2).toContainText(text.threadResolvedBy(agent.name));
     await expect(t2).toHaveAttribute('data-anchor', 'resolved');
     await expect(reloaded).not.toContainText(text.threadUnseen);
     await expect(second.getByTestId('comments-toggle')).not.toContainText(text.threadUnseen);
-    await second.screenshot({ path: `${captureDir}/status-seen-1440-light.png` });
     await second.reload();
     await comments(second);
     await expect(
@@ -134,5 +119,116 @@ test('thread status reaches the other device and the CLI, and an agent resolutio
     expect(reopened.changed).toBe(true);
     await expect(markers(first)).toHaveCount(1);
     await expect.poll(() => listing().threads[0].resolved).toBe(false);
+  });
+});
+
+const variants = [
+  [1440, 'light'],
+  [1440, 'dark'],
+  [390, 'light'],
+  [390, 'dark'],
+] as const;
+test('status states captured for the UX look', async () => {
+  const captureDir = process.env.COLAB_STATUS_CAPTURE_DIR ?? test.info().outputPath('captures');
+  mkdirSync(captureDir, { recursive: true });
+  await withWorld(async (world) => {
+    const door = await startDoor(world, await freePort());
+    const agent = await world.startAgent('status-agent');
+    const author = await pairBrowser(world, 'status-author');
+    const viewer = await pairBrowser(world, 'status-viewer');
+    const created = createPage(
+      world,
+      'Status captures',
+      '<p id="quote">Quoted passage for status.</p>',
+      agent.pane,
+    );
+    const colab = (args: string[]) => run(world, world.binaries.colab, args, undefined, agent.pane);
+    // Every state in the four looks, with the pointer parked away from the page so a
+    // stray hover never reads as a pressed or selected state.
+    const shoot = async (page: Page, state: string, options: { header?: boolean } = {}) => {
+      for (const [width, theme] of variants) {
+        await page.setViewportSize({ width, height: 900 });
+        await page.evaluate((theme) => (document.documentElement.dataset.theme = theme), theme);
+        await page.mouse.move(width - 1, 899);
+        if (options.header && width < 600)
+          await page.getByRole('button', { name: 'More page actions', exact: true }).click();
+        await page.screenshot({ path: `${captureDir}/${state}-${width}-${theme}.png` });
+        if (options.header && width < 600) await page.keyboard.press('Escape');
+      }
+      await page.setViewportSize({ width: 1440, height: 900 });
+      await page.evaluate(() => (document.documentElement.dataset.theme = 'light'));
+    };
+    const toggleCopy = async (page: Page, expected: string, state: string) => {
+      await page.setViewportSize({ width: 1440, height: 900 });
+      await page.mouse.move(0, 899);
+      await expect(page.getByTestId('comments-toggle')).toHaveText(expected);
+      await page.screenshot({
+        path: `${captureDir}/toggle-${state}.png`,
+        clip: { x: 480, y: 0, width: 960, height: 56 },
+      });
+    };
+
+    const second = await openPage(door, viewer, created);
+    await expect(second.getByTestId('comments-toggle')).toBeVisible();
+    await toggleCopy(second, text.comments, 'none');
+    await comments(second);
+
+    // An open thread whose text names an agent that does not exist.
+    const first = await openPage(door, author, created);
+    await selectInRenderer(first, '#quote');
+    await first.getByTestId('selection-ask').click();
+    const compose = first.getByRole('dialog', { name: 'Annotate selection' });
+    const input = compose.getByRole('combobox', { name: 'Message', exact: true });
+    await expect(input).toBeEnabled();
+    await input.fill('Please check @ghost-agent this passage.');
+    await input.press('Escape');
+    await compose.getByRole('button', { name: 'Post comment', exact: true }).click();
+    const window = compose.getByTestId('comment-thread');
+    await expect(window).toBeVisible();
+    const threadId = (await window.getAttribute('data-thread-id'))!;
+    await window.getByRole('button', { name: text.threadClose, exact: true }).click();
+    const row2 = second.getByTestId('annotation-row').filter({ hasText: 'Quoted passage' });
+    await expect(row2).toContainText(text.threadOpen);
+    await toggleCopy(second, `${text.comments} 1`, 'open');
+    await shoot(second, 'open');
+
+    // A person resolves: the row says plain Resolved and the unknown mention is reported.
+    await comments(first);
+    await first.locator(`[data-testid=annotation-row][data-thread-id="${threadId}"]`).click();
+    const t1 = first.getByTestId('comment-thread').first();
+    await t1.getByRole('button', { name: text.threadResolve, exact: true }).click();
+    await expect(t1.getByText(text.threadNotNotified('ghost-agent'))).toBeVisible();
+    await expect(row2).toContainText(text.threadResolved);
+    await expect(row2).not.toContainText(text.threadResolvedBy('status-author'));
+    await shoot(first, 'person-resolved-not-notified');
+    await shoot(second, 'person-resolved');
+    await t1.getByRole('button', { name: text.threadReopen, exact: true }).click();
+    await expect(row2).toContainText(text.threadOpen);
+
+    // One more open thread (a page comment), then the agent resolves the first one.
+    await first.getByRole('button', { name: '+ Comment on page', exact: true }).click();
+    await first
+      .getByRole('combobox', { name: 'Post comment', exact: true })
+      .fill('A second, open discussion.');
+    await first.getByRole('button', { name: 'Post comment', exact: true }).click();
+    await expect(second.getByTestId('annotation-row')).toHaveCount(2);
+    JSON.parse(colab(['threads', 'resolve', created.pageId, threadId, '--json']));
+    await expect(row2).toContainText(`${text.threadResolvedBy(agent.name)} · ${text.threadUnseen}`);
+    await toggleCopy(second, `${text.comments} 1 · ${text.threadUnseen}`, 'open-and-new');
+    await shoot(second, 'agent-unseen', { header: true });
+    await row2.click();
+    const t2 = second.getByTestId('comment-thread').first();
+    await expect(t2).toContainText(text.threadResolvedBy(agent.name));
+    await toggleCopy(second, `${text.comments} 1`, 'open-after-seen');
+    await shoot(second, 'agent-seen');
+    // Keyboard focus on the window's own controls.
+    await second.keyboard.press('Shift');
+    for (const name of [text.threadReopen, text.threadClose]) {
+      await t2.getByRole('button', { name, exact: true }).focus();
+      await second.mouse.move(0, 899);
+      await t2.locator('.thread-bar').screenshot({
+        path: `${captureDir}/focus-${name === text.threadReopen ? 'reopen' : 'close'}.png`,
+      });
+    }
   });
 });
