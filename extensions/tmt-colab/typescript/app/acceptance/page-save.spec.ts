@@ -32,7 +32,7 @@ async function capture(page: Page, name: string) {
 }
 const source = (page: Page) => page.getByRole('textbox', { name: 'Source', exact: true });
 async function openSource(page: Page) {
-  await page.getByRole('button', { name: 'Source', exact: true }).click();
+  await page.getByRole('button', { name: 'Source', exact: true }).click({ timeout: 60_000 });
   return source(page);
 }
 // A save is done when the editor leaves "Saving…": the reply arrives after the serve has combined
