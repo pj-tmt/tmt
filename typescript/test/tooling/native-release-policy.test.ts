@@ -39,16 +39,16 @@ const {
 };
 
 describe('native release publication policy', () => {
-  it('keeps Ops release-blocked until CLI registration while retaining Squad history', () => {
+  it('pins the supporting CLI registration for Ops while retaining Squad history', () => {
     const map = JSON.parse(
       readFileSync(path.join(repositoryRoot, '../.github/components.json'), 'utf8')
     );
     expect(map.components.ops).toMatchObject({
       package: 'tmt-ops',
       predecessor: 'squad',
-      release: false,
+      requiresCliSha: '4dc1f918267d055d837cd568a88ff6c2a74efccc',
     });
-    for (const key of ['requiresCliSha', 'bootstrapSha', 'initialVersion'])
+    for (const key of ['release', 'bootstrapSha', 'initialVersion'])
       expect(map.components.ops).not.toHaveProperty(key);
     expect(map.components).not.toHaveProperty('squad');
     expect(isProductRetired('squad')).toBe(true);
@@ -90,10 +90,10 @@ describe('native release publication policy', () => {
         { cwd: os.tmpdir(), encoding: 'utf8', timeout: 10_000, maxBuffer: 64 * 1024 }
       );
       expect(result.error).toBeUndefined();
-      expect(result.status).toBe(['office', 'ops', 'squad'].includes(product) ? 1 : 0);
+      expect(result.status).toBe(['office', 'squad'].includes(product) ? 1 : 0);
       expect(result.stdout).toBe('');
       expect(result.stderr).toBe(
-        ['office', 'ops', 'squad'].includes(product)
+        ['office', 'squad'].includes(product)
           ? `${product} is not released (release: false in .github/components.json).\n`
           : ''
       );

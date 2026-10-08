@@ -327,7 +327,7 @@ describe('release version gate workflow boundaries', () => {
   it('keeps native injection on pinned PR heads and all four hosts, with no publishing privileges', () => {
     const injection = read('.github/workflows/release-version-injection.yml');
     expect(injection).toContain('github.event.pull_request.head.sha || github.sha');
-    expect(injection).toContain('product: [cli, remote, colab]');
+    expect(injection).toContain('product: [cli, ops, remote, colab]');
     const products = /product: \[([^\]]+)\]/
       .exec(injection)?.[1]
       .split(',')
@@ -425,7 +425,7 @@ describe('per-tag release run (native-release.yml)', () => {
         0o700
       );
       const search = `${directory}${path.delimiter}${process.env.PATH ?? ''}`;
-      for (const [product, prepare] of ['office', 'ops', 'squad'].flatMap((product) =>
+      for (const [product, prepare] of ['office', 'squad'].flatMap((product) =>
         ['true', 'false'].map((prepare) => [product, prepare])
       )) {
         const result = spawnSync('/bin/sh', ['-eu', '-c', shell], {
@@ -441,7 +441,7 @@ describe('per-tag release run (native-release.yml)', () => {
           `${product} is not released (release: false in .github/components.json).`
         );
       }
-      for (const product of ['cli', 'driver-herdr', 'remote', 'colab']) {
+      for (const product of ['cli', 'ops', 'driver-herdr', 'remote', 'colab']) {
         const output = path.join(directory, product);
         const result = spawnSync('/bin/sh', ['-eu', '-c', shell], {
           cwd: repository,

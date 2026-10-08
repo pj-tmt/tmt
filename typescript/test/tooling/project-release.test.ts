@@ -502,18 +502,12 @@ describe('full repository-state release sweep', () => {
     }
   );
 
-  it('does not add blocked Ops publication obligations for shared leaves', () => {
-    expect(
-      affectedProducts(['rust/crates/tmt-invoke/src/lib.rs'], actualMap, workspace).products
-    ).not.toContain('ops');
-    expect(affectedProducts(['rust/crates/tmt-tui/src/lib.rs'], actualMap, workspace)).toEqual({
-      products: [],
-      unpublished: ['tmt-tui'],
+  it('requires activated Ops publication for shared leaves and attributes TUI only to Ops', () => {
+    expect(affectedProducts(['rust/crates/tmt-invoke/src/lib.rs'], actualMap, workspace)).toEqual({
+      products: ['cli', 'colab', 'driver-herdr', 'ops', 'remote'],
+      unpublished: [],
     });
-  });
-
-  it('keeps the explicitly excluded TUI leaf attributed only to Ops', () => {
-    expect(affectedProducts(['rust/crates/tmt-tui/src/lib.rs'], map, workspace)).toEqual({
+    expect(affectedProducts(['rust/crates/tmt-tui/src/lib.rs'], actualMap, workspace)).toEqual({
       products: ['ops'],
       unpublished: [],
     });

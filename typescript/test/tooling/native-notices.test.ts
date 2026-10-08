@@ -30,7 +30,7 @@ function fixture(opsActive = true) {
   const map = JSON.parse(
     readFileSync(new URL('../../../.github/components.json', import.meta.url), 'utf8')
   );
-  // An isolated activation fixture keeps Ops notice rejection coverage while the real map stays blocked.
+  // Explicit activation and refusal fixtures stay independent of the committed map.
   map.components.ops.release = opsActive;
   writeFileSync(path.join(root, '.github/components.json'), JSON.stringify(map));
   writeFileSync(

@@ -448,7 +448,7 @@ describe('component map', () => {
 
   it('says which components are released: all but the ones that declare release: false', () => {
     expect(isReleased(map, 'cli')).toBe(true);
-    expect(isReleased(map, 'ops')).toBe(false);
+    expect(isReleased(map, 'ops')).toBe(true);
     expect(() => isReleased(map, 'squad')).toThrow('Unknown component squad.');
     // Office is parked, as the private browser add-on is.
     expect(isReleased(map, 'office')).toBe(false);
@@ -466,7 +466,7 @@ describe('component map', () => {
     ['rust/crates/tmt-invoke/src/lib.rs', ['cli']],
     ['rust/crates/tmt-tui/src/lib.rs', []],
     ['rust/crates/tmt-tui-other/src/lib.rs', ['cli']],
-    ['extensions/tmt-ops/rust/src/lib.rs', []],
+    ['extensions/tmt-ops/rust/src/lib.rs', ['ops']],
     ['extensions/tmt-ops-other/rust/src/lib.rs', ['cli']],
     ['extensions/tmt-office/src/lib.rs', []],
     ['extensions/tmt-colab/rust/src/lib.rs', ['tmt-colab']],

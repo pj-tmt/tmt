@@ -13,7 +13,7 @@
     "releaseStatus: only with release:false; never means no released product contains this leaf and forbids releaseConsumers, parked means explicitly deferred publication. Absence means awaiting activation. This does not change CI selection.",
     "initialVersion: owner-approved first alpha seed; requiresCliSha: supporting CLI registration commit that must be in its newest published release before a first product cut.",
     "bootstrapSha: first-release history boundary for the release cut (#1399); the last commit before the component existed, kept unchanged.",
-    "predecessor names an exact historical product key. Published archives declare their own skills inventory; ops remains release:false until its supporting CLI registration is published and requiresCliSha is set."
+    "predecessor names an exact historical product key. Published archives declare their own skills inventory; Ops requiresCliSha pins its supporting CLI registration; the first successor cut waits for a published CLI containing it."
   ],
   "components": {
     "cli": {
@@ -71,7 +71,7 @@
         "e2eFiles": ["ops.e2e.test.ts", "ops-reminder.e2e.test.ts"]
       },
       "predecessor": "squad",
-      "release": false
+      "requiresCliSha": "4dc1f918267d055d837cd568a88ff6c2a74efccc"
     },
     "browser-addon": {
       "owns": ["extensions/tmt-remote/typescript/browser-addon"],
