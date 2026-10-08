@@ -48,6 +48,59 @@
   targets and prunes expansion/cache entries when their rows disappear.
 - Priorities: full loads outrank selection jobs (detail notebook or row reply) and usage-only reads.
 
+## Load timing trace
+
+`TMT_OPS_TIMING_TRACE` enables board-only diagnostic JSON Lines. Unset, empty or
+`0` disables it; `1` writes to stderr; any other value names an append-only regular
+file (created with mode 0600, symlinks refused). An unusable sink reports once and
+disables tracing; it does not fail the board. Trace records never go to stdout.
+Disabled tracing performs no timing clock reads, record formatting, sink operations
+or extra Core reads; the runtime opt-in requires one startup env check and branches.
+
+Names below are stable for baseline comparisons, including #2125. Version 1 fields
+are `version`, `pid`, `load_id`, `generation`, `tab`, `event`, `stage`, `duration_us`,
+`elapsed_us`, `status` and `deferred_pending`. Times are monotonic microseconds;
+`elapsed_us` starts at board entry before initial config/selection/terminal setup.
+`status` is `ok`, `error` or `partial`; no error bodies, requests, receipts, notes or
+row contents are recorded. `load_id` is process-local, increasing from 1;
+startup uses 0 and null generation. Generation is the existing refresh fence.
+A default-tab acquisition can have null `tab` on early stages; its total/milestone
+records identify the resolved tab. `deferred_pending` on the total/milestone records
+means existing attention, history, cron or HOME exchanges remain scheduled.
+
+| Event         | Stage names / boundary                                                                                                 |
+| ------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `stage`       | `startup.Config::load`: initial config in `board::run`                                                                 |
+| `stage`       | `Squad::list`, `Config::load`, `load`: `board::refresh::load` acquisition and total                                    |
+| `stage`       | `observe::observe`, `observation.document`, `focus::enrich`, `requests::bodies`, `squad_view`: named squad acquisition |
+| `stage`       | `all_view`: complete HOME base acquisition/projection                                                                  |
+| `first_frame` | `draw`: first successful terminal draw, including a loading screen                                                     |
+| `fresh_board` | `draw`: first successful draw after an accepted current-tab snapshot                                                   |
+
+Stage durations include their called work and stop before trace serialization;
+outer stages include enabled inner trace emission overhead. Failed Result stages
+emit `error` before returning the original error. Focus enrichment remains best
+effort, so its successful timing does not attest available focus evidence.
+HOME uses its own roster projection; named-squad stage records are not synthesized
+for it. Both milestones are emitted once per UI process, after the normal draw
+returns successfully. Failed, cancelled, wrong-tab and retained/cache-only views
+cannot produce `fresh_board`. A partial snapshot is explicitly labelled.
+Freshness describes the base board; existing deferred reads are excluded, and
+`deferred_pending` distinguishes it from a fully enriched view. These are UI-entry
+measurements, excluding the shell/core extension dispatch before board entry.
+
+Use one binary/profile, terminal size and starting data/cache per comparison, with
+three fresh UI processes on HOME and a representative squad. Record rows, all runs
+and ranges alongside stage durations; do not use timings as CI thresholds. The UI
+starts an automatic cron clock. A safe copied-data measurement holds the copy's
+`ops/cron/clock.lock` exclusive flock until UI exit, uses private roots and a private
+tmux server, and disables executable providers/hooks in the copy. It must verify
+no lease publication, sends or owned process leaks. Label copied-data measurements
+and their presence/host-probe limitations. Compare with three live non-UI
+`tmt ops sq ls --squad <name> --json` and `tmt ops sq ls --json` invocations, which
+start no clock or sends; Core list reads retain their ordinary presence reconciliation.
+Do not subtract unlike UI/list totals as an exact host-probe cost.
+
 ## Token window meter
 
 The meter shows completed-request token totals for the visited squad. Input plus

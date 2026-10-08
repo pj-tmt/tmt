@@ -8,7 +8,7 @@ use super::{
     app::{Notes, Snapshot, View},
     changes::{Changes, Stamp},
     notes::sanitize,
-    tabs,
+    tabs, timing,
 };
 use crate::{
     attention::Attention,
@@ -78,7 +78,12 @@ pub struct Worker {
 
 impl Worker {
     /// `tmux` selects the host preset: whether a jump can show a pane.
-    pub fn spawn(core: Core, tmux: bool, events: Sender<super::BoardEvent>) -> Self {
+    pub fn spawn(
+        core: Core,
+        tmux: bool,
+        events: Sender<super::BoardEvent>,
+        trace: Option<timing::Trace>,
+    ) -> Self {
         let (requests, pending) = mpsc::channel();
         let generation = Arc::new(Generation::default());
         let read_generation = Arc::clone(&generation);
@@ -124,7 +129,11 @@ impl Worker {
                     }
                 },
                 |wanted, generation, preview_panes, opening| {
-                    load(
+                    let mut trace = trace
+                        .as_ref()
+                        .map(|trace| trace.load(wanted.as_deref(), generation));
+                    let started = trace.as_ref().map(|_| Instant::now());
+                    let mut loaded = load(
                         &core.cancellable(read_generation.cancellation(generation)),
                         tmux,
                         caller.as_ref(),
@@ -132,7 +141,20 @@ impl Worker {
                         preview_panes,
                         opening,
                         &mut kept,
-                    )
+                        trace.as_ref(),
+                    );
+                    if let (Some(trace), Some(started)) = (&mut trace, started) {
+                        trace.completed(
+                            &loaded.snapshot,
+                            loaded.attention.is_some()
+                                || loaded.home_leads.is_some()
+                                || loaded.cron.is_some()
+                                || loaded.history.is_some(),
+                        );
+                        trace.finish(started, loaded.snapshot.view.is_ok());
+                    }
+                    loaded.snapshot.timing = trace;
+                    loaded
                 },
                 |job, generation| {
                     if let Deferred::Checklist(task) = job {
@@ -653,6 +675,7 @@ fn serve(
     }
 }
 
+#[allow(clippy::too_many_arguments)] // Acquisition inputs plus optional diagnostics.
 fn load(
     core: &Core,
     tmux: bool,
@@ -661,11 +684,13 @@ fn load(
     preview_panes: bool,
     opening: bool,
     kept: &mut Kept,
+    trace: Option<&timing::Load>,
 ) -> Loaded {
-    let squads = match Squad::list(core) {
+    let squads = match timing::measure(trace, "Squad::list", || Squad::list(core)) {
         Ok(squads) => squads,
         Err(error) => {
             return Loaded::only(Snapshot {
+                timing: None,
                 squad_keys: Vec::new(),
                 tabs: Vec::new(),
                 hidden: Vec::new(),
@@ -677,7 +702,7 @@ fn load(
         }
     };
     let names: Vec<String> = squads.iter().map(|squad| squad.name.clone()).collect();
-    let config = Config::load(core);
+    let config = timing::measure(trace, "Config::load", || Config::load(core));
     // An invalid [tabs] still shows every squad; the view reports the error.
     let settings = config
         .as_ref()
@@ -719,6 +744,7 @@ fn load(
     };
     let Some(key) = chosen else {
         return Loaded::only(Snapshot {
+            timing: None,
             squad_keys: names,
             tabs,
             hidden,
@@ -742,7 +768,9 @@ fn load(
         let (view, found) = if key == LEADS {
             leads_view(core, tmux, config, &squads, &tabs, me.clone())?
         } else if key == ALL {
-            all_view(core, config, &squads, &tabs, me.clone())?
+            timing::measure(trace, "all_view", || {
+                all_view(core, config, &squads, &tabs, me.clone())
+            })?
         } else if tabs::user_name(&key).is_some() {
             member_view(core, tmux, config, &squads, &tabs, me.clone(), &key)?
         } else {
@@ -750,7 +778,18 @@ fn load(
                 .iter()
                 .find(|squad| squad.name == key)
                 .expect("chosen from the listed squads");
-            let result = squad_view(core, tmux, config, squad, me.clone(), preview_panes, kept)?;
+            let result = timing::measure(trace, "squad_view", || {
+                squad_view(
+                    core,
+                    tmux,
+                    config,
+                    squad,
+                    me.clone(),
+                    preview_panes,
+                    kept,
+                    trace,
+                )
+            })?;
             deferred = Some((me.clone(), result.0.document.clone()));
             result
         };
@@ -788,6 +827,7 @@ fn load(
     }
     Loaded {
         snapshot: Snapshot {
+            timing: None,
             squad_keys: names,
             tabs,
             hidden,
@@ -804,6 +844,7 @@ fn load(
 }
 
 /// One squad's full view and its attention; other tabs follow publication.
+#[allow(clippy::too_many_arguments)] // Preserve the existing acquisition boundary.
 fn squad_view(
     core: &Core,
     tmux: bool,
@@ -812,6 +853,7 @@ fn squad_view(
     me: Option<crate::me::Me>,
     preview_panes: bool,
     kept: &mut Kept,
+    trace: Option<&timing::Load>,
 ) -> Result<(View, BTreeMap<String, Attention>), crate::core::SquadError> {
     let layout = config.layout(&squad.name)?;
     let (theme, theme_notice) = config.theme(&squad.name)?;
@@ -822,17 +864,19 @@ fn squad_view(
     let providers = config.providers(&squad.name)?;
     let reminders = config.reminders(&squad.name)?;
     let shows_notes = preview_panes || board.panes.contains(&Pane::Notes);
-    let observation = crate::observe::observe(
-        core,
-        config.path(),
-        squad,
-        reminders,
-        &providers,
-        crate::observe::Mode::Read(crate::observe::Reads {
-            metadata: preview_panes || rows.reads_metadata(),
-            notes: shows_notes,
-        }),
-    )?;
+    let observation = timing::measure(trace, "observe::observe", || {
+        crate::observe::observe(
+            core,
+            config.path(),
+            squad,
+            reminders,
+            &providers,
+            crate::observe::Mode::Read(crate::observe::Reads {
+                metadata: preview_panes || rows.reads_metadata(),
+                notes: shows_notes,
+            }),
+        )
+    })?;
     // Providers run on the fetcher thread, never while the board draws.
     if !providers.is_empty() {
         let _ = kept.fetch.send(Fetch {
@@ -856,19 +900,25 @@ fn squad_view(
         mut document,
         sent,
         notes,
-    } = observation.document(
-        core,
-        squad,
-        me.as_ref(),
-        &providers,
-        crate::observe::Shape {
-            layout,
-            states: &states,
-            sections: &sections,
-            rows: &rows,
-        },
-    )?;
-    crate::focus::enrich(core, &mut [&mut document], &active_ids);
+    } = timing::measure(trace, "observation.document", || {
+        observation.document(
+            core,
+            squad,
+            me.as_ref(),
+            &providers,
+            crate::observe::Shape {
+                layout,
+                states: &states,
+                sections: &sections,
+                rows: &rows,
+            },
+        )
+    })?;
+    timing::measure(trace, "focus::enrich", || {
+        crate::focus::enrich(core, &mut [&mut document], &active_ids);
+        Ok::<_, std::convert::Infallible>(())
+    })
+    .expect("focus enrichment is best effort");
     let attention = BTreeMap::from([(squad.name.clone(), Attention::of(&document))]);
     let mut replies = match &sent {
         Some(sent) if preview_panes || board.members || board.panes.contains(&Pane::Replies) => {
@@ -876,11 +926,13 @@ fn squad_view(
         }
         _ => Vec::new(),
     };
-    requests::bodies(
-        |id| requests::show_request(core, id),
-        &mut replies,
-        &mut kept.bodies,
-    )?;
+    timing::measure(trace, "requests::bodies", || {
+        requests::bodies(
+            |id| requests::show_request(core, id),
+            &mut replies,
+            &mut kept.bodies,
+        )
+    })?;
     let notes = if shows_notes {
         lead_notes(notes)
     } else {
@@ -1203,7 +1255,7 @@ printf '%s\n' '{{}}'
             kind: super::super::home_leads::Kind::Reply,
         };
         let (events, input) = mpsc::channel();
-        let worker = Worker::spawn(Core::at(fake), false, events);
+        let worker = Worker::spawn(Core::at(fake), false, events, None);
         worker.selected(9, Some(SelectedRead::Message(key.clone())));
         let super::super::BoardEvent::Message {
             key: delivered,
@@ -1250,7 +1302,7 @@ printf '%s\n' '{{}}'
             ),
         );
         let (events, input) = mpsc::channel();
-        let worker = Worker::spawn(Core::at(fake.clone()), false, events);
+        let worker = Worker::spawn(Core::at(fake.clone()), false, events, None);
         worker.selected(7, Some(SelectedRead::Notebook("selected-id".into())));
         let super::super::BoardEvent::Notebook {
             identity,
@@ -1287,7 +1339,7 @@ printf '%s\n' '{{}}'
             ),
         );
         let (events, _) = mpsc::channel();
-        let worker = Worker::spawn(Core::at(slow), false, events);
+        let worker = Worker::spawn(Core::at(slow), false, events, None);
         worker.selected(8, Some(SelectedRead::Notebook("selected-id".into())));
         let deadline = Instant::now() + Duration::from_secs(30);
         while !ready.exists() {
@@ -1680,6 +1732,7 @@ sys.exit(subprocess.run([str(root/'tmt')]+args,input=body).returncode)
                 false,
                 false,
                 &mut kept,
+                None,
             );
             let view = loaded
                 .snapshot
@@ -1755,7 +1808,7 @@ esac
             let path = root.join("ops.toml");
             std::fs::write(&path, format!("[squad.product]\nlayout = '{workflow}'\n")).unwrap();
             let mut config = Config::read(path).unwrap();
-            let baseline = squad_view(&core, false, &config, &squad, None, false, &mut kept)
+            let baseline = squad_view(&core, false, &config, &squad, None, false, &mut kept, None)
                 .unwrap()
                 .0;
             assert!(baseline.board.members);
@@ -1769,7 +1822,7 @@ esac
                     crate::view::ViewName::Notes,
                 )
                 .unwrap();
-            let view = squad_view(&core, false, &config, &squad, None, false, &mut kept)
+            let view = squad_view(&core, false, &config, &squad, None, false, &mut kept, None)
                 .unwrap()
                 .0;
             assert_eq!(
