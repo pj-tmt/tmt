@@ -257,16 +257,23 @@ pub(super) fn run_bound(
         None => false,
     };
     let owner = incarnation(std::process::id());
-    let hook_command = prepare_launch_hooks(lifecycle, &launch.command, binding, owner.as_ref())
-        .inspect_err(|_| {
-            // No provider was spawned: reuse the failed-launch authority fence.
-            if auto_named && bound.created
-                && binding::retire_failed_auto_launch(storage, &mut host.session(), binding).is_err() {
-                diagnostic("could not retire the failed launch's temporary identity; inspect it before retrying.");
-            }
-        })?;
-    // Mark pending only after settings composition, but before any provider can
-    // start. A refused launch must not leave a phantom resume attempt.
+    let hook_command = match prepare_launch_hooks(
+        lifecycle,
+        &launch.command,
+        binding,
+        owner.as_ref(),
+    ) {
+        Ok(command) => command,
+        Err(error) => {
+            let reason = error.to_string().replace(['\r', '\n'], " ");
+            diagnostic(&format!(
+                "session-only Focus hooks unavailable for this launch: {reason}; continuing with the original command."
+            ));
+            None
+        }
+    };
+    // Both composed and original commands are real launch attempts. Mark the
+    // exact resume pending before either can start.
     if let Some(session) = &launch.resumed {
         mark_resume_pending(storage, &binding.identity_id, session)?;
     }
@@ -671,33 +678,22 @@ fn prepare_launch_hooks(
     command: &tmt_adapters::runtime::RuntimeCommand,
     binding: &Binding,
     owner: Option<&ProcessIncarnation>,
-) -> Result<Option<tmt_adapters::runtime::RuntimeCommand>, Failure> {
+) -> std::io::Result<Option<tmt_adapters::runtime::RuntimeCommand>> {
     let Some(owner) = owner else {
         return Ok(None);
     };
-    let failure = |error| {
-        Failure::new(
-            "LAUNCH_HOOKS_UNAVAILABLE",
-            "Could not compose session-only hooks; preserve and inspect the provider settings.",
-            1,
-        )
-        .caused_by(error)
-    };
-    let environment =
-        tmt_adapters::skill_installation::ProviderEnvironment::capture().map_err(failure)?;
-    let tmt = tmt_adapters::core_executable::selected().map_err(failure)?;
+    let environment = tmt_adapters::skill_installation::ProviderEnvironment::capture()?;
+    let tmt = tmt_adapters::core_executable::selected()?;
     let launch = tmt_adapters::runtime::hook_protocol::HookLaunch {
         identity_id: binding.identity_id.clone(),
         binding_id: binding.id.clone(),
         owner_pid: owner.pid(),
         owner_start: owner.start_identity().to_owned(),
     };
-    lifecycle
-        .prepare_launch_hooks(&tmt_adapters::runtime::hook_protocol::LaunchHooks {
-            command,
-            launch: &launch,
-            tmt: &tmt,
-            environment: &environment,
-        })
-        .map_err(failure)
+    lifecycle.prepare_launch_hooks(&tmt_adapters::runtime::hook_protocol::LaunchHooks {
+        command,
+        launch: &launch,
+        tmt: &tmt,
+        environment: &environment,
+    })
 }

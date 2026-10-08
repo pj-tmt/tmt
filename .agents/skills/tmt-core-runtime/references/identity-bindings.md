@@ -189,11 +189,15 @@ Claude composes one inline `--settings` object before channel enrollment for fre
 and resumed launches. Explicit inline or regular-file settings retain unrelated
 raw JSON and user hooks. Unsafe settings, duplicated or edited owned hooks, and
 explicit hook-disable policies refuse composition; no provider settings are written.
+Composition failures leave the user's original command unchanged and emit one
+diagnostic line; they never refuse the launch or retire its temporary identity.
+Held items remain available to the verified-idle checklist path without Stop hooks.
 Setup's exact ownership rule skips per-launch observation entries already installed
 in user or explicit launch settings. A `--setting-sources` selection that omits user
 settings also omits their hooks from this deduplication. `--bare` and `--safe-mode`
-refuse hook composition. Without a consented usage hook, the per-launch
-Stop observer updates activity only; it does not enable transcript collection.
+refuse hook composition while the original launch proceeds. Without a consented usage
+hook, the per-launch Stop observer updates activity only; it does not enable
+transcript collection.
 
 The separate `__focus-hook` accepts only an unrecursive main-agent Stop and emits
 Claude's documented `decision: "block"` plus `reason` continuation. It does not use

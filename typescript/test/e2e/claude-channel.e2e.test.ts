@@ -351,30 +351,54 @@ function pauseBeforeAdmission(fixture: E2EFixture, name: string): void {
 }
 
 describe('Claude channel delivery', { concurrent: false }, () => {
-  it('refused launch settings never spawn a provider or leave an automatic temporary identity', async () => {
+  it.each([
+    { label: 'bare', args: ['--bare'] },
+    { label: 'safe mode', args: ['--safe-mode'] },
+    { label: 'inline hooks disabled', args: ['--settings', '{"disableAllHooks":true}'] },
+    {
+      label: 'managed hooks only',
+      args: ['--settings', '{"allowManagedHooksOnly":true}'],
+    },
+    { label: 'multiple settings', args: ['--settings', '{}', '--settings={}'] },
+    {
+      label: 'edited owned hook',
+      args: [
+        '--settings',
+        '{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"\'/stable/tmt\' __hook claude --changed","timeout":3}]}]}}',
+      ],
+    },
+    { label: 'unreadable settings', args: ['--settings', '<unreadable>'] },
+  ])('unavailable Focus hooks ($label) launch the original command', async ({ args }) => {
     await withE2EFixture(async (fixture) => {
-      const pane = fixture.createShellPane('refused-launch').pane;
-      const started = path.join(fixture.root, 'provider-started');
+      const pane = fixture.createShellPane('fallback-launch').pane;
+      const recorded = path.join(fixture.root, 'provider-argv');
+      const unreadable = path.join(fixture.root, 'settings-directory');
+      fs.mkdirSync(unreadable);
+      const originalArgs = args.map((arg) => (arg === '<unreadable>' ? unreadable : arg));
       writeExecutable(
         path.join(fixture.wrapperDir, 'claude'),
-        `#!/bin/sh\nprintf started > ${quote(started)}\n`
+        `#!/bin/sh\n: > ${quote(recorded)}\nfor arg; do printf '%s\\0' "$arg" >> ${quote(recorded)}; done\nexit 23\n`
       );
-      // run is a human/TTY command and rejects --json before launch effects.
-      const result = await fixture.runCli(
-        ['run', '--no-channel', 'claude', '--settings', '{"disableAllHooks":true}'],
-        { pane }
-      );
-      expect(result.code).toBe(1);
-      expect(result.stderr).toContain('Could not compose session-only hooks');
-      expect(fs.existsSync(started)).toBe(false);
+      // run is a human/TTY command; the actual provider records its exact argv.
+      const result = await fixture.runCli(['run', '--no-channel', 'claude', ...originalArgs], {
+        pane,
+      });
+      expect(result.code).toBe(23);
+      expect(
+        result.stderr
+          .split('\n')
+          .filter((line) => line.includes('session-only Focus hooks unavailable'))
+      ).toHaveLength(1);
+      const actual = fs.readFileSync(recorded, 'utf8');
+      expect(actual === '' ? [] : actual.split('\0').slice(0, -1)).toEqual(originalArgs);
       expect(
         sql(fixture, (db) =>
           db.prepare('SELECT COUNT(*) AS count FROM identities WHERE retired_at_ms IS NULL').get()
         )
-      ).toEqual({ count: 0 });
+      ).toEqual({ count: 1 });
       expect(
         sql(fixture, (db) => db.prepare('SELECT COUNT(*) AS count FROM bindings').get())
-      ).toEqual({ count: 0 });
+      ).toEqual({ count: 1 });
     });
   });
 
