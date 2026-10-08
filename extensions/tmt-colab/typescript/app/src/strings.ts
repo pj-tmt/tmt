@@ -201,7 +201,7 @@ export const text = {
   saveUnknown: (operationId: string) =>
     `The connection dropped before the save was confirmed. Copy your changes, then reload to see whether they were saved. Reference: ${operationId}`,
   reload: 'Reload',
-  updated: 'Colab was updated — reload to continue',
+  updated: 'Colab has been updated.',
   pages: 'Pages',
   home: 'Space home',
   intro: 'A place for pages you share.',

@@ -1,14 +1,20 @@
+/* A row directly under the fixed header; the header height metric grows by its height. */
 .update-notice {
   position: fixed;
-  inset: auto 0 0;
-  z-index: 20;
+  top: calc(env(safe-area-inset-top, 0px) + var(--tmt-ui-header-height));
+  left: 0;
+  right: 0;
+  z-index: 30;
+  box-sizing: border-box;
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
-  justify-content: center;
-  gap: 4px 16px;
-  padding: 10px 16px;
+  justify-content: space-between;
+  gap: 16px;
+  height: var(--colab-update-height);
+  padding-inline: var(--tmt-ui-header-padding-inline);
+  overflow: hidden;
+  white-space: nowrap;
   color: var(--c-text);
   background: var(--tmt-ui-surface-sheet);
-  border-top: 1px solid var(--tmt-ui-color-edge);
+  border-bottom: 1px solid var(--tmt-ui-color-edge);
 }

@@ -13,10 +13,12 @@
   --f-display: var(--tmt-ui-font-display);
   --f-body: var(--tmt-ui-font-body);
   --f-mono: var(--tmt-ui-font-mono);
-  --colab-header-height: var(--tmt-ui-header-height);
+  /* The update notice row sits under the header and pushes content down by its height. */
+  --colab-update-height: 0px;
+  --colab-header-height: calc(var(--tmt-ui-header-height) + var(--colab-update-height));
   --colab-header-icon-size: var(--tmt-ui-header-icon-size);
   --colab-header-icon-stroke: var(--tmt-ui-header-icon-stroke);
-  --page-bar-size: var(--tmt-ui-header-height);
+  --page-bar-size: calc(var(--tmt-ui-header-height) + var(--colab-update-height));
   --reader-bar-size: var(--tmt-ui-header-height);
   --tmt-ui-host-header-action-gap: 6px;
   --tmt-ui-host-focus-offset: 3px;
@@ -49,6 +51,9 @@
   --tmt-ui-host-field-label-font: var(--tmt-ui-font-body);
   color-scheme: light;
 }
+:root[data-colab-update] {
+  --colab-update-height: 40px;
+}
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme='light']) {
     color-scheme: dark;
@@ -58,7 +63,7 @@
   color-scheme: dark;
 }
 body {
-  padding-top: calc(var(--tmt-ui-header-height) + env(safe-area-inset-top, 0px));
+  padding-top: calc(var(--colab-header-height) + env(safe-area-inset-top, 0px));
 }
 .tmt-ui-header {
   position: fixed;

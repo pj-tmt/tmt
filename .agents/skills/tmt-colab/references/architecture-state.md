@@ -145,8 +145,10 @@ A tab that outlives an app upgrade says so (`app-build.ts`). The build is the ha
 module the page references (`assets/index-<hash>.js`; every response is `no-store`, so a
 reload always fetches the served build). On a failure path (mounted registration, a live
 page ending) and on route resolution, at most once a minute, the tab reads its own root page
-uncached and shows the non-blocking `Colab was updated — reload to continue` strip only when
-the same bundle name has a different hash. An offline read, an unreadable page, or a page of
+uncached and shows the non-blocking `Colab has been updated.` row with a Reload action only when
+the same bundle name has a different hash. The row sits directly under the fixed header and
+`--colab-update-height` (set by `data-colab-update` on the root) extends the header metric, so
+the page moves down instead of being covered. An offline read, an unreadable page, or a page of
 another kind (pairing guidance, the reader) never counts. There is no polling and no
 automatic reload: Reload is the reader's action, and unsent in-tab drafts follow the existing
 rules (memory only, so a reload discards them).
