@@ -50,7 +50,7 @@ fn object(value: &Value, keys: &[&str]) -> bool {
         fields.len() == keys.len() && keys.iter().all(|key| fields.contains_key(*key))
     })
 }
-fn list(value: &Value, valid: impl Fn(&Value) -> bool) -> bool {
+fn valid_array(value: &Value, valid: impl Fn(&Value) -> bool) -> bool {
     value
         .as_array()
         .is_some_and(|items| items.iter().all(valid))
@@ -106,17 +106,17 @@ fn home(value: &home::Home) -> Value {
 fn valid_home(value: &Value) -> bool {
     object(value, &["summary", "squads", "sections"])
         && valid_counts(&value["summary"])
-        && list(&value["squads"], |line| {
+        && valid_array(&value["squads"], |line| {
             object(line, &["squad", "lead", "counts", "members"])
                 && string(&line["squad"])
                 && optional_string(&line["lead"])
                 && valid_counts(&line["counts"])
                 && valid_counts(&line["members"])
         })
-        && list(&value["sections"], |section| {
+        && valid_array(&value["sections"], |section| {
             object(section, &["key", "rows"])
                 && matches!(section["key"].as_str(), Some("needs-you" | "blocked"))
-                && list(&section["rows"], |line| {
+                && valid_array(&section["rows"], |line| {
                     object(line, &["name", "squad", "age"])
                         && string(&line["name"])
                         && string(&line["squad"])
@@ -186,8 +186,8 @@ fn valid(value: &Value, tab: &str, rooms: &Rooms) -> bool {
             .iter()
             .all(|(name, id)| crate::squad::valid_name(name) && crate::config::uuid_like(id))
         && (tabs::aggregate(tab) || rooms.contains_key(tab))
-        && list(&value["tabs"], key)
-        && list(&value["hidden"], key)
+        && valid_array(&value["tabs"], key)
+        && valid_array(&value["hidden"], key)
         && value["pinned"]
             .as_u64()
             .zip(value["tabs"].as_array())
@@ -202,10 +202,10 @@ fn valid(value: &Value, tab: &str, rooms: &Rooms) -> bool {
         })
         && object(&value["view"], &["lead", "sections", "home"])
         && (value["view"]["lead"].is_null() || valid_row(&value["view"]["lead"]))
-        && list(&value["view"]["sections"], |section| {
+        && valid_array(&value["view"]["sections"], |section| {
             object(section, &["title", "rows"])
                 && optional_string(&section["title"])
-                && list(&section["rows"], valid_row)
+                && valid_array(&section["rows"], valid_row)
         })
         && (value["view"]["home"].is_null()
             || (tab == tabs::ALL && valid_home(&value["view"]["home"])))
