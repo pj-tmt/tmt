@@ -2457,7 +2457,13 @@ describe('required CI gate', () => {
     expect(acceptance).toContain('sh scripts/install-ci-rust.sh 1.97.0 --profile minimal');
     expect(acceptance).toContain('shared-key: native-rust\n          save-if: false');
     expect(acceptance).not.toContain('actions/cache/save');
-    expect(acceptance).toContain('ref: ${{ github.event.pull_request.head.sha || github.sha }}');
+    // A stale PR head may lack helpers added on main, including the always-run report step.
+    // Default checkout tests the merge ref, where those workflow inputs are integrated.
+    expect(acceptance).not.toMatch(/^\s*ref:/m);
+    expect(acceptance).toContain('PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}');
+    expect(acceptance).toContain(
+      'printf \'pr-head: %s\\ntested-merge: %s\\n\' "$PR_HEAD_SHA" "$(git rev-parse HEAD)" > "$RUNNER_TEMP/colab-acceptance-results/tested-head.txt"'
+    );
     expect(acceptance).toContain('persist-credentials: false');
     const appBuild = acceptance.indexOf('pnpm --filter @tmt/colab-app --fail-if-no-match build');
     const nativeBuild = acceptance.indexOf('cargo build --locked --manifest-path rust/Cargo.toml');
