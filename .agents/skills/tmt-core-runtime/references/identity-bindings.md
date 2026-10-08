@@ -69,6 +69,29 @@ in `contracts/`.
   app-server rejects required implicit attribution before any effect, optional senders stay
   anonymous with one stderr notice, and an unavailable probe fails closed only with a thread
   marker present. A thread ID is a hint, never an identity source.
+- Ordinary CLI commands may remember a direct provider conversation after flushing
+  their own output. Matching remembered coordinates do no host or provider-file
+  work. Changed coordinates use a supervised 500 ms observation: verified native
+  pane/binding, provider ancestry and incarnation, then the existing starting-hook
+  proposal and full binding/preferences fence. Failure never changes the command
+  result; no timer, daemon, setup hook or provider settings write is needed.
+  `TMT_CALLER_SESSION_DEBUG=1` opts into one stderr diagnostic naming the refusing
+  layer, without paths, IDs, provider output or content.
+- Claude's documented `CLAUDE_CODE_SESSION_ID` and `CLAUDE_PID` locate the main
+  resumable session (including same-process subagents). The PID must equal the
+  natively verified provider incarnation; nested providers are refused. No Claude
+  transcript or session file is read. Codex's `CODEX_THREAD_ID`, `state_5.sqlite`
+  index and rollout metadata are implementation evidence, not a documented
+  compatibility interface. The driver reads the exact thread with a read-only,
+  no-wait parameterized query after checking the captured table shape, then only
+  the bounded first `session_meta` header under `CODEX_HOME/sessions`; root ID,
+  CLI/exec source and absence of a parent must agree. Missing/held storage, absent
+  WAL shared memory, changed env/index/header shapes or subagent metadata leave
+  the session unrecorded, without repair or scanning. Fixtures and recorded
+  provider versions live in `tmt-adapters::runtime/fixtures/README.md`.
+  `sqlite_home` in `CODEX_HOME/config.toml` precedes `CODEX_SQLITE_HOME` and the
+  default `CODEX_HOME`. Unsupported relative config paths, profile configuration
+  and CLI config/profile overrides refuse rather than guess across homes.
 - `focus` needs present evidence but no running agent and switches only the invoker's own
   client (never a bare "current client"); it sends no input.
 

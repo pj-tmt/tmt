@@ -29,6 +29,31 @@ pub struct IdentityContextSnapshot {
 }
 
 impl Storage {
+    /// A no-effect shortcut for optional caller discovery, never binding or
+    /// delivery authority. Remembered history suffices to skip rediscovery.
+    pub fn remembers_provider_session(
+        path: &Path,
+        harness: &str,
+        session: &str,
+    ) -> Result<bool, StorageError> {
+        let connection = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)
+            .map_err(|error| classify(error, "Open remembered session read-only"))?;
+        connection
+            .busy_timeout(Duration::ZERO)
+            .map_err(|error| classify(error, "Disable optional session wait"))?;
+        super::migrations::require_current(&connection)?;
+        connection
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM identity_session_preferences p
+             JOIN identities i ON i.id = p.identity_id
+             WHERE i.retired_at_ms IS NULL AND p.remembered_harness = ?1
+             AND p.provider_session_id = ?2)",
+                params![harness, session],
+                |row| row.get(0),
+            )
+            .map_err(|error| classify(error, "Check remembered session"))
+    }
+
     /// Foreground sampling selects its already captured durable identity, then
     /// independently verifies the exact binding, session, owner and process.
     pub fn context_by_identity(

@@ -61,12 +61,24 @@ impl<'a, R: CommandRunner> CodexCaller<'a, R> {
     pub fn observe_host(
         &self,
     ) -> Result<Option<(HostAttribution, u32)>, CallerObservationUnavailable> {
-        self.observe_host_inner()
+        self.observe_host_inner(Instant::now() + Duration::from_secs(3), false)
             .map_err(|_| CallerObservationUnavailable)
     }
 
-    fn observe_host_inner(&self) -> Result<Option<(HostAttribution, u32)>, ()> {
-        let deadline = Instant::now() + Duration::from_secs(3);
+    /// Optional environment discovery cannot resolve runtime config overrides.
+    pub(super) fn observe_direct_host(
+        &self,
+        deadline: Instant,
+    ) -> Result<Option<(HostAttribution, u32)>, CallerObservationUnavailable> {
+        self.observe_host_inner(deadline, true)
+            .map_err(|_| CallerObservationUnavailable)
+    }
+
+    fn observe_host_inner(
+        &self,
+        deadline: Instant,
+        direct: bool,
+    ) -> Result<Option<(HostAttribution, u32)>, ()> {
         let output = query_ps(
             self.runner,
             &["-A".into(), "-o".into(), "pid=,ppid=,comm=".into()],
@@ -136,6 +148,17 @@ impl<'a, R: CommandRunner> CodexCaller<'a, R> {
                 // app-server word inside an exec prompt can conservatively match too.
                 if tail.split_whitespace().any(|word| word == "app-server") {
                     return Ok(Some((HostAttribution::Ambiguous, pid)));
+                }
+                if direct
+                    && tail.split_whitespace().any(|word| {
+                        matches!(word, "-c" | "--config" | "-p" | "--profile")
+                            || word.starts_with("--config=")
+                            || word.starts_with("--profile=")
+                            || word.starts_with("-c=")
+                            || word.starts_with("-p=")
+                    })
+                {
+                    return Err(());
                 }
                 observed.get_or_insert((HostAttribution::Independent, pid));
             }

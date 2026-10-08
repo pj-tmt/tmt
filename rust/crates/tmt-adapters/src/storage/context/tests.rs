@@ -26,6 +26,22 @@ fn fixture() -> (TestDirectory, std::path::PathBuf, String) {
 }
 
 #[test]
+fn discovery_shortcut_is_read_only_and_needs_no_current_binding_observation() {
+    let (_directory, path, id) = fixture();
+    let connection = Connection::open(&path).unwrap();
+    connection.execute("INSERT INTO identity_session_preferences (identity_id, preferred_harness, remembered_harness, runtime_mode, provider_session_id) VALUES (?1, 'claude', 'claude', 'default', 'thread-a')", [&id]).unwrap();
+    let before = fs::read(&path).unwrap();
+    assert!(Storage::remembers_provider_session(&path, "claude", "thread-a").unwrap());
+    assert!(!Storage::remembers_provider_session(&path, "codex", "thread-a").unwrap());
+    assert!(!Storage::remembers_provider_session(&path, "claude", "changed").unwrap());
+    assert_eq!(fs::read(&path).unwrap(), before);
+    connection
+        .execute("UPDATE identities SET retired_at_ms=1", [])
+        .unwrap();
+    assert!(!Storage::remembers_provider_session(&path, "claude", "thread-a").unwrap());
+}
+
+#[test]
 fn enrolled_binding_selection_needs_no_remembered_history_and_is_read_only() {
     let (_directory, path, id) = fixture();
     let before = fs::read(&path).unwrap();

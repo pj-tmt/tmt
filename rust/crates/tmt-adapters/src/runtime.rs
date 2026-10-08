@@ -13,6 +13,7 @@ use tmt_core::{
     driver::{ActionResult, DeliveryAcceptance, Driver, HarnessResume, HarnessStart, SendFailure},
 };
 
+pub(crate) mod caller_header;
 pub mod channel;
 pub mod consumption;
 pub mod driver_state;

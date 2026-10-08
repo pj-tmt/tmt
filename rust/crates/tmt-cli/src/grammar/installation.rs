@@ -199,6 +199,17 @@ pub(in crate::grammar) fn setup(hooked: Vec<&'static str>) -> Command {
 }
 
 pub(in crate::grammar) fn hook(hooked: Vec<&'static str>) -> Command {
+    lifecycle_callback(hooked).arg(
+        Arg::new("caller-session")
+            .long("caller-session")
+            .hide(true)
+            .requires("worker")
+            .conflicts_with("activity-only")
+            .action(ArgAction::SetTrue),
+    )
+}
+
+fn lifecycle_callback(hooked: Vec<&'static str>) -> Command {
     internal("__hook", "Internal bounded provider lifecycle callback")
         .hide(true)
         .arg(
@@ -235,7 +246,7 @@ pub(in crate::grammar) fn hook(hooked: Vec<&'static str>) -> Command {
 }
 
 pub(in crate::grammar) fn focus_hook(hooked: Vec<&'static str>) -> Command {
-    hook(hooked)
+    lifecycle_callback(hooked)
         .name("__focus-hook")
         .mut_arg("activity-only", |arg| arg.conflicts_with("launch"))
         .about("Internal launch-admitted Focus continuation")

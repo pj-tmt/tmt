@@ -221,7 +221,7 @@ fn observe_turn(
 }
 
 /// The caller a hook event came from, verified the same way for every event.
-enum Caller {
+pub(super) enum Caller {
     /// No pane (or, in shared mode, no stored session) to attribute it to.
     Unobserved,
     /// A verified pane with no stored identity; `marked` when it still holds
@@ -232,15 +232,15 @@ enum Caller {
     Bound(Box<BoundCaller>),
 }
 
-struct BoundCaller {
-    host: HostEvidence,
-    paths: ConfigPaths,
-    stored: IdentityContextSnapshot,
-    snapshot: EndpointSnapshot,
-    process: ProcessIncarnation,
+pub(super) struct BoundCaller {
+    pub(super) host: HostEvidence,
+    pub(super) paths: ConfigPaths,
+    pub(super) stored: IdentityContextSnapshot,
+    pub(super) snapshot: EndpointSnapshot,
+    pub(super) process: ProcessIncarnation,
 }
 
-fn verified_caller<R: CommandRunner + Clone>(
+pub(super) fn verified_caller<R: CommandRunner + Clone>(
     provider: &str,
     lifecycle: &dyn RuntimeLifecycle,
     host: HostEvidence,
@@ -528,39 +528,17 @@ fn observe(
     }
     let mode = lifecycle.mode(host).ok_or(())?;
     let mut storage = Storage::open_hook(&paths.database, deadline).map_err(|_| ())?;
-    let changed = storage
-        .with_binding_transaction::<_, StorageError>(|records| {
-            let current = records
-                .entry_by_id(&binding.identity_id)?
-                .and_then(|entry| entry.binding);
-            if current.as_ref() != Some(binding) {
-                return Ok(false);
-            }
-            if owned_resume
-                && records.session_preferences(&binding.identity_id)? != stored.preferences
-            {
-                return Ok(false);
-            }
-            if !records.set_session_state(&binding.id, &binding.session, &next)? {
-                return Ok(false);
-            }
-            if event.starting() {
-                let mut preferences = records.session_preferences(&binding.identity_id)?;
-                preferences.launched(&harness);
-                preferences.remember(harness.clone(), mode.clone(), event.session().clone());
-                // Only this starting event's reported fields update driver
-                // state; `remember` kept the same driver's previous state.
-                if let Some(remembered) = preferences.remembered.as_mut() {
-                    remembered.state = event.driver_state(
-                        remembered.state.as_ref(),
-                        tmt_adapters::request_runtime::wall_time_ms(),
-                    );
-                }
-                return records.set_session_preferences(&binding.identity_id, &preferences);
-            }
-            Ok(true)
-        })
-        .map_err(|_| ())?;
+    let changed = commit_session(
+        &mut storage,
+        SessionCommit {
+            stored: &stored,
+            next: &next,
+            event: event.as_ref(),
+            harness: &harness,
+            mode: &mode,
+            fence_preferences: owned_resume,
+        },
+    )?;
     if changed
         && event.starting()
         && let Ok(environment) = ProviderEnvironment::capture()
@@ -652,6 +630,58 @@ fn observe(
         deadline,
     );
     Ok(encoded)
+}
+
+pub(super) struct SessionCommit<'a> {
+    pub stored: &'a IdentityContextSnapshot,
+    pub next: &'a tmt_core::binding::session::BindingSessionState,
+    pub event: &'a dyn tmt_adapters::runtime::lifecycle::LifecycleObservation,
+    pub harness: &'a HarnessId,
+    pub mode: &'a tmt_core::binding::session::RuntimeMode,
+    pub fence_preferences: bool,
+}
+
+/// Both starting hooks and optional caller discovery share this exact commit.
+pub(super) fn commit_session(
+    storage: &mut Storage,
+    proposed: SessionCommit<'_>,
+) -> Result<bool, ()> {
+    let binding = proposed.stored.entry.binding.as_ref().ok_or(())?;
+    storage
+        .with_binding_transaction::<_, StorageError>(|records| {
+            let current = records
+                .entry_by_id(&binding.identity_id)?
+                .and_then(|entry| entry.binding);
+            if current.as_ref() != Some(binding)
+                || (proposed.fence_preferences
+                    && records.session_preferences(&binding.identity_id)?
+                        != proposed.stored.preferences)
+            {
+                return Ok(false);
+            }
+            if !records.set_session_state(&binding.id, &binding.session, proposed.next)? {
+                return Ok(false);
+            }
+            if proposed.event.starting() {
+                let mut preferences = records.session_preferences(&binding.identity_id)?;
+                preferences.launched(proposed.harness);
+                preferences.remember(
+                    proposed.harness.clone(),
+                    proposed.mode.clone(),
+                    proposed.event.session().clone(),
+                );
+                if let Some(remembered) = preferences.remembered.as_mut() {
+                    remembered.state = proposed.event.driver_state(
+                        remembered.state.as_ref(),
+                        tmt_adapters::request_runtime::wall_time_ms(),
+                    );
+                }
+                records.set_session_preferences(&binding.identity_id, &preferences)
+            } else {
+                Ok(true)
+            }
+        })
+        .map_err(|_| ())
 }
 
 /// Prompt submission only contributes context to an already admitted session.
