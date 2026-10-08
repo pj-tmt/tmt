@@ -3,6 +3,7 @@ import type { LiveSessionOwner } from '../src/live.js';
 import type { Pending } from '../src/management.js';
 import type { RemoteClient } from '../src/ask-remote.js';
 import { mountedTransport } from '../src/mounted.js';
+import { RecoveryRequiredError } from '../src/session-recovery.js';
 const setup = vi.hoisted(() => {
   const first = { deviceId: 'device', remoteSession: { id: 'first' } };
   const second = { deviceId: 'device', remoteSession: { id: 'second' } };
@@ -214,6 +215,35 @@ it('closing a tab during explicit recovery prevents a late reload or reopen', as
     await expect(setup.owner!.recover!()).rejects.toMatchObject({ name: 'AbortError' });
     expect(setup.sdk.reopenSession).toHaveBeenCalledOnce();
   } finally {
+    vi.unstubAllGlobals();
+  }
+});
+
+it('mounted explicit recovery releases a failed network marker for the next trusted action', async () => {
+  const items = new Map<string, string>();
+  const reload = vi.fn();
+  vi.stubGlobal('sessionStorage', {
+    getItem: (key: string) => items.get(key) ?? null,
+    setItem: (key: string, value: string) => items.set(key, value),
+    removeItem: (key: string) => items.delete(key),
+  });
+  vi.stubGlobal('location', { reload });
+  setup.register.mockReset().mockResolvedValue(setup.first);
+  setup.remote.mockReset().mockResolvedValue(null);
+  const error = new TypeError('Failed to fetch');
+  setup.sdk.reopenSession.mockReset().mockRejectedValueOnce(error).mockResolvedValueOnce({});
+  const mounted = await mountedTransport();
+  try {
+    await mounted.transport.page('page');
+    await expect(setup.owner!.recover!()).rejects.toBeInstanceOf(RecoveryRequiredError);
+    expect(items.size).toBe(0);
+    expect(reload).not.toHaveBeenCalled();
+    expect(await setup.owner!.recover!()).toBe(true);
+    expect(setup.sdk.reopenSession).toHaveBeenCalledTimes(2);
+    expect(reload).toHaveBeenCalledOnce();
+    expect([...items.values()]).toEqual(['attempted']);
+  } finally {
+    mounted.close();
     vi.unstubAllGlobals();
   }
 });

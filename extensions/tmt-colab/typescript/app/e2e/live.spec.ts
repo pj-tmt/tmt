@@ -918,7 +918,7 @@ test('authenticated tail past write limits opens and renders exact source', asyn
   await expect(page.getByRole('textbox')).toHaveValue(source);
 });
 
-for (const mode of ['unpaired', 'failed', 'cookie-lost'] as const) {
+for (const mode of ['unpaired', 'failed', 'network', 'cookie-lost'] as const) {
   test(`private guidance ${mode} stays visible without an automatic reopen loop`, async ({
     page,
     context,
@@ -928,6 +928,7 @@ for (const mode of ['unpaired', 'failed', 'cookie-lost'] as const) {
     let opens = 0;
     await context.route('**/test-recovery-open', (route) => {
       opens++;
+      if (mode === 'network') return route.abort('connectionrefused');
       return route.fulfill({ status: mode === 'cookie-lost' ? 200 : 503, json: {} });
     });
     await context.route(`**${mount}`, (route) =>
@@ -979,28 +980,42 @@ test('a disconnected active tab explicitly reconnects and reloads without backgr
 test('Ask publishes owner own envelopes through production Connection before Remote dispatch', async ({
   page,
   context,
-}) => {
+}, testInfo) => {
   const f = await wire(context),
     agentId = '00000000-0000-4000-8000-000000000006',
     requestId = 'req_00000000-0000-4000-8000-000000000007',
     reply = 'Wire reply <script>inert</script>';
   let sends = 0;
   let operationId: string | null = null;
+  let opens = 0;
+  let doorDown = false;
+  let oldSessionEnded = false;
   // Only Remote and the signed sync server are doubles: registration, controller,
   // Worker preparation, Writer, Connection, receipts and projection are production.
   await context.route('**/sdk/remote-v1.js*', (route) =>
     route.fulfill({
       contentType: 'text/javascript',
-      body: `export async function reopenSession(){await window.fixtureKeys;return {sessionId:'fixture-session',serverTimeMs:Date.now(),grantRevision:'1',expiresAtMs:null}}
+      body: `export class RefusalError extends Error {constructor(code){super(code);this.code=code;}}
+export async function reopenSession(){await fetch('/test-wire-reopen',{method:'POST'});await window.fixtureKeys;return {sessionId:'fixture-session',serverTimeMs:Date.now(),grantRevision:'1',expiresAtMs:null}}
 export async function certifyKey(purpose,bytes){return {publicKey:btoa(String.fromCharCode(...bytes)).replaceAll('+','-').replaceAll('/','_').replace(/=+$/,''),issuedAtMs:Date.now(),signature:'${c.encodeBinary(new Uint8Array(64))}'}}
 export function transportUrl(_session,url){return String(url);}
 export function operations(){return {
-listAgents:async()=>[{id:'${agentId}',name:'Wire agent',presence:'active'}],
+listAgents:async()=>{const response=await fetch('/test-wire-directory');if(response.status===410)throw new RefusalError('REMOTE_SESSION_ENDED');return [{id:'${agentId}',name:'Wire agent',presence:'active'}]},
 send:async(input)=>(await fetch('/test-wire-send',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(input)})).json(),
 operation:async(operationId)=>({state:'accepted',operationId,requestId:'${requestId}'}),
 result:async()=>({state:'replied',requestId:'${requestId}',message:${JSON.stringify(reply)}})
 }}`,
     }),
+  );
+  await context.route('**/test-wire-reopen', (route) => {
+    opens++;
+    if (doorDown) return route.abort('connectionrefused');
+    oldSessionEnded = false;
+    f.resumeSync();
+    return route.fulfill({ json: {} });
+  });
+  await context.route('**/test-wire-directory', (route) =>
+    route.fulfill({ status: oldSessionEnded ? 410 : 200, json: {} }),
   );
   await context.route('**/sdk/mount', (route) =>
     route.fulfill({
@@ -1108,6 +1123,46 @@ result:async()=>({state:'replied',requestId:'${requestId}',message:${JSON.string
   await expect(heading).toHaveText('Live fixture');
   await f.settled();
   expect(sends).toBe(1);
+  expect(f.entries).toHaveLength(6);
+  const draft = 'Keep this composer draft while the door is down.';
+  await input.fill(draft);
+  const admittedOpens = opens;
+  doorDown = true;
+  oldSessionEnded = true;
+  f.stopSync();
+  const reconnect = page.getByRole('button', { name: 'Reconnect', exact: true });
+  await expect(reconnect).toBeVisible();
+  await expect.poll(() => opens).toBe(admittedOpens + 1);
+  await expect(
+    page.getByText('Connection lost. Reconnect to resume.', { exact: true }),
+  ).toBeVisible();
+  await expect(page.getByText('Failed to fetch', { exact: true })).toHaveCount(0);
+  await expect(input).toHaveText(draft);
+  await expect(page.getByTestId('ask-entry')).toHaveAttribute('data-operation-id', operationId!);
+  await expect(page.getByTestId('ask-entry')).toHaveAttribute('data-ledger-state', 'accepted');
+  await expect(page.getByTestId('ask-reply')).toHaveText(reply);
+  expect(sends).toBe(1);
+  expect(f.entries).toHaveLength(6);
+  await page.screenshot({ path: testInfo.outputPath('recovery-required.png'), fullPage: true });
+  // Explicit recovery before the door returns stays retryable and read-only.
+  await reconnect.click();
+  await expect.poll(() => opens).toBe(admittedOpens + 2);
+  await expect(reconnect).toBeEnabled();
+  await expect(input).toHaveText(draft);
+  await expect(page.getByTestId('ask-entry')).toHaveAttribute('data-operation-id', operationId!);
+  await expect(page.getByTestId('ask-reply')).toHaveText(reply);
+  expect(sends).toBe(1);
+  expect(f.entries).toHaveLength(6);
+  doorDown = false;
+  await reconnect.click();
+  await expect(heading).toBeVisible();
+  await page.getByTestId('chat-toggle').click();
+  await expect(page.getByTestId('ask-entry')).toHaveAttribute('data-operation-id', operationId!);
+  await expect(page.getByTestId('ask-entry')).toHaveAttribute('data-ledger-state', 'accepted');
+  await expect(page.getByTestId('ask-reply')).toHaveText(reply);
+  expect(opens).toBe(admittedOpens + 4); // Explicit recovery, then admitted boot.
+  expect(sends).toBe(1);
+  await f.settled();
   expect(f.entries).toHaveLength(6);
   await page.getByRole('link', { name: 'Space home' }).click();
   await expect.poll(() => f.connections).toBe(0);

@@ -41,6 +41,7 @@ import { mountRenderer } from './renderer.js';
 import type { RenderState, SelectionRect } from './renderer.js';
 import { text } from './strings.js';
 import { SessionEvictedError } from './ask-remote.js';
+import { RecoveryRequiredError } from './session-recovery.js';
 import { ExportPanel } from './export-panel.js';
 import { PageDrawer } from './page-drawer.js';
 import { AgentStatusPanel } from './agent-status-panel.js';
@@ -540,7 +541,7 @@ function Page() {
     base = useRef(snapshot.source);
   const [draft, setDraft] = useState(snapshot.source),
     [saving, setSaving] = useState(false);
-  const [liveError, setLiveError] = useState<string | null>(null),
+  const [liveError, setLiveError] = useState<Error | null>(null),
     [eviction, setEviction] = useState<SessionEvictedError | null>(null),
     [editError, setEditError] = useState<string | null>(null);
   useEffect(() => {
@@ -570,7 +571,7 @@ function Page() {
         }
       },
       (error) => {
-        setLiveError(error.message);
+        setLiveError(error);
         setEviction(error instanceof SessionEvictedError ? error : null);
       },
     );
@@ -598,10 +599,13 @@ function Page() {
   async function reconnect() {
     if (reconnecting) return;
     setReconnecting(true);
+    setReconnectFailed(false);
     try {
       if (!(await snapshot.binding?.reconnect?.())) setReconnectFailed(true);
     } catch {
       setReconnectFailed(true);
+    } finally {
+      setReconnecting(false);
     }
   }
   const [selector, setSelector] = useState<QuoteSelector | null>(null);
@@ -673,7 +677,8 @@ function Page() {
     : undefined;
   const openThreads = openThreadCount(view.threads ?? []);
   const unseenThreads = (view.threadPresentations ?? []).some((value) => value.status.unseen);
-  const statusCoordinator = liveError === managementChanged ? undefined : snapshot.binding?.status;
+  const statusCoordinator =
+    liveError?.message === managementChanged ? undefined : snapshot.binding?.status;
   const annotationKey = (value: NonNullable<typeof annotation>) =>
     value.thread ? `${value.thread.writer}:${value.thread.id}` : JSON.stringify(value.selector);
   /** Every nonblank message is a draft; recipient selection never replaces its bytes. */
@@ -974,7 +979,7 @@ function Page() {
                 title={view.title || snapshot.title}
                 changed={() => {
                   snapshot.binding?.close();
-                  setLiveError(managementChanged);
+                  setLiveError(new Error(managementChanged));
                 }}
               />
               <ThemeButton menuLabel />
@@ -1011,11 +1016,13 @@ function Page() {
                 </>
               ) : (
                 <>
-                  <p>{liveError ?? (state === 'navigation' ? text.navigation : text.failed)}</p>
+                  <p>
+                    {liveError?.message ?? (state === 'navigation' ? text.navigation : text.failed)}
+                  </p>
                   <p>{text.limit}</p>
                 </>
               )}
-              {liveError === 'Sync disconnected' && snapshot.binding?.reconnect && (
+              {liveError instanceof RecoveryRequiredError && snapshot.binding?.reconnect && (
                 <button
                   className={ui.action}
                   data-variant="text"
@@ -1171,8 +1178,10 @@ function Page() {
           resolved={resolved}
           anchorsChecked={anchorsChecked}
           selection={selector}
-          binding={liveError === managementChanged ? undefined : snapshot.binding?.discussion}
-          ask={liveError === managementChanged ? undefined : snapshot.binding?.ask}
+          binding={
+            liveError?.message === managementChanged ? undefined : snapshot.binding?.discussion
+          }
+          ask={liveError?.message === managementChanged ? undefined : snapshot.binding?.ask}
           title={view.title || snapshot.title}
           asks={view.asks ?? []}
           active={activeThread}
@@ -1214,8 +1223,10 @@ function Page() {
             key={`chat:${snapshot.id}`}
             threads={view.threads ?? []}
             asks={view.asks ?? []}
-            binding={liveError === managementChanged ? undefined : snapshot.binding?.ask}
-            discussion={liveError === managementChanged ? undefined : snapshot.binding?.discussion}
+            binding={liveError?.message === managementChanged ? undefined : snapshot.binding?.ask}
+            discussion={
+              liveError?.message === managementChanged ? undefined : snapshot.binding?.discussion
+            }
             title={view.title || snapshot.title}
             blocked={discussionBlocked}
             close={() => setPanel(null)}

@@ -10,6 +10,7 @@ import {
 import type { PageView } from '../src/transport.js';
 import type { Registration } from '../src/registration.js';
 import { Live } from '../src/live.js';
+import { RecoveryRequiredError } from '../src/session-recovery.js';
 
 const connections = vi.hoisted(
   () =>
@@ -737,6 +738,7 @@ function heldResync(registration?: Registration, existingRemote?: RemoteClient) 
       operation: vi.fn(),
     } as unknown as RemoteClient);
   const reconnect = vi.fn(async () => ({ registration: second, remote }));
+  const recover = vi.fn(async () => false);
   const live = new Live(
     new URL('https://example.test/colab/'),
     {
@@ -750,7 +752,7 @@ function heldResync(registration?: Registration, existingRemote?: RemoteClient) 
     { pageId: '10000000-0000-4000-8000-000000000001', epoch: '1', sharing: 'private' } as PageInfo,
     undefined,
     remote,
-    { reconnect },
+    { reconnect, recover },
   );
   const failed = vi.fn();
   live.subscribe(() => {}, failed);
@@ -760,6 +762,7 @@ function heldResync(registration?: Registration, existingRemote?: RemoteClient) 
     second,
     remote,
     reconnect,
+    recover,
     failed,
     ready,
     created,
@@ -1157,9 +1160,12 @@ it.each(['ended', 'evicted', 'unknown', 'valid'] as const)(
         expect(h.live.registration).toBe(h.second);
         expect(h.failed).not.toHaveBeenCalled();
       } else {
-        expect(h.failed).toHaveBeenCalledExactlyOnceWith(
-          outcome === 'evicted' ? reason : h.disconnected,
-        );
+        expect(h.failed).toHaveBeenCalledOnce();
+        if (outcome === 'evicted') expect(h.failed.mock.calls[0][0]).toBe(reason);
+        else {
+          expect(h.failed.mock.calls[0][0]).toBeInstanceOf(RecoveryRequiredError);
+          expect(h.failed.mock.calls[0][0].cause).toBe(h.disconnected);
+        }
         expect(h.reconnect).not.toHaveBeenCalled();
         expect(h.live.registration).toBe(h.first);
       }
@@ -1196,12 +1202,14 @@ it.each(['superseded', 'disposed'] as const)(
   },
 );
 
-it('already-replacing ready rejection is terminal without an old-session diagnosis or recursive replacement', async () => {
+it('already-replacing ready rejection offers explicit recovery without an old-session diagnosis or recursive replacement', async () => {
   const h = await pendingSocketClose(true);
   try {
     expect(await h.rejected).toBe(h.disconnected);
     expect(h.remote.listAgents).not.toHaveBeenCalled();
-    expect(h.failed).toHaveBeenCalledExactlyOnceWith(h.disconnected);
+    expect(h.failed).toHaveBeenCalledOnce();
+    expect(h.failed.mock.calls[0][0]).toBeInstanceOf(RecoveryRequiredError);
+    expect(h.failed.mock.calls[0][0].cause).toBe(h.disconnected);
     expect(h.reconnect).toHaveBeenCalledOnce();
     expectNoRecoveryMutations(h.remote);
   } finally {
@@ -1209,3 +1217,69 @@ it('already-replacing ready rejection is terminal without an old-session diagnos
     h.resolveRead([]);
   }
 });
+
+it('a replacement fetch failure retains a typed recovery state, and concurrent explicit clicks check once', async () => {
+  const h = heldResync();
+  const network = new TypeError('Failed to fetch');
+  h.reconnect.mockRejectedValueOnce(network);
+  let rejectRecovery!: (error: Error) => void;
+  const recovery = new Promise<boolean>((_, reject) => {
+    rejectRecovery = reject;
+  });
+  h.recover.mockImplementationOnce(() => recovery).mockResolvedValueOnce(true);
+  try {
+    await h.live.snapshot();
+    const current = connections.at(-1)!;
+    current.failed(new SessionEndedError('REMOTE_SESSION_ENDED'));
+    await expect(h.live.snapshot()).rejects.toMatchObject({ cause: network });
+    expect(h.failed).toHaveBeenCalledOnce();
+    expect(h.failed.mock.calls[0][0]).toBeInstanceOf(RecoveryRequiredError);
+    expect(h.live.registration).toBe(h.first);
+    const one = h.live.reconnect();
+    const two = h.live.reconnect();
+    expect(one).toBe(two);
+    expect(h.recover).toHaveBeenCalledOnce();
+    await expect(h.live.edit('unadmitted edit', 'verified')).rejects.toThrow(
+      'Page editing unavailable',
+    );
+    expect(current.close).toHaveBeenCalledOnce();
+    expect(asks.instances.at(-1)!.close).toHaveBeenCalled();
+    expectNoRecoveryMutations(h.remote);
+    const nextFailure = new RecoveryRequiredError(new TypeError('Failed to fetch'));
+    rejectRecovery(nextFailure);
+    expect(await one).toBe(false);
+    expect(h.failed).toHaveBeenCalledTimes(2);
+    expect(h.failed.mock.calls[1][0]).toBe(nextFailure);
+    expect(h.recover).toHaveBeenCalledOnce();
+    expect(await h.live.reconnect()).toBe(true);
+    expect(h.recover).toHaveBeenCalledTimes(2);
+    expect(h.reconnect).toHaveBeenCalledOnce();
+    expectNoRecoveryMutations(h.remote);
+  } finally {
+    h.live.close();
+  }
+});
+
+it.each([
+  new Error('replacement registration rejected'),
+  new SessionEvictedError(8),
+  new SessionEndedError('REMOTE_SESSION_ENDED'),
+])(
+  'a non-network replacement failure stays terminal without explicit recovery: %s',
+  async (error) => {
+    const h = heldResync();
+    h.reconnect.mockRejectedValueOnce(error);
+    try {
+      await h.live.snapshot();
+      connections.at(-1)!.failed(new SessionEndedError('REMOTE_SESSION_ENDED'));
+      await expect(h.live.snapshot()).rejects.toBe(error);
+      expect(h.failed).toHaveBeenCalledExactlyOnceWith(error);
+      expect(await h.live.reconnect()).toBe(false);
+      expect(h.recover).not.toHaveBeenCalled();
+      expect(h.reconnect).toHaveBeenCalledOnce();
+      expectNoRecoveryMutations(h.remote);
+    } finally {
+      h.live.close();
+    }
+  },
+);
