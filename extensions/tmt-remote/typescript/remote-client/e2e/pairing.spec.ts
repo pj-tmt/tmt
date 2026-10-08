@@ -1265,17 +1265,98 @@ test('settings draft preserves authority, exact values, drafts and unknown self-
     );
   }
 
-  await page.goto(`${origin}/settings`);
+  const loading = routeBarrier();
+  const joined = routeBarrier();
+  const holdSettings = async (route: import('@playwright/test').Route) => {
+    loading.arrive();
+    try {
+      await loading.held;
+      await route.continue();
+    } finally {
+      joined.arrive();
+    }
+  };
+  await page.route('**/sdk/settings-v1.js', holdSettings);
+  try {
+    await page.goto(`${origin}/settings`, { waitUntil: 'commit' });
+    await loading.reached;
+    await expect(page.locator('header')).toHaveClass('header tmt-ui-header');
+    await captureState(
+      page,
+      'settings-loading',
+      'Real served initial controls while SDK entry is held',
+    );
+  } finally {
+    loading.release();
+    await joined.reached;
+    await page.unroute('**/sdk/settings-v1.js', holdSettings);
+  }
   await expect(page.locator('#access')).toContainText('confirmed');
   await expect(page.locator('#read-only')).toBeVisible();
   await expect(page.locator('#opening')).toBeDisabled();
   await descriptions(false);
+  await captureState(
+    page,
+    'settings-read-only',
+    'Non-designated browser, visible local CLI and disabled reasons',
+  );
   await expect(page.locator('#limit-value')).toHaveText('8 · default');
   execFileSync(BINARY, ['devices', 'designate', clientId, '--json'], { env });
   await page.click('#refresh');
   await expect(page.locator('#opening')).toBeEnabled();
   await expect(page.locator('#read-only')).toBeHidden();
   await descriptions(true);
+  for (const theme of ['light', 'dark'] as const) {
+    await page.emulateMedia({ colorScheme: theme });
+    const computed = await page.locator(`#name-${clientId}`).evaluate((input) => {
+      const css = getComputedStyle(input);
+      return {
+        color: css.color,
+        background: css.backgroundColor,
+        shadow: css.boxShadow,
+        opacity: css.opacity,
+      };
+    });
+    expect(computed).toEqual({
+      color: tokenRgb('color', 'text', theme),
+      background: tokenRgb('surface', 'sheet', theme),
+      shadow: 'none',
+      opacity: '1',
+    });
+    await expect(page.locator(`#name-${clientId}`)).toHaveAccessibleName('Device name');
+    await expect(page.locator('#opening')).toHaveAccessibleName('Open a browser when pairing');
+  }
+  await page.emulateMedia({ colorScheme: 'light' });
+  await page.locator(`#name-${clientId}`).focus();
+  await page.keyboard.press('ArrowLeft');
+  expect(
+    await page
+      .locator(`#name-${clientId}`)
+      .evaluate((control) => control.matches(':focus-visible')),
+  ).toBe(true);
+  await captureState(
+    page,
+    'settings-device-keyboard-focus',
+    'Shared field focus outline and stable native device control',
+  );
+  await page.locator('#opening').focus();
+  await page.keyboard.press('Tab');
+  await expect(page.locator('#opening-form button')).toBeFocused();
+  expect(
+    await page
+      .locator('#opening-form button')
+      .evaluate((control) => control.matches(':focus-visible')),
+  ).toBe(true);
+  await captureState(
+    page,
+    'settings-action-keyboard-focus',
+    'Shared Action keyboard focus; native submit ownership',
+  );
+  await captureState(
+    page,
+    'settings-designated-default',
+    'Designated browser; unset default8 and admitted controls',
+  );
   // Refresh preserves the unset source and never turns default 8 into an explicit cap.
   await page.click('#refresh');
   await expect(page.locator('#refresh')).toBeEnabled();
@@ -1288,6 +1369,11 @@ test('settings draft preserves authority, exact values, drafts and unknown self-
   await page.fill('#limit-custom', '8');
   await page.click('#limit-form button');
   await expect(page.locator('#limit-value')).toHaveText('8 · settings.json');
+  await captureState(
+    page,
+    'settings-explicit-custom',
+    'Explicit custom8 differs from default source',
+  );
   await page.selectOption('#opening', 'off');
   await page.click('#opening-form button');
   await expect(page.locator('#outcome')).toContainText('committed');
@@ -1312,6 +1398,11 @@ test('settings draft preserves authority, exact values, drafts and unknown self-
   await page.click('#refresh');
   await expect(page.locator('#read-only')).toBeVisible();
   await descriptions(false);
+  await captureState(
+    page,
+    'settings-role-removed-draft',
+    'Role removed; unsent19 draft and historical refused outcome retained',
+  );
   expect(
     JSON.parse(execFileSync(BINARY, ['settings', '--json'], { env, encoding: 'utf8' }))
       .sessionsPerDevice,
@@ -1320,6 +1411,11 @@ test('settings draft preserves authority, exact values, drafts and unknown self-
   await page.click('#refresh');
   await expect(page.locator('#read-only')).toBeHidden();
   await descriptions(true);
+  await captureState(
+    page,
+    'settings-restored-draft',
+    'Restored current access remains separate from prior refusal and unsent draft',
+  );
   const captures = process.env.TMT_REMOTE_CAPTURE_DIR;
   for (const colorScheme of ['light', 'dark'] as const) {
     await page.emulateMedia({ colorScheme });
@@ -1349,9 +1445,26 @@ test('settings draft preserves authority, exact values, drafts and unknown self-
   const held = new Promise<void>((resolve) => {
     release = resolve;
   });
+  const recovery = routeBarrier();
+  const recoveryJoined = routeBarrier();
+  let recoveryHeld = false,
+    holdRecovery = true;
   await page.route('**/append', async (route) => {
     const body = route.request().postDataJSON() as { operation: string };
-    if (body.operation === 'session.open') opens++;
+    if (body.operation === 'session.open') {
+      opens++;
+      if (holdRecovery) {
+        recoveryHeld = true;
+        recovery.arrive();
+        try {
+          await recovery.held;
+          await route.continue();
+        } finally {
+          recoveryJoined.arrive();
+        }
+        return;
+      }
+    }
     if (body.operation === 'remote.devices.rename') {
       renameCalls++;
       expect((await route.fetch()).status()).toBe(200);
@@ -1368,24 +1481,54 @@ test('settings draft preserves authority, exact values, drafts and unknown self-
   await name.fill('Renamed browser');
   await page.locator('.device button[type=submit]').click();
   await published;
-  await name.fill('Unsent next name');
-  await name.evaluate((input) => {
-    (input as HTMLInputElement).setSelectionRange(2, 2);
-  });
-  release();
+  try {
+    await captureState(
+      page,
+      'settings-saving-self-rename',
+      'Actual native effect with acknowledgement held; saving and disabled actions',
+    );
+    await name.fill('Unsent next name');
+    await name.evaluate((input) => {
+      (input as HTMLInputElement).setSelectionRange(2, 2);
+    });
+  } finally {
+    release();
+  }
   await expect(page.locator('#outcome')).toContainText('unknown');
   await expect(name).toHaveValue('Unsent next name');
   expect(await name.evaluate((input) => (input as HTMLInputElement).selectionStart)).toBe(2);
   await expect(name).toBeFocused();
+  await captureState(
+    page,
+    'settings-unknown-name-focus',
+    'Unknown original rename, retained next-name draft/caret/focus; no resend',
+  );
   await name.press('Enter');
   expect(renameCalls).toBe(1);
   const original = await page.locator('#original').textContent();
-  await page.click('#recover');
+  try {
+    await page.click('#recover');
+    await recovery.reached;
+    await captureState(
+      page,
+      'settings-recovery-pending',
+      'One fresh live admission in progress; original ID and draft are frozen, no resend',
+    );
+  } finally {
+    holdRecovery = false;
+    recovery.release();
+    if (recoveryHeld) await recoveryJoined.reached;
+  }
   await expect(page.locator('#outcome')).toContainText('committed');
   await expect(page.locator('#original')).toHaveText(original!);
   await expect(name).toHaveValue('Unsent next name');
   expect(renameCalls).toBe(1);
   expect(opens).toBe(1);
+  await captureState(
+    page,
+    'settings-rename-recovered',
+    'Fresh live Session reads committed original; next-name draft retained',
+  );
   // Lost self-revoke acknowledgement: one fresh read-only admission, accurate access loss + unknown.
   page.once('dialog', (dialog) => void dialog.accept());
   await page.locator('.device button[type=button]').click();
@@ -1395,6 +1538,11 @@ test('settings draft preserves authority, exact values, drafts and unknown self-
   await expect(page.locator('#outcome')).toContainText('unknown');
   await expect(page.locator('#recover')).toBeHidden();
   await expect(page.locator('#opening')).toBeDisabled();
+  await captureState(
+    page,
+    'settings-self-revoke-access-lost',
+    'Self-revoke lost ack; current access loss and historical unknown stay separate',
+  );
   expect(revokeCalls).toBe(1);
   expect(opens).toBe(2);
   await page.click('#refresh');
@@ -1475,6 +1623,11 @@ test('settings pagination retains later-page drafts across refresh and guards na
   await expect(page.locator('#outcome')).toContainText('Save or restore');
   await expect(name).toHaveValue('Unsent later-page name');
   await expect(name).toBeFocused();
+  await captureState(
+    page,
+    'settings-pagination-draft-guard',
+    'Real bounded25-device page; unsent draft blocks navigation without discarding focus',
+  );
   await page.click('#first');
   await expect(name).toHaveValue('Unsent later-page name');
   await expect(name).toBeFocused();
@@ -1486,6 +1639,71 @@ test('settings pagination retains later-page drafts across refresh and guards na
   await page.click('#more');
   await expect(name).toHaveValue('Device 26');
   await expect(page.locator('.device')).toHaveCount(25);
+  // Real non-self mutations exercise the presentation without changing the browser's authority.
+  await page.unroute('**/append');
+  await page.click('#first');
+  const target = page
+    .locator('.device')
+    .filter({ has: page.locator('#name-00000000-0000-4000-8000-000000000001') });
+  await target.locator('input').fill('Reviewed device');
+  await target.locator('button[type=submit]').click();
+  await expect(page.locator('#outcome')).toContainText('committed');
+  await expect(target.locator('.device-summary')).toContainText('Reviewed device');
+  await captureState(
+    page,
+    'settings-other-device-renamed',
+    'Committed non-self rename; unchanged current browser authority',
+  );
+  page.once('dialog', async (dialog) => {
+    expect(dialog.type()).toBe('confirm');
+    expect(dialog.message()).toBe('Revoke Reviewed device?');
+    await dialog.accept();
+  });
+  await captureState(
+    page,
+    'settings-revoke-ready',
+    'Native revoke action; confirm text is asserted separately, not rasterized by headless Chromium',
+  );
+  await target.locator('button[type=button]').click();
+  await expect(target.locator('.device-summary')).toContainText('Revoked');
+  await expect(target.locator('button[type=button]')).toBeDisabled();
+  await expect(target.locator('button[type=button]')).toHaveAccessibleDescription(
+    'This device is revoked.',
+  );
+  await captureState(
+    page,
+    'settings-other-device-revoked',
+    'Revoked row stays read-only with an explicit associated disabled reason',
+  );
+  // Saturate the actual retained-identity quota in this disposable Store only.
+  execFileSync('python3', [
+    '-c',
+    "import sqlite3,sys,uuid,json;d=sqlite3.connect(sys.argv[1]);client=sys.argv[2];n=d.execute('select count(*) from management_receipts where client_id=?',(client,)).fetchone()[0];d.executemany('insert into management_receipts values(?,?,?,?,?,?,?,?)',[(str(uuid.uuid4()),client,'remote.settings.set',bytes(32),1,0,0,json.dumps({'state':'unknown','reason':'effect_outcome_unconfirmed'})) for _ in range(1000-n)]);d.commit();d.close()",
+    join(root, 'state/remote/remote.db'),
+    inventory.devices[0]!.clientId,
+  ]);
+  await page.selectOption('#opening', 'off');
+  await page.click('#opening-form button');
+  await expect(page.locator('#outcome')).toContainText('refused');
+  await expect(page.locator('#controls-reason')).toContainText('operation limit reached');
+  await expect(page.locator('#opening-form button')).toBeDisabled();
+  await captureState(
+    page,
+    'settings-capacity-refused',
+    'Actual signed cumulative-capacity refusal; local CLI, no retry/reset/new-ID workaround',
+  );
+  // Malformed file read stays observational and reports default source plus warning.
+  await writeFile(join(root, 'state/remote/settings.json'), '{');
+  await page.click('#refresh');
+  await expect(page.locator('#warning')).toHaveText(
+    'settings.json could not be read; defaults apply',
+  );
+  await expect(page.locator('#limit-value')).toHaveText('8 · default');
+  await captureState(
+    page,
+    'settings-malformed-warning',
+    'Actual unreadable settings projection; default values/source, warning, previous refusal retained',
+  );
   await context.close();
 });
 
@@ -1560,6 +1778,11 @@ test('committed signed management survives owned serve SIGKILL and fresh origina
   await page.selectOption('#opening', 'off');
   await page.click('#opening-form button');
   await expect(page.locator('#outcome')).toContainText('unknown');
+  await captureState(
+    page,
+    'settings-crash-unknown',
+    'Actual joined serve SIGKILL with original unknown; no resubmission',
+  );
   await expect(page.locator('#original')).toHaveText(`Original operation ${originalId}`);
   // The killed task is joined above. Only this disposable root/owned serve restarts.
   serve = spawn(BINARY, ['serve', '--json'], { env });
@@ -1605,5 +1828,21 @@ test('committed signed management survives owned serve SIGKILL and fresh origina
       .sort(),
   ).toEqual(['capabilities', 'storage.root']);
   expect(calls.filter((call) => call.operation === 'dispatch.create')).toHaveLength(0);
+  await context.close();
+});
+
+test('settings shared presentation keeps unavailable initialization read-only', async () => {
+  const context = await browser.newContext();
+  const page = await context.newPage();
+  await page.goto(`${origin}/settings`);
+  await expect(page.locator('#access')).toContainText('unconfirmed');
+  await expect(page.locator('#opening')).toBeDisabled();
+  await expect(page.locator('#refresh')).toBeDisabled();
+  await expect(page.locator('#controls-reason')).toBeVisible();
+  await captureState(
+    page,
+    'settings-unavailable-initialization',
+    'No saved pairing; access unconfirmed, native controls remain unavailable',
+  );
   await context.close();
 });

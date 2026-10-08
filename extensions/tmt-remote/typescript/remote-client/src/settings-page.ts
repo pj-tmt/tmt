@@ -27,6 +27,38 @@ function render(): void {
   }[page.access];
   const editable = page.access === 'live' && page.settings?.capabilities.settingsWrite === true;
   element('read-only').hidden = editable;
+  element('access-notice').dataset.tone =
+    page.access === 'live'
+      ? editable
+        ? 'working'
+        : 'review'
+      : page.access === 'checking'
+        ? 'waiting'
+        : 'blocked';
+  element('outcome-notice').dataset.tone = page.busy
+    ? 'waiting'
+    : page.outcome?.state === 'committed'
+      ? 'working'
+      : page.outcome?.state === 'unknown' || page.outcome?.state === 'refused'
+        ? 'blocked'
+        : 'review';
+  const reason = page.busy
+    ? 'A request is in progress. Wait for its outcome.'
+    : !editable
+      ? 'Changes are unavailable in this browser. Use the local CLI.'
+      : page.outcome?.state === 'unknown'
+        ? 'The original outcome is unknown. Read it before another change.'
+        : page.outcome?.state === 'refused' && page.outcome.reason === 'REMOTE_MANAGEMENT_CAPACITY'
+          ? 'Browser management operation limit reached. Use the local CLI; do not retry or reset storage.'
+          : '';
+  element('controls-reason').textContent = reason;
+  element('controls-reason').hidden = !reason;
+  for (const button of document.querySelectorAll<HTMLButtonElement>('button')) {
+    if (reason) button.setAttribute('aria-describedby', 'controls-reason');
+    else button.removeAttribute('aria-describedby');
+    button.setAttribute('aria-busy', String(page.busy));
+  }
+
   const openingForm = element<HTMLFormElement>('opening-form');
   if (editable) openingForm.removeAttribute('aria-describedby');
   else openingForm.setAttribute('aria-describedby', 'read-only');
@@ -88,6 +120,10 @@ function render(): void {
         const label = document.createElement('label');
         const name = document.createElement('input');
         name.id = `name-${device.clientId}`;
+        name.className = 'tmt-ui-field-control';
+        label.id = `${name.id}-label`;
+        label.className = 'tmt-ui-field-label';
+        name.setAttribute('aria-labelledby', label.id);
         name.value = device.name;
         name.required = true;
         name.maxLength = 64;
@@ -95,10 +131,19 @@ function render(): void {
         label.textContent = 'Device name';
         const save = document.createElement('button');
         save.type = 'submit';
-        save.textContent = 'Rename';
+        save.className = 'tmt-ui-action';
+        const saveLabel = document.createElement('span');
+        saveLabel.className = 'tmt-ui-action-label';
+        saveLabel.textContent = 'Rename';
+        save.append(saveLabel);
         const revoke = document.createElement('button');
         revoke.type = 'button';
-        revoke.textContent = 'Revoke';
+        revoke.className = 'tmt-ui-action';
+        revoke.dataset.variant = 'destructive';
+        const revokeLabel = document.createElement('span');
+        revokeLabel.className = 'tmt-ui-action-label';
+        revokeLabel.textContent = 'Revoke';
+        revoke.append(revokeLabel);
         revoke.addEventListener('click', () => {
           if (!page.writable) return;
           // Confirmation is local presentation, never server authority.
@@ -122,8 +167,14 @@ function render(): void {
             },
           });
         });
-        form.append(label, name, save, revoke);
-        row.append(summary, form);
+        const field = document.createElement('div');
+        field.className = 'tmt-ui-field';
+        field.append(label, name);
+        form.append(field, save, revoke);
+        const disabledReason = document.createElement('p');
+        disabledReason.id = `device-reason-${device.clientId}`;
+        disabledReason.className = 'tmt-ui-field-description';
+        row.append(summary, form, disabledReason);
         rows.set(device.clientId, row);
         devices.append(row);
       }
@@ -133,8 +184,15 @@ function render(): void {
       name.disabled = !editable || device.revoked;
       if (editable) name.removeAttribute('aria-describedby');
       else name.setAttribute('aria-describedby', 'read-only');
-      for (const button of row.querySelectorAll<HTMLButtonElement>('button'))
+      const disabledReason = element(`device-reason-${device.clientId}`);
+      disabledReason.textContent = device.revoked ? 'This device is revoked.' : reason;
+      disabledReason.hidden = !disabledReason.textContent;
+      for (const button of row.querySelectorAll<HTMLButtonElement>('button')) {
         button.disabled = !page.writable || device.revoked;
+        if (disabledReason.textContent) button.setAttribute('aria-describedby', disabledReason.id);
+        else button.removeAttribute('aria-describedby');
+        button.setAttribute('aria-busy', String(page.busy));
+      }
     }
   }
 }
@@ -218,4 +276,6 @@ try {
       ? 'Current browser access refused. Use the local CLI.'
       : 'Current browser access unconfirmed. Pair locally with tmt remote pair, or use the local CLI.';
   refresh.disabled = true;
+  element('access-notice').dataset.tone = 'blocked';
+  element('controls-reason').textContent = 'Current access is unavailable. Use the local CLI.';
 }

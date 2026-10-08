@@ -90,11 +90,11 @@ existing layout, independent of the database/serve lease. Missing settings use t
 malformed settings use it with a human warning. Setters serialize through the bounded lock.
 
 The [settings/device page authority](../../../../contracts/remote-channel-v1.md#remote-settings-browser-authority)
-is separate from paired channel trust. Its native/SDK draft reuses this settings owner and existing
+is separate from paired channel trust. Its native/SDK implementation reuses this settings owner and existing
 device/session mutation owners; shared presentation supplies no authority. Settings semantics and
 agent grants remain unchanged.
 
-## Management implementation draft
+## Management implementation
 
 The [fixed management protocol](../../../../contracts/remote-channel-v1.md#remote-management-protocol)
 owns exact wire shapes, immutable outcome/deadline, first-touch uncertainty and recovery policy.
@@ -105,9 +105,8 @@ locks. JSON settings and SQLite receipts are separate durability boundaries: unc
 never reapplied by receipt lookup. Live grant admission is required for all reads. Self-rename can reopen then read the original operation. Lost self-revoke acknowledgment
 gets one fresh read-only admission attempt; refusal shows access loss plus unknown outcome and
 `tmt remote devices`, never a resend or a committed-revoke inference. No old-key exception exists.
-The current-token `/settings` static draft composes the SDK for admitted forms, frozen outcomes and
-original-ID reading; its separate page bundle imports the single served SDK. Shared presentation
-adoption and complete feature acceptance remain pending. Management identity
+The shared-presentation `/settings` page composes the SDK for admitted forms, frozen outcomes and
+original-ID reading; its separate page bundle imports the single served SDK. Shared CSS supplies presentation only. Management identity
 limits are cumulative: 1000 per caller, 4000 installation-wide, including expired rows. The
 30-day deadline bounds outcome availability, not row deletion. Capacity refuses new adoption
 before effects; show the local settings/devices CLI path without automatic retries or storage

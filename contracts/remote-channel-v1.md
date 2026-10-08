@@ -483,9 +483,8 @@ original operation, never becomes falsely unsent.
 
 ### Remote settings browser authority
 
-**[#1769](https://github.com/pj-tmt/tmt/issues/1769) implementation draft; static page exists and shared presentation/
-feature acceptance remain pending.** This section owns authority; the fixed management protocol
-below specifies the native/SDK draft. The local CLI remains the scripting management path.
+**[#1769](https://github.com/pj-tmt/tmt/issues/1769) implementation: native/SDK and the shared-presentation settings page.** This section owns authority; the fixed management protocol
+below specifies the native/SDK implementation. The local CLI remains the scripting management path.
 Current landing, pairing and error-page presentation adoption does not implement this feature.
 
 A paired channel owner-device is not automatically a settings administrator. Loopback, Host,
@@ -551,9 +550,9 @@ package or current-page adoption cannot satisfy those requirements.
 
 ### Remote management protocol
 
-The #1769 implementation draft adds the following fixed operations on the existing signed
-`POST /append` request channel. The current-token settings/device page is a static draft; native/browser acceptance,
-shared presentation adoption/review and feature delivery remain pending; this draft is not a release claim.
+The #1769 implementation adds the following fixed operations on the existing signed
+`POST /append` request channel. The settings/device page uses the shared browser presentation and Remote host metrics;
+presentation carries no authority.
 Every read and effect retains ordinary live-grant admission. Only a `browser` grant pinned to the
 door's exact origin may use these cases. Agent scopes and direct/hold mode confer no management
 write capability. Unsupported operations, including `remote.management.recover`, remain refused.
@@ -657,7 +656,7 @@ Local owner commands `tmt remote devices designate <client-id>` and
 through the existing control socket or stopped serve lock. Designation validates a live browser
 and exact current/remembered door origin. It is never automatic or remotely callable. Revoke or
 same-key re-pair clears it; rename retains identity while ending old-revision Sessions. The
-optional pairing-confirmation choice is not implemented in this draft; later local designation
+optional pairing-confirmation choice is not implemented; later local designation
 is available without another browser ceremony.
 
 The SDK `management(session)` exposes `settings`, `devices`, `set`, `rename`, `revoke` and
@@ -677,14 +676,15 @@ retain existing refusal semantics. Designation loss with a still-live grant perm
 own-receipt reading. No historical/revoked-key admission, capture-based capability, new nonce
 framework, agent/held-work recovery exception or general recovery route exists.
 
-### Remote settings page draft
+### Remote settings page
 
-`GET /settings` serves the Remote-owned current-token static draft with the existing page CSP,
+`GET /settings` serves the Remote-owned shared-presentation page with the existing page CSP,
 origin checks and no-store policy. `/sdk/settings-v1.js` imports `/sdk/remote-v1.js`; it does not
 embed another signer/channel implementation or add public SDK exports. The three sections are
 Browser opening, Session limit per device and Paired devices. Effective values, sources, warning
-and write capabilities come from admitted server reads. The shell is labeled as a Remote settings preview; shared presentation adoption remains pending
-and this draft does not claim #1797 package adoption.
+and write capabilities come from admitted server reads. The shared package supplies checked CSS
+and static presentation contracts; Remote owns host layout and native select controls. Shared
+presentation never supplies authority or management outcomes.
 
 An untouched unset/default cap remains unset; explicit off is unlimited and custom positive caps
 remain decimal text. The default option describes the missing key and does not invent a reset

@@ -51,9 +51,10 @@ entry states, keyboard activation, storage/transport/pin errors, refusal, token 
 1440/390 light/dark captures plus a 320-pixel fit check. The SDK fixture covers complete stored-record guards
 and page replacement; actual browser/terminal fixtures remain the user-flow evidence owner.
 
-## Settings page draft
+## Settings page
 
-`/settings` retains its static draft pending settings-specific shared presentation adoption.
+`/settings` uses the same embedded shared CSS, Header/Notice/Field/Action classes and
+Remote host metrics; its additional stylesheet owns only settings layout and native selects.
 The existing page and CSP owners remain unchanged. Remote's `management-page` owns admitted values,
 frozen intent/outcome and separate current-access state; `settings-page` binds forms without
 resetting unsent text during async failure/read refresh. Refresh retains the current device
@@ -61,7 +62,7 @@ page; navigation focuses and refuses to leave an unsent device name until saved 
 so only one bounded page of forms is retained. The separately generated
 `settings-v1.js` imports the single served public SDK, without another key/channel owner.
 Both generated modules must pass rebuild byte equality. The owning
-[management protocol](../../../../contracts/remote-channel-v1.md#remote-settings-page-draft)
+[management protocol](../../../../contracts/remote-channel-v1.md#remote-settings-page)
 defines default/source, capacity and one-attempt live-grant recovery behavior.
 
 The existing Chromium pairing fixture also exercises the actual settings page: designated/
@@ -70,4 +71,5 @@ lost self-rename/revoke acknowledgments, original-only recovery, no resend and p
 A >25-device scenario covers later-page drafts through refresh, another committed effect,
 original-receipt recovery and guarded first/next navigation.
 Use `TMT_REMOTE_CAPTURE_DIR` for light/dark 1440/390 settings captures; 320 fit is asserted.
-These static-draft checks do not substitute for shared adoption, UX or complete feature gates.
+Captures include loading/read-only/disabled reasons, drafts/focus, outcome/recovery and self-change
+states at 1440/390 light/dark and 320 fit. The capture index records the served state and provenance.

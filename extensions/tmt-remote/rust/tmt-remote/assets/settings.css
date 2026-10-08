@@ -1,40 +1,45 @@
-/* Remote draft controls on the existing pages token owner. Shared adoption is pending. */
+/* Settings layout and native selects; shared CSS and Remote host metrics load first. */
 .settings-page {
   margin-top: 32px;
   width: min(100% - 32px, 760px);
+  --tmt-ui-host-notice-heading-size: 25px;
 }
-.settings-page .sheet {
+.settings-page .tmt-ui-notice {
   margin: 24px 0;
-  box-shadow: none;
-  border: 1px solid var(--c-rule);
 }
-.settings-page h2 {
-  font-size: 25px;
+.settings-page .tmt-ui-notice-mark p {
+  margin: 0;
 }
-.settings-page code {
-  white-space: normal;
-  overflow-wrap: anywhere;
+.settings-page #read-only,
+.settings-page #controls-reason,
+.settings-page #warning {
+  margin-top: 20px;
 }
-.settings-page select {
+.settings-page .settings-select {
+  box-sizing: border-box;
   width: 100%;
   margin: 8px 0 20px;
-  min-height: 44px;
-  padding: 10px;
-  border: 1px solid var(--c-muted);
-  background: var(--c-paper);
-  color: var(--c-text);
-  font: inherit;
+  min-height: var(--tmt-ui-host-action-min-height);
+  padding: var(--tmt-ui-host-field-padding);
+  border: var(--tmt-ui-field-border-width) solid var(--tmt-ui-color-edge);
+  border-radius: var(--tmt-ui-radius);
+  background: var(--tmt-ui-surface-sheet);
+  color: var(--tmt-ui-color-text);
+  font: var(--tmt-ui-host-field-size)/var(--tmt-ui-host-field-line-height) var(--tmt-ui-font-body);
 }
-.settings-page button {
-  box-shadow: none;
+.settings-page .settings-select:disabled {
+  background: var(--tmt-ui-surface-disabled);
+  color: var(--tmt-ui-color-disabled-text);
+}
+.settings-page .settings-select:focus-visible {
+  outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
+  outline-offset: var(--tmt-ui-host-focus-offset);
+}
+.settings-page .tmt-ui-action {
   margin: 4px 8px 8px 0;
 }
-.settings-page button:disabled {
-  cursor: default;
-  opacity: 0.55;
-}
 .settings-page .device {
-  border-top: 1px solid var(--c-rule);
+  border-top: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
   padding: 20px 0;
 }
 .settings-page .device p {
@@ -43,10 +48,7 @@
 .settings-page .device form {
   margin-top: 8px;
 }
-.settings-page .outcome {
-  padding: 20px 0;
-}
 .settings-page #original {
-  font: 12px/1.5 var(--f-mono);
+  font: 12px/1.5 var(--tmt-ui-font-mono);
   overflow-wrap: anywhere;
 }

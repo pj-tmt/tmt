@@ -214,12 +214,11 @@ transport; other tabs remain live. Recover previously unknown send outcomes by o
 the original operation ID after reopening. Never retry a send automatically because its
 transport closed.
 
-## Remote management draft
+## Remote management
 
 `management(session)` uses the same verified serialized Session channel as `operations(session)`.
 It exposes `settings()`, `devices({cursor,limit})`, `set`, `rename`, `revoke` and
-`operation(originalOperationId)`. This #1769 draft does not establish actual settings-page or
-complete feature acceptance. The [owning protocol](../../../../contracts/remote-channel-v1.md#remote-management-protocol)
+`operation(originalOperationId)`. Every read and effect retains live-grant admission. The [owning protocol](../../../../contracts/remote-channel-v1.md#remote-management-protocol)
 specifies exact shapes and bounds. Session caps are positive decimal **strings** or null, preserving
 native values beyond JavaScript safe integers; default reads as `"8"` and null means unlimited.
 Values/sources, malformed/default warning and management capabilities come from server admission.
@@ -251,10 +250,10 @@ adoption before effects; an existing original-ID read still works at capacity. S
 local CLI management path, preserve any earlier unknown outcome, and do not retry, reset
 the database or invent a replacement ID to bypass the limit. Compaction is deferred.
 
-The Remote-owned `/settings` page is a current-token static draft with three sections and
+The Remote-owned `/settings` page uses the shared browser presentation with three sections and
 server-admitted values/sources/warnings/capabilities. Its separately built `settings-v1.js`
-imports the served SDK; no second channel or public page export is introduced. Shared #1797
-presentation adoption and complete feature acceptance remain pending. An untouched default
+imports the served SDK; no second channel or public page export is introduced. Checked shared CSS
+owns presentation, while Remote owns layout, native selects and control state. An untouched default
 cap is not saved as explicit 8; there is no invented reset setter. Draft text and original
 intent remain separate, including after unknown outcome or refreshed reads.
 
@@ -269,7 +268,7 @@ transport/unverified reply is unconfirmed. Neither establishes committed revoke 
 grant loss. A descriptor recheck is another read, never another admission/mutation. Existing
 no-argument reopen behavior is unchanged.
 
-The settings draft retains the current device page during value/effect/recovery refreshes.
+The settings page retains the current device page during value/effect/recovery refreshes.
 First/next navigation focuses an unsent device name and refuses to leave until that name is saved
 or restored to its admitted value. Only the current bounded page's forms are retained.
 
