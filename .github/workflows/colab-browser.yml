@@ -1,6 +1,6 @@
 name: Colab browser verification
 
-# Advisory evidence for L1 acceptance; never part of the required CI aggregates.
+# Advisory evidence for L1 acceptance and the app component specs; never part of the required CI aggregates.
 on:
   pull_request:
     types: [opened, synchronize, reopened, labeled, unlabeled]
@@ -23,6 +23,7 @@ jobs:
       contents: read
     outputs:
       colab_harness: ${{ steps.scope.outputs.colab_harness || 'false' }}
+      colab_app: ${{ steps.scope.outputs.colab_app || 'false' }}
     steps:
       - if: github.event_name == 'pull_request'
         uses: actions/checkout@v4
@@ -119,6 +120,45 @@ jobs:
         with:
           path: ${{ env.PLAYWRIGHT_BROWSERS_PATH }}
           key: ${{ steps.browsers.outputs.cache-primary-key }}
+
+  colab-app:
+    name: Colab app component specs (Chromium)
+    needs: changes
+    concurrency:
+      group: colab-browser-app-${{ github.event.pull_request.number || github.ref }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || needs.changes.outputs.colab_app == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-tooling
+      - name: Prepare evidence directory
+        run: mkdir -p "$RUNNER_TEMP/colab-app-results"
+      - name: Install frozen app tooling
+        working-directory: typescript
+        run: pnpm --filter @tmt/colab-app... --fail-if-no-match install --frozen-lockfile --ignore-scripts
+      - name: Install Chromium and Linux dependencies
+        working-directory: typescript
+        run: pnpm --filter @tmt/colab-app exec playwright install --with-deps chromium
+      # One worker and no retries, as configured. The native-fixture specs (cli, chrome) skip
+      # with a named reason here; the real-binary job below owns native behavior.
+      - name: Run the app component specs
+        working-directory: typescript
+        shell: bash
+        run: pnpm --filter @tmt/colab-app --fail-if-no-match test:browser --output "$RUNNER_TEMP/colab-app-results/traces" 2>&1 | tee "$RUNNER_TEMP/colab-app-results/run.log"
+      - name: Upload run log and failure traces
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: colab-app-results
+          path: ${{ runner.temp }}/colab-app-results
+          if-no-files-found: warn
+          retention-days: 7
 
   colab-acceptance:
     name: Colab real-binary acceptance (Chromium)

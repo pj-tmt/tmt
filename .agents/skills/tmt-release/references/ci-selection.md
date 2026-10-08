@@ -123,6 +123,14 @@ Rust cache restores never save. Browser cache keys include OS, architecture and
 pinned Playwright version; only successful main-ref runs save. Reports are
 primitive-library evidence, not product or publication acceptance.
 
+The same workflow's `colab-app` job runs the app's Playwright component specs
+(`@tmt/colab-app test:browser`: Chromium, one worker, no retries, no Rust). It
+selects `colab_app` for the app, colab-client and browser-ui paths, the workflow and
+the pnpm lockfile, and also runs weekly and manually. The specs that need the native
+Colab executables skip with a named reason there, so the run proves the browser
+components only. It keeps a bounded run log and failure traces for seven days and is
+advisory like the rest of the workflow.
+
 The same workflow runs advisory real-binary Colab acceptance weekly, manually,
 or on a PR carrying `colab-acceptance`. Only adding that exact label can start
 acceptance from a label event; removing a label never starts it. Label edits skip
