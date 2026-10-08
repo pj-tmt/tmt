@@ -36,7 +36,7 @@ async function fixture(mode = 'success') {
     string,
     { textContent: string; hidden: boolean; dataset: Record<string, string> }
   >();
-  for (const id of ['status', 'mark', 'pairing-status', 'access-status'])
+  for (const id of ['status', 'mark', 'notice', 'state-label', 'pairing-status', 'access-status'])
     nodes.set(id, { textContent: '', hidden: false, dataset: {} });
   const access = nodes.get('access-status')!;
   let accessText = '';
@@ -299,10 +299,17 @@ for (const outcome of ['valid', 'refused', 'malformed', 'transport']) {
     };
     const status = { dataset: {} as Record<string, string>, textContent: '' };
     const mark = { textContent: '' };
+    const notice = { dataset: {} as Record<string, string> };
+    const stateLabel = { textContent: 'Initializing' };
     vi.stubGlobal('document', {
       readyState: 'complete',
       getElementById: (id: string) =>
-        (({ pair: form, status, mark }) as Record<string, unknown>)[id],
+        (
+          ({ pair: form, status, mark, notice, 'state-label': stateLabel }) as Record<
+            string,
+            unknown
+          >
+        )[id],
     });
     vi.stubGlobal('fetch', async () => {
       arrive();
@@ -324,9 +331,12 @@ for (const outcome of ['valid', 'refused', 'malformed', 'transport']) {
       assert.equal(button.disabled, outcome !== 'valid');
       assert.equal(enables, outcome === 'valid' ? 1 : 0);
       assert.equal(form.hidden, outcome !== 'valid');
+      if (outcome === 'valid') assert.equal(stateLabel.textContent, 'Ready to pair');
       if (outcome !== 'valid') {
         assert.equal(listener, undefined);
         assert.equal(status.dataset.state, 'blocked');
+        assert.equal(notice.dataset.tone, 'blocked');
+        assert.equal(stateLabel.textContent, 'Unavailable');
       }
     } finally {
       release();

@@ -3,7 +3,7 @@ import { spawn, execFileSync, type ChildProcessWithoutNullStreams } from 'node:c
 import { createHash, createPublicKey, verify } from 'node:crypto';
 import { extCertSigningBytes } from '../src/canonical-bytes.js';
 import type { ExtCertificate } from '../src/device.js';
-import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { appendFile, chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { createServer, type Server } from 'node:net';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline';
@@ -16,36 +16,89 @@ import { fileURLToPath } from 'node:url';
  * colab served on its owner-only socket. Build the binary first with
  * `cargo build -p tmt-remote`, or point TMT_REMOTE_BINARY at one.
  */
-// The shared header tokens, the same metrics Colab's header reads.
-const { header: headerTokens } = JSON.parse(
+// Expected computed presentation comes from main's current browser roles, not a local palette.
+const { header: headerTokens, browser: browserTokens } = JSON.parse(
   await readFile(
     fileURLToPath(new URL('../../../../../design/tokens/tokens.json', import.meta.url)),
     'utf8',
   ),
-) as { header: Record<string, string> };
-
-// The state colors (design tokens `waiting`, `blocked`, `working`) of the mark and the sheet's
-// hard shadow, as in Colab's notice card.
-const STATE_COLORS = {
-  light: { waiting: 'rgb(150, 80, 39)', blocked: 'rgb(182, 44, 59)', working: 'rgb(79, 106, 51)' },
-  dark: {
-    waiting: 'rgb(255, 158, 100)',
-    blocked: 'rgb(247, 118, 142)',
-    working: 'rgb(158, 206, 106)',
-  },
+) as {
+  header: Record<string, string>;
+  browser: {
+    color: Record<string, Record<string, string>>;
+    surface: Record<string, Record<string, string>>;
+  };
 };
+function tokenRgb(group: 'color' | 'surface', name: string, theme: 'light' | 'dark'): string {
+  const hex = browserTokens[group][name]![theme]!;
+  return `rgb(${[1, 3, 5].map((start) => parseInt(hex.slice(start, start + 2), 16)).join(', ')})`;
+}
 async function expectStateColor(
   page: Page,
   scheme: 'light' | 'dark',
   state: 'waiting' | 'blocked' | 'working',
 ) {
-  const color = await page.evaluate(() => ({
-    mark: getComputedStyle(document.querySelector('.state-mark')!).color,
-    shadow: /^rgb\([^)]*\)/.exec(
-      getComputedStyle(document.querySelector('.sheet')!).boxShadow,
-    )?.[0],
-  }));
-  expect(color).toEqual({ mark: STATE_COLORS[scheme][state], shadow: STATE_COLORS[scheme][state] });
+  expect(await page.locator('.state-mark').evaluate((mark) => getComputedStyle(mark).color)).toBe(
+    tokenRgb('color', state, scheme),
+  );
+  expect(
+    await page
+      .locator('.sheet')
+      .first()
+      .evaluate((sheet) => getComputedStyle(sheet).boxShadow),
+  ).toBe('none');
+}
+
+/** Capture the real served state; media and viewport changes never activate it. */
+async function captureState(page: Page, state: string, lookAt: string): Promise<void> {
+  const theme = await page.evaluate(() =>
+    matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light',
+  );
+  const controls = await page.locator('button.tmt-ui-action:disabled').evaluateAll((buttons) =>
+    buttons.map((button) => {
+      const style = getComputedStyle(button);
+      return {
+        color: style.color,
+        background: style.backgroundColor,
+        opacity: style.opacity,
+        shadow: style.boxShadow,
+      };
+    }),
+  );
+  for (const control of controls)
+    expect(control).toEqual({
+      color: tokenRgb('color', 'disabled-text', theme),
+      background: tokenRgb('surface', 'disabled', theme),
+      opacity: '1',
+      shadow: 'none',
+    });
+  const directory = process.env.TMT_REMOTE_CAPTURE_DIR;
+  if (!directory) return;
+  await mkdir(directory, { recursive: true });
+  const viewport = page.viewportSize();
+  const originalTheme = await page.evaluate(() =>
+    matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light',
+  );
+  try {
+    for (const theme of ['light', 'dark'] as const) {
+      await page.emulateMedia({ colorScheme: theme });
+      for (const width of [1440, 390, 320]) {
+        await page.setViewportSize({ width, height: 900 });
+        expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
+          true,
+        );
+        const path = join(directory, `${state}-${width}-${theme}.png`);
+        await page.screenshot({ path, fullPage: true });
+        await appendFile(
+          join(directory, 'index.jsonl'),
+          JSON.stringify({ state, viewport: `${width}x900`, theme, path, lookAt }) + '\n',
+        );
+      }
+    }
+  } finally {
+    await page.emulateMedia({ colorScheme: originalTheme });
+    if (viewport) await page.setViewportSize(viewport);
+  }
 }
 
 const BINARY =
@@ -240,11 +293,19 @@ for (const phase of ['SDK import', 'offer response']) {
       expect(page.url()).toBe(`${origin}/pair`);
       expect(observed.posts).toEqual([]);
       expect(await observed.violations()).toEqual([]);
+      await captureState(
+        page,
+        `pair-initializing-${phase === 'SDK import' ? 'sdk' : 'offer'}`,
+        'Disabled Pair, retained name, visible reason, shared header',
+      );
       gate.release();
       await expect(page.getByRole('button', { name: 'Pair', exact: true })).toBeEnabled();
+      await captureState(page, 'pair-ready', 'Ready label, field association, enabled action');
       await page.locator('#name').focus();
+      await captureState(page, 'pair-field-focus', 'Field keyboard focus, no clipping');
       await page.keyboard.press('Tab');
       await expect(page.getByRole('button', { name: 'Pair', exact: true })).toBeFocused();
+      await captureState(page, 'pair-action-focus', 'Pair keyboard focus, retained name');
       await page.keyboard.press('Enter');
       await firstPost.reached;
       expect(observed.posts).toHaveLength(1);
@@ -253,10 +314,19 @@ for (const phase of ['SDK import', 'offer response']) {
       const candidate = await events.next();
       expect(candidate.event).toBe('candidate');
       await expect(page.locator('#words')).toHaveText((candidate.words as string[]).join(' '));
+      await captureState(page, 'pair-waiting', 'Terminal words, explicit Waiting, retained header');
       pair.stdin.write('confirm\n');
       expect((await events.next()).reason).toBe('paired');
       await expect(page.locator('#status')).toHaveText(
         'This browser is paired. You can close this page.',
+      );
+      await captureState(page, 'pair-paired', 'Success word/mark and ordinary return link');
+      await page.keyboard.press('Tab');
+      await expect(page.getByRole('link', { name: 'Return to Remote and connect' })).toBeFocused();
+      await captureState(
+        page,
+        'pair-return-focus',
+        'Return link keyboard focus, native navigation ownership',
       );
       // Pending polls repeat this exact enrollment; there was only one initial submission.
       expect(new Set(observed.posts).size).toBe(1);
@@ -300,6 +370,11 @@ for (const failure of ['SDK abort', 'offer abort', 'offer refused', 'offer malfo
       } else {
         await earlyPairingAttempt(page);
       }
+      await captureState(
+        page,
+        `pair-${failure.replaceAll(' ', '-').toLowerCase()}`,
+        'Failed initialization remains unavailable; zero submissions',
+      );
       // Hidden controls still retain the disabled property.
       expect(
         await page
@@ -677,7 +752,7 @@ test('a browser pairs, gets a door session and certifies only its own extension'
 
 // Optional exported evidence uses the same real-door fixture as the pairing smoke.
 // No mocked HTML or network responses enter the captures.
-test('browser pages use local tokens in both schemes and fit desktop and mobile', async () => {
+test('browser pages consume shared presentation in both schemes and fit desktop and mobile', async () => {
   const captures = process.env.TMT_REMOTE_CAPTURE_DIR;
   if (captures) await mkdir(captures, { recursive: true });
   for (const colorScheme of ['light', 'dark'] as const) {
@@ -742,13 +817,15 @@ test('browser pages use local tokens in both schemes and fit desktop and mobile'
                 };
               })(),
               markAboveEyebrow:
-                document.querySelector('.state-mark')!.getBoundingClientRect().bottom <=
+                document.querySelector('.tmt-ui-notice-mark')!.getBoundingClientRect().bottom <=
                 document.querySelector('.eyebrow')!.getBoundingClientRect().top,
               paper: getComputedStyle(document.body).backgroundColor,
               sheet: style.backgroundColor,
               text: getComputedStyle(document.body).color,
               shadow: style.boxShadow,
               radius: style.borderRadius,
+              border: style.borderTopWidth,
+              opacity: style.opacity,
               overflow: document.documentElement.scrollWidth > innerWidth,
               // Playwright restores the input caret with an empty style attribute.
               inline: document.querySelectorAll('[style]:not([style=""]), style, script:not([src])')
@@ -756,15 +833,17 @@ test('browser pages use local tokens in both schemes and fit desktop and mobile'
             };
           });
           expect(look).toMatchObject({
-            paper: colorScheme === 'light' ? 'rgb(244, 246, 251)' : 'rgb(26, 27, 38)',
-            sheet: colorScheme === 'light' ? 'rgb(255, 255, 255)' : 'rgb(22, 22, 30)',
-            text: colorScheme === 'light' ? 'rgb(23, 23, 23)' : 'rgb(216, 216, 216)',
+            paper: tokenRgb('surface', 'paper', colorScheme),
+            sheet: tokenRgb('surface', 'sheet', colorScheme),
+            text: tokenRgb('color', 'text', colorScheme),
             markAboveEyebrow: true,
             radius: '0px',
+            border: '1px',
+            opacity: '1',
             overflow: false,
             inline: 0,
           });
-          expect(look.shadow).toContain('6px 6px 0px 0px');
+          expect(look.shadow).toBe('none');
           await expectStateColor(page, colorScheme, state === 'error' ? 'blocked' : 'waiting');
           // Colab's header, from the same tokens: mark, product, then the page title.
           const header = look.header;
@@ -774,7 +853,7 @@ test('browser pages use local tokens in both schemes and fit desktop and mobile'
             top: 0,
             position: 'fixed',
             rule: '1px',
-            background: look.paper,
+            background: tokenRgb('surface', 'sheet', colorScheme),
             markText: 'tmt',
             wordmarkText: 'Remote',
             headings: 1,
@@ -793,6 +872,11 @@ test('browser pages use local tokens in both schemes and fit desktop and mobile'
           });
           expect(header.mark.left).toBeLessThan(header.wordmark.left);
           expect(header.wordmark.left).toBeLessThan(header.title.left);
+          await captureState(
+            page,
+            state,
+            'Shared header/notice, current roles, one window scrollbar',
+          );
           if (captures) {
             await page.screenshot({
               path: join(captures, `${state}-${width}-${colorScheme}.png`),
@@ -813,7 +897,7 @@ test('browser pages use local tokens in both schemes and fit desktop and mobile'
         await expect(page.getByRole('button', { name: 'Pair', exact: true })).toBeEnabled();
         await inspect('pairing');
         expect(await page.locator('#mark').evaluate((mark) => getComputedStyle(mark).color)).toBe(
-          colorScheme === 'light' ? 'rgb(150, 80, 39)' : 'rgb(255, 158, 100)',
+          tokenRgb('color', 'waiting', colorScheme),
         );
         // Keyboard-only submission exercises the visible focus and form behavior.
         await page.locator('#name').focus();
@@ -838,9 +922,7 @@ test('browser pages use local tokens in both schemes and fit desktop and mobile'
             .contains(document.querySelector('.words-label')),
         }));
         expect(confirmation.instruction).toBe(confirmation.body);
-        expect(confirmation.mark).toBe(
-          colorScheme === 'light' ? 'rgb(150, 80, 39)' : 'rgb(255, 158, 100)',
-        );
+        expect(confirmation.mark).toBe(tokenRgb('color', 'waiting', colorScheme));
         expect(confirmation.wordsSize).toBeGreaterThanOrEqual(24);
         expect(confirmation.labelInside).toBe(false);
         await inspect('confirmation');
@@ -854,10 +936,12 @@ test('browser pages use local tokens in both schemes and fit desktop and mobile'
         );
         await expect(page.locator('#mark')).toHaveText('✗');
         await expectStateColor(page, colorScheme, 'blocked');
+        await captureState(page, 'pair-failed', 'Failure words, no retry action');
         expect((await page.goto(`${origin}/pair/abc`))?.status()).toBe(404);
         await page.goto(`${origin}/pair#BAD`);
         await expect(page.locator('#status')).toHaveAttribute('data-state', 'blocked');
         await expect(page.locator('#pair')).toBeHidden();
+        await captureState(page, 'pair-offer-unavailable', 'Unavailable offer, hidden form');
         expect(requests.every((url) => new URL(url).origin === origin)).toBe(true);
         expect(violations).toEqual([]);
       } finally {
@@ -881,6 +965,11 @@ test('the native entry separates saved pairing from explicit verified access and
   const context = await browser.newContext();
   const page = await context.newPage();
   const captureEntry = async (state: string): Promise<void> => {
+    await captureState(
+      page,
+      `entry-${state}`,
+      'Saved pairing vs verified access, reason and Connect',
+    );
     const captures = process.env.TMT_REMOTE_CAPTURE_DIR;
     for (const colorScheme of ['light', 'dark'] as const) {
       await page.emulateMedia({ colorScheme });
@@ -1002,7 +1091,41 @@ test('the native entry separates saved pairing from explicit verified access and
       fullPage: true,
     });
   }
-  await page.keyboard.press('Enter');
+  await captureState(
+    page,
+    'entry-connect-focus',
+    'Connect keyboard focus remains visible at all widths',
+  );
+  const connecting = routeBarrier();
+  const continued = routeBarrier();
+  let mountHeld = false;
+  const holdMount = async (route: import('@playwright/test').Route) => {
+    mountHeld = true;
+    connecting.arrive();
+    try {
+      await connecting.held;
+      await route.continue();
+    } finally {
+      continued.arrive();
+    }
+  };
+  await page.route('**/sdk/mount', holdMount);
+  try {
+    await page.keyboard.press('Enter');
+    await connecting.reached;
+    await expect(page.locator('#access-status')).toHaveText('Connecting…');
+    await expect(page.locator('#check')).toBeDisabled();
+    await captureState(
+      page,
+      'entry-connecting',
+      'Explicit Connect in flight; disabled action, no work sent',
+    );
+  } finally {
+    connecting.release();
+    // Removing a route resumes pending handlers; join ours before unregistering it.
+    if (mountHeld) await continued.reached;
+    await page.unroute('**/sdk/mount', holdMount);
+  }
   await expect(page.locator('#access-status')).toHaveText('Access confirmed');
   expect(readCounts()).toEqual({ mounts: 1, admissions: 1 });
   await expect(page.locator('#status')).toContainText('no work was sent');

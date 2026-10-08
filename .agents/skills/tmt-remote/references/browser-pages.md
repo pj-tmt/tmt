@@ -11,12 +11,21 @@ or candidate, then explicit ready-state activation retains the same ceremony. Th
 also check fragment stripping, secret-free request URLs, owner confirmation and
 retained device behavior.
 
-The embedded same-origin stylesheet projects the shared design tokens with system
-font fallbacks and light/dark scheme preference under the contract-defined CSP. Every
-page opens with Colab's header (mark, product, page title; the `header` token group), as
-static CSS: `tests/pages.rs` fails when its metrics drift from `design/tokens/tokens.json`,
-and `pairing.spec.ts` compares the rendered header with those tokens at 1440 and 390,
-in both schemes. The card heading is the page's `h2`; the header title is its only `h1`.
+`Pages` embeds checked `design/browser-ui/generated/static.css` followed by
+Remote's `assets/pages.css` with compile-time `concat!(include_str!(...))`.
+Cargo and installed serving never run Node or a generator. The shared package owns
+browser roles, fonts/header tokens and Header/Notice/Field/Action presentation;
+Remote defines host metrics, viewport layout, safe-area offsets and one window
+scrollbar. Regeneration and drift checks belong to the
+[shared package](../../../../design/browser-ui/README.md). Remote has no copied
+palette, header projection or shadow styling.
+
+Static markup uses shared class/slot and native accessibility contracts.
+`browser.ts` supplies explicit notice tones and visible state words; decorative marks
+never establish access. Socket tests verify exact shared-plus-host CSS bytes and
+unchanged CSP/types. Browser cases compare computed presentation with current browser
+tokens at 1440/390 light/dark and 320 fit, retaining keyboard focus and disabled/loading
+states. The card heading is the page's `h2`; the header title is its only `h1`.
 
 ## Browser entry
 

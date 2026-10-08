@@ -315,6 +315,14 @@ function showState(
   text: string,
 ): void {
   status.dataset.state = state;
+  element('notice').dataset.tone = { waiting: 'waiting', paired: 'working', blocked: 'blocked' }[
+    state
+  ];
+  element('state-label').textContent = {
+    waiting: 'Waiting',
+    paired: 'Paired',
+    blocked: 'Unavailable',
+  }[state];
   status.textContent = text;
   element('mark').textContent = { waiting: '◆', paired: '✓', blocked: '✗' }[state];
 }
@@ -353,6 +361,8 @@ export async function pairingPage(link: string): Promise<void> {
       );
     });
   });
+  element('state-label').textContent = 'Ready to pair';
+  status.textContent = 'Name this browser and choose Pair to request terminal confirmation.';
   button.disabled = false;
 }
 async function ceremony(

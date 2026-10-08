@@ -1,52 +1,31 @@
-/* Palette and font stacks from design/tokens/tokens.json; no font requests. */
+/* Remote-owned layout and explicit host metrics; shared presentation is embedded first. */
 :root {
   color-scheme: light dark;
-  --c-text: #171717;
-  --c-muted: #626262;
-  --c-accent: #1f5fbf;
-  --c-waiting: #965027;
-  --c-working: #4f6a33;
-  --c-blocked: #b62c3b;
-  --c-paper: #f4f6fb;
-  --c-sheet: #ffffff;
-  --c-rule: #dde2ee;
-  --f-display: 'Bricolage Grotesque', system-ui, sans-serif;
-  --f-body: 'Hanken Grotesk', system-ui, -apple-system, 'Segoe UI', sans-serif;
-  --f-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
-  /* The shared `header` tokens, the same metrics Colab's header uses. */
-  --header-height: 56px;
-  --header-compact-height: 48px;
-  --header-padding-inline: clamp(12px, 1.4vw, 20px);
-  --header-gap: 12px;
-  --header-mark-size: 12px;
-  --header-mark-line-height: 1;
-  --header-mark-weight: 600;
-  --header-wordmark-size: 14px;
-  --header-wordmark-line-height: 1.2;
-  --header-wordmark-weight: 600;
-  --header-title-size: 16px;
-  --header-title-line-height: 1.2;
-  --header-title-weight: 600;
+  --tmt-ui-host-focus-offset: 4px;
+  --tmt-ui-host-notice-mark-size: 30px;
+  --tmt-ui-host-eyebrow-line-height: 1.6;
+  --tmt-ui-host-notice-heading-size: clamp(28px, 4vw, 36px);
+  --tmt-ui-host-notice-heading-weight: 650;
+  --tmt-ui-host-notice-heading-tracking: -0.025em;
+  --tmt-ui-host-notice-body-size: 17px;
+  --tmt-ui-host-notice-body-line-height: 1.6;
+  --tmt-ui-host-notice-action-gap: 12px;
+  --tmt-ui-host-notice-action-margin: 24px;
+  --tmt-ui-host-action-padding: 10px 22px;
+  --tmt-ui-host-action-min-height: 44px;
+  --tmt-ui-host-action-size: 13px;
+  --tmt-ui-host-action-weight: 600;
+  --tmt-ui-host-action-line-height: 1.6;
+  --tmt-ui-host-action-font: var(--tmt-ui-font-mono);
+  --tmt-ui-host-action-gap: 12px;
+  --tmt-ui-host-field-padding: 12px 14px;
+  --tmt-ui-host-field-size: 17px;
+  --tmt-ui-host-field-line-height: 1.6;
+  --tmt-ui-host-field-label-size: 12px;
+  --tmt-ui-host-field-label-weight: 600;
+  --tmt-ui-host-field-label-line-height: 1.6;
+  --tmt-ui-host-field-label-font: var(--tmt-ui-font-mono);
 }
-@media (max-width: 479px) {
-  :root {
-    --header-height: var(--header-compact-height);
-  }
-}
-@media (prefers-color-scheme: dark) {
-  :root {
-    --c-text: #d8d8d8;
-    --c-muted: #b0b0b0;
-    --c-accent: #7aa2f7;
-    --c-waiting: #ff9e64;
-    --c-working: #9ece6a;
-    --c-blocked: #f7768e;
-    --c-paper: #1a1b26;
-    --c-sheet: #16161e;
-    --c-rule: #292e42;
-  }
-}
-
 * {
   box-sizing: border-box;
 }
@@ -57,24 +36,11 @@ body {
   display: flow-root;
   margin: 0;
   min-height: 100svh;
-  background: var(--c-paper);
-  color: var(--c-text);
-  padding-top: calc(var(--header-height) + env(safe-area-inset-top, 0px));
-  font: 400 17px/1.6 var(--f-body);
+  background: var(--tmt-ui-surface-paper);
+  color: var(--tmt-ui-color-text);
+  padding-top: calc(var(--tmt-ui-header-height) + env(safe-area-inset-top, 0px));
+  font: 400 17px/1.6 var(--tmt-ui-font-body);
   -webkit-text-size-adjust: 100%;
-}
-.page {
-  /* The state color of the mark and the sheet's hard shadow, as in Colab's notice card. */
-  --state: var(--c-waiting);
-  width: min(100% - 48px, 680px);
-  margin: clamp(44px, 11vh, 104px) auto 64px;
-}
-label,
-button,
-code,
-.eyebrow,
-.words-label {
-  font-family: var(--f-mono);
 }
 .header {
   position: fixed;
@@ -82,78 +48,20 @@ code,
   left: 0;
   right: 0;
   z-index: 30;
-  display: flex;
-  flex-wrap: nowrap;
-  align-items: center;
-  height: var(--header-height);
-  gap: var(--header-gap);
-  padding: 0 var(--header-padding-inline);
-  border-bottom: 1px solid var(--c-rule);
-  background: var(--c-paper);
-  color: var(--c-text);
 }
-.header-brand {
-  display: inline-flex;
-  flex: none;
-  align-items: center;
-  gap: var(--header-gap);
-  color: var(--c-muted);
+.page {
+  width: min(100% - 48px, 680px);
+  margin: clamp(44px, 11vh, 104px) auto 64px;
 }
-.header-mark {
-  font: var(--header-mark-weight) var(--header-mark-size) / var(--header-mark-line-height)
-    var(--f-mono);
-}
-.header-wordmark {
-  font: var(--header-wordmark-weight) var(--header-wordmark-size) /
-    var(--header-wordmark-line-height) var(--f-display);
-}
-.header-title {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  margin: 0;
-  padding-left: var(--header-gap);
-  border-left: 1px solid var(--c-rule);
-  color: var(--c-text);
-  font: var(--header-title-weight) var(--header-title-size) / var(--header-title-line-height)
-    var(--f-display);
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.tmt-ui-notice-mark {
+  margin-bottom: 12px;
 }
 .state-mark {
-  display: block;
-  margin-bottom: 12px;
-  color: var(--state);
-  font: 700 30px/1 var(--f-mono);
-}
-.page.error,
-.page:has(#status[data-state='blocked']) {
-  --state: var(--c-blocked);
-}
-.page:has(#status[data-state='paired']) {
-  --state: var(--c-working);
-}
-.sheet {
-  border: 2px solid var(--c-text);
-  background: var(--c-sheet);
-  box-shadow: 6px 6px 0 var(--state);
+  font: 700 30px/1 var(--tmt-ui-font-mono);
 }
 .eyebrow {
-  margin: 0 0 8px;
-  color: var(--c-muted);
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.09em;
+  margin-top: 0;
   text-transform: uppercase;
-}
-.sheet-body {
-  padding: clamp(24px, 5vw, 44px);
-}
-h2 {
-  margin: 0 0 16px;
-  font: 650 clamp(28px, 4vw, 36px)/1.15 var(--f-display);
-  letter-spacing: -0.025em;
-  text-wrap: balance;
 }
 p {
   margin: 0 0 24px;
@@ -161,96 +69,68 @@ p {
 p:last-child {
   margin-bottom: 0;
 }
+a {
+  color: var(--tmt-ui-color-link);
+}
+a:focus-visible {
+  outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
+  outline-offset: var(--tmt-ui-host-focus-offset);
+}
 code {
+  font-family: var(--tmt-ui-font-mono);
   font-size: 0.9em;
-  white-space: nowrap;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 form {
   margin-top: 28px;
-}
-label {
-  display: block;
-  color: var(--c-muted);
-  font-size: 12px;
-  font-weight: 600;
 }
 input {
   display: block;
   width: 100%;
   margin: 8px 0 20px;
-  padding: 12px 14px;
-  border: 1px solid var(--c-muted);
-  border-radius: 0;
-  background: var(--c-paper);
-  color: var(--c-text);
-  font: inherit;
-  font-family: var(--f-body);
-  font-size: 17px;
-}
-button {
-  min-height: 44px;
-  padding: 10px 22px;
-  border: 2px solid var(--c-accent);
-  border-radius: 0;
-  background: var(--c-accent);
-  color: var(--c-sheet);
-  box-shadow: 3px 3px 0 var(--c-text);
-  font-size: 13px;
-  font-weight: 600;
-  cursor: pointer;
-}
-button:hover {
-  box-shadow: 2px 2px 0 var(--c-text);
-}
-:focus-visible {
-  outline: 2px solid var(--c-accent);
-  outline-offset: 4px;
 }
 #comparison {
   margin-top: 28px;
 }
 .words-label {
   margin-bottom: 8px;
-  color: var(--c-muted);
-  font-size: 12px;
-  font-weight: 600;
+  color: var(--tmt-ui-color-secondary);
+  font: 600 12px/1.6 var(--tmt-ui-font-mono);
 }
 #words {
   padding: 20px;
-  border: 1px solid var(--c-rule);
-  background: var(--c-paper);
-  color: var(--c-text);
-  font: 600 clamp(24px, 3vw, 30px)/1.65 var(--f-mono);
+  border: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
+  background: var(--tmt-ui-surface-paper);
+  color: var(--tmt-ui-color-text);
+  font: 600 clamp(24px, 3vw, 30px)/1.65 var(--tmt-ui-font-mono);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
 #status:not(:empty) {
   margin-top: 24px;
   padding-top: 20px;
-  border-top: 1px solid var(--c-rule);
+  border-top: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
 }
 @media (max-width: 480px) {
   button {
     width: 100%;
   }
 }
-
-/* Browser entry keeps local pairing evidence separate from live access. */
+/* Local pairing evidence remains separate from live access. */
 .entry-status {
   margin: 0 0 24px;
 }
 .entry-status dt {
-  color: var(--c-muted);
-  font: 600 12px/1.6 var(--f-mono);
+  color: var(--tmt-ui-color-secondary);
+  font: 600 12px/1.6 var(--tmt-ui-font-mono);
 }
 .entry-status dd {
   margin: 0 0 12px;
 }
 .entry-help {
   margin-top: 28px;
-}
-.entry-help h2 {
-  font-size: clamp(24px, 3vw, 28px);
+  --tmt-ui-host-notice-heading-size: clamp(24px, 3vw, 28px);
 }
 .entry-help ol {
   margin: 0 0 24px;
@@ -261,15 +141,6 @@ button:hover {
 }
 .entry-note {
   margin-top: 24px;
-  color: var(--c-muted);
+  color: var(--tmt-ui-color-secondary);
   font-size: 14px;
-}
-button:disabled {
-  cursor: default;
-  opacity: 0.6;
-  box-shadow: none;
-}
-.entry-help code {
-  white-space: normal;
-  overflow-wrap: anywhere;
 }

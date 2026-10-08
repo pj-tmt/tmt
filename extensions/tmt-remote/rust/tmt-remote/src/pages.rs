@@ -17,7 +17,12 @@ const PAGE: &str = include_str!("../assets/pair.html");
 const ENTRY: &str = include_str!("../assets/landing.js");
 const LANDING: &str = include_str!("../assets/landing.html");
 const ERROR: &str = include_str!("../assets/error.html");
-const STYLE: &str = include_str!("../assets/pages.css");
+// Checked shared presentation plus Remote-owned layout; no Cargo-time generator.
+const STYLE: &str = concat!(
+    include_str!("../../../../../design/browser-ui/generated/static.css"),
+    "\n",
+    include_str!("../assets/pages.css"),
+);
 /// The page runs only the same-origin SDK module and talks only to this door.
 const PAGE_POLICY: &str = "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; \
     base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
