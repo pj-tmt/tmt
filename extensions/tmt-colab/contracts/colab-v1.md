@@ -54,6 +54,12 @@ unavailable response and never a retry. Missing channels do not activate storage
 An immutable absolute deadline includes queueing, callbacks, I/O and final delivery.
 No late data is disclosed; a possibly effected mutation answers unknown. A sent
 callback timeout ends its generation rather than leaving outstanding authority.
+A request timeout or unexpected frame also ends that shared generation for every
+peer: correlations are never abandoned. Pending browser calls settle as storage
+unavailable; recovery is the next validated page upgrade after Remote's cool-down,
+not replay or polling. A request send serializes peers while the bounded frame is
+written (at most 32,768 raw chunk bytes, a 65,536-byte frame and the contract's 1 s
+write bound clipped to the original deadline); lock scheduling is not preempted.
 
 Colab derives namespace, opaque key and minimal policy from the exact authenticated
 target/reference; browser metadata cannot select Remote authority. Begin/status

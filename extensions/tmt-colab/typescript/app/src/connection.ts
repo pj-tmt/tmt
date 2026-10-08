@@ -227,7 +227,7 @@ export class Connection {
     const requestId = crypto.randomUUID();
     return new Promise((resolve, reject) => {
       const timer = setTimeout(
-        () => this.close(new Error('Object reply timed out')),
+        () => this.close(new Error('Storage unavailable')),
         Math.min(15_000, deadline - performance.now()),
       );
       this.#objectReplies.set(requestId, { method: request.method, resolve, reject, timer });

@@ -254,6 +254,11 @@ impl Client {
             reply: sender,
         });
         {
+            // Keep correlation order identical to wire order. The largest part
+            // is 32,768 raw bytes inside the leaf's 65,536-byte frame ceiling.
+            // send_until clips the socket write to the 1 s contract write bound
+            // and this original deadline; it checks expiry after writer-lock
+            // contention too. Mutex scheduling itself is not deadline-preempted.
             let mut next = locked(&self.0.next);
             let request_id = Counter::new(*next).map_err(|_| Error::Unavailable)?;
             *next = next.checked_add(1).ok_or(Error::Unavailable)?;

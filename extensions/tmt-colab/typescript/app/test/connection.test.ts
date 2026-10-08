@@ -412,3 +412,16 @@ it('object method confusion ends the peer and outstanding requests cannot move t
   expect(next.connection.active).toBe(false);
   next.connection.close();
 });
+
+it('an unanswered object request settles as storage unavailable within its original budget', async () => {
+  vi.useFakeTimers();
+  const { connection, socket, failed } = await open();
+  const waiting = connection.attachmentObjects.config(performance.now() + 15_000);
+  const refused = expect(waiting).rejects.toThrow('Storage unavailable');
+  await awaitSent(socket, 1);
+  await vi.advanceTimersByTimeAsync(15_000);
+  await refused;
+  expect(failed).toHaveBeenCalledOnce();
+  expect(connection.active).toBe(false);
+  expect(sent(socket).filter((frame) => frame.type === 'object')).toHaveLength(1);
+});
