@@ -101,6 +101,7 @@ export function releaseCommit(input: {
 export function ghAssetDownloader(input: {
   repository: string;
   env?: NodeJS.ProcessEnv;
+  sleep?: (milliseconds: number) => void;
   spawn?: (
     command: string,
     args: string[],

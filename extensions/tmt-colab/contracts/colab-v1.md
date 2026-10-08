@@ -1616,8 +1616,10 @@ small anchored window at that span. On the first committed turn, the same input
 continues below the thread's user turns, agent state and admitted replies; Comments
 and Chat do not open automatically. The header and composer stay stationary, only
 messages scroll, and new turns/replies scroll that area to the new content. The
-window grows toward the viewport bottom before scrolling, with about 240 px for
-messages when space permits, independently of document bounds. First open, new
+window fits its header, quote, turns and composer without reserved history height,
+growing away from its selection edge up to the available viewport height. Only
+history scrolls beyond that cap; the field and Send stay visible independently of
+document bounds. First open, new
 comment IDs and changed associated replies scroll into view; unrelated live
 publications preserve a reader's position in history.
 Its placement is cosmetic; the captured quote
@@ -1625,7 +1627,7 @@ selector owns the thread anchor. Enter sends, Shift+Enter inserts a newline, and
 is no confirmation screen or automatic send. The popover closes with its ×, with Escape from anywhere
 inside it, with a press outside it, and with a selection cleared by a page click while
 no nonblank message is typed; none of these interrupts a send in flight. Typed text is kept in memory
-for the page together with the selected recipient and restored, with a "Draft kept"
+for the page together with bound mention UUIDs and restored, with a "Draft kept"
 note, when the same selection is annotated again or its known thread is reopened.
 After a thread exists, an outside page press collapses it even with a typed draft;
 Close never resolves or sends. Existing writer-owned Resolve collapses only after
@@ -1639,20 +1641,37 @@ sending uses the frozen quote and remains subject to current connection admissio
 Open threads, Comments/Chat panels and their drafts also survive source
 revisions. The window scroll offset is retained on a best-effort basis within the
 new document's bounds; no exact re-anchoring is required. A different page ID resets
-this page-local state. Optional `@` completion opens the shared styled keyboard
-listbox. A first agent turn requires an explicit admitted recipient selection;
-publishing/display names do not select a destination.
-The current verified Remote grant and agent/machine UUIDs own routing and admission.
-Recipient state is independent of message bytes; a mention prefix is never mandatory.
-Replies continue a uniquely bound prior UUID/machine under current admission; ambiguity
-requires explicit selection. Choosing a recipient never prepares or dispatches. Plain
-annotation/comments can record under current content-write admission without Ask or
-agent discovery; notification is an explicit bounded action, never fan-out.
+this page-local state. Chat, thread replies and new annotations share one Message
+field (accessible name only), one status row and one Send. With no bound or exact
+mention, Send records a plain comment and prepares no Ask, including in Chat.
+Exact typed `@name` binds on whitespace, punctuation or Enter only when one current
+directory entry matches; picked listbox options bind the same machine/agent UUID
+pair. Unknown names remain plaintext with "No agent named @name. This posts as a
+comment." Ambiguous names open the list and block Send until explicitly chosen or
+removed. Fuzzy matches never select a destination. Removing/editing a token removes
+its binding; repeated mentions of the same pair count once. A fresh untouched
+composer seeds the admitted `creationRecipient` only on a unique current UUID match.
+Unknown provenance leaves it blank; publisher names and prior repliers never select
+recipients. A removed default is never reinserted during directory replacement.
 
-Ask captures the composed text, selected destination and existing conversation
-references, publishes the current comment through the existing own stream, then
-freezes and signs the exact Ask with its real thread and message IDs. Prior user
-comments and verified agent replies are included as quoted data, in the existing
+One Send freezes exact text and context, records one comment through the existing
+own stream, then prepares and sends one independent Ask per distinct mentioned UUID
+pair, at most eight. A ninth distinct recipient blocks before the comment or any Ask.
+Each Ask has a new operation ID and its own signed record, outcome and reply; a
+recipient's failure neither retries nor suppresses its siblings. The verified Remote
+grant and current machine/agent UUIDs retain routing admission. An offline saved
+agent on an online machine may receive through the core inbox; a disconnected
+session or unavailable/replaced directory fences mention Sends while keeping the
+same editor, draft and caret. Directory recovery uses only explicit Reconnect or
+Try again. A plain comment remains available under content-write admission while
+directory discovery loads or fails.
+
+Each Ask freezes and signs the exact composed text with the real thread and message
+IDs. Local preparation failure or a typed pre-effect refusal shows "Not delivered"
+under that recipient and "Mention @name in a new message to ask again." No recipient
+retry is offered. An adopted operation keeps its ledger and existing Re-check/Abandon
+rules; uncertainty never authorizes a new attempt on the recorded comment.
+Prior user comments and verified agent replies are included as quoted data, in the existing
 projection order, with their captured references/revisions rechecked before signing.
 Display timestamps never determine record ordering or authority. Deleted/stale
 context and byte overflow refuse; no context is silently truncated. A failure after
@@ -2023,6 +2042,11 @@ Read checks do not redo signatures or reserve the SQLite writer. Catchup takes i
 head from `Store::owner_head` and the exact persisted reset descriptor through
 `Store::baseline` when one exists. Workers preserve upgrade read-ahead, drive silent transfer/write deadlines,
 apply the tunnel cap/idle bound, and close retained sockets before shutdown joins.
+An established connection sends a WebSocket Ping every 30 s (`limits::KEEPALIVE`) and the
+browser answers with a Pong, so a quiet tab keeps bytes moving both ways inside the 120 s
+tunnel idle bound of both this server and the remote door; a browser cannot send pings itself.
+Without it every idle tab reconnected every two minutes, and each reconnect costs one journaled
+Remote read (1000 per device per day, after which the agent directory is refused, #2170).
 
 The #830 fixture used 64 KiB frames/messages, queue 8, receipt/tail capacity 64,
 16 sockets, ten-second connection lifetime, two-second handshake reads and

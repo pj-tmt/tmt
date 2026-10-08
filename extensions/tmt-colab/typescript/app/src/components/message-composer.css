@@ -15,7 +15,11 @@
 .message-composer-field p {
   margin: 0;
 }
-.tmt-listbox-input:has(.message-composer-field) + .tmt-ui-action[data-variant='text'] {
-  /* Extend the padded hit area while aligning its label with the field edge. */
-  margin-inline-start: -12px;
+.tmt-listbox-input:has(.message-composer-field) .tmt-ui-field-label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }

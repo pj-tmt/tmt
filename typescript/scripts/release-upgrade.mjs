@@ -701,24 +701,44 @@ export function releaseCommit({ release, commitOfTag }) {
   return commit;
 }
 
-/** Downloads one release asset by id, which also works for the assets of a draft. */
-export function ghAssetDownloader({ repository, env = process.env, spawn = spawnSync }) {
+/** Downloads one immutable release asset by id; only acquisition failures get bounded retries. */
+export function ghAssetDownloader({
+  repository,
+  env = process.env,
+  spawn = spawnSync,
+  sleep = (milliseconds) =>
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, milliseconds),
+}) {
   return (asset, file) => {
-    const result = spawn(
-      'gh',
-      [
-        'api',
-        '-H',
-        'Accept: application/octet-stream',
-        `repos/${repository}/releases/assets/${asset.id}`,
-      ],
-      { env, encoding: 'buffer', timeout: 300_000, maxBuffer: ASSET_LIMIT }
-    );
-    if (result.error) throw result.error;
-    if (result.status !== 0) {
-      throw new Error(`gh could not download ${asset.name} (${result.status}): ${result.stderr}`);
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      const result = spawn(
+        'gh',
+        [
+          'api',
+          '-H',
+          'Accept: application/octet-stream',
+          `repos/${repository}/releases/assets/${asset.id}`,
+        ],
+        { env, encoding: 'buffer', timeout: 300_000, maxBuffer: ASSET_LIMIT }
+      );
+      const failure =
+        result.error ??
+        (result.status !== 0
+          ? new Error(`gh could not download ${asset.name} (${result.status}): ${result.stderr}`)
+          : null);
+      if (failure) {
+        if (attempt === 3) throw failure;
+        const delay = 1000 * 2 ** (attempt - 1);
+        process.stderr.write(
+          `Asset download attempt ${attempt}/3 failed: ${failure.message}\nRetrying in ${delay} ms.\n`
+        );
+        sleep(delay);
+        continue;
+      }
+      // File writes and the caller's byte verification are never retried.
+      writeFileSync(file, result.stdout);
+      return;
     }
-    writeFileSync(file, result.stdout);
   };
 }
 

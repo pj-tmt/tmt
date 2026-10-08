@@ -42,6 +42,7 @@ import { mountRenderer, MAX_RENDER_SOURCE_BYTES } from './renderer.js';
 import type { RenderState, SelectionRect } from './renderer.js';
 import { text } from './strings.js';
 import { terminalFailure } from './terminal-failure.js';
+import { buildWatch } from './app-build.js';
 import { SessionEvictedError } from './ask-remote.js';
 import { RecoveryRequiredError } from './session-recovery.js';
 import { ExportPanel } from './export-panel.js';
@@ -69,9 +70,12 @@ function SelectionAnnotation({
 }) {
   const expanded = children !== undefined;
   const element = useRef<HTMLDivElement>(null);
-  const [position, setPosition] = useState<{ left: number; top: number; height?: number } | null>(
-    null,
-  );
+  const [position, setPosition] = useState<{
+    left: number;
+    top?: number;
+    bottom?: number;
+    maxHeight: number;
+  } | null>(null);
   useEffect(() => {
     const notice = noticeVisible
       ? host?.parentElement?.querySelector<HTMLElement>('.tmt-ui-notice')
@@ -79,17 +83,7 @@ function SelectionAnnotation({
     const place = () => {
       const frame = host?.querySelector('iframe')?.getBoundingClientRect();
       const width = expanded ? Math.min(380, innerWidth - 24) : 100;
-      const height = expanded ? Math.min(480, innerHeight - inset - 16) : 38;
-      const grow = (top: number) => {
-        if (!expanded) return undefined;
-        const messages = element.current?.querySelector<HTMLElement>('.thread-messages');
-        const wanted = messages
-          ? element.current!.offsetHeight -
-            messages.clientHeight +
-            Math.max(240, messages.scrollHeight)
-          : 480;
-        return Math.max(0, Math.min(innerHeight - top - 8, Math.max(480, wanted)));
-      };
+      const placementHeight = expanded ? Math.min(480, innerHeight - inset - 16) : 38;
       if (!frame || !rectangle) {
         // Keep the failure notice readable while retaining the mounted draft.
         const belowNotice = notice?.getBoundingClientRect().bottom;
@@ -98,11 +92,17 @@ function SelectionAnnotation({
           const top =
             belowNotice !== undefined
               ? Math.max(inset + 4, belowNotice + 8)
-              : Math.max(inset + 4, Math.min(innerHeight - height - 8, previous.top));
+              : Math.max(
+                  inset + 4,
+                  Math.min(
+                    innerHeight - placementHeight - 8,
+                    element.current!.getBoundingClientRect().top,
+                  ),
+                );
           return {
             left: Math.max(8, Math.min(innerWidth - width - 8, previous.left)),
             top,
-            height: grow(top),
+            maxHeight: Math.max(0, innerHeight - top - 8),
           };
         });
         return;
@@ -116,26 +116,30 @@ function SelectionAnnotation({
         return;
       }
       const beside = !expanded && right + width + 8 <= Math.min(frame.right, innerWidth - 8);
-      const below = bottom + height + 8 <= innerHeight - 8;
+      const below = bottom + placementHeight + 8 <= innerHeight - 8;
+      // Choose the edge using stable placement clearance, not the changing content
+      // height. CSS fits the shell; first Send grows away from the same anchor edge.
+      const above = expanded && !below && top - placementHeight - 6 >= inset + 4;
       const windowTop = Math.max(
         inset + 4,
-        Math.min(innerHeight - height - 8, beside ? top : below ? bottom + 6 : top - height - 6),
+        Math.min(
+          innerHeight - placementHeight - 8,
+          beside ? top : below ? bottom + 6 : top - placementHeight - 6,
+        ),
       );
       setPosition({
         left: Math.max(
           8,
           Math.min(innerWidth - width - 8, frame.right - width - 8, beside ? right + 8 : left),
         ),
-        top: windowTop,
-        height: grow(windowTop),
+        ...(above
+          ? { bottom: innerHeight - top + 6, maxHeight: top - 6 - inset - 4 }
+          : { top: windowTop, maxHeight: Math.max(0, innerHeight - windowTop - 8) }),
       });
     };
     place();
     const observer = new ResizeObserver(place);
     if (element.current) observer.observe(element.current);
-    element.current
-      ?.querySelectorAll('.thread-messages, .annotation-compose, .thread-bar')
-      .forEach((node) => observer.observe(node));
     if (notice) observer.observe(notice);
     window.addEventListener('scroll', place, { passive: true });
     window.addEventListener('resize', place);
@@ -151,7 +155,6 @@ function SelectionAnnotation({
       className={children ? 'annotation-popover' : 'selection-control'}
       style={{
         ...position,
-        maxHeight: position ? `calc(100dvh - ${position.top + 8}px)` : undefined,
         visibility: position ? 'visible' : 'hidden',
       }}
     >
@@ -620,6 +623,7 @@ function Page() {
         }
       },
       (error) => {
+        void buildWatch.check();
         setLiveError(error);
         setEviction(error instanceof SessionEvictedError ? error : null);
       },
@@ -739,14 +743,14 @@ function Page() {
   const annotationKey = (value: NonNullable<typeof annotation>) =>
     value.thread ? `${value.thread.writer}:${value.thread.id}` : JSON.stringify(value.selector);
   /** Every nonblank message is a draft; recipient selection never replaces its bytes. */
-  const typed = () => annotationDraft.current.value.trim() !== '';
+  const typed = () =>
+    annotationDraft.current.edited !== false && annotationDraft.current.value.trim() !== '';
   /** Closes without losing typed text: it comes back when the same selection is annotated again. */
   function closeAnnotation(focusPage: boolean) {
     // A send in flight is not interrupted by the ×, Escape, an outside press or a cleared selection.
     if (!annotation || annotationBusy.current || statusBusy.current) return;
     const key = annotationKey(annotation);
-    if (typed() || annotationDraft.current.recipient)
-      drafts.current.set(key, annotationDraft.current);
+    if (typed() || annotationDraft.current.edited) drafts.current.set(key, annotationDraft.current);
     else drafts.current.delete(key);
     annotationDraft.current = { value: '' };
     setAnnotation(undefined);
@@ -1232,6 +1236,7 @@ function Page() {
                       )}
                       {annotationThread && <p className="annotation-reply-label">Reply</p>}
                       <AnnotationInput
+                        creationRecipient={view.creationRecipient}
                         binding={snapshot.binding.ask}
                         discussion={snapshot.binding.discussion}
                         anchor={annotationThread ? annotationThread.anchor : annotation.selector}
@@ -1303,6 +1308,7 @@ function Page() {
         close={() => setPanel(null)}
       >
         <ThreadPanel
+          creationRecipient={view.creationRecipient}
           hideHeader
           key={`discussion:${snapshot.id}`}
           threads={(view.threads ?? []).filter((thread) => !isChatThread(thread))}
@@ -1347,11 +1353,18 @@ function Page() {
           admitted={!!snapshot.binding && !liveError}
         />
       </PageDrawer>
-      <PageDrawer open={panel === 'chat'} title="Chat" kind="chat" close={() => setPanel(null)}>
-        {view.askUnavailable && <p role="status">{text.askObservationUnavailable}</p>}
+      <PageDrawer
+        open={panel === 'chat'}
+        title="Chat"
+        kind="chat"
+        hideHeader
+        close={() => setPanel(null)}
+      >
         {chatOpened && (
           <ChatPanel
+            creationRecipient={view.creationRecipient}
             key={`chat:${snapshot.id}`}
+            observationUnavailable={view.askUnavailable}
             threads={view.threads ?? []}
             asks={view.asks ?? []}
             binding={liveError?.message === managementChanged ? undefined : snapshot.binding?.ask}
@@ -1387,11 +1400,13 @@ export function createAppRouter(transport: PageTransport, space?: string) {
           `${location.pathname}#space=${space}${path === '/' ? '' : `&path=${encodeURIComponent(path)}`}`,
       })
     : createHashHistory();
-  return createRouter({
+  const router = createRouter({
     routeTree: root.addChildren([home, page, shortPage, blocked]),
     history,
     context: { transport },
   });
+  router.subscribe('onResolved', () => void buildWatch.check());
+  return router;
 }
 declare module '@tanstack/react-router' {
   interface Register {

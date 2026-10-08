@@ -1,6 +1,11 @@
 import type { CommentContext, commentForAsk } from './thread-store.js';
 import { requireValue } from '@tmt/colab-client';
-import { AskController, type AskDestinations, type DirectoryReadFailure } from './ask-attempt.js';
+import {
+  AskController,
+  UnadoptedAskError,
+  type AskDestinations,
+  type DirectoryReadFailure,
+} from './ask-attempt.js';
 import type { AskDestination, AdmittedSelection } from './ask-intent.js';
 import { AskRecordStore } from './ask-record-store.js';
 import { readAskViews, type AskRoot } from './ask-records.js';
@@ -175,7 +180,7 @@ export class LiveAsk implements AskBinding {
         notificationOrigin ? { operationId: notificationOrigin.operationId } : {},
       );
     });
-    let state: PreviewAttempt['state'] = { state: 'preview' };
+    let state: Awaited<ReturnType<PreviewAttempt['send']>> = { state: 'preview' };
     let pending: ReturnType<PreviewAttempt['send']> | undefined;
     return {
       preview,
@@ -188,16 +193,23 @@ export class LiveAsk implements AskBinding {
         state = { state: 'preparing' };
         pending = (async () => {
           try {
-            await this.#admit();
-            state = { state: (await controller.send(preview)).state };
+            try {
+              await this.#admit();
+            } catch (error) {
+              throw new UnadoptedAskError(error);
+            }
+            state = { state: (await controller.send(preview)).state, adopted: true };
             this.options.observe?.();
-          } catch {
-            const view = (await this.#store.views()).find(
-              (value) => value.intent.operationId === preview.view.operationId,
-            );
-            state = {
-              state: view?.state === 'dispatching' ? 'uncertain' : (view?.state ?? 'failed'),
-            };
+          } catch (error) {
+            if (error instanceof UnadoptedAskError) state = { state: 'failed', adopted: false };
+            else {
+              const view = (await this.#store.views()).find(
+                (value) => value.intent.operationId === preview.view.operationId,
+              );
+              state = view
+                ? { state: view.state === 'dispatching' ? 'uncertain' : view.state, adopted: true }
+                : { state: 'uncertain' };
+            }
           }
           return { ...state };
         })();

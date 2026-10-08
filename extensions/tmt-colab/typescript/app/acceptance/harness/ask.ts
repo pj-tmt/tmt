@@ -53,6 +53,8 @@ export function createPage(
   html: string,
   callerPane?: string,
 ): CreatedPage {
+  // Creation captures optional provenance through the real public Remote status command.
+  world.linkExtensions();
   const created = JSON.parse(
     run(
       world,
@@ -93,19 +95,12 @@ export async function selectInRenderer(page: Page, selector: string): Promise<vo
   await expect(page.getByTestId('selection-ask')).toBeVisible();
 }
 
-/** Select an admitted recipient without inserting a mention or changing the draft. */
-export async function annotationInput(container: Locator, agent: string) {
+/** Find the shared field; the caller supplies the visible recipient mention in its draft. */
+export async function annotationInput(container: Locator, _agent: string) {
   const input = container.getByRole('combobox', { name: 'Message', exact: true });
-  const draft = await input.innerText();
-  await container.getByRole('button', { name: /^(Choose|Change) recipient$/, exact: true }).click();
-  const candidate = container
-    .page()
-    .getByRole('option')
-    .filter({ hasText: `@${agent} ·` });
-  // The harness creates unique agent names. Ambiguous display labels fail, never choose first.
-  await expect(candidate).toHaveCount(1);
-  await candidate.click();
-  await expect.poll(() => input.innerText()).toBe(draft);
+  await expect(input).toBeVisible();
+  // Directory readiness is status-only. No hidden recipient selection is made here.
+  await expect(container.locator('.annotation-status-row')).not.toContainText('Checking');
   return input;
 }
 
@@ -122,7 +117,7 @@ export async function openChat(page: Page) {
   await toggle.click();
   await expect(page.getByTestId('chat-panel')).toBeVisible();
 }
-/** Compose one plain input, with no effect before Enter. */
+/** Compose the visible mention and question, with no effect before Enter. */
 export async function composeChat(
   page: Page,
   agent: Agent,
@@ -131,8 +126,9 @@ export async function composeChat(
   await openChat(page);
   const panel = page.getByTestId('chat-panel');
   const input = panel.getByRole('combobox', { name: 'Message', exact: true });
-  await input.fill(question);
-  await expect.poll(() => input.innerText()).toBe(question);
+  const draft = `@${agent.name} ${question}`;
+  await input.fill(draft);
+  await expect.poll(() => input.innerText()).toBe(draft);
   await annotationInput(panel, agent.name);
   const turn = agent.received().length;
   return {

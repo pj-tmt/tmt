@@ -47,16 +47,21 @@ owns record fields, limits, revision semantics and trust boundaries.
   the root-local `page-publish` route, with the certificate, sequence, ciphertext commit
   and unknown-outcome rules of source writes. `cli_threads.rs` adapts these operations to `threads`, `resolve` and `reopen`.
   Actor labels and clocks remain display assertions.
-- `components/conversation-turn.tsx` owns the shared turn markup, attribution and
-  square styling. Its `thread` layout uses User/Bot avatars and an ink agent-body
-  rail; its `chat` layout uses sided tinted turns and a bot mark in the agent meta
-  line. `conversationAsks` owns admitted comment/Ask association for display, reply
-  defaults and captured context; `CommentExchange` presents it on both surfaces. Replies have one agent/name/time byline; pending states
-  and trusted delivery actions stay in the requester turn until a reply exists
-  (including an empty reply), then the status disappears.
+- `components/conversation-window.tsx` owns one header, full-width history and bottom
+  composer placement for Chat, anchored threads and new annotations. Window geometry
+  and scrolling remain caller-owned. `components/conversation-turn.tsx` owns their
+  shared flat message markup: neutral 1px row rules, muted author/time and an agent
+  3px ink rail. Status and trusted text actions share the meta line's right side;
+  they wrap together at narrow widths. `components/message-text.tsx` and Lexical
+  mention nodes share a cosmetic grey token style. Sent text marks only supplied
+  bound recipient names; other `@text` remains plain. Display labels grant no routing
+  authority. `conversationAsks` owns admitted comment/Ask association, reply defaults
+  and captured context; `CommentExchange` presents it on both surfaces. A reply,
+  including an empty one, removes pending status and delivery actions.
 - `thread-panel.tsx` exports `ThreadWindow`/`ThreadWindowProps` for the shared
   conversation body, including the initial selection before a thread exists. The
-  anchored layout grows toward the viewport bottom before its messages scroll;
+  anchored layout fits its content and grows away from its selection edge up to
+  the available viewport height before its messages scroll;
   its header and parent composer stay stationary during message scrolling. First
   open, new comment IDs and changed associated replies move that area to the
   arrival. Unrelated cloned publications preserve a reader's history position.
@@ -68,17 +73,17 @@ owns record fields, limits, revision semantics and trust boundaries.
   presentation use `BrowserIconAction`; remaining thread/edit submits use `BrowserAction`,
   with primary reserved for the form's default submit and other actions text. The
   host header gives its status title flexible space before fixed right-aligned
-  actions, with a separate attachment row on narrow screens. It retains plain-text
+  actions, including the muted attachment label on the same row. It retains plain-text
   parent controls, one all-annotations list, expanded conversation and explicit
   reattach confirmation. Row action menus choose below/above placement when it
   fits, otherwise clamp inside their scroll container so the stationary window
-  header cannot cover Edit/Delete. `annotation-input.tsx` owns parent draft/recipient/send
+  header cannot cover Edit/Delete. `annotation-input.tsx` owns parent draft/mention/send
   policy around the shared Lexical plaintext message composer: Enter submits the
-  current parent action, Shift+Enter adds a line, Escape closes candidates before cancellation. It
+  single Send, Shift+Enter adds a line, Escape closes candidates before cancellation. It
   opens at the selection in a cosmetic parent window and continues there after
   Enter; no drawer opens automatically. Known margin markers reopen that exact
   thread using the current renderer's admitted cosmetic position. The page owner
-  keeps drafts and recipients by thread across collapse and explicit Comments
+  keeps drafts and bound mention UUIDs by thread across collapse and explicit Comments
   access. Resolve/Reopen is the parent's `onStatusChange` seam over
   `ThreadStatusCoordinator`, not a thread edit: the window receives the thread's
   `ThreadPresentation.status` and awaits one status change (shown only when
@@ -99,7 +104,7 @@ owns record fields, limits, revision semantics and trust boundaries.
   with explicit buttons/newline policy. Recipient identity stays independent of text;
   a plain comment does not require working agent discovery.
   UI capture/default labels grant no routing authority. `ask-panel.tsx` shares the
-  accepted-turn observation deadline and Clock + `no reply yet` copy between annotation
+  accepted-turn observation deadline and Clock + `No reply yet from <agent>` copy between annotation
   threads and Chat; it retains read-only recheck without changing ledger state.
 - `chat-panel.tsx` reads designated device threads from the same admitted projection,
   shows their page-visible history and inline outcomes, and continues only its device's thread with the shared input. Chat threads are excluded from Comments. No new store

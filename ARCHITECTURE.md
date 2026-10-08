@@ -791,7 +791,7 @@ falls back to a working directory, active pane or sole identity.
 - `binding::session` separates identity-owned session preferences from
   binding-owned runtime observations, and observation writes are compare-and-set
   inside the binding transaction. Drivers own process verification, event mapping
-  and driver-state persistence; core stores driver state without parsing it.
+  and driver-state persistence; ordinary CLI calls learn direct sessions after output through the same admission/CAS, with bounded silent refusal, storage-only prechecks and private TTL hints; core stores driver state without parsing it.
   Provider end leaves stored readiness Unknown pending a fresh start; only conclusive
   process loss ends the runtime incarnation.
 - Presence reads acquire host evidence outside the database writer lock and
@@ -1173,7 +1173,7 @@ bind the session through a non-secret, cookie-device-checked `tmt-session` ident
 stripped at the door. Last-close touches; every session without a live transport has the existing 60-second inactivity grace.
 Activity renews it; reattach resumes that session. Detached sessions count against the cap until expiry. Idle expiry, explicit end, eviction and authority loss reuse session-owned cleanup.
 Grant-owned held work survives session end; only stop, revoke or grant expiry/revision change cancels it. Uncertain dispatch retains recovery.
-The `objects` backend and the `rust/crates/tmt-extension-objects` wire leaf (identifiers, bounds, strict JSON, frames and Unix carrier) belong to Remote's lease-bound object service: serve attempts each Local declaration before door readiness, reactivates on validated websocket demand, shares its origin registry with mounts and joins it after door shutdown. Every production declaration remains Disabled (#1852); setup failure forwards without an origin; optional `status --objects --json` observes live channel readiness without activation: see the [Remote internals](.agents/skills/tmt-remote/references/architecture-internals.md) and [object-backends](.agents/skills/tmt-remote/references/object-backends.md) references.
+The `objects` backend and the `rust/crates/tmt-extension-objects` wire leaf (identifiers, bounds, strict JSON, frames and Unix carrier) belong to Remote's lease-bound object service: serve attempts each Local declaration before door readiness, reactivates on validated websocket demand, shares its origin registry with mounts and joins it after door shutdown. Only Colab declares Local (#1852); missing adapter admission refuses operations before ledger effects, and setup failure forwards without an origin; optional `status --objects --json` observes live channel readiness without activation: see the [Remote internals](.agents/skills/tmt-remote/references/architecture-internals.md) and [object-backends](.agents/skills/tmt-remote/references/object-backends.md) references.
 
 System-wide invariants:
 
@@ -1232,7 +1232,7 @@ core discovery or storage access.
   edge (Colab → Remote) uses the public CLI only: no Remote state files and no crate
   dependency. Colab stops only a door it started, with its whole group, after closing its own
   socket. `tmt colab stop` reaches the serving process through a root-local route on that same owner-only socket (no signals, no new surface).
-- **Message editing.** One plaintext/history Lexical 0.52.0 composer follows the [editing boundary](.agents/skills/tmt-colab/references/architecture-state.md#message-editing-boundary), which owns dependencies, drafts and parent admission.
+- **Message editing.** One plaintext/history Lexical 0.52.0 composer follows the [editing boundary](.agents/skills/tmt-colab/references/architecture-state.md#message-editing-boundary), which owns dependencies, drafts and parent admission. The trusted parent records one comment and one independent Ask per distinct visible mention, bounded to eight recipients; the editor grants no dispatch authority.
 - **Renderer invariant.** Parent chrome allows only self-hosted scripts and styles (no
   `unsafe-inline`). Author HTML runs only in `renderer.html` inside an opaque
   `sandbox allow-scripts` frame whose own policy permits inline scripts and styles but no

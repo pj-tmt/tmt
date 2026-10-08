@@ -522,8 +522,11 @@ jobs:
           # Plain file names from the component map, validated when it is parsed.
           SCOPED_NATIVE_TESTS: ${{ needs.changes.outputs.scoped_native_tests }}
         run: |
-          # shellcheck disable=SC2086
-          pnpm test:native --reporter=verbose $SCOPED_NATIVE_TESTS
+          # Vitest filters match path substrings, so each name gets its directory:
+          # a bare uninstall.test.ts would also select office-uninstall.test.ts.
+          files=()
+          for name in $SCOPED_NATIVE_TESTS; do files+=("test/native/$name"); done
+          pnpm test:native --reporter=verbose "${files[@]}"
 
   native-msrv:
     name: Native Rust MSRV

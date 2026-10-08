@@ -58,6 +58,26 @@ pub struct CallerEnvironment {
 }
 
 impl CallerEnvironment {
+    /// Cheap scheduling locators only. No variable proves a current caller;
+    /// effects still require the host's native ancestry/endpoint verification.
+    pub fn pane_locators(&self) -> Vec<(HostKind, &str, Option<&str>)> {
+        let mut locators = Vec::new();
+        if let Some(pane) = self.pane.as_ref().and_then(|value| value.to_str())
+            && HostKind::Tmux.is_pane_id(pane)
+            && let Ok(socket) = self.selected_server_socket()
+        {
+            locators.push((HostKind::Tmux, pane, socket));
+        }
+        for value in self.driver_env.values().filter_map(|value| value.to_str()) {
+            for host in HostKind::all().filter(|host| *host != HostKind::Tmux) {
+                if host.is_pane_id(value) && !locators.contains(&(host, value, None)) {
+                    locators.push((host, value, None));
+                }
+            }
+        }
+        locators
+    }
+
     pub fn current() -> Self {
         let driver_env = external::approved()
             .iter()

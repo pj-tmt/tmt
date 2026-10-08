@@ -5,10 +5,12 @@ Follow [tmt-dev](../../tmt-dev/SKILL.md) and the
 [storage proposal](../../../../extensions/tmt-colab/contracts/storage-v1-proposal.md)
 owns the accepted behavior and bounds; this guide owns how the implemented backend
 in `extensions/tmt-remote/rust/tmt-remote/src/objects*` works and how to add an
-adapter. Serve owns the lease-bound `object_service` below, but every production
-`mount::EXTENSIONS` entry has `ObjectDeclaration::Disabled`: no production object
-channel opens, and no route, SDK setting or user action enables it. Production
-activation remains a separate Core decision under #1852.
+adapter. Serve owns the lease-bound `object_service` below. Only the production
+`colab` declaration is Local; every other declaration remains Disabled, with no
+route, SDK setting or user action enabling storage. Starting serve may open an
+empty ledger. Without a Colab adapter's current admission, every object operation
+is refused before a ledger effect. Colab's shipped-binary upload/read proof remains
+a #1852 delivery requirement; a transport-only fixture is not that proof.
 
 ## Modules
 
@@ -28,8 +30,9 @@ eight buses in all, and opens a channel only on an explicit `activate` (no retry
 polling). Its extension names come only from the declaration list and it names no
 extension itself. Serve attempts each static Local declaration once after constructing
 Site/Mounts and device events, before remembering the port and publishing door readiness.
-Open or setup failure is reported as an unavailable warning on the existing foreground
-output, drops the failed candidate and leaves the ordinary door running. Each initial
+An absent or refusing listener is silent; unsafe, malformed or storage failures warn
+on the existing foreground output. The failed candidate is dropped and the ordinary
+door keeps running. Each initial
 attempt uses the same absolute 250 ms budget as demand setup, so a bound listener that
 is not yet accepting cannot spend the general 15-second service setup bound before ready.
 The 35-second whole-startup bound and stop fences are unchanged; setup deadlines do not

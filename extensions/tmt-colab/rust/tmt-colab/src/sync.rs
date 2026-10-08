@@ -504,6 +504,7 @@ impl<A: Admission> Server<A> {
             server: self.clone(),
             id,
             blocked_since: None,
+            ping_due: None,
         })
     }
 }
@@ -1267,6 +1268,8 @@ pub struct Connection<S: Read + Write, A> {
     server: Server<A>,
     id: u64,
     blocked_since: Option<Instant>,
+    /// When the next keepalive Ping is due; armed by the first poll.
+    ping_due: Option<Instant>,
 }
 impl<S: Read + Write, A: Admission> Connection<S, A> {
     /// A save's native preparation can take seconds: it runs here, holding no lock, so other
@@ -1366,6 +1369,25 @@ impl<S: Read + Write, A: Admission> Connection<S, A> {
             Err(code) => return self.close(code),
         }
         let mut advanced = false;
+        // An idle tunnel is torn down after limits::TUNNEL_IDLE by the remote door and by the
+        // serve loop, and a browser cannot send WebSocket pings. A Ping every KEEPALIVE moves
+        // bytes both ways (the browser answers with a Pong), so a quiet tab stays connected.
+        if now >= *self.ping_due.get_or_insert(now + limits::KEEPALIVE) {
+            self.ping_due = Some(now + limits::KEEPALIVE);
+            match self
+                .socket
+                .as_mut()
+                .expect("checked socket")
+                .send(Message::Ping(Vec::new().into()))
+            {
+                Ok(()) => advanced = true,
+                // tungstenite keeps the exact buffered frame; the next flush completes it.
+                Err(e) if would_block(&e) => {
+                    self.blocked_since.get_or_insert(now);
+                }
+                Err(_) => return self.close(Code::ResyncRequired),
+            }
+        }
         match self.socket.as_mut().expect("checked socket").read() {
             Ok(Message::Text(text)) => {
                 advanced = true;

@@ -1,6 +1,12 @@
 import { readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
-import { expect, test, type BrowserContext, type WebSocketRoute } from '@playwright/test';
+import {
+  expect,
+  test,
+  type BrowserContext,
+  type Locator,
+  type WebSocketRoute,
+} from '@playwright/test';
 import { capturePath } from './captures.js';
 import * as c from '@tmt/colab-client';
 import type { PageView } from '../src/transport.js';
@@ -1323,9 +1329,9 @@ result:async()=>({state:'replied',requestId:'${requestId}',message:${JSON.string
   await annotate();
   const annotation = page.getByRole('dialog', { name: 'Annotate selection' });
   const annotationInput = annotation.getByRole('combobox', { name: 'Message', exact: true });
-  await annotationInput.fill('Keep this anchored draft.');
-  const post = annotation.getByRole('button', { name: 'Post comment', exact: true });
-  const askAction = annotation.getByRole('button', { name: 'Ask agent', exact: true });
+  await annotationInput.fill('Keep this anchored draft. @Wire agent');
+  const post = annotation.getByRole('button', { name: 'Send', exact: true });
+  const askAction = annotation.getByRole('button', { name: 'Send', exact: true });
   await expect(post).toBeEnabled();
   await expect(askAction).toBeEnabled();
   // Successful mounted-session replacement rebinds this same draft to the new
@@ -1342,7 +1348,7 @@ result:async()=>({state:'replied',requestId:'${requestId}',message:${JSON.string
   f.resumeSync();
   await expect.poll(() => opens).toBe(beforeReplacement + 1);
   await expect(askAction).toBeDisabled();
-  await expect(annotationInput).toHaveText('Keep this anchored draft.');
+  await expect(annotationInput).toHaveText('Keep this anchored draft. @Wire agent');
   releaseOpen!();
   pendingOpen = undefined;
   await expect.poll(() => f.connections).toBe(1);
@@ -1355,7 +1361,7 @@ result:async()=>({state:'replied',requestId:'${requestId}',message:${JSON.string
       (node) => node === (window as unknown as { recoveryDraftNode: Element }).recoveryDraftNode,
     ),
   ).toBe(true);
-  await expect(annotationInput).toHaveText('Keep this anchored draft.');
+  await expect(annotationInput).toHaveText('Keep this anchored draft. @Wire agent');
 
   doorDown = true;
   oldSessionEnded = true;
@@ -1532,13 +1538,13 @@ for (const width of [1440, 390])
             : page.getByRole('dialog', { name: 'Annotate selection' });
         const input = container.getByRole('combobox', { name: 'Message', exact: true });
         const action = container.getByRole('button', {
-          name: surface === 'Chat' ? 'Send' : 'Ask agent',
+          name: 'Send',
           exact: true,
           includeHidden: true,
         });
-        await container.getByRole('button', { name: 'Choose recipient', exact: true }).click();
+        await input.pressSequentially('@');
         await page.getByRole('option').filter({ hasText: '@Draft agent ·' }).click();
-        const draft = 'Keep this exact recovery draft.';
+        const draft = 'Keep this exact recovery draft. @Draft agent';
         await input.fill(draft);
         await input.press('Home');
         for (let i = 0; i < 5; i++) await input.press('ArrowRight');
@@ -1569,9 +1575,7 @@ for (const width of [1440, 390])
         await expect(input).toHaveText(draft);
         await expect(action).toBeDisabled();
         if (surface === 'annotation')
-          await expect(
-            container.getByRole('button', { name: 'Post comment', exact: true }),
-          ).toBeDisabled();
+          await expect(container.getByRole('button', { name: 'Send', exact: true })).toBeDisabled();
         const admittedOpens = f.opens;
         const navigations: string[] = [];
         page.on('framenavigated', (frame) => {
@@ -1633,13 +1637,15 @@ for (const width of [1440, 390])
         const edited = draft.slice(0, 5) + 'X' + draft.slice(selected ? 9 : 5);
         await expect(input).toHaveText(edited);
         if (surface === 'annotation') {
-          const post = container.getByRole('button', { name: 'Post comment', exact: true });
+          const post = container.getByRole('button', { name: 'Send', exact: true });
           await expect(post).toBeEnabled();
+          const plain = edited.replace(' @Draft agent', '');
+          await input.fill(plain);
           await post.click();
           await expect(input).toHaveText('');
-          await expect(container.getByText(edited, { exact: true })).toBeVisible();
+          await expect(container.getByText(plain, { exact: true })).toBeVisible();
           expect(f.sends).toBe(0);
-          await input.fill('Explicit Ask after verified recovery.');
+          await input.fill('@Draft agent Explicit Ask after verified recovery.');
         }
         await action.click();
         await expect.poll(() => f.sends).toBe(1);
@@ -1651,6 +1657,98 @@ for (const width of [1440, 390])
         await expect.poll(() => f.connections).toBe(0);
       });
     }
+
+/** The control is the topmost element at its own center: nothing sits over it. */
+async function expectUncovered(control: Locator) {
+  await expect(control).toBeVisible();
+  const covered = await control.evaluate((node) => {
+    const box = node.getBoundingClientRect();
+    const top = document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2);
+    return !top || !(node === top || node.contains(top));
+  });
+  expect(covered).toBe(false);
+}
+
+// A tab that outlives an upgrade shows one row directly under the fixed header; the page
+// moves down by its height, so no control (Chat composer, annotate window) is covered.
+test('an upgraded server shows the update row under the header without covering page controls', async ({
+  page,
+  context,
+}, testInfo) => {
+  const built = (hash: string) => `/assets/index-${hash}.js`;
+  const [oldEntry, newEntry] = [built('OLDOLD12'), built('NEWNEW34')];
+  await draftRecoveryWire(context);
+  let loaded = false;
+  await context.route(`**${mount}`, async (route) => {
+    const first = route.request().isNavigationRequest() && !loaded;
+    loaded ||= route.request().isNavigationRequest();
+    const response = await route.fetch();
+    const html = await response.text();
+    await route.fulfill({
+      response,
+      body: html.replace('/src/main.tsx', first ? oldEntry : newEntry),
+    });
+  });
+  for (const entry of [oldEntry, newEntry])
+    await context.route(`**${entry}`, (route) =>
+      route.fulfill({ contentType: 'text/javascript', body: "import '/src/main.tsx';" }),
+    );
+  await page.goto(mount);
+  await page.locator(`[data-page-id="${v.page}"] a`).click();
+  const heading = page.frameLocator('iframe').getByRole('heading', { name: 'Live fixture' });
+  await expect(heading).toBeVisible();
+  const row = page.locator('[data-update-notice]');
+  await expect(row).toHaveText(`${copy.updated}${copy.reload}`);
+  await expect(row).toHaveAttribute('role', 'status');
+  for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 900 });
+    const rowBox = (await row.boundingBox())!;
+    const headerBox = (await page.locator('header.tmt-ui-header').boundingBox())!;
+    // Directly under the header bar, full width, one line, pushing the page down.
+    expect(rowBox.y).toBeCloseTo(headerBox.y + headerBox.height, 0);
+    expect(rowBox.width).toBeCloseTo(width, 0);
+    expect(rowBox.height).toBe(40);
+    const mainBox = (await page.locator('main').boundingBox())!;
+    expect(mainBox.y).toBeGreaterThanOrEqual(rowBox.y + rowBox.height - 1);
+    // Chat open: the composer's actions stay reachable, not under the row.
+    const toggle = page.getByTestId('chat-toggle');
+    if (!(await page.locator('.page-drawer[data-panel=chat][open]').isVisible())) {
+      if (!(await toggle.isVisible()))
+        await page.getByRole('button', { name: 'More page actions' }).click();
+      await toggle.click();
+    }
+    const panel = page.getByTestId('chat-panel');
+    await expect(panel).toBeVisible();
+    // At 390 the drawer is a full-screen modal above header and row alike.
+    if (width === 1440)
+      expect((await panel.boundingBox())!.y).toBeGreaterThanOrEqual(rowBox.y + rowBox.height - 1);
+    await expectUncovered(panel.getByRole('button', { name: 'Send', exact: true }));
+    for (const theme of ['light', 'dark']) {
+      await page.evaluate((value) => (document.documentElement.dataset.theme = value), theme);
+      await page.screenshot({ path: testInfo.outputPath(`update-chat-${theme}-${width}.png`) });
+    }
+    await page.getByRole('button', { name: 'Close Chat', exact: true }).click();
+    // The annotate window opens below the row as well.
+    await heading.evaluate((node) => {
+      const range = document.createRange();
+      range.selectNodeContents(node);
+      const selection = getSelection()!;
+      selection.removeAllRanges();
+      selection.addRange(range);
+    });
+    await page.getByTestId('selection-ask').click();
+    const dialog = page.getByRole('dialog', { name: 'Annotate selection' });
+    await expect(dialog).toBeVisible();
+    if (width === 1440)
+      expect((await dialog.boundingBox())!.y).toBeGreaterThanOrEqual(rowBox.y + rowBox.height - 1);
+    await expectUncovered(dialog.getByRole('button', { name: 'Send', exact: true }));
+    for (const theme of ['light', 'dark']) {
+      await page.evaluate((value) => (document.documentElement.dataset.theme = value), theme);
+      await page.screenshot({ path: testInfo.outputPath(`update-annotate-${theme}-${width}.png`) });
+    }
+    await page.keyboard.press('Escape');
+  }
+});
 
 test('same-device tabs stay connected and exchange source edits without reopening', async ({
   page,

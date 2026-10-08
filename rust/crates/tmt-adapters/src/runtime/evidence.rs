@@ -38,6 +38,46 @@ pub(crate) fn observe_named_in_pane(
     }
 }
 
+/// A direct conversation must belong to the outer provider, never a nested
+/// invocation. Reuse the same native process snapshot and incarnation boundary.
+pub(crate) fn observe_main_in_pane(
+    runner: &impl CommandRunner,
+    caller: u64,
+    pane: u64,
+    deadline: Instant,
+    executable: &str,
+) -> Option<ProcessIncarnation> {
+    let snapshot = query_ps(
+        runner,
+        &["-A".into(), "-o".into(), "pid=,ppid=,comm=".into()],
+        deadline,
+        4 * 1024 * 1024,
+    )
+    .ok()?;
+    let text = std::str::from_utf8(&snapshot.stdout).ok()?;
+    let process = main_ancestor(text, caller, pane, executable)?;
+    match observe_runtime_process(runner, process, deadline).ok()? {
+        ProcessObservation::Live(value) => Some(value),
+        _ => None,
+    }
+}
+
+fn main_ancestor(text: &str, caller: u64, pane: u64, executable: &str) -> Option<u64> {
+    let process = ancestor(text, caller, pane, executable)?;
+    // Starting above this provider must find no second provider on the same
+    // pane ancestry. The pane itself may be the provider after shell exec.
+    if process != pane
+        && crate::drivers::Registry::builtin()
+            .iter()
+            .filter(|driver| driver.runtime.is_some())
+            .flat_map(|driver| driver.descriptor.executables.iter())
+            .any(|name| ancestor(text, process, pane, name).is_some())
+    {
+        return None;
+    }
+    Some(process)
+}
+
 /// Recovery is based on a unique new runtime below the verified container,
 /// never the shell PID or a provider name remembered in application state.
 pub(crate) fn observe_replacement(
@@ -130,6 +170,28 @@ fn named_ancestor(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn main_provider_refuses_nested_and_unrelated_native_callers() {
+        let tree = "10 1 sh\n20 10 claude\n30 20 sh\n40 30 claude\n50 40 tmt\n";
+        assert_eq!(main_ancestor(tree, 30, 10, "claude"), Some(20));
+        assert_eq!(main_ancestor(tree, 30, 20, "claude"), Some(20));
+        assert_eq!(main_ancestor(tree, 50, 10, "claude"), None);
+        assert_eq!(
+            main_ancestor(
+                &tree.replace("40 30 claude", "40 30 codex"),
+                50,
+                10,
+                "codex"
+            ),
+            None
+        );
+        assert_eq!(main_ancestor(tree, 50, 99, "claude"), None);
+        assert_eq!(main_ancestor(tree, 30, 10, "codex"), None);
+        assert_eq!(
+            main_ancestor("10 20 sh\n20 10 claude\n30 20 tmt\n", 30, 99, "claude"),
+            None
+        );
+    }
     #[test]
     fn claude_must_be_on_the_chain_in_the_verified_pane() {
         let tree = "10 1 /bin/zsh\n20 10 /opt/bin/claude\n30 20 /bin/sh\n40 30 /bin/tmt\n50 40 /bin/tmt\n60 1 /bin/zsh\n";

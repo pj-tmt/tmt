@@ -5,6 +5,7 @@ pub use crate::runtime::hook_protocol::{
     CONTEXT_LIMIT, HOOK_INPUT_LIMIT, HOOK_TIMEOUT_SECONDS, encode_context,
 };
 use serde::Deserialize;
+mod caller_session;
 pub mod channel;
 mod focus;
 use tmt_core::binding::session::{
@@ -314,6 +315,40 @@ impl tmt_core::driver::Driver for ClaudeRuntime {
 pub struct ClaudeLifecycle;
 
 impl crate::runtime::lifecycle::RuntimeLifecycle for ClaudeLifecycle {
+    fn caller_session(&self) -> Option<crate::runtime::lifecycle::CallerSession> {
+        caller_session::coordinates(
+            std::env::var_os("CLAUDE_CODE_SESSION_ID").as_deref(),
+            std::env::var_os("CLAUDE_PID").as_deref(),
+        )
+    }
+    fn caller_session_observation(
+        &self,
+        coordinates: &crate::runtime::lifecycle::CallerSession,
+        _environment: &crate::skill_installation::ProviderEnvironment,
+        _deadline: std::time::Instant,
+    ) -> Result<
+        Box<dyn crate::runtime::lifecycle::LifecycleObservation>,
+        crate::runtime::lifecycle::CallerSessionRefusal,
+    > {
+        Ok(Box::new(ClaudeObservation {
+            session: coordinates.session.clone(),
+            model: None,
+            context_tokens: None,
+
+            transition: SessionTransition::Started,
+            starting: true,
+        }))
+    }
+    fn observe_main_caller(
+        &self,
+        runner: &dyn crate::process::CommandRunner,
+        caller: u64,
+        pane: u64,
+        deadline: std::time::Instant,
+    ) -> Option<ProcessIncarnation> {
+        crate::runtime::evidence::observe_main_in_pane(&runner, caller, pane, deadline, NAME)
+    }
+
     fn prepare_launch_hooks(
         &self,
         plan: &crate::runtime::hook_protocol::LaunchHooks<'_>,

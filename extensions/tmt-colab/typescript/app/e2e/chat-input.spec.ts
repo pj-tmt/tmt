@@ -12,71 +12,32 @@ async function composer(page: Page, options: object) {
   return page.getByRole('combobox', { name: 'Message', exact: true });
 }
 
-test('only a stable reply or explicit choice supplies a recipient; unknown creation stays undecided', async ({
-  page,
-}) => {
-  let input = await composer(page, { agents: ['Alpha', 'Beta'], replier: 'Beta' });
+test('unknown creator and prior display labels never infer a recipient', async ({ page }) => {
+  const input = await composer(page, { agents: ['Solo'] });
   await expect(input).toHaveText('', { useInnerText: true });
-  await expect(page.locator('.annotation-hint')).toContainText(['Enter sends', 'Recipient: Beta']);
-  for (const agents of [['Solo'], ['Alpha', 'Beta']]) {
-    input = await composer(page, { agents });
-    await expect(input).toHaveText('', { useInnerText: true });
-    await input.fill('Keep this exact draft.');
-    await input.press('Enter');
-    await expect(page.getByRole('alert')).toHaveText('Choose a recipient to ask an agent.');
-    expect((await run(page, 'proof')).createChats).toBe(0);
-    await expect(input).toHaveText('Keep this exact draft.', { useInnerText: true });
-  }
-});
-
-test('an ambiguous recipient requires selection without mandatory mention insertion', async ({
-  page,
-}) => {
-  const input = await composer(page, { agents: ['Alpha', 'Beta'] });
-  await input.fill('hello there');
-  await input.press('Enter');
-  await expect(page.getByRole('alert')).toHaveText('Choose a recipient to ask an agent.');
-  expect((await run(page, 'proof')).createChats).toBe(0);
-  await page.getByRole('button', { name: 'Choose recipient', exact: true }).click();
-  await input.press('Enter');
-  await expect(input).toHaveText('hello there', { useInnerText: true });
-  await expect(page.getByRole('alert')).toHaveCount(0);
-  expect((await run(page, 'proof')).createChats).toBe(0);
+  await input.fill('Keep this exact draft.');
+  await expect(page.locator('.annotation-status-row')).toContainText('Posts as a comment.');
   await input.press('Enter');
   await expect.poll(async () => (await run(page, 'proof')).createChats).toBe(1);
 });
 
-test('changing a recipient with typed mention text preserves bytes and performs no send', async ({
-  page,
-}) => {
-  const input = await composer(page, { agents: ['Alpha', 'Beta'], selected: 0 });
-  await input.fill('Before @Alpha after.\nKeep this trailing line.\n');
-  const draft = await input.innerText();
-  await page.getByRole('button', { name: 'Change recipient', exact: true }).click();
-  await page.getByRole('option', { name: '@Beta · My machine', exact: true }).click();
-  await expect(input).toHaveText(draft, { useInnerText: true });
-  await expect(page.locator('.annotation-hint').last()).toContainText('Recipient: Beta');
-  expect((await run(page, 'proof')).createChats).toBe(0);
-});
-
-test('an unmatched typed mention never prevents explicit no-mutation recipient selection', async ({
+test('picked mentions keep surrounding multiline text and choosing alone has no effects', async ({
   page,
 }) => {
   const input = await composer(page, { agents: ['Alpha', 'Beta'] });
-  await input.fill('Keep this @not-a-candidate');
-  const choose = page.getByRole('button', { name: 'Choose recipient', exact: true });
-  await expect(choose).toBeEnabled();
-  await choose.click();
+  await input.pressSequentially('Before @B');
   await page.getByRole('option', { name: '@Beta · My machine', exact: true }).click();
-  await expect(input).toHaveText('Keep this @not-a-candidate', { useInnerText: true });
-  await expect(page.locator('.annotation-hint').last()).toContainText('Recipient: Beta');
+  await input.press('Shift+Enter');
+  await input.pressSequentially('After');
+  await expect(input).toHaveText('Before @Beta \nAfter', { useInnerText: true });
   expect((await run(page, 'proof')).createChats).toBe(0);
+  await expect(page.locator('.annotation-status-row')).toContainText('Asks @Beta.');
 });
 
 test('Enter that ends an IME composition commits it and only the next Enter sends', async ({
   page,
 }) => {
-  const input = await composer(page, { agents: ['Alpha'], selected: 0 });
+  const input = await composer(page, { agents: ['Alpha'] });
   await input.focus();
   const client = await page.context().newCDPSession(page);
   await client.send('Input.imeSetComposition', {

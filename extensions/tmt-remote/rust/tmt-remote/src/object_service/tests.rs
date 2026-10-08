@@ -273,17 +273,17 @@ fn sources(directory: &Path, found: &mut Vec<(PathBuf, String)>) {
 }
 
 #[test]
-fn production_declares_no_object_storage() {
+fn production_declares_only_colab_local() {
     let production: Vec<_> = EXTENSIONS
         .iter()
         .map(|extension| (extension.name, extension.objects))
         .collect();
     assert_eq!(
         production,
-        [("colab", ObjectDeclaration::Disabled)],
-        "enable an extension's objects only together with its real adapter readiness"
+        [("colab", ObjectDeclaration::Local)],
+        "only the reviewed Colab declaration may enable production objects"
     );
-    // Enabling is written only in tests: no production source names it as a field value.
+    // Exactly one named declaration is reviewed; no other production Local field is allowed.
     let mut found = Vec::new();
     sources(
         &Path::new(env!("CARGO_MANIFEST_DIR")).join("src"),
@@ -292,9 +292,11 @@ fn production_declares_no_object_storage() {
     for (path, text) in found {
         let tests = path.file_name().is_some_and(|name| name == "tests.rs")
             || path.components().any(|part| part.as_os_str() == "tests");
+        let reviewed_mount = path == Path::new(env!("CARGO_MANIFEST_DIR")).join("src/mount.rs");
+        let enabled = text.matches("objects: ObjectDeclaration::Local").count();
         assert!(
-            tests || !text.contains("objects: ObjectDeclaration::Local"),
-            "{} enables object storage outside a test",
+            tests || enabled == usize::from(reviewed_mount),
+            "{} enables unreviewed object storage",
             path.display()
         );
     }
@@ -309,8 +311,9 @@ fn production_declares_no_object_storage() {
 #[test]
 fn a_disabled_declaration_prepares_nothing_and_connects_nowhere() {
     let env = Env::new();
-    // Production: nothing declares objects, so no ledger is created.
-    assert!(env.service(&EXTENSIONS, bounds()).is_none());
+    // An explicit all-Disabled fixture still creates no ledger or channel.
+    static DISABLED: [Extension; 1] = [declared("colab", ObjectDeclaration::Disabled)];
+    assert!(env.service(&DISABLED, bounds()).is_none());
     assert!(!env.ledger().exists());
     // A disabled entry beside an enabled one is neither handled nor connectable.
     let peer = Peer::start(&env, "beta", Answer::Expect);

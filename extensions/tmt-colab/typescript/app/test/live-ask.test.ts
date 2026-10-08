@@ -26,6 +26,7 @@ async function fixture(
     comment: string;
   },
   statusContext?: LiveAskOptions['statusContext'],
+  publication?: (own: OwnState) => void,
 ) {
   vi.stubGlobal('navigator', {
     locks: { request: async (_key: string, action: () => unknown) => action() },
@@ -79,6 +80,7 @@ async function fixture(
     async publish(root, key, value) {
       own[id(4)] ??= { threads: {}, messages: {}, intents: {}, replies: {} };
       own[id(4)][root][key] = structuredClone(value);
+      publication?.(own);
     },
     async connection() {
       if (gate) await gate;
@@ -182,7 +184,7 @@ it('page denial, disconnected admission and closed bindings cannot start a send'
     const attempt = await f.ask.prepare(f.input);
     if (block === 'close') f.ask.close();
     else f[block]();
-    expect((await attempt.send()).state).toBe('failed');
+    expect(await attempt.send()).toMatchObject({ state: 'failed', adopted: false });
     expect(f.remote.sends).toEqual([]);
     expect(f.own).toEqual({});
     await expect(f.ask.prepare(f.input)).rejects.toThrow();
@@ -197,9 +199,24 @@ it('a lost current grant context before adoption shows failed and leaves no inte
   f.remote.context = async () => {
     throw new Error('Stale grant');
   };
-  expect((await attempt.send()).state).toBe('failed');
+  expect(await attempt.send()).toMatchObject({ state: 'failed', adopted: false });
   expect(f.remote.sends).toEqual([]);
   expect(f.own).toEqual({});
+  f.ask.close();
+});
+
+it('ambiguous publication with no visible intent cannot prove the recipient was not delivered', async () => {
+  const f = await fixture(undefined, undefined, (own) => {
+    delete own[id(4)];
+    throw new Error('Publication acknowledgment lost');
+  });
+  f.input.destination = (await f.ask.destinations())[0];
+  const attempt = await f.ask.prepare(f.input);
+  expect(await attempt.send()).toEqual({ state: 'uncertain' });
+  expect(f.remote.sends).toEqual([]);
+  expect(f.own).toEqual({});
+  await attempt.send();
+  expect(f.remote.sends).toEqual([]);
   f.ask.close();
 });
 

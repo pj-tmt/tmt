@@ -6,6 +6,8 @@ import { AppHeader, createAppRouter } from './router.js';
 import { mountedTransport } from './mounted.js';
 import { text } from './strings.js';
 import { NoticeCard } from './notice-card.js';
+import { buildWatch } from './app-build.js';
+import { UpdateNotice } from './update-notice.js';
 
 /** Each tab owns its Remote session and mounted page bindings until unload. */
 export function MountedApp() {
@@ -33,6 +35,7 @@ export function MountedApp() {
         setState('ready');
       } catch {
         if (!disposed) setState('failed');
+        void buildWatch.check();
       }
     }
     const close = () => {
@@ -52,8 +55,16 @@ export function MountedApp() {
       close();
     };
   }, []);
-  if (state === 'ready' && router) return <RouterProvider router={router} />;
-  return <MountedNotice state={state} />;
+  return (
+    <>
+      {state === 'ready' && router ? (
+        <RouterProvider router={router} />
+      ) : (
+        <MountedNotice state={state} />
+      )}
+      <UpdateNotice />
+    </>
+  );
 }
 
 /** Presentation shared by the mounted lifecycle and the screen layout fixture. */

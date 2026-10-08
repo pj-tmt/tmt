@@ -1,5 +1,5 @@
-import { spawnSync, type SpawnSyncReturns } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { execFileSync, spawnSync, type SpawnSyncReturns } from 'node:child_process';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { availableParallelism, cpus, loadavg, tmpdir } from 'node:os';
 import { performance, type EventLoopUtilization } from 'node:perf_hooks';
 import { join } from 'node:path';
@@ -16,6 +16,65 @@ import { checkMigration, releaseCommits } from '../../scripts/publication-gates.
 
 import { writeReleaseWorkspace } from '../support/release-workspace-fixture.js';
 
+// File-scoped wrappers also observe synchronous calls made by imported release tooling.
+// They delegate unchanged; no process-wide builtin patch or production observer is installed.
+const syncProcessObserver = vi.hoisted(() => ({
+  observe: undefined as (<T>(execute: () => T) => T) | undefined,
+}));
+vi.mock('node:child_process', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:child_process')>();
+  return {
+    ...actual,
+    spawnSync: (...args: Parameters<typeof actual.spawnSync>) =>
+      syncProcessObserver.observe
+        ? syncProcessObserver.observe(() => actual.spawnSync(...args))
+        : actual.spawnSync(...args),
+    execFileSync: (...args: Parameters<typeof actual.execFileSync>) =>
+      syncProcessObserver.observe
+        ? syncProcessObserver.observe(() => actual.execFileSync(...args))
+        : actual.execFileSync(...args),
+  };
+});
+
+function readLinuxPressure(
+  read = (path: string) => readFileSync(path, 'utf8'),
+  platform: NodeJS.Platform = process.platform
+) {
+  if (platform !== 'linux') return undefined;
+  const counter = (value: string | undefined) => {
+    if (!value || !/^\d+$/.test(value)) return null;
+    const number = Number(value);
+    return Number.isSafeInteger(number) ? number : null;
+  };
+  const pressure = (path: string) => {
+    try {
+      const source = read(path);
+      const total = (kind: string) =>
+        counter(source.match(new RegExp(`^${kind} .*\\btotal=(\\d+)(?:\\s|$)`, 'm'))?.[1]);
+      return { someTotalUs: total('some'), fullTotalUs: total('full'), error: null };
+    } catch (error) {
+      return { someTotalUs: null, fullTotalUs: null, error: String(error).slice(0, 300) };
+    }
+  };
+  const cpuStat = () => {
+    try {
+      const fields = read('/proc/stat')
+        .match(/^cpu[ \t]+(.+)$/m)?.[1]
+        .trim()
+        .split(/\s+/);
+      return { iowaitTicks: counter(fields?.[4]), stealTicks: counter(fields?.[7]), error: null };
+    } catch (error) {
+      return { iowaitTicks: null, stealTicks: null, error: String(error).slice(0, 300) };
+    }
+  };
+  // Host-wide cumulative counters, not case attribution; /proc/stat units stay ticks (no HZ guess).
+  return {
+    cpu: pressure('/proc/pressure/cpu'),
+    io: pressure('/proc/pressure/io'),
+    cpuStat: cpuStat(),
+  };
+}
+
 // This observer belongs to this real-Git scenario; it never changes subprocess or test deadlines.
 // CPU covers the process (including sibling threads); ELU covers this worker, including blocked calls.
 function releaseCutDiagnostics(
@@ -28,10 +87,15 @@ function releaseCutDiagnostics(
     poolId: string | null;
     workerCount: number | null;
   },
-  observations = {
+  observations: {
+    cpuUsage: () => NodeJS.CpuUsage;
+    eventLoopUtilization: typeof performance.eventLoopUtilization;
+    linuxPressure?: () => ReturnType<typeof readLinuxPressure> | undefined;
+  } = {
     cpuUsage: () => process.cpuUsage(),
     eventLoopUtilization: (...args: Parameters<typeof performance.eventLoopUtilization>) =>
       performance.eventLoopUtilization(...args),
+    linuxPressure: () => readLinuxPressure(),
   }
 ) {
   const startedMs = now();
@@ -42,19 +106,23 @@ function releaseCutDiagnostics(
     signal: string | null;
     error: string | null;
   }[] = [];
+  let syncCallCount = 0;
+  let syncElapsedMs = 0;
   let phase:
     | {
         name: string;
         startedMs: number;
         cpuUsage: NodeJS.CpuUsage;
         eventLoopUtilization: EventLoopUtilization;
+        linuxPressure: ReturnType<typeof readLinuxPressure> | undefined;
       }
     | undefined;
   const phaseReport = (
     current: NonNullable<typeof phase>,
     endedMs: number,
     cpuUsage: NodeJS.CpuUsage,
-    eventLoopUtilization: EventLoopUtilization
+    eventLoopUtilization: EventLoopUtilization,
+    linuxPressure: ReturnType<typeof readLinuxPressure> | undefined
   ) => {
     const user = (cpuUsage.user - current.cpuUsage.user) / 1_000;
     const system = (cpuUsage.system - current.cpuUsage.system) / 1_000;
@@ -66,6 +134,9 @@ function releaseCutDiagnostics(
       name: current.name,
       elapsedMs: endedMs - current.startedMs,
       processCpuMs: { user, system, total: user + system },
+      ...(current.linuxPressure || linuxPressure
+        ? { linuxPressure: { before: current.linuxPressure ?? null, after: linuxPressure ?? null } }
+        : {}),
       eventLoopUtilization: {
         idleMs: elu.idle,
         activeMs: elu.active,
@@ -79,8 +150,19 @@ function releaseCutDiagnostics(
       const startedMs = now();
       const cpuUsage = observations.cpuUsage();
       const eventLoopUtilization = observations.eventLoopUtilization();
-      if (phase) phases.push(phaseReport(phase, startedMs, cpuUsage, eventLoopUtilization));
-      phase = { name, startedMs, cpuUsage, eventLoopUtilization };
+      const linuxPressure = observations.linuxPressure?.();
+      if (phase)
+        phases.push(phaseReport(phase, startedMs, cpuUsage, eventLoopUtilization, linuxPressure));
+      phase = { name, startedMs, cpuUsage, eventLoopUtilization, linuxPressure };
+    },
+    synchronous<T>(execute: () => T): T {
+      const startedMs = now();
+      try {
+        return execute();
+      } finally {
+        syncCallCount++;
+        syncElapsedMs += now() - startedMs;
+      }
     },
     git(args: string[], execute: () => SpawnSyncReturns<string>) {
       const startedMs = now();
@@ -115,7 +197,8 @@ function releaseCutDiagnostics(
               phase,
               endedMs,
               observations.cpuUsage(),
-              observations.eventLoopUtilization()
+              observations.eventLoopUtilization(),
+              observations.linuxPressure?.()
             ),
           ]
         : [];
@@ -123,6 +206,8 @@ function releaseCutDiagnostics(
         elapsedMs,
         context,
         phases: [...phases, ...current],
+        syncCallCount,
+        syncElapsedMs,
         gitCallCount: gitCalls.length,
         gitElapsedMs: gitCalls.reduce((total, call) => total + call.elapsedMs, 0),
         slowestGitCalls: [...gitCalls].sort((a, b) => b.elapsedMs - a.elapsedMs).slice(0, 12),
@@ -143,8 +228,10 @@ beforeEach(() => {
     // The public test API has no pool-size getter; IDs and the static config are not a live count.
     workerCount: null,
   });
+  syncProcessObserver.observe = (execute) => diagnostics.synchronous(execute);
 });
 afterEach(({ task }) => {
+  syncProcessObserver.observe = undefined;
   try {
     const report = diagnostics.report();
     if (report)
@@ -749,6 +836,8 @@ describe('release cut slow-case diagnostics', () => {
           eventLoopUtilization: { idleMs: 4_500, activeMs: 1_500, utilization: 0.25 },
         },
       ],
+      syncCallCount: 0,
+      syncElapsedMs: 0,
       gitCallCount: 0,
       gitElapsedMs: 0,
       slowestGitCalls: [],
@@ -767,6 +856,132 @@ describe('release cut slow-case diagnostics', () => {
     );
     elapsedMs += 5_001;
     expect(unknownWorkers.report()?.context.workerCount).toBeNull();
+  });
+  it('records literal Linux pressure and CPU-stat snapshots at closed and unfinished boundaries', () => {
+    let elapsedMs = 0;
+    let generation = 0;
+    const sources = [
+      [
+        'some avg10=0.10 avg60=0.20 avg300=0.30 total=100\nfull avg10=0.00 total=5\n',
+        'cpu 1 2 3 4 50 6 7 80 9 10\n',
+      ],
+      [
+        'some avg10=0.10 avg60=0.20 avg300=0.30 total=160\nfull avg10=0.00 total=9\n',
+        'cpu 1 2 3 4 70 6 7 110 9 10\n',
+      ],
+      [
+        'some avg10=0.10 avg60=0.20 avg300=0.30 total=200\nfull avg10=0.00 total=12\n',
+        'cpu 1 2 3 4 90 6 7 150 9 10\n',
+      ],
+    ];
+    const reader = vi.fn((path: string) => sources[generation][path === '/proc/stat' ? 1 : 0]);
+    const observations = {
+      cpuUsage: () => ({ user: 0, system: 0 }),
+      eventLoopUtilization: () => ({ idle: 0, active: 0, utilization: 0 }),
+      linuxPressure: () => readLinuxPressure(reader, 'linux'),
+    };
+    const trace = releaseCutDiagnostics(() => elapsedMs, context, observations);
+    trace.phase('fixture');
+    generation = 1;
+    elapsedMs = 200;
+    trace.phase('coordinator');
+    generation = 2;
+    elapsedMs = 6_200;
+    const snapshot = (
+      someTotalUs: number,
+      fullTotalUs: number,
+      iowaitTicks: number,
+      stealTicks: number
+    ) => ({
+      cpu: { someTotalUs, fullTotalUs, error: null },
+      io: { someTotalUs, fullTotalUs, error: null },
+      cpuStat: { iowaitTicks, stealTicks, error: null },
+    });
+    expect(trace.report()?.phases.map((phase) => phase.linuxPressure)).toEqual([
+      { before: snapshot(100, 5, 50, 80), after: snapshot(160, 9, 70, 110) },
+      { before: snapshot(160, 9, 70, 110), after: snapshot(200, 12, 90, 150) },
+    ]);
+    expect(reader.mock.calls.map(([path]) => path)).toEqual([
+      '/proc/pressure/cpu',
+      '/proc/pressure/io',
+      '/proc/stat',
+      '/proc/pressure/cpu',
+      '/proc/pressure/io',
+      '/proc/stat',
+      '/proc/pressure/cpu',
+      '/proc/pressure/io',
+      '/proc/stat',
+    ]);
+    const offLinux = releaseCutDiagnostics(() => elapsedMs, context, {
+      ...observations,
+      linuxPressure: () => readLinuxPressure(reader, 'darwin'),
+    });
+    offLinux.phase('fixture');
+    elapsedMs += 5_001;
+    expect(offLinux.report()?.phases[0]).not.toHaveProperty('linuxPressure');
+    expect(reader).toHaveBeenCalledTimes(9);
+  });
+  it('keeps unavailable and malformed Linux readings unknown rather than zero', () => {
+    const failure = new Error('unavailable');
+    expect(
+      readLinuxPressure(() => {
+        throw failure;
+      }, 'linux')
+    ).toEqual({
+      cpu: { someTotalUs: null, fullTotalUs: null, error: 'Error: unavailable' },
+      io: { someTotalUs: null, fullTotalUs: null, error: 'Error: unavailable' },
+      cpuStat: { iowaitTicks: null, stealTicks: null, error: 'Error: unavailable' },
+    });
+    expect(
+      readLinuxPressure(() => 'some avg10=1 total=9007199254740992\ncpu 1 2\n', 'linux')
+    ).toEqual({
+      cpu: { someTotalUs: null, fullTotalUs: null, error: null },
+      io: { someTotalUs: null, fullTotalUs: null, error: null },
+      cpuStat: { iowaitTicks: null, stealTicks: null, error: null },
+    });
+  });
+  it('retains aggregate synchronous command wall time and exact results/errors through both API wrappers', async () => {
+    const { runPackedCommand } = await vi.importActual<{
+      runPackedCommand: (
+        executable: string,
+        args: string[],
+        options: { cwd: string; env: NodeJS.ProcessEnv; isolateProcessGroup: boolean }
+      ) => string;
+    }>('../../scripts/packed-command.mjs');
+    let elapsedMs = 0;
+    const trace = releaseCutDiagnostics(() => elapsedMs, context);
+    const failure = new Error('exact child failure');
+    let calls = 0;
+    syncProcessObserver.observe = (execute) =>
+      trace.synchronous(() => {
+        calls++;
+        elapsedMs += calls * 10;
+        if (calls === 1) return success as ReturnType<typeof execute>;
+        if (calls === 2) return 'exact exec output' as ReturnType<typeof execute>;
+        if (calls === 3) return success as ReturnType<typeof execute>;
+        throw failure;
+      });
+    // The fake observer returns/throws without executing these command callbacks.
+    expect(spawnSync('unused', [], { encoding: 'utf8' })).toBe(success);
+    expect(execFileSync('unused', [], { encoding: 'utf8' })).toBe('exact exec output');
+    expect(runPackedCommand('unused', [], { cwd: '/', env: {}, isolateProcessGroup: false })).toBe(
+      'exact output'
+    );
+    let caught: unknown;
+    try {
+      execFileSync('unused');
+    } catch (error) {
+      caught = error;
+    }
+    expect(caught).toBe(failure);
+    expect(calls).toBe(4);
+    elapsedMs = 6_000;
+    expect(trace.report()).toMatchObject({
+      syncCallCount: 4,
+      syncElapsedMs: 100,
+      gitCallCount: 0,
+      gitElapsedMs: 0,
+    });
   });
   it('keeps only the slowest twelve bounded argv records while retaining complete totals', () => {
     let elapsedMs = 0;

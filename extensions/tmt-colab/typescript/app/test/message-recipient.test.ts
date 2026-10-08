@@ -1,111 +1,84 @@
 import { expect, it } from 'vite-plus/test';
-import { messageRecipient, type RecipientKey } from '../src/message-recipient.js';
+import { messageRecipient, resolveMessageMentions } from '../src/message-recipient.js';
+import type { AgentDestination } from '../src/live-ask.js';
 import type { ComposerEdit } from '../src/components/message-composer-edit.js';
 import { destination, id } from './ask-fixtures.js';
+const a = { ...destination(), agentName: 'alpha' };
+const b = { ...a, agent: id(9), agentName: 'beta' };
+const decide = (edit: ComposerEdit, destinations: AgentDestination[] = [a, b]) =>
+  messageRecipient({ writable: true, edit, destinations });
 
-const agent = destination();
-const key: RecipientKey = { machine: agent.machine, agent: agent.agent };
-const another = { ...agent, agent: id(9), agentName: 'Other agent' };
-const base = { writable: true, intent: 'agent' as const, destinations: [agent, another] };
-
-it('allows an admitted plain comment despite failed or empty agent discovery', () => {
-  for (const destinations of [undefined, [], [agent]]) {
-    expect(messageRecipient({ writable: true, intent: 'comment', destinations })).toEqual({
-      kind: 'comment',
+it('posts mention-free comments without directory admission, including an empty or failed directory', () => {
+  for (const destinations of [undefined, [], [a]]) {
+    const result = messageRecipient({
+      writable: true,
+      edit: { value: 'email@alpha stays text' },
+      destinations,
     });
+    expect(result.allowed).toBe(true);
+    expect(result.agents).toEqual([]);
+  }
+  expect(messageRecipient({ writable: false, edit: { value: 'note' } }).allowed).toBe(false);
+});
+it('exact typed names bind on space, punctuation or explicit end, preserving UTF16 ranges', () => {
+  for (const tail of [' ', ',', '。', '']) {
+    const result = resolveMessageMentions({ value: `😀 @alpha${tail}` }, [a]);
+    expect(result.mentions).toEqual([
+      { key: { machine: a.machine, agent: a.agent }, range: { start: 3, end: 9 } },
+    ]);
+  }
+  expect(resolveMessageMentions({ value: '@alpha' }, [a], false).mentions).toEqual([]);
+  expect(decide({ value: '請＠alpha explain' }).agents).toEqual([a]);
+});
+it('fans out to all distinct tokens, deduping repeated mentions by UUID pair', () => {
+  expect(decide({ value: '@alpha @beta @alpha Explain.' }).agents).toEqual([a, b]);
+});
+it('keeps unknown names as text and ambiguous exact names unbound', () => {
+  const unknown = decide({ value: '@missing note' });
+  expect(unknown).toMatchObject({ allowed: true, unknown: ['missing'], agents: [] });
+  const ambiguous = decide({ value: '@alpha note' }, [a, { ...b, agentName: 'alpha' }]);
+  expect(ambiguous).toMatchObject({ allowed: false, ambiguous: ['alpha'], mentions: [] });
+});
+it('preserves a bound UUID across renames and never substitutes a same-label agent or machine', () => {
+  const edit = {
+    value: '@alpha note',
+    mentions: [{ key: { machine: a.machine, agent: a.agent }, range: { start: 0, end: 6 } }],
+  };
+  expect(decide(edit, [{ ...a, agentName: 'renamed' }]).agents[0].agent).toBe(a.agent);
+  for (const replacement of [{ ...a, agent: id(8) }, { ...a, machine: id(8) }, a]) {
+    const candidates = replacement === a ? [a, a] : [replacement];
+    expect(decide(edit, candidates)).toMatchObject({ allowed: false, unavailable: ['alpha'] });
   }
 });
-
-it('keeps content-write admission authoritative for comment and agent intent', () => {
-  for (const intent of ['comment', 'agent'] as const)
-    expect(messageRecipient({ ...base, intent, writable: false })).toEqual({ kind: 'blocked' });
+it('fences mentions against loading/failed directory but permits offline and unknown agent presence on an online machine', () => {
+  expect(messageRecipient({ writable: true, edit: { value: '@alpha note' } }).allowed).toBe(false);
+  for (const presence of ['offline', 'unknown'] as const) {
+    expect(decide({ value: '@alpha note' }, [{ ...a, presence }]).allowed).toBe(true);
+  }
+  expect(decide({ value: '@alpha note' }, [{ ...a, online: 'offline' }]).allowed).toBe(false);
 });
-
-it('routes an explicitly selected admitted identity without requiring a mention', () => {
-  const edit: ComposerEdit = {
-    value: 'Please explain.\n\nKeep this trailing line.\n',
-    recipient: key,
-  };
-  expect(messageRecipient({ ...base, selected: edit.recipient })).toEqual({
-    kind: 'agent',
-    destination: agent,
-  });
-});
-
-it('continues a uniquely bound reply by UUID across renames and repeated turns', () => {
-  const renamed = { ...agent, agentName: 'Renamed agent' };
-  expect(
-    messageRecipient({ ...base, destinations: [renamed, another], replyRecipients: [key, key] }),
-  ).toEqual({ kind: 'agent', destination: renamed });
-});
-
-it('never substitutes a same-label different UUID or another machine for a bound recipient', () => {
-  for (const impostor of [
-    { ...agent, agent: id(8) },
-    { ...agent, machine: id(8) },
-  ])
-    expect(messageRecipient({ ...base, destinations: [impostor], replyRecipients: [key] })).toEqual(
+it('allows eight distinct recipients and refuses nine before any effect', () => {
+  const agents = Array.from({ length: 9 }, (_, i) => ({
+    ...a,
+    agent: id(i + 20),
+    agentName: `agent-${i}`,
+  }));
+  for (const count of [8, 9]) {
+    const result = decide(
       {
-        kind: 'unavailable',
+        value: agents
+          .slice(0, count)
+          .map((agent) => `@${agent.agentName}`)
+          .join(' '),
       },
+      agents,
     );
+    expect(result.allowed).toBe(count === 8);
+    expect(result.tooMany).toBe(count === 9);
+  }
 });
-
-it('requires an explicit choice for a conversation with multiple bound recipients', () => {
-  const replyRecipients = [key, { machine: another.machine, agent: another.agent }];
-  expect(messageRecipient({ ...base, replyRecipients })).toEqual({ kind: 'choose' });
-  expect(messageRecipient({ ...base, replyRecipients, selected: key })).toEqual({
-    kind: 'agent',
-    destination: agent,
-  });
-});
-
-it('uses the admitted stable last replier without a text prefix', () => {
-  expect(messageRecipient({ ...base, lastReplier: key })).toEqual({
-    kind: 'agent',
-    destination: agent,
-  });
-});
-
-it('requires explicit selection when no creation or conversation identity is known', () => {
-  const destinations = [agent, { ...another, agentName: agent.agentName }];
-  expect(messageRecipient({ ...base, destinations })).toEqual({ kind: 'choose' });
-  expect(messageRecipient({ ...base, destinations, selected: key })).toEqual({
-    kind: 'agent',
-    destination: agent,
-  });
-});
-
-it('does not silently retarget an unavailable explicit or prior choice', () => {
-  for (const selection of [{ selected: key }, { replyRecipients: [key] }, { lastReplier: key }])
-    expect(messageRecipient({ ...base, destinations: [another], ...selection })).toEqual({
-      kind: 'unavailable',
-    });
-});
-
-it('requires current discovered admission for agent intent and rejects unavailable candidates', () => {
-  expect(messageRecipient({ ...base, destinations: undefined, selected: key })).toEqual({
-    kind: 'unavailable',
-  });
-  for (const unavailable of [
-    { ...agent, online: 'offline' as const },
-    { ...agent, online: 'unknown' as const },
-    { ...agent, presence: 'offline' as const },
-  ])
-    expect(messageRecipient({ ...base, destinations: [unavailable], selected: key })).toEqual({
-      kind: 'unavailable',
-    });
-  expect(messageRecipient({ ...base, destinations: [] })).toEqual({ kind: 'choose' });
-});
-
-it('refuses duplicate candidate identity instead of treating it as unique', () => {
-  expect(messageRecipient({ ...base, destinations: [agent, { ...agent }], selected: key })).toEqual(
-    {
-      kind: 'unavailable',
-    },
-  );
-});
-
-it('keeps an unknown creation identity undecided even when only one agent is reachable', () => {
-  expect(messageRecipient({ ...base, destinations: [agent] })).toEqual({ kind: 'choose' });
+it('matches complete multiword names before shorter prefixes without fuzzy routing', () => {
+  const full = { ...b, agentName: 'alpha beta' };
+  expect(decide({ value: '@alpha beta, note' }, [a, full]).agents).toEqual([full]);
+  expect(decide({ value: '@alp note' }).agents).toEqual([]);
 });

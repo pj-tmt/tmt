@@ -193,51 +193,6 @@ test('shared field retains its root, label association and undo history across a
   await expect(input).toHaveText('', { useInnerText: true });
 });
 
-test('the primary submit follows recipient intent without moving actions or admitting synthetic clicks', async ({
-  page,
-}) => {
-  await page.goto(fixture);
-  const input = page.getByRole('combobox', { name: 'Message', exact: true });
-  const comment = page.getByRole('button', { name: 'Post comment', exact: true });
-  const ask = page.getByRole('button', { name: 'Ask agent', exact: true });
-  await expect(comment).toHaveAttribute('data-variant', 'primary');
-  await expect(ask).toHaveAttribute('data-variant', 'text');
-  await input.pressSequentially('Keep this note.');
-  const order = await comment.evaluate((node) =>
-    [...node.parentElement!.children].map((child) => child.textContent),
-  );
-  await page.getByRole('button', { name: 'Choose recipient', exact: true }).click();
-  await page.getByRole('option').filter({ hasText: '@Other agent' }).click();
-  await expect(input).toHaveText('Keep this note.', { useInnerText: true });
-  await expect(comment).toHaveAttribute('data-variant', 'text');
-  await expect(ask).toHaveAttribute('data-variant', 'primary');
-  await expect(page.getByRole('button', { name: 'Change recipient', exact: true })).toHaveAttribute(
-    'data-variant',
-    'text',
-  );
-  expect(
-    await comment.evaluate((node) =>
-      [...node.parentElement!.children].map((child) => child.textContent),
-    ),
-  ).toEqual(order);
-  await ask.evaluate((node) => (node as HTMLButtonElement).click());
-  const proof = await page.evaluate(async () => {
-    const path = '/test/annotation-browser.tsx';
-    return (await import(path)).proof();
-  });
-  expect(proof.writes).toBe(0);
-  expect(proof.sends).toHaveLength(0);
-  await input.press('Enter');
-  await expect
-    .poll(() =>
-      page.evaluate(async () => {
-        const path = '/test/annotation-browser.tsx';
-        return (await import(path)).proof().writes;
-      }),
-    )
-    .toBe(1);
-});
-
 for (const width of [1440, 390]) {
   for (const theme of ['light', 'dark'] as const) {
     test(`interaction presentation evidence: ${width}px ${theme}`, async ({ page }) => {
@@ -271,30 +226,30 @@ for (const width of [1440, 390]) {
       const dialog = page.getByRole('dialog', { name: 'Annotate selection' });
       const input = dialog.getByRole('combobox', { name: 'Message', exact: true });
       const capture = async (name: string) => {
-        const fields = await page.locator('.message-composer-field:visible').evaluateAll((nodes) =>
-          nodes.map((control) => {
-            const label = control.previousElementSibling!;
-            const style = getComputedStyle(control);
-            const picker = control.closest('.tmt-listbox-input')!.nextElementSibling;
-            const pickerLabel = picker?.querySelector('.tmt-ui-action-label');
-            return {
-              gap: control.getBoundingClientRect().top - label.getBoundingClientRect().bottom,
-              focusClearance:
-                parseFloat(style.getPropertyValue('--tmt-ui-focus-width')) +
-                parseFloat(style.getPropertyValue('--tmt-ui-host-focus-offset')),
-              pickerLabelOffset: pickerLabel
-                ? pickerLabel.getBoundingClientRect().left - control.getBoundingClientRect().left
-                : undefined,
-              pickerPadding: picker ? parseFloat(getComputedStyle(picker).paddingLeft) : undefined,
-            };
-          }),
-        );
+        const fields = await page
+          .locator('.annotation-compose .message-composer-field:visible')
+          .evaluateAll((nodes) =>
+            nodes.map((control) => {
+              const composer = control.closest('.annotation-compose')!;
+              const label = composer.querySelector('.tmt-ui-field-label')!;
+              const send = composer.querySelector('.annotation-status-row > .tmt-ui-action')!;
+              const fieldBox = control.getBoundingClientRect(),
+                sendBox = send.getBoundingClientRect();
+              return {
+                labelWidth: label.getBoundingClientRect().width,
+                clearance: sendBox.top - fieldBox.bottom,
+                sendRight: sendBox.right,
+                fieldRight: fieldBox.right,
+                padding: parseFloat(getComputedStyle(send).paddingLeft),
+              };
+            }),
+          );
         expect(fields.length).toBeGreaterThan(0);
         for (const field of fields) {
-          expect(field.gap).toBeGreaterThanOrEqual(field.focusClearance);
-          expect(field.pickerLabelOffset).toBeDefined();
-          expect(Math.abs(field.pickerLabelOffset!)).toBeLessThan(1);
-          expect(field.pickerPadding).toBeGreaterThan(0);
+          expect(field.labelWidth).toBe(1);
+          expect(field.clearance).toBeGreaterThanOrEqual(8);
+          expect(Math.abs(field.sendRight - field.fieldRight)).toBeLessThan(1);
+          expect(field.padding).toBeGreaterThan(0);
         }
         const state = await page.evaluate(() =>
           [...document.querySelectorAll<HTMLButtonElement>('.tmt-ui-action')].map((button) => {
@@ -339,11 +294,12 @@ for (const width of [1440, 390]) {
       await expect(dialog.getByTestId('comment-entry')).toHaveCount(1);
       await input.pressSequentially('A reply to the original comment.');
       await capture('reply-comment');
-      await dialog.getByRole('button', { name: 'Choose recipient', exact: true }).click();
+      await input.press('End');
+      await input.pressSequentially(' @');
       await page.getByRole('option').filter({ hasText: '@Agent 1 ·' }).click();
       await capture('reply-agent');
       await run('pausePrepare');
-      await dialog.getByRole('button', { name: 'Ask agent', exact: true }).click();
+      await dialog.getByRole('button', { name: 'Send', exact: true }).click();
       await expect(input).toHaveAttribute('contenteditable', 'false');
       await capture('reply-busy');
       await run('resumePrepare');
@@ -355,7 +311,7 @@ for (const width of [1440, 390]) {
       await toggle.click();
       const chat = page.getByTestId('chat-panel');
       const chatInput = chat.getByRole('combobox', { name: 'Message', exact: true });
-      await chat.getByRole('button', { name: 'Choose recipient', exact: true }).click();
+      await chatInput.pressSequentially('@');
       await page.getByRole('option').filter({ hasText: '@Agent 1 ·' }).click();
       await chatInput.pressSequentially('Ask about the complete page.');
       await capture('chat-ready');

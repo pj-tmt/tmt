@@ -23,7 +23,7 @@ import type { AcceptanceWorld } from './harness/world.js';
 // #1110 Ask agent real-binary acceptance. The Ask UI, Remote operations, the page
 // (`tmt colab page create`), the recipient and `tmt reply` are all real; the page exists
 // before the paired browsers register. The held case waits for a Remote-provided hold
-// fixture and stays `test.fixme`; held behavior is covered by unit tests.
+// fixture; held behavior is also covered by unit tests.
 //
 // Architecture: no native bridge ledger. The asker's browser calls Remote
 // operations as its paired device and records the ask, its states and the
@@ -204,16 +204,25 @@ test.describe('Ask agent real-binary acceptance (#1110)', () => {
               : s.askerPage.getByRole('dialog', { name: 'Annotate selection' });
           const input = container.getByRole('combobox', { name: 'Message', exact: true });
           const action = container.getByRole('button', {
-            name: surface === 'Chat' ? 'Send' : 'Ask agent',
+            name: 'Send',
             exact: true,
           });
           await s.door.remote.kill();
           const reconnect = s.askerPage.getByRole('button', { name: 'Reconnect', exact: true });
           await expect(reconnect).toHaveCount(1, { timeout: 60000 });
-          const draft = 'Keep this draft typed while disconnected.';
+          const draft = `Keep this draft typed while disconnected. @${s.recipient.name}`;
           await input.fill(draft);
-          await input.press('Home');
-          for (let i = 0; i < 5; i++) await input.press('ArrowRight');
+          await input.evaluate((node) => {
+            const first = node.ownerDocument
+              .createTreeWalker(node, NodeFilter.SHOW_TEXT)
+              .nextNode()!;
+            const range = node.ownerDocument.createRange();
+            range.setStart(first, 5);
+            range.collapse(true);
+            const selection = node.ownerDocument.getSelection()!;
+            selection.removeAllRanges();
+            selection.addRange(range);
+          });
           const selection = () =>
             input.evaluate((node) => {
               const value = getSelection()!;
@@ -231,7 +240,7 @@ test.describe('Ask agent real-binary acceptance (#1110)', () => {
           await expect(action).toBeDisabled();
           if (surface === 'annotation')
             await expect(
-              container.getByRole('button', { name: 'Post comment', exact: true }),
+              container.getByRole('button', { name: 'Send', exact: true }),
             ).toBeDisabled();
           if (surface === 'Chat' && width === 390)
             await s.askerPage.getByRole('button', { name: 'Close Chat', exact: true }).click();
@@ -324,9 +333,9 @@ test.describe('Ask agent real-binary acceptance (#1110)', () => {
             held.__heldDirectoryReads = [];
           });
           await expect(action).toBeEnabled();
-          await expect(
-            container.getByText(`Recipient: ${s.recipient.name} · This machine`, { exact: true }),
-          ).toBeVisible();
+          await expect(container.locator('.annotation-status-row [role="status"]')).toHaveText(
+            `Asks @${s.recipient.name}.`,
+          );
           await expect(entry).toHaveAttribute('data-ledger-state', 'accepted');
           await expect(entry.getByTestId('ask-reply')).toHaveText(replyBody(initial.delivered()));
           expect(navigations).toEqual([]);
@@ -340,14 +349,17 @@ test.describe('Ask agent real-binary acceptance (#1110)', () => {
             fullPage: true,
           });
           if (surface === 'annotation') {
-            const post = container.getByRole('button', { name: 'Post comment', exact: true });
+            const post = container.getByRole('button', { name: 'Send', exact: true });
             await expect(post).toBeEnabled();
+            await input.fill(edited.replace(` @${s.recipient.name}`, ''));
             await post.click();
             await expect(input).toHaveText('');
-            await expect(container.getByText(edited, { exact: true })).toBeVisible();
+            await expect(
+              container.getByText(edited.replace(` @${s.recipient.name}`, ''), { exact: true }),
+            ).toBeVisible();
             expect(s.recipient.received()).toHaveLength(1);
             expect(dispatches(world)).toHaveLength(1);
-            await input.fill('One new explicit Ask after recovery.');
+            await input.fill(`@${s.recipient.name} One new explicit Ask after recovery.`);
           }
           await action.click();
           await until(() => s.recipient.received().length === 2, 'one new explicit recipient wake');
@@ -415,7 +427,7 @@ test.describe('Ask agent real-binary acceptance (#1110)', () => {
         'uncertain',
         { timeout: 60_000 },
       );
-      await s.askerPage.getByRole('button', { name: 'Re-check delivery' }).click();
+      await s.askerPage.getByRole('button', { name: 'Check again' }).click();
       await expect(askState(s.askerPage, ask.operationId)).toHaveAttribute(
         'data-state',
         'uncertain',
