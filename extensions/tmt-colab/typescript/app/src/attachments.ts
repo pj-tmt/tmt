@@ -149,7 +149,7 @@ export class AdmittedAttachmentRead {
   async recheck(sharing: string | readonly string[]) {
     remaining(this.deadline);
     const current = await this.owner.snapshot();
-    current.admission.validateRead(sharing);
+    current.admission.validateRead(sharing, this.descriptor.epoch);
     const original =
       this.descriptor.epoch === current.admission.epoch
         ? current

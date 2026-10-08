@@ -12,6 +12,7 @@ pub mod export;
 pub mod fold;
 pub mod inspection;
 mod ipc;
+mod object_channel;
 pub mod keyring;
 pub mod limits;
 pub mod management;

@@ -255,6 +255,7 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
             "yrs",
             "base64",
             "tmt-colab-model",
+            "tmt-extension-objects",
             "ed25519-dalek",
             "getrandom",
             "nix",
@@ -356,9 +357,9 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
             let carrier_only = name == "tmt-extension-objects"
                 && ["httparse", "nix"].contains(&dependency)
                 && !((d["kind"].is_null() || d["kind"] == "normal") && d["target"] == "cfg(unix)");
-            // Remote consumes the leaf as an ordinary, untargeted, unrenamed dependency.
+            // Remote's service and Colab's channel adapter consume the neutral leaf.
             let leaf_consumer_only = dependency == "tmt-extension-objects"
-                && !(name == "tmt-remote"
+                && !(["tmt-remote", "tmt-colab"].contains(&name)
                     && (d["kind"].is_null() || d["kind"] == "normal")
                     && d["target"].is_null());
             let unreviewed = !allowed.contains(&dependency)
@@ -840,7 +841,8 @@ pub fn source_violations(sources: &[Source]) -> Vec<String> {
                 && root != "tmt_invoke"
                 && !(root == "tmt_extension_state"
                     && ["tmt-remote", "tmt-colab"].contains(&source.package.as_str()))
-                && !(root == "tmt_extension_objects" && source.package == "tmt-remote")
+                && !(root == "tmt_extension_objects"
+                    && ["tmt-remote", "tmt-colab"].contains(&source.package.as_str()))
                 && !(source.package == "tmt-ops" && root == "tmt_tui")
                 && !(root == "tmt_colab_model" && colab_model_consumer)
                 && root != source.package.replace('-', "_")
@@ -894,13 +896,17 @@ pub fn source_violations(sources: &[Source]) -> Vec<String> {
                     "{location}: only the extension objects carrier may use {root}"
                 ));
             }
-            // Each reviewed consumer is added with its edge: Remote's object service alone.
+            // Each reviewed consumer is added with its edge and its narrowly owned module.
             let object_service = source.package == "tmt-remote"
                 && (source.file == "object_service.rs"
                     || source.file.starts_with("object_service/"));
+            let colab_channel = source.package == "tmt-colab"
+                && (source.file == "object_channel.rs"
+                    || source.file.starts_with("object_channel/"));
             if root == "tmt_extension_objects"
                 && source.package != "tmt-extension-objects"
                 && !object_service
+                && !colab_channel
             {
                 violations.push(format!(
                     "{location}: unreviewed extension objects consumer {}",

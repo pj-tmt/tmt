@@ -1965,7 +1965,7 @@ fn refuses(
 }
 
 #[test]
-fn extension_objects_is_a_strict_leaf_consumed_only_by_the_remote_object_service() {
+fn extension_objects_is_a_strict_leaf_consumed_by_remote_service_and_colab_channel() {
     for kind in ["normal", "dev", "build"] {
         for target in [None, Some("cfg(unix)")] {
             for allowed in ["base64", "serde", "serde_json"] {
@@ -2034,11 +2034,10 @@ fn extension_objects_is_a_strict_leaf_consumed_only_by_the_remote_object_service
                     "renamed {carrier} {kind} {target:?}"
                 );
             }
-            // Only Remote depends on the leaf, as a plain normal dependency: no other
-            // package, and no rename, dev, build or target-gated edge of Remote.
+            // The two consumers have only plain normal edges; no rename or gated/dev/build edge.
             for consumer in WORKSPACE_PACKAGES {
                 for rename in [None, Some("objects")] {
-                    let reviewed = consumer == "tmt-remote"
+                    let reviewed = ["tmt-remote", "tmt-colab"].contains(&consumer)
                         && kind == "normal"
                         && target.is_none()
                         && rename.is_none();
@@ -2071,6 +2070,27 @@ fn extension_objects_is_a_strict_leaf_consumed_only_by_the_remote_object_service
                 "use tmt_extension_objects::Counter;",
             )],
             &[],
+        );
+    }
+    for file in ["object_channel.rs", "object_channel/client.rs"] {
+        assert_exact(
+            &[syntax(
+                "tmt-colab",
+                file,
+                "use tmt_extension_objects::Counter;",
+            )],
+            &[],
+        );
+    }
+    for file in ["socket.rs", "attachments.rs", "object_channels.rs"] {
+        assert!(
+            !policy::source_violations(&[syntax(
+                "tmt-colab",
+                file,
+                "use tmt_extension_objects::Counter;"
+            )])
+            .is_empty(),
+            "{file}"
         );
     }
     for file in [

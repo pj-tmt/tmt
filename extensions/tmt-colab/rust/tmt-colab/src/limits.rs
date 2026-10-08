@@ -5,6 +5,10 @@ use std::time::Duration;
 pub use crate::app_inventory::{APP_BYTES, APP_FILES};
 
 pub const SOCKETS: usize = 16;
+/// Owned per-generation admission workers; the dispatcher never waits on them.
+pub const OBJECT_CALLBACK_WORKERS: usize = 2;
+/// Matches Remote's callback bound, clipped to the pending request deadline.
+pub const OBJECT_CALLBACK: Duration = Duration::from_secs(5);
 
 /// Live colab-sync-v1 tunnels, matching the remote door's colab mount cap.
 pub const TUNNELS: usize = 16;

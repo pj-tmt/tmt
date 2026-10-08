@@ -18,6 +18,8 @@ export class Catchup {
     readonly admission: Admission,
     readonly sharing: string | readonly string[],
     readonly objects?: Objects,
+    readonly epoch = admission.epoch,
+    readonly reading = false,
   ) {}
   close() {
     this.checkpoints.forEach((v) => v.update.fill(0));
@@ -94,7 +96,7 @@ export class Catchup {
           object: value.baselineObject as unknown as BaselineObject,
         };
       } else {
-        requireValue(!Object.hasOwn(value, 'baselineObject') && a.epoch === '1');
+        requireValue(!Object.hasOwn(value, 'baselineObject') && this.epoch === '1');
       }
       this.#started = true;
     } else {
@@ -133,9 +135,15 @@ export class Catchup {
     if (!value.more) {
       requireValue(!this.#membershipMore && a.head !== null);
       this.objects?.finish();
-      a.validatePage(this.sharing);
+      if (this.reading) a.validateRead(this.sharing, this.epoch);
+      else a.validatePage(this.sharing);
       if (this.#reset) {
-        this.baseline = await openBaseline(a, this.#reset.descriptor, this.#reset.object);
+        this.baseline = await openBaseline(
+          a,
+          this.#reset.descriptor,
+          this.#reset.object,
+          this.epoch,
+        );
         this.#reset = null;
       }
       requireValue((this.baseline?.update.length ?? 0) + this.#readBytes <= STATE_BYTES);
@@ -148,7 +156,7 @@ export class Catchup {
       value.version === 1 &&
         value.space === this.admission.space &&
         value.page === this.admission.page &&
-        value.epoch === this.admission.epoch,
+        value.epoch === this.epoch,
     );
   }
 }

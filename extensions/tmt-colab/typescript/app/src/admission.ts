@@ -219,8 +219,10 @@ export class Admission {
       }
     }
   }
-  baseline(value: payload.Baseline): Uint8Array {
-    requireValue(this.head !== null && value.pageId === this.page && value.epoch === this.epoch);
+  baseline(value: payload.Baseline, epoch = this.epoch): Uint8Array {
+    const requested = decimal(epoch), current = decimal(this.epoch);
+    requireValue(requested <= current && current - requested < 64n);
+    requireValue(this.head !== null && value.pageId === this.page && value.epoch === epoch);
     const revision = decimal(value.membershipRevision);
     requireValue(revision <= this.head.revision);
     const signed = this.#log[Number(revision - 1n)];
@@ -392,20 +394,27 @@ export class Admission {
   }
   /** Current read policy, including the actual link seat. Writes still use
    * validatePage's writable default and author(), never this read purpose. */
-  validateRead(sharing: string | readonly string[]) {
+  validateRead(sharing: string | readonly string[], epoch = this.epoch) {
     this.validatePage(sharing, true);
+    const current = decimal(this.epoch),
+      requested = decimal(epoch);
+    requireValue(requested <= current && current - requested < 64n);
     if (!this.reader) {
       this.author(this.registration.deviceId, this.head!.revision.toString());
       return;
     }
     requireValue(Date.now() < this.reader.expiresAt);
-    let active = false;
+    let active = false,
+      currentOnly = false;
     for (const { payload: p } of this.#log) {
       if (p.operation === 'link.add' && p.value.linkId === this.reader.linkId)
         active = p.value.pages.includes(this.page);
       if (p.operation === 'link.remove' && p.value.linkId === this.reader.linkId) active = false;
+      if (p.operation === 'page.history' && p.value.pageId === this.page)
+        currentOnly = p.value.mode === 'current';
     }
     requireValue(active);
+    requireValue(!currentOnly || epoch === this.epoch);
   }
   validatePage(sharing: string | readonly string[], reading = false) {
     let epoch: string | undefined,

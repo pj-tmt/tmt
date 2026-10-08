@@ -98,6 +98,34 @@
       "token": "v1:f4f3a775b7a545669d03f5fcc3447c8b7d720f9539afdc7b37d4fb1e56f18912"
     }
   ],
+  "channelPolicies": [
+    {
+      "name": "document",
+      "upload": "{\"version\":1,\"space\":\"4kph3kmtxo7dinlvoixpw642ozfibd2w\",\"page\":\"00000000-0000-4000-8000-000000000002\",\"epoch\":\"1\",\"target\":{\"kind\":\"document\",\"sourceDigest\":\"21693389080d7dbc3a8a66b63ed71102eddc4eeea9ac69acebe1e1914f21c347\"},\"attachmentId\":\"00000000-0000-4000-8000-000000000041\",\"descriptorHash\":\"9f47a0c83f05ccf5fd59a731f3641c985042b0fea257ff7e41a6a523f66180e3\",\"objectId\":\"0101010101010101010101010101010101010101010101010101010101010101\",\"envelopeHash\":\"34877068c80ec8aacf400683743d1a3a95855f1c87897ca5f95828093b3f7ba1\",\"payloadSha256\":\"30c7ae16aac3cf425b9ebde44e837a42ac05a1c7bcd07e57214ab11cef887d39\",\"payloadBytes\":\"631\",\"plaintextBytes\":\"21\"}",
+      "reference": {
+        "kind": "document-current",
+        "attachmentId": "00000000-0000-4000-8000-000000000041",
+        "descriptorHash": "9f47a0c83f05ccf5fd59a731f3641c985042b0fea257ff7e41a6a523f66180e3",
+        "contentRevision": "v1:0b49b9b4e5dde3c9aa5ea8fc2fe406867af76363db424f6ed8fc7445a5710307"
+      },
+      "peerEpoch": "2",
+      "read": "{\"version\":1,\"space\":\"4kph3kmtxo7dinlvoixpw642ozfibd2w\",\"page\":\"00000000-0000-4000-8000-000000000002\",\"epoch\":\"2\",\"reference\":{\"kind\":\"document-current\",\"attachmentId\":\"00000000-0000-4000-8000-000000000041\",\"descriptorHash\":\"9f47a0c83f05ccf5fd59a731f3641c985042b0fea257ff7e41a6a523f66180e3\",\"contentRevision\":\"v1:0b49b9b4e5dde3c9aa5ea8fc2fe406867af76363db424f6ed8fc7445a5710307\"}}"
+    },
+    {
+      "name": "message",
+      "upload": "{\"version\":1,\"space\":\"4kph3kmtxo7dinlvoixpw642ozfibd2w\",\"page\":\"00000000-0000-4000-8000-000000000002\",\"epoch\":\"1\",\"target\":{\"kind\":\"message\",\"writerId\":\"00000000-0000-4000-8000-000000000012\",\"messageId\":\"00000000-0000-4000-8000-000000000046\",\"messageRevision\":\"1\"},\"attachmentId\":\"00000000-0000-4000-8000-000000000042\",\"descriptorHash\":\"026ad7109f4167f03b1ddd75352280cf147516d1d626c27a944e0c0008a2c92d\",\"objectId\":\"0202020202020202020202020202020202020202020202020202020202020202\",\"envelopeHash\":\"237e37d45e70e9cd8188ab2413a433b7184856d57972c7519e8c1149d3907b22\",\"payloadSha256\":\"0ec9dab316719640e16a5520f6077685d2a4929604d73e9263b03e38fccf5efd\",\"payloadBytes\":\"626\",\"plaintextBytes\":\"21\"}",
+      "reference": {
+        "kind": "message",
+        "writerId": "00000000-0000-4000-8000-000000000012",
+        "messageId": "00000000-0000-4000-8000-000000000046",
+        "messageRevision": "1",
+        "attachmentId": "00000000-0000-4000-8000-000000000042",
+        "descriptorHash": "026ad7109f4167f03b1ddd75352280cf147516d1d626c27a944e0c0008a2c92d"
+      },
+      "peerEpoch": "2",
+      "read": "{\"version\":1,\"space\":\"4kph3kmtxo7dinlvoixpw642ozfibd2w\",\"page\":\"00000000-0000-4000-8000-000000000002\",\"epoch\":\"2\",\"reference\":{\"kind\":\"message\",\"writerId\":\"00000000-0000-4000-8000-000000000012\",\"messageId\":\"00000000-0000-4000-8000-000000000046\",\"messageRevision\":\"1\",\"attachmentId\":\"00000000-0000-4000-8000-000000000042\",\"descriptorHash\":\"026ad7109f4167f03b1ddd75352280cf147516d1d626c27a944e0c0008a2c92d\"}}"
+    }
+  ],
   "cases": [
     {
       "name": "document",
