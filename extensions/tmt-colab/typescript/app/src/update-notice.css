@@ -1,0 +1,14 @@
+.update-notice {
+  position: fixed;
+  inset: auto 0 0;
+  z-index: 20;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 4px 16px;
+  padding: 10px 16px;
+  color: var(--c-text);
+  background: var(--tmt-ui-surface-sheet);
+  border-top: 1px solid var(--tmt-ui-color-edge);
+}

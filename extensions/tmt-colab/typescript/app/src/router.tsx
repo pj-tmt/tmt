@@ -42,6 +42,7 @@ import { mountRenderer, MAX_RENDER_SOURCE_BYTES } from './renderer.js';
 import type { RenderState, SelectionRect } from './renderer.js';
 import { text } from './strings.js';
 import { terminalFailure } from './terminal-failure.js';
+import { buildWatch } from './app-build.js';
 import { SessionEvictedError } from './ask-remote.js';
 import { RecoveryRequiredError } from './session-recovery.js';
 import { ExportPanel } from './export-panel.js';
@@ -620,6 +621,7 @@ function Page() {
         }
       },
       (error) => {
+        void buildWatch.check();
         setLiveError(error);
         setEviction(error instanceof SessionEvictedError ? error : null);
       },
@@ -1387,11 +1389,13 @@ export function createAppRouter(transport: PageTransport, space?: string) {
           `${location.pathname}#space=${space}${path === '/' ? '' : `&path=${encodeURIComponent(path)}`}`,
       })
     : createHashHistory();
-  return createRouter({
+  const router = createRouter({
     routeTree: root.addChildren([home, page, shortPage, blocked]),
     history,
     context: { transport },
   });
+  router.subscribe('onResolved', () => void buildWatch.check());
+  return router;
 }
 declare module '@tanstack/react-router' {
   interface Register {
