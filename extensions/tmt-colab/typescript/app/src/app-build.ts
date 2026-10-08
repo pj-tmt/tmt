@@ -24,7 +24,9 @@ export function entryOf(html: string, base: URL): string | null {
 }
 
 /** `/assets/index-AbC123xY.js` is build `index` at hash `AbC123xY`; unhashed entries
- * (the guidance page's `recovery.js`, the reader's `reader.js`) are not app builds. */
+ * (the guidance page's `recovery.js`, the reader's `reader.js`) are not app builds.
+ * This relies on Vite's 8-character content hash: if the build's hash length changes the
+ * notice goes silent, which `test/app-build.test.ts` pins. */
 function stamp(path: string): { name: string; hash: string } | null {
   const match = /([^/]+)-([A-Za-z0-9_-]{8})\.js$/.exec(path);
   return match ? { name: match[1], hash: match[2] } : null;
