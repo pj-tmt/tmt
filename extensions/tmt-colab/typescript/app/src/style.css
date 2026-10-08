@@ -1165,7 +1165,14 @@ footer {
 }
 .annotation-status-row {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
   column-gap: 8px;
+}
+.annotation-status-row > p {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+.annotation-status-row > [data-agent-retry] {
+  flex: none;
 }
