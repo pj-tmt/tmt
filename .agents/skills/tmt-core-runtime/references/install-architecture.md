@@ -94,6 +94,8 @@ Full `tmt uninstall` plans and removes a verified former installation through th
 same receipt and command-link fence, even without Ops installed; ordinary data
 retention and explicit `--purge` policy still apply.
 
+A parent CLI released before Ops registration parses the candidate's upgrade plan with its own product table and rejects `ops` (`EXTENSION_UPGRADE_FAILED`, "invalid extension upgrade report") after the CLI itself is updated; rerunning `tmt upgrade` on the new CLI completes the replacement, and candidates emit no former-name wire compatibility.
+
 ## Companions and skills trees
 
 - A release may carry a companion beside its executable (`Product::companions()`; the CLI carries
