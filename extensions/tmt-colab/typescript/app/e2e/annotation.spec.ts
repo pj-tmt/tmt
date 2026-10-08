@@ -24,14 +24,14 @@ test('an accepted annotation stops saying awaiting at the observation deadline w
   await input.press('Enter');
   await page.getByRole('button', { name: 'Ask agent', exact: true }).click();
   await expect(page.getByTestId('ask-state')).toHaveAttribute('data-state', 'accepted');
-  await expect(page.getByTestId('ask-state')).toHaveText('waiting');
+  await expect(page.getByTestId('ask-state')).toHaveText('Waiting for Deterministic agent');
   const before = await run(page, 'proof');
   expect(before.sends).toHaveLength(1);
   await page.clock.fastForward(2 * 60 * 60 * 1000 + 1);
-  await expect(page.getByTestId('ask-state')).toHaveText('no reply yet');
+  await expect(page.getByTestId('ask-state')).toHaveText('No reply yet from Deterministic agent');
   await expect(page.getByTestId('ask-state').locator('svg.lucide-clock')).toBeVisible();
   await expect(page.getByTestId('ask-state')).toHaveAttribute('data-state', 'accepted');
-  await expect(page.getByRole('button', { name: 'Re-check delivery', exact: true })).toBeEnabled();
+  await expect(page.getByRole('button', { name: 'Check again', exact: true })).toBeEnabled();
   expect(await run(page, 'proof')).toEqual(before);
   const directory = process.env.COLAB_1699_CAPTURE_DIR;
   if (directory) {
@@ -63,9 +63,15 @@ test('each accepted annotation reaches its own deadline while the conversation s
   const before = await run(page, 'proof');
   expect(before.preparations).toBe(2);
   await page.clock.fastForward(60 * 60 * 1000 + 1);
-  await expect(status).toHaveText(['no reply yet', 'waiting']);
+  await expect(status).toHaveText([
+    'No reply yet from Deterministic agent',
+    'Waiting for Deterministic agent',
+  ]);
   await page.clock.fastForward(60 * 60 * 1000);
-  await expect(status).toHaveText(['no reply yet', 'no reply yet']);
+  await expect(status).toHaveText([
+    'No reply yet from Deterministic agent',
+    'No reply yet from Deterministic agent',
+  ]);
   expect(await run(page, 'proof')).toEqual(before);
 });
 test('the shared input listbox consumes recipient Enter; explicit message Enter sends once and held stays inline', async ({
@@ -99,7 +105,9 @@ test('the shared input listbox consumes recipient Enter; explicit message Enter 
   await expect(page.getByTestId('ask-entry').locator('.comment-byline')).toContainText(
     'Fixture browser ·',
   );
-  await expect(page.getByTestId('ask-entry').getByTestId('ask-state')).toContainText('held');
+  await expect(page.getByTestId('ask-entry').getByTestId('ask-state')).toContainText(
+    'Waiting for approval',
+  );
   await expect(page.getByTestId('ask-preview')).toHaveCount(0);
   await expect(page.locator('dialog')).toHaveCount(0);
 });
