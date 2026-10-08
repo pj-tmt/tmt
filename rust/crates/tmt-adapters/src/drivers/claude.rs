@@ -6,6 +6,7 @@ pub use crate::runtime::hook_protocol::{
 };
 use serde::Deserialize;
 pub mod channel;
+mod focus;
 use tmt_core::binding::session::{
     BindingSessionState, ObservedSessionKey, ProviderSessionId, RuntimeLiveness, RuntimeState,
     SessionTransition,
@@ -313,6 +314,18 @@ impl tmt_core::driver::Driver for ClaudeRuntime {
 pub struct ClaudeLifecycle;
 
 impl crate::runtime::lifecycle::RuntimeLifecycle for ClaudeLifecycle {
+    fn prepare_launch_hooks(
+        &self,
+        plan: &crate::runtime::hook_protocol::LaunchHooks<'_>,
+    ) -> std::io::Result<Option<crate::runtime::RuntimeCommand>> {
+        focus::prepare(plan).map(Some)
+    }
+    fn decode_focus_turn(&self, payload: &[u8]) -> Option<ProviderSessionId> {
+        focus::decode(payload)
+    }
+    fn encode_focus_turn(&self, digest: &str) -> Option<String> {
+        focus::encode(digest)
+    }
     fn reads_state(&self, version: u16) -> bool {
         crate::runtime::driver_state::reads(version)
     }
@@ -446,16 +459,12 @@ impl crate::runtime::lifecycle::RuntimeLifecycle for ClaudeLifecycle {
 
     fn observe_in_pane(
         &self,
+        runner: &dyn crate::process::CommandRunner,
         caller: u64,
         pane: u64,
         deadline: std::time::Instant,
     ) -> Option<ProcessIncarnation> {
-        observe_in_pane(
-            &crate::process::SupervisedProbeRunner,
-            caller,
-            pane,
-            deadline,
-        )
+        observe_in_pane(&runner, caller, pane, deadline)
     }
 
     fn mode(

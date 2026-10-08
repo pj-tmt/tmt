@@ -201,6 +201,12 @@ pub(in crate::grammar) fn setup(hooked: Vec<&'static str>) -> Command {
 pub(in crate::grammar) fn hook(hooked: Vec<&'static str>) -> Command {
     internal("__hook", "Internal bounded provider lifecycle callback")
         .hide(true)
+        .arg(
+            Arg::new("activity-only")
+                .long("activity-only")
+                .hide(true)
+                .action(ArgAction::SetTrue),
+        )
         .arg(operand("provider", true).value_parser(hooked))
         .arg(
             Arg::new("worker")
@@ -226,6 +232,14 @@ pub(in crate::grammar) fn hook(hooked: Vec<&'static str>) -> Command {
                     Ok(budget)
                 }),
         )
+}
+
+pub(in crate::grammar) fn focus_hook(hooked: Vec<&'static str>) -> Command {
+    hook(hooked)
+        .name("__focus-hook")
+        .mut_arg("activity-only", |arg| arg.conflicts_with("launch"))
+        .about("Internal launch-admitted Focus continuation")
+        .arg(Arg::new("launch").long("launch").required(true).hide(true))
 }
 
 pub(in crate::grammar) fn upgrade() -> Command {

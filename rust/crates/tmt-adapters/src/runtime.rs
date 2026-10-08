@@ -1,5 +1,6 @@
 //! Registered runtime recognition and exact resume commands.
-//! Explicit launches bypass argument planning entirely: they preserve argv.
+//! Explicit command selection preserves argv. Optional driver-owned launch hooks
+//! compose session settings before the channel's independent enrollment.
 
 use std::{
     ffi::{OsStr, OsString},

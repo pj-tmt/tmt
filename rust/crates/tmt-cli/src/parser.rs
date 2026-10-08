@@ -219,7 +219,14 @@ fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
             yes: flag(m, "yes"),
         },
         ["__consumption-sample"] => Invocation::ConsumptionSample,
+        ["__focus-hook"] => Invocation::FocusHook {
+            provider: text(m, "provider").expect("required provider"),
+            launch: text(m, "launch").expect("required launch"),
+            worker: flag(m, "worker"),
+            work_budget_ms: m.get_one::<u64>("work-budget-ms").copied(),
+        },
         ["__hook"] => Invocation::ProviderHook {
+            activity_only: flag(m, "activity-only"),
             provider: text(m, "provider").expect("required provider"),
             worker: flag(m, "worker"),
             work_budget_ms: m.get_one::<u64>("work-budget-ms").copied(),

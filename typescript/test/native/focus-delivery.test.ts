@@ -1,5 +1,6 @@
 import Database from 'better-sqlite3';
-import { readFileSync } from 'node:fs';
+import { readFileSync, existsSync } from 'node:fs';
+import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { describe, expect, it } from 'vite-plus/test';
 import { runCli, withSandbox, type Sandbox } from '../support/cli-process.js';
@@ -20,6 +21,32 @@ async function identity(sandbox: Sandbox, name: string) {
 }
 
 describe('native Focus held delivery and checklist seam', () => {
+  it('launch callbacks refuse malformed, recursive and unbound evidence without initializing storage', async () => {
+    await withSandbox(async (sandbox) => {
+      const launch = JSON.stringify({
+        identity_id: randomUUID(),
+        binding_id: randomUUID(),
+        owner_pid: 1,
+        owner_start: 'not-authority',
+      });
+      for (const [scope, input] of [
+        [launch, { hook_event_name: 'Stop', session_id: 'session', stop_hook_active: false }],
+        [launch, { hook_event_name: 'Stop', session_id: 'session', stop_hook_active: true }],
+        [
+          launch,
+          { hook_event_name: 'SubagentStop', session_id: 'session', stop_hook_active: false },
+        ],
+        ['{}', { hook_event_name: 'Stop', session_id: 'session', stop_hook_active: false }],
+      ] as const) {
+        const result = await runCli(sandbox, ['__focus-hook', 'claude', '--launch', scope], {
+          stdin: JSON.stringify(input),
+        });
+        expect(result).toMatchObject({ status: 0, stdout: '', stderr: '' });
+      }
+      expect(existsSync(sandbox.database)).toBe(false);
+      expect(existsSync(path.join(sandbox.home, '.claude'))).toBe(false);
+    });
+  });
   it('diagnoses a target checklist error without rejecting a new talk from its sender', async () => {
     await withSandbox(async (sandbox) => {
       const target = await identity(sandbox, 'Worker');

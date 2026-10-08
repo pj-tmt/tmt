@@ -3,6 +3,7 @@ mod consumption_history;
 mod context;
 mod dispatch;
 mod errors;
+mod focus_hook;
 mod host_servers;
 mod identities;
 mod identity_hooks;

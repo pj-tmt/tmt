@@ -112,7 +112,8 @@ in `contracts/`.
   never renew timestamps, timestamps are accepted observation times, and `ended` needs a
   conclusive process observation.
 - Competing executable claims resolve by descending priority, then harness ID. Explicit launches
-  keep every argv byte; bare relaunch resolves the registered executable with no arguments.
+  select argv verbatim; optional driver-owned session settings are composed afterward. Bare
+  relaunch resolves the registered executable with no arguments.
 
 ## Consumption and context usage
 
@@ -144,7 +145,7 @@ in `contracts/`.
 
 ## Hooks, setup and uninstall
 
-- The provider hook entrypoint always exits zero with no permission output and supervises one
+- The observation hook entrypoint (`__hook`) always exits zero with no permission output and supervises one
   worker under the two-second budget (provider settings allow three; Codex channel hooks use
   `RuntimeLifecycle::hook_work_duration`). The remaining budget reaches the worker as a typed
   hidden argument and reaches `turn_state`. A failed worker kills its own group; the supervisor
@@ -180,6 +181,40 @@ in `contracts/`.
   CLI, the setup record and, with `--purge`, the data directory. An unreadable record stops it
   first; anything differing from what TMT wrote is kept and reported; a failed step stops and a
   rerun resumes. Product removal order derives from `Product::ALL`.
+
+## Claude launch Focus hooks
+
+`RuntimeLifecycle::prepare_launch_hooks` is an optional driver-owned launch boundary.
+Claude composes one inline `--settings` object before channel enrollment for fresh
+and resumed launches. Explicit inline or regular-file settings retain unrelated
+raw JSON and user hooks. Unsafe settings, duplicated or edited owned hooks, and
+explicit hook-disable policies refuse composition; no provider settings are written.
+Composition failures leave the user's original command unchanged and emit one
+diagnostic line; they never refuse the launch or retire its temporary identity.
+Held items remain available to the verified-idle checklist path without Stop hooks.
+Setup's exact ownership rule skips per-launch observation entries already installed
+in user or explicit launch settings. A `--setting-sources` selection that omits user
+settings also omits their hooks from this deduplication. `--bare` and `--safe-mode`
+refuse hook composition while the original launch proceeds. Without a consented usage
+hook, the per-launch Stop observer updates activity only; it does not enable
+transcript collection.
+
+The separate `__focus-hook` accepts only an unrecursive main-agent Stop and emits
+Claude's documented `decision: "block"` plus `reason` continuation. It does not use
+`additionalContext` alone. Unsupported events, including StopFailure and SubagentStop,
+and `stop_hook_active: true` never claim. Exact identity/binding, fresh host marker,
+native provider incarnation, live foreground launcher owner, and remembered/current
+provider session admit the boundary. The claim transaction fences that binding and
+remembered pair; simultaneous telemetry updates do not grant or remove authority.
+
+A bounded worker seals the canonical checklist and builds its digest. Its private
+result is not delivered evidence: the supervisor revalidates admission and the active
+attempt, then publishes one bounded JSON handoff under the same two-second budget.
+Complete raw stdout publication has no userspace buffer left to flush and settles
+`delivered`; zero bytes settles `definitely_unsent`, partial publication `uncertain`.
+A lost worker response, supervisor crash or failed settlement leaves a discoverable
+claim and never grants automatic replay. This is hook handoff, not model consumption
+or X acknowledgment. There is no Focus timer, polling worker or settings installation.
 
 ## Foreground launch
 

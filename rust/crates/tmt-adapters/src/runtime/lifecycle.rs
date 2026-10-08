@@ -75,6 +75,24 @@ pub struct TurnEnd {
 }
 
 pub trait RuntimeLifecycle {
+    /// Optional provider-owned, session-only hook installation. Global provider
+    /// settings are read for composition/ownership, never written by a launch.
+    fn prepare_launch_hooks(
+        &self,
+        _plan: &super::hook_protocol::LaunchHooks<'_>,
+    ) -> std::io::Result<Option<super::RuntimeCommand>> {
+        Ok(None)
+    }
+
+    /// Only a provider's main-agent continuation boundary may claim Focus.
+    fn decode_focus_turn(&self, _payload: &[u8]) -> Option<ProviderSessionId> {
+        None
+    }
+
+    fn encode_focus_turn(&self, _digest: &str) -> Option<String> {
+        None
+    }
+
     /// Optional shared work budget for input, admission and the hook worker.
     /// The driver reserves process cleanup and provider timeout margin.
     fn hook_work_duration(&self) -> Option<Duration> {
@@ -193,6 +211,7 @@ pub trait RuntimeLifecycle {
 
     fn observe_in_pane(
         &self,
+        _runner: &dyn crate::process::CommandRunner,
         _caller_pid: u64,
         _pane_pid: u64,
         _deadline: Instant,

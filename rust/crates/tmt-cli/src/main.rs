@@ -40,6 +40,7 @@ mod office_facade;
 mod output;
 use tmt_adapters::pane_badge;
 mod consumption_sample_command;
+mod focus_hook_command;
 mod parser;
 mod profile_command;
 mod provider_hook_command;
@@ -249,12 +250,26 @@ fn dispatch(parsed: invocation::Parsed) -> io::Result<u8> {
             return setup_command::execute(provider, status, remove, usage, yes, parsed.mode);
         }
         Invocation::ConsumptionSample => return consumption_sample_command::execute(),
+        Invocation::FocusHook {
+            provider,
+            launch,
+            worker,
+            work_budget_ms,
+        } => {
+            return focus_hook_command::execute(&provider, &launch, worker, work_budget_ms);
+        }
         Invocation::ProviderHook {
+            activity_only,
             provider,
             worker,
             work_budget_ms,
         } => {
-            return provider_hook_command::execute(&provider, worker, work_budget_ms);
+            return provider_hook_command::execute(
+                &provider,
+                worker,
+                work_budget_ms,
+                activity_only,
+            );
         }
         Invocation::ReplyNoticeWorker { batch_id, log_id } => {
             return reply_notice_command::execute(&batch_id, &log_id);

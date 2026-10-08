@@ -151,7 +151,14 @@ pub enum Invocation {
         usage: tmt_core::driver::descriptor::UsageHook,
         yes: bool,
     },
+    FocusHook {
+        provider: String,
+        launch: String,
+        worker: bool,
+        work_budget_ms: Option<u64>,
+    },
     ProviderHook {
+        activity_only: bool,
         provider: String,
         worker: bool,
         work_budget_ms: Option<u64>,

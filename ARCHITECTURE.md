@@ -798,9 +798,9 @@ falls back to a working directory, active pane or sole identity.
   recheck their captured records before reconciliation. Changed records never
   authorize retirement or detachment; unchanged records retain conclusive stale
   binding cleanup.
-- Provider hooks supply observation only: they never create bindings or move
-  identities, they run under a bounded supervised worker that always exits zero,
-  and provider configuration changes only through consented `tmt setup`.
+- Lifecycle hooks observe existing bindings; they never create or move identities.
+  Bounded callbacks exit zero; `tmt run` composes session-only Focus hooks. Persistent
+  provider configuration changes only through consented `tmt setup`.
 - `tmt-core::endpoint::ProcessIncarnation` (PID plus core's own start token) is the
   one value for comparing local processes. `tmt-sys` is the single `unsafe`
   boundary.
