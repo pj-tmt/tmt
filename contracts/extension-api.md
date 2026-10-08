@@ -210,6 +210,34 @@ coveredMs,complete,gap,discontinuous}`. Token fields are normalized **deltas**,
   delta from it without claiming coverage across the gap. Zero tokens with full
   coverage is a measured zero; zero tokens without coverage is unknown.
 
+Optional attribution extends these existing observations; it is not a separate
+ledger. Missing (or null) new fields mean unknown, never a measured zero:
+
+- `consumption.cacheWriteTokens` is a cumulative cache-write counter in the
+  same token units and epoch as input. Cache-write and cache-read are subsets
+  of the existing input count; neither is added to input or total again.
+- `consumption.modelId` is the model on the last accepted completed request or
+  turn, not the starting-hook `resume.model` used to relaunch a conversation.
+  Claude reads `message.model`; Codex reads the preceding `turn_context.model`.
+  A new Codex turn marker requires its own matching or subsequent context;
+  an older turn's model is never carried into a turn with missing evidence.
+  Missing/changed provider shapes, a missing bounded turn context or a model
+  alias in rate-limit metadata cannot establish a model.
+- `consumption.deltaByModel` groups the increments accepted since the preceding
+  sequence as `{modelId,inputTokens,outputTokens,cachedInputTokens,
+cacheWriteTokens?}`. It preserves model changes within a single read; it is
+  **not cumulative** and must not be applied twice on a repeated sequence.
+  Historical requests are not attributed on initial baseline. At most four
+  distinct model IDs are retained per increment; unavailable evidence or the
+  existing opaque-state size bound omits attribution while retaining totals.
+- History buckets optionally add `cacheWriteTokens` and `byModel` with the same
+  entry shape, containing **deltas for that bucket**, including all accepted
+  model changes. Attribution is emitted only when it covers the whole counted
+  delta. Unknown portions, skipped sequences or aggregation beyond four models
+  omit `byModel`; they never relabel a mixed bucket with its latest model.
+  Unknown cache-write evidence omits that counter without altering legacy
+  totals, coverage, gaps or retention. Existing stored rows are not backfilled.
+
 Core retains 5-second buckets for two hours: at most 1,440 closed buckets plus
 one open bucket per identity. Expired history is excluded immediately on reads;
 accepted writes prune the identity and opportunistically prune expired inactive
@@ -620,7 +648,8 @@ must use this public projection rather than inspect core state.
 
 Public `ls --json` also exposes the remembered driver's optional
 `resume.consumption`: cumulative completed-request input/output, cached input as
-a subset, epoch/sequence, observation time and explicit completeness/gap.
+a subset, optional cache-write and request/turn model attribution, epoch/sequence,
+observation time and explicit completeness/gap.
 It is separate from `resume.usage` (context size). Consumers baseline on first,
 epoch-change, gap or decreasing-counter observations; absent evidence is
 unavailable. Counter times are not heartbeats. Foreground sampling can expose accepted

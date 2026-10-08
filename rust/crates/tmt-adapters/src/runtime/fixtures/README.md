@@ -126,3 +126,15 @@ are assembled from these structures. Last-ID-only deduplication assumes
 append-only, contiguous content-block groups as observed in this sequence,
 not arbitrary historical deduplication. Its known limitation is documented in
 ARCHITECTURE. Both provider formats remain unofficial.
+
+Consumption attribution tests reuse these minimized usage objects. Codex turn
+contexts and cache-write variants are assembled from the official **0.160.0**
+source at commit [`a956835d020762cb2b570053af06f643a11c0ecc`](https://github.com/openai/codex/blob/a956835d020762cb2b570053af06f643a11c0ecc/codex-rs/protocol/src/protocol.rs):
+`TurnContextItem.model`, `TurnStartedEvent.turn_id` (`task_started` /
+`turn_started`) and `TokenUsage.cache_write_input_tokens` (with the existing
+`event_msg` / `token_count` and `turn_context` rollout envelopes). They are synthetic
+wire variants, not additional live-session captures. Rate-limit model aliases are
+never used for request attribution. Claude variants retain the recorded assistant
+`message.model` and `cache_creation_input_tokens` shapes; no user transcript, model
+call or credential is needed. Missing or malformed model fields and missing cache-write attribution stay
+unknown. Existing legacy counter validation remains unchanged.

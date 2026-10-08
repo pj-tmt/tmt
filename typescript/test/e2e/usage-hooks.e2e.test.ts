@@ -59,7 +59,7 @@ const providers: Provider[] = [
 const session = '55555555-5555-4555-8555-555555555555';
 const other = '66666666-6666-4666-8666-666666666666';
 
-async function runScenario(fixture: E2EFixture, provider: Provider) {
+async function runScenario(fixture: E2EFixture, provider: Provider, historyBaseline = false) {
   const home = path.join(fixture.root, `${provider.name} home`);
   const tree = path.join(home, provider.tree);
   fs.mkdirSync(tree, { recursive: true });
@@ -77,6 +77,7 @@ async function runScenario(fixture: E2EFixture, provider: Provider) {
   const scenario = path.join(fixture.root, `${provider.name}-usage.json`);
   const report = path.join(fixture.root, `${provider.name}-usage-report.json`);
   const checkpoint = path.join(fixture.root, `${provider.name}-append-ready`);
+  const historyCheckpoint = path.join(fixture.root, `${provider.name}-history-baseline`);
   fs.writeFileSync(
     scenario,
     JSON.stringify([
@@ -91,6 +92,9 @@ async function runScenario(fixture: E2EFixture, provider: Provider) {
       stop(path.join(tree, 'missing.jsonl')),
       stop(null),
       list,
+      // Missing transcript evidence clears history continuity. The C1 history
+      // cases need a new valid seed before measuring the following increment.
+      ...(historyBaseline ? [{ ...stop(transcript), checkpoint: historyCheckpoint }] : []),
       // Append after the admitted baseline, then replay the unchanged Stop.
       { ...stop(transcript), checkpoint },
       list,
@@ -115,11 +119,36 @@ async function runScenario(fixture: E2EFixture, provider: Provider) {
   const pane = fixture.createShellPane(`${provider.name}-usage`).pane;
   fixture.tmux(['send-keys', '-t', pane, '-l', command]);
   fixture.tmux(['send-keys', '-t', pane, 'Enter']);
+  const historySeed = () => {
+    const db = new Database(path.join(fixture.globalDir, 'tmux-team.db'), { readonly: true });
+    try {
+      return db
+        .prepare('SELECT latest FROM consumption_sources WHERE driver=? AND session=?')
+        .get(provider.name, session) as { latest: string | null };
+    } finally {
+      db.close();
+    }
+  };
+  if (historyBaseline) {
+    await fixture.waitFor(
+      () => fs.existsSync(historyCheckpoint),
+      15000,
+      `${provider.name} unknown history checkpoint`
+    );
+    expect(historySeed().latest, 'missing evidence invalidates the prior history seed').toBeNull();
+    fs.writeFileSync(historyCheckpoint, 'continue');
+  }
   await fixture.waitFor(
     () => fs.existsSync(checkpoint),
     15000,
     `${provider.name} append checkpoint`
   );
+  if (historyBaseline) {
+    expect(JSON.parse(historySeed().latest!).consumption).toMatchObject({
+      ...provider.consumption,
+      sequence: 1,
+    });
+  }
   fs.appendFileSync(transcript, provider.appended);
   fs.writeFileSync(checkpoint, 'continue');
   await fixture.waitFor(() => fs.existsSync(report), 15000, `${provider.name} usage report`);
@@ -166,16 +195,20 @@ describe(
               complete: false,
               gap: true,
             });
-            expect(Object.keys(recorded?.consumption as object).sort()).toEqual([
-              'cachedInputTokens',
-              'complete',
-              'epoch',
-              'gap',
-              'inputTokens',
-              'observedAtMs',
-              'outputTokens',
-              'sequence',
-            ]);
+            expect(Object.keys(recorded?.consumption as object).sort()).toEqual(
+              [
+                'cacheWriteTokens',
+                ...(provider.name === 'claude' ? ['deltaByModel', 'modelId'] : []),
+                'cachedInputTokens',
+                'complete',
+                'epoch',
+                'gap',
+                'inputTokens',
+                'observedAtMs',
+                'outputTokens',
+                'sequence',
+              ].sort()
+            );
             expect(resumeOf(results[8].stdout)).toEqual(recorded);
             const updated = resumeOf(results[10].stdout)?.consumption;
             expect(updated).toMatchObject({
@@ -442,3 +475,125 @@ for (const provider of providers) {
     });
   }, 45000);
 }
+
+// C1: launch selection and completed-turn billing models are distinct. Each
+// provider changes model twice inside one accepted Stop read, without replay.
+describe('consumption cache-write and turn model attribution', { concurrent: false }, () => {
+  for (const base of providers) {
+    it(`persists ${base.name} model changes and cache-write separately through the CLI`, async () => {
+      const context = (model: string) =>
+        JSON.stringify({ type: 'turn_context', payload: { model, turn_id: model } }) +
+        '\n' +
+        JSON.stringify({ type: 'event_msg', payload: { type: 'task_started', turn_id: model } }) +
+        '\n';
+      const claude = (id: string, model: string, write: number) => {
+        const entry = JSON.parse(claudeRecords[0]);
+        entry.message.id = id;
+        entry.message.model = model;
+        entry.message.usage = {
+          input_tokens: 2,
+          cache_read_input_tokens: 5,
+          cache_creation_input_tokens: write,
+          output_tokens: 7,
+        };
+        return JSON.stringify(entry) + '\n';
+      };
+      const codex = (input: number, output: number, cached: number, write: number) => {
+        const entry = JSON.parse(codexLine);
+        Object.assign(entry.payload.info.total_token_usage, {
+          input_tokens: input,
+          output_tokens: output,
+          cached_input_tokens: cached,
+          cache_write_input_tokens: write,
+          total_tokens: input + output,
+        });
+        return JSON.stringify(entry) + '\n';
+      };
+      const rows =
+        base.name === 'claude'
+          ? [
+              {
+                modelId: 'billing-b',
+                inputTokens: 10,
+                outputTokens: 7,
+                cachedInputTokens: 5,
+                cacheWriteTokens: 3,
+              },
+              {
+                modelId: 'billing-c',
+                inputTokens: 13,
+                outputTokens: 7,
+                cachedInputTokens: 5,
+                cacheWriteTokens: 6,
+              },
+            ]
+          : [
+              {
+                modelId: 'billing-b',
+                inputTokens: 100,
+                outputTokens: 10,
+                cachedInputTokens: 50,
+                cacheWriteTokens: 20,
+              },
+              {
+                modelId: 'billing-c',
+                inputTokens: 100,
+                outputTokens: 10,
+                cachedInputTokens: 30,
+                cacheWriteTokens: 10,
+              },
+            ];
+      const provider: Provider = {
+        ...base,
+        line: base.name === 'claude' ? base.line : context('billing-a') + base.line,
+        appended:
+          base.name === 'claude'
+            ? claude('c1-b', 'billing-b', 3) + claude('c1-c', 'billing-c', 6)
+            : context('billing-b') +
+              codex(2674657971, 6910978, 2624251058, 20) +
+              context('billing-c') +
+              codex(2674658071, 6910988, 2624251088, 30),
+        updated:
+          base.name === 'claude'
+            ? { inputTokens: 23, outputTokens: 14, cachedInputTokens: 10 }
+            : { inputTokens: 2674658071, outputTokens: 6910988, cachedInputTokens: 2624251088 },
+      };
+      await withE2EFixture(
+        async (fixture) => {
+          const results = await runScenario(fixture, provider, true);
+          expect(results).toHaveLength(16);
+          for (const result of results) {
+            expect(result.code).toBe(0);
+            expect(result.stderr).toBe('');
+          }
+          const updated = resumeOf(results[11].stdout);
+          expect(updated).toMatchObject({
+            model: 'model-a',
+            consumption: {
+              ...provider.updated,
+              cacheWriteTokens: base.name === 'claude' ? 9 : 30,
+              modelId: 'billing-c',
+              deltaByModel: rows,
+              sequence: 2,
+            },
+          });
+          expect(resumeOf(results[13].stdout)?.consumption).toEqual(updated?.consumption);
+          const db = new Database(path.join(fixture.globalDir, 'tmux-team.db'), { readonly: true });
+          try {
+            const persisted = db
+              .prepare('SELECT details FROM consumption_buckets WHERE input_tokens > 0')
+              .all() as { details: string }[];
+            expect(persisted).toHaveLength(1);
+            expect(JSON.parse(persisted[0].details)).toEqual({
+              cacheWriteTokens: base.name === 'claude' ? 9 : 30,
+              byModel: rows,
+            });
+          } finally {
+            db.close();
+          }
+        },
+        { mode: 'input-log' }
+      );
+    }, 45000);
+  }
+});

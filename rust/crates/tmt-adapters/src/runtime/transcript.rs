@@ -89,7 +89,7 @@ pub(super) fn open(root: &Path, path: &Path) -> Option<File> {
     Some(file)
 }
 
-fn read_tail(file: &mut File, end: u64) -> Option<Vec<u8>> {
+pub(super) fn read_tail(file: &mut File, end: u64) -> Option<Vec<u8>> {
     let start = end.saturating_sub(TAIL_LIMIT);
     file.seek(SeekFrom::Start(start)).ok()?;
     let mut tail = Vec::new();

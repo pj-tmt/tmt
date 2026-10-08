@@ -113,6 +113,7 @@ function expectNativeSchema(
     { version: 47, name: 'index originator results by final submission time' },
     { version: 48, name: 'retain originator withdrawal of unanswered requests' },
     { version: 49, name: 'hold focus delivery and seal ordered checklists' },
+    { version: 50, name: 'retain consumption cache-write and per-turn model attribution' },
   ];
   expect(migrated.migrations.slice(8)).toEqual(additions);
   expect(migrated.tables.map(({ name }) => name)).toEqual(

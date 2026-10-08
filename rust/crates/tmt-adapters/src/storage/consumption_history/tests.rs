@@ -163,6 +163,9 @@ fn latest(input: u64, output: u64, sequence: u64, observed: u64) -> ConsumptionL
             input_tokens: input,
             output_tokens: output,
             cached_input_tokens: 0,
+            cache_write_tokens: None,
+            model_id: None,
+            delta_by_model: None,
             epoch: "33333333-3333-4333-8333-333333333333".into(),
             sequence,
             observed_at_ms: observed,
@@ -450,4 +453,142 @@ fn invalid_cached_delta_creates_gap_instead_of_freezing_future_reads() {
     assert_eq!(rows[2]["inputTokens"], 4);
     assert_eq!(rows[2]["outputTokens"], 2);
     storage.close().unwrap();
+}
+
+fn attributed(
+    input: u64,
+    output: u64,
+    write: u64,
+    sequence: u64,
+    observed: u64,
+    rows: Vec<ModelUsage>,
+) -> ConsumptionLatest {
+    let mut reading = latest(input, output, sequence, observed);
+    reading.consumption.cache_write_tokens = Some(write);
+    reading.consumption.model_id = rows.last().map(|row| row.model_id.clone());
+    reading.consumption.delta_by_model = Some(rows);
+    reading
+}
+fn model_row(model: &str, input: u64, output: u64, write: Option<u64>) -> ModelUsage {
+    ModelUsage {
+        model_id: model.into(),
+        input_tokens: input,
+        output_tokens: output,
+        cached_input_tokens: 0,
+        cache_write_tokens: write,
+    }
+}
+
+#[test]
+fn model_changes_in_one_sample_and_bucket_survive_reopen_aggregation_and_replay() {
+    let (_directory, path, id) = fixture();
+    let mut storage = Storage::open(&path).unwrap();
+    source(&storage, &id);
+    record_sample(
+        storage.connection().unwrap(),
+        &id,
+        Some(attributed(0, 0, 0, 1, 6000, vec![])),
+        6000,
+    )
+    .unwrap();
+    let batch = attributed(
+        30,
+        5,
+        9,
+        2,
+        11000,
+        vec![
+            model_row("a", 10, 2, Some(3)),
+            model_row("b", 20, 3, Some(6)),
+        ],
+    );
+    record_sample(
+        storage.connection().unwrap(),
+        &id,
+        Some(batch.clone()),
+        11000,
+    )
+    .unwrap();
+    record_sample(storage.connection().unwrap(), &id, Some(batch), 11500).unwrap();
+    record_sample(
+        storage.connection().unwrap(),
+        &id,
+        Some(attributed(
+            40,
+            7,
+            12,
+            3,
+            12000,
+            vec![model_row("a", 10, 2, Some(3))],
+        )),
+        12000,
+    )
+    .unwrap();
+    storage.close().unwrap();
+    let mut storage = Storage::open(&path).unwrap();
+    let history = storage
+        .consumption_history(std::slice::from_ref(&id), &[10000], 1, 15000)
+        .unwrap();
+    let bucket = &history["identities"][0]["windows"][0]["buckets"][0];
+    assert_eq!(bucket["inputTokens"], 40);
+    assert_eq!(bucket["outputTokens"], 7);
+    assert_eq!(bucket["cacheWriteTokens"], 12);
+    assert_eq!(
+        bucket["byModel"],
+        json!([
+            {"modelId":"a","inputTokens":20,"outputTokens":4,"cachedInputTokens":0,"cacheWriteTokens":6},
+            {"modelId":"b","inputTokens":20,"outputTokens":3,"cachedInputTokens":0,"cacheWriteTokens":6}
+        ])
+    );
+    assert_eq!(
+        history["identities"][0]["latest"]["consumption"]["modelId"],
+        "a"
+    );
+}
+
+#[test]
+fn unknown_attribution_never_labels_the_whole_mixed_bucket_with_the_last_model() {
+    let (_directory, path, id) = fixture();
+    let mut storage = Storage::open(&path).unwrap();
+    source(&storage, &id);
+    record_sample(
+        storage.connection().unwrap(),
+        &id,
+        Some(latest(0, 0, 1, 6000)),
+        6000,
+    )
+    .unwrap();
+    record_sample(
+        storage.connection().unwrap(),
+        &id,
+        Some(latest(10, 2, 2, 11000)),
+        11000,
+    )
+    .unwrap();
+    record_sample(
+        storage.connection().unwrap(),
+        &id,
+        Some(attributed(
+            20,
+            4,
+            3,
+            3,
+            12000,
+            vec![model_row("a", 10, 2, Some(3))],
+        )),
+        12000,
+    )
+    .unwrap();
+    let history = storage
+        .consumption_history(std::slice::from_ref(&id), &[5000], 120, 15000)
+        .unwrap();
+    let bucket = &history["identities"][0]["windows"][0]["buckets"][0];
+    assert_eq!(bucket["inputTokens"], 20);
+    assert_eq!(bucket["outputTokens"], 4);
+    assert!(bucket.get("byModel").is_none());
+    assert!(bucket.get("cacheWriteTokens").is_none());
+    assert_eq!(
+        history["identities"][0]["latest"]["consumption"]["modelId"],
+        "a"
+    );
 }

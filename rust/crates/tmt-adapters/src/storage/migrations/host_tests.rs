@@ -221,7 +221,7 @@ fn a_failed_host_upgrade_leaves_schema_38_intact() {
         .execute_batch("DROP TRIGGER reject_host_migration;")
         .unwrap();
     let mut storage = Storage::open(&path).unwrap();
-    assert_eq!(storage.health().unwrap().schema_version, 49);
+    assert_eq!(storage.health().unwrap().schema_version, 50);
     storage.close().unwrap();
 }
 

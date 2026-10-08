@@ -9,7 +9,8 @@
 //! Version 4 adds optional cumulative consumption and its bounded source cursor.
 //! Older documents retain their original versions/bytes; optional counters never
 //! expand the core's 1 KiB opaque-state bound.
-//! A model is never inferred from transcripts, arguments or files.
+//! The resume launch model is never inferred from transcripts, arguments or files;
+//! consumption attribution separately reads the model on accepted provider records.
 
 use serde_json::{Map, Value, json};
 use tmt_core::{
@@ -92,7 +93,7 @@ impl Usage {
 
 /// A provider model slug, safe to pass as one argv value: bounded, no
 /// whitespace or controls, and never option-like.
-fn valid_model(model: &str) -> bool {
+pub(super) fn valid_model(model: &str) -> bool {
     (1..=128).contains(&model.len())
         && !model.starts_with('-')
         && model
@@ -178,7 +179,21 @@ impl Document {
                 }),
             );
         }
-        if let Some(consumption) = self.consumption {
+        if let Some(mut consumption) = self.consumption {
+            fields.insert("consumption".into(), consumption.document());
+            let document = Value::Object(fields.clone()).to_string();
+            if document.len() <= DriverState::MAXIMUM_BYTES {
+                return DriverState::new(CONSUMPTION_STATE_VERSION, &document).ok();
+            }
+            // Attribution is optional: its size must never evict legacy counters.
+            consumption.value.delta_by_model = None;
+            consumption.value.model_id = None;
+            fields.insert("consumption".into(), consumption.document());
+            let document = Value::Object(fields.clone()).to_string();
+            if document.len() <= DriverState::MAXIMUM_BYTES {
+                return DriverState::new(CONSUMPTION_STATE_VERSION, &document).ok();
+            }
+            consumption.value.cache_write_tokens = None;
             fields.insert("consumption".into(), consumption.document());
             let document = Value::Object(fields.clone()).to_string();
             if document.len() <= DriverState::MAXIMUM_BYTES {

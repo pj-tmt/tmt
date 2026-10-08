@@ -737,7 +737,7 @@ receipts only (no network, storage or extension process); the extension checks i
 when the feature starts. Human-shaped operations remain their
 ordinary JSON commands, not duplicate API implementations. The
 [extension API contract](contracts/extension-api.md) owns operations, bounds,
-dispatch readiness and input safety, history and consumption semantics.
+dispatch readiness and input safety, history, cache-write and per-turn consumption model attribution.
 
 ### Local MCP (v1)
 

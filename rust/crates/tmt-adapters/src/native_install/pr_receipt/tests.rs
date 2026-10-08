@@ -168,7 +168,7 @@ fn local_schema_advancing_after_admission_refuses_before_publish_and_preserves_a
     let before = fs::read_dir(prefix.join("lib/tmux-team/releases"))
         .unwrap()
         .count();
-    let error = publish(&prefix, &artifact, source, Some(installation.id), false, 50).unwrap_err();
+    let error = publish(&prefix, &artifact, source, Some(installation.id), false, 51).unwrap_err();
     assert_eq!(
         error.get_ref().unwrap().downcast_ref::<SchemaError>(),
         Some(&SchemaError::DataDowngrade)
@@ -199,7 +199,7 @@ fn explicit_alpha_return_requires_known_schema_and_never_downgrades_data() {
     for (explicit, schema, local_version) in [
         (false, Some(schema.clone()), 48),
         (true, None, 48),
-        (true, Some(schema.clone()), 50),
+        (true, Some(schema.clone()), 51),
     ] {
         assert!(
             activate_with_local_schema(
@@ -260,7 +260,7 @@ fn schema_consent_does_not_cover_missing_domains_or_data_downgrades() {
         Some(&SchemaError::AheadOfAlpha)
     );
     admit_databases(Product::Cli, &candidate, &alpha, &local(48), true).unwrap();
-    assert!(admit_databases(Product::Cli, &candidate, &alpha, &local(50), true).is_err());
+    assert!(admit_databases(Product::Cli, &candidate, &alpha, &local(51), true).is_err());
     candidate.databases.clear();
     assert!(admit_databases(Product::Cli, &candidate, &alpha, &[], true).is_err());
     assert!(admit_databases(Product::Remote, &alpha, &alpha, &local(48), true).is_err());

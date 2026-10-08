@@ -311,7 +311,7 @@ fn invalid_totals_and_clock_rollback_are_unavailable() {
 fn cursor_data_is_private_and_consumption_documents_are_validated() {
     let (_, _, state) = claude_file();
     let public = state.value.document();
-    assert_eq!(public.as_object().unwrap().len(), 8);
+    assert_eq!(public.as_object().unwrap().len(), 11);
     assert!(public.get("cursor").is_none());
     assert_eq!(State::read(&state.document()), Some(state.clone()));
     for pointer in ["/value/sequence", "/value/observedAtMs"] {
@@ -698,4 +698,337 @@ fn empty_source_baseline_counts_first_append_before_stop() {
     assert!(next.value.input_tokens > 0 && next.value.output_tokens > 0);
     let stop = claude(&root.path, &path, Some(&next), NOW + 2).unwrap();
     assert_eq!(stop, next);
+}
+
+fn claude_usage(id: &str, model: Value, write: Value) -> String {
+    let mut entry: Value = serde_json::from_str(CLAUDE.lines().next().unwrap()).unwrap();
+    entry["message"]["id"] = json!(id);
+    entry["message"]["model"] = model;
+    entry["message"]["usage"] =
+        json!({"input_tokens":2,"cache_read_input_tokens":5,"output_tokens":7});
+    if !write.is_null() {
+        entry["message"]["usage"]["cache_creation_input_tokens"] = write;
+    }
+    format!("{entry}\n")
+}
+
+#[test]
+fn claude_records_each_requests_model_without_changing_legacy_totals() {
+    let root = TestDirectory::new();
+    let path = root.path.join("models.jsonl");
+    fs::write(&path, "").unwrap();
+    let first = claude(&root.path, &path, None, NOW).unwrap();
+    append(&path, &claude_usage("a", json!("model-a"), json!(3)));
+    append(&path, &claude_usage("b", json!("model-b"), json!(6)));
+    let next = claude(&root.path, &path, Some(&first), NOW + 1).unwrap();
+    assert_eq!(
+        next.value.counts(),
+        Counts {
+            input: 23,
+            output: 14,
+            cached: 10
+        }
+    );
+    assert_eq!(next.value.cache_write_tokens, Some(9));
+    assert_eq!(next.value.model_id.as_deref(), Some("model-b"));
+    let rows = next.value.delta_by_model.as_ref().unwrap();
+    assert_eq!(rows.len(), 2);
+    assert_eq!(
+        (
+            rows[0].model_id.as_str(),
+            rows[0].input_tokens,
+            rows[0].cache_write_tokens
+        ),
+        ("model-a", 10, Some(3))
+    );
+    assert_eq!(
+        (
+            rows[1].model_id.as_str(),
+            rows[1].input_tokens,
+            rows[1].cache_write_tokens
+        ),
+        ("model-b", 13, Some(6))
+    );
+    assert_eq!(claude(&root.path, &path, Some(&next), NOW + 2), Some(next));
+}
+
+#[test]
+fn missing_or_unknown_claude_attribution_keeps_totals_but_never_invents_zero() {
+    for model in [Value::Null, json!("bad model"), json!({"changed":"shape"})] {
+        let root = TestDirectory::new();
+        let path = root.path.join("unknown.jsonl");
+        fs::write(&path, "").unwrap();
+        let first = claude(&root.path, &path, None, NOW).unwrap();
+        append(&path, &claude_usage("a", model, Value::Null));
+        let next = claude(&root.path, &path, Some(&first), NOW + 1).unwrap();
+        assert_eq!(
+            next.value.counts(),
+            Counts {
+                input: 7,
+                output: 7,
+                cached: 5
+            }
+        );
+        assert_eq!(next.value.cache_write_tokens, None);
+        assert_eq!(next.value.model_id, None);
+        assert_eq!(next.value.delta_by_model, None);
+        assert!(next.value.valid());
+        assert!(next.value.complete && !next.value.gap);
+    }
+}
+
+fn codex_usage(input: u64, output: u64, cached: u64, write: Value) -> String {
+    let mut entry: Value = serde_json::from_str(CODEX).unwrap();
+    entry["payload"]["info"]["total_token_usage"] = json!({"input_tokens":input,"output_tokens":output,"cached_input_tokens":cached,"total_tokens":input+output});
+    if !write.is_null() {
+        entry["payload"]["info"]["total_token_usage"]["cache_write_input_tokens"] = write;
+    }
+    format!("{entry}\n")
+}
+fn turn(model: Value) -> String {
+    // TurnContextItem.model from the pinned official Codex 0.160.0 wire shape.
+    format!(
+        "{}\n",
+        json!({"type":"turn_context","payload":{"model":model}})
+    )
+}
+
+#[test]
+fn codex_attributes_cumulative_increments_to_each_turn_not_the_latest_launch_model() {
+    let root = TestDirectory::new();
+    let path = root.path.join("models.jsonl");
+    fs::write(
+        &path,
+        format!(
+            "{}{}",
+            turn(json!("model-a")),
+            codex_usage(100, 20, 50, json!(10))
+        ),
+    )
+    .unwrap();
+    let first = codex(&root.path, &path, None, NOW).unwrap();
+    assert_eq!(first.value.cache_write_tokens, Some(10));
+    assert_eq!(first.value.model_id.as_deref(), Some("model-a"));
+    assert_eq!(
+        first.value.delta_by_model, None,
+        "historical attribution is not replayed"
+    );
+    append(&path, &codex_usage(150, 30, 70, json!(20)));
+    append(&path, &turn(json!("model-b")));
+    append(&path, &codex_usage(200, 40, 90, json!(40)));
+    append(&path, &turn(json!("future-model")));
+    let next = codex(&root.path, &path, Some(&first), NOW + 1).unwrap();
+    assert_eq!(
+        next.value.counts(),
+        Counts {
+            input: 200,
+            output: 40,
+            cached: 90
+        }
+    );
+    assert_eq!(next.value.cache_write_tokens, Some(40));
+    assert_eq!(next.value.model_id.as_deref(), Some("model-b"));
+    let rows = next.value.delta_by_model.as_ref().unwrap();
+    assert_eq!(rows.len(), 2);
+    assert_eq!(
+        (
+            rows[0].model_id.as_str(),
+            rows[0].input_tokens,
+            rows[0].cache_write_tokens
+        ),
+        ("model-a", 50, Some(10))
+    );
+    assert_eq!(
+        (
+            rows[1].model_id.as_str(),
+            rows[1].input_tokens,
+            rows[1].cache_write_tokens
+        ),
+        ("model-b", 50, Some(20))
+    );
+    assert_eq!(codex(&root.path, &path, Some(&next), NOW + 2), Some(next));
+}
+
+#[test]
+fn codex_unknown_model_or_cache_write_shapes_are_optional_not_counter_failure() {
+    for model in [Value::Null, json!("bad model"), json!({"model":"changed"})] {
+        let root = TestDirectory::new();
+        let path = root.path.join("unknown.jsonl");
+        fs::write(&path, codex_usage(100, 20, 50, Value::Null)).unwrap();
+        let first = codex(&root.path, &path, None, NOW).unwrap();
+        append(&path, &turn(model));
+        append(&path, &codex_usage(110, 25, 55, json!("unknown")));
+        let next = codex(&root.path, &path, Some(&first), NOW + 1).unwrap();
+        assert_eq!(
+            next.value.counts(),
+            Counts {
+                input: 110,
+                output: 25,
+                cached: 55
+            }
+        );
+        assert_eq!(next.value.cache_write_tokens, None);
+        assert_eq!(next.value.model_id, None);
+        assert_eq!(next.value.delta_by_model, None);
+        assert!(next.value.complete && !next.value.gap);
+    }
+}
+
+#[test]
+fn bounded_attribution_round_trips_compactly_without_evicting_legacy_counter() {
+    use crate::runtime::driver_state;
+    let (root, path, first) = claude_file();
+    append(&path, &claude_usage("a", json!("model-a"), json!(3)));
+    let next = claude(&root.path, &path, Some(&first), NOW + 1).unwrap();
+    let encoded = driver_state::after_observation(None, Some(next.clone()), None).unwrap();
+    assert_eq!(
+        driver_state::state_consumption(&encoded),
+        Some(next.clone())
+    );
+    assert!(next.value.document()["deltaByModel"][0].is_object());
+    assert!(next.document()["value"]["deltaByModel"][0].is_array());
+    let mut huge = next.clone();
+    huge.value.input_tokens = 4;
+    huge.value.output_tokens = 0;
+    huge.value.cached_input_tokens = 0;
+    huge.value.cache_write_tokens = Some(0);
+    huge.value.delta_by_model = Some(
+        (0..4)
+            .map(|i| ModelUsage {
+                model_id: format!("model-{i}-{}", "x".repeat(118)),
+                input_tokens: 1,
+                output_tokens: 0,
+                cached_input_tokens: 0,
+                cache_write_tokens: Some(0),
+            })
+            .collect(),
+    );
+    let launch = driver_state::after_start(Some(&"m".repeat(128)), None, None).unwrap();
+    let bounded = driver_state::after_observation(None, Some(huge.clone()), Some(&launch)).unwrap();
+    assert!(bounded.document().len() <= tmt_core::binding::session::DriverState::MAXIMUM_BYTES);
+    let restored = driver_state::state_consumption(&bounded)
+        .expect("attribution cannot evict the legacy counter");
+    assert_eq!(restored.value.counts(), huge.value.counts());
+    assert_eq!(restored.value.delta_by_model, None);
+    assert_eq!(driver_state::state_model(&bounded), Some("m".repeat(128)));
+}
+
+#[test]
+fn codex_completed_partial_counter_keeps_its_turn_attribution() {
+    let root = TestDirectory::new();
+    let path = root.path.join("partial.jsonl");
+    fs::write(
+        &path,
+        format!(
+            "{}{}",
+            turn(json!("a")),
+            codex_usage(100, 20, 50, json!(10))
+        ),
+    )
+    .unwrap();
+    let first = codex(&root.path, &path, None, NOW).unwrap();
+    append(&path, &turn(json!("b")));
+    let pending = codex_usage(110, 25, 55, json!(12));
+    append(&path, pending.trim_end());
+    let partial = codex(&root.path, &path, Some(&first), NOW + 1).unwrap();
+    assert_eq!(partial.value.counts(), first.value.counts());
+    assert!(!partial.value.complete);
+    append(&path, "\n");
+    let next = codex(&root.path, &path, Some(&partial), NOW + 2).unwrap();
+    assert_eq!(next.value.model_id.as_deref(), Some("b"));
+    assert_eq!(
+        next.value.delta_by_model.as_ref().unwrap()[0],
+        ModelUsage {
+            model_id: "b".into(),
+            input_tokens: 10,
+            output_tokens: 5,
+            cached_input_tokens: 5,
+            cache_write_tokens: Some(2)
+        }
+    );
+}
+
+#[test]
+fn codex_missing_new_turn_context_never_inherits_the_previous_turn_model() {
+    for marker in ["task_started", "turn_started"] {
+        let root = TestDirectory::new();
+        let path = root.path.join("turns.jsonl");
+        fs::write(
+            &path,
+            format!(
+                "{}{}",
+                turn(json!("old-model")),
+                codex_usage(100, 20, 50, json!(10))
+            ),
+        )
+        .unwrap();
+        let first = codex(&root.path, &path, None, NOW).unwrap();
+        append(
+            &path,
+            &format!(
+                "{}\n",
+                json!({"type":"event_msg","payload":{"type":marker,"turn_id":"new-turn"}})
+            ),
+        );
+        append(&path, &codex_usage(110, 25, 55, json!(12)));
+        let next = codex(&root.path, &path, Some(&first), NOW + 1).unwrap();
+        assert_eq!(
+            next.value.counts(),
+            Counts {
+                input: 110,
+                output: 25,
+                cached: 55
+            }
+        );
+        assert_eq!(next.value.cache_write_tokens, Some(12));
+        assert_eq!(next.value.model_id, None);
+        assert_eq!(next.value.delta_by_model, None);
+        // A context emitted before its own start marker is still exact evidence.
+        append(
+            &path,
+            &format!(
+                "{}\n{}\n",
+                json!({"type":"turn_context","payload":{"turn_id":"known-turn","model":"known-model"}}),
+                json!({"type":"event_msg","payload":{"type":marker,"turn_id":"known-turn"}})
+            ),
+        );
+        append(&path, &codex_usage(120, 30, 60, json!(14)));
+        let known = codex(&root.path, &path, Some(&next), NOW + 2).unwrap();
+        assert_eq!(known.value.model_id.as_deref(), Some("known-model"));
+        assert_eq!(
+            known.value.delta_by_model.as_ref().unwrap()[0].input_tokens,
+            10
+        );
+    }
+}
+
+#[test]
+fn model_attribution_limit_never_discards_the_measured_legacy_or_write_totals() {
+    let root = TestDirectory::new();
+    let path = root.path.join("bounded-models.jsonl");
+    fs::write(&path, "").unwrap();
+    let first = claude(&root.path, &path, None, NOW).unwrap();
+    for index in 0..=MAX_MODELS {
+        append(
+            &path,
+            &claude_usage(
+                &format!("message-{index}"),
+                json!(format!("model-{index}")),
+                json!(1),
+            ),
+        );
+    }
+    let next = claude(&root.path, &path, Some(&first), NOW + 1).unwrap();
+    assert_eq!(
+        next.value.counts(),
+        Counts {
+            input: 40,
+            output: 35,
+            cached: 25
+        }
+    );
+    assert_eq!(next.value.cache_write_tokens, Some(5));
+    assert_eq!(next.value.model_id.as_deref(), Some("model-4"));
+    assert_eq!(next.value.delta_by_model, None);
+    assert!(next.value.complete && !next.value.gap);
 }
