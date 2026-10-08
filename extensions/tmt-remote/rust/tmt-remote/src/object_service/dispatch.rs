@@ -37,6 +37,8 @@ use tmt_extension_objects::{
 #[cfg(test)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Pause {
+    /// The caller has frozen the absolute setup deadline before any private I/O.
+    BeforeSetup,
     /// A setup candidate has workers, but has not passed its installation fence.
     BeforeInstall,
     /// Before serving a dequeued request, including an early refusal.

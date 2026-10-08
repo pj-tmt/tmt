@@ -29,9 +29,11 @@ polling). Its extension names come only from the declaration list and it names n
 extension itself. Serve attempts each static Local declaration once after constructing
 Site/Mounts and device events, before remembering the port and publishing door readiness.
 Open or setup failure is reported as an unavailable warning on the existing foreground
-output, drops the failed candidate and leaves the ordinary door running. The 15-second
-initial setup and 35-second startup bounds and stop fences are unchanged; they do not
-preempt underlying filesystem calls or cleanup joins. Door/startup descriptors are
+output, drops the failed candidate and leaves the ordinary door running. Each initial
+attempt uses the same absolute 250 ms budget as demand setup, so a bound listener that
+is not yet accepting cannot spend the general 15-second service setup bound before ready.
+The 35-second whole-startup bound and stop fences are unchanged; setup deadlines do not
+preempt underlying filesystem calls, thread spawning or cleanup joins. Door/startup descriptors are
 unchanged and promise no object readiness; optional `status --objects --json` observes
 only Local declarations from the existing live slots, without activating or opening storage.
 

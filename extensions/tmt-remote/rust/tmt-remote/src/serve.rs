@@ -609,7 +609,8 @@ fn activate_objects(
         .filter(|extension| extension.objects == ObjectDeclaration::Local)
     {
         fence(stop)?;
-        if let Err(error) = objects.activate(mounts, extension.name) {
+        let deadline = Instant::now() + tmt_remote::limits::OBJECT_REACTIVATION;
+        if let Err(error) = objects.activate_until(mounts, extension.name, deadline) {
             failures.push(ObjectSetupFailure {
                 extension: extension.name,
                 error,
