@@ -114,7 +114,7 @@ one checkout (distribution directory and notice input are per checkout), retaini
 manifest, archive and notices before the next build:
 
 ```sh
-scripts/build-native-artifact.sh --notices-only aarch64-apple-darwin squad     # notices only; not archive proof
+scripts/build-native-artifact.sh --notices-only aarch64-apple-darwin ops     # notices only; not archive proof
 native_manifest=$(mktemp)
 MACOSX_DEPLOYMENT_TARGET=11.0 scripts/build-native-artifact.sh aarch64-apple-darwin > "$native_manifest"
 node typescript/scripts/verify-native-artifact.mjs --manifest "$native_manifest" \
@@ -139,7 +139,7 @@ Compare large executable buffers with `Buffer.equals`, not structural matchers (
 exhaustion), and verify the comparator detects a changed byte. Installation cases use an
 explicit 15 s subprocess budget for debug archive hashing.
 
-### Squad archives
+### Ops archives
 
 A skills product's archive (`skills: true` in `.github/components.json`; the archive policy, the
 verifier and `component-skills.test.ts` read that one field) adds `skills/` copied from
@@ -148,17 +148,17 @@ package's cargo-dist `include` (a package list replaces the workspace list, so i
 the shared files); the installer inventories it from the checksum-verified archive.
 
 ```sh
-scripts/build-native-artifact.sh aarch64-apple-darwin squad > /absolute/squad-manifest.json
-node typescript/scripts/verify-native-artifact.mjs --product squad --manifest /absolute/squad-manifest.json \
-  --archive target/distrib/tmt-squad-aarch64-apple-darwin.tar.gz --target aarch64-apple-darwin \
-  --skills extensions/tmt-squad/skills \
+scripts/build-native-artifact.sh aarch64-apple-darwin ops > /absolute/ops-manifest.json
+node typescript/scripts/verify-native-artifact.mjs --product ops --manifest /absolute/ops-manifest.json \
+  --archive target/distrib/tmt-ops-aarch64-apple-darwin.tar.gz --target aarch64-apple-darwin \
+  --skills extensions/tmt-ops/skills \
   --notices rust/target/native-notices/THIRD-PARTY-NOTICES.txt --license LICENSE
 ```
 
-Runtime proof runs `tmt-squad --version` and checks `tmt-squad skill show` prints the archived
-`SKILL.md`, leaving an empty HOME and config. Then `tmt extension install squad --archive
+Runtime proof runs `tmt-ops --version` and checks `tmt-ops skill show` prints the archived
+`SKILL.md`, leaving an empty HOME and config. Then `tmt extension install ops --archive
 <archive> --manifest <manifest> --prefix <task-owned-prefix> --channel alpha --yes`, a repeat
-install and `tmt extension uninstall squad`.
+install and `tmt extension uninstall ops`.
 
 ### Herdr driver archives
 
@@ -274,7 +274,7 @@ CARGO_BUILD_JOBS=2 cargo test --locked -p tmt-cli extension_install_command
 CARGO_BUILD_JOBS=2 cargo test --locked -p tmt-cli parser::tests::native_install
 ```
 
-Process fixtures build CLI, Squad, Remote and Colab independently in the worktree's `rust/target`,
+Process fixtures build CLI, Ops, Remote and Colab independently in the worktree's `rust/target`,
 then run `extension-install.test.ts` through the native test config; they use the built
 `tmt-remote` and `tmt-colab`, never a substitute CLI. A registered product with no published
 archive (inject empty refs or a tag without a release) must report `EXTENSION_RELEASE_UNAVAILABLE`
@@ -623,7 +623,7 @@ The map's `releaseStatus` is valid only with `release:false` (`never`: test supp
 in no release; `parked`: Office and the private browser-addon demo). Private consumers cannot
 name a never-shipped product. Browser-addon publication remains deferred by the v1 freeze
 (#1056 / v1-later), with no release consumer. Released products require published containing tags;
-style and invoke require CLI, Squad, Remote and Colab evidence, and TUI only Squad evidence.
+Style and invoke require their active consumers' containing tags; TUI awaits Ops activation.
 
 For reviewed leaves inside a component, `neverShippedPaths` in the component map is a
 Project-only list of `{root, reason, testOnlyReferences?}`. Roots are normalized literal

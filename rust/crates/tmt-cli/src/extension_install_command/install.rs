@@ -24,7 +24,6 @@ pub(super) fn install(
                 1,
             )
         })?;
-    let executable = prefix.join("bin").join(product.executable());
     let current = if installed(product, prefix)? {
         Some(
             native_install::inspect_product_prefix(product, prefix)
@@ -33,6 +32,10 @@ pub(super) fn install(
     } else {
         None
     };
+    let executable = current.as_ref().map_or_else(
+        || prefix.join("bin").join(product.executable()),
+        |current| current.active_executable.clone(),
+    );
     // The skills the replaced release carried: only those may be pruned.
     let previous = match &current {
         Some(_) => native_install::release_skill_names(product, &executable)

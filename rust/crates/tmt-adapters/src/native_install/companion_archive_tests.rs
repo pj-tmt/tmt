@@ -80,12 +80,12 @@ fn only_the_cli_release_may_carry_the_driver() {
     let root = "tmux-team-1.2.3-aarch64-apple-darwin";
     let mut entries = valid_entries(root);
     entries[0] = Entry::File {
-        path: format!("{root}/tmt-squad"),
+        path: format!("{root}/tmt-ops"),
         bytes: b"squad\n".to_vec(),
         mode: 0o755,
     };
     entries.push(driver_entry(root, 0o755));
-    let files: Vec<&str> = Product::Squad.files().into_iter().chain([DRIVER]).collect();
-    let fixture = product_fixture(entries, "tmt-squad", &files);
-    assert!(acquire(&fixture, Product::Squad).is_err());
+    let files: Vec<&str> = Product::Ops.files().into_iter().chain([DRIVER]).collect();
+    let fixture = product_fixture(entries, "tmt-ops", &files);
+    assert!(acquire(&fixture, Product::Ops).is_err());
 }

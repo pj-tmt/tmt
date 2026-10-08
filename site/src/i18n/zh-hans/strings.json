@@ -25,7 +25,7 @@
       "drv-claude": "driver / Claude Code",
       "drv-codex": "driver / Codex",
       "extensions": "扩展",
-      "squad": "扩展 / Squad",
+      "squad": "扩展 / Ops",
       "colab": "扩展 / Colab",
       "meet": "扩展 / Meet",
       "remote": "扩展 / Remote",
@@ -106,7 +106,7 @@
         "squad": {
           "eyebrow": "squad",
           "title": "每个标记只有*一种含义*。",
-          "text": "Squad 扩展在你现有的终端中，用同一个 board 显示 lead 和成员。"
+          "text": "Ops 扩展在你现有的终端中，用同一个 board 显示 lead 和成员。"
         },
         "colab": {
           "eyebrow": "colab",
@@ -229,7 +229,7 @@
         "title": "2 · board",
         "hint": "一个界面查看整个团队",
         "status": "alpha",
-        "caption": "agent 变多了？`tmt sq board` 在同一个界面显示整个团队：谁在工作，谁在等你，谁遇到了阻碍。这是 Squad 扩展的功能。仍是同一批 agent，只多一个窗口。"
+        "caption": "agent 变多了？`tmt ops ui` 在同一个界面显示整个团队：谁在工作，谁在等你，谁遇到了阻碍。这是 Ops 扩展的功能。仍是同一批 agent，只多一个窗口。"
       },
       {
         "title": "3 · colab",

@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
@@ -13,6 +14,8 @@ const {
   releaseFlags,
   releasePolicy,
   isProductReleased,
+  isProductRetired,
+  archivePrefix,
   upgradeSupportFloor,
 } = (await import(
   pathToFileURL(path.join(repositoryRoot, 'scripts', 'native-release-policy.mjs')).href
@@ -30,10 +33,30 @@ const {
     map: { components: { name: string; release?: boolean }[] },
     product: string
   ) => boolean;
+  isProductRetired: (product: string) => boolean;
+  archivePrefix: (product: string) => string;
   upgradeSupportFloor: (product: string) => string | null;
 };
 
 describe('native release publication policy', () => {
+  it('keeps Ops release-blocked until CLI registration while retaining Squad history', () => {
+    const map = JSON.parse(
+      readFileSync(path.join(repositoryRoot, '../.github/components.json'), 'utf8')
+    );
+    expect(map.components.ops).toMatchObject({
+      package: 'tmt-ops',
+      predecessor: 'squad',
+      release: false,
+    });
+    for (const key of ['requiresCliSha', 'bootstrapSha', 'initialVersion'])
+      expect(map.components.ops).not.toHaveProperty(key);
+    expect(map.components.squad).toMatchObject({ release: false });
+    expect(isProductRetired('squad')).toBe(true);
+    expect(isProductRetired('ops')).toBe(false);
+    expect(archivePrefix('squad')).toBe('tmt-squad');
+    expect(archivePrefix('ops')).toBe('tmt-ops');
+  });
+
   it('resolves prefixed components without permitting missing or ambiguous activation evidence', () => {
     expect(
       isProductReleased({ components: [{ name: 'tmt-colab', release: false }] }, 'colab')
@@ -54,7 +77,7 @@ describe('native release publication policy', () => {
       )
     ).toThrow('Ambiguous or missing');
   });
-  it.each(['cli', 'squad', 'office', 'driver-herdr', 'remote', 'colab'])(
+  it.each(['cli', 'ops', 'squad', 'office', 'driver-herdr', 'remote', 'colab'])(
     'gates %s through the component release policy',
     (product) => {
       const result = spawnSync(
@@ -67,10 +90,10 @@ describe('native release publication policy', () => {
         { cwd: os.tmpdir(), encoding: 'utf8', timeout: 10_000, maxBuffer: 64 * 1024 }
       );
       expect(result.error).toBeUndefined();
-      expect(result.status).toBe(product === 'office' ? 1 : 0);
+      expect(result.status).toBe(['office', 'ops', 'squad'].includes(product) ? 1 : 0);
       expect(result.stdout).toBe('');
       expect(result.stderr).toBe(
-        product === 'office'
+        ['office', 'ops', 'squad'].includes(product)
           ? `${product} is not released (release: false in .github/components.json).\n`
           : ''
       );
@@ -85,7 +108,7 @@ describe('native release publication policy', () => {
       prerelease: false,
       latest: true,
     });
-    for (const product of ['office', 'squad', 'driver-herdr', 'remote', 'colab'])
+    for (const product of ['office', 'ops', 'squad', 'driver-herdr', 'remote', 'colab'])
       expect(upgradeSupportFloor(product)).toBeNull();
     expect(() => upgradeSupportFloor('unknown')).toThrow('Unknown native product');
   });
@@ -99,7 +122,7 @@ describe('native release publication policy', () => {
   });
   it('makes only the CLI the latest release', () => {
     expect(releaseFlags('cli')).toEqual(['--latest=true']);
-    for (const extension of ['office', 'squad', 'driver-herdr', 'remote', 'colab']) {
+    for (const extension of ['office', 'ops', 'squad', 'driver-herdr', 'remote', 'colab']) {
       expect(releasePolicy(extension).latest).toBe(false);
       expect(releaseFlags(extension)).toContain('--latest=false');
     }
@@ -113,7 +136,7 @@ describe('native release publication policy', () => {
     // same table. Change them together; neither side reads the other.
     expect(
       Object.fromEntries(
-        ['cli', 'office', 'squad', 'driver-herdr', 'remote', 'colab'].map((product) => [
+        ['cli', 'office', 'ops', 'squad', 'driver-herdr', 'remote', 'colab'].map((product) => [
           product,
           releasePolicy(product).prerelease,
         ])
@@ -121,20 +144,21 @@ describe('native release publication policy', () => {
     ).toEqual({
       cli: false,
       office: true,
+      ops: true,
       squad: true,
       'driver-herdr': true,
       remote: true,
       colab: true,
     });
     expect(releaseFlags('cli')).not.toContain('--prerelease');
-    for (const extension of ['office', 'squad', 'driver-herdr', 'remote', 'colab']) {
+    for (const extension of ['office', 'ops', 'squad', 'driver-herdr', 'remote', 'colab']) {
       expect(releaseFlags(extension)).toContain('--prerelease');
     }
   });
 
   it('publishes a draft with every flag explicit, since each draft starts with component publication policy', () => {
     expect(publishFlags('cli')).toEqual(['--draft=false', '--prerelease=false', '--latest=true']);
-    for (const extension of ['office', 'squad', 'driver-herdr', 'remote', 'colab']) {
+    for (const extension of ['office', 'ops', 'squad', 'driver-herdr', 'remote', 'colab']) {
       expect(publishFlags(extension)).toEqual([
         '--draft=false',
         '--prerelease=true',
@@ -148,6 +172,7 @@ describe('native release publication policy', () => {
     expect(checkLatestTag('v5.0.0-alpha.7')).toBe(true);
     for (const tag of [
       'tmt-office-v0.1.0-alpha.4',
+      'tmt-ops-v0.1.0-alpha.2',
       'tmt-squad-v0.1.0-alpha.2',
       'tmt-driver-herdr-v99.0.0-alpha.1',
       'tmt-remote-v0.1.0-alpha.1',
@@ -162,6 +187,7 @@ describe('native release publication policy', () => {
   it('names the product a release tag belongs to, and only for tags the policy publishes', () => {
     expect(productOfTag('v5.0.0-alpha.9')).toBe('cli');
     expect(productOfTag('tmt-office-v0.1.0-alpha.4')).toBe('office');
+    expect(productOfTag('tmt-ops-v0.1.0-alpha.2')).toBe('ops');
     expect(productOfTag('tmt-squad-v0.1.0-alpha.2')).toBe('squad');
     expect(productOfTag('tmt-driver-herdr-v0.1.0-alpha.1')).toBe('driver-herdr');
     expect(productOfTag('tmt-colab-v0.1.0-alpha.1')).toBe('colab');

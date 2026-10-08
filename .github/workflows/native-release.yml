@@ -14,7 +14,7 @@ on:
         type: choice
         options:
           - cli
-          - squad
+          - ops
           - driver-herdr
           - remote
           - colab

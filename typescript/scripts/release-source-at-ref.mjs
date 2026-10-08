@@ -68,7 +68,9 @@ export function readReleaseSourceAtRef(sha, { warm = false, ...options } = {}) {
         );
       }
       return {
-        map: parseComponentMap(readFileSync(join(root, '.github/components.json'), 'utf8')),
+        map: parseComponentMap(readFileSync(join(root, '.github/components.json'), 'utf8'), {
+          historical: true,
+        }),
         workspace: readCargoWorkspace(root),
       };
     },

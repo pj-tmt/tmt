@@ -231,7 +231,10 @@ fn owned_source(assets: &SkillAssets, source: &Path) -> Option<(String, String)>
     let digest = version.file_name()?.to_str()?;
     let owner_directory = version.parent()?;
     let owner = owner_directory.file_name()?.to_str()?;
-    if owner_directory.parent()? != assets.root().join("owners") || digest.len() != 64 {
+    if files::resolved(owner_directory.parent()?).ok()?
+        != files::resolved(&assets.root().join("owners")).ok()?
+        || digest.len() != 64
+    {
         return None;
     }
     if !valid_owner(owner) || !valid_name(name) || !digest.bytes().all(|b| b.is_ascii_hexdigit()) {
@@ -289,7 +292,10 @@ fn prior(target: &Path, assets: &SkillAssets) -> io::Result<Prior> {
         if source.file_name() == target.file_name()
             && let Some((owner, _)) = owned_source(assets, &source)
         {
-            return Ok(Prior::Owned { owner, source });
+            return Ok(Prior::Owned {
+                owner,
+                source: files::resolved(&source)?,
+            });
         }
     }
     Ok(Prior::Unmanaged)
@@ -456,6 +462,206 @@ impl fmt::Display for OwnedFailure {
 impl Error for OwnedFailure {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         Some(&self.cause)
+    }
+}
+
+/// Preserve consented targets during the fixed product rename. Sources remain
+/// immutable, and all conflicts are admitted before any link is changed.
+pub fn migrate_former_owned(
+    global: &Path,
+    product: tmt_core::native_install::Product,
+    replacements: &[OwnedSkill],
+) -> io::Result<()> {
+    let Some(former) = product.former() else {
+        return Ok(());
+    };
+    let global = files::resolved(global)?;
+    if !files::exists(&registry_path(&global))? {
+        return Ok(());
+    }
+    files::with_lock(&global, || {
+        let assets = SkillAssets::new(&global);
+        let mut owners = read_owners(&global)?;
+        let old = owners
+            .skills
+            .iter()
+            .filter(|(_, entry)| entry.owner == former.name)
+            .map(|(name, entry)| (name.clone(), entry.clone()))
+            .collect::<Vec<_>>();
+        let mut plan = Vec::new();
+        for (name, entry) in &old {
+            let old_source = source(&assets, former.name, &entry.digest, name);
+            let old_files = read_tree(&old_source)?;
+            if skill_digest(name, &old_files) != entry.digest {
+                return Err(refused(Refusal::Unmanaged(old_source)));
+            }
+            let new_name = former
+                .renamed_skills
+                .iter()
+                .find_map(|(old, new)| (*old == name).then_some(*new))
+                .unwrap_or(name);
+            let skill = replacements
+                .iter()
+                .find(|skill| skill.name == new_name)
+                .cloned()
+                .unwrap_or_else(|| OwnedSkill {
+                    name: new_name.into(),
+                    files: old_files,
+                });
+            validate(product.as_str(), std::slice::from_ref(&skill)).map_err(refused)?;
+            if new_name != name
+                && let Some(record) = owners.skills.get(new_name)
+                && record.owner != product.as_str()
+            {
+                return Err(refused(Refusal::Claimed {
+                    name: new_name.into(),
+                    owner: record.owner.clone(),
+                }));
+            }
+            let expected = source(
+                &assets,
+                product.as_str(),
+                &skill_digest(&skill.name, &skill.files),
+                new_name,
+            );
+            let mut targets = Vec::new();
+            for old_target in &entry.targets {
+                let target = old_target.parent().ok_or_else(corrupt)?.join(new_name);
+                files::safe_target(assets.root(), old_target)?;
+                files::safe_target(assets.root(), &target)?;
+                match prior(old_target, &assets)? {
+                    Prior::Absent
+                        if target != *old_target
+                            && matches!(prior(&target, &assets)?,
+                        Prior::Owned { owner, source } if owner == product.as_str() && source == expected) =>
+                        {}
+                    Prior::Absent => continue,
+                    Prior::Owned { owner, source }
+                        if (owner == former.name && source == old_source)
+                            || (new_name == name
+                                && owner == product.as_str()
+                                && source == expected) => {}
+                    _ => return Err(refused(Refusal::Unmanaged(old_target.clone()))),
+                }
+                if target != *old_target {
+                    match prior(&target, &assets)? {
+                        Prior::Absent => {}
+                        Prior::Owned { owner, source }
+                            if owner == product.as_str() && source == expected => {}
+                        _ => return Err(refused(Refusal::Unmanaged(target))),
+                    }
+                }
+                targets.push((old_target.clone(), target));
+            }
+            plan.push((name.clone(), skill, old_source, targets));
+        }
+        for (old_name, skill, old_source, targets) in plan {
+            let destination = materialize(&assets, product.as_str(), &skill)?;
+            // Keep the old intent until each link transition completes. A retry
+            // can recognize either immutable source without expanding consent.
+            for (old_target, target) in &targets {
+                files::link(target, &destination)?;
+                if old_target != target
+                    && matches!(prior(old_target, &assets)?,
+                    Prior::Owned { owner, source } if owner == former.name && source == old_source)
+                {
+                    fs::remove_file(old_target)?;
+                }
+            }
+            let mut published = owners
+                .skills
+                .get(&skill.name)
+                .filter(|record| record.owner == product.as_str())
+                .map(|record| record.targets.clone())
+                .unwrap_or_default();
+            for (_, target) in targets {
+                if !published.contains(&target) {
+                    published.push(target);
+                }
+            }
+            owners.skills.remove(&old_name);
+            owners.skills.insert(
+                skill.name.clone(),
+                OwnerRecord {
+                    owner: product.as_str().into(),
+                    digest: skill_digest(&skill.name, &skill.files),
+                    targets: published,
+                },
+            );
+            write_owners(&global, &owners)?;
+        }
+        Ok(())
+    })
+}
+
+/// Refresh only recorded, still-owned targets. A removed target does not grant
+/// consent to recreate it, and provider discovery never expands this operation.
+pub fn refresh_owned(
+    global: &Path,
+    owner: &str,
+    skills: &[OwnedSkill],
+) -> Result<OwnedReport, OwnedFailure> {
+    let mut report = OwnedReport::default();
+    let pending = (|| {
+        validate(owner, skills).map_err(refused)?;
+        let global = files::resolved(global)?;
+        let assets = SkillAssets::new(&global);
+        files::with_lock(&global, || {
+            let mut owners = read_owners(&global)?;
+            let mut plan = Vec::new();
+            for skill in skills {
+                let entry = owners.skills.get(&skill.name).ok_or_else(corrupt)?;
+                if entry.owner != owner {
+                    return Err(refused(Refusal::Claimed {
+                        name: skill.name.clone(),
+                        owner: entry.owner.clone(),
+                    }));
+                }
+                for target in &entry.targets {
+                    files::safe_target(assets.root(), target)?;
+                    match prior(target, &assets)? {
+                        Prior::Absent => {}
+                        Prior::Owned {
+                            owner: holder,
+                            source,
+                        } if holder == owner => {
+                            plan.push((skill, target.clone(), source));
+                        }
+                        _ => return Err(refused(Refusal::Unmanaged(target.clone()))),
+                    }
+                }
+            }
+            let mut sources = BTreeMap::new();
+            for skill in skills {
+                let destination = materialize(&assets, owner, skill)?;
+                owners
+                    .skills
+                    .get_mut(&skill.name)
+                    .ok_or_else(corrupt)?
+                    .digest = skill_digest(&skill.name, &skill.files);
+                sources.insert(skill.name.clone(), destination);
+            }
+            write_owners(&global, &owners)?;
+            for (skill, target, previous) in plan {
+                let destination = &sources[&skill.name];
+                let changed = &previous != destination;
+                if changed {
+                    files::link(&target, destination)?;
+                }
+                report.published.push(OwnedTarget {
+                    name: skill.name.clone(),
+                    agent: None,
+                    target,
+                    changed,
+                    backup: None,
+                });
+            }
+            Ok(())
+        })
+    })();
+    match pending {
+        Ok(()) => Ok(report),
+        Err(cause) => Err(OwnedFailure { cause, report }),
     }
 }
 

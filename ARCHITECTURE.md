@@ -680,7 +680,7 @@ leaf for TMT terminal UIs (markup admission, one Taffy geometry computation, Rat
 paint, reusable components). It has no Squad vocabulary, acquires no terminal, clock,
 settings or provider data, and takes its tokens from `tmt-cli-style` roles. The guard
 permits only XML parsing, borrowed JSON, shared style, private Taffy and Ratatui, never
-core, adapters, CLI or extension behavior. Squad is its sole reviewed consumer; a new
+core, adapters, CLI or extension behavior. Ops is its sole reviewed consumer; a new
 consumer or dependency goes to tmt-lead. Rules and limits: the
 [`tmt-tui` skill](.agents/skills/tmt-tui/SKILL.md).
 
@@ -829,7 +829,7 @@ Admitted compaction context reminds saved identities through global `notes.compa
 `config::document` preserves unknown JSON fields and validates known settings
 through `tmt-core::settings`; `init` creates the local file exclusively and never
 opens SQLite or tmux. Global `theme.base` writes reuse the CLI style base registry; the global `theme` object is presentation, interpreted only by
-`tmt-cli-style` (and read by Squad through `config show`); a bad theme never fails
+`tmt-cli-style` (and read by Ops through `config show`); a bad theme never fails
 configuration loading. Only `tmt-cli-style` names colors. Details are in the
 [storage and requests reference](.agents/skills/tmt-core-runtime/references/requests-storage.md#configuration-and-theme).
 
@@ -959,7 +959,7 @@ owner of a name keeps it until an explicit force and core names are reserved.
 
 Native executable installation is a different owner under `tmt-adapters::native_install`.
 The fixed `Product` policy owns package identity, inventory, namespace and command
-links for the CLI and the official extensions (Squad, Remote, Colab and the frozen
+links for the CLI and the official extensions (Ops, Remote, Colab and the frozen
 Office); archive data never adds a product. Every product uses one acquisition,
 receipt and atomic-publication path with independent links, lock and current
 release, and the active executable is the authority for a managed update: receipts
@@ -977,45 +977,45 @@ upgrade handoff are in the
 build, publication and verification procedures are in the
 [tmt-release skill](.agents/skills/tmt-release/SKILL.md).
 
-## Squad extension
+## Ops extension
 
-`extensions/tmt-squad/rust/tmt-squad` builds optional `tmt-squad`, reached through
-external dispatch as `tmt squad` or the same-file `tmt-sq` link as `tmt sq`.
-It shares only the workspace lockfile/toolchain and releases independently (`tmt-squad-v<version>`).
-Module/drawing ownership and guard verification: [Squad](.agents/skills/tmt-squad-dev/SKILL.md) and [TUI](.agents/skills/tmt-tui/SKILL.md) developer skills.
+`extensions/tmt-ops/rust/tmt-ops` builds optional `tmt-ops`, reached through
+external dispatch as `tmt ops`; `ui`, `hotkeys`, `skill` and `playbook` are Ops commands,
+while member and state commands live under `tmt ops squad` (alias `sq`).
+Independent releases use `tmt-ops-v<version>`; module/drawing ownership and guard verification: [Ops](.agents/skills/tmt-ops-dev/SKILL.md) and [TUI](.agents/skills/tmt-tui/SKILL.md) developer skills.
 
-- **Seam.** Squad reaches core only through public `tmt --json` commands and
+- **Seam.** Ops reaches core only through public `tmt --json` commands and
   `tmt api` (`TMT_EXECUTABLE`, else `tmt` on PATH), each call bounded by
   `tmt-invoke`. It never links a core crate or writes core state, tmux or provider
-  directories itself. The architecture guard enforces no TMT crate depending on Squad
-  and no Squad core dependency, for Cargo and source references. Its TMT dependencies
+  directories itself. The architecture guard enforces no TMT crate depending on Ops
+  and no Ops core dependency, for Cargo and source references. Its TMT dependencies
   are only `tmt-tui`, `tmt-cli-style` and `tmt-invoke`. A new `tmt api` method
   (for example cron's planned `dispatch.create` and `identityHooks`) changes the seam and goes to tmt-lead.
 - **Data ownership.** A squad is the core room `squad-<name>`; member fields are
-  identity metadata `squad.<name>.<field>`, with no Squad membership store. Squad owns
-  `<dataRoot>/ops` (`storage.root`) and disposable `$XDG_CACHE_HOME/tmt-squad` caches.
-  `ops.toml` is the user's file: agents never write it; Squad uses its compare-and-set
-  writer; `migration` owns the locked, byte-preserving legacy cutover. No Squad data goes into `config.json` or the core database.
+  identity metadata `squad.<name>.<field>`, with no Ops membership store. Ops owns
+  `<dataRoot>/ops` (`storage.root`) and disposable `$XDG_CACHE_HOME/tmt-ops` caches.
+  `ops.toml` is the user's file: agents never write it; Ops uses its compare-and-set
+  writer; `migration` owns the locked, byte-preserving legacy cutover. No Ops data goes into `config.json` or the core database.
 - **Checklist.** `checklist_command` exposes native grammar and scoped output over the existing
   `checklist` caller/room admission, `model` revisions/tombstones and `store` versioned room-UUID JSON
   under `<dataRoot>/ops/checklist`. Reads create no checklist files; locked admission precedes synced replacement outside a Core/file transaction.
   Prepublication failure preserves bytes; uncertainty remains Unknown after readback. The board Checklist controller consumes the same typed service, retaining exact previews and uncertain outcomes without dispatch.
-- **Row detail and focus.** Shared detail ownership and Core-owned focus policy acquisition/admission live in the [Squad skill](.agents/skills/tmt-squad-dev/SKILL.md); the [board reference](.agents/skills/tmt-squad-dev/references/board.md) owns worker fences.
-- **Entry and public JSON.** The [Squad reference](.agents/skills/tmt-squad-dev/references/config-and-effects.md#cli-entry-and-public-json) owns CLI entry and display-document contracts.
+- **Row detail and focus.** Shared detail ownership and Core-owned focus policy acquisition/admission live in the [Ops skill](.agents/skills/tmt-ops-dev/SKILL.md); the [board reference](.agents/skills/tmt-ops-dev/references/board.md) owns worker fences.
+- **Entry and public JSON.** The [Ops reference](.agents/skills/tmt-ops-dev/references/config-and-effects.md#cli-entry-and-public-json) owns CLI entry and display-document contracts.
 
-Contracts index: the [embedded lead skill](extensions/tmt-squad/skills/tmt-squad/SKILL.md)
-owns shapes, checked by `typescript/test/native/squad.test.ts`:
+Contracts index: the [embedded lead skill](extensions/tmt-ops/skills/tmt-ops/SKILL.md)
+owns shapes, checked by `typescript/test/native/ops.test.ts`:
 
-- `sq ls --json`: with `--squad`, one document (`squad`, `sections`, row grid
+- `ops sq ls --json`: with `--squad`, one document (`squad`, `sections`, row grid
   `columns`/`lines`, `you`); without it always `{squads: [...], you}`, whatever the
   squad count. Optional keys appear only when set: row `colors`; cell `token`; column
   `valueOnly`, `overflow`, `max_lines`; `hidden_columns`; `partial`/`failures`;
   `olderRequestsNotShown`; `squad.noteAnnotations`, `squad.notesStaleness`.
-- `sq config show` and `sq config set --json`: entries of key, value, source and
+- `ops sq config show` and `ops sq config set --json`: entries of key, value, source and
   editable.
-- `sq checklist <action> --json`: admitted current/revision documents and optional authorized error current;
+- `ops sq checklist <action> --json`: admitted current/revision documents and optional authorized error current;
   `ls` (hidden alias `list`) returns semantic action `list` with unfiltered/matched counts.
-- `sq cron ls|show|add|edit|pause|resume|reassign|rm --json`: job documents with the
+- `ops sq cron ls|show|add|edit|pause|resume|reassign|rm --json`: job documents with the
   exact message, schedule, owner and pause attribution; writes admit only the recorded
   user or the squad's current lead.
 

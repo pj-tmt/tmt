@@ -282,5 +282,5 @@ fn removal_and_exact_versions_name_only_features_that_stop_working() {
     assert_eq!(affected(&prefix, Product::Remote, Some(&lower)), expected);
     assert!(affected(&prefix, Product::Remote, Some(&same)).is_empty());
     // Squad is not used by anything.
-    assert!(affected(&prefix, Product::Squad, None).is_empty());
+    assert!(affected(&prefix, Product::Ops, None).is_empty());
 }

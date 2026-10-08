@@ -134,8 +134,9 @@ function parseGenerated(name, value) {
 /**
  * Parses and validates the component map. A malformed map throws, so the
  * selector job fails visibly instead of selecting the wrong work.
+ * historical preserves activation fields from immutable source snapshots before later product retirement.
  */
-export function parseComponentMap(text) {
+export function parseComponentMap(text, { historical = false } = {}) {
   const map = JSON.parse(text);
   const components = Object.entries(map.components ?? {}).map(([name, component]) => ({
     name,
@@ -214,7 +215,7 @@ export function parseComponentMap(text) {
   }
   const productMap = { components };
   for (const component of components) {
-    if (isComponentRetired(component.name) && component.release !== false)
+    if (!historical && isComponentRetired(component.name) && component.release !== false)
       throw new Error(`Retired component ${component.name} must declare release: false.`);
     if (component.predecessor === undefined) continue;
     if (!component.package || typeof component.predecessor !== 'string' || !component.predecessor)
@@ -463,7 +464,7 @@ export function selectColabHarness(paths, map = componentMap()) {
 
 /**
  * How much of the native work a change needs. `none`: nothing native is selected.
- * A component name (only `squad` declares `scopedChecks`): every path that selects
+ * A component name (only `ops` declares `scopedChecks`): every path that selects
  * native work is owned by that component, which cannot affect the others, so it
  * runs its own checks. `full`: anything else, and an empty diff, fails closed.
  */

@@ -119,7 +119,7 @@ fi`
 }
 
 describe('native artifact stdout', () => {
-  it.each(['cli', 'office', 'squad', 'driver-herdr', 'remote', 'colab'])(
+  it.each(['cli', 'office', 'ops', 'driver-herdr', 'remote', 'colab'])(
     'reserves stdout and selects the %s notice manifest',
     (product) => {
       const { root, bin, script } = artifactFixture(product);
@@ -159,7 +159,7 @@ describe('native artifact stdout', () => {
       expect(config).not.toMatch(/"__TMT_[A-Z]+_LICENSE__"/);
     }
   );
-  it.each(['cli', 'office', 'squad', 'driver-herdr', 'remote', 'colab'])(
+  it.each(['cli', 'office', 'ops', 'driver-herdr', 'remote', 'colab'])(
     'generates %s notices without building the companion or invoking cargo-dist',
     (product) => {
       const { bin, script } = artifactFixture(product);
@@ -174,7 +174,7 @@ describe('native artifact stdout', () => {
       expect(noticeOnly.stderr).not.toContain('companion build diagnostics');
     }
   );
-  it.each(['cli', 'office', 'squad', 'driver-herdr', 'remote', 'colab'])(
+  it.each(['cli', 'office', 'ops', 'driver-herdr', 'remote', 'colab'])(
     'generates Rust-only %s notices without Node, frontend builds or cargo-dist',
     (product) => {
       const { root, bin, script } = artifactFixture(product);
@@ -194,7 +194,7 @@ describe('native artifact stdout', () => {
   );
   it.each(
     vendored.flatMap(([crate, version, name]) =>
-      ['cli', 'office', 'squad', 'driver-herdr', 'remote', 'colab'].map(
+      ['cli', 'office', 'ops', 'driver-herdr', 'remote', 'colab'].map(
         (product) => [crate, version, name, product] as const
       )
     )
@@ -219,7 +219,7 @@ describe('native artifact stdout', () => {
   );
   it.each(
     vendored.flatMap(([crate, version]) =>
-      ['cli', 'office', 'squad', 'driver-herdr', 'remote', 'colab'].map(
+      ['cli', 'office', 'ops', 'driver-herdr', 'remote', 'colab'].map(
         (product) => [crate, version, product] as const
       )
     )

@@ -389,6 +389,7 @@ export async function planReleaseCuts({ metadata, map, workspace, git, date, ver
     const row = { product: component.name, cut, status: 'blocked' };
     try {
       const product = productOfComponent(component.name);
+      if (!isProductReleased(map, product)) continue;
       row.product = product;
       const { tagPrefix } = releasePolicy(product);
       const history = releaseCutHistory({

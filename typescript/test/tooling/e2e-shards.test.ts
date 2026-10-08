@@ -110,10 +110,7 @@ describe('Docker E2E shards', () => {
   });
 
   it('runs one shard for a scoped component, none when nothing native is selected', () => {
-    expect(e2eShardFiles('squad', ['squad.e2e.test.ts'], files)).toEqual([
-      ['squad.e2e.test.ts'],
-      [],
-    ]);
+    expect(e2eShardFiles('ops', ['ops.e2e.test.ts'], files)).toEqual([['ops.e2e.test.ts'], []]);
     expect(e2eShardFiles('none', [], files)).toEqual([[], []]);
     expect(e2eShardFiles('', [], files)).toEqual([[], []]);
   });

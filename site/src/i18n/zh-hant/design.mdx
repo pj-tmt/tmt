@@ -1,6 +1,6 @@
 ---
 source: site/src/chapters/design.mdx
-sourceRevision: 962e2bd12fcd3a3e827acacdc076b2dbc7082c24
+sourceRevision: 59fece53c9538c367373921a2a9a0b2b6611343c
 title: 一套外觀，處處一致
 ---
 
@@ -10,7 +10,7 @@ import { Tag } from "../../components/marks";
 import { MarkList, TokenPreview, TokenTable, TypePreview } from "../../components/samples";
 import { components as Mdx } from "../../components/mdx";
 
-無論是命令列、Squad board 或這個網站，tmt 都應該看起來像同一個產品。這一頁是共用的設計指南。數值來自同一份 [`design/tokens/tokens.json`](https://github.com/pj-tmt/tmt/blob/main/design/tokens/tokens.json)；網站樣式與這裡的表格都直接讀取它，不另外複製數值。
+無論是命令列、Ops board 或這個網站，tmt 都應該看起來像同一個產品。這一頁是共用的設計指南。數值來自同一份 [`design/tokens/tokens.json`](https://github.com/pj-tmt/tmt/blob/main/design/tokens/tokens.json)；網站樣式與這裡的表格都直接讀取它，不另外複製數值。
 
 <Mdx.h3 id="interactive-design-guidebook-mdx">MDX 互動式設計指南</Mdx.h3>
 
@@ -51,7 +51,7 @@ import { components as Mdx } from "../../components/mdx";
 
 標題使用展示字型，內文使用正文字型；讀者輸入與終端機輸出使用等寬字型。指令依照實際輸入的格式顯示，包含 `$` 提示符號與淡化的 `# 註解`：
 
-<Cmd>{`$ tmt sq board --squad product   # 讀者可複製使用的指令`}</Cmd>
+<Cmd>{`$ tmt ops ui --squad product   # 讀者可複製使用的指令`}</Cmd>
 
 <Mdx.h3 id="marks">符號</Mdx.h3>
 

@@ -5,13 +5,16 @@ pub mod handoff;
 mod online;
 mod remove;
 pub use online::{default_install_prefix, install_release, latest_release_version};
-pub use remove::{ProductRemoval, plan_product_removal, remove_product, uninstall_extension};
+pub use remove::{
+    ProductRemoval, finish_product_replacement, plan_product_removal, remove_product,
+    uninstall_extension,
+};
 pub use tmt_core::native_install::Product;
 mod managed;
 pub use managed::{
-    Companion, ManagedInstallation, active_companion, inspect, inspect_product,
-    inspect_product_prefix, release_skill_names, release_skills, with_active_product,
-    with_active_release,
+    Companion, ManagedInstallation, active_companion, inspect, inspect_former_product,
+    inspect_product, inspect_product_prefix, release_skill_names, release_skills,
+    with_active_product, with_active_release,
 };
 #[cfg(test)]
 mod artifact_tests;
@@ -260,7 +263,32 @@ fn activate_with_local_schema(
     checkpoint()?;
     let layout = publication::Layout::open_product(request.prefix, request.product)?;
     let _lock = crate::file_lock::exclusive(&layout.root.join("install.lock"))?;
-    let current = layout.current()?;
+    let published = layout.current()?;
+    let published_id = published.as_ref().map(|receipt| receipt.id);
+    // Lock order is new installation, then former installation, then skills.
+    // Old writers remain fenced until the new release is durably activated.
+    let former_layout = if let Some(former) = request.product.former() {
+        match std::fs::symlink_metadata(layout.prefix.join(former.namespace)) {
+            Err(error) if error.kind() == io::ErrorKind::NotFound => None,
+            Err(error) => return Err(error),
+            Ok(_) => Some(publication::Layout::existing_former(
+                &layout.prefix,
+                request.product,
+            )?),
+        }
+    } else {
+        None
+    };
+    let _former_lock = former_layout
+        .as_ref()
+        .map(|former| crate::file_lock::exclusive(&former.root.join("install.lock")))
+        .transpose()?;
+    let former = former_layout
+        .as_ref()
+        .map(publication::Layout::current)
+        .transpose()?
+        .flatten();
+    let current = published.or(former);
     if let Some(expected) = request.expected
         && current.as_ref().map(|receipt| receipt.id) != Some(expected)
     {
@@ -268,7 +296,7 @@ fn activate_with_local_schema(
             "The installed release or pin changed while downloading. Retry from the active executable.",
         ));
     }
-    layout.check_links(current.is_some())?;
+    layout.check_links(published_id.is_some())?;
     let current_identity = current
         .as_ref()
         .and_then(|receipt| receipt.provenance.as_ref())
@@ -324,7 +352,7 @@ fn activate_with_local_schema(
         if let Err(error) = layout.publish(
             artifact,
             &receipt,
-            current.as_ref().map(|receipt| receipt.id),
+            published_id,
             request.verifier,
             &mut checkpoint,
         ) {

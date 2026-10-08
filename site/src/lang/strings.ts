@@ -139,7 +139,7 @@ export const english = {
         squad: {
           eyebrow: "squad",
           title: "Every mark means *one thing*.",
-          text: "The Squad extension puts a lead and its members on one board, in the terminal you already use.",
+          text: "The Ops extension puts a lead and its members on one board, in the terminal you already use.",
         },
         colab: {
           eyebrow: "colab",
@@ -294,7 +294,7 @@ export const english = {
         hint: "The whole team in one view",
         status: "alpha",
         caption:
-          "More agents? `tmt sq board` shows the whole team in one view: who works, who waits on you, who is blocked. It comes with the Squad extension. The same agents, one more window.",
+          "More agents? `tmt ops ui` shows the whole team in one view: who works, who waits on you, who is blocked. It comes with the Ops extension. The same agents, one more window.",
       },
       {
         title: "3 · colab",

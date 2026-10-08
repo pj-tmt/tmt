@@ -21,14 +21,14 @@ type Artifact = Awaited<ReturnType<typeof createArtifact>>;
 
 // The proof's verifier drives the newest published CLI, so it may only use what that CLI has. The
 // driver here is the freshly built CLI behind a native fixture that records its public commands.
-// Squad/Remote/Colab: the Office installer also checks that the executable reports the version it is
+// Ops/Remote/Colab: the Office installer also checks that the executable reports the version it is
 // installed as, which a built `tmt-office` can do for one version only; the verifier builds the
 // same commands for every extension.
 describe('extension upgrade proof against the real CLI', () => {
   // The driver is the newest published CLI: today's, carrying its companion, or one released
   // before companions existed (5.0.0-alpha.39), read against its own manifest.
   it.each(
-    (['squad', 'remote', 'colab'] as const).flatMap(
+    (['ops', 'remote', 'colab'] as const).flatMap(
       (product) =>
         [
           [product, 'a current CLI', undefined],
@@ -45,7 +45,7 @@ describe('extension upgrade proof against the real CLI', () => {
         const artifact = (
           name: string,
           version: string,
-          product: 'cli' | 'squad' | 'remote' | 'colab'
+          product: 'cli' | 'ops' | 'remote' | 'colab'
         ) =>
           createArtifact(
             {
@@ -155,7 +155,7 @@ function runProof(
     previous,
     candidate,
     driver,
-    product = 'squad',
+    product = 'ops',
   }: Record<'previous' | 'candidate' | 'driver', Artifact> & { product?: string }
 ) {
   return runCli(

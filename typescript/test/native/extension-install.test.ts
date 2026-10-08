@@ -14,28 +14,12 @@ import path from 'node:path';
 import { describe, expect, it } from 'vite-plus/test';
 import { expectError, parseWholeStdout, runCli, withSandbox } from '../support/cli-process.js';
 import { withReleaseSandbox } from '../support/native-installation.js';
-const { productOfComponent } = (await import(
-  new URL('../../scripts/native-release-policy.mjs', import.meta.url).href
-)) as { productOfComponent: (name: string) => string };
 import { createArtifact, type ArtifactFixture } from '../support/native-artifact.js';
 
 const INSTALL_PROCESS_BUDGET_MS = 15_000;
 
 describe('tmt extension install surface', () => {
-  it('offers every released extension', async () => {
-    const { components } = JSON.parse(
-      readFileSync(new URL('../../../.github/components.json', import.meta.url), 'utf8')
-    ) as { components: Record<string, { owns: string[]; package?: string; release?: boolean }> };
-    const released = Object.entries(components)
-      .filter(
-        ([, component]) =>
-          component.owns.some((root) => root.startsWith('extensions/')) &&
-          component.package &&
-          component.release !== false
-      )
-      .map(([name]) => productOfComponent(name))
-      .sort();
-    expect(released.length).toBeGreaterThan(0);
+  it('offers every registered official extension independently of release activation', async () => {
     await withSandbox(async (sandbox) => {
       const result = await runCli(sandbox, [
         'extension',
@@ -50,7 +34,11 @@ describe('tmt extension install surface', () => {
         extensions: { name: string; installed: boolean }[];
       };
       expect(listed.extensions.every((extension) => !extension.installed)).toBe(true);
-      expect(listed.extensions.map((extension) => extension.name).sort()).toEqual(released);
+      expect(listed.extensions.map((extension) => extension.name).sort()).toEqual([
+        'colab',
+        'ops',
+        'remote',
+      ]);
       expectError(
         await runCli(sandbox, ['extension', 'install', 'driver-herdr', '--yes', '--json']),
         'EXTENSION_UNKNOWN'
@@ -141,7 +129,7 @@ describe('tmt extension install surface', () => {
   it('installs, lists offline, refuses without consent, and uninstalls squad keeping its releases', async () => {
     await withSandbox(async (sandbox) => {
       const prefix = path.join(sandbox.root, 'extension prefix');
-      const squad = await createArtifact(sandbox, '0.1.0-alpha.1', new Uint8Array(), 'squad');
+      const squad = await createArtifact(sandbox, '0.1.0-alpha.1', new Uint8Array(), 'ops');
       const cli = (args: string[]) =>
         runCli(sandbox, [...args, '--json'], { deadlineMs: INSTALL_PROCESS_BUDGET_MS });
 
@@ -149,7 +137,7 @@ describe('tmt extension install surface', () => {
       const refused = await cli([
         'extension',
         'install',
-        'squad',
+        'ops',
         '--archive',
         squad.archive,
         '--manifest',
@@ -164,7 +152,7 @@ describe('tmt extension install surface', () => {
       const install = [
         'extension',
         'install',
-        'squad',
+        'ops',
         '--yes',
         '--archive',
         squad.archive,
@@ -178,35 +166,33 @@ describe('tmt extension install surface', () => {
       const installed = await cli(install);
       expect(installed.stderr).toBe('');
       expect(parseWholeStdout(installed)).toEqual({
-        extension: 'squad',
+        extension: 'ops',
         installed: true,
         changed: true,
         version: '0.1.0-alpha.1',
-        executable: path.join(realpathSync(prefix), 'bin/tmt-squad'),
+        executable: path.join(realpathSync(prefix), 'bin/tmt-ops'),
       });
-      for (const link of ['tmt-squad', 'tmt-sq'])
-        expect(readlinkSync(path.join(prefix, 'bin', link))).toBe(
-          '../lib/tmt-squad/current/tmt-squad'
-        );
+      for (const link of ['tmt-ops'])
+        expect(readlinkSync(path.join(prefix, 'bin', link))).toBe('../lib/tmt-ops/current/tmt-ops');
       expect(parseWholeStdout(await cli(install))).toMatchObject({ changed: false });
 
       // A foreign same-named command elsewhere on PATH is reported, never run.
       const foreign = path.join(sandbox.root, 'foreign bin');
       mkdirSync(foreign);
-      writeExecutable(path.join(foreign, 'tmt-sq'), '#!/bin/sh\nexit 7\n', 0o755);
+      writeExecutable(path.join(foreign, 'tmt-ops'), '#!/bin/sh\nexit 7\n', 0o755);
       // A controlled PATH: never the user's own installed commands.
       sandbox.env.PATH = [path.join(prefix, 'bin'), foreign, '/usr/bin', '/bin'].join(':');
       const listed = parseWholeStdout(await cli(['extension', 'list', '--prefix', prefix]));
       expect(listed).toEqual({
         extensions: [
           {
-            name: 'squad',
+            name: 'ops',
             installed: true,
             version: '0.1.0-alpha.1',
             channel: 'alpha',
             pinned: null,
-            commands: ['tmt-squad', 'tmt-sq'],
-            shadowedBy: [path.join(foreign, 'tmt-sq')],
+            commands: ['tmt-ops'],
+            shadowedBy: [path.join(foreign, 'tmt-ops')],
           },
           {
             name: 'remote',
@@ -229,28 +215,28 @@ describe('tmt extension install surface', () => {
         ],
       });
 
-      // Root help groups the two names that resolve to one file.
+      // Root help discovers the sole Ops command.
       const help = await runCli(sandbox, ['--help']);
-      expect(help.stdout).toMatch(/^ {2}squad \(also: sq\) +\S/m);
+      expect(help.stdout).toMatch(/^ {2}ops +\S/m);
 
       expectError(
-        await cli(['extension', 'uninstall', 'squad', '--prefix', prefix]),
+        await cli(['extension', 'uninstall', 'ops', '--prefix', prefix]),
         'EXTENSION_CONSENT_REQUIRED'
       );
-      const removed = await cli(['extension', 'uninstall', 'squad', '--yes', '--prefix', prefix]);
+      const removed = await cli(['extension', 'uninstall', 'ops', '--yes', '--prefix', prefix]);
       expect(parseWholeStdout(removed)).toEqual({
-        extension: 'squad',
+        extension: 'ops',
         installed: false,
         changed: true,
         skillsRemoved: [],
         skillsKept: [],
         kept: ['releases', 'hookConsent'],
       });
-      for (const link of ['tmt-squad', 'tmt-sq'])
+      for (const link of ['tmt-ops'])
         expect(existsSync(path.join(prefix, 'bin', link))).toBe(false);
-      expect(existsSync(path.join(prefix, 'lib/tmt-squad/releases'))).toBe(true);
+      expect(existsSync(path.join(prefix, 'lib/tmt-ops/releases'))).toBe(true);
       expectError(
-        await cli(['extension', 'upgrade', 'squad', '--yes', '--prefix', prefix]),
+        await cli(['extension', 'upgrade', 'ops', '--yes', '--prefix', prefix]),
         'EXTENSION_NOT_INSTALLED'
       );
     });
@@ -259,18 +245,18 @@ describe('tmt extension install surface', () => {
   it('names one exact repair command, refuses unsafe damage, and treats healthy repair as a no-op', async () => {
     await withSandbox(async (sandbox) => {
       const prefix = path.join(sandbox.root, "repair prefix with ' quote");
-      const squad = await createArtifact(sandbox, '0.1.0-alpha.1', new Uint8Array(), 'squad');
+      const squad = await createArtifact(sandbox, '0.1.0-alpha.1', new Uint8Array(), 'ops');
       const cli = (args: string[]) =>
         runCli(sandbox, [...args, '--json'], { deadlineMs: INSTALL_PROCESS_BUDGET_MS });
       expectError(
-        await cli(['extension', 'install', 'squad', '--repair', '--prefix', prefix]),
+        await cli(['extension', 'install', 'ops', '--repair', '--prefix', prefix]),
         'EXTENSION_CONSENT_REQUIRED'
       );
       expect(existsSync(prefix)).toBe(false);
       const installed = await cli([
         'extension',
         'install',
-        'squad',
+        'ops',
         '--yes',
         '--archive',
         squad.archive,
@@ -282,7 +268,7 @@ describe('tmt extension install surface', () => {
         'alpha',
       ]);
       expect(installed.status).toBe(0);
-      const release = realpathSync(path.join(prefix, 'lib/tmt-squad/current'));
+      const release = realpathSync(path.join(prefix, 'lib/tmt-ops/current'));
       const receiptPath = path.join(release, 'receipt.json');
       const receipt = JSON.parse(readFileSync(receiptPath, 'utf8'));
       // Test-only provenance lets read-only/healthy cases run without a live release or endpoint bypass.
@@ -297,7 +283,7 @@ describe('tmt extension install surface', () => {
       const healthy = await cli([
         'extension',
         'install',
-        'squad',
+        'ops',
         '--repair',
         '--yes',
         '--prefix',
@@ -305,13 +291,13 @@ describe('tmt extension install surface', () => {
       ]);
       expect(healthy.status).toBe(0);
       expect(parseWholeStdout(healthy)).toMatchObject({ changed: false, retainedRelease: null });
-      expect(realpathSync(path.join(prefix, 'lib/tmt-squad/current'))).toBe(release);
+      expect(realpathSync(path.join(prefix, 'lib/tmt-ops/current'))).toBe(release);
       expect(readFileSync(receiptPath).equals(healthyReceipt)).toBe(true);
       const tamperedPath = path.join(release, 'LICENSE');
       writeFileSync(tamperedPath, 'user edits\n');
       const before = readFileSync(tamperedPath);
       const quotedPrefix = `'${realpathSync(prefix).replace(/'/g, "'\\''")}'`;
-      const repairCommand = `tmt extension install squad --repair --yes --prefix ${quotedPrefix}`;
+      const repairCommand = `tmt extension install ops --repair --yes --prefix ${quotedPrefix}`;
       // Listing keeps going and reports the damaged entry with the same exact repair.
       const listed = await cli(['extension', 'list', '--prefix', prefix]);
       expect(listed.status).toBe(0);
@@ -319,13 +305,13 @@ describe('tmt extension install surface', () => {
         parseWholeStdout(listed) as {
           extensions: { name: string; status?: string; hint?: string }[];
         }
-      ).extensions.find((entry) => entry.name === 'squad');
+      ).extensions.find((entry) => entry.name === 'ops');
       expect(squadRow?.status).toBe('repairRequired');
       expect(squadRow?.hint).toContain(repairCommand);
       expect(squadRow?.hint?.match(/tmt extension/g)).toHaveLength(1);
       for (const args of [
-        ['extension', 'install', 'squad', '--yes', '--prefix', prefix],
-        ['extension', 'upgrade', 'squad', '--yes', '--prefix', prefix],
+        ['extension', 'install', 'ops', '--yes', '--prefix', prefix],
+        ['extension', 'upgrade', 'ops', '--yes', '--prefix', prefix],
       ]) {
         const error = expectError(await cli(args), 'EXTENSION_REPAIR_REQUIRED').error as {
           message: string;
@@ -344,11 +330,11 @@ describe('tmt extension install surface', () => {
         parseWholeStdout(unsafe) as {
           extensions: { name: string; status?: string; hint?: string; detail?: string }[];
         }
-      ).extensions.find((entry) => entry.name === 'squad');
+      ).extensions.find((entry) => entry.name === 'ops');
       expect(unsafeRow?.status).toBe('invalid');
       expect(`${unsafeRow?.hint} ${unsafeRow?.detail}`).not.toContain('--repair');
       const error = expectError(
-        await cli(['extension', 'install', 'squad', '--repair', '--yes', '--prefix', prefix]),
+        await cli(['extension', 'install', 'ops', '--repair', '--yes', '--prefix', prefix]),
         'EXTENSION_INSTALLATION_INVALID'
       ).error as { message: string };
       expect(error.message).not.toContain('--repair');
@@ -361,7 +347,7 @@ describe('tmt extension install surface', () => {
   it('repairs a local archive exactly and retains its damaged release and foreign files', async () => {
     await withSandbox(async (sandbox) => {
       const prefix = path.join(sandbox.root, 'local repair prefix');
-      const squad = await createArtifact(sandbox, '0.1.0-alpha.1', new Uint8Array(), 'squad');
+      const squad = await createArtifact(sandbox, '0.1.0-alpha.1', new Uint8Array(), 'ops');
       const cli = (args: string[]) =>
         runCli(sandbox, [...args, '--json'], { deadlineMs: INSTALL_PROCESS_BUDGET_MS });
       const inputs = ['--archive', squad.archive, '--manifest', squad.manifest];
@@ -370,7 +356,7 @@ describe('tmt extension install surface', () => {
           await cli([
             'extension',
             'install',
-            'squad',
+            'ops',
             '--yes',
             '--prefix',
             prefix,
@@ -380,13 +366,13 @@ describe('tmt extension install surface', () => {
           ])
         ).status
       ).toBe(0);
-      const current = path.join(prefix, 'lib/tmt-squad/current');
+      const current = path.join(prefix, 'lib/tmt-ops/current');
       const old = realpathSync(current);
       const receiptBytes = readFileSync(path.join(old, 'receipt.json'));
       const original = readFileSync(path.join(old, 'LICENSE'));
       writeFileSync(path.join(old, 'LICENSE'), 'user edits');
       writeFileSync(path.join(old, 'foreign.txt'), 'keep foreign content');
-      const repair = ['extension', 'install', 'squad', '--repair', '--yes', '--prefix', prefix];
+      const repair = ['extension', 'install', 'ops', '--repair', '--yes', '--prefix', prefix];
       // Listing reports the damaged entry with its exact repair instead of failing as a whole.
       const listed = await cli(['extension', 'list', '--prefix', prefix]);
       expect(listed.status).toBe(0);
@@ -394,9 +380,9 @@ describe('tmt extension install surface', () => {
         parseWholeStdout(listed) as {
           extensions: { name: string; status?: string; path?: string; hint?: string }[];
         }
-      ).extensions.find((entry) => entry.name === 'squad');
+      ).extensions.find((entry) => entry.name === 'ops');
       expect(row).toMatchObject({ status: 'repairRequired' });
-      expect(row?.path).toBe(path.join(prefix, 'bin/tmt-squad'));
+      expect(row?.path).toBe(path.join(prefix, 'bin/tmt-ops'));
       expect(row?.hint).toContain(
         "--archive '<original-archive>' --manifest '<matching-manifest>'"
       );
@@ -410,7 +396,7 @@ describe('tmt extension install surface', () => {
       expect(error.message.match(/tmt extension/g)).toHaveLength(1);
       expect(realpathSync(current)).toBe(old);
       expectError(
-        await cli(['extension', 'install', 'squad', '--repair', '--prefix', prefix, ...inputs]),
+        await cli(['extension', 'install', 'ops', '--repair', '--prefix', prefix, ...inputs]),
         'EXTENSION_CONSENT_REQUIRED'
       );
       const repaired = await cli([...repair, ...inputs]);
@@ -590,7 +576,7 @@ describe('tmt extension install surface', () => {
         cli([
           'extension',
           'install',
-          'squad',
+          'ops',
           '--yes',
           '--archive',
           artifact.archive,
@@ -603,17 +589,17 @@ describe('tmt extension install surface', () => {
           ...extra,
         ]);
       const squad = (version: string, skills: Record<string, string>) =>
-        createArtifact(sandbox, version, new Uint8Array(), 'squad', undefined, skills);
+        createArtifact(sandbox, version, new Uint8Array(), 'ops', undefined, skills);
       const first = await squad('0.1.0-alpha.1', {
-        'tmt-squad/SKILL.md': 'lead v1\n',
-        'tmt-squad/references/usage.md': 'usage\n',
-        'tmt-squad-retired/SKILL.md': 'retired\n',
+        'tmt-ops/SKILL.md': 'lead v1\n',
+        'tmt-ops/references/usage.md': 'usage\n',
+        'tmt-ops-retired/SKILL.md': 'retired\n',
       });
 
       // --yes installs the extension but never publishes skills by itself.
       const offered = parseWholeStdout(await install(first)) as Record<string, unknown>;
       expect(offered.skills).toEqual({
-        available: ['tmt-squad', 'tmt-squad-retired'],
+        available: ['tmt-ops', 'tmt-ops-retired'],
         published: [],
         removed: [],
       });
@@ -622,7 +608,7 @@ describe('tmt extension install surface', () => {
         [
           'extension',
           'install',
-          'squad',
+          'ops',
           '--yes',
           '--archive',
           first.archive,
@@ -634,7 +620,7 @@ describe('tmt extension install surface', () => {
         { deadlineMs: INSTALL_PROCESS_BUDGET_MS }
       );
       expect(human.stdout).toContain(
-        '2 agent skills available (tmt-squad, tmt-squad-retired); publish with: tmt extension install squad --skills'
+        '2 agent skills available (tmt-ops, tmt-ops-retired); publish with: tmt extension install ops --skills'
       );
 
       // --skills publishes the verified tree into every provider root.
@@ -653,7 +639,7 @@ describe('tmt extension install surface', () => {
         expect(item.target.startsWith(sandbox.home)).toBe(true);
         expect(lstatSync(item.target).isSymbolicLink()).toBe(true);
       }
-      const lead = published('tmt-squad');
+      const lead = published('tmt-ops');
       expect(lead.length).toBeGreaterThan(0);
       for (const target of lead) {
         expect(readFileSync(path.join(target, 'SKILL.md'), 'utf8')).toBe('lead v1\n');
@@ -666,7 +652,7 @@ describe('tmt extension install surface', () => {
           version: 1,
           operation: 'skills.install',
           input: {
-            owner: 'squad',
+            owner: 'ops',
             consent: true,
             skills: [{ name: 'squad-playbook', files: [{ path: 'SKILL.md', content: 'play' }] }],
           },
@@ -676,17 +662,17 @@ describe('tmt extension install surface', () => {
 
       // An update refreshes held tree skills, removes the one it dropped by
       // name, and leaves the playbook alone.
-      const second = await squad('0.2.0-alpha.1', { 'tmt-squad/SKILL.md': 'lead v2\n' });
+      const second = await squad('0.2.0-alpha.1', { 'tmt-ops/SKILL.md': 'lead v2\n' });
       const updated = parseWholeStdout(await install(second)) as {
         version: string;
         skills: { available: string[]; removed: string[] };
       };
       expect(updated.version).toBe('0.2.0-alpha.1');
-      expect(updated.skills.available).toEqual(['tmt-squad']);
+      expect(updated.skills.available).toEqual(['tmt-ops']);
       expect(updated.skills.removed.length).toBeGreaterThan(0);
-      for (const target of published('tmt-squad'))
+      for (const target of published('tmt-ops'))
         expect(readFileSync(path.join(target, 'SKILL.md'), 'utf8')).toBe('lead v2\n');
-      expect(published('tmt-squad-retired')).toEqual([]);
+      expect(published('tmt-ops-retired')).toEqual([]);
       const plays = published('squad-playbook');
       expect(plays.length).toBeGreaterThan(0);
 
@@ -697,15 +683,15 @@ describe('tmt extension install surface', () => {
 
       // Uninstall removes every skill the owner holds, playbooks included.
       const removed = parseWholeStdout(
-        await cli(['extension', 'uninstall', 'squad', '--yes', '--prefix', prefix])
+        await cli(['extension', 'uninstall', 'ops', '--yes', '--prefix', prefix])
       ) as { skillsRemoved: string[]; skillsKept: string[]; kept: string[] };
       expect(removed.skillsRemoved.length).toBe(lead.length + plays.length);
       expect(removed.skillsKept).toEqual([]);
       expect(removed.kept).toEqual(['releases', 'hookConsent']);
-      expect(published('tmt-squad')).toEqual([]);
+      expect(published('tmt-ops')).toEqual([]);
       expect(published('squad-playbook')).toEqual([]);
       expect(readFileSync(path.join(foreign, 'SKILL.md'), 'utf8')).toBe('mine');
-      expect(existsSync(path.join(prefix, 'lib/tmt-squad/releases'))).toBe(true);
+      expect(existsSync(path.join(prefix, 'lib/tmt-ops/releases'))).toBe(true);
     });
   }, 90_000);
 
@@ -811,12 +797,12 @@ describe('tmt extension install surface', () => {
         sandbox,
         '0.1.0-alpha.1',
         new Uint8Array(),
-        'squad',
+        'ops',
         undefined,
-        { 'tmt-squad/SKILL.md': 'lead\n' }
+        { 'tmt-ops/SKILL.md': 'lead\n' }
       );
       // An unmanaged folder already holds the name in the Claude root.
-      const conflict = path.join(sandbox.home, '.claude/skills/tmt-squad');
+      const conflict = path.join(sandbox.home, '.claude/skills/tmt-ops');
       mkdirSync(conflict, { recursive: true });
       writeFileSync(path.join(conflict, 'SKILL.md'), 'hand-written');
       const result = await runCli(
@@ -824,7 +810,7 @@ describe('tmt extension install surface', () => {
         [
           'extension',
           'install',
-          'squad',
+          'ops',
           '--yes',
           '--skills',
           '--archive',
@@ -841,9 +827,7 @@ describe('tmt extension install surface', () => {
       );
       expectError(result, 'EXTENSION_SKILLS_FAILED');
       expect(readFileSync(path.join(conflict, 'SKILL.md'), 'utf8')).toBe('hand-written');
-      expect(readlinkSync(path.join(prefix, 'bin/tmt-squad'))).toBe(
-        '../lib/tmt-squad/current/tmt-squad'
-      );
+      expect(readlinkSync(path.join(prefix, 'bin/tmt-ops'))).toBe('../lib/tmt-ops/current/tmt-ops');
     });
   }, 60_000);
 });
@@ -857,7 +841,7 @@ describe('aggregate official upgrades', () => {
         const prefix = path.join(sandbox.root, 'native install prefix with spaces');
         const install = async (
           artifact: ArtifactFixture,
-          product: 'cli' | 'squad' | 'remote' | 'colab'
+          product: 'cli' | 'ops' | 'remote' | 'colab'
         ) => {
           const result = await runCli(
             sandbox,
@@ -886,7 +870,7 @@ describe('aggregate official upgrades', () => {
         const cliArtifact = await createArtifact(sandbox, version);
         const cli = await install(cliArtifact, 'cli');
         const extensionReceipts = new Map<string, Buffer>();
-        for (const product of ['squad', 'remote', 'colab'] as const) {
+        for (const product of ['ops', 'remote', 'colab'] as const) {
           const artifact = await createArtifact(
             sandbox,
             '0.1.0-alpha.1',
@@ -905,9 +889,9 @@ describe('aggregate official upgrades', () => {
         expect(parseWholeStdout(first).products).toMatchObject([
           { product: 'cli', status: 'skippedPinned' },
           {
-            product: 'squad',
+            product: 'ops',
             status: 'skippedPinned',
-            hint: 'tmt extension upgrade squad --unpin',
+            hint: 'tmt extension upgrade ops --unpin',
           },
           {
             product: 'remote',
@@ -927,7 +911,7 @@ describe('aggregate official upgrades', () => {
         expect(skipped.status, skipped.stderr + skipped.stdout).toBe(0);
         expect(parseWholeStdout(skipped).products).toMatchObject([
           { product: 'cli', status: 'skippedPinned' },
-          { product: 'squad', status: 'skippedPinned' },
+          { product: 'ops', status: 'skippedPinned' },
           { product: 'remote', status: 'skippedPinned' },
           { product: 'colab', status: 'skippedPinned' },
         ]);

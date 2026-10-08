@@ -20,8 +20,11 @@ const { parseComponentMap } = (await import(scripts('ci-scope.mjs'))) as {
 const { shipsSkills } = (await import(scripts('component-skills.mjs'))) as {
   shipsSkills: (product: string, text?: string) => boolean;
 };
-const { productOfComponent } = (await import(scripts('native-release-policy.mjs'))) as {
+const { productOfComponent, isComponentRetired } = (await import(
+  scripts('native-release-policy.mjs')
+)) as {
   productOfComponent: (name: string) => string;
+  isComponentRetired: (name: string) => boolean;
 };
 const { runPackedCommand } = (await import(scripts('packed-command.mjs'))) as {
   runPackedCommand: (
@@ -32,7 +35,9 @@ const { runPackedCommand } = (await import(scripts('packed-command.mjs'))) as {
 };
 const text = fs.readFileSync(path.join(repositoryRoot, '.github', 'components.json'), 'utf8');
 const { components } = parseComponentMap(text);
-const skillsComponents = components.filter((component) => component.skills);
+const skillsComponents = components.filter(
+  (component) => component.skills && !isComponentRetired(component.name)
+);
 
 describe('components that ship agent skills', () => {
   it('declares at least one, and the reader agrees with the parsed map for every product', () => {
@@ -45,25 +50,25 @@ describe('components that ship agent skills', () => {
 
   it('refuses an unknown or ambiguous product and a malformed declaration', () => {
     expect(() => shipsSkills('nonexistent')).toThrow('Ambiguous or missing component');
-    const declare = (skills: unknown, packageName: string | null = 'tmt-squad', name = 'squad') =>
+    const declare = (skills: unknown, packageName: string | null = 'tmt-ops', name = 'ops') =>
       JSON.stringify({
         components: {
           [name]: {
             ...(packageName ? { package: packageName } : {}),
             skills,
-            owns: ['extensions/tmt-squad'],
+            owns: ['extensions/tmt-ops'],
           },
         },
       });
-    expect(shipsSkills('squad', declare(true))).toBe(true);
-    expect(shipsSkills('squad', declare(false))).toBe(false);
-    expect(shipsSkills('squad', declare(undefined))).toBe(false);
-    expect(shipsSkills('squad', declare(true, 'tmt-squad', 'tmt-squad'))).toBe(true);
-    expect(() => shipsSkills('squad', declare('yes'))).toThrow('skills must be boolean');
-    expect(() => shipsSkills('squad', declare(true, null))).toThrow('needs a package');
+    expect(shipsSkills('ops', declare(true))).toBe(true);
+    expect(shipsSkills('ops', declare(false))).toBe(false);
+    expect(shipsSkills('ops', declare(undefined))).toBe(false);
+    expect(shipsSkills('ops', declare(true, 'tmt-ops', 'tmt-ops'))).toBe(true);
+    expect(() => shipsSkills('ops', declare('yes'))).toThrow('skills must be boolean');
+    expect(() => shipsSkills('ops', declare(true, null))).toThrow('needs a package');
     const ambiguous = JSON.parse(declare(true));
-    ambiguous.components['tmt-squad'] = ambiguous.components.squad;
-    expect(() => shipsSkills('squad', JSON.stringify(ambiguous))).toThrow(
+    ambiguous.components['tmt-ops'] = ambiguous.components.ops;
+    expect(() => shipsSkills('ops', JSON.stringify(ambiguous))).toThrow(
       'Ambiguous or missing component'
     );
     expect(() => shipsSkills('example', declare(true, 'tmt-example', 'example'))).toThrow(
@@ -101,7 +106,7 @@ describe('components that ship agent skills', () => {
           [
             '--input-type=module',
             '--eval',
-            `import { shipsSkills } from ${JSON.stringify(module)}; console.log(shipsSkills('squad'));`,
+            `import { shipsSkills } from ${JSON.stringify(module)}; console.log(shipsSkills('ops'));`,
           ],
           { cwd: root, env: { PATH: path.dirname(process.execPath), HOME: root }, expectedStatus }
         );
@@ -132,7 +137,7 @@ describe('components that ship agent skills', () => {
     ${workflow.slice(start, end)}`;
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'tmt-skills-prepare-'));
     try {
-      for (const product of ['squad', 'remote', 'colab']) {
+      for (const product of ['ops', 'remote', 'colab']) {
         const args = runPackedCommand(
           '/bin/bash',
           ['--noprofile', '--norc', '-euo', 'pipefail', '-c', script],

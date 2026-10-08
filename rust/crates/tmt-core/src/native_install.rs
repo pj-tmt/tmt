@@ -1,7 +1,7 @@
 //! Pure release-channel and version policy; no filesystem or transport effects.
 
 mod product;
-pub use product::Product;
+pub use product::{FormerProduct, Product};
 mod pr;
 pub use pr::{PrCandidateIdentity, PrNumber, SchemaAdmission, SchemaError, admit_schema};
 

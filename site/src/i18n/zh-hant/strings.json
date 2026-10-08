@@ -25,7 +25,7 @@
       "drv-claude": "driver / Claude Code",
       "drv-codex": "driver / Codex",
       "extensions": "擴充套件",
-      "squad": "擴充套件 / Squad",
+      "squad": "擴充套件 / Ops",
       "colab": "擴充套件 / Colab",
       "meet": "擴充套件 / Meet",
       "remote": "擴充套件 / Remote",
@@ -108,7 +108,7 @@
         "squad": {
           "eyebrow": "squad",
           "title": "每個標記只有*一個意思*。",
-          "text": "Squad 擴充套件把 lead 與成員放在同一個 board，就在你原本的終端機裡。"
+          "text": "Ops 擴充套件把 lead 與成員放在同一個 board，就在你原本的終端機裡。"
         },
         "colab": {
           "eyebrow": "colab",
@@ -198,7 +198,7 @@
       {
         "title": "2 · board",
         "hint": "整個團隊，一個畫面",
-        "caption": "agent 變多了？`tmt sq board` 在一個畫面裡顯示整個團隊：誰在工作、誰在等你、誰卡住。它隨 Squad 擴充套件提供。同一批 agent，多開一個視窗。"
+        "caption": "agent 變多了？`tmt ops ui` 在一個畫面裡顯示整個團隊：誰在工作、誰在等你、誰卡住。它隨 Ops 擴充套件提供。同一批 agent，多開一個視窗。"
       },
       {
         "title": "3 · colab",

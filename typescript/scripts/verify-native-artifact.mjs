@@ -77,6 +77,7 @@ const notices = fs.readFileSync(values.notices, 'utf8');
 const executable = {
   cli: 'tmt',
   office: 'tmt-office',
+  ops: 'tmt-ops',
   squad: 'tmt-squad',
   remote: 'tmt-remote',
   colab: 'tmt-colab',
@@ -158,6 +159,10 @@ await withNativeArtifact(values.archive, metadata, async (artifactRoot) => {
     skill,
     inboxSkill,
     officeSkill,
+    opsSkill:
+      values.product === 'ops'
+        ? fs.readFileSync(path.join(values.skills, 'tmt-ops', 'SKILL.md'), 'utf8')
+        : undefined,
     squadSkill:
       values.product === 'squad'
         ? fs.readFileSync(path.join(values.skills, 'tmt-squad', 'SKILL.md'), 'utf8')
@@ -181,6 +186,7 @@ await withNativeArtifact(values.archive, metadata, async (artifactRoot) => {
       {
         cli: 'linkage, version, skill bundle, Herdr driver, managed install, SQLite persistence',
         office: 'linkage, exact Office handshake, no application state',
+        ops: 'linkage, version, exact skills tree, no application state',
         squad: 'linkage, version, exact skills tree, no application state',
         'driver-herdr': 'linkage, exact capabilities/version, no application state',
         colab:

@@ -18,11 +18,11 @@ struct Fixture {
 impl Fixture {
     fn new(pinned: bool) -> Self {
         let directory = TestDirectory::new();
-        let layout = Layout::open_product(&directory.path.join("prefix"), Product::Squad).unwrap();
+        let layout = Layout::open_product(&directory.path.join("prefix"), Product::Ops).unwrap();
         let (release, manifest, archive, name) =
-            release::product_fixture(Product::Squad, "1.2.3", TARGET, 42);
+            release::product_fixture(Product::Ops, "1.2.3", TARGET, 42);
         let artifact =
-            artifact::acquire_bytes(Product::Squad, &manifest, &name, &archive, TARGET).unwrap();
+            artifact::acquire_bytes(Product::Ops, &manifest, &name, &archive, TARGET).unwrap();
         let mut receipt = Receipt::new(&artifact, state("1.2.3", pinned.then_some("1.2.3")));
         receipt.provenance = Some(
             GitHubProvenance {
@@ -53,7 +53,7 @@ impl Fixture {
             Ok(self.archive.clone())
         } else {
             assert!(
-                url.ends_with("/tags/tmt-squad-v1.2.3"),
+                url.ends_with("/tags/tmt-ops-v1.2.3"),
                 "repair selects exact version: {url}"
             );
             Ok(self.metadata.clone())
@@ -61,7 +61,7 @@ impl Fixture {
     }
     fn repair(&self) -> io::Result<RepairReport> {
         repair_with(
-            Product::Squad,
+            Product::Ops,
             &self.layout.prefix,
             None,
             || Ok(()),
@@ -104,11 +104,11 @@ fn tree(root: &Path) -> BTreeMap<PathBuf, (u32, Vec<u8>)> {
 fn tampered_extra_missing_and_foreign_files_are_restored_without_changing_the_old_tree() {
     for defect in ["tampered", "extra", "missing", "foreign"] {
         let fixture = Fixture::new(true);
-        let original = fs::read(fixture.old.join("tmt-squad")).unwrap();
+        let original = fs::read(fixture.old.join("tmt-ops")).unwrap();
         match defect {
-            "tampered" => fs::write(fixture.old.join("tmt-squad"), b"tampered").unwrap(),
+            "tampered" => fs::write(fixture.old.join("tmt-ops"), b"tampered").unwrap(),
             "extra" => fs::write(fixture.old.join("extra.txt"), b"extra").unwrap(),
-            "missing" => fs::remove_file(fixture.old.join("tmt-squad")).unwrap(),
+            "missing" => fs::remove_file(fixture.old.join("tmt-ops")).unwrap(),
             "foreign" => {
                 fs::create_dir(fixture.old.join("user-files")).unwrap();
                 fs::write(fixture.old.join("user-files/keep.txt"), b"foreign bytes").unwrap();
@@ -148,7 +148,7 @@ fn healthy_repair_is_a_noop_without_network() {
     let fixture = Fixture::new(false);
     let before = tree(&fixture.layout.prefix);
     let result = repair_with(
-        Product::Squad,
+        Product::Ops,
         &fixture.layout.prefix,
         None,
         || Ok(()),
@@ -182,10 +182,10 @@ fn a_symlink_in_the_old_release_is_refused_without_following_or_repair_hint() {
 fn receipt_or_current_swap_during_acquisition_is_refused_before_publication() {
     for swap in ["receipt", "current"] {
         let fixture = Fixture::new(false);
-        fs::write(fixture.old.join("tmt-squad"), b"damaged").unwrap();
+        fs::write(fixture.old.join("tmt-ops"), b"damaged").unwrap();
         let before = tree(&fixture.old);
         let result = repair_with(
-            Product::Squad,
+            Product::Ops,
             &fixture.layout.prefix,
             None,
             || Ok(()),
@@ -215,7 +215,7 @@ fn receipt_or_current_swap_during_acquisition_is_refused_before_publication() {
         if swap == "current" {
             assert_eq!(tree(&fixture.old), before);
         }
-        assert_eq!(fs::read(fixture.old.join("tmt-squad")).unwrap(), b"damaged");
+        assert_eq!(fs::read(fixture.old.join("tmt-ops")).unwrap(), b"damaged");
     }
 }
 
@@ -223,10 +223,10 @@ fn receipt_or_current_swap_during_acquisition_is_refused_before_publication() {
 fn unavailable_or_different_original_artifact_leaves_everything_unchanged() {
     for different in [false, true] {
         let fixture = Fixture::new(false);
-        fs::write(fixture.old.join("tmt-squad"), b"damaged").unwrap();
+        fs::write(fixture.old.join("tmt-ops"), b"damaged").unwrap();
         let before = tree(&fixture.layout.prefix);
         let error = repair_with(
-            Product::Squad,
+            Product::Ops,
             &fixture.layout.prefix,
             None,
             || Ok(()),
@@ -238,7 +238,7 @@ fn unavailable_or_different_original_artifact_leaves_everything_unchanged() {
                     ));
                 }
                 let bytes = fixture.download(url)?;
-                if url.ends_with("/tags/tmt-squad-v1.2.3") {
+                if url.ends_with("/tags/tmt-ops-v1.2.3") {
                     let mut value: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
                     value["id"] = 43.into();
                     return Ok(serde_json::to_vec(&value).unwrap().into());
@@ -274,8 +274,8 @@ fn local_archive_repair_requires_matching_inputs_and_preserves_old_content_and_p
     let manifest = fixture.layout.prefix.join("manifest.json");
     fs::write(&archive, &fixture.archive).unwrap();
     fs::write(&manifest, &fixture.manifest).unwrap();
-    let original = fs::read(fixture.old.join("tmt-squad")).unwrap();
-    fs::write(fixture.old.join("tmt-squad"), b"tampered").unwrap();
+    let original = fs::read(fixture.old.join("tmt-ops")).unwrap();
+    fs::write(fixture.old.join("tmt-ops"), b"tampered").unwrap();
     fs::write(fixture.old.join("foreign.txt"), b"keep foreign bytes").unwrap();
     let before = tree(&fixture.layout.prefix);
     let required = fixture.layout.current().unwrap_err();
@@ -291,7 +291,7 @@ fn local_archive_repair_requires_matching_inputs_and_preserves_old_content_and_p
     assert!(required.get_ref().unwrap().is::<RepairRequired>());
     assert_eq!(tree(&fixture.layout.prefix), before);
     let missing = repair_product_from_archive(
-        Product::Squad,
+        Product::Ops,
         &fixture.layout.prefix,
         &archive.with_extension("missing"),
         &manifest,
@@ -322,7 +322,7 @@ fn local_archive_repair_requires_matching_inputs_and_preserves_old_content_and_p
     fs::write(&manifest, serde_json::to_vec(&other_manifest).unwrap()).unwrap();
     let mismatched = tree(&fixture.layout.prefix);
     let error = repair_product_from_archive(
-        Product::Squad,
+        Product::Ops,
         &fixture.layout.prefix,
         &archive,
         &manifest,
@@ -336,7 +336,7 @@ fn local_archive_repair_requires_matching_inputs_and_preserves_old_content_and_p
     fs::write(&manifest, &fixture.manifest).unwrap();
     let old = tree(&fixture.old);
     let repaired = repair_product_from_archive(
-        Product::Squad,
+        Product::Ops,
         &fixture.layout.prefix,
         &archive,
         &manifest,
@@ -356,7 +356,7 @@ fn local_archive_repair_requires_matching_inputs_and_preserves_old_content_and_p
     assert!(current.provenance.is_none());
     assert!(
         !repair_product_from_archive(
-            Product::Squad,
+            Product::Ops,
             &fixture.layout.prefix,
             &archive,
             &manifest,
@@ -373,7 +373,7 @@ fn local_archive_repair_requires_matching_inputs_and_preserves_old_content_and_p
 fn concurrent_repair_installs_preserve_the_winner_and_clean_losing_staging() {
     use std::sync::mpsc;
     let fixture = Fixture::new(true);
-    fs::write(fixture.old.join("tmt-squad"), b"tampered").unwrap();
+    fs::write(fixture.old.join("tmt-ops"), b"tampered").unwrap();
     fs::write(fixture.old.join("foreign.txt"), b"keep me").unwrap();
     let old = tree(&fixture.old);
     let lock_inode = fs::metadata(fixture.layout.root.join("install.lock"))
@@ -385,7 +385,7 @@ fn concurrent_repair_installs_preserve_the_winner_and_clean_losing_staging() {
         let fixture_ref = &fixture;
         let a = scope.spawn(move || {
             repair_with(
-                Product::Squad,
+                Product::Ops,
                 &fixture_ref.layout.prefix,
                 None,
                 || Ok(()),
@@ -407,7 +407,7 @@ fn concurrent_repair_installs_preserve_the_winner_and_clean_losing_staging() {
         let (start_b, acquire_b) = mpsc::channel();
         let b = scope.spawn(move || {
             repair_with(
-                Product::Squad,
+                Product::Ops,
                 &fixture_ref.layout.prefix,
                 None,
                 || Ok(()),

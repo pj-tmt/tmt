@@ -45,22 +45,21 @@ fn claimed(error: &std::io::Error) -> Option<(String, String)> {
 #[test]
 fn an_owner_publishes_repeats_as_a_no_op_and_updates_to_new_content() {
     let (_directory, env, global, root) = fixture();
-    let first = install_owned(&env, &global, "squad", &[skill("tmt-squad", "v1")], false).unwrap();
+    let first = install_owned(&env, &global, "squad", &[skill("tmt-ops", "v1")], false).unwrap();
     assert_eq!(first.published.len(), 1);
     assert!(first.published[0].changed);
-    let target = root.join("tmt-squad");
+    let target = root.join("tmt-ops");
     assert!(fs::symlink_metadata(&target).unwrap().is_symlink());
     assert_eq!(read_skill(&target), "v1");
     assert_eq!(
         fs::read_to_string(target.join("references/usage.md")).unwrap(),
         "reference"
     );
-    assert_eq!(owners(&global).unwrap()["tmt-squad"], "squad");
+    assert_eq!(owners(&global).unwrap()["tmt-ops"], "squad");
 
-    let again = install_owned(&env, &global, "squad", &[skill("tmt-squad", "v1")], false).unwrap();
+    let again = install_owned(&env, &global, "squad", &[skill("tmt-ops", "v1")], false).unwrap();
     assert!(!again.published[0].changed, "same content is a no-op");
-    let updated =
-        install_owned(&env, &global, "squad", &[skill("tmt-squad", "v2")], false).unwrap();
+    let updated = install_owned(&env, &global, "squad", &[skill("tmt-ops", "v2")], false).unwrap();
     assert!(updated.published[0].changed);
     assert_eq!(read_skill(&target), "v2");
     assert!(inspect_local_drift(&env, &global).unwrap().is_empty());
@@ -77,51 +76,44 @@ fn names_held_by_core_or_another_owner_are_refused_before_any_effect() {
     );
     assert!(!global.join("skill-owners.json").exists());
 
-    install_owned(&env, &global, "squad", &[skill("tmt-squad", "mine")], false).unwrap();
+    install_owned(&env, &global, "squad", &[skill("tmt-ops", "mine")], false).unwrap();
     let taken = install_owned(
         &env,
         &global,
         "other",
-        &[skill("tmt-other", "b"), skill("tmt-squad", "theirs")],
+        &[skill("tmt-other", "b"), skill("tmt-ops", "theirs")],
         false,
     )
     .unwrap_err();
     assert_eq!(
         claimed(&taken.cause),
-        Some(("tmt-squad".into(), "squad".into()))
+        Some(("tmt-ops".into(), "squad".into()))
     );
     assert!(taken.report.published.is_empty());
     assert!(
         !root.join("tmt-other").exists(),
         "nothing published on refusal"
     );
-    assert_eq!(read_skill(&root.join("tmt-squad")), "mine");
+    assert_eq!(read_skill(&root.join("tmt-ops")), "mine");
 
     // An explicit force transfers the claim.
-    install_owned(
-        &env,
-        &global,
-        "other",
-        &[skill("tmt-squad", "theirs")],
-        true,
-    )
-    .unwrap();
-    assert_eq!(owners(&global).unwrap()["tmt-squad"], "other");
-    assert_eq!(read_skill(&root.join("tmt-squad")), "theirs");
+    install_owned(&env, &global, "other", &[skill("tmt-ops", "theirs")], true).unwrap();
+    assert_eq!(owners(&global).unwrap()["tmt-ops"], "other");
+    assert_eq!(read_skill(&root.join("tmt-ops")), "theirs");
 }
 
 #[test]
 fn an_unmanaged_path_is_refused_and_force_backs_it_up() {
     let (_directory, env, global, root) = fixture();
-    let target = root.join("tmt-squad");
+    let target = root.join("tmt-ops");
     fs::create_dir_all(&target).unwrap();
     fs::write(target.join("SKILL.md"), b"hand written").unwrap();
     let refused =
-        install_owned(&env, &global, "squad", &[skill("tmt-squad", "v1")], false).unwrap_err();
+        install_owned(&env, &global, "squad", &[skill("tmt-ops", "v1")], false).unwrap_err();
     assert!(matches!(refusal(&refused.cause), Some(Refusal::Unmanaged(path)) if *path == target));
     assert_eq!(read_skill(&target), "hand written");
 
-    let forced = install_owned(&env, &global, "squad", &[skill("tmt-squad", "v1")], true).unwrap();
+    let forced = install_owned(&env, &global, "squad", &[skill("tmt-ops", "v1")], true).unwrap();
     let backup = forced.published[0].backup.clone().expect("backup");
     assert_eq!(fs::read(backup.join("SKILL.md")).unwrap(), b"hand written");
     assert_eq!(read_skill(&target), "v1");
@@ -228,7 +220,7 @@ fn removal_by_owner_keeps_other_owners_and_anything_the_user_replaced() {
         &env,
         &global,
         "squad",
-        &[skill("tmt-squad", "s"), skill("tmt-sq-play", "p")],
+        &[skill("tmt-ops", "s"), skill("tmt-sq-play", "p")],
         false,
     )
     .unwrap();
@@ -239,9 +231,9 @@ fn removal_by_owner_keeps_other_owners_and_anything_the_user_replaced() {
     fs::write(replaced.join("SKILL.md"), b"user copy").unwrap();
 
     let removed = remove_owned(None, &global, "squad", None).unwrap();
-    assert_eq!(removed.removed, [root.join("tmt-squad")]);
+    assert_eq!(removed.removed, [root.join("tmt-ops")]);
     assert_eq!(removed.kept, std::slice::from_ref(&replaced));
-    assert!(!root.join("tmt-squad").exists());
+    assert!(!root.join("tmt-ops").exists());
     assert_eq!(read_skill(&replaced), "user copy");
     assert_eq!(read_skill(&root.join("tmt-office")), "o");
     let remaining = owners(&global).unwrap();
@@ -263,7 +255,7 @@ fn removal_by_name_leaves_the_owners_other_skills_and_other_owners_alone() {
         &env,
         &global,
         "squad",
-        &[skill("tmt-squad", "s"), skill("tmux-squad", "p")],
+        &[skill("tmt-ops", "s"), skill("tmux-squad", "p")],
         false,
     )
     .unwrap();
@@ -297,11 +289,11 @@ fn removal_by_name_leaves_the_owners_other_skills_and_other_owners_alone() {
     assert_eq!(removed.removed, [root.join("tmux-squad")]);
     assert!(removed.kept.is_empty());
     assert!(!root.join("tmux-squad").exists());
-    assert_eq!(read_skill(&root.join("tmt-squad")), "s");
+    assert_eq!(read_skill(&root.join("tmt-ops")), "s");
     assert_eq!(read_skill(&root.join("tmt-office")), "o");
     let remaining = owners(&global).unwrap();
     assert_eq!(remaining.len(), 2);
-    assert_eq!(remaining["tmt-squad"], "squad");
+    assert_eq!(remaining["tmt-ops"], "squad");
     assert!(
         remove_owned(None, &global, "squad", Some(&["tmux-squad".to_string()]))
             .unwrap()
@@ -311,15 +303,15 @@ fn removal_by_name_leaves_the_owners_other_skills_and_other_owners_alone() {
     );
     // Without a selection the owner's remaining skill goes as before.
     let rest = remove_owned(None, &global, "squad", None).unwrap();
-    assert_eq!(rest.removed, [root.join("tmt-squad")]);
+    assert_eq!(rest.removed, [root.join("tmt-ops")]);
 }
 
 #[test]
 fn drift_reports_an_owned_target_that_no_longer_points_at_its_content() {
     let (_directory, env, global, root) = fixture();
-    install_owned(&env, &global, "squad", &[skill("tmt-squad", "v1")], false).unwrap();
+    install_owned(&env, &global, "squad", &[skill("tmt-ops", "v1")], false).unwrap();
     assert!(inspect_local_drift(&env, &global).unwrap().is_empty());
-    let target = root.join("tmt-squad");
+    let target = root.join("tmt-ops");
     fs::remove_file(&target).unwrap();
     std::os::unix::fs::symlink(root.join("elsewhere"), &target).unwrap();
     assert_eq!(inspect_local_drift(&env, &global).unwrap(), [target]);
@@ -327,7 +319,7 @@ fn drift_reports_an_owned_target_that_no_longer_points_at_its_content() {
 
 #[test]
 fn owners_names_and_files_are_validated_before_anything_else() {
-    let good = skill("tmt-squad", "x");
+    let good = skill("tmt-ops", "x");
     for owner in ["", "core", "Squad", "1squad", "sq uad", &"s".repeat(33)] {
         assert!(
             matches!(
@@ -369,12 +361,12 @@ fn owners_names_and_files_are_validated_before_anything_else() {
     ]);
     for files in bad_files {
         let invalid = OwnedSkill {
-            name: "tmt-squad".into(),
+            name: "tmt-ops".into(),
             files: files.clone(),
         };
         assert!(validate("squad", &[invalid]).is_err(), "{files:?}");
     }
-    for name in ["", "Tmt", "-lead", "a b", "tmt_squad"] {
+    for name in ["", "Tmt", "-lead", "a b", "tmt_ops"] {
         assert!(validate("squad", &[skill(name, "x")]).is_err(), "{name}");
     }
     assert!(
@@ -386,7 +378,7 @@ fn owners_names_and_files_are_validated_before_anything_else() {
 #[test]
 fn guided_setup_links_recorded_extension_skills_into_new_roots_once() {
     let (_directory, env, global, root) = fixture();
-    install_owned(&env, &global, "squad", &[skill("tmt-squad", "v1")], false).unwrap();
+    install_owned(&env, &global, "squad", &[skill("tmt-ops", "v1")], false).unwrap();
     let new_root = root
         .parent()
         .unwrap()
@@ -400,23 +392,22 @@ fn guided_setup_links_recorded_extension_skills_into_new_roots_once() {
             .iter()
             .map(|item| item.target.clone())
             .collect::<Vec<_>>(),
-        [new_root.join("tmt-squad")]
+        [new_root.join("tmt-ops")]
     );
     // Something the user put there meanwhile is never replaced.
     let linked = super::publish_owned(&global, &planned).unwrap();
-    assert_eq!(linked, [new_root.join("tmt-squad")]);
-    assert_eq!(read_skill(&new_root.join("tmt-squad")), "v1");
+    assert_eq!(linked, [new_root.join("tmt-ops")]);
+    assert_eq!(read_skill(&new_root.join("tmt-ops")), "v1");
     assert!(super::plan_owned(&global, &roots).unwrap().is_empty());
     // Recorded, so removing the owner removes the new link too.
     let removed = remove_owned(None, &global, "squad", None).unwrap();
-    assert!(removed.removed.contains(&new_root.join("tmt-squad")));
+    assert!(removed.removed.contains(&new_root.join("tmt-ops")));
 }
 
 #[test]
 fn recorded_owner_retires_dangling_generations_without_removing_a_changed_target() {
     let (_directory, env, global, root) = fixture();
-    let report =
-        install_owned(&env, &global, "squad", &[skill("tmt-squad", "old")], false).unwrap();
+    let report = install_owned(&env, &global, "squad", &[skill("tmt-ops", "old")], false).unwrap();
     let target = &report.published[0].target;
     let source = fs::read_link(target).unwrap();
     fs::remove_dir_all(source.parent().unwrap()).unwrap();
@@ -426,14 +417,124 @@ fn recorded_owner_retires_dangling_generations_without_removing_a_changed_target
     assert!(!fs::exists(target).unwrap());
     assert!(owners(&global).unwrap().is_empty());
 
-    install_owned(&env, &global, "squad", &[skill("tmt-squad", "new")], false).unwrap();
+    install_owned(&env, &global, "squad", &[skill("tmt-ops", "new")], false).unwrap();
     fs::remove_file(target).unwrap();
     fs::create_dir(target).unwrap();
     fs::write(target.join("SKILL.md"), b"user directory").unwrap();
     let kept = remove_owned(None, &global, "squad", None).unwrap();
-    assert_eq!(kept.kept, vec![root.join("tmt-squad")]);
+    assert_eq!(kept.kept, vec![root.join("tmt-ops")]);
     assert_eq!(
         fs::read(target.join("SKILL.md")).unwrap(),
         b"user directory"
     );
+}
+
+#[test]
+fn ops_migration_preserves_recorded_custom_targets_without_discovering_providers() {
+    let (directory, env, global, root) = fixture();
+    install_owned(
+        &env,
+        &global,
+        "squad",
+        &[
+            skill("tmt-squad", "former lead"),
+            skill("tmux-squad", "playbook"),
+        ],
+        false,
+    )
+    .unwrap();
+    let custom = directory.path.join("custom/tmt-squad");
+    super::owned::link_recorded(&global, [("tmt-squad", custom.as_path())]).unwrap();
+    let deleted = root.join("tmux-squad");
+    fs::remove_file(&deleted).unwrap();
+    let replacement = skill("tmt-ops", "Ops lead");
+    super::migrate_former_owned(
+        &global,
+        tmt_core::native_install::Product::Ops,
+        std::slice::from_ref(&replacement),
+    )
+    .unwrap();
+    assert!(!root.join("tmt-squad").exists());
+    assert!(!custom.exists());
+    assert_eq!(read_skill(&root.join("tmt-ops")), "Ops lead");
+    assert_eq!(read_skill(&custom.with_file_name("tmt-ops")), "Ops lead");
+    assert!(!deleted.exists(), "removed links do not renew consent");
+    let recorded = super::owned_by(None, &global, "ops").unwrap();
+    assert_eq!(recorded["tmt-ops"].len(), 2);
+    assert!(
+        !owners(&global)
+            .unwrap()
+            .values()
+            .any(|owner| owner == "squad")
+    );
+    super::migrate_former_owned(
+        &global,
+        tmt_core::native_install::Product::Ops,
+        &[replacement],
+    )
+    .unwrap();
+    fs::remove_file(root.join("tmt-ops")).unwrap();
+    super::refresh_owned(&global, "ops", &[skill("tmt-ops", "updated")]).unwrap();
+    assert!(!root.join("tmt-ops").exists());
+    assert_eq!(read_skill(&custom.with_file_name("tmt-ops")), "updated");
+    assert!(!env.home().join(".codex/skills/tmt-ops").exists());
+}
+
+#[test]
+fn ops_migration_refuses_modified_or_foreign_targets_before_any_effect() {
+    for modified_source in [false, true] {
+        let (_directory, env, global, root) = fixture();
+        install_owned(&env, &global, "squad", &[skill("tmt-squad", "old")], false).unwrap();
+        let old = root.join("tmt-squad");
+        if modified_source {
+            fs::write(old.join("SKILL.md"), "modified").unwrap();
+        } else {
+            fs::create_dir(root.join("tmt-ops")).unwrap();
+            fs::write(root.join("tmt-ops/SKILL.md"), "user").unwrap();
+        }
+        assert!(
+            super::migrate_former_owned(
+                &global,
+                tmt_core::native_install::Product::Ops,
+                &[skill("tmt-ops", "new")]
+            )
+            .is_err()
+        );
+        assert_eq!(owners(&global).unwrap()["tmt-squad"], "squad");
+        assert_eq!(
+            read_skill(&old),
+            if modified_source { "modified" } else { "old" }
+        );
+    }
+}
+
+#[test]
+fn ops_migration_recovers_after_the_renamed_link_was_published_and_old_link_removed() {
+    let (_directory, env, global, root) = fixture();
+    install_owned(&env, &global, "squad", &[skill("tmt-squad", "old")], false).unwrap();
+    // Simulate an interruption after link publication but before retiring the
+    // old owner record. The immutable destination itself remains verifiable.
+    let replacement = skill("tmt-ops", "new");
+    let before = fs::read(global.join("skill-owners.json")).unwrap();
+    install_owned(
+        &env,
+        &global,
+        "ops",
+        std::slice::from_ref(&replacement),
+        false,
+    )
+    .unwrap();
+    fs::write(global.join("skill-owners.json"), before).unwrap();
+    fs::remove_file(root.join("tmt-squad")).unwrap();
+    super::migrate_former_owned(
+        &global,
+        tmt_core::native_install::Product::Ops,
+        &[replacement],
+    )
+    .unwrap();
+    assert_eq!(
+        super::owned_by(None, &global, "ops").unwrap()["tmt-ops"],
+        [root.join("tmt-ops")]
+    );
+    assert!(!owners(&global).unwrap().contains_key("tmt-squad"));
 }

@@ -188,7 +188,7 @@ impl<'ast> Visit<'ast> for Visitor {
 // Per-file aliases do not resolve crate-local re-exports across modules.
 fn findings(sources: &[Source]) -> BTreeSet<Finding> {
     let mut found = BTreeSet::new();
-    for source in sources.iter().filter(|s| s.package == "tmt-squad") {
+    for source in sources.iter().filter(|s| s.package == "tmt-ops") {
         let mut visitor = Visitor::default();
         // Resolve aliases even when imports occur after their uses. Two walks
         // retain the same fail-closed production cfg rules as source discovery.
@@ -213,11 +213,11 @@ pub fn violations(sources: &[Source], exceptions: &[Exception]) -> Vec<String> {
     let mut violations: Vec<_> = found
         .difference(&listed)
         .map(|(file, widget)| {
-            format!("tmt-squad/{file}: raw ratatui widget {widget}; use tmt-tui drawing primitives")
+            format!("tmt-ops/{file}: raw ratatui widget {widget}; use tmt-tui drawing primitives")
         })
         .collect();
     violations.extend(listed.difference(&found).map(|(file, widget)| {
-        format!("tmt-squad/{file}: no raw {widget} remains; remove its board-widget exception")
+        format!("tmt-ops/{file}: no raw {widget} remains; remove its board-widget exception")
     }));
     let mut unique = BTreeSet::new();
     for exception in exceptions {
@@ -227,7 +227,7 @@ pub fn violations(sources: &[Source], exceptions: &[Exception]) -> Vec<String> {
             || !unique.insert((exception.file, exception.widget))
         {
             violations.push(format!(
-                "tmt-squad/{}: {} exception needs a unique exact widget, reason and #1544 link",
+                "tmt-ops/{}: {} exception needs a unique exact widget, reason and #1544 link",
                 exception.file, exception.widget
             ));
         }
@@ -259,7 +259,7 @@ mod tests {
             "#[cfg(any(test, unix))] fn paint() { ratatui::widgets::Paragraph::new(\"text\"); }",
         ] {
             assert_eq!(
-                findings(&[source("tmt-squad", "board/seeded.rs", text)]),
+                findings(&[source("tmt-ops", "board/seeded.rs", text)]),
                 BTreeSet::from([("board/seeded.rs".into(), "Paragraph".into())]),
                 "{text}"
             );
@@ -267,7 +267,7 @@ mod tests {
         assert!(
             !violations(
                 &[source(
-                    "tmt-squad",
+                    "tmt-ops",
                     "board/seeded.rs",
                     "use ratatui::widgets::*;"
                 )],
@@ -277,7 +277,7 @@ mod tests {
         );
         assert!(
             !violations(
-                &[source("tmt-squad", "board/seeded.rs", "use ratatui::*;")],
+                &[source("tmt-ops", "board/seeded.rs", "use ratatui::*;")],
                 &[]
             )
             .is_empty()
@@ -293,27 +293,27 @@ mod tests {
                 "use ratatui::widgets::{Paragraph, Block, Clear, List, Table};",
             ),
             source(
-                "tmt-squad",
+                "tmt-ops",
                 "board/paint.rs",
                 "fn paint() { tmt_tui::paint::paint(); } use ratatui::widgets::{Widget, ListState};",
             ),
             source(
-                "tmt-squad",
+                "tmt-ops",
                 "status.rs",
                 "use tmt_cli_style::table::Table; fn list() { Table::new(); }",
             ),
             source(
-                "tmt-squad",
+                "tmt-ops",
                 "config.rs",
                 "use toml_edit::Table; fn edit() { Table::new(); }",
             ),
             source(
-                "tmt-squad",
+                "tmt-ops",
                 "board/tests.rs",
                 "#[cfg(test)] mod tests { use ratatui::widgets::Paragraph; }",
             ),
             source(
-                "tmt-squad",
+                "tmt-ops",
                 "board/help.rs",
                 "fn help() { hint!(\"ratatui::widgets::Paragraph\"); }",
             ),
@@ -330,19 +330,17 @@ mod tests {
             issue: FOLLOW_UP,
         }];
         let sources = [source(
-            "tmt-squad",
+            "tmt-ops",
             "board/paint.rs",
             "use ratatui::widgets::{Paragraph, Table};",
         )];
         assert_eq!(
             violations(&sources, &exceptions),
-            ["tmt-squad/board/paint.rs: raw ratatui widget Table; use tmt-tui drawing primitives"]
+            ["tmt-ops/board/paint.rs: raw ratatui widget Table; use tmt-tui drawing primitives"]
         );
         assert_eq!(
             violations(&[], &exceptions),
-            [
-                "tmt-squad/board/paint.rs: no raw Paragraph remains; remove its board-widget exception"
-            ]
+            ["tmt-ops/board/paint.rs: no raw Paragraph remains; remove its board-widget exception"]
         );
         for (reason, issue, widget) in [
             ("", FOLLOW_UP, "Paragraph"),
@@ -394,7 +392,7 @@ mod tests {
         std::fs::write(&seeded, "fn paint() { tmt_tui::paint::paint(); }").unwrap();
         assert!(
             violations(
-                &super::super::source::collect("tmt-squad", &entry).unwrap(),
+                &super::super::source::collect("tmt-ops", &entry).unwrap(),
                 &[]
             )
             .is_empty()
@@ -406,11 +404,11 @@ mod tests {
         .unwrap();
         assert_eq!(
             violations(
-                &super::super::source::collect("tmt-squad", &entry).unwrap(),
+                &super::super::source::collect("tmt-ops", &entry).unwrap(),
                 &[]
             ),
             [
-                "tmt-squad/board/seeded.rs: raw ratatui widget Paragraph; use tmt-tui drawing primitives"
+                "tmt-ops/board/seeded.rs: raw ratatui widget Paragraph; use tmt-tui drawing primitives"
             ]
         );
     }

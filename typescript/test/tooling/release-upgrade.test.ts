@@ -67,8 +67,8 @@ function release(
 ): DraftRelease {
   const product = tag.startsWith('tmt-office-v')
     ? 'office'
-    : tag.startsWith('tmt-squad-v')
-      ? 'squad'
+    : tag.startsWith('tmt-ops-v')
+      ? 'ops'
       : tag.startsWith('tmt-driver-herdr-v')
         ? 'driver-herdr'
         : 'cli';
@@ -119,7 +119,7 @@ describe('versions', () => {
   it("names a tag's version by its product and refuses another product's tag", () => {
     expect(versionOfTag('v5.0.0-alpha.9', 'cli')).toBe('5.0.0-alpha.9');
     expect(versionOfTag('tmt-office-v0.1.0-alpha.4', 'office')).toBe('0.1.0-alpha.4');
-    expect(versionOfTag('tmt-squad-v0.1.0-alpha.2', 'squad')).toBe('0.1.0-alpha.2');
+    expect(versionOfTag('tmt-ops-v0.1.0-alpha.2', 'ops')).toBe('0.1.0-alpha.2');
     expect(() => versionOfTag('tmt-office-v0.1.0', 'cli')).toThrow('not a cli tag');
   });
 
@@ -136,7 +136,7 @@ describe('versions', () => {
       'v5.0.0-alpha.8',
       'v5.0.0-alpha.7',
     ]);
-    expect(publishedReleases(releases, 'squad')).toEqual([]);
+    expect(publishedReleases(releases, 'ops')).toEqual([]);
   });
 });
 
@@ -148,7 +148,7 @@ describe('selectPrevious', () => {
     release('v5.0.0-alpha.10', { draft: true }),
     release('tmt-office-v0.1.0-alpha.3'),
     release('tmt-office-v0.1.0-alpha.4', { draft: true }),
-    release('tmt-squad-v0.1.0-alpha.1'),
+    release('tmt-ops-v0.1.0-alpha.1'),
   ];
   const previous = (product: string, candidateTag: string) =>
     selectPrevious({ releases, product, candidateTag })?.tag_name ?? null;
@@ -163,8 +163,8 @@ describe('selectPrevious', () => {
     expect(previous('cli', 'v5.0.0-alpha.8')).toBe('v5.0.0-alpha.7');
     expect(previous('cli', 'v5.0.0-alpha.7')).toBeNull();
     expect(previous('cli', 'v4.9.0')).toBeNull();
-    expect(previous('squad', 'tmt-squad-v0.1.0-alpha.2')).toBe('tmt-squad-v0.1.0-alpha.1');
-    expect(previous('squad', 'tmt-squad-v0.1.0-alpha.1')).toBeNull();
+    expect(previous('ops', 'tmt-ops-v0.1.0-alpha.2')).toBe('tmt-ops-v0.1.0-alpha.1');
+    expect(previous('ops', 'tmt-ops-v0.1.0-alpha.1')).toBeNull();
   });
 
   it('refuses a candidate tag of another product', () => {
@@ -174,7 +174,7 @@ describe('selectPrevious', () => {
   it('never treats a dev candidate as newer than a published alpha with the same core', () => {
     expect(previous('cli', 'v5.0.0-dev')).toBeNull();
     expect(previous('office', 'tmt-office-v0.1.0-dev')).toBeNull();
-    expect(previous('squad', 'tmt-squad-v0.1.0-dev')).toBeNull();
+    expect(previous('ops', 'tmt-ops-v0.1.0-dev')).toBeNull();
   });
 });
 
@@ -183,7 +183,7 @@ describe('selectAssets and stageRelease', () => {
     for (const [tag, product] of [
       ['v5.0.0-alpha.8', 'cli'],
       ['tmt-office-v0.1.0-alpha.3', 'office'],
-      ['tmt-squad-v0.1.0-alpha.1', 'squad'],
+      ['tmt-ops-v0.1.0-alpha.1', 'ops'],
     ]) {
       const assets = selectAssets({ release: release(tag), product, target: TARGET });
       expect(assets.archive.name).toBe(`${prefixOf(product)}-${TARGET}.tar.gz`);
@@ -259,7 +259,7 @@ describe('fetchUpgrade and proveStaged', () => {
     release('v5.0.0-alpha.9', { draft: true, targets: TARGETS }),
     release('tmt-office-v0.1.0-alpha.3', { targets: TARGETS }),
     release('tmt-office-v0.1.0-alpha.4', { draft: true, targets: TARGETS }),
-    release('tmt-squad-v0.1.0-alpha.1', { draft: true, targets: TARGETS }),
+    release('tmt-ops-v0.1.0-alpha.1', { draft: true, targets: TARGETS }),
     release('tmt-driver-herdr-v0.1.0-alpha.1', { targets: TARGETS }),
     release('tmt-driver-herdr-v0.1.0-alpha.2', { draft: true, targets: TARGETS }),
   ];
@@ -433,7 +433,7 @@ describe('fetchUpgrade and proveStaged', () => {
     });
 
     it('reports a first product release as nothing to upgrade from', () => {
-      const { plan, downloads } = stageLocal('squad', 'tmt-squad-v0.1.0-alpha.999999', {
+      const { plan, downloads } = stageLocal('ops', 'tmt-ops-v0.1.0-alpha.999999', {
         releases: [],
       });
       expect(plan.previous).toBeNull();
@@ -463,8 +463,8 @@ describe('fetchUpgrade and proveStaged', () => {
         })
       ).toThrow('announces v5.0.0-alpha.1');
       expect(() =>
-        localCandidate({ directory: bundle('cli', SYNTHETIC), product: 'squad', tag: SYNTHETIC })
-      ).toThrow('has no squad archive');
+        localCandidate({ directory: bundle('cli', SYNTHETIC), product: 'ops', tag: SYNTHETIC })
+      ).toThrow('has no ops archive');
       const corrupted = bundle('cli', SYNTHETIC);
       writeFileSync(path.join(corrupted, `tmt-cli-${TARGET}.tar.gz`), 'tampered');
       expect(() =>
@@ -599,7 +599,7 @@ describe('fetchUpgrade and proveStaged', () => {
       selectSupportFloor({ ...input, candidateTag: 'v5.0.0-alpha.36', releases: [] })
     ).toBeNull();
     expect(
-      selectSupportFloor({ product: 'squad', candidateTag: 'tmt-squad-v1.0.0', releases: [] })
+      selectSupportFloor({ product: 'ops', candidateTag: 'tmt-ops-v1.0.0', releases: [] })
     ).toBeNull();
   });
 
@@ -639,11 +639,11 @@ describe('fetchUpgrade and proveStaged', () => {
   });
 
   it('has nothing to fetch for the first release of a product', () => {
-    const { plan, directory, downloads } = fetchInto('squad', 'tmt-squad-v0.1.0-alpha.1');
+    const { plan, directory, downloads } = fetchInto('ops', 'tmt-ops-v0.1.0-alpha.1');
     expect(plan.previous).toBeNull();
     expect(plan.files).toEqual({});
     expect(downloads).toEqual([]);
-    expect(prove(directory, { product: 'squad', tag: 'tmt-squad-v0.1.0-alpha.1' })).toEqual({
+    expect(prove(directory, { product: 'ops', tag: 'tmt-ops-v0.1.0-alpha.1' })).toEqual({
       result: { previous: null },
       calls: [],
     });
@@ -1113,11 +1113,11 @@ describe('failureCause and combineFailures', () => {
     expect(
       failureCause(
         trace(
-          'AssertionError [ERR_ASSERTION]: Packed command failed (exited 1, expected 0): tmt extension install squad: unrecognized subcommand squad\ncommand: x'
+          'AssertionError [ERR_ASSERTION]: Packed command failed (exited 1, expected 0): tmt extension install ops: unrecognized subcommand ops\ncommand: x'
         )
       )
     ).toBe(
-      'Packed command failed (exited 1, expected 0): tmt extension install squad: unrecognized subcommand squad'
+      'Packed command failed (exited 1, expected 0): tmt extension install ops: unrecognized subcommand ops'
     );
   });
 
@@ -1136,15 +1136,15 @@ describe('failureCause and combineFailures', () => {
   });
 
   it('names each distinct cause once, with the hosts it happened on, sorted', () => {
-    const squad = trace('Error: no squad command');
+    const ops = trace('Error: no ops command');
     expect(
       combineFailures([
-        { target: 'x86_64-unknown-linux-musl', log: squad },
-        { target: 'aarch64-apple-darwin', log: squad },
+        { target: 'x86_64-unknown-linux-musl', log: ops },
+        { target: 'aarch64-apple-darwin', log: ops },
         { target: 'x86_64-apple-darwin', log: trace('Error: a downgrade was accepted') },
       ])
     ).toBe(
-      'no squad command (aarch64-apple-darwin, x86_64-unknown-linux-musl); a downgrade was accepted (x86_64-apple-darwin)'
+      'no ops command (aarch64-apple-darwin, x86_64-unknown-linux-musl); a downgrade was accepted (x86_64-apple-darwin)'
     );
     const many = combineFailures(
       Array.from({ length: 8 }, (_, index) => ({
@@ -1200,21 +1200,19 @@ describe('release-upgrade.mjs', () => {
   });
 
   it('fetches nothing for a first release, and proves offline without gh or a repository', () => {
-    const run = fakeGh([release('tmt-squad-v0.1.0-alpha.1', { draft: true })]);
+    const run = fakeGh([release('tmt-ops-v0.1.0-alpha.1', { draft: true })]);
     const directory = path.join(root, 'none');
     const fetched = run([
       'fetch',
       '--product',
-      'squad',
+      'ops',
       '--tag',
-      'tmt-squad-v0.1.0-alpha.1',
+      'tmt-ops-v0.1.0-alpha.1',
       '--directory',
       directory,
     ]);
     expect(fetched.status).toBe(0);
-    expect(fetched.stderr).toContain(
-      'No published squad release precedes tmt-squad-v0.1.0-alpha.1'
-    );
+    expect(fetched.stderr).toContain('No published ops release precedes tmt-ops-v0.1.0-alpha.1');
     expect(JSON.parse(readFileSync(path.join(directory, 'plan.json'), 'utf8')).previous).toBeNull();
 
     // `prove` runs the release's own code: it must not need gh, a token or a repository.
@@ -1222,9 +1220,9 @@ describe('release-upgrade.mjs', () => {
       [
         'prove',
         '--product',
-        'squad',
+        'ops',
         '--tag',
-        'tmt-squad-v0.1.0-alpha.1',
+        'tmt-ops-v0.1.0-alpha.1',
         '--target',
         TARGET,
         '--directory',

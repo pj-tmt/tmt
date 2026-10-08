@@ -47,7 +47,7 @@ use tmt_cli_style::{
 const CONSENT: &str = "EXTENSION_CONSENT_REQUIRED";
 
 // Historical products stay recognizable for receipt recovery and removal.
-const INSTALLABLE_EXTENSIONS: &[Product] = &[Product::Squad, Product::Remote, Product::Colab];
+const INSTALLABLE_EXTENSIONS: &[Product] = &[Product::Ops, Product::Remote, Product::Colab];
 
 pub(crate) fn require_installable(product: Product) -> Result<(), Failure> {
     if INSTALLABLE_EXTENSIONS.contains(&product) {
@@ -197,7 +197,11 @@ fn installed(product: Product, prefix: &Path) -> Result<bool, Failure> {
                     ),
                     1,
                 )),
-                Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(false),
+                Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                    native_install::inspect_former_product(product, prefix)
+                        .map(|former| former.is_some())
+                        .map_err(|error| failure("EXTENSION_INSTALLATION_INVALID", error))
+                }
                 Err(error) => Err(failure("EXTENSION_INSTALLATION_INVALID", error)),
             }
         }
@@ -526,19 +530,28 @@ mod tests {
 
     #[test]
     fn only_official_extensions_are_named_and_the_cli_is_not_one() {
-        assert_eq!(extension("squad").unwrap(), Product::Squad);
+        assert_eq!(extension("ops").unwrap(), Product::Ops);
         assert_eq!(extension("remote").unwrap(), Product::Remote);
         assert_eq!(extension("colab").unwrap(), Product::Colab);
         assert_eq!(extension("office").unwrap(), Product::Office);
-        for name in ["cli", "tmt", "sq", "unknown"] {
+        for name in [
+            "cli",
+            "tmt",
+            "sq",
+            "squad",
+            "tmt-squad",
+            "tmt-sq",
+            "unknown",
+        ] {
             let error = extension(name).unwrap_err();
             assert_eq!(error.code, "EXTENSION_UNKNOWN");
             assert!(
                 error
                     .message
-                    .ends_with("Official extensions: squad, remote, colab.")
+                    .ends_with("Official extensions: ops, remote, colab.")
             );
         }
+        assert_eq!(names(), "ops, remote, colab");
     }
 
     #[test]
@@ -546,30 +559,30 @@ mod tests {
         let root = std::env::temp_dir().join(format!("tmt-shadow-{}", std::process::id()));
         let _ = fs::remove_dir_all(&root);
         let prefix = root.join("prefix");
-        let release = prefix.join("lib/tmt-squad/current");
+        let release = prefix.join("lib/tmt-ops/current");
         fs::create_dir_all(&release).unwrap();
         fs::create_dir_all(prefix.join("bin")).unwrap();
-        let binary = release.join("tmt-squad");
+        let binary = release.join("tmt-ops");
         // A marker the test can check: executing it would create this file.
         let marker = root.join("executed");
         fs::write(&binary, format!("#!/bin/sh\ntouch {}\n", marker.display())).unwrap();
         fs::set_permissions(&binary, fs::Permissions::from_mode(0o755)).unwrap();
-        for link in Product::Squad.links() {
+        for link in Product::Ops.links() {
             symlink(&binary, prefix.join("bin").join(link)).unwrap();
         }
         // The same file reached through another directory is not shadowing.
         let alias = root.join("alias");
         fs::create_dir_all(&alias).unwrap();
-        symlink(prefix.join("bin/tmt-squad"), alias.join("tmt-squad")).unwrap();
+        symlink(prefix.join("bin/tmt-ops"), alias.join("tmt-ops")).unwrap();
         let other = root.join("other");
         fs::create_dir_all(&other).unwrap();
-        fs::write(other.join("tmt-sq"), "#!/bin/sh\n").unwrap();
-        fs::set_permissions(other.join("tmt-sq"), fs::Permissions::from_mode(0o755)).unwrap();
-        fs::write(other.join("tmt-squad"), "not executable").unwrap();
+        fs::write(other.join("tmt-ops"), "#!/bin/sh\n").unwrap();
+        fs::set_permissions(other.join("tmt-ops"), fs::Permissions::from_mode(0o755)).unwrap();
+        fs::write(other.join("tmt-sq"), "not executable").unwrap();
         let search = env::join_paths([other.clone(), alias, prefix.join("bin")]).unwrap();
         assert_eq!(
-            shadowing_in(Product::Squad, &prefix, &search),
-            [other.join("tmt-sq").display().to_string()]
+            shadowing_in(Product::Ops, &prefix, &search),
+            [other.join("tmt-ops").display().to_string()]
         );
         assert!(!marker.exists(), "nothing was executed");
         let _ = fs::remove_dir_all(&root);
@@ -595,7 +608,7 @@ mod tests {
             .iter()
             .map(|row| row["name"].as_str().unwrap())
             .collect();
-        assert_eq!(names, ["squad", "remote", "colab"]);
+        assert_eq!(names, ["ops", "remote", "colab"]);
         let remote = &rows[1];
         assert_eq!(remote["status"], "unmanaged");
         assert_eq!(remote["installed"], false);
@@ -640,14 +653,14 @@ mod tests {
     #[test]
     fn uninstall_names_what_stays_and_how_to_remove_it() {
         let prefix = Path::new("/p");
-        let squad = kept(Product::Squad, prefix);
+        let squad = kept(Product::Ops, prefix);
         assert_eq!(
             squad.iter().map(|(what, _)| *what).collect::<Vec<_>>(),
             ["releases", "hookConsent"],
             "the extension's agent skills are removed, not kept"
         );
-        assert!(squad[0].1.contains("/p/lib/tmt-squad/releases"));
-        assert!(squad[1].1.contains("tmt extension hooks disable squad"));
+        assert!(squad[0].1.contains("/p/lib/tmt-ops/releases"));
+        assert!(squad[1].1.contains("tmt extension hooks disable ops"));
         let office = kept(Product::Office, prefix);
         assert_eq!(office.last().unwrap().0, "officeData");
         assert!(
@@ -669,9 +682,9 @@ mod presentation_tests {
         OwnedReport {
             published: vec![
                 OwnedTarget {
-                    name: "tmt-squad".into(),
+                    name: "tmt-ops".into(),
                     agent: None,
-                    target: "/home/ada/.agents/skills/tmt-squad".into(),
+                    target: "/home/ada/.agents/skills/tmt-ops".into(),
                     changed: true,
                     backup: Some("/home/ada/.agents/.tmt-skill-backups/previous".into()),
                 },
@@ -727,12 +740,12 @@ mod presentation_tests {
                 notes: Vec::new(),
             },
             ExtensionListRow {
-                name: "squad".into(),
+                name: "ops".into(),
                 status: "0.1.0-alpha.1 (pinned 0.1.0-alpha.1)".into(),
                 update: Some("current"),
                 shadowed: vec![
-                    "/home/ada/.local/other/bin/tmt-squad".into(),
-                    "/opt/other/bin/tmt-sq".into(),
+                    "/home/ada/.local/other/bin/tmt-ops".into(),
+                    "/opt/other/bin/tmt-ops".into(),
                 ],
                 notes: Vec::new(),
             },
@@ -764,7 +777,7 @@ mod presentation_tests {
     #[test]
     fn published_skills_have_success_marks_and_home_paths() {
         let report = published_report();
-        let mut human = Human::done("Installed squad 0.1.0-alpha.1.".into());
+        let mut human = Human::done("Installed ops 0.1.0-alpha.1.".into());
         for line in published_lines(&report, Some(Path::new("/home/ada"))) {
             human.push_success(line);
         }
@@ -798,16 +811,16 @@ pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] = &[
         "lifecycle hook consent; withdraw it with: tmt extension hooks disable {name}",
         &[""],
         &[
-            ("{name}", "squad"),
-            ("{}", "squad"),
-            ("{SUGGESTED_EXTENSION}", "squad"),
+            ("{name}", "ops"),
+            ("{}", "ops"),
+            ("{SUGGESTED_EXTENSION}", "ops"),
         ],
     ),
     crate::cli_style_tests::HintSpec::core(
         "tmt extension install {} --repair --yes --prefix {}",
         &[""],
         &[
-            ("tmt extension install {}", "tmt extension install squad"),
+            ("tmt extension install {}", "tmt extension install ops"),
             ("{}", "/tmp/hint-prefix"),
         ],
     ),
@@ -815,27 +828,27 @@ pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] = &[
         "{error} Inspect with: tmt extension ls",
         &[""],
         &[
-            ("{name}", "squad"),
-            ("{}", "squad"),
-            ("{SUGGESTED_EXTENSION}", "squad"),
+            ("{name}", "ops"),
+            ("{}", "ops"),
+            ("{SUGGESTED_EXTENSION}", "ops"),
         ],
     ),
     crate::cli_style_tests::HintSpec::core(
         "{} has an activation but no command link. Finish removal with: tmt extension rm {} --yes",
         &[""],
         &[
-            ("{name}", "squad"),
-            ("{}", "squad"),
-            ("{SUGGESTED_EXTENSION}", "squad"),
+            ("{name}", "ops"),
+            ("{}", "ops"),
+            ("{SUGGESTED_EXTENSION}", "ops"),
         ],
     ),
     crate::cli_style_tests::HintSpec::core(
         "{} is frozen; installation and upgrades are unavailable. Existing installations can still be listed and removed with tmt extension ls and tmt extension rm {}.",
         &[" and tmt ", "."],
         &[
-            ("{name}", "squad"),
-            ("{}", "squad"),
-            ("{SUGGESTED_EXTENSION}", "squad"),
+            ("{name}", "ops"),
+            ("{}", "ops"),
+            ("{SUGGESTED_EXTENSION}", "ops"),
         ],
     ),
 ];

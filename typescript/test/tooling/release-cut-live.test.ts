@@ -139,14 +139,14 @@ function fixture(activateExtensions = false) {
   };
   command(['init', '-q', '-b', 'main']);
   mkdirSync(join(root, '.github'));
-  mkdirSync(join(root, 'extensions/squad'), { recursive: true });
+  mkdirSync(join(root, 'extensions/ops'), { recursive: true });
   writeFileSync(
     join(root, '.github/components.json'),
     JSON.stringify({
       components: {
         cli: { owns: ['.'], excludes: ['extensions'], package: 'tmt-cli' },
-        squad: { owns: ['extensions/squad'], package: 'tmt-squad' },
-        private: { owns: ['shared'], release: false, releaseConsumers: ['squad'] },
+        ops: { owns: ['extensions/ops'], package: 'tmt-ops' },
+        private: { owns: ['shared'], release: false, releaseConsumers: ['ops'] },
         'driver-herdr': { owns: ['driver'], package: 'tmt-driver-herdr', release: false },
       },
     })
@@ -155,7 +155,7 @@ function fixture(activateExtensions = false) {
   writeReleaseWorkspace(root);
   const previous = commit('chore: initial fixture');
   command(['tag', 'v5.0.0-alpha.48']);
-  command(['tag', 'tmt-squad-v0.1.0-alpha.14']);
+  command(['tag', 'tmt-ops-v0.1.0-alpha.14']);
   if (activateExtensions) {
     const registry = JSON.parse(fixtureMap());
     for (const product of ['remote', 'colab']) {
@@ -181,10 +181,10 @@ function fixture(activateExtensions = false) {
     writeReleaseWorkspace(root, ['remote', 'colab']);
   }
   writeFileSync(join(root, 'cli.txt'), 'feature');
-  writeFileSync(join(root, 'extensions/squad/feature.txt'), 'feature');
+  writeFileSync(join(root, 'extensions/ops/feature.txt'), 'feature');
   const cut = commit('feat: shared feature');
   command(['update-ref', 'refs/remotes/origin/main', cut]);
-  const releases: DraftRelease[] = ['v5.0.0-alpha.48', 'tmt-squad-v0.1.0-alpha.14'].map(
+  const releases: DraftRelease[] = ['v5.0.0-alpha.48', 'tmt-ops-v0.1.0-alpha.14'].map(
     (tag_name, index) => ({
       id: index + 1,
       tag_name,
@@ -261,7 +261,7 @@ describe('live release cut lifecycle', () => {
     const blocked = await runReleaseCuts({ ...f, live: true });
     for (const [product, tag] of [
       ['cli', 'v5.0.0-alpha.49'],
-      ['squad', 'tmt-squad-v0.1.0-alpha.15'],
+      ['ops', 'tmt-ops-v0.1.0-alpha.15'],
     ]) {
       expect(blocked.actions).toContainEqual({ product, status: 'created', tag, cut: later });
       expect(f.client.dispatch).toHaveBeenCalledWith(product, tag);
@@ -350,7 +350,7 @@ describe('live release cut lifecycle', () => {
       'chore: aggregate\n\nBEGIN_NESTED_COMMIT\nfeat(style)!: incompatible palette\nEND_NESTED_COMMIT'
     );
     const map = parseComponentMap(f.command(['show', `${cut}:.github/components.json`]));
-    for (const product of ['cli', 'squad']) {
+    for (const product of ['cli', 'ops']) {
       const commits = releaseCommits({ from: f.previous, to: cut, product, map }, f.git);
       const result = checkMigration({
         files: [],
@@ -377,11 +377,11 @@ describe('live release cut lifecycle', () => {
     const result = await runReleaseCuts({ ...f, live: true });
     expect(result.actions.map((a) => [a.product, a.status, a.tag])).toEqual([
       ['cli', 'created', 'v5.0.0-alpha.49'],
-      ['squad', 'created', 'tmt-squad-v0.1.0-alpha.15'],
+      ['ops', 'created', 'tmt-ops-v0.1.0-alpha.15'],
     ]);
     expect(f.client.draft).toHaveBeenCalledTimes(2);
     expect(f.client.dispatch).toHaveBeenNthCalledWith(1, 'cli', 'v5.0.0-alpha.49');
-    expect(f.client.dispatch).toHaveBeenNthCalledWith(2, 'squad', 'tmt-squad-v0.1.0-alpha.15');
+    expect(f.client.dispatch).toHaveBeenNthCalledWith(2, 'ops', 'tmt-ops-v0.1.0-alpha.15');
     for (const draft of f.releases.filter((r) => r.draft)) {
       expect(draft.target_commitish).toBe(f.cut);
       expect(draft.body).toContain(`Release cut: ${f.cut}`);
@@ -436,16 +436,16 @@ describe('live release cut lifecycle', () => {
       const unchanged = structuredClone(previousCut);
       vi.mocked(f.client.draft).mockClear();
       vi.mocked(f.client.dispatch).mockClear();
-      writeFileSync(join(f.root, 'extensions/squad/feature.txt'), 'new Squad work');
-      const later = f.commit('feat: Squad follow-up');
+      writeFileSync(join(f.root, 'extensions/ops/feature.txt'), 'new Ops work');
+      const later = f.commit('feat: Ops follow-up');
       f.command(['update-ref', 'refs/remotes/origin/main', later]);
       f.state.cut = later;
       vi.mocked(f.client.main).mockReturnValue(later);
       const result = await runReleaseCuts({ ...f, live: true });
-      expect(result.actions.find((action) => action.product === 'squad')).toMatchObject({
+      expect(result.actions.find((action) => action.product === 'ops')).toMatchObject({
         status: 'created',
-        product: 'squad',
-        tag: 'tmt-squad-v0.1.0-alpha.16',
+        product: 'ops',
+        tag: 'tmt-ops-v0.1.0-alpha.16',
       });
       expect(result.actions.find((action) => action.product === 'cli')).toMatchObject(
         state === 'failed'
@@ -461,7 +461,7 @@ describe('live release cut lifecycle', () => {
       }
       expect(f.client.draft).toHaveBeenCalledTimes(state === 'failed' ? 2 : 1);
       expect(f.client.dispatch).toHaveBeenCalledTimes(state === 'failed' ? 2 : 1);
-      expect(f.client.dispatch).toHaveBeenCalledWith('squad', 'tmt-squad-v0.1.0-alpha.16');
+      expect(f.client.dispatch).toHaveBeenCalledWith('ops', 'tmt-ops-v0.1.0-alpha.16');
       expect(previousCut).toEqual(unchanged);
     }
   );
@@ -476,7 +476,7 @@ describe('live release cut lifecycle', () => {
     const result = await runReleaseCuts({ ...f, live: true });
     expect(result.actions).toEqual([
       { product: 'cli', status: 'created', tag: 'v5.0.0-alpha.50', cut: f.cut },
-      { product: 'squad', status: 'already-cut', reason: expect.any(String) },
+      { product: 'ops', status: 'already-cut', reason: expect.any(String) },
     ]);
     expect(f.client.draft).toHaveBeenCalledTimes(1);
     expect(f.client.dispatch).toHaveBeenCalledExactlyOnceWith('cli', 'v5.0.0-alpha.50');
@@ -533,7 +533,7 @@ describe('live release cut lifecycle', () => {
     expect(result.actions.map((a) => a.status)).toEqual(['failed', 'created']);
     expect(f.client.draft).toHaveBeenCalledTimes(2);
     expect(f.client.dispatch).toHaveBeenCalledTimes(1);
-    expect(f.client.dispatch).toHaveBeenCalledWith('squad', 'tmt-squad-v0.1.0-alpha.15');
+    expect(f.client.dispatch).toHaveBeenCalledWith('ops', 'tmt-ops-v0.1.0-alpha.15');
   });
   it.each(['publication-held.json', 'verification-failed.json'])(
     'a prior draft with %s never blocks a later cut or gets retried',

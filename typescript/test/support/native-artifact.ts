@@ -10,10 +10,10 @@ const { runtimeFiles, companionFiles } = (await import(
   new URL('../../scripts/native-artifact-policy.mjs', import.meta.url).href
 )) as unknown as {
   runtimeFiles: (
-    product?: 'cli' | 'office' | 'squad' | 'remote' | 'colab' | 'driver-herdr'
+    product?: 'cli' | 'office' | 'ops' | 'remote' | 'colab' | 'driver-herdr'
   ) => string[];
   companionFiles: (
-    product?: 'cli' | 'office' | 'squad' | 'remote' | 'colab' | 'driver-herdr'
+    product?: 'cli' | 'office' | 'ops' | 'remote' | 'colab' | 'driver-herdr'
   ) => string[];
 };
 
@@ -56,7 +56,7 @@ export async function createArtifact(
   sources: ArtifactSources,
   version: string,
   executableSuffix: Uint8Array = new Uint8Array(),
-  product: 'cli' | 'office' | 'squad' | 'remote' | 'colab' | 'driver-herdr' = 'cli',
+  product: 'cli' | 'office' | 'ops' | 'remote' | 'colab' | 'driver-herdr' = 'cli',
   companionExecutable = path.resolve('../rust/target/debug/tmt-office'),
   /** An extension's agent-skills tree, by path under `skills/`. */
   skills: Record<string, string> = {},

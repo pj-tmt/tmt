@@ -98,23 +98,23 @@ mod tests {
     fn colors_are_named_only_by_the_style_crate_and_tests() {
         let sources = [
             source(
-                "tmt-squad",
+                "tmt-ops",
                 "view.rs",
                 "fn f() -> Style { Style::new().fg(Color::Magenta) }",
             ),
             source(
-                "tmt-squad",
+                "tmt-ops",
                 "rgb.rs",
                 "fn f() -> Color { ratatui::style::Color::Rgb(1, 2, 3) }",
             ),
             source("tmt-cli", "hue.rs", "use tmt_cli_style::AnsiColor;"),
             source(
-                "tmt-squad",
+                "tmt-ops",
                 "reset.rs",
                 "fn f(c: Cell) -> bool { c.fg == Color::Reset }",
             ),
             source(
-                "tmt-squad",
+                "tmt-ops",
                 "tests_only.rs",
                 "#[cfg(test)] mod tests { fn f() -> Color { Color::Red } }",
             ),
@@ -124,7 +124,7 @@ mod tests {
                 "const RED: AnsiColor = AnsiColor::Red;",
             ),
             source(
-                "tmt-squad",
+                "tmt-ops",
                 "look.rs",
                 "fn f(look: Look) -> Style { look.role(Role::Blocked) }",
             ),
@@ -133,8 +133,8 @@ mod tests {
             violations(&sources),
             [
                 "tmt-cli/hue.rs: names the color AnsiColor; use a tmt_cli_style::Role or Token",
-                "tmt-squad/rgb.rs: names the color Color::Rgb; use a tmt_cli_style::Role or Token",
-                "tmt-squad/view.rs: names the color Color::Magenta; use a tmt_cli_style::Role or Token",
+                "tmt-ops/rgb.rs: names the color Color::Rgb; use a tmt_cli_style::Role or Token",
+                "tmt-ops/view.rs: names the color Color::Magenta; use a tmt_cli_style::Role or Token",
             ]
         );
     }

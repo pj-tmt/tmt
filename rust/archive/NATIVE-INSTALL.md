@@ -1,7 +1,7 @@
 # TMT release archive
 
 This archive holds one TMT product: the `tmt` CLI, or the `tmt-office` or
-`tmt-squad` extension. It runs without Node.js, npm, a Rust toolchain or a source
+`tmt-ops` extension. It runs without Node.js, npm, a Rust toolchain or a source
 checkout. Keep the included `LICENSE` and `THIRD-PARTY-NOTICES.txt` with any copy
 you redistribute.
 
@@ -42,11 +42,11 @@ switch.
 An installed `tmt` installs an extension from a local archive and its manifest:
 
 ```sh
-tmt extension install squad --yes --archive <archive.tar.gz> --manifest <dist-manifest.json>
+tmt extension install ops --yes --archive <archive.tar.gz> --manifest <dist-manifest.json>
 tmt extension ls
 ```
 
-Use `office` instead of `squad` for the Office companion. Both commands accept
+Use `office` instead of `ops` for the Office companion. Both commands accept
 `--prefix <folder>` for a custom installation. Install the compatible `tmt` first:
 an older CLI may refuse state that a newer extension has upgraded.
 

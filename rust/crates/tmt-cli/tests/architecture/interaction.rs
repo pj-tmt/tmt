@@ -107,13 +107,13 @@ mod tests {
     fn a_handle_test_outside_the_style_layer_is_found_and_the_list_stays_exact() {
         let sources = [
             source(
-                "tmt-squad",
+                "tmt-ops",
                 "board.rs",
                 "fn f() -> bool { std::io::stdout().is_terminal() }",
             ),
-            source("tmt-squad", "consent.rs", "use std::io::IsTerminal;"),
+            source("tmt-ops", "consent.rs", "use std::io::IsTerminal;"),
             source(
-                "tmt-squad",
+                "tmt-ops",
                 "tests_only.rs",
                 "#[cfg(test)] fn f() -> bool { std::io::stdin().is_terminal() }",
             ),
@@ -123,7 +123,7 @@ mod tests {
                 "fn f() -> bool { std::io::stdin().is_terminal() }",
             ),
             source(
-                "tmt-squad",
+                "tmt-ops",
                 "main.rs",
                 "fn f(i: Interaction) -> Mode { i.view() }",
             ),
@@ -131,10 +131,10 @@ mod tests {
         assert_eq!(
             violations(
                 &sources,
-                &[("tmt-squad", "consent.rs"), ("tmt-cli", "gone.rs")]
+                &[("tmt-ops", "consent.rs"), ("tmt-cli", "gone.rs")]
             ),
             [
-                "tmt-squad/board.rs: tests a terminal itself; use tmt_cli_style::Interaction",
+                "tmt-ops/board.rs: tests a terminal itself; use tmt_cli_style::Interaction",
                 "tmt-cli/gone.rs: no longer tests a terminal; remove it from the interaction migration list",
             ]
         );

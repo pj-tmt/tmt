@@ -10,7 +10,7 @@
 //   prove  (read-only, the release's commit) re-checks those digests and runs the verifier of
 //          the product over one target's staged files; it never reaches GitHub
 //   node release-upgrade.mjs resolve --tag TAG      the commit of the release
-//   node release-upgrade.mjs fetch --product cli|office|squad --tag TAG --directory DIR
+//   node release-upgrade.mjs fetch --product cli|office|ops --tag TAG --directory DIR
 //        [--candidate-directory BUNDLE]   stage a rehearsal's verified bundle as the candidate
 //   node release-upgrade.mjs assess --directory DIR --sha SHA   proved, nothing or predates
 //   node release-upgrade.mjs prove --product P --tag TAG --target T --directory DIR [--skill S]

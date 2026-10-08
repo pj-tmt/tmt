@@ -14,7 +14,7 @@ use syn::{
 const DEV_DEPENDENCIES: &[(&str, &str, Option<&str>)] = &[
     ("tmt-adapters", "tmt-test-support", None), // Codex executable stand-ins
     ("tmt-cli", "tmt-test-support", None),      // target-resolution executable stand-in
-    ("tmt-squad", "tmt-test-support", None),    // executable stand-ins with local readiness
+    ("tmt-ops", "tmt-test-support", None),      // executable stand-ins with local readiness
     ("tmt-office", "tmt-test-support", None),   // local-service core executable stand-ins
     ("tmt-colab", "tmt-test-support", None),    // decoder executable stand-ins
     ("tmt-office-command", "tmt-test-support", None), // opt-in ETXTBSY stress comparison
@@ -210,7 +210,7 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
         ],
         // Squad is a public-interface consumer: it reaches TMT only through
         // commands and `tmt api`. Reviewed neutral leaves carry no core behavior.
-        "tmt-squad" => &[
+        "tmt-ops" => &[
             "tmt-cli-style",
             // Same neutral bounded process owner used by Remote and Colab.
             "tmt-invoke",
@@ -834,14 +834,14 @@ pub fn source_violations(sources: &[Source]) -> Vec<String> {
                 ));
             }
             // Public-interface extensions name their own library and approved leaves only.
-            if ["tmt-squad", "tmt-remote", "tmt-colab"].contains(&source.package.as_str())
+            if ["tmt-ops", "tmt-remote", "tmt-colab"].contains(&source.package.as_str())
                 && root.starts_with("tmt_")
                 && root != "tmt_cli_style"
                 && root != "tmt_invoke"
                 && !(root == "tmt_extension_state"
                     && ["tmt-remote", "tmt-colab"].contains(&source.package.as_str()))
                 && !(root == "tmt_extension_objects" && source.package == "tmt-remote")
-                && !(source.package == "tmt-squad" && root == "tmt_tui")
+                && !(source.package == "tmt-ops" && root == "tmt_tui")
                 && !(root == "tmt_colab_model" && colab_model_consumer)
                 && root != source.package.replace('-', "_")
             {
@@ -916,7 +916,7 @@ pub fn source_violations(sources: &[Source]) -> Vec<String> {
                     path.join("::")
                 ));
             }
-            if root == "tmt_tui" && !["tmt-tui", "tmt-squad"].contains(&source.package.as_str()) {
+            if root == "tmt_tui" && !["tmt-tui", "tmt-ops"].contains(&source.package.as_str()) {
                 violations.push(format!(
                     "{location}: unreviewed TUI consumer {}",
                     source.package
@@ -934,8 +934,7 @@ pub fn source_violations(sources: &[Source]) -> Vec<String> {
                     path.join("::")
                 ));
             }
-            if ["tmt_squad", "tmt_remote"].contains(&root)
-                && source.package.replace('-', "_") != root
+            if ["tmt_ops", "tmt_remote"].contains(&root) && source.package.replace('-', "_") != root
             {
                 violations.push(format!(
                     "{location}: no package may depend on the {} extension: {}",

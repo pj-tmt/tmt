@@ -94,10 +94,26 @@ pub(super) fn settle_skills(
     human: &mut Human,
 ) -> Result<(), Failure> {
     let name = product.as_str();
+    if let Some(former) = product.former()
+        && executable
+            .file_name()
+            .is_some_and(|name| name == former.executable)
+    {
+        // A pinned upgrade is a no-op. It cannot migrate skills or retire the
+        // old installation before an Ops release has actually been activated.
+        document["formerly"] = json!(former.name);
+        human.push(format!(
+            "Former {} installation retained; replace with: tmt extension upgrade {name} --unpin",
+            former.name
+        ));
+        return Ok(());
+    }
     let skills = native_install::release_skills(product, executable)
         .map_err(|error| failure("EXTENSION_INSTALLATION_INVALID", error))?;
     let current = skill_names(&skills);
     let global = global_dir()?;
+    skill_installation::migrate_former_owned(&global, product, &skills)
+        .map_err(|error| failure("EXTENSION_SKILLS_FAILED", error))?;
     let owned = skill_installation::owned_by(None, &global, name)
         .map_err(|error| failure("EXTENSION_SKILLS_FAILED", error))?;
     let dropped: Vec<String> = previous
@@ -114,6 +130,7 @@ pub(super) fn settle_skills(
             .filter(|skill| owned.contains_key(&skill.name))
             .collect()
     };
+    let mut expand_targets = requested;
     if !requested && !held && dropped.is_empty() && !current.is_empty() {
         let accepted = match offer {
             Some(mode) if consent::interactive(mode, &tmt_cli_style::stream::stdout(mode.json)) => {
@@ -149,13 +166,19 @@ pub(super) fn settle_skills(
             _ => false,
         };
         if accepted {
+            expand_targets = true;
             selected = native_install::release_skills(product, executable)
                 .map_err(|error| failure("EXTENSION_INSTALLATION_INVALID", error))?;
         }
     }
     let mut published = Value::Array(Vec::new());
     if !selected.is_empty() {
-        let report = publish(product, &selected)?;
+        let report = if product.former().is_some() && !expand_targets {
+            skill_installation::refresh_owned(&global, name, &selected)
+                .map_err(|error| failure("EXTENSION_SKILLS_FAILED", std::io::Error::other(error)))?
+        } else {
+            publish(product, &selected)?
+        };
         let home = env::home_dir();
         published_lines(&report, home.as_deref()).for_each(|line| human.push_success(line));
         published = published_document(&report);
@@ -197,18 +220,36 @@ pub(super) fn settle_skills(
         document["skills"] =
             json!({"available": current, "published": published, "removed": removed});
     }
+    let prefix = native_install::inspect_product(product, executable)
+        .map_err(|error| failure("EXTENSION_INSTALLATION_INVALID", error))?;
+    let replacement = native_install::finish_product_replacement(prefix.prefix(), product)
+        .map_err(|error| failure("EXTENSION_INSTALL_FAILED", error))?;
+    if !replacement.removed.is_empty() || !replacement.kept.is_empty() {
+        document["replaced"] = json!(product.former().expect("replacement identity").name);
+        document["removed"] = json!(replacement.removed);
+        document["kept"] = json!(replacement.kept);
+        for path in &replacement.removed {
+            human.push(format!("Removed former product {}", path.display()));
+        }
+    }
     Ok(())
 }
 
 // Source-checked command samples for the printed-command guard.
 #[cfg(test)]
-pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] =
-    &[crate::cli_style_tests::HintSpec::core(
+pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] = &[
+    crate::cli_style_tests::HintSpec::core(
         "{} agent skill{} available ({}); publish with: tmt extension install {name} --skills",
         &[""],
         &[
-            ("{name}", "squad"),
-            ("{}", "squad"),
-            ("{SUGGESTED_EXTENSION}", "squad"),
+            ("{name}", "ops"),
+            ("{}", "ops"),
+            ("{SUGGESTED_EXTENSION}", "ops"),
         ],
-    )];
+    ),
+    crate::cli_style_tests::HintSpec::core(
+        "Former {} installation retained; replace with: tmt extension upgrade {name} --unpin",
+        &[""],
+        &[("{name}", "ops"), ("{}", "squad")],
+    ),
+];

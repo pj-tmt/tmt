@@ -15,7 +15,7 @@ CLI/TOML tables and test-only code remain outside the primitive prohibition.
 
 The guard's exception list is empty: any raw widget in Squad's production tree
 fails, and an exception needs a documented boundary decision. The surface map
-belongs to [tmt-squad-dev](../tmt-squad-dev/SKILL.md).
+belongs to [tmt-ops-dev](../tmt-ops-dev/SKILL.md).
 
 Run `CARGO_BUILD_JOBS=2 cargo test --locked -p tmt-cli --test architecture`
 from `rust/`. It includes a clean source-tree control and a seeded raw-widget

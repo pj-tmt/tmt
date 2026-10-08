@@ -30,8 +30,8 @@ publication and verification procedures are in the [tmt-release skill](../../tmt
 ## Native installation
 
 - `native_install::Product` is fixed policy with no filesystem or network effect: identity,
-  inventory, namespace and links for the CLI and the official extensions (Squad with `tmt-squad`
-  and `tmt-sq`, Remote, Colab, Office). Archive data never adds a product. Every product uses one
+  inventory, namespace and links for the CLI and the official extensions (Ops with the sole `tmt-ops`
+  link, Remote, Colab, Office). Archive data never adds a product. Every product uses one
   acquisition, receipt and atomic-publication path with independent links, lock and current
   release. Manifest selection uses product and target together and rejects ambiguous or multiply
   owned artifacts.
@@ -55,6 +55,33 @@ publication and verification procedures are in the [tmt-release skill](../../tmt
 - Receipts anchor to the installation prefix and current executable, not `ConfigPaths.global_dir`.
   Failed validation or cancellation keeps the previous release and receipt; a post-activation
   skill failure reports partial completion, not an atomic transaction.
+
+## Former product replacement
+
+`Product::Ops.former()` is a fixed read-only installation identity: `squad`,
+`tmt-squad`, links `tmt-squad`/`tmt-sq`, namespace `lib/tmt-squad`, tag prefix
+`tmt-squad-v`, and skill `tmt-squad` -> `tmt-ops`. It is never parsed from user
+input or offered by completion. `managed` accepts its fully verified current
+receipt and payload; an invalid new activation never falls back to it. Activation
+locks the new namespace before the old namespace and applies existing channel,
+version and pin policy. Interrupted preparation can retry from an empty new layout.
+
+After new activation, `owned::migrate_former_owned` verifies immutable skill
+sources and every recorded target before effects. It changes the owner to `ops`
+and the lead skill name to `tmt-ops`, retaining custom targets and leaving removed
+targets absent. Modified/foreign targets fail closed. Immutable source generations
+remain; interrupted link transitions can retry. Ordinary Ops refresh uses recorded
+targets only; discovering new providers needs explicit publication consent.
+
+`remove::finish_product_replacement` then verifies the new activation and links,
+locks and verifies the old activation, removes only old command links whose target
+resolves inside the verified old namespace, and removes that installation namespace.
+Foreign same-named commands remain. The CLI reports `replaced`, `removed` and `kept`;
+application config, cron, checklist and other data are never removed. A skill failure
+retains the old installation for retry. Pinned no-ops retain the former installation.
+Full `tmt uninstall` plans and removes a verified former installation through the
+same receipt and command-link fence, even without Ops installed; ordinary data
+retention and explicit `--purge` policy still apply.
 
 ## Companions and skills trees
 
@@ -86,7 +113,7 @@ publication and verification procedures are in the [tmt-release skill](../../tmt
 
 - The facade `extension_install_command` keeps dispatch, consent, errors, interruption, rendering
   and uninstall; private modules own install, repair, list/upgrade and skills settlement. Names
-  come from the fixed product table. Squad, Remote and Colab are installable; with no published
+  come from the fixed product table. Ops, Remote and Colab are installable; with no published
   release in the selected channel, install returns `EXTENSION_RELEASE_UNAVAILABLE` (marked by
   `release::ReleaseUnavailable` after complete discovery) and changes nothing.
 - Office is frozen: install and explicit upgrade refuse before consent or acquisition, root

@@ -7,8 +7,8 @@ commands, the admitted spellings and the parity gate.
 (cd rust && cargo test --locked -p tmt-tui)
 (cd rust && cargo +1.95.0 test --locked -p tmt-tui)
 (cd rust && cargo test --locked -p tmt-cli --test architecture)   # component and dependency changes
-(cd rust && cargo test --locked -p tmt-squad)                     # source adapter, board/list parity fixture
-(cd rust && cargo test --locked -p tmt-squad board::composition)  # composition changes
+(cd rust && cargo test --locked -p tmt-ops)                     # source adapter, board/list parity fixture
+(cd rust && cargo test --locked -p tmt-ops board::composition)  # composition changes
 ```
 
 ## Utility spellings
@@ -69,13 +69,13 @@ The read-only inspector decodes cell runs and styles, reports hit/tab/row-start 
 and requires list text/JSON to stay byte-identical:
 
 ```bash
-CARGO_BUILD_JOBS=2 cargo test --locked -p tmt-squad inspect_markup_parity_diff -- --ignored --nocapture
+CARGO_BUILD_JOBS=2 cargo test --locked -p tmt-ops inspect_markup_parity_diff -- --ignored --nocapture
 ```
 
 After approval, regenerate with:
 
 ```bash
-CARGO_BUILD_JOBS=2 cargo test --locked -p tmt-squad regenerate_markup_parity_fixture -- --ignored
+CARGO_BUILD_JOBS=2 cargo test --locked -p tmt-ops regenerate_markup_parity_fixture -- --ignored
 ```
 
 Attribute every change to the PR's approved behavior and review hit identities and list

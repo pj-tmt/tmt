@@ -2,6 +2,6 @@
 source: crates/tmt-cli/src/extension_install_command.rs
 expression: "render(human, tmt_cli_style::Terminal::PLAIN)"
 ---
-✓ Installed squad 0.1.0-alpha.1
-✓ Published agent skill tmt-squad at ~/.agents/skills/tmt-squad (previous folder backed up to ~/.agents/.tmt-skill-backups/previous)
+✓ Installed ops 0.1.0-alpha.1
+✓ Published agent skill tmt-ops at ~/.agents/skills/tmt-ops (previous folder backed up to ~/.agents/.tmt-skill-backups/previous)
 ✓ Kept current agent skill squad-playbook at /opt/agents/skills/squad-playbook

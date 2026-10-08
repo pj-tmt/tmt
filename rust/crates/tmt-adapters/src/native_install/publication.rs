@@ -32,6 +32,7 @@ pub(super) struct Layout {
     pub product: Product,
     pub prefix: PathBuf,
     pub root: PathBuf,
+    former: bool,
 }
 
 struct ActivationCheck<F> {
@@ -57,15 +58,35 @@ fn directory(path: &Path, create: bool) -> io::Result<()> {
 }
 
 impl Layout {
+    pub(super) fn is_former(&self) -> bool {
+        self.former
+    }
+
     #[cfg(test)]
     pub fn existing(prefix: &Path) -> io::Result<Self> {
         Self::existing_product(prefix, Product::Cli)
     }
 
     pub fn existing_product(prefix: &Path, product: Product) -> io::Result<Self> {
+        Self::existing_identity(prefix, product, false)
+    }
+
+    pub(super) fn existing_former(prefix: &Path, product: Product) -> io::Result<Self> {
+        Self::existing_identity(prefix, product, true)
+    }
+
+    fn existing_identity(prefix: &Path, product: Product, former: bool) -> io::Result<Self> {
         directory(prefix, false)?;
         let prefix = fs::canonicalize(prefix)?;
-        let root = prefix.join(product.namespace());
+        let namespace = if former {
+            product
+                .former()
+                .ok_or_else(|| invalid("Product has no former installation."))?
+                .namespace
+        } else {
+            product.namespace()
+        };
+        let root = prefix.join(namespace);
         for path in [
             prefix.join("lib"),
             prefix.join("bin"),
@@ -78,6 +99,7 @@ impl Layout {
             prefix,
             root,
             product,
+            former,
         })
     }
 
@@ -108,6 +130,7 @@ impl Layout {
             prefix,
             root,
             product,
+            former: false,
         })
     }
 
@@ -115,7 +138,11 @@ impl Layout {
         let Some((release, id)) = self.current_directory()? else {
             return Ok(None);
         };
-        Receipt::read_product(self.product, &release, &self.prefix, id).map(Some)
+        if self.former {
+            Receipt::read_former(self.product, &release, &self.prefix, id).map(Some)
+        } else {
+            Receipt::read_product(self.product, &release, &self.prefix, id).map(Some)
+        }
     }
 
     pub(super) fn current_directory(&self) -> io::Result<Option<(PathBuf, Uuid)>> {

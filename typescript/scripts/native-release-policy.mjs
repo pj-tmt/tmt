@@ -17,7 +17,9 @@ const PRODUCTS = {
   // readability is not a claim that every older release has an upgrade proof.
   cli: { tagPrefix: 'v', prerelease: false, latest: true, upgradeFloor: 'v5.0.0-alpha.36' },
   office: { tagPrefix: 'tmt-office-v', prerelease: true, latest: false },
-  squad: { tagPrefix: 'tmt-squad-v', prerelease: true, latest: false },
+  ops: { tagPrefix: 'tmt-ops-v', prerelease: true, latest: false },
+  // Retain the predecessor tag/archive identity; no new Squad releases are admitted.
+  squad: { tagPrefix: 'tmt-squad-v', prerelease: true, latest: false, retired: true },
   'driver-herdr': { tagPrefix: 'tmt-driver-herdr-v', prerelease: true, latest: false },
   remote: { tagPrefix: 'tmt-remote-v', prerelease: true, latest: false },
   colab: { tagPrefix: 'tmt-colab-v', prerelease: true, latest: false },

@@ -76,7 +76,7 @@ fn plan() -> Value {
         "products": [],
         "pending": [
             {"product": "office", "version": "1.0.0", "selected": "1.1.0"},
-            {"product": "squad", "version": "1.0.0", "selected": "1.1.0"},
+            {"product": "ops", "version": "1.0.0", "selected": "1.1.0"},
         ],
     })
 }
@@ -88,7 +88,7 @@ fn new_executable_plans_and_applies_exact_consented_versions_with_partial_failur
         (
             json!({"products": [
                 {"product": "office", "status": "failed", "error": {"code": "EXTENSION_UPGRADE_FAILED", "message": "new verifier refused"}},
-                {"product": "squad", "status": "changed", "version": "1.1.0"},
+                {"product": "ops", "status": "changed", "version": "1.1.0"},
             ]}),
             1,
         ),
@@ -150,11 +150,11 @@ fn apply_report_must_match_selected_products_versions_and_exit_status() {
         json!({"products": []}),
         json!({"products": [
             {"product": "office", "status": "changed", "version": "1.1.0"},
-            {"product": "squad", "status": "changed", "version": "9.9.9"},
+            {"product": "ops", "status": "changed", "version": "9.9.9"},
         ]}),
         json!({"products": [
             {"product": "office", "status": "failed", "error": {"code": "REFUSED", "message": "no"}},
-            {"product": "squad", "status": "changed", "version": "1.1.0"},
+            {"product": "ops", "status": "changed", "version": "1.1.0"},
         ]}),
     ] {
         let runner = Runner::new(vec![(plan(), 0), (reply, 0)]);

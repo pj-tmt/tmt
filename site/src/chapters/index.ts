@@ -133,7 +133,7 @@ export const pages: Page[] = [
     window: 4,
     index: "4.1",
     crumb: "extensions / squad",
-    title: "Squad: leads, members and one board",
+    title: "Ops: leads, members and one board",
     status: { kind: "alpha", label: "alpha" },
     file: "squad",
     Content: Squad,

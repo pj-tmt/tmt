@@ -216,6 +216,7 @@ export async function verifyNativeRuntime({
   skill,
   inboxSkill,
   officeSkill,
+  opsSkill,
   squadSkill,
   colabSkill,
   profileContent,
@@ -246,7 +247,7 @@ export async function verifyNativeRuntime({
 
     const run = (args) => runPackedCommand(executable, args, { cwd, env });
     assert(
-      ['cli', 'office', 'squad', 'driver-herdr', 'remote', 'colab'].includes(product),
+      ['cli', 'office', 'ops', 'squad', 'driver-herdr', 'remote', 'colab'].includes(product),
       'Unknown native runtime product'
     );
     const proveHerdr = (driver, expectedVersion) => {
@@ -294,13 +295,16 @@ export async function verifyNativeRuntime({
       await verifyColabApp({ executable, version, expectedApp: colabApp, notices });
       return;
     }
-    if (product === 'squad') {
-      assert.equal(typeof squadSkill, 'string', 'Squad runtime proof requires its skill');
-      assert.equal(run(['--version']), `squad ${version}\n`, `${subject} version mismatch`);
-      assert.equal(run(['skill', 'show']), squadSkill, `${subject} embedded skill mismatch`);
-      assert(!fs.existsSync(xdg), 'Squad proof must not initialize config state');
-      assert.deepEqual(fs.readdirSync(home), [], 'Squad proof must not create home state');
-      assert.deepEqual(fs.readdirSync(cwd), [], 'Squad proof must not create workspace state');
+    // Both current Ops and published predecessor Squad archives use these read-only probes.
+    if (product === 'ops' || product === 'squad') {
+      const productSkill = product === 'ops' ? opsSkill : squadSkill;
+      const name = product === 'ops' ? 'Ops' : 'Squad';
+      assert.equal(typeof productSkill, 'string', `${name} runtime proof requires its skill`);
+      assert.equal(run(['--version']), `${product} ${version}\n`, `${subject} version mismatch`);
+      assert.equal(run(['skill', 'show']), productSkill, `${subject} embedded skill mismatch`);
+      assert(!fs.existsSync(xdg), `${name} proof must not initialize config state`);
+      assert.deepEqual(fs.readdirSync(home), [], `${name} proof must not create home state`);
+      assert.deepEqual(fs.readdirSync(cwd), [], `${name} proof must not create workspace state`);
       return;
     }
     if (product === 'office') {

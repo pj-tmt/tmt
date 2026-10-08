@@ -1,6 +1,6 @@
 ---
 source: site/src/chapters/settings.mdx
-sourceRevision: ab133ca5788ed088a74e52f31f26436570feb2f0
+sourceRevision: 1a22fb69dcc4464d224c1b7f42b3fc5a8fcaf197
 title: 設定と困ったときの対処
 ---
 
@@ -68,7 +68,7 @@ $ tmt completion zsh             # zsh でも同じように確認
 
 表示されたファイルに、その1行を自分で追加してください。tmt は shell の起動ファイルを編集しません。zsh では `compinit` や oh-my-zsh などのフレームワークで補完を設定した後に置きます。同じ行が2つある場合は tmt が知らせます。その後、新しい shell を開いてください。`tmt completion --json` はスクリプト向けに同じ確認結果を返します。補完が未設定なら、端末で表示する tmt のメインヘルプ（`tmt --help`）にも案内が出ます。
 
-名前の補完は保存済みと一時的な identity から行い、保存済みを先に表示します。tmux は起動しません。`tmt resume` は記憶したセッションがある identity だけを候補にします。`tmt run` は名前より後の補完を agent 自身に任せるので、Tab で agent のフラグも補完できます。その補完スクリプトを tmt がインストールすることはありません。拡張機能は `tmt sq <Tab>` のように、自分の候補を補完します。
+名前の補完は保存済みと一時的な identity から行い、保存済みを先に表示します。tmux は起動しません。`tmt resume` は記憶したセッションがある identity だけを候補にします。`tmt run` は名前より後の補完を agent 自身に任せるので、Tab で agent のフラグも補完できます。その補完スクリプトを tmt がインストールすることはありません。拡張機能は `tmt ops sq <Tab>` のように、自分の候補を補完します。
 
 <Mdx.h3 id="the-pane-badge-a-few-extras">ペインのバッジの追加設定</Mdx.h3>
 

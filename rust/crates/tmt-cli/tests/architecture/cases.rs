@@ -810,7 +810,7 @@ fn every_workspace_crate_reviews_new_dev_dependencies() {
         "tmt-invoke",
         "tmt-test-support",
         "tmt-remote",
-        "tmt-squad",
+        "tmt-ops",
         "tmt-office",
         "tmt-office-command",
         "tmt-office-model",
@@ -876,7 +876,7 @@ fn release_toml_tool_dependencies_are_private_production_edges() {
         "tmt-cli",
         "tmt-core",
         "tmt-adapters",
-        "tmt-squad",
+        "tmt-ops",
         "tmt-office",
         "tmt-remote",
         "tmt-colab",
@@ -937,7 +937,7 @@ fn fixture_publication_has_exactly_six_dev_consumers_and_no_product_edges() {
     for owner in [
         "tmt-adapters",
         "tmt-cli",
-        "tmt-squad",
+        "tmt-ops",
         "tmt-office",
         "tmt-colab",
         "tmt-office-command",
@@ -1023,7 +1023,7 @@ fn fixture_publication_has_exactly_six_dev_consumers_and_no_product_edges() {
         "tmt-adapters",
         "tmt-cli",
         "tmt-office",
-        "tmt-squad",
+        "tmt-ops",
         "tmt-colab",
         "tmt-remote",
     ] {
@@ -1532,7 +1532,7 @@ fn squad_and_core_are_independent_in_both_directions() {
     // never a workspace crate with TMT behavior.
     assert!(
         policy::dependency_violations(&package(
-            "tmt-squad",
+            "tmt-ops",
             [
                 "tmt-cli-style",
                 "clap",
@@ -1550,7 +1550,7 @@ fn squad_and_core_are_independent_in_both_directions() {
     );
     assert_eq!(
         policy::dependency_violations(&package(
-            "tmt-squad",
+            "tmt-ops",
             vec![dependency("rusqlite", "normal", None, None)]
         ))
         .len(),
@@ -1566,7 +1566,7 @@ fn squad_and_core_are_independent_in_both_directions() {
     ] {
         assert_eq!(
             policy::dependency_violations(&package(
-                "tmt-squad",
+                "tmt-ops",
                 vec![dependency(core, "normal", None, None)]
             ))
             .len(),
@@ -1578,7 +1578,7 @@ fn squad_and_core_are_independent_in_both_directions() {
         assert_eq!(
             policy::dependency_violations(&package(
                 owner,
-                vec![dependency("tmt-squad", "normal", None, None)]
+                vec![dependency("tmt-ops", "normal", None, None)]
             ))
             .len(),
             1,
@@ -1588,7 +1588,7 @@ fn squad_and_core_are_independent_in_both_directions() {
     // Source references are checked too, independently of Cargo metadata.
     assert_exact(
         &[syntax(
-            "tmt-squad",
+            "tmt-ops",
             "main.rs",
             "use crate::core::Core; use serde_json::Value; use toml_edit::DocumentMut; use tmt_cli_style::Terminal;",
         )],
@@ -1596,17 +1596,17 @@ fn squad_and_core_are_independent_in_both_directions() {
     );
     assert_exact(
         &[syntax(
-            "tmt-squad",
+            "tmt-ops",
             "status.rs",
             "fn f() { let _ = tmt_core::room::resolve_room; }",
         )],
         &[
-            "tmt-squad/status.rs: squad reaches TMT only through public commands, not tmt_core::room::resolve_room",
+            "tmt-ops/status.rs: ops reaches TMT only through public commands, not tmt_core::room::resolve_room",
         ],
     );
     assert_exact(
-        &[syntax("tmt-cli", "extra.rs", "use tmt_squad::status;")],
-        &["tmt-cli/extra.rs: no package may depend on the squad extension: tmt_squad::status"],
+        &[syntax("tmt-cli", "extra.rs", "use tmt_ops::status;")],
+        &["tmt-cli/extra.rs: no package may depend on the ops extension: tmt_ops::status"],
     );
 }
 
@@ -1775,18 +1775,18 @@ fn remote_keeps_public_command_isolation() {
 fn squad_may_use_the_neutral_invoke_leaf_but_not_core_process_adapters() {
     assert!(
         policy::dependency_violations(&package(
-            "tmt-squad",
+            "tmt-ops",
             vec![dependency("tmt-invoke", "normal", None, None)]
         ))
         .is_empty()
     );
     assert_exact(
-        &[syntax("tmt-squad", "runner.rs", "use tmt_invoke::invoke;")],
+        &[syntax("tmt-ops", "runner.rs", "use tmt_invoke::invoke;")],
         &[],
     );
     assert!(
         !policy::source_violations(&[syntax(
-            "tmt-squad",
+            "tmt-ops",
             "runner.rs",
             "use tmt_adapters::process::UnixCommandRunner;"
         )])
@@ -1794,7 +1794,7 @@ fn squad_may_use_the_neutral_invoke_leaf_but_not_core_process_adapters() {
     );
     assert!(
         !policy::dependency_violations(&package(
-            "tmt-squad",
+            "tmt-ops",
             vec![dependency("tmt-invoke", "normal", None, Some("runner"))]
         ))
         .is_empty()
@@ -1870,7 +1870,7 @@ fn extension_state_is_a_leaf_with_only_the_two_reviewed_executable_consumers() {
                 "tmt-adapters",
                 "tmt-cli",
                 "tmt-colab-model",
-                "tmt-squad",
+                "tmt-ops",
             ] {
                 assert!(
                     !policy::dependency_violations(&package(
@@ -1887,7 +1887,7 @@ fn extension_state_is_a_leaf_with_only_the_two_reviewed_executable_consumers() {
         "tmt-adapters",
         "tmt-cli",
         "tmt-colab-model",
-        "tmt-squad",
+        "tmt-ops",
     ] {
         assert!(
             !policy::source_violations(&[syntax(
@@ -1943,7 +1943,7 @@ const WORKSPACE_PACKAGES: [&str; 24] = [
     "tmt-office-storage",
     "tmt-office-pairing",
     "tmt-office-service",
-    "tmt-squad",
+    "tmt-ops",
     "tmt-remote",
     "tmt-colab",
 ];
@@ -2224,7 +2224,7 @@ fn tui_admission_is_an_internal_presentation_leaf() {
         "tmt-adapters",
         "tmt-cli",
         "tmt-cli-style",
-        "tmt-squad",
+        "tmt-ops",
         "tmt-remote",
     ] {
         assert!(
@@ -2254,7 +2254,7 @@ fn tui_admission_is_an_internal_presentation_leaf() {
         );
     }
     for kind in ["normal", "dev", "build"] {
-        for name in ["tmt-core", "tmt-adapters", "tmt-cli", "tmt-squad"] {
+        for name in ["tmt-core", "tmt-adapters", "tmt-cli", "tmt-ops"] {
             assert_eq!(
                 policy::dependency_violations(&package(
                     "tmt-tui",
@@ -2290,14 +2290,14 @@ fn tui_admission_is_an_internal_presentation_leaf() {
     }
     assert!(
         policy::dependency_violations(&package(
-            "tmt-squad",
+            "tmt-ops",
             vec![dependency("tmt-tui", "normal", None, None)]
         ))
         .is_empty()
     );
     assert_eq!(
         policy::dependency_violations(&package(
-            "tmt-squad",
+            "tmt-ops",
             vec![dependency("tmt-tui", "dev", None, None)]
         ))
         .len(),
@@ -2305,10 +2305,10 @@ fn tui_admission_is_an_internal_presentation_leaf() {
         "the production row owner must not regress to a dev-only edge"
     );
     assert_exact(
-        &[syntax("tmt-squad", "markup.rs", "use tmt_tui::binding;")],
+        &[syntax("tmt-ops", "markup.rs", "use tmt_tui::binding;")],
         &[],
     );
-    for owner in ["tmt-core", "tmt-adapters", "tmt-cli", "tmt-squad"] {
+    for owner in ["tmt-core", "tmt-adapters", "tmt-cli", "tmt-ops"] {
         assert!(
             !policy::source_violations(&[syntax(
                 "tmt-tui",
@@ -2474,7 +2474,7 @@ fn colab_model_consumers_are_confined_to_colab_package() {
         "tmt-adapters",
         "tmt-cli",
         "tmt-remote",
-        "tmt-squad",
+        "tmt-ops",
         "tmt-office",
     ] {
         assert!(
