@@ -134,6 +134,13 @@ or an unverified read failure. An opaque socket disconnect, or a native fetch
 `TypeError` during mounted-owner Session replacement, stops the binding with
 `RecoveryRequiredError` (original cause retained) and offers explicit Reconnect.
 Other replacement, admission and eviction failures remain terminal.
+A terminal failure card shows a sentence, never the raw token (`terminal-failure.ts`). Each
+token the live path can end a page with (sync frame codes, Remote refusal codes, a few short
+messages) maps to one of five `strings.ts` sentences (access ended, page gone, session ended,
+too large, generic); an unknown token gets the generic sentence and stays visible, bounded to
+120 characters, as a muted `Code: …` reference. A test requires a decision for every
+`SYNC_ERROR_CODES` and `REMOTE_REFUSAL_CODES` entry, so a new code cannot ship as a raw headline.
+Eviction, management-changed and the recoverable "Connection lost" keep their own cards.
 Ready-page transport failures retain bounded same-session catchup. Superseded callbacks,
 readiness, publications and diagnosis cannot alter the current attempt. Recovery
 never re-sends an Ask or generates a new mutation. Pending own-stream envelopes
