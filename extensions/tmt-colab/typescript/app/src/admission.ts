@@ -220,7 +220,8 @@ export class Admission {
     }
   }
   baseline(value: payload.Baseline, epoch = this.epoch): Uint8Array {
-    const requested = decimal(epoch), current = decimal(this.epoch);
+    const requested = decimal(epoch),
+      current = decimal(this.epoch);
     requireValue(requested <= current && current - requested < 64n);
     requireValue(this.head !== null && value.pageId === this.page && value.epoch === epoch);
     const revision = decimal(value.membershipRevision);

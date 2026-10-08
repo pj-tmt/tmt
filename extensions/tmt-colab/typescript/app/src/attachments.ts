@@ -35,6 +35,7 @@ export interface CommittedObjectVerifier {
 export interface AttachmentReadOwner {
   snapshot(
     epoch?: string,
+    deadline?: number,
   ): Promise<{ admission: Admission; objects: Objects; projection: PageView; revision: string }>;
 }
 function reference(
@@ -108,7 +109,7 @@ export class AdmittedAttachmentRead {
   ) {
     remaining(deadline);
     const selector = attachment.attachmentSelector(rawSelector),
-      current = await owner.snapshot(),
+      current = await owner.snapshot(undefined, deadline),
       revision = current.revision,
       a = current.admission;
     a.validateRead(sharing);
@@ -118,7 +119,7 @@ export class AdmittedAttachmentRead {
         low = epoch > 63n ? epoch - 63n : 1n;
       for (let old = epoch - 1n; old >= low; old--) {
         remaining(deadline);
-        const history = await owner.snapshot(old.toString());
+        const history = await owner.snapshot(old.toString(), deadline);
         d = reference(history.projection, selector, revision, a, old.toString());
         if (d) break;
       }
@@ -129,7 +130,7 @@ export class AdmittedAttachmentRead {
         d.page === a.page &&
         hex(await attachment.attachmentHash(d)) === selector.descriptorHash,
     );
-    const original = d.epoch === a.epoch ? current : await owner.snapshot(d.epoch);
+    const original = d.epoch === a.epoch ? current : await owner.snapshot(d.epoch, deadline);
     requireValue(original.admission === a && original.objects.epoch === d.epoch);
     await creationProof(original.projection, original.objects, d);
     const root = a.readRoot(d.epoch),
@@ -148,12 +149,12 @@ export class AdmittedAttachmentRead {
   }
   async recheck(sharing: string | readonly string[]) {
     remaining(this.deadline);
-    const current = await this.owner.snapshot();
+    const current = await this.owner.snapshot(undefined, this.deadline);
     current.admission.validateRead(sharing, this.descriptor.epoch);
     const original =
       this.descriptor.epoch === current.admission.epoch
         ? current
-        : await this.owner.snapshot(this.descriptor.epoch);
+        : await this.owner.snapshot(this.descriptor.epoch, this.deadline);
     requireValue(
       original.admission === current.admission && original.revision === this.originalRevision,
     );
@@ -198,7 +199,7 @@ export async function prepareAttachmentPublication(
 ): Promise<OwnRecord> {
   remaining(deadline);
   const d = attachment.attachmentDescriptor(raw),
-    current = await owner.snapshot(),
+    current = await owner.snapshot(undefined, deadline),
     a = current.admission;
   requireValue(!a.reader);
   a.validatePage(sharing);
@@ -229,7 +230,7 @@ export async function prepareAttachmentPublication(
       creator,
     );
   plaintext.fill(0);
-  const fresh = await owner.snapshot();
+  const fresh = await owner.snapshot(undefined, deadline);
   remaining(deadline);
   a.validatePage(sharing);
   requireValue(fresh.admission === a && fresh.revision === base && a.readRoot(d.epoch) === root);

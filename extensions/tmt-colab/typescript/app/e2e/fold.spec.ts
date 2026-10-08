@@ -1,4 +1,5 @@
 import { expect, test as base } from '@playwright/test';
+import { readFileSync } from 'node:fs';
 
 // Opt-in observation only: unchanged assertions, no cache preparation or app patch.
 const test = base.extend<{ coldObservation: void }>({
@@ -63,6 +64,90 @@ const test = base.extend<{ coldObservation: void }>({
     },
     { auto: true },
   ],
+});
+
+test('attachment object adapter verifies actual browser crypto without replaying an uncertain original', async ({
+  page,
+}) => {
+  const corpus = JSON.parse(
+    readFileSync(new URL('../../../contracts/vectors/attachment-v1.json', import.meta.url), 'utf8'),
+  );
+  await page.goto('/');
+  const result = await page.evaluate(
+    async ({ corpus, clientPath }) => {
+      const adapterPath = '/src/attachment-channel.ts',
+        attachmentsPath = '/src/attachments.ts';
+      const { AttachmentObjectChannel, FrozenAttachmentUpload } = await import(adapterPath);
+      const { attachmentNamespace } = await import(attachmentsPath);
+      const c = await import(clientPath);
+      const fixture = corpus.cases.find(
+        (entry: { name: string }) => entry.name === 'document-asset',
+      );
+      const descriptor = c.attachment.attachmentDescriptor(
+        c.strictJson(c.text(fixture.input), 2048),
+      );
+      const raw = c.binary(fixture.payload, c.attachment.ATTACHMENT_PAYLOAD_BYTES);
+      const original = await FrozenAttachmentUpload.capture(
+        descriptor,
+        `v1:${'ab'.repeat(32)}`,
+        '11111111-1111-4111-8111-111111111111',
+        raw,
+      );
+      const calls: string[] = [];
+      let damaged = false;
+      const channel = new AttachmentObjectChannel(
+        async (request: { method: string; transferId: string; offset: number; count: number }) => {
+          calls.push(request.method);
+          if (request.method === 'verify')
+            return {
+              ok: {
+                result: 'read',
+                offset: request.offset,
+                totalBytes: raw.length,
+                bytes: c.encodeBinary(
+                  damaged
+                    ? new Uint8Array(request.count)
+                    : raw.slice(request.offset, request.offset + request.count),
+                ),
+              },
+            };
+          if (request.transferId !== original.transferId) throw new Error('Original changed');
+          return { error: { code: 'unknown' } };
+        },
+      );
+      const deadline = performance.now() + 15_000;
+      const uncertain = await channel.begin(original, deadline);
+      await channel.status(original, deadline);
+      const namespace = await attachmentNamespace(descriptor.space, descriptor.page);
+      const key = Uint8Array.from(descriptor.objectId.match(/../g), (byte: string) =>
+        parseInt(byte, 16),
+      );
+      const committed = await channel.verifier(original).readCommitted(namespace, key, deadline);
+      const plaintext = await c.attachment.openAttachment(
+        descriptor,
+        committed,
+        c.attachment.attachmentContext(descriptor),
+        c.binary(corpus.secret, 32, 32),
+        c.binary(corpus.publicKey, 32, 32),
+      );
+      damaged = true;
+      let refused = false;
+      try {
+        await channel.verifier(original).readCommitted(namespace, key, deadline);
+      } catch {
+        refused = true;
+      }
+      return { uncertain, calls, plaintext: c.encodeBinary(plaintext), refused };
+    },
+    {
+      corpus,
+      clientPath: `/@fs${new URL('../../colab-client/src/index.ts', import.meta.url).pathname}`,
+    },
+  );
+  expect(result.uncertain).toEqual({ error: { code: 'unknown' } });
+  expect(result.calls).toEqual(['begin', 'status', 'verify', 'verify']);
+  expect(result.plaintext).toBe(corpus.plaintext);
+  expect(result.refused).toBe(true);
 });
 
 test('Worker folds concurrent independent writers, reload reconstruction and Unicode minimal edits', async ({

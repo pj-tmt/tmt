@@ -5,7 +5,8 @@ use crate::{Result, attachments::CommittedObjectVerifier, page};
 use std::{sync::Arc, time::Instant};
 use tmt_colab_model::crypto;
 use tmt_extension_objects::{
-    Bytes32, Call, Origin, Outcome, Policy, ReadInput, Sha256Hex, Success, limits,
+    Admit, AdmitInput, Bytes32, Call, Decision, Disclosure, Origin, Outcome, Policy, ReadInput,
+    Sha256Hex, Success, Uuid4, limits,
 };
 
 pub(crate) struct CommittedReader {
@@ -17,6 +18,26 @@ pub(crate) struct CommittedReader {
     pub policy: Policy,
     pub digest: [u8; 32],
     pub bytes: u64,
+}
+struct ReadBoundary {
+    generation: Uuid4,
+    input: ReadInput,
+    owner: Arc<dyn CallbackOwner>,
+}
+impl CallbackOwner for ReadBoundary {
+    fn decide(&self, admit: &Admit, deadline: Instant) -> Decision {
+        if admit.generation != self.generation
+            || admit.operation.input != AdmitInput::Read(self.input.clone())
+        {
+            return Decision::Deny;
+        }
+        if let Some(Disclosure::Bytes { offset, length }) = admit.operation.disclosure
+            && (offset != self.input.offset || length != self.input.count)
+        {
+            return Decision::Deny;
+        }
+        self.owner.decide(admit, deadline)
+    }
 }
 impl CommittedObjectVerifier for CommittedReader {
     fn read_committed(
@@ -36,20 +57,23 @@ impl CommittedObjectVerifier for CommittedReader {
         while (raw.len() as u64) < self.bytes {
             let offset = raw.len() as u64;
             let count = (self.bytes - offset).min(limits::CHUNK_BYTES as u64) as u32;
-            let result = self.client.request(
-                self.origin,
-                Call::Read(ReadInput {
-                    namespace: Bytes32::from_bytes(self.namespace),
-                    opaque_key: Bytes32::from_bytes(self.key),
-                    policy: self.policy.clone(),
-                    payload_sha256: Sha256Hex::from_bytes(self.digest),
-                    payload_bytes: self.bytes,
-                    offset,
-                    count,
-                }),
-                Arc::clone(&self.owner),
-                deadline,
-            )?;
+            let input = ReadInput {
+                namespace: Bytes32::from_bytes(self.namespace),
+                opaque_key: Bytes32::from_bytes(self.key),
+                policy: self.policy.clone(),
+                payload_sha256: Sha256Hex::from_bytes(self.digest),
+                payload_bytes: self.bytes,
+                offset,
+                count,
+            };
+            let owner = Arc::new(ReadBoundary {
+                generation: self.client.generation(),
+                input: input.clone(),
+                owner: Arc::clone(&self.owner),
+            });
+            let result = self
+                .client
+                .request(self.origin, Call::Read(input), owner, deadline)?;
             let Outcome::Success(Success::Read {
                 offset: returned,
                 total_bytes,

@@ -45,6 +45,8 @@ pub const PAGE_BYTES: usize = 64 * 1024 * 1024;
 pub const PAGE_RECEIPTS: usize = 100_000;
 pub const ACQUISITION: Duration = Duration::from_secs(2);
 pub const RESPONSE: Duration = Duration::from_secs(1);
+/// Absolute queue, native capture and object-channel reply bound for one sync request.
+pub const OBJECT_REPLY: Duration = Duration::from_secs(15);
 /// A publish reply also waits for the serve to combine the writer's own tail: at most this many
 /// isolated decoder runs (a merge per namespace, then the before/after projections).
 pub const PUBLISH_DECODES: u32 = 4;

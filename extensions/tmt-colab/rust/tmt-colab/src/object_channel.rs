@@ -10,16 +10,20 @@ use std::{
         mpsc,
     },
     thread::{self, JoinHandle},
-    time::{Duration, Instant},
+    time::Instant,
 };
 use tmt_extension_objects::{
-    Admission, Admit, Budgets, Bus, Call, Caps, Checkpoint, Context, Counter, Decision, Fault,
-    Frame, Link, Origin, OriginPhase, Outcome, Request, Role, Uuid4,
+    Admission, Admit, Budgets, Bus, Call, Caps, Context, Counter, Decision, Expect, Fault, Frame,
+    Link, Origin, OriginPhase, Outcome, Request, Role, Uuid4, accept_head,
 };
 
+pub(crate) mod admission;
 mod binding;
 mod client;
+mod history;
+mod peer;
 pub(crate) use client::CommittedReader;
+pub(crate) use peer::{ObjectRequest, PeerObjects};
 #[cfg(test)]
 mod tests;
 
@@ -177,6 +181,55 @@ impl Drop for ObjectChannel {
     }
 }
 impl Client {
+    /// The upgrade response can reach the extension before Remote's established
+    /// notice. Wait on that notice within the original request's bound, never
+    /// turn the forwarded origin header alone into standing.
+    pub(crate) fn wait_origin(
+        &self,
+        origin: Origin,
+        cancelled: &AtomicBool,
+        deadline: Instant,
+    ) -> bool {
+        let mut state = locked(&self.0.state);
+        loop {
+            if cancelled.load(Ordering::Acquire) || self.0.stopped.load(Ordering::Acquire) {
+                return false;
+            }
+            if Instant::now() >= deadline {
+                return false;
+            }
+            if matches!(origin, Origin::LocalExtension)
+                || matches!(origin, Origin::Mounted(id) if state.origins.contains(&id))
+            {
+                return true;
+            }
+            let Some(left) = deadline.checked_duration_since(Instant::now()) else {
+                return false;
+            };
+            let (next, timed) = self
+                .0
+                .changed
+                .wait_timeout(state, left)
+                .unwrap_or_else(|p| p.into_inner());
+            state = next;
+            if timed.timed_out() {
+                return false;
+            }
+        }
+    }
+    /// Wake the actual peer's owned jobs without forgetting their leaf ledger
+    /// entries. Later callbacks see its closed fence; no successor consumes a
+    /// late result. The bounded Remote operation still owns any possible effect.
+    pub(crate) fn cancel_origin(&self, origin: Origin) {
+        for pending in locked(&self.0.state)
+            .pending
+            .values()
+            .filter(|pending| pending.origin == origin)
+        {
+            let _ = pending.reply.try_send(Err(Error::Unavailable));
+        }
+        self.0.changed.notify_all();
+    }
     pub(crate) fn generation(&self) -> Uuid4 {
         self.0.generation
     }
@@ -301,7 +354,7 @@ fn dispatch(shared: &Arc<Shared>) {
                     pending,
                     deadline,
                 });
-                shared.changed.notify_one();
+                shared.changed.notify_all();
             }
             _ => break,
         }
@@ -359,5 +412,136 @@ fn callbacks(shared: &Arc<Shared>) {
             shared.stop();
             return;
         }
+    }
+}
+
+/// The mount acceptor owns the active generation. Discovery is refreshed for
+/// every handshake, independently of the untrusted offered Host/mount fields.
+pub(crate) struct ChannelOwner {
+    stopped: AtomicBool,
+    current: Mutex<Option<ObjectChannel>>,
+    discover: Arc<dyn Fn() -> Option<(String, String)> + Send + Sync>,
+}
+impl ChannelOwner {
+    pub(crate) fn new(discover: Arc<dyn Fn() -> Option<(String, String)> + Send + Sync>) -> Self {
+        Self {
+            stopped: AtomicBool::new(false),
+            current: Mutex::new(None),
+            discover,
+        }
+    }
+    pub(crate) fn read_root_local(
+        &self,
+        page: &str,
+        selector: &tmt_colab_model::attachment::AttachmentSelector,
+        source: crate::page::save::SourceOpener,
+        deadline: Instant,
+    ) -> crate::Result<Vec<u8>> {
+        let client = self.client().ok_or(crate::page::Fault::Unavailable)?;
+        let mut view = source()?;
+        let capture = Arc::new(crate::attachments::capture_root_local(
+            &view.store,
+            &view.keyring,
+            page,
+            selector,
+            &mut view.decoder,
+            deadline,
+        )?);
+        let descriptor = capture.descriptor();
+        let current = crate::fold::Snapshot::capture_read(&view.store, &view.keyring, page, None)?;
+        let owner = Arc::new(admission::RootReadAdmission {
+            capture: Arc::clone(&capture),
+            source: Arc::clone(&source),
+            client: client.clone(),
+            deadline,
+        });
+        let reader = CommittedReader {
+            client,
+            origin: Origin::LocalExtension,
+            owner,
+            namespace: crate::attachments::namespace(&descriptor.space, &descriptor.page)?,
+            key: *tmt_extension_objects::Sha256Hex::parse(&descriptor.object_id)
+                .map_err(|_| crate::page::Fault::Invalid)?
+                .as_bytes(),
+            policy: binding::read_policy(descriptor, &current.epoch.to_string(), selector)?,
+            digest: *tmt_extension_objects::Sha256Hex::parse(&descriptor.payload_sha256)
+                .map_err(|_| crate::page::Fault::Invalid)?
+                .as_bytes(),
+            bytes: tmt_colab_model::values::decimal(&descriptor.payload_bytes, false)?,
+        };
+        // Root-local plaintext stays in this native caller; no HTTP/WS route
+        // returns it. Full bytes/crypto and both captured cuts recheck here.
+        capture.disclose(&view.store, &view.keyring, &reader)
+    }
+    pub(crate) fn peer(
+        &self,
+        origin: Option<&str>,
+        principal: String,
+        forwarded: Option<String>,
+        reader: bool,
+        admission: crate::registration::OwnerAdmission,
+    ) -> Option<PeerObjects> {
+        let client = self.client()?;
+        let origin = Origin::Mounted(Uuid4::parse(origin?).ok()?);
+        PeerObjects::new(Arc::new(admission::PeerIdentity {
+            client,
+            origin,
+            principal,
+            forwarded,
+            reader,
+            closed: Arc::new(AtomicBool::new(false)),
+            admission,
+        }))
+        .ok()
+    }
+    pub(crate) fn accept(
+        &self,
+        stream: UnixStream,
+        head: &[u8],
+        rest: &[u8],
+        deadline: Instant,
+    ) -> std::result::Result<(), Error> {
+        if self.stopped.load(Ordering::Acquire) {
+            return Err(Error::Unavailable);
+        }
+        let (host, mount) = (self.discover)().ok_or(Error::Unavailable)?;
+        let expect = Expect { host, mount };
+        let interrupt = stream.try_clone().map_err(|_| Error::Unavailable)?;
+        // Serialize replacement with accepting a successor. Dropping the old
+        // generation joins its workers and invalidates every retained client.
+        let mut current = locked(&self.current);
+        if self.stopped.load(Ordering::Acquire) {
+            return Err(Error::Unavailable);
+        }
+        let link = accept_head(stream, head, rest, &expect, &Budgets::contract(), deadline)
+            .map_err(Error::Wire)?;
+        if self.stopped.load(Ordering::Acquire) {
+            return Err(Error::Unavailable);
+        }
+        if let Some(previous) = current.take() {
+            drop(previous);
+        }
+        *current = Some(ObjectChannel::start(link, interrupt)?);
+        Ok(())
+    }
+    pub(crate) fn client(&self) -> Option<Client> {
+        if self.stopped.load(Ordering::Acquire) {
+            return None;
+        }
+        let current = locked(&self.current);
+        current
+            .as_ref()
+            .filter(|channel| channel.active())
+            .map(ObjectChannel::client)
+    }
+    pub(crate) fn close(&self) {
+        self.stopped.store(true, Ordering::Release);
+        let previous = locked(&self.current).take();
+        drop(previous);
+    }
+}
+impl Drop for ChannelOwner {
+    fn drop(&mut self) {
+        self.close();
     }
 }

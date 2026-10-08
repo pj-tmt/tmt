@@ -39,8 +39,33 @@ renderer owners remain authoritative; no new core object API or reader credentia
 is introduced.
 
 The [attachment byte grammar](attachment-v1.md) defines #1853's descriptor,
-manifest and bounded metadata/comment projection slice. It reuses asset envelopes;
-runtime reference/history admission and object-channel activation remain separate.
+manifest, bounded metadata/comment projection and runtime reference/history admission.
+The mount-owned adapter consumes the neutral object channel; production activation
+and the real routed proof remain planned, with Remote's Colab declaration Disabled.
+
+### Internal attachment channel consumer
+
+After sync hello, an `object` frame carries the current sync scope, a generated
+`requestId` and one strict request: `config`, `begin`, `status`, `part`, `commit`,
+`discard`, `verify`, `read`, `history`, `historynext` or `historycancel`. Responses
+are correlated `object-result` frames in that same scope, containing only `ok` or
+`error`. Eight outstanding requests are allowed per peer; queue failure is a bare
+unavailable response and never a retry. Missing channels do not activate storage.
+An immutable absolute deadline includes queueing, callbacks, I/O and final delivery.
+No late data is disclosed; a possibly effected mutation answers unknown. A sent
+callback timeout ends its generation rather than leaving outstanding authority.
+
+Colab derives namespace, opaque key and minimal policy from the exact authenticated
+target/reference; browser metadata cannot select Remote authority. Begin/status
+retain the original transfer ID, descriptor and base. Parts are at most 32,768 raw
+bytes. `verify` is an OwnerSession-only bounded prepublication read of that frozen
+target; commit receipts alone do not authorize publication. Complete raw reads
+verify length/digest, then existing Colab asset crypto and current reference fences.
+Historical paging owns one read-only cursor per peer, reuses the sync catchup codec
+and current entitlement wraps, and never renews its first deadline. Cancel, expiry,
+peer close and generation replacement release its source and join owned workers.
+Root-local library reads use the actual management keyring and require an established
+channel; no new plaintext HTTP route, upload command or second backend is introduced.
 
 ## Channel boundary
 

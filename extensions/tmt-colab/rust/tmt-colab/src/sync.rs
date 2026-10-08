@@ -1,6 +1,6 @@
 //! Externally driven WebSocket sync. The caller authenticates the principal and
 //! upgrades the socket; this module never owns HTTP, cookies, keys or Yjs state.
-mod wire;
+pub(crate) mod wire;
 use crate::{
     limits,
     store::{self, Accepted, Store, StreamScope},
@@ -143,6 +143,7 @@ struct Catchup {
     revision: u64,
     wrap_offset: usize,
     wraps_done: bool,
+    wrap_epoch: u64,
 }
 fn bootstrap_error(error: Box<dyn std::error::Error + Send + Sync>) -> Code {
     if let Some(fault) = error.downcast_ref::<store::Fault>() {
@@ -160,6 +161,21 @@ fn bootstrap_error(error: Box<dyn std::error::Error + Send + Sync>) -> Code {
     }
 }
 impl Peer {
+    fn new(principal: String) -> Self {
+        Self {
+            principal,
+            scope: None,
+            subscribed: false,
+            queue: VecDeque::new(),
+            hello: false,
+            catchup: None,
+            chains: Default::default(),
+            in_flight: 0,
+            incoming: None,
+            buffered_slot: false,
+            terminal: None,
+        }
+    }
     fn end(&mut self, code: Code) {
         self.queue.clear();
         self.catchup = None;
@@ -197,6 +213,11 @@ impl Peer {
 #[derive(Clone)]
 enum Delivery {
     Frame(String),
+    Object {
+        text: String,
+        refused: String,
+        fence: Arc<crate::object_channel::admission::RequestCapture>,
+    },
     Transfer {
         scope: SyncScope,
         identity: ChunkIdentity,
@@ -219,6 +240,26 @@ impl Delivery {
     fn next(&mut self) -> Result<(String, bool), Code> {
         match self {
             Self::Frame(text) => Ok((text.clone(), true)),
+            Self::Object {
+                text,
+                refused,
+                fence,
+            } => {
+                // No backend or decoder work runs here. Recheck captured native
+                // metadata under the same authority lock held through the write.
+                Ok((
+                    if Instant::now() < fence.deadline
+                        && fence.current().is_ok()
+                        && Instant::now() < fence.deadline
+                    {
+                        text
+                    } else {
+                        refused
+                    }
+                    .clone(),
+                    true,
+                ))
+            }
             Self::Transfer {
                 scope,
                 identity,
@@ -473,22 +514,7 @@ impl<A: Admission> Server<A> {
         }
         let id = state.next;
         state.next = id.checked_add(1).ok_or(Code::Capacity)?;
-        state.peers.insert(
-            id,
-            Peer {
-                principal,
-                scope: None,
-                subscribed: false,
-                queue: VecDeque::new(),
-                hello: false,
-                catchup: None,
-                chains: Default::default(),
-                in_flight: 0,
-                incoming: None,
-                buffered_slot: false,
-                terminal: None,
-            },
-        );
+        state.peers.insert(id, Peer::new(principal));
         let config = WebSocketConfig::default()
             .read_buffer_size(4096)
             .write_buffer_size(0)
@@ -504,7 +530,80 @@ impl<A: Admission> Server<A> {
             server: self.clone(),
             id,
             blocked_since: None,
+            objects: None,
         })
+    }
+}
+/// The same bounded catchup codec without a transport or a second admission
+/// identity. Its caller owns the actual outer peer, frozen deadline and fences.
+pub(crate) struct DetachedCatchup<A: Admission> {
+    state: State<A>,
+}
+impl<A: Admission> DetachedCatchup<A> {
+    pub(crate) fn new(
+        store: Store,
+        admission: A,
+        scope: SyncScope,
+        principal: String,
+        wrap_epoch: u64,
+    ) -> Result<Self, Code> {
+        let mut state = State {
+            store,
+            admission,
+            peers: HashMap::new(),
+            next: 1,
+            saving: HashMap::new(),
+        };
+        // The consumer already admitted current membership and eligible opaque
+        // historical keys on its live connection. Name that exact head without
+        // replaying statements or re-importing addressed wraps into live state.
+        let revision = state
+            .admission
+            .catchup_context(&principal, &scope, &state.store)?
+            .membership_head
+            .revision;
+        let mut peer = Peer::new(principal.clone());
+        peer.scope = Some(scope.clone());
+        peer.hello = true;
+        state.peers.insert(0, peer);
+        state.start_catchup(
+            0,
+            &scope,
+            &principal,
+            &serde_json::from_str("[]").map_err(|_| Code::Invalid)?,
+            revision,
+        )?;
+        let catchup = state
+            .peers
+            .get_mut(&0)
+            .ok_or(Code::Denied)?
+            .catchup
+            .as_mut()
+            .ok_or(Code::Invalid)?;
+        catchup.wrap_epoch = wrap_epoch;
+        catchup.wraps_done = true;
+        Ok(Self { state })
+    }
+    pub(crate) fn next(&mut self) -> Result<Option<(String, bool)>, Code> {
+        self.state.recheck();
+        if let Some(code) = self.state.peers[&0].terminal {
+            return Err(code);
+        }
+        if self.state.peers[&0].queue.is_empty() {
+            self.state.catchup_page(0)?;
+        }
+        let peer = self.state.peers.get_mut(&0).ok_or(Code::Denied)?;
+        let Some(mut delivery) = peer.queue.pop_front() else {
+            return Ok(None);
+        };
+        let (text, done) = delivery.next()?;
+        if !done {
+            peer.queue.push_front(delivery);
+        }
+        Ok(Some((
+            text,
+            peer.queue.is_empty() && peer.catchup.is_none(),
+        )))
     }
 }
 impl<A: Admission> State<A> {
@@ -562,6 +661,7 @@ impl<A: Admission> State<A> {
         self.peers.get_mut(&id).ok_or(Code::Denied)?.scope = Some(scope.clone());
         let subscribing = matches!(&frame, Frame::Subscribe { .. });
         match frame {
+            Frame::Object { .. } => return Err(Code::Invalid),
             Frame::Hello {
                 device,
                 membership_revision,
@@ -1025,6 +1125,7 @@ impl<A: Admission> State<A> {
             revision: membership.revision,
             wrap_offset: 0,
             wraps_done: false,
+            wrap_epoch: values::decimal(&scope.epoch, false)?,
         });
         peer.push(text);
         if let Some(transfer) = transfer {
@@ -1048,6 +1149,13 @@ impl<A: Admission> State<A> {
         }
         let scope = peer.scope.clone().ok_or(Code::Denied)?;
         let epoch = values::decimal(&scope.epoch, false)?;
+        // Live catchup binds wraps and content to one epoch. The detached
+        // history owner supplies current entitlement wraps for an older epoch.
+        let namespaces = if catchup.wrap_epoch > epoch {
+            self.store.retained_namespaces(&scope.page, epoch)?
+        } else {
+            self.store.namespaces(&scope.page, epoch)?
+        };
         if catchup.revision < catchup.head.revision {
             let membership = self
                 .store
@@ -1072,7 +1180,7 @@ impl<A: Admission> State<A> {
                 .owner_read(&scope.space, &catchup.owner, |tx| {
                     tx.wrap_page(
                         &scope.page,
-                        epoch,
+                        catchup.wrap_epoch,
                         &peer.principal,
                         &catchup.head,
                         catchup.wrap_offset,
@@ -1081,7 +1189,7 @@ impl<A: Admission> State<A> {
                 })
                 .map_err(bootstrap_error)?;
             let count = wraps.len();
-            let complete = !more && self.store.namespaces(&scope.page, epoch)?.is_empty();
+            let complete = !more && namespaces.is_empty();
             let text = wire::output(
                 &scope,
                 "catchup",
@@ -1100,7 +1208,7 @@ impl<A: Admission> State<A> {
         }
         let positions = &catchup.positions;
         let mut next = None;
-        for (stream, ns) in self.store.namespaces(&scope.page, epoch)? {
+        for (stream, ns) in namespaces {
             let name = if ns == store::Namespace::Content {
                 "content"
             } else {
@@ -1108,15 +1216,18 @@ impl<A: Admission> State<A> {
             };
             let key = (stream.clone(), name.to_owned());
             let cursor = positions.get(&key).copied().unwrap_or_default();
-            if let Some(object) = self.store.namespace_next(
-                StreamScope {
-                    page: &scope.page,
-                    epoch,
-                    stream: &stream,
-                },
-                ns,
-                cursor,
-            )? {
+            let stream_scope = StreamScope {
+                page: &scope.page,
+                epoch,
+                stream: &stream,
+            };
+            let object = if catchup.wrap_epoch > epoch {
+                self.store
+                    .retained_namespace_next(stream_scope, ns, cursor)?
+            } else {
+                self.store.namespace_next(stream_scope, ns, cursor)?
+            };
+            if let Some(object) = object {
                 // Every paired checkpoint precedes the shared tail. Namespace
                 // tails interleave by stream sequence, preserving signed prevHash.
                 let order = (!object.checkpoint, stream.as_str(), object.cursor.seq);
@@ -1267,8 +1378,56 @@ pub struct Connection<S: Read + Write, A> {
     server: Server<A>,
     id: u64,
     blocked_since: Option<Instant>,
+    objects: Option<crate::object_channel::PeerObjects>,
 }
 impl<S: Read + Write, A: Admission> Connection<S, A> {
+    pub(crate) fn attach_objects(&mut self, objects: Option<crate::object_channel::PeerObjects>) {
+        self.objects = objects;
+    }
+    fn object_request(
+        &self,
+        scope: &SyncScope,
+        id: String,
+        request: crate::object_channel::ObjectRequest,
+        now: Instant,
+    ) -> Result<(), Code> {
+        {
+            let mut state = self.server.0.lock().map_err(|_| Code::Denied)?;
+            state.recheck();
+            let peer = state.peers.get(&self.id).ok_or(Code::Denied)?;
+            if !peer.hello || peer.scope.as_ref() != Some(scope) || peer.terminal.is_some() {
+                return Err(Code::Denied);
+            }
+            state
+                .admission
+                .authorize(&peer.principal, scope, Access::Read)?;
+        }
+        if let Some(objects) = &self.objects {
+            match objects.submit(
+                scope.clone(),
+                id.clone(),
+                request,
+                now + limits::OBJECT_REPLY,
+            ) {
+                Ok(()) => return Ok(()),
+                Err(Code::Capacity | Code::Denied) => {}
+                Err(code) => return Err(code),
+            }
+        }
+        values::generated_id(&id)?;
+        let text = wire::output(
+            scope,
+            "object-result",
+            serde_json::json!({"requestId":id,"result":{"error":{"code":"unavailable"}}}),
+        )?;
+        let mut state = self.server.0.lock().map_err(|_| Code::Denied)?;
+        state
+            .peers
+            .get_mut(&self.id)
+            .ok_or(Code::Denied)?
+            .push(text);
+        Ok(())
+    }
     /// A save's native preparation can take seconds: it runs here, holding no lock, so other
     /// connections keep appending. The commit takes the lock again and every fence rechecks, so
     /// an edit that landed meanwhile turns this save into a stale-base reply.
@@ -1288,6 +1447,7 @@ impl<S: Read + Write, A: Admission> Connection<S, A> {
         }
     }
     fn close(&mut self, code: Code) -> Progress {
+        self.objects.take();
         if let Some(mut socket) = self.socket.take()
             && self.blocked_since.is_none()
         {
@@ -1375,12 +1535,21 @@ impl<S: Read + Write, A: Admission> Connection<S, A> {
                 let Ok(scope) = frame.scope() else {
                     return self.close(Code::Invalid);
                 };
-                let result = self
-                    .server
-                    .0
-                    .lock()
-                    .map_err(|_| Code::Denied)
-                    .and_then(|mut state| state.process(self.id, frame, now));
+                let result = match frame {
+                    Frame::Object {
+                        request_id,
+                        request,
+                        ..
+                    } => self
+                        .object_request(&scope, request_id, *request, now)
+                        .map(|()| None),
+                    frame => self
+                        .server
+                        .0
+                        .lock()
+                        .map_err(|_| Code::Denied)
+                        .and_then(|mut state| state.process(self.id, frame, now)),
+                };
                 let result = match result {
                     Ok(Some(job)) => self.run_save(job),
                     Ok(None) => Ok(()),
@@ -1402,6 +1571,49 @@ impl<S: Read + Write, A: Admission> Connection<S, A> {
             Ok(_) => return self.close(Code::Invalid),
             Err(e) if would_block(&e) => {}
             Err(_) => return self.close(Code::Invalid),
+        }
+        if let Some(objects) = &self.objects {
+            while let Some(reply) = objects.take_reply() {
+                if let Ok(mut state) = self.server.0.lock() {
+                    state.recheck();
+                    if let Some(peer) = state.peers.get_mut(&self.id)
+                        && peer.terminal.is_none()
+                        && peer.scope.as_ref() == Some(&reply.scope)
+                    {
+                        // A bounded projection failure still settles the
+                        // correlation. Never silently discard a possible effect.
+                        let fallback = serde_json::json!({"requestId":reply.id,"result":{"error":{"code":if reply.fence.as_ref().is_some_and(|fence| fence.mutation) {"unknown"} else {"unavailable"}}}});
+                        let text = match wire::output(
+                            &reply.scope,
+                            "object-result",
+                            serde_json::json!({"requestId":reply.id,"result":reply.value}),
+                        )
+                        .or_else(|_| wire::output(&reply.scope, "object-result", fallback))
+                        {
+                            Ok(text) => text,
+                            Err(_) => {
+                                peer.end(Code::Capacity);
+                                continue;
+                            }
+                        };
+                        if let Some(fence) = reply.fence {
+                            if let Ok(refused) = wire::output(
+                                &reply.scope,
+                                "object-result",
+                                serde_json::json!({"requestId":reply.id,"result":{"error":{"code":if fence.mutation { "unknown" } else { "unavailable" }}}}),
+                            ) {
+                                peer.enqueue(Delivery::Object {
+                                    text,
+                                    refused,
+                                    fence,
+                                });
+                            }
+                        } else {
+                            peer.push(text);
+                        }
+                    }
+                }
+            }
         }
         // Hold the authority lock through the nonblocking write: revocation
         // cannot interleave between dequeue and disclosure to the socket.
@@ -1465,6 +1677,7 @@ impl<S: Read + Write, A: Admission> Connection<S, A> {
 }
 impl<S: Read + Write, A> Drop for Connection<S, A> {
     fn drop(&mut self) {
+        self.objects.take();
         if let Ok(mut state) = self.server.0.lock() {
             state.peers.remove(&self.id);
         }

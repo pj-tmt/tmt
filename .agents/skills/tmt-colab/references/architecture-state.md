@@ -24,8 +24,18 @@ positive-sequence own creation proof and recheck current authority after committ
 I/O. Fold has separate writable and archive-capable read capture; frozen epochs remain
 read-only. Native Session reads use registration/readers' actual context and eligible
 addressed wraps or owner-signed public keys; browser history keys are opaque addressed-wrap
-handles. The internal committed verifier is DI, with production channel/peer-generation
-composition and activation still planned in the final #1853 slice. Snapshot/retained-reference
+handles. `object_channel.rs` owns the raw handshake on the existing MountSocket,
+fresh public Remote discovery and replacement/join of each neutral Bus generation.
+Its `admission` module captures the actual peer, current native context, exact
+request and reference/target; `peer` serializes bounded original-ID calls without
+retries. Reader tickets take precedence over a paired cookie and never upload.
+`history` reuses sync's retained ciphertext pager under current history entitlement,
+without opening another socket or changing the live fold. Browser `Connection`
+requests run outside its Worker executor; historical fetch uses a detached Worker.
+Complete committed reads check every range and raw digest before Colab asset crypto.
+Root-local `MountSocket::read_attachment` requires an established channel and never
+activates storage or opens a backend. Production Remote declares Colab Disabled;
+activation and the real three-binary routed proof remain planned. Snapshot/retained-reference
 persistence is #1856, not a new Store/schema here. Historical `chains`/`readAuthor`
 ignore original-creator current expiry, matching native folds; issuedAt, issuer/signature,
 membership and revocation cuts still apply. Fresh `author()` and the actual caller
