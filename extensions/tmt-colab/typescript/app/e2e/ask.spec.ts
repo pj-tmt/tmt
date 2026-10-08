@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { capturePath } from './captures.js';
 import type { Page } from '@playwright/test';
 const fixture = '/test/ask-browser.tsx';
 async function mount(page: Page, options: Record<string, unknown> = {}) {
@@ -67,13 +68,13 @@ test('trusted preview is inert, shows exact frozen/control bytes, and only an ex
   expect(final.reads).toEqual([]);
   await expect(page.getByRole('button', { name: 'Send', exact: true })).toBeDisabled();
   await page.screenshot({
-    path: '/private/tmp/colab-1110-design/ask-preview-desktop.png',
+    path: capturePath('ask-preview-desktop.png'),
     fullPage: true,
   });
   await page.setViewportSize({ width: 390, height: 844 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(390);
   await page.screenshot({
-    path: '/private/tmp/colab-1110-design/ask-preview-mobile.png',
+    path: capturePath('ask-preview-mobile.png'),
     fullPage: true,
   });
   await page.getByRole('button', { name: 'Close preview' }).click();

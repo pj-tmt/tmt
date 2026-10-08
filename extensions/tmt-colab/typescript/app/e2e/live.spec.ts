@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { expect, test, type BrowserContext, type WebSocketRoute } from '@playwright/test';
+import { capturePath } from './captures.js';
 import * as c from '@tmt/colab-client';
 import type { PageView } from '../src/transport.js';
 import * as Y from 'yjs'; // Test-only producer. Foreign update decoding stays in the app Worker.
@@ -1043,7 +1044,7 @@ test('a disconnected active tab explicitly replaces its session without reload o
   await expect(page.getByRole('button', { name: 'Reconnect', exact: true })).toBeVisible();
   expect(opens).toBe(1);
   await page.screenshot({
-    path: '/private/tmp/colab-1110-design/colab-reconnect.png',
+    path: capturePath('colab-reconnect.png'),
     fullPage: true,
   });
   await page.getByRole('button', { name: 'Reconnect', exact: true }).click();
@@ -1958,11 +1959,11 @@ test('parent export downloads exact frozen baseline files, ignores drafts and re
     .getByRole('button', { name: 'Download page.html' })
     .evaluate((button: HTMLButtonElement) => button.click());
   expect(requested).toBe(0);
-  await page.screenshot({ path: '/private/tmp/1309-export-light.png', fullPage: true });
+  await page.screenshot({ path: capturePath('export-light.png'), fullPage: true });
   await page.getByRole('button', { name: 'Change color theme' }).click();
-  await page.screenshot({ path: '/private/tmp/1309-export-dark.png', fullPage: true });
+  await page.screenshot({ path: capturePath('export-dark.png'), fullPage: true });
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.screenshot({ path: '/private/tmp/1309-export-mobile.png', fullPage: true });
+  await page.screenshot({ path: capturePath('export-mobile.png'), fullPage: true });
   await page.setViewportSize({ width: 1280, height: 720 });
   async function download(name: string) {
     const pending = page.waitForEvent('download');

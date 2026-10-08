@@ -34,6 +34,7 @@ import {
   selectCiAreas,
   selectNativeScope,
   selectOfficeBrowser,
+  selectColabApp,
   selectColabHarness,
   selectNativeNotices,
 } from '../../scripts/ci-scope.mjs';
@@ -1114,6 +1115,7 @@ describe('CI diff and command integration', () => {
         native_office: 'false',
         office_browser: 'false',
         colab_harness: 'false',
+        colab_app: 'false',
         native_scope: 'full',
         scoped_native_tests: '',
       });
@@ -1146,6 +1148,7 @@ describe('CI diff and command integration', () => {
         native_office: 'false',
         office_browser: 'false',
         colab_harness: 'false',
+        colab_app: 'false',
         native_scope: 'ops',
         native_notices: 'false',
         scoped_native_tests:
@@ -1254,6 +1257,41 @@ describe('CI diff and command integration', () => {
     'unknown/input',
   ])('does not select advisory Colab work for %s', (file) => {
     expect(selectColabHarness([file])).toBe(false);
+  });
+
+  it.each([
+    'extensions/tmt-colab/typescript/app/src/annotation-input.tsx',
+    'extensions/tmt-colab/typescript/app/e2e/fold.spec.ts',
+    'extensions/tmt-colab/typescript/app/vite.config.ts',
+    'extensions/tmt-colab/typescript/colab-client/src/index.ts',
+    'design/browser-ui/src/static.css',
+    '.github/workflows/colab-browser.yml',
+    'typescript/pnpm-lock.yaml',
+  ])('selects the advisory Colab app component suite for %s', (file) => {
+    expect(selectColabApp([file])).toBe(true);
+    expect(selectColabApp(['DEVELOPMENT.md', file])).toBe(true);
+  });
+
+  it.each([
+    'extensions/tmt-colab/typescript/app-other/src/index.ts',
+    'extensions/tmt-colab/rust/tmt-colab/src/main.rs',
+    'extensions/tmt-colab/rust/tmt-colab-model/src/lib.rs',
+    'extensions/tmt-colab/contracts/colab-v1.md',
+    'extensions/tmt-remote/typescript/remote-client/src/index.ts',
+    'typescript/pnpm-lock.yaml.backup',
+    '.github/workflows/ci.yml',
+    'DEVELOPMENT.md',
+    'unknown/input',
+  ])('does not select the advisory Colab app component suite for %s', (file) => {
+    expect(selectColabApp([file])).toBe(false);
+  });
+
+  it('requires mapped ownership and does not expand empty Colab app scope', () => {
+    expect(selectColabApp([])).toBe(false);
+    const map = parseComponentMap(
+      JSON.stringify({ components: { cli: { owns: ['.'] } }, rules: [] })
+    );
+    expect(selectColabApp(['extensions/tmt-colab/typescript/app/src/index.ts'], map)).toBe(false);
   });
 
   it('requires mapped Colab ownership and does not expand empty advisory scope', () => {
@@ -1366,6 +1404,7 @@ describe('CI diff and command integration', () => {
         native_office: 'false',
         office_browser: 'false',
         colab_harness: 'false',
+        colab_app: 'false',
       });
       expect(select(['merge-group', shared]).outputs).toEqual(full);
       git(['update-ref', 'refs/remotes/origin/main', docs]);
@@ -2412,6 +2451,19 @@ describe('required CI gate', () => {
       "github.event.action != 'labeled' && github.event.action != 'unlabeled'"
     );
     expect(job('colab-browser')).toContain('needs: changes');
+    const app = job('colab-app');
+    expect(app).toContain('needs: changes');
+    expect(app).toMatch(/^ {4}concurrency:\n {6}group: colab-browser-app-/m);
+    expect(app).toContain("cancel-in-progress: ${{ github.event_name == 'pull_request' }}");
+    expect(app).toContain(
+      "if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || needs.changes.outputs.colab_app == 'true'"
+    );
+    expect(app).toContain('permissions:\n      contents: read');
+    expect(app).toContain('pnpm --filter @tmt/colab-app --fail-if-no-match test:browser');
+    expect(app).toContain('playwright install --with-deps chromium');
+    expect(app).toContain('retention-days: 7');
+    expect(app).not.toContain('COLAB_SERVE_EXECUTABLE');
+    expect(app).not.toContain('cargo');
     expect(workflow).toContain('ci-scope.mjs "$BASE_SHA" "$HEAD_SHA" >> "$GITHUB_OUTPUT"');
     expect(workflow).toContain(
       "if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || needs.changes.outputs.colab_harness == 'true'"

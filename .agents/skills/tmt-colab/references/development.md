@@ -155,10 +155,14 @@ embedded assets; restart serve to adopt disk builds.
   record. `e2e/chrome.spec.ts` runs its explicit ignored response producer, then checks
   the actual native fallback HTML/CSS alongside each React screen.
   `COLAB_CHROME_CAPTURE_DIR` selects its top and midpoint capture directory.
-- `test:browser` runs in no CI job yet; run it locally after changing app UI, harness
-  fixtures or `src/fold.ts`. `e2e/cli.spec.ts` and `e2e/chrome.spec.ts` skip with a
-  named reason when their fixture variables are unset, so a run without them proves
-  only the other specs.
+- `test:browser` runs in the advisory `colab-app` job of `colab-browser.yml` (no native
+  fixtures there); run it locally too after changing app UI, harness fixtures or
+  `src/fold.ts`. `e2e/cli.spec.ts`, `e2e/chrome.spec.ts` and `e2e/served.spec.ts` skip
+  with a named reason when their native executables are absent (`COLAB_SERVE_EXECUTABLE`
+  and `COLAB_PAGE_FIXTURE_EXECUTABLE`, `COLAB_CHROME_FIXTURE_EXECUTABLE`, or the built
+  `rust/target/debug/tmt-colab`), so a run without them proves only the other specs.
+  Design-review screenshots go to `COLAB_CAPTURE_DIR` (default
+  `<tmpdir>/colab-app-captures`); never hard-code a host path in a spec.
 - Dev server chrome carries no production CSP (hot reload needs inline scripts); only
   the real-socket built-app scenario proves parent inline blocking.
 - The `@tmt/colab-app` lint and format config lives in its Vite configuration
