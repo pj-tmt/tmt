@@ -129,7 +129,18 @@ try {
             let accepted = false;
             try {
               const a = c.attachment;
-              if (test.operation === 'manifest') {
+              if (test.operation === 'publication' || test.operation === 'publication-binding') {
+                const record = a.decodeAttachmentPublication(c.text(test.input));
+                if (test.operation === 'publication-binding')
+                  await a.publicationMatchesDescriptor(
+                    record,
+                    a.decodeAttachment(c.text(test.descriptor)),
+                  );
+                else if (test.admit) assert(JSON.stringify(record) === test.canonical);
+              } else if (test.operation === 'selector') {
+                const selector = a.decodeAttachmentSelector(c.text(test.input));
+                if (test.admit) assert(JSON.stringify(selector) === test.canonical);
+              } else if (test.operation === 'manifest') {
                 const m = a.decodeAttachmentManifest(c.text(test.input));
                 if (test.inputBytes) {
                   assert(

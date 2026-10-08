@@ -126,7 +126,10 @@ export class ReaderSession {
       granted.space === space &&
         granted.page === page &&
         granted.epoch === challenge.epoch &&
-        typeof granted.principal === 'string',
+        typeof granted.principal === 'string' &&
+        typeof granted.expiresAt === 'number' &&
+        Number.isSafeInteger(granted.expiresAt) &&
+        granted.expiresAt > Date.now(),
     );
     generatedId(granted.principal);
     const owner = binary(granted.ownerKey, 32, 32);
@@ -142,6 +145,7 @@ export class ReaderSession {
     const admission = new Admission(space, page, challenge.epoch, owner, registration, {
       linkId: this.target.link,
       principal: granted.principal as string,
+      expiresAt: granted.expiresAt,
     });
     // The link names the space; the owner key the server presents must derive that exact ID.
     await admission.restore();

@@ -200,7 +200,7 @@ fn execute_with(
         checkpoint(Stage::Apply, CheckpointBoundary::Leave, index + 1);
         if wire.namespace == Namespace::Own {
             checkpoint(Stage::OwnValidation, CheckpointBoundary::Enter, index);
-            let next = discussion_records(&doc)?;
+            let next = immutable_own_records(&doc)?;
             if discussion
                 .iter()
                 .any(|(key, value)| next.get(key) != Some(value))
@@ -503,18 +503,18 @@ fn prepare_content(
 }
 // Capture only materialized typed records, allowing existing checkpoint steps
 // with pending dependencies. A later update cannot replace or remove a record.
-fn discussion_records(
+fn immutable_own_records(
     doc: &Doc,
 ) -> Result<std::collections::BTreeMap<(String, String), Value>, DecodeFault> {
     let txn = doc.transact();
     let mut records = std::collections::BTreeMap::new();
-    for root in ["threads", "messages"] {
+    for root in ["threads", "intents", "messages"] {
         let map = Root::<MapRef>::new(root)
             .get(&txn)
             .ok_or(DecodeFault::Rejected)?;
         for (key, value) in map.iter(&txn) {
             if let Out::Any(Any::Map(fields)) = value
-                && matches!(fields.get("kind"), Some(Any::String(kind)) if matches!(kind.as_ref(), "thread" | "comment" | "thread-status" | "thread-notification"))
+                && matches!(fields.get("kind"), Some(Any::String(kind)) if matches!(kind.as_ref(), "thread" | "comment" | "thread-status" | "thread-notification" | "attachment-publication"))
             {
                 records.insert(
                     (root.into(), key.into()),

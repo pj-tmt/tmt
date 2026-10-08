@@ -3,6 +3,101 @@
   "secret": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
   "publicKey": "11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo",
   "plaintext": "AP9hdHRhY2htZW50CmNhdCDwn5CI",
+  "namespace": "83eda5771b427d2968b3d13f724ec97c5d417c1db68d100415d7ca26bd190fa4",
+  "referenceRevisions": [
+    {
+      "name": "empty",
+      "space": "4kph3kmtxo7dinlvoixpw642ozfibd2w",
+      "page": "00000000-0000-4000-8000-000000000002",
+      "epoch": "1",
+      "writer": "00000000-0000-4000-8000-000000000012",
+      "revision": "7",
+      "headHash": "BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc",
+      "entries": [],
+      "cuts": [],
+      "token": "v1:0b49b9b4e5dde3c9aa5ea8fc2fe406867af76363db424f6ed8fc7445a5710307"
+    },
+    {
+      "name": "own-only",
+      "space": "4kph3kmtxo7dinlvoixpw642ozfibd2w",
+      "page": "00000000-0000-4000-8000-000000000002",
+      "epoch": "1",
+      "writer": "00000000-0000-4000-8000-000000000012",
+      "revision": "7",
+      "headHash": "BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc",
+      "entries": [
+        {
+          "kind": "update",
+          "namespace": "own",
+          "seq": "1",
+          "envelopeHash": "sfeocIirGZYBzoeekhuZPxRrNb0Ng8r6_GwydRJ6YUU",
+          "envelope": "eyJoZWFkZXIiOiJBQUFBRTNSdGRDMWpiMnhoWWkxdlltcGxZM1F0ZGpFQUFBQUJNUUFBQUI5aFpYTXlOVFpuWTIwdGFHdGtabk5vWVRJMU5pMWxaREkxTlRFNUxYWXhBQUFBSURScmNHZ3phMjEwZUc4M1pHbHViSFp2YVhod2R6WTBNbTk2Wm1saVpESjNBQUFBSkRBd01EQXdNREF3TFRBd01EQXROREF3TUMwNE1EQXdMVEF3TURBd01EQXdNREF3TWdBQUFBRXhBQUFBQm5Wd1pHRjBaUUFBQUFOdmQyNEFBQUJBTURVd05UQTFNRFV3TlRBMU1EVXdOVEExTURVd05UQTFNRFV3TlRBMU1EVXdOVEExTURVd05UQTFNRFV3TlRBMU1EVXdOVEExTURVd05UQTFNRFV3TlFBQUFDUXdNREF3TURBd01DMHdNREF3TFRRd01EQXRPREF3TUMwd01EQXdNREF3TURBd01USUFBQUFCTWdBQUFBRXhBQUFBSUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUEiLCJub25jZSI6IkFBQUFBQUFBQUFBQUFBQUEiLCJjaXBoZXJ0ZXh0IjoiLXpLOU0wQk1PWnc5TXBOMl9aZHRWM2FNQWU3ek5qX2xITkNsV0haNGJOWSIsInNpZ25hdHVyZSI6ImlVY0VOVElkRkZWVHFPekFFZW1CZWQ4YUx6Tklfc2pMOFg1b3JlOVlvbUFfVktzQjlGaUh2LTQxRXRCcFA1bDRKZWR2eFl6WEVNUGxKeHlZcUl0U0JRIn0"
+        }
+      ],
+      "cuts": [
+        {
+          "pageId": "00000000-0000-4000-8000-000000000002",
+          "epoch": "1",
+          "namespace": "content",
+          "cut": "AAAAF3RtdC1jb2xhYi1zdHJlYW0tY3V0LXYxAAAAATEAAAAkMDAwMDAwMDAtMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAwMDEyAAAAB2NvbnRlbnQAAAAAAAAAATAAAAABMAAAACAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+        },
+        {
+          "pageId": "00000000-0000-4000-8000-000000000002",
+          "epoch": "1",
+          "namespace": "own",
+          "cut": "AAAAF3RtdC1jb2xhYi1zdHJlYW0tY3V0LXYxAAAAATEAAAAkMDAwMDAwMDAtMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAwMDEyAAAAA293bgAAAAAAAAABMAAAAAExAAAAILH3qHCIqxmWAc6HnpIbmT8UazW9DYPK-vxsMnUSemFF"
+        }
+      ],
+      "token": "v1:602f91a0c32685f934ebe4096cd95c77b184f24028704e0b27209213d3d0a062"
+    },
+    {
+      "name": "paired-checkpoint-tail",
+      "space": "4kph3kmtxo7dinlvoixpw642ozfibd2w",
+      "page": "00000000-0000-4000-8000-000000000002",
+      "epoch": "1",
+      "writer": "00000000-0000-4000-8000-000000000012",
+      "revision": "7",
+      "headHash": "BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc",
+      "entries": [
+        {
+          "kind": "checkpoint",
+          "namespace": "content",
+          "seq": "2",
+          "envelopeHash": "oXWSTYxKa_o6XDr2uB5ahwwyMR83rIjbbMQdz1zk0OU",
+          "envelope": "eyJoZWFkZXIiOiJBQUFBRTNSdGRDMWpiMnhoWWkxdlltcGxZM1F0ZGpFQUFBQUJNUUFBQUI5aFpYTXlOVFpuWTIwdGFHdGtabk5vWVRJMU5pMWxaREkxTlRFNUxYWXhBQUFBSURScmNHZ3phMjEwZUc4M1pHbHViSFp2YVhod2R6WTBNbTk2Wm1saVpESjNBQUFBSkRBd01EQXdNREF3TFRBd01EQXROREF3TUMwNE1EQXdMVEF3TURBd01EQXdNREF3TWdBQUFBRXhBQUFBQ21Ob1pXTnJjRzlwYm5RQUFBQUhZMjl1ZEdWdWRBQUFBRUF3TlRBMU1EVXdOVEExTURVd05UQTFNRFV3TlRBMU1EVXdOVEExTURVd05UQTFNRFV3TlRBMU1EVXdOVEExTURVd05UQTFNRFV3TlRBMU1EVXdOVEExQUFBQUpEQXdNREF3TURBd0xUQXdNREF0TkRBd01DMDRNREF3TFRBd01EQXdNREF3TURBeE1nQUFBQUV5QUFBQUFUSUFBQUFnQXdNREF3TURBd01EQXdNREF3TURBd01EQXdNREF3TURBd01EQXdNREF3TSIsIm5vbmNlIjoiQUFBQUFBQUFBQUFBQUFBQSIsImNpcGhlcnRleHQiOiJkeDllUERiRnZrbERwSlpUMmFiR0htUkNkdEVpVGxXRXBxX0ZMVGdKNVY4Iiwic2lnbmF0dXJlIjoiUXVBMkNycHgwYXZZdmhyclpha3NLVkZ1a1Y5WHJsTjN1amhWQXFTT2pfazFoVkE2SjZMZ2FoVFZKUHBsdEtFVkFPMndvZi1HTUhIbEtNRTdpUjFTREEifQ"
+        },
+        {
+          "kind": "checkpoint",
+          "namespace": "own",
+          "seq": "2",
+          "envelopeHash": "eGhrXssirCJcB0oQQdDeyk5jAs2XW2E245rE7W9fyLc",
+          "envelope": "eyJoZWFkZXIiOiJBQUFBRTNSdGRDMWpiMnhoWWkxdlltcGxZM1F0ZGpFQUFBQUJNUUFBQUI5aFpYTXlOVFpuWTIwdGFHdGtabk5vWVRJMU5pMWxaREkxTlRFNUxYWXhBQUFBSURScmNHZ3phMjEwZUc4M1pHbHViSFp2YVhod2R6WTBNbTk2Wm1saVpESjNBQUFBSkRBd01EQXdNREF3TFRBd01EQXROREF3TUMwNE1EQXdMVEF3TURBd01EQXdNREF3TWdBQUFBRXhBQUFBQ21Ob1pXTnJjRzlwYm5RQUFBQURiM2R1QUFBQVFEQTFNRFV3TlRBMU1EVXdOVEExTURVd05UQTFNRFV3TlRBMU1EVXdOVEExTURVd05UQTFNRFV3TlRBMU1EVXdOVEExTURVd05UQTFNRFV3TlRBMU1EVUFBQUFrTURBd01EQXdNREF0TURBd01DMDBNREF3TFRnd01EQXRNREF3TURBd01EQXdNREV5QUFBQUFUSUFBQUFCTWdBQUFDQURBd01EQXdNREF3TURBd01EQXdNREF3TURBd01EQXdNREF3TURBd01EQXciLCJub25jZSI6IkFBQUFBQUFBQUFBQUFBQUEiLCJjaXBoZXJ0ZXh0IjoiT0tDc0RoOXE1RzVVMlh1RGk3TmpmZEozcWtnaHR3RFJOUk9RN0dpMzl1TSIsInNpZ25hdHVyZSI6Ikp2SVhMaUh1UGI0WmZEQmVyNGsyc2U2cWRqeERLa01JZ3M1YktyYUJ3SU9XWUZkbUNsRmY3ODM4a0Z0SC13UEU1TkpuVlhFT0ZpcGx2cFBPWXgxcENBIn0"
+        },
+        {
+          "kind": "update",
+          "namespace": "own",
+          "seq": "3",
+          "envelopeHash": "rjXO2O8lsI-gnCB-U8uFjo01UCy_I8GmowgXshRlvCY",
+          "envelope": "eyJoZWFkZXIiOiJBQUFBRTNSdGRDMWpiMnhoWWkxdlltcGxZM1F0ZGpFQUFBQUJNUUFBQUI5aFpYTXlOVFpuWTIwdGFHdGtabk5vWVRJMU5pMWxaREkxTlRFNUxYWXhBQUFBSURScmNHZ3phMjEwZUc4M1pHbHViSFp2YVhod2R6WTBNbTk2Wm1saVpESjNBQUFBSkRBd01EQXdNREF3TFRBd01EQXROREF3TUMwNE1EQXdMVEF3TURBd01EQXdNREF3TWdBQUFBRXhBQUFBQm5Wd1pHRjBaUUFBQUFOdmQyNEFBQUJBTURVd05UQTFNRFV3TlRBMU1EVXdOVEExTURVd05UQTFNRFV3TlRBMU1EVXdOVEExTURVd05UQTFNRFV3TlRBMU1EVXdOVEExTURVd05UQTFNRFV3TlFBQUFDUXdNREF3TURBd01DMHdNREF3TFRRd01EQXRPREF3TUMwd01EQXdNREF3TURBd01USUFBQUFCTWdBQUFBRXpBQUFBSUFNREF3TURBd01EQXdNREF3TURBd01EQXdNREF3TURBd01EQXdNREF3TUQiLCJub25jZSI6IkFBQUFBQUFBQUFBQUFBQUEiLCJjaXBoZXJ0ZXh0IjoiRjVrQl9tanhFcjc4ejlMWjd2TjhxcHprSW9YVWRzWmNWTlZOMUlEUVZhWSIsInNpZ25hdHVyZSI6ImxDNTBDTEo1d2Y5aGJoTG5Xa2phQnZDT3F5QlVmTUVJZE1icmIteHI1ZnlCeTZWaDBDMVR4RmJMQTNEWmVHdzl4UXIxR0d4OTliV1JGYjU2Q1oycUNRIn0"
+        }
+      ],
+      "cuts": [
+        {
+          "pageId": "00000000-0000-4000-8000-000000000002",
+          "epoch": "1",
+          "namespace": "content",
+          "cut": "AAAAF3RtdC1jb2xhYi1zdHJlYW0tY3V0LXYxAAAAATEAAAAkMDAwMDAwMDAtMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAwMDEyAAAAB2NvbnRlbnQAAAAgoXWSTYxKa_o6XDr2uB5ahwwyMR83rIjbbMQdz1zk0OUAAAABMgAAAAEyAAAAIAMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMD"
+        },
+        {
+          "pageId": "00000000-0000-4000-8000-000000000002",
+          "epoch": "1",
+          "namespace": "own",
+          "cut": "AAAAF3RtdC1jb2xhYi1zdHJlYW0tY3V0LXYxAAAAATEAAAAkMDAwMDAwMDAtMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAwMDEyAAAAA293bgAAACB4aGteyyKsIlwHShBB0N7KTmMCzZdbYTbjmsTtb1_ItwAAAAEyAAAAATMAAAAgrjXO2O8lsI-gnCB-U8uFjo01UCy_I8GmowgXshRlvCY"
+        }
+      ],
+      "token": "v1:f4f3a775b7a545669d03f5fcc3447c8b7d720f9539afdc7b37d4fb1e56f18912"
+    }
+  ],
   "cases": [
     {
       "name": "document",
@@ -422,6 +517,192 @@
       "name": "comment-cross-page",
       "operation": "comment",
       "input": "{\"version\":1,\"kind\":\"comment\",\"spaceId\":\"4kph3kmtxo7dinlvoixpw642ozfibd2w\",\"pageId\":\"00000000-0000-4000-8000-000000000003\",\"epoch\":\"1\",\"senderDevice\":\"00000000-0000-4000-8000-000000000012\",\"revision\":\"1\",\"deleted\":false,\"deviceName\":\"Fixture\",\"at\":\"0\",\"messageId\":\"00000000-0000-4000-8000-000000000046\",\"thread\":{\"writer\":\"00000000-0000-4000-8000-000000000012\",\"id\":\"00000000-0000-4000-8000-000000000012\"},\"body\":\"\",\"attachments\":[{\"version\":1,\"attachmentId\":\"00000000-0000-4000-8000-000000000042\",\"space\":\"4kph3kmtxo7dinlvoixpw642ozfibd2w\",\"page\":\"00000000-0000-4000-8000-000000000002\",\"epoch\":\"1\",\"namespace\":\"own\",\"objectId\":\"0202020202020202020202020202020202020202020202020202020202020202\",\"authorDevice\":\"00000000-0000-4000-8000-000000000012\",\"membershipRevision\":\"2\",\"source\":{\"kind\":\"message\",\"writerId\":\"00000000-0000-4000-8000-000000000012\",\"messageId\":\"00000000-0000-4000-8000-000000000046\",\"messageRevision\":\"1\"},\"envelopeHash\":\"237e37d45e70e9cd8188ab2413a433b7184856d57972c7519e8c1149d3907b22\",\"signature\":\"PkNDa0j645JJDZR7FVxybT-e8Z5v_OIRucjnyOaF0gkt1OovqkHT51xkoDtLLK73cfMBlNmwCKZkE0GwYkZJDw\",\"payloadSha256\":\"0ec9dab316719640e16a5520f6077685d2a4929604d73e9263b03e38fccf5efd\",\"payloadBytes\":\"626\",\"plaintextBytes\":\"21\",\"filename\":\"cat 🐈.bin\",\"mediaType\":\"application/octet-stream\"}]}",
+      "admit": false
+    },
+    {
+      "name": "publication-document",
+      "operation": "publication",
+      "input": "{\"version\":1,\"kind\":\"attachment-publication\",\"spaceId\":\"4kph3kmtxo7dinlvoixpw642ozfibd2w\",\"pageId\":\"00000000-0000-4000-8000-000000000002\",\"epoch\":\"1\",\"senderDevice\":\"00000000-0000-4000-8000-000000000012\",\"membershipRevision\":\"2\",\"attachmentId\":\"00000000-0000-4000-8000-000000000041\",\"descriptorHash\":\"9f47a0c83f05ccf5fd59a731f3641c985042b0fea257ff7e41a6a523f66180e3\",\"source\":{\"kind\":\"document\",\"sourceDigest\":\"21693389080d7dbc3a8a66b63ed71102eddc4eeea9ac69acebe1e1914f21c347\"},\"baseRevision\":\"v1:45d727f9bd68f2f212768b05037435b71e63613859e777550f12193552ceaebf\"}",
+      "admit": true,
+      "canonical": "{\"version\":1,\"kind\":\"attachment-publication\",\"spaceId\":\"4kph3kmtxo7dinlvoixpw642ozfibd2w\",\"pageId\":\"00000000-0000-4000-8000-000000000002\",\"epoch\":\"1\",\"senderDevice\":\"00000000-0000-4000-8000-000000000012\",\"membershipRevision\":\"2\",\"attachmentId\":\"00000000-0000-4000-8000-000000000041\",\"descriptorHash\":\"9f47a0c83f05ccf5fd59a731f3641c985042b0fea257ff7e41a6a523f66180e3\",\"source\":{\"kind\":\"document\",\"sourceDigest\":\"21693389080d7dbc3a8a66b63ed71102eddc4eeea9ac69acebe1e1914f21c347\"},\"baseRevision\":\"v1:45d727f9bd68f2f212768b05037435b71e63613859e777550f12193552ceaebf\"}"
+    },
+    {
+      "name": "publication-binding-document",
+      "operation": "publication-binding",
+      "input": "{\"version\":1,\"kind\":\"attachment-publication\",\"spaceId\":\"4kph3kmtxo7dinlvoixpw642ozfibd2w\",\"pageId\":\"00000000-0000-4000-8000-000000000002\",\"epoch\":\"1\",\"senderDevice\":\"00000000-0000-4000-8000-000000000012\",\"membershipRevision\":\"2\",\"attachmentId\":\"00000000-0000-4000-8000-000000000041\",\"descriptorHash\":\"9f47a0c83f05ccf5fd59a731f3641c985042b0fea257ff7e41a6a523f66180e3\",\"source\":{\"kind\":\"document\",\"sourceDigest\":\"21693389080d7dbc3a8a66b63ed71102eddc4eeea9ac69acebe1e1914f21c347\"},\"baseRevision\":\"v1:45d727f9bd68f2f212768b05037435b71e63613859e777550f12193552ceaebf\"}",
+      "admit": true,
+      "descriptor": "{\"version\":1,\"attachmentId\":\"00000000-0000-4000-8000-000000000041\",\"space\":\"4kph3kmtxo7dinlvoixpw642ozfibd2w\",\"page\":\"00000000-0000-4000-8000-000000000002\",\"epoch\":\"1\",\"namespace\":\"content\",\"objectId\":\"0101010101010101010101010101010101010101010101010101010101010101\",\"authorDevice\":\"00000000-0000-4000-8000-000000000012\",\"membershipRevision\":\"2\",\"source\":{\"kind\":\"document\",\"sourceDigest\":\"21693389080d7dbc3a8a66b63ed71102eddc4eeea9ac69acebe1e1914f21c347\"},\"envelopeHash\":\"34877068c80ec8aacf400683743d1a3a95855f1c87897ca5f95828093b3f7ba1\",\"signature\":\"mTOaOQ2Qzt_WcbjBQQt2iUqkblc1b2FAk206Z0JlpWnOrVJLxRZU46fBAScdhWr9MWLORFA6BOiYXOphXcbyBA\",\"payloadSha256\":\"30c7ae16aac3cf425b9ebde44e837a42ac05a1c7bcd07e57214ab11cef887d39\",\"payloadBytes\":\"631\",\"plaintextBytes\":\"21\",\"filename\":\"cat 🐈.bin\",\"mediaType\":\"application/octet-stream\"}"
+    },
+    {
+      "name": "publication-message",
+      "operation": "publication",
+      "input": "{\"version\":1,\"kind\":\"attachment-publication\",\"spaceId\":\"4kph3kmtxo7dinlvoixpw642ozfibd2w\",\"pageId\":\"00000000-0000-4000-8000-000000000002\",\"epoch\":\"1\",\"senderDevice\":\"00000000-0000-4000-8000-000000000012\",\"membershipRevision\":\"2\",\"attachmentId\":\"00000000-0000-4000-8000-000000000042\",\"descriptorHash\":\"026ad7109f4167f03b1ddd75352280cf147516d1d626c27a944e0c0008a2c92d\",\"source\":{\"kind\":\"message\",\"writerId\":\"00000000-0000-4000-8000-000000000012\",\"messageId\":\"00000000-0000-4000-8000-000000000046\",\"messageRevision\":\"1\"},\"baseRevision\":\"v1:45d727f9bd68f2f212768b05037435b71e63613859e777550f12193552ceaebf\"}",
+      "admit": true,
+      "canonical": "{\"version\":1,\"kind\":\"attachment-publication\",\"spaceId\":\"4kph3kmtxo7dinlvoixpw642ozfibd2w\",\"pageId\":\"00000000-0000-4000-8000-000000000002\",\"epoch\":\"1\",\"senderDevice\":\"00000000-0000-4000-8000-000000000012\",\"membershipRevision\":\"2\",\"attachmentId\":\"00000000-0000-4000-8000-000000000042\",\"descriptorHash\":\"026ad7109f4167f03b1ddd75352280cf147516d1d626c27a944e0c0008a2c92d\",\"source\":{\"kind\":\"message\",\"writerId\":\"00000000-0000-4000-8000-000000000012\",\"messageId\":\"00000000-0000-4000-8000-000000000046\",\"messageRevision\":\"1\"},\"baseRevision\":\"v1:45d727f9bd68f2f212768b05037435b71e63613859e777550f12193552ceaebf\"}"
+    },
+    {
+      "name": "publication-binding-message",
+      "operation": "publication-binding",
+      "input": "{\"version\":1,\"kind\":\"attachment-publication\",\"spaceId\":\"4kph3kmtxo7dinlvoixpw642ozfibd2w\",\"pageId\":\"00000000-0000-4000-8000-000000000002\",\"epoch\":\"1\",\"senderDevice\":\"00000000-0000-4000-8000-000000000012\",\"membershipRevision\":\"2\",\"attachmentId\":\"00000000-0000-4000-8000-000000000042\",\"descriptorHash\":\"026ad7109f4167f03b1ddd75352280cf147516d1d626c27a944e0c0008a2c92d\",\"source\":{\"kind\":\"message\",\"writerId\":\"00000000-0000-4000-8000-000000000012\",\"messageId\":\"00000000-0000-4000-8000-000000000046\",\"messageRevision\":\"1\"},\"baseRevision\":\"v1:45d727f9bd68f2f212768b05037435b71e63613859e777550f12193552ceaebf\"}",
+      "admit": true,
+      "descriptor": "{\"version\":1,\"attachmentId\":\"00000000-0000-4000-8000-000000000042\",\"space\":\"4kph3kmtxo7dinlvoixpw642ozfibd2w\",\"page\":\"00000000-0000-4000-8000-000000000002\",\"epoch\":\"1\",\"namespace\":\"own\",\"objectId\":\"0202020202020202020202020202020202020202020202020202020202020202\",\"authorDevice\":\"00000000-0000-4000-8000-000000000012\",\"membershipRevision\":\"2\",\"source\":{\"kind\":\"message\",\"writerId\":\"00000000-0000-4000-8000-000000000012\",\"messageId\":\"00000000-0000-4000-8000-000000000046\",\"messageRevision\":\"1\"},\"envelopeHash\":\"237e37d45e70e9cd8188ab2413a433b7184856d57972c7519e8c1149d3907b22\",\"signature\":\"PkNDa0j645JJDZR7FVxybT-e8Z5v_OIRucjnyOaF0gkt1OovqkHT51xkoDtLLK73cfMBlNmwCKZkE0GwYkZJDw\",\"payloadSha256\":\"0ec9dab316719640e16a5520f6077685d2a4929604d73e9263b03e38fccf5efd\",\"payloadBytes\":\"626\",\"plaintextBytes\":\"21\",\"filename\":\"cat 🐈.bin\",\"mediaType\":\"application/octet-stream\"}"
+    },
+    {
+      "name": "invalid-publication-version",
+      "operation": "publication",
+      "input": "{\"version\":2,\"kind\":\"attachment-publication\",\"spaceId\":\"4kph3kmtxo7dinlvoixpw642ozfibd2w\",\"pageId\":\"00000000-0000-4000-8000-000000000002\",\"epoch\":\"1\",\"senderDevice\":\"00000000-0000-4000-8000-000000000012\",\"membershipRevision\":\"2\",\"attachmentId\":\"00000000-0000-4000-8000-000000000041\",\"descriptorHash\":\"9f47a0c83f05ccf5fd59a731f3641c985042b0fea257ff7e41a6a523f66180e3\",\"source\":{\"kind\":\"document\",\"sourceDigest\":\"21693389080d7dbc3a8a66b63ed71102eddc4eeea9ac69acebe1e1914f21c347\"},\"baseRevision\":\"v1:45d727f9bd68f2f212768b05037435b71e63613859e777550f12193552ceaebf\"}",
+      "admit": false
+    },
+    {
+      "name": "invalid-publication-kind",
+      "operation": "publication",
+      "input": "{\"version\":1,\"kind\":\"attachment-claim\",\"spaceId\":\"4kph3kmtxo7dinlvoixpw642ozfibd2w\",\"pageId\":\"00000000-0000-4000-8000-000000000002\",\"epoch\":\"1\",\"senderDevice\":\"00000000-0000-4000-8000-000000000012\",\"membershipRevision\":\"2\",\"attachmentId\":\"00000000-0000-4000-8000-000000000041\",\"descriptorHash\":\"9f47a0c83f05ccf5fd59a731f3641c985042b0fea257ff7e41a6a523f66180e3\",\"source\":{\"kind\":\"document\",\"sourceDigest\":\"21693389080d7dbc3a8a66b63ed71102eddc4eeea9ac69acebe1e1914f21c347\"},\"baseRevision\":\"v1:45d727f9bd68f2f212768b05037435b71e63613859e777550f12193552ceaebf\"}",
+      "admit": false
+    },
+    {
+      "name": "invalid-publication-spaceId",
+      "operation": "publication",
+      "input": "{\"version\":1,\"kind\":\"attachment-publication\",\"spaceId\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"pageId\":\"00000000-0000-4000-8000-000000000002\",\"epoch\":\"1\",\"senderDevice\":\"00000000-0000-4000-8000-000000000012\",\"membershipRevision\":\"2\",\"attachmentId\":\"00000000-0000-4000-8000-000000000041\",\"descriptorHash\":\"9f47a0c83f05ccf5fd59a731f3641c985042b0fea257ff7e41a6a523f66180e3\",\"source\":{\"kind\":\"document\",\"sourceDigest\":\"21693389080d7dbc3a8a66b63ed71102eddc4eeea9ac69acebe1e1914f21c347\"},\"baseRevision\":\"v1:45d727f9bd68f2f212768b05037435b71e63613859e777550f12193552ceaebf\"}",
+      "admit": false
+    },
+    {
+      "name": "invalid-publication-pageId",
+      "operation": "publication",
+      "input": "{\"version\":1,\"kind\":\"attachment-publication\",\"spaceId\":\"4kph3kmtxo7dinlvoixpw642ozfibd2w\",\"pageId\":\"00000000-0000-3000-8000-000000000002\",\"epoch\":\"1\",\"senderDevice\":\"00000000-0000-4000-8000-000000000012\",\"membershipRevision\":\"2\",\"attachmentId\":\"00000000-0000-4000-8000-000000000041\",\"descriptorHash\":\"9f47a0c83f05ccf5fd59a731f3641c985042b0fea257ff7e41a6a523f66180e3\",\"source\":{\"kind\":\"document\",\"sourceDigest\":\"21693389080d7dbc3a8a66b63ed71102eddc4eeea9ac69acebe1e1914f21c347\"},\"baseRevision\":\"v1:45d727f9bd68f2f212768b05037435b71e63613859e777550f12193552ceaebf\"}",
+      "admit": false
+    },
+    {
+      "name": "invalid-publication-epoch",
+      "operation": "publication",
+      "input": "{\"version\":1,\"kind\":\"attachment-publication\",\"spaceId\":\"4kph3kmtxo7dinlvoixpw642ozfibd2w\",\"pageId\":\"00000000-0000-4000-8000-000000000002\",\"epoch\":\"01\",\"senderDevice\":\"00000000-0000-4000-8000-000000000012\",\"membershipRevision\":\"2\",\"attachmentId\":\"00000000-0000-4000-8000-000000000041\",\"descriptorHash\":\"9f47a0c83f05ccf5fd59a731f3641c985042b0fea257ff7e41a6a523f66180e3\",\"source\":{\"kind\":\"document\",\"sourceDigest\":\"21693389080d7dbc3a8a66b63ed71102eddc4eeea9ac69acebe1e1914f21c347\"},\"baseRevision\":\"v1:45d727f9bd68f2f212768b05037435b71e63613859e777550f12193552ceaebf\"}",
+      "admit": false
+    },
+    {
+      "name": "invalid-publication-membershipRevision",
+      "operation": "publication",
+      "input": "{\"version\":1,\"kind\":\"attachment-publication\",\"spaceId\":\"4kph3kmtxo7dinlvoixpw642ozfibd2w\",\"pageId\":\"00000000-0000-4000-8000-000000000002\",\"epoch\":\"1\",\"senderDevice\":\"00000000-0000-4000-8000-000000000012\",\"membershipRevision\":\"0\",\"attachmentId\":\"00000000-0000-4000-8000-000000000041\",\"descriptorHash\":\"9f47a0c83f05ccf5fd59a731f3641c985042b0fea257ff7e41a6a523f66180e3\",\"source\":{\"kind\":\"document\",\"sourceDigest\":\"21693389080d7dbc3a8a66b63ed71102eddc4eeea9ac69acebe1e1914f21c347\"},\"baseRevision\":\"v1:45d727f9bd68f2f212768b05037435b71e63613859e777550f12193552ceaebf\"}",
+      "admit": false
+    },
+    {
+      "name": "invalid-publication-descriptorHash",
+      "operation": "publication",
+      "input": "{\"version\":1,\"kind\":\"attachment-publication\",\"spaceId\":\"4kph3kmtxo7dinlvoixpw642ozfibd2w\",\"pageId\":\"00000000-0000-4000-8000-000000000002\",\"epoch\":\"1\",\"senderDevice\":\"00000000-0000-4000-8000-000000000012\",\"membershipRevision\":\"2\",\"attachmentId\":\"00000000-0000-4000-8000-000000000041\",\"descriptorHash\":\"ababababababababababababababababababababababababababababababab\",\"source\":{\"kind\":\"document\",\"sourceDigest\":\"21693389080d7dbc3a8a66b63ed71102eddc4eeea9ac69acebe1e1914f21c347\"},\"baseRevision\":\"v1:45d727f9bd68f2f212768b05037435b71e63613859e777550f12193552ceaebf\"}",
+      "admit": false
+    },
+    {
+      "name": "invalid-publication-baseRevision",
+      "operation": "publication",
+      "input": "{\"version\":1,\"kind\":\"attachment-publication\",\"spaceId\":\"4kph3kmtxo7dinlvoixpw642ozfibd2w\",\"pageId\":\"00000000-0000-4000-8000-000000000002\",\"epoch\":\"1\",\"senderDevice\":\"00000000-0000-4000-8000-000000000012\",\"membershipRevision\":\"2\",\"attachmentId\":\"00000000-0000-4000-8000-000000000041\",\"descriptorHash\":\"9f47a0c83f05ccf5fd59a731f3641c985042b0fea257ff7e41a6a523f66180e3\",\"source\":{\"kind\":\"document\",\"sourceDigest\":\"21693389080d7dbc3a8a66b63ed71102eddc4eeea9ac69acebe1e1914f21c347\"},\"baseRevision\":\"v1:AFAFAFAFAFAFAFAFAFAFAFAFAFAFAFAFAFAFAFAFAFAFAFAFAFAFAFAFAFAFAFAF\"}",
+      "admit": false
+    },
+    {
+      "name": "invalid-publication-unknown",
+      "operation": "publication",
+      "input": "{\"version\":1,\"kind\":\"attachment-publication\",\"spaceId\":\"4kph3kmtxo7dinlvoixpw642ozfibd2w\",\"pageId\":\"00000000-0000-4000-8000-000000000002\",\"epoch\":\"1\",\"senderDevice\":\"00000000-0000-4000-8000-000000000012\",\"membershipRevision\":\"2\",\"attachmentId\":\"00000000-0000-4000-8000-000000000041\",\"descriptorHash\":\"9f47a0c83f05ccf5fd59a731f3641c985042b0fea257ff7e41a6a523f66180e3\",\"source\":{\"kind\":\"document\",\"sourceDigest\":\"21693389080d7dbc3a8a66b63ed71102eddc4eeea9ac69acebe1e1914f21c347\"},\"baseRevision\":\"v1:45d727f9bd68f2f212768b05037435b71e63613859e777550f12193552ceaebf\",\"unknown\":\"x\"}",
+      "admit": false
+    },
+    {
+      "name": "publication-binding-senderDevice",
+      "operation": "publication-binding",
+      "input": "{\"version\":1,\"kind\":\"attachment-publication\",\"spaceId\":\"4kph3kmtxo7dinlvoixpw642ozfibd2w\",\"pageId\":\"00000000-0000-4000-8000-000000000002\",\"epoch\":\"1\",\"senderDevice\":\"00000000-0000-4000-8000-000000000013\",\"membershipRevision\":\"2\",\"attachmentId\":\"00000000-0000-4000-8000-000000000041\",\"descriptorHash\":\"9f47a0c83f05ccf5fd59a731f3641c985042b0fea257ff7e41a6a523f66180e3\",\"source\":{\"kind\":\"document\",\"sourceDigest\":\"21693389080d7dbc3a8a66b63ed71102eddc4eeea9ac69acebe1e1914f21c347\"},\"baseRevision\":\"v1:45d727f9bd68f2f212768b05037435b71e63613859e777550f12193552ceaebf\"}",
+      "admit": false,
+      "descriptor": "{\"version\":1,\"attachmentId\":\"00000000-0000-4000-8000-000000000041\",\"space\":\"4kph3kmtxo7dinlvoixpw642ozfibd2w\",\"page\":\"00000000-0000-4000-8000-000000000002\",\"epoch\":\"1\",\"namespace\":\"content\",\"objectId\":\"0101010101010101010101010101010101010101010101010101010101010101\",\"authorDevice\":\"00000000-0000-4000-8000-000000000012\",\"membershipRevision\":\"2\",\"source\":{\"kind\":\"document\",\"sourceDigest\":\"21693389080d7dbc3a8a66b63ed71102eddc4eeea9ac69acebe1e1914f21c347\"},\"envelopeHash\":\"34877068c80ec8aacf400683743d1a3a95855f1c87897ca5f95828093b3f7ba1\",\"signature\":\"mTOaOQ2Qzt_WcbjBQQt2iUqkblc1b2FAk206Z0JlpWnOrVJLxRZU46fBAScdhWr9MWLORFA6BOiYXOphXcbyBA\",\"payloadSha256\":\"30c7ae16aac3cf425b9ebde44e837a42ac05a1c7bcd07e57214ab11cef887d39\",\"payloadBytes\":\"631\",\"plaintextBytes\":\"21\",\"filename\":\"cat 🐈.bin\",\"mediaType\":\"application/octet-stream\"}"
+    },
+    {
+      "name": "publication-binding-descriptorHash",
+      "operation": "publication-binding",
+      "input": "{\"version\":1,\"kind\":\"attachment-publication\",\"spaceId\":\"4kph3kmtxo7dinlvoixpw642ozfibd2w\",\"pageId\":\"00000000-0000-4000-8000-000000000002\",\"epoch\":\"1\",\"senderDevice\":\"00000000-0000-4000-8000-000000000012\",\"membershipRevision\":\"2\",\"attachmentId\":\"00000000-0000-4000-8000-000000000041\",\"descriptorHash\":\"abababababababababababababababababababababababababababababababab\",\"source\":{\"kind\":\"document\",\"sourceDigest\":\"21693389080d7dbc3a8a66b63ed71102eddc4eeea9ac69acebe1e1914f21c347\"},\"baseRevision\":\"v1:45d727f9bd68f2f212768b05037435b71e63613859e777550f12193552ceaebf\"}",
+      "admit": false,
+      "descriptor": "{\"version\":1,\"attachmentId\":\"00000000-0000-4000-8000-000000000041\",\"space\":\"4kph3kmtxo7dinlvoixpw642ozfibd2w\",\"page\":\"00000000-0000-4000-8000-000000000002\",\"epoch\":\"1\",\"namespace\":\"content\",\"objectId\":\"0101010101010101010101010101010101010101010101010101010101010101\",\"authorDevice\":\"00000000-0000-4000-8000-000000000012\",\"membershipRevision\":\"2\",\"source\":{\"kind\":\"document\",\"sourceDigest\":\"21693389080d7dbc3a8a66b63ed71102eddc4eeea9ac69acebe1e1914f21c347\"},\"envelopeHash\":\"34877068c80ec8aacf400683743d1a3a95855f1c87897ca5f95828093b3f7ba1\",\"signature\":\"mTOaOQ2Qzt_WcbjBQQt2iUqkblc1b2FAk206Z0JlpWnOrVJLxRZU46fBAScdhWr9MWLORFA6BOiYXOphXcbyBA\",\"payloadSha256\":\"30c7ae16aac3cf425b9ebde44e837a42ac05a1c7bcd07e57214ab11cef887d39\",\"payloadBytes\":\"631\",\"plaintextBytes\":\"21\",\"filename\":\"cat 🐈.bin\",\"mediaType\":\"application/octet-stream\"}"
+    },
+    {
+      "name": "publication-binding-epoch",
+      "operation": "publication-binding",
+      "input": "{\"version\":1,\"kind\":\"attachment-publication\",\"spaceId\":\"4kph3kmtxo7dinlvoixpw642ozfibd2w\",\"pageId\":\"00000000-0000-4000-8000-000000000002\",\"epoch\":\"2\",\"senderDevice\":\"00000000-0000-4000-8000-000000000012\",\"membershipRevision\":\"2\",\"attachmentId\":\"00000000-0000-4000-8000-000000000041\",\"descriptorHash\":\"9f47a0c83f05ccf5fd59a731f3641c985042b0fea257ff7e41a6a523f66180e3\",\"source\":{\"kind\":\"document\",\"sourceDigest\":\"21693389080d7dbc3a8a66b63ed71102eddc4eeea9ac69acebe1e1914f21c347\"},\"baseRevision\":\"v1:45d727f9bd68f2f212768b05037435b71e63613859e777550f12193552ceaebf\"}",
+      "admit": false,
+      "descriptor": "{\"version\":1,\"attachmentId\":\"00000000-0000-4000-8000-000000000041\",\"space\":\"4kph3kmtxo7dinlvoixpw642ozfibd2w\",\"page\":\"00000000-0000-4000-8000-000000000002\",\"epoch\":\"1\",\"namespace\":\"content\",\"objectId\":\"0101010101010101010101010101010101010101010101010101010101010101\",\"authorDevice\":\"00000000-0000-4000-8000-000000000012\",\"membershipRevision\":\"2\",\"source\":{\"kind\":\"document\",\"sourceDigest\":\"21693389080d7dbc3a8a66b63ed71102eddc4eeea9ac69acebe1e1914f21c347\"},\"envelopeHash\":\"34877068c80ec8aacf400683743d1a3a95855f1c87897ca5f95828093b3f7ba1\",\"signature\":\"mTOaOQ2Qzt_WcbjBQQt2iUqkblc1b2FAk206Z0JlpWnOrVJLxRZU46fBAScdhWr9MWLORFA6BOiYXOphXcbyBA\",\"payloadSha256\":\"30c7ae16aac3cf425b9ebde44e837a42ac05a1c7bcd07e57214ab11cef887d39\",\"payloadBytes\":\"631\",\"plaintextBytes\":\"21\",\"filename\":\"cat 🐈.bin\",\"mediaType\":\"application/octet-stream\"}"
+    },
+    {
+      "name": "publication-binding-membershipRevision",
+      "operation": "publication-binding",
+      "input": "{\"version\":1,\"kind\":\"attachment-publication\",\"spaceId\":\"4kph3kmtxo7dinlvoixpw642ozfibd2w\",\"pageId\":\"00000000-0000-4000-8000-000000000002\",\"epoch\":\"1\",\"senderDevice\":\"00000000-0000-4000-8000-000000000012\",\"membershipRevision\":\"3\",\"attachmentId\":\"00000000-0000-4000-8000-000000000041\",\"descriptorHash\":\"9f47a0c83f05ccf5fd59a731f3641c985042b0fea257ff7e41a6a523f66180e3\",\"source\":{\"kind\":\"document\",\"sourceDigest\":\"21693389080d7dbc3a8a66b63ed71102eddc4eeea9ac69acebe1e1914f21c347\"},\"baseRevision\":\"v1:45d727f9bd68f2f212768b05037435b71e63613859e777550f12193552ceaebf\"}",
+      "admit": false,
+      "descriptor": "{\"version\":1,\"attachmentId\":\"00000000-0000-4000-8000-000000000041\",\"space\":\"4kph3kmtxo7dinlvoixpw642ozfibd2w\",\"page\":\"00000000-0000-4000-8000-000000000002\",\"epoch\":\"1\",\"namespace\":\"content\",\"objectId\":\"0101010101010101010101010101010101010101010101010101010101010101\",\"authorDevice\":\"00000000-0000-4000-8000-000000000012\",\"membershipRevision\":\"2\",\"source\":{\"kind\":\"document\",\"sourceDigest\":\"21693389080d7dbc3a8a66b63ed71102eddc4eeea9ac69acebe1e1914f21c347\"},\"envelopeHash\":\"34877068c80ec8aacf400683743d1a3a95855f1c87897ca5f95828093b3f7ba1\",\"signature\":\"mTOaOQ2Qzt_WcbjBQQt2iUqkblc1b2FAk206Z0JlpWnOrVJLxRZU46fBAScdhWr9MWLORFA6BOiYXOphXcbyBA\",\"payloadSha256\":\"30c7ae16aac3cf425b9ebde44e837a42ac05a1c7bcd07e57214ab11cef887d39\",\"payloadBytes\":\"631\",\"plaintextBytes\":\"21\",\"filename\":\"cat 🐈.bin\",\"mediaType\":\"application/octet-stream\"}"
+    },
+    {
+      "name": "publication-binding-attachmentId",
+      "operation": "publication-binding",
+      "input": "{\"version\":1,\"kind\":\"attachment-publication\",\"spaceId\":\"4kph3kmtxo7dinlvoixpw642ozfibd2w\",\"pageId\":\"00000000-0000-4000-8000-000000000002\",\"epoch\":\"1\",\"senderDevice\":\"00000000-0000-4000-8000-000000000012\",\"membershipRevision\":\"2\",\"attachmentId\":\"00000000-0000-4000-8000-000000000063\",\"descriptorHash\":\"9f47a0c83f05ccf5fd59a731f3641c985042b0fea257ff7e41a6a523f66180e3\",\"source\":{\"kind\":\"document\",\"sourceDigest\":\"21693389080d7dbc3a8a66b63ed71102eddc4eeea9ac69acebe1e1914f21c347\"},\"baseRevision\":\"v1:45d727f9bd68f2f212768b05037435b71e63613859e777550f12193552ceaebf\"}",
+      "admit": false,
+      "descriptor": "{\"version\":1,\"attachmentId\":\"00000000-0000-4000-8000-000000000041\",\"space\":\"4kph3kmtxo7dinlvoixpw642ozfibd2w\",\"page\":\"00000000-0000-4000-8000-000000000002\",\"epoch\":\"1\",\"namespace\":\"content\",\"objectId\":\"0101010101010101010101010101010101010101010101010101010101010101\",\"authorDevice\":\"00000000-0000-4000-8000-000000000012\",\"membershipRevision\":\"2\",\"source\":{\"kind\":\"document\",\"sourceDigest\":\"21693389080d7dbc3a8a66b63ed71102eddc4eeea9ac69acebe1e1914f21c347\"},\"envelopeHash\":\"34877068c80ec8aacf400683743d1a3a95855f1c87897ca5f95828093b3f7ba1\",\"signature\":\"mTOaOQ2Qzt_WcbjBQQt2iUqkblc1b2FAk206Z0JlpWnOrVJLxRZU46fBAScdhWr9MWLORFA6BOiYXOphXcbyBA\",\"payloadSha256\":\"30c7ae16aac3cf425b9ebde44e837a42ac05a1c7bcd07e57214ab11cef887d39\",\"payloadBytes\":\"631\",\"plaintextBytes\":\"21\",\"filename\":\"cat 🐈.bin\",\"mediaType\":\"application/octet-stream\"}"
+    },
+    {
+      "name": "publication-binding-source",
+      "operation": "publication-binding",
+      "input": "{\"version\":1,\"kind\":\"attachment-publication\",\"spaceId\":\"4kph3kmtxo7dinlvoixpw642ozfibd2w\",\"pageId\":\"00000000-0000-4000-8000-000000000002\",\"epoch\":\"1\",\"senderDevice\":\"00000000-0000-4000-8000-000000000012\",\"membershipRevision\":\"2\",\"attachmentId\":\"00000000-0000-4000-8000-000000000041\",\"descriptorHash\":\"9f47a0c83f05ccf5fd59a731f3641c985042b0fea257ff7e41a6a523f66180e3\",\"source\":{\"kind\":\"document\",\"sourceDigest\":\"abababababababababababababababababababababababababababababababab\"},\"baseRevision\":\"v1:45d727f9bd68f2f212768b05037435b71e63613859e777550f12193552ceaebf\"}",
+      "admit": false,
+      "descriptor": "{\"version\":1,\"attachmentId\":\"00000000-0000-4000-8000-000000000041\",\"space\":\"4kph3kmtxo7dinlvoixpw642ozfibd2w\",\"page\":\"00000000-0000-4000-8000-000000000002\",\"epoch\":\"1\",\"namespace\":\"content\",\"objectId\":\"0101010101010101010101010101010101010101010101010101010101010101\",\"authorDevice\":\"00000000-0000-4000-8000-000000000012\",\"membershipRevision\":\"2\",\"source\":{\"kind\":\"document\",\"sourceDigest\":\"21693389080d7dbc3a8a66b63ed71102eddc4eeea9ac69acebe1e1914f21c347\"},\"envelopeHash\":\"34877068c80ec8aacf400683743d1a3a95855f1c87897ca5f95828093b3f7ba1\",\"signature\":\"mTOaOQ2Qzt_WcbjBQQt2iUqkblc1b2FAk206Z0JlpWnOrVJLxRZU46fBAScdhWr9MWLORFA6BOiYXOphXcbyBA\",\"payloadSha256\":\"30c7ae16aac3cf425b9ebde44e837a42ac05a1c7bcd07e57214ab11cef887d39\",\"payloadBytes\":\"631\",\"plaintextBytes\":\"21\",\"filename\":\"cat 🐈.bin\",\"mediaType\":\"application/octet-stream\"}"
+    },
+    {
+      "name": "selector-document",
+      "operation": "selector",
+      "input": "{\"kind\":\"document-current\",\"attachmentId\":\"00000000-0000-4000-8000-000000000041\",\"descriptorHash\":\"9f47a0c83f05ccf5fd59a731f3641c985042b0fea257ff7e41a6a523f66180e3\",\"contentRevision\":\"v1:45d727f9bd68f2f212768b05037435b71e63613859e777550f12193552ceaebf\"}",
+      "admit": true,
+      "canonical": "{\"kind\":\"document-current\",\"attachmentId\":\"00000000-0000-4000-8000-000000000041\",\"descriptorHash\":\"9f47a0c83f05ccf5fd59a731f3641c985042b0fea257ff7e41a6a523f66180e3\",\"contentRevision\":\"v1:45d727f9bd68f2f212768b05037435b71e63613859e777550f12193552ceaebf\"}"
+    },
+    {
+      "name": "selector-message",
+      "operation": "selector",
+      "input": "{\"kind\":\"message\",\"writerId\":\"00000000-0000-4000-8000-000000000012\",\"messageId\":\"00000000-0000-4000-8000-000000000046\",\"messageRevision\":\"1\",\"attachmentId\":\"00000000-0000-4000-8000-000000000042\",\"descriptorHash\":\"026ad7109f4167f03b1ddd75352280cf147516d1d626c27a944e0c0008a2c92d\"}",
+      "admit": true,
+      "canonical": "{\"kind\":\"message\",\"writerId\":\"00000000-0000-4000-8000-000000000012\",\"messageId\":\"00000000-0000-4000-8000-000000000046\",\"messageRevision\":\"1\",\"attachmentId\":\"00000000-0000-4000-8000-000000000042\",\"descriptorHash\":\"026ad7109f4167f03b1ddd75352280cf147516d1d626c27a944e0c0008a2c92d\"}"
+    },
+    {
+      "name": "invalid-selector-kind",
+      "operation": "selector",
+      "input": "{\"kind\":\"snapshot\",\"attachmentId\":\"00000000-0000-4000-8000-000000000041\",\"descriptorHash\":\"9f47a0c83f05ccf5fd59a731f3641c985042b0fea257ff7e41a6a523f66180e3\",\"contentRevision\":\"v1:45d727f9bd68f2f212768b05037435b71e63613859e777550f12193552ceaebf\"}",
+      "admit": false
+    },
+    {
+      "name": "invalid-selector-attachmentId",
+      "operation": "selector",
+      "input": "{\"kind\":\"document-current\",\"attachmentId\":\"00000000-0000-3000-8000-000000000041\",\"descriptorHash\":\"9f47a0c83f05ccf5fd59a731f3641c985042b0fea257ff7e41a6a523f66180e3\",\"contentRevision\":\"v1:45d727f9bd68f2f212768b05037435b71e63613859e777550f12193552ceaebf\"}",
+      "admit": false
+    },
+    {
+      "name": "invalid-selector-descriptorHash",
+      "operation": "selector",
+      "input": "{\"kind\":\"document-current\",\"attachmentId\":\"00000000-0000-4000-8000-000000000041\",\"descriptorHash\":\"ababababababababababababababababababababababababababababababab\",\"contentRevision\":\"v1:45d727f9bd68f2f212768b05037435b71e63613859e777550f12193552ceaebf\"}",
+      "admit": false
+    },
+    {
+      "name": "invalid-selector-contentRevision",
+      "operation": "selector",
+      "input": "{\"kind\":\"document-current\",\"attachmentId\":\"00000000-0000-4000-8000-000000000041\",\"descriptorHash\":\"9f47a0c83f05ccf5fd59a731f3641c985042b0fea257ff7e41a6a523f66180e3\",\"contentRevision\":\"v1:ababababababababababababababababababababababababababababababab\"}",
+      "admit": false
+    },
+    {
+      "name": "invalid-selector-unknown",
+      "operation": "selector",
+      "input": "{\"kind\":\"document-current\",\"attachmentId\":\"00000000-0000-4000-8000-000000000041\",\"descriptorHash\":\"9f47a0c83f05ccf5fd59a731f3641c985042b0fea257ff7e41a6a523f66180e3\",\"contentRevision\":\"v1:45d727f9bd68f2f212768b05037435b71e63613859e777550f12193552ceaebf\",\"unknown\":\"x\"}",
+      "admit": false
+    },
+    {
+      "name": "invalid-selector-message-revision",
+      "operation": "selector",
+      "input": "{\"kind\":\"message\",\"writerId\":\"00000000-0000-4000-8000-000000000012\",\"messageId\":\"00000000-0000-4000-8000-000000000046\",\"messageRevision\":\"0\",\"attachmentId\":\"00000000-0000-4000-8000-000000000042\",\"descriptorHash\":\"026ad7109f4167f03b1ddd75352280cf147516d1d626c27a944e0c0008a2c92d\"}",
+      "admit": false
+    },
+    {
+      "name": "publication-duplicate",
+      "operation": "publication",
+      "input": "{\"version\":1,\"version\":1,\"kind\":\"attachment-publication\",\"spaceId\":\"4kph3kmtxo7dinlvoixpw642ozfibd2w\",\"pageId\":\"00000000-0000-4000-8000-000000000002\",\"epoch\":\"1\",\"senderDevice\":\"00000000-0000-4000-8000-000000000012\",\"membershipRevision\":\"2\",\"attachmentId\":\"00000000-0000-4000-8000-000000000041\",\"descriptorHash\":\"9f47a0c83f05ccf5fd59a731f3641c985042b0fea257ff7e41a6a523f66180e3\",\"source\":{\"kind\":\"document\",\"sourceDigest\":\"21693389080d7dbc3a8a66b63ed71102eddc4eeea9ac69acebe1e1914f21c347\"},\"baseRevision\":\"v1:45d727f9bd68f2f212768b05037435b71e63613859e777550f12193552ceaebf\"}",
+      "admit": false
+    },
+    {
+      "name": "selector-duplicate",
+      "operation": "selector",
+      "input": "{\"kind\":\"document-current\",\"kind\":\"document-current\",\"attachmentId\":\"00000000-0000-4000-8000-000000000041\",\"descriptorHash\":\"9f47a0c83f05ccf5fd59a731f3641c985042b0fea257ff7e41a6a523f66180e3\",\"contentRevision\":\"v1:45d727f9bd68f2f212768b05037435b71e63613859e777550f12193552ceaebf\"}",
       "admit": false
     }
   ]

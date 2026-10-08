@@ -12,6 +12,7 @@ use serde::{Deserialize, Serialize};
 use std::{
     collections::{BTreeMap, BTreeSet},
     sync::Arc,
+    time::Instant,
 };
 use tmt_colab_model::{
     certificate, crypto, object,
@@ -189,13 +190,38 @@ impl Snapshot {
         Ok(())
     }
     pub fn capture(store: &Store, key: &Keyring, page: &str) -> Result<Self> {
+        Self::capture_epoch(store, key, page, None, true)
+    }
+    /// Root-local read capture. Historical secrets are accessible to the actual
+    /// management keyring, never as a substitute for a remote reader's wraps.
+    pub(crate) fn capture_read(
+        store: &Store,
+        key: &Keyring,
+        page: &str,
+        epoch: Option<u64>,
+    ) -> Result<Self> {
+        Self::capture_epoch(store, key, page, epoch, false)
+    }
+    fn capture_epoch(
+        store: &Store,
+        key: &Keyring,
+        page: &str,
+        requested: Option<u64>,
+        writing: bool,
+    ) -> Result<Self> {
+        values::generated_id(page)?;
         store.owner_read(&key.space_id, &key.owner_public(), |tx| {
             let (states, payloads) = verify_log(&tx.log()?, key, page)?;
             let authority = states.last().ok_or(OwnerFault::Invalid)?.clone();
-            let epoch = tx.current_epoch(page)?;
+            let current = tx.current_epoch(page)?;
+            let epoch = requested.unwrap_or(current);
             if tx.head() != Some(&authority.head)
-                || !authority.policy.writable()
-                || epoch != authority.policy.epoch
+                || authority.policy.deleted
+                || (writing && !authority.policy.writable())
+                || current != authority.policy.epoch
+                || epoch == 0
+                || epoch > current
+                || current - epoch >= 64
             {
                 return Err(OwnerFault::Invalid.into());
             }
@@ -216,7 +242,11 @@ impl Snapshot {
                 }
             }
             let secret = tx.epoch_secret(page, epoch)?.ok_or(OwnerFault::Invalid)?;
-            let cuts = tx.cuts(page, epoch)?;
+            let cuts = if writing {
+                tx.cuts(page, epoch)?
+            } else {
+                tx.read_cuts(page, epoch)?
+            };
             let mut objects = Vec::new();
             for (index, cut) in cuts.iter().enumerate() {
                 for object in tx.cut_objects(cut)? {
@@ -395,8 +425,65 @@ impl Snapshot {
             owner_device,
         })
     }
+    /// Creator admission for zero-sequence assets. The caller must separately
+    /// join an authenticated positive-sequence publication record; a device cut
+    /// cannot itself prove when a zero-sequence asset was created.
+    pub(crate) fn asset_author(
+        &self,
+        key: &Keyring,
+        descriptor: &tmt_colab_model::attachment::Descriptor,
+    ) -> Result<[u8; 32]> {
+        descriptor.validate()?;
+        let revision = values::decimal(&descriptor.membership_revision, false)?;
+        let at = self
+            .states
+            .get(usize::try_from(revision - 1)?)
+            .ok_or(OwnerFault::Invalid)?;
+        if descriptor.space != key.space_id
+            || descriptor.epoch != self.epoch.to_string()
+            || at.policy.epoch != self.epoch
+            || !at.policy.writable()
+            || at.revoked_devices.contains(&descriptor.author_device)
+        {
+            return Err(OwnerFault::Invalid.into());
+        }
+        let device = self
+            .devices
+            .iter()
+            .find(|d| {
+                certificate::Chain::from_json(&d.chain)
+                    .and_then(|ch| Ok(ch.certificate()?.device_id == descriptor.author_device))
+                    .unwrap_or(false)
+            })
+            .ok_or(OwnerFault::Invalid)?;
+        let chain = certificate::Chain::from_json(&device.chain)?;
+        let cert = chain.certificate()?;
+        let issuer = at
+            .recipients
+            .get(&(cert.issuer_kind.into(), cert.issuer_id.into()))
+            .ok_or(OwnerFault::Invalid)?;
+        verify_chain(&chain, issuer, key, revision)?;
+        if cert.issuer_kind != "member"
+            || cert.issuer_id != at.head.owner_member.id
+            || issuer.recipient.role.as_deref() != Some("editor")
+            || !eligible(&issuer.recipient, at, &descriptor.page)
+        {
+            return Err(OwnerFault::Invalid.into());
+        }
+        Ok(*cert.signing_key)
+    }
     pub fn materialize(&self, key: &Keyring, page: &str, decoder: &mut Decoder) -> Result<View> {
         self.materialize_with_replacements(key, page, decoder, &BTreeMap::new())
+    }
+    pub(crate) fn materialize_until(
+        &self,
+        key: &Keyring,
+        page: &str,
+        decoder: &mut Decoder,
+        deadline: Instant,
+    ) -> Result<View> {
+        self.materialization_input(key, page, decoder, &BTreeMap::new(), Some(deadline))?
+            .materialize(page, decoder, Some(deadline))
     }
     /// Decode a candidate checkpoint in place of each selected stream's retained objects.
     /// Original objects are still opened and authenticated before the candidate is considered.
@@ -407,8 +494,8 @@ impl Snapshot {
         decoder: &mut Decoder,
         replacements: &BTreeMap<usize, Vec<u8>>,
     ) -> Result<View> {
-        self.materialization_input(key, page, decoder, replacements)?
-            .materialize(page, decoder)
+        self.materialization_input(key, page, decoder, replacements, None)?
+            .materialize(page, decoder, None)
     }
     /// The verified genesis belongs to the same read snapshot as the page base.
     pub(crate) fn genesis_hash(&self) -> Result<[u8; 32]> {
@@ -422,8 +509,8 @@ impl Snapshot {
         base_sha256: Option<&[u8; 32]>,
         decoder: &mut Decoder,
     ) -> Result<crate::decoder::PreparedContent> {
-        let input = self.materialization_input(key, page, decoder, &BTreeMap::new())?;
-        let base = input.materialize(page, decoder)?;
+        let input = self.materialization_input(key, page, decoder, &BTreeMap::new(), None)?;
+        let base = input.materialize(page, decoder, None)?;
         // A caller that edited from a source it saw refuses to overwrite a different one.
         if base_sha256.is_some_and(|d| *d != crypto::digest(base.source.as_bytes())) {
             return Err(crate::page::Fault::StaleBase.into());
@@ -456,6 +543,7 @@ impl Snapshot {
         page: &str,
         decoder: &mut Decoder,
         replacements: &BTreeMap<usize, Vec<u8>>,
+        deadline: Option<Instant>,
     ) -> Result<MaterializationInput> {
         let mut baseline = Vec::new();
         if let Some(saved) = &self.baseline {
@@ -490,19 +578,29 @@ impl Snapshot {
                 &key.management_member()?.signing_key,
             )?)?;
             baseline = values::binary(&body.update, crate::decoder::BASELINE_UPDATE_BYTES)?;
-            decoder.verify_baseline(
-                BaselineInput {
-                    attachments: None,
-                    source: body.source.as_bytes(),
-                    title: &d.title,
-                    publisher_agent: None,
-                    creation_recipient: None,
-                    source_digest: binary32(&d.source_digest)?,
-                },
-                &baseline,
-                binary32(&d.baseline_commitment)?,
-                None,
-            )?;
+            let view = BaselineInput {
+                attachments: None,
+                source: body.source.as_bytes(),
+                title: &d.title,
+                publisher_agent: None,
+                creation_recipient: None,
+                source_digest: binary32(&d.source_digest)?,
+            };
+            if let Some(deadline) = deadline {
+                decoder.verify_baseline_until(
+                    view,
+                    &baseline,
+                    binary32(&d.baseline_commitment)?,
+                    deadline,
+                )?;
+            } else {
+                decoder.verify_baseline(
+                    view,
+                    &baseline,
+                    binary32(&d.baseline_commitment)?,
+                    None,
+                )?;
+            }
         } else if self.epoch != 1 {
             return Err(OwnerFault::Invalid.into());
         }
@@ -623,7 +721,12 @@ impl MaterializationInput {
         }
         Ok(())
     }
-    fn materialize(&self, page: &str, decoder: &mut Decoder) -> Result<View> {
+    fn materialize(
+        &self,
+        page: &str,
+        decoder: &mut Decoder,
+        deadline: Option<Instant>,
+    ) -> Result<View> {
         let Self {
             baseline,
             updates,
@@ -663,15 +766,16 @@ impl MaterializationInput {
                 .into());
             }
             let refs = own.iter().map(Vec::as_slice).collect::<Vec<_>>();
-            let decoded = decoder.decode(
-                UpdateBatch {
-                    namespace: Namespace::Own,
-                    baseline: &[],
-                    updates: &refs,
-                },
-                Role::Commenter,
-                None,
-            )?;
+            let batch = UpdateBatch {
+                namespace: Namespace::Own,
+                baseline: &[],
+                updates: &refs,
+            };
+            let decoded = if let Some(deadline) = deadline {
+                decoder.decode_until(batch, Role::Commenter, None, deadline)
+            } else {
+                decoder.decode(batch, Role::Commenter, None)
+            }?;
             threads += decoded.projection["threads"]
                 .as_object()
                 .ok_or(OwnerFault::Invalid)?
@@ -690,26 +794,27 @@ impl MaterializationInput {
             baseline,
             updates: &refs,
         };
-        let folded = decoder
-            .decode(batch, Role::Editor, None)
-            .map_err(|fault| match fault {
-                // The decoder's own deadline is the containment; say which page hit it.
-                DecodeFault::Invoke(ref invoke)
-                    if invoke.kind == tmt_invoke::FailureKind::Deadline =>
-                {
-                    OwnerFault::too_large(
-                        page,
-                        format!(
-                            "decoding its {} changes ({}) did not finish within {} s",
-                            count(updates.len()),
-                            size(state),
-                            crate::decoder::DEADLINE.as_secs()
-                        ),
-                    )
-                    .into()
-                }
-                other => Box::<dyn std::error::Error + Send + Sync>::from(other),
-            })?;
+        let folded = (if let Some(deadline) = deadline {
+            decoder.decode_until(batch, Role::Editor, None, deadline)
+        } else {
+            decoder.decode(batch, Role::Editor, None)
+        })
+        .map_err(|fault| match fault {
+            // The decoder's own deadline is the containment; say which page hit it.
+            DecodeFault::Invoke(ref invoke) if invoke.kind == tmt_invoke::FailureKind::Deadline => {
+                OwnerFault::too_large(
+                    page,
+                    format!(
+                        "decoding its {} changes ({}) did not finish within {} s",
+                        count(updates.len()),
+                        size(state),
+                        crate::decoder::DEADLINE.as_secs()
+                    ),
+                )
+                .into()
+            }
+            other => Box::<dyn std::error::Error + Send + Sync>::from(other),
+        })?;
         Ok(View {
             creation_recipient: folded.projection["meta"]
                 .get("creationRecipient")

@@ -280,3 +280,112 @@ export function attachmentManifestInput(value: AttachmentManifest): Bytes {
 export async function attachmentManifestHash(value: AttachmentManifest): Promise<Bytes> {
   return digest(attachmentManifestInput(value));
 }
+
+export const REFERENCE_BYTES = 2048;
+/** Only the original creator's cut-admitted positive-sequence own stream can
+ * make this inert record a creation witness. JSON fields alone never do. */
+export interface AttachmentPublication {
+  version: 1;
+  kind: 'attachment-publication';
+  spaceId: string;
+  pageId: string;
+  epoch: string;
+  senderDevice: string;
+  membershipRevision: string;
+  attachmentId: string;
+  descriptorHash: string;
+  source: AttachmentSource;
+  baseRevision: string;
+}
+function attachmentRevision(value: unknown): asserts value is string {
+  requireValue(typeof value === 'string' && /^v1:[0-9a-f]{64}$/.test(value));
+}
+export function attachmentPublication(value: unknown): AttachmentPublication {
+  const keys = [
+    'version',
+    'kind',
+    'spaceId',
+    'pageId',
+    'epoch',
+    'senderDevice',
+    'membershipRevision',
+    'attachmentId',
+    'descriptorHash',
+    'source',
+    'baseRevision',
+  ];
+  exactKeys(value, keys);
+  const v = Object.fromEntries(
+    keys.map((key) => [key, value[key]]),
+  ) as unknown as AttachmentPublication;
+  requireValue(v.version === 1 && v.kind === 'attachment-publication');
+  spaceId(v.spaceId);
+  for (const id of [v.pageId, v.senderDevice, v.attachmentId]) generatedId(id);
+  decimal(v.epoch);
+  decimal(v.membershipRevision);
+  hashValue(v.descriptorHash);
+  v.source = source(v.source);
+  attachmentRevision(v.baseRevision);
+  requireValue(text(JSON.stringify(v)).length <= REFERENCE_BYTES);
+  return v;
+}
+export function decodeAttachmentPublication(raw: Uint8Array): AttachmentPublication {
+  return attachmentPublication(strictJson(raw, REFERENCE_BYTES, true));
+}
+export async function publicationMatchesDescriptor(
+  value: AttachmentPublication,
+  descriptor: AttachmentDescriptor,
+): Promise<void> {
+  const v = attachmentPublication(value),
+    d = attachmentDescriptor(descriptor);
+  requireValue(
+    v.spaceId === d.space &&
+      v.pageId === d.page &&
+      v.epoch === d.epoch &&
+      v.senderDevice === d.authorDevice &&
+      v.membershipRevision === d.membershipRevision &&
+      v.attachmentId === d.attachmentId &&
+      v.descriptorHash === hex(await attachmentHash(d)) &&
+      equal(sourceInput(v.source), sourceInput(d.source)),
+  );
+}
+export type AttachmentSelector =
+  | {
+      kind: 'document-current';
+      attachmentId: string;
+      descriptorHash: string;
+      contentRevision: string;
+    }
+  | {
+      kind: 'message';
+      writerId: string;
+      messageId: string;
+      messageRevision: string;
+      attachmentId: string;
+      descriptorHash: string;
+    };
+export function attachmentSelector(value: unknown): AttachmentSelector {
+  requireValue(value !== null && typeof value === 'object');
+  const v = value as Record<string, unknown>;
+  let keys: string[];
+  if (v.kind === 'document-current') {
+    keys = ['kind', 'attachmentId', 'descriptorHash', 'contentRevision'];
+    exactKeys(v, keys);
+    attachmentRevision(v.contentRevision);
+  } else {
+    keys = ['kind', 'writerId', 'messageId', 'messageRevision', 'attachmentId', 'descriptorHash'];
+    exactKeys(v, keys);
+    requireValue(v.kind === 'message');
+    generatedId(v.writerId as string);
+    generatedId(v.messageId as string);
+    decimal(v.messageRevision as string);
+  }
+  generatedId(v.attachmentId as string);
+  hashValue(v.descriptorHash);
+  const out = Object.fromEntries(keys.map((key) => [key, v[key]])) as AttachmentSelector;
+  requireValue(text(JSON.stringify(out)).length <= REFERENCE_BYTES);
+  return out;
+}
+export function decodeAttachmentSelector(raw: Uint8Array): AttachmentSelector {
+  return attachmentSelector(strictJson(raw, REFERENCE_BYTES, true));
+}

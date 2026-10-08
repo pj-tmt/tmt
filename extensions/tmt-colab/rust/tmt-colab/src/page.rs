@@ -278,7 +278,11 @@ pub(crate) fn snapshot(
         }
         Ok(())
     })?;
-    Snapshot::capture(store, key, page)
+    if writing {
+        Snapshot::capture(store, key, page)
+    } else {
+        Snapshot::capture_read(store, key, page, None)
+    }
 }
 /// The revision a next write fences on, read in one owner snapshot. A write's own best-effort
 /// combine can move it after the write's outcome was retained.

@@ -277,3 +277,102 @@ fn prehello_tunnel_is_closed_when_policy_changes() {
             ))
     ));
 }
+
+#[test]
+fn attachment_context_requires_an_active_actual_reader_and_its_exact_epoch_entitlement() {
+    let mut f = Fixture::new();
+    f.share(ShareMode::Link);
+    f.add_link();
+    let ticket = f.session(true);
+    let principal = ticket["principal"].as_str().unwrap();
+    let admission = OwnerAdmission(f.service.clone());
+    assert!(
+        admission
+            .attachment_read_owner(principal, &f.scope())
+            .is_err()
+    );
+    let id = f.upgrade(&ticket).unwrap();
+    let scope = f.scope();
+    let epoch = values::decimal(&scope.epoch, false).unwrap();
+    let context = admission.attachment_context(&id, &scope, epoch).unwrap();
+    assert_eq!(
+        admission.attachment_context(&id, &scope, epoch).unwrap(),
+        context
+    );
+    assert!(
+        admission
+            .attachment_context(&id, &scope, epoch + 1)
+            .is_err()
+    );
+    assert!(
+        admission
+            .attachment_context(
+                &id,
+                &SyncScope {
+                    page: OTHER.into(),
+                    ..scope.clone()
+                },
+                epoch
+            )
+            .is_err()
+    );
+    f.clock.store(601_000, Ordering::SeqCst);
+    assert!(admission.attachment_context(&id, &scope, epoch).is_err());
+    f.service.lock().unwrap().release_reader(&id);
+    assert!(admission.attachment_context(&id, &scope, epoch).is_err());
+}
+
+#[test]
+fn attachment_context_uses_shared_history_wraps_and_owner_signed_public_keys() {
+    let mut f = Fixture::new();
+    f.share(ShareMode::Link);
+    f.add_link();
+    f.apply(OwnerAction::EpochAdvance { page: PAGE });
+    let ticket = f.session(true);
+    let id = f.upgrade(&ticket).unwrap();
+    let admission = OwnerAdmission(f.service.clone());
+    let scope = f.scope();
+    assert!(admission.attachment_context(&id, &scope, 1).is_ok());
+    assert!(admission.attachment_read_owner(&id, &scope).is_ok());
+    f.share(ShareMode::Public);
+    let ticket = f.session(false);
+    let public = f.upgrade(&ticket).unwrap();
+    assert!(admission.attachment_context(&public, &f.scope(), 1).is_ok());
+    f.share(ShareMode::Private);
+    assert!(
+        admission
+            .attachment_context(&public, &f.scope(), 1)
+            .is_err()
+    );
+    assert!(admission.attachment_context(&id, &f.scope(), 1).is_err());
+}
+
+#[test]
+fn attachment_history_refuses_ambient_owner_keys_for_a_current_only_reader() {
+    let mut f = Fixture::new();
+    f.share(ShareMode::Link);
+    f.apply(OwnerAction::History {
+        page: PAGE,
+        mode: crate::transitions::HistoryMode::Current,
+    });
+    f.apply(OwnerAction::EpochAdvance { page: PAGE });
+    f.add_link();
+    let ticket = f.session(true);
+    let id = f.upgrade(&ticket).unwrap();
+    let admission = OwnerAdmission(f.service.clone());
+    let scope = f.scope();
+    assert!(
+        admission
+            .attachment_context(&id, &scope, values::decimal(&scope.epoch, false).unwrap())
+            .is_ok()
+    );
+    assert!(admission.attachment_context(&id, &scope, 1).is_err());
+    // The local owner still holds epoch 1; that is not this reader's entitlement.
+    assert!(
+        f.store
+            .owner_read(&f.key.space_id, &f.key.owner_public(), |tx| tx
+                .epoch_secret(PAGE, 1))
+            .unwrap()
+            .is_some()
+    );
+}

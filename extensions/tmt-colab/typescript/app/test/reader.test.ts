@@ -108,7 +108,11 @@ describe('reader admission', () => {
         deviceId: '30000000-0000-4000-8000-000000000001',
         chain: c.certificate.Chain.fromJson(c.text(JSON.stringify(v.chain))),
       } as Registration,
-      { linkId: v.linkId, principal: '40000000-0000-4000-8000-000000000001' },
+      {
+        linkId: v.linkId,
+        principal: '40000000-0000-4000-8000-000000000001',
+        expiresAt: Number.MAX_SAFE_INTEGER,
+      },
     );
   it('verifies the owner log but stores nothing in the owner app’s records', async () => {
     records.clear();
@@ -125,7 +129,11 @@ describe('reader admission', () => {
       '1',
       hex(v.recipientSeed),
       { deviceId: v.device } as Registration,
-      { linkId: v.linkId, principal: '40000000-0000-4000-8000-000000000001' },
+      {
+        linkId: v.linkId,
+        principal: '40000000-0000-4000-8000-000000000001',
+        expiresAt: Number.MAX_SAFE_INTEGER,
+      },
     );
     await expect(wrong.restore()).rejects.toThrow();
   });

@@ -93,6 +93,12 @@ fn validate_own_records(records: &[OwnRecord]) -> Result<(), DecodeFault> {
         ) || !keys.insert((&record.root, &record.key))
             || crate::threads::validate_record(&record.root, &record.key, &record.value).is_err()
             || crate::ask::validate_record(&record.root, &record.key, &record.value).is_err()
+            || crate::attachments::validate_attachment_record(
+                &record.root,
+                &record.key,
+                &record.value,
+            )
+            .is_err()
         {
             return Err(DecodeFault::InvalidInput);
         }
@@ -272,14 +278,21 @@ impl Decoder {
     ) -> Result<Decoded, DecodeFault> {
         self.decode_until(batch, role, stop, Instant::now() + self.config.deadline)
     }
-    fn decode_until(
+    pub(crate) fn decode_until(
         &mut self,
         batch: UpdateBatch<'_>,
         role: Role,
         stop: Option<&AtomicBool>,
         deadline: Instant,
     ) -> Result<Decoded, DecodeFault> {
-        self.decode_request(batch, role, None, false, stop, deadline)
+        self.decode_request(
+            batch,
+            role,
+            None,
+            false,
+            stop,
+            deadline.min(Instant::now() + self.config.deadline),
+        )
     }
     /// Merge one device's own updates into a single update-v1 with `merge_updates_v1`, without
     /// building or checking the page: the compaction a device publishes as its checkpoint. Every
@@ -522,13 +535,42 @@ impl Decoder {
             stop,
         )
     }
+    pub(crate) fn verify_baseline_until(
+        &mut self,
+        view: BaselineInput<'_>,
+        update: &[u8],
+        commitment: [u8; 32],
+        deadline: Instant,
+    ) -> Result<Baseline, DecodeFault> {
+        if update.len() > BASELINE_UPDATE_BYTES {
+            return Err(DecodeFault::InvalidInput);
+        }
+        self.baseline_until(
+            view,
+            BaselineAction::Verify {
+                update: URL_SAFE_NO_PAD.encode(update),
+                commitment: URL_SAFE_NO_PAD.encode(commitment),
+            },
+            None,
+            deadline,
+        )
+    }
     fn baseline(
         &mut self,
         view: BaselineInput<'_>,
         action: BaselineAction,
         stop: Option<&AtomicBool>,
     ) -> Result<Baseline, DecodeFault> {
-        let deadline = Instant::now() + self.config.deadline;
+        self.baseline_until(view, action, stop, Instant::now() + self.config.deadline)
+    }
+    fn baseline_until(
+        &mut self,
+        view: BaselineInput<'_>,
+        action: BaselineAction,
+        stop: Option<&AtomicBool>,
+        deadline: Instant,
+    ) -> Result<Baseline, DecodeFault> {
+        let deadline = deadline.min(Instant::now() + self.config.deadline);
         if self.blocked {
             return Err(DecodeFault::CleanupBlocked);
         }
@@ -1052,6 +1094,8 @@ fn validate_projection(namespace: Namespace, value: &Value) -> Result<(), Decode
                     crate::threads::validate_record(root, key, value)
                         .map_err(|_| DecodeFault::InvalidOutput)?;
                     crate::ask::validate_record(root, key, value)
+                        .map_err(|_| DecodeFault::InvalidOutput)?;
+                    crate::attachments::validate_attachment_record(root, key, value)
                         .map_err(|_| DecodeFault::InvalidOutput)?;
                 }
             }

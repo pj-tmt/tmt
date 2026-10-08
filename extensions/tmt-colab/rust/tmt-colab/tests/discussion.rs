@@ -441,3 +441,112 @@ fn shared_status_recipient_vectors_accept_core_ids_and_refuse_ambiguous_or_unbou
     assert!(decode(&mut decoder, &record).is_err());
     assert!(decode(&mut decoder, &f["recipientCases"][0]["record"]).is_ok());
 }
+
+#[test]
+fn attachment_publications_survive_checkpoints_and_reject_mutation_or_wrong_roots() {
+    let corpus: Value = serde_json::from_str(include_str!(
+        "../../../contracts/vectors/attachment-v1.json"
+    ))
+    .unwrap();
+    let row = corpus["cases"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|v| v["name"] == "publication-document")
+        .unwrap();
+    let publication: Value = serde_json::from_str(row["input"].as_str().unwrap()).unwrap();
+    let key = publication["attachmentId"].as_str().unwrap();
+    let mut decoder = Decoder::with_config(support::decoder_config(
+        env!("CARGO_BIN_EXE_tmt-colab").into(),
+    ))
+    .unwrap();
+    for remove in [false, true] {
+        let doc = Doc::new();
+        let map = doc.get_or_insert_map("intents");
+        map.insert(
+            &mut doc.transact_mut(),
+            key,
+            Any::from_json(&publication.to_string()).unwrap(),
+        );
+        let baseline = doc
+            .transact()
+            .encode_state_as_update_v1(&StateVector::default());
+        let positive = decoder
+            .decode(
+                UpdateBatch {
+                    namespace: Namespace::Own,
+                    baseline: &baseline,
+                    updates: &[],
+                },
+                Role::Commenter,
+                None,
+            )
+            .unwrap();
+        assert_eq!(positive.projection["intents"][key], publication);
+        let vector = doc.transact().state_vector();
+        if remove {
+            map.remove(&mut doc.transact_mut(), key);
+        } else {
+            let mut changed = publication.clone();
+            changed["descriptorHash"] = json!("00".repeat(32));
+            map.insert(
+                &mut doc.transact_mut(),
+                key,
+                Any::from_json(&changed.to_string()).unwrap(),
+            );
+        }
+        let tail = doc.transact().encode_state_as_update_v1(&vector);
+        assert!(
+            decoder
+                .decode(
+                    UpdateBatch {
+                        namespace: Namespace::Own,
+                        baseline: &baseline,
+                        updates: &[&tail]
+                    },
+                    Role::Commenter,
+                    None
+                )
+                .is_err()
+        );
+        assert_eq!(
+            decoder
+                .decode(
+                    UpdateBatch {
+                        namespace: Namespace::Own,
+                        baseline: &baseline,
+                        updates: &[]
+                    },
+                    Role::Commenter,
+                    None
+                )
+                .unwrap()
+                .projection["intents"][key],
+            publication
+        );
+    }
+    for (root, name) in [("messages", key), ("intents", "wrong-key")] {
+        let doc = Doc::new();
+        doc.get_or_insert_map(root).insert(
+            &mut doc.transact_mut(),
+            name,
+            Any::from_json(&publication.to_string()).unwrap(),
+        );
+        let update = doc
+            .transact()
+            .encode_state_as_update_v1(&StateVector::default());
+        assert!(
+            decoder
+                .decode(
+                    UpdateBatch {
+                        namespace: Namespace::Own,
+                        baseline: &[],
+                        updates: &[&update]
+                    },
+                    Role::Commenter,
+                    None
+                )
+                .is_err()
+        );
+    }
+}

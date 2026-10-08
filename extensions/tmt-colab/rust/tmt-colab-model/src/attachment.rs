@@ -10,6 +10,7 @@ pub const PAYLOAD_BYTES: usize = 12 * 1024 * 1024;
 pub const MESSAGE_ATTACHMENTS: usize = 16;
 pub const DOCUMENT_ATTACHMENTS: usize = 128;
 pub const MANIFEST_BYTES: usize = DOCUMENT_ATTACHMENTS * DESCRIPTOR_BYTES + 1024;
+pub const REFERENCE_BYTES: usize = 2048;
 pub type DocumentAttachments = List<Descriptor, DOCUMENT_ATTACHMENTS>;
 pub type MessageAttachments = List<Descriptor, MESSAGE_ATTACHMENTS>;
 
@@ -279,4 +280,134 @@ impl Manifest {
     pub fn hash(&self) -> Result<[u8; 32]> {
         Ok(crypto::digest(&self.input()?))
     }
+}
+
+/// This record has authority only inside the original creator's authenticated,
+/// positive-sequence own stream. Its fields alone are not a creation witness.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct AttachmentPublication {
+    pub version: u8,
+    pub kind: String,
+    pub space_id: String,
+    pub page_id: String,
+    pub epoch: String,
+    pub sender_device: String,
+    pub membership_revision: String,
+    pub attachment_id: String,
+    pub descriptor_hash: String,
+    pub source: Source,
+    pub base_revision: String,
+}
+impl AttachmentPublication {
+    pub fn from_json(raw: &[u8]) -> Result<Self> {
+        require(raw.len() <= REFERENCE_BYTES)?;
+        let value: Self = serde_json::from_slice(raw).map_err(|_| Invalid)?;
+        value.validate()?;
+        Ok(value)
+    }
+    pub fn validate(&self) -> Result<()> {
+        require(self.version == 1 && self.kind == "attachment-publication")?;
+        values::space_id(&self.space_id)?;
+        for id in [&self.page_id, &self.sender_device, &self.attachment_id] {
+            values::generated_id(id)?;
+        }
+        values::decimal(&self.epoch, false)?;
+        values::decimal(&self.membership_revision, false)?;
+        values::object_id(&self.descriptor_hash)?;
+        self.source.input()?;
+        attachment_revision(&self.base_revision)?;
+        require(serde_json::to_vec(self).map_err(|_| Invalid)?.len() <= REFERENCE_BYTES)
+    }
+    pub fn matches_descriptor(&self, descriptor: &Descriptor) -> Result<()> {
+        self.validate()?;
+        require(
+            self.space_id == descriptor.space
+                && self.page_id == descriptor.page
+                && self.epoch == descriptor.epoch
+                && self.sender_device == descriptor.author_device
+                && self.membership_revision == descriptor.membership_revision
+                && self.attachment_id == descriptor.attachment_id
+                && self.descriptor_hash == hex(&descriptor.hash()?)
+                && self.source == descriptor.source,
+        )
+    }
+}
+
+/// A bounded exact-reference selector, never an actor or permission claim.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(tag = "kind", rename_all = "kebab-case", deny_unknown_fields)]
+pub enum AttachmentSelector {
+    DocumentCurrent {
+        #[serde(rename = "attachmentId")]
+        attachment_id: String,
+        #[serde(rename = "descriptorHash")]
+        descriptor_hash: String,
+        #[serde(rename = "contentRevision")]
+        content_revision: String,
+    },
+    Message {
+        #[serde(rename = "writerId")]
+        writer_id: String,
+        #[serde(rename = "messageId")]
+        message_id: String,
+        #[serde(rename = "messageRevision")]
+        message_revision: String,
+        #[serde(rename = "attachmentId")]
+        attachment_id: String,
+        #[serde(rename = "descriptorHash")]
+        descriptor_hash: String,
+    },
+}
+impl AttachmentSelector {
+    pub fn from_json(raw: &[u8]) -> Result<Self> {
+        require(raw.len() <= REFERENCE_BYTES)?;
+        let value: Self = serde_json::from_slice(raw).map_err(|_| Invalid)?;
+        value.validate()?;
+        Ok(value)
+    }
+    pub fn validate(&self) -> Result<()> {
+        let (id, hash) = match self {
+            Self::DocumentCurrent {
+                attachment_id,
+                descriptor_hash,
+                content_revision,
+            } => {
+                attachment_revision(content_revision)?;
+                (attachment_id, descriptor_hash)
+            }
+            Self::Message {
+                writer_id,
+                message_id,
+                message_revision,
+                attachment_id,
+                descriptor_hash,
+            } => {
+                values::generated_id(writer_id)?;
+                values::generated_id(message_id)?;
+                values::decimal(message_revision, false)?;
+                (attachment_id, descriptor_hash)
+            }
+        };
+        values::generated_id(id)?;
+        values::object_id(hash)?;
+        require(serde_json::to_vec(self).map_err(|_| Invalid)?.len() <= REFERENCE_BYTES)
+    }
+    pub fn attachment(&self) -> (&str, &str) {
+        match self {
+            Self::DocumentCurrent {
+                attachment_id,
+                descriptor_hash,
+                ..
+            }
+            | Self::Message {
+                attachment_id,
+                descriptor_hash,
+                ..
+            } => (attachment_id, descriptor_hash),
+        }
+    }
+}
+fn attachment_revision(value: &str) -> Result<()> {
+    values::object_id(value.strip_prefix("v1:").ok_or(Invalid)?)
 }

@@ -23,6 +23,10 @@ async function fixture() {
   const admission = {
     ...context,
     root,
+    readRoot: (epoch: string) => {
+      c.requireValue(epoch === context.epoch && admission.root !== null);
+      return admission.root!;
+    },
     readAuthor: () => ({ key: hex(v.public), ownerDevice: true }),
     cuts: () => [],
   } as unknown as Admission;

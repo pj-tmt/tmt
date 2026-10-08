@@ -1,6 +1,6 @@
 # Attachment descriptors and manifests
 
-This is the bounded Colab byte grammar introduced by #1853's first slice.
+This is the bounded Colab byte grammar introduced by #1853's grammar and admission slices.
 The model/client codecs verify syntax and exact asset cryptography; callers still
 own authenticated reference, current membership, historical-key and publication
 admission. The [Storage proposal](storage-v1-proposal.md) owns the remaining
@@ -66,8 +66,8 @@ original descriptor provenance; no latest-content substitution is allowed.
 The manifest commitment is SHA-256 of u32-length framing of
 `"tmt-colab-attachment-manifest-v1","1",space,page,snapshotId,authorDevice,membershipRevision,sourceDigest,list`.
 `list` is a four-byte big-endian count followed by length-framed canonical
-**descriptor inputs**, in their exact manifest order. The subsequent content
-admission slice binds this hash to the authenticated snapshot record. Parsing a
+**descriptor inputs**, in their exact manifest order. Snapshot/retained-reference persistence is deferred to #1856, which must bind
+this hash to its authenticated snapshot record; no snapshot store is added here. Parsing a
 manifest alone never creates a snapshot or permits a historical read.
 
 `vectors/attachment-reference.py` independently frames, encrypts and signs public
@@ -76,3 +76,20 @@ client/Worker tests consume that one corpus; the client differential gate also
 executes its codec/crypto cases in Chromium, Firefox and WebKit. The corpus does
 not stand in for the later live callback, committed-publication or reader-policy
 controls.
+
+## Exact selectors and creation proof
+
+Local-v1 selectors are strict JSON within 2,048 bytes:
+
+- `document-current {attachmentId,descriptorHash,contentRevision}` resolves the exact descriptor in the current authenticated metadata. `contentRevision` is the existing `v1:` page token over the owner head, current epoch and ordered source cuts; an earlier revision never resolves from newer content.
+- `message {writerId,messageId,messageRevision,attachmentId,descriptorHash}` resolves that exact immutable, non-deleted Chat/annotation revision. Historical reads retain the original descriptor/source and creator, including after a creator's admitted revocation cut.
+
+Creation is witnessed by an immutable `own.intents` record keyed by attachment ID, with compact field order `version,kind,spaceId,pageId,epoch,senderDevice,membershipRevision,attachmentId,descriptorHash,source,baseRevision`. Version is integer 1 and kind is `attachment-publication`. The creator, asset epoch, membership revision, original source and descriptor digest must match the descriptor exactly; `baseRevision` retains the original frozen publication base. Grammar alone grants no authority: the record must come from the original creator's owner-member, positive-sequence own stream/checkpoint, authenticated by the existing membership/certificate and every later cut owner. Asset sequence zero is never treated as a positive-stream creation proof. Checkpoints and epoch cuts preserve this record through the existing own owner.
+
+## Internal admission and publication
+
+Native `capture_root_local` admits the actual management keyring; `capture_session` additionally uses the existing owner/reader registration Session and its exact addressed historical wraps or owner-signed public keys. Reader-ticket admission takes precedence, stays read-only, and rechecks active scope, expiry and current policy. The read-purpose fold allows archive, refuses delete and keeps frozen history read-only. Decode children use their existing deadline clipped to the request's immutable absolute budget, outside owner-store/registration locks.
+
+Browser capture consumes the connection's authenticated Objects/Worker projection, using non-extractable key handles from actual addressed wraps. The connection executor freezes current cuts/projection; the planned final-slice object adapter supplies historical fetch through the same owners. Close/replacement invalidates the old capture. Both implementations join the creation proof and original creator before opening the exact committed asset, and recheck head, reference cuts, current policy and caller/key context after I/O and before disclosure. Historical browser creator-chain and envelope verification ignores the original certificate’s current expiry, matching native folds for content, comments and attachments; issuedAt, signed issuer, membership revision and every revocation cut remain checked. Fresh author admission and the actual caller’s read retain expiry checks. Missing proof/key/object is an explicit refusal, never empty success or a newer reference substitution.
+
+The narrow internal `CommittedObjectVerifier` accepts only complete committed bytes for the exact derived namespace/object key; unknown or pending evidence refuses. Publication preparation validates raw digest/length and signed asset crypto, then rechecks the original target/base before preparing its immutable own record through the existing publication owner. It does not submit a mutation or resend an original. Test evidence uses this internal DI seam; the real Remote adapter, callback/bus/peer generation checks and activation remain the final #1853 slice. Effectful upload remains owner-device-only; native LocalExtension and reader/ticket sessions cannot upload, including through an owner mount. Snapshot creation, retained-reference persistence, consumer UI and filesystem commands remain their existing follow-ups.

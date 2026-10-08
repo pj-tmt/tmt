@@ -32,6 +32,7 @@ async function admission(log: string, epoch: string = v.epoch): Promise<Admissio
     {
       linkId: '70000000-0000-4000-8000-000000000001',
       principal: 'principal',
+      expiresAt: Number.MAX_SAFE_INTEGER,
     },
   );
   await a.membership(
@@ -92,7 +93,10 @@ it('grants a bridge only the epoch its membership state had at the envelope revi
     context = c.decodeHeader(c.Envelope.fromJson(c.binary(e.envelope, 64 * 1024)).header()).context,
     hash = c.binary(e.hash, 32, 32);
   expect((await admission('base')).readAuthor(context, hash).ownerDevice).toBe(false);
-  // Nothing in this log advanced the page past epoch 1.
+  // Historical creator admission follows the envelope's epoch, while the
+  // current Objects owner still refuses an old envelope in its new namespace.
   const advanced = await admission('base', '2');
-  expect(() => advanced.readAuthor(context, hash)).toThrow();
+  expect(advanced.readAuthor(context, hash).ownerDevice).toBe(false);
+  expect(() => advanced.readAuthor({ ...context, epoch: '2' }, hash)).toThrow();
+  await expect(new Objects(advanced).admit(e.stream, entry(e))).rejects.toThrow();
 });
