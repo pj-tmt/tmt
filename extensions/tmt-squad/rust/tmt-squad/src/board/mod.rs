@@ -784,7 +784,9 @@ pub fn run(
     );
     worker.request(squad.clone(), false, false);
     let mut app = App::new(squad);
-    app.notice = config.obsolete_board_notice().map(str::to_owned);
+    app.notice = crate::migration::paths(&core, None)?
+        .notice
+        .or_else(|| config.obsolete_board_notice().map(str::to_owned));
     app.initial_look = Some(crate::look::Look::new(initial_theme));
     app.picks = picks;
     app.popup = popup;
@@ -940,7 +942,7 @@ mod tests {
         let directory =
             std::env::temp_dir().join(format!("tmt-view-session-{}", std::process::id()));
         std::fs::create_dir_all(&directory).unwrap();
-        let path = directory.join("squad.toml");
+        let path = directory.join("ops.toml");
         std::fs::write(&path, "# intact\n").unwrap();
         let (events, input) = channel();
         let mut app = App::new(Some("product".into()));
@@ -1000,7 +1002,7 @@ mod tests {
         let directory =
             std::env::temp_dir().join(format!("tmt-theme-session-{}", std::process::id()));
         std::fs::create_dir_all(&directory).unwrap();
-        let path = directory.join("squad.toml");
+        let path = directory.join("ops.toml");
         std::fs::write(&path, "# kept\n[board.theme]\nbase = \"tmt\"\n").unwrap();
         let (events, input) = channel();
         let mut app = App::new(Some("product".into()));
@@ -1053,7 +1055,7 @@ mod tests {
     fn user_tab_theme_picker_cannot_save_a_squad_scope() {
         let directory = std::env::temp_dir().join(format!("tmt-user-theme-{}", std::process::id()));
         std::fs::create_dir_all(&directory).unwrap();
-        let path = directory.join("squad.toml");
+        let path = directory.join("ops.toml");
         std::fs::write(&path, "[tabs.needs-me]\n").unwrap();
         let (events, input) = channel();
         let mut app = App::new(Some("@tab:needs-me".into()));
@@ -1098,7 +1100,7 @@ mod tests {
         let directory =
             std::env::temp_dir().join(format!("tmt-theme-session-stale-{}", std::process::id()));
         std::fs::create_dir_all(&directory).unwrap();
-        let path = directory.join("squad.toml");
+        let path = directory.join("ops.toml");
         std::fs::write(&path, "[board.theme]\nbase = \"tmt\"\n").unwrap();
         let (events, input) = channel();
         let mut app = App::new(Some("product".into()));

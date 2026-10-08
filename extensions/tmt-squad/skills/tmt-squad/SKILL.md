@@ -25,7 +25,7 @@ squads remain included. `leads` lists each squad lead; `all` lists squad summari
 `--tab` cannot be combined with `--squad` or `--refresh-fields`. An unknown tab
 returns `SQUAD_TAB_NOT_FOUND`; an empty tab has an empty rows array.
 
-Define a cross-squad member view in `squad.toml`:
+Define a cross-squad member view in `ops.toml`:
 
 ```toml
 [tabs]
@@ -214,7 +214,7 @@ precedence.
 Unpicked squads share one `N not on this board` segment, dim when quiet and
 lit with ◆ waiting and ✗ blocked counts when they need attention. Click it to
 open a switcher limited to those squads. Picks belong to this board process,
-survive refresh and resizing, and never write `squad.toml`. `tabs.hide` remains
+survive refresh and resizing, and never write `ops.toml`. `tabs.hide` remains
 global: hidden tabs stay out of the tab line even when opened or picked.
 
 The line keeps the current tab visible. Left overflow shows `‹ N`; right
@@ -261,8 +261,8 @@ background the final word policy uses readable `text`, while semantic marks
 retain their colors. User theme and tab-color overrides still apply. Colors
 reinforce words and marks; never infer state from color alone. The CLI theme is `theme.base` in the global `config.json`;
 `tmt config show` shows its value and file. Board themes layer that resolved
-theme, then `[board.theme]`, then `[squad.<name>.theme]` in `squad.toml`.
-`auto` works in both `squad.toml` theme layers and both picker scopes; the global
+theme, then `[board.theme]`, then `[squad.<name>.theme]` in `ops.toml`.
+`auto` works in both `ops.toml` theme layers and both picker scopes; the global
 `config.json` theme rejects it. Use `tmt sq theme set auto` for all boards.
 
 `tmt sq theme ls` (or bare `tmt sq theme`) lists built-in bases, marking the
@@ -590,7 +590,7 @@ to the user. Add accepts `--paused`; edit accepts the same schedule flags or
 `--message`. Reassignment clears no owner but retains its pause; resume separately.
 
 Messages must be nonempty and are retained exactly, without substitution. Jobs
-live under the extension's own storage, separate from `squad.toml`. IDs are never
+live under the extension's own storage, separate from `ops.toml`. IDs are never
 reused. Fixed local times skip daylight-saving gaps and use the first repeated
 time; intervals keep elapsed duration. Schedule edits retain the stored zone.
 Change notices are best-effort announcements to the owner; reassignment notifies
@@ -655,10 +655,10 @@ an editable entry to open its value. Type a scalar or JSON array, or use Ctrl-U
 to clear it. Valid input previews live behind the prompt; Enter saves, and Esc
 cancels the edit without writing. A second Esc closes settings. Entries marked
 `*`, including provider argv and run bindings, are read-only. Each value shows its preset/default or configuration setting source
-and the path of `squad.toml`. Configured provider argv and run bindings are
+and the path of `ops.toml`. Configured provider argv and run bindings are
 shown without executing them. Close and reopen to read later config edits.
 
-Board preference choices save to the all-boards layer of `squad.toml` by default
+Board preference choices save to the all-boards layer of `ops.toml` by default
 and persist across sessions. Theme and view pickers still offer an explicit
 `this squad` scope. A hand-written squad key overrides the shared value: its
 settings row carries `≠` and `this squad · r reset`. The header counts explicit
@@ -690,9 +690,9 @@ tmt sq config set tabs.hide '["leads"]'
 ```
 
 Editing `board.direction`, `board.sizes` or `board.panes` pins the effective workflow
-layout and full flat split (direction, panes and sizes) in `squad.toml`, preserving
+layout and full flat split (direction, panes and sizes) in `ops.toml`, preserving
 the untouched geometry. Future preset changes no longer replace these values.
-Nested split trees are read-only and must be edited in `squad.toml`. Existing validators reject invalid values
+Nested split trees are read-only and must be edited in `ops.toml`. Existing validators reject invalid values
 before writing. The writer preserves unrelated keys and comments and refuses a
 file changed since reading it. A conflicting board save keeps the prompt and
 explains the refusal; cancel, close and reopen to load the newer file. Refreshes
@@ -805,7 +805,7 @@ panes folded, only titles and bindings act;
 `n` expands and focuses notes. A single expanded pane stays borderless; bind
 `toggle rows` to fold it, then click its folded title to expand.
 
-Set the initial state or override a binding in `squad.toml`:
+Set the initial state or override a binding in `ops.toml`:
 
 ```toml
 [squad.product.board]
@@ -937,13 +937,25 @@ to it, because that is how the user sees you handled it.
 
 ## Configuration belongs to the user
 
-`squad.toml` sits in TMT's global configuration directory, next to
+`ops.toml` sits in TMT's global configuration directory, next to
 `config.json` (`tmt config show` prints that path). It may hold `me` (the
 user's saved identity, recorded with `tmt squad me <name>`) and `me_id` (its
 UUID, which lets `me` follow a rename; squad maintains it), each squad's `layout`, the board panes, sections, columns,
 states and key bindings. Bindings and actions are the user's. Never edit them
 silently. If a change would help, propose the exact lines and let the user
 apply them.
+
+On first config/state use, Squad migrates `squad.toml` to `ops.toml` and its
+`<dataRoot>/squad/` state to `<dataRoot>/ops/` under a lock. Config comments and
+state bytes are preserved; originals become `.migrated-<timestamp>` backups and
+user `.bak-*` files stay untouched. If both names exist, Ops wins and a notice
+names the ignored legacy paths. An old clock with a live lease defers the entire
+migration: config and jobs stay visible on legacy paths, and the notice names the
+holder and how to stop it. Invoke again after stopping the clock to migrate.
+Restart boards started before the upgrade before editing settings. A legacy config
+that reappears is reported but never read or merged; move wanted settings into
+`ops.toml`, then delete the old file yourself. Commands and binaries remain named
+Squad in this slice; generated hotkeys and the `tmt-squad` cache namespace remain.
 
 ## Observed token usage
 
@@ -1119,7 +1131,7 @@ agree on. Examples:
 - how members are started (worktrees, windows, sessions).
 
 Record the agreement in your notes (`tmt notes path` prints your notebook's
-path), or propose a `squad.toml` change for the user to apply. Squad never
+path), or propose an `ops.toml` change for the user to apply. Squad never
 starts members, worktrees or windows; that is yours to arrange with the user.
 
 ## Team workflow and previous board view

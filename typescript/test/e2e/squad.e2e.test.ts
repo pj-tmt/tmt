@@ -67,6 +67,93 @@ async function squadWithMember(fixture: E2EFixture): Promise<string> {
 }
 
 describe('squad on a private tmux server', { concurrent: false }, () => {
+  it('starts the board with legacy jobs and stop instructions while an old clock defers Ops cutover', async () => {
+    await withE2EFixture(async (fixture) => {
+      installSquad(fixture);
+      expectJsonResult(await fixture.runJsonCli(['identity', 'create', 'Ben']));
+      expectJsonResult(await fixture.runJsonCli(['identity', 'create', 'worker']));
+      expectJsonResult(await squadCli(fixture, ['init', 'product', '--me', 'Ben']));
+      expectJsonResult(await squadCli(fixture, ['add', 'worker']));
+      const added = expectJsonResult<{ job: { id: string; message: string } }>(
+        await squadCli(fixture, [
+          'cron',
+          'add',
+          'product',
+          'worker',
+          '--every',
+          '1h',
+          'retained migration job',
+        ])
+      );
+      const config = path.join(fixture.globalDir, 'ops.toml');
+      const ops = path.join(fixture.globalDir, 'ops');
+      const beforeConfig = fs.readFileSync(config);
+      const beforeJobs = fs.readFileSync(path.join(ops, 'cron', 'jobs.json'));
+      fs.renameSync(config, path.join(fixture.globalDir, 'squad.toml'));
+      fs.renameSync(ops, path.join(fixture.globalDir, 'squad'));
+      fs.unlinkSync(path.join(fixture.globalDir, '.ops-paths-v1'));
+      fs.unlinkSync(path.join(fixture.globalDir, '.ops-paths-cutover-v1'));
+      const lease = path.join(fixture.globalDir, 'squad', 'cron', 'clock.json');
+      fs.writeFileSync(path.join(fixture.globalDir, 'squad', 'cron', 'clock.lock'), '');
+      fs.writeFileSync(
+        lease,
+        JSON.stringify({
+          version: 1,
+          pid: 123,
+          pane: '%41',
+          sinceMs: Date.now() - 1000,
+          expiresMs: Date.now() + 120_000,
+        })
+      );
+      await fixture.attachSessionClient('e2e');
+      const shell = fixture.createShellPane('pending-migration-board');
+      fixture.tmux(['select-window', '-t', shell.pane]);
+      fixture.tmux([
+        'send-keys',
+        '-t',
+        shell.pane,
+        'tmt squad board --squad product; echo MIGRATION_BOARD_EXIT=$?',
+        'Enter',
+      ]);
+      await fixture.waitForCapture(
+        (screen) =>
+          screen.includes('product') && screen.includes('PID 123') && screen.includes('Ctrl-C'),
+        shell.pane
+      );
+      expect(fs.existsSync(config)).toBe(false);
+      expect(fs.existsSync(ops)).toBe(false);
+      const pending = await squadCli<{ jobs: { id: string; message: string }[] }>(fixture, [
+        'cron',
+        'ls',
+        '--squad',
+        'product',
+      ]);
+      expect(pending.code, pending.stderr || pending.stdout).toBe(0);
+      expect(pending.json).toBeDefined();
+      expect(pending.stderr.match(/Ops migration deferred/g)).toHaveLength(1);
+      expect(pending.stderr).toContain('PID 123 in pane %41');
+      expect(pending.stderr).toContain('kill -TERM 123');
+      expect(pending.json!.jobs).toHaveLength(1);
+      expect(pending.json!.jobs[0]).toMatchObject({
+        id: added.job.id,
+        message: added.job.message,
+      });
+      fixture.tmux(['send-keys', '-t', shell.pane, 'q']);
+      await fixture.waitForCapture(
+        (screen) => screen.includes('MIGRATION_BOARD_EXIT=0'),
+        shell.pane
+      );
+      fs.unlinkSync(lease);
+      const migrated = expectJsonResult<{ jobs: { id: string; message: string }[] }>(
+        await squadCli(fixture, ['cron', 'ls', '--squad', 'product'])
+      );
+      expect(migrated.jobs).toEqual(pending.json!.jobs);
+      expect(fs.readFileSync(config)).toEqual(beforeConfig);
+      expect(fs.readFileSync(path.join(ops, 'cron', 'jobs.json'))).toEqual(beforeJobs);
+      expect(fs.existsSync(path.join(fixture.globalDir, 'squad'))).toBe(false);
+    });
+  });
+
   it('sends a scheduled slot once, refuses a second clock and releases its lease on shutdown', async () => {
     await withE2EFixture(
       async (fixture) => {
@@ -82,7 +169,7 @@ describe('squad on a private tmux server', { concurrent: false }, () => {
         const owner = durableIdentity(fixture, 'worker').id;
         expectJsonResult(await squadCli(fixture, ['init', 'product', '--me', 'Ben']));
         expectJsonResult(await squadCli(fixture, ['add', 'worker']));
-        const leasePath = path.join(fixture.globalDir, 'squad', 'cron', 'clock.json');
+        const leasePath = path.join(fixture.globalDir, 'ops', 'cron', 'clock.json');
         const clock = await spawnRealTmuxCli(fixture, ['squad', 'cron', 'run', '--json'], {
           name: 'primary-clock',
           json: false,
@@ -348,7 +435,7 @@ describe('squad on a private tmux server', { concurrent: false }, () => {
       await fixture.attachSessionClient('e2e');
       const shell = fixture.createShellPane('checklist-board');
       fixture.tmux(['select-window', '-t', shell.pane]);
-      const config = fs.readFileSync(path.join(fixture.globalDir, 'squad.toml'));
+      const config = fs.readFileSync(path.join(fixture.globalDir, 'ops.toml'));
       const state = durableState(fixture);
       const beforeRequests = requestAttempts(fixture);
       {
@@ -386,7 +473,7 @@ describe('squad on a private tmux server', { concurrent: false }, () => {
           await fixture.runJsonCli<{ room: { id: string } }>(['room', 'show', 'squad-product'])
         );
         const roomId = shown.room.id;
-        const file = path.join(fixture.globalDir, 'squad', 'checklist', roomId, 'items.json');
+        const file = path.join(fixture.globalDir, 'ops', 'checklist', roomId, 'items.json');
         expect(fs.existsSync(file)).toBe(false);
         fixture.tmux(['send-keys', '-t', shell.pane, 'Down', 'Enter']);
         await fixture.waitFor(() => fs.existsSync(file), 5_000, 'checklist publication');
@@ -418,7 +505,7 @@ describe('squad on a private tmux server', { concurrent: false }, () => {
         expect(stored.inventoryRevision).toBe(1);
         expect(durableState(fixture)).toEqual(state);
         expect(requestAttempts(fixture)).toEqual(beforeRequests);
-        expect(fs.readFileSync(path.join(fixture.globalDir, 'squad.toml'))).toEqual(config);
+        expect(fs.readFileSync(path.join(fixture.globalDir, 'ops.toml'))).toEqual(config);
         await fixture.waitForCapture((screen) => screen.includes('hidden by filters'), shell.pane);
         fixture.tmux(['send-keys', '-t', shell.pane, 'Escape']);
         await fixture.waitForCapture(

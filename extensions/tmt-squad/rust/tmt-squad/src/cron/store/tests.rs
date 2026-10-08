@@ -18,7 +18,7 @@ impl Fixture {
         Self(path)
     }
     fn store(&self) -> Store {
-        Store::new(&self.0).unwrap()
+        Store::new(&self.0.join("ops")).unwrap()
     }
 }
 impl Drop for Fixture {
@@ -50,7 +50,7 @@ fn reads_create_nothing_and_commits_preserve_exact_content_and_non_reused_ids() 
     let f = Fixture::new();
     let store = f.store();
     assert!(store.read().unwrap().jobs().is_empty());
-    assert!(!f.0.join("squad").exists());
+    assert!(!f.0.join("ops").exists());
     assert_eq!(
         store.update(|jobs| jobs.insert(job("product"))).unwrap(),
         "c1"
@@ -72,7 +72,7 @@ fn reads_create_nothing_and_commits_preserve_exact_content_and_non_reused_ids() 
         store.update(|jobs| jobs.insert(job("infra"))).unwrap(),
         "c1"
     );
-    for path in [store.directory.clone(), f.0.join("squad")] {
+    for path in [store.directory.clone(), f.0.join("ops")] {
         assert_eq!(
             fs::metadata(path).unwrap().permissions().mode() & 0o777,
             0o700
@@ -132,7 +132,7 @@ fn a_live_lock_refuses_competing_edits_and_an_abandoned_temp_is_replaced() {
     let (release, hold) = mpsc::channel();
     let root = f.0.clone();
     let writer = std::thread::spawn(move || {
-        Store::new(&root).unwrap().update(|jobs| {
+        Store::new(&root.join("ops")).unwrap().update(|jobs| {
             ready.send(()).unwrap();
             hold.recv().unwrap();
             jobs.insert(job("product"))

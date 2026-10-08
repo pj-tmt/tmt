@@ -1,7 +1,7 @@
 //! One background loader: the board paints from what it has and never waits
 //! on core. Queued requests collapse to the newest, and each load re-reads
-//! squad.toml, so configuration edits appear on the next refresh. Between
-//! requests it reloads early when core's records or squad.toml changed.
+//! ops.toml, so configuration edits appear on the next refresh. Between
+//! requests it reloads early when core's records or ops.toml changed.
 
 use super::{
     ALL, LEADS,
@@ -91,7 +91,7 @@ impl Worker {
                 bodies: BTreeMap::new(),
                 fetch: fetcher(),
             };
-            // The board's pane and squad.toml's place never change, so both
+            // The board's pane and ops.toml's place never change, so both
             // are read once.
             let caller = crate::me::caller(&initial).ok().flatten();
             let mut changes =
@@ -1406,7 +1406,7 @@ esac
 "##,
         );
         let core = Core::at(executable);
-        let path = root.join("squad.toml");
+        let path = root.join("ops.toml");
         std::fs::write(
             &path,
             "[tabs]\norder = ['all', 'product', 'leads']\nhide = ['quiet']\n",
@@ -1503,7 +1503,7 @@ esac
 "##,
         );
         let core = Core::at(executable);
-        let path = root.join("squad.toml");
+        let path = root.join("ops.toml");
         std::fs::write(
             &path,
             r#"me = "ben"
@@ -1735,7 +1735,7 @@ esac
             fetch,
         };
         for workflow in ["minimal", "crew"] {
-            let path = root.join("squad.toml");
+            let path = root.join("ops.toml");
             std::fs::write(&path, format!("[squad.product]\nlayout = '{workflow}'\n")).unwrap();
             let mut config = Config::read(path).unwrap();
             let baseline = squad_view(&core, false, &config, &squad, None, false, &mut kept)
@@ -1852,7 +1852,7 @@ esac
     fn a_hidden_squad_s_attention_comes_from_its_roster_and_the_shared_inbox() {
         let directory = std::env::temp_dir().join(format!("squad-refresh-{}", std::process::id()));
         std::fs::create_dir_all(&directory).unwrap();
-        let path = directory.join("squad.toml");
+        let path = directory.join("ops.toml");
         // A user section repeats a member: it still counts once.
         std::fs::write(
             &path,

@@ -272,7 +272,7 @@ mod tests {
     use super::*;
     fn config(text: &str) -> Config {
         Config {
-            path: "/fixture/squad.toml".into(),
+            path: "/fixture/ops.toml".into(),
             original: None,
             document: text.parse().unwrap(),
             global_theme: Vec::new(),

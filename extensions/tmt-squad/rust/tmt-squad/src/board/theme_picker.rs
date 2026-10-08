@@ -214,7 +214,7 @@ mod tests {
         let directory =
             std::env::temp_dir().join(format!("tmt-picker-{name}-{}", std::process::id()));
         std::fs::create_dir_all(&directory).unwrap();
-        let path = directory.join("squad.toml");
+        let path = directory.join("ops.toml");
         std::fs::write(&path, text).unwrap();
         let config = Config::read(path.clone()).unwrap();
         (path, config)

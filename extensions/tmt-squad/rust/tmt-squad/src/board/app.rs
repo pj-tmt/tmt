@@ -117,7 +117,7 @@ pub struct View {
     pub opener: Option<Vec<String>>,
     pub clipboard: Option<Vec<String>>,
     pub links: crate::links::Handlers,
-    /// `[tabs.colors]`, re-read with every load like the rest of squad.toml.
+    /// `[tabs.colors]`, re-read with every load like the rest of ops.toml.
     pub tab_colors: crate::config::TabColors,
     /// The user's saved identity, the sender of talk, reply and annotate.
     pub me: Option<String>,
@@ -5879,7 +5879,7 @@ mod token_window_tests {
             NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
         ));
         std::fs::create_dir(&root).unwrap();
-        let path = root.join("squad.toml");
+        let path = root.join("ops.toml");
         let mut config = Config::read(path.clone()).unwrap();
         config
             .set_setting(

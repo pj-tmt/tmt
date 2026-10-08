@@ -2,7 +2,7 @@
 //! user's for each member and shows its output as that field, for data TMT
 //! does not have, such as a pull request's review state from `gh`.
 //!
-//! Providers come only from the user's own squad.toml. A program runs
+//! Providers come only from the user's own ops.toml. A program runs
 //! directly, never through a shell: each `{field}` fills exactly one argument
 //! (the run-binding policy, `Template::fill_argument`), output and time are
 //! bounded, and a failure shows as `?`, never as an error screen. Values are

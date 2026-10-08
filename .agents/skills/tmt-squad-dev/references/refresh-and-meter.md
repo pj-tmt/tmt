@@ -12,7 +12,7 @@
 - Timer: the input loop requests a reload at the shown squad's `refresh` interval, which each
   snapshot carries, so a squad that failed to load retries at the default. The timer always runs.
 - Change detection: between requests the worker checks `board::changes` every `CHECK_EVERY` (1 s)
-  using core's `changes.cursor` (public extension API method) and `squad.toml`'s modification time
+  using core's `changes.cursor` (public extension API method) and the invocation-selected config file's modification time (`ops.toml` after cutover)
   and length. When either moved since the stamp taken just before the last load, it reloads that
   squad early unless its `refresh` is off. A failed read is never a change, and
   `API_INPUT_INVALID` (a core without the method) stops cursor reads for the session, leaving the

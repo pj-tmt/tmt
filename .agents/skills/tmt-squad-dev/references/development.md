@@ -27,7 +27,7 @@ markup: see [tmt-tui](../../tmt-tui/SKILL.md).
 - Dependency changes: compare `cargo tree -p tmt-cli -e normal,build -f '{p} {f}'`
   with `main` and the package-scoped release `tmt` to prove the CLI is unchanged.
 - Cron tests use disposable roots and must not touch the core database or
-  `squad.toml`.
+  `ops.toml`.
 - Checklist storage/service: `cargo test --locked -p tmt-squad checklist` exercises
   real temporary documents, literal schema/tombstones, separate revisions, contention,
   lifecycle and independently controlled public-port admission changes. Publication fault

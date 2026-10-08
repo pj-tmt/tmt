@@ -38,7 +38,8 @@ pub fn drain_retired(
         let reference = text(pending, "reference")?;
         let input = hook(&id, &reference);
         core.api("identityHooks.attempt", input.clone())?;
-        let changed = store(core)?.update(|jobs| {
+        let (store, _migration) = store(core)?;
+        let changed = store.update(|jobs| {
             let Some(job) = jobs
                 .jobs()
                 .iter()

@@ -12,7 +12,7 @@ fn collaborator_create_and_manager_assignment_are_distinct_and_inert() {
         "agent-state",
         "requests",
         "config.json",
-        "squad.toml",
+        "ops.toml",
     ]
     .map(|name| (name, fs::read(f.root.join(name)).unwrap()));
     assert!(
@@ -23,14 +23,14 @@ fn collaborator_create_and_manager_assignment_are_distinct_and_inert() {
             .checklist_id
             .is_none()
     );
-    assert!(!f.root.join("squad").exists());
+    assert!(!f.root.join("ops").exists());
     for assignee in [WORKER, LEAD] {
         let error = service
             .apply(&create(ITEM, InventoryExpectation::Absent, Some(assignee)))
             .unwrap_err();
         assert_eq!(error.code, Code::Forbidden);
         assert!(error.current.is_none());
-        assert!(!f.root.join("squad").exists());
+        assert!(!f.root.join("ops").exists());
     }
     let applied = service
         .apply(&create(ITEM, InventoryExpectation::Absent, None))
@@ -352,7 +352,7 @@ fn ambiguous_caller_retired_actor_and_retired_recorded_uuid_refuse_without_fallb
             .code,
         Code::Forbidden
     );
-    assert!(!f.root.join("squad").exists());
+    assert!(!f.root.join("ops").exists());
 }
 
 #[test]
@@ -547,7 +547,7 @@ fn no_op_assignment_refreshes_only_projection_and_user_privilege_reload_refuses(
     );
     f.change(|m| m["caller"] = json!(USER));
     let user = f.service();
-    let config_path = f.root.join("squad.toml");
+    let config_path = f.root.join("ops.toml");
     let error = store::with_fault(
         Box::new(move |stage, _| {
             if stage == store::Stage::FileSync {
@@ -570,7 +570,7 @@ fn recorded_uuid_case_alias_does_not_create_another_actor_or_namespace() {
     let user = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
     f.change(|m| m["members"][0]["id"] = json!(user));
     fs::write(
-        f.root.join("squad.toml"),
+        f.root.join("ops.toml"),
         format!("me='Ben'\nme_id='{}'\n", user.to_uppercase()),
     )
     .unwrap();

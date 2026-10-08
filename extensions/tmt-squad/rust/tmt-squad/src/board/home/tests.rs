@@ -102,7 +102,7 @@ impl Fixture {
             NEXT.fetch_add(1, Ordering::Relaxed)
         ));
         fs::create_dir_all(&root).unwrap();
-        let path = root.join("squad.toml");
+        let path = root.join("ops.toml");
         fs::write(&path, text).unwrap();
         Self {
             config: Config::read(path).unwrap(),

@@ -1,5 +1,5 @@
 //! What lets the board reload before its interval: core's change cursor
-//! (`tmt api changes.cursor`) and squad.toml's file stamp. Neither replaces
+//! (`tmt api changes.cursor`) and ops.toml's file stamp. Neither replaces
 //! the interval: the cursor does not cover pane presence or notebooks, and a
 //! core without it only has the interval.
 
@@ -12,7 +12,7 @@ use std::{path::PathBuf, time::SystemTime};
 #[derive(Debug, Clone, PartialEq)]
 pub struct Stamp {
     cursor: Option<Value>,
-    /// squad.toml's modification time and length; None when it is missing.
+    /// ops.toml's modification time and length; None when it is missing.
     config: Option<(SystemTime, u64)>,
     /// The field provider cache directory's modification time: it moves
     /// when a provider run saves new values.
@@ -36,7 +36,7 @@ impl Stamp {
         }
     }
 
-    /// Whether `now` shows a change since `self`. squad.toml appearing,
+    /// Whether `now` shows a change since `self`. ops.toml appearing,
     /// disappearing or being rewritten counts; the cursor counts only when
     /// both reads succeeded, so a failed read never triggers a reload.
     pub fn moved(&self, now: &Stamp) -> bool {
@@ -54,7 +54,7 @@ pub struct Changes {
 }
 
 impl Changes {
-    /// `config` is squad.toml's path, when it could be found; `fields` the
+    /// `config` is ops.toml's path, when it could be found; `fields` the
     /// field provider cache directory.
     pub fn new(config: Option<PathBuf>, fields: Option<PathBuf>) -> Self {
         Self {
@@ -105,11 +105,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("squad-changes-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
-        let (cursor, log, config) = (
-            dir.join("cursor"),
-            dir.join("calls"),
-            dir.join("squad.toml"),
-        );
+        let (cursor, log, config) = (dir.join("cursor"), dir.join("calls"), dir.join("ops.toml"));
         let fake = dir.join("tmt");
         crate::test_support::write_ready_executable(
             &fake,
@@ -142,7 +138,7 @@ mod tests {
         let core = Core::at(dir.join("tmt"));
         let first = changes.stamp(&core);
         assert_eq!(first.cursor, Some(json!(7)));
-        assert!(first.config.is_none(), "no squad.toml yet");
+        assert!(first.config.is_none(), "no ops.toml yet");
         assert!(!first.moved(&changes.stamp(&core)));
         let request = std::fs::read_to_string(dir.join("calls")).unwrap();
         assert_eq!(
@@ -157,12 +153,9 @@ mod tests {
 
         std::fs::write(&config, "[board]\n").unwrap();
         let third = changes.stamp(&core);
-        assert!(second.moved(&third), "squad.toml appeared");
+        assert!(second.moved(&third), "ops.toml appeared");
         std::fs::write(&config, "[board]\nrefresh = \"2s\"\n").unwrap();
-        assert!(
-            third.moved(&changes.stamp(&core)),
-            "squad.toml was rewritten"
-        );
+        assert!(third.moved(&changes.stamp(&core)), "ops.toml was rewritten");
         let _ = std::fs::remove_dir_all(dir);
     }
 

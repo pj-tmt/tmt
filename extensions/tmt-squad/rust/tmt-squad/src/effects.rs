@@ -225,7 +225,7 @@ fn copy_through_tmux(program: &Path, socket: &str, text: &str) -> Result<Copied,
         .and_then(|v| tmux_version(&v));
     if !version.is_some_and(|v| v >= (3, 2)) {
         return Err(
-            "Copying inside tmux needs tmux 3.2 or later; set clipboard = [...] in squad.toml instead."
+            "Copying inside tmux needs tmux 3.2 or later; set clipboard = [...] in ops.toml instead."
                 .into(),
         );
     }

@@ -18,9 +18,9 @@ fn insert(store: &Store) -> Result<(), Error> {
 #[test]
 fn absence_reads_are_inert_and_corruption_is_not_empty() {
     let f = Fixture::new();
-    let store = Store::new(&f.root, id(ROOM)).unwrap();
+    let store = Store::new(&f.root, id(ROOM), "ops").unwrap();
     assert!(store.read().unwrap().is_none());
-    assert!(!f.root.join("squad").exists());
+    assert!(!f.root.join("ops").exists());
     insert(&store).unwrap();
     for bytes in [b"".as_slice(), b"{broken", b"{\"version\":2}"] {
         fs::write(f.directory().join("items.json"), bytes).unwrap();
@@ -39,7 +39,7 @@ fn concurrent_first_create_and_lock_contention_preserve_one_inventory() {
             let root = f.root.clone();
             let barrier = barrier.clone();
             std::thread::spawn(move || {
-                let store = Store::new(&root, id(ROOM)).unwrap();
+                let store = Store::new(&root, id(ROOM), "ops").unwrap();
                 barrier.wait();
                 insert(&store)
             })
@@ -53,7 +53,7 @@ fn concurrent_first_create_and_lock_contention_preserve_one_inventory() {
     assert_eq!(results.iter().filter(|r| r.is_ok()).count(), 1);
     let error = results.into_iter().find_map(Result::err).unwrap();
     assert!(matches!(error.code, Code::Conflict | Code::StorageError));
-    let store = Store::new(&f.root, id(ROOM)).unwrap();
+    let store = Store::new(&f.root, id(ROOM), "ops").unwrap();
     let d = store.read().unwrap().unwrap();
     assert_eq!(d.items.len(), 1);
     assert_eq!(d.inventory_revision, 1);
@@ -71,14 +71,14 @@ fn concurrent_first_create_and_lock_contention_preserve_one_inventory() {
 #[test]
 fn unsafe_files_and_directories_refuse_without_following_or_repair() {
     let f = Fixture::new();
-    let store = Store::new(&f.root, id(ROOM)).unwrap();
+    let store = Store::new(&f.root, id(ROOM), "ops").unwrap();
     let outside = f.root.join("foreign");
     fs::create_dir(&outside).unwrap();
-    symlink(&outside, f.root.join("squad")).unwrap();
+    symlink(&outside, f.root.join("ops")).unwrap();
     assert_eq!(store.read().unwrap_err().code, Code::StorageError);
     assert_eq!(insert(&store).unwrap_err().code, Code::StorageError);
     assert!(fs::read_dir(&outside).unwrap().next().is_none());
-    fs::remove_file(f.root.join("squad")).unwrap();
+    fs::remove_file(f.root.join("ops")).unwrap();
     insert(&store).unwrap();
     let before = f.bytes();
     let foreign = f.root.join("foreign.txt");
@@ -104,11 +104,11 @@ fn unsafe_files_and_directories_refuse_without_following_or_repair() {
 #[test]
 fn owned_modes_are_private_and_existing_permissions_survive_replacement() {
     let f = Fixture::new();
-    let store = Store::new(&f.root, id(ROOM)).unwrap();
+    let store = Store::new(&f.root, id(ROOM), "ops").unwrap();
     insert(&store).unwrap();
     for path in [
-        f.root.join("squad"),
-        f.root.join("squad/checklist"),
+        f.root.join("ops"),
+        f.root.join("ops/checklist"),
         f.directory(),
     ] {
         assert_eq!(
@@ -156,7 +156,7 @@ fn fault_ordering_preserves_prepublication_bytes_and_unknown_committed_bytes() {
         Stage::Acknowledgement,
     ] {
         let f = Fixture::new();
-        let store = Store::new(&f.root, id(ROOM)).unwrap();
+        let store = Store::new(&f.root, id(ROOM), "ops").unwrap();
         insert(&store).unwrap();
         let before = f.bytes();
         let error = with_fault(
@@ -191,7 +191,7 @@ fn fault_ordering_preserves_prepublication_bytes_and_unknown_committed_bytes() {
             assert_eq!(f.bytes(), before);
         }
         assert!(!f.directory().join("items.tmp").exists());
-        let reread = Store::new(&f.root, id(ROOM))
+        let reread = Store::new(&f.root, id(ROOM), "ops")
             .unwrap()
             .read()
             .unwrap()
@@ -220,7 +220,7 @@ fn fault_ordering_preserves_prepublication_bytes_and_unknown_committed_bytes() {
 #[test]
 fn actual_rename_refusal_and_locked_read_failure_leave_bytes_unchanged() {
     let f = Fixture::new();
-    let store = Store::new(&f.root, id(ROOM)).unwrap();
+    let store = Store::new(&f.root, id(ROOM), "ops").unwrap();
     insert(&store).unwrap();
     let before = f.bytes();
     let error = with_fault(
@@ -252,7 +252,7 @@ fn actual_rename_refusal_and_locked_read_failure_leave_bytes_unchanged() {
 #[test]
 fn actual_postrename_directory_open_failure_is_unknown_with_committed_content() {
     let f = Fixture::new();
-    let store = Store::new(&f.root, id(ROOM)).unwrap();
+    let store = Store::new(&f.root, id(ROOM), "ops").unwrap();
     insert(&store).unwrap();
     let moved = f.root.join("moved-checklist");
     let target = moved.clone();
@@ -285,7 +285,7 @@ fn actual_postrename_directory_open_failure_is_unknown_with_committed_content() 
 #[test]
 fn competing_writes_and_independent_items_use_the_current_locked_document() {
     let f = Fixture::new();
-    let store = Store::new(&f.root, id(ROOM)).unwrap();
+    let store = Store::new(&f.root, id(ROOM), "ops").unwrap();
     insert(&store).unwrap();
     store
         .update(
@@ -304,7 +304,7 @@ fn competing_writes_and_independent_items_use_the_current_locked_document() {
     let (release_tx, release_rx) = std::sync::mpsc::channel();
     let root = f.root.clone();
     let writer = std::thread::spawn(move || {
-        let store = Store::new(&root, id(ROOM)).unwrap();
+        let store = Store::new(&root, id(ROOM), "ops").unwrap();
         store.update(
             |d| {
                 model::apply(d, &mutate(ITEM, 1, Mutation::Complete), None)?;
@@ -360,7 +360,7 @@ fn competing_writes_and_independent_items_use_the_current_locked_document() {
             || Ok(()),
         )
         .unwrap();
-    let restarted = Store::new(&f.root, id(ROOM))
+    let restarted = Store::new(&f.root, id(ROOM), "ops")
         .unwrap()
         .read()
         .unwrap()

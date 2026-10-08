@@ -108,7 +108,7 @@ pub fn saved_notice(
 ) -> Result<Option<String>, SquadError> {
     if matches!(key, "board.direction" | "board.sizes" | "board.panes") {
         Ok(Some(format!(
-            "Saved layout {} and its split (direction, panes, sizes) to squad.toml. Later preset changes won't override them.",
+            "Saved layout {} and its split (direction, panes, sizes) to ops.toml. Later preset changes won't override them.",
             config.layout(squad.unwrap())?.as_str()
         )))
     } else {

@@ -106,13 +106,13 @@ fn manual_send_preserves_operator_revision_paused_state_and_exact_message() {
     let job = f.add(&lead, WORKER).unwrap().job.job;
     let paused = f.mutate(&lead, &job, Mutation::Pause).unwrap().job.job;
     let key = JobKey::of(&paused);
-    let before = fs::read(f.directory.join("squad/cron/jobs.json")).unwrap();
+    let before = fs::read(f.directory.join("ops/cron/jobs.json")).unwrap();
     let id = manual_operation().unwrap();
     let accepted = send_now(&f.core, &f.config, &key, &lead, paused.revision, &id).unwrap();
     assert_eq!(accepted["dispatch"]["operationId"], id);
     assert_eq!(
         before,
-        fs::read(f.directory.join("squad/cron/jobs.json")).unwrap()
+        fs::read(f.directory.join("ops/cron/jobs.json")).unwrap()
     );
     let model = f.model();
     let calls = request_calls(&model);
@@ -158,8 +158,8 @@ fn manual_send_preserves_operator_revision_paused_state_and_exact_message() {
 fn scheduled_replay_and_lost_response_recover_one_anonymous_acceptance() {
     let f = Fixture::new();
     let job = minute_job(&f);
-    let clock = Clock::new(&f.directory).unwrap();
-    let mut lease = acquire(&clock, now()).unwrap().unwrap();
+    let clock = Clock::new(&f.directory.join("ops")).unwrap();
+    let mut lease = acquire(&f.core, &clock, now()).unwrap().unwrap();
     f.change_model(|model| model["loseResponse"] = json!(true));
     let cancellation = Cancellation::default();
     for attempt in 0..3 {
@@ -169,7 +169,7 @@ fn scheduled_replay_and_lost_response_recover_one_anonymous_acceptance() {
         let result = pass(
             &f.core,
             &f.config,
-            &f.directory,
+            &f.directory.join("ops"),
             &mut lease,
             None,
             &cancellation,
@@ -202,8 +202,8 @@ fn scheduled_replay_and_lost_response_recover_one_anonymous_acceptance() {
 fn scheduled_admission_rejects_changed_revision_and_current_roster_loss() {
     let f = Fixture::new();
     let job = minute_job(&f);
-    let clock = Clock::new(&f.directory).unwrap();
-    let mut lease = acquire(&clock, now()).unwrap().unwrap();
+    let clock = Clock::new(&f.directory.join("ops")).unwrap();
+    let mut lease = acquire(&f.core, &clock, now()).unwrap().unwrap();
     let cancellation = Cancellation::default();
     let mut dispatcher = Scheduled {
         core: &f.core,
@@ -241,8 +241,8 @@ fn scheduled_admission_rejects_changed_revision_and_current_roster_loss() {
 fn expired_lease_stops_scheduled_work_before_dispatch() {
     let f = Fixture::new();
     let job = minute_job(&f);
-    let clock = Clock::new(&f.directory).unwrap();
-    let mut lease = acquire(&clock, now() - 40_000).unwrap().unwrap();
+    let clock = Clock::new(&f.directory.join("ops")).unwrap();
+    let mut lease = acquire(&f.core, &clock, now() - 40_000).unwrap().unwrap();
     let cancellation = Cancellation::default();
     let mut dispatcher = Scheduled {
         core: &f.core,
@@ -267,7 +267,7 @@ fn running_clock_baselines_at_start_and_rejects_a_second_foreground_clock() {
     let f = Fixture::new();
     minute_job(&f); // Its prior slot is within the standalone window.
     let mut first = ClockWorker::spawn(f.core.clone(), f.config.clone(), true);
-    let clock = Clock::new(&f.directory).unwrap();
+    let clock = Clock::new(&f.directory.join("ops")).unwrap();
     wait_for(|| matches!(clock.status(now()), ClockStatus::Running(_)).then_some(()));
     // Wait until the first pass has read the jobs, rather than merely its lease.
     wait_for(|| {
@@ -306,7 +306,7 @@ fn worker_shutdown_cancels_and_joins_an_inflight_core_child_then_releases_lease(
             .and_then(|text| text.parse().ok())
     });
     assert!(matches!(
-        Clock::new(&f.directory).unwrap().status(now()),
+        Clock::new(&f.directory.join("ops")).unwrap().status(now()),
         ClockStatus::Running(_)
     ));
     let started = Instant::now();
@@ -317,7 +317,7 @@ fn worker_shutdown_cancels_and_joins_an_inflight_core_child_then_releases_lease(
         Err(nix::errno::Errno::ESRCH)
     );
     assert_eq!(
-        Clock::new(&f.directory).unwrap().status(now()),
+        Clock::new(&f.directory.join("ops")).unwrap().status(now()),
         ClockStatus::NoClock
     );
     assert!(request_calls(&f.model()).is_empty());

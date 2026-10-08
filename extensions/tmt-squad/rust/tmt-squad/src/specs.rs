@@ -115,7 +115,7 @@ pub const FOCUS: &CommandSpec = spec!(
 
 pub const CRON: &CommandSpec = spec!(
     "cron", "Manage time-based Squad jobs",
-    details = "Writes require the recorded user or the squad's lead. Change announcements are best effort. Jobs are stored separately from squad.toml; no run results or catch-up.",
+    details = "Writes require the recorded user or the squad's lead. Change announcements are best effort. Jobs are stored separately from ops.toml; no run results or catch-up.",
     ["List jobs across every squad" => "tmt squad cron ls"]
 );
 pub const CRON_LS: &CommandSpec = spec!("ls", "List jobs, owners and future slots",
@@ -157,7 +157,7 @@ pub const CONFIG_SHOW: &CommandSpec = spec!(
 );
 pub const CONFIG_SET: &CommandSpec = spec!(
     "set", "Validate and save one simple Squad setting",
-    details = "Uses squad.toml only. Refuses changed files and read-only settings. Lists use JSON array syntax.",
+    details = "Uses ops.toml only. Refuses changed files and read-only settings. Lists use JSON array syntax.",
     ["Set one squad’s refresh interval" => "tmt squad config set board.refresh 10s --squad product",
      "Hide a positional track without changing the grid" => "tmt squad config set board.hidden_columns '[\"pr_link\"]' --squad product"]
 );
