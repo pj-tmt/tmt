@@ -90,13 +90,6 @@ function upgradeDrivers({ releases, product, previousProduct, map, observeCli })
   for (const release of published.slice(1)) {
     const observation = cliAncestry(release, requiresCliSha, observeCli);
     if (observation.status !== 'behind') continue;
-    if (
-      compareVersions(
-        versionOfTag(release.tag_name, 'cli'),
-        versionOfTag(driver.tag_name, 'cli')
-      ) >= 0
-    )
-      throw new Error('Previous CLI driver must be older than the current driver.');
     return {
       driver,
       previousDriver: release,
@@ -698,8 +691,8 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 
 /** REST-only tag/ancestry evidence: fetching draft-visible assets never executes release code. */
 export function ghCliAncestry({ repository, env = process.env, spawn = spawnSync }) {
-  const read = (endpoint) => {
-    const result = spawn('gh', ['api', `repos/${repository}/${endpoint}`], {
+  const read = (endpoint, filter) => {
+    const result = spawn('gh', ['api', `repos/${repository}/${endpoint}`, '--jq', filter], {
       env,
       encoding: 'utf8',
       timeout: 60_000,
@@ -714,10 +707,13 @@ export function ghCliAncestry({ repository, env = process.env, spawn = spawnSync
     if (release.draft !== false || !COMMIT.test(registration))
       throw new Error('CLI ancestry requires a published release and registration SHA.');
     // target_commitish may describe the historical release branch, not its actual tag.
-    const sha = read(`commits/${encodeURIComponent(release.tag_name)}`)?.sha;
+    const sha = read(`commits/${encodeURIComponent(release.tag_name)}`, '{sha: .sha}')?.sha;
     if (typeof sha !== 'string' || !COMMIT.test(sha))
       throw new Error(`Published CLI tag ${release.tag_name} has no resolved commit.`);
-    const comparison = read(`compare/${registration}...${sha}`);
+    const comparison = read(
+      `compare/${registration}...${sha}`,
+      '{status: .status, base_commit: {sha: .base_commit.sha}, merge_base_commit: {sha: .merge_base_commit.sha}}'
+    );
     if (
       comparison?.base_commit?.sha !== registration ||
       !['ahead', 'behind', 'identical', 'diverged'].includes(comparison.status) ||

@@ -1295,13 +1295,46 @@ describe('REST evidence for a published CLI tag', () => {
     });
     expect(observe(published, registration)).toEqual({ sha, status });
     expect(calls.map((c) => [c.command, ...c.args])).toEqual([
-      ['gh', 'api', 'repos/fixture/repository/commits/v5.0.0-alpha.84'],
-      ['gh', 'api', `repos/fixture/repository/compare/${registration}...${sha}`],
+      ['gh', 'api', 'repos/fixture/repository/commits/v5.0.0-alpha.84', '--jq', '{sha: .sha}'],
+      [
+        'gh',
+        'api',
+        `repos/fixture/repository/compare/${registration}...${sha}`,
+        '--jq',
+        '{status: .status, base_commit: {sha: .base_commit.sha}, merge_base_commit: {sha: .merge_base_commit.sha}}',
+      ],
     ]);
     expect(calls.map((c) => c.options)).toEqual([
       expect.objectContaining({ timeout: 60_000, maxBuffer: 4 * 1024 * 1024 }),
       expect.objectContaining({ timeout: 60_000, maxBuffer: 4 * 1024 * 1024 }),
     ]);
+  });
+  it('requests compact evidence when unrelated REST patches exceed the output bound', () => {
+    const patch = 'x'.repeat(4 * 1024 * 1024 + 1);
+    const bodies = [
+      { sha: driverSha, files: [{ patch }] },
+      { ...comparison('ahead'), files: [{ patch }] },
+    ];
+    const filters = [
+      '{sha: .sha}',
+      '{status: .status, base_commit: {sha: .base_commit.sha}, merge_base_commit: {sha: .merge_base_commit.sha}}',
+    ];
+    let calls = 0;
+    const observe = ghCliAncestry({
+      repository: 'fixture/repository',
+      spawn: (_, args, options) => {
+        const index = calls++;
+        expect(args.slice(-2)).toEqual(['--jq', filters[index]]);
+        const bound = (options as { maxBuffer: number }).maxBuffer;
+        expect(Buffer.byteLength(JSON.stringify(bodies[index]))).toBeGreaterThan(bound);
+        // Fake gh emits the requested fields, never its large files/patches payload.
+        const stdout = JSON.stringify(index === 0 ? { sha: driverSha } : comparison('ahead'));
+        expect(Buffer.byteLength(stdout)).toBeLessThan(bound);
+        return { status: 0, stdout };
+      },
+    });
+    expect(observe(published, registration)).toEqual({ sha: driverSha, status: 'ahead' });
+    expect(calls).toBe(2);
   });
   it.each([
     ['unknown status', comparison('unknown')],

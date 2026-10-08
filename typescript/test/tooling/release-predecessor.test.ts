@@ -950,13 +950,17 @@ describe('two published CLI drivers for a predecessor', () => {
       'repos/fixture/repository/releases': [f.input.releases],
     };
     for (const [tag, observation] of Object.entries(observations)) {
-      responses[`repos/fixture/repository/commits/${tag}`] = { sha: observation.sha };
+      responses[`repos/fixture/repository/commits/${tag}`] = {
+        sha: observation.sha,
+        files: [{ patch: 'unused commit patch' }],
+      };
       responses[`repos/fixture/repository/compare/${registration}...${observation.sha}`] = {
         status: observation.status,
         base_commit: { sha: registration },
         merge_base_commit: {
           sha: observation.status === 'behind' ? observation.sha : registration,
         },
+        files: [{ patch: 'unused comparison patch' }],
       };
     }
     const fixtureFile = path.join(f.input.directory, 'responses.json');
@@ -976,7 +980,15 @@ if (endpoint?.includes('/releases/assets/')) {
   if (value === undefined) process.exit(91); process.stdout.write(value);
 } else {
   if (!Object.hasOwn(fixture.responses, endpoint)) process.exit(92);
-  process.stdout.write(JSON.stringify(fixture.responses[endpoint]));
+  const response = fixture.responses[endpoint];
+  const filter = args[args.indexOf('--jq') + 1];
+  if (endpoint?.includes('/commits/')) {
+    if (!args.includes('--jq') || filter !== '{sha: .sha}') process.exit(93);
+    process.stdout.write(JSON.stringify({sha: response.sha}));
+  } else if (endpoint?.includes('/compare/')) {
+    if (!args.includes('--jq') || filter !== '{status: .status, base_commit: {sha: .base_commit.sha}, merge_base_commit: {sha: .merge_base_commit.sha}}') process.exit(94);
+    process.stdout.write(JSON.stringify({status: response.status, base_commit: {sha: response.base_commit.sha}, merge_base_commit: {sha: response.merge_base_commit.sha}}));
+  } else process.stdout.write(JSON.stringify(response));
 }
 `
     );
