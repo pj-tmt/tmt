@@ -7,6 +7,7 @@ import { useState } from 'react';
 import { AnnotationInput } from '../src/annotation-input.js';
 import { AskPanel, type AskBinding, type PageAsk } from '../src/ask-panel.js';
 import type { ThreadBinding } from '../src/thread-store.js';
+import { projectThreadStatus } from '../src/thread-status-view.js';
 import { destination, id, selection, type RemoteDouble } from './ask-fixtures.js';
 import { fixtureAttempt } from './ask-browser-attempt.js';
 let root: Root | undefined;
@@ -42,6 +43,12 @@ export function mount(
   const ref = { writer: id(4), id: id(2) };
   const discussion: ThreadBinding = {
     deviceId: id(4),
+    async setStatus() {
+      throw new Error('Not used');
+    },
+    async notificationFailed() {
+      throw new Error('Not used');
+    },
     async create(body, anchor) {
       writes++;
       captured.push({ body, anchor });
@@ -210,24 +217,30 @@ export function mountWindow(mode = 'ready') {
           <MessageComposer label="Window draft" edit={edit} onChange={setEdit} disabled={false} />
         }
         binding={{
-          deviceId: mode === 'readonly' ? id(7) : id(4),
+          deviceId: mode === 'readonly' || mode === 'other-writer' ? id(7) : id(4),
           create: unused,
           createChat: unused,
           reply: unused,
           edit: unused,
           deleteComment: unused,
-          updateThread: async (_ref, _revision, change) => {
-            statusCalls++;
-            await new Promise<void>((resolve, reject) => {
-              finishStatus = (failed) => {
-                if (failed) reject(new Error('Unavailable'));
-                else {
-                  setCurrent((previous) => ({ ...previous, ...change }));
-                  resolve();
-                }
-              };
-            });
-          },
+          setStatus: unused,
+          notificationFailed: unused,
+          // Status goes through onStatusChange; the thread binding must never see it.
+          updateThread: unused,
+        }}
+        status={projectThreadStatus(current, undefined, mode !== 'readonly')}
+        onStatusChange={async (resolved) => {
+          statusCalls++;
+          await new Promise<void>((resolve, reject) => {
+            finishStatus = (failed) => {
+              if (failed) reject(new Error('Unavailable'));
+              else {
+                setCurrent((previous) => ({ ...previous, resolved }));
+                resolve();
+              }
+            };
+          });
+          return { changed: true };
         }}
       />
     );

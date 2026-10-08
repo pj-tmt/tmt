@@ -3841,6 +3841,21 @@ fn prefix_commands<'a>(prefix: &'a str, file: &'a str, destination: &'a str) -> 
     vec![
         vec!["open", prefix, "--json"],
         vec!["show", prefix, "--json"],
+        vec!["threads", prefix, "--json"],
+        vec![
+            "threads",
+            "resolve",
+            prefix,
+            "40000000-0000-4000-8000-000000000001",
+            "--json",
+        ],
+        vec![
+            "threads",
+            "reopen",
+            prefix,
+            "40000000-0000-4000-8000-000000000001",
+            "--json",
+        ],
         vec!["page", "read", prefix, "--json"],
         vec!["page", "write", prefix, "--file", file, "--json"],
         vec!["export", prefix, "--dir", destination, "--json"],
@@ -3988,6 +4003,9 @@ fn page_prefix_reads_writes_exports_and_confirmations_use_the_resolved_full_id()
         pilot.call(&["share", "link", "ls", prefix, "--json"])["pageId"],
         PAGE
     );
+    let threads = pilot.call(&["threads", prefix, "--json"]);
+    assert_eq!(threads["pageId"], PAGE);
+    assert_eq!(threads["threads"], json!([]));
     let read = pilot.call(&["page", "read", prefix, "--json"]);
     assert_eq!(read["pageId"], PAGE);
     let source = pilot.root.join("edit.html");

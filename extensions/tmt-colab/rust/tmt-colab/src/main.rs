@@ -1,5 +1,6 @@
 mod cli_grammar;
 mod cli_management;
+mod cli_threads;
 mod door;
 mod open;
 mod reach;
@@ -230,6 +231,7 @@ fn grammar() -> Command {
                     ),
             )
             .subcommand(tmt_cli_style::command(&SPACES))
+            .subcommand(cli_threads::command())
             .subcommand(
                 tmt_cli_style::command(&PAGE)
                     .subcommand_required(true)
@@ -300,6 +302,9 @@ fn run(matches: &clap::ArgMatches) -> Result<()> {
         let root = core::data_root(&stop)?;
         if command == "page" {
             return page(&root, args);
+        }
+        if command == "threads" {
+            return cli_threads::run(&root, args);
         }
         let json_output = args.get_flag("json");
         if command == "spaces" {

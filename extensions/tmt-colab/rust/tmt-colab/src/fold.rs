@@ -115,6 +115,9 @@ struct MaterializationInput {
     updates: Vec<Vec<u8>>,
     own_updates: BTreeMap<String, Vec<Vec<u8>>>,
     signing_keys: BTreeMap<String, [u8; 32]>,
+    /// Whether every original own envelope of a writer came from an owner-member device.
+    owner_provenance: BTreeMap<String, bool>,
+    local_writer: String,
     tail_count: usize,
     tail_bytes: usize,
 }
@@ -129,6 +132,11 @@ pub(crate) struct View {
     /// Each authenticated writer's decoded `own` projection (threads, messages, intents,
     /// replies), as the isolated decoder returned and validated it.
     pub own: BTreeMap<String, serde_json::Value>,
+    /// Exact merged structs for isolated preparation in the local writer's document.
+    pub local_own_update: Option<Vec<u8>>,
+    /// Owner-member provenance from verified, cut-admitted own envelopes at their
+    /// membership revision. Historical keys alone do not grant status authority.
+    pub status_writers: BTreeSet<String>,
     /// Each writer's historical signing key, from its cut-admitted envelopes. It gives no
     /// fresh write authority; it only lets a reader verify what the writer signed.
     pub signing_keys: BTreeMap<String, [u8; 32]>,
@@ -159,8 +167,27 @@ pub(crate) struct OpenedObject {
     pub author_device: String,
     pub plaintext: Vec<u8>,
     pub key_bytes: [u8; 32],
+    pub owner_device: bool,
 }
 impl Snapshot {
+    pub fn require_update_capacity(&self, page: &str) -> Result<()> {
+        let tail_count = self
+            .objects
+            .iter()
+            .filter(|(_, object)| !object.checkpoint)
+            .count();
+        if tail_count >= crate::decoder::WRITE_TAIL_UPDATES {
+            return Err(OwnerFault::too_large_to_edit(
+                page,
+                format!(
+                    "it has {} changes, the most one page can hold",
+                    count(tail_count)
+                ),
+            )
+            .into());
+        }
+        Ok(())
+    }
     pub fn capture(store: &Store, key: &Keyring, page: &str) -> Result<Self> {
         store.owner_read(&key.space_id, &key.owner_public(), |tx| {
             let (states, payloads) = verify_log(&tx.log()?, key, page)?;
@@ -260,11 +287,11 @@ impl Snapshot {
         let bridge = at_write
             .recipients
             .get(&("bridge".into(), cut.stream.clone()));
-        let (issuer, key_bytes) = if let Some(bridge) = bridge {
+        let (issuer, key_bytes, owner_device) = if let Some(bridge) = bridge {
             if c.namespace != "own" {
                 return Err(OwnerFault::Invalid.into());
             }
-            (bridge, bridge.recipient.signing_key)
+            (bridge, bridge.recipient.signing_key, false)
         } else {
             let device = self
                 .devices
@@ -282,7 +309,11 @@ impl Snapshot {
                 .get(&(cert.issuer_kind.into(), cert.issuer_id.into()))
                 .ok_or(OwnerFault::Invalid)?;
             verify_chain(&chain, issuer, key, revision)?;
-            (issuer, *cert.signing_key)
+            (
+                issuer,
+                *cert.signing_key,
+                cert.issuer_kind == "member" && cert.issuer_id == at_write.head.owner_member.id,
+            )
         };
         if !eligible(&issuer.recipient, at_write, page)
             || (c.namespace == "content" && issuer.recipient.role.as_deref() != Some("editor"))
@@ -361,6 +392,7 @@ impl Snapshot {
             author_device: c.author_device.clone(),
             plaintext,
             key_bytes,
+            owner_device,
         })
     }
     pub fn materialize(&self, key: &Keyring, page: &str, decoder: &mut Decoder) -> Result<View> {
@@ -481,12 +513,21 @@ impl Snapshot {
         let mut updates = Vec::new();
         let mut own_updates: BTreeMap<String, Vec<Vec<u8>>> = BTreeMap::new();
         let mut signing_keys: BTreeMap<String, [u8; 32]> = BTreeMap::new();
+        let mut owner_provenance: BTreeMap<String, bool> = BTreeMap::new();
         let mut replaced = BTreeSet::new();
         // What a reader still has to apply one by one: updates after a device's checkpoint.
         let mut tail_count = 0usize;
         let mut tail_bytes = 0usize;
         for (index, stored) in &self.objects {
             let opened = self.open_object(key, page, *index, stored)?;
+            if opened.namespace == "own" {
+                // Authenticate every original envelope before a candidate replaces its
+                // structs. Ambiguous writer provenance never grants status authority.
+                owner_provenance
+                    .entry(opened.author_device.clone())
+                    .and_modify(|owner| *owner &= opened.owner_device)
+                    .or_insert(opened.owner_device);
+            }
             let plaintext = if let Some(merged) = replacements.get(index) {
                 if !replaced.insert(*index) {
                     continue;
@@ -519,6 +560,8 @@ impl Snapshot {
             updates,
             own_updates,
             signing_keys,
+            owner_provenance,
+            local_writer: key.local_writer()?.0,
             tail_count,
             tail_bytes,
         })
@@ -595,6 +638,8 @@ impl MaterializationInput {
             updates,
             own_updates,
             signing_keys,
+            owner_provenance,
+            local_writer,
             ..
         } = self;
         let state =
@@ -639,6 +684,7 @@ impl MaterializationInput {
         }
         let mut threads = 0;
         let mut own_views = BTreeMap::new();
+        let mut local_own_update = None;
         for (writer, own) in own_updates {
             let discussion = checked_bytes(own.iter().map(Vec::len))?;
             if discussion > crate::decoder::STATE_BYTES {
@@ -668,6 +714,9 @@ impl MaterializationInput {
                 .len();
             if threads > 1000 {
                 return Err(OwnerFault::Capacity.into());
+            }
+            if writer == local_writer {
+                local_own_update = Some(decoded.merged);
             }
             own_views.insert(writer.clone(), decoded.projection);
         }
@@ -732,6 +781,12 @@ impl MaterializationInput {
                 .map(str::to_owned),
             memory_limit: folded.memory_limit,
             own: own_views,
+            local_own_update,
+            status_writers: owner_provenance
+                .iter()
+                .filter(|(_, owner)| **owner)
+                .map(|(writer, _)| writer.clone())
+                .collect(),
             signing_keys: signing_keys.clone(),
             meta: folded.projection["meta"].clone(),
             source: folded.projection["html"]

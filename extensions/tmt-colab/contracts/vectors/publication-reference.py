@@ -1,4 +1,4 @@
-"""Independent content-job byte oracle using public RFC8032 fixture keys only.
+"""Independent content- and own-job byte oracle using public RFC8032 fixture keys only.
 
 No Rust encoder or runtime is imported. stdlib owns LP/JSON/hash; cryptography
 owns AES-GCM and Ed25519. Check frozen bytes by default; --write is deliberate.
@@ -41,9 +41,9 @@ def compact(value):
     return json.dumps(value, separators=(',', ':'), ensure_ascii=True).encode('ascii')
 
 
-def envelope(signer, seq, previous):
+def envelope(signer, seq, previous, namespace=b'content'):
     header = lp(b'tmt-colab-object-v1', b'1', b'aes256gcm-hkdfsha256-ed25519-v1',
-                SPACE.encode(), PAGE.encode(), b'7', b'update', b'content',
+                SPACE.encode(), PAGE.encode(), b'7', b'update', namespace,
                 ('%064x' % seq).encode(), DEVICE.encode(), b'3', str(seq).encode(), previous)
     # Existing model-reference HKDF and nonce rules; fixture plaintext is opaque to this codec.
     info = lp(b'tmt-colab-object-key-v1', header)
@@ -72,7 +72,7 @@ def signature_input(m):
         unb64(evidence['chainHash']))
     return lp(b'tmt-colab-publication-v1', b'1', m['operationId'].encode(),
               m['spaceId'].encode(), m['pageId'].encode(), m['epoch'].encode(),
-              m['streamId'].encode(), b'content', m['membershipHead']['revision'].encode(),
+              m['streamId'].encode(), m['kind'].encode(), m['membershipHead']['revision'].encode(),
               m['membershipHead']['statementHash'].encode(), m['baseRevision'].encode(),
               entries, str(m['packetBytes']).encode(), unb64(m['packetHash']), native)
 
@@ -83,18 +83,20 @@ def generate():
     fixtures = []
     for index, (form, count, memory) in enumerate([
             ('browser', 1, None), ('browser', 2, None),
-            ('native', 1, '512 MiB address-space limit'), ('native', 2, 'memory limit unavailable')], 1):
+            ('native', 1, '512 MiB address-space limit'), ('native', 2, 'memory limit unavailable'),
+            ('own', 1, '512 MiB address-space limit'), ('own', 2, 'memory limit unavailable')], 1):
+        kind = 'own' if form == 'own' else 'content'
         envelopes, previous = [], bytes(32)
         for seq in range(1, count + 1):
-            item, previous = envelope(signer, seq, previous)
+            item, previous = envelope(signer, seq, previous, kind.encode())
             envelopes.append(item)
         packet = b''.join(e['json'].encode() for e in envelopes)
         chain = b'public opaque certified-chain fixture'  # Certificate/issuer admission stays outside.
         manifest = {'version': 1, 'operationId': '00000000-0000-4000-8000-%012d' % (40 + index),
                     'spaceId': SPACE, 'pageId': PAGE, 'epoch': '7', 'streamId': DEVICE,
-                    'kind': 'content', 'membershipHead': {'revision': '3', 'statementHash': 'aa' * 32},
+                    'kind': kind, 'membershipHead': {'revision': '3', 'statementHash': 'aa' * 32},
                     'baseRevision': 'v1:' + 'bb' * 32,
-                    'entries': [{'namespace': 'content', 'seq': str(i + 1),
+                    'entries': [{'namespace': kind, 'seq': str(i + 1),
                                  'envelopeHash': e['envelopeHash'], 'envelopeBytes': len(e['json'].encode())}
                                 for i, e in enumerate(envelopes)],
                     'packetBytes': len(packet), 'packetHash': b64(digest(packet))}
@@ -135,4 +137,4 @@ if __name__ == '__main__':
     elif DEST.read_text() != frozen:
         raise SystemExit('publication vectors differ; review before --write')
     else:
-        print('Independent publication vectors match exactly (4 fixtures).')
+        print('Independent publication vectors match exactly (6 fixtures).')

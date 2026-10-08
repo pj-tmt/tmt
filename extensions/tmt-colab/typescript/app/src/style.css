@@ -256,7 +256,10 @@ footer {
   border: 0;
   box-shadow: none;
 }
-.page-drawer button:not(.tmt-ui-action):not([data-testid='ask-send']):hover:not(:disabled) {
+.page-drawer
+  button:not(.tmt-ui-action):not([data-testid='ask-send']):not(.annotation-row):hover:not(
+    :disabled
+  ) {
   text-decoration: underline;
   text-underline-offset: 4px;
 }
@@ -807,6 +810,20 @@ footer {
 .annotation-hint {
   color: var(--c-muted);
   font-size: 12px;
+}
+.annotation-row [data-testid='thread-row-status'] {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.annotation-row [data-testid='thread-row-status'] svg {
+  width: 14px;
+  height: 14px;
+  flex: none;
+}
+.annotation-row [data-testid='thread-row-status'][data-unseen] {
+  color: var(--c-text);
+  font-weight: 600;
 }
 .annotation-row:hover strong {
   text-decoration: underline;

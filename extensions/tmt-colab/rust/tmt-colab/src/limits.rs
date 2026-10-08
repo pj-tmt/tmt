@@ -71,6 +71,10 @@ pub const PUBLISHER_AGENT_BYTES: usize = 128;
 pub const COMMENT_BODY_BYTES: usize = 16 * 1024;
 pub const COMMENT_CONTEXT_BYTES: usize = 128;
 pub const COMMENT_CONTEXT_POINTS: usize = 32;
+/// One generic immutable own-record preparation batch.
+pub const OWN_RECORDS: usize = 32;
+/// Frozen status recipients, bounded independently from comment text.
+pub const STATUS_RECIPIENTS: usize = 1000;
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -248,6 +248,7 @@ fn shared_fixture_matches_the_native_bundle_bytes_and_field_order() {
         },
         &own,
         &keys,
+        &keys.keys().cloned().collect(),
     );
     let json = conversations.json();
     let markdown = conversations.markdown().into_bytes();
@@ -302,4 +303,102 @@ fn shared_fixture_matches_the_native_bundle_bytes_and_field_order() {
         fixture["manifestUtf8"].as_str().unwrap().as_bytes()
     );
     assert_eq!(hex(&crypto::digest(&manifest)), fixture["manifestSha256"]);
+}
+
+#[test]
+fn status_projection_matches_browser_literal_bytes_and_historical_scope_binding() {
+    let fixture: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../../contracts/vectors/discussion-v1.json"
+    ))
+    .unwrap();
+    for row in fixture["statusCases"].as_array().unwrap() {
+        let mut own = std::collections::BTreeMap::new();
+        let mut keys = std::collections::BTreeMap::new();
+        for record in row["threadHistory"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .chain(std::iter::once(&row["thread"]))
+            .chain(row["actions"].as_array().unwrap())
+            .chain(row["notifications"].as_array().into_iter().flatten())
+        {
+            let writer = record["senderDevice"].as_str().unwrap();
+            keys.insert(writer.into(), [0; 32]);
+            let roots = own.entry(writer.into()).or_insert_with(
+                || serde_json::json!({"threads":{},"messages":{},"intents":{},"replies":{}}),
+            );
+            let (root, key) = if record["kind"] == "thread" {
+                (
+                    "threads",
+                    format!(
+                        "{}:{}",
+                        record["threadId"].as_str().unwrap(),
+                        record["revision"].as_str().unwrap()
+                    ),
+                )
+            } else {
+                (
+                    "messages",
+                    format!(
+                        "{}:{}",
+                        record[if record["kind"] == "thread-status" {
+                            "actionId"
+                        } else {
+                            "operationId"
+                        }]
+                        .as_str()
+                        .unwrap(),
+                        record["kind"].as_str().unwrap()
+                    ),
+                )
+            };
+            roots[root][key] = record.clone();
+        }
+        let scope = conversations::Capture {
+            space_id: fixture["scope"]["spaceId"].as_str().unwrap(),
+            page_id: fixture["scope"]["pageId"].as_str().unwrap(),
+            title: "Status vectors",
+            epoch: fixture["scope"]["epoch"].as_str().unwrap(),
+            head: conversations::Head {
+                revision: "1".into(),
+                statement_hash: "00".repeat(32),
+            },
+        };
+        let result = conversations::threads(&scope, &own, &keys, &keys.keys().cloned().collect());
+        assert_eq!(
+            serde_json::to_string(&result).unwrap(),
+            row["expected"]["threadsJson"].as_str().unwrap(),
+            "{}",
+            row["name"]
+        );
+        let conversations = conversations::Conversations::project(
+            scope.clone(),
+            &own,
+            &keys,
+            &keys.keys().cloned().collect(),
+        );
+        assert_eq!(
+            conversations.markdown(),
+            row["expected"]["markdown"].as_str().unwrap(),
+            "{}",
+            row["name"]
+        );
+        // A historical key proves authorship, not status authority. Removing only
+        // owner provenance leaves the existing thread visible at its legacy state.
+        let unauthorized = conversations::threads(&scope, &own, &keys, &Default::default());
+        assert_eq!(unauthorized.len(), result.len());
+        if let Some(thread) = unauthorized.first() {
+            assert_eq!(
+                thread.resolved,
+                row["thread"]["resolved"].as_bool().unwrap()
+            );
+            assert!(thread.status.is_none());
+            assert!(thread.notifications.is_empty());
+        }
+        // Envelope keys still gate foreign status and thread visibility.
+        keys.clear();
+        assert!(
+            conversations::threads(&scope, &own, &keys, &keys.keys().cloned().collect()).is_empty()
+        );
+    }
 }

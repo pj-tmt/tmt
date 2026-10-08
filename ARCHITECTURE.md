@@ -1245,6 +1245,6 @@ core discovery or storage access.
   keeps generic backend/channel/quota/origin ownership in Remote and authenticated references,
   crypto/history/read admission and consumers in Colab. No core object API, new reader credential
   or runtime implementation is claimed; archive/history/native acceptance remains required.
-- **Plaintext invariant.** Page source and export are root-local: only the isolated decoder
+- **Plaintext invariant.** Page source, discussion reads and export are root-local: only the isolated decoder
   child decodes Yjs, no route serves plaintext, and the browser Worker is resource
-  containment, not a security sandbox. Private causal preparation returns deltas; pure [publication codecs](extensions/tmt-colab/contracts/colab-v1.md#content-publication-1908-1928-1934) validate sealed intent. The native library prepares a frozen signed packet and chain from one authenticated snapshot, then atomically retains content with its scoped terminal outcome in the existing Store; `tmt colab page write` publishes through it (offline or the local `page-publish` route), while Browser Save still uses its single-update path.
+  containment, not a security sandbox. Private causal preparation returns deltas; pure [publication codecs](extensions/tmt-colab/contracts/colab-v1.md#content-publication-1908-1928-1934) validate sealed intent. The native library prepares a frozen signed packet and chain from one authenticated snapshot, then atomically retains content (or, as `kind:"own"`, a status action) with its scoped terminal outcome in the existing Store; `tmt colab page write` and `threads resolve|reopen` publish through it (offline or the local `page-publish` route), while Browser Save still uses its single-update path.

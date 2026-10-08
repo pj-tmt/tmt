@@ -14,6 +14,8 @@ fn legacy_exact_raw_tail_refuses_before_decode_without_changing_batch_admission(
         updates: vec![vec![255; crate::decoder::UPDATE_BYTES]; 16],
         own_updates: BTreeMap::new(),
         signing_keys: BTreeMap::new(),
+        owner_provenance: BTreeMap::new(),
+        local_writer: String::new(),
         tail_count: 16,
         tail_bytes: crate::decoder::WRITE_TAIL_BYTES,
     };

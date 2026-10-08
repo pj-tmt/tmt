@@ -551,6 +551,7 @@ fn borrowed_binary_wire_matches_fixed_own_content_edit_and_merge_bytes() {
             namespace,
             baseline: EncodedBytes(&baseline),
             updates: vec![EncodedBytes(&first), EncodedBytes(&[])],
+            records: None,
             merge_only: merge,
         };
         let (bytes, hash) = SerializedInput::serialize(&wire).unwrap().finish();
@@ -985,6 +986,7 @@ fn observation_reader_reply_preserves_deterministic_read_merge_and_failure_order
                 namespace,
                 baseline: String::new(),
                 updates: vec![URL_SAFE_NO_PAD.encode(&update)],
+                records: None,
                 merge_only,
             };
             let input = serde_json::to_vec(&wire).unwrap();
@@ -1273,6 +1275,7 @@ fn observation_edit_delta_and_wrong_base_keep_independent_semantics() {
         namespace: Namespace::Content,
         baseline: URL_SAFE_NO_PAD.encode(&baseline),
         updates: Vec::<String>::new(),
+        records: None,
         merge_only: false,
     };
     let input = serde_json::to_vec(&wire).unwrap();
@@ -1672,6 +1675,7 @@ fn one_generated_reply_preserves_owned_wire_projection_and_independent_replay() 
                 namespace,
                 baseline: String::new(),
                 updates: vec![URL_SAFE_NO_PAD.encode(&update)],
+                records: None,
                 merge_only,
             })
             .unwrap();

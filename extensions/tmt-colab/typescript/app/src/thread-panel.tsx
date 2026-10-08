@@ -11,6 +11,18 @@ import type { CommentView, QuoteSelector, ThreadView, DiscussionRef } from './th
 import { text } from './strings.js';
 import { relativeTime } from './display-time.js';
 import { AnnotationInput } from './annotation-input.js';
+import {
+  presentationOf,
+  type ThreadPresentation,
+  type ThreadStatusOutcome,
+} from './thread-status-presentation.js';
+
+/** Only an agent's resolution names its actor; a person's stays the plain state. */
+function resolvedLabel(status: ThreadPresentation['status'] | undefined) {
+  return status?.actor === 'agent' && status.actorName
+    ? text.threadResolvedBy(status.actorName)
+    : text.threadResolved;
+}
 
 function Composer({
   label,
@@ -268,6 +280,10 @@ export type ThreadWindowProps = {
   initialEdit?: ComposerEdit;
   onDraft?(edit: ComposerEdit): void;
   onBusy?(busy: boolean): void;
+  /** Presentation inputs for this thread, computed once by the authenticated parent. */
+  status?: ThreadPresentation['status'];
+  /** The parent owns recipient freezing and notification; the window only asks. */
+  onStatusChange?(resolved: boolean): Promise<ThreadStatusOutcome>;
 };
 
 export function ThreadWindow({
@@ -288,11 +304,17 @@ export function ThreadWindow({
   initialEdit,
   onDraft,
   onBusy,
+  status,
+  onStatusChange,
 }: ThreadWindowProps) {
   const [busy, setBusy] = useState(false),
-    [error, setError] = useState(false);
+    [error, setError] = useState(false),
+    [notNotified, setNotNotified] = useState<string[]>([]);
   const owned = !!thread && binding?.deviceId === thread.ref.writer;
   const anchor = thread ? thread.anchor : initialAnchor;
+  // A resolved thread leaves the page's marker set, so its attachment is not
+  // observed until Reopen restores the marker.
+  const tracked = !!anchor && !thread?.resolved;
   const history = useRef<HTMLDivElement>(null);
   const previousComments = useRef<Set<string>>(undefined);
   const previousReplies = useRef(new Map<string, string>());
@@ -353,24 +375,43 @@ export function ThreadWindow({
   const [reattach, setReattach] = useState<QuoteSelector | null>(null);
   const action = (change: Parameters<ThreadBinding['updateThread']>[2]) => {
     if (!thread || !binding || busy || blocked) return;
-    const nextResolved = 'resolved' in change ? change.resolved : undefined;
     setBusy(true);
     onBusy?.(true);
     setError(false);
-    let changed = false;
     void Promise.resolve()
       .then(() => binding.updateThread(thread.ref, thread.revision, change))
       .then(
-        () => {
+        () => setReattach(null),
+        () => setError(true),
+      )
+      .finally(() => {
+        setBusy(false);
+        onBusy?.(false);
+      });
+  };
+  const changeStatus = (resolved: boolean) => {
+    if (!thread || !onStatusChange || busy || blocked) return;
+    setBusy(true);
+    onBusy?.(true);
+    setError(false);
+    setNotNotified([]);
+    let closeAfter = false;
+    void Promise.resolve()
+      .then(() => onStatusChange(resolved))
+      .then(
+        (result) => {
+          const names = (result.warnings ?? []).map((warning) => warning.name);
           setReattach(null);
-          changed = true;
+          setNotNotified(names);
+          // Keep the window open while it still has something to tell the person.
+          closeAfter = result.changed && resolved && layout === 'anchored' && !names.length;
         },
         () => setError(true),
       )
       .finally(() => {
         setBusy(false);
         onBusy?.(false);
-        if (changed && layout === 'anchored' && nextResolved === true) close();
+        if (closeAfter) close();
       });
   };
   return (
@@ -380,7 +421,15 @@ export function ThreadWindow({
       data-testid={thread ? 'comment-thread' : 'annotation-window'}
       data-thread-id={thread?.threadId}
       data-writer={thread?.ref.writer}
-      data-anchor={thread?.deleted || !anchor ? 'page' : attached ? 'attached' : 'detached'}
+      data-anchor={
+        thread?.deleted || !anchor
+          ? 'page'
+          : thread?.resolved
+            ? 'resolved'
+            : attached
+              ? 'attached'
+              : 'detached'
+      }
     >
       <header className="thread-bar">
         <span className="thread-state">
@@ -391,24 +440,24 @@ export function ThreadWindow({
               : thread.deleted
                 ? text.threadDeleted
                 : thread.resolved
-                  ? text.threadResolved
+                  ? resolvedLabel(status)
                   : text.threadOpen}
           </strong>
         </span>
-        {anchor && thread && (
+        {tracked && thread && (
           <span className="comment-status">
             {attached ? text.commentAnchored : text.commentDetached}
           </span>
         )}
         <span className="thread-bar-actions">
-          {thread && owned && !thread.deleted && (
+          {thread && onStatusChange && status?.controllable && !thread.deleted && (
             <button
               className="thread-action"
               disabled={blocked || busy}
               title={thread.resolved ? text.threadReopen : text.threadResolve}
               aria-label={thread.resolved ? text.threadReopen : text.threadResolve}
               onClick={(event) => {
-                if (event.isTrusted) action({ resolved: !thread.resolved });
+                if (event.isTrusted) changeStatus(!thread.resolved);
               }}
             >
               {thread.resolved ? <RotateCcw aria-hidden /> : <Check aria-hidden />}
@@ -440,7 +489,7 @@ export function ThreadWindow({
       )}
       <div className="thread-messages" ref={history}>
         {anchor && <blockquote>{anchor.exact}</blockquote>}
-        {anchor && anchorsChecked && !attached && (
+        {tracked && anchorsChecked && !attached && (
           <p className="annotation-hint">{text.commentQuoteChanged}</p>
         )}
         {thread?.comments.map((comment) => (
@@ -456,7 +505,7 @@ export function ThreadWindow({
         ))}
         {binding && thread && !thread.deleted && owned && (
           <div className="comment-actions">
-            {thread.anchor && !attached && (
+            {tracked && !attached && (
               <button
                 disabled={blocked || busy || !selection}
                 onClick={(event) => {
@@ -499,6 +548,11 @@ export function ThreadWindow({
             </div>
           </section>
         )}
+        {notNotified.length > 0 && (
+          <p role="status" className="annotation-hint">
+            {text.threadNotNotified(notNotified.join(', '))}
+          </p>
+        )}
         {error && <p role="alert">{text.commentFailed}</p>}
       </div>
       {composer !== undefined
@@ -539,6 +593,9 @@ export function ThreadPanel({
   select,
   draft,
   onDraft,
+  presentations,
+  onStatusChange,
+  onBusy,
 }: {
   hideHeader?: boolean;
   threads: readonly ThreadView[];
@@ -554,6 +611,9 @@ export function ThreadPanel({
   select(ref: DiscussionRef | null): void;
   draft?(ref: DiscussionRef): ComposerEdit | undefined;
   onDraft?(ref: DiscussionRef, edit: ComposerEdit): void;
+  presentations?: readonly ThreadPresentation[];
+  onStatusChange?(thread: ThreadView, resolved: boolean): Promise<ThreadStatusOutcome>;
+  onBusy?(busy: boolean): void;
 }) {
   const [compose, setCompose] = useState(false);
   const [now, setNow] = useState(0);
@@ -601,6 +661,7 @@ export function ThreadPanel({
             ]),
           ];
           const at = Number(thread.comments.at(-1)?.at ?? thread.at);
+          const status = presentationOf(presentations, thread.ref)?.status;
           return (
             <section className="annotation-list-item" key={id}>
               <button
@@ -628,9 +689,13 @@ export function ThreadPanel({
                   {participants.join(', ')} ·{' '}
                   <time dateTime={new Date(at).toISOString()}>{relativeTime(at, now)}</time>
                 </span>
-                <span>
-                  {thread.resolved ? text.threadResolved : text.threadOpen}
-                  {thread.anchor && !resolved.includes(id) ? ` · ${text.commentDetached}` : ''}
+                <span data-testid="thread-row-status" data-unseen={status?.unseen || undefined}>
+                  {thread.resolved ? <CircleCheck aria-hidden /> : <CircleDot aria-hidden />}
+                  {thread.resolved ? resolvedLabel(status) : text.threadOpen}
+                  {status?.unseen ? ` · ${text.threadUnseen}` : ''}
+                  {thread.anchor && !thread.resolved && !resolved.includes(id)
+                    ? ` · ${text.commentDetached}`
+                    : ''}
                 </span>
               </button>
               {active === id && (
@@ -647,6 +712,11 @@ export function ThreadPanel({
                   blocked={blocked}
                   initialEdit={draft?.(thread.ref)}
                   onDraft={(edit) => onDraft?.(thread.ref, edit)}
+                  onBusy={onBusy}
+                  status={status}
+                  onStatusChange={
+                    onStatusChange && ((resolved) => onStatusChange(thread, resolved))
+                  }
                 />
               )}
             </section>

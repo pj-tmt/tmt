@@ -18,8 +18,33 @@ owns record fields, limits, revision semantics and trust boundaries.
 - `fold.worker.ts` prepares immutable bounded own batches without committing;
   `writer.ts` keeps the existing lifetime lock, shared sequence and durable exact
   ciphertext retry. `Live` publishes discussion from its committed own view.
-- Native `threads.rs` validates typed record grammar after isolated Yjs decoding.
-  It has no DOM, signatures, publication or dispatch responsibility.
+- `thread-status.ts` folds immutable status actions by causal depth and writer/action-ID
+  ties after record scope and historical writer-key checks. Legacy `resolved` supplies the
+  initial state; missing/cross-thread parents and cycles remain inert. The contract
+  linked above owns the grammar and ordering rule. Status actions do not transfer
+  creation, anchor, deletion or comment-edit ownership. `ThreadBinding.setStatus` uses a
+  captured previous-action reference; publication failures preserve the effective state.
+- `thread-status-coordinator.ts` freezes unique mentions and prior signed recipient UUIDs,
+  publishes status/operation IDs before sequential notification attempts, and coalesces
+  the explicit parent action. `LiveAsk.notifyStatus` reuses FrozenAsk, AskController and
+  the existing own ledger; it never runs during loading or result re-checking.
+  `thread-status-notification.ts` re-admits the committed action/recipient and captured
+  discussion before Ask freezing, then projects held/refused/failure/uncertain outcomes
+  without granting dispatch. `thread-status-view.ts` owns the shared status metadata,
+  non-Chat open count and browser-local attention cleared only by an explicit parent open.
+- Native `threads.rs` validates typed grammar and `threads/status.rs` owns the same causal
+  fold. `fold.rs` derives owner-device status provenance from verified historical
+  certificate issuers separately from signing keys; non-owner and bridge records
+  keep their existing admission but their status actions are inert. A cut-admitted
+  owner action remains effective after revocation; new publication is denied. The browser
+  admits only owner-member-issued authors, so both readers project the same authenticated status.
+  `discussion.rs` reuses the authenticated export projection for native reads and
+  prepares agent status actions with no recipients or dispatch. The isolated decoder
+  prepares only that writer's own structs; `page::prepare_own_publication` freezes them as a
+  `kind:"own"` publication that `main.rs::publish_write` sends through the offline lock or
+  the root-local `page-publish` route, with the certificate, sequence, ciphertext commit
+  and unknown-outcome rules of source writes. `cli_threads.rs` adapts these operations to `threads`, `resolve` and `reopen`.
+  Actor labels and clocks remain display assertions.
 - `components/conversation-turn.tsx` owns the shared turn markup, attribution and
   square styling. Its `thread` layout uses User/Bot avatars and an ink agent-body
   rail; its `chat` layout uses sided tinted turns and a bot mark in the agent meta
@@ -49,8 +74,19 @@ owns record fields, limits, revision semantics and trust boundaries.
   Enter; no drawer opens automatically. Known margin markers reopen that exact
   thread using the current renderer's admitted cosmetic position. The page owner
   keeps drafts and recipients by thread across collapse and explicit Comments
-  access. Resolve uses the existing writer-owned binding and collapses only after
-  success.
+  access. Resolve/Reopen is the parent's `onStatusChange` seam over
+  `ThreadStatusCoordinator`, not a thread edit: the window receives the thread's
+  `ThreadPresentation.status` and awaits one status change (shown only when
+  the local device has owner-member provenance, `Admission.ownerDevice`, the
+  browser form of native `status_writers`; the fold already counts only writers
+  admitted that way), collapses the anchored layout only after a resolve that left
+  nothing to tell, and lists mentions that could not become recipients as
+  `Not notified`. Only the parent's trusted open paths call
+  `markThreadStatusSeen`; rendering, panel opening, close and reload never do.
+  A resolved thread leaves the renderer's anchor set, so its margin marker is
+  hidden until Reopen, while Comments keeps its row (`Resolved`, or
+  `Resolved by <agent>` with an unseen `New` mark) and the Comments toggle shows
+  the open count.
   It extends the same `components/listbox.tsx` used by Manage and the agent list;
   input options portal into its dialog ancestor (otherwise the body) and use the
   browser popover layer with viewport bounds, so mobile modal sheets retain visible,
@@ -73,7 +109,11 @@ owns record fields, limits, revision semantics and trust boundaries.
   claims; normal anchor navigation scrolls the window. Ports/observers clear on teardown.
 
 Verification: `test/thread-records.test.ts` and native `tests/discussion.rs`
-consume `contracts/vectors/discussion-v1.json`. `test/own-fold.test.ts` checks
+consume `contracts/vectors/discussion-v1.json`, including causal and status-export byte
+vectors. `test/thread-status.test.ts` and native `export::tests` pin the effective status
+and provenance; native `tests/page.rs` checks agent status publication, shared content/own
+sequence, status preservation and causal continuation after own-stream compaction,
+idempotence, stale-base refusal and CLI no-dispatch behavior. `test/own-fold.test.ts` checks
 atomic preparation and immutable rejection; `test/live-ask.test.ts` checks real
 comment IDs in signed Ask framing. `e2e/renderer.spec.ts` tests bounded DOM quote
 capture/resolution and containment. `acceptance/discussion.spec.ts` uses two real

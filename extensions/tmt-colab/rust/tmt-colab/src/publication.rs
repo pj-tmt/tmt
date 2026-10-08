@@ -80,6 +80,16 @@ fn present_evidence<'de, D: Deserializer<'de>>(
 #[serde(rename_all = "lowercase")]
 pub enum PublicationKind {
     Content,
+    Own,
+}
+impl PublicationKind {
+    /// The stream namespace every entry of a publication of this kind belongs to.
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Content => "content",
+            Self::Own => "own",
+        }
+    }
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -172,6 +182,7 @@ impl Manifest {
             require(previous.is_none_or(|p| p.checked_add(1) == Some(seq)))?;
             previous = Some(seq);
             binary::<32>(&entry.envelope_hash)?;
+            require(entry.namespace == self.kind)?;
             require(entry.envelope_bytes > 0 && entry.envelope_bytes <= limits::UPDATE_BYTES)?;
             total = total.checked_add(entry.envelope_bytes).ok_or(Invalid)?;
         }
@@ -185,7 +196,7 @@ impl Manifest {
             .to_vec();
         for entry in &self.entries {
             entries.extend(frame(&[
-                b"content",
+                entry.namespace.name().as_bytes(),
                 entry.seq.as_bytes(),
                 &binary::<32>(&entry.envelope_hash)?,
                 entry.envelope_bytes.to_string().as_bytes(),
@@ -205,7 +216,7 @@ impl Manifest {
             self.page_id.as_bytes(),
             self.epoch.as_bytes(),
             self.stream_id.as_bytes(),
-            b"content",
+            self.kind.name().as_bytes(),
             self.membership_head.revision.as_bytes(),
             self.membership_head.statement_hash.as_bytes(),
             self.base_revision.as_bytes(),
@@ -292,7 +303,7 @@ impl SignedJob {
             let c = &header.context;
             require(
                 c.kind == "update"
-                    && c.namespace == "content"
+                    && c.namespace == m.kind.name()
                     && c.space == m.space_id
                     && c.page == m.page_id
                     && c.epoch == m.epoch

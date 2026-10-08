@@ -211,6 +211,55 @@ fn independent_vectors_pin_nested_lp_job_packet_envelope_signatures_and_outcomes
 }
 
 #[test]
+fn an_own_job_binds_its_kind_to_every_entry_and_stream_namespace() {
+    let (own, packet) = input(5);
+    assert_eq!(own.manifest.kind, PublicationKind::Own);
+    assert!(
+        own.manifest
+            .entries
+            .iter()
+            .all(|e| e.namespace == PublicationKind::Own)
+    );
+    assert_eq!(own.verify_packet(&packet, &public()).unwrap().len(), 2);
+    let rekind = |job: &SignedJob, kind| {
+        let mut manifest = job.manifest.clone();
+        manifest.kind = kind;
+        manifest.entries.iter_mut().for_each(|e| e.namespace = kind);
+        signed(manifest)
+    };
+    // The kind is signed: the same manifest as content has other bytes and another digest.
+    let as_content = rekind(&own, PublicationKind::Content);
+    assert_ne!(
+        as_content.manifest.signature_input().unwrap(),
+        own.manifest.signature_input().unwrap()
+    );
+    assert_ne!(
+        as_content.manifest.job_digest().unwrap(),
+        own.manifest.job_digest().unwrap()
+    );
+    // A manifest whose entry disagrees with its kind is invalid before anything is signed.
+    let mut mixed = own.manifest.clone();
+    mixed.entries[1].namespace = PublicationKind::Content;
+    assert!(mixed.validate().is_err());
+    assert!(mixed.signature_input().is_err());
+    // Each sealed header names its stream namespace; the job's kind must match it exactly.
+    assert!(as_content.verify_packet(&packet, &public()).is_err());
+    let (content, content_packet) = input(3);
+    assert!(content.verify_packet(&content_packet, &public()).is_ok());
+    assert!(
+        rekind(&content, PublicationKind::Own)
+            .verify_packet(&content_packet, &public())
+            .is_err()
+    );
+    // The wire carries the kind by name; an unknown one is refused.
+    let wire = String::from_utf8(own.to_json().unwrap()).unwrap();
+    assert!(wire.contains("\"kind\":\"own\""));
+    let mut tampered: Value = serde_json::from_str(&wire).unwrap();
+    tampered["manifest"]["kind"] = json!("attachment");
+    assert!(SignedJob::from_json(&bytes(&tampered)).is_err());
+}
+
+#[test]
 fn exact_packet_bytes_are_bound_independently_of_envelope_json_order_and_whitespace() {
     let (job, raw) = input(0);
     let envelope = Envelope::from_json(&raw).unwrap();

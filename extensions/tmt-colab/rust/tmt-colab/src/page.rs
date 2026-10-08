@@ -227,7 +227,7 @@ impl From<crate::publication::Rejection> for Fault {
 fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
-fn token(
+pub(crate) fn token(
     space: &str,
     page: &str,
     head: &statement::Head,
@@ -258,7 +258,12 @@ fn current_token(tx: &OwnerTransaction<'_>, key: &Keyring, page: &str) -> Result
         &tx.cuts(page, epoch)?,
     )
 }
-fn snapshot(store: &Store, key: &Keyring, page: &str, writing: bool) -> Result<Snapshot> {
+pub(crate) fn snapshot(
+    store: &Store,
+    key: &Keyring,
+    page: &str,
+    writing: bool,
+) -> Result<Snapshot> {
     values::generated_id(page)?;
     store.owner_read(&key.space_id, &key.owner_public(), |tx| {
         let (states, _) = fold::verify_log(&tx.log()?, key, page)?;
@@ -329,12 +334,7 @@ pub fn prepare_publication(
     decoder: &mut Decoder,
     now: u64,
 ) -> Result<PublicationPreparation> {
-    use crate::{
-        decoder::ContentBatch,
-        publication::{
-            Manifest, MembershipHead, NativeEvidence, PublicationEntry, PublicationKind,
-        },
-    };
+    use crate::{decoder::ContentBatch, publication::PublicationKind};
     values::generated_id(page)?;
     values::time(now)?;
     if edit.source.len() > crate::decoder::BASELINE_BYTES {
@@ -355,26 +355,7 @@ pub fn prepare_publication(
     if expected.is_some_and(|r| r != revision) {
         return Err(Fault::StaleBase.into());
     }
-    let (id, sign, _) = key.local_writer()?;
-    if s.authority.revoked_devices.contains(&id) {
-        return Err(Fault::Denied.into());
-    }
-    let issuer = s.genesis_hash()?;
-    // Every captured device row is parsed, so malformed state cannot be bypassed by renewal.
-    let mut existing = None;
-    for device in &s.devices {
-        let chain = certificate::Chain::from_json(&device.chain)?;
-        let cert = chain.certificate()?;
-        if cert.device_id == id {
-            if device.revoked {
-                return Err(Fault::Denied.into());
-            }
-            let expiry = local_chain(&chain, key, &s.authority.head, &issuer, now)?;
-            if expiry > now {
-                existing = Some(device.chain.clone());
-            }
-        }
-    }
+    let author = Author::of(key, &s, now)?;
     let prepared = s.prepare_content_batch(key, page, edit, decoder)?;
     let ContentBatch::Updates(updates) = prepared.batch else {
         return Ok(PublicationPreparation::Noop {
@@ -384,6 +365,167 @@ pub fn prepare_publication(
             memory_limit: prepared.memory_limit,
         });
     };
+    let frozen = freeze(
+        key,
+        page,
+        &s,
+        author,
+        Sealing {
+            kind: PublicationKind::Content,
+            updates: &updates,
+            revision,
+            source: edit.source,
+            memory_limit: prepared.memory_limit,
+        },
+        now,
+    )?;
+    Ok(PublicationPreparation::Write(frozen))
+}
+/// One immutable own-namespace update of the local writer's stream, frozen through the same
+/// signed publication as a content batch (status actions; the decoder prepared `update`).
+pub(crate) fn prepare_own_publication(
+    key: &Keyring,
+    page: &str,
+    s: &Snapshot,
+    update: &[u8],
+    source: &str,
+    memory_limit: MemoryLimit,
+    now: u64,
+) -> Result<FrozenPublication> {
+    values::generated_id(page)?;
+    values::time(now)?;
+    use crate::publication::PublicationKind;
+    s.require_update_capacity(page)?;
+    let revision = token(&key.space_id, page, &s.authority.head, s.epoch, &s.cuts)?;
+    let author = Author::of(key, s, now)?;
+    freeze(
+        key,
+        page,
+        s,
+        author,
+        Sealing {
+            kind: PublicationKind::Own,
+            updates: &[update.to_vec()],
+            revision,
+            source,
+            memory_limit,
+        },
+        now,
+    )
+}
+/// Own records of the local writer, prepared against one materialization and frozen as one
+/// own publication. Only that writer's authenticated structs enter the edit, never the shared
+/// document or another writer's plain projection re-encoded as a new document.
+pub(crate) fn freeze_own_records(
+    key: &Keyring,
+    page: &str,
+    s: &Snapshot,
+    folded: &fold::View,
+    records: &[crate::decoder::OwnRecord],
+    decoder: &mut Decoder,
+    now: u64,
+) -> Result<FrozenPublication> {
+    use crate::decoder::UpdateBatch;
+    let updates: Vec<&[u8]> = folded
+        .local_own_update
+        .as_ref()
+        .into_iter()
+        .map(Vec::as_slice)
+        .collect();
+    let prepared = decoder.prepare_own(
+        UpdateBatch {
+            namespace: Namespace::Own,
+            baseline: &[],
+            updates: &updates,
+        },
+        records,
+        None,
+    )?;
+    prepare_own_publication(
+        key,
+        page,
+        s,
+        &prepared.merged,
+        &folded.source,
+        prepared.memory_limit,
+        now,
+    )
+}
+/// Publishes immutable records into the local writer's own stream through the same job a
+/// status action uses. A record already present with the same value is left out of the edit.
+pub fn prepare_own_records(
+    store: &Store,
+    key: &Keyring,
+    page: &str,
+    records: &[crate::decoder::OwnRecord],
+    decoder: &mut Decoder,
+    now: u64,
+) -> Result<FrozenPublication> {
+    let s = snapshot(store, key, page, true)?;
+    let folded = s.materialize(key, page, decoder)?;
+    freeze_own_records(key, page, &s, &folded, records, decoder, now)
+}
+/// The local writer and the unexpired certificate chain it already holds, if any.
+struct Author {
+    id: String,
+    sign: Vec<u8>,
+    existing: Option<Vec<u8>>,
+}
+impl Author {
+    fn of(key: &Keyring, s: &Snapshot, now: u64) -> Result<Self> {
+        let (id, sign, _) = key.local_writer()?;
+        if s.authority.revoked_devices.contains(&id) {
+            return Err(Fault::Denied.into());
+        }
+        let issuer = s.genesis_hash()?;
+        // Every captured device row is parsed, so malformed state cannot be bypassed by renewal.
+        let mut existing = None;
+        for device in &s.devices {
+            let chain = certificate::Chain::from_json(&device.chain)?;
+            let cert = chain.certificate()?;
+            if cert.device_id == id {
+                if device.revoked {
+                    return Err(Fault::Denied.into());
+                }
+                let expiry = local_chain(&chain, key, &s.authority.head, &issuer, now)?;
+                if expiry > now {
+                    existing = Some(device.chain.clone());
+                }
+            }
+        }
+        Ok(Self {
+            id,
+            sign: sign.to_vec(),
+            existing,
+        })
+    }
+}
+struct Sealing<'a> {
+    kind: crate::publication::PublicationKind,
+    updates: &'a [Vec<u8>],
+    revision: String,
+    source: &'a str,
+    memory_limit: MemoryLimit,
+}
+/// Seals, signs and verifies the exact bytes of one publication of `kind`.
+fn freeze(
+    key: &Keyring,
+    page: &str,
+    s: &Snapshot,
+    author: Author,
+    sealing: Sealing<'_>,
+    now: u64,
+) -> Result<FrozenPublication> {
+    use crate::publication::{Manifest, MembershipHead, NativeEvidence, PublicationEntry};
+    let Sealing {
+        kind,
+        updates,
+        revision,
+        source,
+        memory_limit,
+    } = sealing;
+    let Author { id, sign, existing } = author;
+    let issuer = s.genesis_hash()?;
     let chain = match existing {
         Some(bytes) => bytes,
         None => writer_chain(key, &s.authority.head, &issuer, now)?,
@@ -404,7 +546,7 @@ pub fn prepare_publication(
     let mut previous = head.map_or([0; 32], |c| c.tail_hash);
     let mut packet = Vec::new();
     let mut entries = Vec::with_capacity(updates.len());
-    for delta in &updates {
+    for delta in updates {
         seq = seq.checked_add(1).ok_or(Fault::Capacity)?;
         let envelope = key.seal_content(
             &object::Context {
@@ -412,7 +554,7 @@ pub fn prepare_publication(
                 page: page.into(),
                 epoch: s.epoch.to_string(),
                 kind: "update".into(),
-                namespace: "content".into(),
+                namespace: kind.name().into(),
                 author_device: id.clone(),
                 membership_revision: s.authority.head.revision.to_string(),
                 stream_seq: seq.to_string(),
@@ -434,7 +576,7 @@ pub fn prepare_publication(
         }
         previous = envelope.hash()?;
         entries.push(PublicationEntry {
-            namespace: PublicationKind::Content,
+            namespace: kind,
             seq: seq.to_string(),
             envelope_hash: values::encode_binary(&previous),
             envelope_bytes: bytes.len(),
@@ -443,12 +585,12 @@ pub fn prepare_publication(
     }
     let manifest = Manifest {
         version: 1,
-        operation_id: fresh_operation_id()?,
+        operation_id: fresh_id()?,
         space_id: key.space_id.clone(),
         page_id: page.into(),
         epoch: s.epoch.to_string(),
         stream_id: id,
-        kind: PublicationKind::Content,
+        kind,
         membership_head: MembershipHead {
             revision: s.authority.head.revision.to_string(),
             statement_hash: hex(&s.authority.head.hash),
@@ -458,20 +600,20 @@ pub fn prepare_publication(
         packet_bytes: packet.len(),
         packet_hash: values::encode_binary(&crypto::digest(&packet)),
         native_evidence: Some(NativeEvidence {
-            source_sha256: hex(&crypto::digest(edit.source.as_bytes())),
-            memory_limit: prepared.memory_limit,
+            source_sha256: hex(&crypto::digest(source.as_bytes())),
+            memory_limit,
             chain_hash: values::encode_binary(&crypto::digest(&chain)),
         }),
     };
     let job = key.sign_content_publication(manifest)?;
     job.verify_packet(&packet, &sign)?;
-    Ok(PublicationPreparation::Write(FrozenPublication {
+    Ok(FrozenPublication {
         job: Box::new(job),
         packet,
         chain,
-    }))
+    })
 }
-fn fresh_operation_id() -> Result<String> {
+pub(crate) fn fresh_id() -> Result<String> {
     let mut bytes = [0u8; 16];
     getrandom::fill(&mut bytes)?;
     bytes[6] = (bytes[6] & 15) | 64;
@@ -599,7 +741,7 @@ pub fn commit_publication(
     chain: &[u8],
     now: u64,
 ) -> Result<PublicationCommitted> {
-    use crate::publication::{Outcome, Position, Rejection};
+    use crate::publication::{Outcome, Position, PublicationKind, Rejection};
     let original = job.key()?;
     let evidence = job
         .manifest
@@ -648,13 +790,16 @@ pub fn commit_publication(
             let epoch = values::decimal(&original.original_epoch, false)?;
             for entry in &entries {
                 let context = &entry.header.context;
-                let result = tx.append_content(&Envelope {
+                let result = tx.append_update(&Envelope {
                     scope: StreamScope {
                         page: &original.page_id,
                         epoch,
                         stream: &original.stream_id,
                     },
-                    namespace: Namespace::Content,
+                    namespace: match job.manifest.kind {
+                        PublicationKind::Content => Namespace::Content,
+                        PublicationKind::Own => Namespace::Own,
+                    },
                     seq: values::decimal(&context.stream_seq, false)?,
                     hash: entry.envelope.hash()?,
                     previous: context.prev_hash,

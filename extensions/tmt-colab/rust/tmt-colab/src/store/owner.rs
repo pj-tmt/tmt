@@ -323,7 +323,7 @@ impl OwnerTransaction<'_> {
             .query_row("SELECT epoch FROM pages WHERE page=?", [page], |r| r.get(0))
             .optional()?)
     }
-    pub(crate) fn append_content(
+    pub(crate) fn append_update(
         &mut self,
         envelope: &super::Envelope<'_>,
     ) -> Result<super::Accepted> {
