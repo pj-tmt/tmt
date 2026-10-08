@@ -8,7 +8,7 @@ use std::{
     os::unix::net::UnixStream,
     path::PathBuf,
     sync::atomic::{AtomicUsize, Ordering},
-    time::Duration,
+    time::{Duration, Instant},
 };
 use tmt_colab::{
     keyring::Layout,
@@ -451,6 +451,47 @@ fn strict_frames_and_connection_capacity() {
     ));
     drop(peers);
     let _reusable = f.peer(ALICE);
+}
+#[test]
+fn an_idle_connection_pings_its_peer_before_any_tunnel_idle_limit() {
+    // The remote door and the serve loop both close a tunnel that moves no bytes for 120 s, and a
+    // browser cannot send WebSocket pings: the server must, or every idle tab drops and
+    // reconnects every two minutes.
+    assert!(tmt_colab::limits::KEEPALIVE * 2 <= tmt_colab::limits::TUNNEL_IDLE);
+    let keepalive = tmt_colab::limits::KEEPALIVE;
+    let f = Fixture::new();
+    let mut peer = f.peer(ALICE);
+    peer.0
+        .get_mut()
+        .set_read_timeout(Some(Duration::from_millis(50)))
+        .unwrap();
+    let start = Instant::now();
+    assert_eq!(peer.1.poll_at(start), Progress::Pending);
+    // Nothing is sent before the interval ends.
+    assert_eq!(
+        peer.1.poll_at(start + keepalive - Duration::from_secs(1)),
+        Progress::Pending
+    );
+    assert!(
+        peer.0.read().is_err(),
+        "no frame before the keepalive interval"
+    );
+    // At the interval one Ping goes out; the client's automatic Pong is accepted silently.
+    assert_eq!(peer.1.poll_at(start + keepalive), Progress::Advanced);
+    assert!(matches!(peer.0.read().unwrap(), Message::Ping(_)));
+    peer.0.flush().unwrap();
+    assert_ne!(
+        peer.1
+            .poll_at(start + keepalive + Duration::from_millis(10)),
+        Progress::Closed
+    );
+    // It repeats every interval for as long as the connection lives, and never within one.
+    assert_eq!(
+        peer.1.poll_at(start + keepalive + Duration::from_secs(5)),
+        Progress::Pending
+    );
+    assert_eq!(peer.1.poll_at(start + keepalive * 2), Progress::Advanced);
+    assert!(matches!(peer.0.read().unwrap(), Message::Ping(_)));
 }
 #[test]
 fn oversized_frame_rejects_from_header_without_allocating_body() {

@@ -8,9 +8,13 @@ pub const SOCKETS: usize = 16;
 
 /// Live colab-sync-v1 tunnels, matching the remote door's colab mount cap.
 pub const TUNNELS: usize = 16;
-/// A tunnel that receives no inbound bytes for this long closes, until
-/// colab-sync-v1 heartbeats exist (colab sends nothing on it yet).
+/// A tunnel that receives no inbound bytes for this long closes. The remote door applies the
+/// same 120 s to its splice, so an idle connection must keep bytes moving both ways.
 pub const TUNNEL_IDLE: Duration = Duration::from_secs(120);
+/// An established connection pings its peer this often; the browser answers with a Pong
+/// automatically. Well inside [`TUNNEL_IDLE`], so an idle tab never drops its tunnel (a drop
+/// costs a journaled Remote read to diagnose, and Remote keeps only 1000 of those per day).
+pub const KEEPALIVE: Duration = Duration::from_secs(30);
 pub const HEADER_BYTES: usize = 8 * 1024;
 pub const HEADER_FIELDS: usize = 32;
 pub const HTTP_BODY_BYTES: usize = 64 * 1024;

@@ -2023,6 +2023,11 @@ Read checks do not redo signatures or reserve the SQLite writer. Catchup takes i
 head from `Store::owner_head` and the exact persisted reset descriptor through
 `Store::baseline` when one exists. Workers preserve upgrade read-ahead, drive silent transfer/write deadlines,
 apply the tunnel cap/idle bound, and close retained sockets before shutdown joins.
+An established connection sends a WebSocket Ping every 30 s (`limits::KEEPALIVE`) and the
+browser answers with a Pong, so a quiet tab keeps bytes moving both ways inside the 120 s
+tunnel idle bound of both this server and the remote door; a browser cannot send pings itself.
+Without it every idle tab reconnected every two minutes, and each reconnect costs one journaled
+Remote read (1000 per device per day, after which the agent directory is refused, #2170).
 
 The #830 fixture used 64 KiB frames/messages, queue 8, receipt/tail capacity 64,
 16 sockets, ten-second connection lifetime, two-second handshake reads and
