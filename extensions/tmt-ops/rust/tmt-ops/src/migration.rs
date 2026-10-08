@@ -11,6 +11,7 @@ use std::{
     io::{self, Read, Write},
     os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt, PermissionsExt},
     path::{Path, PathBuf},
+    sync::Mutex,
 };
 use tmt_cli_style::message;
 
@@ -25,6 +26,7 @@ pub(crate) struct Paths {
     pub config: PathBuf,
     pub legacy: bool,
     pub notice: Option<String>,
+    pub board_notice: Option<String>,
 }
 impl Paths {
     fn at(directory: &Path, legacy: bool) -> Self {
@@ -32,6 +34,7 @@ impl Paths {
             config: directory.join(if legacy { "squad.toml" } else { "ops.toml" }),
             legacy,
             notice: None,
+            board_notice: None,
         }
     }
     pub fn subtree(&self) -> &'static str {
@@ -50,12 +53,28 @@ fn notice(text: &str) {
     let _ = message::warning(&mut stderr, terminal, text, None);
 }
 
-/// Clones share one decision, including pending migration, across every worker.
-/// Completed invocations check only marker/legacy-name metadata, never a lock
-/// or legacy content. Marker contents are needed only if the old name exists.
+/// The invocation has one shared layout decision. Only the UI clock retries a
+/// deferred decision; completed layouts and failures remain cached.
+#[derive(Default)]
+pub(crate) struct Decision(Mutex<Option<Result<Paths, SquadError>>>);
+
+impl Decision {
+    pub fn board_notice(&self) -> Option<String> {
+        self.0
+            .lock()
+            .unwrap()
+            .as_ref()
+            .and_then(|result| match result {
+                Ok(paths) => paths.board_notice.clone().or_else(|| paths.notice.clone()),
+                Err(error) => Some(error.message.clone()),
+            })
+    }
+}
+
 pub(crate) fn paths(core: &Core, shown: Option<&Value>) -> Result<Paths, SquadError> {
-    core.paths
-        .get_or_init(|| {
+    let mut decision = core.paths.0.lock().unwrap();
+    decision
+        .get_or_insert_with(|| {
             let owned;
             let shown = match shown {
                 Some(shown) => shown,
@@ -69,22 +88,54 @@ pub(crate) fn paths(core: &Core, shown: Option<&Value>) -> Result<Paths, SquadEr
                 .and_then(|path| Path::new(path).parent())
                 .filter(|path| path.is_absolute())
                 .ok_or_else(|| failed("Core reported no absolute global config directory."))?;
-            if let Some((paths, warning)) = ready(directory).map_err(failed)? {
-                if let Some(warning) = warning {
-                    notice(&warning);
-                }
-                return Ok(paths);
-            }
-            let root = data_root(core)?;
-            let (paths, warning) =
-                prepare(directory, &root, jiff::Timestamp::now().as_millisecond())
-                    .map_err(failed)?;
+            let (paths, warning) = match ready(directory).map_err(failed)? {
+                Some(ready) => ready,
+                None => prepare(
+                    directory,
+                    &data_root(core)?,
+                    jiff::Timestamp::now().as_millisecond(),
+                )
+                .map_err(failed)?,
+            };
             if let Some(warning) = warning {
                 notice(&warning);
             }
             Ok(paths)
         })
         .clone()
+}
+
+/// Never hold the decision mutex while taking the cutover lock: a legacy
+/// service may hold a shared file guard and then resolve its root via paths().
+/// A contended cutover lock is another deferred attempt, not a UI wait.
+pub(crate) fn retry(core: &Core) -> Result<Paths, SquadError> {
+    let previous = paths(core, None)?;
+    if !previous.legacy {
+        return Ok(previous);
+    }
+    let root = data_root(core)?;
+    let next = match prepare_mode(
+        previous
+            .config
+            .parent()
+            .expect("selected config has a parent"),
+        &root,
+        jiff::Timestamp::now().as_millisecond(),
+        FlockArg::LockExclusiveNonblock,
+    ) {
+        Ok((paths, _)) => Ok(paths),
+        Err(error) if error.kind() == io::ErrorKind::WouldBlock => return Ok(previous),
+        Err(error) => Err(failed(error)),
+    };
+    let mut decision = core.paths.0.lock().unwrap();
+    // Another retry may already have promoted. Never revert a completed layout.
+    if decision
+        .as_ref()
+        .is_some_and(|current| current.as_ref().is_ok_and(|paths| paths.legacy))
+    {
+        *decision = Some(next);
+    }
+    decision.as_ref().expect("initialized decision").clone()
 }
 pub(crate) fn data_root(core: &Core) -> Result<PathBuf, SquadError> {
     let value = core.api("storage.root", json!({}))?;
@@ -233,6 +284,7 @@ fn mark_cutover(path: &Path, bytes: &[u8]) -> io::Result<()> {
 fn sync(path: &Path) -> io::Result<()> {
     File::open(path)?.sync_all()
 }
+#[cfg(test)]
 fn lock(path: &Path, create: bool) -> io::Result<Option<Flock<File>>> {
     lock_mode(path, create, FlockArg::LockExclusive)
 }
@@ -308,7 +360,7 @@ fn legacy_clock_lock(root: &Path, locks: &mut Vec<Flock<File>>) -> io::Result<()
     }
     Ok(())
 }
-fn live_clock(root: &Path, now: i64) -> io::Result<Option<String>> {
+fn live_clock(root: &Path, now: i64) -> io::Result<Option<(String, String)>> {
     if !clock_directory(root)? {
         return Ok(None);
     }
@@ -335,10 +387,18 @@ fn live_clock(root: &Path, now: i64) -> io::Result<Option<String>> {
         .as_str()
         .filter(|pane| !pane.chars().any(char::is_control));
     if since <= now && now < expiry {
-        Ok(Some(format!(
-            "Ops migration deferred: old clock PID {pid}{}. Stop it with Ctrl-C there, or verify the PID and run `kill -TERM {pid}`. Invoke again after it stops to migrate; legacy config/state stay active.",
+        let holder = format!(
+            "PID {pid}{}",
             pane.map(|pane| format!(" in pane {pane}"))
                 .unwrap_or_default()
+        );
+        Ok(Some((
+            format!(
+                "Ops migration deferred: old clock PID {pid}{}. Stop it with Ctrl-C there, or verify the PID and run `kill -TERM {pid}`. Invoke again after it stops to migrate; legacy config/state stay active.",
+                pane.map(|pane| format!(" in pane {pane}"))
+                    .unwrap_or_default()
+            ),
+            format!("Ops migration pending; retrying. Old clock {holder}."),
         )))
     } else {
         Ok(None)
@@ -484,12 +544,21 @@ impl Move {
 }
 
 fn prepare(config: &Path, data: &Path, now: i64) -> io::Result<(Paths, Option<String>)> {
+    prepare_mode(config, data, now, FlockArg::LockExclusive)
+}
+
+fn prepare_mode(
+    config: &Path,
+    data: &Path,
+    now: i64,
+    mode: FlockArg,
+) -> io::Result<(Paths, Option<String>)> {
     fs::DirBuilder::new()
         .recursive(true)
         .mode(0o700)
         .create(config)?;
     directory(config)?;
-    let _lock = lock(&config.join(LOCK), true)?;
+    let _lock = lock_mode(&config.join(LOCK), true, mode)?;
     if let Some(ready) = ready(config)? {
         return Ok(ready);
     }
@@ -560,14 +629,19 @@ fn prepare(config: &Path, data: &Path, now: i64) -> io::Result<(Paths, Option<St
             if error.kind() != io::ErrorKind::WouldBlock {
                 return Err(error);
             }
-            let warning = live_clock(&old_state, now)?.unwrap_or_else(|| "Ops migration deferred: legacy state has an active writer. Retry after it finishes; this invocation keeps using legacy config and state.".into());
+            let (warning, board_notice) = live_clock(&old_state, now)?.unwrap_or_else(|| (
+                "Ops migration deferred: legacy state has an active writer. Retry after it finishes; this invocation keeps using legacy config and state.".into(),
+                "Ops migration pending; scheduled sends paused until migration completes.".into(),
+            ));
             let mut paths = Paths::at(config, true);
             paths.notice = Some(warning.clone());
+            paths.board_notice = Some(board_notice);
             return Ok((paths, Some(warning)));
         }
-        if let Some(warning) = live_clock(&old_state, now)? {
+        if let Some((warning, board_notice)) = live_clock(&old_state, now)? {
             let mut paths = Paths::at(config, true);
             paths.notice = Some(warning.clone());
+            paths.board_notice = Some(board_notice);
             return Ok((paths, Some(warning)));
         }
     }

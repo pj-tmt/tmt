@@ -43,8 +43,9 @@ board-only home/meter/`usage.*` data.
 
 ## Ops path migration
 
-`migration` owns one layout decision per invocation, shared by Core clones and board
-workers before config discovery/loading or state access. Core still supplies both roots
+`migration` owns one synchronized layout decision per invocation, shared by Core clones
+and board workers before config discovery/loading or state access. A deferred decision
+can promote to Ops; completed decisions stay cached. Core still supplies both roots
 through public `config show` and `storage.root`; Squad never discovers Core paths itself.
 The stable `.ops-paths.lock` beside the config serializes first runs and unfinished cleanup; a completed
 `.ops-paths-v1` marker makes later decisions check only completion/legacy-name metadata, with no lock or legacy content reads. The marker is read only when the old config name exists, to distinguish an unchanged ignored file from a reappeared one.
@@ -73,9 +74,16 @@ them; completion suppresses repeated notices. Only old clock evidence is checked
 
 Legacy state locks remain held during copy and cutover; a busy legacy writer defers instead of blocking startup. A live old clock defers the
 whole migration: that invocation continues using legacy config/state and names its
-holder PID/pane, Ctrl-C and verified `kill -TERM <pid>` stop instructions once. An
-existing lease prevents another clock; the next invocation retries migration. A board
-that read the old config before archival fails its normal byte CAS instead of
+holder PID/pane, Ctrl-C and verified `kill -TERM <pid>` stop instructions once.
+A newly started UI stays clock-less while deferred, retrying migration on its existing
+one-second interruptible clock-worker cadence. It acquires an Ops clock only after
+cutover and config reload; foreground cron commands retain explicit legacy behavior.
+When no old clock runs, scheduled sends pause until migration completes; normal clock
+slot windows resume without replaying missed sends. The board keeps a short pending
+notice, retargets its config watcher on promotion, and reloads once even with refresh off.
+Retries use a nonblocking cutover lock and release the decision mutex before file/Core
+work; legacy services keep their shared cutover guard while resolving/using the root.
+A board that read the old config before archival fails its normal byte CAS instead of
 recreating the missing file. Pending new-version writes also hold the cutover lock
 and refuse after completion, even with an initially absent config. After cutover,
 board watching follows `ops.toml` only. Metadata detection notices an exact legacy
