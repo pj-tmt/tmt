@@ -205,11 +205,14 @@ and `--discover-launch`, with no identity, process or session coordinates; launc
 lookup occurs inside the supervised worker using the existing verified caller binding.
 Codex trusts exact hook definition hashes: approval remains user-owned through `/hooks`.
 TMT never approves trust, enables disabled hooks or writes Codex settings. Exact setup
-observers in eligible user/system or explicit invocation sources remain the only
-recorder; missing Stop observation is activity-only. Unsupported profiles/plugins,
+observers in eligible user/system `hooks.json` or explicit invocation sources remain
+the only recorder; missing Stop observation is activity-only. Non-empty inline hooks
+in user/system `config.toml` or `requirements.toml` use the original command fallback
+because the invocation layer can shadow their event arrays. Unsupported profiles/plugins,
 managed hook directories, project hook sources with uncertain eligibility, unreadable
 or edited/duplicated sources, and disabled/managed-only policy use the same original
-command fallback. Other invocation config and user hook entries remain intact.
+command fallback. Other invocation config remains intact; explicit invocation hook
+entries are retained in the composed session table.
 
 The separate `__focus-hook` accepts only an unrecursive main-agent Stop and emits
 both providers' documented `decision: "block"` plus `reason` continuation. It does not use

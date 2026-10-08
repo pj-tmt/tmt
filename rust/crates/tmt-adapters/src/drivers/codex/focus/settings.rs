@@ -111,6 +111,20 @@ fn inspect(document: &DocumentMut) -> io::Result<Value> {
     Ok(json!({"hooks":hooks}))
 }
 
+fn require_no_inline_hooks(text: &str) -> io::Result<()> {
+    let document = text.parse::<DocumentMut>().map_err(|_| unavailable())?;
+    let projected = inspect(&document)?;
+    // The invocation's hooks table can shadow persistent TOML event arrays.
+    // Preserve those sources by leaving the entire launch unmodified.
+    if projected["hooks"]
+        .as_object()
+        .is_none_or(|map| !map.is_empty())
+    {
+        return Err(unavailable());
+    }
+    Ok(())
+}
+
 pub(super) fn sources(
     environment: &ProviderEnvironment,
     cwd: &Path,
@@ -125,9 +139,7 @@ pub(super) fn sources(
         }
         for name in ["config.toml", "requirements.toml"] {
             if let Some(text) = read(&root.join(name))? {
-                documents.push(
-                    inspect(&text.parse::<DocumentMut>().map_err(|_| unavailable())?)?.to_string(),
-                );
+                require_no_inline_hooks(&text)?;
             }
         }
     }
@@ -143,14 +155,7 @@ pub(super) fn sources(
             return Err(unavailable());
         }
         if let Some(text) = read(&root.join("config.toml"))? {
-            let doc = text.parse::<DocumentMut>().map_err(|_| unavailable())?;
-            let projected = inspect(&doc)?;
-            if projected["hooks"]
-                .as_object()
-                .is_none_or(|map| !map.is_empty())
-            {
-                return Err(unavailable());
-            }
+            require_no_inline_hooks(&text)?;
         }
     }
     Ok(documents)

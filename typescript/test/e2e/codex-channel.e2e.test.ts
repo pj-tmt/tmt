@@ -19,7 +19,10 @@ const mock = fs.existsSync('/opt/tmt-tests/codex-channel-fixture')
   ? '/opt/tmt-tests/codex-channel-fixture'
   : localMock;
 const quote = (text: string) => `'${text.replaceAll("'", "'\\''")}'`;
+const inlineHookConfig =
+  '[hooks]\nStop = [{ hooks = [{ type = "command", command = "/user/hook", timeout = 7 }] }]\n';
 interface Session {
+  home: string;
   pane: string;
   log: string;
   status: string;
@@ -63,6 +66,9 @@ function start(
   }
   const home = path.join(f.root, `home-${name}-${run}`);
   fs.mkdirSync(home);
+  if (extra.MOCK_FOCUS_INLINE_HOOKS === '1') {
+    fs.writeFileSync(path.join(home, 'config.toml'), inlineHookConfig);
+  }
   if (extra.MOCK_FOCUS_SETUP === '1') {
     const observer = {
       hooks: [
@@ -106,7 +112,7 @@ function start(
     .join(' ');
   f.tmux(['send-keys', '-t', pane, '-l', `${command}; printf '%s' "$?" > ${quote(status)}`]);
   f.tmux(['send-keys', '-t', pane, 'Enter']);
-  return { pane, log, status, channel: channel === true };
+  return { home, pane, log, status, channel: channel === true };
 }
 function events(s: Session, name: string): Event[] {
   return fs.existsSync(s.log)
@@ -833,14 +839,23 @@ describe('Codex native channel product routing', { concurrent: false }, () => {
       }, 90000);
     }
 
-  for (const args of [
-    ['--disable', 'hooks'],
-    ['-c', 'allow_managed_hooks_only=true'],
-    ['-c', 'hooks.Stop=[]', '-c', 'hooks.Stop=[]'],
+  for (const { args, inlineHooks } of [
+    { args: ['--disable', 'hooks'] },
+    { args: ['-c', 'allow_managed_hooks_only=true'] },
+    { args: ['-c', 'hooks.Stop=[]', '-c', 'hooks.Stop=[]'] },
+    { args: [], inlineHooks: true },
   ]) {
-    it(`Focus composition refusal preserves Codex launch argv ${args.join(' ')}`, async () => {
+    it(`Focus composition refusal preserves Codex launch argv ${inlineHooks ? 'with config.toml hooks' : args.join(' ')}`, async () => {
       await withE2EFixture(async (f) => {
-        const s = start(f, 'FallbackFocus', false, {}, undefined, false, args);
+        const s = start(
+          f,
+          'FallbackFocus',
+          false,
+          inlineHooks ? { MOCK_FOCUS_INLINE_HOOKS: '1' } : {},
+          undefined,
+          false,
+          args
+        );
         await ready(f, s);
         expect(events(s, 'started')[0].args).toEqual(args);
         expect(
@@ -859,6 +874,9 @@ describe('Codex native channel product routing', { concurrent: false }, () => {
           )
         ).toEqual({ count: 1 });
         await quit(s);
+        if (inlineHooks) {
+          expect(fs.readFileSync(path.join(s.home, 'config.toml'), 'utf8')).toBe(inlineHookConfig);
+        }
       });
     }, 60000);
   }

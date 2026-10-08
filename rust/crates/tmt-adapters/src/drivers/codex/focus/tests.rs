@@ -138,6 +138,54 @@ fn inline_config_owned_hooks_are_not_observed_twice() {
     assert_eq!(doc["hooks"]["Stop"].as_array().unwrap().len(), 2);
     assert_eq!(&prepared.args[..original.args.len()], original.args);
 }
+
+#[test]
+fn persistent_inline_hooks_refuse_composition_without_changing_foreign_or_owned_entries() {
+    let owned = crate::runtime::hook_protocol::command_entry(super::super::NAME, "/stable/tmt");
+    let foreign = json!({"hooks":[{"type":"command","command":"/user/hook","timeout":7}]});
+    for root in [".codex", "system"] {
+        for name in ["config.toml", "requirements.toml"] {
+            for entry in [&foreign, &owned] {
+                let d = TestDirectory::new();
+                let path = d.path.join(root).join(name);
+                fs::create_dir(path.parent().unwrap()).unwrap();
+                let text = format!(
+                    "model='kept'\n[hooks]\nStop={}\n",
+                    settings::toml(&json!([entry])).unwrap()
+                );
+                fs::write(&path, &text).unwrap();
+                assert!(
+                    prepare_in(
+                        &d,
+                        &command(&["-m", "kept"]),
+                        &launch("11111111-1111-4111-8111-111111111111")
+                    )
+                    .is_err(),
+                    "{root}/{name}: {entry}"
+                );
+                assert_eq!(fs::read_to_string(path).unwrap(), text);
+            }
+        }
+    }
+}
+
+#[test]
+fn empty_persistent_hook_tables_allow_stable_launch_composition() {
+    let d = TestDirectory::new();
+    for root in [".codex", "system"] {
+        fs::create_dir(d.path.join(root)).unwrap();
+        for name in ["config.toml", "requirements.toml"] {
+            fs::write(d.path.join(root).join(name), "model='kept'\n[hooks]\n").unwrap();
+        }
+    }
+    let prepared = prepare_in(
+        &d,
+        &command(&[]),
+        &launch("11111111-1111-4111-8111-111111111111"),
+    )
+    .unwrap();
+    assert_eq!(hooks(&prepared)["Stop"].as_array().unwrap().len(), 2);
+}
 #[test]
 fn disable_ambiguous_edited_and_unreadable_sources_refuse_without_mutation() {
     let d = TestDirectory::new();
@@ -171,14 +219,15 @@ fn disable_ambiguous_edited_and_unreadable_sources_refuse_without_mutation() {
 fn project_hooks_with_uncertain_eligibility_leave_original_sources_alone() {
     let d = TestDirectory::new();
     fs::create_dir(d.path.join(".codex")).unwrap();
-    let text = "[hooks]\nStop=[]\n";
+    let text = "[hooks]\n";
     fs::write(d.path.join(".codex/config.toml"), text).unwrap();
     // Here the project layer overlaps the user layer; avoid scanning it twice.
     let cwd = d.path.join("project");
     fs::create_dir(&cwd).unwrap();
+    let env = ProviderEnvironment::from_parts(&d.path, &cwd, vec![], []);
+    assert!(settings::sources(&env, &cwd, &d.path.join("system")).is_ok());
     fs::create_dir(cwd.join(".codex")).unwrap();
     fs::write(cwd.join(".codex/hooks.json"), "{}").unwrap();
-    let env = ProviderEnvironment::from_parts(&d.path, &cwd, vec![], []);
     assert!(settings::sources(&env, &cwd, &d.path.join("system")).is_err());
     assert_eq!(
         fs::read_to_string(d.path.join(".codex/config.toml")).unwrap(),
