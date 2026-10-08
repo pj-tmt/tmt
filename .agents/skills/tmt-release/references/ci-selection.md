@@ -122,6 +122,19 @@ Rust cache restores never save. Browser cache keys include OS, architecture and
 pinned Playwright version; only successful main-ref runs save. Reports are
 primitive-library evidence, not product or publication acceptance.
 
+The same workflow runs advisory real-binary Colab acceptance weekly, manually,
+or on a PR carrying `colab-acceptance`. Only adding that exact label can start
+acceptance from a label event; removing a label never starts it. Label edits skip
+the existing selector and interop jobs. Job-level concurrency keeps those edits
+from cancelling in-flight checks; acceptance never cancels an active run.
+The acceptance job checks the exact PR head, builds the app before one build of
+all three executables, and runs Chromium with one worker on Ubuntu x64 within
+30 minutes. It restores Rust dependencies without saving and retains only source,
+build hashes and test outcomes with bounded assertion locations/timeouts for seven
+days, never raw error values, private traces or profiles. Unexpected outcomes also
+print the bounded summary from the private JSON report for triage.
+It remains outside required aggregates and does not authorize publication.
+
 ## Verification
 
 ### Release gate parity
