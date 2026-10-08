@@ -76,8 +76,11 @@ An enrolled Codex launch owns one extra app-server process, plus its existing
 supervisor, for that foreground's lifetime. Normal exit and Ctrl-C use the same
 confirmed-child cleanup path. Codex's folder-trust prompt remains user-owned:
 the channel neither answers it nor changes trust configuration, and queued input
-may wait until the user completes attachment. Plain `codex` and global provider
-config, authentication and hooks are unchanged.
+may wait until the user completes attachment. Global provider configuration and
+authentication are unchanged. `tmt run` composes invocation-only Focus Stop hooks
+for plain and enrolled launches; exact definition-hash trust remains user-owned.
+Composition failure preserves the original launch. See the
+[provider Focus hook contract](../.agents/skills/tmt-core-runtime/references/identity-bindings.md#provider-launch-focus-hooks).
 
 Before an explicit channel launch with supported fresh-launch arguments, the
 Codex adapter may print: "Codex may ask you to trust this folder in its own

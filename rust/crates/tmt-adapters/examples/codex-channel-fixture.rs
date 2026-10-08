@@ -1,5 +1,5 @@
 //! Deterministic Codex protocol peer for real CLI/tmux E2E tests. No model,
-//! credentials, provider configuration or external network is used.
+//! credentials, host provider configuration or external network is used.
 use serde_json::{Value, json};
 use std::{
     env, fs,
@@ -54,6 +54,15 @@ fn server(args: &[String]) {
     eprintln!("listening on: ws://{}", listener.local_addr().unwrap());
     event("server-started");
     let state = Arc::new(Mutex::new(None::<LoadedThread>));
+    if env::var_os("MOCK_FOCUS_HOOKS").is_some() {
+        let state = state.clone();
+        let args = args.to_vec();
+        thread::spawn(move || {
+            focus_steps(&args, || {
+                state.lock().unwrap().as_ref().map(|s| s.id.clone())
+            })
+        });
+    }
     for stream in listener.incoming() {
         let token = token.clone();
         let state = state.clone();
@@ -289,6 +298,18 @@ fn foreground(args: &[String]) {
         None
     };
     log(json!({"event":"started","pid":std::process::id(),"args":args}));
+    if env::var_os("MOCK_FOCUS_HOOKS").is_some() && !args.iter().any(|a| a == "--remote") {
+        let session = if args.first().is_some_and(|a| a == "resume") {
+            args.iter()
+                .find(|a| uuid::Uuid::parse_str(a).is_ok())
+                .unwrap()
+                .clone()
+        } else {
+            uuid::Uuid::new_v4().to_string()
+        };
+        let args = args.to_vec();
+        thread::spawn(move || focus_steps(&args, || Some(session.clone())));
+    }
     thread::spawn(|| {
         for line in std::io::stdin().lock().lines().map_while(Result::ok) {
             log(json!({"event":"paste","line":line}));
@@ -342,5 +363,93 @@ fn foreground(args: &[String]) {
         }
         processed = messages.len();
         thread::sleep(Duration::from_millis(20));
+    }
+}
+
+// Model-free hook interpreter: consume the actual composed invocation and its
+// isolated user hooks, with explicit fixture-only trust. No host provider runs.
+fn focus_steps(args: &[String], session: impl Fn() -> Option<String>) {
+    let path = env::var("MOCK_CHANNEL_LOG").unwrap();
+    let mut definitions = serde_json::Map::new();
+    let home = std::path::PathBuf::from(env::var_os("CODEX_HOME").unwrap());
+    if let Ok(text) = fs::read_to_string(home.join("hooks.json")) {
+        let user: Value = serde_json::from_str(&text).unwrap();
+        definitions = user["hooks"].as_object().unwrap().clone();
+    }
+    let mut session_definitions = serde_json::Map::new();
+    for pair in args
+        .windows(2)
+        .filter(|p| p[0] == "-c" || p[0] == "--config")
+    {
+        let doc = pair[1].parse::<toml_edit::DocumentMut>().unwrap();
+        if let Some(hooks) = doc.get("hooks").and_then(toml_edit::Item::as_table_like) {
+            for (event, entries) in hooks.iter() {
+                let handlers = entries.as_array().unwrap().iter().map(|group| {
+                    let group = group.as_inline_table().unwrap();
+                    json!({"hooks":group.get("hooks").unwrap().as_array().unwrap().iter().map(|handler| {
+                        let handler = handler.as_inline_table().unwrap();
+                        json!({"command":handler.get("command").unwrap().as_str().unwrap()})
+                    }).collect::<Vec<_>>()})
+                }).collect::<Vec<_>>();
+                // CLI overrides make one session layer. The final composed root
+                // replaces an earlier explicit root; separate user hooks still merge.
+                session_definitions.insert(event.to_owned(), json!(handlers));
+            }
+        }
+    }
+    for (event, handlers) in session_definitions {
+        definitions
+            .entry(event)
+            .or_insert_with(|| json!([]))
+            .as_array_mut()
+            .unwrap()
+            .extend(handlers.as_array().unwrap().iter().cloned());
+    }
+    log(json!({"event":"focus-definitions","hooks":definitions}));
+    while !std::path::Path::new(&format!("{path}.quit")).exists() {
+        let step = format!("{path}.focus-step");
+        if let Ok(bytes) = fs::read(&step) {
+            fs::remove_file(&step).unwrap();
+            let step: Value = serde_json::from_slice(&bytes).unwrap();
+            let current = session().unwrap();
+            let payload = json!({"hook_event_name":step["hookEvent"].as_str().unwrap_or("Stop"),"source":step["source"].as_str().unwrap_or("startup"),"session_id":step["session"].as_str().unwrap_or(&current),"turn_id":step["turn"].as_str().unwrap_or("fixture-turn"),"stop_hook_active":step["active"].as_bool().unwrap_or(false),"transcript_path":null,"model":"fixture-focus-model","prompt":"fixture prompt"});
+            let event = payload["hook_event_name"].as_str().unwrap();
+            if env::var("MOCK_TRUST_HOOKS").as_deref() != Ok("1") {
+                log(json!({"event":"focus-skipped","step":step["name"]}));
+            } else if let Some(groups) = definitions.get(event).and_then(Value::as_array) {
+                for group in groups {
+                    for handler in group["hooks"].as_array().unwrap() {
+                        let command = handler["command"].as_str().unwrap();
+                        let mut child = Command::new("/bin/sh")
+                            .args(["-c", command])
+                            .stdin(Stdio::piped())
+                            .stdout(Stdio::piped())
+                            .stderr(Stdio::piped())
+                            .spawn()
+                            .unwrap();
+                        child
+                            .stdin
+                            .take()
+                            .unwrap()
+                            .write_all(payload.to_string().as_bytes())
+                            .unwrap();
+                        let output = child.wait_with_output().unwrap();
+                        let text = String::from_utf8(output.stdout).unwrap();
+                        let parsed = serde_json::from_str::<Value>(&text).ok();
+                        log(
+                            json!({"event":"focus-handler","step":step["name"],"command":command,"ok":output.status.success(),"stdout":text,"stderr":String::from_utf8_lossy(&output.stderr)}),
+                        );
+                        if parsed.as_ref().is_some_and(|v| v["decision"] == "block") {
+                            let reason = parsed.unwrap()["reason"].as_str().unwrap().to_owned();
+                            log(
+                                json!({"event":"focus-continuation","step":step["name"],"reason":reason}),
+                            );
+                        }
+                    }
+                }
+            }
+            log(json!({"event":"focus-step-done","step":step["name"],"session":current}));
+        }
+        thread::sleep(Duration::from_millis(10));
     }
 }

@@ -367,3 +367,34 @@ fn exact_resume_requires_typed_target_and_preserves_model_without_extra_input() 
         .is_err()
     );
 }
+
+#[test]
+fn exact_resume_routes_session_hooks_to_server_without_relaxing_permissions() {
+    let session = ProviderSessionId::new("11111111-1111-4111-8111-111111111111").unwrap();
+    let cwd = Path::new("/fixture");
+    let command = RuntimeCommand {
+        executable: "codex".into(),
+        args: [
+            "resume",
+            "-c",
+            "hooks.Stop=[]",
+            "--model",
+            "fixture",
+            session.as_str(),
+        ]
+        .map(OsString::from)
+        .to_vec(),
+    };
+    let options = LaunchOptions::for_launch(&command, cwd, Some(&session)).unwrap();
+    assert_eq!(
+        options.server_arguments(),
+        ["-c", "hooks.Stop=[]", "-c", "model=\"fixture\""]
+    );
+    assert_eq!(options.thread_resume_params(&session)["model"], "fixture");
+    let mut forbidden = command.clone();
+    forbidden.args[2] = "sandbox_mode=\"danger-full-access\"".into();
+    assert!(LaunchOptions::for_launch(&forbidden, cwd, Some(&session)).is_err());
+    let mut prompt = command;
+    prompt.args.push("unrequested prompt".into());
+    assert!(LaunchOptions::for_launch(&prompt, cwd, Some(&session)).is_err());
+}

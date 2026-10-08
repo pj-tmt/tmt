@@ -93,6 +93,20 @@ pub trait RuntimeLifecycle {
         None
     }
 
+    /// Map a native hook caller to the exact launch incarnation. Shared callers
+    /// need a driver-owned enrollment proof; the default admits only independent
+    /// callers and never grants a shared server the foreground's authority.
+    fn focus_process(
+        &self,
+        _current: &BindingSessionState,
+        observed: &ProcessIncarnation,
+        _session: &ProviderSessionId,
+        host: HostEvidence,
+        _deadline: Instant,
+    ) -> Option<ProcessIncarnation> {
+        matches!(host, HostEvidence::Independent { .. }).then(|| observed.clone())
+    }
+
     /// Optional shared work budget for input, admission and the hook worker.
     /// The driver reserves process cleanup and provider timeout margin.
     fn hook_work_duration(&self) -> Option<Duration> {

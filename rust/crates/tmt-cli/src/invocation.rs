@@ -153,7 +153,7 @@ pub enum Invocation {
     },
     FocusHook {
         provider: String,
-        launch: String,
+        launch: Option<String>,
         worker: bool,
         work_budget_ms: Option<u64>,
     },

@@ -37,6 +37,7 @@ pub struct LaunchHooks<'a> {
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct FocusHandoff {
+    pub launch: HookLaunch,
     pub checklist_id: String,
     pub attempt_token: String,
     pub digest: String,

@@ -37,15 +37,7 @@ fn main() {
     if args.first().is_some_and(|arg| arg == "app-server") {
         args.remove(0);
     }
-    // Legacy scripted scenarios retain their three positional paths. Session
-    // launch settings are provider options, not an extra scenario/report path.
-    // The model-free channel peer above executes the generated hooks instead.
-    if args.len() >= 2 && args[args.len() - 2] == "--settings" {
-        let settings: serde_json::Value =
-            serde_json::from_str(args.last().unwrap().to_str().unwrap()).unwrap();
-        assert!(settings.is_object(), "session settings must be an object");
-        args.truncate(args.len() - 2);
-    }
+    scripted_launch_options(&mut args);
     let listen = args.last().is_some_and(|value| value == "--listen");
     if listen {
         args.pop();
@@ -122,6 +114,30 @@ fn main() {
         )
         .unwrap();
     }
+}
+
+// Legacy scripted scenarios retain their three positional paths. Both provider
+// launch-hook options are settings, not an extra scenario/report path. The
+// model-free channel peers execute the generated hooks instead.
+fn scripted_launch_options(args: &mut Vec<std::ffi::OsString>) {
+    if args.len() < 2 {
+        return;
+    }
+    let option = &args[args.len() - 2];
+    let value = args.last().unwrap().to_str().unwrap();
+    if option == "--settings" {
+        let settings: serde_json::Value = serde_json::from_str(value).unwrap();
+        assert!(settings.is_object(), "session settings must be an object");
+    } else if option == "-c" {
+        let settings: toml_edit::DocumentMut = value.parse().unwrap();
+        assert!(
+            settings.get("hooks").is_some_and(|v| v.is_table_like()),
+            "session override must contain hooks"
+        );
+    } else {
+        return;
+    }
+    args.truncate(args.len() - 2);
 }
 
 /// Keep the MCP server a direct child of the admitted native provider. The
@@ -241,6 +257,22 @@ fn forward_mcp(input: &mut impl Read, output: &mut impl Write) -> io::Result<u64
 mod tests {
     use super::*;
     use std::{net::Shutdown, os::unix::net::UnixStream, time::Duration};
+
+    #[test]
+    fn scripted_paths_and_listen_survive_both_provider_launch_hook_options() {
+        let original: Vec<std::ffi::OsString> = ["/cli", "/scenario", "/report", "--listen"]
+            .map(Into::into)
+            .to_vec();
+        for (option, value) in [
+            ("--settings", r#"{"hooks":{"Stop":[]}}"#),
+            ("-c", "hooks={Stop=[]}"),
+        ] {
+            let mut args = original.clone();
+            args.extend([option.into(), value.into()]);
+            scripted_launch_options(&mut args);
+            assert_eq!(args, original);
+        }
+    }
 
     #[test]
     fn forwards_two_short_frames_before_stream_eof_and_reaps_the_peer() {
