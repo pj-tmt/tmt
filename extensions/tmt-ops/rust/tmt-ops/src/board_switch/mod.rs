@@ -522,6 +522,10 @@ fn attempt(core: &Core, prefix: &Path, socket: Option<&str>) -> Value {
 fn switch(core: &Core, prefix: &Path, socket: Option<&str>) -> Result<Value, SquadError> {
     let hint = command(prefix, socket);
     let Some(socket) = socket else {
+        let root = migration::data_root(core)?;
+        if !record::exists(&root) {
+            record::Record::open(&root, prefix, "")?.save()?;
+        }
         return Ok(json!({"complete":false,"switched":0,"command":hint}));
     };
     let root = migration::data_root(core)?;

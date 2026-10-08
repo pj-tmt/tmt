@@ -4648,4 +4648,34 @@ describe('verified former-board switching', () => {
       expect(existsSync(pending)).toBe(false);
     });
   }, 60_000);
+  it('keeps the non-tmux fallback after the layout has already migrated', async () => {
+    await withBoardSwitch(async ({ sandbox, socket, dataRoot }) => {
+      const cutover = await runCli(sandbox, ['ops', 'migration', 'switch', '--yes', '--json']);
+      expect(parseWholeStdout(cutover)).toEqual({ complete: true, switched: 0 });
+      delete sandbox.env.TMUX;
+      const pending = await runCli(sandbox, ['ops', 'migration', 'switch', '--yes', '--json']);
+      expect(pending.status).toBe(1);
+      const report = JSON.parse(pending.stdout);
+      expect(pending.stderr.trim()).toBe(report.command);
+      const file = path.join(dataRoot, '.ops-board-switch-v1.json');
+      expect(JSON.parse(readFileSync(file, 'utf8'))).toMatchObject({ socket: '', boards: [] });
+      expect(statSync(file).mode & 0o777).toBe(0o600);
+      const ordinary = await runCli(sandbox, ['ops', 'squad', 'ls', '--json']);
+      expect(ordinary.status).toBe(0);
+      expect(ordinary.stderr.trim()).toBe(report.command);
+      const resumed = await runCli(sandbox, [
+        'ops',
+        'migration',
+        'switch',
+        '--yes',
+        '--socket',
+        socket,
+        '--json',
+      ]);
+      expect(parseWholeStdout(resumed)).toEqual({ complete: true, switched: 0 });
+      expect(existsSync(file)).toBe(false);
+      const settled = await runCli(sandbox, ['ops', 'squad', 'ls', '--json']);
+      expect(settled.stderr).toBe('');
+    });
+  }, 60_000);
 });

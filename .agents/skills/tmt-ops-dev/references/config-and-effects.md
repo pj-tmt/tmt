@@ -121,7 +121,9 @@ first loaded Ops draw.
 
 `<dataRoot>/.ops-board-switch-v1.json` is separate from the migration journal:
 private 0600, same-user regular files with no-follow opens, at most 32 boards and
-1 MiB, serialized by a nonblocking switch lock. Launch details are synced before
+1 MiB, serialized by a nonblocking switch lock. A switch without tmux retains an
+empty pending record that binds to the chosen socket before any board effect.
+Launch details are synced before
 TERM; launch submission is recorded before its effect, so an interrupted retry
 recognizes acknowledged Ops processes instead of launching duplicates. Uncertain
 submission is retained and reported rather than blindly resubmitted. Readiness

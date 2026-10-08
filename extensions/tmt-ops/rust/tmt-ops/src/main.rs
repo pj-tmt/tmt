@@ -1084,17 +1084,14 @@ fn main() -> ExitCode {
     } else {
         (root, flags)
     };
-    match command {
-        "__complete" => {
-            let words: Vec<String> = sub
-                .get_many::<String>("words")
-                .into_iter()
-                .flatten()
-                .cloned()
-                .collect();
-            return print_completion(&complete(&words));
-        }
-        _ => {}
+    if command == "__complete" {
+        let words: Vec<String> = sub
+            .get_many::<String>("words")
+            .into_iter()
+            .flatten()
+            .cloned()
+            .collect();
+        return print_completion(&complete(&words));
     }
     // Decided once: whether a person can see the board or answer a question.
     let interaction = Interaction::detect(json);
@@ -1126,10 +1123,9 @@ fn main() -> ExitCode {
             let code = if outcome.complete { 0 } else { 1 };
             if command == "migration"
                 && let Some(command) = outcome.document["command"].as_str()
+                && board_switch::write_notice(command).is_err()
             {
-                if board_switch::write_notice(command).is_err() {
-                    return ExitCode::FAILURE;
-                }
+                return ExitCode::FAILURE;
             }
             if json {
                 return print_document(&outcome.document, code);

@@ -73,7 +73,9 @@ impl Record {
                 let value: Value = serde_json::from_slice(&bytes).map_err(fail)?;
                 if value["version"] != 1
                     || value["prefix"] != prefix.to_string_lossy().as_ref()
-                    || value["socket"] != socket
+                    || (value["socket"] != socket
+                        && !(value["socket"] == ""
+                            && value["boards"].as_array().is_some_and(Vec::is_empty)))
                 {
                     return Err(fail(
                         "Pending switch belongs to a different installation or tmux socket.",
@@ -207,6 +209,10 @@ mod tests {
     fn private_record_recovers_progress_and_rejects_links_and_other_sockets() {
         let root = std::env::temp_dir().join(format!("ops-switch-record-{}", std::process::id()));
         fs::create_dir(&root).unwrap();
+        Record::open(&root, Path::new("/owned"), "")
+            .unwrap()
+            .save()
+            .unwrap();
         let mut record = Record::open(&root, Path::new("/owned"), "/socket").unwrap();
         record
             .add(json!({"pid":42,"start":"start","pane":"%1","state":"stopped"}))
