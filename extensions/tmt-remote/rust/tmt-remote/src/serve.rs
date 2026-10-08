@@ -24,8 +24,8 @@ use tmt_remote::{
     devices::Devices,
     error::RemoteError,
     http::{Door, Handler},
-    mount::{self, Mounts},
-    object_service::{ObjectService, Origins, ServiceBounds},
+    mount::{self, Extension, Mounts, ObjectDeclaration},
+    object_service::{ActivateError, ObjectService, Origins, ServiceBounds},
     objects::{IoBudget, Quotas, system_clock},
     operations::Operations,
     pages::Pages,
@@ -590,13 +590,67 @@ fn cleanup(child: &mut Child, deadline: Instant) -> bool {
     false
 }
 
+/// A failed object candidate never changes the door's readiness or starts a retry.
+#[derive(Debug, PartialEq, Eq)]
+struct ObjectSetupFailure {
+    extension: &'static str,
+    error: ActivateError,
+}
+
+fn activate_objects(
+    objects: &ObjectService<'_>,
+    mounts: &Mounts,
+    extensions: &'static [Extension],
+    stop: &AtomicBool,
+) -> Result<Vec<ObjectSetupFailure>, RemoteError> {
+    let mut failures = Vec::new();
+    for extension in extensions
+        .iter()
+        .filter(|extension| extension.objects == ObjectDeclaration::Local)
+    {
+        fence(stop)?;
+        if let Err(error) = objects.activate(mounts, extension.name) {
+            failures.push(ObjectSetupFailure {
+                extension: extension.name,
+                error,
+            });
+        }
+        fence(stop)?;
+    }
+    Ok(failures)
+}
+
+fn object_warning(detail: &str) {
+    let mut output = tmt_cli_style::stream::stderr();
+    let terminal = output.terminal();
+    // Diagnostic publication must not turn an optional setup failure into door failure.
+    let _ = tmt_cli_style::message::warning(&mut output, terminal, detail, None);
+}
+
 fn foreground(
+    port: Option<u16>,
+    json_output: bool,
+    stop: &Arc<AtomicBool>,
+    handoff: Option<&mut Handoff>,
+) -> Result<(), RemoteError> {
+    foreground_with(
+        CoreClient::discover()?,
+        &mount::EXTENSIONS,
+        port,
+        json_output,
+        stop,
+        handoff,
+    )
+}
+
+fn foreground_with(
+    core: CoreClient,
+    extensions: &'static [Extension],
     port: Option<u16>,
     json_output: bool,
     stop: &Arc<AtomicBool>,
     mut handoff: Option<&mut Handoff>,
 ) -> Result<(), RemoteError> {
-    let core = CoreClient::discover()?;
     let capabilities = core.capabilities(stop)?;
     if capabilities["version"] != 1
         || capabilities["limits"]["outputBytes"]
@@ -636,11 +690,11 @@ fn foreground(
         let mut store = Store::open(&serving)?;
         // The origins of tunnels to object-declared extensions, shared by mounts and service.
         let origins = Origins::default();
-        // Declared object storage settles its accounting before readiness or refuses it.
-        // Nothing declares objects in production, so this opens nothing today.
+        // Object readiness requires settled accounting, but its failure leaves the door usable.
+        // Every production declaration remains disabled.
         let objects = ObjectService::open(
             &serving,
-            &mount::EXTENSIONS,
+            extensions,
             Quotas::contract(),
             system_clock(),
             ServiceBounds::contract(),
@@ -649,7 +703,15 @@ fn foreground(
                 deadline: Instant::now() + STARTUP,
                 cancelled: stop,
             },
-        )?;
+        );
+        let objects = match objects {
+            Ok(objects) => objects,
+            Err(error) => {
+                object_warning(&format!("Object storage unavailable: {}", error.code));
+                None
+            }
+        };
+        fence(stop)?;
         let machine = store.machine()?;
         let requested = port;
         let remembered = store.remembered_port()?;
@@ -722,8 +784,14 @@ fn foreground(
         let site = Arc::new(Site {
             routes,
             mounts: Arc::new(
-                Mounts::new(root, &door.origin, &machine.route_prefix, sessions)
-                    .with_origins(Arc::new(origins)),
+                Mounts::with_extensions(
+                    root,
+                    &door.origin,
+                    &machine.route_prefix,
+                    sessions,
+                    extensions,
+                )
+                .with_origins(Arc::new(origins)),
             ),
             pages: Some(
                 Pages::new(
@@ -738,6 +806,15 @@ fn foreground(
         fence(stop)?;
         let events = devices.start_events(Arc::clone(&site.mounts))?;
         fence(stop)?;
+        if let Some(objects) = &objects {
+            for failure in activate_objects(objects, &site.mounts, extensions, stop)? {
+                object_warning(&format!(
+                    "Object channel unavailable for {}: {:?}",
+                    failure.extension, failure.error
+                ));
+            }
+        }
+        fence(stop)?;
         store
             .lock()
             .expect("store lock")
@@ -750,6 +827,9 @@ fn foreground(
             publish(&ready, json_output, false)?;
         }
         let result = door.run(stop, site as Arc<dyn Handler>);
+        if let Some(objects) = &objects {
+            objects.shutdown();
+        }
         // Stopping cancels any pending pairing before state is released.
         control.stop();
         approval.cancel_pending()?;
@@ -836,3 +916,7 @@ mod tests {
         assert!(start.elapsed() < Duration::from_secs(1));
     }
 }
+
+#[cfg(test)]
+#[path = "serve/tests.rs"]
+mod object_tests;
