@@ -59,7 +59,7 @@ impl Pane {
             ));
         }
         let (_, _, table) = self.table.as_ref().expect("compiled");
-        let scene = match table.materialize(FILE, &json!({"rows": rows}), &picker_surface::Data) {
+        let scene = match table.materialize(FILE, &json!({"rows": &rows}), &picker_surface::Data) {
             Ok(scene) => scene,
             Err(error) => {
                 // A projection the markup refuses must not take the board down.
@@ -90,6 +90,16 @@ impl Pane {
             },
         )
         .ok();
+        if let Some(map) = &self.frame {
+            crate::board::row_detail::paint_list(
+                frame.buffer_mut(),
+                map,
+                &rows,
+                look,
+                self.list.selected(),
+                7,
+            );
+        }
     }
 
     /// Stale geometry never activates: a resize or new model discards it.

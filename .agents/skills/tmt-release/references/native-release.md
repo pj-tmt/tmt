@@ -162,9 +162,9 @@ install and `tmt extension uninstall squad`.
 
 ### Herdr driver archives
 
-`driver-herdr` is `release: false` in the component map and `dist = false` in its Cargo package
-until owner-authorized activation (#1418) changes both for its first standalone alpha; the CLI archive
-keeps shipping its binary until then. Build independently (no `tmt` build):
+`driver-herdr` is activated for independent native alpha cuts (#1418), starting at `0.1.0-alpha.1`.
+The CLI archive retains its companion until released-package acquisition (#1084) is delivered;
+standalone archives use the existing explicit executable-path approval. Build independently (no `tmt` build):
 
 ```sh
 scripts/build-native-artifact.sh aarch64-apple-darwin driver-herdr > /absolute/driver-manifest.json
@@ -186,7 +186,9 @@ application state.
 Installation and upgrade tests build their fixtures as described in
 [installation-fixtures.md](installation-fixtures.md). Every released product must
 upgrade from its newest lower published version, preserving candidate > previous,
-downgrade rejection and readable old receipts. Standalone drivers use the current
+downgrade rejection and readable old receipts. With no own prior publication, predecessor
+selection and digest-checked staging retain the old product tag/archive identity; cross-product
+installer and migration acceptance requires its separately reviewed Core/product contract. Standalone drivers use the current
 published CLI's path approval surface. Keep ownership in the installation prefix,
 not application-state selectors; verify pin policy, old executable preservation,
 partial command-link finalization and unchanged data. The internal installer is
@@ -360,6 +362,200 @@ script and verifies the public download before the README advertises it.
 Replacing npm/pnpm is a fresh installation without data-transfer machinery; never
 delete old state or silently uninstall another manager.
 
+## Compiled CLI schema preparation
+
+New CLI preparation requires Core's accepted `__native-schema --source-sha <cut> --json`
+exporter. A source predating it refuses explicitly; existing published schema-less archive
+readers retain their compatibility. The schema carrier supplies no producer trust
+tuple, RC catalog, cleanup qualification or publishing authorization. Exporter integration and
+separately authorized four-host proof are delivery gates; tooling fixtures prove no native archive.
+
+The existing target jobs export from their verified archive's CLI with matching-host/Rosetta
+execution and no extra build. `native-application-schema.mjs` checks the strict compact v1 record
+against the exact-cut version snapshot: the complete direct `storage/schema/*.sql` inventory,
+`storage/migrations.rs` and `storage/migrations/host_names.rs`, including the separate indexes input.
+Unknown/omitted/extra closure inputs refuse; changing that declared closure requires Core review.
+Core owns domain/version semantics; SQL counts and the descriptive caller SHA prove neither.
+Version-only manifest/lock edits remain with the existing injection owner. Export runs with an
+empty PATH and isolated HOME/cwd/config, no credentials, and refuses observed state writes;
+this observation is not an OS sandbox or proof of no external effects. Red roots are retained.
+
+Target evidence binds captured source, binary/output and unchanged archive hashes. After the
+ordinary global cargo-dist merge, all four records must agree before the carrier adds
+`tmt_application_schema`, still within the 4 MiB final manifest bound. Bootstrap generation and
+final upload follow; final matching-host archive verification independently exports the extracted
+CLI and compares the whole field and target evidence. It refuses a changed manifest through the
+end of runtime verification. Sidecars remain preparation evidence, not a new release asset policy.
+No extension schema is inferred, published manifest rewritten or PR binary executed with writer
+credentials. Source/tooling proof and actual integrated native preparation remain separate gates.
+
+## Unarmed PR RC resource planning
+
+`typescript/scripts/pr-rc-resources.mjs` owns the pure first resource-policy slice of
+#1889. It imports only the built-in digest owner, exports `rcGenerationKey` and
+`planRCResources`, and has no command entry point or effectful adapter. Its local
+typed planning records are not Core catalog/eligibility/schema/trust wire types.
+The [PR channel contract](../../../../contracts/native-pr-channel.md) retains those
+owners and frozen v2 catalog/payload and v1 schema/trust semantics.
+
+The complete snapshot binds official repository, current channel source/enable
+epoch, externally approved producer tuple, exact run/attempt and sorted selected
+product/target set. Each reservation/settlement/inventory/absence observation binds
+the digest of that entire identity and a bounded evidence reference. `confirmed`
+is a supplied planning observation, never API authentication, upload quiescence,
+installer eligibility or remote cleanup proof. A future trusted adapter must
+establish and revalidate the evidence; PR code must never run with its write authority.
+Upstream source-artifact provenance is separate and cannot become deletion ownership.
+
+A reserve request proposes only an exclusive durable journal commit/readback; it
+cannot expose upload in that call. The subsequent complete snapshot must retain
+that reservation before upload intents can appear. Every output reserves declared
+transport and metadata maxima, at least the frozen 69 MiB payload/2 MiB catalog
+transport bounds. The future uploader must enforce the complete declared envelope
+before and during effects, with one payload bound to each canonical selected pair.
+It must refuse an unknown overhead bound. Raw member sizes do
+not replace transport bounds. Catalog upload is last and separately requires all
+payloads independently verified/settled and fresh Core eligibility.
+
+Local admission enforces eight enabled channels, one current generation per PR,
+one incomplete/replacement/retired/uncertain generation repository-wide, 1 GiB/64
+artifacts per generation, 9 GiB aggregate, 1 MiB declared manifest content and
+16 MiB diagnostics per generation, and no cache resource kind. All reservations,
+unknown/unmatched and deletion-unconfirmed resources remain charged. The proposed
+128 KiB checkpoint/three-checkpoint/32-terminal-entry limits are conservative local
+controls, not backend guarantees: all three maximum checkpoint representations
+remain charged inside the aggregate even when observed metadata is smaller. Input
+plus request must fit one checkpoint; reconciliation admits at most 100 channel
+and 1000 resource records. It never evicts unresolved records to meet a bound.
+
+Close (merged or unmerged), disable, new head or new epoch retires discovery first.
+Only exact journal-owned run/attempt cancellation and artifact-ID deletion intents
+are proposed. Cancellation acceptance, deletion status, a bare 404, expiry or missing
+logs do not settle uploads or release capacity. Deletion additionally requires
+settled uploads and complete exact inventory; payload deletion requires confirmed
+catalog absence. Release additionally requires separately bound confirmed absence
+and an exclusive durable release commit. Even a release intent leaves the input
+charge unchanged. A refusal preserves input and has no intents; a null charge means
+unknown accounting, never zero. Readers gain no remote lease or local uninstall.
+Valid observations with unmet obligations return `blocked`, including unmatched
+charges with no generation and uncertain/contradictory current publication evidence.
+Confirmed absence of recorded pending outputs blocks further upload intents; an
+empty pre-upload absence set does not. A current producer tuple that differs from
+the supplied approved tuple remains unresolved in the incomplete slot. Changed
+approval does not prevent exact owned historical retirement.
+Re-enable/reopen cannot resurrect a retired generation or erase a charged slot.
+
+`typescript/scripts/pr-rc-journal.mjs` implements an unarmed Deployment checkpoint
+candidate using only injected custody, authenticated bounded transport and durable
+recovery ports. It has no CLI, credential reader, live transport or workflow caller.
+Strict finite UTF-8 JSON rejects duplicate/unknown checkpoint fields, unsafe integers,
+excess nesting and oversized representations. Immutable bytes bind the official
+repository, writer/approved tooling, exact run/attempt, source revision, predecessor
+ID/digest, complete snapshot digest and bounded terminal records. Accounting and
+reservation admission reuse `planRCResources`/`rcGenerationKey`; previous generations,
+unmatched uncertainty and terminal records cannot disappear at any recorded transition
+or candidate succession. An inconsistent history is refused before transport effects;
+complete original records remain available and accounting is unknown, never the
+smaller candidate-only total.
+Qualified release/terminal compaction remains unsupported rather than inferred.
+
+A captured externally qualified exclusive-writer context and complete bounded
+unfiltered Deployment inventory precede effects. The injected context is not CAS,
+authentication or proof of workflow exclusivity. A future writer/reconciler needs
+one shared concurrency domain with cancellation disabled. Bootstrap requires a
+separate explicit empty-ledger admission; a missing checkpoint is never bootstrap.
+Original returned IDs and raw authenticated responses are retained. Successor
+create, exact readback and complete inventory precede pruning of recorded owned
+predecessors only. Each gets an inactive status with `auto_inactive:false`, exact
+status readback, DELETE, exact authenticated absence and complete inventory.
+Unrelated deployments/environments are never mutation targets. This proves no
+artifact settlement, physical storage reclamation or billing reduction.
+
+An injected durable intent is saved before create/status/delete and at independent
+returned-ID/readback/inactive/delete boundaries. Each actual returned inactive-status
+ID and raw response is saved before asynchronous readback; status identity is reset
+for each predecessor. Unknown outcomes stop later effects;
+recovery preserves the complete candidate, recorded IDs, custody and raw evidence,
+freezes allocations and never retries POST or infers an empty ledger. Completed
+exact-ID evidence also remains durable until an independently qualified handoff. Recovery
+qualification must resolve retained evidence before another operation; no automatic
+resume/replacement or silent alternate store is supplied. All generations and
+worst-case checkpoint overlap stay charged, including after successful pruning.
+
+The candidate enforces 256 requests/8 MiB cumulative request-plus-response bytes per
+pass, at most 10 seconds per call within the original 10-minute deadline including
+queue/custody wait, 1000 inventory records and three checkpoints without eviction.
+Ports must independently enforce bounds, abort, authentication and durable exact-byte
+recovery writes. The three-day TTL remains a future backstop, never absence evidence.
+Deterministic owning controls in `test/tooling/pr-rc-journal.test.ts` and retained
+`pr-rc-resources.test.ts` qualify source behavior only. Official
+[Deployments](https://docs.github.com/en/rest/deployments/deployments),
+[statuses](https://docs.github.com/en/rest/deployments/statuses) and
+[concurrency](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/control-workflow-concurrency)
+semantics do not qualify this repository's permissions, accepted payload size,
+events/integrations, custody or incremental costs. Live backend selection and
+bounded real API qualification remain separate gates. Producer admission, Core
+catalog/eligibility/schema/trust ownership, actual upload/close cleanup, ordinary
+CI artifacts, caches, releases, upstream provenance and local installs are unchanged.
+
+## Unarmed trusted reuse-only PR RC coordination
+
+`typescript/scripts/pr-rc-coordinator.mjs` composes the delivered planner and checkpoint
+owners for one CLI generation: four sorted existing targets, unchanged archive versions,
+final manifest bytes and frozen revision2 catalog fields. It supplies fixed root regular
+byte members to an injected upload owner; it has no command entry point, default live
+transport, ZIP parser, extraction, PR executable invocation or workflow caller.
+
+The externally reviewed approval port supplies the publisher tuple and complete preparation
+workflow/action/verifier/dependency closure. Authenticated bounded observations bind the
+actual workflow blob, same-repository open/current-head PR, current label and unique latest
+UTC-second enable epoch, and current trusted-main writer run/attempt. Preparation exports
+separately identify actual prepared PR source, possible synthetic API head and trusted tooling;
+a successful run or `complete:true` alone supplies none of these facts. Existing source/schema,
+native manifest/inventory and no-follow bounded file readers admit only known raw hashes and
+lengths. All four final matching-host proofs must bind authenticated preparation artifact IDs,
+source snapshot, schema output/binary, final manifest/archive and notices/inventory digests.
+
+Current `native-release-prepare.yml` and schema sidecars do not export that complete
+authenticated closure/run/artifact/final-verification record. Missing fields refuse with the
+preparation owner's exact export obligation. The future observation adapter must provide
+complete authenticated raw pull/timeline/run/workflow and upstream evidence; no adapter or
+approval is activated here. The local injected projections accept compact JSON (optional
+newline) or the existing two-space/newline manifest encoding, reject duplicate keys and unknown
+projected proof/receipt fields, and enforce raw byte/depth/integer bounds. Unsupported service encoding remains unavailable.
+
+Before payload effects the coordinator commits and independently reads back the complete
+worst-case reservation through `prepareRCCheckpoint`/`commitRCCheckpoint`: four 69 MiB payload
+transports, one 2 MiB catalog transport and 20 MiB metadata, plus retained checkpoint overlap.
+Four copies of the final manifest must fit the existing 1 MiB aggregate manifest-content limit.
+A finite 16 MiB recovery envelope (measured with raw bytes as base64) is covered by that metadata;
+the same checkpoint recovery port must preserve the extended record exactly and enforce its
+bound. This does not enlarge the 128 KiB checkpoint wire or introduce a second store. Immutable
+reserved generations and original charges remain unchanged; upload identities and observations
+stay alongside them in recovery evidence. Checkpoint and publication metadata share the
+256-request/8 MiB pass budget and original ten-minute deadline, with ten seconds per operation.
+
+An intent is durable before upload. Each returned ID, independently parsed raw-body ID and
+original response is durable before asynchronous readback or finalization. Exact run, attempt,
+name, ZIP size/digest and fixed raw member descriptors must independently agree. Authenticated
+finalization exports bind the exact upload's ended-writer, settlement and inventory references;
+a successful upload, cancellation202 or custody Boolean cannot replace them. Real upload
+ownership, quiescence and service permission remain unqualified. Source controls inject those
+facts; they do not prove their existence on a real backend.
+
+Fresh eligibility precedes each payload and catalog publication. Four verified/finalized payloads
+supply the catalog; its sole `catalog.json` upload is last and independently read back, followed
+by eligibility recheck for a close during publication. A partial or changed observation freezes
+subsequent publication and retains all IDs, raw evidence and charges. The result is explicitly
+unarmed `readback-confirmed`, never a live current/complete channel. Existing recovery, including
+completed operations, requires qualified owning disposition before any new operation; no
+automatic retry, older fallback, inferred bootstrap or deletion is exposed. Ordinary preparation
+artifacts remain read-only reuse provenance, with no deletion rights.
+
+Source controls prove ordering, catalog bytes and refusal sensitivity only. Production approval, actual workflow/transport, backend/recovery
+custody, finalization, catalog-first close/missed-event/late-upload/reader-race cleanup, physical
+absence, measured cost and representative installs remain #1889/#1639 work.
+
 ## Packed verifier cleanup
 
 Packed verifiers use bounded synchronous subprocesses and own their isolated process
@@ -377,22 +573,25 @@ controls, confirmed-absence proof and original subprocess deadlines.
 
 ## Conventional PR titles
 
-`Code quality` runs `node typescript/scripts/pr-title-check.mjs` on `pull_request` and
-`merge_group`. Both check `type(scope)?: subject` with a lowercase type, optional nonempty
-scope and `!`; the cut planner owns release attribution.
+`typescript/scripts/pr-title-check.mjs` owns the exported `CONVENTIONAL_PR_TYPES` policy and
+`type(scope)?: subject` syntax (optional nonempty scope and `!`). It is syntax feedback;
+the cut planner owns release attribution.
 
-- **Pull request: enforcing.** The step reads the current title through `gh api` (a rerun
-  reuses the original event payload, so the event title is stale) and the changed paths from
-  the event's `base...head`. A non-conventional title fails when a path changes a released
-  component, through the planner's own `releasedComponentNamesOfPath` (owned roots plus
-  declared consumers, without the Cargo closure). Note `cli` owns `.` except the other
-  components' roots, so nearly every PR is in scope; only PRs confined to unreleased roots
-  keep any title. Missing title evidence fails closed. After the author edits the title, rerun
-  `Code quality`; full CI has no `edited` trigger.
-- **Merge group: report-only.** Every pending squash subject (after removing GitHub's final
-  `(#PR)`) is checked; findings (PR, SHA, escaped title) go to job output and
-  `GITHUB_STEP_SUMMARY`. Invalid titles, unavailable queue evidence or summary I/O errors
-  still exit zero, and unavailable evidence is never a clean result.
+- **Pull request: enforcing.** Both `Code quality` and the small `pr-title.yml` workflow read
+  the current title through `gh api` (a rerun's event title may be stale) and changed paths
+  from the event's `base...head`. A title outside the approved policy fails when a path
+  changes a released component, using `releasedComponentNamesOfPath` (owned roots plus
+  declared consumers, without Cargo closure). `cli` owns `.` except other components' roots;
+  only PRs confined to unreleased roots keep any title. Missing evidence fails closed.
+  The separate read-only Node job runs on opened/edited/reopened/synchronize with independent
+  concurrency, no dependency install or product build. Editing a title triggers that check;
+  rerun `Code quality` if its previous title step failed. Full CI has no `edited` trigger.
+- **Merge group: enforcing.** `Code quality` checks every pending cumulative squash subject
+  after removing GitHub's final `(#PR)`, not only the queue tip or fresh REST title. Invalid
+  titles and unavailable queue evidence fail the required job; PR/SHA/exact escaped title
+  findings and expected syntax/types are retained in stdout and `GITHUB_STEP_SUMMARY`.
+  Summary I/O cannot change the decision. Explicit `--report-only` retains the former
+  observation command's zero exit on findings/unavailable evidence; required CI never uses it.
 
 The planner is the fail-safe behind the gate: a non-conventional or capitalized top-level
 subject on a released component's paths is releasable and listed under `Other changes`, never
@@ -400,7 +599,7 @@ dropped (#1643). Conventional `docs`, `chore`, `test` and similar types stay hid
 
 Verify with
 `pnpm exec vp test run --config vitest.config.ts test/tooling/pr-title-check.test.ts test/tooling/release-cut.test.ts`,
-`pnpm check:tooling` and `actionlint .github/workflows/ci.yml`.
+`pnpm check:tooling` and `actionlint .github/workflows/ci.yml .github/workflows/pr-title.yml`.
 
 ## Project release tracking
 
@@ -418,13 +617,13 @@ For each affected product choose the earliest publication whose tag contains eve
 merge. Only complete product coverage permits `Released`; otherwise retain available
 publication evidence and `Merged`. Private components await their consumers' releases.
 Only never-shipped work or waits confined to parked products reconcile to `Done`, with
-`ships with the first <product> release` for each parked wait. An absent status marker
-preserves activation waits; private consumers cannot name a never-shipped product.
-`release:false` alone is never evidence that work needs no release (Herdr awaits
-activation; activated Remote and Colab wait for their published containing tags); the
-map's `releaseStatus` is valid only with `release:false` (`never`: test support contained
-in no release; `parked`: Office). Style and invoke require CLI, Squad, Remote and Colab
-release evidence; TUI requires only Squad evidence.
+`ships with the first <product> release` for each parked wait. `release:false` alone never
+proves that work needs no release; an absent status marker retains activation waits.
+The map's `releaseStatus` is valid only with `release:false` (`never`: test support contained
+in no release; `parked`: Office and the private browser-addon demo). Private consumers cannot
+name a never-shipped product. Browser-addon publication remains deferred by the v1 freeze
+(#1056 / v1-later), with no release consumer. Released products require published containing tags;
+style and invoke require CLI, Squad, Remote and Colab evidence, and TUI only Squad evidence.
 
 For reviewed leaves inside a component, `neverShippedPaths` in the component map is a
 Project-only list of `{root, reason, testOnlyReferences?}`. Roots are normalized literal

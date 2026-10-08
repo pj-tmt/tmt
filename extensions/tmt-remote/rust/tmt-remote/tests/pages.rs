@@ -95,6 +95,9 @@ fn the_pairing_page_and_sdk_are_served_with_exact_types_and_policy() {
     );
     assert!(page.body.contains(r#"data-tmt-page="pair""#));
     assert!(page.body.contains(r#"<script src="/sdk/pair.js">"#));
+    assert!(page.body.contains(
+        r#"<button class="tmt-ui-action" type="submit" aria-describedby="status" disabled>"#
+    ));
     let sdk = get(
         &h,
         "/sdk/remote-v1.js",
@@ -207,10 +210,44 @@ fn static_pages_and_styles_are_exact_and_refusals_remain_generic() {
     let landing = get(&h, "/", "");
     assert_eq!(landing.status, 200);
     assert_eq!(landing.body, include_str!("../assets/landing.html"));
-    assert!(landing.body.contains(
-        r#"<span class="header-mark">tmt</span><span class="header-wordmark">Remote</span>"#
-    ));
-    assert!(landing.body.contains("aria-hidden=\"true\">○</span>"));
+    assert!(
+        landing
+            .body
+            .contains(r#"class="header-mark tmt-ui-mark">tmt</span"#)
+    );
+    assert!(
+        landing
+            .body
+            .contains(r#"class="header-wordmark tmt-ui-wordmark">Remote</span>"#)
+    );
+    assert!(landing.body.contains("aria-hidden=\"true\">○</span"));
+    assert!(landing.body.contains("/sdk/landing.js"));
+    for text in [
+        "pairing-status",
+        "access-status",
+        "tmt remote pair",
+        "four words",
+        "confirm in the terminal",
+    ] {
+        assert!(landing.body.contains(text), "{text}");
+    }
+    let entry = get(&h, "/sdk/landing.js", "");
+    assert_eq!(entry.status, 200);
+    assert_eq!(entry.body, include_str!("../assets/landing.js"));
+    assert_eq!(entry.header("cache-control"), Some("no-store"));
+    assert_eq!(
+        entry.header("content-type"),
+        Some("text/javascript; charset=utf-8")
+    );
+    assert_eq!(
+        get(&h, "/sdk/landing.js", "Origin: https://example.com\r\n").status,
+        403
+    );
+    assert_eq!(
+        h.grants(),
+        0,
+        "static entry never enrolls or admits a browser"
+    );
     assert_eq!(
         landing.header("content-type"),
         Some("text/html; charset=utf-8")
@@ -219,7 +256,16 @@ fn static_pages_and_styles_are_exact_and_refusals_remain_generic() {
     assert!(policy.contains("style-src 'self'"));
     let css = get(&h, "/sdk/pages.css", "");
     assert_eq!(css.status, 200);
-    assert_eq!(css.body, include_str!("../assets/pages.css"));
+    assert_eq!(
+        css.body,
+        concat!(
+            include_str!("../../../../../design/browser-ui/generated/static.css"),
+            "\n",
+            include_str!("../assets/pages.css"),
+        )
+    );
+    assert!(!css.body.contains("@import"));
+    assert!(!css.body.contains("url("));
     assert_eq!(css.header("content-type"), Some("text/css; charset=utf-8"));
     assert_eq!(css.header("cache-control"), Some("no-store"));
     assert_eq!(css.header("x-content-type-options"), Some("nosniff"));
@@ -237,7 +283,7 @@ fn static_pages_and_styles_are_exact_and_refusals_remain_generic() {
         );
         assert_eq!(reply.header("content-security-policy"), Some(policy));
         assert_eq!(reply.body, include_str!("../assets/error.html"));
-        assert!(reply.body.contains("aria-hidden=\"true\">✗</span>"));
+        assert!(reply.body.contains("aria-hidden=\"true\">✗</span"));
         // No cause crosses the generic refusal boundary; never infer expiry or reuse.
         assert!(reply.body.contains("This page is unavailable"));
         assert!(!reply.body.contains("has expired"));
@@ -255,72 +301,95 @@ fn static_pages_and_styles_are_exact_and_refusals_remain_generic() {
 }
 
 #[test]
-fn page_palette_and_font_stacks_match_the_shared_token_owner() {
-    let tokens: Value =
-        serde_json::from_str(include_str!("../../../../../design/tokens/tokens.json")).unwrap();
-    let css = include_str!("../assets/pages.css");
-    let (light, dark) = css
-        .split_once("@media (prefers-color-scheme: dark)")
-        .unwrap();
-    for (theme, section) in [("light", light), ("dark", dark)] {
-        for group in ["color", "surface"] {
-            for (name, token) in tokens[group].as_object().unwrap() {
-                if css.contains(&format!("--c-{name}:")) {
-                    assert!(
-                        section.contains(&format!(
-                            "--c-{name}: {};",
-                            token[theme].as_str().unwrap().to_ascii_lowercase()
-                        )),
-                        "{theme} {name}"
-                    );
-                }
-            }
-        }
-    }
-    for name in ["display", "body", "mono"] {
-        assert!(css.contains(&format!(
-            "--f-{name}: {};",
-            tokens["font"][name]["stack"].as_str().unwrap().replace('"', "'")
-        )));
-    }
-}
-
-/// The header metrics have one owner (`header` in the shared tokens), the same one Colab's
-/// header reads. The pages ship a static stylesheet, so this is where drift is caught.
-#[test]
-fn page_header_metrics_match_the_shared_token_owner() {
-    let tokens: Value =
-        serde_json::from_str(include_str!("../../../../../design/tokens/tokens.json")).unwrap();
-    let css = include_str!("../assets/pages.css");
-    let header = tokens["header"].as_object().unwrap();
-    // These pages have no header actions or icons, so those tokens are not projected.
-    let unused = ["compact-max-width", "action-", "icon-"];
-    for (name, value) in header {
-        if name == "compact-max-width" {
-            assert!(css.contains(&format!(
-                "@media (max-width: {}) {{\n  :root {{\n    --header-height: var(--header-compact-height);",
-                value.as_str().unwrap()
-            )));
-        } else if unused.iter().any(|prefix| name.starts_with(prefix)) {
-            assert!(!css.contains(&format!("--header-{name}:")), "{name}");
-        } else {
-            assert!(
-                css.contains(&format!("--header-{name}: {};", value.as_str().unwrap())),
-                "{name}"
-            );
-        }
+fn pages_consume_shared_presentation_without_a_second_projection() {
+    let shared = include_str!("../../../../../design/browser-ui/generated/static.css");
+    let host = include_str!("../assets/pages.css");
+    for obsolete in ["--c-", "--f-", "--header-", "box-shadow:", "opacity:"] {
+        assert!(
+            !host.contains(obsolete),
+            "duplicate presentation: {obsolete}"
+        );
     }
     for page in [
         include_str!("../assets/landing.html"),
         include_str!("../assets/pair.html"),
         include_str!("../assets/error.html"),
     ] {
-        // mark, product, then the page title, exactly Colab's header order.
-        let mark = page.find("header-mark\">tmt<").unwrap();
-        let product = page.find("header-wordmark\">Remote<").unwrap();
-        let title = page.find("<h1 class=\"header-title\">").unwrap();
+        let classes = page
+            .split("class=\"")
+            .skip(1)
+            .filter_map(|attribute| attribute.split_once('"').map(|(value, _)| value))
+            .flat_map(str::split_whitespace)
+            .collect::<Vec<_>>();
+        for class in [
+            "tmt-ui-header",
+            "tmt-ui-brand",
+            "tmt-ui-mark",
+            "tmt-ui-wordmark",
+            "tmt-ui-title",
+            "tmt-ui-notice",
+            "tmt-ui-notice-mark",
+            "tmt-ui-notice-heading",
+            "tmt-ui-notice-body",
+            "tmt-ui-notice-eyebrow",
+        ] {
+            assert!(classes.contains(&class), "missing shared consumer {class}");
+            assert!(
+                shared.contains(&format!(".{class}")),
+                "missing shared export {class}"
+            );
+        }
+        let mark = page.find("header-mark tmt-ui-mark").unwrap();
+        let product = page.find("header-wordmark tmt-ui-wordmark").unwrap();
+        let title = page.find("header-title tmt-ui-title").unwrap();
         assert!(mark < product && product < title);
         assert_eq!(page.matches("<h1").count(), 1);
+        assert!(page.contains("id=\"state-label\""));
+        assert!(!page.contains("<style"));
+    }
+    let pair = include_str!("../assets/pair.html")
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+    assert!(pair.contains("class=\"tmt-ui-field-control\" aria-labelledby=\"name-label\""));
+    assert!(pair.contains("id=\"name-label\" class=\"tmt-ui-field-label\" for=\"name\""));
+    assert!(pair.contains("aria-describedby=\"status\" disabled"));
+}
+
+#[test]
+fn embedded_shared_css_matches_browser_tokens_fonts_and_header_metrics() {
+    let tokens: Value =
+        serde_json::from_str(include_str!("../../../../../design/tokens/tokens.json")).unwrap();
+    let css = include_str!("../../../../../design/browser-ui/generated/static.css");
+    let (light, dark) = css
+        .split_once("@media (prefers-color-scheme: dark)")
+        .unwrap();
+    for (theme, section) in [("light", light), ("dark", dark)] {
+        for group in ["color", "surface"] {
+            for (name, token) in tokens["browser"][group].as_object().unwrap() {
+                assert!(
+                    section.contains(&format!(
+                        "--tmt-ui-{group}-{name}: {};",
+                        token[theme].as_str().unwrap().to_ascii_lowercase()
+                    )),
+                    "{theme} {group} {name}"
+                );
+            }
+        }
+    }
+    for (name, value) in tokens["header"].as_object().unwrap() {
+        if name == "compact-max-width" {
+            assert!(css.contains(&format!("@media (max-width: {})", value.as_str().unwrap())));
+        } else {
+            assert!(css.contains(&format!(
+                "--tmt-ui-header-{name}: {};",
+                value.as_str().unwrap()
+            )));
+        }
+    }
+    for name in ["display", "body", "mono"] {
+        assert!(css.contains(&format!("--tmt-ui-font-{name}: {};",
+            tokens["font"][name]["stack"].as_str().unwrap().replace('"', "'"))));
     }
 }
 

@@ -1,8 +1,9 @@
-import { spawnSync } from 'node:child_process';
+import { spawnSync, type SpawnSyncReturns } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { availableParallelism, cpus, loadavg, tmpdir } from 'node:os';
+import { performance } from 'node:perf_hooks';
 import { join } from 'node:path';
-import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 import {
   createCutClient,
   runReleaseCuts,
@@ -15,14 +16,109 @@ import { checkMigration, releaseCommits } from '../../scripts/publication-gates.
 
 import { writeReleaseWorkspace } from '../support/release-workspace-fixture.js';
 
+// This observer belongs to this real-Git scenario; it never changes subprocess or test deadlines.
+function releaseCutDiagnostics(
+  now: () => number,
+  context: {
+    loadavg: number[];
+    cpuCount: number;
+    availableParallelism: number;
+    workerId: string | null;
+    poolId: string | null;
+  }
+) {
+  const startedMs = now();
+  const gitCalls: {
+    argv: string;
+    elapsedMs: number;
+    status: number | null;
+    signal: string | null;
+    error: string | null;
+  }[] = [];
+  const phases: { name: string; elapsedMs: number }[] = [];
+  let phase: { name: string; startedMs: number } | undefined;
+  const finishPhase = (endedMs: number) => {
+    if (phase) phases.push({ name: phase.name, elapsedMs: endedMs - phase.startedMs });
+  };
+  return {
+    phase(name: string) {
+      const startedMs = now();
+      finishPhase(startedMs);
+      phase = { name, startedMs };
+    },
+    git(args: string[], execute: () => SpawnSyncReturns<string>) {
+      const startedMs = now();
+      let result: SpawnSyncReturns<string> | undefined;
+      let failure: unknown;
+      try {
+        result = execute();
+        return result;
+      } catch (error) {
+        failure = error;
+        throw error;
+      } finally {
+        gitCalls.push({
+          argv: args.join(' ').slice(0, 300),
+          elapsedMs: now() - startedMs,
+          status: result?.status ?? null,
+          signal: result?.signal ?? null,
+          error:
+            result?.error?.message.slice(0, 300) ??
+            (failure === undefined ? null : String(failure).slice(0, 300)),
+        });
+      }
+    },
+    report() {
+      const endedMs = now();
+      const elapsedMs = endedMs - startedMs;
+      if (elapsedMs <= 5_000) return null;
+      // Include an unfinished phase when the await/assertion fails; do not add a timer.
+      const current = phase ? [{ name: phase.name, elapsedMs: endedMs - phase.startedMs }] : [];
+      return {
+        elapsedMs,
+        context,
+        phases: [...phases, ...current],
+        gitCallCount: gitCalls.length,
+        gitElapsedMs: gitCalls.reduce((total, call) => total + call.elapsedMs, 0),
+        slowestGitCalls: [...gitCalls].sort((a, b) => b.elapsedMs - a.elapsedMs).slice(0, 12),
+      };
+    },
+  };
+}
+
 const roots: string[] = [];
-afterEach(() => roots.splice(0).forEach((root) => rmSync(root, { recursive: true, force: true })));
+let diagnostics: ReturnType<typeof releaseCutDiagnostics>;
+beforeEach(() => {
+  diagnostics = releaseCutDiagnostics(() => performance.now(), {
+    loadavg: loadavg(),
+    cpuCount: cpus().length,
+    availableParallelism: availableParallelism(),
+    workerId: process.env.VITEST_WORKER_ID ?? null,
+    poolId: process.env.VITEST_POOL_ID ?? null,
+  });
+});
+afterEach(({ task }) => {
+  try {
+    const report = diagnostics.report();
+    if (report)
+      console.error(
+        'Release cut case diagnostics:',
+        JSON.stringify({ test: task.name, ...report })
+      );
+  } catch {
+    // A best-effort diagnostic must not replace the case failure or prevent its existing cleanup.
+  } finally {
+    roots.splice(0).forEach((root) => rmSync(root, { recursive: true, force: true }));
+  }
+});
 
 function fixture(activateExtensions = false) {
   const root = mkdtempSync(join(tmpdir(), 'release-live-test-'));
   roots.push(root);
   const command = (args: string[]) => {
-    const result = spawnSync('git', args, { cwd: root, encoding: 'utf8', timeout: 10_000 });
+    const result = diagnostics.git(args, () =>
+      spawnSync('git', args, { cwd: root, encoding: 'utf8', timeout: 10_000 })
+    );
     if (result.status !== 0) throw new Error(result.stderr, { cause: { status: result.status } });
     return result.stdout.trimEnd();
   };
@@ -130,8 +226,11 @@ function fixture(activateExtensions = false) {
 
 describe('live release cut lifecycle', () => {
   it('automatically allocates both approved first alphas using prefixed component identities', async () => {
+    diagnostics.phase('fixture');
     const f = fixture(true);
+    diagnostics.phase('coordinator');
     const result = await runReleaseCuts({ ...f, live: true });
+    diagnostics.phase('assertions');
     for (const product of ['remote', 'colab']) {
       expect(result.actions).toContainEqual({
         product,
@@ -532,5 +631,110 @@ describe('live cut REST boundary', () => {
       ).dispatch('cli', 'v5.0.0-alpha.49')
     ).toThrow('main-only');
     expect(execute).toHaveBeenCalledTimes(1);
+  });
+});
+
+// Injected time/results only: these controls never start Git/Cargo or wait for a slow case.
+describe('release cut slow-case diagnostics', () => {
+  const context = {
+    loadavg: [2, 3, 4],
+    cpuCount: 8,
+    availableParallelism: 6,
+    workerId: '2',
+    poolId: '1',
+  };
+  const success: SpawnSyncReturns<string> = {
+    pid: 1,
+    output: [],
+    stdout: 'exact output',
+    stderr: '',
+    status: 0,
+    signal: null,
+  };
+  it('is silent through exactly five seconds and includes start concurrency context above it', () => {
+    let elapsedMs = 0;
+    const trace = releaseCutDiagnostics(() => elapsedMs, context);
+    elapsedMs = 4_999;
+    expect(trace.report()).toBeNull();
+    elapsedMs = 5_000;
+    expect(trace.report()).toBeNull();
+    elapsedMs = 5_001;
+    expect(trace.report()).toMatchObject({ elapsedMs: 5_001, context, gitCallCount: 0 });
+  });
+  it('keeps only the slowest twelve bounded argv records while retaining complete totals', () => {
+    let elapsedMs = 0;
+    const trace = releaseCutDiagnostics(() => elapsedMs, context);
+    for (let i = 1; i <= 15; i++) {
+      expect(
+        trace.git(['show', 'x'.repeat(400)], () => {
+          elapsedMs += i;
+          return success;
+        })
+      ).toBe(success);
+    }
+    elapsedMs = 6_000;
+    const report = trace.report()!;
+    expect(report.gitCallCount).toBe(15);
+    expect(report.gitElapsedMs).toBe(120);
+    expect(report.slowestGitCalls.map((call) => call.elapsedMs)).toEqual([
+      15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4,
+    ]);
+    expect(report.slowestGitCalls.every((call) => call.argv.length === 300)).toBe(true);
+  });
+  it('preserves nonzero status and the exact thrown error while observing an unfinished phase', () => {
+    let elapsedMs = 0;
+    const trace = releaseCutDiagnostics(() => elapsedMs, context);
+    trace.phase('fixture');
+    elapsedMs = 20;
+    trace.phase('coordinator');
+    const rejected = { ...success, status: 1 };
+    expect(trace.git(['merge-base'], () => rejected)).toBe(rejected);
+    const failure = new Error('spawn refused');
+    let caught: unknown;
+    try {
+      trace.git(['log'], () => {
+        elapsedMs += 30;
+        throw failure;
+      });
+    } catch (error) {
+      caught = error;
+    }
+    expect(caught).toBe(failure);
+    elapsedMs = 6_000;
+    expect(trace.report()).toMatchObject({
+      phases: [
+        { name: 'fixture', elapsedMs: 20 },
+        { name: 'coordinator', elapsedMs: 5_980 },
+      ],
+      gitCallCount: 2,
+      gitElapsedMs: 30,
+      slowestGitCalls: [
+        { argv: 'log', elapsedMs: 30, status: null, signal: null, error: 'Error: spawn refused' },
+        { argv: 'merge-base', elapsedMs: 0, status: 1, signal: null, error: null },
+      ],
+    });
+  });
+  it('retains timeout status, signal and bounded spawn error without changing the result', () => {
+    let elapsedMs = 0;
+    const trace = releaseCutDiagnostics(() => elapsedMs, context);
+    const timedOut: SpawnSyncReturns<string> = {
+      ...success,
+      status: null,
+      signal: 'SIGTERM',
+      error: new Error('timeout '.repeat(100)),
+    };
+    expect(
+      trace.git(['commit'], () => {
+        elapsedMs = 10_000;
+        return timedOut;
+      })
+    ).toBe(timedOut);
+    const report = trace.report()!;
+    expect(report.slowestGitCalls[0]).toMatchObject({
+      status: null,
+      signal: 'SIGTERM',
+      elapsedMs: 10_000,
+    });
+    expect(report.slowestGitCalls[0].error).toHaveLength(300);
   });
 });

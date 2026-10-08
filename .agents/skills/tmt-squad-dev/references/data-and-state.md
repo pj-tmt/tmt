@@ -201,6 +201,55 @@ skill (`extensions/tmt-squad/skills/tmt-squad/SKILL.md`).
   worker or core Squad concept exists. The lead skill owns the user-visible observed-age,
   claim-loss and cache-loss limits.
 
+## Checklist storage and service
+
+The native binary's `checklist` module provides typed list/show/create/edit/assign/
+unassign/complete/reopen/archive/restore/delete/reorder operations. `checklist_command`
+exposes them through `tmt squad checklist` (`tmt sq` dispatch alias); primary `ls` has
+hidden accepted alias `list`, both returning semantic JSON action `list`. The adapter
+parses only explicit UUIDs and revisions, invokes the unchanged service once and
+projects its typed results/errors. The board consumes the same typed service directly; `Service::preview` reuses read admission to expose its captured actor, current inventory and eligible roster. Board filters and authored drafts remain presentation state.
+
+- `model` owns the frozen item lifecycle: positive item revisions, a separate inventory
+  revision, full authored order including archived items, exact expectations and no-op
+  validation. Create and Delete change inventory; other item writes do not. Delete drops
+  content and retains only room/checklist/item UUIDs and deletion revision, without purge
+  or UUID reuse. Completion and archive are independent.
+- `store` owns version 1 JSON at `<dataRoot>/ops/checklist/<canonical-room-UUID>/items.json`.
+  `items.lock` is stable; `items.tmp` belongs to the locked publisher. The document has
+  `version`, `roomId`, `checklistId`, `inventoryRevision`, ordered live `items` and minimal
+  `deleted` tombstones. It persists no copied membership, actor authority or operation ledger.
+  Read/list/show create nothing and distinguish absent, empty and filtered-empty results
+  from errors. Unsupported/corrupt data and unsafe files fail closed without repair.
+- A nonblocking room lock bounds contention as `CHECKLIST_STORAGE_ERROR`. New owned
+  directories/files use 0700/0600; existing permissions survive replacement. Files are
+  opened no-follow/nonblocking and must be owned regular files with one link; extension
+  directories must be owned real directories. The trusted public root may be canonicalized.
+  The implementation limits are 64 MiB per document and 100000 retained item identities;
+  every individual admitted title/body/reference bound fits within these limits.
+- The service captures the public caller through `me::caller`, using read-only recorded
+  user context only when no caller is bound. Ambiguous callers refuse. A retired recorded
+  UUID cannot adopt a same-name successor. Active recorded users and current room leads
+  are managers; other current members are collaborators. Non-null Create assignment also
+  requires manager permission. Assignment admits an exact active same-room UUID; departure
+  preserves its last admitted label and projects it as unavailable. Unassign needs no live
+  former assignee. Exact room UUIDs survive rename; successor rooms never inherit data.
+  Only the recorded active user can explicitly inspect unavailable-room data read-only.
+- Locked writes reload and validate storage, check exact expectations, and recheck current
+  actor/room/operation/assignment admission immediately before rename. These public Core
+  reads and file replacement are not a cross-database transaction. Temp write/file sync/
+  rename failures preserve committed bytes; after rename, failed directory sync or
+  acknowledgement returns `CHECKLIST_OUTCOME_UNKNOWN`. Readback never proves which earlier
+  uncertain operation committed; a new operation needs a freshly reviewed revision.
+  Checklist errors and authorized conflict/deletion projections are typed locally;
+  `checklist_command` emits one JSON stdout document with success exit 0, operation
+  error exit 1 and grammar error exit 2. Only typed `Error.current` becomes optional
+  `error.current`; refusal never invents a projection. Human failures use main's
+  existing stderr error/hint path and emit no success text. UUID/revision/text/order/
+  confirmation validity remains operation input validation rather than clap usage.
+  Unrelated Squad error JSON is unchanged. No dispatch, hooks, attention, request,
+  metadata or configuration mutation, reference fetching or implicit opening occurs.
+
 ## Cron
 
 The user-facing command reference is the lead skill's "Manage recurring jobs". Maintainers
@@ -211,7 +260,7 @@ own these layers:
   bundled database. Fixed local times skip DST gaps and take the first occurrence in a fold;
   elapsed intervals keep their stored anchor and duration. Day-of-month and day-of-week use
   the standard alternative rule unless either field starts with `*`.
-- `cron::store` owns the versioned `<dataRoot>/squad/cron/jobs.json` document: per-squad
+- `cron::store` owns the versioned `<dataRoot>/ops/cron/jobs.json` document: per-squad
   counters that survive removal, exact message bytes, room and owner references, schedules,
   revisions and pause attribution. The caller supplies the absolute `storage.root` and admits
   core UUID references; the store resolves no identities, decides no permissions, dispatches

@@ -83,3 +83,12 @@ these fixtures do not establish native store pruning or mounted sync delivery.
 renderings and the manifest from the written colab-v1 rules (stdlib plus `cryptography` Ed25519 over
 public RFC 8032 seeds). It regenerates `export-v1.json`, which native and browser tests consume without
 Python: `python3 export-reference.py` checks it, `--write` regenerates after review.
+
+`publication-reference.py` independently frames and signs the content-publication contract
+with Python stdlib and `cryptography` using public RFC 8032 test seeds.
+`publication-content-v1.json` freezes browser/native content and native own-namespace one- and
+two-entry jobs (the first four fixtures predate the own kind and are byte-identical), exact original
+envelope bytes, nested signature inputs and digests, all outcome variants and proposed
+local write/status DTOs. Rust consumes the frozen vectors without Python; running the
+oracle checks them, and `--write` regenerates after review. These pure codec vectors do
+not establish transaction, authority, route, Save/CLI or recovery admission.

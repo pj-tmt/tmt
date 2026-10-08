@@ -4,7 +4,7 @@ import type { Admission } from '../src/admission.js';
 import type { OwnState } from '../src/fold-protocol.js';
 import { decodeAsk } from '../src/ask-records.js';
 import type { CommentContext } from '../src/thread-store.js';
-import { LiveAsk, pageAsks } from '../src/live-ask.js';
+import { LiveAsk, pageAsks, type LiveAskOptions } from '../src/live-ask.js';
 import { ReadRefusedError, SessionEndedError, SessionEvictedError } from '../src/ask-remote.js';
 import { destination, id, pageLink, RemoteDouble } from './ask-fixtures.js';
 const records = new Map<string, unknown>();
@@ -25,6 +25,7 @@ async function fixture(
     quote: string;
     comment: string;
   },
+  statusContext?: LiveAskOptions['statusContext'],
 ) {
   vi.stubGlobal('navigator', {
     locks: { request: async (_key: string, action: () => unknown) => action() },
@@ -74,6 +75,7 @@ async function fixture(
     sessionEnded,
     own: () => own,
     commentContext,
+    statusContext,
     async publish(root, key, value) {
       own[id(4)] ??= { threads: {}, messages: {}, intents: {}, replies: {} };
       own[id(4)][root][key] = structuredClone(value);
@@ -239,6 +241,102 @@ it('comment Ask freezes verified IDs and body rather than caller substitutes, wi
   f.ask.close();
 });
 
+it('a committed Resolve uses its frozen operation ID and the normal signed ledger once, including held and uncertain delivery', async () => {
+  for (const mode of ['accepted', 'held', 'throw'] as const) {
+    const operationId = crypto.randomUUID();
+    const f = await fixture(undefined, (context) => ({
+      thread: id(2),
+      messageIds: [],
+      operationId: context.recipient.operationId,
+      quote: 'Frozen quote',
+      comment:
+        'Thread resolved by Browser.\nEarlier conversation (quoted data):\n@agent unfinished question',
+    }));
+    f.remote.mode = mode;
+    const context = {
+      status: { writer: id(4), id: id(10) },
+      recipient: {
+        machine: id(5),
+        agent: id(6),
+        agentName: 'Deterministic agent',
+        operationId,
+      },
+      thread: {
+        version: 1 as const,
+        kind: 'thread' as const,
+        spaceId: 'a'.repeat(32),
+        pageId: id(1),
+        epoch: '1',
+        senderDevice: id(4),
+        revision: '1',
+        deleted: false,
+        deviceName: 'Browser',
+        at: '1',
+        threadId: id(2),
+        anchor: null,
+        resolved: false,
+        ref: { writer: id(4), id: id(2) },
+        comments: [],
+      },
+    };
+    expect(f.remote.sends).toHaveLength(0);
+    expect(await f.ask.notifyStatus(context, 'Page', pageLink())).toEqual({ adopted: true });
+    const views = await pageAsks(f.own, f.admission, () => f.publicKey);
+    expect(views).toMatchObject([
+      {
+        operationId,
+        thread: id(2),
+        messageIds: [],
+        state: mode === 'throw' ? 'uncertain' : mode,
+      },
+    ]);
+    expect(f.remote.sends).toHaveLength(1);
+    expect(f.remote.sends[0].operationId).toBe(operationId);
+    const record = Object.values(f.own[id(4)].intents)[0] as { signed: { input: string } };
+    expect(decodeAsk(record.signed).operationId).toBe(operationId);
+    await f.ask.notifyStatus(context, 'Page', pageLink());
+    expect(f.remote.sends).toHaveLength(1);
+    f.ask.close();
+  }
+});
+it('unavailable recipients and rejected status admission never enter the Remote send path', async () => {
+  const f = await fixture(undefined, () => {
+    throw new Error('not an admitted status');
+  });
+  const context = {
+    status: { writer: id(4), id: id(10) },
+    recipient: { machine: id(5), agent: id(6), agentName: 'Agent', operationId: id(11) },
+    thread: {
+      version: 1 as const,
+      kind: 'thread' as const,
+      spaceId: 'a'.repeat(32),
+      pageId: id(1),
+      epoch: '1',
+      senderDevice: id(4),
+      revision: '1',
+      deleted: false,
+      deviceName: 'Browser',
+      at: '1',
+      threadId: id(2),
+      anchor: null,
+      resolved: false,
+      ref: { writer: id(4), id: id(2) },
+      comments: [],
+    },
+  };
+  expect(await f.ask.notifyStatus(context, 'Page', pageLink())).toEqual({
+    adopted: false,
+    reason: 'PREPARATION_FAILED',
+  });
+  context.recipient.agent = id(99);
+  expect(await f.ask.notifyStatus(context, 'Page', pageLink())).toEqual({
+    adopted: false,
+    reason: 'RECIPIENT_UNAVAILABLE',
+  });
+  expect(f.remote.sends).toHaveLength(0);
+  expect(f.own).toEqual({});
+  f.ask.close();
+});
 it('status observes admitted presence without admitting an Ask preview or publishing', async () => {
   const f = await fixture();
   vi.spyOn(f.remote, 'listAgents').mockResolvedValue([

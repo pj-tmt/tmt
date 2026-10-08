@@ -17,6 +17,7 @@ import { join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseComponentMap } from './ci-scope.mjs';
 import { componentOfProduct, releasePolicy } from './native-release-policy.mjs';
+import { assertHerdrCapabilities } from './native-runtime-proof.mjs';
 import { syntheticAlphaVersion, versionOfTag } from './release-versions.mjs';
 
 const LOCK = 'rust/Cargo.lock';
@@ -230,9 +231,19 @@ export function verifyDistManifests(snapshot, plan, build) {
 
 export function verifyDistVersions(snapshot, plan, build, reportedVersion) {
   verifyDistManifests(snapshot, plan, build);
+  if (snapshot.product === 'driver-herdr') {
+    assertHerdrCapabilities(reportedVersion, snapshot.version, 'Built binary');
+    return;
+  }
   const expected =
     snapshot.product === 'cli' ? snapshot.version : `${snapshot.product} ${snapshot.version}`;
   assert.equal(reportedVersion.trim(), expected, 'Built binary version differs from tag.');
+}
+
+export function verifyDistArtifact(root, snapshot, plan, build, executable) {
+  const args =
+    snapshot.product === 'driver-herdr' ? ['__tmt-driver', '1', 'capabilities'] : ['--version'];
+  verifyDistVersions(snapshot, plan, build, command(root, executable, args));
 }
 
 function command(root, executable, args) {
@@ -318,11 +329,12 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
       console.log(`Verified ${snapshot.tag}: plan and build agree.`);
     } else if (action === 'artifact' && args.length === 3) {
       const snapshot = JSON.parse(readFileSync(snapshotFile, 'utf8'));
-      verifyDistVersions(
+      verifyDistArtifact(
+        root,
         snapshot,
         JSON.parse(readFileSync(args[0], 'utf8')),
         JSON.parse(readFileSync(args[1], 'utf8')),
-        command(root, resolve(args[2]), ['--version'])
+        resolve(args[2])
       );
       console.log(`Verified ${snapshot.tag}: plan, build and binary agree.`);
     } else

@@ -1,4 +1,4 @@
-//! Who the user is, and who sends. `squad.toml` may record the user's saved
+//! Who the user is, and who sends. `ops.toml` may record the user's saved
 //! identity: the name a person reads (`me`) and the UUID that decides
 //! (`me_id`), so `me` follows an identity rename in core. The rename
 //! observation (`__tmt-hooks`) repairs the file at once; without hooks, the
@@ -65,7 +65,7 @@ fn decide(core: &Core, config: &Config) -> Result<Option<(Decided, String)>, Squ
     Ok(Some((Decided::ByName { me }, name)))
 }
 
-/// The user, without touching `squad.toml`: for the board's refresh, which
+/// The user, without touching `ops.toml`: for the board's refresh, which
 /// must neither write the user's file nor print over its screen.
 pub fn current(core: &Core, config: &Config) -> Result<Option<Me>, SquadError> {
     Ok(decide(core, config)?.map(|(decided, _)| match decided {
@@ -73,7 +73,7 @@ pub fn current(core: &Core, config: &Config) -> Result<Option<Me>, SquadError> {
     }))
 }
 
-/// The user, with `squad.toml` brought up to date: a rename rewrites `me`, a
+/// The user, with `ops.toml` brought up to date: a rename rewrites `me`, a
 /// missing `me_id` is recorded. When `me` was edited to name a different
 /// identity, `me_id` still decides and one warning says how to change who
 /// the user is. A failed write never fails the command; the next retries.
@@ -104,9 +104,7 @@ fn warn_edited(written: &str, kept: &str) {
     let _ = tmt_cli_style::message::warning(
         &mut stderr,
         terminal,
-        &format!(
-            "squad.toml named '{written}' as you, but me_id is {kept}; still acting as {kept}."
-        ),
+        &format!("ops.toml named '{written}' as you, but me_id is {kept}; still acting as {kept}."),
         Some(&format!("tmt squad me {written}")),
     );
 }

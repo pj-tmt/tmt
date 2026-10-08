@@ -33,7 +33,12 @@ const ERROR_LINE: &str = "tmt: lifecycle context unavailable; continuing without
 /// Provider hooks always exit successfully. The existing bounded process owner
 /// terminates/reaps the internal worker on timeout; no daemon, permission hook,
 /// unbounded background thread or potentially late context write is introduced.
-pub fn execute(provider: &str, worker: bool, work_budget_ms: Option<u64>) -> io::Result<u8> {
+pub fn execute(
+    provider: &str,
+    worker: bool,
+    work_budget_ms: Option<u64>,
+    activity_only: bool,
+) -> io::Result<u8> {
     let started = Instant::now();
     // A turn end fires after every turn; its failures stay silent.
     let mut turn_end = false;
@@ -59,12 +64,15 @@ pub fn execute(provider: &str, worker: bool, work_budget_ms: Option<u64>) -> io:
         .map_err(|_| ())?;
         turn_end = lifecycle.decode_turn(input.as_bytes()).is_some();
         if worker {
-            return observe(provider, &input, deadline);
+            return observe(provider, &input, deadline, activity_only);
         }
         lifecycle
             .wait_for_hook_admission(input.as_bytes(), deadline)
             .map_err(|_| ())?;
-        let args = worker_arguments(provider, deadline)?;
+        let mut args = worker_arguments(provider, deadline)?;
+        if activity_only {
+            args.push("--activity-only".into());
+        }
         let executable = std::env::current_exe().map_err(|_| ())?;
         let output = UnixCommandRunner
             .execute(CommandRequest {
@@ -111,6 +119,7 @@ fn observe_turn(
     harness: &HarnessId,
     lifecycle: &dyn RuntimeLifecycle,
     turn: &TurnEnd,
+    activity_only: bool,
     activity: Option<&tmt_core::binding::session::activity::Event>,
     deadline: Instant,
 ) -> Result<(), ()> {
@@ -118,8 +127,15 @@ fn observe_turn(
     if matches!(host, HostEvidence::Unsupported) {
         return Ok(());
     }
-    let Caller::Bound(bound) =
-        verified_caller(provider, lifecycle, host, &turn.session, None, deadline)?
+    let Caller::Bound(bound) = verified_caller(
+        provider,
+        lifecycle,
+        host,
+        &turn.session,
+        None,
+        deadline,
+        SupervisedProbeRunner,
+    )?
     else {
         return Ok(());
     };
@@ -151,13 +167,17 @@ fn observe_turn(
         return Ok(());
     };
     let environment = ProviderEnvironment::capture().map_err(|_| ())?;
-    let usage = lifecycle.turn_state(
-        turn,
-        &environment,
-        remembered.state.as_ref(),
-        tmt_adapters::request_runtime::wall_time_ms(),
-        deadline,
-    );
+    let usage = (!activity_only)
+        .then(|| {
+            lifecycle.turn_state(
+                turn,
+                &environment,
+                remembered.state.as_ref(),
+                tmt_adapters::request_runtime::wall_time_ms(),
+                deadline,
+            )
+        })
+        .flatten();
     let consumption = usage
         .as_ref()
         .and_then(|state| lifecycle.state_consumption(state));
@@ -190,7 +210,14 @@ fn observe_turn(
     if Instant::now() >= deadline {
         return Err(());
     }
-    commit_observation(&paths, &stored, next, Some(reading), deadline).map(|_| ())
+    commit_observation(
+        &paths,
+        &stored,
+        next,
+        (!activity_only).then_some(reading),
+        deadline,
+    )
+    .map(|_| ())
 }
 
 /// The caller a hook event came from, verified the same way for every event.
@@ -213,13 +240,14 @@ struct BoundCaller {
     process: ProcessIncarnation,
 }
 
-fn verified_caller(
+fn verified_caller<R: CommandRunner + Clone>(
     provider: &str,
     lifecycle: &dyn RuntimeLifecycle,
     host: HostEvidence,
     session: &ProviderSessionId,
     verified_binding: Option<&str>,
     deadline: Instant,
+    runner: R,
 ) -> Result<Caller, ()> {
     let paths = ConfigPaths::discover().map_err(|_| ())?;
     let now = tmt_adapters::request_runtime::wall_time_ms();
@@ -240,29 +268,28 @@ fn verified_caller(
         };
         let binding = stored.entry.binding.as_ref().ok_or(())?;
         let pane = &binding.pane_id;
-        let EndpointProbe::Live(snapshot) =
-            Host::for_server_with(&binding.server, SupervisedProbeRunner)
-                .probe(
-                    &binding.server,
-                    OperationOptions {
-                        deadline: Some(deadline),
-                        pane_ids: Some(std::slice::from_ref(pane)),
-                    },
-                )
-                .map_err(|_| ())?
+        let EndpointProbe::Live(snapshot) = Host::for_server_with(&binding.server, runner.clone())
+            .probe(
+                &binding.server,
+                OperationOptions {
+                    deadline: Some(deadline),
+                    pane_ids: Some(std::slice::from_ref(pane)),
+                },
+            )
+            .map_err(|_| ())?
         else {
             return Err(());
         };
         let pid = u64::from(host.runtime_pid().ok_or(())?);
         let tmt_adapters::process::runtime::ProcessObservation::Live(process) =
-            observe_runtime_process(&SupervisedProbeRunner, pid, deadline).map_err(|_| ())?
+            observe_runtime_process(&runner, pid, deadline).map_err(|_| ())?
         else {
             return Err(());
         };
         (stored, snapshot, process)
     } else {
         let environment = CallerEnvironment::current();
-        let panes = Host::for_caller_with(&environment, SupervisedProbeRunner);
+        let panes = Host::for_caller_with(&environment, runner.clone());
         let Some(pane) = panes.caller_pane(&environment).map_err(|_| ())? else {
             return if Instant::now() < deadline {
                 Ok(Caller::Unobserved)
@@ -283,6 +310,7 @@ fn verified_caller(
             .ok_or(())?;
         let process = lifecycle
             .observe_in_pane(
+                &runner,
                 u64::from(std::process::id()),
                 observed_pane.pane_pid,
                 deadline,
@@ -318,7 +346,73 @@ fn verified_caller(
     })))
 }
 
-fn observe(provider: &str, input: &str, deadline: Instant) -> Result<String, ()> {
+/// Shared caller verification, followed by this exact foreground launch's
+/// admission. Hook argv is a locator; native ancestry and current rows authorize.
+pub(crate) fn verified_focus_launch<R: CommandRunner + Clone>(
+    provider: &str,
+    lifecycle: &dyn RuntimeLifecycle,
+    launch: &tmt_adapters::runtime::hook_protocol::HookLaunch,
+    session: &ProviderSessionId,
+    deadline: Instant,
+    runner: R,
+) -> Result<(ConfigPaths, IdentityContextSnapshot), ()> {
+    if !launch.valid() {
+        return Err(());
+    }
+    let host = lifecycle.host_evidence().map_err(|_| ())?;
+    if !matches!(host, HostEvidence::Independent { .. }) {
+        return Err(());
+    }
+    let Caller::Bound(bound) = verified_caller(
+        provider,
+        lifecycle,
+        host,
+        session,
+        None,
+        deadline,
+        runner.clone(),
+    )?
+    else {
+        return Err(());
+    };
+    let binding = bound.stored.entry.binding.as_ref().ok_or(())?;
+    let owner = launch.owner().ok_or(())?;
+    let expected = binding.id == launch.binding_id
+        && binding.identity_id == launch.identity_id
+        && binding.session.state == tmt_core::binding::session::RuntimeState::Running
+        && binding.session.launch_owner.as_ref() == Some(&owner)
+        && binding.session.key.as_ref().is_some_and(|key| {
+            key.incarnation == bound.process && key.provider_session.as_ref() == Some(session)
+        })
+        && bound
+            .stored
+            .preferences
+            .remembered
+            .as_ref()
+            .is_some_and(|remembered| {
+                remembered.harness.as_str() == provider && &remembered.provider_session == session
+            })
+        && matches!(
+            evaluate_binding(&bound.stored.entry, &EndpointProbe::Live(bound.snapshot)),
+            BindingEvidence::Active(_)
+        );
+    if !expected {
+        return Err(());
+    }
+    let alive = matches!(observe_runtime_process(&runner, owner.pid(), deadline).map_err(|_| ())?,
+        tmt_adapters::process::runtime::ProcessObservation::Live(current) if current == owner);
+    if !alive || Instant::now() >= deadline {
+        return Err(());
+    }
+    Ok((bound.paths, bound.stored))
+}
+
+fn observe(
+    provider: &str,
+    input: &str,
+    deadline: Instant,
+    activity_only: bool,
+) -> Result<String, ()> {
     let registry = RuntimeRegistry::first_party();
     let harness = HarnessId::new(provider).map_err(|_| ())?;
     let lifecycle = registry.lifecycle(&harness).ok_or(())?;
@@ -329,6 +423,7 @@ fn observe(provider: &str, input: &str, deadline: Instant) -> Result<String, ()>
             &harness,
             lifecycle,
             &turn,
+            activity_only,
             activity.as_ref(),
             deadline,
         )
@@ -363,6 +458,7 @@ fn observe(provider: &str, input: &str, deadline: Instant) -> Result<String, ()>
         event.session(),
         event.verified_binding(),
         deadline,
+        SupervisedProbeRunner,
     )? {
         Caller::Unobserved => return Ok(String::new()),
         // With no stored identity, only emit the fixed naming hint. The
@@ -551,7 +647,15 @@ fn observe_prompt(
     if matches!(host, HostEvidence::Unsupported) {
         return Ok(String::new());
     }
-    let Caller::Bound(bound) = verified_caller(provider, lifecycle, host, session, None, deadline)?
+    let Caller::Bound(bound) = verified_caller(
+        provider,
+        lifecycle,
+        host,
+        session,
+        None,
+        deadline,
+        SupervisedProbeRunner,
+    )?
     else {
         return Ok(String::new());
     };

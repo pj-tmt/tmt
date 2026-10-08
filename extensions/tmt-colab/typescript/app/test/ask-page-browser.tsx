@@ -4,18 +4,37 @@ import { RouterProvider } from '@tanstack/react-router';
 import { ReadRefusedError } from '../src/ask-remote.js';
 import type { AskBinding, PageAsk } from '../src/ask-panel.js';
 import type { ThreadBinding } from '../src/thread-store.js';
-import type { ThreadView } from '../src/thread-records.js';
+import type { QuoteSelector, ThreadView } from '../src/thread-records.js';
 import type { PageView, PageBinding } from '../src/transport.js';
 import { createAppRouter } from '../src/router.js';
 import { fixtureAttempt } from './ask-browser-attempt.js';
+import { ThreadStatusCoordinator } from '../src/thread-status-coordinator.js';
+import { projectThreadPresentation } from '../src/thread-status-presentation.js';
+import { ThreadStatusSeen } from '../src/thread-status-view.js';
+import type { ThreadStatusView } from '../src/thread-status.js';
 import { destination, id, pageLink, RemoteDouble, selection } from './ask-fixtures.js';
 let root: Root | undefined;
 let sends: RemoteDouble;
+let dispatched: RemoteDouble[];
 let actions: string[];
 let publish: ((value: PageView) => void) | undefined;
 let fail: ((error: Error) => void) | undefined;
 let records: PageAsk[];
 let current: PageView;
+let seen: ThreadStatusSeen | undefined;
+let seenOpens = 0;
+let ownerDevice = true;
+let hooks: { seed(): void; agentResolves(): void } | undefined;
+/** Parent-computed presentation inputs, as Live publishes them. */
+function emit() {
+  current = {
+    ...current,
+    threadPresentations: (current.threads ?? []).map((thread) =>
+      projectThreadPresentation(thread, current.asks ?? [], seen, ownerDevice),
+    ),
+  };
+  publish?.(current);
+}
 let readRefusal: ConstructorParameters<typeof ReadRefusedError>[0] | undefined;
 let prepareRelease: (() => void) | undefined;
 let preparing: Promise<void> | undefined;
@@ -28,6 +47,7 @@ export async function mount() {
   host.id = 'ask-page-fixture';
   document.body.append(host);
   sends = new RemoteDouble();
+  dispatched = [];
   actions = [];
   readRefusal = undefined;
   records = [];
@@ -57,6 +77,7 @@ export async function mount() {
       if (preparing) await preparing;
       const result = await fixture;
       sends = result.remote;
+      dispatched.push(sends);
       return result.attempt;
     },
     async recheck(operationId) {
@@ -78,16 +99,22 @@ export async function mount() {
       ref: _ref,
       ...scope
     } = thread;
-    thread.comments.push({
+    const comment: ThreadView['comments'][number] = {
       ...scope,
       kind: 'comment',
       thread: thread.ref,
       body,
       messageId,
       ref: { writer: id(4), id: messageId },
-    });
-    current = { ...current, threads: [thread] };
-    publish?.(current);
+    };
+    current = {
+      ...current,
+      threads: [
+        ...current.threads!.filter((value) => value.threadId !== thread.threadId),
+        { ...thread, comments: [...thread.comments, comment] },
+      ],
+    };
+    emit();
     return {
       thread: thread.ref,
       threadRevision: thread.revision,
@@ -95,27 +122,37 @@ export async function mount() {
       messageRevision: '1',
     };
   }
+  function createThread(body: string, anchor: QuoteSelector | null, threadId: string) {
+    const thread: ThreadView = {
+      version: 1,
+      kind: 'thread',
+      spaceId: selection().space,
+      pageId: id(1),
+      epoch: '1',
+      senderDevice: id(4),
+      deviceName: 'You',
+      threadId,
+      revision: '1',
+      at: String(Date.now()),
+      anchor,
+      resolved: false,
+      deleted: false,
+      ref: { writer: id(4), id: threadId },
+      comments: [],
+    };
+    return addTurn(body, thread);
+  }
   const discussion: ThreadBinding = {
+    async setStatus(ref, _previous, resolved) {
+      actions.push(`status:${resolved ? 'resolve' : 'reopen'}`);
+      return { changed: true, status: setResolved(find(ref), resolved, 'person') };
+    },
+    async notificationFailed() {
+      throw new Error('Not used');
+    },
     deviceId: id(4),
     async createChat(body) {
-      const thread: ThreadView = {
-        version: 1,
-        kind: 'thread',
-        spaceId: selection().space,
-        pageId: id(1),
-        epoch: '1',
-        senderDevice: id(4),
-        deviceName: 'You',
-        threadId: id(4),
-        revision: '1',
-        at: String(Date.now()),
-        anchor: null,
-        resolved: false,
-        deleted: false,
-        ref: { writer: id(4), id: id(4) },
-        comments: [],
-      };
-      return addTurn(body, thread);
+      return createThread(body, null, id(4));
     },
     async reply(ref, body) {
       return addTurn(
@@ -123,8 +160,8 @@ export async function mount() {
         current.threads!.find((thread) => thread.ref.id === ref.id)!,
       );
     },
-    async create() {
-      throw new Error('Not used');
+    async create(body, anchor) {
+      return createThread(body, anchor, crypto.randomUUID());
     },
     async edit() {
       throw new Error('Not used');
@@ -140,16 +177,92 @@ export async function mount() {
         ...current,
         threads: [{ ...thread, ...change, revision: String(Number(revision) + 1) }],
       };
-      publish?.(current);
+      emit();
+    },
+  };
+  seenOpens = 0;
+  ownerDevice = true;
+  seen = new ThreadStatusSeen({ spaceId: selection().space, pageId: id(1), epoch: '1' }, id(4), {
+    getItem: () => null,
+    setItem: () => {},
+  });
+  const find = (ref: { writer: string; id: string }) =>
+    current.threads!.find((value) => value.ref.writer === ref.writer && value.ref.id === ref.id)!;
+  function statusView(
+    thread: ThreadView,
+    previous: ThreadStatusView | undefined,
+    resolved: boolean,
+    actor: 'person' | 'agent',
+  ): ThreadStatusView {
+    const actionId = crypto.randomUUID();
+    return {
+      version: 1,
+      kind: 'thread-status',
+      spaceId: thread.spaceId,
+      pageId: thread.pageId,
+      epoch: thread.epoch,
+      senderDevice: id(4),
+      deviceName: 'You',
+      revision: '1',
+      deleted: false,
+      at: String(Date.now()),
+      actionId,
+      thread: thread.ref,
+      previous: previous?.ref ?? null,
+      resolved,
+      actor,
+      agentName: actor === 'agent' ? 'Atlas' : null,
+      recipients: [],
+      ref: { writer: id(4), id: actionId },
+      depth: (previous?.depth ?? 0) + 1,
+    };
+  }
+  function setResolved(thread: ThreadView, resolved: boolean, actor: 'person' | 'agent') {
+    const status = statusView(thread, thread.status, resolved, actor);
+    current = {
+      ...current,
+      threads: current.threads!.map((value) =>
+        value === thread ? { ...value, resolved, status } : value,
+      ),
+    };
+    emit();
+    return status;
+  }
+  hooks = {
+    seed() {
+      void discussion.create('Opening note', {
+        exact: 'Exact selected text',
+        prefix: '',
+        suffix: '',
+      });
+    },
+    agentResolves() {
+      setResolved(
+        current.threads!.find((value) => value.anchor)!,
+        true,
+        'agent',
+      );
     },
   };
   const binding: PageBinding = {
     ask,
     discussion,
+    status: new ThreadStatusCoordinator({
+      binding: discussion,
+      asks: () => current.asks ?? [],
+      destinations: async () => [],
+      notify: async () => ({ adopted: true }),
+    }),
+    markThreadStatusSeen(ref) {
+      seenOpens++;
+      seen!.opened(find(ref));
+      emit();
+    },
     subscribe(next, failed) {
       publish = next;
       fail = failed;
       next(current);
+      emit();
       return () => {
         publish = undefined;
         fail = undefined;
@@ -168,19 +281,52 @@ export async function mount() {
         async spaceHome() {
           return { title: 'Fixture space', pages: [] };
         },
-        async page() {
-          return { id: id(1), sharing: 'private', ...current, binding };
+        async page(pageId) {
+          if (pageId === 'notes')
+            return {
+              id: id(2),
+              sharing: 'private',
+              title: 'Another fixture page',
+              source: '<p id="other-page">Another fixture page</p>',
+              own: {},
+            };
+          return {
+            id: id(1),
+            sharing: 'private',
+            ...current,
+            binding,
+          };
         },
       })}
     />,
   );
 }
+/** The local device loses owner-member provenance (a non-owner member). */
+export function nonOwnerDevice() {
+  ownerDevice = false;
+  emit();
+}
+/** An anchored thread, as if a person had just saved it. */
+export function seedThread() {
+  hooks!.seed();
+}
+/** The agent's winning resolution arrives from another stream. */
+export function agentResolves() {
+  hooks!.agentResolves();
+}
+/** How many times the parent's trusted open path acknowledged an agent resolution. */
+export function seenProof() {
+  return seenOpens;
+}
 export function proof() {
-  return { sends: sends.sends, actions };
+  return { sends: dispatched.flatMap((remote) => remote.sends), actions };
+}
+export function discussionProof() {
+  return structuredClone(current.threads);
 }
 export function change(source: string) {
   current = { ...current, source, title: 'Changed live title' };
-  publish?.(current);
+  emit();
 }
 export function block() {
   fail?.(new Error('Sync disconnected'));
@@ -228,14 +374,14 @@ export function syncRecords(state: PageAsk['state'] = 'uncertain', operationId =
     },
   ];
   current = { ...current, asks: records };
-  publish?.(current);
+  emit();
 }
 
 export function syncRefusal(reason: string) {
   syncRecords('refused');
   records[0].reason = reason;
   current = { ...current, asks: records };
-  publish?.(current);
+  emit();
 }
 
 export function refuseRead(code: ConstructorParameters<typeof ReadRefusedError>[0]) {
@@ -317,5 +463,58 @@ export function conversation(options: {
     },
   ];
   current = { ...current, threads: [thread], asks: records };
-  publish?.(current);
+  emit();
+}
+
+/** Admitted reply/history publication double; it never prepares or dispatches an Ask. */
+export function windowReply(count = 0) {
+  const thread = current.threads!.find((value) => value.anchor)!;
+  const opening = thread.comments.at(-1)!;
+  const comments = [...thread.comments];
+  for (let index = 0; index < count; index++) {
+    const messageId = crypto.randomUUID();
+    comments.push({
+      ...opening,
+      ref: { ...opening.ref, id: messageId },
+      messageId,
+      body: `History turn ${index + 1}.`,
+      at: String(Date.now()),
+    });
+  }
+  const record: PageAsk = {
+    thread: thread.threadId,
+    messageIds: [opening.messageId],
+    operationId: dispatched[0]?.sends[0]?.operationId ?? id(43),
+    writer: opening.ref.writer,
+    agent: id(6),
+    agentName: 'Agent 1',
+    deviceName: 'You',
+    issuedAt: Date.now(),
+    machine: id(5),
+    message: opening.body,
+    state: 'accepted',
+    canTrack: true,
+    reply: 'Exact associated agent reply.',
+  };
+  current = {
+    ...current,
+    threads: current.threads!.map((value) => (value === thread ? { ...thread, comments } : value)),
+    asks: [record],
+  };
+  emit();
+}
+
+/** A source-independent publication still clones thread/Ask records like Live. */
+export function unrelatedWindowUpdate() {
+  current = { ...structuredClone(current), title: 'Unrelated live title' };
+  emit();
+}
+
+/** Update the admitted reply on the same operation/thread, without another send. */
+export function updateWindowReply() {
+  current = {
+    ...structuredClone(current),
+    asks: current.asks!.map((record) => ({ ...record, reply: 'Updated associated agent reply.' })),
+  };
+  emit();
 }

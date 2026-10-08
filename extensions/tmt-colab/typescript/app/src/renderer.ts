@@ -50,16 +50,24 @@ export async function mountRenderer(
     onSelection?(text: string, selector?: QuoteSelector | null, rect?: SelectionRect | null): void;
     onAnnotate?(): void;
     onOpenThread?(id: string): void;
-    onAnchors?(resolved: string[]): void;
+    /** Checked is true only for an admitted resolution response, false while pending. */
+    onAnchors?(resolved: string[], checked?: boolean): void;
     /** Trusted chrome's fixed header inset; absent for standalone renderer probes. */
     viewportInset?(): number;
   },
 ): Promise<{
   readonly snapshot: RenderSnapshot;
-  highlight(anchors: { id: string; selector: QuoteSelector }[]): void;
+  highlight(anchors: { id: string; selector: QuoteSelector }[], draft?: QuoteSelector): void;
   scrollAnchor(id: string): void;
+  /** Cosmetic position already admitted from this render; never discussion authority. */
+  anchorRectangle(id: string): SelectionRect | undefined;
+  /** Stop the old channel while its frame preserves layout until replacement. */
+  release(): void;
   destroy(): void;
 }> {
+  // Keep the old layout while the replacement loads, so the browser does not
+  // clamp the window offset to a temporary viewport-high document.
+  const previousHeight = host.querySelector('iframe')?.getBoundingClientRect().height;
   const snapshot = await captureRender(source);
   options.signal.throwIfAborted();
   const frame = document.createElement('iframe');
@@ -83,7 +91,7 @@ export async function mountRenderer(
     updatedAt = -Infinity,
     growingAt = 0,
     growthReports = 0,
-    lastHeight = viewportHeight(),
+    lastHeight = Math.min(MAX_RENDER_HEIGHT, Math.max(viewportHeight(), previousHeight ?? 0)),
     innerScroll = false,
     scrolledAt = -Infinity;
   frame.scrolling = 'no';
@@ -133,7 +141,7 @@ export async function mountRenderer(
     updatedAt = now;
     frame.style.height = `${next}px`;
   };
-  const destroy = () => {
+  const release = () => {
     if (stopped) return;
     stopped = true;
     clearTimeout(deadline);
@@ -144,9 +152,15 @@ export async function mountRenderer(
     frame.onload = null;
     channel.port1.close();
     channel.port2.close();
+  };
+  const destroy = () => {
+    const mounted = frame.parentNode === host;
+    release();
     frame.remove();
-    options.onSelection?.('', null);
-    options.onAnchors?.([]);
+    if (mounted) {
+      options.onSelection?.('', null);
+      options.onAnchors?.([]);
+    }
   };
   const stop = (state: RenderState) => {
     destroy();
@@ -281,6 +295,7 @@ export async function mountRenderer(
       value.renderId === snapshot.renderId &&
       value.requestId === requestId &&
       typeof value.id === 'string' &&
+      value.id !== '' &&
       anchors.some((anchor) => anchor.id === value.id)
     ) {
       options.onOpenThread?.(value.id);
@@ -330,13 +345,15 @@ export async function mountRenderer(
         positions.set(position.id, position.top);
       }
     }
-    options.onAnchors?.([...value.resolved] as string[]);
+    options.onAnchors?.([...value.resolved] as string[], true);
   };
-  const highlight = (input: { id: string; selector: QuoteSelector }[]) => {
+  const highlight = (input: { id: string; selector: QuoteSelector }[], draft?: QuoteSelector) => {
     if (stopped) return;
     // Author code can inspect everything delivered into its frame. Rebuild this
     // narrow view instead of forwarding caller objects or discussion labels.
     const next = input.map(({ id, selector }) => ({ id, selector: structuredClone(selector) }));
+    // The empty ID checks an unsaved quote without adding a thread marker or action.
+    if (draft) next.push({ id: '', selector: structuredClone(draft) });
     if (next.length > 1000 || next.some((v) => typeof v.id !== 'string' || v.id.length > 73))
       return;
     for (const item of next) validateSelector(item.selector);
@@ -380,7 +397,12 @@ export async function mountRenderer(
     ]);
   };
   frame.src = new URL('./renderer.html', document.baseURI).href;
+  // Preserve the current offset through replacement, without replaying an older
+  // offset when a later height report arrives after the person has scrolled.
+  const scroll =
+    previousHeight === undefined ? undefined : { left: window.scrollX, top: window.scrollY };
   host.replaceChildren(frame);
+  if (scroll) window.scrollTo({ ...scroll, behavior: 'instant' });
   const scrollAnchor = (id: string) => {
     const top = positions.get(id);
     if (stopped || top === undefined) return;
@@ -399,5 +421,15 @@ export async function mountRenderer(
       behavior: 'instant',
     });
   };
-  return { snapshot, highlight, scrollAnchor, destroy };
+  const anchorRectangle = (id: string): SelectionRect | undefined => {
+    const top = positions.get(id);
+    if (stopped || top === undefined) return;
+    return {
+      x: Math.max(0, frame.clientWidth - 28),
+      y: innerScroll ? inset() : top,
+      width: 20,
+      height: 20,
+    };
+  };
+  return { snapshot, highlight, scrollAnchor, anchorRectangle, release, destroy };
 }

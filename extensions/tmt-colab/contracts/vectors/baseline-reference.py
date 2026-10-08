@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Independent minimal update-v1 oracle; no product code or third-party imports.
 
-Pins fresh root items (plain html text, meta.title and optional publisherAgent strings) for client 1159.
+Pins fresh root items (plain html text, meta.title and optional publisherAgent strings and creationRecipient object) for client 1159.
 Update-v1: unsigned varints, UTF-8 varstrings, content-string ref 4, content-any
 ref 8 with parentSub bit 32, lib0 string tag 119, and an empty delete set.
 The clock advances in UTF-16 code units, independently of Rust's text offsets.
@@ -29,13 +29,19 @@ def string(value):
     return varuint(len(raw)) + raw
 
 
-def update(source, title, publisher=None):
+def update(source, title, publisher=None, recipient=None, reverse=False):
     # Empty source inserts no item. Map title is always present, including empty.
     html = bytes([4, 1]) + string("html") + string(source) if source else b""
     meta = bytes([40, 1]) + string("meta") + string("title") + bytes([1, 119]) + string(title)
     if publisher is not None:
         meta += bytes([40, 1]) + string("meta") + string("publisherAgent") + bytes([1, 119]) + string(publisher)
-    return bytes([1]) + varuint((2 if source else 1) + (publisher is not None)) + varuint(1159) + bytes([0]) + html + meta + bytes([0])
+    if recipient is not None:
+        fields = list(recipient.items())
+        if reverse:
+            fields.reverse()
+        encoded = bytes([118]) + varuint(2) + b"".join(string(k) + bytes([119]) + string(v) for k, v in fields)
+        meta += bytes([40, 1]) + string("meta") + string("creationRecipient") + bytes([1]) + encoded
+    return bytes([1]) + varuint((2 if source else 1) + (publisher is not None) + (recipient is not None)) + varuint(1159) + bytes([0]) + html + meta + bytes([0])
 
 
 def binary(value):
@@ -56,6 +62,18 @@ def vectors():
                        "commitment": binary(hashlib.sha256(frame(b"tmt-colab-baseline-v1", b"1", raw, encoded)).digest())})
         if publisher is not None:
             result[-1]["publisherAgent"] = publisher
+    # lib0 objects encode either native HashMap key order; pin both exact byte forms.
+    recipient = {"machineId": "40000000-0000-4000-8000-000000000001",
+                 "agentId": "50000000-0000-1000-8000-000000000001"}
+    source, title, publisher = "<p>Created here</p>", "Creation recipient", "creation-agent"
+    raw = source.encode("utf-8")
+    encoded = update(source, title, publisher, recipient)
+    alternate = update(source, title, publisher, recipient, reverse=True)
+    commitment = lambda value: binary(hashlib.sha256(frame(b"tmt-colab-baseline-v1", b"1", raw, value)).digest())
+    result.append({"source": source, "title": title, "clientId": 1159, "publisherAgent": publisher,
+                   "creationRecipient": recipient, "update": binary(encoded),
+                   "alternateUpdate": binary(alternate), "sourceDigest": binary(hashlib.sha256(raw).digest()),
+                   "commitment": commitment(encoded), "alternateCommitment": commitment(alternate)})
     return result
 
 
@@ -69,4 +87,4 @@ if __name__ == "__main__":
         path.write_text(expected)
     elif path.read_text() != expected:
         raise SystemExit("baseline vector drift")
-    print("baseline-v1: 5 independent vectors match")
+    print("baseline-v1: 6 independent vectors match")

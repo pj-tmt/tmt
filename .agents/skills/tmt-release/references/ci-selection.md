@@ -48,6 +48,8 @@ Office SPA, local-service and companion producers never run. Native process
 verification excludes Office-owned suites and requires no Office companion;
 core discovery stays nonempty and other fixtures are built independently.
 
+For current small packages, apt acquisition allows three attempts per phase (60 s for update, 120 s for install), with 10 s termination grace and 5/10 s backoff; native-process contracts have a 20 min job budget without changing test deadlines. After the first install timeout, the shared action removes only Azure from the verified runner-image mirror list for remaining attempts; unexpected source/list layouts are logged and left unchanged.
+
 `Docker E2E` gates the two shard jobs selected by
 `typescript/scripts/e2e-shards.mjs` and committed `test/e2e/shard-weights.json`.
 Full native scope requires both shards (the first also runs adapter tests), scoped
@@ -65,6 +67,16 @@ verification still includes macOS. Follow the
 Rosetta process wrapper, exact installed-byte architecture admission and advisory
 native Intel coverage.
 
+The private browser presentation leaf is verified inside `Code quality`: its
+frozen-lock tool install ignores lifecycle scripts, and nonempty filtered check/test
+commands cover generated CSS equality, type/lint/format and package tests. The tooling
+import guard keeps production inside the leaf and the static entry free of React.
+Its component rule retains full native verification; this is not product adoption
+or broader advisory browser coverage. E2E/artifact stages prepare checked CSS, and
+all three native stages retain the actual Rust embedded-input guard. Office receives
+only the manifest required by the existing filtered root install until a real
+native reader needs CSS; Office product execution remains disabled.
+
 ## Cache ownership
 
 Rust dependency caches use the pinned `Swatinem/rust-cache` action with one
@@ -73,6 +85,20 @@ its toolchain, and each runtime target for its own cache. All writers use the
 shared seed-event classification (`verify=false`) and main ref. PRs, merge groups
 and other workers only restore. Dev debug information and incremental compilation
 are disabled in CI; release profiles keep their manifest policy.
+
+CI cache consumers and `colab-browser.yml` use `scripts/install-ci-rust.sh` to
+retain only the requested host toolchain before restore, preserving components,
+targets and manifest-driven MSRV. The helper removes runner-image extras only in
+disposable Actions jobs. `native-intel.yml` keeps its Intel-host
+`runtime-${TARGET}` setup; `native-release-upgrade-prove.yml` keeps its distinct
+`RUSTUP_TOOLCHAIN` and source-scoped `CARGO_TARGET_DIR` environment.
+`remote-pairing.yml`, `project-release.yml`, `native-release-bundle.yml`, metadata
+gates in `native-release-prepare.yml` and `release.yml` retain their environment
+families without CI's dev-debug setting. Release builds in
+`native-release-prepare.yml` and `release-version-injection.yml` keep separate
+product/target keys. Cache keys retain compiler, platform, environment and
+manifest identities; an exact hit does not certify complete feature/profile
+population.
 
 Main seeding runs on selected Cargo/workflow changes, weekly and manually. It has
 no diff and selects full native scope; the Rust aggregate validates its workers

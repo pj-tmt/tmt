@@ -119,6 +119,8 @@ const discussion: ThreadBinding = {
   edit: unexpectedDiscussion,
   deleteComment: unexpectedDiscussion,
   updateThread: unexpectedDiscussion,
+  setStatus: unexpectedDiscussion,
+  notificationFailed: unexpectedDiscussion,
 };
 const binding: PageBinding = {
   discussion,

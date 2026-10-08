@@ -36,6 +36,8 @@ pub(in crate::board) struct Extra {
     pub sent: bool,
     /// Blank lines under the row for the inline input band.
     pub reserve: usize,
+    pub detail: Value,
+    pub focus: Option<String>,
 }
 
 /// The row-end label candidates, longest first: the age mark then `cron next`, then
@@ -47,6 +49,30 @@ pub(in crate::board) fn row_end(age: Option<String>, next: Option<String>) -> Ve
         (None, Some(next)) => vec![next],
         (None, None) => vec![],
     }
+}
+
+/// Focus uses the existing heading tail; narrow headings retain the word.
+pub(in crate::board) fn heading_labels(
+    age: Option<String>,
+    next: Option<String>,
+    focus: Option<&str>,
+    width: usize,
+) -> Vec<String> {
+    let mut labels = row_end(age, next);
+    if let Some(focus) = focus {
+        let focus = if focus.width() <= width.saturating_sub(2) / 2 {
+            focus
+        } else {
+            "focus"
+        };
+        labels = labels
+            .into_iter()
+            .map(|label| format!("{focus}  {label}"))
+            .collect();
+        labels.push(focus.into());
+        labels.retain(|label| label.width() <= width.saturating_sub(2) / 2);
+    }
+    labels
 }
 
 struct Part {
@@ -68,6 +94,7 @@ struct Part {
 pub(in crate::board) struct RowPaint {
     parts: Vec<Part>,
     stale: Vec<bool>,
+    pub details: Vec<(usize, usize, Value)>,
     /// First and one-past-last scene line of each row, annotation included.
     pub starts: Vec<usize>,
     pub ends: Vec<usize>,
@@ -155,6 +182,7 @@ impl RowPaint {
         let mut scene = Self {
             parts: Vec::new(),
             stale: Vec::new(),
+            details: Vec::new(),
             starts: Vec::new(),
             ends: Vec::new(),
             height: 1,
@@ -255,7 +283,7 @@ impl RowPaint {
         let age = crate::staleness::label(&row["staleness"]);
         self.stale.push(age.is_some());
         let waits = crate::attention::waits_on_you(row);
-        let labels = row_end(age, extra.next.clone());
+        let labels = heading_labels(age, extra.next.clone(), extra.focus.as_deref(), width);
         let mut identity = admitted.clone();
         identity.children.clear();
         let root = self.add(identity, (0, y, width, 1), None);
@@ -418,6 +446,18 @@ impl RowPaint {
                 y += 1;
             }
         }
+        let detail_height = crate::board::row_detail::render(
+            &extra.detail,
+            width as u16,
+            2,
+            Look::default(),
+            false,
+        )
+        .len();
+        if detail_height > 0 {
+            self.details.push((at, y, extra.detail.clone()));
+            y += detail_height;
+        }
         if extra.sent {
             let text = "    ✓ sent";
             let index = self.label(
@@ -485,30 +525,61 @@ impl RowPaint {
         );
     }
 
-    /// Right-align the first label that fits after `used` cells of the line.
+    /// Focus may clip heading cells while keeping their continuation geometry;
+    /// other labels still need unused space after the cells.
     fn row_end(&mut self, root: usize, labels: &[String], used: usize, y: usize, width: usize) {
         let Some(label) = labels
             .iter()
-            .find(|label| used + GAP + label.width() <= width)
+            .find(|label| label.starts_with("focus") || used + GAP + label.width() <= width)
         else {
             return;
         };
         let at = width - label.width();
+        let used = used.min(at.saturating_sub(GAP));
         // The gap before the label keeps the row's base style.
         self.label(
-            None,
+            Some(" ".repeat(width - used)),
             (used, y, width - used, 1),
             None,
             TextFlow::Clip,
             Some(root),
         );
-        self.label(
-            Some(label.clone()),
-            (at, y, label.width(), 1),
-            Some(Role::Dim),
-            TextFlow::Clip,
-            Some(root),
-        );
+        if label.starts_with("focus") {
+            let (focus, tail) = label
+                .split_once("  ")
+                .map_or((label.as_str(), ""), |(focus, tail)| (focus, tail));
+            self.label(
+                Some("focus".into()),
+                (at, y, 5, 1),
+                Some(Role::Text),
+                TextFlow::Clip,
+                Some(root),
+            );
+            self.label(
+                Some(focus[5..].into()),
+                (at + 5, y, focus.width() - 5, 1),
+                Some(Role::Muted),
+                TextFlow::Clip,
+                Some(root),
+            );
+            if !tail.is_empty() {
+                self.label(
+                    Some(tail.into()),
+                    (at + focus.width() + 2, y, tail.width(), 1),
+                    Some(Role::Dim),
+                    TextFlow::Clip,
+                    Some(root),
+                );
+            }
+        } else {
+            self.label(
+                Some(label.clone()),
+                (at, y, label.width(), 1),
+                Some(Role::Dim),
+                TextFlow::Clip,
+                Some(root),
+            );
+        }
     }
 
     /// Paint into `body`, `offset` lines down the scene, and return one hit per
@@ -577,6 +648,20 @@ impl RowPaint {
                 part.align,
             )
         });
+        for (row, start, data) in &self.details {
+            let lines =
+                crate::board::row_detail::render(data, body.width, 2, look, *row == selected);
+            for (index, line) in lines.into_iter().enumerate() {
+                let at = start + index;
+                if at >= offset && at < offset + usize::from(body.height) {
+                    tmt_tui::components::strip::paint_left(
+                        buffer,
+                        Rect::new(body.x, body.y + (at - offset) as u16, body.width, 1),
+                        line,
+                    );
+                }
+            }
+        }
         let mut hits = Vec::new();
         for (index, part) in self.parts.iter().enumerate().filter(|(_, part)| part.root) {
             // Anonymous display rows keep click coverage without inventing IDs.
@@ -595,7 +680,9 @@ impl RowPaint {
                     y: y as u16,
                     x: body.x,
                     width: body.width,
-                    row: part.row.expect("a root names its row"),
+                    target: crate::board::app::HitTarget::Row(
+                        part.row.expect("a root names its row"),
+                    ),
                 });
             }
         }

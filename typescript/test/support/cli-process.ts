@@ -1,7 +1,11 @@
 import { spawn } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import assert from 'node:assert/strict';
 import {
+  closeSync,
   mkdirSync,
+  openSync,
+  readSync,
   mkdtempSync,
   readFileSync,
   readdirSync,
@@ -23,6 +27,75 @@ const neutralParent = fileURLToPath(
   new URL('../../../rust/target/debug/examples/runtime-caller-fixture', import.meta.url)
 );
 
+// Diagnostic state is bounded and never supplies process ownership or changes cleanup.
+type DiagnosticArgument = { bytes: number; sha256: string; literal?: string };
+type CliDiagnostic = {
+  callId: number;
+  sandboxRoot: string;
+  executable: string;
+  executableSha256: string;
+  fixtureArgv: DiagnosticArgument[];
+  fixtureArgc: number;
+  argv: DiagnosticArgument[];
+  argc: number;
+  deadlineMs: number;
+  events: {
+    phase: string;
+    atMs: number;
+    pid?: number;
+    status?: number | null;
+    signal?: string | null;
+  }[];
+  omittedEvents: number;
+  preTermination?: object;
+  cleanup?: { closeObserved: boolean; remainingGroups: number[]; failed: boolean };
+  partialOutput?: { stdout: DiagnosticArgument; stderr: DiagnosticArgument; observedBytes: number };
+};
+const diagnosticTokens = new Set([
+  '--version',
+  'upgrade',
+  'update',
+  '--json',
+  '--channel',
+  'stable',
+  'alpha',
+  '__native-install',
+  '--archive',
+  '--manifest',
+  '--prefix',
+  '--pin',
+  '--unpin',
+]);
+function diagnosticArgument(value: string): DiagnosticArgument {
+  return {
+    bytes: Buffer.byteLength(value),
+    sha256: createHash('sha256').update(value).digest('hex'),
+    ...(diagnosticTokens.has(value) ? { literal: value } : {}),
+  };
+}
+function diagnosticPath(value: string): string {
+  return Buffer.byteLength(value) <= 256
+    ? value
+    : `[path exceeds 256 bytes; sha256=${createHash('sha256').update(value).digest('hex')}]`;
+}
+function reportDiagnostic(scope: 'call' | 'sandbox', diagnostic: object): void {
+  try {
+    const text = JSON.stringify(diagnostic);
+    // Never emit raw output, stdin, environment, /proc cmdline or unrelated process facts.
+    console.error(
+      `CLI ${scope} diagnostics:`,
+      Buffer.byteLength(text) <= 16_384
+        ? text
+        : JSON.stringify({
+            omitted: 'diagnostic representation exceeds 16384 bytes',
+            bytes: Buffer.byteLength(text),
+            sha256: createHash('sha256').update(text).digest('hex'),
+          })
+    );
+  } catch {
+    // Observation/reporting failure cannot replace an original error or interrupt disposal.
+  }
+}
 const lifecycleKey = Symbol('sandbox process lifetime');
 interface ActiveRun {
   result: Promise<CliResult>;
@@ -31,7 +104,12 @@ interface ActiveRun {
 }
 
 export interface Sandbox {
-  readonly [lifecycleKey]: { closing: boolean; runs: Set<ActiveRun> };
+  readonly [lifecycleKey]: {
+    closing: boolean;
+    runs: Set<ActiveRun>;
+    nextCallId: number;
+    diagnostics: CliDiagnostic[];
+  };
   readonly cli: CliExecutable;
   readonly root: string;
   readonly cwd: string;
@@ -101,7 +179,12 @@ export function createSandbox(executableEnv: NodeJS.ProcessEnv = process.env): S
       if (value !== undefined) env[key] = value;
     }
     return {
-      [lifecycleKey]: { closing: false, runs: new Set<ActiveRun>() },
+      [lifecycleKey]: {
+        closing: false,
+        runs: new Set<ActiveRun>(),
+        nextCallId: 0,
+        diagnostics: [],
+      },
       cli,
       root,
       cwd,
@@ -142,6 +225,34 @@ function startRun(sandbox: Sandbox, args: readonly string[], options: CliRunOpti
   const outputLimitBytes = options.outputLimitBytes ?? 1024 * 1024;
   const deadlineMs = options.deadlineMs ?? 5_000;
   const hasStdin = options.stdin !== undefined;
+  const lifetime = sandbox[lifecycleKey];
+  const diagnostic: CliDiagnostic = {
+    callId: ++lifetime.nextCallId,
+    sandboxRoot: diagnosticPath(sandbox.root),
+    executable: diagnosticPath(sandbox.cli.executable),
+    executableSha256: createHash('sha256').update(sandbox.cli.executable).digest('hex'),
+    fixtureArgv: sandbox.cli.args.slice(0, 8).map(diagnosticArgument),
+    fixtureArgc: sandbox.cli.args.length,
+    argv: args.slice(0, 8).map(diagnosticArgument),
+    argc: args.length,
+    deadlineMs,
+    events: [],
+    omittedEvents: 0,
+  };
+  // Clones share one sequence. Two recent calls provide context without retaining output bodies.
+  lifetime.diagnostics.push(diagnostic);
+  if (lifetime.diagnostics.length > 2) lifetime.diagnostics.shift();
+  const record = (
+    phase: string,
+    detail: { pid?: number; status?: number | null; signal?: string | null } = {}
+  ): void => {
+    if (diagnostic.events.length === 32) {
+      diagnostic.events.splice(16, 1);
+      diagnostic.omittedEvents++;
+    }
+    diagnostic.events.push({ phase, atMs: performance.now(), ...detail });
+  };
+  record('call-start');
   let cleaned: () => void = () => {};
   let cleanupFailed: (error: Error) => void = () => {};
   const cleanup = new Promise<void>((resolve, reject) => {
@@ -157,6 +268,8 @@ function startRun(sandbox: Sandbox, args: readonly string[], options: CliRunOpti
       socketRoot = mkdtempSync(`/tmp/tmt-cli-parent-${process.pid}-`);
     } catch (error) {
       cleaned();
+      record('control-root-failed');
+      reportDiagnostic('call', diagnostic);
       reject(error);
       return;
     }
@@ -183,6 +296,7 @@ function startRun(sandbox: Sandbox, args: readonly string[], options: CliRunOpti
         return;
       }
       connections.add(socket);
+      record('control-connected');
       socket.setEncoding('utf8');
       socket.on('error', () => undefined);
       let control = '';
@@ -210,6 +324,7 @@ function startRun(sandbox: Sandbox, args: readonly string[], options: CliRunOpti
                 throw new Error('Invalid CLI process-group ownership.');
               cliGroup = report.group;
               groups.add(cliGroup);
+              record('cli-group-adopted', { pid: cliGroup });
               input = socket;
               if (finishing) {
                 stopGroup(cliGroup);
@@ -218,6 +333,7 @@ function startRun(sandbox: Sandbox, args: readonly string[], options: CliRunOpti
                 // The bootstrap consumes exactly this acknowledgement, then maps
                 // its socket to stdin. Input outlives the setup child's exit.
                 socket.write('ready\n');
+                record('ready-acknowledged');
                 if (options.stdin !== undefined) {
                   if (options.closeStdin === false) socket.write(options.stdin);
                   else socket.end(options.stdin);
@@ -235,6 +351,7 @@ function startRun(sandbox: Sandbox, args: readonly string[], options: CliRunOpti
               )
                 throw new Error('Invalid launcher error.');
               failure ??= Object.assign(new Error(error.message), { code: error.code });
+              record('launcher-error');
               beginCleanup();
             } else {
               if (completion !== undefined) throw new Error('Duplicate launcher completion.');
@@ -263,6 +380,7 @@ function startRun(sandbox: Sandbox, args: readonly string[], options: CliRunOpti
               )
                 throw new Error('Invalid selected CLI completion.');
               completion = { status, signal: signal as NodeJS.Signals | null };
+              record('cli-completion', completion);
               beginCleanup();
             }
           } catch (error) {
@@ -273,6 +391,7 @@ function startRun(sandbox: Sandbox, args: readonly string[], options: CliRunOpti
       });
       socket.once('close', () => {
         connections.delete(socket);
+        record('control-closed');
         if (control !== '') {
           failure ??= new Error('Incomplete neutral-parent control.');
           beginCleanup();
@@ -318,6 +437,24 @@ function startRun(sandbox: Sandbox, args: readonly string[], options: CliRunOpti
           transportError ??= new Error('Could not remove CLI control socket.', { cause });
         }
         const cleanupFailure = error ?? transportError;
+        record('cleanup-settled');
+        diagnostic.cleanup = {
+          closeObserved: closed !== undefined,
+          remainingGroups: [...groups],
+          failed: cleanupFailure !== undefined,
+        };
+        diagnostic.partialOutput = {
+          stdout: {
+            bytes: Buffer.byteLength(stdout),
+            sha256: createHash('sha256').update(stdout).digest('hex'),
+          },
+          stderr: {
+            bytes: Buffer.byteLength(stderr),
+            sha256: createHash('sha256').update(stderr).digest('hex'),
+          },
+          observedBytes: outputBytes,
+        };
+        if (failure || cleanupFailure) reportDiagnostic('call', diagnostic);
         if (cleanupFailure) {
           cleanupFailed(cleanupFailure);
           reject(
@@ -382,6 +519,7 @@ function startRun(sandbox: Sandbox, args: readonly string[], options: CliRunOpti
       finishing = true;
       clearTimeout(timer);
       cleanupDeadline = performance.now() + 1000;
+      record('cleanup-start');
       input?.destroy();
       if (!child) closed = { status: null, signal: null };
       for (const group of groups) stopGroup(group);
@@ -389,8 +527,11 @@ function startRun(sandbox: Sandbox, args: readonly string[], options: CliRunOpti
     };
     const timer = setTimeout(() => {
       failure ??= new Error(`CLI subprocess exceeded the ${deadlineMs} millisecond test bound.`);
+      record('deadline');
+      diagnostic.preTermination = preTerminationObservation(cliGroup, sandbox.root);
       beginCleanup();
     }, deadlineMs);
+    record('deadline-armed');
     stop = () => {
       failure ??= new Error('CLI run cancelled during sandbox disposal.');
       beginCleanup();
@@ -424,8 +565,10 @@ function startRun(sandbox: Sandbox, args: readonly string[], options: CliRunOpti
       beginCleanup();
     });
     server.once('listening', () => {
+      record('socket-listening');
       if (finishing || settled) return;
       try {
+        record('setup-spawn-requested');
         child = spawn(
           neutralParent,
           [
@@ -450,12 +593,16 @@ function startRun(sandbox: Sandbox, args: readonly string[], options: CliRunOpti
         return;
       }
       if (child.pid !== undefined) groups.add(child.pid);
+      record('setup-spawn-returned', { pid: child.pid });
       stdoutStream = child.stdout!;
       stderrStream = child.stderr!;
       stdoutStream.setEncoding('utf8');
       stderrStream.setEncoding('utf8');
       stdoutStream.on('data', readOutput('stdout'));
       stderrStream.on('data', readOutput('stderr'));
+      stdoutStream.once('close', () => record('stdout-closed'));
+      stderrStream.once('close', () => record('stderr-closed'));
+      child.once('spawn', () => record('setup-spawn-observed', { pid: child?.pid }));
       child.on('error', (error) => {
         failure ??= error;
         beginCleanup();
@@ -463,6 +610,7 @@ function startRun(sandbox: Sandbox, args: readonly string[], options: CliRunOpti
       // Successful setup exits to orphan the supervisor. Its completion record,
       // not setup exit, starts cleanup of the selected CLI and descendants.
       child.once('exit', (status, signal) => {
+        record('setup-exit', { status, signal });
         if (status !== 0 || signal !== null) {
           failure ??= new Error('Neutral-parent setup did not exit successfully.');
           beginCleanup();
@@ -470,9 +618,11 @@ function startRun(sandbox: Sandbox, args: readonly string[], options: CliRunOpti
       });
       child.once('close', (status, signal) => {
         closed = { status, signal };
+        record('setup-pipes-closed', { status, signal });
         checkCompletion();
       });
     });
+    record('socket-listen-requested');
     server.listen(socketPath);
   });
   return { result, cleanup, stop: () => stop() };
@@ -548,6 +698,107 @@ function sandboxProcesses(root: string, pid?: number): number[] {
     .map(({ pid }) => pid);
 }
 
+function residentIdentity(pid: number, root: string, preTermination = false): object {
+  try {
+    // Fixed proc facts only; one read bounds both allocation and observation work.
+    const readFact = (name: 'stat' | 'wchan', limit: number): string => {
+      const fd = openSync(`/proc/${pid}/${name}`, 'r');
+      try {
+        const buffer = Buffer.alloc(limit + 1);
+        const bytes = readSync(fd, buffer);
+        if (bytes > limit) throw new Error('process fact exceeds diagnostic bound');
+        return buffer.subarray(0, bytes).toString('utf8');
+      } finally {
+        closeSync(fd);
+      }
+    };
+    const identity = (): string[] => {
+      const text = preTermination
+        ? readFact('stat', 8192)
+        : readFileSync(`/proc/${pid}/stat`, 'utf8');
+      if (!text.startsWith(`${pid} (`)) throw new Error('stat PID differs');
+      if (Buffer.byteLength(text) > 8192) throw new Error('stat exceeds diagnostic bound');
+      const end = text.lastIndexOf(')');
+      const fields = text
+        .slice(end + 2)
+        .trim()
+        .split(/\s+/);
+      if (
+        end < 0 ||
+        fields.length < 20 ||
+        !/^[A-Za-z]$/.test(fields[0]) ||
+        ![1, 2, 3, 19, ...(preTermination ? [11, 12] : [])].every((index) =>
+          /^\d{1,20}$/.test(fields[index])
+        )
+      )
+        throw new Error('invalid stat');
+      return fields;
+    };
+    const before = identity();
+    const cwd = readlinkSync(`/proc/${pid}/cwd`).replace(/ \(deleted\)$/, '');
+    if (cwd !== root && !cwd.startsWith(`${root}${path.sep}`))
+      return { pid, observation: 'no longer a sandbox resident' };
+    const executable = readlinkSync(`/proc/${pid}/exe`);
+    const wchan = preTermination ? readFact('wchan', 64).trim() : undefined;
+    if (preTermination && (Buffer.byteLength(executable) > 256 || !/^[A-Za-z0-9_]*$/.test(wchan!)))
+      return { pid, observation: 'endpoint facts unavailable' };
+    const after = identity();
+    if (before[19] !== after[19]) return { pid, observation: 'identity changed' };
+    if (preTermination)
+      return {
+        pid,
+        observation: 'endpoint identity observed',
+        ppid: after[1],
+        pgid: after[2],
+        executable,
+        state: after[0],
+        cpuTicks: { user: after[11], system: after[12] },
+        wchan,
+      };
+    return {
+      pid,
+      observation: 'endpoint identity observed',
+      startTicks: after[19],
+      state: after[0],
+      ppid: after[1],
+      pgid: after[2],
+      session: after[3],
+      cwd: diagnosticPath(cwd),
+      executable: diagnosticPath(executable),
+    };
+  } catch {
+    return { pid, observation: 'identity unavailable' };
+  }
+}
+
+// Optional observation never supplies process ownership, signalling or cleanup evidence.
+function preTerminationObservation(cliPid: number | undefined, root: string): object {
+  if (process.platform !== 'linux') return { observation: 'unavailable on this platform' };
+  const observed: object[] = [];
+  try {
+    const processRoot = realpathSync(root);
+    const candidates = sandboxProcesses(processRoot)
+      .filter((pid) => pid !== cliPid)
+      .slice(0, 8);
+    const pids = [...(cliPid === undefined ? [] : [cliPid]), ...candidates];
+    for (const pid of pids) {
+      try {
+        // Same-user cwd admission is rechecked before reading any endpoint facts.
+        if (sandboxProcesses(processRoot, pid).length === 0) {
+          observed.push({ pid, observation: 'no longer a sandbox resident' });
+          continue;
+        }
+        observed.push(residentIdentity(pid, processRoot, true));
+      } catch {
+        observed.push({ pid, observation: 'admission recheck unavailable' });
+      }
+    }
+    return { observation: 'snapshot', cliPid: cliPid ?? null, processes: observed };
+  } catch {
+    return { observation: 'discovery unavailable', processes: observed };
+  }
+}
+
 export async function withSandbox<T>(
   callback: (sandbox: Sandbox) => T | Promise<T>,
   executableEnv: NodeJS.ProcessEnv = process.env
@@ -568,19 +819,34 @@ export async function withSandbox<T>(
   const results = await Promise.allSettled(runs.map((run) => run.cleanup));
   const errors = results.flatMap((result) => (result.status === 'rejected' ? [result.reason] : []));
   let leak: Error | undefined;
+  let residents: object[] = [];
+  let residentCount = 0;
+  let residentCleanup = 'not required';
   try {
     const leaked = process.platform === 'linux' ? sandboxProcesses(processRoot) : [];
     if (leaked.length) {
       leak = new Error(`Sandbox callback left live processes: ${leaked.join(', ')}.`);
+      residentCount = leaked.length;
+      residents = leaked.slice(0, 8).map((pid) => ({ pid, observation: 'identity unavailable' }));
+      residentCleanup = 'not confirmed';
       for (const pid of leaked) {
         // Recheck cwd immediately before signalling; a recycled or moved PID is not ours.
-        if (sandboxProcesses(processRoot, pid).length === 0) continue;
+        if (sandboxProcesses(processRoot, pid).length === 0) {
+          const index = leaked.indexOf(pid);
+          if (index < residents.length)
+            residents[index] = { pid, observation: 'no longer a sandbox resident' };
+          continue;
+        }
         if (pid === process.pid) throw new Error('The test runner is still inside the sandbox.');
         try {
           process.kill(pid, 'SIGKILL');
         } catch (error) {
           if ((error as NodeJS.ErrnoException).code !== 'ESRCH') throw error;
         }
+        // Optional endpoint facts follow the existing recheck and signal, never preceding
+        // either or authorizing cleanup. A denied recheck leaves only pid/unavailable.
+        const index = leaked.indexOf(pid);
+        if (index < residents.length) residents[index] = residentIdentity(pid, processRoot);
       }
       const deadline = performance.now() + 1000;
       while (
@@ -599,10 +865,59 @@ export async function withSandbox<T>(
           throw new Error('Sandbox process cleanup did not confirm exit within 1000ms.');
         await new Promise((resolve) => setTimeout(resolve, 10));
       }
+      residentCleanup = 'absence confirmed by existing cleanup checks';
     }
   } catch (error) {
     errors.push(error);
   }
+  if (errors.length || leak)
+    reportDiagnostic('sandbox', {
+      sandboxRoot: diagnosticPath(processRoot),
+      residents,
+      residentCount,
+      residentCleanup,
+      cleanupFailed: errors.length !== 0,
+      recentCalls: lifetime.diagnostics.map(
+        ({
+          callId,
+          executable,
+          executableSha256,
+          fixtureArgv,
+          fixtureArgc,
+          argv,
+          argc,
+          deadlineMs,
+          cleanup,
+          events,
+          omittedEvents,
+        }) => ({
+          callId,
+          executable,
+          executableSha256,
+          fixtureArgv,
+          fixtureArgc,
+          argv,
+          argc,
+          deadlineMs,
+          cleanup,
+          omittedEvents,
+          events: events.filter(({ phase }) =>
+            [
+              'socket-listening',
+              'setup-spawn-observed',
+              'cli-group-adopted',
+              'ready-acknowledged',
+              'setup-exit',
+              'cli-completion',
+              'setup-pipes-closed',
+              'deadline',
+              'cleanup-start',
+              'cleanup-settled',
+            ].includes(phase)
+          ),
+        })
+      ),
+    });
   if (errors.length) {
     throw new AggregateError(
       [...(failure ? [failure.error] : []), ...(leak ? [leak] : []), ...errors],

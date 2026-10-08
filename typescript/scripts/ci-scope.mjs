@@ -4,6 +4,14 @@ import { fileURLToPath } from 'node:url';
 import { resolve } from 'node:path';
 import { e2eShardFiles } from './e2e-shards.mjs';
 import { runPackedCommand } from './packed-command.mjs';
+import {
+  componentOfProduct,
+  isComponentRetired,
+  isProductRetired,
+  productOfComponent,
+  predecessorOfProduct,
+  releasePolicy,
+} from './native-release-policy.mjs';
 
 const COMPONENT_MAP = new URL('../../.github/components.json', import.meta.url);
 
@@ -138,6 +146,7 @@ export function parseComponentMap(text) {
     bootstrapSha: component.bootstrapSha,
     initialVersion: component.initialVersion,
     requiresCliSha: component.requiresCliSha,
+    predecessor: component.predecessor,
     releaseConsumers:
       component.releaseConsumers === undefined
         ? []
@@ -201,6 +210,33 @@ export function parseComponentMap(text) {
       const consumer = components.find((candidate) => candidate.name === name);
       if (component.release !== false || !consumer?.package || consumer.releaseStatus === 'never')
         throw new Error(`Invalid release consumer ${name} of ${component.name}.`);
+    }
+  }
+  const productMap = { components };
+  for (const component of components) {
+    if (isComponentRetired(component.name) && component.release !== false)
+      throw new Error(`Retired component ${component.name} must declare release: false.`);
+    if (component.predecessor === undefined) continue;
+    if (!component.package || typeof component.predecessor !== 'string' || !component.predecessor)
+      throw new Error(`Component ${component.name} predecessor needs a package and product key.`);
+    const product = productOfComponent(component.name);
+    componentOfProduct(productMap, product);
+    releasePolicy(component.predecessor);
+    if (component.predecessor === product)
+      throw new Error(`Component ${component.name} cannot be its own predecessor.`);
+    if (!isProductRetired(component.predecessor)) {
+      const predecessor = componentOfProduct(productMap, component.predecessor);
+      if (!predecessor.package || predecessor.release === false)
+        throw new Error(
+          `Predecessor ${component.predecessor} must be a released or retired product.`
+        );
+    }
+    const visited = new Set([product]);
+    let predecessor = component.predecessor;
+    while (predecessor !== undefined) {
+      if (visited.has(predecessor)) throw new Error(`Predecessor cycle for ${component.name}.`);
+      visited.add(predecessor);
+      predecessor = predecessorOfProduct(productMap, predecessor);
     }
   }
   if (components.length === 0) throw new Error('The component map has no components.');

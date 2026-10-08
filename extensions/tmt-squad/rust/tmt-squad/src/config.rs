@@ -1,4 +1,4 @@
-//! `squad.toml`: the user's file, beside TMT's global configuration.
+//! `ops.toml`: the user's file, beside TMT's global configuration.
 //! Named edits pass through one format-preserving writer.
 
 use crate::core::{Core, SquadError};
@@ -880,7 +880,9 @@ impl Config {
     /// so TMT alone owns path discovery. A missing file is an empty document.
     pub fn load(core: &Core) -> Result<Self, SquadError> {
         let shown = core.json(&["config", "show"])?;
-        let mut config = Self::read(Self::squad_file(&shown)?)?;
+        let path = crate::migration::paths(core, Some(&shown))?.config;
+        let _migration = crate::migration::config_write_guard(&path)?;
+        let mut config = Self::read(path)?;
         config.global_theme(&shown);
         Ok(config)
     }
@@ -909,20 +911,9 @@ impl Config {
         });
     }
 
-    /// Where squad.toml lives, without reading it.
+    /// The invocation-selected config path, including a deferred cutover.
     pub fn locate(core: &Core) -> Result<PathBuf, SquadError> {
-        Self::squad_file(&core.json(&["config", "show"])?)
-    }
-
-    /// squad.toml beside the global config `config show` reports.
-    fn squad_file(shown: &serde_json::Value) -> Result<PathBuf, SquadError> {
-        let global = shown["paths"]["global"]
-            .as_str()
-            .ok_or_else(|| invalid("tmt config show did not report the global config path."))?;
-        Ok(Path::new(global)
-            .parent()
-            .ok_or_else(|| invalid("The global config path has no directory."))?
-            .join("squad.toml"))
+        Ok(crate::migration::paths(core, None)?.config)
     }
 
     pub fn read(path: PathBuf) -> Result<Self, SquadError> {
@@ -1554,7 +1545,7 @@ impl Config {
                 &format!("squad {squad} has a hand-written board layout"),
                 "; ",
                 &format!(
-                    "remove squad.{squad}.board.layout or panes from squad.toml manually before saving a view"
+                    "remove squad.{squad}.board.layout or panes from ops.toml manually before saving a view"
                 ),
             ));
         }
@@ -1642,18 +1633,7 @@ impl Config {
                     .expect("validated view parent");
             }
             let key = path.last().unwrap();
-            if parent
-                .get(key)
-                .and_then(Item::as_table)
-                .is_some_and(|table| {
-                    [table.decor().prefix(), table.decor().suffix()]
-                        .into_iter()
-                        .all(|raw| {
-                            raw.and_then(|raw| raw.as_str())
-                                .is_none_or(|text| text.trim().is_empty())
-                        })
-                })
-            {
+            if parent.get(key).is_some_and(empty_table_without_comments) {
                 parent.remove(key);
             }
         }
@@ -1688,28 +1668,10 @@ impl Config {
         Ok(draft)
     }
 
-    /// HOME preview visibility is global; squad-local copies are invalid.
-    pub fn home_replies(&self) -> Result<bool, SquadError> {
-        if let Some(squads) = self.document.get("squad").and_then(Item::as_table_like) {
-            for (name, table) in squads.iter() {
-                if table
-                    .get("board")
-                    .and_then(|board| board.get("home_replies"))
-                    .is_some()
-                {
-                    return Err(invalid(format!(
-                        "`squad.{name}.board.home_replies` is global-only; use `board.home_replies`."
-                    )));
-                }
-            }
-        }
+    /// Recognize the removed preview setting without interpreting or rewriting it.
+    pub fn obsolete_board_notice(&self) -> Option<&'static str> {
         self.source_item(&["board", "home_replies"])
-            .map(|item| {
-                item.as_bool()
-                    .ok_or_else(|| invalid("`board.home_replies` must be true or false."))
-            })
-            .transpose()
-            .map(|value| value.unwrap_or(true))
+            .map(|_| "board.home_replies is deprecated and ignored; e expands row details.")
     }
 
     /// Validate both layers even when the squad masks the global question.
@@ -2138,7 +2100,7 @@ impl Config {
             .collect();
         if !matches!(self.document.get("tabs"), None | Some(Item::Table(_))) {
             return Err(invalid(
-                "`tabs` is not a [tabs] table, so the order cannot be saved; edit squad.toml.",
+                "`tabs` is not a [tabs] table, so the order cannot be saved; edit ops.toml.",
             ));
         }
         self.write(|document| {
@@ -2153,6 +2115,7 @@ impl Config {
     /// editor changed the file since it was read, rather than overwriting
     /// their edit.
     fn write(&mut self, edit: impl FnOnce(&mut DocumentMut)) -> Result<(), SquadError> {
+        let _migration = crate::migration::config_write_guard(&self.path)?;
         let current = read_bounded(&self.path).map_err(|error| write_failed(&self.path, error))?;
         if current != self.original {
             return Err(SquadError::new(
@@ -2216,7 +2179,7 @@ fn publish(path: &Path, bytes: &[u8]) -> io::Result<()> {
         .parent()
         .ok_or_else(|| io::Error::other("no parent directory"))?;
     fs::create_dir_all(directory)?;
-    let staged = directory.join(format!(".squad.toml.{}", std::process::id()));
+    let staged = directory.join(format!(".ops.toml.{}", std::process::id()));
     let mut file = fs::OpenOptions::new()
         .write(true)
         .create_new(true)
@@ -2231,6 +2194,18 @@ fn publish(path: &Path, bytes: &[u8]) -> io::Result<()> {
     }
     written?;
     fs::File::open(directory)?.sync_all()
+}
+
+fn empty_table_without_comments(item: &Item) -> bool {
+    item.as_table().is_some_and(|table| {
+        table.is_empty()
+            && [table.decor().prefix(), table.decor().suffix()]
+                .into_iter()
+                .all(|raw| {
+                    raw.and_then(|raw| raw.as_str())
+                        .is_none_or(|text| text.trim().is_empty())
+                })
+    })
 }
 
 #[cfg(test)]
@@ -2422,6 +2397,23 @@ mod tests {
     }
 
     #[test]
+    fn legacy_byte_cas_alone_refuses_archival_without_recreating_old_config() {
+        let path = temp("legacy-cas").with_file_name("squad.toml");
+        fs::write(&path, "[board.theme]\nbase='tmt'\n").unwrap();
+        let mut old = Config::read(path.clone()).unwrap();
+        // No completion marker: exercise the byte CAS used by the old binary.
+        fs::rename(&path, path.with_extension("toml.migrated-100")).unwrap();
+        assert_eq!(
+            old.set_theme_base(&crate::theme::ThemeScope::Board, tmt_cli_style::Base::Mono)
+                .unwrap_err()
+                .code,
+            "SQUAD_CONFIG_CHANGED"
+        );
+        assert!(!path.exists());
+        fs::remove_dir_all(path.parent().unwrap()).unwrap();
+    }
+
+    #[test]
     fn theme_writes_refuse_changed_files_even_for_an_identical_base() {
         use crate::theme::ThemeScope;
         use tmt_cli_style::Base;
@@ -2465,7 +2457,7 @@ mod tests {
         let staged = path
             .parent()
             .unwrap()
-            .join(format!(".squad.toml.{}", std::process::id()));
+            .join(format!(".ops.toml.{}", std::process::id()));
         fs::write(&staged, "occupied stage").unwrap();
         assert_eq!(
             config
@@ -2496,7 +2488,7 @@ mod tests {
         let staged = path
             .parent()
             .unwrap()
-            .join(format!(".squad.toml.{}", std::process::id()));
+            .join(format!(".ops.toml.{}", std::process::id()));
         fs::write(&staged, "publish would fail").unwrap();
         assert!(
             !config
@@ -2570,52 +2562,53 @@ mod tests {
     }
 
     #[test]
-    fn home_replies_is_global_boolean_and_failed_edits_preserve_the_file() {
-        let path = temp("home-replies");
-        let mut config = Config::read(path.clone()).unwrap();
-        assert!(config.home_replies().unwrap());
-        assert!(config.can_edit_setting("board.home_replies", None));
-        assert!(!config.can_edit_setting("board.home_replies", Some("x")));
-        config
-            .set_setting(None, "board.home_replies", "false")
-            .unwrap();
-        assert!(!Config::read(path.clone()).unwrap().home_replies().unwrap());
-        let shown = config
-            .settings(Some(crate::tabs::ALL), false, None)
-            .unwrap()
-            .value();
-        let entry = shown["entries"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .find(|entry| entry["key"] == "board.home_replies")
-            .unwrap();
-        assert_eq!(entry["value"], false);
-        assert_eq!(entry["source"], "board.home_replies");
-        assert_eq!(entry["editable"], true);
-        let before = std::fs::read(&path).unwrap();
-        for (scope, text) in [(None, "yes"), (None, "'false'"), (Some("x"), "true")] {
+    fn obsolete_home_replies_is_ignored_with_one_notice_and_preserves_authored_toml() {
+        let path = temp("obsolete-home-replies");
+        for value in ["false", "true", "'obsolete'", "42"] {
+            let body = format!("# keep this comment\n[board]\nhome_replies={value}\n");
+            fs::write(&path, &body).unwrap();
+            let mut config = Config::read(path.clone()).unwrap();
+            assert!(config.refresh("").is_ok());
+            assert_eq!(
+                config.obsolete_board_notice(),
+                Some("board.home_replies is deprecated and ignored; e expands row details.")
+            );
+            let shown = config
+                .settings(Some(crate::tabs::ALL), false, None)
+                .unwrap()
+                .value();
+            assert!(
+                !shown["entries"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .any(|entry| entry["key"] == "board.home_replies")
+            );
+            assert_eq!(
+                shown["notices"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .filter(|notice| notice.as_str() == config.obsolete_board_notice())
+                    .count(),
+                1
+            );
+            assert!(!config.can_edit_setting("board.home_replies", None));
             assert!(
                 config
-                    .set_setting(scope, "board.home_replies", text)
+                    .set_setting(None, "board.home_replies", "false")
                     .is_err()
             );
-            assert_eq!(std::fs::read(&path).unwrap(), before);
+            assert_eq!(fs::read_to_string(&path).unwrap(), body);
         }
-        for body in [
-            "[board]\nhome_replies='false'\n",
-            "[squad.x.board]\nhome_replies=false\n",
-        ] {
-            std::fs::write(&path, body).unwrap();
-            let invalid = Config::read(path.clone()).unwrap();
-            assert!(invalid.home_replies().is_err());
-            assert!(
-                invalid
-                    .settings(Some(crate::tabs::ALL), false, None)
-                    .is_err()
-            );
-        }
-        std::fs::remove_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(&path, "[board]\nunknown=true\n").unwrap();
+        let config = Config::read(path.clone()).unwrap();
+        assert!(
+            config.refresh("").is_err(),
+            "other unknown board keys remain errors"
+        );
+        assert!(config.obsolete_board_notice().is_none());
+        fs::remove_dir_all(path.parent().unwrap()).unwrap();
     }
 
     #[test]
@@ -2654,7 +2647,54 @@ mod tests {
             std::env::temp_dir().join(format!("tmt-squad-{name}-{}", std::process::id()));
         let _ = fs::remove_dir_all(&directory);
         fs::create_dir_all(&directory).unwrap();
-        directory.join("squad.toml")
+        directory.join("ops.toml")
+    }
+
+    #[test]
+    fn reset_drops_only_an_empty_comment_free_parent_and_preserves_siblings() {
+        let path = temp("reset-empty-parent");
+        for (prefix, suffix, sibling, keep_parent) in [
+            ("", "", "", false),
+            ("# keep meter note\n", "", "", true),
+            ("", " # keep header note", "", true),
+            ("", "", "reduced_motion = true # keep sibling\n", true),
+        ] {
+            let authored = format!(
+                "# keep authored file\n[board.token_rate]\nwindow = '5m'\n[squad.x.board]\nrefresh = '10s' # keep refresh\n{prefix}[squad.x.board.token_rate]{suffix}\nwindow = '1h'\n{sibling}[squad.y.board]\nview = 'members' # keep other squad\n"
+            );
+            fs::write(&path, authored).unwrap();
+            let mut config = Config::read(path.clone()).unwrap();
+            assert!(
+                config
+                    .reset_setting("x", "board.token_rate.window")
+                    .unwrap()
+            );
+            assert!(
+                !config
+                    .reset_setting("x", "board.token_rate.window")
+                    .unwrap()
+            );
+            let saved = fs::read_to_string(&path).unwrap();
+            assert_eq!(saved.contains("[squad.x.board.token_rate]"), keep_parent);
+            for retained in [
+                "# keep authored file",
+                "window = '5m'",
+                "refresh = '10s' # keep refresh",
+                "view = 'members' # keep other squad",
+                prefix,
+                suffix,
+                sibling,
+            ] {
+                assert!(saved.contains(retained), "{retained}: {saved}");
+            }
+            let reopened = Config::read(path.clone()).unwrap();
+            assert_eq!(
+                reopened.token_rate("x").unwrap().window,
+                TokenWindow::FIVE_MINUTES
+            );
+            assert!(!reopened.has_setting_override("x", "board.token_rate.window"));
+        }
+        fs::remove_dir_all(path.parent().unwrap()).unwrap();
     }
 
     #[test]

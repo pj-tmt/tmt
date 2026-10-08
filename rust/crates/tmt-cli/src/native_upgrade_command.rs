@@ -18,13 +18,20 @@ use tmt_adapters::{
 };
 use tmt_core::{native_install::Channel, skill_catalog::Group};
 
-pub fn execute(
+pub fn execute_with_schema_consent(
     channel: Option<Channel>,
     exact: Option<&str>,
     unpin: bool,
     yes: bool,
+    allow_schema_ahead: bool,
     mode: OutputMode,
 ) -> io::Result<u8> {
+    if allow_schema_ahead {
+        writeln!(
+            tmt_cli_style::stream::stderr(),
+            "Warning: allowing a PR application schema ahead of latest alpha. Local data is never downgraded; returning to alpha may be unavailable until alpha catches up."
+        )?;
+    }
     let interrupt = match tmt_adapters::interrupt::Interrupt::install() {
         Ok(interrupt) => interrupt,
         Err(error) => {
@@ -38,13 +45,16 @@ pub fn execute(
     };
     let result = (|| {
         let executable = std::env::current_exe()?;
-        native_install::upgrade(
+        native_install::upgrade_product_with_schema_consent(
+            tmt_core::native_install::Product::Cli,
             UpgradeRequest {
                 executable: &executable,
                 channel,
                 exact,
                 unpin,
             },
+            allow_schema_ahead,
+            None,
             || {
                 if interrupt.is_interrupted() {
                     Err(io::Error::new(
@@ -67,11 +77,7 @@ pub fn execute(
                 1
             };
             let message = error.to_string();
-            let code = if error.needs_new_installer() {
-                "NATIVE_UPGRADE_INSTALLER_UNSUPPORTED"
-            } else {
-                "NATIVE_UPGRADE_FAILED"
-            };
+            let code = error.code();
             let failure = Failure::new(code, message, status).caused_by(error);
             return publish(activated.as_deref(), None, Some(failure), mode);
         }

@@ -14,7 +14,7 @@ impl Fixture {
         Self(path)
     }
     fn clock(&self) -> Clock {
-        Clock::new(&self.0).unwrap()
+        Clock::new(&self.0.join("ops")).unwrap()
     }
 }
 impl Drop for Fixture {
@@ -28,7 +28,7 @@ fn absent_status_creates_nothing_and_live_lease_excludes_every_competitor() {
     let f = Fixture::new();
     let clock = f.clock();
     assert_eq!(clock.status(100), ClockStatus::NoClock);
-    assert!(!f.0.join("squad").exists());
+    assert!(!f.0.join("ops").exists());
     let mut lease = clock
         .acquire(100, 123, Some("%41".into()))
         .unwrap()
@@ -48,7 +48,7 @@ fn absent_status_creates_nothing_and_live_lease_excludes_every_competitor() {
     assert_eq!(lease.holder().since_ms, 100);
     assert_eq!(lease.holder().expires_ms, 50_000);
     assert!(clock.acquire(30_100, 456, None).unwrap().is_none());
-    for path in [clock.directory.clone(), f.0.join("squad")] {
+    for path in [clock.directory.clone(), f.0.join("ops")] {
         assert_eq!(
             fs::metadata(path).unwrap().permissions().mode() & 0o777,
             0o700

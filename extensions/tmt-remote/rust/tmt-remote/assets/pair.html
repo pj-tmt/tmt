@@ -8,28 +8,49 @@
     <script src="/sdk/pair.js"></script>
   </head>
   <body>
-    <header class="header">
-      <span class="header-brand">
-        <span class="header-mark">tmt</span><span class="header-wordmark">Remote</span>
+    <header class="header tmt-ui-header">
+      <span class="header-brand tmt-ui-brand">
+        <span class="header-mark tmt-ui-mark">tmt</span
+        ><span class="header-wordmark tmt-ui-wordmark">Remote</span>
       </span>
-      <h1 class="header-title">Pair a browser</h1>
+      <h1 class="header-title tmt-ui-title">Pair a browser</h1>
     </header>
     <main class="page">
-      <section class="sheet" aria-labelledby="heading">
-        <div class="sheet-body">
-          <span id="mark" class="state-mark" aria-hidden="true">◆</span>
-          <p class="eyebrow">Browser pairing</p>
-          <h2 id="heading">Pair this browser with tmt remote</h2>
+      <section
+        id="notice"
+        class="sheet tmt-ui-notice"
+        data-tone="waiting"
+        aria-labelledby="heading"
+      >
+        <div class="sheet-body tmt-ui-notice-body">
+          <div class="tmt-ui-notice-mark">
+            <span id="mark" class="state-mark" aria-hidden="true">◆</span
+            ><span id="state-label">Initializing</span>
+          </div>
+          <p class="eyebrow tmt-ui-notice-eyebrow">Browser pairing</p>
+          <h2 id="heading" class="tmt-ui-notice-heading">Pair this browser with tmt remote</h2>
           <form id="pair">
-            <label for="name">Device name</label>
-            <input id="name" maxlength="64" required value="Browser" />
-            <button type="submit">Pair</button>
+            <div class="tmt-ui-field">
+              <label id="name-label" class="tmt-ui-field-label" for="name">Device name</label>
+              <input
+                id="name"
+                class="tmt-ui-field-control"
+                aria-labelledby="name-label"
+                maxlength="64"
+                required
+                value="Browser"
+              />
+            </div>
+            <button class="tmt-ui-action" type="submit" aria-describedby="status" disabled>
+              <span class="tmt-ui-action-label">Pair</span>
+            </button>
           </form>
           <div id="comparison" hidden>
             <p class="words-label">Words</p>
             <p id="words"></p>
           </div>
-          <p id="status" role="status"></p>
+          <p id="status" role="status">Pairing is unavailable until the current offer is ready.</p>
+          <p id="entry-link" hidden><a href="/">Return to Remote and connect</a></p>
         </div>
       </section>
     </main>

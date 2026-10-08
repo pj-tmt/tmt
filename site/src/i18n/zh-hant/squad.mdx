@@ -1,6 +1,6 @@
 ---
 source: site/src/chapters/squad.mdx
-sourceRevision: 8bd1e1392968d4d9d4eba8cfc86b0fb137b48931
+sourceRevision: 397e8e2c04acfa2d113be656d596b844485cf593
 title: Squad：lead、成員與一個 board
 ---
 
@@ -34,7 +34,7 @@ import { BoardDemo, jumpAndTalk, startSquad, updateStatus } from "../../demos/Bo
 $ tmt extension install squad
 $ tmt sq init product            # 為 squad 命名；不會詢問
 $ tmt sq lead sol                # 選用：指定 sol 為 lead
-$ tmt sq                         # 有終端機就開啟 board，其他情況列出成員
+$ tmt sq board                   # 有終端機就開啟 board，其他情況列出成員
 `}</Cmd>
 
 <Waiting /> 表示在等的是 _你_。Squad 會從你執行它的窗格認出你；也可以用 `tmt sq me ben` 記錄一次。用
@@ -60,7 +60,7 @@ $ tmt sq                         # 有終端機就開啟 board，其他情況列
 
 <Mdx.h3 id="the-board">Board</Mdx.h3>
 
-squad 頁籤預設使用 **members**：lead 與成員共用一份有框線的清單，詳細資料在列內展開，lead 的筆記在下方。原本的 **team** 側邊窗格視圖仍可選用。按 `/` 並輸入文字，就能縮小清單範圍。<Waiting /> 表示成員正在等你，這些列會排在最前面。每個按鍵都使用畫面上已有的資料；pull request 狀態這類較慢的查詢會在背景更新。成員、請求或 room 變更，或你編輯 `squad.toml` 後，board 會在大約一秒內重新載入；其他資料仍會依設定的間隔更新（`refresh`，或 `"off"`）。按 **ctrl-r** 可以立刻更新，搜尋或輸入訊息時也能用。`tmt sq ls` 會以文字列出成員，加上 `--json` 則輸出 JSON；沒有終端機時，`tmt sq` 也會顯示這份清單。`tmt sq board` 在互動式終端機開啟 board，其他情況則印出同一份清單。
+squad 頁籤預設使用 **members**：lead 與成員共用一份有框線的清單，詳細資料在列內展開，lead 的筆記在下方。原本的 **team** 側邊窗格視圖仍可選用。按 `/` 並輸入文字，就能縮小清單範圍。<Waiting /> 表示成員正在等你，這些列會排在最前面。每個按鍵都使用畫面上已有的資料；pull request 狀態這類較慢的查詢會在背景更新。成員、請求或 room 變更，或你編輯 `squad.toml` 後，board 會在大約一秒內重新載入；其他資料仍會依設定的間隔更新（`refresh`，或 `"off"`）。按 **ctrl-r** 可以立刻更新，搜尋或輸入訊息時也能用。`tmt sq ls` 會以文字列出成員，加上 `--json` 則輸出 JSON；只輸入 `tmt sq` 也會顯示這份清單，並提示如何開啟 board。`tmt sq board` 在互動式終端機開啟 board，其他情況則印出同一份清單。
 
 <BoardSketch />
 
@@ -70,8 +70,9 @@ squad 頁籤預設使用 **members**：lead 與成員共用一份有框線的清
 | ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | enter · double-click · ⌫ | 在 tmux，Enter 或雙擊會跳到成員畫面，Backspace 返回。一般終端機的 Enter 或雙擊會開啟該列的動作選單。單擊選取一列；點擊窗格切換焦點。請看[在成員之間切換](/extensions/squad#jumping-between-members)。                                                    |
 | a                        | `write`：這一列共用一個 composer。有正在等你回答的請求時先回答（若有多個，先選一個），否則向 lead 傳送關於這一列的筆記（沒有 lead 時使用 talk）。**Tab** 切換可用的 answer、note、talk、status 模式，保留訊息與 status 草稿；talk 會送出需要回覆的請求。 |
-| t                        | 隱藏或顯示回覆預覽，與 HOME 相同。                                                                                                                                                                                                                       |
-| e · n                    | 在列內展開 lead 或成員的詳細資料；隱藏或顯示 lead 的筆記。                                                                                                                                                                                               |
+| t                        | `talk`：向這位成員送出需要回覆的請求。                                                                                                                                                                                                                   |
+| e · n                    | 在原處展開或摺疊所選的列 · 隱藏或顯示 lead 的筆記。                                                                                                                                                                                                      |
+| v                        | 閱讀所選列最新回覆的全文；按 **Esc** 返回。                                                                                                                                                                                                              |
 | ,                        | 設定：選擇 **Theme**、**View**，或啟用 meter 時的 **Token window**。                                                                                                                                                                                     |
 | o · y                    | `open` 該列的 pull request 或第一個連結；`copy` 一行狀態，例如 `auth-fix: rotate session tokens (blocked)`。透過 SSH 也能複製。                                                                                                                          |
 | / · tab · s              | 搜尋；下一個窗格；切換到任何頁籤。                                                                                                                                                                                                                       |
@@ -220,7 +221,7 @@ squad 手動設定的 `board.layout` 或 `panes` 一律優先，接著是該 squ
 
 squad 頁籤預設是一份有框線的清單：lead 在最前面，帶有 `lead` 標籤；後面是 `── members · N ──` 分隔線。每位成員有一行標記、名稱、狀態、模型與經過時間，以及一行工作摘要。等待你處理的成員（`◆`）依最早的問題排前面；其他對話依最新時間排序，沒有對話的成員依名稱排序。lead 始終在最前面，自訂區段維持原位。
 
-在 lead 或成員上按 **e**，會以共用的列內詳細區塊取代工作預覽。若有資料，會依序顯示 `◆ waits on you`、工作、連結、附時間的最新回覆，以及摺疊／寫入／開啟提示。按 **e** 或 **Esc** 摺疊；**a** 開啟這一列共用的 answer／note／talk／status composer，**o** 開啟 PR 或連結。用方向鍵或 j/k、PgUp/PgDn 捲動較長的詳細資料，不會移動列游標。同時只會展開一個區塊。閱讀不需要先記錄使用者，寫入則需要 `tmt sq me`。lead 的筆記留在清單下方；按 **n** 隱藏或顯示。
+每一列預設摺疊。在 squad 頁籤或 HOME 中，對任一 lead 或成員按 **e**，會在該列正下方展開詳細資料：`◆ waits on you` 的問題、連結，以及附寄件者與時間的最新回覆，不重複列上已顯示的內容。再按一次 **e** 摺疊，也可以同時展開好幾列。較長的回覆只顯示前幾行；按 **v** 開啟全文，按 **Esc** 返回。**a** 開啟這一列共用的 answer／note／talk／status composer，**o** 開啟 PR 或連結。閱讀不需要先記錄使用者，寫入則需要 `tmt sq me`。lead 的筆記留在清單下方；按 **n** 隱藏或顯示。
 
 想用原本的詳細資料／回覆側邊窗格，可在 **,** 設定選 **View** → `team`；選 `members` 即可回到框線清單。自訂 `board.layout` 或 `panes` 仍採用其設定的配置。
 

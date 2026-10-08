@@ -17,6 +17,7 @@ use serde_json::{Value, json};
 use std::{ops::Range, sync::OnceLock};
 use tmt_cli_style::{Role, grid::Align, table::escape};
 use tmt_tui::binding::{Schema, Template};
+use unicode_width::UnicodeWidthStr;
 
 const FILE: &str = "squad.home.attention.xml";
 
@@ -29,6 +30,7 @@ const MARKUP: &str = r#"<tmt-view version="1">
 <tmt-text id="mark" bind="row.mark" token-bind="row.mark_role" class="shrink-0"/>
 <tmt-text id="name" bind="row.name" token="text" class="shrink-0"/>
 <tmt-text id="squad" bind="row.squad" token="muted" class="shrink-0"/>
+<tmt-repeat each="row.focus" as="focus"><tmt-text id="focus-gap" class="shrink-0"> </tmt-text><tmt-text id="focus-word" bind="focus.word" token="text" class="shrink-0"/><tmt-text id="focus-suffix" bind="focus.suffix" token="muted" class="shrink-0"/></tmt-repeat>
 <tmt-text id="age" bind="row.age" token="dim" class="shrink-0"/>
 <tmt-text id="fill" class="grow h-1"/>
 </tmt-row>
@@ -65,6 +67,13 @@ fn schema() -> Schema {
                 ("name", Schema::Scalar),
                 ("squad", Schema::Scalar),
                 ("age", Schema::Scalar),
+                (
+                    "focus",
+                    list(object(&[
+                        ("word", Schema::Scalar),
+                        ("suffix", Schema::Scalar),
+                    ])),
+                ),
                 ("after", list(line())),
             ])),
         ),
@@ -142,7 +151,11 @@ pub(super) fn paint(
             let age = entry.age.map(|age| age_label(age, now)).unwrap_or_default();
             let age_width = unicode_width::UnicodeWidthStr::width(age.as_str());
             let available = width.saturating_sub(4 + age_width);
-            let name_width = (available / 2).min(24);
+            let focus = crate::focus::pieces(entry.row, now, available / 2);
+            let focus_width = focus.as_array().unwrap().first().map_or(0, |piece| {
+                piece["word"].as_str().unwrap().width() + piece["suffix"].as_str().unwrap().width() + 1
+            });
+            let name_width = (available.saturating_sub(focus_width) / 2).min(24);
             let sent = app.sent.as_ref().is_some_and(|feedback| {
                 feedback.sent
                     && feedback.target == crate::board::app::RowTarget::Home(entry.target.clone())
@@ -156,14 +169,26 @@ pub(super) fn paint(
             {
                 after.push(json!({"id": format!("reserve-{line}"), "text": null, "role": null}));
             }
+            let budget = available / 2;
+            let visible = if crate::focus::fitted(entry.row, now, budget).2 {
+                vec!["focus"]
+            } else {
+                vec![]
+            };
             json!({
+                "focus":focus,
                 "id": id(local),
                 "mark": format!(" {} ", if waiting { "◆" } else { "✗" }),
                 "mark_role": if waiting { Role::Waiting } else { Role::Blocked }.name(),
                 "name": fit(&escape(entry.row["name"].as_str().unwrap_or_default()), name_width),
-                "squad": fit(&escape(&entry.target.squad), available.saturating_sub(name_width)),
+                "squad": if focus_width == 0 {
+                    fit(&escape(&entry.target.squad), available.saturating_sub(name_width))
+                } else {
+                    format!(" {}", fit(&escape(&entry.target.squad), available.saturating_sub(name_width + focus_width + 1)))
+                },
                 "age": format!(" {age}"),
                 "after": after,
+                "detail": app.detail_value(index,&visible),
             })
         })
         .collect::<Vec<_>>();
@@ -221,14 +246,16 @@ fn build(key: &Key) -> Block {
                     look.role(Role::Working)
                 }
                 Some("mark") => base.patch(span(look.role(role), true)),
-                Some("name" | "squad" | "age") => base.patch(span(look.role(role), false)),
+                Some("name" | "squad" | "age" | "focus-word" | "focus-suffix" | "focus-gap") => {
+                    base.patch(span(look.role(role), false))
+                }
                 Some("fill") => base,
                 _ => Style::new(),
             };
             (style, Align::Left)
         },
     );
-    let rows = (0..reserving.len())
+    let mut rows: Vec<RowSpan> = (0..reserving.len())
         .map(|local| {
             let block = painted
                 .lines(&[&id(local)])
@@ -242,8 +269,31 @@ fn build(key: &Key) -> Block {
             }
         })
         .collect();
-    Block {
-        lines: painted.lines,
-        rows,
+    let mut lines = painted.lines;
+    let mut shift = 0;
+    for row in &mut rows {
+        row.start += shift;
+        row.end += shift;
+        if let Some(range) = &mut row.reserve {
+            range.start += shift;
+            range.end += shift;
+        }
+        let count = crate::board::row_detail::insert(
+            &mut lines,
+            row.start + 1,
+            &key.data["rows"][row.local]["detail"],
+            key.width,
+            3,
+            look,
+            selected == Some(id(row.local).as_str()),
+            false,
+        );
+        row.end += count;
+        if let Some(range) = &mut row.reserve {
+            range.start += count;
+            range.end += count;
+        }
+        shift += count;
     }
+    Block { lines, rows }
 }

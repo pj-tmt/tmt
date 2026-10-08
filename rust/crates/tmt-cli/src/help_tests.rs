@@ -176,7 +176,12 @@ fn talk_help_distinguishes_recipient_pull_from_live_notification() {
         .unwrap()
         .render_long_help()
         .to_string();
-    assert!(text.contains("Plain talk attempts live notification"));
-    assert!(text.contains("Use --inbox only for intentional queue-only delivery"));
-    assert!(text.contains("recipient must pull with tmt inbox"));
+    assert!(text.contains("An identity with no binding receives through its inbox"));
+    assert!(text.contains(
+        "talk waits for its reply (180 seconds unless configured; --timeout overrides it)"
+    ));
+    assert!(text.contains("recipient must pull with tmt inbox or tmt x listen"));
+    assert!(text.contains("Use --detach to return at once"));
+    assert!(text.contains("For a bound recipient, plain talk attempts live notification"));
+    assert!(text.contains("--inbox suppresses that notification and requires inbox pull"));
 }

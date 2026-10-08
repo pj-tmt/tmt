@@ -28,11 +28,11 @@ button {
   border-radius: 0;
   cursor: pointer;
 }
-button:hover,
-a:hover {
+button:not(.tmt-ui-action):not(.tmt-ui-toggle):hover,
+a:not(.tmt-ui-action):hover {
   color: var(--c-accent);
 }
-button[aria-pressed='true'] {
+button:not(.tmt-ui-action):not(.tmt-ui-toggle)[aria-pressed='true'] {
   border-color: var(--c-accent);
   background: var(--c-accent-soft);
 }
@@ -124,12 +124,8 @@ footer {
 .page-card-actions summary {
   cursor: pointer;
 }
-.page-card-actions button {
-  padding: 0;
-  border: 0;
-  box-shadow: none;
-  background: transparent;
-  white-space: nowrap;
+.page-card-actions {
+  --tmt-ui-host-action-padding: 0;
 }
 .page-mark {
   color: var(--c-muted);
@@ -184,39 +180,18 @@ footer {
   color: var(--c-muted);
   font: 11px var(--f-mono);
 }
-.drawer-bar button {
-  color: var(--c-text);
-  background: transparent;
-  border: 0;
-  box-shadow: none;
-  white-space: nowrap;
-  padding: 7px 8px;
-}
-.drawer-bar button:hover {
-  text-decoration: underline;
-  text-underline-offset: 4px;
-}
-.colab-header .export-control {
+.tmt-ui-header .export-control {
   margin: 0;
-}
-.colab-header .export-control button:disabled {
-  opacity: 1;
-  color: var(--c-muted);
-  cursor: default;
 }
 .theme-label,
 .info-label,
 .page-menu-meta {
   display: none;
 }
-/* `.colab-header button` sets display, so these need its specificity to stay hidden at desktop. */
-.colab-header .page-menu-close,
-.colab-header .page-overflow-toggle {
+/* Keep shared action controls hidden until the product overflow menu is needed. */
+.tmt-ui-header .page-menu-close,
+.tmt-ui-header .page-overflow-toggle {
   display: none;
-}
-.drawer-bar button {
-  font-size: 20px;
-  line-height: 1;
 }
 .status {
   color: var(--c-muted);
@@ -266,7 +241,7 @@ footer {
   color: var(--c-text);
   background: var(--c-paper);
   border: 1px solid var(--c-text);
-  box-shadow: 6px 6px 0 var(--c-text);
+  box-shadow: none;
   overflow: hidden;
 }
 .page-drawer[open] {
@@ -276,12 +251,15 @@ footer {
 .page-drawer[data-panel='source'] {
   width: min(660px, 100vw);
 }
-.page-drawer button:not([data-testid='ask-send']) {
+.page-drawer button:not(.tmt-ui-action):not([data-testid='ask-send']) {
   background: transparent;
   border: 0;
   box-shadow: none;
 }
-.page-drawer button:not([data-testid='ask-send']):hover:not(:disabled) {
+.page-drawer
+  button:not(.tmt-ui-action):not([data-testid='ask-send']):not(.annotation-row):hover:not(
+    :disabled
+  ) {
   text-decoration: underline;
   text-underline-offset: 4px;
 }
@@ -324,13 +302,13 @@ footer {
   margin-top: 24px;
 }
 @media (max-width: 1100px) {
-  .colab-header .page-overflow-toggle {
+  .tmt-ui-header .page-overflow-toggle {
     display: inline-flex;
   }
   .page-secondary {
     display: none;
   }
-  .colab-header[data-menu-open='true'] .page-secondary {
+  .tmt-ui-header[data-menu-open='true'] .page-secondary {
     display: flex;
     position: fixed;
     top: calc(var(--page-bar-size) + env(safe-area-inset-top, 0px));
@@ -379,15 +357,15 @@ footer {
   .page-secondary .theme {
     margin: 0;
   }
-  .colab-header .chip {
+  .tmt-ui-header .chip {
     padding: 3px 5px;
     font-size: 10px;
   }
 }
 @media (max-width: 640px) {
-  .colab-actions > .page-backend,
-  .colab-actions > .page-sharing,
-  .colab-actions > .status {
+  .tmt-ui-actions > .page-backend,
+  .tmt-ui-actions > .page-sharing,
+  .tmt-ui-actions > .status {
     display: none;
   }
   .page-menu-meta {
@@ -470,7 +448,7 @@ footer {
   max-width: 880px;
   margin: 16px 0 0;
 }
-.canvas .notice {
+.canvas .tmt-ui-notice {
   position: absolute;
   top: 100px;
   left: 20px;
@@ -686,12 +664,12 @@ footer {
   gap: 8px;
   margin: 12px 0;
 }
-.comments-panel button {
+.comments-panel button:not(.tmt-ui-action) {
   font-size: 12px;
   padding: 5px 8px;
   box-shadow: 2px 2px 0 var(--c-text);
 }
-.comments-panel button:disabled {
+.comments-panel button:not(.tmt-ui-action):disabled {
   cursor: default;
   opacity: 0.6;
   box-shadow: none;
@@ -789,13 +767,15 @@ footer {
   z-index: 40;
 }
 .annotation-popover {
+  height: min(480px, calc(100dvh - 80px));
+  display: flex;
   width: min(380px, calc(100vw - 24px));
   max-height: calc(100vh - 80px);
-  overflow-y: auto;
+  overflow: hidden;
   padding: 12px;
   border: 1px solid var(--c-text);
   background: var(--c-sheet);
-  box-shadow: 5px 5px 0 var(--c-accent);
+  box-shadow: none;
 }
 .annotation-popover blockquote {
   margin: 0 0 10px;
@@ -805,11 +785,6 @@ footer {
 }
 .selection-ask {
   margin: 0;
-  border: 1px solid var(--c-text);
-  padding: 7px 12px;
-  background: var(--c-sheet);
-  color: var(--c-text);
-  box-shadow: 3px 3px 0 var(--c-accent);
 }
 .annotation-row {
   display: flex;
@@ -835,6 +810,20 @@ footer {
 .annotation-hint {
   color: var(--c-muted);
   font-size: 12px;
+}
+.annotation-row [data-testid='thread-row-status'] {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.annotation-row [data-testid='thread-row-status'] svg {
+  width: 14px;
+  height: 14px;
+  flex: none;
+}
+.annotation-row [data-testid='thread-row-status'][data-unseen] {
+  color: var(--c-text);
+  font-weight: 600;
 }
 .annotation-row:hover strong {
   text-decoration: underline;
@@ -1013,7 +1002,7 @@ footer {
 .thread-bar-actions {
   margin-left: auto;
 }
-.comments-panel .thread-action {
+.thread-action {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1096,29 +1085,53 @@ footer {
 
 .annotation-new {
   position: relative;
+  min-height: 0;
+  display: flex;
+  max-height: 100%;
+  width: 100%;
 }
-.annotation-new blockquote {
-  margin-right: 28px;
-}
-/* The same × as the Comments, Chat and Source overlays. */
-.annotation-popover .annotation-close {
-  position: absolute;
-  top: -6px;
-  right: -6px;
+.comment-thread[data-layout='anchored'] {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  max-height: 100%;
+  width: 100%;
   margin: 0;
+  padding: 0;
   border: 0;
-  padding: 7px 8px;
-  background: transparent;
-  color: var(--c-text);
+}
+.comment-thread[data-layout='anchored'] > .thread-bar {
+  flex: none;
+  margin-bottom: 12px;
+}
+.comment-thread[data-layout='anchored'] > .thread-messages {
+  min-height: 0;
+  overflow: auto;
+  flex: 1 1 auto;
+  overscroll-behavior: contain;
+}
+.comment-thread[data-layout='anchored'] > .annotation-compose {
+  flex: none;
+}
+.annotation-reply-label {
+  flex: none;
+  margin: 12px 0 8px;
+  font-weight: 600;
+}
+.comment-thread[data-layout='anchored'] .thread-action {
+  position: relative;
+  margin: 0;
+  padding: 6px;
+}
+.comment-thread[data-layout='anchored'] .thread-action svg {
+  width: 16px;
+  height: 16px;
+}
+.comment-thread[data-layout='anchored'] .comment-actions button:not(.tmt-ui-action),
+.comment-thread[data-layout='anchored'] .tmt-action-menu-list {
+  border-width: 1px;
   box-shadow: none;
-  font-size: 20px;
-  line-height: 1;
 }
-.annotation-popover .annotation-close:hover {
-  text-decoration: underline;
-  text-underline-offset: 4px;
-}
-
 /* A state is a mark plus a word; the mark takes the state's role color, the word stays muted text. */
 .ask-state {
   display: inline-flex;
@@ -1145,41 +1158,24 @@ footer {
   color: var(--c-blocked);
 }
 
-/* A light text toggle like the header actions: the square before the word carries on/off. */
-.archive-toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
+.home > .tmt-ui-toggle {
   margin: 0 0 16px;
-  border: 0;
-  padding: 7px 8px 7px 0;
-  background: transparent;
+}
+
+.comment-thread[data-layout='anchored'] .thread-action-caption {
+  display: none;
+  position: absolute;
+  z-index: 1;
+  top: 100%;
+  right: 0;
+  width: max-content;
+  padding: 4px 8px;
+  border: 1px solid var(--c-rule);
+  background: var(--c-sheet);
   color: var(--c-text);
-  box-shadow: none;
+  font-size: 12px;
 }
-.archive-toggle:hover,
-.archive-toggle[aria-pressed='true'] {
-  color: var(--c-text);
-  border: 0;
-  background: transparent;
-}
-.archive-toggle:hover {
-  text-decoration: underline;
-  text-underline-offset: 4px;
-}
-.archive-toggle:focus-visible {
-  outline: 2px solid var(--c-accent);
-  outline-offset: 2px;
-}
-.toggle-box {
-  flex: none;
-  box-sizing: border-box;
-  width: 14px;
-  height: 14px;
-  border: 2px solid var(--c-text);
-  background: transparent;
-}
-.archive-toggle[aria-pressed='true'] .toggle-box {
-  background: var(--c-accent);
-  border-color: var(--c-accent);
+.comment-thread[data-layout='anchored'] .thread-action:hover .thread-action-caption,
+.comment-thread[data-layout='anchored'] .thread-action:focus-visible .thread-action-caption {
+  display: block;
 }

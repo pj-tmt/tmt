@@ -7,6 +7,10 @@ to authenticate another process of the same user. The implementation owner is
 [Architecture](../ARCHITECTURE.md#managed-skills-and-native-installation) owns the
 trust boundary and publication lifecycle.
 
+PR acquisition and returning from a PR channel use separately probed protocol 2,
+defined in [the PR channel contract](native-pr-channel.md). Protocol 1's published
+shape and normal release behavior remain unchanged.
+
 ## Admission and probe
 
 The parent verifies immutable GitHub release metadata, product/tag/target match,

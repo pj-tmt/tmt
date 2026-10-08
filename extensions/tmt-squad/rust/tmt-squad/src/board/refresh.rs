@@ -1,7 +1,7 @@
 //! One background loader: the board paints from what it has and never waits
 //! on core. Queued requests collapse to the newest, and each load re-reads
-//! squad.toml, so configuration edits appear on the next refresh. Between
-//! requests it reloads early when core's records or squad.toml changed.
+//! ops.toml, so configuration edits appear on the next refresh. Between
+//! requests it reloads early when core's records or ops.toml changed.
 
 use super::{
     ALL, LEADS,
@@ -73,6 +73,7 @@ pub struct Worker {
     requests: Sender<Work>,
     generation: Arc<Generation>,
     thread: Option<std::thread::JoinHandle<()>>,
+    checklist_stop: crate::runner::Cancellation,
 }
 
 impl Worker {
@@ -81,13 +82,16 @@ impl Worker {
         let (requests, pending) = mpsc::channel();
         let generation = Arc::new(Generation::default());
         let read_generation = Arc::clone(&generation);
+        let checklist_stop = crate::runner::Cancellation::default();
+        let checklist_reader = core.cancellable(checklist_stop.clone());
         let thread = std::thread::spawn(move || {
+            let mut checklist = super::checklist::load::Lane::default();
             let initial = core.cancellable(read_generation.cancellation(0));
             let mut kept = Kept {
                 bodies: BTreeMap::new(),
                 fetch: fetcher(),
             };
-            // The board's pane and squad.toml's place never change, so both
+            // The board's pane and ops.toml's place never change, so both
             // are read once.
             let caller = crate::me::caller(&initial).ok().flatten();
             let mut changes =
@@ -121,9 +125,17 @@ impl Worker {
                     )
                 },
                 |job, generation| {
+                    if let Deferred::Checklist(task) = job {
+                        return events
+                            .send(super::BoardEvent::Checklist(
+                                checklist.complete(&checklist_reader, task),
+                            ))
+                            .is_ok();
+                    }
                     let cancellation = read_generation.cancellation(generation);
                     let reader = core.cancellable(cancellation.clone());
                     let event = match job {
+                        Deferred::Checklist(_) => unreachable!("handled above"),
                         Deferred::History(job) => super::BoardEvent::History {
                             read: job.complete(&reader, &mut history),
                             cancellation: cancellation.clone(),
@@ -210,6 +222,7 @@ impl Worker {
             requests,
             generation,
             thread: Some(thread),
+            checklist_stop,
         }
     }
 
@@ -226,6 +239,9 @@ impl Worker {
             preview_panes,
         }));
     }
+    pub fn checklist(&self, task: super::checklist::load::Task) {
+        let _ = self.requests.send(Work::Checklist(task));
+    }
     pub fn selected(&self, revision: u64, read: Option<SelectedRead>) {
         let generation = self.generation.number.load(Ordering::Acquire);
         let _ = self.requests.send(Work::Selected {
@@ -239,6 +255,7 @@ impl Worker {
 impl Drop for Worker {
     fn drop(&mut self) {
         self.generation.advance();
+        self.checklist_stop.cancel();
         // Disconnect before joining: the worker exits its bounded cancelled
         // child read, and an idle worker exits recv immediately.
         let (replacement, _) = mpsc::channel();
@@ -250,6 +267,7 @@ impl Drop for Worker {
 }
 
 enum Work {
+    Checklist(super::checklist::load::Task),
     Reload(Reload),
     Selected {
         read: Option<SelectedRead>,
@@ -349,6 +367,7 @@ impl HistoryJob {
 
 /// The existing worker's lower-priority work, behind full reloads.
 enum Deferred {
+    Checklist(super::checklist::load::Task),
     History(HistoryJob),
     HomeLeads(super::home_leads::Fetch),
     Attention(Box<AttentionJob>),
@@ -487,14 +506,24 @@ fn serve(
         };
         let mut wanted = None;
         let mut selected = None;
+        let mut checklist = Vec::new();
         for work in std::iter::once(received).chain(pending.try_iter()) {
             match work {
+                Work::Checklist(task) => checklist.push(task),
                 Work::Reload(reload) => wanted = Some(reload),
                 Work::Selected {
                     read,
                     revision,
                     generation,
                 } => selected = Some((read, revision, generation)),
+            }
+        }
+        for task in checklist {
+            if !deferred(
+                Deferred::Checklist(task),
+                generation.load(Ordering::Acquire),
+            ) {
+                return;
             }
         }
         let Some(wanted) = wanted else {
@@ -801,8 +830,13 @@ fn squad_view(
         settings,
         input: super::rate::Input::observed(&squad.room_id, &observation.members),
     });
+    let active_ids = observation
+        .members
+        .iter()
+        .map(|member| member.id.clone())
+        .collect();
     let crate::observe::Projected {
-        document,
+        mut document,
         sent,
         notes,
     } = observation.document(
@@ -817,6 +851,7 @@ fn squad_view(
             rows: &rows,
         },
     )?;
+    crate::focus::enrich(core, &mut [&mut document], &active_ids);
     let attention = BTreeMap::from([(squad.name.clone(), Attention::of(&document))]);
     let mut replies = match &sent {
         Some(sent) if preview_panes || board.members || board.panes.contains(&Pane::Replies) => {
@@ -843,7 +878,6 @@ fn squad_view(
         derived: Default::default(),
         rows,
         render: config.notes_render(&squad.name)?,
-        home_replies: config.home_replies()?,
         ask_lead: config.ask_lead(&squad.name)?,
         bindings: config.bindings_for_tab(&squad.name, tmux, &board.panes)?,
         section_bindings: sections.into_iter().map(|section| section.bind).collect(),
@@ -904,7 +938,6 @@ fn member_view(
     });
     let view = View {
         history_pending: false,
-        home_replies: config.home_replies()?,
         ask_lead: config.ask_lead("")?,
         token_rate: None,
         home_rate: Default::default(),
@@ -955,7 +988,6 @@ fn all_view(
     let bindings = config.bindings_for_tab(ALL, false, &[])?;
     let view = View {
         history_pending: false,
-        home_replies: config.home_replies()?,
         ask_lead: config.ask_lead("")?,
         token_rate: None,
         home_rate,
@@ -1081,6 +1113,48 @@ mod tests {
     }
 
     const WAIT: Duration = Duration::from_millis(300);
+
+    #[test]
+    fn checklist_jobs_are_fifo_and_survive_board_read_generation_changes() {
+        let (sender, pending) = mpsc::channel();
+        for serial in 1..=3 {
+            sender
+                .send(Work::Checklist(super::super::checklist::load::Task {
+                    key: super::super::checklist::load::Key {
+                        controller: 9,
+                        serial,
+                        room: None,
+                    },
+                    job: super::super::checklist::load::Job::Ids,
+                }))
+                .unwrap();
+            sender
+                .send(Work::Selected {
+                    read: Some(SelectedRead::Notebook("obsolete".into())),
+                    revision: serial,
+                    generation: 0,
+                })
+                .unwrap();
+        }
+        drop(sender);
+        let mut completed = Vec::new();
+        serve(
+            &pending,
+            |_, _| panic!("no reload"),
+            Duration::from_secs(1),
+            &AtomicU64::new(2),
+            |_| Stamp::cursor(0),
+            |_, _, _, _| panic!("no reload"),
+            |job, _| {
+                let Deferred::Checklist(task) = job else {
+                    panic!("obsolete selected read must not run")
+                };
+                completed.push(task.key.serial);
+                true
+            },
+        );
+        assert_eq!(completed, [1, 2, 3]);
+    }
 
     #[test]
     fn selected_home_message_uses_the_existing_worker_and_read_only_public_api() {
@@ -1332,7 +1406,7 @@ esac
 "##,
         );
         let core = Core::at(executable);
-        let path = root.join("squad.toml");
+        let path = root.join("ops.toml");
         std::fs::write(
             &path,
             "[tabs]\norder = ['all', 'product', 'leads']\nhide = ['quiet']\n",
@@ -1429,7 +1503,7 @@ esac
 "##,
         );
         let core = Core::at(executable);
-        let path = root.join("squad.toml");
+        let path = root.join("ops.toml");
         std::fs::write(
             &path,
             r#"me = "ben"
@@ -1529,6 +1603,106 @@ columns = [{ name = "member" }, { name = "ctx", from = "meta.usage.count", forma
     }
 
     #[test]
+    fn each_refresh_branch_reads_focus_once_including_deferred_attention() {
+        use crate::cron_service::test_support::{Fixture, LEAD, USER, WORKER};
+        let f = Fixture::new();
+        std::fs::write(
+            f.config.path(),
+            format!("me='Ben'\nme_id='{USER}'\n[tabs.active]\nfilter='name'\n"),
+        )
+        .unwrap();
+        f.change_model(|model| {
+            model["members"][2]["metadata"]["squad.product.state"] = json!("blocked")
+        });
+        let executable = f.directory.join("focus-refresh-core");
+        let script = f.directory.join("focus-refresh.py");
+        std::fs::write(&script, r#"import json,sys,pathlib,subprocess
+root=pathlib.Path(__file__).parent
+args=sys.argv[1:]
+body=sys.stdin.buffer.read() if args[0]=='api' else None
+if body:
+ request=json.loads(body)
+ if request['operation']=='focus.policy.show':
+  with open(root/'focus-calls','a') as log: log.write(json.dumps(request)+chr(10))
+  print(json.dumps({'policies':[{'identityId':id,'revision':1,'active':True,'focusUntilMs':9000000000000,'remainingMs':1000,'heldCount':2} for id in request['input']['identities']]})); sys.exit(0)
+ if request['operation']=='requests.list':
+  print(json.dumps({'items':[],'nextBefore':None})); sys.exit(0)
+ if request['operation']=='notes.read':
+  print(json.dumps({'identityId':request['input']['identityId'],'content':''})); sys.exit(0)
+if args[0]=='ls': print(json.dumps({'identities':[]})); sys.exit(0)
+if args[0]=='inbox' or args[:2]==['room','read']:
+ print(json.dumps({'items':[],'more':False})); sys.exit(0)
+sys.exit(subprocess.run([str(root/'tmt')]+args,input=body).returncode)
+"#).unwrap();
+        crate::test_support::write_ready_executable(
+            &executable,
+            &format!(
+                "#!/bin/sh\nexec /usr/bin/python3 '{}' \"$@\"\n",
+                script.display()
+            ),
+        );
+        let core = Core::at(executable);
+        let (fetch, _pending) = mpsc::channel();
+        let mut kept = Kept {
+            bodies: BTreeMap::new(),
+            fetch,
+        };
+        for key in [
+            "product".to_owned(),
+            LEADS.to_owned(),
+            ALL.to_owned(),
+            tabs::user_key("active"),
+        ] {
+            let calls = f.directory.join("focus-calls");
+            let _ = std::fs::remove_file(&calls);
+            let loaded = load(
+                &core,
+                false,
+                None,
+                Some(key.clone()),
+                false,
+                false,
+                &mut kept,
+            );
+            let view = loaded
+                .snapshot
+                .view
+                .unwrap_or_else(|error| panic!("{key}: {error}"));
+            if let Some(job) = loaded.attention {
+                job.complete(&core);
+            }
+            let calls = std::fs::read_to_string(calls).unwrap();
+            let requests = calls
+                .lines()
+                .map(|line| serde_json::from_str::<Value>(line).unwrap())
+                .collect::<Vec<_>>();
+            assert_eq!(requests.len(), 1, "{key}: one show including deferred work");
+            assert_eq!(
+                requests[0]["input"]["identities"],
+                json!([USER, LEAD, WORKER])
+            );
+            if key == ALL {
+                assert_eq!(
+                    view.home
+                        .unwrap()
+                        .sections
+                        .iter()
+                        .flat_map(|section| &section.rows)
+                        .find(|row| row.member["id"] == WORKER)
+                        .unwrap()
+                        .member["focus"]["heldCount"],
+                    2
+                );
+            } else {
+                assert!(
+                    view.document.to_string().contains("heldCount"),
+                    "{key}: policy applied"
+                );
+            }
+        }
+    }
+
+    #[test]
     fn saved_views_acquire_notes_from_effective_board_without_changing_workflow() {
         let root = std::env::temp_dir().join(format!("squad-view-notes-{}", std::process::id()));
         std::fs::create_dir_all(&root).unwrap();
@@ -1561,7 +1735,7 @@ esac
             fetch,
         };
         for workflow in ["minimal", "crew"] {
-            let path = root.join("squad.toml");
+            let path = root.join("ops.toml");
             std::fs::write(&path, format!("[squad.product]\nlayout = '{workflow}'\n")).unwrap();
             let mut config = Config::read(path).unwrap();
             let baseline = squad_view(&core, false, &config, &squad, None, false, &mut kept)
@@ -1678,7 +1852,7 @@ esac
     fn a_hidden_squad_s_attention_comes_from_its_roster_and_the_shared_inbox() {
         let directory = std::env::temp_dir().join(format!("squad-refresh-{}", std::process::id()));
         std::fs::create_dir_all(&directory).unwrap();
-        let path = directory.join("squad.toml");
+        let path = directory.join("ops.toml");
         // A user section repeats a member: it still counts once.
         std::fs::write(
             &path,

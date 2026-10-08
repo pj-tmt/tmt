@@ -151,7 +151,14 @@ pub enum Invocation {
         usage: tmt_core::driver::descriptor::UsageHook,
         yes: bool,
     },
+    FocusHook {
+        provider: String,
+        launch: String,
+        worker: bool,
+        work_budget_ms: Option<u64>,
+    },
     ProviderHook {
+        activity_only: bool,
         provider: String,
         worker: bool,
         work_budget_ms: Option<u64>,
@@ -168,6 +175,7 @@ pub enum Invocation {
         exact: Option<String>,
         unpin: bool,
         yes: bool,
+        allow_schema_ahead: bool,
     },
     NativeRefreshSkills {
         managed: bool,
@@ -186,6 +194,10 @@ pub enum Invocation {
     },
     NativeInstallHandoff {
         probe: bool,
+        version: u32,
+    },
+    NativeSchema {
+        source_sha: String,
     },
     NativeInstall {
         product: tmt_core::native_install::Product,
@@ -227,6 +239,8 @@ pub use crate::office_facade::invocation::{
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct TalkOptions {
+    pub urgent: bool,
+    pub focus_kind: tmt_core::request::focus::FocusKind,
     pub room: Option<String>,
     pub inbox: bool,
     pub force: bool,
@@ -372,6 +386,10 @@ pub enum RoleOperation {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ExchangeOperation {
+    Withdraw {
+        request_id: String,
+        reason: String,
+    },
     List {
         limit: Option<u64>,
         after: Option<u64>,

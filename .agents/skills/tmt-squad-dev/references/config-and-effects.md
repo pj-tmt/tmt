@@ -1,9 +1,18 @@
 # Squad configuration and effects
 
-## `squad.toml` reading and writing
+## CLI entry and public JSON
 
-- `squad.toml` sits beside the global config that `tmt config show` reports. It is the
+Bare `tmt squad` lists members with an explicit board hint; only `board` admits the
+interactive view. Bare `--json` equals `ls --json`. Display-ready documents exclude
+board-only home/meter/`usage.*` data.
+
+## `ops.toml` reading and writing
+
+- `ops.toml` sits beside the global config that `tmt config show` reports. It is the
   user's file; agents never write it.
+- Core executable discovery refuses `TMT_EXECUTABLE` or the first `tmt` on PATH when
+  it names the running Squad executable, including symbolic and hard links. This
+  prevents recursive configuration loading; select the Core `tmt` executable instead.
 - `Config::write` owns format-preserving replacement for `me`/`me_id`, tab order, board
   views, theme bases and settings edits. It checks the original bytes, edits a cloned
   document, skips unchanged bytes and assigns the new document only after successful
@@ -31,6 +40,48 @@
 - Strict validation happens before raw mode: pane/fold keys, `hidden_columns`, theme
   tokens, state entries, bindings and configured views are rejected with located config
   errors, including masked values that no current view would use.
+
+## Ops path migration
+
+`migration` owns one layout decision per invocation, shared by Core clones and board
+workers before config discovery/loading or state access. Core still supplies both roots
+through public `config show` and `storage.root`; Squad never discovers Core paths itself.
+The stable `.ops-paths.lock` beside the config serializes first runs and unfinished cleanup; a completed
+`.ops-paths-v1` marker makes later decisions check only completion/legacy-name metadata, with no lock or legacy content reads. The marker is read only when the old config name exists, to distinguish an unchanged ignored file from a reappeared one.
+Help, completion, embedded skills and offline layout checks never migrate.
+
+| Path                                                                                                                      | Owner and migration                                                            |
+| ------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
+| `ops.toml`, `.ops.toml.<pid>`                                                                                             | Config/CAS writer; exact `squad.toml` migrates, staging is disposable.         |
+| `<dataRoot>/ops/cron/{jobs.json,jobs.lock,jobs.tmp}`                                                                      | Cron document, stable writer lock and staging.                                 |
+| `<dataRoot>/ops/cron/{clock.json,clock.lock,clock.tmp}`                                                                   | Clock lease, stable lock and staging.                                          |
+| `<dataRoot>/ops/checklist/<room-uuid>/{items.json,items.lock,items.tmp}`                                                  | Checklist document, stable lock and staging.                                   |
+| `.ops-paths-pending.json`, `.ops-paths-cutover-v1`, `.ops-paths-v1`, `.ops-paths*.tmp`, `.ops-migrate-<name>-<timestamp>` | Migration journal, durable cutover/completion markers and unpublished staging. |
+| `squad.toml.migrated-<timestamp>`, `<dataRoot>/squad.migrated-<timestamp>`                                                | Retained original backups; no reader enumerates them.                          |
+| `$XDG_CACHE_HOME/tmt-squad/{fields,staleness,back}`                                                                       | Disposable observations and navigation; unchanged in this slice.               |
+| `squad.tmux.conf`, tmux-config `.tmt-squad-backup-*` / staging                                                            | Consented hotkey owner; unchanged in this slice.                               |
+
+Old-only files are copied and synced, checked for byte/tree equality (config is also
+parsed), then all new targets are atomically published and reverified. Only after
+`.ops-paths-cutover-v1` is durable are old sources renamed into retained backups;
+`.ops-paths-v1` marks completed archival. An interruption before cutover leaves every
+old source available for live-lease deferral. After cutover, invocations use Ops and
+resume archival without reading legacy content or reverting later Ops edits. A synced
+journal distinguishes this work from pre-existing both-present paths. Source changes or unsafe files fail explicitly, preserving originals.
+If both names already exist, Ops wins, old paths stay untouched and one notice names
+them; completion suppresses repeated notices. Only old clock evidence is checked in an otherwise ignored state tree; unrelated legacy files and writers do not block Ops. User `squad.toml.bak-*` files are untouched.
+
+Legacy state locks remain held during copy and cutover; a busy legacy writer defers instead of blocking startup. A live old clock defers the
+whole migration: that invocation continues using legacy config/state and names its
+holder PID/pane, Ctrl-C and verified `kill -TERM <pid>` stop instructions once. An
+existing lease prevents another clock; the next invocation retries migration. A board
+that read the old config before archival fails its normal byte CAS instead of
+recreating the missing file. Pending new-version writes also hold the cutover lock
+and refuse after completion, even with an initially absent config. After cutover,
+board watching follows `ops.toml` only. Metadata detection notices an exact legacy
+config that reappears; it is never read or merged. Restart boards started before
+an upgrade before editing settings. Config/state migration cannot change already
+running old code; old boards with an absent initial file can recreate the old name.
 
 ## Team preset
 
@@ -88,11 +139,22 @@ shared fetcher path.
   across refreshes. Preview applies the same in-memory edit as CLI set, cached by
   selection and scope, without writing; `App::look` supplies it to every pane and tab. Tab
   switches board/squad scope (built-in tabs have board scope only; a masking squad base is
-  named). Overlay input cannot operate underlying rows, tabs or panes. Enter calls the
+  named). Pickers open in all-boards scope, even when a squad override masks it;
+  the notice points to `r reset in ,`. Overlay input cannot operate underlying rows, tabs or panes. Enter calls the
   named edit once; a failed save keeps the draft and notice without retry; Esc drops the
   preview and uses the latest saved view.
 
 ## Settings inspection and editing
+
+Board preference choices use the shared layer by default; explicit squad keys
+remain opt-in overrides. The comma menu derives its `≠` marks and deduplicated
+count from actual squad keys, not inherited source labels. Its selected override
+alone offers `r reset`; `Config::reset_setting` removes exactly that key through
+the existing validated CAS writer, preserving siblings and comments. Failure
+keeps the effective state and existing diagnostic. Reset drops only an empty
+immediate parent table whose header has no comments. Quick theme/view/window rows
+share the full settings entry's provenance. Workflow and geometry edits retain
+their required squad scope.
 
 - `settings` coordinates arrangement, rows, notebook/state, meter, theme and tab/program
   projections. `config show` and the bindable inspection overlay (comma by default) share
@@ -116,11 +178,10 @@ shared fetcher path.
   prompt and never replaces concurrent edits. While the overlay is open the ordinary loader
   acquires preview notes/replies and metadata behind its existing cancellation fence, and
   closing returns to resolved-pane acquisition.
-- HOME `board.home_replies` is a global-only boolean, default true. The reader
-  rejects scoped copies and non-booleans. The bindable `home-replies` effect and
-  settings overlay use `Config::set_setting`; a failed save does not flip the
-  displayed choice. Settings preview applies the boolean through the existing
-  disposable draft.
+- `board.home_replies` remains a recognized obsolete global key so existing TOML
+  loads. Its value is ignored, with one deprecation notice; inspection exposes no
+  editable entry, and `config set` refuses it without changing authored bytes.
+  HOME reply previews are collapsed by default; row expansion belongs to `row_detail`.
 - `config::edit` owns the shared edit policy and a disposable validated Config draft.
   `sq config set KEY VALUE` accepts layout preset, flat split panes/direction/sizes,
   refresh, notes mode, hidden tracks, exact state colors, global tabs order/hide and the

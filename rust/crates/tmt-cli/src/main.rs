@@ -40,6 +40,7 @@ mod office_facade;
 mod output;
 use tmt_adapters::pane_badge;
 mod consumption_sample_command;
+mod focus_hook_command;
 mod parser;
 mod profile_command;
 mod provider_hook_command;
@@ -249,12 +250,26 @@ fn dispatch(parsed: invocation::Parsed) -> io::Result<u8> {
             return setup_command::execute(provider, status, remove, usage, yes, parsed.mode);
         }
         Invocation::ConsumptionSample => return consumption_sample_command::execute(),
+        Invocation::FocusHook {
+            provider,
+            launch,
+            worker,
+            work_budget_ms,
+        } => {
+            return focus_hook_command::execute(&provider, &launch, worker, work_budget_ms);
+        }
         Invocation::ProviderHook {
+            activity_only,
             provider,
             worker,
             work_budget_ms,
         } => {
-            return provider_hook_command::execute(&provider, worker, work_budget_ms);
+            return provider_hook_command::execute(
+                &provider,
+                worker,
+                work_budget_ms,
+                activity_only,
+            );
         }
         Invocation::ReplyNoticeWorker { batch_id, log_id } => {
             return reply_notice_command::execute(&batch_id, &log_id);
@@ -315,12 +330,14 @@ fn dispatch(parsed: invocation::Parsed) -> io::Result<u8> {
             exact,
             unpin,
             yes,
+            allow_schema_ahead,
         } => {
-            return native_upgrade_command::execute(
+            return native_upgrade_command::execute_with_schema_consent(
                 channel,
                 exact.as_deref(),
                 unpin,
                 yes,
+                allow_schema_ahead,
                 parsed.mode,
             );
         }
@@ -336,8 +353,11 @@ fn dispatch(parsed: invocation::Parsed) -> io::Result<u8> {
         Invocation::Office { prefix, operation } => {
             return office_facade::execute(prefix, operation, parsed.mode);
         }
-        Invocation::NativeInstallHandoff { probe } => {
-            return native_install_command::handoff(probe, parsed.mode);
+        Invocation::NativeInstallHandoff { probe, version } => {
+            return native_install_command::handoff(version, probe, parsed.mode);
+        }
+        Invocation::NativeSchema { source_sha } => {
+            return native_install_command::schema(&source_sha, parsed.mode);
         }
         Invocation::NativeInstall {
             product,

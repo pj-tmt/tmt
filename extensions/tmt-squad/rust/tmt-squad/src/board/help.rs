@@ -122,8 +122,12 @@ pub(super) fn model(app: &App) -> KeyHelp {
                     "a → Tab → status",
                     "change chosen manual fields with a reason; notify the row UUID",
                 ),
-                ("e", "expand or collapse the selected lead's full message"),
-                ("t", "show or hide lead previews and save the global choice"),
+                ("e", "expand or collapse the selected row details"),
+                ("t", "talk to the selected member"),
+                (
+                    "v",
+                    "view the selected row’s full reply; no reply does nothing",
+                ),
                 ("A / @", "write to all leads / pick one lead"),
                 (
                     "c",
@@ -292,7 +296,10 @@ pub(super) fn model(app: &App) -> KeyHelp {
                 } else {
                     &keys
                 },
-                format!("switch window: {} (also without data)", order.join(" → ")),
+                format!(
+                    "switch window: {} (also without data); click meter or use ,; saves all boards",
+                    order.join(" → ")
+                ),
             ),
         );
         meter.entries.insert(
@@ -303,6 +310,11 @@ pub(super) fn model(app: &App) -> KeyHelp {
                 "set [board] tok = \"5m/60m/24h\"; [squad.<name>.board] tok overrides it",
             ),
         );
+        meter.entries.push(entry(
+            "hover",
+            "hover bar",
+            "read that slice's token total and age in place; leaving restores live total",
+        ));
         sections.insert(0, meter);
     }
     let mut bindings = app.bindings();

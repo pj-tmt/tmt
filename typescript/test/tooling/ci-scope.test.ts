@@ -25,6 +25,7 @@ import {
   ownerOf,
   parseComponentMap,
   releasedComponentsForPath,
+  releasedComponentNamesOfPath,
   readChangedCiAreas,
   renderSelectionEvidence,
   runCiScope,
@@ -142,6 +143,22 @@ describe('CI area selection', () => {
     expect(ownerOf('rust/crates/tmt-extension-state-other/src/lib.rs')).toBe('cli');
   });
 
+  it('keeps the extension objects leaf privately owned by Remote with full native verification', () => {
+    const paths = [
+      'rust/crates/tmt-extension-objects/Cargo.toml',
+      'rust/crates/tmt-extension-objects/src/lib.rs',
+      'rust/crates/tmt-extension-objects/src/codec/tests.rs',
+    ];
+    for (const row of explainCiSelection(paths)) {
+      expect(row.owner).toBe('tmt-remote');
+      expect(row.rule).toBe('native-source');
+      expect(selectCiAreas([row.path])).toEqual(
+        selectCiAreas(['rust/crates/tmt-invoke/src/lib.rs'])
+      );
+    }
+    expect(ownerOf('rust/crates/tmt-extension-objects-other/src/lib.rs')).toBe('cli');
+  });
+
   it('rejects a misspelled private-release declaration', () => {
     expect(() =>
       parseComponentMap(
@@ -186,6 +203,61 @@ describe('CI area selection', () => {
     );
     for (const command of ['check', 'test', 'build'])
       expect(workflow).toContain(`pnpm --filter @tmt/colab-app --fail-if-no-match ${command}`);
+  });
+
+  it('verifies the browser presentation leaf without narrowing native or activating Office', () => {
+    for (const file of [
+      'design/browser-ui/package.json',
+      'design/browser-ui/src/static.ts',
+      'design/browser-ui/src/header.tsx',
+      'design/browser-ui/scripts/generate-static-css.mjs',
+      'design/browser-ui/generated/static.css',
+    ]) {
+      expect(ownerOf(file)).toBe('browser-ui');
+      expect(selectCiAreas([file])).toEqual({ native: true, office: false, nativeOffice: false });
+      expect(selectNativeScope([file])).toBe('full');
+    }
+    const ci = readFileSync(new URL('../../../.github/workflows/ci.yml', import.meta.url), 'utf8');
+    const quality = ci.split('\n  code-quality:\n')[1].split(/\n {2}[a-z0-9-]+:\n/)[0];
+    const leaf = quality
+      .split('      - name: Verify isolated browser presentation leaf\n')[1]
+      .split('      - name:')[0];
+    expect(leaf).toContain('working-directory: typescript');
+    expect(leaf).toContain(
+      'pnpm --filter @tmt/browser-ui install --frozen-lockfile --ignore-scripts'
+    );
+    for (const command of ['check', 'test'])
+      expect(leaf).toContain(`pnpm --filter @tmt/browser-ui --fail-if-no-match ${command}`);
+    expect(leaf).toContain('test/tooling/browser-ui-boundary.test.ts');
+    expect(leaf).not.toMatch(/continue-on-error|\n\s+if:/);
+    const unit = ci.split('\n  unit-tests:\n')[1].split('\n  docker-e2e-shard-1:\n')[0];
+    const install = 'pnpm --filter @tmt/browser-ui install --frozen-lockfile --ignore-scripts';
+    const admitsGuardInputs = (text: string): boolean => {
+      const step = text
+        .split('      - name: Install locked browser presentation guard inputs\n')[1]
+        ?.split('      - name:')[0];
+      const installAt = text.indexOf(install);
+      const testsAt = text.indexOf('pnpm test:run');
+      return (
+        !!step?.includes('working-directory: typescript') &&
+        step.includes(`run: ${install}`) &&
+        !/continue-on-error|\n\s+if:/.test(step) &&
+        installAt >= 0 &&
+        testsAt > installAt
+      );
+    };
+    expect(admitsGuardInputs(unit)).toBe(true);
+    const withoutInstall = unit.replace(
+      install,
+      'pnpm --filter tmux-team install --frozen-lockfile'
+    );
+    expect(admitsGuardInputs(withoutInstall)).toBe(false);
+    const installStep =
+      '      - name: Install locked browser presentation guard inputs\n' +
+      unit
+        .split('      - name: Install locked browser presentation guard inputs\n')[1]
+        .split('      - name:')[0];
+    expect(admitsGuardInputs(unit.replace(installStep, '') + installStep)).toBe(false);
   });
 
   it('selects the add-on workflow only for shell/tool inputs without narrowing look-alikes', () => {
@@ -235,9 +307,17 @@ describe('CI area selection', () => {
   });
 
   it('selects native checks for shared design tokens without narrowing look-alikes', () => {
+    const map = parseComponentMap(
+      readFileSync(new URL('../../../.github/components.json', import.meta.url), 'utf8')
+    );
     for (const name of ['tokens.json', 'tokens-plugin.ts', 'package.json']) {
       const file = `design/tokens/${name}`;
       expect(explainCiSelection([file])[0].rule).toBe('design-tokens');
+      expect([...releasedComponentNamesOfPath(file, map)].sort()).toEqual([
+        'cli',
+        'tmt-colab',
+        'tmt-remote',
+      ]);
       expect(selectCiAreas([file])).toEqual({ native: true, office: false, nativeOffice: false });
       expect(selectNativeScope([file])).toBe('full');
     }
@@ -2016,6 +2096,54 @@ describe('required CI gate', () => {
     }
   });
 
+  it('normalizes every CI cache consumer and Colab through one install owner before restore', () => {
+    const workflow = readFileSync(
+      new URL('../../../.github/workflows/ci.yml', import.meta.url),
+      'utf8'
+    );
+    const sites = [
+      'native-notices',
+      'native-clippy',
+      'native-workspace-tests',
+      'native-office-build',
+      'native-office',
+      'native-process-tests',
+      'native-msrv',
+      'native-runtime-build',
+    ];
+    expect(workflow.match(/sh scripts\/install-ci-rust\.sh /g)).toHaveLength(sites.length);
+    expect(workflow).not.toContain('add-rust-environment-hash-key: false');
+    for (const name of sites) {
+      const body = workflow.split(`\n  ${name}:\n`)[1].split(/\n {2}[a-z0-9-]+:\n/)[0];
+      const install = body.indexOf('sh scripts/install-ci-rust.sh ');
+      expect(install, name).toBeGreaterThan(0);
+      expect(install, name).toBeLessThan(body.indexOf('uses: Swatinem/rust-cache@'));
+      expect(body).toContain(
+        name === 'native-msrv'
+          ? 'install-ci-rust.sh "$MSRV" --profile minimal'
+          : 'install-ci-rust.sh 1.97.0 --profile minimal'
+      );
+    }
+    expect(workflow).toContain('steps: &native-runtime-build-steps');
+    expect(workflow).toContain('steps: *native-runtime-build-steps');
+    expect(workflow).toContain(
+      "install-ci-rust.sh 1.97.0 --profile minimal --target '${{ matrix.target }}'"
+    );
+    expect(
+      workflow.match(/install-ci-rust\.sh 1\.97\.0 --profile minimal --component rustfmt,clippy/g)
+    ).toHaveLength(5);
+    const colab = readFileSync(
+      new URL('../../../.github/workflows/colab-browser.yml', import.meta.url),
+      'utf8'
+    );
+    const install = colab.indexOf('sh scripts/install-ci-rust.sh 1.97.0 --profile minimal');
+    expect(colab.match(/sh scripts\/install-ci-rust\.sh /g)).toHaveLength(1);
+    expect(install).toBeGreaterThan(0);
+    expect(install).toBeLessThan(colab.indexOf('uses: Swatinem/rust-cache@'));
+    expect(colab).toContain('shared-key: native-rust');
+    expect(colab).toContain('save-if: false');
+  });
+
   it('gives every native step and job an explicit scope, and gates on exactly those results', () => {
     const workflow = readFileSync(
       fileURLToPath(new URL('../../../.github/workflows/ci.yml', import.meta.url)),
@@ -2099,8 +2227,8 @@ describe('required CI gate', () => {
     );
     expect(job('native-msrv')).toContain('["workspace"]["package"]["rust-version"]');
     expect(job('native-msrv')).toContain('RUSTUP_TOOLCHAIN=%s');
-    expect(job('native-msrv')).toContain('rustup toolchain install "$MSRV" --profile minimal');
-    expect(job('native-msrv')).not.toMatch(/rustup toolchain install \d/);
+    expect(job('native-msrv')).toContain('sh scripts/install-ci-rust.sh "$MSRV" --profile minimal');
+    expect(job('native-msrv')).not.toMatch(/install-ci-rust\.sh \d/);
     expect(job('native-msrv')).toContain(
       'cargo +"$MSRV" check --locked --workspace --exclude tmt-office --exclude tmt-office-storage --exclude tmt-office-pairing --exclude tmt-office-service --all-targets'
     );
@@ -2152,6 +2280,10 @@ describe('required CI gate', () => {
     );
     expect(job('native-office')).toContain("if: needs.changes.outputs.native_scope == 'full'");
     expect(job('native-process-tests')).toContain('needs: [changes, native-office-build]');
+    expect(job('native-process-tests')).toContain('timeout-minutes: 20');
+    expect(job('native-process-tests')).toContain(
+      'uses: ./.github/actions/apt-install\n        with:\n          packages: zsh'
+    );
     expect(job('native-process-tests')).toContain(
       "needs.changes.outputs.native_office == 'false' || (needs.changes.outputs.native_office == 'true' && needs.native-office-build.result == 'success')"
     );

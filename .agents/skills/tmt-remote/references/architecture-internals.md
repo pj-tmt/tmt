@@ -3,17 +3,20 @@
 Module owners (put a change in the existing owner; `canonical`, `crypto`, `wire`
 and `transport` have no I/O, clock, storage or `CoreClient` access):
 
-| Module                              | Owns                                                                                                                                                                           |
-| ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `main`, `core`                      | Foreground composition and the two startup calls; `CoreClient` runs only fixed public `api`, `list --json`, `identity list --json`, `check <name> --json` via `TMT_EXECUTABLE` |
-| `http`, `routes`, `site`, `limits`  | Loopback door framing and bounds, `/r/` binding routes, route dispatch; every bound is named in `limits`                                                                       |
-| `wire`, `canonical`, `crypto`       | Strict JSON admission with exact payload bytes, framing/fingerprint codecs, signature and HMAC verification                                                                    |
-| `session`, `admission`, `transport` | `session.open`, one normal message in flight per session, durable sequence consumption, envelope hand-off                                                                      |
-| `journal`, `budgets`, `audit`       | Metadata streams and recovery ownership, persisted budgets, audit written in the owning transaction                                                                            |
-| `operations`, `approval`            | Dispatch/read operations over the public core API; local held-operation confirmation on the control socket                                                                     |
-| `authority`, `store`, `state`       | Typed grants, `remote.db` and schema history, layout/machine key/serve lock                                                                                                    |
-| `pairing`, `control`, `devices`     | One pairing offer per run, owner-only control socket for discovery/stop and device list/revoke/rename                                                                          |
-| `mount`, `pages`                    | Extension mounts (allowlisted extensions only), static landing/pairing/error pages and embedded stylesheet/SDK assets                                                          |
+| Module                                 | Owns                                                                                                                                                                                                                            |
+| -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `main`, binary-private `serve`, `core` | CLI dispatch, one foreground/background composition and the two startup calls; `CoreClient` runs only fixed public `api`, `list --json`, `identity list --json`, `check <name> --json` via `TMT_EXECUTABLE`                     |
+| `http`, `routes`, `site`, `limits`     | Loopback door framing and bounds, `/r/` binding routes, route dispatch; every bound is named in `limits`                                                                                                                        |
+| `wire`, `canonical`, `crypto`          | Strict JSON admission with exact payload bytes, framing/fingerprint codecs, signature and HMAC verification                                                                                                                     |
+| `session`, `admission`, `transport`    | `session.open`, one normal message in flight per session, durable sequence consumption, envelope hand-off                                                                                                                       |
+| `journal`, `budgets`, `audit`          | Metadata streams and recovery ownership, persisted budgets, audit written in the owning transaction                                                                                                                             |
+| `operations`, `approval`               | Dispatch/read operations over the public core API; local held-operation confirmation on the control socket                                                                                                                      |
+| `authority`, `store`, `state`          | Typed grants, `remote.db` and schema history, layout/machine key/serve lock                                                                                                                                                     |
+| `pairing`, `control`, `devices`        | One pairing offer per run, owner-only control socket for discovery/stop and device list/revoke/rename                                                                                                                           |
+| `mount`, `pages`                       | Extension mounts (allowlisted extensions only), static landing/pairing/error pages and embedded stylesheet/SDK assets                                                                                                           |
+| `objects`                              | Object backend trait and `LocalFs`: the `objects.db` ledger and extension-private payload trees under the serve lease; the channel and config belong to `object_service`                                                        |
+| `object_service`                       | Library only, unreachable in production: lease-bound `ObjectService`, per-extension channel, origin registry and tickets, admitted `config`, original `status` and bounded raw `read`; every production declaration is disabled |
+| `tmt-extension-objects` (leaf)         | Remote-owned protocol leaf, consumed only by `object_service`: canonical IDs/encodings, protocol bounds, strict JSON, typed frames and the Unix carrier; no backend, policy or Remote/Colab types, and grants nothing           |
 
 Rules that are easy to get wrong:
 
@@ -44,8 +47,10 @@ Rules that are easy to get wrong:
 - **Mount trust.** Mounted extensions share one trust domain behind the door.
   The device context header is added only for a live owner session and is never
   copied from a client. Session lifetime counts successful upgraded transports;
-  last-close marks the session ended, and the door maintenance loop persists cleanup.
-  Never-attached and attached idle limits belong to `limits`; `session` owns
+  last-close touches the session, starting the short inactivity grace for every session
+  without a live transport. Reattach resumes that session; detached sessions count against
+  the cap until expiry. Live-transport and no-transport idle limits belong to `limits`;
+  the door maintenance loop persists expiry cleanup. `session` owns
   per-session replay and device-wide authority loss. Held work belongs to the grant and
   survives session end; only stop/revoke/expiry/revision change cancels it. The journal/ack remain per device.
 - **Session cap.** `session.open` rereads `settings` on each open. Unset settings
@@ -56,6 +61,10 @@ Rules that are easy to get wrong:
 - **Embedded SDK asset.** The door embeds `assets/remote-v1.js` built from
   `remote-client/src`; rebuild and commit it as described in
   [sdk-operations.md](sdk-operations.md#embedded-client-and-crypto-fixtures).
+- **Object backend.** `objects` has one metadata and accounting owner (`objects.db`),
+  opened with the `Serving` proof; bodies live under `<dataRoot>/<extension>/objects/`
+  and are reached only through no-follow directory handles. Read
+  [object-backends.md](object-backends.md) before changing it.
 - **Parked add-on.** `typescript/browser-addon` is a demo shell with no crypto,
   pairing or network; it is not a working channel (#1056).
 
@@ -73,3 +82,16 @@ library-only and shared with Colab:
 ```
 
 Synced publication tests prove filesystem behavior, not power-loss recovery.
+
+The wire leaf `tmt-extension-objects` is library-only and has one consumer: Remote's
+`object_service` (policy-guarded; no other Remote file, no other package). Its Unix-only
+`carrier` module (handshake, bounded frame I/O, correlation ledger, `Bus` driver) is the only part that names `httparse` or `nix`
+(`cfg(unix)` dependencies, guarded); the protocol modules stay free of OS dependencies. It owns the wire
+bounds (`limits`: chunk, policy input, payload); the `tmt-remote` limits of the same value do not
+depend on it, so consumer slices must reuse the leaf bounds or equality-test them against the
+backend limits. Its tests are in-crate, so run it alone and keep it in the architecture guard:
+
+```bash
+(cd rust && CARGO_BUILD_JOBS=2 cargo test --offline --locked -p tmt-extension-objects)
+(cd rust && CARGO_BUILD_JOBS=2 cargo test --offline --locked -p tmt-cli --test architecture)
+```

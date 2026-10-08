@@ -31,6 +31,7 @@ pub(super) use line::tests::{
 pub(super) use list::{Input as ListInput, List};
 pub(super) use load::{Fetch, fetch};
 pub(super) use place::Places;
+pub(super) use rows::{detail as job_detail, detail_id};
 pub(super) use surface::Pane as JobsPane;
 
 /// One successful read. The same instant produced every field.

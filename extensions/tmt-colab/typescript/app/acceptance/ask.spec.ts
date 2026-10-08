@@ -69,7 +69,7 @@ test.describe('Ask agent real-binary acceptance (#1110)', () => {
       // The input stays ready for another explicit turn; no preview screen exists.
       await expect(s.askerPage.getByTestId('ask-preview')).toHaveCount(0);
       await expect(
-        s.askerPage.getByTestId('chat-panel').getByRole('combobox', { name: 'Message to agent' }),
+        s.askerPage.getByTestId('chat-panel').getByRole('combobox', { name: 'Message' }),
       ).toBeFocused();
       await expect(askEntry(s.askerPage, ask.operationId)).toHaveAttribute(
         'data-ledger-state',

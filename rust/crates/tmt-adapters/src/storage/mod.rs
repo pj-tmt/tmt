@@ -3,6 +3,7 @@ mod consumption_history;
 mod context;
 mod dispatch;
 mod errors;
+mod focus_hook;
 mod host_servers;
 mod identities;
 mod identity_hooks;
@@ -55,6 +56,16 @@ pub struct StorageHealth {
     pub fts5: bool,
 }
 
+pub struct SchemaSource {
+    pub path: &'static str,
+    pub sha256: String,
+}
+
+pub struct CompiledSchema {
+    pub version: u32,
+    pub sources: Vec<SchemaSource>,
+}
+
 const BUSY_TIMEOUT: Duration = Duration::from_secs(5);
 const WAL_RETRY_INTERVAL: Duration = Duration::from_millis(10);
 const WAL_ATTEMPT_TIMEOUT: Duration = Duration::from_millis(50);
@@ -80,6 +91,40 @@ pub struct Storage {
 }
 
 impl Storage {
+    pub fn compiled_schema() -> CompiledSchema {
+        migrations::compiled_schema()
+    }
+
+    /// Read the existing Core database's application schema in one snapshot.
+    /// This never creates, migrates, checkpoints or changes file permissions.
+    /// Unknown/malformed history refuses; a future version remains observable
+    /// so installer admission can prevent a data downgrade.
+    pub fn application_schema(path: &Path) -> Result<u32, StorageError> {
+        let mut connection =
+            Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
+                .map_err(|error| classify(error, "Open application schema observation"))?;
+        connection
+            .busy_timeout(Duration::from_millis(100))
+            .map_err(|error| classify(error, "Bound application schema observation"))?;
+        let result = (|| {
+            let transaction = connection
+                .transaction()
+                .map_err(|error| classify(error, "Observe application schema snapshot"))?;
+            let version = migrations::observed_schema(&transaction)?;
+            transaction
+                .commit()
+                .map_err(|error| classify(error, "Finish application schema snapshot"))?;
+            Ok(version)
+        })();
+        let closed = connection
+            .close()
+            .map_err(|(_, error)| classify(error, "Close application schema observation"));
+        match result {
+            Ok(version) => closed.map(|()| version),
+            Err(error) => Err(error),
+        }
+    }
+
     /// Hooks observe existing state; they must not initialize or upgrade storage.
     /// The supervising hook process supplies the overall deadline, including any
     /// pathological filesystem wait. Writer admission uses only the remaining

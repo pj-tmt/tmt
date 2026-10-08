@@ -59,249 +59,64 @@ fn lines(buffer: &ratatui::buffer::Buffer) -> Vec<String> {
 }
 
 #[test]
-fn lead_rows_and_footer_share_one_cursor_and_hidden_previews_remove_separators() {
-    for width in [160, 100, 80] {
+fn home_leads_collapse_by_default_and_expand_without_an_exchange() {
+    for width in [80, 160] {
         let mut app = fixture();
-        assert_eq!(
-            app.home_entries()
-                .iter()
-                .map(|entry| entry.target.section.as_str())
-                .collect::<Vec<_>>(),
-            [
-                "needs-you",
-                "leads",
-                "leads",
-                "all-leads",
-                "squads",
-                "squads"
-            ]
-        );
-        let shown = draw(&app, width, 40);
-        let text = lines(&shown);
-        let at = |needle: &str| text.iter().position(|line| line.contains(needle)).unwrap();
-        assert!(at("leads · latest") < at("asks: Approve"));
-        assert!(at("asks: Approve") < at("→ all leads"));
-        assert!(at("→ all leads") < at("── squads"));
-        let row = app.selected;
-        assert_eq!(
-            app.hits
-                .borrow()
-                .iter()
-                .filter(|hit| hit.row == row)
-                .count(),
-            2
-        );
-        assert!(text[at("→ all leads") - 1].starts_with('└'));
-        assert_eq!(glyph_error(&text.join("\n")), None);
+        let initial = lines(&draw(&app, width, 40)).join("\n");
         assert!(
-            text.last().unwrap().contains("? more"),
-            "help, where the toggle is listed, stays discoverable at 80 columns"
-        );
-        let target = app.home_target.clone();
-        assert_eq!(press(&mut app, Char('t')), Effect::HomeReplies(false));
-        app.view.as_mut().unwrap().home_replies = false;
-        let hidden = lines(&draw(&app, width, 40));
-        assert!(hidden.iter().any(|line| line.contains("t shows replies")));
-        assert!(
-            !hidden
-                .iter()
-                .any(|line| line.contains("asks:") || line.contains("The work is ready"))
-        );
-        assert_eq!(
-            app.hits
-                .borrow()
-                .iter()
-                .filter(|hit| hit.row == row)
-                .count(),
-            1
-        );
-        assert_eq!(app.home_target, target);
-        assert_eq!(
-            press(&mut app, Enter),
-            Effect::Act(Request::Jump("lead-a".into()))
-        );
-        press(&mut app, Down);
-        press(&mut app, Down);
-        assert_eq!(app.home_target.as_ref().unwrap().section, "all-leads");
-        assert_eq!(press(&mut app, Enter), Effect::None);
-        assert!(
-            matches!(&app.input.as_ref().unwrap().compose, Compose::Leads { all: true, recipients, .. } if recipients.len() == 2)
-        );
-    }
-}
-
-#[test]
-fn leads_without_exchanges_have_one_hit_line_and_one_blank_after_the_last_exchange() {
-    for width in [160, 100, 80] {
-        let mut app = fixture();
-        app.home_leads.leads[1].exchange = None;
-        let text = lines(&draw(&app, width, 40));
-        let preview = text
-            .iter()
-            .position(|line| line.contains("asks: Approve"))
-            .unwrap();
-        // One blank boxed line keeps `no reply yet` / the question apart from the
-        // first lead without an exchange; nothing separates lead from lead below it.
-        assert!(
-            text[preview + 1].starts_with('│')
-                && text[preview + 1].trim_matches(['│', ' ']).is_empty()
-        );
-        assert!(text[preview + 2].contains("lead-b"));
-        assert!(text[preview + 3].starts_with('└'));
-        let target = app
-            .home_entries()
-            .iter()
-            .position(|entry| entry.target.section == LEADS && entry.target.squad == "b")
-            .unwrap();
-        assert_eq!(
-            app.hits
-                .borrow()
-                .iter()
-                .filter(|hit| hit.row == target)
-                .count(),
-            1
+            !initial.contains("asks: Approve")
+                && !initial.contains("The work is ready")
+                && !initial.contains("hides replies")
         );
         app.home_leads.leads[0].exchange = None;
-        let text = lines(&draw(&app, width, 40));
-        let heading = text
-            .iter()
-            .position(|line| line.contains("lead-a") && line.starts_with('│'))
-            .unwrap();
-        assert!(text[heading + 1].contains("lead-b"));
-        assert!(text[heading + 2].starts_with('└'));
-        for entry in app
-            .home_entries()
-            .iter()
-            .enumerate()
-            .filter(|(_, entry)| entry.target.section == LEADS)
-        {
-            assert_eq!(
-                app.hits
-                    .borrow()
-                    .iter()
-                    .filter(|hit| hit.row == entry.0)
-                    .count(),
-                1
-            );
-        }
+        press(&mut app, Char('e'));
+        let expanded = lines(&draw(&app, width, 40)).join("\n");
+        assert!(expanded.contains("no reply yet"));
+        assert!(app.input.is_none());
+        press(&mut app, Char('e'));
+        assert!(
+            !lines(&draw(&app, width, 40))
+                .join("\n")
+                .contains("no reply yet")
+        );
     }
 }
 
 #[test]
-fn expanded_body_and_answer_share_the_full_inner_band_at_every_width_and_theme() {
-    for width in [160, 100, 80] {
-        for (base, depth) in [
-            ("tmt", tmt_cli_style::Depth::TrueColor),
-            ("tmt-light", tmt_cli_style::Depth::TrueColor),
-            ("tmt", tmt_cli_style::Depth::None),
-        ] {
-            let mut app = fixture();
-            app.view.as_mut().unwrap().look = crate::look::Look {
-                theme: tmt_cli_style::Theme::new(tmt_cli_style::theme::Base::parse(base).unwrap()),
-                depth,
-            };
-            press(&mut app, Char('e'));
-            let Compose::ReadLead { key, .. } = app.input.as_ref().unwrap().compose.clone() else {
-                panic!("expanded mode")
-            };
-            app.apply_message(
-                &key,
-                Ok("First complete line\n\nSecond complete line".into()),
-            );
-            let buffer = draw(&app, width, 30);
-            let band = app.input_band.get().unwrap();
-            assert_eq!((band.x, band.width), (1, width - 2));
-            let text = lines(&buffer);
-            assert!(text[usize::from(band.y - 1)].contains("lead-a"));
-            assert!(!text.iter().any(|line| line.contains("asks: Approve")));
-            assert!(text.iter().any(|line| line.contains("The work is ready.")));
-            assert_eq!(
-                app.hits
-                    .borrow()
-                    .iter()
-                    .filter(|hit| hit.row == app.selected)
-                    .count(),
-                1
-            );
-            assert!(text[usize::from(band.y + 1)].contains("First complete line"));
-            assert!(
-                text[usize::from(band.y + 2)]
-                    .chars()
-                    .all(|c| c == ' ' || c == '│')
-            );
-            assert!(text[usize::from(band.y + 3)].contains("Second complete line"));
-            assert!(!text.join("\n").contains("\\n"));
-            assert!(
-                text[usize::from(band.bottom() - 2)].contains("e collapse · a reply to lead-a")
-            );
-            assert!(text[usize::from(band.y)].starts_with("│┌"));
-            assert!(
-                app.hits
-                    .borrow()
-                    .iter()
-                    .all(|hit| hit.y < band.y || hit.y >= band.bottom())
-            );
-            press(&mut app, Esc);
-            let collapsed = lines(&draw(&app, width, 30));
-            assert!(collapsed.iter().any(|line| line.contains("asks: Approve")));
-            assert_eq!(
-                app.hits
-                    .borrow()
-                    .iter()
-                    .filter(|hit| hit.row == app.selected)
-                    .count(),
-                2
-            );
-            press(&mut app, Char('e'));
-            press(&mut app, Char('a'));
-            assert!(matches!(
-                app.input.as_ref().unwrap().compose,
-                Compose::Reply { .. }
-            ));
-            let answer = lines(&draw(&app, width, 30));
-            let next = app.input_band.get().unwrap();
-            assert_eq!((next.x, next.width), (band.x, band.width));
-            assert!(answer[usize::from(next.y + 1)].contains("→ lead-a (a) · answer"));
-            assert!(answer[usize::from(next.y + 2)].contains("Approve this change?"));
-            press(&mut app, Esc);
-            assert!(app.input.is_none());
-        }
-    }
-}
-
-#[test]
-fn long_expanded_message_scrolls_and_rejects_changed_exchange_or_actor() {
+fn home_lead_and_member_use_the_same_reply_renderer_and_v_reader() {
+    use crate::board::row_detail::Target;
     let mut app = fixture();
+    select(&mut app, "leads", "b");
     press(&mut app, Char('e'));
-    let Compose::ReadLead { key, .. } = app.input.as_ref().unwrap().compose.clone() else {
-        panic!("expanded mode")
-    };
-    app.apply_message(
-        &key,
-        Ok((0..50)
-            .map(|i| format!("body line {i}"))
-            .collect::<Vec<_>>()
-            .join("\n")),
-    );
-    let first = lines(&draw(&app, 80, 12));
+    let lead_target = app.row_target(app.selected).unwrap();
+    let key = app.detail_read().unwrap();
+    app.apply_message(&key, Ok("Full **reply** body\n".repeat(40)));
+    let buffer = draw(&app, 80, 40);
+    let shown = lines(&buffer).join("\n");
+    assert!(shown.contains("from lead-b") && shown.contains("more lines · v view"));
+    press(&mut app, Char('v'));
+    assert!(app.row_details.reader.is_some());
+    press(&mut app, Esc);
+    select(&mut app, "needs-you", "a");
+    app.home_leads.replies =
+        vec![json!({"recipientId":"A","requestId":"member-reply","submittedAtMs":10})];
+    press(&mut app, Char('e'));
+    let member_target = app.row_target(app.selected).unwrap();
+    let key = app.detail_read().unwrap();
+    app.apply_message(&key, Ok("A member reply".into()));
     assert!(
-        app.input_band.get().is_some(),
-        "the entire capped band must fit"
+        lines(&draw(&app, 80, 40))
+            .join("\n")
+            .contains("A member reply")
     );
-    assert!(first.iter().any(|line| line.contains("body line 0")));
-    press(&mut app, PageDown);
-    let next = lines(&draw(&app, 100, 12));
-    assert!(!next.iter().any(|line| line.contains("body line 0")));
-    for _ in 0..50 {
-        press(&mut app, PageDown);
-    }
-    let last = lines(&draw(&app, 80, 12));
-    assert!(last.iter().any(|line| line.contains("body line 49")));
-    app.home_leads.leads[0].exchange.as_mut().unwrap().request = Some("new-question".into());
-    app.apply_message(&key, Ok("late old body".into()));
-    assert!(!app.input.as_ref().unwrap().text.contains("late old body"));
-    app.view.as_mut().unwrap().me_id = Some("other".into());
-    assert!(!app.message_valid());
+    assert!(app.row_details.contains(&Target::Row(lead_target)));
+    assert!(app.row_details.contains(&Target::Row(member_target)));
+    press(&mut app, Char('e'));
+    app.apply_message(&key, Ok("late collapsed".into()));
+    assert!(
+        !app.row_details
+            .contains(&Target::Row(app.row_target(app.selected).unwrap()))
+    );
 }
 
 #[test]
@@ -330,4 +145,91 @@ fn audience_controls_use_one_composer_and_refuse_sender_or_lead_changes() {
         assert_eq!(press(&mut app, Enter), Effect::None);
         assert!(app.notice.as_ref().unwrap().contains("nothing sent"));
     }
+}
+
+#[test]
+fn home_attention_and_boxed_heading_selection_preserve_blanks_and_acquired_previews() {
+    crate::status::with_now_ms(1_900_000_000_000, || {
+        for width in [80, 100, 160, 180] {
+            for (base, depth) in [
+                (tmt_cli_style::Base::Tmt, tmt_cli_style::Depth::TrueColor),
+                (
+                    tmt_cli_style::Base::TmtLight,
+                    tmt_cli_style::Depth::TrueColor,
+                ),
+                (tmt_cli_style::Base::Terminal, tmt_cli_style::Depth::Ansi16),
+                (tmt_cli_style::Base::Tmt, tmt_cli_style::Depth::None),
+            ] {
+                let mut app = fixture();
+                app.view.as_mut().unwrap().look = crate::look::Look {
+                    theme: tmt_cli_style::Theme::new(base),
+                    depth,
+                };
+                let document = app.view.as_ref().unwrap().document.clone();
+                let selected = draw(&app, width, 40);
+                let hits = format!("{:?}", app.hits.borrow());
+                let starts = app.row_starts.borrow().clone();
+                let heading = app
+                    .hits
+                    .borrow()
+                    .iter()
+                    .find(|hit| hit.row().unwrap() == app.selected)
+                    .unwrap()
+                    .y;
+                assert_eq!(selected[(1, heading)].symbol(), " ");
+                assert_eq!(selected[(2, heading)].symbol(), "◆");
+                select(&mut app, "needs-you", "a");
+                let attention = draw(&app, width, 40);
+                assert_eq!(format!("{:?}", app.hits.borrow()), hits);
+                assert_eq!(*app.row_starts.borrow(), starts);
+                let y = app
+                    .hits
+                    .borrow()
+                    .iter()
+                    .find(|hit| hit.row().unwrap() == app.selected)
+                    .unwrap()
+                    .y;
+                assert_eq!(attention[(0, y)].symbol(), " ");
+                assert_eq!(attention[(1, y)].symbol(), "◆");
+                assert_eq!(
+                    attention[(0, y)].bg,
+                    app.look().selection().bg.unwrap_or_default()
+                );
+                assert_eq!(
+                    attention[(0, y)]
+                        .modifier
+                        .contains(ratatui::style::Modifier::REVERSED),
+                    app.look().selection().bg.is_none()
+                );
+                for y in 2..39 {
+                    for x in 0..width {
+                        assert_eq!(selected[(x, y)].symbol(), attention[(x, y)].symbol());
+                    }
+                }
+                assert_eq!(app.view.as_ref().unwrap().document, document);
+            }
+        }
+    });
+}
+
+#[test]
+fn a_newer_incoming_question_does_not_hide_the_leads_latest_submitted_reply() {
+    let mut app = fixture();
+    app.home_leads.replies =
+        vec![json!({"recipientId":"A","requestId":"prior-reply","submittedAtMs":10})];
+    press(&mut app, Char('e'));
+    let key = app
+        .detail_read()
+        .expect("the submitted reply remains independently readable");
+    assert_eq!(key.request, "prior-reply");
+    app.apply_message(
+        &key,
+        Ok("Earlier reply retained beside the new decision".into()),
+    );
+    let shown = lines(&draw(&app, 80, 40)).join("\n");
+    assert!(
+        shown.contains("Earlier reply retained") && shown.contains("pending"),
+        "{shown}"
+    );
+    assert!(app.reply_hint());
 }

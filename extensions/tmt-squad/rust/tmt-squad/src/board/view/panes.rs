@@ -11,11 +11,30 @@ use crate::config::{BoardMode, Pane};
 use ratatui::{
     Frame,
     layout::Rect,
-    style::Modifier,
+    style::{Modifier, Style},
     text::{Line, Span},
 };
 use tmt_cli_style::Role;
 use tmt_tui::components::{Outline, strip};
+
+/// The existing pane is receiving keys only while no input or overlay owns them.
+pub(super) fn receiving_pane(app: &App) -> Option<Pane> {
+    if app.input.is_some()
+        || app.searching
+        || app.help
+        || app.menu.is_some()
+        || app.settings.is_some()
+        || app.view_picker.is_some()
+        || app.theme_picker.is_some()
+        || app.switcher.is_some()
+        || app.cron_list.is_some()
+        || app.checklist_shown()
+    {
+        None
+    } else {
+        app.focused_pane()
+    }
+}
 
 /// Split mode tiles the configured panes; tabs mode shows the focused pane
 /// under a tab bar. The focused pane's border is highlighted.
@@ -47,15 +66,16 @@ fn render_members(frame: &mut Frame, app: &App, area: Rect) {
         return;
     }
     let board = app.effective_board().expect("loaded view has a board");
-    let focused = app.focused_pane();
+    let focused = receiving_pane(app);
     let pane_block = |pane: Pane| {
+        let focus = if Some(pane) == focused { "Focus: " } else { "" };
         let title = match pane {
             // The lead's notes nobody updated for a while say how long.
             Pane::Notes => {
                 let lead = view.document["squad"]["lead"]["name"]
                     .as_str()
                     .unwrap_or("no lead");
-                let mut title = vec![Span::raw(format!(" notes · {lead} "))];
+                let mut title = vec![Span::raw(format!(" {focus}notes · {lead} "))];
                 if let Some(age) =
                     crate::staleness::label(&view.document["squad"]["notesStaleness"])
                 {
@@ -63,18 +83,17 @@ fn render_members(frame: &mut Frame, app: &App, area: Rect) {
                 }
                 Line::from(title)
             }
-            other => Line::from(format!(" {} ", other.title())),
-        };
-        let style = if Some(pane) == focused && board.panes.len() > 1 {
-            look.role(Role::Accent).add_modifier(Modifier::BOLD)
-        } else {
-            look.role(Role::Dim)
+            other => Line::from(format!(" {focus}{} ", other.title())),
         };
         Outline {
             title,
-            border: style,
+            border: look.role(Role::Dim),
             title_style: if Some(pane) == focused && board.panes.len() > 1 {
-                look.role(Role::Accent).add_modifier(Modifier::BOLD)
+                // Receiving titles start from their own role, so incidental
+                // frame effects cannot replace a configured Accent effect.
+                Style::reset()
+                    .patch(look.role(Role::Accent))
+                    .add_modifier(Modifier::BOLD)
             } else {
                 look.role(Role::Muted)
             },
@@ -125,7 +144,7 @@ fn render_members(frame: &mut Frame, app: &App, area: Rect) {
             }
             let outline = pane_block(focused);
             let inner = outline.inner(rest);
-            outline.paint(rest, frame.buffer_mut());
+            outline.paint_flat(rest, frame.buffer_mut());
             render_pane(frame, app, focused, inner);
         }
     }
@@ -174,7 +193,7 @@ fn render_split(
         } else {
             let outline = pane_block(pane);
             let inner = outline.inner(area);
-            outline.paint(area, frame.buffer_mut());
+            outline.paint_flat(area, frame.buffer_mut());
             if !inner.is_empty() {
                 render_pane(frame, app, pane, inner);
             }

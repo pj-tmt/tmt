@@ -52,7 +52,7 @@ fn core_id(value: &str) -> Result<()> {
 pub fn is_core_id(value: &str) -> bool {
     core_id(value).is_ok()
 }
-fn uuid(value: &str) -> Result<()> {
+pub(crate) fn uuid(value: &str) -> Result<()> {
     core_id(value)?;
     require(
         value.as_bytes()[14] == b'4' && matches!(value.as_bytes()[19], b'8' | b'9' | b'a' | b'b'),

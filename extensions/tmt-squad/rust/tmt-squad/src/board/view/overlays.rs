@@ -10,6 +10,11 @@ use ratatui::{
 use tmt_cli_style::mark::Mark;
 
 pub(super) fn render(frame: &mut Frame, app: &App, body: Rect, look: crate::look::Look) {
+    if let Some(checklist) = &app.checklist
+        && checklist.active
+    {
+        checklist.render(frame, look, body);
+    }
     if app.help {
         crate::board::help::render(frame, app, body);
     }
@@ -27,6 +32,7 @@ pub(super) fn render(frame: &mut Frame, app: &App, body: Rect, look: crate::look
     if let Some(list) = &app.cron_list {
         list.render(
             &app.cron,
+            &app.row_details.expanded,
             app.cron.now_ms(),
             app.clock_place(),
             frame,
@@ -43,6 +49,7 @@ pub(super) fn render(frame: &mut Frame, app: &App, body: Rect, look: crate::look
     if let Some(overlay) = &app.settings {
         crate::board::settings::render(frame, overlay, look, body);
     }
+    crate::board::row_detail::render_reader(frame, app, body);
 }
 
 /// The quick switcher: the query, then the matching tabs with their counts
@@ -51,28 +58,40 @@ pub(super) fn render_switcher(frame: &mut Frame, app: &App, switcher: &Switcher,
     use std::sync::OnceLock;
     use tmt_tui::components::surface;
     const FILE: &str = "squad.switcher.xml";
-    const MARKUP: &str = r#"<tmt-view version="1"><tmt-picker id="switcher" title="switch" placement="center" class="w-48"><tmt-text id="query" slot="query" bind="$.query" token="text"/><tmt-list id="choices" bind="$.rows" empty="(no matching tab)"><tmt-row class="flex-row gap-1"><tmt-cell bind="row.pick" class="w-3 shrink-0" token="muted"/><tmt-cell id="mark" bind="row.mark" class="w-1 shrink-0"/><tmt-cell bind="row.label" class="truncate-middle"/><tmt-cell bind="row.count" class="shrink-0"/><tmt-cell id="blocked" bind="row.blocked" class="shrink-0"/></tmt-row></tmt-list><tmt-text slot="footer" bind="$.footer" token="muted"/></tmt-picker></tmt-view>"#;
+    const MARKUP: &str = r#"<tmt-view version="1"><tmt-picker id="switcher" title="switch" placement="center" class="w-48"><tmt-text id="query" slot="query" bind="$.query" token="text"/><tmt-list id="choices" bind="$.rows" empty="(no matching tab)"><tmt-row class="flex-row gap-1"><tmt-row class="flex-row w-5 shrink-0 gap-0"><tmt-cell bind="row.pick" class="w-3 shrink-0" token="muted"/><tmt-cell bind="row.cursor" class="w-1 shrink-0" token="text"/><tmt-cell id="mark" bind="row.mark" class="w-1 shrink-0"/></tmt-row><tmt-cell bind="row.label" class="truncate-middle"/><tmt-cell bind="row.count" class="shrink-0"/><tmt-cell id="blocked" bind="row.blocked" class="shrink-0"/></tmt-row></tmt-list><tmt-text slot="footer" bind="$.footer" token="muted"/></tmt-picker></tmt-view>"#;
     static TEMPLATE: OnceLock<surface::Template<()>> = OnceLock::new();
     let template = TEMPLATE.get_or_init(|| {
         crate::board::picker_surface::compile(
             FILE,
             MARKUP,
-            crate::board::picker_surface::schema(&["pick", "mark", "label", "count", "blocked"]),
+            crate::board::picker_surface::schema(&[
+                "pick", "cursor", "mark", "label", "count", "blocked",
+            ]),
         )
     });
     let look = app.look();
     let keys = app.switcher_keys();
     let query = switcher.query();
     let found = crate::board::tabs::matching(&keys, &query);
+    let mut surface = switcher.surface.borrow_mut();
+    surface.reconcile(
+        found
+            .iter()
+            .map(|key| tmt_tui::components::ListRow {
+                id: (*key).clone(),
+                disabled: false,
+            })
+            .collect(),
+    );
+    let selected = surface.picker.list.selected().map(str::to_owned);
     let rows: Vec<_> = found.into_iter().map(|key| {
         let attention = app.attention.get(key).copied().unwrap_or_default();
         let (mark, count) = if attention.waiting > 0 { (Mark::Decision.symbol(), attention.waiting) }
             else if attention.blocked > 0 { (Mark::Failed.symbol(), attention.blocked) } else { (" ",0) };
         let label = if app.hidden.contains(key) { format!("{} (hidden)", crate::board::tabs::label(key)) } else { crate::board::tabs::label(key).into() };
-        serde_json::json!({"id":key,"disabled":false,"pick":if app.picks.contains(key) { "[x]" } else { "[ ]" },"mark":mark,"label":label,"count":if count > 0 { count.to_string() } else { String::new() },
+        serde_json::json!({"id":key,"disabled":false,"pick":if app.picks.contains(key) { "[x]" } else { "[ ]" },"cursor":if selected.as_deref() == Some(key.as_str()) {"›"} else {""},"mark":mark,"label":label,"count":if count > 0 { count.to_string() } else { String::new() },
             "blocked":if attention.waiting > 0 && attention.blocked > 0 { format!("{}{}", Mark::Failed.symbol(), attention.blocked) } else { String::new() }})
     }).collect();
-    let mut surface = switcher.surface.borrow_mut();
     let query_width = tmt_tui::components::Modal {
         title: "switch".into(),
         placement: tmt_tui::components::Placement::Center,

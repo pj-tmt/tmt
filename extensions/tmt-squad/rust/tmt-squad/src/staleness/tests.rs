@@ -21,7 +21,7 @@ impl Fixture {
             NEXT.fetch_add(1, Ordering::Relaxed)
         ));
         fs::create_dir_all(&root).unwrap();
-        let config = root.join("squad.toml");
+        let config = root.join("ops.toml");
         fs::write(
             &config,
             "[squad.p.reminders]\nenabled = true\nstale_after = \"1m\"\n",

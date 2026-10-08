@@ -4,26 +4,29 @@ use crate::split::{Size, Split};
 
 impl Config {
     fn setting_key_in_scope(key: &str, squad: Option<&str>) -> bool {
-        (key == "board.home_replies" && squad.is_none())
-            || matches!(
+        matches!(
+            key,
+            "board.refresh"
+                | "board.ask_lead"
+                | "board.view"
+                | "board.token_rate.window"
+                | "tabs.order"
+                | "tabs.hide"
+        ) || squad.is_some_and(|name| !crate::tabs::aggregate(name))
+            && (matches!(
                 key,
-                "board.refresh" | "board.ask_lead" | "board.view" | "tabs.order" | "tabs.hide"
-            )
-            || squad.is_some_and(|name| !crate::tabs::aggregate(name))
-                && (matches!(
-                    key,
-                    "layout"
-                        | "board.direction"
-                        | "board.sizes"
-                        | "board.panes"
-                        | "board.hidden_columns"
-                        | "notes.render"
-                        | "reminders.enabled"
-                        | "reminders.stale_after"
-                ) || key
-                    .strip_prefix("states.")
-                    .and_then(|name| name.strip_suffix(".color"))
-                    .is_some_and(field_name))
+                "layout"
+                    | "board.direction"
+                    | "board.sizes"
+                    | "board.panes"
+                    | "board.hidden_columns"
+                    | "notes.render"
+                    | "reminders.enabled"
+                    | "reminders.stale_after"
+            ) || key
+                .strip_prefix("states.")
+                .and_then(|name| name.strip_suffix(".color"))
+                .is_some_and(field_name))
     }
 
     pub fn can_edit_setting(&self, key: &str, squad: Option<&str>) -> bool {
@@ -64,7 +67,7 @@ impl Config {
     }
 
     fn parse_setting_value(key: &str, text: &str) -> Result<Item, SquadError> {
-        if matches!(key, "reminders.enabled" | "board.home_replies") {
+        if key == "reminders.enabled" {
             return text
                 .parse::<bool>()
                 .map(value)
@@ -154,7 +157,6 @@ impl Config {
         // Validate the global layer even if the chosen squad masks it.
         self.refresh("")?;
         self.ask_lead("")?;
-        self.home_replies()?;
         self.tabs()?;
         self.settings(squad, false, None)?;
         if global && let Some(squads) = self.document.get("squad").and_then(Item::as_table_like) {
@@ -174,7 +176,7 @@ impl Config {
         let path = Self::setting_path(squad, key)?;
         if !self.can_edit_setting(key, squad) {
             return Err(invalid(
-                "Nested board layouts are read-only; edit the split tree in squad.toml.",
+                "Nested board layouts are read-only; edit the split tree in ops.toml.",
             ));
         }
         if key == "board.view" {
@@ -207,5 +209,59 @@ impl Config {
         let changed = self.document.to_string() != draft.document.to_string();
         self.write(|document| *document = draft.document)?;
         Ok(changed)
+    }
+
+    /// Test the actual key, rather than a projection's inherited source.
+    pub fn has_setting_override(&self, squad: &str, key: &str) -> bool {
+        if crate::tabs::aggregate(squad) {
+            return false;
+        }
+        let mut item = self.document.get("squad").and_then(|s| s.get(squad));
+        for part in key.split('.') {
+            item = item.and_then(|item| item.get(part));
+        }
+        item.is_some()
+    }
+
+    /// Remove exactly one explicit squad key through the existing CAS writer.
+    pub fn reset_setting(&mut self, squad: &str, key: &str) -> Result<bool, SquadError> {
+        if !self.has_setting_override(squad, key) {
+            return Ok(false);
+        }
+        // Only keys in the authoritative settings projection can be reset.
+        if !self
+            .settings(Some(squad), false, None)?
+            .entries
+            .iter()
+            .any(|entry| entry.key == key)
+        {
+            return Err(invalid("This setting cannot be reset from the board."));
+        }
+        let mut draft = self.clone();
+        let mut table = draft.document["squad"][squad].as_table_like_mut().unwrap();
+        let parts: Vec<_> = key.split('.').collect();
+        for part in &parts[..parts.len() - 1] {
+            table = table
+                .get_mut(part)
+                .and_then(Item::as_table_like_mut)
+                .ok_or_else(|| invalid("This setting's parent must be a table."))?;
+        }
+        table.remove(parts.last().unwrap());
+        if parts.len() > 1 && table.is_empty() {
+            let mut parent = draft.document["squad"][squad].as_table_like_mut().unwrap();
+            for part in &parts[..parts.len() - 2] {
+                parent = parent
+                    .get_mut(part)
+                    .and_then(Item::as_table_like_mut)
+                    .expect("validated setting parent");
+            }
+            let key = parts[parts.len() - 2];
+            if parent.get(key).is_some_and(empty_table_without_comments) {
+                parent.remove(key);
+            }
+        }
+        draft.validate_setting_draft(Some(squad), false)?;
+        self.write(|document| *document = draft.document)?;
+        Ok(true)
     }
 }

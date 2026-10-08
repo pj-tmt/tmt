@@ -1,6 +1,6 @@
 ---
 name: tmux-team
-description: "Coordinate local agents with TMT: send `tmt talk` through a host pane (tmux, or Herdr after `tmt driver install herdr`) or local inbox, wait or detach, read `tmt result`, and answer with receipt-bound `tmt reply`."
+description: 'Coordinate local agents with TMT: send `tmt talk` through a host pane (tmux, or Herdr after `tmt driver install herdr`) or local inbox, wait or detach, read `tmt result`, and answer with receipt-bound `tmt reply`.'
 ---
 
 # tmux-team
@@ -42,8 +42,8 @@ as described below. Waiting `talk` returns that durable final directly.
 
 TMT can send to a verified host pane (tmux, or Herdr after the user approves
 `tmt driver install herdr`) or queue an existing identity's local inbox. It
-correlates durable requests and final replies by request ID; `check` only captures
-a diagnostic pane snapshot.
+correlates durable requests and final replies by request ID. `check` captures a
+diagnostic pane snapshot and may deliver a due Focus checklist at verified idle.
 
 Do not infer completion from screen text, idle output, process exit or a sent
 receipt; do not automatically resend after timeout, interruption or uncertain
@@ -93,7 +93,8 @@ continues; never type into its pane to get around it.
 `talk` waits for the complete durable reply by default. It never treats terminal
 markers, idle output, a summary, or process exit as completion. A cooperating
 recipient must invoke `tmt reply`; otherwise there is no final result yet.
-`check` is only a diagnostic snapshot, not correlated result retrieval.
+`check` captures diagnostics and may deliver a due Focus checklist at verified idle.
+It does not retrieve a correlated result.
 Its positional count or `--lines` accepts integers from 0 through 2147483647;
 zero captures the visible pane. Invalid counts are rejected, not clamped.
 Invalid configured capture counts also fail before target lookup or capture.
@@ -155,14 +156,41 @@ tmt talk reviewer "Review this patch" --timeout 300 --json
 tmt talk reviewer "Run the agreed tests" --detach --json
 tmt talk reviewer "Review this patch" --identity coordinator --json
 tmt result <request-id> --json
-tmt check reviewer 200  # diagnostics only
+tmt check reviewer 200  # capture; may deliver a due Focus checklist
 ```
 
 Detached success is `{status:"sent",requestId,target,pane,identity?}`, not task
 completion. Completed talk adds the exact `response`, `bodyBytes` and
 `submittedAtMs` to request/target/pane correlation. Preserve that request ID.
 
-Identified offline recipients instead return queued with an offline notice.
+Focus holds non-owner, non-urgent automatic requests and result notices in a
+single durable checklist. Held talk returns queued immediately with remaining
+time; JSON adds `focus:true`, `focusUntilMs`, `remainingMs`, `notification:"held"`
+and `waitingFor:"focus_checklist"`. Preserve the request ID; do not resend just
+because it was held. `--urgent` bypasses Focus only, and `--kind decision|review|fyi`
+records its checklist purpose (default `fyi`). The pinned recorded owner UUID
+also bypasses. All channel, host and pending-approval guards still apply.
+Explicit `--inbox` stays pull-only. Existing `tmt focus` still switches panes.
+
+There is no core timer, worker or periodic flush. An admitted provider turn
+boundary may hand off one checklist during Focus. After expiry or off, the next
+ordinary talk/check touching a verified idle recipient may hand off one backlog
+checklist. Without hooks or traffic it remains pending; an optional Squad cron
+reminder is outside core. A checklist contains original receipt-bound reply
+commands for eligible requests and result inspection commands for finals.
+Use the printed sealed-checklist API read/cursor for overflow; an uncertain
+handoff is never replay permission. Reads and delivery do not acknowledge X.
+
+An identity with no recorded binding receives through inbox pull. Ordinary
+`talk` waits for its durable reply, using the same 180-second default,
+`defaults.timeout` / `defaults.pollInterval` and `--timeout`; `--detach` returns
+queued immediately. The recipient must actively inspect its inbox or use the
+bounded listener described in `tmt-inbox`. Timeout means no reply within that
+budget, leaves the request available for a late reply, and gives result plus
+exact recipient-UUID inbox/inspection commands. It does not start or wake an
+inactive agent.
+
+Identified offline recipients with a recorded endpoint instead return queued with an offline notice.
 Their request stays in Inbox; no automatic re-wake occurs when they come online.
 Confirmed live delivery does not leave duplicate incoming attention. Explicit
 `--inbox` remains queue-only. Detached or interrupted originators can receive
@@ -436,8 +464,8 @@ may explicitly select the same identity; this is not authentication.
 Create returns `{identity:{id,name,canonicalName,lifetime},created}`; show returns
 `{identity:{id,name,canonicalName,lifetime}}`; ls returns `{identities:[...]}` in
 canonical-name order, including unbound identities. It does not report presence.
-Use ordinary `tmt ls` for verified active pane destinations. A new identity
-receives ordinary talk in Inbox while offline; `--inbox` explicitly suppresses
+Use ordinary `tmt ls` for verified active pane destinations. A new unbound identity
+receives ordinary talk through Inbox with the foreground wait; `--inbox` suppresses
 live delivery even after binding with `add`, `name` or `this`.
 
 Use shared identity metadata for exact local discovery:
@@ -472,12 +500,12 @@ with `NAME_ALREADY_ACTIVE` (exit 5).
 
 ### Committed identity retention
 
-Once identity creation commits, a later binding failure does not delete the
-identity. A valid new name tried on an occupied pane can therefore return
-`PANE_ALREADY_BOUND` (exit 5) while leaving that name unbound in SQLite.
-It is not an active `ls`/`talk` destination, but explicit `role --identity`
-and `preamble` commands can access it. A later successful bind reuses its UUID
-and profiles. Invalid names and missing preflight panes create no identity.
+An existing identity survives a refused binding with its UUID and profiles.
+If unbound, `ls` shows it as offline and ordinary `talk` uses Inbox with the
+foreground wait. Explicit `role --identity` and `preamble` remain available;
+a later successful bind reuses its UUID and profiles. A newly created temporary
+identity is retired on proven bind refusal; uncertain publication preserves it.
+Invalid names and missing preflight panes create no identity.
 Do not treat a failed bind as permission to delete data or try unrelated names.
 
 ### Pane bindings and commands

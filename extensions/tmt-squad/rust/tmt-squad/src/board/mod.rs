@@ -3,6 +3,7 @@
 
 mod app;
 mod changes;
+mod checklist;
 mod composition;
 mod cronboard;
 mod derived;
@@ -19,6 +20,7 @@ mod pick;
 mod picker_surface;
 mod rate;
 mod refresh;
+mod row_detail;
 mod scroll;
 mod settings;
 mod status_update;
@@ -40,7 +42,7 @@ use app::{App, Effect, Request, Snapshot};
 use ratatui::{
     Terminal,
     backend::CrosstermBackend,
-    crossterm::event::{self, Event, KeyEventKind},
+    crossterm::event::{self, Event, KeyEventKind, MouseEventKind},
 };
 use std::{
     io,
@@ -91,6 +93,7 @@ pub fn exit_status(signal: Option<i32>) -> u8 {
 /// terminal hangs up, so the board never waits on it directly; the thread ends
 /// with the process, and a read error disconnects the channel.
 pub(super) enum BoardEvent {
+    Checklist(checklist::load::Completed),
     Input(Event),
     InputClosed,
     Snapshot {
@@ -280,13 +283,14 @@ fn reload_interval(app: &App) -> Option<Duration> {
 
 /// The board loop, independent of the real terminal. It always returns within
 /// one input wait of a stop signal or a closed input, whatever the reader does.
-#[allow(clippy::too_many_arguments)] // The terminal-independent loop injects both worker request kinds.
+#[allow(clippy::too_many_arguments)] // The terminal-independent loop injects worker requests and effects.
 fn session<T: Into<ActionOutcome>>(
     app: &mut App,
     stop: &AtomicUsize,
     input: &Receiver<BoardEvent>,
     request: impl Fn(Option<String>, bool, bool),
     selected_read: impl Fn(u64, Option<refresh::SelectedRead>),
+    checklist: impl Fn(checklist::load::Task),
     mut act: impl FnMut(Request) -> Result<T, String>,
     mut load_config: impl FnMut() -> Result<Config, String>,
     mut draw: impl FnMut(&mut App) -> io::Result<()>,
@@ -335,6 +339,11 @@ fn session<T: Into<ActionOutcome>>(
             wait = wait.min(interval.saturating_sub(refreshed.elapsed()));
         }
         let effect = match input.recv_timeout(wait) {
+            Ok(BoardEvent::Checklist(completed)) => {
+                app.finished_checklist(completed);
+                dirty = true;
+                Effect::None
+            }
             Ok(BoardEvent::Snapshot {
                 cancellation,
                 snapshot,
@@ -449,6 +458,7 @@ fn session<T: Into<ActionOutcome>>(
             Ok(BoardEvent::Cron { cancellation, read }) => {
                 if !cancellation.cancelled() {
                     app.cron.replace(read);
+                    app.reconcile_row_details();
                     dirty = true;
                 }
                 Effect::None
@@ -458,10 +468,20 @@ fn session<T: Into<ActionOutcome>>(
                 app.key(key)
             }
             Ok(BoardEvent::Input(Event::Mouse(mouse))) => {
+                if mouse.kind == MouseEventKind::Moved {
+                    dirty |= app.move_pointer(mouse);
+                    Effect::None
+                } else {
+                    dirty = true;
+                    app.mouse(mouse, Instant::now())
+                }
+            }
+            Ok(BoardEvent::Input(event @ Event::Paste(_))) if app.checklist_shown() => {
                 dirty = true;
-                app.mouse(mouse, Instant::now())
+                app.overlay_event(&event).unwrap_or(Effect::None)
             }
             Ok(BoardEvent::Input(Event::Resize(_, _))) => {
+                app.meter_hover = None;
                 app.invalidate_overlay_frames();
                 dirty = true;
                 Effect::None
@@ -528,6 +548,7 @@ fn session<T: Into<ActionOutcome>>(
                     }
                 }
             }
+            Effect::Checklist(task) => checklist(task),
             Effect::Settings => {
                 match load_config()
                     .and_then(|config| app.open_settings(config).map_err(|error| error.message))
@@ -548,6 +569,52 @@ fn session<T: Into<ActionOutcome>>(
                     requested = None;
                     request(app.current.clone(), true, true);
                     refreshed = Instant::now();
+                }
+            }
+            Effect::ResetSetting => {
+                if app.settings.as_mut().is_some_and(|overlay| overlay.reset()) {
+                    app.settings_preview();
+                    if let Some(config) = app
+                        .settings
+                        .as_ref()
+                        .and_then(|overlay| overlay.config())
+                        .cloned()
+                    {
+                        app.apply_token_window(&config);
+                    }
+                    revision += 1;
+                    requested = None;
+                    request(app.current.clone(), true, true);
+                    refreshed = Instant::now();
+                }
+            }
+            Effect::CycleTokenWindow => {
+                if let Some(window) = app.next_token_window() {
+                    let result = if let Some(overlay) = &mut app.settings {
+                        if overlay.save_window(window) {
+                            Some(Ok(overlay.config().unwrap().clone()))
+                        } else {
+                            None
+                        }
+                    } else {
+                        Some(load_config().and_then(|mut config| {
+                            config
+                                .set_setting(None, "board.token_rate.window", &window.label())
+                                .map_err(|error| error.message)?;
+                            Ok(config)
+                        }))
+                    };
+                    match result {
+                        Some(Ok(config)) => {
+                            app.notice = Some(app.apply_token_window(&config));
+                            revision += 1;
+                            requested = None;
+                            request(app.current.clone(), true, app.settings.is_some());
+                            refreshed = Instant::now();
+                        }
+                        Some(Err(error)) => app.finished(Err(error)),
+                        None => {}
+                    }
                 }
             }
             Effect::CancelSettings => {
@@ -622,34 +689,6 @@ fn session<T: Into<ActionOutcome>>(
                     refreshed = Instant::now();
                 }
             }
-            Effect::HomeReplies(shown) => {
-                match load_config().and_then(|mut config| {
-                    config
-                        .set_setting(
-                            None,
-                            "board.home_replies",
-                            if shown { "true" } else { "false" },
-                        )
-                        .map_err(|error| error.to_string())
-                }) {
-                    Ok(_) => {
-                        if let Some(view) = &mut app.view {
-                            view.home_replies = shown;
-                        }
-                        app.say(format!(
-                            "Reply previews {}.",
-                            if shown { "shown" } else { "hidden" }
-                        ));
-                        revision += 1;
-                        requested = None;
-                        request(app.current.clone(), false, false);
-                        refreshed = Instant::now();
-                    }
-                    Err(error) => {
-                        app.say(error);
-                    }
-                }
-            }
             Effect::None => {}
         }
         // A snapshot may change the interval, including turning reload off.
@@ -673,7 +712,6 @@ pub(super) fn selection(
     input: Option<&str>,
     initial: Option<&str>,
 ) -> Result<(pick::Picks, Option<String>), SquadError> {
-    config.home_replies()?;
     if input.is_none() {
         return Ok((pick::Picks::default(), initial.map(str::to_owned)));
     }
@@ -746,6 +784,9 @@ pub fn run(
     );
     worker.request(squad.clone(), false, false);
     let mut app = App::new(squad);
+    app.notice = crate::migration::paths(&core, None)?
+        .notice
+        .or_else(|| config.obsolete_board_notice().map(str::to_owned));
     app.initial_look = Some(crate::look::Look::new(initial_theme));
     app.picks = picks;
     app.popup = popup;
@@ -758,6 +799,7 @@ pub fn run(
         &input,
         |squad, preempt, preview| worker.request(squad, preempt, preview),
         |revision, identity| worker.selected(revision, identity),
+        |task| worker.checklist(task),
         |request| execute(&core, request),
         || Config::load(&core).map_err(|error| error.message),
         |app| {
@@ -784,70 +826,6 @@ mod tests {
     use super::*;
     use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
     use std::sync::{atomic::Ordering, mpsc::channel};
-
-    #[test]
-    fn home_reply_toggle_uses_global_writer_and_a_conflict_keeps_the_displayed_choice() {
-        use serde_json::json;
-        for conflict in [false, true] {
-            let root = std::env::temp_dir().join(format!(
-                "squad-home-toggle-{}-{conflict}",
-                std::process::id()
-            ));
-            std::fs::create_dir_all(&root).unwrap();
-            let path = root.join("squad.toml");
-            std::fs::write(&path, "# original\n[board]\nhome_replies=true\n").unwrap();
-            let baseline = Config::read(path.clone()).unwrap();
-            let mut snapshot = app::tests::snapshot(ALL, json!([]));
-            let view = snapshot.view.as_mut().unwrap();
-            view.bindings = crate::action::all_preset();
-            view.refresh = None;
-            view.home = Some(home::Home {
-                windows: crate::config::TokenWindow::DEFAULTS,
-                summary: Default::default(),
-                sections: vec![],
-                squads: vec![],
-                failures: vec![],
-                incomplete: false,
-            });
-            let mut app = App::new(Some(ALL.into()));
-            app.apply(snapshot);
-            let (events, input) = mpsc::channel();
-            events.send(key(KeyCode::Char('t'))).unwrap();
-            events.send(key(KeyCode::Char('q'))).unwrap();
-            let reloads = std::cell::Cell::new(0);
-            session(
-                &mut app,
-                &AtomicUsize::new(0),
-                &input,
-                |_, _, _| reloads.set(reloads.get() + 1),
-                |_, _| {},
-                no_actions,
-                || {
-                    if conflict {
-                        std::fs::write(&path, "# concurrent edit\n[board]\nhome_replies=true\n")
-                            .unwrap();
-                    }
-                    Ok(baseline.clone())
-                },
-                |_| Ok(()),
-            )
-            .unwrap();
-            assert_eq!(app.view.as_ref().unwrap().home_replies, conflict);
-            assert_eq!(
-                Config::read(path.clone()).unwrap().home_replies().unwrap(),
-                conflict
-            );
-            assert_eq!(reloads.get(), usize::from(!conflict));
-            if conflict {
-                assert!(
-                    std::fs::read_to_string(&path)
-                        .unwrap()
-                        .starts_with("# concurrent edit")
-                );
-            }
-            std::fs::remove_dir_all(root).unwrap();
-        }
-    }
 
     #[test]
     fn selected_notebooks_are_lazy_and_late_selection_or_refresh_results_are_ignored() {
@@ -916,6 +894,7 @@ mod tests {
                     events.send(key(KeyCode::Char('q'))).unwrap();
                 }
             },
+                |_| {},
             no_actions,
             no_load_config,
             |app| {
@@ -963,7 +942,7 @@ mod tests {
         let directory =
             std::env::temp_dir().join(format!("tmt-view-session-{}", std::process::id()));
         std::fs::create_dir_all(&directory).unwrap();
-        let path = directory.join("squad.toml");
+        let path = directory.join("ops.toml");
         std::fs::write(&path, "# intact\n").unwrap();
         let (events, input) = channel();
         let mut app = App::new(Some("product".into()));
@@ -995,6 +974,7 @@ mod tests {
             &input,
             |_, preempt, preview| reloads.borrow_mut().push((preempt, preview)),
             |_, _| {},
+            |_| {},
             |request| {
                 assert_eq!(request, Request::Jump("coder".into()));
                 actions += 1;
@@ -1022,7 +1002,7 @@ mod tests {
         let directory =
             std::env::temp_dir().join(format!("tmt-theme-session-{}", std::process::id()));
         std::fs::create_dir_all(&directory).unwrap();
-        let path = directory.join("squad.toml");
+        let path = directory.join("ops.toml");
         std::fs::write(&path, "# kept\n[board.theme]\nbase = \"tmt\"\n").unwrap();
         let (events, input) = channel();
         let mut app = App::new(Some("product".into()));
@@ -1048,6 +1028,7 @@ mod tests {
             &input,
             |_, _, _| reloads.set(reloads.get() + 1),
             |_, _| {},
+            |_| {},
             |request| {
                 assert_eq!(request, Request::Jump("coder".into()));
                 actions += 1;
@@ -1074,7 +1055,7 @@ mod tests {
     fn user_tab_theme_picker_cannot_save_a_squad_scope() {
         let directory = std::env::temp_dir().join(format!("tmt-user-theme-{}", std::process::id()));
         std::fs::create_dir_all(&directory).unwrap();
-        let path = directory.join("squad.toml");
+        let path = directory.join("ops.toml");
         std::fs::write(&path, "[tabs.needs-me]\n").unwrap();
         let (events, input) = channel();
         let mut app = App::new(Some("@tab:needs-me".into()));
@@ -1095,6 +1076,7 @@ mod tests {
             &input,
             |_, _, _| {},
             |_, _| {},
+            |_| {},
             no_actions,
             || Config::read(path.clone()).map_err(|error| error.message),
             |app| {
@@ -1118,7 +1100,7 @@ mod tests {
         let directory =
             std::env::temp_dir().join(format!("tmt-theme-session-stale-{}", std::process::id()));
         std::fs::create_dir_all(&directory).unwrap();
-        let path = directory.join("squad.toml");
+        let path = directory.join("ops.toml");
         std::fs::write(&path, "[board.theme]\nbase = \"tmt\"\n").unwrap();
         let (events, input) = channel();
         let mut app = App::new(Some("product".into()));
@@ -1140,6 +1122,7 @@ mod tests {
             &input,
             |_, _, _| panic!("a failed save must not reload or retry"),
             |_, _| {},
+            |_| {},
             no_actions,
             || Config::read(path.clone()).map_err(|error| error.message),
             |app| {
@@ -1244,6 +1227,7 @@ mod tests {
                 &input,
                 |_, _, _| {},
                 |_, _| {},
+                |_| {},
                 no_actions,
                 no_load_config,
                 |_| Ok(()),
@@ -1282,6 +1266,7 @@ mod tests {
                 &input,
                 |_, _, _| {},
                 |_, _| {},
+                |_| {},
                 |request| {
                     assert_eq!(request, Request::Jump("auth-fix".into()));
                     jumps += 1;
@@ -1310,6 +1295,7 @@ mod tests {
             &input,
             |_, _, _| {},
             |_, _| {},
+            |_| {},
             no_actions,
             no_load_config,
             |_| Err(io::Error::other("terminal gone")),
@@ -1335,6 +1321,7 @@ mod tests {
                 &input,
                 |_, _, _| {},
                 |_, _| {},
+                |_| {},
                 no_actions,
                 no_load_config,
                 |app| {
@@ -1376,6 +1363,63 @@ mod tests {
     }
 
     #[test]
+    fn pointer_motion_repaints_only_when_meter_target_changes() {
+        use ratatui::crossterm::event::{KeyModifiers, MouseEvent};
+        let (events, input) = channel();
+        let (painted, frames) = channel();
+        let session = std::thread::spawn(move || {
+            let mut app = App::new(Some("product".into()));
+            let mut snapshot = app::tests::snapshot("product", serde_json::json!([]));
+            snapshot.view.as_mut().unwrap().refresh = None;
+            app.apply(snapshot);
+            super::session(
+                &mut app,
+                &AtomicUsize::new(0),
+                &input,
+                |_, _, _| {},
+                |_, _| {},
+                |_| {},
+                no_actions,
+                no_load_config,
+                |app| {
+                    *app.hits.borrow_mut() = vec![app::Hit {
+                        y: 1,
+                        x: 40,
+                        width: 10,
+                        target: app::HitTarget::Meter(None),
+                    }];
+                    painted.send(app.meter_hover).unwrap();
+                    Ok(())
+                },
+            )
+            .unwrap()
+        });
+        assert_eq!(frames.recv_timeout(Duration::from_secs(2)).unwrap(), None);
+        let moved = |column| {
+            BoardEvent::Input(Event::Mouse(MouseEvent {
+                kind: MouseEventKind::Moved,
+                column,
+                row: 1,
+                modifiers: KeyModifiers::NONE,
+            }))
+        };
+        events.send(moved(40)).unwrap();
+        assert_eq!(
+            frames.recv_timeout(Duration::from_secs(2)).unwrap(),
+            Some(None)
+        );
+        events.send(moved(45)).unwrap();
+        assert!(
+            frames.recv_timeout(INPUT_WAIT * 2).is_err(),
+            "motion within the same group never repaints"
+        );
+        events.send(moved(39)).unwrap();
+        assert_eq!(frames.recv_timeout(Duration::from_secs(2)).unwrap(), None);
+        events.send(key(KeyCode::Char('q'))).unwrap();
+        assert_eq!(session.join().unwrap(), None);
+    }
+
+    #[test]
     fn interval_reloads_continue_without_idle_frames_and_off_never_reloads() {
         for interval in [Some(Duration::from_millis(10)), None] {
             let (events, input) = channel();
@@ -1394,6 +1438,7 @@ mod tests {
                         requested.send(squad).unwrap();
                     },
                     |_, _| {},
+                    |_| {},
                     no_actions,
                     no_load_config,
                     |_| {
@@ -1436,6 +1481,7 @@ mod tests {
                 &input,
                 |_, _, _| {},
                 |_, _| {},
+                |_| {},
                 no_actions,
                 no_load_config,
                 |_| {
@@ -1490,6 +1536,7 @@ mod tests {
                 &input,
                 |_, _, _| {},
                 |_, _| {},
+                |_| {},
                 no_actions,
                 no_load_config,
                 |_| {
@@ -1530,6 +1577,7 @@ mod tests {
                 &input,
                 |_, _, _| panic!("automatic refresh was turned off by the snapshot"),
                 |_, _| {},
+                |_| {},
                 no_actions,
                 no_load_config,
                 |_| Ok(())

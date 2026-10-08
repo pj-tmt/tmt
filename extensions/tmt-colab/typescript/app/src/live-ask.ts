@@ -11,6 +11,11 @@ import type { Admission } from './admission.js';
 import type { Connection } from './connection.js';
 import { text } from './strings.js';
 import type { JsonValue, OwnState } from './fold-protocol.js';
+import type {
+  StatusNotificationContext,
+  statusNotificationForAsk,
+} from './thread-status-notification.js';
+import type { NotificationAdoption } from './thread-status-coordinator.js';
 
 export type AgentDestination = AskDestination & { presence?: RemoteAgent['presence'] };
 export type AgentDirectoryObservation =
@@ -44,10 +49,16 @@ export interface LiveAskOptions {
   commentContext?(
     context: CommentContext,
   ): ReturnType<typeof commentForAsk> | Promise<ReturnType<typeof commentForAsk>>;
+  statusContext?(
+    context: StatusNotificationContext,
+  ):
+    | ReturnType<typeof statusNotificationForAsk>
+    | Promise<ReturnType<typeof statusNotificationForAsk>>;
   publish(root: AskRoot, key: string, value: JsonValue): Promise<void>;
   connection(): Promise<Connection>;
   remote: RemoteClient;
   observe?(): void;
+  observationUnavailable?(unavailable: boolean): void;
   sessionEnded?(error?: SessionEvictedError): void;
 }
 
@@ -72,6 +83,9 @@ export class LiveAsk implements AskBinding {
       store,
       remote: options.remote,
       key: options.key,
+      observationUnavailable: (unavailable) => {
+        if (!this.#closed) options.observationUnavailable?.(unavailable);
+      },
       sessionEnded: (error) => {
         if (!this.#closed) options.sessionEnded?.(error);
       },
@@ -121,16 +135,29 @@ export class LiveAsk implements AskBinding {
     return c;
   }
   async prepare(input: Parameters<AskBinding['prepare']>[0]): Promise<PreviewAttempt> {
+    return this.#prepare(input);
+  }
+  async #prepare(
+    input: Parameters<AskBinding['prepare']>[0],
+    notification?: StatusNotificationContext,
+  ): Promise<PreviewAttempt> {
     const captured = structuredClone(input);
+    const statusContext = notification ? structuredClone(notification) : undefined;
     requireValue(!this.#closed);
     const controller = this.#controller;
     const c = await this.#admit();
     const preview = await c.run(async () => {
       requireValue(!this.#closed && c.active);
-      const origin = captured.context
-        ? await this.options.commentContext?.(captured.context)
+      requireValue(!statusContext || !captured.context);
+      const notificationOrigin = statusContext
+        ? await this.options.statusContext?.(statusContext)
         : undefined;
-      requireValue(!this.#closed && c.active && (!captured.context || origin !== undefined));
+      const origin =
+        notificationOrigin ??
+        (captured.context ? await this.options.commentContext?.(captured.context) : undefined);
+      requireValue(
+        !this.#closed && c.active && (!(captured.context || statusContext) || origin !== undefined),
+      );
       this.#selection = {
         space: this.options.space,
         page: this.options.page,
@@ -143,7 +170,10 @@ export class LiveAsk implements AskBinding {
         url: captured.url,
         shortId: this.options.shortId,
       };
-      return controller.prepare(captured.destination);
+      return controller.prepare(
+        captured.destination,
+        notificationOrigin ? { operationId: notificationOrigin.operationId } : {},
+      );
     });
     let state: PreviewAttempt['state'] = { state: 'preview' };
     let pending: ReturnType<PreviewAttempt['send']> | undefined;
@@ -174,6 +204,43 @@ export class LiveAsk implements AskBinding {
         return pending;
       },
     };
+  }
+  /** Only the trusted Resolve coordinator calls this, after its status action
+   * was admitted. It reuses the normal frozen/signing/ledger Send implementation. */
+  async notifyStatus(
+    context: StatusNotificationContext,
+    title: string,
+    url: string,
+  ): Promise<NotificationAdoption> {
+    const captured = structuredClone(context);
+    let destinations: AgentDestination[];
+    try {
+      destinations = await this.destinations();
+    } catch {
+      return { adopted: false, reason: 'RECIPIENT_UNAVAILABLE' };
+    }
+    const matches = destinations.filter(
+      (value) =>
+        value.machine === captured.recipient.machine && value.agent === captured.recipient.agent,
+    );
+    if (matches.length !== 1 || matches[0].online !== 'online' || matches[0].presence === 'offline')
+      return { adopted: false, reason: 'RECIPIENT_UNAVAILABLE' };
+    let attempt: PreviewAttempt;
+    try {
+      attempt = await this.#prepare(
+        { title, url, quote: '', comment: '', destination: matches[0] },
+        captured,
+      );
+    } catch {
+      return { adopted: false, reason: 'PREPARATION_FAILED' };
+    }
+    await attempt.send();
+    // An admitted intent retains held/refused/uncertain outcomes in the normal
+    // ledger. An unavailable read is not evidence that Send never happened.
+    const adopted = (await this.#store.views()).some(
+      (value) => value.intent.operationId === captured.recipient.operationId,
+    );
+    return adopted ? { adopted: true } : { adopted: false, reason: 'PREPARATION_FAILED' };
   }
   async recheck(operationId: string): Promise<void> {
     requireValue(!this.#closed);

@@ -1,7 +1,7 @@
 //! Frame orchestration; surface painters retain their existing owners.
 
 mod detail;
-mod footer;
+pub(super) mod footer;
 mod header;
 pub(in crate::board) mod member_list;
 mod notes;
@@ -58,6 +58,7 @@ pub(in crate::board) fn render_frame(
     let look = app.look();
     app.input_band.set(None);
     app.hits.borrow_mut().clear();
+    app.detail_more_hits.borrow_mut().clear();
     app.note_hits.borrow_mut().clear();
     app.link_hits.borrow_mut().clear();
     app.row_starts.borrow_mut().clear();
@@ -114,6 +115,7 @@ pub(in crate::board) fn render_frame(
     overlays::render(frame, app, body, look);
     waiting::prompt(frame, app, body);
     look.selected_words(frame.buffer_mut());
+    header::finish_meter_styles(frame, app, summary);
 }
 
 #[cfg(test)]

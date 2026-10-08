@@ -27,7 +27,19 @@ markup: see [tmt-tui](../../tmt-tui/SKILL.md).
 - Dependency changes: compare `cargo tree -p tmt-cli -e normal,build -f '{p} {f}'`
   with `main` and the package-scoped release `tmt` to prove the CLI is unchanged.
 - Cron tests use disposable roots and must not touch the core database or
-  `squad.toml`.
+  `ops.toml`.
+- Checklist storage/service: `cargo test --locked -p tmt-squad checklist` exercises
+  real temporary documents, literal schema/tombstones, separate revisions, contention,
+  lifecycle and independently controlled public-port admission changes. Publication fault
+  tests inspect committed bytes, temporary cleanup, lock release and retained Unknown
+  after readback. Run unfiltered Squad tests on current/MSRV toolchains, owning clippy,
+  fmt, CLI architecture/current+MSRV and the native Squad regression as well. This storage
+  service remains the only admission/persistence owner. `cargo test --locked -p tmt-squad
+checklist_command` covers adapter grammar, exact typed requests, literal JSON projections,
+  alias/help/completion, authorized conflict/deletion errors and retained Unknown. Native
+  `squad.test.ts` exercises actual dispatch, streams/exits and independently read durable
+  bytes across revisions, archive/order, assignment departure and exact room lifecycle.
+  No dependency, board action or parity fixture regeneration is introduced.
 - `main::print_help` sends both routed help and clap `DisplayHelp` through
   `tmt_cli_style::rendered_help` before core discovery. Specs and argument help
   remain in `specs.rs`/`main.rs`; the shared style crate owns terminal wrapping.
@@ -61,6 +73,12 @@ cron_service` and the native `squad.test.ts` cron cases cover actor permission, 
   scene change keeps the frozen parity capture and compares the old and new renderers on
   literal buffers, styles and hits (themes, depths, widths, selection, stale, waiting, cron labels,
   annotation) before the old one goes.
+- Pinned selection/focus evidence uses the ignored `capture_selection_focus_packet`
+  test with explicit `TMT_SELECTION_PACKET` and `TMT_SELECTION_OUTPUT` paths.
+  The existing `status::with_now_ms` test-only scoped override freezes integrated
+  draws on that thread, restores nested/unwound scopes and leaves worker/production
+  clocks unchanged. These buffers are deterministic renderer evidence, not a
+  frozen live-terminal clock or permission to regenerate parity.
 - Frame cost: the `#[ignore]` harness `board/view/tests/frame_timing.rs` times one 160x50 frame
   of crew rows, team rows, home with attention sections only (meter on) and home with every
   section through `Terminal::draw`, split by the phases of
@@ -83,7 +101,8 @@ cron_service` and the native `squad.test.ts` cron cases cover actor permission, 
   reveal, clipped hits and resize without target drift. Capture quiet/waiting/blocked/many
   squads with isolated state. The board glyph guard reads registered marks from
   `design/tokens/tokens.json`, rejects Ambiguous and emoji-presentation decorations,
-  and requires spaces before and after state marks, including overflow tab labels. Structural exceptions have explicit
+  and requires spaces before and after state marks, including overflow tab labels.
+  Structural exceptions have explicit
   reasons in the guard; dynamic names, tasks and notebooks are outside its scope.
   Decode cell/style/hit differences from current main parity before requesting approval
   for any fixture regeneration; an approved regeneration has its own attributed commit.

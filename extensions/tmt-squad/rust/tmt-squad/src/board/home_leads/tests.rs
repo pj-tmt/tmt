@@ -230,6 +230,53 @@ fn acknowledged_unanswered_asks_remain_visible_and_unrelated_senders_do_not() {
 }
 
 #[test]
+fn withdrawn_history_never_replaces_an_open_ask_or_recipient_final() {
+    let one = lead("a", "squad");
+    let mut withdrawn = ask("withdrawn", "a", 90);
+    withdrawn["final"] = json!({"status":"withdrawn", "reason":"obsolete", "withdrawnAtMs":99});
+    let mut announcement = ask("announcement", "a", 95);
+    announcement["kind"] = json!("announcement");
+    announcement["final"] = json!({"status":"not_required"});
+    let history = vec![withdrawn.clone(), announcement, ask("open", "a", 20)];
+    let original = history.clone();
+    let selected = latest(&one, "me", &[], &history, 100).unwrap();
+    assert_eq!(selected.kind, Kind::Asked);
+    assert_eq!(selected.request.as_deref(), Some("open"));
+    assert!(latest(&one, "me", &[], &[withdrawn.clone()], 100).is_none());
+    for (status, preview) in [
+        ("retained", "recipient answer"),
+        ("expired", "(reply expired)"),
+        ("unavailable", "(reply preview unavailable)"),
+    ] {
+        let mut final_item = reply("final", "a", 40, None);
+        final_item["final"]["status"] = json!(status);
+        if status == "retained" {
+            final_item["responsePreview"] = json!(preview);
+        }
+        // HOME joins the results view and ordinary recipient history.
+        let selected = latest(&one, "me", &[final_item.clone()], &history, 100).unwrap();
+        assert_eq!(selected.kind, Kind::Reply);
+        assert_eq!(selected.request.as_deref(), Some("final"));
+        assert_eq!(selected.since_ms, Some(40));
+        assert_eq!(selected.status, status);
+        assert_eq!(selected.preview, preview);
+        let selected = latest(&one, "me", &[], &[withdrawn.clone(), final_item], 100).unwrap();
+        assert_eq!(selected.kind, Kind::Reply);
+        assert_eq!(selected.request.as_deref(), Some("final"));
+    }
+    let mut manual = one;
+    manual.row["pending"] = json!("independent decision");
+    let selected = latest(&manual, "me", &[], &[withdrawn], 100).unwrap();
+    assert_eq!(selected.kind, Kind::Question);
+    assert_eq!(selected.request, None);
+    assert_eq!(selected.preview, "independent decision");
+    assert_eq!(
+        history, original,
+        "HOME projections do not change Core history"
+    );
+}
+
+#[test]
 fn one_global_results_page_and_one_recipient_page_per_distinct_lead_are_bounded() {
     let mut inputs = Vec::new();
     let read = fetch(vec![lead("a", "one"), lead("a", "two"), lead("b", "three")]).read(|input| {
@@ -260,18 +307,31 @@ fn one_global_results_page_and_one_recipient_page_per_distinct_lead_are_bounded(
 }
 
 #[test]
-fn missing_user_or_empty_roster_reads_nothing() {
-    for job in [
-        Fetch {
-            sender: None,
-            leads: vec![lead("a", "squad")],
-        },
-        fetch(vec![]),
-    ] {
-        let read = job.read(|_| panic!("no core call without a sender and lead"), 100);
-        assert_eq!(read.calls, 0);
-        assert!(read.leads.iter().all(|lead| lead.exchange.is_none()));
+fn missing_user_reads_nothing_but_home_members_without_leads_reuse_one_results_page() {
+    let read = Fetch {
+        sender: None,
+        leads: vec![lead("a", "squad")],
     }
+    .read(|_| panic!("no core call without a sender"), 100);
+    assert_eq!(read.calls, 0);
+    let read = fetch(vec![]).read(
+        |input| {
+            assert_eq!(
+                input,
+                json!({"originatorId":"me","view":"results","limit":50})
+            );
+            Ok(json!({"items":[reply("member-reply","member",20,Some("answer"))]}))
+        },
+        100,
+    );
+    assert_eq!(read.calls, 1);
+    assert!(read.leads.is_empty());
+    assert_eq!(read.replies[0]["recipientId"], "member");
+    assert_eq!(read.replies[0]["requestId"], "member-reply");
+    assert!(
+        read.replies[0].get("response").is_none(),
+        "bodies stay on the selected-read worker lane"
+    );
 }
 
 #[test]
@@ -335,6 +395,7 @@ fn failed_reads_are_not_empty_evidence_and_changed_sender_drops_observations() {
     state.replace(Read {
         sender: Some("other".into()),
         leads: vec![lead("a", "squad")],
+        replies: vec![],
         failure: None,
         incomplete: false,
         calls: 0,
@@ -446,44 +507,4 @@ fn full_message_expiry_and_missing_body_are_honest() {
     );
     detail["final"]["status"] = json!("retained");
     assert!(message(Kind::Reply).body(detail).is_err());
-}
-
-#[test]
-fn read_only_band_rejects_typing_and_submission_and_e_collapses() {
-    use super::super::app::{App, Compose, Effect, Input};
-    use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-    let mut app = App::new(None);
-    app.input = Some(Input {
-        compose: Compose::ReadLead {
-            key: message(Kind::Reply),
-            offset: 0,
-        },
-        prompt: "latest from a".into(),
-        text: "full reply".into(),
-        squad: "squad".into(),
-        row_send: None,
-        others: Vec::new(),
-        quote: None,
-        link: None,
-        hint: None,
-    });
-    for code in [
-        KeyCode::Char('x'),
-        KeyCode::Enter,
-        KeyCode::Backspace,
-        KeyCode::Tab,
-    ] {
-        assert_eq!(
-            app.message_key(KeyEvent::new(code, KeyModifiers::NONE)),
-            Effect::None
-        );
-        assert_eq!(app.input.as_ref().unwrap().text, "full reply");
-    }
-    app.message_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
-    assert!(matches!(
-        app.input.as_ref().unwrap().compose,
-        Compose::ReadLead { offset: 1, .. }
-    ));
-    app.message_key(KeyEvent::new(KeyCode::Char('e'), KeyModifiers::NONE));
-    assert!(app.input.is_none());
 }

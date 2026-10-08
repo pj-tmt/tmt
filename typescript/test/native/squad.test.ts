@@ -6,6 +6,7 @@ import {
   mkdirSync,
   openSync,
   readFileSync,
+  renameSync,
   readdirSync,
   realpathSync,
   statSync,
@@ -85,7 +86,7 @@ async function reminderFixture(sandbox: Sandbox) {
   const lead = await identity(sandbox, 'Sol');
   expect((await squad(sandbox, ['init', 'product', '--me', 'Sol'])).status).toBe(0);
   expect((await squad(sandbox, ['lead', 'Sol'])).status).toBe(0);
-  const config = path.join(sandbox.globalDir, 'squad.toml');
+  const config = path.join(sandbox.globalDir, 'ops.toml');
   writeFileSync(
     config,
     readFileSync(config, 'utf8') + '\n[squad.product.reminders]\nenabled=true\nstale_after="1m"\n'
@@ -142,7 +143,7 @@ describe('squad extension', () => {
   it('checks layout files offline without core, configuration or board startup', async () => {
     await withSandbox(async (sandbox) => {
       mkdirSync(sandbox.globalDir, { recursive: true });
-      writeFileSync(path.join(sandbox.globalDir, 'squad.toml'), 'invalid [');
+      writeFileSync(path.join(sandbox.globalDir, 'ops.toml'), 'invalid [');
       sandbox.env.TMT_EXECUTABLE = 'relative-core-is-invalid';
       const offline = { ...sandbox, cli: { executable: squadExecutable, args: [] } };
       const file = path.join(sandbox.cwd, 'board.xml');
@@ -182,7 +183,7 @@ describe('squad extension', () => {
       ).toBe('LAYOUT_IO');
       expect((await runCli(offline, ['layout', 'validate', '--json'])).status).toBe(2);
       expect(existsSync(sandbox.database)).toBe(before);
-      expect(readFileSync(path.join(sandbox.globalDir, 'squad.toml'), 'utf8')).toBe('invalid [');
+      expect(readFileSync(path.join(sandbox.globalDir, 'ops.toml'), 'utf8')).toBe('invalid [');
     });
   });
 
@@ -191,7 +192,7 @@ describe('squad extension', () => {
       installSquad(sandbox);
       await identity(sandbox, 'settings-probe');
       const marker = path.join(sandbox.root, 'must-not-exist');
-      const config = path.join(sandbox.globalDir, 'squad.toml');
+      const config = path.join(sandbox.globalDir, 'ops.toml');
       const original = `# keep my comment
 opaque = "kept"
 [board]
@@ -235,46 +236,25 @@ o = "run touch ${marker}"
     });
   });
 
-  it('persists the global HOME replies boolean and rejects scoped or invalid values without edits', async () => {
+  it('ignores the obsolete HOME replies setting without rewriting authored TOML', async () => {
     await withSandbox(async (sandbox) => {
       installSquad(sandbox);
       await identity(sandbox, 'home-settings-owner');
-      const config = path.join(sandbox.globalDir, 'squad.toml');
-      writeFileSync(config, '# keep this comment\n');
-      const setting = async () => {
-        const shown = await squad(sandbox, ['config', 'show', '--tab', 'all']);
-        expect(shown.status).toBe(0);
-        return shown.body.entries.find(
-          (entry: { key: string }) => entry.key === 'board.home_replies'
-        );
-      };
-      expect(await setting()).toMatchObject({
-        value: true,
-        source: 'default:true',
-        editable: true,
-      });
-      expect((await squad(sandbox, ['config', 'set', 'board.home_replies', 'false'])).status).toBe(
-        0
-      );
-      expect(await setting()).toMatchObject({ value: false, source: 'board.home_replies' });
-      const before = readFileSync(config, 'utf8');
-      expect(before).toContain('# keep this comment');
-      for (const args of [
-        ['config', 'set', 'board.home_replies', 'true', '--squad', 'product'],
-        ['config', 'set', 'board.home_replies', 'yes'],
-      ]) {
-        const rejected = await squad(sandbox, args);
-        expect(rejected.status).not.toBe(0);
-        expect(rejected.body.error.code).toBe('SQUAD_CONFIG_INVALID');
-        expect(rejected.body.error.message).toContain(
-          args.includes('--squad') ? 'read-only in this scope' : 'must be true or false'
-        );
-        expect(readFileSync(config, 'utf8')).toBe(before);
-      }
-      expect((await squad(sandbox, ['config', 'set', 'board.home_replies', 'true'])).status).toBe(
-        0
-      );
-      expect(await setting()).toMatchObject({ value: true, source: 'board.home_replies' });
+      const config = path.join(sandbox.globalDir, 'ops.toml');
+      const before = '# keep this comment\n[board]\nhome_replies=false\n';
+      writeFileSync(config, before);
+      const shown = await squad(sandbox, ['config', 'show', '--tab', 'all']);
+      expect(shown.status).toBe(0);
+      expect(
+        shown.body.entries.some((entry: { key: string }) => entry.key === 'board.home_replies')
+      ).toBe(false);
+      expect(
+        shown.body.notices.filter((notice: string) => notice.includes('board.home_replies'))
+      ).toEqual(['board.home_replies is deprecated and ignored; e expands row details.']);
+      const rejected = await squad(sandbox, ['config', 'set', 'board.home_replies', 'true']);
+      expect(rejected.status).not.toBe(0);
+      expect(rejected.body.error.message).toContain('read-only in this scope');
+      expect(readFileSync(config, 'utf8')).toBe(before);
     });
   });
 
@@ -293,7 +273,7 @@ o = "run touch ${marker}"
         'pr_link=https://example.com/keep-hidden',
       ]);
       const marker = path.join(sandbox.root, 'must-not-run');
-      const config = path.join(sandbox.globalDir, 'squad.toml');
+      const config = path.join(sandbox.globalDir, 'ops.toml');
       const original = `# keep settings comments
 opaque = "retained"
 [squad.product]
@@ -412,7 +392,7 @@ o = "run touch ${marker}"
       for (const name of ['product', 'infra', 'quiet']) {
         expect((await squad(sandbox, ['init', name])).status).toBe(0);
       }
-      const config = path.join(sandbox.globalDir, 'squad.toml');
+      const config = path.join(sandbox.globalDir, 'ops.toml');
       const source =
         '[tabs]\npin = ["tab:product"]\nhide = ["quiet"]\n[tabs.product]\nfilter = "squad = infra"\n[tabs.needs-me]\nfilter = "squad = product"\n';
       writeFileSync(config, source);
@@ -464,7 +444,7 @@ o = "run touch ${marker}"
       expect((await squad(sandbox, ['add', 'worker', '--squad', 'product'])).status).toBe(0);
       expect((await squad(sandbox, ['init', 'quiet'])).status).toBe(0);
       writeFileSync(
-        path.join(sandbox.globalDir, 'squad.toml'),
+        path.join(sandbox.globalDir, 'ops.toml'),
         'me = "Ben"\n[tabs]\norder = ["all", "product", "leads"]\nhide = ["quiet"]\n'
       );
       const leads = await squad(sandbox, ['ls', '--tab', 'leads']);
@@ -490,7 +470,7 @@ o = "run touch ${marker}"
       expect(text.stdout).toContain('Sol');
       expect(text.stdout).toContain('quiet');
       writeFileSync(
-        path.join(sandbox.globalDir, 'squad.toml'),
+        path.join(sandbox.globalDir, 'ops.toml'),
         '[tabs]\nhide = ["product", "tab:members"]\n[tabs.members]\nfilter = "squad = product"\nsort = ["-name"]\n[[tabs.members.section]]\ntitle = "Leads"\nfilter = "name = Sol"\n'
       );
       const members = await squad(sandbox, ['ls', '--tab', 'members']);
@@ -525,7 +505,7 @@ o = "run touch ${marker}"
       installSquad(sandbox);
       await identity(sandbox, 'Ben');
       expect((await squad(sandbox, ['init', 'product', '--me', 'Ben'])).status).toBe(0);
-      const toml = path.join(sandbox.globalDir, 'squad.toml');
+      const toml = path.join(sandbox.globalDir, 'ops.toml');
       writeFileSync(toml, 'me = "Ben"\n');
       expect((await squad(sandbox, ['ls', '--squad', 'product'])).body.squad.layout).toBe('team');
       for (const setting of [
@@ -550,7 +530,7 @@ o = "run touch ${marker}"
       for (const name of ['Ben', 'Sol', 'linked', 'unlinked']) await identity(sandbox, name);
       expect((await squad(sandbox, ['init', 'product', '--me', 'Ben'])).status).toBe(0);
       expect((await squad(sandbox, ['lead', 'Sol'])).status).toBe(0);
-      const toml = path.join(sandbox.globalDir, 'squad.toml');
+      const toml = path.join(sandbox.globalDir, 'ops.toml');
       writeFileSync(toml, 'me = "Ben"\n');
       expect((await squad(sandbox, ['add', 'linked', 'unlinked'])).status).toBe(0);
       expect(
@@ -657,7 +637,7 @@ o = "run touch ${marker}"
       expect((await squad(sandbox, ['init', 'product', '--me', 'Sol'])).status).toBe(0);
       expect((await squad(sandbox, ['lead', 'Sol'])).status).toBe(0);
       expect((await squad(sandbox, ['add', 'Rin'])).status).toBe(0);
-      const config = path.join(sandbox.globalDir, 'squad.toml');
+      const config = path.join(sandbox.globalDir, 'ops.toml');
       writeFileSync(
         config,
         readFileSync(config, 'utf8') +
@@ -850,7 +830,7 @@ o = "run touch ${marker}"
         ['set', 'Rin', 'task=review tokens', 'state=working'],
       ])
         expect((await squad(sandbox, args)).status).toBe(0);
-      const toml = path.join(sandbox.globalDir, 'squad.toml');
+      const toml = path.join(sandbox.globalDir, 'ops.toml');
       writeFileSync(toml, `${readFileSync(toml, 'utf8')}\n[squad.product]\nlayout = "crew"\n`);
       const original = readFileSync(toml, 'utf8');
       const listing = () => squad(sandbox, ['ls', '--squad', 'product']);
@@ -1110,7 +1090,7 @@ o = "run touch ${marker}"
       await identity(sandbox, 'worker');
       expect((await squad(sandbox, ['init', 'product'])).status).toBe(0);
       expect((await squad(sandbox, ['add', 'worker', '--squad', 'product'])).status).toBe(0);
-      const file = path.join(sandbox.globalDir, 'squad.toml');
+      const file = path.join(sandbox.globalDir, 'ops.toml');
       const original =
         "# untouched\n[squad.product]\nlayout = 'crew'\n[squad.product.board]\nview = 'focus' # own\n";
       writeFileSync(file, original);
@@ -1179,7 +1159,7 @@ o = "run touch ${marker}"
     await withSandbox(async (sandbox) => {
       installSquad(sandbox);
       mkdirSync(sandbox.globalDir, { recursive: true });
-      // Squad finds squad.toml through tmt config show; a bad theme must not
+      // Squad finds ops.toml through tmt config show; a bad theme must not
       // stop it (the theme is presentation, reported by config show).
       writeFileSync(sandbox.globalConfig, JSON.stringify({ theme: { waiting: 'orange' } }));
       const none = await squad(sandbox, ['ls']);
@@ -1196,7 +1176,7 @@ o = "run touch ${marker}"
       const bin = installSquad(sandbox);
       const ada = await identity(sandbox, 'ada');
       const rin = await identity(sandbox, 'rin');
-      const squadToml = path.join(sandbox.globalDir, 'squad.toml');
+      const squadToml = path.join(sandbox.globalDir, 'ops.toml');
       const me = () => {
         const text = readFileSync(squadToml, 'utf8');
         return {
@@ -1231,7 +1211,7 @@ o = "run touch ${marker}"
       const edited = await squad(sandbox, ['status']);
       expect(edited.status).toBe(0);
       expect(edited.stderr).toContain(
-        "warning: squad.toml named 'rin' as you, but me_id is ada-3; still acting as ada-3"
+        "warning: ops.toml named 'rin' as you, but me_id is ada-3; still acting as ada-3"
       );
       expect(edited.stderr).toContain('hint: tmt squad me rin');
       expect(me()).toEqual({ me: 'ada-3', id: ada });
@@ -1259,9 +1239,9 @@ o = "run touch ${marker}"
     await withSandbox(async (sandbox) => {
       installSquad(sandbox);
       await identity(sandbox, 'Ben');
-      const squadToml = path.join(sandbox.globalDir, 'squad.toml');
+      const squadToml = path.join(sandbox.globalDir, 'ops.toml');
 
-      // No --me and no terminal question: the room exists, squad.toml does not.
+      // No --me and no terminal question: the room exists, ops.toml does not.
       const created = await squad(sandbox, ['init', 'product']);
       expect(created).toMatchObject({ status: 0, body: { created: true, me: null } });
       expect(observe(sandbox).rooms).toEqual([{ name: 'squad-product', retired: 0 }]);
@@ -1298,7 +1278,7 @@ o = "run touch ${marker}"
     await withSandbox(async (sandbox) => {
       installSquad(sandbox);
       const ben = await identity(sandbox, 'Ben');
-      const squadToml = path.join(sandbox.globalDir, 'squad.toml');
+      const squadToml = path.join(sandbox.globalDir, 'ops.toml');
       await squad(sandbox, ['init', 'product']);
 
       // Nobody yet: outside a pane, nothing is recorded or derived.
@@ -1675,7 +1655,7 @@ o = "run touch ${marker}"
       expect(observe(sandbox)).toEqual(before);
       // A configured legacy note line cannot redisplay the retained metadata.
       writeFileSync(
-        path.join(sandbox.globalDir, 'squad.toml'),
+        path.join(sandbox.globalDir, 'ops.toml'),
         '[squad.product]\nlayout = "crew"\n[squad.product.rows]\ncolumns = [{name = "member"}, {name = "note"}]\nlines = [["member"], ["", "note"]]\n'
       );
       const listed = await squad(sandbox, ['ls', '--squad', 'product']);
@@ -1732,7 +1712,7 @@ o = "run touch ${marker}"
       expect(set.body.applied).toEqual(['squad.product.state', 'squad.product.pending']);
 
       writeFileSync(
-        path.join(sandbox.globalDir, 'squad.toml'),
+        path.join(sandbox.globalDir, 'ops.toml'),
         'me = "Ben"\n[squad.product]\nlayout = "crew"\n'
       );
       const status = await squad(sandbox, ['ls', '--squad', 'product']);
@@ -1770,10 +1750,23 @@ o = "run touch ${marker}"
         .filter((field) => !['active', 'offline', 'unknown'].includes(field));
       expect(documentedFields.sort()).toEqual(
         Object.keys(rows[0])
-          .filter((key) => key !== 'colors')
+          .filter((key) => !['colors', 'focus'].includes(key))
           .sort()
       );
       expect(skill).toContain('- A row has the optional `colors` key');
+      expect(skill).toContain('- A row has the optional `focus` object');
+      expect(Object.keys(rows[0].focus).sort()).toEqual([
+        'active',
+        'focusUntilMs',
+        'heldCount',
+        'remainingMs',
+      ]);
+      expect(rows[0].focus).toEqual({
+        active: false,
+        focusUntilMs: 0,
+        remainingMs: 0,
+        heldCount: 0,
+      });
       expect(rows[0].colors).toEqual({ state: 'blocked' });
       expect(rows[1].colors).toEqual({ state: 'working' });
       const nested = skill.slice(skill.indexOf('- Every row'), skill.indexOf('- A row with'));
@@ -1926,12 +1919,12 @@ o = "run touch ${marker}"
     });
   });
 
-  it('lists members with ls; status and a bare tmt sq without a terminal are the same list', async () => {
+  it('bare sq lists members with a board hint; explicit ls/status/board keep list bytes', async () => {
     await withSandbox(async (sandbox) => {
       installSquad(sandbox);
       for (const name of ['Ben', 'auth-fix']) await identity(sandbox, name);
       await squad(sandbox, ['init', 'product', '--me', 'Ben']);
-      const legacyConfig = path.join(sandbox.globalDir, 'squad.toml');
+      const legacyConfig = path.join(sandbox.globalDir, 'ops.toml');
       writeFileSync(
         legacyConfig,
         `${readFileSync(legacyConfig, 'utf8')}\n[squad.product]\nlayout = "crew"\n`
@@ -1942,12 +1935,20 @@ o = "run touch ${marker}"
       expect(ls.status).toBe(0);
       // The board's default columns: member, state, task, PR.
       expect(ls.stdout).toContain('auth-fix  working  rotate session tokens');
-      for (const args of [['sq', 'status'], ['sq'], ['squad'], ['sq', 'board']]) {
+      for (const args of [
+        ['sq', 'status'],
+        ['sq', 'board'],
+      ]) {
         const same = await runCli(sandbox, args);
         expect({ status: same.status, stdout: same.stdout }, args.join(' ')).toEqual({
           status: 0,
           stdout: ls.stdout,
         });
+      }
+      for (const args of [['sq'], ['squad']]) {
+        const bare = await runCli(sandbox, args);
+        expect(bare.status).toBe(0);
+        expect(bare.stdout).toBe(`${ls.stdout}\ntmt sq board opens the board\n`);
       }
       // Both JSON shapes are pinned: --squad gives that squad's document;
       // without it, always {squads, you}, even with one squad.
@@ -1984,7 +1985,7 @@ o = "run touch ${marker}"
       expect(help.stdout).toMatch(/\n {2}ls +List members or a board tab/);
       expect(help.stdout).not.toMatch(/\n {2}status /);
       // Explicit F5 remains valid while the host preset uses ctrl-r.
-      const toml = path.join(sandbox.globalDir, 'squad.toml');
+      const toml = path.join(sandbox.globalDir, 'ops.toml');
       writeFileSync(
         toml,
         `${readFileSync(toml, 'utf8')}\n[bind]\nctrl-r = "refresh"\nf5 = "refresh"\n`
@@ -2000,10 +2001,7 @@ o = "run touch ${marker}"
       installSquad(sandbox);
       await identity(sandbox, 'worker');
       await squad(sandbox, ['init', 'product']);
-      writeFileSync(
-        path.join(sandbox.globalDir, 'squad.toml'),
-        '[squad.product]\nlayout = "crew"\n'
-      );
+      writeFileSync(path.join(sandbox.globalDir, 'ops.toml'), '[squad.product]\nlayout = "crew"\n');
       await squad(sandbox, ['add', 'worker']);
       const task =
         'alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu nu xi omicron';
@@ -2015,7 +2013,7 @@ o = "run touch ${marker}"
         )
       ).toBe(true);
       writeFileSync(
-        path.join(sandbox.globalDir, 'squad.toml'),
+        path.join(sandbox.globalDir, 'ops.toml'),
         [
           '[squad.product]',
           'layout = "crew"',
@@ -2076,7 +2074,7 @@ o = "run touch ${marker}"
         ),
         'utf8'
       );
-      const file = path.join(sandbox.globalDir, 'squad.toml');
+      const file = path.join(sandbox.globalDir, 'ops.toml');
       writeFileSync(file, example);
       const result = await squad(sandbox, ['ls', '--squad', 'checkout']);
       expect(result.status).toBe(0);
@@ -2120,7 +2118,7 @@ o = "run touch ${marker}"
       await squad(sandbox, ['init', 'product', '--me', 'Ben']);
       await squad(sandbox, ['init', 'reviews']);
       writeFileSync(
-        path.join(sandbox.globalDir, 'squad.toml'),
+        path.join(sandbox.globalDir, 'ops.toml'),
         'me = "Ben"\n[squad.reviews]\nlayout = "pr-queue"\n'
       );
       const both = await squad(sandbox, ['ls']);
@@ -2153,7 +2151,7 @@ o = "run touch ${marker}"
         await identity(sandbox, name);
       }
       await squad(sandbox, ['init', 'product', '--me', 'Ben']);
-      const legacyConfig = path.join(sandbox.globalDir, 'squad.toml');
+      const legacyConfig = path.join(sandbox.globalDir, 'ops.toml');
       writeFileSync(
         legacyConfig,
         `${readFileSync(legacyConfig, 'utf8')}\n[squad.product]\nlayout = "crew"\n`
@@ -2162,7 +2160,7 @@ o = "run touch ${marker}"
       await squad(sandbox, ['set', 'exact', 'state=blocked']);
       await squad(sandbox, ['set', 'pattern', 'state=BLOCKED-on-ci']);
       await squad(sandbox, ['set', 'unknown', 'state=unranked']);
-      const squadToml = path.join(sandbox.globalDir, 'squad.toml');
+      const squadToml = path.join(sandbox.globalDir, 'ops.toml');
       const base = readFileSync(squadToml, 'utf8');
       const settings = `
 [squad.product.states]
@@ -2214,7 +2212,7 @@ sort = 9
       expect(JSON.stringify(refused.body)).toContain('squad.product.state_patterns[0].color');
     });
   });
-  it('renders user-defined sections from squad.toml and rejects invalid filters', async () => {
+  it('renders user-defined sections from ops.toml and rejects invalid filters', async () => {
     await withSandbox(async (sandbox) => {
       installSquad(sandbox);
       for (const name of ['Ben', 'Sol', 'auth-fix', 'docs-sweep', 'perf-cache']) {
@@ -2225,7 +2223,7 @@ sort = 9
       await squad(sandbox, ['add', 'auth-fix', 'docs-sweep', 'perf-cache']);
       await squad(sandbox, ['set', 'auth-fix', 'state=blocked', 'pending=approve the plan']);
       await squad(sandbox, ['set', 'docs-sweep', 'state=review']);
-      const squadToml = path.join(sandbox.globalDir, 'squad.toml');
+      const squadToml = path.join(sandbox.globalDir, 'ops.toml');
       const base = readFileSync(squadToml, 'utf8');
       writeFileSync(
         squadToml,
@@ -2303,7 +2301,7 @@ sort = ["-name"]
           (row: { name: string }) => row.name
         );
       expect(await order()).toEqual(['a-work', 'b-review', 'c-parked']);
-      const squadToml = path.join(sandbox.globalDir, 'squad.toml');
+      const squadToml = path.join(sandbox.globalDir, 'ops.toml');
       writeFileSync(
         squadToml,
         `${readFileSync(squadToml, 'utf8')}\n[squad.product.states]\nreview = { sort = 0 }\nparked = { sort = 0, color = "dim" }\n`
@@ -2341,7 +2339,7 @@ sort = ["-name"]
         0o755
       );
       writeExecutable(clipboard, `#!/bin/sh\ncat > '${copied}'\n`, 0o755);
-      const squadToml = path.join(sandbox.globalDir, 'squad.toml');
+      const squadToml = path.join(sandbox.globalDir, 'ops.toml');
       writeFileSync(
         squadToml,
         `${readFileSync(squadToml, 'utf8')}\nopener = ["record-open", "--new-tab"]\nclipboard = ["${clipboard}"]\n`
@@ -2403,7 +2401,7 @@ sort = ["-name"]
       for (const name of ['Ben', 'Sol', 'auth-fix', 'docs'])
         ids[name] = await identity(sandbox, name);
       await squad(sandbox, ['init', 'product', '--me', 'Ben']);
-      const legacyConfig = path.join(sandbox.globalDir, 'squad.toml');
+      const legacyConfig = path.join(sandbox.globalDir, 'ops.toml');
       writeFileSync(
         legacyConfig,
         `${readFileSync(legacyConfig, 'utf8')}\n[squad.product]\nlayout = "crew"\n`
@@ -2480,7 +2478,31 @@ sort = ["-name"]
         recipientId: ids.docs,
         prompt: { message: '[product · docs] add examples' },
       });
-      expect((await roomRequests()).length).toBe(3);
+      const withdraw = async (requestId: string, who: string) => {
+        const result = await runCli(sandbox, [
+          'x',
+          'withdraw',
+          requestId,
+          '--identity',
+          who,
+          '--reason',
+          'obsolete',
+          '--json',
+        ]);
+        expect(result.status, result.stdout).toBe(0);
+        const history = await prompt(requestId);
+        expect(history.final).toMatchObject({
+          status: 'withdrawn',
+          reason: 'obsolete',
+          withdrawnAtMs: expect.any(Number),
+        });
+        expect(history.final).not.toHaveProperty('submittedAtMs');
+        return history;
+      };
+      const obsolete = await annotate('Sol', 'auth-fix', 'obsolete annotation');
+      const withdrawn = await withdraw(obsolete.requestId, 'Ben');
+      expect(withdrawn.prompt.message).toBe('[product · auth-fix] obsolete annotation');
+      expect((await roomRequests()).length).toBe(4);
 
       // The marker is derived from request state on every read.
       const marker = async () => {
@@ -2524,7 +2546,7 @@ sort = ["-name"]
 
       // Waiting on you comes from tmt inbox; the board's r is tmt answer.
       const asks: string[] = [];
-      for (const question of ['approve the plan?', 'which database?']) {
+      for (const question of ['approve the plan?', 'which database?', 'obsolete question']) {
         const asked = await runCli(sandbox, [
           'talk',
           'Ben',
@@ -2537,6 +2559,8 @@ sort = ["-name"]
         ]);
         asks.push(JSON.parse(asked.stdout).requestId);
       }
+      const obsoleteAsk = asks.pop()!;
+      const withdrawnAsk = await withdraw(obsoleteAsk, 'auth-fix');
       const waiting = async () =>
         (
           await squad(sandbox, ['ls', '--squad', 'product'])
@@ -2579,6 +2603,10 @@ sort = ["-name"]
           'auth-fix',
           body,
         ]);
+      const refused = await board(obsoleteAsk, 'cannot answer withdrawal');
+      expect(refused.status, refused.stdout).toBe(5);
+      expect(JSON.parse(refused.stdout).error.code).toBe('REQUEST_WITHDRAWN');
+      expect(await prompt(obsoleteAsk)).toEqual(withdrawnAsk);
       const chosen = await board(asks[0], '-postgres');
       expect(chosen.status, chosen.stdout).toBe(0);
       expect(JSON.parse(chosen.stdout)).toMatchObject({ requestId: asks[0], status: 'submitted' });
@@ -2591,6 +2619,8 @@ sort = ["-name"]
       expect((await incoming('Ben', asks[1])).acknowledged, 'answering never acknowledges').toBe(
         false
       );
+
+      expect(await prompt(obsolete.requestId)).toEqual(withdrawn);
 
       expect(await notebook(), 'no notebook was created or written').toBe('NOTEBOOK_NOT_FOUND');
       const projection = async () =>
@@ -2772,7 +2802,7 @@ sort = ["-name"]
       expect(taken.body.error.message).toContain('bind S choose-tree -s');
       expect(readFileSync(conf, 'utf8')).toBe(original);
 
-      const squadToml = path.join(sandbox.globalDir, 'squad.toml');
+      const squadToml = path.join(sandbox.globalDir, 'ops.toml');
       writeFileSync(
         squadToml,
         `${readFileSync(squadToml, 'utf8')}\n[tmux]\npopup = "C-s"\nback = "b"\n`
@@ -2871,7 +2901,7 @@ describe('Squad cron clock', () => {
           stdin: JSON.stringify({ version: 1, operation: 'storage.root', input: {} }),
         })
       ).dataRoot as string;
-      const directory = path.join(root, 'squad', 'cron');
+      const directory = path.join(root, 'ops', 'cron');
       const absent = await squad(sandbox, ['cron', 'clock']);
       expect(absent).toMatchObject({ status: 0, body: { clock: { state: 'no clock' } } });
       expect(existsSync(directory)).toBe(false);
@@ -3003,10 +3033,10 @@ describe('Squad cron management', () => {
           stdin: JSON.stringify({ version: 1, operation: 'storage.root', input: {} }),
         })
       ).dataRoot as string;
-      const store = path.join(root, 'squad', 'cron', 'jobs.json');
+      const store = path.join(root, 'ops', 'cron', 'jobs.json');
       expect(JSON.parse(readFileSync(store, 'utf8')).jobs[0].message).toBe(message);
       expect(statSync(store).mode & 0o777).toBe(0o600);
-      const config = path.join(sandbox.globalDir, 'squad.toml');
+      const config = path.join(sandbox.globalDir, 'ops.toml');
       const originalConfig = readFileSync(config, 'utf8');
       const denied = await squad(sandbox, [
         'cron',
@@ -3148,6 +3178,972 @@ describe('Squad cron management', () => {
       ]);
       expect(replacement.body.job.id).toBe('c2');
       expect(replacement.body.job.roomId).not.toBe(oldRoom);
+    });
+  }, 60_000);
+});
+
+describe('Squad checklist native commands', () => {
+  const checklistId = '55555555-5555-4555-8555-555555555555';
+  const itemId = '66666666-6666-4666-8666-666666666666';
+  const otherId = '77777777-7777-4777-8777-777777777777';
+
+  async function fixture(sandbox: Sandbox) {
+    installSquad(sandbox);
+    await identity(sandbox, 'Ben');
+    const worker = await identity(sandbox, 'worker');
+    expect((await squad(sandbox, ['init', 'product', '--me', 'Ben'])).status).toBe(0);
+    expect((await squad(sandbox, ['add', 'worker'])).status).toBe(0);
+    const room = parseWholeStdout(
+      await runCli(sandbox, ['room', 'show', 'squad-product', '--json'])
+    ).room as { id: string };
+    const root = parseWholeStdout(
+      await runCli(sandbox, ['api'], {
+        stdin: JSON.stringify({ version: 1, operation: 'storage.root', input: {} }),
+      })
+    ).dataRoot as string;
+    const directory = path.join(root, 'ops', 'checklist', room.id);
+    const selected = ['--room', room.id, '--checklist', checklistId, '--item', itemId];
+    return { worker, roomId: room.id, root, directory, selected };
+  }
+
+  // Observe metadata, dispatch/attention/request/hook state without invoking a product read.
+  function unrelatedState(sandbox: Sandbox) {
+    const db = new Database(sandbox.database, { readonly: true });
+    try {
+      const tables = db
+        .prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
+        .all() as { name: string }[];
+      return {
+        tables: Object.fromEntries(
+          tables
+            .filter(({ name }) => /request|dispatch|notification|hook|identity_metadata/.test(name))
+            .map(({ name }) => [
+              name,
+              db
+                .prepare(`SELECT * FROM "${name}"`)
+                .all()
+                .sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b))),
+            ])
+        ),
+        squadConfig: readFileSync(path.join(sandbox.globalDir, 'ops.toml')),
+        coreConfig: existsSync(sandbox.globalConfig) ? readFileSync(sandbox.globalConfig) : null,
+        localConfig: existsSync(sandbox.localConfig) ? readFileSync(sandbox.localConfig) : null,
+      };
+    } finally {
+      db.close();
+    }
+  }
+
+  it('binds real dispatch, alias, streams, revisions, full inventory, tombstones and inert content', async () => {
+    await withSandbox(async (sandbox) => {
+      const f = await fixture(sandbox);
+      expect((await squad(sandbox, ['set', 'worker', 'state=busy', 'pending=review'])).status).toBe(
+        0
+      );
+      const before = unrelatedState(sandbox);
+      const cli = (words: string[]) => squad(sandbox, ['checklist', ...words]);
+      const list = (filters: string[] = []) => cli(['ls', '--room', f.roomId, ...filters]);
+      const mutation = (action: string, revision: number, options: string[] = []) =>
+        cli([action, ...f.selected, '--expect-revision', String(revision), ...options]);
+      const absent = await list();
+      expect(absent).toMatchObject({
+        status: 0,
+        stderr: '',
+        body: {
+          action: 'list',
+          totalCount: 0,
+          matchedCount: 0,
+          current: { checklistId: null, inventoryRevision: null, items: [], deletion: null },
+        },
+      });
+      expect(existsSync(f.directory)).toBe(false);
+      const body = `literal body\n\t$(touch ${path.join(sandbox.root, 'executed')}) !`;
+      const created = await cli([
+        'create',
+        'Manually authored',
+        ...f.selected,
+        '--expect-inventory',
+        'absent',
+        '--body',
+        body,
+        '--reference',
+        'https://example.invalid/inert',
+      ]);
+      expect(created).toMatchObject({
+        status: 0,
+        stderr: '',
+        body: {
+          action: 'create',
+          itemId,
+          itemRevision: 1,
+          changed: true,
+          current: {
+            inventoryRevision: 1,
+            items: [
+              {
+                id: itemId,
+                revision: 1,
+                title: 'Manually authored',
+                body,
+                reference: 'https://example.invalid/inert',
+                assignee: null,
+                completion: 'open',
+                archived: false,
+              },
+            ],
+          },
+        },
+      });
+      const file = path.join(f.directory, 'items.json');
+      const stored = () => JSON.parse(readFileSync(file, 'utf8'));
+      expect(stored().items[0]).toMatchObject({
+        id: itemId,
+        revision: 1,
+        title: 'Manually authored',
+        body,
+        reference: 'https://example.invalid/inert',
+        assignee: null,
+        completion: 'open',
+        archived: false,
+      });
+      expect(statSync(file).mode & 0o777).toBe(0o600);
+      expect(existsSync(path.join(sandbox.root, 'executed'))).toBe(false);
+      const alias = await runCli(sandbox, [
+        'sq',
+        'checklist',
+        'list',
+        '--room',
+        f.roomId,
+        '--json',
+      ]);
+      expect(alias.status).toBe(0);
+      expect(alias.stderr).toBe('');
+      expect(parseWholeStdout(alias)).toEqual((await list()).body);
+      // Seven actual content revisions provide the frozen revision7 -> revision8 example.
+      for (let revision = 1; revision < 7; revision += 1) {
+        expect(
+          (await mutation('edit', revision, ['--title', `Draft ${revision}`])).body.itemRevision
+        ).toBe(revision + 1);
+      }
+      const complete = await mutation('complete', 7);
+      expect(complete).toMatchObject({
+        status: 0,
+        body: { itemRevision: 8, current: { inventoryRevision: 1 } },
+      });
+      const bytes = readFileSync(file);
+      const conflict = await mutation('edit', 7, ['--title', 'Retained draft']);
+      expect(conflict).toMatchObject({
+        status: 1,
+        stderr: '',
+        body: {
+          error: {
+            code: 'CHECKLIST_CONFLICT',
+            current: {
+              items: [{ id: itemId, revision: 8, title: 'Draft 6', completion: 'complete' }],
+            },
+          },
+        },
+      });
+      expect(readFileSync(file)).toEqual(bytes);
+      const human = await runCli(sandbox, [
+        'squad',
+        'checklist',
+        'complete',
+        ...f.selected,
+        '--expect-revision',
+        '7',
+      ]);
+      expect(human.status).toBe(1);
+      expect(human.stdout).toBe('');
+      expect(human.stderr).toContain('error:');
+      expect(human.stderr).toContain(`${itemId} revision 8`);
+      expect((await mutation('complete', 8)).body).toMatchObject({
+        changed: false,
+        itemRevision: 8,
+      });
+      expect(readFileSync(file)).toEqual(bytes);
+      const second = await cli([
+        'create',
+        'Independent item',
+        '--room',
+        f.roomId,
+        '--checklist',
+        checklistId,
+        '--item',
+        otherId,
+        '--expect-inventory',
+        '1',
+      ]);
+      expect(second.body).toMatchObject({ itemRevision: 1, current: { inventoryRevision: 2 } });
+      expect((await mutation('archive', 8)).body.itemRevision).toBe(9);
+      const filtered = await list(['--completion', 'complete']);
+      expect(filtered.body).toMatchObject({ totalCount: 2, matchedCount: 0 });
+      const reorder = (inventory: number, order: string[]) =>
+        cli([
+          'reorder',
+          '--room',
+          f.roomId,
+          '--checklist',
+          checklistId,
+          '--expect-inventory',
+          String(inventory),
+          '--order',
+          JSON.stringify(order),
+        ]);
+      expect((await reorder(1, [otherId, itemId])).body.error.code).toBe('CHECKLIST_CONFLICT');
+      expect((await reorder(2, [otherId])).body.error.code).toBe('CHECKLIST_INPUT_INVALID');
+      expect((await reorder(2, [otherId, itemId])).body.current).toMatchObject({
+        inventoryRevision: 3,
+        items: [
+          { id: otherId, revision: 1 },
+          { id: itemId, revision: 9, archived: true },
+        ],
+      });
+      expect((await mutation('restore', 9)).body.current.items[1]).toMatchObject({
+        id: itemId,
+        revision: 10,
+        completion: 'complete',
+        archived: false,
+      });
+      expect((await mutation('assign', 10, ['--assignee', f.worker])).body.itemRevision).toBe(11);
+      expect(
+        (await runCli(sandbox, ['room', 'leave', f.roomId, '--identity', f.worker, '--json']))
+          .status
+      ).toBe(0);
+      expect((await list()).body.current.items[1].assignee).toEqual({
+        id: f.worker,
+        label: 'worker',
+        available: false,
+      });
+      expect((await mutation('unassign', 11)).body.itemRevision).toBe(12);
+      const deletion = await mutation('delete', 12, [
+        '--expect-inventory',
+        '3',
+        '--confirm-item',
+        itemId,
+        '--confirm-revision',
+        '12',
+      ]);
+      expect(deletion).toMatchObject({
+        status: 0,
+        body: {
+          itemRevision: 13,
+          current: { inventoryRevision: 4, deletion: { itemId, deletionRevision: 13 } },
+        },
+      });
+      expect(stored().deleted).toEqual([
+        { roomId: f.roomId, checklistId, itemId, deletionRevision: 13 },
+      ]);
+      expect(stored().items).toHaveLength(1);
+      expect(readFileSync(file, 'utf8')).not.toContain('Draft 6');
+      expect(readFileSync(file, 'utf8')).not.toContain(body);
+      const deleted = await cli(['show', ...f.selected]);
+      expect(deleted).toMatchObject({
+        status: 1,
+        stderr: '',
+        body: {
+          error: {
+            code: 'CHECKLIST_DELETED',
+            current: { deletion: { itemId, deletionRevision: 13 } },
+          },
+        },
+      });
+      expect(
+        (await cli(['create', 'Reuse denied', ...f.selected, '--expect-inventory', '4'])).body.error
+          .code
+      ).toBe('CHECKLIST_DELETED');
+      const empty = await cli([
+        'delete',
+        '--room',
+        f.roomId,
+        '--checklist',
+        checklistId,
+        '--item',
+        otherId,
+        '--expect-revision',
+        '1',
+        '--expect-inventory',
+        '4',
+        '--confirm-item',
+        otherId,
+        '--confirm-revision',
+        '1',
+      ]);
+      expect(empty.status).toBe(0);
+      expect((await list()).body).toMatchObject({
+        totalCount: 0,
+        matchedCount: 0,
+        current: { checklistId, inventoryRevision: 5, items: [] },
+      });
+      // Room departure was intentional; all checklist operations themselves remain inert.
+      const after = unrelatedState(sandbox);
+      expect(after).toEqual(before);
+      expect(existsSync(path.join(f.directory, 'items.tmp'))).toBe(false);
+    });
+  }, 60_000);
+
+  it('rejects operation inputs with exit1 and grammar inputs with exit2 without changing bytes', async () => {
+    await withSandbox(async (sandbox) => {
+      const f = await fixture(sandbox);
+      const cli = (words: string[]) => squad(sandbox, ['checklist', ...words]);
+      expect(
+        (await cli(['create', 'Title', ...f.selected, '--expect-inventory', 'absent'])).status
+      ).toBe(0);
+      const file = path.join(f.directory, 'items.json');
+      const bytes = readFileSync(file);
+      const before = unrelatedState(sandbox);
+      const selected = [...f.selected, '--expect-revision', '1'];
+      const invalid = [
+        ['ls', '--room', 'product'],
+        ['show', '--room', f.roomId, '--checklist', 'named', '--item', itemId],
+        ['complete', ...f.selected, '--expect-revision', '0'],
+        ['complete', ...f.selected, '--expect-revision', '-1'],
+        ['complete', ...f.selected, '--expect-revision', '18446744073709551616'],
+        ['edit', ...selected, '--title', ' '],
+        ['edit', ...selected, '--body', '\u001b'],
+        ['edit', ...selected, '--reference', 'file:///tmp/secret'],
+        ['edit', ...selected, '--reference', ''],
+        ['assign', ...selected, '--assignee', 'worker'],
+        [
+          'delete',
+          ...selected,
+          '--expect-inventory',
+          '1',
+          '--confirm-item',
+          otherId,
+          '--confirm-revision',
+          '1',
+        ],
+        [
+          'delete',
+          ...selected,
+          '--expect-inventory',
+          '1',
+          '--confirm-item',
+          itemId,
+          '--confirm-revision',
+          '2',
+        ],
+        [
+          'reorder',
+          '--room',
+          f.roomId,
+          '--checklist',
+          checklistId,
+          '--expect-inventory',
+          '1',
+          '--order',
+          '[1]',
+        ],
+        [
+          'reorder',
+          '--room',
+          f.roomId,
+          '--checklist',
+          checklistId,
+          '--expect-inventory',
+          '1',
+          '--order',
+          JSON.stringify([itemId, itemId]),
+        ],
+      ];
+      for (const words of invalid) {
+        const result = await cli(words);
+        expect(result, JSON.stringify(words)).toMatchObject({
+          status: 1,
+          stderr: '',
+          body: { error: { code: 'CHECKLIST_INPUT_INVALID' } },
+        });
+        expect(readFileSync(file)).toEqual(bytes);
+      }
+      const usage = [
+        [],
+        ['unknown'],
+        ['ls'],
+        ['ls', '--room', f.roomId, '--completion', 'closed'],
+        ['ls', '--room', f.roomId, '--identity', f.worker],
+        ['edit', ...selected],
+        ['edit', ...selected, '--body', 'x', '--clear-body'],
+        ['edit', ...selected, '--reference', 'https://example.org', '--clear-reference'],
+        ['delete', ...selected, '--expect-inventory', '1', '--yes'],
+      ];
+      for (const words of usage) {
+        expect(await cli(words), JSON.stringify(words)).toMatchObject({
+          status: 2,
+          stderr: '',
+          body: { error: { code: 'USAGE_ERROR' } },
+        });
+        expect(readFileSync(file)).toEqual(bytes);
+      }
+      expect(
+        (await cli(['show', '--room', f.roomId, '--checklist', checklistId, '--item', otherId]))
+          .body.error.code
+      ).toBe('CHECKLIST_NOT_FOUND');
+      expect(unrelatedState(sandbox)).toEqual(before);
+      expect(existsSync(path.join(f.directory, 'items.tmp'))).toBe(false);
+      const help = await runCli(sandbox, ['sq', 'checklist', '--help']);
+      expect(help.status).toBe(0);
+      expect(help.stderr).toBe('');
+      expect(help.stdout).toMatch(/^  ls\s/m);
+      expect(help.stdout).not.toMatch(/^  list\s/m);
+      expect(help.stdout).not.toContain('--identity');
+      const offline = {
+        ...sandbox,
+        cli: { executable: squadExecutable, args: [] },
+        env: { ...sandbox.env, TMT_EXECUTABLE: 'relative-invalid-core' },
+      };
+      for (const words of [
+        ['checklist', '--help'],
+        ['help', 'checklist', 'delete'],
+        ['checklist', 'create', '--help'],
+      ]) {
+        const shown = await runCli(offline, words);
+        expect(shown.status).toBe(0);
+        expect(shown.stderr).toBe('');
+        expect(shown.stdout).toContain('Usage: tmt squad checklist');
+      }
+      const completion = await runCli(offline, ['__complete', '--', 'checklist', '']);
+      expect(completion.status).toBe(0);
+      expect(completion.stderr).toBe('');
+      expect(completion.stdout.split('\n')).toContain('ls');
+      expect(completion.stdout.split('\n')).not.toContain('list');
+      const invalidBeforeDiscovery = await runCli(offline, [
+        'checklist',
+        'ls',
+        '--room',
+        'name',
+        '--json',
+      ]);
+      expect(invalidBeforeDiscovery.status).toBe(1);
+      expect(parseWholeStdout(invalidBeforeDiscovery)).toMatchObject({
+        error: { code: 'CHECKLIST_INPUT_INVALID' },
+      });
+    });
+  }, 60_000);
+
+  it('keeps two squads, renamed rooms, readonly orphans and corrupt reads distinct', async () => {
+    await withSandbox(async (sandbox) => {
+      const f = await fixture(sandbox);
+      const cli = (words: string[]) => squad(sandbox, ['checklist', ...words]);
+      expect(
+        (await cli(['create', 'Retained', ...f.selected, '--expect-inventory', 'absent'])).status
+      ).toBe(0);
+      expect((await squad(sandbox, ['init', 'other'])).status).toBe(0);
+      const otherRoom = (
+        parseWholeStdout(await runCli(sandbox, ['room', 'show', 'squad-other', '--json'])).room as {
+          id: string;
+        }
+      ).id;
+      expect((await cli(['ls', '--room', otherRoom])).body.current).toMatchObject({
+        checklistId: null,
+        items: [],
+      });
+      expect(existsSync(path.join(f.root, 'ops', 'checklist', otherRoom))).toBe(false);
+      const file = path.join(f.directory, 'items.json');
+      const original = readFileSync(file);
+      const corrupt = Buffer.from('{"version":999}\n');
+      writeFileSync(file, corrupt);
+      const failed = await cli(['ls', '--room', f.roomId]);
+      expect(failed).toMatchObject({
+        status: 1,
+        stderr: '',
+        body: { error: { code: 'CHECKLIST_STORAGE_ERROR' } },
+      });
+      expect(failed.body.error).not.toHaveProperty('current');
+      expect(readFileSync(file)).toEqual(corrupt);
+      writeFileSync(file, original);
+      const lock = path.join(f.directory, 'items.lock');
+      const lockBytes = readFileSync(lock);
+      unlinkSync(lock);
+      expect((await cli(['ls', '--room', f.roomId])).body.error.code).toBe(
+        'CHECKLIST_STORAGE_ERROR'
+      );
+      expect(existsSync(lock)).toBe(false);
+      expect(readFileSync(file)).toEqual(original);
+      writeFileSync(lock, lockBytes, { mode: 0o600 });
+      const beforeRename = parseWholeStdout(
+        await runCli(sandbox, ['api'], {
+          stdin: JSON.stringify({
+            version: 1,
+            operation: 'rooms.roster',
+            input: { room: f.roomId },
+          }),
+        })
+      );
+      const renamed = await runCli(sandbox, ['api'], {
+        stdin: JSON.stringify({
+          version: 1,
+          operation: 'rooms.write',
+          identity: 'Ben',
+          input: {
+            roomId: f.roomId,
+            room: {
+              expectedRevision: (beforeRename.room as { revision: number }).revision,
+              name: 'squad-renamed',
+              memberIds: [f.worker],
+            },
+          },
+        }),
+      });
+      expect(renamed.status, renamed.stdout).toBe(0);
+      expect((await cli(['ls', '--room', f.roomId])).body.current.room).toMatchObject({
+        id: f.roomId,
+        name: 'renamed',
+        available: true,
+      });
+      expect(readFileSync(file)).toEqual(original);
+      expect((await runCli(sandbox, ['room', 'rm', f.roomId, '--json'])).status).toBe(0);
+      const orphan = await cli(['ls', '--room', f.roomId]);
+      expect(orphan).toMatchObject({
+        status: 0,
+        body: {
+          current: {
+            room: { id: f.roomId, name: null, available: false },
+            checklistId,
+            items: [{ id: itemId, title: 'Retained' }],
+          },
+        },
+      });
+      expect(
+        (await cli(['complete', ...f.selected, '--expect-revision', '1'])).body.error.code
+      ).toBe('CHECKLIST_ROOM_UNAVAILABLE');
+      expect((await squad(sandbox, ['init', 'renamed'])).status).toBe(0);
+      const successor = (
+        parseWholeStdout(await runCli(sandbox, ['room', 'show', 'squad-renamed', '--json']))
+          .room as { id: string }
+      ).id;
+      expect(successor).not.toBe(f.roomId);
+      expect((await cli(['ls', '--room', successor])).body.current.checklistId).toBeNull();
+      expect(readFileSync(file)).toEqual(original);
+    });
+  }, 60_000);
+});
+
+describe('Squad focus policies', () => {
+  it('admits owner and lead, refuses other callers, preserves CAS and projects shared row policies', async () => {
+    await withSandbox(async (sandbox) => {
+      installSquad(sandbox);
+      const owner = await identity(sandbox, 'Owner');
+      const lead = await identity(sandbox, 'Lead');
+      const worker = await identity(sandbox, 'worker');
+      expect((await squad(sandbox, ['init', 'product', '--me', 'Owner'])).status).toBe(0);
+      expect((await squad(sandbox, ['lead', 'Lead'])).status).toBe(0);
+      expect(
+        (await runCli(sandbox, ['room', 'join', 'squad-product', '--identity', 'worker', '--json']))
+          .status
+      ).toBe(0);
+      const shim = path.join(sandbox.root, 'focus-core');
+      const callerFile = path.join(sandbox.root, 'focus-caller.json');
+      const callsFile = path.join(sandbox.root, 'focus-calls.jsonl');
+      const modeFile = path.join(sandbox.root, 'focus-mode');
+      // Only caller evidence and injected Core refusals are synthetic. All ordinary
+      // API operations reach the sandbox native CLI and its real policy transaction.
+      await writeExecutable(
+        shim,
+        `#!/usr/bin/env python3
+import json,sys,subprocess,pathlib
+root=pathlib.Path(__file__).parent
+args=sys.argv[1:]
+if args[0]=='whoami':
+ value=json.loads((root/'focus-caller.json').read_text())
+ print(json.dumps(value)); sys.exit(1 if 'error' in value else 0)
+body=sys.stdin.buffer.read() if args[0]=='api' else None
+if body:
+ q=json.loads(body)
+ if q['operation'].startswith('focus.policy.'):
+  with open(root/'focus-calls.jsonl','a') as f: f.write(json.dumps(q)+chr(10))
+  mode=(root/'focus-mode').read_text()
+  if mode=='old' or (mode=='conflict' and q['operation']!='focus.policy.show'):
+   code='API_INPUT_INVALID' if mode=='old' else 'FOCUS_REVISION_CONFLICT'
+   print(json.dumps({'error':{'code':code,'message':'injected refusal'}})); sys.exit(1)
+result=subprocess.run([${JSON.stringify(sandbox.cli.executable)}]+args,input=body)
+sys.exit(result.returncode)
+`,
+        0o700
+      );
+      const asCaller = (id: string | null, name = 'caller') =>
+        writeFileSync(
+          callerFile,
+          JSON.stringify(id ? { bound: true, id, name, lifetime: 'saved' } : { bound: false })
+        );
+      const focus = async (args: string[]) => {
+        const result = await runCli(
+          {
+            ...sandbox,
+            cli: { executable: squadExecutable, args: [] },
+            env: { ...sandbox.env, TMT_EXECUTABLE: shim },
+          },
+          args.concat('--json')
+        );
+        return { status: result.status, stderr: result.stderr, body: JSON.parse(result.stdout) };
+      };
+      const calls = () =>
+        existsSync(callsFile)
+          ? readFileSync(callsFile, 'utf8')
+              .trim()
+              .split('\n')
+              .filter(Boolean)
+              .map((line) => JSON.parse(line))
+          : [];
+      writeFileSync(modeFile, 'normal');
+      const forwarded = await runCli({ ...sandbox, cli: { executable: shim, args: [] } }, [
+        'config',
+        'show',
+        '--json',
+      ]);
+      expect(forwarded.status, forwarded.stderr).toBe(0);
+      expect(JSON.parse(forwarded.stdout)).toHaveProperty('resolved');
+      asCaller(owner, 'Owner');
+      const set = await focus(['focus', 'worker', '1h30m', '--squad', 'product']);
+      expect(set).toMatchObject({
+        status: 0,
+        stderr: '',
+        body: {
+          identityId: worker,
+          revision: 1,
+          active: true,
+          ownerIdentityId: owner,
+          setterIdentityId: owner,
+          heldCount: 0,
+        },
+      });
+      expect(set.body.remainingMs).toBeGreaterThan(5_390_000);
+      const db = new Database(sandbox.database, { readonly: true });
+      try {
+        expect(
+          db
+            .prepare(
+              'SELECT revision, owner_identity_id, setter_identity_id FROM focus_policies WHERE identity_id=?'
+            )
+            .get(worker)
+        ).toEqual({ revision: 1, owner_identity_id: owner, setter_identity_id: owner });
+      } finally {
+        db.close();
+      }
+      expect((await focus(['focus', 'worker'])).body).toMatchObject({
+        revision: 1,
+        active: true,
+        heldCount: 0,
+      });
+      asCaller(lead, 'Lead');
+      const replaced = await focus(['focus', 'worker', '30m']);
+      expect(replaced.body).toMatchObject({
+        revision: 2,
+        ownerIdentityId: owner,
+        setterIdentityId: lead,
+      });
+      const request = calls().at(-1);
+      expect(request).toEqual({
+        version: 1,
+        operation: 'focus.policy.set',
+        input: {
+          identityId: worker,
+          ownerIdentityId: owner,
+          setterIdentityId: lead,
+          expectedRevision: 1,
+          untilMs: replaced.body.focusUntilMs,
+        },
+      });
+      asCaller(worker, 'worker');
+      const before = calls().length;
+      expect((await focus(['focus', 'worker', '30m'])).body.error.code).toBe(
+        'SQUAD_FOCUS_PERMISSION_DENIED'
+      );
+      expect(calls().length).toBe(before);
+      writeFileSync(
+        callerFile,
+        JSON.stringify({ error: { code: 'CALLER_IDENTITY_AMBIGUOUS', message: 'ambiguous' } })
+      );
+      expect((await focus(['focus', 'worker', 'off'])).body.error.code).toBe(
+        'SQUAD_FOCUS_PERMISSION_DENIED'
+      );
+      const retired = await identity(sandbox, 'Retired');
+      expect((await runCli(sandbox, ['rm', 'Retired', '--force', '--json'])).status).toBe(0);
+      asCaller(retired, 'Retired');
+      expect((await focus(['focus', 'worker', '30m'])).body.error.code).toBe(
+        'SQUAD_FOCUS_PERMISSION_DENIED'
+      );
+      asCaller(owner, 'Owner');
+      writeFileSync(modeFile, 'conflict');
+      const conflict = await focus(['focus', 'worker', 'off']);
+      expect(conflict.body.error.code).toBe('FOCUS_REVISION_CONFLICT');
+      expect(conflict.body.error.message).toContain('Reload and retry');
+      expect(
+        calls()
+          .slice(-2)
+          .map((call) => call.operation)
+      ).toEqual(['focus.policy.show', 'focus.policy.clear']);
+      writeFileSync(modeFile, 'normal');
+      const held = await runCli(sandbox, [
+        'talk',
+        'worker',
+        'Review after focus',
+        '--identity',
+        'Lead',
+        '--detach',
+        '--json',
+      ]);
+      expect(held.status).toBe(0);
+      expect(JSON.parse(held.stdout)).toMatchObject({ focus: true, notification: 'held' });
+      const inventory = await runCli(sandbox, ['api'], {
+        stdin: JSON.stringify({
+          version: 1,
+          operation: 'focus.checklist.read',
+          input: { identityId: worker },
+        }),
+      });
+      expect(inventory.status).toBe(0);
+      expect(JSON.parse(inventory.stdout).total).toBe(1);
+      // A second room and repeated source sections still share one read.
+      expect((await squad(sandbox, ['init', 'other'])).status).toBe(0);
+      expect(
+        (await runCli(sandbox, ['room', 'join', 'squad-other', '--identity', 'worker', '--json']))
+          .status
+      ).toBe(0);
+      const readStart = calls().length;
+      const listed = await focus(['ls']);
+      expect(listed).toMatchObject({ status: 0, stderr: '' });
+      expect(calls().slice(readStart)).toHaveLength(1);
+      expect(new Set(calls().at(-1).input.identities).size).toBe(
+        calls().at(-1).input.identities.length
+      );
+      const active = listed.body.squads
+        .flatMap((doc: { sections: { rows: { id: string; focus?: unknown }[] }[] }) =>
+          doc.sections.flatMap((section) => section.rows)
+        )
+        .filter((row: { id: string }) => row.id === worker);
+      expect(active).toHaveLength(2);
+      expect(active[0].focus).toEqual(active[1].focus);
+      expect(active[0].focus).toMatchObject({
+        active: true,
+        focusUntilMs: replaced.body.focusUntilMs,
+        heldCount: 1,
+      });
+      const cleared = await focus(['focus', 'worker', 'off', '--squad', 'product']);
+      expect(cleared.body).toMatchObject({
+        revision: 3,
+        active: false,
+        focusUntilMs: 0,
+        remainingMs: 0,
+      });
+      const human = await runCli(
+        {
+          ...sandbox,
+          cli: { executable: squadExecutable, args: [] },
+          env: { ...sandbox.env, TMT_EXECUTABLE: shim },
+        },
+        ['focus', worker, '--squad', 'product']
+      );
+      expect(human.status, human.stderr).toBe(0);
+      expect(human.stdout).toContain('worker: focus off');
+      expect(human.stdout).not.toContain(worker);
+      const lastSet = await focus(['focus', 'worker', '1s', '--squad', 'product']);
+      expect(lastSet.body.revision).toBe(4);
+      // Seed an already expired persisted window to prove native observation,
+      // without a wall-clock sleep. Renderer expiry uses an injected clock below.
+      const writable = new Database(sandbox.database);
+      try {
+        writable.prepare('UPDATE focus_policies SET until_ms=1 WHERE identity_id=?').run(worker);
+      } finally {
+        writable.close();
+      }
+      expect((await focus(['focus', 'worker', '--squad', 'product'])).body).toMatchObject({
+        revision: 4,
+        active: false,
+        remainingMs: 0,
+      });
+      writeFileSync(modeFile, 'old');
+      expect((await focus(['focus', 'worker', '30m', '--squad', 'product'])).body.error.code).toBe(
+        'API_INPUT_INVALID'
+      );
+      const degraded = await focus(['ls', '--squad', 'product']);
+      expect(degraded).toMatchObject({ status: 0, stderr: '' });
+      expect(degraded.body.sections[0].rows[0].focus).toBeUndefined();
+      for (const duration of ['0s', '-1m', '24h1s']) {
+        expect(
+          (await focus(['focus', 'worker', duration, '--squad', 'product'])).body.error.code
+        ).toBe('SQUAD_FOCUS_DURATION_INVALID');
+      }
+      const help = await runCli(sandbox, ['sq', 'focus', '--help']);
+      expect(help.status).toBe(0);
+      expect(help.stdout).toContain('24h');
+      expect(help.stdout).toContain('Showing, setting and clearing');
+      expect(help.stdout).not.toContain('--every');
+    });
+  });
+});
+
+describe('Ops path migration with unchanged Squad commands', () => {
+  it('leaves legacy files untouched for help, completion and embedded skill reads', async () => {
+    await withSandbox(async (sandbox) => {
+      installSquad(sandbox);
+      mkdirSync(sandbox.globalDir, { recursive: true });
+      const old = path.join(sandbox.globalDir, 'squad.toml');
+      const bytes = '# not read by offline commands\ninvalid [';
+      writeFileSync(old, bytes);
+      for (const args of [
+        ['squad', '--help'],
+        ['squad', 'cron', '--help'],
+        ['squad', 'skill', 'show'],
+      ]) {
+        const result = await runCli(sandbox, args);
+        expect(result.status, result.stderr).toBe(0);
+      }
+      const direct = { ...sandbox, cli: { executable: squadExecutable, args: [] } };
+      expect((await runCli(direct, ['__complete', '--', 'cron', ''])).status).toBe(0);
+      expect(readFileSync(old, 'utf8')).toBe(bytes);
+      expect(existsSync(path.join(sandbox.globalDir, 'ops.toml'))).toBe(false);
+      expect(existsSync(path.join(sandbox.globalDir, '.ops-paths.lock'))).toBe(false);
+    });
+  });
+
+  it('keeps legacy jobs/config visible while the old clock is live, then preserves cron and checklist bytes and fires the migrated job', async () => {
+    await withSandbox(async (sandbox) => {
+      installSquad(sandbox);
+      await identity(sandbox, 'Ben');
+      const owner = await identity(sandbox, 'worker');
+      expect((await squad(sandbox, ['init', 'product', '--me', 'Ben'])).status).toBe(0);
+      expect((await squad(sandbox, ['add', 'worker'])).status).toBe(0);
+      const added = await squad(sandbox, [
+        'cron',
+        'add',
+        'product',
+        'worker',
+        '--every',
+        '1m',
+        'legacy tmt sq / tmt-squad job',
+      ]);
+      expect(added.status).toBe(0);
+      const room = added.body.job.roomId as string;
+      const checklist = '55555555-5555-4555-8555-555555555555';
+      const item = '66666666-6666-4666-8666-666666666666';
+      expect(
+        (
+          await squad(sandbox, [
+            'checklist',
+            'create',
+            'Retained checklist',
+            '--room',
+            room,
+            '--checklist',
+            checklist,
+            '--item',
+            item,
+            '--expect-inventory',
+            'absent',
+          ])
+        ).status
+      ).toBe(0);
+      const root = parseWholeStdout(
+        await runCli(sandbox, ['api'], {
+          stdin: JSON.stringify({ version: 1, operation: 'storage.root', input: {} }),
+        })
+      ).dataRoot as string;
+      const config = path.join(sandbox.globalDir, 'ops.toml');
+      const configBytes = Buffer.concat([
+        Buffer.from('# user comments survive exactly\n'),
+        readFileSync(config),
+      ]);
+      writeFileSync(config, configBytes);
+      const ops = path.join(root, 'ops');
+      const jobs = path.join(ops, 'cron', 'jobs.json');
+      // This fixture retains the shipped v1 schema and independently chooses a
+      // due anchor; no expected migration output is generated by migration.
+      const stored = JSON.parse(readFileSync(jobs, 'utf8'));
+      stored.jobs[0].schedule.anchorMs = Date.now() - 10_000;
+      writeFileSync(jobs, JSON.stringify(stored));
+      const jobBytes = readFileSync(jobs);
+      const checklistBytes = readFileSync(path.join(ops, 'checklist', room, 'items.json'));
+      renameSync(config, path.join(sandbox.globalDir, 'squad.toml'));
+      renameSync(ops, path.join(root, 'squad'));
+      unlinkSync(path.join(sandbox.globalDir, '.ops-paths-v1'));
+      unlinkSync(path.join(sandbox.globalDir, '.ops-paths-cutover-v1'));
+      const backup = path.join(sandbox.globalDir, 'squad.toml.bak-user');
+      writeFileSync(backup, 'user backup');
+      const lease = path.join(root, 'squad', 'cron', 'clock.json');
+      writeFileSync(path.join(root, 'squad', 'cron', 'clock.lock'), '');
+      writeFileSync(
+        lease,
+        JSON.stringify({
+          version: 1,
+          pid: 123,
+          pane: '%41',
+          sinceMs: Date.now() - 1000,
+          expiresMs: Date.now() + 120_000,
+        })
+      );
+      const pending = await squad(sandbox, ['cron', 'ls', '--squad', 'product']);
+      expect(pending.status).toBe(0);
+      expect(pending.body.jobs).toHaveLength(1);
+      expect(pending.body.jobs[0]).toMatchObject({
+        id: 'c1',
+        ownerId: owner,
+        message: stored.jobs[0].message,
+      });
+      expect(pending.stderr.match(/Ops migration deferred/g)).toHaveLength(1);
+      expect(pending.stderr).toContain('PID 123 in pane %41');
+      expect(pending.stderr).toContain('kill -TERM 123');
+      const board = await squad(sandbox, ['board', '--squad', 'product']);
+      expect(board.status).toBe(0);
+      expect(
+        board.body.sections
+          .flatMap((section: { rows: { name: string }[] }) => section.rows)
+          .map((row: { name: string }) => row.name)
+      ).toContain('worker');
+      expect(board.stderr.match(/Ops migration deferred/g)).toHaveLength(1);
+      const competitor = await squad(sandbox, ['cron', 'tick']);
+      expect(competitor.status).toBe(1);
+      expect(competitor.body.error.code).toBe('SQUAD_CRON_CLOCK_RUNNING');
+      expect(existsSync(config)).toBe(false);
+      expect(existsSync(ops)).toBe(false);
+      expect(readFileSync(path.join(sandbox.globalDir, 'squad.toml'))).toEqual(configBytes);
+      unlinkSync(lease);
+      const migrated = await squad(sandbox, ['cron', 'ls', '--squad', 'product']);
+      expect(migrated.status).toBe(0);
+      expect(migrated.body.jobs[0]).toMatchObject({
+        id: 'c1',
+        revision: 1,
+        ownerId: owner,
+        schedule: stored.jobs[0].schedule,
+      });
+      expect(readFileSync(config)).toEqual(configBytes);
+      expect(readFileSync(path.join(ops, 'cron', 'jobs.json'))).toEqual(jobBytes);
+      expect(readFileSync(path.join(ops, 'checklist', room, 'items.json'))).toEqual(checklistBytes);
+      expect(readFileSync(backup, 'utf8')).toBe('user backup');
+      expect(existsSync(path.join(root, 'squad'))).toBe(false);
+      expect(existsSync(path.join(sandbox.globalDir, 'squad.toml'))).toBe(false);
+      const archives = readdirSync(root).filter((name) => name.startsWith('squad.migrated-'));
+      expect(archives).toHaveLength(1);
+      expect(readFileSync(path.join(root, archives[0]!, 'cron', 'jobs.json'))).toEqual(jobBytes);
+      const retained = await squad(sandbox, ['checklist', 'ls', '--room', room]);
+      expect(retained.status).toBe(0);
+      expect(retained.body.current.items).toMatchObject([
+        { id: item, title: 'Retained checklist', revision: 1 },
+      ]);
+      const tick = await squad(sandbox, ['cron', 'tick']);
+      expect(tick).toMatchObject({ status: 0, body: { accepted: 1, complete: true } });
+      const db = new Database(sandbox.database, { readonly: true });
+      try {
+        expect(
+          db
+            .prepare(
+              "SELECT recipient_identity_id AS recipient, message_text AS message FROM request_attempts WHERE request_kind='request'"
+            )
+            .all()
+        ).toEqual([{ recipient: owner, message: stored.jobs[0].message }]);
+      } finally {
+        db.close();
+      }
+      // After completion even invalid newly created legacy input is ignored.
+      writeFileSync(path.join(sandbox.globalDir, 'squad.toml'), 'invalid legacy [');
+      const reappeared = await squad(sandbox, ['cron', 'ls']);
+      expect(reappeared.status).toBe(0);
+      expect(reappeared.stderr).toContain('has reappeared');
+      expect(reappeared.stderr).toContain('Its settings are not used');
+      expect(reappeared.stderr).toContain('ops.toml');
+      expect(readFileSync(path.join(sandbox.globalDir, 'squad.toml'), 'utf8')).toBe(
+        'invalid legacy ['
+      );
     });
   }, 60_000);
 });

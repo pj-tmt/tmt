@@ -1,0 +1,77 @@
+.tmt-ui-icon-action {
+  display: inline-flex;
+}
+.tmt-ui-icon-action-control {
+  position: relative;
+  width: var(--tmt-ui-host-icon-action-size);
+  height: var(--tmt-ui-host-icon-action-size);
+  min-height: var(--tmt-ui-host-icon-action-size);
+  padding: 0;
+  gap: 0;
+  flex-shrink: 0;
+}
+.tmt-ui-icon-action-control[data-variant='text'] {
+  border: var(--tmt-ui-action-border-width) solid transparent;
+  text-decoration: none;
+}
+.tmt-ui-icon-action-control[data-variant='destructive'] {
+  color: var(--tmt-ui-color-blocked);
+}
+.tmt-ui-icon-action-control[aria-pressed='true']:not(:disabled) {
+  color: var(--tmt-ui-color-selected-text);
+  background: var(--tmt-ui-surface-selection);
+  border-color: var(--tmt-ui-color-selected-text);
+}
+.tmt-ui-icon-action-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--tmt-ui-header-icon-size);
+  height: var(--tmt-ui-header-icon-size);
+}
+.tmt-ui-icon-action-icon > svg {
+  width: 100%;
+  height: 100%;
+  stroke-linecap: square;
+  stroke-linejoin: miter;
+}
+.tmt-ui-icon-action-control > .tmt-ui-action-mark {
+  position: absolute;
+  inset: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: inherit;
+}
+.tmt-ui-icon-action-control:disabled:not([data-variant='text']) {
+  color: var(--tmt-ui-color-disabled-text);
+  background: var(--tmt-ui-surface-disabled);
+  border-color: var(--tmt-ui-color-edge);
+}
+.tmt-ui-icon-action-tooltip {
+  position: fixed;
+  inset: auto;
+  box-sizing: border-box;
+  width: max-content;
+  margin: 0;
+  padding: var(--tmt-ui-toggle-gap) 0 0;
+  border: 0;
+  border-radius: var(--tmt-ui-radius);
+  background: transparent;
+  color: var(--tmt-ui-color-text);
+  box-shadow: none;
+  overflow: auto;
+  font: var(--tmt-ui-host-action-weight)
+    var(--tmt-ui-host-action-size)/var(--tmt-ui-host-action-line-height)
+    var(--tmt-ui-host-action-font);
+}
+.tmt-ui-icon-action-tooltip-label {
+  display: block;
+  box-sizing: border-box;
+  overflow-wrap: anywhere;
+  padding: var(--tmt-ui-host-field-padding);
+  border: var(--tmt-ui-action-border-width) solid var(--tmt-ui-color-edge);
+  border-radius: var(--tmt-ui-radius);
+  background: var(--tmt-ui-surface-sheet);
+  box-shadow: none;
+}

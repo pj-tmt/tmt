@@ -103,10 +103,17 @@ it('accepts a valid owner author chain and rejects a forged chain with the same 
     await new Catchup(a, 'private').admit(first());
     await a.chains([{ deviceId: v.page, chain: transport(v.chain) }]);
     expect(a.author(v.page, '1')).toEqual(root);
+    // Owner-member provenance is exactly an admitted owner-issued chain: an
+    // unadmitted device (a bridge or non-owner member has none) never qualifies.
+    expect(a.ownerDevice(v.page)).toBe(true);
+    expect(a.ownerDevice(v.device)).toBe(false);
     expect(() => a.author(v.device, '1')).toThrow('Fresh membership');
     expect(() => a.author(v.page, '2')).toThrow('Fresh membership');
     const bad = { ...v.chain, issuerSignature: c.encodeBinary(new Uint8Array(64)) };
     await expect(a.chains([{ deviceId: v.page, chain: transport(bad) }])).rejects.toThrow();
+    const stranger = { ...v.chain, issuerId: v.device };
+    await expect(a.chains([{ deviceId: v.page, chain: transport(stranger) }])).rejects.toThrow();
+    expect(a.ownerDevice(v.page)).toBe(true);
   } finally {
     vi.useRealTimers();
   }

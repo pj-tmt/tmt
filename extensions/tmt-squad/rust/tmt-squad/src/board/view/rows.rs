@@ -71,12 +71,113 @@ fn prepare(
         .unwrap_or(layout);
     let cells = crate::markup::row_values(rows, tab, app.rows())
         .map_err(|error| format!("Row values: {error}"))?;
+    // Visibility is per occurrence: a surviving track may still cut this row's
+    // text. Mirror the painter's request-age reservation and bounded wrapping.
+    let mut painted_extras = extras.clone();
+    for (index, (extra, (_, row))) in painted_extras.iter_mut().zip(app.rows()).enumerate() {
+        let mut visible = Vec::new();
+        for (line, configured) in rows.lines.iter().enumerate() {
+            let mut position = 0;
+            for (cell, node) in configured.iter().zip(&cells[index].children[line].children) {
+                let range = position..position + cell.span;
+                position += cell.span;
+                let Some(field) = cell.field.as_deref() else {
+                    continue;
+                };
+                let Some(budget) = layout.span(range.clone()) else {
+                    continue;
+                };
+                let pending = field == "pending";
+                let text = if pending {
+                    super::waiting::text(row)
+                } else {
+                    node.text.as_deref()
+                };
+                let (width, flow) = if line == 0 && extra.focus.is_some() {
+                    let heading = super::row_paint::heading_labels(
+                        ages[index].clone(),
+                        extra.next.clone(),
+                        extra.focus.as_deref(),
+                        usize::from(area.width),
+                    );
+                    let end = usize::from(area.width)
+                        .saturating_sub(heading.first().map_or(0, |label| label.width() + GAP));
+                    let start = 2
+                        + tmt_cli_style::grid::span(&layout.columns, 0..range.start, GAP)
+                        + usize::from(layout.columns[..range.start].iter().any(Option::is_some));
+                    (
+                        budget.visible.min(end.saturating_sub(start)),
+                        tmt_tui::style::TextFlow::Truncate,
+                    )
+                } else if pending && line > 0 {
+                    (
+                        budget.visible.saturating_sub(
+                            extra
+                                .request_age
+                                .as_deref()
+                                .map_or(0, |age| age.width() + GAP),
+                        ),
+                        tmt_tui::style::TextFlow::Truncate,
+                    )
+                } else {
+                    (usize::from(budget.text), node.style.text_flow)
+                };
+                if text.is_some_and(|text| {
+                    crate::board::row_detail::uncut(text, width, flow)
+                        && (pending && line > 0
+                            || !budget.cut
+                            || tmt_tui::text::fit_lines(
+                                text,
+                                budget.text,
+                                flow,
+                                rows.columns[position - cell.span].align,
+                            )
+                            .iter()
+                            .all(|line| {
+                                crate::board::row_detail::uncut(
+                                    line.trim_end(),
+                                    budget.visible,
+                                    tmt_tui::style::TextFlow::Truncate,
+                                )
+                            }))
+                }) {
+                    visible.push(field);
+                }
+            }
+        }
+        if !rows
+            .lines
+            .iter()
+            .flatten()
+            .any(|cell| cell.field.as_deref() == Some("pending"))
+        {
+            let room = usize::from(area.width).saturating_sub(
+                4 + extra
+                    .request_age
+                    .as_deref()
+                    .map_or(0, |age| age.width() + GAP),
+            );
+            if super::waiting::text(row).is_some_and(|text| {
+                crate::board::row_detail::uncut(text, room, tmt_tui::style::TextFlow::Truncate)
+            }) {
+                visible.push("pending");
+            }
+        }
+        if extra
+            .focus
+            .as_ref()
+            .is_some_and(|text| text.width() <= available / 2)
+        {
+            visible.push("focus");
+        }
+        extra.detail = app.detail_value(index, &visible);
+    }
     let scene = RowPaint::build(
         rows,
         &layout,
         &cells,
         &app.items(),
-        &extras,
+        &painted_extras,
         usize::from(area.width),
         if app.search.is_empty() {
             "  (no members)"
@@ -122,6 +223,8 @@ pub(super) fn render_rows(frame: &mut Frame, app: &App, area: Rect) {
             };
             Extra {
                 lead: origin == RowOrigin::Lead,
+                focus: crate::focus::label(row, request_now),
+                detail: app.detail_value(index, &[]),
                 next: row["id"]
                     .as_str()
                     .and_then(|id| app.cron.member_label(id, now)),
@@ -174,4 +277,9 @@ pub(super) fn render_rows(frame: &mut Frame, app: &App, area: Rect) {
     );
     super::waiting::place_input(app, scene.input.clone(), area, offset, viewport);
     app.hits.borrow_mut().extend(hits);
+    for (row, start, data) in &scene.details {
+        crate::board::row_detail::more_hit(
+            app, *row, data, area.width, 2, *start, area, offset, viewport,
+        );
+    }
 }

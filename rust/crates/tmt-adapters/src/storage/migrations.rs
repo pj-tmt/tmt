@@ -58,203 +58,238 @@ pub(super) fn seed_hook_predecessor(connection: &mut Connection) {
 }
 
 struct Migration {
+    path: &'static str,
     name: &'static str,
     sql: &'static str,
 }
 
+macro_rules! migration {
+    ($name:literal, $path:literal) => {
+        Migration {
+            path: concat!("rust/crates/tmt-adapters/src/storage/", $path),
+            name: $name,
+            sql: include_str!($path),
+        }
+    };
+}
+
 const MIGRATIONS: &[Migration] = &[
-    Migration {
-        name: "create durable identities and transient tmux bindings",
-        sql: include_str!("schema/001.sql"),
-    },
-    Migration {
-        name: "create optional identity role profiles",
-        sql: include_str!("schema/002.sql"),
-    },
-    Migration {
-        name: "create durable identity preambles",
-        sql: include_str!("schema/003.sql"),
-    },
-    Migration {
-        name: "create request attempts and preamble cadence counters",
-        sql: include_str!("schema/004.sql"),
-    },
-    Migration {
-        name: "create immutable request responses",
-        sql: include_str!("schema/005.sql"),
-    },
-    Migration {
-        name: "freeze exchange retention and response expiry horizons",
-        sql: include_str!("schema/006_columns.sql"),
-    },
-    Migration {
-        name: "retain request provenance and bounded original prompts",
-        sql: include_str!("schema/007.sql"),
-    },
-    Migration {
-        name: "add identity-scoped exchange attention revisions",
-        sql: include_str!("schema/008.sql"),
-    },
-    Migration {
-        name: "add identity lifetimes and reusable retired names",
-        sql: include_str!("schema/009.sql"),
-    },
-    Migration {
-        name: "add durable identity retirement hooks",
-        sql: include_str!("schema/010.sql"),
-    },
-    Migration {
-        name: "add installation-owned local Office blocks",
-        sql: include_str!("schema/011.sql"),
-    },
-    Migration {
-        name: "add durable inbox routes and recipient attention",
-        sql: include_str!("schema/012.sql"),
-    },
-    Migration {
-        name: "add searchable identity metadata",
-        sql: include_str!("schema/013.sql"),
-    },
-    Migration {
-        name: "add local Office discussion board",
-        sql: include_str!("schema/014.sql"),
-    },
-    Migration {
-        name: "add identity-owned local Office presentation profiles",
-        sql: include_str!("schema/015.sql"),
-    },
-    Migration {
-        name: "add installation-owned local Office prop catalog",
-        sql: include_str!("schema/016.sql"),
-    },
-    Migration {
-        name: "add installation-owned local Office avatar catalog",
-        sql: include_str!("schema/017.sql"),
-    },
-    Migration {
-        name: "admit bounded directional Office prop packs",
-        sql: include_str!("schema/018.sql"),
-    },
-    Migration {
-        name: "add installation lobby target to local Office layouts",
-        sql: include_str!("schema/019.sql"),
-    },
-    Migration {
-        name: "allow bounded local Office placement customization",
-        sql: include_str!("schema/020.sql"),
-    },
-    Migration {
-        name: "add local whiteboard documents and operation receipts",
-        sql: include_str!("schema/021.sql"),
-    },
-    Migration {
-        name: "capture immutable whiteboard revisions and annotations",
-        sql: include_str!("schema/022.sql"),
-    },
-    Migration {
-        name: "retain Office request dispatch operation receipts",
-        sql: include_str!("schema/023.sql"),
-    },
-    Migration {
-        name: "add explicit local Office meeting membership",
-        sql: include_str!("schema/024.sql"),
-    },
-    Migration {
-        name: "distinguish inbox announcements from replyable requests",
-        sql: include_str!("schema/025.sql"),
-    },
-    Migration {
-        name: "retain original room context on durable requests",
-        sql: include_str!("schema/026.sql"),
-    },
-    Migration {
-        name: "index retained request conversations",
-        sql: include_str!("schema/027.sql"),
-    },
-    Migration {
-        name: "add atomic user-built Office world layouts",
-        sql: include_str!("schema/028.sql"),
-    },
-    Migration {
-        name: "add identity-owned expiring self-reported status",
-        sql: include_str!("schema/029.sql"),
-    },
-    Migration {
-        name: "extend shared Office discussions with room scopes",
-        sql: include_str!("schema/030.sql"),
-    },
-    Migration {
-        name: "retain retired meeting rooms without accepting new work",
-        sql: include_str!("schema/031.sql"),
-    },
-    Migration {
-        name: "track advisory wake attempts on durable inbox requests",
-        sql: include_str!("schema/032.sql"),
-    },
-    Migration {
-        name: "separate remembered harness preferences from binding runtime observations",
-        sql: include_str!("schema/033.sql"),
-    },
-    Migration {
-        name: "retain foreground launch ownership for binding runtime observations",
-        sql: include_str!("schema/034.sql"),
-    },
-    Migration {
-        name: "claim originator reply and detached timeout hints",
-        sql: include_str!("schema/035.sql"),
-    },
-    Migration {
-        name: "record extension storage cutovers and fence moved Office rows",
-        sql: include_str!("schema/036.sql"),
-    },
-    Migration {
-        name: "keep driver-owned resume state beside remembered sessions",
-        sql: include_str!("schema/037.sql"),
-    },
-    Migration {
-        name: "mark resume launches pending until a provider start confirms them",
-        sql: include_str!("schema/038.sql"),
-    },
-    Migration {
-        name: "admit a second terminal host in bindings, request fences and host servers",
-        sql: include_str!("schema/039.sql"),
-    },
-    Migration {
-        name: "advance one change cursor on every change to core-owned records",
-        sql: include_str!("schema/040.sql"),
-    },
-    Migration {
-        name: "admit any approved host driver in bindings, request fences and host servers",
-        sql: include_str!("schema/041.sql"),
-    },
-    Migration {
-        name: "record the observed pane process incarnation beside each binding's pane pid",
-        sql: include_str!("schema/042.sql"),
-    },
-    Migration {
-        name: "record explicit automatic identity name provenance",
-        sql: include_str!("schema/043.sql"),
-    },
-    Migration {
-        name: "persist pane reply notice batches and one-shot worker claims",
-        sql: include_str!("schema/044.sql"),
-    },
-    Migration {
-        name: "remember runtime channel preference for exact resume",
-        sql: include_str!("schema/045.sql"),
-    },
-    Migration {
-        name: "retain bounded consumption sources and timestamped history",
-        sql: include_str!("schema/046.sql"),
-    },
-    Migration {
-        name: "index originator results by final submission time",
-        sql: include_str!("schema/047.sql"),
-    },
+    migration!(
+        "create durable identities and transient tmux bindings",
+        "schema/001.sql"
+    ),
+    migration!("create optional identity role profiles", "schema/002.sql"),
+    migration!("create durable identity preambles", "schema/003.sql"),
+    migration!(
+        "create request attempts and preamble cadence counters",
+        "schema/004.sql"
+    ),
+    migration!("create immutable request responses", "schema/005.sql"),
+    migration!(
+        "freeze exchange retention and response expiry horizons",
+        "schema/006_columns.sql"
+    ),
+    migration!(
+        "retain request provenance and bounded original prompts",
+        "schema/007.sql"
+    ),
+    migration!(
+        "add identity-scoped exchange attention revisions",
+        "schema/008.sql"
+    ),
+    migration!(
+        "add identity lifetimes and reusable retired names",
+        "schema/009.sql"
+    ),
+    migration!("add durable identity retirement hooks", "schema/010.sql"),
+    migration!(
+        "add installation-owned local Office blocks",
+        "schema/011.sql"
+    ),
+    migration!(
+        "add durable inbox routes and recipient attention",
+        "schema/012.sql"
+    ),
+    migration!("add searchable identity metadata", "schema/013.sql"),
+    migration!("add local Office discussion board", "schema/014.sql"),
+    migration!(
+        "add identity-owned local Office presentation profiles",
+        "schema/015.sql"
+    ),
+    migration!(
+        "add installation-owned local Office prop catalog",
+        "schema/016.sql"
+    ),
+    migration!(
+        "add installation-owned local Office avatar catalog",
+        "schema/017.sql"
+    ),
+    migration!(
+        "admit bounded directional Office prop packs",
+        "schema/018.sql"
+    ),
+    migration!(
+        "add installation lobby target to local Office layouts",
+        "schema/019.sql"
+    ),
+    migration!(
+        "allow bounded local Office placement customization",
+        "schema/020.sql"
+    ),
+    migration!(
+        "add local whiteboard documents and operation receipts",
+        "schema/021.sql"
+    ),
+    migration!(
+        "capture immutable whiteboard revisions and annotations",
+        "schema/022.sql"
+    ),
+    migration!(
+        "retain Office request dispatch operation receipts",
+        "schema/023.sql"
+    ),
+    migration!(
+        "add explicit local Office meeting membership",
+        "schema/024.sql"
+    ),
+    migration!(
+        "distinguish inbox announcements from replyable requests",
+        "schema/025.sql"
+    ),
+    migration!(
+        "retain original room context on durable requests",
+        "schema/026.sql"
+    ),
+    migration!("index retained request conversations", "schema/027.sql"),
+    migration!(
+        "add atomic user-built Office world layouts",
+        "schema/028.sql"
+    ),
+    migration!(
+        "add identity-owned expiring self-reported status",
+        "schema/029.sql"
+    ),
+    migration!(
+        "extend shared Office discussions with room scopes",
+        "schema/030.sql"
+    ),
+    migration!(
+        "retain retired meeting rooms without accepting new work",
+        "schema/031.sql"
+    ),
+    migration!(
+        "track advisory wake attempts on durable inbox requests",
+        "schema/032.sql"
+    ),
+    migration!(
+        "separate remembered harness preferences from binding runtime observations",
+        "schema/033.sql"
+    ),
+    migration!(
+        "retain foreground launch ownership for binding runtime observations",
+        "schema/034.sql"
+    ),
+    migration!(
+        "claim originator reply and detached timeout hints",
+        "schema/035.sql"
+    ),
+    migration!(
+        "record extension storage cutovers and fence moved Office rows",
+        "schema/036.sql"
+    ),
+    migration!(
+        "keep driver-owned resume state beside remembered sessions",
+        "schema/037.sql"
+    ),
+    migration!(
+        "mark resume launches pending until a provider start confirms them",
+        "schema/038.sql"
+    ),
+    migration!(
+        "admit a second terminal host in bindings, request fences and host servers",
+        "schema/039.sql"
+    ),
+    migration!(
+        "advance one change cursor on every change to core-owned records",
+        "schema/040.sql"
+    ),
+    migration!(
+        "admit any approved host driver in bindings, request fences and host servers",
+        "schema/041.sql"
+    ),
+    migration!(
+        "record the observed pane process incarnation beside each binding's pane pid",
+        "schema/042.sql"
+    ),
+    migration!(
+        "record explicit automatic identity name provenance",
+        "schema/043.sql"
+    ),
+    migration!(
+        "persist pane reply notice batches and one-shot worker claims",
+        "schema/044.sql"
+    ),
+    migration!(
+        "remember runtime channel preference for exact resume",
+        "schema/045.sql"
+    ),
+    migration!(
+        "retain bounded consumption sources and timestamped history",
+        "schema/046.sql"
+    ),
+    migration!(
+        "index originator results by final submission time",
+        "schema/047.sql"
+    ),
+    migration!(
+        "retain originator withdrawal of unanswered requests",
+        "schema/048.sql"
+    ),
+    migration!(
+        "hold focus delivery and seal ordered checklists",
+        "schema/049.sql"
+    ),
 ];
 
 pub(super) fn apply(connection: &mut Connection) -> Result<(), StorageError> {
     apply_through(connection, MIGRATIONS.len())
+}
+
+/// Compiled migration authority, with the actual Rust/SQL source closure.
+/// This is not a filesystem scan or a count inferred by release tooling.
+pub(super) fn compiled_schema() -> super::CompiledSchema {
+    use tmt_core::content_digest::sha256;
+    let mut sources = MIGRATIONS
+        .iter()
+        .map(|migration| super::SchemaSource {
+            path: migration.path,
+            sha256: sha256(migration.sql.as_bytes()),
+        })
+        .collect::<Vec<_>>();
+    for (path, bytes) in [
+        (
+            "rust/crates/tmt-adapters/src/storage/migrations.rs",
+            include_bytes!("migrations.rs").as_slice(),
+        ),
+        (
+            "rust/crates/tmt-adapters/src/storage/migrations/host_names.rs",
+            include_bytes!("migrations/host_names.rs").as_slice(),
+        ),
+        (
+            "rust/crates/tmt-adapters/src/storage/schema/006_indexes.sql",
+            include_bytes!("schema/006_indexes.sql").as_slice(),
+        ),
+    ] {
+        sources.push(super::SchemaSource {
+            path,
+            sha256: sha256(bytes),
+        });
+    }
+    sources.sort_by_key(|source| source.path);
+    super::CompiledSchema {
+        version: MIGRATIONS.len() as u32,
+        sources,
+    }
 }
 
 /// Applies the pending migrations up to and including version `last`.
@@ -509,6 +544,43 @@ fn validate_table(connection: &Connection) -> Result<(), StorageError> {
         ));
     }
     Ok(())
+}
+
+/// Observe the recorded application schema, including a future schema, without
+/// interpreting its tables or admitting it for ordinary runtime use.
+pub(super) fn observed_schema(connection: &Connection) -> Result<u32, StorageError> {
+    validate_table(connection)?;
+    let (count, minimum, maximum): (i64, Option<u32>, Option<u32>) = connection
+        .query_row(
+            "SELECT COUNT(*), MIN(version), MAX(version) FROM _migrations",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .map_err(|error| classify(error, "Observe application schema"))?;
+    let version = maximum
+        .filter(|maximum| minimum == Some(1) && count == i64::from(*maximum))
+        .ok_or_else(|| incompatible("Application schema history is missing or incomplete"))?;
+    let mut statement = connection
+        .prepare("SELECT version, name FROM _migrations WHERE version <= ? ORDER BY version")
+        .map_err(|error| classify(error, "Inspect known application migrations"))?;
+    let rows = statement
+        .query_map([MIGRATIONS.len() as u32], |row| {
+            Ok((row.get::<_, u32>(0)?, row.get::<_, String>(1)?))
+        })
+        .map_err(|error| classify(error, "Inspect known application migrations"))?;
+    for row in rows {
+        let (version, name) =
+            row.map_err(|error| classify(error, "Read known application migration"))?;
+        if MIGRATIONS
+            .get(version as usize - 1)
+            .is_none_or(|migration| migration.name != name)
+        {
+            return Err(incompatible(
+                "Known application migration provenance has changed",
+            ));
+        }
+    }
+    Ok(version)
 }
 
 /// Read-only consumers must not interpret an unsupported or incomplete schema.

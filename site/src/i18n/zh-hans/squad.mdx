@@ -1,6 +1,6 @@
 ---
 source: site/src/chapters/squad.mdx
-sourceRevision: 8bd1e1392968d4d9d4eba8cfc86b0fb137b48931
+sourceRevision: 397e8e2c04acfa2d113be656d596b844485cf593
 title: Squad：lead、成员和一个看板
 ---
 
@@ -33,7 +33,7 @@ import { BoardDemo, jumpAndTalk, startSquad, updateStatus } from "../../demos/Bo
 $ tmt extension install squad
 $ tmt sq init product            # 为 squad 命名；不会询问
 $ tmt sq lead sol                # 可选：由 sol 带队
-$ tmt sq                         # 在终端中显示看板，其他情况下显示成员列表
+$ tmt sq board                   # 在终端中显示看板，其他情况下显示成员列表
 `}</Cmd>
 
 <Waiting /> 标出正在等<em>你</em>处理的事项。Squad 根据运行它的窗格识别你，也可以用 `tmt sq me ben`
@@ -59,7 +59,7 @@ $ tmt sq                         # 在终端中显示看板，其他情况下显
 
 <Mdx.h3 id="the-board">看板</Mdx.h3>
 
-squad 标签页默认使用 **members**：lead 与成员显示在同一个带边框的列表中，详情在行内展开，lead 的笔记位于下方。原来的 **team** 侧边窗格视图仍可选择。按 `/` 并输入内容可筛选行。<Waiting /> 标出正在等你的成员，这些行排在最前面。所有按键操作都基于屏幕上已有的内容；拉取请求状态等较慢的查询在后台刷新。成员、请求或房间发生变化，或你编辑 `squad.toml` 后，看板会在大约一秒内重新加载；其他内容仍按刷新间隔（`refresh`，或 `"off"`）更新。按 **ctrl-r** 可立即刷新，即使正在搜索或输入消息也可以。`tmt sq ls` 以文本输出成员列表，加上 `--json` 则输出 JSON；没有终端时，`tmt sq` 显示的也是这个列表。`tmt sq board` 在交互式终端中打开看板，其他情况下输出同一个列表。
+squad 标签页默认使用 **members**：lead 与成员显示在同一个带边框的列表中，详情在行内展开，lead 的笔记位于下方。原来的 **team** 侧边窗格视图仍可选择。按 `/` 并输入内容可筛选行。<Waiting /> 标出正在等你的成员，这些行排在最前面。所有按键操作都基于屏幕上已有的内容；拉取请求状态等较慢的查询在后台刷新。成员、请求或房间发生变化，或你编辑 `squad.toml` 后，看板会在大约一秒内重新加载；其他内容仍按刷新间隔（`refresh`，或 `"off"`）更新。按 **ctrl-r** 可立即刷新，即使正在搜索或输入消息也可以。`tmt sq ls` 以文本输出成员列表，加上 `--json` 则输出 JSON；只输入 `tmt sq` 也会显示这个列表，并提示如何打开看板。`tmt sq board` 在交互式终端中打开看板，其他情况下输出同一个列表。
 
 <BoardSketch />
 
@@ -69,8 +69,9 @@ squad 标签页默认使用 **members**：lead 与成员显示在同一个带边
 | ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | enter · double-click · ⌫ | 在 tmux 中，Enter 或双击跳到成员界面，Backspace 返回。普通终端的 Enter 或双击打开该行的动作菜单。单击选择行；点击窗格切换焦点。参见[在成员之间跳转](/extensions/squad#jumping-between-members)。                                                   |
 | a                        | `write`：所选行共用一个 composer。有等待你回答的请求时先回答（多个请求需先选一个），否则向 lead 发送关于该行的笔记（没有 lead 时使用 talk）。**Tab** 切换可用的 answer、note、talk、status 模式并保留消息和 status 草稿；talk 发出需要回复的请求。 |
-| t                        | 显示或隐藏回复预览，与 HOME 相同。                                                                                                                                                                                                                 |
-| e · n                    | 在行内展开 lead 或成员的详情；隐藏或显示 lead 的笔记。                                                                                                                                                                                             |
+| t                        | `talk`：向该成员发送需要回复的请求。                                                                                                                                                                                                               |
+| e · n                    | 在原处展开或折叠所选行 · 隐藏或显示 lead 的笔记。                                                                                                                                                                                                  |
+| v                        | 阅读所选行最新回复的全文；按 **Esc** 返回。                                                                                                                                                                                                        |
 | ,                        | 设置：选择 **Theme**、**View**，或 meter 开启时的 **Token window**。                                                                                                                                                                               |
 | o · y                    | `open` 打开该行的拉取请求或第一个链接；`copy` 复制状态行，例如 `auth-fix: rotate session tokens (blocked)`。通过 SSH 也能复制。                                                                                                                    |
 | / · tab · s              | 搜索 · 下一个窗格 · 切换到任意标签页                                                                                                                                                                                                               |
@@ -217,7 +218,7 @@ squad 手写的 `board.layout` 或 `panes` 始终优先，其次是该 squad 的
 
 squad 标签页默认显示一个带边框的列表：lead 排在最前，带有 `lead` 标签，随后是 `── members · N ──` 分隔线。每位成员占用两行：标记、名称、状态、模型和经过时间；下一行显示任务预览。等待你处理的成员（`◆`）按最早的问题优先排列；其他交谈按最新时间排列，没有交谈的成员按名称排序。lead 始终排在最前，自定义分区保持原位。
 
-在 lead 或成员上按 **e**，会用共享的行内详情替换任务预览。有内容时，依次显示 `◆ waits on you`、任务、链接、带时间的最新回复，再显示折叠／写入／打开提示。按 **e** 或 **Esc** 折叠；**a** 打开该行共用的 answer／note／talk／status composer，**o** 打开 PR 或链接。方向键或 j/k、PgUp/PgDn 可滚动较长的详情，不会移动行光标。一次只能展开一个详情。阅读不需要先记录用户，写入则需要 `tmt sq me`。lead 笔记位于列表下方；按 **n** 隐藏或显示。
+各行默认折叠。在 squad 标签页或 HOME 中，对任一 lead 或成员按 **e**，会在该行正下方展开详情：`◆ waits on you` 的问题、链接，以及带发送者和时间的最新回复，不重复行内已显示的内容。再按 **e** 折叠，可以同时展开多行。较长的回复只显示前几行；按 **v** 打开全文，按 **Esc** 返回。**a** 打开该行共用的 answer／note／talk／status composer，**o** 打开 PR 或链接。阅读不需要先记录用户，写入则需要 `tmt sq me`。lead 笔记位于列表下方；按 **n** 隐藏或显示。
 
 要使用原来的详情／回复侧边窗格，在 **,** 设置选择 **View** → `team`；选择 `members` 恢复带边框列表。自定义 `board.layout` 或 `panes` 保留配置的布局。
 

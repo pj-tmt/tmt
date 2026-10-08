@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Browser leaf controls — static fixture</title>
+    <link rel="stylesheet" href="../../generated/static.css" />
+    <link rel="stylesheet" href="./controls.css" />
+  </head>
+  <body>
+    <main>
+      <h1>Browser leaf controls</h1>
+      <p>Static HTML uses the checked stylesheet. Hover or Tab to an icon to read its label.</p>
+      <section>
+        <h2>One focusable text control</h2>
+        <div class="fixture-fields">
+          <div class="tmt-ui-field">
+            <label class="tmt-ui-field-label" id="native-label" for="native">Native message</label>
+            <textarea
+              class="tmt-ui-field-control"
+              id="native"
+              aria-labelledby="native-label"
+              aria-describedby="native-description"
+            >
+A retained native draft</textarea>
+            <div class="tmt-ui-field-description" id="native-description">Host owns the draft.</div>
+          </div>
+          <div class="tmt-ui-field">
+            <label class="tmt-ui-field-label" id="editable-label" for="editable"
+              >Editable message</label
+            >
+            <div
+              class="tmt-ui-field-control"
+              id="editable"
+              role="textbox"
+              aria-multiline="true"
+              aria-labelledby="editable-label"
+              aria-describedby="editable-description"
+              tabindex="0"
+              contenteditable="true"
+            >
+              A retained contenteditable draft
+            </div>
+            <div class="tmt-ui-field-description" id="editable-description">
+              Host owns caret and IME.
+            </div>
+          </div>
+        </div>
+      </section>
+      <section>
+        <h2>Icon action states</h2>
+        <div class="fixture-actions" id="states"></div>
+        <div class="fixture-edges" id="edges"></div>
+      </section>
+    </main>
+    <script type="module" src="./static.js"></script>
+  </body>
+</html>

@@ -14,6 +14,30 @@ pub(crate) fn database(error: impl std::fmt::Display) -> RemoteError {
     )
 }
 
+/// Open an admitted private database file under the serve lease. Serve is the
+/// only opener (pairing and management go through it under the serve lock), so
+/// DELETE journaling adds no reader contention, and FULL sync makes committed
+/// rows survive power loss. Each database owner keeps its own schema history.
+pub(crate) fn open_connection(serving: &Serving, file: &str) -> Result<Connection, RemoteError> {
+    let layout = serving.layout();
+    // Admit the 0600 file before SQLite opens it without following symlinks.
+    layout.file(file)?.sync_all().map_err(database)?;
+    let connection = Connection::open_with_flags(
+        layout.directory.join(file),
+        OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_NOFOLLOW,
+    )
+    .map_err(database)?;
+    connection
+        .busy_timeout(crate::limits::AUTHORITY_WAIT)
+        .map_err(database)?;
+    connection
+        .execute_batch(
+            "PRAGMA foreign_keys=ON; PRAGMA journal_mode=DELETE; PRAGMA synchronous=FULL;",
+        )
+        .map_err(database)?;
+    Ok(connection)
+}
+
 pub struct Store {
     pub(crate) connection: Connection,
     pub(crate) data_root: std::path::PathBuf,
@@ -30,24 +54,7 @@ impl Store {
     /// Opening requires the held serve lock: there is never a second opener.
     pub fn open(serving: &Serving) -> Result<Self, RemoteError> {
         let layout = serving.layout();
-        // Admit the 0600 file before SQLite opens it without following symlinks.
-        layout.file("remote.db")?.sync_all().map_err(database)?;
-        let mut connection = Connection::open_with_flags(
-            layout.directory.join("remote.db"),
-            OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_NOFOLLOW,
-        )
-        .map_err(database)?;
-        connection
-            .busy_timeout(crate::limits::AUTHORITY_WAIT)
-            .map_err(database)?;
-        // Serve is the only opener (pairing and management go through it under
-        // the serve lock), so DELETE journaling adds no reader contention, and
-        // FULL sync makes committed grants and receipts survive power loss.
-        connection
-            .execute_batch(
-                "PRAGMA foreign_keys=ON; PRAGMA journal_mode=DELETE; PRAGMA synchronous=FULL;",
-            )
-            .map_err(database)?;
+        let mut connection = open_connection(serving, "remote.db")?;
         migrate(&mut connection)?;
         Ok(Self {
             connection,

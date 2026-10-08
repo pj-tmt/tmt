@@ -5,6 +5,7 @@ use std::time::Duration;
 pub use crate::app_inventory::{APP_BYTES, APP_FILES};
 
 pub const SOCKETS: usize = 16;
+
 /// Live colab-sync-v1 tunnels, matching the remote door's colab mount cap.
 pub const TUNNELS: usize = 16;
 /// A tunnel that receives no inbound bytes for this long closes, until
@@ -19,8 +20,6 @@ pub use crate::decoder::UPDATE_BYTES as CONTENT_UPDATE_BYTES;
 pub const OWNER_WRAPS: usize = 512;
 /// Local page catalog bound, including retained tombstones.
 pub const PAGES: usize = 1000;
-/// A prepared local update has two base64 layers plus a certified chain.
-pub const LOCAL_PAGE_BODY_BYTES: usize = 512 * 1024;
 /// Worst-case JSON escaping of bounded source/title plus the payload's base64 layer.
 pub const LOCAL_CREATE_PAYLOAD_BYTES: usize =
     6 * (crate::decoder::BASELINE_BYTES + crate::decoder::BASELINE_TITLE_BYTES) + 1024;
@@ -28,7 +27,7 @@ pub const LOCAL_MANAGEMENT_BODY_BYTES: usize = LOCAL_CREATE_PAYLOAD_BYTES.div_ce
 /// One route-owned body rule for acquisition and local callers.
 pub fn http_body_bytes(path: &str) -> usize {
     if path == crate::page::ipc::PATH {
-        LOCAL_PAGE_BODY_BYTES
+        crate::publication::LOCAL_WRITE_BYTES
     } else if path == crate::management::LOCAL_PATH {
         LOCAL_MANAGEMENT_BODY_BYTES
     } else {
@@ -42,6 +41,18 @@ pub const PAGE_BYTES: usize = 64 * 1024 * 1024;
 pub const PAGE_RECEIPTS: usize = 100_000;
 pub const ACQUISITION: Duration = Duration::from_secs(2);
 pub const RESPONSE: Duration = Duration::from_secs(1);
+/// A publish reply also waits for the serve to combine the writer's own tail: at most this many
+/// isolated decoder runs (a merge per namespace, then the before/after projections).
+pub const PUBLISH_DECODES: u32 = 4;
+/// How long after it has read a publish request the serve may still publish its combine.
+pub const PUBLISH_COMBINE: Duration = crate::decoder::DEADLINE.saturating_mul(PUBLISH_DECODES);
+/// Absolute wait for a publish reply, from the moment the client finished sending: delay before
+/// the serve reads the request (at most `ACQUISITION`), the combine window, and the response
+/// interval. The serve abandons a combine `PUBLISH_COMBINE` after reading the request, so the
+/// page never changes after the reply that reports it.
+pub const PUBLISH_REPLY: Duration = ACQUISITION
+    .saturating_add(PUBLISH_COMBINE)
+    .saturating_add(RESPONSE);
 
 /// Per-page sync namespace inventory / cursor budget. Store writes are unaffected.
 pub const SYNC_NAMESPACES: usize = 256;
@@ -60,3 +71,19 @@ pub const PUBLISHER_AGENT_BYTES: usize = 128;
 pub const COMMENT_BODY_BYTES: usize = 16 * 1024;
 pub const COMMENT_CONTEXT_BYTES: usize = 128;
 pub const COMMENT_CONTEXT_POINTS: usize = 32;
+/// One generic immutable own-record preparation batch.
+pub const OWN_RECORDS: usize = 32;
+/// Frozen status recipients, bounded independently from comment text.
+pub const STATUS_RECIPIENTS: usize = 1000;
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_combine_ends_before_the_client_stops_waiting_even_after_an_acquisition_delay() {
+        // The client waits from the end of its send. The serve may read the request up to
+        // ACQUISITION later and then combines for PUBLISH_COMBINE; that must end a response
+        // interval before the client gives up.
+        assert_eq!(ACQUISITION + PUBLISH_COMBINE, PUBLISH_REPLY - RESPONSE);
+    }
+}

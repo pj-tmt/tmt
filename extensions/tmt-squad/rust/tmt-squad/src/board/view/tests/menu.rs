@@ -39,7 +39,7 @@ fn the_menu_is_shared_overlay_chrome_with_its_keys_on_the_last_inside_line() {
         .position(|line| line.contains("┌ auth-fix "))
         .expect("title");
     assert!(screen[top].contains('┐'), "{screen:#?}");
-    assert!(screen[top + 1].contains("│ y         copy"), "{screen:#?}");
+    assert!(screen[top + 1].contains("│ y        ›copy"), "{screen:#?}");
     assert!(screen[top + 2].contains("│ backspace back"), "{screen:#?}");
     assert!(screen[top + 3].contains("1–2 of 2"), "{screen:#?}");
     assert!(
@@ -121,7 +121,7 @@ fn a_narrow_view_gives_the_menu_the_whole_body_width_and_a_tall_menu_scrolls() {
     }
     let (screen, _) = at(&mut app, 80, 20);
     assert!(
-        screen.iter().any(|line| line.contains("k25 ")),
+        screen.iter().any(|line| line.contains("k25›")),
         "the selected entry stays visible: {screen:#?}"
     );
 }

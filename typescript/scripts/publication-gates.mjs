@@ -348,6 +348,7 @@ function earlyChecks({ product, tag, release, releases, repository }) {
       const alpha = isAlphaVersion(versionOfTag(tag, product));
       const previousCut = releaseCutHistory({
         releases,
+        map,
         product,
         cut: sha,
         git,

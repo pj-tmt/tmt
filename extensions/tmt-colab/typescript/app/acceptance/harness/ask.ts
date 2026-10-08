@@ -1,4 +1,7 @@
 import { execFileSync } from 'node:child_process';
+import fs from 'node:fs';
+import path from 'node:path';
+import { createHash } from 'node:crypto';
 import { expect, type Locator, type Page } from '@playwright/test';
 import type { Door, PairedBrowser } from './browser.js';
 import type { AcceptanceWorld, Agent } from './world.js';
@@ -75,6 +78,8 @@ export async function openPage(
 
 /** Select the text of one element inside the sandboxed renderer frame. */
 export async function selectInRenderer(page: Page, selector: string): Promise<void> {
+  // Paired viewers have separate browser contexts; keyboard checks target this viewer.
+  await page.bringToFront();
   await page
     .frameLocator('iframe')
     .locator(selector)
@@ -88,16 +93,19 @@ export async function selectInRenderer(page: Page, selector: string): Promise<vo
   await expect(page.getByTestId('selection-ask')).toBeVisible();
 }
 
-/** Choose an annotation recipient through the shared parent input listbox. */
+/** Select an admitted recipient without inserting a mention or changing the draft. */
 export async function annotationInput(container: Locator, agent: string) {
-  const input = container.getByRole('combobox', { name: 'Message to agent', exact: true });
-  await input.fill('');
-  await input.fill('@');
-  await container
+  const input = container.getByRole('combobox', { name: 'Message', exact: true });
+  const draft = await input.innerText();
+  await container.getByRole('button', { name: /^(Choose|Change) recipient$/, exact: true }).click();
+  const candidate = container
     .page()
     .getByRole('option')
-    .filter({ hasText: `@${agent} ·` })
-    .click();
+    .filter({ hasText: `@${agent} ·` });
+  // The harness creates unique agent names. Ambiguous display labels fail, never choose first.
+  await expect(candidate).toHaveCount(1);
+  await candidate.click();
+  await expect.poll(() => input.innerText()).toBe(draft);
   return input;
 }
 
@@ -122,8 +130,10 @@ export async function composeChat(
 ): Promise<ComposedChat> {
   await openChat(page);
   const panel = page.getByTestId('chat-panel');
-  const input = await annotationInput(panel, agent.name);
-  await input.fill(`@${agent.name} ${question}`);
+  const input = panel.getByRole('combobox', { name: 'Message', exact: true });
+  await input.fill(question);
+  await expect.poll(() => input.innerText()).toBe(question);
+  await annotationInput(panel, agent.name);
   const turn = agent.received().length;
   return {
     delivered() {
@@ -139,7 +149,7 @@ export async function sendChat(page: Page, composed: ComposedChat) {
   const earlier = await panel
     .getByTestId('ask-entry')
     .evaluateAll((nodes) => nodes.map((node) => (node as HTMLElement).dataset.operationId));
-  await panel.getByRole('combobox', { name: 'Message to agent' }).press('Enter');
+  await panel.getByRole('combobox', { name: 'Message' }).press('Enter');
   const entries = panel.getByTestId('ask-entry');
   await expect
     .poll(
@@ -177,4 +187,113 @@ export async function freePort(): Promise<number> {
       server.close(() => resolve(port));
     });
   });
+}
+
+/** Opt-in evidence only: ordinary acceptance remains independent of specialized manifests. */
+function composerEvidence(label: string) {
+  const directory = process.env.COLAB_1817_NATIVE_TRACE_DIR;
+  const file = process.env.COLAB_COMPOSER_ASSET_MANIFEST;
+  const head = process.env.COLAB_COMPOSER_EXPECTED_HEAD;
+  if ([directory, file, head].every((value) => value === undefined)) return undefined;
+  if (
+    !directory ||
+    !path.isAbsolute(directory) ||
+    !file ||
+    !path.isAbsolute(file) ||
+    !head ||
+    !/^[a-f0-9]{40}$/.test(head) ||
+    !/^[a-z-]+$/.test(label)
+  )
+    throw new Error('Set complete valid frozen composer evidence configuration.');
+  const manifest = JSON.parse(fs.readFileSync(file, 'utf8')) as {
+    head: string;
+    policies: { parent: string; renderer: string };
+    distAssets: { path: string; sha256: string; size: number }[];
+  };
+  expect(manifest.head).toBe(head);
+  expect(manifest.distAssets).toHaveLength(11);
+  expect(new Set(manifest.distAssets.map((asset) => asset.path)).size).toBe(11);
+  for (const asset of manifest.distAssets) {
+    if (
+      !/^(?:assets\/[A-Za-z0-9_.-]+|[A-Za-z0-9_.-]+)$/.test(asset.path) ||
+      !/^[a-f0-9]{64}$/.test(asset.sha256) ||
+      !Number.isSafeInteger(asset.size) ||
+      asset.size <= 0
+    )
+      throw new Error('Invalid frozen asset entry.');
+  }
+  if (
+    typeof manifest.policies.parent !== 'string' ||
+    !manifest.policies.parent ||
+    typeof manifest.policies.renderer !== 'string' ||
+    !manifest.policies.renderer ||
+    /unsafe-inline|unsafe-eval/.test(manifest.policies.parent)
+  )
+    throw new Error('Invalid frozen composer CSP.');
+  return { directory, head, manifest };
+}
+
+/** Original context trace and root witness; lifecycle cleanup stays with AcceptanceWorld. */
+export async function composerTrace(
+  world: AcceptanceWorld,
+  browser: PairedBrowser,
+  origin: string,
+  label: string,
+) {
+  const evidence = composerEvidence(label);
+  if (!evidence) return;
+  const { directory, head } = evidence;
+  fs.mkdirSync(directory, { recursive: true });
+  const trace = path.join(directory, `${label}.zip`);
+  const witness = path.join(directory, `${label}.world.json`);
+  if (fs.existsSync(trace) || fs.existsSync(witness))
+    throw new Error('Refuse to overwrite original evidence.');
+  fs.writeFileSync(
+    witness,
+    JSON.stringify(
+      {
+        label,
+        workerPid: process.pid,
+        root: world.root,
+        profile: browser.profile,
+        tmuxName: world.tmuxName,
+        sockets: world.sockets(),
+        origin: new URL(origin).origin,
+        expectedHead: head,
+      },
+      null,
+      2,
+    ),
+    { flag: 'wx' },
+  );
+  await browser.context.tracing.start({ screenshots: true, snapshots: true, sources: true });
+  world.onDispose(() => browser.context.tracing.stop({ path: trace }));
+}
+
+/** Read every frozen embedded asset so original trace resources carry all eleven bodies. */
+export async function composerAssets(page: Page, label: string) {
+  const evidence = composerEvidence(label);
+  if (!evidence) return;
+  const { directory, head, manifest } = evidence;
+  const mount = new URL('./', page.url());
+  const observed: { path: string; size: number; sha256: string }[] = [];
+  for (const asset of manifest.distAssets) {
+    if (!/^(?:assets\/[A-Za-z0-9_.-]+|[A-Za-z0-9_.-]+)$/.test(asset.path))
+      throw new Error('Invalid frozen asset path.');
+    const response = await page.context().request.get(new URL(asset.path, mount).href);
+    expect(response.status(), asset.path).toBe(200);
+    const body = await response.body();
+    expect(body.length, asset.path).toBe(asset.size);
+    const sha256 = createHash('sha256').update(body).digest('hex');
+    expect(sha256, asset.path).toBe(asset.sha256);
+    observed.push({ path: asset.path, size: body.length, sha256 });
+    expect(response.headers()['content-security-policy'], asset.path).toBe(
+      asset.path === 'renderer.html' ? manifest.policies.renderer : manifest.policies.parent,
+    );
+  }
+  fs.writeFileSync(
+    path.join(directory, `${label}.assets.json`),
+    JSON.stringify({ head, origin: mount.origin, mount: mount.pathname, observed }, null, 2),
+    { flag: 'wx' },
+  );
 }

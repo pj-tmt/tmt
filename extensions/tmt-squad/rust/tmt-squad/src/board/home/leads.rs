@@ -2,7 +2,7 @@
 use super::controller::HomeEntry;
 use crate::{
     board::{
-        app::{App, Compose, RowTarget},
+        app::{App, RowTarget},
         home_leads::{Kind, Lead},
         view::{
             fit,
@@ -20,37 +20,6 @@ pub(super) struct Section<'a> {
     pub first: usize,
     pub entries: &'a [HomeEntry<'a>],
     pub leads: &'a [&'a Lead],
-    pub replies: bool,
-}
-
-/// The one line under a heading: the latest exchange, or why there is none.
-fn preview(lead: &Lead, width: u16) -> Value {
-    let (text, role) = lead.exchange.as_ref().map_or_else(
-        || {
-            (
-                if lead.failure.is_some() {
-                    "(exchange unavailable)"
-                } else {
-                    "–"
-                }
-                .into(),
-                Role::Dim,
-            )
-        },
-        |exchange| match exchange.kind {
-            Kind::Question => (format!("asks: {}", exchange.preview), Role::Waiting),
-            Kind::Asked => (format!("no reply yet to: {}", exchange.preview), Role::Dim),
-            Kind::Reply => (exchange.preview.clone(), Role::Text),
-        },
-    );
-    json!({
-        "id": "preview",
-        "text": format!(
-            "  {}",
-            fit(&text, usize::from(width.saturating_sub(5))).trim_end()
-        ),
-        "role": role.name(),
-    })
 }
 
 fn heading(lead: &Lead, width: u16, now: u64) -> Value {
@@ -68,6 +37,13 @@ fn heading(lead: &Lead, width: u16, now: u64) -> Value {
         .map_or_else(|| "–".into(), |at| crate::requests::age(now, at));
     let age = fit(&age, inner.saturating_sub(4)).trim_end().to_owned();
     let available = inner.saturating_sub(4 + unicode_width::UnicodeWidthStr::width(age.as_str()));
+    let focus = crate::focus::pieces(&lead.row, now, available / 2);
+    let focus_width = focus.as_array().unwrap().first().map_or(0, |piece| {
+        unicode_width::UnicodeWidthStr::width(piece["word"].as_str().unwrap())
+            + unicode_width::UnicodeWidthStr::width(piece["suffix"].as_str().unwrap())
+            + 2
+    });
+    let available = available.saturating_sub(focus_width);
     let name_width = available.min(24);
     // Whether the squad column shows at all is the `md` step of the markup;
     // whether any room is left for it is a fit.
@@ -80,6 +56,8 @@ fn heading(lead: &Lead, width: u16, now: u64) -> Value {
         String::new()
     };
     json!({
+        "focus": focus,
+        "focus_visible": crate::focus::fitted(&lead.row, now, (available + focus_width) / 2).2,
         "mark": format!(" {mark} "),
         "mark_role": role.name(),
         "name": fit(&escape(lead.name()), name_width),
@@ -102,7 +80,6 @@ pub(super) fn paint(
         width: area.width.saturating_sub(2),
         ..area
     };
-    let mut previous_exchange = false;
     let rows =
         section
             .leads
@@ -111,21 +88,7 @@ pub(super) fn paint(
             .map(|(local, lead)| {
                 let index = section.first + local;
                 let target = RowTarget::Home(section.entries[local].target.clone());
-                let reading = app.input.as_ref().is_some_and(|input| {
-                    matches!(input.compose, Compose::ReadLead { .. })
-                        && input
-                            .row_send
-                            .as_ref()
-                            .is_some_and(|send| send.target == target)
-                });
-                // One blank boxed line keeps a lead with an exchange apart from the
-                // next lead, whether that one has an exchange or not.
-                let separator = local > 0 && section.replies && previous_exchange;
-                previous_exchange = lead.exchange.is_some();
                 let mut after = Vec::new();
-                if section.replies && lead.exchange.is_some() && !reading {
-                    after.push(preview(lead, area.width));
-                }
                 if app
                     .sent
                     .as_ref()
@@ -145,12 +108,14 @@ pub(super) fn paint(
                     row[field] = json!("");
                 }
                 row["state_role"] = json!("text");
-                row["separator"] = json!(if separator {
-                    vec![json!({"id": "gap"})]
-                } else {
-                    Vec::new()
-                });
+                row["separator"] = json!([]);
                 row["after"] = json!(after);
+                let visible = if row["focus_visible"] == true {
+                    vec!["focus"]
+                } else {
+                    vec![]
+                };
+                row["detail"] = app.detail_value(index, &visible);
                 row
             })
             .collect::<Vec<_>>();
@@ -169,10 +134,7 @@ pub(super) fn paint(
                 {
                     "id": "rule",
                     "text": rule(
-                        &format!(
-                            "leads · latest from each · t {} replies",
-                            if section.replies { "hides" } else { "shows" }
-                        ),
+                        "leads",
                         usize::from(area.width),
                     ),
                     "role": Role::Muted.name(),

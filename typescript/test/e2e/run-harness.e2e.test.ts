@@ -61,6 +61,18 @@ function identityId(fixture: E2EFixture, name: string): string {
   }
 }
 
+// Assert the new provider-owned suffix before comparing the user's argv. This
+// keeps the original byte-preservation checks sensitive to drops or additions.
+function userArgsWithLaunchHooks(argv: string[]): string[] {
+  expect(argv.at(-2)).toBe('--settings');
+  const settings = JSON.parse(argv.at(-1)!);
+  const focus = settings.hooks.Stop.flatMap((entry: { hooks: { command: string }[] }) =>
+    entry.hooks.filter((hook) => hook.command.includes(' __focus-hook claude --launch '))
+  );
+  expect(focus).toHaveLength(1);
+  return argv.slice(0, -2);
+}
+
 describe('foreground identity launch', { concurrent: false }, () => {
   it('auto-names a launch, names the same live identity, and resumes its hook-recorded session', async () => {
     await withE2EFixture(async (fixture) => {
@@ -96,7 +108,7 @@ describe('foreground identity launch', { concurrent: false }, () => {
       const fake = path.join(fixture.wrapperDir, 'claude');
       const script = `#!/bin/sh
 if [ "$1" = "--resume" ]; then
-  printf '%s\\n' "$@" > ${quote(resumedArgs)}
+  printf '%s\\0' "$@" > ${quote(resumedArgs)}
   exec /opt/tmt-tests/claude ${quote(fixture.executables.cli.executable)} ${quote(resumedScenario)} ${quote(resumedReport)}
 fi
 exec /opt/tmt-tests/claude "$@"
@@ -153,7 +165,9 @@ exec /opt/tmt-tests/claude "$@"
         expect(
           await waitForFileContent(resumeStatus, { description: 'renamed identity resumed' })
         ).toBe('0');
-        expect(readFileSync(resumedArgs, 'utf8').trim().split('\n')).toEqual(['--resume', session]);
+        expect(
+          userArgsWithLaunchHooks(readFileSync(resumedArgs, 'utf8').split('\0').slice(0, -1))
+        ).toEqual(['--resume', session]);
         const resumed = JSON.parse(readFileSync(resumedReport, 'utf8')) as Array<{
           code: number;
           stdout: string;
@@ -253,7 +267,7 @@ exec /opt/tmt-tests/claude "$@"
         readFileSync(callsFile, 'utf8')
           .trim()
           .split('\n')
-          .map((line) => JSON.parse(line) as string[]);
+          .map((line) => userArgsWithLaunchHooks(JSON.parse(line) as string[]));
       await run('initial', ['run', '-s', 'Resume', fake], 0);
       // Nothing remembered: both forms refuse without launching anything.
       await run('no-session', ['resume', 'Resume'], 1);
@@ -311,10 +325,13 @@ exec /opt/tmt-tests/claude "$@"
       );
       expect(listed.identities.find((row) => row.name === 'Resume')?.resume).toEqual(resume);
 
-      // Without the provider's TMT start hook installed, a failure is not trusted.
+      // No persistent setup is needed now: per-launch start hooks make an
+      // unconfirmed failed resume trustworthy enough to mark stale.
       await run('hooks-absent', ['resume', 'Resume'], 31);
       expect(calls()).toEqual([[], ['--resume', session]]);
-      expect(preferences(fixture)).toEqual([row()]);
+      expect(staleAt()).toEqual(expect.any(Number));
+      expect(preferences(fixture)).toEqual([row({ stale_at_ms: staleAt() })]);
+      seed('claude', 'default');
 
       // With it installed, an unconfirmed non-zero exit marks the session stale;
       // a signal exit (128 + n) does not.
@@ -428,9 +445,10 @@ exec /opt/tmt-tests/claude "$@"
         ['run', 'Signals', '/bin/sh', '-c', `touch ${quote(forbidden)}`],
         rejectedStatus
       );
-      expect(
-        await waitForFileContent(rejectedStatus, { description: 'stopped runtime conflict' })
-      ).toBe('5');
+      const rejectedCode = await waitForFileContent(rejectedStatus, {
+        description: 'stopped runtime conflict',
+      });
+      expect(rejectedCode, fixture.capture(60, pane)).toBe('5');
       expect(existsSync(forbidden)).toBe(false);
       expect(stopped(first.child)).toBe(true);
       fixture.tmux(['send-keys', '-t', pane, '-l', 'fg']);
@@ -518,7 +536,7 @@ process.exit(23);
         tty: boolean[];
         descriptors: string[];
       };
-      expect(first.argv).toEqual(args);
+      expect(userArgsWithLaunchHooks(first.argv)).toEqual(args);
       expect(first.tty).toEqual([true, true, true]);
       expect(first.descriptors.some((fd) => fd.includes('tmux-team.db'))).toBe(false);
       const binding = durableState(fixture).bindings.find((row) => row.pane_id === shell.pane);
@@ -559,7 +577,7 @@ process.exit(23);
         .split('\n')
         .map((line) => JSON.parse(line) as { argv: string[] });
       expect(calls).toHaveLength(2);
-      expect(calls[1]?.argv).toEqual([]);
+      expect(userArgsWithLaunchHooks(calls[1]!.argv)).toEqual([]);
       expect(
         durableState(fixture).identities.find((row) => row.id === binding?.identity_id)?.lifetime
       ).toBe('saved');

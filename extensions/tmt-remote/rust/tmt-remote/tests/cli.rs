@@ -28,6 +28,10 @@ static NEXT: AtomicUsize = AtomicUsize::new(0);
 struct Pilot {
     root: PathBuf,
     child: Option<Child>,
+    background: bool,
+    pending_launcher: bool,
+    cleanup_observed: Option<Arc<AtomicBool>>,
+    private_workers: Vec<PrivateWorker>,
 }
 impl Pilot {
     fn new() -> Self {
@@ -37,7 +41,14 @@ impl Pilot {
             NEXT.fetch_add(1, Ordering::Relaxed)
         ));
         fs::create_dir(&root).unwrap();
-        let pilot = Self { root, child: None };
+        let pilot = Self {
+            root,
+            child: None,
+            background: false,
+            pending_launcher: false,
+            cleanup_observed: None,
+            private_workers: Vec::new(),
+        };
         let root = pilot.root.display();
         executable_fixture::write_executable(
             &pilot.root.join("core"),
@@ -61,14 +72,177 @@ impl Pilot {
             .env("TMT_EXECUTABLE", self.root.join("core"));
         cmd
     }
+    fn background_output(&mut self, options: &[&str]) -> std::process::Output {
+        if let Some(child) = &mut self.child {
+            assert!(
+                child.try_wait().unwrap().is_some(),
+                "never replace an unreaped fixture child"
+            );
+        }
+        self.background = true;
+        self.pending_launcher = true;
+        self.child = Some(
+            self.command()
+                .args(["serve", "--background", "--json"])
+                .args(options)
+                .stdout(fs::File::create(self.root.join("launcher.json")).unwrap())
+                .stderr(fs::File::create(self.root.join("launcher.stderr")).unwrap())
+                .spawn()
+                .unwrap(),
+        );
+        let status = reap_until(
+            self.child.as_mut().unwrap(),
+            Instant::now() + STARTUP + Duration::from_secs(45),
+        )
+        .expect("background launcher did not complete within startup/cleanup bound");
+        let stdout = fs::read(self.root.join("launcher.json")).unwrap();
+        let stderr = fs::read(self.root.join("launcher.stderr")).unwrap();
+        let value: Value = serde_json::from_slice(&stdout).unwrap();
+        // These completed parent results imply either completed handoff or the
+        // worker's cleanup confirmation plus reap. Ambiguity keeps the guard.
+        if (status.success() && value["state"] == "ready")
+            || matches!(
+                value["error"]["code"].as_str(),
+                Some(
+                    "REMOTE_ALREADY_SERVING"
+                        | "REMOTE_STATE_UNSAFE"
+                        | "REMOTE_PORT_BUSY"
+                        | "REMOTE_STARTUP_CANCELLED"
+                )
+            )
+        {
+            self.pending_launcher = false;
+        }
+        std::process::Output {
+            status,
+            stdout,
+            stderr,
+        }
+    }
+    // A launcher result is proof only after its own production cancellation
+    // owner reports confirmed pre-Accept cleanup and the exact child is reaped.
+    fn cancel_launcher(&mut self) -> Option<std::process::Output> {
+        // Any missing/malformed completion may include an accepted service.
+        // Attempt its existing stop owner, while retaining uncertainty.
+        let previously_admitted = self.background;
+        self.background = true;
+        let child = self.child.as_mut()?;
+        if matches!(child.try_wait(), Ok(None)) {
+            let _ = nix::sys::signal::kill(
+                nix::unistd::Pid::from_raw(child.id() as i32),
+                nix::sys::signal::Signal::SIGTERM,
+            );
+        }
+        let status = reap_until(child, Instant::now() + Duration::from_secs(45))?;
+        let stdout = fs::read(self.root.join("launcher.json")).ok()?;
+        let stderr = fs::read(self.root.join("launcher.stderr")).ok()?;
+        let value: Value = serde_json::from_slice(&stdout).ok()?;
+        if status.success() || value["error"]["code"] != "REMOTE_STARTUP_CANCELLED" {
+            // An accepted/ambiguous result is not pre-state cleanup evidence.
+            // Stop can handle a possibly admitted service, but uncertainty still
+            // retains the root rather than implying all invocations are gone.
+            return None;
+        }
+        eprintln!(
+            "owned launcher reaped with {}: {}",
+            value["error"]["code"], status
+        );
+        self.pending_launcher = false;
+        self.background = previously_admitted;
+        Some(std::process::Output {
+            status,
+            stdout,
+            stderr,
+        })
+    }
 }
 impl Drop for Pilot {
     fn drop(&mut self) {
-        if let Some(mut child) = self.child.take() {
-            let _ = child.kill();
-            let _ = child.wait();
+        let mut confirmed = !self.pending_launcher || self.cancel_launcher().is_some();
+        for worker in &mut self.private_workers {
+            if !worker.accepted {
+                confirmed &= worker.cancel_and_reap();
+            }
         }
-        fs::remove_dir_all(&self.root).unwrap();
+        if self.background {
+            // A detached worker is not owned by the reaped launcher PID. Stop
+            // only this admitted disposable root and confirm lease/socket cleanup.
+            let mut clean = false;
+            if let Ok(mut stop) = self
+                .command()
+                .args(["stop", "--json"])
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .spawn()
+            {
+                let deadline = Instant::now() + Duration::from_secs(60);
+                loop {
+                    match stop.try_wait() {
+                        Ok(Some(status)) => {
+                            clean = status.success();
+                            break;
+                        }
+                        Ok(None) if Instant::now() < deadline => {
+                            std::thread::sleep(Duration::from_millis(20))
+                        }
+                        _ => {
+                            let _ = stop.kill();
+                            let reap_deadline = Instant::now() + Duration::from_secs(1);
+                            while Instant::now() < reap_deadline {
+                                if matches!(stop.try_wait(), Ok(Some(_))) {
+                                    break;
+                                }
+                                std::thread::sleep(Duration::from_millis(20));
+                            }
+                            break;
+                        }
+                    }
+                }
+            }
+            let released = tmt_remote::state::Layout::existing(&self.root.join("state"))
+                .and_then(|layout| match layout {
+                    Some(layout) => layout.existing_serve_lock().map(|lease| {
+                        drop(lease);
+                        true
+                    }),
+                    None => Ok(true),
+                })
+                .unwrap_or(false);
+            if !clean || !released || self.root.join("state/remote/control.sock").exists() {
+                confirmed = false;
+            }
+        }
+        for worker in &mut self.private_workers {
+            if worker.accepted {
+                confirmed &= reap_until(&mut worker.child, Instant::now() + Duration::from_secs(2))
+                    .is_some();
+            }
+        }
+        if let Some(mut child) = self.child.take() {
+            if matches!(child.try_wait(), Ok(None)) {
+                let _ = child.kill();
+            }
+            confirmed &= reap_until(&mut child, Instant::now() + Duration::from_secs(1)).is_some();
+        }
+        if confirmed {
+            if let Some(observed) = &self.cleanup_observed {
+                eprintln!(
+                    "fixture cleanup confirmed before root removal: {}",
+                    self.root.display()
+                );
+                observed.store(true, Ordering::SeqCst);
+            }
+            if fs::remove_dir_all(&self.root).is_ok() {
+                return;
+            }
+        }
+        eprintln!(
+            "fixture cleanup unconfirmed; retained {}",
+            self.root.display()
+        );
+        if !std::thread::panicking() {
+            panic!("owned fixture did not confirm cleanup");
+        }
     }
 }
 fn exchange(socket: &str, request: &str) -> String {
@@ -355,6 +529,7 @@ fn pair_json_confirms_one_device_and_grant_survives_control_stop_restart() {
         crypto,
     };
     let mut pilot = Pilot::new();
+    pilot.background = true;
     // Without a running serve there is nothing to pair with.
     let idle = pilot.command().args(["pair", "--json"]).output().unwrap();
     assert!(!idle.status.success());
@@ -371,7 +546,8 @@ fn pair_json_confirms_one_device_and_grant_survives_control_stop_restart() {
         .output()
         .unwrap();
     assert!(!plain.status.success());
-    let descriptor: Value = serde_json::from_str(&start_door(&mut pilot, &[], false)).unwrap();
+    let descriptor: Value =
+        serde_json::from_str(&start_door(&mut pilot, &["--background"], false)).unwrap();
     let address = descriptor["address"].as_str().unwrap().to_owned();
     let (origin, prefix) = address.split_at(address.find("/r/").unwrap());
     let socket = origin.strip_prefix("http://").unwrap().to_owned();
@@ -512,7 +688,8 @@ fn pair_json_confirms_one_device_and_grant_survives_control_stop_restart() {
     assert_eq!(stopped["devices"][0], name["device"]);
     // Real enrollment and its complete grant, rather than a seeded count,
     // survive a new window at the same origin.
-    let next: Value = serde_json::from_str(&start_door(&mut pilot, &[], false)).unwrap();
+    let next: Value =
+        serde_json::from_str(&start_door(&mut pilot, &["--background"], false)).unwrap();
     assert_eq!(next["address"], descriptor["address"]);
     assert_ne!(next["windowId"], descriptor["windowId"]);
     let (listed, after_restart) = devices(&pilot, &["--json"]);
@@ -848,6 +1025,12 @@ fn device_events_follow_cli_rename_and_replay_an_offline_revoke_on_restart() {
 /// Keep each started child in the fixture before reading readiness, including
 /// on assertion failure. Readiness is an output event, not a fixed delay.
 fn start_door(pilot: &mut Pilot, options: &[&str], human: bool) -> String {
+    let detached =
+        options.contains(&"--background") || (human && !options.contains(&"--foreground"));
+    if detached {
+        pilot.background = true;
+        pilot.pending_launcher = true;
+    }
     let mut command = pilot.command();
     command.arg("serve").args(options);
     if !human {
@@ -862,22 +1045,50 @@ fn start_door(pilot: &mut Pilot, options: &[&str], human: bool) -> String {
     );
     let pipe = pilot.child.as_mut().unwrap().stdout.take().unwrap();
     let (sender, receiver) = mpsc::channel();
+    let lines = if human {
+        if options.contains(&"--foreground") {
+            2
+        } else {
+            3
+        }
+    } else {
+        1
+    };
     let reader = std::thread::spawn(move || {
         let mut pipe = BufReader::new(pipe);
         let mut output = String::new();
-        for _ in 0..if human { 2 } else { 1 } {
+        for _ in 0..lines {
             pipe.read_line(&mut output).unwrap();
         }
         let _ = sender.send(output);
     });
     let result = receiver.recv_timeout(STARTUP);
     if result.is_err() {
+        if detached {
+            // No completed readiness receipt: request startup cancellation.
+            // Human output cannot prove private cleanup, so keep uncertainty.
+            let _ = pilot.cancel_launcher();
+        }
         let child = pilot.child.as_mut().unwrap();
-        let _ = child.kill();
-        child.wait().unwrap();
+        if matches!(child.try_wait(), Ok(None)) {
+            let _ = child.kill();
+        }
+        assert!(
+            reap_until(child, Instant::now() + Duration::from_secs(1)).is_some(),
+            "readiness failure did not reap the owned child; retain the fixture root"
+        );
     }
     reader.join().unwrap();
-    result.unwrap()
+    let output = result.unwrap();
+    if detached
+        && ((human && output.contains("Manage this door:"))
+            || (!human
+                && serde_json::from_str::<Value>(&output)
+                    .is_ok_and(|value| value["state"] == "ready")))
+    {
+        pilot.pending_launcher = false;
+    }
+    output
 }
 fn status_json(pilot: &Pilot) -> Value {
     let result = pilot.command().args(["status", "--json"]).output().unwrap();
@@ -913,6 +1124,74 @@ fn wait_stopped(child: &mut Child) {
         }
         std::thread::sleep(Duration::from_millis(10));
     }
+}
+#[test]
+fn default_human_serve_returns_after_readiness() {
+    let mut pilot = Pilot::new();
+    pilot.background = true;
+    let output = start_door(&mut pilot, &["--port", "0"], true);
+    assert!(output.contains("http://"));
+    let deadline = Instant::now() + Duration::from_secs(2);
+    let launcher = pilot.child.as_mut().unwrap();
+    loop {
+        if let Some(status) = launcher.try_wait().unwrap() {
+            assert!(status.success());
+            break;
+        }
+        if Instant::now() >= deadline {
+            launcher.kill().unwrap();
+            launcher.wait().unwrap();
+            panic!("default human serve kept the launcher in the foreground");
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    let status = status_json(&pilot);
+    assert_eq!(status["running"], true);
+    assert_eq!(
+        output
+            .lines()
+            .find(|line| line.starts_with("http://"))
+            .unwrap(),
+        format!("{}/", status["origin"].as_str().unwrap())
+    );
+    assert_eq!(stop_json(&pilot), serde_json::json!({"stopped": true}));
+    assert_eq!(status_json(&pilot)["running"], false);
+}
+#[test]
+fn human_serve_link_opens_landing_while_protocol_address_stays_separate() {
+    let mut pilot = Pilot::new();
+    let output = start_door(&mut pilot, &["--foreground", "--port", "0"], true);
+    let url = output
+        .lines()
+        .find(|line| line.starts_with("http://"))
+        .unwrap();
+    let status = status_json(&pilot);
+    let origin = status["origin"].as_str().unwrap();
+    let prefix = status["path"].as_str().unwrap();
+    assert_eq!(
+        url,
+        format!("{origin}/"),
+        "human output must name the browser entry"
+    );
+    let calls_before = fs::read(pilot.root.join("calls")).unwrap();
+    let socket = origin.strip_prefix("http://").unwrap();
+    let page = exchange(socket, &format!("GET / HTTP/1.1\r\nHost: {socket}\r\n\r\n"));
+    assert!(page.starts_with("HTTP/1.1 200"));
+    assert!(page.contains("text/html; charset=utf-8"));
+    assert!(page.contains("tmt remote pair"));
+    let protocol = exchange(
+        socket,
+        &format!("GET {prefix} HTTP/1.1\r\nHost: {socket}\r\n\r\n"),
+    );
+    assert!(protocol.starts_with("HTTP/1.1 404"));
+    assert!(protocol.ends_with("{}"));
+    assert_eq!(
+        fs::read(pilot.root.join("calls")).unwrap(),
+        calls_before,
+        "entry and protocol reads must not invoke core"
+    );
+    terminate(pilot.child.take().unwrap());
+    assert!(!pilot.root.join("state/remote/control.sock").exists());
 }
 #[test]
 fn control_stop_closes_listeners_releases_state_and_is_idempotent() {
@@ -1038,6 +1317,10 @@ fn default_port_and_exact_live_status_survive_restart_without_status_mutations()
         let files = stopped_files(&pilot);
         assert_eq!(
             status_json(&pilot),
+            serde_json::json!({"running":false,"lastPort":port})
+        );
+        assert_eq!(
+            machine_status_json(&pilot),
             serde_json::json!({"running":false,"lastPort":port})
         );
         assert_eq!(
@@ -1213,8 +1496,13 @@ fn status_and_stop_refuse_unsafe_state_and_unresponsive_or_malformed_control() {
     terminate(pilot.child.take().unwrap());
     let directory = pilot.root.join("state/remote");
     let refuse = |expected: &str| {
-        for command in ["status", "stop"] {
-            let result = pilot.command().args([command, "--json"]).output().unwrap();
+        for args in [
+            vec!["status", "--json"],
+            vec!["status", "--machine", "--json"],
+            vec!["stop", "--json"],
+        ] {
+            let command = args[0];
+            let result = pilot.command().args(args).output().unwrap();
             assert!(
                 !result.status.success(),
                 "{command} accepted state expected to fail with {expected}"
@@ -1291,45 +1579,12 @@ fn status_and_stop_refuse_unsafe_state_and_unresponsive_or_malformed_control() {
             } else {
                 expected
             };
-            let listener = UnixListener::bind(directory.join("control.sock")).unwrap();
-            fs::set_permissions(
-                directory.join("control.sock"),
-                fs::Permissions::from_mode(0o600),
-            )
-            .unwrap();
-            let (finish, finished) = mpsc::channel();
-            let peer = std::thread::spawn(move || {
-                use std::os::fd::AsFd;
-                let mut events = [nix::poll::PollFd::new(
-                    listener.as_fd(),
-                    nix::poll::PollFlags::POLLIN,
-                )];
-                assert!(
-                    nix::poll::poll(&mut events, 15_000u16).unwrap() > 0,
-                    "control command never connected"
-                );
-                let (mut stream, _) = listener.accept().unwrap();
-                let mut request = String::new();
-                BufReader::new(stream.try_clone().unwrap())
-                    .read_line(&mut request)
-                    .unwrap();
-                assert_eq!(
-                    serde_json::from_str::<Value>(&request).unwrap(),
-                    serde_json::json!({"op":command})
-                );
-                if let Some(reply) = reply {
-                    stream.write_all(reply.as_bytes()).unwrap();
-                } else {
-                    let _ = finished.recv_timeout(Duration::from_secs(15));
-                }
-            });
-            let before = Instant::now();
-            let result = pilot.command().args([command, "--json"]).output().unwrap();
-            let elapsed = before.elapsed();
-            let _ = finish.send(());
-            peer.join().unwrap();
-            fs::remove_file(directory.join("control.sock")).unwrap();
-            assert!(elapsed < Duration::from_secs(10));
+            let result = control_reply(
+                &pilot,
+                &[command, "--json"],
+                serde_json::json!({"op":command}),
+                reply,
+            );
             assert!(
                 !result.status.success(),
                 "{command} accepted state expected to fail with {expected}"
@@ -1409,4 +1664,973 @@ fn session_limit_settings_show_source_and_preserve_open() {
                 .success()
         );
     }
+}
+
+// Exercise the actual binary-private startup owner, not a replacement algorithm.
+struct PrivateWorker {
+    child: Child,
+    stream: UnixStream,
+    failed_cleanup: bool,
+    accepted: bool,
+}
+impl PrivateWorker {
+    fn record(&mut self) -> (u8, Value) {
+        let (tag, value) = read_startup_record(&mut self.stream, Instant::now() + STARTUP).unwrap();
+        if tag == 2 {
+            self.failed_cleanup = value["cleanupConfirmed"] == true;
+        }
+        (tag, value)
+    }
+    fn cancel_and_reap(&mut self) -> bool {
+        let deadline = Instant::now() + Duration::from_secs(45);
+        let _ = self.stream.set_write_timeout(Some(Duration::from_secs(1)));
+        let _ = self.stream.write_all(&[5]);
+        let _ = self.stream.shutdown(std::net::Shutdown::Write);
+        while !self.failed_cleanup {
+            match read_startup_record(&mut self.stream, deadline) {
+                Ok((2, value)) => {
+                    self.failed_cleanup = value["cleanupConfirmed"] == true;
+                    break;
+                }
+                Ok(_) => {}
+                Err(_) => break,
+            }
+        }
+        let exited = reap_until(&mut self.child, deadline).is_some();
+        if !exited && matches!(self.child.try_wait(), Ok(None)) {
+            // This is only an unreaped owned child. Forced exit cannot confirm
+            // its separately grouped invocation cleanup, so retain the root.
+            let _ = self.child.kill();
+            let _ = reap_until(&mut self.child, Instant::now() + Duration::from_secs(1));
+        }
+        eprintln!(
+            "private worker {} cleanup receipt={} reaped={}",
+            self.child.id(),
+            self.failed_cleanup,
+            exited
+        );
+        self.failed_cleanup && exited
+    }
+}
+fn reap_until(child: &mut Child, deadline: Instant) -> Option<std::process::ExitStatus> {
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => return Some(status),
+            Ok(None) if Instant::now() < deadline => std::thread::sleep(Duration::from_millis(10)),
+            _ => return None,
+        }
+    }
+}
+fn startup_worker(pilot: &mut Pilot) -> usize {
+    let (parent, worker) = UnixStream::pair().unwrap();
+    let child = pilot
+        .command()
+        .args(["serve", "--foreground", "--worker", "--port", "0"])
+        .stdin(Stdio::from(std::os::fd::OwnedFd::from(worker)))
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    // Store both handles before any assertion or blocking read. Pilot owns
+    // cancellation, the terminal Failed receipt and reap before root deletion.
+    pilot.private_workers.push(PrivateWorker {
+        child,
+        stream: parent,
+        failed_cleanup: false,
+        accepted: false,
+    });
+    pilot.private_workers.len() - 1
+}
+fn read_startup_record(stream: &mut UnixStream, deadline: Instant) -> std::io::Result<(u8, Value)> {
+    fn read_until(
+        stream: &mut UnixStream,
+        mut bytes: &mut [u8],
+        deadline: Instant,
+    ) -> std::io::Result<()> {
+        while !bytes.is_empty() {
+            let left = deadline
+                .checked_duration_since(Instant::now())
+                .filter(|left| !left.is_zero())
+                .ok_or_else(|| std::io::Error::from(std::io::ErrorKind::TimedOut))?;
+            // Poll bounds the complete frame, including a partial header/body;
+            // a socket timeout alone would renew its allowance on each read.
+            use std::os::fd::AsFd;
+            let mut descriptors = [nix::poll::PollFd::new(
+                stream.as_fd(),
+                nix::poll::PollFlags::POLLIN,
+            )];
+            let timeout =
+                nix::poll::PollTimeout::try_from(left.min(Duration::from_millis(100))).unwrap();
+            if nix::poll::poll(&mut descriptors, timeout)? == 0 {
+                continue;
+            }
+            let count = stream.read(bytes)?;
+            if count == 0 {
+                return Err(std::io::ErrorKind::UnexpectedEof.into());
+            }
+            bytes = &mut bytes[count..];
+        }
+        Ok(())
+    }
+    let mut header = [0; 5];
+    read_until(stream, &mut header, deadline)?;
+    let length = u32::from_be_bytes(header[1..].try_into().unwrap()) as usize;
+    if length + header.len() > 4096 {
+        return Err(std::io::ErrorKind::InvalidData.into());
+    }
+    let mut bytes = vec![0; length];
+    read_until(stream, &mut bytes, deadline)?;
+    Ok((header[0], serde_json::from_slice(&bytes)?))
+}
+
+#[test]
+fn background_json_is_clean_duplicate_does_not_clear_diagnostics_or_stop_original() {
+    let mut pilot = Pilot::new();
+    pilot.background = true;
+    let output = pilot.background_output(&["--port", "0"]);
+    assert!(output.status.success());
+    assert!(output.stderr.is_empty());
+    assert_eq!(
+        fs::read_to_string(pilot.root.join("calls"))
+            .unwrap()
+            .lines()
+            .count(),
+        2
+    );
+    let ready: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(ready["startupCoreCalls"], 2);
+    assert_eq!(ready["state"], "ready");
+    let diagnostic = pilot.root.join("state/remote/serve-error.json");
+    assert_eq!(
+        fs::metadata(&diagnostic).unwrap().permissions().mode() & 0o777,
+        0o600
+    );
+    assert_eq!(fs::read(&diagnostic).unwrap(), b"");
+    fs::write(&diagnostic, b"previous diagnostic fixture").unwrap();
+    let duplicate = pilot.background_output(&[]);
+    assert!(!duplicate.status.success());
+    assert!(duplicate.stderr.is_empty());
+    let error: Value = serde_json::from_slice(&duplicate.stdout).unwrap();
+    assert_eq!(
+        error["error"]["code"],
+        "REMOTE_ALREADY_SERVING",
+        "{}",
+        String::from_utf8_lossy(&duplicate.stderr)
+    );
+    assert_eq!(
+        fs::read(&diagnostic).unwrap(),
+        b"previous diagnostic fixture"
+    );
+    let status = status_json(&pilot);
+    let (origin, path, _) = address_parts(ready["address"].as_str().unwrap());
+    assert_eq!(status["origin"], origin);
+    assert_eq!(status["path"], path);
+    let (origin, _, _) = address_parts(ready["address"].as_str().unwrap());
+    let socket = origin.strip_prefix("http://").unwrap();
+    assert!(
+        exchange(socket, &format!("GET / HTTP/1.1\r\nHost: {socket}\r\n\r\n"))
+            .contains("<!doctype html>")
+    );
+    assert_eq!(stop_json(&pilot), serde_json::json!({"stopped":true}));
+    assert_eq!(status_json(&pilot)["running"], false);
+}
+
+#[test]
+fn ready_cancel_closes_owned_resources_and_preserves_machine_key() {
+    let mut pilot = Pilot::new();
+    let index = startup_worker(&mut pilot);
+    let worker = &mut pilot.private_workers[index];
+    let (tag, ready) = worker.record();
+    assert_eq!(tag, 1);
+    let key = fs::read(pilot.root.join("state/remote/machine.key")).unwrap();
+    worker.stream.write_all(&[5]).unwrap();
+    let (tag, failed) = worker.record();
+    assert_eq!(tag, 2);
+    assert_eq!(failed["cleanupConfirmed"], true);
+    assert_eq!(failed["code"], "REMOTE_STARTUP_CANCELLED");
+    let status = reap_until(&mut worker.child, Instant::now() + Duration::from_secs(45)).unwrap();
+    assert!(!status.success());
+    assert_eq!(status_json(&pilot)["running"], false);
+    let (origin, _, _) = address_parts(ready["address"].as_str().unwrap());
+    let socket = origin.strip_prefix("http://").unwrap();
+    assert!(TcpStream::connect(socket).is_err());
+    assert_eq!(
+        fs::read(pilot.root.join("state/remote/machine.key")).unwrap(),
+        key
+    );
+    let diagnostic: Value = serde_json::from_slice(
+        &fs::read(pilot.root.join("state/remote/serve-error.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(diagnostic["phase"], "handoff");
+}
+
+#[test]
+fn lost_accepted_acknowledgment_keeps_the_actual_service_running() {
+    let mut pilot = Pilot::new();
+    let index = startup_worker(&mut pilot);
+    let startup = &mut pilot.private_workers[index];
+    let (_, ready) = startup.record();
+    let worker = nix::unistd::Pid::from_raw(startup.child.id() as i32);
+    assert_eq!(nix::unistd::getsid(Some(worker)).unwrap(), worker);
+    assert_ne!(nix::unistd::getsid(None).unwrap(), worker);
+    // Refuse the acknowledgment, but buffer Accept before EOF. No re-execution.
+    startup.stream.shutdown(std::net::Shutdown::Read).unwrap();
+    startup.stream.write_all(&[3]).unwrap();
+    startup.accepted = true;
+    pilot.background = true;
+    startup.stream.shutdown(std::net::Shutdown::Write).unwrap();
+    let (origin, _, _) = address_parts(ready["address"].as_str().unwrap());
+    let socket = origin.strip_prefix("http://").unwrap();
+    assert!(
+        exchange(socket, &format!("GET / HTTP/1.1\r\nHost: {socket}\r\n\r\n"))
+            .contains("<!doctype html>")
+    );
+    assert!(
+        pilot.private_workers[index]
+            .child
+            .try_wait()
+            .unwrap()
+            .is_none()
+    );
+    let status = status_json(&pilot);
+    let (origin, path, _) = address_parts(ready["address"].as_str().unwrap());
+    assert_eq!(status["origin"], origin);
+    assert_eq!(status["path"], path);
+    assert_eq!(stop_json(&pilot), serde_json::json!({"stopped":true}));
+    wait_stopped(&mut pilot.private_workers[index].child);
+    assert!(!pilot.root.join("state/remote/control.sock").exists());
+}
+
+#[test]
+fn unsafe_diagnostic_and_busy_port_refuse_without_replacing_files() {
+    let mut pilot = Pilot::new();
+    // Initialize only by the real foreground owner, then release its lease.
+    start_door(&mut pilot, &["--port", "0"], false);
+    stop_json(&pilot);
+    wait_stopped(pilot.child.as_mut().unwrap());
+    let diagnostic = pilot.root.join("state/remote/serve-error.json");
+    let foreign = pilot.root.join("foreign");
+    fs::write(&foreign, b"must stay exact").unwrap();
+    std::os::unix::fs::symlink(&foreign, &diagnostic).unwrap();
+    // The launcher guard is installed before an unexpected acceptance can unwind.
+    let result = pilot.background_output(&[]);
+    assert!(!result.status.success());
+    let error: Value = serde_json::from_slice(&result.stdout).unwrap();
+    assert_eq!(error["error"]["code"], "REMOTE_STATE_UNSAFE");
+    assert_eq!(fs::read(&foreign).unwrap(), b"must stay exact");
+    fs::remove_file(&diagnostic).unwrap();
+    let occupied = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = occupied.local_addr().unwrap().port().to_string();
+    let result = pilot.background_output(&["--port", &port]);
+    assert!(!result.status.success());
+    let error: Value = serde_json::from_slice(&result.stdout).unwrap();
+    assert_eq!(error["error"]["code"], "REMOTE_PORT_BUSY");
+    let bytes = fs::read(&diagnostic).unwrap();
+    assert!(bytes.len() <= 4096);
+    let diagnostic: Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(diagnostic["phase"], "bind");
+    assert!(
+        !String::from_utf8(bytes)
+            .unwrap()
+            .contains(&pilot.root.display().to_string())
+    );
+    assert_eq!(occupied.local_addr().unwrap().port().to_string(), port);
+}
+
+#[test]
+fn failed_private_start_record_is_bounded_and_reports_cleanup() {
+    let mut pilot = Pilot::new();
+    start_door(&mut pilot, &[], false);
+    let index = startup_worker(&mut pilot);
+    let duplicate = &mut pilot.private_workers[index];
+    let (tag, failed) = duplicate.record();
+    assert_eq!(tag, 2, "{failed}");
+    assert_eq!(failed["code"], "REMOTE_ALREADY_SERVING", "{failed}");
+    assert_eq!(failed["cleanupConfirmed"], true, "{failed}");
+    assert!(
+        !reap_until(&mut duplicate.child, Instant::now() + STARTUP)
+            .unwrap()
+            .success()
+    );
+    stop_json(&pilot);
+    wait_stopped(pilot.child.as_mut().unwrap());
+}
+
+#[test]
+fn explicit_modes_refuse_conflict_and_foreground_preserves_terminal_ownership() {
+    let mut pilot = Pilot::new();
+    let conflict = pilot
+        .command()
+        .args(["serve", "--foreground", "--background", "--json"])
+        .output()
+        .unwrap();
+    assert!(!conflict.status.success());
+    assert!(!pilot.root.join("calls").exists());
+    start_door(&mut pilot, &["--foreground", "--port", "0"], true);
+    assert!(pilot.child.as_mut().unwrap().try_wait().unwrap().is_none());
+    assert!(!pilot.root.join("state/remote/serve-error.json").exists());
+    terminate(pilot.child.take().unwrap());
+    assert_eq!(status_json(&pilot)["running"], false);
+}
+
+#[test]
+fn launcher_cancellation_reaps_a_real_pending_discovery_invocation() {
+    let mut pilot = Pilot::new();
+    let pending = start_pending_launcher(&mut pilot);
+    assert!(
+        fs::read_to_string(pilot.root.join("input"))
+            .unwrap()
+            .contains("capabilities")
+    );
+    let output = pilot
+        .cancel_launcher()
+        .expect("confirmed launcher cancellation and reap");
+    assert!(!output.status.success());
+    let error: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert!(
+        error["error"]["code"]
+            .as_str()
+            .unwrap()
+            .starts_with("REMOTE_")
+    );
+    assert_eq!(
+        nix::sys::signal::kill(nix::unistd::Pid::from_raw(pending), None),
+        Err(nix::errno::Errno::ESRCH)
+    );
+    assert!(!pilot.root.join("state/remote").exists());
+}
+
+#[test]
+fn startup_endpoint_is_not_inherited_by_actual_core_and_eof_reaps_pending_core() {
+    let mut pilot = Pilot::new();
+    let barrier = pilot.root.join("barrier");
+    nix::unistd::mkfifo(
+        &barrier,
+        nix::sys::stat::Mode::S_IRUSR | nix::sys::stat::Mode::S_IWUSR,
+    )
+    .unwrap();
+    executable_fixture::write_executable(&pilot.root.join("core"), &format!(
+        "cat > '{root}/input'\nfor fd in /dev/fd/*; do if test -S \"$fd\"; then printf '%s\\n' \"$fd\" >> '{root}/inherited-sockets'; fi; done\nprintf '%s' \"$$\" > '{root}/pending.pid'\nread -r release < '{root}/barrier'\n",
+        root=pilot.root.display())).unwrap();
+    // Positive control: this exact inspector detects a socket deliberately
+    // attached as fake-core stdin. It must not silently always report no sockets.
+    let mut gate = fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(&barrier)
+        .unwrap();
+    let (positive, socket) = UnixStream::pair().unwrap();
+    positive.shutdown(std::net::Shutdown::Write).unwrap();
+    pilot.child = Some(
+        Command::new(pilot.root.join("core"))
+            .stdin(Stdio::from(std::os::fd::OwnedFd::from(socket)))
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap(),
+    );
+    let deadline = Instant::now() + STARTUP;
+    while !pilot.root.join("pending.pid").exists() {
+        assert!(
+            Instant::now() < deadline,
+            "socket inspector positive control did not reach barrier"
+        );
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert!(
+        fs::read_to_string(pilot.root.join("inherited-sockets"))
+            .unwrap()
+            .contains("/dev/fd/0")
+    );
+    gate.write_all(b"continue\n").unwrap();
+    assert!(
+        reap_until(pilot.child.as_mut().unwrap(), Instant::now() + STARTUP)
+            .unwrap()
+            .success()
+    );
+    fs::remove_file(pilot.root.join("pending.pid")).unwrap();
+    fs::remove_file(pilot.root.join("inherited-sockets")).unwrap();
+    let index = startup_worker(&mut pilot);
+    let deadline = Instant::now() + STARTUP;
+    let pending = loop {
+        if let Ok(pid) = fs::read_to_string(pilot.root.join("pending.pid"))
+            && let Ok(pid) = pid.parse::<i32>()
+        {
+            break pid;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "actual invocation did not reach EOF barrier"
+        );
+        std::thread::sleep(Duration::from_millis(10));
+    };
+    assert!(!pilot.root.join("inherited-sockets").exists());
+    let worker = &mut pilot.private_workers[index];
+    worker.stream.shutdown(std::net::Shutdown::Write).unwrap();
+    let (tag, failed) = worker.record();
+    assert_eq!(tag, 2);
+    assert_eq!(failed["cleanupConfirmed"], true);
+    let status =
+        reap_until(&mut worker.child, deadline).expect("EOF cleaned the actual pending worker");
+    assert!(!status.success());
+    assert_eq!(
+        nix::sys::signal::kill(nix::unistd::Pid::from_raw(pending), None),
+        Err(nix::errno::Errno::ESRCH)
+    );
+    assert!(!pilot.root.join("state/remote").exists());
+    // Both exact owned processes are now gone; no detached service was admitted.
+    pilot.background = false;
+}
+
+#[test]
+fn background_serving_survives_departure_of_its_real_terminal() {
+    let mut pilot = Pilot::new();
+    // script owns a disposable PTY. Its exit closes that terminal, rather than
+    // simulating departure solely by closing a pipe or painting a status label.
+    pilot.background = true;
+    pilot.pending_launcher = true;
+    let mut terminal = Command::new("/usr/bin/script");
+    terminal.env_clear();
+    for (name, value) in pilot.command().get_envs() {
+        if let Some(value) = value {
+            terminal.env(name, value);
+        }
+    }
+    #[cfg(target_os = "macos")]
+    terminal
+        .args(["-q"])
+        .arg(pilot.root.join("terminal.txt"))
+        .args([BINARY, "serve", "--port", "0"]);
+    #[cfg(not(target_os = "macos"))]
+    terminal
+        .args(["-q", "-e", "-c"])
+        .arg(format!("'{BINARY}' serve --port 0"))
+        .arg(pilot.root.join("terminal.txt"));
+    pilot.child = Some(
+        terminal
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap(),
+    );
+    let deadline = Instant::now() + STARTUP;
+    loop {
+        if let Some(status) = pilot.child.as_mut().unwrap().try_wait().unwrap() {
+            assert!(status.success());
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "disposable terminal did not exit after handoff"
+        );
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    let output = fs::read_to_string(pilot.root.join("terminal.txt")).unwrap();
+    assert!(
+        output.contains("tmt remote pair")
+            && output.contains("tmt remote status")
+            && output.contains("tmt remote stop")
+    );
+    // The exact PTY launcher exited successfully and published full readiness.
+    pilot.pending_launcher = false;
+    let status = status_json(&pilot);
+    assert_eq!(status["running"], true);
+    let socket = status["origin"]
+        .as_str()
+        .unwrap()
+        .strip_prefix("http://")
+        .unwrap();
+    assert!(
+        exchange(socket, &format!("GET / HTTP/1.1\r\nHost: {socket}\r\n\r\n"))
+            .contains("<!doctype html>")
+    );
+    assert_eq!(stop_json(&pilot), serde_json::json!({"stopped":true}));
+    assert_eq!(status_json(&pilot)["running"], false);
+}
+
+// Deliberately unwind after actual core discovery has entered its barrier.
+// The PID is an observation only, never authority to signal a descendant.
+#[test]
+fn pending_launcher_assertion_unwind_confirms_cleanup_before_root_removal() {
+    let mut pilot = Pilot::new();
+    let root = pilot.root.clone();
+    let confirmed = Arc::new(AtomicBool::new(false));
+    pilot.cleanup_observed = Some(confirmed.clone());
+    let pending = start_pending_launcher(&mut pilot);
+    assert!(
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || {
+            let _owned = pilot;
+            panic!("deliberate pending launcher fixture failure");
+        }))
+        .is_err()
+    );
+    let deadline = Instant::now() + Duration::from_secs(45);
+    while nix::sys::signal::kill(nix::unistd::Pid::from_raw(pending), None)
+        != Err(nix::errno::Errno::ESRCH)
+    {
+        assert!(
+            Instant::now() < deadline,
+            "pending invocation cleanup unconfirmed; retained evidence at {}",
+            root.display()
+        );
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert!(
+        confirmed.load(Ordering::SeqCst),
+        "root removal needs confirmed startup cancellation plus owned launcher reap"
+    );
+    assert!(!root.exists());
+}
+fn pending_core(pilot: &Pilot) {
+    let barrier = pilot.root.join("barrier");
+    nix::unistd::mkfifo(
+        &barrier,
+        nix::sys::stat::Mode::S_IRUSR | nix::sys::stat::Mode::S_IWUSR,
+    )
+    .unwrap();
+    executable_fixture::write_executable(&pilot.root.join("core"), &format!(
+        "cat > '{root}/input'\nprintf '%s' \"$$\" > '{root}/pending.pid'\nread -r release < '{root}/barrier'\n", root=pilot.root.display())).unwrap();
+}
+fn start_pending_launcher(pilot: &mut Pilot) -> i32 {
+    pending_core(pilot);
+    pilot.pending_launcher = true;
+    pilot.child = Some(
+        pilot
+            .command()
+            .args(["serve", "--background", "--json"])
+            .stdout(fs::File::create(pilot.root.join("launcher.json")).unwrap())
+            .stderr(fs::File::create(pilot.root.join("launcher.stderr")).unwrap())
+            .spawn()
+            .unwrap(),
+    );
+    let deadline = Instant::now() + STARTUP;
+    loop {
+        if let Ok(pid) = fs::read_to_string(pilot.root.join("pending.pid"))
+            && let Ok(pid) = pid.parse::<i32>()
+        {
+            return pid;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "actual invocation did not reach its barrier"
+        );
+        std::thread::sleep(Duration::from_millis(10));
+    }
+}
+
+#[test]
+fn private_worker_assertion_unwind_cancels_pending_core_and_reaps_before_removal() {
+    let mut pilot = Pilot::new();
+    let root = pilot.root.clone();
+    let confirmed = Arc::new(AtomicBool::new(false));
+    pilot.cleanup_observed = Some(confirmed.clone());
+    pending_core(&pilot);
+    let index = startup_worker(&mut pilot);
+    let worker_pid = pilot.private_workers[index].child.id() as i32;
+    let deadline = Instant::now() + STARTUP;
+    let pending = loop {
+        if let Ok(pid) = fs::read_to_string(root.join("pending.pid"))
+            && let Ok(pid) = pid.parse::<i32>()
+        {
+            break pid;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "private worker did not reach actual core barrier"
+        );
+        std::thread::sleep(Duration::from_millis(10));
+    };
+    assert!(
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || {
+            let _owned = pilot;
+            panic!("deliberate private worker fixture failure");
+        }))
+        .is_err()
+    );
+    assert!(confirmed.load(Ordering::SeqCst));
+    for pid in [pending, worker_pid] {
+        assert_eq!(
+            nix::sys::signal::kill(nix::unistd::Pid::from_raw(pid), None),
+            Err(nix::errno::Errno::ESRCH)
+        );
+    }
+    assert!(!root.exists());
+}
+#[test]
+fn duplicate_private_worker_assertion_unwind_reaps_duplicate_and_stops_original() {
+    let mut pilot = Pilot::new();
+    let root = pilot.root.clone();
+    let confirmed = Arc::new(AtomicBool::new(false));
+    pilot.cleanup_observed = Some(confirmed.clone());
+    let ready: Value =
+        serde_json::from_str(&start_door(&mut pilot, &["--port", "0"], false)).unwrap();
+    let (origin, _, _) = address_parts(ready["address"].as_str().unwrap());
+    let socket = origin.strip_prefix("http://").unwrap().to_owned();
+    // Existing admitted root stop owns the original service; the separate
+    // private guard owns the duplicate, installed before its first frame read.
+    pilot.background = true;
+    let index = startup_worker(&mut pilot);
+    let duplicate_pid = pilot.private_workers[index].child.id() as i32;
+    assert!(
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || {
+            let _owned = pilot;
+            panic!("deliberate duplicate worker assertion failure");
+        }))
+        .is_err()
+    );
+    assert!(confirmed.load(Ordering::SeqCst));
+    assert_eq!(
+        nix::sys::signal::kill(nix::unistd::Pid::from_raw(duplicate_pid), None),
+        Err(nix::errno::Errno::ESRCH)
+    );
+    assert!(TcpStream::connect(socket).is_err());
+    assert!(!root.exists());
+}
+#[test]
+fn unexpected_accepted_background_assertion_unwind_stops_before_removal() {
+    let mut pilot = Pilot::new();
+    let root = pilot.root.clone();
+    let confirmed = Arc::new(AtomicBool::new(false));
+    pilot.cleanup_observed = Some(confirmed.clone());
+    let output = pilot.background_output(&["--port", "0"]);
+    assert!(output.status.success());
+    let ready: Value = serde_json::from_slice(&output.stdout).unwrap();
+    let (origin, _, _) = address_parts(ready["address"].as_str().unwrap());
+    let socket = origin.strip_prefix("http://").unwrap().to_owned();
+    assert!(
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || {
+            let _owned = pilot;
+            panic!("deliberate expected-refusal assertion after accepted startup");
+        }))
+        .is_err()
+    );
+    assert!(confirmed.load(Ordering::SeqCst));
+    assert!(TcpStream::connect(socket).is_err());
+    assert!(!root.exists());
+}
+
+#[test]
+fn missing_private_cleanup_receipt_retains_root_without_double_panic() {
+    let mut pilot = Pilot::new();
+    let root = pilot.root.clone();
+    let observed = Arc::new(AtomicBool::new(false));
+    pilot.cleanup_observed = Some(observed.clone());
+    let index = startup_worker(&mut pilot);
+    let worker = &mut pilot.private_workers[index];
+    let (_, ready) = worker.record();
+    worker.stream.write_all(&[5]).unwrap();
+    // Deliberately consume the real completion outside the guard. Exit alone
+    // must not replace a missing guard receipt, even with no control socket.
+    let (tag, completion) =
+        read_startup_record(&mut worker.stream, Instant::now() + STARTUP).unwrap();
+    assert_eq!(tag, 2);
+    assert_eq!(completion["cleanupConfirmed"], true);
+    assert!(reap_until(&mut worker.child, Instant::now() + STARTUP).is_some());
+    assert!(
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || {
+            let _owned = pilot;
+            panic!("deliberate failure without guard cleanup receipt");
+        }))
+        .is_err()
+    );
+    assert!(!observed.load(Ordering::SeqCst));
+    assert!(
+        root.exists(),
+        "missing receipt must retain diagnostic state"
+    );
+    let (origin, _, _) = address_parts(ready["address"].as_str().unwrap());
+    assert!(TcpStream::connect(origin.strip_prefix("http://").unwrap()).is_err());
+    // The test, unlike the deliberately deprived guard, retained the actual
+    // worker completion plus reap above. Only now remove its retained artifact.
+    let layout = tmt_remote::state::Layout::existing(&root.join("state"))
+        .unwrap()
+        .unwrap();
+    drop(layout.existing_serve_lock().unwrap());
+    assert!(!root.join("state/remote/control.sock").exists());
+    eprintln!(
+        "independent real completion and reap verified; removing retained artifact {}",
+        root.display()
+    );
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn machine_projection_uses_the_exact_live_control_owner() {
+    let mut pilot = Pilot::new();
+    let ready: Value =
+        serde_json::from_str(&start_door(&mut pilot, &["--port", "0"], false)).unwrap();
+    let (origin, path, _) = address_parts(ready["address"].as_str().unwrap());
+    let mut stream = UnixStream::connect(pilot.root.join("state/remote/control.sock")).unwrap();
+    stream
+        .set_read_timeout(Some(Duration::from_secs(5)))
+        .unwrap();
+    writeln!(
+        stream,
+        "{}",
+        serde_json::json!({"op":"status","machine":true})
+    )
+    .unwrap();
+    let mut line = String::new();
+    BufReader::new(stream).read_line(&mut line).unwrap();
+    let answer: Value = serde_json::from_str(&line).unwrap();
+    assert_eq!(
+        answer,
+        serde_json::json!({"running":true,"origin":origin,"path":path,"machineId":ready["machineId"]})
+    );
+}
+
+fn machine_status_json(pilot: &Pilot) -> Value {
+    let result = pilot
+        .command()
+        .args(["status", "--machine", "--json"])
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stdout)
+    );
+    assert!(result.stderr.is_empty());
+    serde_json::from_slice(&result.stdout).unwrap()
+}
+// The existing one-shot owner-only peer fixture, shared by ordinary and optional
+// projections. Scoped joins also cover command/read/assertion unwind.
+fn control_reply(
+    pilot: &Pilot,
+    args: &[&str],
+    expected_request: Value,
+    reply: Option<&str>,
+) -> std::process::Output {
+    let socket = pilot.root.join("state/remote/control.sock");
+    let listener = UnixListener::bind(&socket).unwrap();
+    fs::set_permissions(&socket, fs::Permissions::from_mode(0o600)).unwrap();
+    let (finish, finished) = mpsc::channel();
+    let before = Instant::now();
+    let output = std::thread::scope(|scope| {
+        let peer = scope.spawn(move || {
+            use std::os::fd::AsFd;
+            let mut events = [nix::poll::PollFd::new(
+                listener.as_fd(),
+                nix::poll::PollFlags::POLLIN,
+            )];
+            assert!(
+                nix::poll::poll(&mut events, 15_000u16).unwrap() > 0,
+                "control command never connected"
+            );
+            let (mut stream, _) = listener.accept().unwrap();
+            stream
+                .set_read_timeout(Some(Duration::from_secs(5)))
+                .unwrap();
+            let mut request = String::new();
+            BufReader::new(stream.try_clone().unwrap())
+                .read_line(&mut request)
+                .unwrap();
+            assert_eq!(
+                serde_json::from_str::<Value>(&request).unwrap(),
+                expected_request
+            );
+            if let Some(reply) = reply {
+                stream.write_all(reply.as_bytes()).unwrap();
+            } else {
+                let _ = finished.recv_timeout(Duration::from_secs(15));
+            }
+        });
+        let result = pilot.command().args(args).output();
+        let _ = finish.send(());
+        peer.join().unwrap();
+        result.unwrap()
+    });
+    fs::remove_file(socket).unwrap();
+    assert!(before.elapsed() < Duration::from_secs(10));
+    output
+}
+#[test]
+fn machine_status_is_root_local_and_never_initializes_a_stopped_machine() {
+    let mut machines = Vec::new();
+    for _ in 0..2 {
+        let mut pilot = Pilot::new();
+        assert_eq!(
+            machine_status_json(&pilot),
+            serde_json::json!({"running":false,"lastPort":null})
+        );
+        assert!(!pilot.root.join("state").exists());
+        assert!(
+            fs::read_to_string(pilot.root.join("input"))
+                .unwrap()
+                .contains("storage.root")
+        );
+        let ready: Value =
+            serde_json::from_str(&start_door(&mut pilot, &["--port", "0"], false)).unwrap();
+        let (origin, path, port) = address_parts(ready["address"].as_str().unwrap());
+        let database = fs::read(pilot.root.join("state/remote/remote.db")).unwrap();
+        let key = fs::read(pilot.root.join("state/remote/machine.key")).unwrap();
+        let calls = fs::read_to_string(pilot.root.join("calls"))
+            .unwrap()
+            .lines()
+            .count();
+        assert_eq!(
+            machine_status_json(&pilot),
+            serde_json::json!({"running":true,"origin":origin,"path":path,"machineId":ready["machineId"]})
+        );
+        assert_eq!(
+            fs::read_to_string(pilot.root.join("calls"))
+                .unwrap()
+                .lines()
+                .count(),
+            calls + 1
+        );
+        assert!(
+            fs::read_to_string(pilot.root.join("input"))
+                .unwrap()
+                .contains("storage.root")
+        );
+        assert_eq!(
+            status_json(&pilot),
+            serde_json::json!({"running":true,"origin":origin,"path":path})
+        );
+        assert_eq!(
+            fs::read(pilot.root.join("state/remote/remote.db")).unwrap(),
+            database
+        );
+        assert_eq!(
+            fs::read(pilot.root.join("state/remote/machine.key")).unwrap(),
+            key
+        );
+        machines.push(ready["machineId"].clone());
+        terminate(pilot.child.take().unwrap());
+        let files = stopped_files(&pilot);
+        assert_eq!(
+            machine_status_json(&pilot),
+            serde_json::json!({"running":false,"lastPort":port})
+        );
+        assert_eq!(stopped_files(&pilot), files);
+    }
+    assert_ne!(machines[0], machines[1]);
+    let pilot = Pilot::new();
+    let refused = pilot
+        .command()
+        .args(["status", "--machine"])
+        .output()
+        .unwrap();
+    assert!(!refused.status.success());
+    assert!(!pilot.root.join("calls").exists());
+    assert!(!pilot.root.join("state").exists());
+    let help = pilot.command().args(["status", "--help"]).output().unwrap();
+    assert!(
+        help.status.success()
+            && String::from_utf8(help.stdout)
+                .unwrap()
+                .contains("--machine")
+    );
+    assert!(!pilot.root.join("calls").exists());
+}
+#[test]
+fn machine_status_preserves_unsupported_errors_and_strict_projection_shapes() {
+    let mut pilot = Pilot::new();
+    start_door(&mut pilot, &["--port", "0"], false);
+    terminate(pilot.child.take().unwrap());
+    let before = stopped_files(&pilot);
+    for (code, message) in [
+        ("REMOTE_CONTROL_UNSUPPORTED", "Unknown control operation."),
+        ("REMOTE_INPUT_INVALID", "Unknown control operation."),
+        ("REMOTE_INPUT_INVALID", "Revoke needs a clientId."),
+        ("REMOTE_NOT_RUNNING", "reported error"),
+    ] {
+        let expected = serde_json::json!({"error":{"code":code,"message":message}});
+        let reply = format!("{expected}\n");
+        let result = control_reply(
+            &pilot,
+            &["status", "--machine", "--json"],
+            serde_json::json!({"op":"status","machine":true}),
+            Some(&reply),
+        );
+        assert!(!result.status.success() && result.stderr.is_empty());
+        assert_eq!(
+            serde_json::from_slice::<Value>(&result.stdout).unwrap(),
+            expected
+        );
+    }
+    let valid = serde_json::json!({"running":true,"origin":"http://127.0.0.1:12345","path":"/r/k7qxm4tz2pbwn6rh","machineId":"00000000-0000-4000-8000-000000000001"});
+    let reply = format!("{valid}\n");
+    let positive = control_reply(
+        &pilot,
+        &["status", "--machine", "--json"],
+        serde_json::json!({"op":"status","machine":true}),
+        Some(&reply),
+    );
+    assert!(positive.status.success() && positive.stderr.is_empty());
+    assert_eq!(
+        serde_json::from_slice::<Value>(&positive.stdout).unwrap(),
+        valid
+    );
+    // The same otherwise valid four-key document is still refused by the legacy
+    // ordinary projection, whose exact shape must not be loosened.
+    let ordinary = control_reply(
+        &pilot,
+        &["status", "--json"],
+        serde_json::json!({"op":"status"}),
+        Some(&reply),
+    );
+    assert!(!ordinary.status.success());
+    assert_eq!(
+        serde_json::from_slice::<Value>(&ordinary.stdout).unwrap()["error"]["code"],
+        "REMOTE_IO"
+    );
+    let mut malformed = Vec::new();
+    for id in [
+        Value::Null,
+        serde_json::json!(""),
+        serde_json::json!("00000000-0000-0000-0000-000000000000"),
+        serde_json::json!("00000000-0000-1000-8000-000000000001"),
+        serde_json::json!("00000000-0000-4000-7000-000000000001"),
+        serde_json::json!("00000000-0000-4000-8000-00000000000A"),
+        serde_json::json!("00000000-0000-4000-8000-00000000000"),
+    ] {
+        let mut value = valid.clone();
+        value["machineId"] = id;
+        malformed.push(value);
+    }
+    let mut value = valid.clone();
+    value.as_object_mut().unwrap().remove("machineId");
+    malformed.push(value);
+    let mut value = valid.clone();
+    value["extra"] = serde_json::json!(true);
+    malformed.push(value);
+    let mut value = valid.clone();
+    value["origin"] = serde_json::json!("http://127.0.0.1:12345/");
+    malformed.push(value);
+    let mut value = valid.clone();
+    value["path"] = serde_json::json!("/r/INVALID");
+    malformed.push(value);
+    malformed.push(serde_json::json!({"running":false,"lastPort":null}));
+    for value in malformed {
+        let reply = format!("{value}\n");
+        let result = control_reply(
+            &pilot,
+            &["status", "--machine", "--json"],
+            serde_json::json!({"op":"status","machine":true}),
+            Some(&reply),
+        );
+        assert!(!result.status.success(), "accepted {value}");
+        assert_eq!(
+            serde_json::from_slice::<Value>(&result.stdout).unwrap()["error"]["code"],
+            "REMOTE_IO"
+        );
+    }
+    for reply in [None, Some("{\"running\":true")] {
+        let result = control_reply(
+            &pilot,
+            &["status", "--machine", "--json"],
+            serde_json::json!({"op":"status","machine":true}),
+            reply,
+        );
+        assert!(!result.status.success());
+        assert_eq!(
+            serde_json::from_slice::<Value>(&result.stdout).unwrap()["error"]["code"],
+            "REMOTE_IO"
+        );
+    }
+    assert_eq!(stopped_files(&pilot), before);
 }

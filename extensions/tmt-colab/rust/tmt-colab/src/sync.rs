@@ -286,42 +286,75 @@ impl<A> Clone for Server<A> {
 }
 impl Server<crate::registration::OwnerAdmission> {
     /// Prepare transport before committing. The opaque server never opens source.
-    pub(crate) fn page_write(
+    pub(crate) fn publish(
         &self,
-        prepared: &crate::page::Prepared,
+        body: &[u8],
         now: u64,
-    ) -> crate::Result<crate::page::Receipt> {
-        let bytes = values::binary(&prepared.envelope, limits::UPDATE_BYTES)?;
-        let decoded = object::Envelope::from_json(&bytes)?;
-        let header = object::Header::decode(decoded.header())?;
-        let c = &header.context;
-        let scope = SyncScope {
-            space: c.space.clone(),
-            page: c.page.clone(),
-            epoch: c.epoch.clone(),
-        };
-        let hash = decoded.hash()?;
-        let (envelope, transfer) = delivery(&scope, hash, bytes)?;
-        let broadcast = wire::output(
-            &scope,
-            "broadcast",
-            serde_json::json!({
-                "streamId": c.author_device, "seq": c.stream_seq,
-                "envelopeHash": values::encode_binary(&hash), "envelope": envelope,
-                "chains": [{"deviceId": c.author_device, "chain": prepared.chain}]
-            }),
-        )?;
-        let mut state = self.0.lock().map_err(|_| crate::page::Fault::Unavailable)?;
-        let committed = state
+        received: std::time::Instant,
+    ) -> crate::Result<crate::page::Published> {
+        use crate::{page::Fault, publication};
+        // The client stops waiting at PUBLISH_REPLY, counted from when it finished sending; a
+        // combine must be done, or give up, a response interval before that.
+        let combine_until = received + limits::PUBLISH_COMBINE;
+        let author = self
+            .0
+            .lock()
+            .map_err(|_| Fault::Unavailable)?
             .admission
             .0
             .lock()
-            .map_err(|_| crate::page::Fault::Unavailable)?
-            .page_write(prepared, now)?;
-        if committed.accepted == Accepted::New {
-            state.fanout(&scope, broadcast, transfer);
+            .map_err(|_| Fault::Unavailable)?
+            .author_key()?;
+        let write =
+            publication::LocalWrite::from_json(body, &author).map_err(|_| Fault::Invalid)?;
+        let job = &write.signed_job;
+        let packet = values::binary(
+            &write.packet,
+            publication::packet_limit(job.manifest.entries.len())?,
+        )?;
+        let chain = values::binary(&write.chain, publication::CHAIN_BYTES)?;
+        let mut outputs = Vec::new();
+        for entry in job.verify_packet(&packet, &author)? {
+            let c = &entry.header.context;
+            let scope = SyncScope {
+                space: c.space.clone(),
+                page: c.page.clone(),
+                epoch: c.epoch.clone(),
+            };
+            let hash = entry.envelope.hash()?;
+            let (envelope, transfer) = delivery(&scope, hash, entry.bytes.to_vec())?;
+            let broadcast = wire::output(
+                &scope,
+                "broadcast",
+                serde_json::json!({
+                    "streamId": c.author_device, "seq": c.stream_seq,
+                    "envelopeHash": values::encode_binary(&hash), "envelope": envelope,
+                    "chains": [{"deviceId": c.author_device, "chain": write.chain}]
+                }),
+            )?;
+            outputs.push((scope, broadcast, transfer));
         }
-        Ok(committed.receipt)
+        let mut state = self.0.lock().map_err(|_| Fault::Unavailable)?;
+        let (committed, revision) = state
+            .admission
+            .0
+            .lock()
+            .map_err(|_| Fault::Unavailable)?
+            .publish(job, &packet, &chain, now, combine_until)?;
+        if committed.accepted == Accepted::New
+            && matches!(
+                committed.record.outcome,
+                publication::Outcome::Committed { .. }
+            )
+        {
+            for (scope, broadcast, transfer) in outputs {
+                state.fanout(&scope, broadcast, transfer);
+            }
+        }
+        Ok(crate::page::Published {
+            record: committed.record,
+            revision,
+        })
     }
 }
 impl<A: Admission> Server<A> {

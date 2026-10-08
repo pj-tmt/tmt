@@ -6,11 +6,11 @@
       "",
       "",
       "        ┌ cron · all squads ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐",
-      "        │ ● c0   alpha        tmt-lead         merge queue sweep                                                every 30m              Mon 10-05 00:30 │",
+      "        │ ●›c0   alpha        tmt-lead         merge queue sweep                                                every 30m              Mon 10-05 00:30 │",
       "        │ ● c0   beta         tmt-ops          worktree cleanup                                                 every 30m              –               │",
       "        │ 1–2 of 2                                                                                                                                     │",
       "        │ 2 jobs · no clock · tmt sq cron run                                                                                                          │",
-      "        │ ↑↓ choose · ⏎ open squad · n new · e edit · p pause · x send · o reassign · d delete · Esc close                                             │",
+      "        │ ↑↓ choose  ⏎ open squad  n new  e expand  E edit  p pause  x send  o reassign  d delete  Esc close                                           │",
       "        └──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘"
     ]
   },
@@ -21,11 +21,11 @@
       "",
       "",
       "     ┌ cron · all squads ─────────────────────────────────────────────────────────────────────┐",
-      "     │ ● c0   alpha        tmt-lead         every 30m              Mon 10-05 00:30            │",
+      "     │ ●›c0   alpha        tmt-lead         every 30m              Mon 10-05 00:30            │",
       "     │ ● c0   beta         tmt-ops          every 30m              –                          │",
       "     │ 1–2 of 2                                                                               │",
       "     │ 2 jobs · no clock · tmt sq cron run                                                    │",
-      "     │ ↑↓ choose · ⏎ open squad · n new · e edit · p pause · x send · o reassign · Esc close  │",
+      "     │ ↑↓ choose  ⏎ open squad  n new  e expand  E edit  p pause  x send  Esc close           │",
       "     └────────────────────────────────────────────────────────────────────────────────────────┘"
     ]
   },
@@ -36,11 +36,11 @@
       "",
       "",
       "┌ cron · all squads ───────────────────────────────────────────────────────────┐",
-      "│ ● c0   alpha        tmt-lead         every 30m              Mon 10-05 00:30  │",
+      "│ ●›c0   alpha        tmt-lead         every 30m              Mon 10-05 00:30  │",
       "│ ● c0   beta         tmt-ops          every 30m              –                │",
       "│ 1–2 of 2                                                                     │",
       "│ 2 jobs · no clock · tmt sq cron run                                          │",
-      "│ ↑↓ choose · ⏎ open squad · n new · e edit · p pause · x send · Esc close     │",
+      "│ ↑↓ choose  ⏎ open squad  n new  e expand  E edit  p pause  x send  Esc close │",
       "└──────────────────────────────────────────────────────────────────────────────┘"
     ]
   },
@@ -55,7 +55,7 @@
       "        │ (no jobs · n new)                                                                                                                            │",
       "        │ 1–1 of 1                                                                                                                                     │",
       "        │ 0 jobs · clock: unknown · ! storage unreachable                                                                                              │",
-      "        │ ↑↓ choose · ⏎ open squad · n new · e edit · p pause · x send · o reassign · d delete · Esc close                                             │",
+      "        │ ↑↓ choose  ⏎ open squad  n new  e expand  p pause  x send  o reassign  d delete  Esc close                                                   │",
       "        └──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘"
     ]
   },
@@ -70,7 +70,7 @@
       "     │ (no jobs · n new)                                                                      │",
       "     │ 1–1 of 1                                                                               │",
       "     │ 0 jobs · clock: unknown · ! storage unreachable                                        │",
-      "     │ ↑↓ choose · ⏎ open squad · n new · e edit · p pause · x send · o reassign · Esc close  │",
+      "     │ ↑↓ choose  ⏎ open squad  n new  e expand  p pause  x send  o reassign  Esc close       │",
       "     └────────────────────────────────────────────────────────────────────────────────────────┘"
     ]
   },
@@ -85,7 +85,7 @@
       "│ (no jobs · n new)                                                            │",
       "│ 1–1 of 1                                                                     │",
       "│ 0 jobs · clock: unknown · ! storage unreachable                              │",
-      "│ ↑↓ choose · ⏎ open squad · n new · e edit · p pause · x send · Esc close     │",
+      "│ ↑↓ choose  ⏎ open squad  n new  e expand  p pause  x send  Esc close         │",
       "└──────────────────────────────────────────────────────────────────────────────┘"
     ]
   }

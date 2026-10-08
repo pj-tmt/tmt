@@ -539,6 +539,15 @@ encodings, queries and fragments MUST reject with 400. No request path is
 normalized, joined to a filesystem directory or given a SPA fallback. Existing
 API routes and registered-owner `/sync` admission/transport are unchanged.
 
+App and reader chrome consume `@tmt/browser-ui/react`, `/static` and `/static.css`.
+Native guidance embeds the same checked `design/browser-ui/generated/static.css` at
+compile time, with Colab-owned host metrics and viewport styles. Cargo and installed
+serving MUST NOT run Node or generate CSS. The same-origin `/assets/chrome.css` response
+uses `text/css; charset=utf-8`, including when the optional app build is absent. Shared
+presentation owns no routing, admission, page state or action/recovery capability.
+Guidance MUST render its recovery status/script only when the admitted app inventory
+actually contains `/assets/recovery.js`; without it, pairing/build guidance stays visible.
+
 Vite output MUST use relative URLs beneath `/r/<prefix>/x/colab/`, with no
 third-party requests. The current app declares installed/system font fallbacks;
 no external font service is used. App and native guidance responses share this
@@ -685,13 +694,13 @@ scoped `(streamId, seq)` key. One browser tab owns the device's write lock with
 `own` have separate documents and decoders; unsigned routing cannot choose a
 document. The following roots are exhaustive:
 
-| Namespace | Roots                                                                        | Fold and authority                                                                   |
-| --------- | ---------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
-| `content` | `html` Y.Text; `meta` Y.Map containing `title` and optional `publisherAgent` | Shared page document, folded from admitted owner/editor streams in the current epoch |
-| `own`     | `threads`, `messages`, `intents`, `replies` Y.Maps                           | Separate document per writer; only that writer's signed stream mutates it            |
+| Namespace | Roots                                                                                             | Fold and authority                                                                   |
+| --------- | ------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| `content` | `html` Y.Text; `meta` Y.Map containing `title` and optional `publisherAgent`, `creationRecipient` | Shared page document, folded from admitted owner/editor streams in the current epoch |
+| `own`     | `threads`, `messages`, `intents`, `replies` Y.Maps                                                | Separate document per writer; only that writer's signed stream mutates it            |
 
 `meta.publisherAgent`, when present, is a nonempty string of at most 128 UTF-8
-bytes without control characters. It is a publisher-asserted display/default label,
+bytes without control characters. It is a publisher-asserted display-only label,
 never an identity binding, agent ID or publication authority. CLI page create/write
 captures it best-effort through the fixed public `identity show --json` command via
 `tmt_invoke` and the invoking TMT executable (one-second deadline, 64 KiB output
@@ -699,6 +708,25 @@ cap). Unknown/unbound callers, invalid output and invocation failures produce no
 label; an unknown CLI writer removes the previous label. Browser source edits
 retain the last CLI label. Content folding and epoch baselines preserve it in the
 committed update bytes; no descriptor field or extra signature is added.
+
+`meta.creationRecipient`, when present, is exactly `{machineId,agentId}`: a
+canonical non-nil Remote UUIDv4 and canonical non-nil core UUID. It is an asserted
+creation-time routing preference, not proof of authorship or authority. CLI creation
+freezes one bounded public caller identity observation with one optional same-root
+`tmt remote status --machine --json` observation before the create intent.
+Unsupported, stopped, missing, malformed or unavailable observations leave the
+complete pair absent and creation succeeds. Creation reuses this observation for
+link presentation: unavailable or unsupported projection prints the committed path
+with neutral unavailable-link wording and no next step, pairing read or automatic
+opening. Only a validated running descriptor permits full links and the existing
+separate presentation-only devices read; a validated stopped result may retain the
+Colab-serve hint. Other commands retain their ordinary status discovery. Later supported source writes preserve
+the pair; historical absence never backfills. Neither latest publisher nor display
+labels can supply it. The future #1817 consumer may default only after an exact
+authenticated current machine and one uniquely admitted agent UUID match this frozen
+preference; this native/non-UI change does not integrate that UI default. Live grant
+and send admission remain separate. Old strict readers reject this added metadata
+rather than silently dropping it; mixed-version runtime acceptance is not claimed.
 
 Mixed-root updates or other root names/types reject before atomic application.
 Sharing, roles, script policy, retention and local grants MUST NOT be Yjs state.
@@ -746,7 +774,7 @@ Historical keys grant no fresh write authority.
 
 ### Own-stream discussion records (#1427)
 
-Both record kinds contain `version:1`, `kind`, `spaceId`, `pageId`, `epoch`,
+All discussion record kinds contain `version:1`, `kind`, `spaceId`, `pageId`, `epoch`,
 `senderDevice`, `revision`, `deleted:boolean`, `deviceName` and `at`. IDs are canonical
 UUIDv4, space IDs are canonical, and epoch/revision are positive decimal strings.
 Labels are publisher-asserted plain text, at most 128 UTF-8 bytes, with no authority.
@@ -757,19 +785,21 @@ determines ordering, revision selection, ownership or admission. The UI shows th
 latest revision's relative time beside the author and marks revised live comments
 as edited; device IDs remain available in a tooltip.
 
-| Root/key                           | Additional fields                                                                         |
-| ---------------------------------- | ----------------------------------------------------------------------------------------- |
-| `threads[threadId+":"+revision]`   | `kind:"thread"`, `threadId`, `anchor:null` or `{exact,prefix,suffix}`, `resolved:boolean` |
-| `messages[messageId+":"+revision]` | `kind:"comment"`, `messageId`, `thread:{writer,id}`, `body:string`                        |
+| Root/key                                       | Additional fields                                                                                                                                                                                                               |
+| ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `threads[threadId+":"+revision]`               | `kind:"thread"`, `threadId`, `anchor:null` or `{exact,prefix,suffix}`, `resolved:boolean`                                                                                                                                       |
+| `messages[messageId+":"+revision]`             | `kind:"comment"`, `messageId`, `thread:{writer,id}`, `body:string`                                                                                                                                                              |
+| `messages[actionId+":thread-status"]`          | `kind:"thread-status"`, `actionId`, `thread:{writer,id}`, `previous:null` or `{writer,id}`, `resolved:boolean`, `actor:"person"` or `"agent"`, `agentName:null` or string, `recipients:[{machine,agent,agentName,operationId}]` |
+| `messages[operationId+":thread-notification"]` | `kind:"thread-notification"`, `operationId`, `status:{writer,id}`, `reason:"RECIPIENT_UNAVAILABLE"` or `"PREPARATION_FAILED"`                                                                                                   |
 
-No unknown fields are accepted. A value claiming either typed kind rejects if its
+No unknown fields are accepted. A value claiming a typed kind rejects if its
 root, key or field grammar is invalid in the browser or native decoder. Other
 bounded raw values remain inert. Bodies are exact plain text: nonempty and at most
 16 KiB UTF-8, or empty for a deleted comment. Deleted threads have null anchors.
 Selectors require nonempty exact text at most 16 KiB UTF-8, with prefix and suffix
 each at most 32 Unicode code points and 128 UTF-8 bytes.
 
-Logical records start at revision 1, with consecutive immutable revisions.
+Thread and comment records start at revision 1, with consecutive immutable revisions.
 Messages retain the same thread reference. A gap, changed reference or resurrection
 after a terminal tombstone yields no projected logical row. Writer ownership is
 part of every reference, so foreign replies never grant edits to the target stream.
@@ -779,12 +809,61 @@ revisions and tombstones across writers; older text remains retained history.
 Deletion is not secure erasure. Deleted threads retain attributed replies and
 disable new replies.
 
+Status and notification records are immutable single actions: `revision` is `"1"`
+and `deleted` is false. An admitted owner device may resolve or reopen any live
+non-Chat thread in the current page/epoch. Thread creation, anchor changes,
+deletion and comment edits remain writer-owned. A designated null-anchor Chat
+thread cannot acquire status actions. The thread record's legacy `resolved` value
+is the initial state, never rewritten by a status action. Historical signing keys
+prove record authorship, not status authority. Native status projection separately
+requires owner-member provenance from the certificate chain and issuer verified
+for every admitted own envelope of that writer at its membership revision;
+ambiguous provenance, non-owner members and bridges cannot contribute status
+actions. Their existing thread, comment and Ask admission is unchanged. A later
+revocation does not erase a valid earlier action within its signed committed cut,
+but current admission remains required to publish another action.
+
+A status action references the effective previous action, or null for the initial
+state. The authenticated fold admits only same-thread ancestry rooted at null;
+missing parents, cross-thread parents and cycles remain inert. A descendant has
+its parent's depth plus one. The deepest action wins; equal-depth concurrent
+branches use ascending ASCII `(writer, actionId)` ordering with the greatest pair
+winning. Wall clocks and labels do not affect this order. Native reads, browser
+views and exports use this effective status rather than selecting status from a
+thread revision. A deleted thread ignores status actions.
+
+`actor` and `agentName` are publisher-asserted display labels. A person action has
+null `agentName`; an agent label, when present, is nonempty, at most 128 UTF-8
+bytes and contains no control characters. Machine and operation IDs are canonical
+UUIDv4; agent IDs use the existing nonzero core UUID grammar. A recipient list contains at most 1,000 distinct machine/agent
+pairs with distinct operation IDs and labels of at most 128 UTF-8 bytes. Only a
+person Resolve action can freeze recipients; Reopen and agent CLI actions have an
+empty recipient list. A notification failure belongs to the status action's
+writer and records a failure before adoption into the existing Ask ledger. It
+cannot change thread status or grant a dispatch capability.
+
 The generic own writer prepares at most 32 records in one update; thread creation
 publishes its thread and opening message together. Preparation cannot change the
 committed projection. Only admitted encrypted appends commit; failures preserve
 parent drafts. Current device/page/epoch admission is required for every mutation.
 Disconnected, read-only and inactive views disable actions. General member-role
 UI remains planned.
+
+Native `tmt colab threads <page> [--json]` reads the same authenticated current-epoch
+conversation projection as export. Its page operand uses the same owner-catalog
+short-prefix resolution as other page commands; thread IDs remain full UUIDs. `threads resolve <page> <thread>` and `threads
+reopen <page> <thread>` publish an agent-labelled status action through the local
+writer as one native publication job of `kind:"own"` (see Content publication), using its
+shared content/own sequence and the same fenced ciphertext commit, offline or through
+the running serve's `page-publish` route. Preparation edits only the writer's admitted
+own structs in the isolated child. Its outcome handling is the page write's: an
+uncertain result reports `COLAB_OUTCOME_UNKNOWN` with the original operation ID after
+one read-only `publication_status`, and never falls back to an offline writer or
+retries. JSON adds `operationId` when the action was published. Repeating
+an already-effective status is a no-op. Missing or ambiguous thread IDs, deleted
+threads and designated Chat threads cannot acquire a new status action. The fixed
+public identity probe supplies a display-only caller name, or no name when unknown.
+Agent CLI Resolve and Reopen have no recipients and never create an Ask or dispatch.
 
 Ask on a comment rechecks its unambiguous verified writer, thread/message IDs and
 revisions in the parent. It freezes stored quote/body and the real IDs in the
@@ -824,7 +903,10 @@ and atomic epoch transitions remain caller-owned, later integration work.
 [Baseline vectors](vectors/baseline-v1.json) pin update-v1 bytes and commitment
 with a test-only fixed client ID; production uses a fresh identity. Their
 [independent oracle](vectors/baseline-reference.py) covers only the fresh
-`html`/`meta.title` plus optional `meta.publisherAgent` schema and requires no third-party libraries.
+`html`/`meta.title` plus optional `meta.publisherAgent` and `meta.creationRecipient` schema and requires no third-party libraries.
+The complete two-key preference has two fixed-client lib0 object-key byte orders,
+each with its own exact-byte commitment; this does not relax the deterministic
+frozen export manifest.
 
 The owner-local epoch engine stores baseline plaintext as strict JSON with exactly
 `source` (the exact UTF-8 source string) and `update` (canonical base64url update-v1).
@@ -1084,6 +1166,7 @@ encoding byte order; declare all schema root types before projection.
 | Per-page decoder concurrency                 | 1                             |
 | Rust decoder batch deadline                  | 2 seconds                     |
 | Updates after checkpoints a write accepts    | 200 updates, 4 MiB            |
+| CLI page write, whole source                 | 2 MiB; within the tail above  |
 | Native compaction trigger, per device stream | 50 updates or 1 MiB           |
 | New page source, per published update        | 192 KiB of text               |
 | Page budget (browser load, gzipped)          | 5,000,000 bytes               |
@@ -1224,7 +1307,7 @@ agent uses the same send path for annotation turns and page Chat. On explicit En
 the parent freezes the admitted quote/comment, page title, canonical mounted HTTP(S)
 page URL and chosen agent/machine before signing.
 Credentialed URLs and malformed Unicode refuse. Paused rendering or later edits
-cannot replace frozen text. The one plain @ input sends without a confirmation screen
+cannot replace frozen text. The shared plaintext message input sends without a confirmation screen
 or an on-demand delivered-message view. The own stream retains frozen bytes and
 destination UUIDs. The pane states that asks and replies are visible to everyone with page access.
 
@@ -1502,7 +1585,7 @@ nodes intact. Resolved ranges keep a light highlight and a small square right-ma
 marker in the frame's document flow, with a count for anchors on the same line. Hover
 shows the bounded quoted text. Comment first-line tooltips stay in parent chrome. A marker posts exactly `type:"colab.render.open-thread"`,
 `renderId`, `requestId`, `id` on the bound port; the parent accepts only a known ID in
-its current highlight request and opens that thread's overlay. Forging this view-only
+its current highlight request and opens that thread's anchored parent window. Forging this view-only
 action cannot publish, sign or send. Resize and DOM changes re-resolve positions;
 thread-list navigation scrolls the window to the reported anchor offset (the bounded
 viewport-coupled fallback scrolls inside its frame). Author scripts can tamper with these APIs, DOM or cosmetic results;
@@ -1514,17 +1597,44 @@ absent own history is never recreated automatically.
 ### Inline annotation conversations (#1587)
 
 The Annotate control beside a selection opens one plain trusted-parent input in a
-small anchored popover at that span. Its placement is cosmetic; the captured quote
+small anchored window at that span. On the first committed turn, the same input
+continues below the thread's user turns, agent state and admitted replies; Comments
+and Chat do not open automatically. The header and composer stay stationary, only
+messages scroll, and new turns/replies scroll that area to the new content. The
+window grows toward the viewport bottom before scrolling, with about 240 px for
+messages when space permits, independently of document bounds. First open, new
+comment IDs and changed associated replies scroll into view; unrelated live
+publications preserve a reader's position in history.
+Its placement is cosmetic; the captured quote
 selector owns the thread anchor. Enter sends, Shift+Enter inserts a newline, and Esc closes the input (an unsent draft is kept). There
 is no confirmation screen or automatic send. The popover closes with its ×, with Escape from anywhere
-inside it, with a press outside it, and with a selection cleared by a page click while nothing beyond
-the prefilled `@agent` is typed; none of these interrupts a send in flight. Typed text is kept in memory
-for the page and restored, with a "Draft kept" note, when the same selection is annotated again. `@` opens the shared styled keyboard
-listbox. The optional publishing name supplies a default only when it matches one
-unique reachable `agents.list` entry; unknown or ambiguous names supply no default.
+inside it, with a press outside it, and with a selection cleared by a page click while
+no nonblank message is typed; none of these interrupts a send in flight. Typed text is kept in memory
+for the page together with the selected recipient and restored, with a "Draft kept"
+note, when the same selection is annotated again or its known thread is reopened.
+After a thread exists, an outside page press collapses it even with a typed draft;
+Close never resolves or sends. Existing writer-owned Resolve collapses only after
+a successful explicit action; failure retains the window and draft. A live source revision preserves the mounted composer, its unsent text and frozen
+quote/rectangle, even when the quote no longer exists in the updated page. Explicit
+Send uses that captured quote; cosmetic resolution may then show the thread as
+detached. After cosmetic resolution finds the quote missing, both the composer
+and open thread show: "This text changed on the page; your note keeps the original quote."
+Renderer loading leaves discussion inputs, focus, caret and agent list usable;
+sending uses the frozen quote and remains subject to current connection admission.
+Open threads, Comments/Chat panels and their drafts also survive source
+revisions. The window scroll offset is retained on a best-effort basis within the
+new document's bounds; no exact re-anchoring is required. A different page ID resets
+this page-local state. Optional `@` completion opens the shared styled keyboard
+listbox. A first agent turn requires an explicit admitted recipient selection;
+publishing/display names do not select a destination.
 The current verified Remote grant and agent/machine UUIDs own routing and admission.
+Recipient state is independent of message bytes; a mention prefix is never mandatory.
+Replies continue a uniquely bound prior UUID/machine under current admission; ambiguity
+requires explicit selection. Choosing a recipient never prepares or dispatches. Plain
+annotation/comments can record under current content-write admission without Ask or
+agent discovery; notification is an explicit bounded action, never fan-out.
 
-Send captures the composed text, selected destination and existing conversation
+Ask captures the composed text, selected destination and existing conversation
 references, publishes the current comment through the existing own stream, then
 freezes and signs the exact Ask with its real thread and message IDs. Prior user
 comments and verified agent replies are included as quoted data, in the existing
@@ -1537,18 +1647,22 @@ view of the transport message. Frozen bytes, including the quote and captured
 context, remain in the existing Ask record. Held approval stays inline; approval
 itself happens on the machine through Remote.
 The existing ledger, expiry, recheck, abandon and uncertainty rules still apply.
+A transient observation read failure shows the existing warning in the anchored
+window. Subsequent permitted observation continues through the same bounded
+observer; a successful cycle clears the warning without another dispatch.
 
 The Comments overlay lists every annotation and page-level thread, with a quote
 snippet, participants, display time and open/resolved status. Selecting a row scrolls
 the window to its anchor and expands that thread inside the overlay; a margin marker
-opens the same thread. Agent replies join verified Ask records to comment IDs and
+reopens the same thread in its anchored window. Page-owned per-thread drafts also
+survive switching to the explicit Comments details view. Agent replies join verified Ask records to comment IDs and
 remain attributed to their agent. Overlay geometry does not reflow page content.
 
 ### Page Chat (#1645)
 
 The header Chat action replaces the standalone Ask action. Chat opens a fixed right
 parent overlay (a full-screen mobile sheet) without resizing or reflowing the page.
-Messages scroll inside it; one shared @ input remains at the bottom. Closing retains
+Messages scroll inside it; one shared plaintext message input remains at the bottom. Closing retains
 the draft and admitted history. Enter explicitly captures, freezes, signs and sends;
 there is no confirmation screen or automatic send. Composed text remains in the
 conversation; frozen transport bytes stay in the Ask record. The pane states that the conversation is visible to
@@ -2118,7 +2232,8 @@ recover authority by retrying. New operations fence the expected owner revision.
 The owner-only `POST /.tmt/colab/management` route takes exactly
 `space, page, expectedRevision, operationId, operation, payload`; revision is canonical
 positive decimal text and payload is canonical base64url of the same typed JSON.
-The root-only `page.create` selection is `{pageId,title,source}` with optional bounded `publisherAgent`; it accepts
+The root-only `page.create` selection is `{pageId,title,source}` with optional bounded `publisherAgent` and optional complete `creationRecipient` as defined
+in the content-root definition above; it accepts
 revision `"0"` only when initializing owner genesis. Browser-signed management
 cannot create pages. Its source/title bounds are 2 MiB/256 KiB in UTF-8; the
 local route has a separate body cap for worst-case JSON escaping plus base64
@@ -2365,20 +2480,29 @@ codes apply; failures exit 1. The browser home empty state names this command.
 owner-authenticated fold and isolated decoder. Raw stdout is exact admitted UTF-8
 source, without an added newline; stderr carries the verified head, epoch and
 page revision. JSON is `{spaceId,pageId,source,title,epoch,membershipHead,
-revision,memoryLimit}` with optional bounded `publisherAgent`. `membershipHead` is `{revision,statementHash}` with decimal
+revision,memoryLimit}` with optional bounded `publisherAgent` and optional complete `creationRecipient`, omitted
+when absent. `membershipHead` is `{revision,statementHash}` with decimal
 revision and lowercase hex hash. Reads never initialize or migrate state.
 Archived reads retain the fold's current inactive-page restriction; deleted
 operands fail through the shared CLI resolver described above.
 
 `tmt colab page write <page> --file <path|-> [--expected-revision <token>] [--json]`
-retains the title and prepares a minimal text delta in the isolated child against
-admitted Yjs structs. It does not recreate the shared document, execute HTML,
-advance membership or restore discussion/authority state. Source is bounded to
-2 MiB, one change (one update) to 256 KiB, and composed decoder input/output to the stream cap. A
-replacement that needs more than one update refuses with `COLAB_CAPACITY` naming the 256 KiB
-one change can carry; existing
-fold/count/deadline/cleanup limits still apply. Stdin has a five-second EOF deadline.
-Invalid UTF-8, capacity and inactive-page writes reject without mutation.
+retains the title and prepares the replacement as an ordered batch of text deltas in the
+isolated child against admitted Yjs structs (`page::prepare_publication`). It does not
+recreate the shared document, execute HTML, advance membership or restore
+discussion/authority state. Source is bounded to 2 MiB. Each update is at most 256 KiB, and
+the batch added to the tail retained since the last checkpoint is at most 200 updates and
+4 MiB, the effective CLI write limit (limits table); composed decoder input/output and the
+5,000,000-byte gzipped page budget still apply, as do the deadline and cleanup limits.
+A source over 2 MiB refuses with `COLAB_CAPACITY` naming its size and the 2 MiB limit; a
+batch past the tail or page budget refuses with `COLAB_CAPACITY` naming the page and the
+size or count it would reach. The 2 MiB source cap is the most a write accepts; whether a
+replacement fits also depends on the retained tail. A fully different 1.5 MiB source replaces
+a page of that size repeatedly, while a fully different 2 MiB replacement of a freshly created
+2 MiB page is refused for the 4 MiB tail. A source equal to the page's current source publishes
+nothing: it exits 0 with `changed:false` and the captured revision. Stdin has a
+five-second EOF deadline. Invalid UTF-8, capacity, stale-base and inactive-page writes
+reject without mutating page content.
 
 The opaque `revision` is `v1:` plus lowercase hex SHA-256 of framed domain
 `tmt-colab-page-revision-v1`, space, page, decimal membership revision, head hash,
@@ -2401,39 +2525,166 @@ This device is not a Remote registration and grants no browser session or agent
 operation authority. Private material stays in Keyring.
 
 After preparation releases the read snapshot, the caller tries the serve lifecycle
-lock. Holding it selects the offline existing-state writer; a held lock selects the
-running serve through the existing owned 0600 Unix socket. One device transaction
-checks the pinned chain,
-base/head/epoch/positions, then commits the device chain, signed encrypted content
-append and exact operation receipt together. Existing create-only append/quota/
-conflict semantics are reused. Exact frozen retries return the original receipt,
-without re-signing or overwriting later content. Changed bytes conflict. JSON
-success is `{spaceId,pageId,epoch,membershipHead,revision,streamId,seq,envelopeHash,
-sourceSha256,memoryLimit}`; hashes use lowercase hex except the model envelope hash,
-which is canonical base64url.
+lock. Holding it selects the offline existing-state writer: `page::commit_publication`,
+then a best-effort combine of this device's own tail. A held lock selects the running
+serve through the existing owned 0600 Unix socket. One device transaction checks the
+pinned chain and the frozen base/head/epoch/positions, then commits the device chain,
+every signed encrypted append of the batch and the scoped terminal outcome together, or
+records a terminal rejection and no content; a commit never splits a batch. Exact frozen
+retries return the original outcome bytes without re-signing, re-appending or overwriting
+later content; changed bytes conflict. JSON success is
+`{spaceId,pageId,epoch,membershipHead,revision,sourceSha256,memoryLimit,changed}` plus,
+when `changed` is true, `{operationId,streamId,count,seq,envelopeHash}`. `revision` is the
+page revision read, after the write and its best-effort combine, by the writer while no
+other writer can run (the serve under its sync lock, or this process under the serve
+lifecycle lock): the token a next `--expected-revision` carries. The retained outcome's
+`committedRevision` is the one before the combine, and a reply lost to doubt reports it, so
+a next write then refuses stale instead of losing an update. `seq` and `envelopeHash` are
+the batch's last position. Hashes use
+lowercase hex except the model envelope hash, which is canonical base64url. A rejected
+outcome exits 1 with its code: `COLAB_STALE_BASE`, `COLAB_CAPACITY`, `COLAB_PAGE_INACTIVE`,
+`COLAB_STATE_MISSING` or `COLAB_STREAM_GAP` (this device's stream moved on; read again).
 
-Serving writes use POST `/.tmt/colab/local/page-write`. Its strict prepared DTO is
-`{version,operationId,spaceId,pageId,epoch,membershipHead,baseRevision,sourceSha256,
-memoryLimit,chain,envelope}`; version is 1, operationId is a frozen UUIDv4, and
-chain/envelope are canonical base64url. The request contains no plaintext source,
-private key or epoch key. Forwarded device-context or event headers are DENIED;
-wrong methods/upgrades and unknown/duplicate fields reject. The reserved router
-shares management's local-header denial. One body-cap rule gives this route
-512 KiB and retains 64 KiB for other HTTP routes. Acquisition, frame, queue and
-response bounds remain in force; the client bounds its response and absolute read
-deadline. An IPC failure or uncertain response never falls back to an offline
-writer, changes the operation identity or automatically resends.
+Serving writes use POST `/.tmt/colab/local/page-publish` with the version-2 write DTO
+`{version:2,action:"write",signedJob,packet,chain}` (publication section below). The
+server verifies the job and every envelope against its own local writer key, never a
+request-selected one, prepares one broadcast per entry before the transaction, commits
+through `commit_publication` and replies 200 with `{outcome,revision}`: the exact retained
+outcome JSON, committed or rejected, and for a committed outcome the page revision read
+under the sync lock after the combine. A failure before any effect (denied, invalid, unavailable,
+capacity) uses the `{error:{code,message}}` envelope with a 4xx/5xx status. Forwarded
+device-context or event headers are DENIED; wrong methods/upgrades and unknown/duplicate
+fields reject. The reserved router shares management's local-header denial. The route's
+body cap is the standalone write bound (`LOCAL_WRITE_BYTES`); other HTTP routes keep
+64 KiB. Acquisition, frame, queue and response bounds remain in force; the client bounds
+its response and absolute read deadline. A publish reply waits up to `PUBLISH_REPLY` from the end of
+the client's send: up to the acquisition bound before the serve has read the request, then
+`PUBLISH_COMBINE` (four decoder deadlines) because the serve combines this device's own
+tail before it answers, then a response interval. The serve publishes no combine later than
+`PUBLISH_COMBINE` after it has read the request; a later combine is abandoned without
+publishing. A reply is therefore never followed by a change to the page it reports, and an
+immediately following write is prepared against the page it was told about.
+
+An IPC failure never falls back to an offline writer, changes the operation identity or
+resends. A failure before the request was fully written is a plain `COLAB_UNAVAILABLE`:
+the server acts only on a complete body. After that, a lost, malformed, mismatched or late
+reply leaves the original operation in doubt, and the CLI reads one original-key status
+(`page::publication_status`, read-only, with the frozen chain; no new route) from its own
+store snapshot. A retained committed or rejected outcome resolves the write as above.
+With none, the CLI exits 1 with `COLAB_OUTCOME_UNKNOWN` naming the original operation ID.
+Unknown is observational absence, not proof that nothing was published. There is no
+durable job file: a retry is a fresh preparation from a new snapshot. If the first batch
+landed, an identical source is a no-op and `--expected-revision` refuses with
+`COLAB_STALE_BASE`; a late commit of the first batch rechecks its own frozen base, so it
+cannot double-apply over newer content.
 
 Serving locks sync before Registration and prepares bounded transport before the
-transaction. A new committed append queues a `broadcast` with the normal scoped
-position/envelope fields and `chains:[{deviceId,chain}]`; the chain identifies the
-local author and is repeated to permit certificate renewal. The browser admits
-chains on its serialized executor before envelope authentication and Worker
-application. Larger envelopes use the existing reference and lazy chunk transfer,
-with the chain retained on the completed broadcast. Exact replay returns the
-original receipt without another broadcast. Slow or revoked peers use existing
-resync/admission failure behavior; queue failure does not undo a durable receipt.
-The service never receives or decodes plaintext source.
+transaction. A new committed batch queues, per entry in sequence order, a `broadcast`
+with the normal scoped position/envelope fields and `chains:[{deviceId,chain}]`; the chain
+identifies the local author and is repeated to permit certificate renewal. The browser
+admits chains on its serialized executor before envelope authentication and Worker
+application. Larger envelopes use the existing reference and lazy chunk transfer, with the
+chain retained on the completed broadcast. Each entry takes one send-queue slot and each
+chunked entry one more; a batch that needs more than `SEND_QUEUE_FRAMES` ends subscribed
+peers with the existing slow-peer `RESYNC_REQUIRED` close, and they catch up through
+normal resync. Exact replay and rejected outcomes broadcast nothing. Queue failure does not
+undo a durable outcome. The service never receives or decodes plaintext source.
+
+### Content publication (#1908, #1928, #1934)
+
+`publication.rs` exports pure native content-job, original-ID outcome and proposed local IPC
+codecs. They have no Store, keyring, registration, route or transport capability.
+The #1928 `page::commit_publication` adapter authenticates the current root-local writer and commits a sealed
+content batch and its original terminal outcome in one immediate SQLite transaction.
+`page::publication_status` uses a caller-supplied current writer chain in a read-only snapshot;
+it never issues or repairs a certificate. Both return exact retained terminal JSON bytes. A complete
+original-key replay ignores stale effect epoch/head/base but still requires current authority.
+New effects reserve outcome capacity and use a content savepoint; admitted domain rejection
+rolls back all content/stream/receipt/device/time changes before recording rejection, while unexpected errors
+roll back the enclosing transaction. UNKNOWN is genuine absence and is never persisted.
+The #1934 `page::prepare_publication` library captures one authenticated snapshot
+for its genesis issuer, owner head, epoch, cuts, devices and complete content/own projections.
+It reuses isolated causal preparation and returns explicit Noop with captured base and memory
+profile, or a frozen Write with one signed job, exact ordered sealed envelope packet and chain.
+Noop precedes operation ID, sequence, encryption and certificate issuance; publisher-only changes
+are writes. Write preparation preserves foreign state and metadata, admits combined retained tail
+and new deltas, and signs through the existing private local Keyring writer. Native evidence binds
+source digest, actual decoder memory profile and the exact chain hash. Preparation has no durable
+effect or authority promotion; later commit rechecks current authority and the frozen base.
+`page::prepare_own_publication` freezes the same job for the status action's one
+own-namespace update (`kind:"own"`, see the manifest below): the commit appends each entry
+to the stream namespace its kind names, and a serve broadcasts each entry as any other.
+For an own job `nativeEvidence.sourceSha256` is the digest of the page's current source at
+preparation: evidence only, since the job carries no source edit; `memoryLimit` is the
+decoder profile of the own preparation and `chainHash` binds the writer chain as for content.
+Both native single-edit and batch preparation include all own bytes in the checked whole-state
+raw fastpath and use one gzip stream at the unchanged 5,000,000-byte budget. `tmt colab page write`
+and the serving route above are its production callers. Browser Save still publishes through
+its single-update path and does not use these types; `tmt colab threads resolve|reopen`
+publish an own-kind job; there is no durable caller recovery.
+Syntax and signature success neither authorizes effects nor proves a retained terminal outcome.
+
+All new DTOs use camelCase, reject unknown/duplicate fields at every nested boundary, and
+reject explicit null for optional `nativeEvidence`. IDs/counters/hashes reuse the model's
+canonical UUIDv4, space ID, positive-u64 decimal, lowercase hex32 and base64url rules.
+The manifest is `{version:1,operationId,spaceId,pageId,epoch,streamId,kind:"content"|"own",
+membershipHead:{revision,statementHash},baseRevision,entries,packetBytes,packetHash}` plus
+optional `{sourceSha256,memoryLimit,chainHash}` native evidence. `baseRevision` is `v1:` plus
+lowercase hex32. Each entry is `{namespace,seq,envelopeHash,envelopeBytes}` with
+`namespace` equal to the manifest `kind`; a job never mixes namespaces;
+byte/count fields are positive unsigned JSON integers. `SignedJob` is `{manifest,signature}`.
+The packet is the exact concatenation of original envelope JSON slices in entry order,
+without re-encoding. SHA256 of those raw bytes is `packetHash`; `envelopeHash` is the model's
+separate envelope hash domain. Every strict envelope must be an update in the namespace named
+by `kind` ("content" or "own") and match the
+manifest space/page/epoch/device/membership revision/sequence/length/hash. Sequences are
+contiguous with checked overflow; later `prevHash` values match the previous envelope hash.
+The first previous hash retains model syntax; the native publication transaction uses the
+shared append owner to compare it with the actual admitted device head.
+
+The signature input is the existing four-byte-big-endian LP frame over, in order:
+`tmt-colab-publication-v1`, ASCII `1`, operationId, spaceId, pageId, epoch, streamId,
+ASCII `kind` (`content` or `own`), membership revision, statementHash ASCII, baseRevision ASCII, entries blob,
+packetBytes decimal ASCII, decoded packetHash32, native evidence blob. Entries blob starts
+with u32-BE count then concatenates each entry's LP `[namespace (equal to `kind`),seq,decoded envelopeHash32,
+envelopeBytes decimal ASCII]`. Native blob is byte0 when absent, or byte1 followed by LP
+`[sourceSha256 ASCII,exact decoder memoryLimit spelling,decoded chainHash32]` when present.
+`jobDigest` is canonical base64url32 of SHA256(signature input). Job and every envelope
+signature are verified with the caller-supplied admitted public key using the strict model
+helpers; manifest data never selects an authority key.
+
+Entries are 1..decoder::WRITE_TAIL_UPDATES; each envelope JSON is at most limits::UPDATE_BYTES,
+each decoded ciphertext minus its 16-byte tag is at most decoder::UPDATE_BYTES, and their
+sum is at most decoder::WRITE_TAIL_BYTES. For N entries the packet cap is
+`min(N*limits::UPDATE_BYTES,((WRITE_TAIL_BYTES+N*2048)*4/3)+N*2048)` with checked arithmetic.
+Entry lengths sum to packetBytes and the complete actual packet length; trailing bytes reject.
+SignedJob and outcome JSON are at most 64 KiB; chain bytes at most 16 KiB. The standalone local
+write JSON bound is `4*ceil(MAX_PACKET_BYTES/3)+65536+4*ceil(16384/3)+2048`, where
+MAX_PACKET_BYTES uses N=WRITE_TAIL_UPDATES. These are codec bounds, not increased runtime
+acquisition/route/source limits or final whole-state gzip acceptance.
+
+`JobKey` is exactly `{operationId,jobDigest,spaceId,pageId,originalEpoch,streamId}`.
+Outcomes always bind that complete original key: `{status:"unknown",key}`;
+`{status:"rejected",key,code}` where code is exactly COLAB_STALE_BASE, COLAB_CAPACITY,
+COLAB_PAGE_INACTIVE, COLAB_STATE_MISSING or COLAB_STREAM_GAP; or
+`{status:"committed",key,count,finalPosition:{seq,envelopeHash},committedRevision}` plus
+optional complete nativeEvidence. A supplied expected job pins count/finalPosition/evidence;
+committedRevision uses the same v1 token grammar. Variant-inappropriate fields reject.
+Unknown is observational absence of a retained terminal outcome, never proof of no effect.
+
+The local write DTO `{version:2,action:"write",signedJob,packet,chain}` is served at
+`/.tmt/colab/local/page-publish`; `{version:2,action:"status",key}` stays reserved and
+uninstalled, because the CLI reads status from its own store snapshot. Write packet/chain are canonical base64url exact bytes;
+write requires complete native evidence with chainHash equal to SHA256(raw chain), plus job
+and envelope signatures under the supplied key. Chain issuer/certificate/local-keyring
+admission is performed by the native library adapter. Status is bounded 64 KiB original-ID lookup,
+with no write fields or new effect. Version 1 is rejected by these codecs alone.
+No-op creates no job/ID/sequence; own/checkpoint/HTML/asset jobs are unsupported. Schema 6 scopes
+content outcomes in the existing globally unique owner_operations ledger without changing
+legacy rows. Terminal identities and exact outcome/digest/scope/identity bytes share the
+existing page count/byte budgets across epochs; exact replay adds no charge or page time.
+There is no expiry, eviction or pending UNKNOWN row. Browser Save/Writer adoption,
+recovery/fold barriers and gzip parity remain unintegrated.
 
 ## Plaintext page export (#1309)
 
@@ -2449,19 +2700,23 @@ claim of globally current membership.
 
 The manifest is UTF-8 JSON with these fields:
 
-| Field            | Value / meaning                                                                                                       |
-| ---------------- | --------------------------------------------------------------------------------------------------------------------- |
-| `format`         | `tmt-colab-page-export`                                                                                               |
-| `version`        | JSON integer `1`                                                                                                      |
-| `spaceId`        | Pinned space ID                                                                                                       |
-| `pageId`         | Exported page UUID                                                                                                    |
-| `title`          | Exact admitted title                                                                                                  |
-| `exportedAtMs`   | Safe-integer UTC milliseconds                                                                                         |
-| `membershipHead` | `{revision, statementHash}`; decimal revision, lowercase hex SHA-256                                                  |
-| `epoch`          | Current snapshot epoch as canonical positive decimal text                                                             |
-| `plaintext`      | `true`                                                                                                                |
-| `discussions`    | `{included:true, scope:"current-epoch", format:"tmt-colab-conversations", version:1}`                                 |
-| `files`          | `page.html`, `conversations.json`, `conversations.md` as `{name, sizeBytes, sha256}`; bytes and lowercase hex SHA-256 |
+| Field               | Value / meaning                                                                                                       |
+| ------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `format`            | `tmt-colab-page-export`                                                                                               |
+| `version`           | JSON integer `1`                                                                                                      |
+| `spaceId`           | Pinned space ID                                                                                                       |
+| `pageId`            | Exported page UUID                                                                                                    |
+| `title`             | Exact admitted title                                                                                                  |
+| `creationRecipient` | Optional complete `{machineId,agentId}` creation preference; omitted when absent                                      |
+| `exportedAtMs`      | Safe-integer UTC milliseconds                                                                                         |
+| `membershipHead`    | `{revision, statementHash}`; decimal revision, lowercase hex SHA-256                                                  |
+| `epoch`             | Current snapshot epoch as canonical positive decimal text                                                             |
+| `plaintext`         | `true`                                                                                                                |
+| `discussions`       | `{included:true, scope:"current-epoch", format:"tmt-colab-conversations", version:1}`                                 |
+| `files`             | `page.html`, `conversations.json`, `conversations.md` as `{name, sizeBytes, sha256}`; bytes and lowercase hex SHA-256 |
+
+Export copies the optional creation preference from the same captured admitted view
+before asynchronous work; it does not acquire or infer a new recipient.
 
 The manifest MUST NOT list its own digest: that would be circular. The CLI result
 names the resolved full `pageId` and lists all four files with their byte sizes and SHA-256. Export contains no roots,
@@ -2587,7 +2842,15 @@ newline):
 ```
 
 `membershipHead.statementHash` is lowercase hex, like the manifest. `at` is the stored
-decimal string; `issuedAt` and `expiresAt` are JSON integers. Threads are ordered by
+decimal string; `issuedAt` and `expiresAt` are JSON integers. A thread with an effective
+status action also includes `status`, the immutable action fields plus `ref:{writer,id}`
+and causal `depth`, in the same declared field order as the native/browser status
+vectors. It is omitted for legacy-only state. The effective action's admitted
+pre-ledger failure records, when present, are included as `notifications` in
+operation-ID byte order. Failures with a missing/unauthorized action or an
+operation outside its frozen recipient list are inert. Normal delivery outcomes
+remain in the existing Ask ledger. The Markdown reading includes the status
+actor/time labels and these failure reasons from the same frozen view. Threads are ordered by
 `writer + ":" + id`, comments inside a thread likewise, asks by `writer + ":" +
 operationId`, all by byte order (never a locale comparison). Bodies and messages are exact
 UTF-8, including controls. Order never depends on `at`.

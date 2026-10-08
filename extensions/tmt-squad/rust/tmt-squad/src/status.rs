@@ -98,7 +98,29 @@ pub(crate) fn compare_values(
     }
 }
 
+#[cfg(test)]
+std::thread_local! {
+    static TEST_NOW_MS: std::cell::Cell<Option<u64>> = const { std::cell::Cell::new(None) };
+}
+
+/// Freeze only this test thread's integrated draw; workers retain their clock.
+#[cfg(test)]
+pub(crate) fn with_now_ms<T>(now: u64, draw: impl FnOnce() -> T) -> T {
+    struct Restore(Option<u64>);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            TEST_NOW_MS.with(|clock| clock.set(self.0));
+        }
+    }
+    let _restore = Restore(TEST_NOW_MS.with(|clock| clock.replace(Some(now))));
+    draw()
+}
+
 pub(crate) fn now_ms() -> u64 {
+    #[cfg(test)]
+    if let Some(now) = TEST_NOW_MS.with(std::cell::Cell::get) {
+        return now;
+    }
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |elapsed| {
@@ -556,6 +578,37 @@ pub const UNKNOWN_YOU: &str = "◆ needs to know who you are: tmt squad me <name
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn scoped_clock_restores_nested_normal_and_unwound_draws_and_isolates_threads() {
+        use super::{TEST_NOW_MS, now_ms, with_now_ms};
+        assert_eq!(TEST_NOW_MS.with(std::cell::Cell::get), None);
+        with_now_ms(42, || {
+            assert_eq!(now_ms(), 42);
+            assert_eq!(with_now_ms(99, now_ms), 99);
+            assert_eq!(now_ms(), 42);
+            let failure = std::panic::catch_unwind(|| {
+                with_now_ms(7, || {
+                    assert_eq!(now_ms(), 7);
+                    panic!("fixture draw failed");
+                })
+            });
+            assert!(failure.is_err());
+            assert_eq!(now_ms(), 42);
+            std::thread::spawn(|| {
+                assert_eq!(TEST_NOW_MS.with(std::cell::Cell::get), None);
+                assert_ne!(now_ms(), 42);
+                with_now_ms(123, || assert_eq!(now_ms(), 123));
+                assert_eq!(TEST_NOW_MS.with(std::cell::Cell::get), None);
+            })
+            .join()
+            .unwrap();
+            assert_eq!(now_ms(), 42);
+        });
+        assert_eq!(TEST_NOW_MS.with(std::cell::Cell::get), None);
+        assert_ne!(now_ms(), 42);
+        assert!(std::panic::catch_unwind(|| with_now_ms(0, || panic!("outer failure"))).is_err());
+        assert_eq!(TEST_NOW_MS.with(std::cell::Cell::get), None);
+    }
     use super::*;
 
     #[test]
@@ -564,7 +617,7 @@ mod tests {
             std::env::temp_dir().join(format!("squad-cell-colors-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&directory);
         std::fs::create_dir_all(&directory).unwrap();
-        let path = directory.join("squad.toml");
+        let path = directory.join("ops.toml");
         std::fs::write(
             &path,
             "[squad.product.rows]\ncolumns = [\n  { name = \"member\" },\n  \
@@ -675,7 +728,7 @@ mod tests {
         let directory =
             std::env::temp_dir().join(format!("squad-state-patterns-{}", std::process::id()));
         std::fs::create_dir_all(&directory).unwrap();
-        let path = directory.join("squad.toml");
+        let path = directory.join("ops.toml");
         std::fs::write(
             &path,
             r#"
@@ -773,7 +826,7 @@ sort = ["state"]
     fn a_bound_column_is_one_value_for_rows_sections_and_sorts() {
         let directory = std::env::temp_dir().join(format!("squad-bound-{}", std::process::id()));
         std::fs::create_dir_all(&directory).unwrap();
-        let path = directory.join("squad.toml");
+        let path = directory.join("ops.toml");
         std::fs::write(
             &path,
             "[[squad.product.section]]\ntitle = \"Busy\"\nfilter = \"ctx\"\nsort = [\"-ctx\"]\n\

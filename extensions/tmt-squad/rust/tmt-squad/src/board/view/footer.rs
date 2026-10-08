@@ -5,6 +5,7 @@ use crate::config::{BoardMode, Pane};
 use ratatui::{
     Frame,
     layout::Rect,
+    style::Modifier,
     text::{Line, Span},
 };
 use tmt_cli_style::Role;
@@ -82,6 +83,7 @@ fn hint_word(action: &crate::action::Action) -> &'static str {
         }
         Verb::Annotate => "write",
         Verb::HomeMessage => "expand",
+        Verb::ViewReply => "view",
         verb => verb.name(),
     }
 }
@@ -100,6 +102,9 @@ fn key_label(event: &str) -> &str {
 fn row_allows(app: &App, action: &crate::action::Action) -> bool {
     use crate::action::Verb;
     let lead = action.args.first().and_then(|arg| arg.literal()) == Some("lead");
+    if action.verb == Verb::ViewReply {
+        return app.reply_hint();
+    }
     let acts_on_row = !(action.verb == Verb::Jump && lead)
         && matches!(
             action.verb,
@@ -134,10 +139,16 @@ fn row_allows(app: &App, action: &crate::action::Action) -> bool {
 /// stay (`? more` alone when only it fits), as the guideline requires.
 pub(super) fn hints(app: &App, width: usize) -> String {
     if app.jobs_focus {
-        return crate::board::cronboard::jobs_hints(width);
+        return crate::board::cronboard::jobs_hints(width, app.jobs_selected().is_some());
     }
     if let Some(view) = app.view.as_ref().filter(|view| view.home.is_some()) {
-        return crate::board::home::hints_of(view, width, app.tabs_overflow.get());
+        return crate::board::home::hints_of(
+            view,
+            width,
+            app.tabs_overflow.get(),
+            super::panes::receiving_pane(app) == Some(Pane::Rows),
+            app.reply_hint(),
+        );
     }
     let bindings = app.bindings();
     // One hint per action the effective bindings give the footer, ranked by
@@ -279,18 +290,35 @@ fn waiting_summary(app: &App) -> Option<Waiting> {
     Some(Waiting { base, oldest })
 }
 
+/// Style the fitted hint list shared by board, HOME, read and jobs footers.
+/// Informational attention summaries remain muted rather than becoming keys.
+pub(in crate::board) fn hint_line(text: &str, look: crate::look::Look) -> Line<'static> {
+    let mut spans = Vec::new();
+    for (index, hint) in text.split("  ").enumerate() {
+        if index > 0 {
+            spans.push(Span::styled("  ", look.role(Role::Muted)));
+        }
+        if let Some((key, label)) = hint.split_once(' ')
+            && key != "◆"
+        {
+            spans.push(Span::styled(
+                key.to_owned(),
+                look.role(Role::Accent).add_modifier(Modifier::BOLD),
+            ));
+            spans.push(Span::styled(format!(" {label}"), look.role(Role::Muted)));
+        } else {
+            spans.push(Span::styled(hint.to_owned(), look.role(Role::Muted)));
+        }
+    }
+    Line::from(spans)
+}
+
 pub(super) fn render(frame: &mut Frame, app: &App, footer: Rect, look: crate::look::Look) {
     let mut footer_line = if let Some(input) = app.input.as_ref().filter(|input| {
         !matches!(input.compose, crate::board::app::Compose::AskLead { .. })
             && app.input_band.get().is_none()
     }) {
-        let mut spans = vec![Span::raw(
-            if matches!(input.compose, crate::board::app::Compose::ReadLead { .. }) {
-                "e collapse · a reply".into()
-            } else {
-                format!("{} › {}▏", input.prompt, input.text)
-            },
-        )];
+        let mut spans = vec![Span::raw(format!("{} › {}▏", input.prompt, input.text))];
         if let Some(hint) = input
             .hint
             .as_ref()
@@ -321,10 +349,7 @@ pub(super) fn render(frame: &mut Frame, app: &App, footer: Rect, look: crate::lo
     } else if let Some(error) = &app.error {
         Line::from(Span::styled(error.as_str(), look.role(Role::Blocked)))
     } else {
-        Line::from(Span::styled(
-            hints(app, usize::from(footer.width)),
-            look.role(Role::Muted),
-        ))
+        hint_line(&hints(app, usize::from(footer.width)), look)
     };
     if app.settings.is_some() {
         for span in &mut footer_line.spans {

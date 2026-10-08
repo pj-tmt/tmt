@@ -1,7 +1,8 @@
 //! Door session acceptance on real sockets: a paired test device opens a
 //! session with a signed `session.open`, the door cookie carries its device
-//! context to a fixture extension under `<prefix>/x/colab/`; transport close, revocation
-//! and idle expiry end its session while ordinary session end preserves held work.
+//! context to a fixture extension under `<prefix>/x/colab/`. Last transport close
+//! starts a reattach grace; authority loss and idle expiry end its session while
+//! ordinary session end preserves held work.
 #[allow(dead_code)]
 #[path = "support/door.rs"]
 mod door;
@@ -31,6 +32,7 @@ use std::{
 use tmt_remote::{
     canonical::{self, Envelope},
     control, crypto,
+    mount::{SessionState, Sessions},
     pairing::Timing,
     store::uuid_v4,
 };
@@ -312,6 +314,15 @@ fn tunnel_for(h: &Harness, cookie: &str, session: Option<&str>) -> TcpStream {
     assert_eq!(&echoed, b"ping");
     client
 }
+/// Wait only for the real tunnel owner to release its transport, not for idle time.
+fn detached(state: &SessionState) {
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while state.has_transport() {
+        assert!(Instant::now() < deadline, "transport owner did not detach");
+        thread::yield_now();
+    }
+}
+
 /// The door closes the tunnel within a bound (one poll tick in practice).
 fn closes(client: &mut TcpStream) {
     let deadline = Instant::now() + Duration::from_secs(5);
@@ -740,7 +751,7 @@ fn payload(reply: &Reply) -> Value {
         .unwrap()
 }
 #[test]
-fn explicit_transport_session_survives_shared_cookie_changes_and_ends_on_last_close() {
+fn explicit_transport_session_survives_shared_cookie_changes_and_reattaches_after_last_close() {
     let h = Harness::new(FAST);
     let colab = Colab::serve(&h);
     let device = Device::browser(&h, 7);
@@ -760,19 +771,25 @@ fn explicit_transport_session_survives_shared_cookie_changes_and_ends_on_last_cl
     let mut echoed = [0; 4];
     another.read_exact(&mut echoed).unwrap();
     assert_eq!(&echoed, b"live");
+    let state = h
+        .sessions
+        .context_for(Some(&cookie), Some(first_id))
+        .unwrap()
+        .session;
     drop(another);
-    let deadline = Instant::now() + Duration::from_secs(5);
-    loop {
-        let result = payload(&session_probe(&h, &client, &device.key, first_id));
-        if result["error"]["code"] == "REMOTE_SESSION_ENDED" {
-            break;
-        }
-        assert!(
-            Instant::now() < deadline,
-            "closed transport session stayed live"
-        );
-        thread::yield_now();
-    }
+    detached(&state);
+    assert!(!state.ended());
+    let mut reattached = tunnel_for(&h, &cookie, Some(first_id));
+    assert!(Arc::ptr_eq(
+        &state,
+        &h.sessions
+            .context_for(Some(&cookie), Some(first_id))
+            .unwrap()
+            .session
+    ));
+    reattached.write_all(b"live").unwrap();
+    reattached.read_exact(&mut echoed).unwrap();
+    assert_eq!(&echoed, b"live");
     two.write_all(b"live").unwrap();
     two.read_exact(&mut echoed).unwrap();
     assert_eq!(&echoed, b"live");
@@ -801,7 +818,127 @@ fn explicit_transport_session_survives_shared_cookie_changes_and_ends_on_last_cl
         ),
     );
     assert_eq!(reply.status, 404);
+    drop(reattached);
     drop(two);
+}
+
+#[test]
+fn last_transport_close_admits_reload_and_same_session_reattach_then_expires_without_activity() {
+    let now = Arc::new(Mutex::new(Instant::now()));
+    let observed = Arc::clone(&now);
+    let h = Harness::with_clock(
+        FAST,
+        tmt_remote::limits::SESSION_IDLE,
+        Arc::new(move || *observed.lock().unwrap()),
+    );
+    let colab = Colab::serve(&h);
+    let device = Device::browser(&h, 7);
+    let client = paired(&h, &device);
+    let opened = open_session(&h, &Opening::new(&h, &client, &device.key).wire());
+    let id = payload(&opened)["sessionId"].as_str().unwrap().to_owned();
+    let cookie = pair_of(&opened.cookie().unwrap());
+    let state = h.sessions.context(Some(&cookie)).unwrap().session;
+    let transport = tunnel(&h, &cookie);
+    // A quiet live transport uses the long idle limit. Close starts fresh grace.
+    *now.lock().unwrap() += tmt_remote::limits::SESSION_UNATTACHED_IDLE;
+    drop(transport);
+    detached(&state);
+    assert!(!state.ended());
+    let grace = tmt_remote::limits::SESSION_UNATTACHED_IDLE;
+    *now.lock().unwrap() += grace - Duration::from_nanos(1);
+    assert_eq!(
+        mounted(&h, &colab, Some(&cookie)).unwrap()["deviceId"],
+        client
+    );
+    // HTTP activity renews grace and the upgrade attaches the original session.
+    *now.lock().unwrap() += grace - Duration::from_nanos(1);
+    let transport = tunnel_for(&h, &cookie, Some(&id));
+    assert!(Arc::ptr_eq(
+        &state,
+        &h.sessions
+            .context_for(Some(&cookie), Some(&id))
+            .unwrap()
+            .session
+    ));
+    assert!(state.has_transport());
+    drop(transport);
+    detached(&state);
+    *now.lock().unwrap() += grace;
+    h.sessions.maintain().unwrap();
+    assert!(state.ended());
+    assert_eq!(mounted(&h, &colab, Some(&cookie)), None);
+    assert!(h.sessions.context_for(Some(&cookie), Some(&id)).is_none());
+    assert_eq!(
+        payload(&session_probe(&h, &client, &device.key, &id))["error"]["code"],
+        "REMOTE_SESSION_ENDED"
+    );
+    // Live authority is removed; only the bounded signed end notice remains in Store.
+    let oracle = rusqlite::Connection::open(h.root.join("remote/remote.db")).unwrap();
+    let reason: String = oracle
+        .query_row(
+            "SELECT ended_reason FROM sessions WHERE session_id=?1",
+            [&id],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(reason, "REMOTE_SESSION_ENDED");
+}
+
+#[test]
+fn detached_sessions_count_against_cap_and_authority_loss_remains_immediate() {
+    for action in ["evict", "revoke", "revision", "expiry", "stop", "end"] {
+        let h = Harness::new(FAST);
+        let colab = Colab::serve(&h);
+        let device = Device::browser(&h, 7);
+        let client = paired(&h, &device);
+        tmt_remote::settings::set_sessions_per_device(&h.root, Some(1)).unwrap();
+        let opened = open_session(&h, &Opening::new(&h, &client, &device.key).wire());
+        let id = payload(&opened)["sessionId"].as_str().unwrap().to_owned();
+        let cookie = pair_of(&opened.cookie().unwrap());
+        let state = h.sessions.context(Some(&cookie)).unwrap().session;
+        let transport = tunnel(&h, &cookie);
+        drop(transport);
+        detached(&state);
+        assert_eq!(
+            mounted(&h, &colab, Some(&cookie)).unwrap()["deviceId"],
+            client
+        );
+        match action {
+            "evict" => {
+                let replacement = open_session(&h, &Opening::new(&h, &client, &device.key).wire());
+                assert_eq!(replacement.status, 200);
+                let error = payload(&session_probe(&h, &client, &device.key, &id));
+                assert_eq!(error["error"]["code"], "REMOTE_SESSION_EVICTED");
+                assert_eq!(error["error"]["limit"], 1);
+                assert!(
+                    mounted(&h, &colab, Some(&pair_of(&replacement.cookie().unwrap()))).is_some()
+                );
+            }
+            "revoke" => {
+                control(&h, json!({"op":"revoke","clientId":client}));
+            }
+            "revision" => {
+                control(
+                    &h,
+                    json!({"op":"rename","clientId":client,"name":"Renamed"}),
+                );
+            }
+            "expiry" => {
+                let oracle = rusqlite::Connection::open(h.root.join("remote/remote.db")).unwrap();
+                oracle
+                    .execute(
+                        "UPDATE grants SET expires_at_ms=1 WHERE client_id=?1",
+                        [&client],
+                    )
+                    .unwrap();
+            }
+            "stop" => h.sessions.shutdown(),
+            "end" => state.end(),
+            _ => unreachable!(),
+        }
+        assert_eq!(mounted(&h, &colab, Some(&cookie)), None, "{action}");
+        assert!(state.ended(), "{action}");
+    }
 }
 
 #[test]
@@ -833,7 +970,13 @@ fn attached_sessions_keep_the_twelve_hour_idle_limit_and_maintenance_closes_them
 #[test]
 fn held_work_remains_approvable_after_last_transport_close_and_visible_to_later_tabs() {
     for observer in ["other", "reopened", "later"] {
-        let mut h = Harness::new(FAST);
+        let now = Arc::new(Mutex::new(Instant::now()));
+        let observed = Arc::clone(&now);
+        let mut h = Harness::with_clock(
+            FAST,
+            tmt_remote::limits::SESSION_IDLE,
+            Arc::new(move || *observed.lock().unwrap()),
+        );
         let _colab = Colab::serve(&h);
         let device = Device::browser(&h, 7);
         let client = paired(&h, &device);
@@ -921,17 +1064,26 @@ fn held_work_remains_approvable_after_last_transport_close_and_visible_to_later_
         } else {
             None
         };
+        let state = h.sessions.context(Some(&cookie)).unwrap().session;
         drop(transport);
-        let deadline = Instant::now() + Duration::from_secs(5);
-        loop {
-            if payload(&session_probe(&h, &client, &device.key, session))["error"]["code"]
-                == "REMOTE_SESSION_ENDED"
-            {
-                break;
-            }
-            assert!(Instant::now() < deadline, "last transport stayed live");
-            thread::sleep(Duration::from_millis(10));
+        detached(&state);
+        let grace = tmt_remote::limits::SESSION_UNATTACHED_IDLE;
+        *now.lock().unwrap() += grace - Duration::from_nanos(1);
+        if let Some(observer) = &observed {
+            // Keep the independent observer live while the originating session expires.
+            assert!(
+                h.sessions
+                    .context_for(Some(&cookie), Some(observer))
+                    .is_some()
+            );
         }
+        *now.lock().unwrap() += Duration::from_nanos(1);
+        // Admission checks expiry even inside the maintenance scan interval.
+        assert_eq!(
+            payload(&session_probe(&h, &client, &device.key, session))["error"]["code"],
+            "REMOTE_SESSION_ENDED"
+        );
+        assert!(state.ended());
         let grant = h.store.lock().unwrap().grant(&client).unwrap().unwrap();
         let held = h
             .store

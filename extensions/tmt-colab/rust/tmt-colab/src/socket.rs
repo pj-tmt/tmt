@@ -274,6 +274,8 @@ impl Drop for MountSocket {
 }
 /// What one request asks for, after framing admission.
 struct Request {
+    /// When the whole request had been read; a publish measures its combine window from here.
+    received: std::time::Instant,
     path: String,
     method: String,
     /// The owner device's name, when remote forwarded an owner context.
@@ -326,12 +328,12 @@ fn serve(
             if request.method != "POST" || request.upgrade {
                 return Err(crate::page::Fault::Invalid.into());
             }
-            let prepared =
-                serde_json::from_slice(&request.body).map_err(|_| crate::page::Fault::Invalid)?;
-            let receipt = sync
-                .ok_or(crate::page::Fault::Unavailable)?
-                .page_write(&prepared, registration::now_ms()?)?;
-            Ok(serde_json::to_vec(&receipt)?)
+            let published = sync.ok_or(crate::page::Fault::Unavailable)?.publish(
+                &request.body,
+                registration::now_ms()?,
+                request.received,
+            )?;
+            crate::page::ipc::reply_json(&published)
         })();
         match result {
             Ok(bytes) => {
@@ -701,13 +703,13 @@ fn serve(
     } else {
         "<svg class=\"guidance-mark lucide\" aria-hidden=\"true\" xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\"><path d=\"M2.7 10.3a2.41 2.41 0 0 0 0 3.41l7.59 7.59a2.41 2.41 0 0 0 3.41 0l7.59-7.59a2.41 2.41 0 0 0 0-3.41l-7.59-7.59a2.41 2.41 0 0 0-3.41 0Z\"/></svg>"
     };
-    let state = if request.owner.is_some() {
-        "live"
+    let (state, state_label) = if request.owner.is_some() {
+        ("working", "running")
     } else {
-        "waiting"
+        ("waiting", "waiting")
     };
     let page = format!(
-        "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><title>Colab</title>{stylesheet}</head><body class=\"guidance\"><header class=\"colab-header\"><span class=\"colab-brand\"><span class=\"colab-mark\">tmt</span><span class=\"colab-wordmark\">Colab</span></span><h1 class=\"colab-title\">{screen_title}</h1><div class=\"colab-actions\"></div></header><main class=\"guidance-main\"><section class=\"guidance-card notice {state}\">{mark}<p class=\"guidance-eyebrow\">{eyebrow}</p><h2>{heading}</h2>{recovery_status}<div id=\"colab-guidance\" class=\"guidance-detail\"{hidden}>{detail}</div></section></main>{script}</body></html>"
+        "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><title>Colab</title>{stylesheet}</head><body class=\"guidance\"><header class=\"tmt-ui-header\"><span class=\"tmt-ui-brand\"><span class=\"tmt-ui-mark\" aria-hidden=\"true\">▚</span><span class=\"tmt-ui-wordmark\">Colab</span></span><h1 class=\"tmt-ui-title\">{screen_title}</h1><div class=\"tmt-ui-actions\"></div></header><main class=\"guidance-main\"><section class=\"guidance-card tmt-ui-notice\" data-tone=\"{state}\"><div class=\"tmt-ui-notice-eyebrow\">{eyebrow}</div><div class=\"tmt-ui-notice-mark\"><span aria-hidden=\"true\">{mark}</span><span>{state_label}</span></div><h2 class=\"tmt-ui-notice-heading\">{heading}</h2><div class=\"tmt-ui-notice-body\">{recovery_status}<div id=\"colab-guidance\" class=\"guidance-detail\"{hidden}>{detail}</div></div></section></main>{script}</body></html>"
     );
     let _ = response_with_policy(
         &mut socket,
@@ -1058,6 +1060,7 @@ fn acquire(socket: &mut UnixStream) -> std::result::Result<Request, u16> {
     }
     let mut seen = BTreeSet::new();
     let mut request = Request {
+        received: std::time::Instant::now(),
         path: parsed.path.ok_or(400u16)?.to_owned(),
         method: parsed.method.ok_or(400u16)?.to_owned(),
         owner: None,
@@ -1130,6 +1133,7 @@ fn acquire(socket: &mut UnixStream) -> std::result::Result<Request, u16> {
     }
     request.body = bytes[end..end + size].to_vec();
     request.prefetched = bytes[end + size..].to_vec();
+    request.received = std::time::Instant::now();
     if !matches!(
         request.path.as_str(),
         registration::PATH

@@ -23,7 +23,7 @@ function host() {
   return main;
 }
 
-export function mountComposer(options: { agents: string[]; publisher?: string; replier?: string }) {
+export function mountComposer(options: { agents: string[]; selected?: number; replier?: string }) {
   const base = destination();
   const agents = options.agents.map((agentName, index) => ({
     ...base,
@@ -56,8 +56,16 @@ export function mountComposer(options: { agents: string[]; publisher?: string; r
       anchor={null}
       asks={[]}
       title="Chat page"
-      publisher={options.publisher}
-      replier={options.replier}
+      initialEdit={{
+        value: '',
+        recipient: options.selected === undefined ? undefined : agents[options.selected],
+      }}
+      replier={(() => {
+        const matches = agents.filter((agent) => agent.agentName === options.replier);
+        return matches.length === 1
+          ? { machine: matches[0].machine, agent: matches[0].agent }
+          : undefined;
+      })()}
       blocked={false}
       cancel={() => {}}
       committed={() => {}}
@@ -65,7 +73,7 @@ export function mountComposer(options: { agents: string[]; publisher?: string; r
   );
 }
 
-export function mountMenu(options: { tight?: boolean } = {}) {
+export function mountMenu(options: { tight?: boolean; spaceAbove?: boolean } = {}) {
   root = createRoot(host());
   const row = (
     <ConversationTurn
@@ -94,10 +102,16 @@ export function mountMenu(options: { tight?: boolean } = {}) {
       <button type="button">After</button>
     </ConversationTurn>
   );
-  // A short scrolling container: the list cannot fit below the trigger, so it flips up.
+  // The small viewport either has room above the row or needs an in-viewport menu.
   root.render(
     options.tight ? (
-      <div style={{ height: 120, overflowY: 'auto', marginTop: 200 }}>{row}</div>
+      <div
+        data-testid="menu-viewport"
+        style={{ height: options.spaceAbove ? 240 : 120, overflowY: 'auto', marginTop: 200 }}
+      >
+        {options.spaceAbove && <div style={{ height: 120 }} />}
+        {row}
+      </div>
     ) : (
       row
     ),

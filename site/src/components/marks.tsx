@@ -35,7 +35,7 @@ export function St({ kind, children }: { kind: keyof typeof STATE; children: Rea
 
 export function Callout({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <div className="my-5 border-2 border-waiting bg-sheet px-3.5 py-3 text-[15.5px] shadow-[4px_4px_0_var(--c-waiting)]">
+    <div className="my-5 border border-waiting bg-sheet px-3.5 py-3 text-[15.5px]">
       <b className="text-waiting">{title}</b> {children}
     </div>
   );

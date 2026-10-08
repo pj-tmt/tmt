@@ -18,6 +18,7 @@ pub(super) struct Selection<'a> {
     pub title: &'a str,
     pub source: &'a str,
     pub publisher_agent: Option<&'a str>,
+    pub creation_recipient: Option<&'a crate::decoder::CreationRecipient>,
 }
 struct Prepared {
     /// The page's first state as ordered updates, each small enough for every reader.
@@ -44,11 +45,13 @@ impl Engine {
             title,
             source,
             publisher_agent,
+            creation_recipient,
         } = selection;
         values::generated_id(context.id)?;
         values::generated_id(page)?;
         values::time(now)?;
         if context.scope.is_some()
+            || creation_recipient.is_some_and(|v| !v.valid())
             || title.is_empty()
             || publisher_agent.is_some_and(|v| !crate::decoder::valid_publisher_agent(v))
         {
@@ -62,6 +65,9 @@ impl Engine {
         let mut selection = serde_json::json!({"pageId":page,"title":title,"source":source});
         if let Some(agent) = publisher_agent {
             selection["publisherAgent"] = serde_json::json!(agent);
+        }
+        if let Some(recipient) = creation_recipient {
+            selection["creationRecipient"] = serde_json::to_value(recipient)?;
         }
         let digest = context.digest(key, "page.create", &selection)?;
         self.run_transition(
@@ -87,6 +93,7 @@ impl Engine {
                         source: source.as_bytes(),
                         title,
                         publisher_agent,
+                        creation_recipient,
                         source_digest: crypto::digest(source.as_bytes()),
                     },
                     None,
@@ -170,7 +177,7 @@ impl Engine {
                         update,
                     )?;
                     let hash = envelope.hash()?;
-                    tx.append_content(&Envelope {
+                    tx.append_update(&Envelope {
                         scope: StreamScope {
                             page,
                             epoch: 1,

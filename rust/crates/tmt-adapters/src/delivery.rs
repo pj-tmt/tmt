@@ -83,8 +83,11 @@ impl Delivery {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Availability {
     Ready,
+    /// An active identity with no recorded host endpoint receives by inbox pull.
+    Unbound,
     Offline,
     Unavailable,
 }
@@ -204,7 +207,7 @@ pub fn status(storage: &mut Storage, identity: &str) -> Result<Availability, Sto
         .as_ref()
         .map(|binding| Host::for_server(&binding.server))
     else {
-        return Ok(Availability::Offline);
+        return Ok(Availability::Unbound);
     };
     let mut session = host.session();
     match session.status(&entry) {
@@ -262,7 +265,7 @@ fn send_messages(
 ) -> Result<Attempt, StorageError> {
     match status(storage, identity)? {
         Availability::Ready => {}
-        Availability::Offline => return Ok(Delivery::Offline.into()),
+        Availability::Unbound | Availability::Offline => return Ok(Delivery::Offline.into()),
         Availability::Unavailable => return Ok(Delivery::Unavailable.into()),
     }
     let Some(entry) = current(storage, identity)? else {
@@ -367,6 +370,29 @@ fn send_messages(
     })
 }
 
+/// A checklist belongs to the exact admitted binding and runtime incarnation.
+/// Reuse ordinary channel/host routing without redirecting a sealed handoff.
+pub fn send_focus(
+    storage: &mut Storage,
+    expected: &BindingEntry,
+    message: &str,
+    delay: Duration,
+) -> Result<Attempt, StorageError> {
+    if current(storage, &expected.identity.id)?.as_ref() != Some(expected) {
+        return Ok(Delivery::Unavailable.into());
+    }
+    send_messages(
+        storage,
+        &expected.identity.id,
+        expected.binding.as_ref().map(|b| b.id.as_str()),
+        Messages::Focus {
+            text: message,
+            expected,
+        },
+        delay,
+    )
+}
+
 /// Reply batches preserve driver frames while sharing the ordinary fallback.
 /// The two send_preferred callbacks run sequentially; RefCell lends storage only
 /// for short claims/settlements, and never across a driver or host call.
@@ -387,6 +413,10 @@ struct NoticeAttempt<'a> {
 }
 
 enum Messages<'a> {
+    Focus {
+        text: &'a str,
+        expected: &'a BindingEntry,
+    },
     /// One request or hint. A hint may render differently per transport; an
     /// ordinary send uses the same text for both.
     Single {
@@ -399,6 +429,7 @@ enum Messages<'a> {
 impl Messages<'_> {
     fn rendered(&self) -> std::borrow::Cow<'_, str> {
         match self {
+            Self::Focus { text, .. } => std::borrow::Cow::Borrowed(text),
             Self::Single { host, .. } => std::borrow::Cow::Borrowed(host),
             Self::Notices(attempt) => std::borrow::Cow::Borrowed(&attempt.host_text),
         }
@@ -419,6 +450,18 @@ impl Messages<'_> {
             ActionResult::Failed(error) => ActionResult::Failed(runtime_failure(error)),
         };
         let attempt = match self {
+            Self::Focus { text, expected } => {
+                if entry != *expected
+                    || current(&mut storage.borrow_mut(), &entry.identity.id)
+                        .ok()
+                        .flatten()
+                        .as_ref()
+                        != Some(*expected)
+                {
+                    return ActionResult::Failed(SendFailure::Denied(Delivery::Unavailable));
+                }
+                return send(registry, text);
+            }
             Self::Single { registered, .. } => return send(registry, registered),
             Self::Notices(attempt) => attempt,
         };
@@ -513,6 +556,13 @@ impl Messages<'_> {
 
     fn claim_fallback(&self, storage: &std::cell::RefCell<&mut Storage>) -> bool {
         match self {
+            Self::Focus { expected, .. } => {
+                current(&mut storage.borrow_mut(), &expected.identity.id)
+                    .ok()
+                    .flatten()
+                    .as_ref()
+                    == Some(*expected)
+            }
             Self::Single { .. } => true,
             Self::Notices(attempt) => {
                 let claimed = match storage
@@ -546,7 +596,20 @@ pub fn send_reply_notices(
 ) -> Result<(), StorageError> {
     // Presentation is derived from retained originator-owned request metadata,
     // not parsed from persisted lines. Old queued notices retain their claims.
-    let (frames, host_text) = notices::reply_batch(storage, notices);
+    let mut eligible = Vec::with_capacity(notices.len());
+    for notice in notices {
+        if !crate::focus::hold_notice(
+            storage,
+            &notice.request_id,
+            tmt_core::request::notification::HintKind::Reply,
+        )? {
+            eligible.push(notice.clone());
+        }
+    }
+    if eligible.is_empty() {
+        return storage.finish_reply_notice_batch(&batch.id);
+    }
+    let (frames, host_text) = notices::reply_batch(storage, &eligible);
     let notices = frames.as_slice();
     let progress = NoticeAttempt {
         batch,
@@ -709,7 +772,10 @@ pub fn hint_text(storage: &mut Storage, hint: &OriginatorHint) -> String {
     notices::hint(storage, hint)
 }
 
-pub fn notify(storage: &mut Storage, hint: &OriginatorHint) -> WakeState {
+pub fn notify(storage: &mut Storage, hint: &OriginatorHint) -> Result<WakeState, StorageError> {
+    if crate::focus::hold_notice(storage, &hint.request_id, hint.kind)? {
+        return Ok(WakeState::Unavailable);
+    }
     let (registered, host) = notices::immediate(storage, hint);
     let outcome = match send_messages(
         storage,
@@ -729,9 +795,9 @@ pub fn notify(storage: &mut Storage, hint: &OriginatorHint) -> WakeState {
         .settle_hint(hint, outcome)
         .is_err()
     {
-        return WakeState::Uncertain;
+        return Ok(WakeState::Uncertain);
     }
-    outcome
+    Ok(outcome)
 }
 
 /// Unavailable process evidence is not proof that a blocking observer died.
@@ -763,6 +829,36 @@ pub fn gone_waiter(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_active_unbound_identity_receives_by_inbox_without_a_host_endpoint() {
+        let directory = crate::test_support::TestDirectory::new();
+        let mut storage = Storage::open(directory.path.join("state/tmt.db")).unwrap();
+        for (name, lifetime) in [
+            ("saved", tmt_core::identity::Lifetime::Saved),
+            ("temporary", tmt_core::identity::Lifetime::Temporary),
+        ] {
+            let identity = tmt_core::identity::create_or_resolve(&mut storage, name, lifetime)
+                .unwrap()
+                .identity;
+            assert_eq!(
+                status(&mut storage, &identity.id).unwrap(),
+                Availability::Unbound
+            );
+            assert!(matches!(
+                send(&mut storage, &identity.id, "queued only", Duration::ZERO)
+                    .unwrap()
+                    .delivery,
+                Delivery::Offline
+            ));
+        }
+        // A missing row is not evidence of an active inbox recipient.
+        assert_eq!(
+            status(&mut storage, "missing").unwrap(),
+            Availability::Offline
+        );
+        storage.close().unwrap();
+    }
 
     struct Evidence(Result<bool, ChannelFault>);
 

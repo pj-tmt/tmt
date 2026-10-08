@@ -1,3 +1,4 @@
+import { BrowserIconAction } from '@tmt/browser-ui/react';
 import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 import { useEffect, useId, useRef, type ReactNode } from 'react';
@@ -57,15 +58,15 @@ export function PageDrawer({
     >
       <header className="drawer-bar">
         <h2 id={label}>{title}</h2>
-        <button
+        <BrowserIconAction
           type="button"
-          aria-label={`Close ${title}`}
-          onClick={(event) => {
+          label={`Close ${title}`}
+          variant="text"
+          icon={<X />}
+          onActivate={(event) => {
             if (event.isTrusted) close();
           }}
-        >
-          <X aria-hidden />
-        </button>
+        />
       </header>
       <div className="drawer-body">{children}</div>
     </dialog>,

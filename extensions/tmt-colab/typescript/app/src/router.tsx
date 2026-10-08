@@ -1,3 +1,6 @@
+import type { ComposerEdit } from './components/message-composer-edit.js';
+import { BrowserAction, BrowserToggle } from '@tmt/browser-ui/react';
+import { browserUiClasses as ui } from '@tmt/browser-ui/static';
 import { validPagePrefix } from './short-links.js';
 import {
   FileText,
@@ -29,7 +32,9 @@ import {
 } from '@tanstack/react-router';
 import type { PageView, PageTransport } from './transport.js';
 import { AnnotationInput } from './annotation-input.js';
-import { ThreadPanel } from './thread-panel.js';
+import { ThreadPanel, ThreadWindow } from './thread-panel.js';
+import { presentationOf } from './thread-status-presentation.js';
+import { isStatusThread, openThreadCount } from './thread-status-view.js';
 import type { QuoteSelector, DiscussionRef } from './thread-records.js';
 import { ShareDialog } from './share-dialog.js';
 import { mountRenderer } from './renderer.js';
@@ -46,23 +51,55 @@ function SelectionAnnotation({
   host,
   rectangle,
   inset,
+  noticeVisible,
   open,
   children,
 }: {
   host: HTMLDivElement | null;
   rectangle: SelectionRect | null;
   inset: number;
+  noticeVisible: boolean;
   open(): void;
   children?: React.ReactNode;
 }) {
   const expanded = children !== undefined;
   const element = useRef<HTMLDivElement>(null);
-  const [position, setPosition] = useState<{ left: number; top: number } | null>(null);
+  const [position, setPosition] = useState<{ left: number; top: number; height?: number } | null>(
+    null,
+  );
   useEffect(() => {
+    const notice = noticeVisible
+      ? host?.parentElement?.querySelector<HTMLElement>('.tmt-ui-notice')
+      : null;
     const place = () => {
       const frame = host?.querySelector('iframe')?.getBoundingClientRect();
+      const width = expanded ? Math.min(380, innerWidth - 24) : 100;
+      const height = expanded ? Math.min(480, innerHeight - inset - 16) : 38;
+      const grow = (top: number) => {
+        if (!expanded) return undefined;
+        const messages = element.current?.querySelector<HTMLElement>('.thread-messages');
+        const wanted = messages
+          ? element.current!.offsetHeight -
+            messages.clientHeight +
+            Math.max(240, messages.scrollHeight)
+          : 480;
+        return Math.max(0, Math.min(innerHeight - top - 8, Math.max(480, wanted)));
+      };
       if (!frame || !rectangle) {
-        setPosition(null);
+        // Keep the failure notice readable while retaining the mounted draft.
+        const belowNotice = notice?.getBoundingClientRect().bottom;
+        setPosition((previous) => {
+          if (!expanded || !previous) return null;
+          const top =
+            belowNotice !== undefined
+              ? Math.max(inset + 4, belowNotice + 8)
+              : Math.max(inset + 4, Math.min(innerHeight - height - 8, previous.top));
+          return {
+            left: Math.max(8, Math.min(innerWidth - width - 8, previous.left)),
+            top,
+            height: grow(top),
+          };
+        });
         return;
       }
       const top = frame.top + Math.max(0, Math.min(frame.height, rectangle.y)),
@@ -73,24 +110,28 @@ function SelectionAnnotation({
         setPosition(null);
         return;
       }
-      const width = expanded ? Math.min(380, innerWidth - 24) : 100;
-      const height = element.current?.offsetHeight ?? (expanded ? 200 : 38);
       const beside = !expanded && right + width + 8 <= Math.min(frame.right, innerWidth - 8);
       const below = bottom + height + 8 <= innerHeight - 8;
+      const windowTop = Math.max(
+        inset + 4,
+        Math.min(innerHeight - height - 8, beside ? top : below ? bottom + 6 : top - height - 6),
+      );
       setPosition({
         left: Math.max(
           8,
           Math.min(innerWidth - width - 8, frame.right - width - 8, beside ? right + 8 : left),
         ),
-        top: Math.max(
-          inset + 4,
-          Math.min(innerHeight - height - 8, beside ? top : below ? bottom + 6 : top - height - 6),
-        ),
+        top: windowTop,
+        height: grow(windowTop),
       });
     };
     place();
     const observer = new ResizeObserver(place);
     if (element.current) observer.observe(element.current);
+    element.current
+      ?.querySelectorAll('.thread-messages, .annotation-compose, .thread-bar')
+      .forEach((node) => observer.observe(node));
+    if (notice) observer.observe(notice);
     window.addEventListener('scroll', place, { passive: true });
     window.addEventListener('resize', place);
     return () => {
@@ -98,16 +139,20 @@ function SelectionAnnotation({
       window.removeEventListener('scroll', place);
       window.removeEventListener('resize', place);
     };
-  }, [host, rectangle, inset, expanded]);
+  }, [host, rectangle, inset, expanded, noticeVisible, children]);
   return (
     <div
       ref={element}
       className={children ? 'annotation-popover' : 'selection-control'}
-      style={{ ...position, visibility: position ? 'visible' : 'hidden' }}
+      style={{
+        ...position,
+        maxHeight: position ? `calc(100dvh - ${position.top + 8}px)` : undefined,
+        visibility: position ? 'visible' : 'hidden',
+      }}
     >
       {children ?? (
         <button
-          className="selection-ask"
+          className={`selection-ask ${ui.action}`}
           data-testid="selection-ask"
           onPointerDown={(event) => event.preventDefault()}
           onClick={(event) => {
@@ -133,7 +178,7 @@ const root = createRootRouteWithContext<{ transport: PageTransport }>()({
           eyebrow={text.product}
           title={text.error}
           actions={
-            <Link className="notice-action" to="/">
+            <Link className={ui.action} data-variant="text" to="/">
               {text.retry}
             </Link>
           }
@@ -150,7 +195,7 @@ const root = createRootRouteWithContext<{ transport: PageTransport }>()({
         eyebrow={text.product}
         title={text.error}
         actions={
-          <Link className="notice-action" to="/">
+          <Link className={ui.action} data-variant="text" to="/">
             {text.retry}
           </Link>
         }
@@ -207,7 +252,7 @@ function ShortPageChoice() {
       testId="short-page-choice"
       actions={
         deleted ? (
-          <Link className="notice-action" to="/">
+          <Link className={ui.action} data-variant="text" to="/">
             Back to pages
           </Link>
         ) : undefined
@@ -268,7 +313,7 @@ export function AppHeader({
       home={
         linked
           ? (brand) => (
-              <Link className="colab-brand" to="/" aria-label={text.home}>
+              <Link to="/" aria-label={text.home}>
                 {brand}
               </Link>
             )
@@ -288,7 +333,12 @@ function ThemeButton({ menuLabel = false }: { menuLabel?: boolean }) {
     document.documentElement.dataset.theme = dark ? 'dark' : 'light';
   }, [dark]);
   return (
-    <button className="theme" aria-label={text.theme} onClick={() => setDark(!dark)}>
+    <button
+      className={`theme ${ui.action}`}
+      data-variant="text"
+      aria-label={text.theme}
+      onClick={() => setDark(!dark)}
+    >
       <span className="theme-symbol" aria-hidden>
         {dark ? <Moon aria-hidden /> : <Sun aria-hidden />}
       </span>
@@ -337,13 +387,14 @@ function ManageButton({
   if (!port) return null;
   return (
     <>
-      <button
-        onClick={(event) => {
+      <BrowserAction
+        type="button"
+        variant="text"
+        label="Manage page"
+        onActivate={(event) => {
           if (event.isTrusted) setOpen(true);
         }}
-      >
-        Manage page
-      </button>
+      />
       {open &&
         createPortal(
           <ShareDialog
@@ -382,17 +433,13 @@ function Home() {
       <h1>{space.title}</h1>
       <p className="intro">{text.intro}</p>
       {transport.management && (
-        <button
-          type="button"
-          className="archive-toggle"
-          aria-pressed={archived}
-          onClick={(event) => {
+        <BrowserToggle
+          pressed={archived}
+          label="Show archived"
+          onActivate={(event) => {
             if (event.isTrusted) setArchived(!archived);
           }}
-        >
-          <span className="toggle-box" aria-hidden="true" />
-          Show archived
-        </button>
+        />
       )}
       {pages.length ? (
         <ul className="pages">
@@ -562,28 +609,52 @@ function Page() {
   const [rectangle, setRectangle] = useState<SelectionRect | null>(null);
   const currentRectangle = useRef<SelectionRect | null>(null);
   const [annotation, setAnnotation] = useState<{
+    key: string;
     selector: QuoteSelector;
     rectangle: SelectionRect;
-    /** Text kept from an earlier close of this selection. */
-    restored?: string;
+    thread?: DiscussionRef;
+    /** Text kept from an earlier close of this selection or thread. */
+    restored?: ComposerEdit;
   }>();
+  const binding = useRef(snapshot.binding);
+  binding.current = snapshot.binding;
   const annotationRef = useRef(annotation);
   annotationRef.current = annotation;
   const popover = useRef<HTMLElement>(null);
   // An unsent draft lives in memory for this page only: never stored, never sent to the frame.
-  const drafts = useRef(new Map<string, string>());
-  const annotationDraft = useRef('');
+  const drafts = useRef(new Map<string, ComposerEdit>());
+  const annotationDraft = useRef<ComposerEdit>({ value: '' });
   const annotationBusy = useRef(false);
+  const statusBusy = useRef(false);
+  const [changingStatus, setChangingStatus] = useState(false);
   const [activeThread, setActiveThread] = useState<string | null>(null);
   useEffect(() => {
     setAnnotation(undefined);
+    drafts.current.clear();
+    annotationDraft.current = { value: '' };
+    annotationBusy.current = statusBusy.current = false;
+    setChangingStatus(false);
+    setSelector(null);
+    currentSelector.current = null;
+    currentRectangle.current = null;
+    setRectangle(null);
+    setResolved([]);
+    setAnchorsChecked(false);
     setActiveThread(null);
     setPanel(null);
     setChatOpened(false);
   }, [snapshot.id]);
   function annotate() {
-    if (!currentSelector.current || !currentRectangle.current) return;
+    if (
+      annotationBusy.current ||
+      statusBusy.current ||
+      !currentSelector.current ||
+      !currentRectangle.current
+    )
+      return;
+    closeRef.current(false);
     setAnnotation({
+      key: crypto.randomUUID(),
       selector: structuredClone(currentSelector.current),
       rectangle: { ...currentRectangle.current },
       restored: drafts.current.get(JSON.stringify(currentSelector.current)),
@@ -593,17 +664,29 @@ function Page() {
     setPanel(null);
     setMenu(false);
   }
-  /** True once something beyond the prefilled `@agent` has been typed. */
-  const typed = () =>
-    annotationDraft.current.trim() !== '' && !/^@\S*\s*$/.test(annotationDraft.current);
+  const annotationThread = annotation?.thread
+    ? view.threads?.find(
+        (thread) =>
+          thread.ref.writer === annotation.thread!.writer &&
+          thread.ref.id === annotation.thread!.id,
+      )
+    : undefined;
+  const openThreads = openThreadCount(view.threads ?? []);
+  const unseenThreads = (view.threadPresentations ?? []).some((value) => value.status.unseen);
+  const statusCoordinator = liveError === managementChanged ? undefined : snapshot.binding?.status;
+  const annotationKey = (value: NonNullable<typeof annotation>) =>
+    value.thread ? `${value.thread.writer}:${value.thread.id}` : JSON.stringify(value.selector);
+  /** Every nonblank message is a draft; recipient selection never replaces its bytes. */
+  const typed = () => annotationDraft.current.value.trim() !== '';
   /** Closes without losing typed text: it comes back when the same selection is annotated again. */
   function closeAnnotation(focusPage: boolean) {
     // A send in flight is not interrupted by the ×, Escape, an outside press or a cleared selection.
-    if (!annotation || annotationBusy.current) return;
-    const key = JSON.stringify(annotation.selector);
-    if (typed()) drafts.current.set(key, annotationDraft.current);
+    if (!annotation || annotationBusy.current || statusBusy.current) return;
+    const key = annotationKey(annotation);
+    if (typed() || annotationDraft.current.recipient)
+      drafts.current.set(key, annotationDraft.current);
     else drafts.current.delete(key);
-    annotationDraft.current = '';
+    annotationDraft.current = { value: '' };
     setAnnotation(undefined);
     setRectangle(currentRectangle.current);
     if (focusPage) queueMicrotask(() => host.current?.querySelector('iframe')?.focus());
@@ -612,8 +695,8 @@ function Page() {
   closeRef.current = closeAnnotation;
   const selectionCleared = useRef<() => void>(() => {});
   selectionCleared.current = () => {
-    // A page click that clears the selection never hides a typed draft.
-    if (annotation && !typed()) closeAnnotation(false);
+    // A new selection keeps typed text; a saved window collapses with its draft cached.
+    if (annotation && (annotation.thread || !typed())) closeAnnotation(false);
   };
   useEffect(() => {
     if (!annotation) return;
@@ -630,36 +713,70 @@ function Page() {
     return () => document.removeEventListener('pointerdown', outside, true);
   }, [annotation]);
   function openThread(ref: DiscussionRef | null) {
+    if (annotationBusy.current || statusBusy.current) return;
     if (!ref) {
       setActiveThread(null);
       return;
     }
     const id = `${ref.writer}:${ref.id}`;
-    if (annotationRef.current)
-      drafts.current.delete(JSON.stringify(annotationRef.current.selector));
+    if (annotationRef.current) closeRef.current(false);
     setAnnotation(undefined);
+    binding.current?.markThreadStatusSeen?.(ref);
     setActiveThread(id);
     setPanel('comments');
     setMenu(false);
     renderer.current?.scrollAnchor(id);
   }
+  function continueAnnotation(ref: DiscussionRef) {
+    drafts.current.delete(JSON.stringify(annotationRef.current?.selector));
+    setAnnotation((previous) =>
+      previous ? { ...previous, thread: ref, restored: undefined } : previous,
+    );
+  }
+  function openAnchoredThread(ref: DiscussionRef) {
+    if (annotationBusy.current || statusBusy.current) return;
+    const thread = latest.current.threads?.find(
+      (value) => value.ref.writer === ref.writer && value.ref.id === ref.id && !value.deleted,
+    );
+    if (!thread?.anchor) return;
+    closeRef.current(false);
+    binding.current?.markThreadStatusSeen?.(ref);
+    renderer.current?.scrollAnchor(`${ref.writer}:${ref.id}`);
+    const rectangle = renderer.current?.anchorRectangle(`${ref.writer}:${ref.id}`);
+    if (!rectangle) {
+      openThread(ref);
+      return;
+    }
+    setAnnotation({
+      key: crypto.randomUUID(),
+      selector: structuredClone(thread.anchor),
+      rectangle,
+      thread: ref,
+      restored: drafts.current.get(`${ref.writer}:${ref.id}`),
+    });
+    setActiveThread(null);
+    setPanel(null);
+    setMenu(false);
+  }
   const [resolved, setResolved] = useState<string[]>([]);
+  const [anchorsChecked, setAnchorsChecked] = useState(false);
   const renderer = useRef<Awaited<ReturnType<typeof mountRenderer>> | null>(null);
   const [state, setState] = useState<RenderState | 'loading'>('loading');
+  // Author loading does not block discussion: sends use the captured quote.
+  const discussionBlocked = !!liveError || state === 'failed' || state === 'navigation';
   const host = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const controller = new AbortController();
     if (liveError) {
+      host.current?.replaceChildren();
       setState('failed');
       return () => controller.abort();
     }
     setState('loading');
-    setSelector(null);
-    currentSelector.current = null;
-    currentRectangle.current = null;
-    setAnnotation(undefined);
-    setRectangle(null);
+    // Source revisions replace only author content. Parent selection and composer
+    // state keep the original quote and rectangle even if that quote is now stale.
     setResolved([]);
+    setAnchorsChecked(false);
     void mountRenderer(host.current!, view.source, {
       signal: controller.signal,
       onState: setState,
@@ -672,13 +789,16 @@ function Page() {
         setRectangle(rect ?? null);
         if (!quote) selectionCleared.current();
       },
-      onAnchors: setResolved,
+      onAnchors: (ids, checked = false) => {
+        setResolved(ids);
+        setAnchorsChecked(checked);
+      },
       onAnnotate: annotate,
       onOpenThread: (id) => {
         const thread = latest.current.threads?.find(
           (value) => `${value.ref.writer}:${value.threadId}` === id && !value.deleted,
         );
-        if (thread) openThread(thread.ref);
+        if (thread) openAnchoredThread(thread.ref);
       },
     })
       .then((handle) => {
@@ -686,9 +806,15 @@ function Page() {
         else renderer.current = handle;
       })
       .catch(() => {
-        if (!controller.signal.aborted) setState('failed');
+        if (!controller.signal.aborted) {
+          host.current?.replaceChildren();
+          setState('failed');
+        }
       });
     return () => {
+      // Retire messages before replacing the frame, retaining its layout and the
+      // parent's frozen selection. Unmount removes the host itself.
+      renderer.current?.release();
       controller.abort();
       renderer.current = null;
     };
@@ -696,8 +822,9 @@ function Page() {
   useEffect(() => {
     if (state !== 'ready') return;
     renderer.current?.highlight(
+      // Resolving hides the margin marker; Reopen restores it. Resolved history stays in Comments.
       (view.threads ?? []).flatMap((thread) =>
-        !thread.deleted && thread.anchor
+        isStatusThread(thread) && !thread.resolved && thread.anchor
           ? [
               {
                 id: `${thread.ref.writer}:${thread.threadId}`,
@@ -706,8 +833,9 @@ function Page() {
             ]
           : [],
       ),
+      annotation?.selector,
     );
-  }, [state, view.threads]);
+  }, [state, view.threads, annotation]);
   return (
     <section className="page">
       <ColabHeader
@@ -715,7 +843,7 @@ function Page() {
         menuOpen={menu}
         title={view.title || snapshot.title || text.unknownPageTitle}
         home={(brand) => (
-          <Link className="colab-brand" to="/" aria-label={text.home}>
+          <Link to="/" aria-label={text.home}>
             {brand}
           </Link>
         )}
@@ -749,7 +877,8 @@ function Page() {
               </span>
             </span>
             <button
-              className="page-overflow-toggle"
+              className={`page-overflow-toggle ${ui.action}`}
+              data-variant="text"
               aria-label="More page actions"
               aria-expanded={menu}
               onClick={(event) => {
@@ -772,7 +901,8 @@ function Page() {
               }}
             >
               <button
-                className="page-menu-close"
+                className={`page-menu-close ${ui.action}`}
+                data-variant="text"
                 aria-label="Close page actions"
                 onClick={() => setMenu(false)}
               >
@@ -783,6 +913,8 @@ function Page() {
                 <span>{text[snapshot.sharing]}</span>
               </div>
               <button
+                className={ui.action}
+                data-variant="text"
                 data-testid="chat-toggle"
                 aria-label="Chat"
                 aria-expanded={panel === 'chat'}
@@ -793,6 +925,8 @@ function Page() {
                 Chat
               </button>
               <button
+                className={ui.action}
+                data-variant="text"
                 data-testid="agents-toggle"
                 aria-expanded={panel === 'agents'}
                 onClick={(event) => {
@@ -802,6 +936,8 @@ function Page() {
                 {text.agentStatus}
               </button>
               <button
+                className={ui.action}
+                data-variant="text"
                 data-testid="comments-toggle"
                 aria-expanded={panel === 'comments'}
                 onClick={(event) => {
@@ -809,8 +945,12 @@ function Page() {
                 }}
               >
                 {text.comments}
+                {openThreads > 0 && ` ${openThreads}`}
+                {unseenThreads && ` · ${text.threadUnseen}`}
               </button>
               <button
+                className={ui.action}
+                data-variant="text"
                 aria-pressed={panel === 'source'}
                 onClick={(event) => {
                   if (event.isTrusted) toggle('source');
@@ -839,7 +979,7 @@ function Page() {
               />
               <ThemeButton menuLabel />
               <details className="page-information">
-                <summary aria-label="Page information">
+                <summary className={ui.action} data-variant="text" aria-label="Page information">
                   <span className="info-symbol" aria-hidden>
                     <Info aria-hidden />
                   </span>
@@ -877,6 +1017,8 @@ function Page() {
               )}
               {liveError === 'Sync disconnected' && snapshot.binding?.reconnect && (
                 <button
+                  className={ui.action}
+                  data-variant="text"
                   disabled={reconnecting}
                   data-testid="colab-reconnect"
                   onClick={(event) => {
@@ -891,61 +1033,100 @@ function Page() {
           )}
         </div>
       </div>
-      {snapshot.binding?.discussion && snapshot.binding?.ask && !liveError && state === 'ready' && (
-        <SelectionAnnotation
-          host={host.current}
-          rectangle={annotation?.rectangle ?? rectangle}
-          inset={toolbar.current?.offsetHeight ?? 0}
-          open={annotate}
-        >
-          {annotation && (
-            <section
-              className="annotation-new"
-              role="dialog"
-              aria-label="Annotate selection"
-              ref={popover}
-              onKeyDown={(event) => {
-                if (event.key === 'Escape' && !event.defaultPrevented) {
-                  event.preventDefault();
-                  closeAnnotation(true);
-                }
-              }}
-            >
-              <button
-                type="button"
-                className="annotation-close"
-                aria-label="Close annotation"
-                onClick={(event) => {
-                  if (event.isTrusted) closeAnnotation(true);
+      {snapshot.binding?.discussion &&
+        snapshot.binding?.ask &&
+        (annotation || (!liveError && state === 'ready')) && (
+          <SelectionAnnotation
+            host={host.current}
+            rectangle={annotation?.rectangle ?? rectangle}
+            inset={toolbar.current?.offsetHeight ?? 0}
+            noticeVisible={state === 'navigation' || state === 'failed'}
+            open={annotate}
+          >
+            {annotation && (
+              <section
+                key={annotation.key}
+                className="annotation-new"
+                role="dialog"
+                aria-label="Annotate selection"
+                ref={popover}
+                onKeyDown={(event) => {
+                  if (event.key === 'Escape' && !event.defaultPrevented) {
+                    event.preventDefault();
+                    closeAnnotation(true);
+                  }
                 }}
               >
-                ×
-              </button>
-              <blockquote>{annotation.selector.exact}</blockquote>
-              {annotation.restored !== undefined && <p className="annotation-hint">Draft kept</p>}
-              <AnnotationInput
-                key={JSON.stringify(annotation.selector)}
-                binding={snapshot.binding.ask}
-                discussion={snapshot.binding.discussion}
-                anchor={annotation.selector}
-                asks={view.asks ?? []}
-                title={view.title || snapshot.title}
-                publisher={view.publisherAgent}
-                blocked={!!liveError || state !== 'ready'}
-                initialValue={annotation.restored}
-                onDraft={(value) => {
-                  annotationDraft.current = value;
-                }}
-                onBusy={(busy) => {
-                  annotationBusy.current = busy;
-                }}
-                cancel={() => closeAnnotation(true)}
-                committed={openThread}
-              />
-            </section>
-          )}
-        </SelectionAnnotation>
-      )}
+                <ThreadWindow
+                  thread={annotationThread}
+                  anchor={annotation.selector}
+                  layout="anchored"
+                  attached={resolved.includes(
+                    annotation.thread ? `${annotation.thread.writer}:${annotation.thread.id}` : '',
+                  )}
+                  anchorsChecked={anchorsChecked}
+                  selection={selector}
+                  binding={snapshot.binding.discussion}
+                  ask={snapshot.binding.ask}
+                  asks={view.asks ?? []}
+                  title={view.title || snapshot.title}
+                  close={() => {
+                    if (annotationRef.current?.key === annotation.key) closeAnnotation(true);
+                  }}
+                  blocked={discussionBlocked}
+                  observationUnavailable={view.askUnavailable}
+                  status={
+                    annotationThread
+                      ? presentationOf(view.threadPresentations, annotationThread.ref)?.status
+                      : undefined
+                  }
+                  onStatusChange={
+                    annotationThread && statusCoordinator
+                      ? (resolved) => statusCoordinator.change(annotationThread, resolved)
+                      : undefined
+                  }
+                  onBusy={(busy) => {
+                    if (annotationRef.current?.key !== annotation.key) return;
+                    statusBusy.current = busy;
+                    setChangingStatus(busy);
+                  }}
+                  composer={
+                    <>
+                      {annotation.restored !== undefined && (
+                        <p className="annotation-hint">Draft kept</p>
+                      )}
+                      {annotationThread && <p className="annotation-reply-label">Reply</p>}
+                      <AnnotationInput
+                        binding={snapshot.binding.ask}
+                        discussion={snapshot.binding.discussion}
+                        anchor={annotationThread ? annotationThread.anchor : annotation.selector}
+                        thread={annotationThread}
+                        asks={view.asks ?? []}
+                        title={view.title || snapshot.title}
+                        blocked={discussionBlocked || changingStatus || !!annotationThread?.deleted}
+                        initialEdit={annotation.restored}
+                        onDraft={(_value, edit) => {
+                          if (annotationRef.current?.key !== annotation.key) return;
+                          annotationDraft.current = edit;
+                          drafts.current.set(annotationKey(annotation), edit);
+                        }}
+                        onBusy={(busy) => {
+                          if (annotationRef.current?.key !== annotation.key) return;
+                          annotationBusy.current = busy;
+                        }}
+                        cancel={() => closeAnnotation(true)}
+                        committed={(ref) => {
+                          if (annotationRef.current?.key === annotation.key)
+                            continueAnnotation(ref);
+                        }}
+                      />
+                    </>
+                  }
+                />
+              </section>
+            )}
+          </SelectionAnnotation>
+        )}
       <PageDrawer
         open={panel === 'source'}
         title={text.source}
@@ -988,15 +1169,29 @@ function Page() {
           key={`discussion:${snapshot.id}`}
           threads={(view.threads ?? []).filter((thread) => !isChatThread(thread))}
           resolved={resolved}
+          anchorsChecked={anchorsChecked}
           selection={selector}
           binding={liveError === managementChanged ? undefined : snapshot.binding?.discussion}
           ask={liveError === managementChanged ? undefined : snapshot.binding?.ask}
           title={view.title || snapshot.title}
-          publisher={view.publisherAgent}
           asks={view.asks ?? []}
           active={activeThread}
           select={openThread}
-          blocked={!!liveError || state !== 'ready'}
+          presentations={view.threadPresentations}
+          onStatusChange={
+            statusCoordinator
+              ? (thread, resolved) => statusCoordinator.change(thread, resolved)
+              : undefined
+          }
+          onBusy={(busy) => {
+            statusBusy.current = busy;
+            setChangingStatus(busy);
+          }}
+          draft={(ref) => drafts.current.get(`${ref.writer}:${ref.id}`)}
+          onDraft={(ref, edit) => {
+            drafts.current.set(`${ref.writer}:${ref.id}`, edit);
+          }}
+          blocked={discussionBlocked}
         />
       </PageDrawer>
       <PageDrawer
@@ -1022,8 +1217,7 @@ function Page() {
             binding={liveError === managementChanged ? undefined : snapshot.binding?.ask}
             discussion={liveError === managementChanged ? undefined : snapshot.binding?.discussion}
             title={view.title || snapshot.title}
-            publisher={view.publisherAgent}
-            blocked={!!liveError || state !== 'ready'}
+            blocked={discussionBlocked}
             close={() => setPanel(null)}
           />
         )}

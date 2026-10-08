@@ -274,6 +274,78 @@ test('handshake binds window source and renderId; captured digest and cleanup su
   await expect(page.frameLocator('#probe iframe').getByText('Replacement')).toBeVisible();
 });
 
+test('a delayed first height report keeps window scrolling performed after replacement', async ({
+  page,
+}) => {
+  await page.goto('/');
+  await page.evaluate(async () => {
+    document.getElementById('root')!.hidden = true;
+    const host = document.createElement('div');
+    host.id = 'height-probe';
+    document.body.append(host);
+    const previous = document.createElement('iframe');
+    previous.style.height = '4000px';
+    host.append(previous);
+    const heights: unknown[] = [];
+    const hold = (event: MessageEvent) => {
+      if (
+        event.source === host.querySelector('iframe')?.contentWindow &&
+        event.data?.type === 'colab.render.height'
+      ) {
+        heights.push(event.data);
+        event.stopImmediatePropagation();
+      }
+    };
+    window.addEventListener('message', hold, true);
+    const path = '/src/renderer.ts';
+    const { mountRenderer } = await import(path);
+    const controller = new AbortController();
+    const handle = await mountRenderer(host, '<div style="height:3500px">Updated page</div>', {
+      signal: controller.signal,
+      onState: (state: string) => {
+        host.dataset.state = state;
+      },
+    });
+    Object.assign(window, { heightProbe: { heights, hold, controller, handle } });
+  });
+  await expect(page.locator('#height-probe')).toHaveAttribute('data-state', 'ready');
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () =>
+          (window as unknown as { heightProbe: { heights: unknown[] } }).heightProbe.heights.length,
+      ),
+    )
+    .toBeGreaterThan(0);
+  await page.evaluate(() => window.scrollTo(0, 1200));
+  expect(await page.evaluate(() => window.scrollY)).toBe(1200);
+  const report = await page.evaluate(() => {
+    const probe = (
+      window as unknown as {
+        heightProbe: { heights: unknown[]; hold: (event: MessageEvent) => void };
+      }
+    ).heightProbe;
+    window.removeEventListener('message', probe.hold, true);
+    return probe.heights[0];
+  });
+  await page
+    .frameLocator('#height-probe iframe')
+    .locator('body')
+    .evaluate((_node, report) => {
+      parent.postMessage(report, '*');
+    }, report);
+  await expect
+    .poll(async () => (await page.locator('#height-probe iframe').boundingBox())?.height ?? 0)
+    .toBeLessThan(4000);
+  expect(await page.evaluate(() => window.scrollY)).toBe(1200);
+  await page.evaluate(() => {
+    (
+      window as unknown as { heightProbe: { controller: AbortController } }
+    ).heightProbe.controller.abort();
+    document.getElementById('height-probe')!.remove();
+  });
+});
+
 test('a source document replacement tears down the renderer', async ({ page }) => {
   await page.goto('/');
   await mount(
@@ -432,6 +504,32 @@ test('selection admits bounded text from the current frame, rejects foreign and 
   });
   await expect(page.locator('#probe iframe')).toHaveCount(0);
   await expect(page.locator('#probe')).toHaveAttribute('data-selection', '');
+});
+
+test('the frozen unsaved quote resolves without a thread highlight or marker', async ({ page }) => {
+  await page.goto('/');
+  await mount(page, '<p>Original quote</p>');
+  await expect(page.locator('#probe')).toHaveAttribute('data-state', 'ready');
+  await page.evaluate(() => {
+    const probe = (
+      window as unknown as {
+        probe: {
+          handle: {
+            highlight(anchors: [], draft: { exact: string; prefix: string; suffix: string }): void;
+          };
+        };
+      }
+    ).probe;
+    probe.handle.highlight([], { exact: 'Original quote', prefix: '', suffix: '' });
+  });
+  await expect(page.locator('#probe')).toHaveAttribute('data-resolved', '[""]');
+  await expect(page.frameLocator('#probe iframe').locator('[data-colab-thread]')).toHaveCount(0);
+  expect(
+    await page
+      .frameLocator('#probe iframe')
+      .locator('html')
+      .evaluate(() => CSS.highlights?.has('colab-comments') ?? false),
+  ).toBe(false);
 });
 
 test('quote selectors span tags and Unicode, preserve exact text, detach ambiguity and remap after edits', async ({

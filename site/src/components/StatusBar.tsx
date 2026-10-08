@@ -1,5 +1,5 @@
 import { useAtom } from "jotai";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { windows, type Page } from "../chapters";
 import { themeAtom, type ThemeChoice } from "../state/theme";
 import { useStrings } from "../lang/useStrings";
@@ -9,8 +9,7 @@ import { LocalLink } from "./LocalLink";
 
 const THEMES: ThemeChoice[] = ["system", "light", "dark"];
 
-// The bar is always the dark terminal look, in either theme: accent fill with
-// the terminal bar color as ink, and the active window inverted, as in tmux.
+// Preserve the terminal-inspired window navigation with theme-aware surfaces.
 const focus =
   "focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-t-waiting";
 
@@ -23,6 +22,8 @@ export function StatusBar({ current }: { current: Page }) {
   const [percent, setPercent] = useState(0);
   const [clock, setClock] = useState("--:--");
   const [menuOpen, setMenuOpen] = useState(false);
+  const menuTrigger = useRef<HTMLButtonElement>(null);
+  const menu = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const read = () => {
@@ -49,18 +50,27 @@ export function StatusBar({ current }: { current: Page }) {
 
   useEffect(() => {
     if (!menuOpen) return;
-    const close = (event: KeyboardEvent) => event.key === "Escape" && setMenuOpen(false);
+    const first =
+      menu.current?.querySelector<HTMLElement>('.chapter-tree-link[aria-current="page"]') ??
+      menu.current?.querySelector<HTMLElement>(".chapter-tree-link");
+    first?.focus();
+    const close = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      setMenuOpen(false);
+      menuTrigger.current?.focus();
+    };
     window.addEventListener("keydown", close);
     return () => window.removeEventListener("keydown", close);
   }, [menuOpen]);
 
   return (
-    <header className="sticky top-0 z-10 pt-[env(safe-area-inset-top)] bg-accent">
+    <header className="handbook-header sticky top-0 z-10 pt-[env(safe-area-inset-top)]">
       <nav
         aria-label={ui.chapterWindows}
         className="relative flex items-stretch bg-accent font-mono text-[13px] leading-none font-semibold whitespace-nowrap text-paper [scrollbar-width:none]"
       >
         <button
+          ref={menuTrigger}
           type="button"
           onClick={() => setMenuOpen((open) => !open)}
           aria-label={ui.allChapters}
@@ -123,11 +133,12 @@ export function StatusBar({ current }: { current: Page }) {
             aria-label={ui.closeMenu}
             tabIndex={-1}
             onClick={() => setMenuOpen(false)}
-            className="fixed inset-0 -z-10 cursor-default bg-black/40"
+            className="fixed inset-0 -z-10 cursor-default"
           />
           <div
+            ref={menu}
             id="chapter-menu"
-            className="absolute top-full left-0 max-h-[calc(100dvh-48px)] w-max max-w-full min-w-64 overflow-y-auto border-r border-b border-term-edge bg-term px-4 py-3 text-t-text"
+            className="absolute top-full left-0 max-h-[calc(100dvh-48px)] w-[min(34rem,100vw)] max-w-full min-w-0 overflow-y-auto border-r border-b border-term-edge bg-term px-4 py-3 text-t-text"
           >
             <div className="mb-2 border-b border-term-edge pb-2 sm:hidden">
               <LanguageSwitcher variant="menu" onPick={() => setMenuOpen(false)} />

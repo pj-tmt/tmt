@@ -189,18 +189,20 @@ wss. Use the resulting URL only for the transport: never navigate to it, store i
 history, log it, or copy it into Location/Referer. Existing URLs without it use the
 cookie's session.
 
-Closing the session's last transport ends that session promptly, including a transport
-lost while the tab sleeps or is backgrounded. A never-attached session expires after 60
-seconds without activity; a session that has had a transport has the existing 12-hour idle
-limit. All sessions/tokens end on revoke, grant expiry/revision change, or stop. Held work
-survives a session end and remains approvable under the live device grant; only stop,
+Closing the session's last transport starts a fresh 60-second inactivity grace, including
+a transport lost while the tab sleeps or is backgrounded. Every session without a live
+transport uses this grace; authenticated HTTP activity renews it and reattaching within it
+resumes the same session. Sessions with a live transport retain the 12-hour idle limit.
+Detached sessions count against the per-device cap until they expire. Explicit end and
+eviction remain immediate. All sessions/tokens end on revoke, grant expiry/revision change,
+or stop. Held work survives a session end and remains approvable under the live device grant; only stop,
 revoke or grant expiry/revision change cancels it. After approval, a reopened or other tab
 can recover by operation ID and observe the shared journal. The existing per-device hold
 bound still applies; the approval prompt stays unchanged and does not identify a tab.
 Dispatching/uncertain work keeps its original ID and recovery.
 
-For list/result calls, `RefusalError.code` is `REMOTE_SESSION_ENDED` after transport loss
-or idle expiry, or `REMOTE_SESSION_EVICTED` after limit eviction. Optional
+For list/result calls, `RefusalError.code` is `REMOTE_SESSION_ENDED` after session
+idle expiry, or `REMOTE_SESSION_EVICTED` after limit eviction. Optional
 `RefusalError.settingsUrl` (also on refused states) is absent when the door omits it or
 sends null. It will identify Remote's settings page once #1769 adds it; until then the
 door omits it. When present, the SDK exposes a normalized URL on the door's own origin.
@@ -270,3 +272,13 @@ no-argument reopen behavior is unchanged.
 The settings draft retains the current device page during value/effect/recovery refreshes.
 First/next navigation focuses an unsent device name and refuses to leave until that name is saved
 or restored to its admitted value. Only the current bounded page's forms are retained.
+
+## Remote browser entry
+
+The human `tmt remote serve` link opens `/`; the JSON `address` remains the signed protocol base.
+`landingPage()` is the entry bootstrap, using the same saved non-extractable key and machine pins.
+On load it checks local storage only: a saved pairing does not prove current access. Connect
+is explicit and opens one verified Session; errors stay unconfirmed. An opaque404 and unchanged
+descriptor recheck do not establish a signed refusal reason. No inventory or work is sent, and pairing
+never claims settings-admin designation. Run `tmt remote pair` locally, open the full code-bearing
+link in this browser, compare the displayed words with the terminal and confirm there.

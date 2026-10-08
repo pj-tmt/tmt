@@ -102,7 +102,7 @@ impl Fixture {
             NEXT.fetch_add(1, Ordering::Relaxed)
         ));
         fs::create_dir_all(&root).unwrap();
-        let path = root.join("squad.toml");
+        let path = root.join("ops.toml");
         fs::write(&path, text).unwrap();
         Self {
             config: Config::read(path).unwrap(),
@@ -346,14 +346,23 @@ fn home_acquisition_reuses_public_reads_and_preserves_all_json_and_text() {
             "ls --json",
             "inbox --identity me-id --limit 200 --json",
             "api",
+            "api",
             "api"
         ]
     );
     let inputs = fs::read_to_string(f.root.join("inputs")).unwrap();
-    for input in inputs.lines() {
-        let input: Value = serde_json::from_str(input).unwrap();
-        assert_eq!(input["operation"], "rooms.roster");
-    }
+    let inputs = inputs
+        .lines()
+        .map(|input| serde_json::from_str::<Value>(input).unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        inputs
+            .iter()
+            .map(|input| input["operation"].as_str().unwrap())
+            .collect::<Vec<_>>(),
+        ["rooms.roster", "rooms.roster", "focus.policy.show"]
+    );
+    assert_eq!(inputs[2]["input"]["identities"], json!(["id-a", "id-b"]));
     assert_eq!(rates.len(), squads.len());
     for name in ["a", "b"] {
         assert_eq!(rates[name].input.room, format!("room-{name}"));

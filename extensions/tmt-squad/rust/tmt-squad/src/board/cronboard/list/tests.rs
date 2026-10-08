@@ -25,7 +25,7 @@ fn paint(list: &List, state: &State, width: u16, height: u16) -> Vec<String> {
     let mut screen = Terminal::new(TestBackend::new(width, height)).unwrap();
     screen
         .draw(|frame| {
-            list.render(state, NOW, None, frame, Look::default(), frame.area());
+            list.render(state, &[], NOW, None, frame, Look::default(), frame.area());
         })
         .unwrap();
     let buffer = screen.backend().buffer();
@@ -65,7 +65,7 @@ fn the_list_shows_every_squad_clock_and_keys_inside_its_box_at_each_width() {
         assert!(text.contains("alpha") && text.contains("beta"), "{text}");
         assert!(text.contains("2 jobs · no clock"), "{text}");
         assert!(
-            text.contains("↑↓ choose · ⏎ open squad") && text.contains("Esc close"),
+            text.contains("↑↓ choose  ⏎ open squad") && text.contains("Esc close"),
             "{text}"
         );
         assert_eq!(
@@ -240,7 +240,7 @@ fn up_and_down_move_one_job_per_press_and_keep_the_selection_visible() {
                 let screen = paint(&list, &state, 100, height);
                 let cid = expected.rsplit('/').next().unwrap();
                 assert!(
-                    screen.iter().any(|line| line.contains(&format!(" {cid} "))),
+                    screen.iter().any(|line| line.contains(&format!("›{cid} "))),
                     "{cid} stays painted at height {height}\n{}",
                     screen.join("\n")
                 );
@@ -253,4 +253,125 @@ fn up_and_down_move_one_job_per_press_and_keep_the_selection_visible() {
             }
         }
     }
+}
+
+#[test]
+fn cursor_uses_the_mark_id_gap_and_tracks_refresh_survivors_without_state_changes() {
+    let mut state = jobs();
+    state.cron.as_mut().unwrap().jobs[1].job.pause = Some(tmt_squad::cron::Pause {
+        by: "fixture".into(),
+        at_ms: 0,
+    });
+    let original = state.cron.as_ref().unwrap().jobs.clone();
+    for (variant, look) in picker_surface::evidence::looks().into_iter().enumerate() {
+        for (width, height) in [(80, 30), (100, 30), (160, 30), (180, 30), (80, 8)] {
+            let list = List::open(&state, None);
+            for moved in [false, true] {
+                if moved {
+                    list.input(&key(KeyCode::Down));
+                }
+                let mut screen = Terminal::new(TestBackend::new(width, height)).unwrap();
+                screen
+                    .draw(|frame| list.render(&state, &[], NOW, None, frame, look, frame.area()))
+                    .unwrap();
+                let surface = list.surface.borrow();
+                let buffer = screen.backend().buffer();
+                for (index, job) in state.cron.as_ref().unwrap().jobs.iter().enumerate() {
+                    let id = row_id(&key_of(job));
+                    let row = picker_surface::evidence::row(&surface, &id);
+                    if row.height == 0 {
+                        continue;
+                    }
+                    assert_eq!(
+                        buffer[(row.x, row.y)].symbol(),
+                        if index == 0 { "●" } else { "○" }
+                    );
+                    assert_eq!(
+                        buffer[(row.x + 1, row.y)].symbol(),
+                        if surface.picker.list.selected() == Some(&id) {
+                            "›"
+                        } else {
+                            " "
+                        }
+                    );
+                    assert_eq!(buffer[(row.x + 2, row.y)].symbol(), "c");
+                    assert_eq!(
+                        buffer[(row.x + 7, row.y)].symbol(),
+                        if index == 0 { "a" } else { "b" }
+                    );
+                    assert_eq!(buffer[(row.x + 20, row.y)].symbol(), "t");
+                }
+                picker_surface::evidence::capture(
+                    &format!("cron-{width}x{height}-{variant}-{moved}"),
+                    buffer,
+                    &surface,
+                );
+            }
+            let mut refreshed = jobs();
+            refreshed.cron.as_mut().unwrap().jobs.remove(1);
+            let text = paint(&list, &refreshed, width, height).join("\n");
+            if height >= 12 {
+                assert!(
+                    text.contains("●›c0"),
+                    "nearest survivor owns the cue: {text}"
+                );
+            }
+            assert!(list.selected().unwrap().starts_with("room-a"));
+        }
+    }
+    for (before, after) in original.iter().zip(&state.cron.as_ref().unwrap().jobs) {
+        assert_eq!(before.job, after.job);
+    }
+}
+
+#[test]
+#[ignore = "read-only per-file decoded cue output; never regenerates repository fixtures"]
+fn inspect_list_cursor_snapshot_diff() {
+    let actual = snapshots();
+    let expected: serde_json::Value = serde_json::from_str(include_str!("snapshots.json")).unwrap();
+    let mut changes = Vec::new();
+    for (old, new) in expected
+        .as_array()
+        .unwrap()
+        .iter()
+        .zip(actual.as_array().unwrap())
+    {
+        assert_eq!(old["scenario"], new["scenario"]);
+        assert_eq!(old["width"], new["width"]);
+        let width = new["width"].clone();
+        for (y, (old, new)) in old["lines"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .zip(new["lines"].as_array().unwrap())
+            .enumerate()
+        {
+            let a: Vec<_> = old.as_str().unwrap().chars().collect();
+            let b: Vec<_> = new.as_str().unwrap().chars().collect();
+            assert_eq!(a.len(), b.len());
+            for (x, (a, b)) in a.into_iter().zip(b).enumerate() {
+                if a != b {
+                    assert_eq!((a, b), (' ', '›'));
+                    changes.push(json!({"width":width,"line":y,"column":x,"before":a,"after":b}));
+                }
+            }
+        }
+    }
+    let path = std::env::var("TMT_OVERLAY_LIST_DELTA").expect("task-owned decoded output path");
+    std::fs::write(
+        path,
+        serde_json::to_vec_pretty(&json!({"decodedChanges":changes,"actual":actual})).unwrap(),
+    )
+    .unwrap();
+}
+
+#[test]
+#[ignore = "read-only candidate export before fixture approval"]
+fn dump_list_snapshots() {
+    let path = std::env::var("SQUAD_CRON_LIST_OUT").expect("task-owned candidate path");
+    std::fs::write(
+        path,
+        serde_json::to_string_pretty(&snapshots()).unwrap() + "\n",
+    )
+    .unwrap();
 }

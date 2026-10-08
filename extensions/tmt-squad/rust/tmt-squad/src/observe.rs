@@ -202,7 +202,7 @@ mod tests {
             fs::create_dir(&root).unwrap();
             fs::write(root.join("roster"), json!({"members": roster}).to_string()).unwrap();
             // Read fixtures stay disabled: enabled tests inject a private cache via observe_with.
-            fs::write(root.join("squad.toml"), "").unwrap();
+            fs::write(root.join("ops.toml"), "").unwrap();
             let executable = root.join("tmt");
             crate::test_support::write_ready_executable(
                 &executable,
@@ -231,7 +231,7 @@ esac
                     name: "p".into(),
                     room_id: "33333333-3333-4333-8333-333333333333".into(),
                 },
-                config: Config::read(root.join("squad.toml")).unwrap(),
+                config: Config::read(root.join("ops.toml")).unwrap(),
                 root,
             }
         }

@@ -39,6 +39,7 @@ export interface AskControllerOptions {
   key: CryptoKey;
   selection(): AdmittedSelection;
   sessionEnded?(error?: SessionEvictedError): void;
+  observationUnavailable?(unavailable: boolean): void;
 }
 /** Trusted parent composition: explicit Send is the only Remote write. All
  * state/result reads operate on the current device's admitted immutable ledger.
@@ -370,7 +371,11 @@ export class AskController {
               .slice(0, ACTIVATION_READ_LIMIT)
           : views.filter(withinHorizon);
         refreshOlder = false;
-        if (!pending.length) return;
+        if (!pending.length) {
+          if (!signal.aborted && !this.#ended) this.options.observationUnavailable?.(false);
+          return;
+        }
+        let unavailable = false;
         for (const view of pending) {
           if (
             signal.aborted ||
@@ -383,8 +388,15 @@ export class AskController {
             await this.recover(view.intent.operationId);
           } catch {
             // Read/publication failure leaves the original operation for re-check.
+            unavailable = true;
           }
         }
+        if (
+          !signal.aborted &&
+          !this.#ended &&
+          (typeof document === 'undefined' || document.visibilityState !== 'hidden')
+        )
+          this.options.observationUnavailable?.(unavailable);
         if (this.#ended || !(await this.options.store.views()).some(withinHorizon)) return;
         if (!signal.aborted)
           await new Promise<void>((resolve) => {

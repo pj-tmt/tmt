@@ -106,16 +106,20 @@ fn count_pieces(counts: &Counts, words: bool) -> Vec<Piece> {
         ("○", counts.idle, Role::Dim, "idle"),
     ]
     .into_iter()
-    .map(|(mark, count, role, label)| {
+    .flat_map(|(mark, count, role, label)| {
         let suffix = if words {
             format!(" {label}")
         } else {
             String::new()
         };
-        (
-            format!("{mark} {count}{suffix}  "),
-            Some(if count == 0 { Role::Dim } else { role }),
-        )
+        [
+            (
+                mark.to_owned(),
+                Some(if count == 0 { Role::Dim } else { role }),
+            ),
+            (format!(" {count}{suffix}"), Some(Role::Text)),
+            ("  ".into(), Some(Role::Dim)),
+        ]
     })
     .collect()
 }
@@ -169,10 +173,10 @@ pub(super) fn summary_in(
             home.squads.len(),
             home.summary.members
         ),
-        None,
+        Some(Role::Text),
     )];
     wide.extend(count_pieces(&home.summary, true));
-    let mut narrow = vec![(format!("{} squads  ", home.squads.len()), None)];
+    let mut narrow = vec![(format!("{} squads  ", home.squads.len()), Some(Role::Text))];
     narrow.extend(count_pieces(&home.summary, false));
     let key = Key {
         width,
@@ -251,14 +255,7 @@ fn usage_pieces(usage: &HomeHeaderUsage<'_>, width: u16, wide: bool) -> Vec<Piec
     let mut pieces: Vec<Piece> = vec![
         (windows, Some(Role::Text)),
         (" · ".into(), Some(Role::Dim)),
-        (
-            top,
-            Some(if usage.top.is_some() {
-                Role::Accent
-            } else {
-                Role::Dim
-            }),
-        ),
+        (top, Some(Role::Text)),
     ];
     if let Some(unreported) = unreported {
         let used: usize = pieces.iter().map(|(text, _)| text.width()).sum();
@@ -289,7 +286,7 @@ fn usage_pieces(usage: &HomeHeaderUsage<'_>, width: u16, wide: bool) -> Vec<Piec
             pieces.push((models, Some(Role::Text)));
         }
         pieces.push((" · ".into(), Some(Role::Dim)));
-        pieces.push((unreported, Some(Role::Dim)));
+        pieces.push((unreported, Some(Role::Text)));
     }
     pieces
 }
@@ -336,18 +333,14 @@ pub(super) fn usage_in(
 }
 
 /// The key line: whole hints drop from the end until the line and the two exit
-/// hints fit (a fit, not a step); `A ask lead` shortens to `A ask` below `md`.
-fn key_line(width: usize, overflow: bool, long_ask: bool) -> String {
-    // The other keys (tabs, replies, cron, refresh, ...) are in `?` help;
+/// hints fit (a fit, not a step).
+fn key_line(width: usize, overflow: bool, view_reply: bool) -> String {
+    // The other keys (tabs, cron, refresh, ...) are in `?` help;
     // `s switch` comes back only while the tab line hides tabs.
-    let mut optional = vec![
-        "↑↓ move",
-        "⏎ open",
-        "a write",
-        "e expand",
-        if long_ask { "A ask lead" } else { "A ask" },
-        "/ search",
-    ];
+    let mut optional = vec!["↑↓ move", "⏎ open", "t talk", "e expand", "/ search"];
+    if view_reply {
+        optional.insert(4, "v view");
+    }
     if overflow {
         optional.push("s switch");
     }
@@ -367,39 +360,32 @@ fn key_line(width: usize, overflow: bool, long_ask: bool) -> String {
 
 #[cfg(test)]
 pub(crate) fn hints(width: usize, overflow: bool) -> String {
-    hints_in(&mut Kept::default(), width, overflow)
+    hints_in(&mut Kept::default(), width, overflow, true, false)
 }
 
 /// The key line, painted again only when its key changed.
-pub(super) fn hints_in(slot: &mut Kept<String>, width: usize, overflow: bool) -> String {
+pub(super) fn hints_in(
+    slot: &mut Kept<String>,
+    width: usize,
+    overflow: bool,
+    _receiving: bool,
+    view_reply: bool,
+) -> String {
     static TEMPLATE: OnceLock<Template<()>> = OnceLock::new();
     const FILE: &str = "squad.home.keys.xml";
     let template = TEMPLATE.get_or_init(|| {
-        let text = |branch: &str| {
-            format!(
-                r#"<tmt-text id="line" bind="$.{branch}" token="muted" class="w-full h-1"/>"#
-            )
-        };
-        let markup = format!(
-            r#"<tmt-view version="1"><tmt-switch><tmt-case min="md">{}</tmt-case><tmt-default>{}</tmt-default></tmt-switch></tmt-view>"#,
-            text("long"),
-            text("short")
-        );
-        let schema = Schema::Object(BTreeMap::from([
-            ("long".to_owned(), Schema::Scalar),
-            ("short".to_owned(), Schema::Scalar),
-        ]));
-        scene::compile(FILE, &markup, &schema)
+        scene::compile(
+            FILE,
+            r#"<tmt-view version="1"><tmt-text id="line" bind="$.line" token="muted" class="w-full h-1"/></tmt-view>"#,
+            &Schema::Object(BTreeMap::from([("line".to_owned(), Schema::Scalar)])),
+        )
     });
     let width = width.min(usize::from(u16::MAX)) as u16;
     let key = Key {
         width,
         look: Look::default(),
         selected: None,
-        data: json!({
-            "long": key_line(usize::from(width), overflow, true),
-            "short": key_line(usize::from(width), overflow, false),
-        }),
+        data: json!({"line": key_line(usize::from(width), overflow,view_reply)}),
     };
     slot.get(key, |key| {
         let painted = scene::paint(FILE, template, &key.data, key.width, &mut |_| {

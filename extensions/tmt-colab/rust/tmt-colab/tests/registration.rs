@@ -492,7 +492,11 @@ fn schema_two_authority_rows_survive_registration_migration() {
         })
         .unwrap();
     db.execute_batch(
-        "ALTER TABLE pages DROP COLUMN last_update_at_ms; DROP TABLE baselines; DROP TABLE device_registrations; PRAGMA user_version=2;",
+        "ALTER TABLE owner_operations RENAME TO current_owner_operations;
+        CREATE TABLE owner_operations(id TEXT PRIMARY KEY, digest BLOB NOT NULL, outcome BLOB NOT NULL);
+        INSERT INTO owner_operations(id,digest,outcome) SELECT id,digest,outcome FROM current_owner_operations;
+        DROP TABLE current_owner_operations;
+        ALTER TABLE pages DROP COLUMN last_update_at_ms; DROP TABLE baselines; DROP TABLE device_registrations; PRAGMA user_version=2;",
     )
     .unwrap();
     let store = Store::open(&f.layout).unwrap();
@@ -506,7 +510,7 @@ fn schema_two_authority_rows_survive_registration_migration() {
     assert_eq!(
         db.pragma_query_value(None, "user_version", |r| r.get::<_, u32>(0))
             .unwrap(),
-        5
+        6
     );
     store.close().unwrap();
 }
@@ -796,6 +800,7 @@ fn create_page(
                 operation_id: operation,
                 expected_revision: expected,
                 action: tmt_colab::transitions::OwnerAction::Create {
+                    creation_recipient: None,
                     page,
                     title: "Created title",
                     source: "<h1>Created source</h1>",
@@ -1037,26 +1042,32 @@ fn create_first_registration_and_saved_head_certificate_retry_use_the_genesis_an
 fn fresh_creation_is_atomic_replayable_and_conflicting_selections_never_create_another_page() {
     use tmt_colab::transitions::{OwnerAction, OwnerRequest};
     const PAGE: &str = "50000000-0000-4000-8000-000000000004";
+    let recipient = tmt_colab::decoder::CreationRecipient {
+        machine_id: "40000000-0000-4000-8000-000000000001".into(),
+        agent_id: "50000000-0000-1000-8000-000000000001".into(),
+    };
     let mut f = Fixture::new();
     f.oracle().execute_batch("CREATE TRIGGER deny_create_receipt BEFORE INSERT ON owner_operations BEGIN SELECT RAISE(FAIL,'forced rollback'); END;").unwrap();
-    let apply = |f: &mut Fixture, title: &str| {
-        f.service().apply_owner(
-            OwnerRequest {
-                operation_id: PAGE,
-                expected_revision: 0,
-                action: OwnerAction::Create {
-                    page: PAGE,
-                    title,
-                    source: "<h1>Created source</h1>",
-                    publisher_agent: None,
+    let apply =
+        |f: &mut Fixture, title: &str, hint: Option<&tmt_colab::decoder::CreationRecipient>| {
+            f.service().apply_owner(
+                OwnerRequest {
+                    operation_id: PAGE,
+                    expected_revision: 0,
+                    action: OwnerAction::Create {
+                        creation_recipient: hint,
+                        page: PAGE,
+                        title,
+                        source: "<h1>Created source</h1>",
+                        publisher_agent: None,
+                    },
+                    transport_digest: None,
+                    scope: None,
                 },
-                transport_digest: None,
-                scope: None,
-            },
-            NOW,
-        )
-    };
-    assert!(apply(&mut f, "Created title").is_err());
+                NOW,
+            )
+        };
+    assert!(apply(&mut f, "Created title", Some(&recipient)).is_err());
     for table in [
         "pages",
         "membership_log",
@@ -1071,19 +1082,31 @@ fn fresh_creation_is_atomic_replayable_and_conflicting_selections_never_create_a
     f.oracle()
         .execute_batch("DROP TRIGGER deny_create_receipt")
         .unwrap();
-    let first = apply(&mut f, "Created title").unwrap();
+    let first = apply(&mut f, "Created title", Some(&recipient)).unwrap();
     assert_eq!(first.head.revision, 2);
     f.reopen();
-    let again = apply(&mut f, "Created title").unwrap();
+    let again = apply(&mut f, "Created title", Some(&recipient)).unwrap();
     assert!(again.replayed);
     assert_eq!(first.outcome, again.outcome);
     assert_eq!(f.rows("pages"), 1);
     assert_eq!(f.rows("receipts"), 1);
     assert_eq!(
-        apply(&mut f, "Changed").unwrap_err().code,
+        apply(&mut f, "Changed", Some(&recipient)).unwrap_err().code,
         tmt_colab::transitions::Code::Conflict
     );
     assert_eq!(f.rows("pages"), 1);
+    assert_eq!(
+        apply(&mut f, "Created title", None).unwrap_err().code,
+        tmt_colab::transitions::Code::Conflict
+    );
+    let mut different = recipient.clone();
+    different.agent_id = "50000000-0000-1000-8000-000000000002".into();
+    assert_eq!(
+        apply(&mut f, "Created title", Some(&different))
+            .unwrap_err()
+            .code,
+        tmt_colab::transitions::Code::Conflict
+    );
     let key = Keyring::read(&f.layout).unwrap();
     let store = Store::read(&f.layout).unwrap();
     let mut decoder = tmt_colab::decoder::Decoder::with_config(support::decoder_config(
@@ -1093,5 +1116,6 @@ fn fresh_creation_is_atomic_replayable_and_conflicting_selections_never_create_a
     let page = tmt_colab::page::read(&store, &key, PAGE, &mut decoder).unwrap();
     assert_eq!(page.source, "<h1>Created source</h1>");
     assert_eq!(page.title, "Created title");
+    assert_eq!(page.creation_recipient, Some(recipient));
     store.close().unwrap();
 }

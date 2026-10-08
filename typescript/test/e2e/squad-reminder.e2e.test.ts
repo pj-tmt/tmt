@@ -30,7 +30,7 @@ it.each(['claude', 'codex'] as const)(
         ]);
         expect(initialized.code, initialized.stdout + initialized.stderr).toBe(0);
         expect((await fixture.runCli(['squad', 'lead', 'Reminder Lead', '--json'])).code).toBe(0);
-        const config = path.join(fixture.globalDir, 'squad.toml');
+        const config = path.join(fixture.globalDir, 'ops.toml');
         fs.writeFileSync(
           config,
           fs.readFileSync(config, 'utf8') +

@@ -1,0 +1,21 @@
+.message-composer-field {
+  width: 100%;
+  min-height: 5.25em;
+  max-height: min(15em, 40dvh);
+  overflow-y: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.message-composer-field:has(> p:only-child > br:only-child)::before {
+  content: attr(data-placeholder);
+  color: var(--c-muted);
+  pointer-events: none;
+  position: absolute;
+}
+.message-composer-field p {
+  margin: 0;
+}
+.tmt-listbox-input:has(.message-composer-field) + .tmt-ui-action[data-variant='text'] {
+  /* Extend the padded hit area while aligning its label with the field edge. */
+  margin-inline-start: -12px;
+}

@@ -7,6 +7,8 @@ mod attention;
 mod back;
 mod board;
 mod cache;
+pub mod checklist;
+mod checklist_command;
 mod config;
 mod consent;
 mod core;
@@ -16,15 +18,20 @@ pub mod cron_service;
 mod display_rows;
 mod effects;
 mod filter;
+mod focus;
+mod focus_command;
 mod hook_protocol;
 mod hotkeys;
+mod id;
 mod layout;
 mod links;
 mod look;
+mod management;
 mod markup;
 mod me;
 mod member_actions;
 mod membership;
+mod migration;
 mod observe;
 mod playbook;
 mod provider;
@@ -246,6 +253,8 @@ fn grammar() -> Command {
         .subcommand(view::grammar())
         .subcommand(playbook::grammar())
         .subcommand(cron_command::grammar())
+        .subcommand(focus_command::grammar())
+        .subcommand(checklist_command::grammar())
         .subcommand(
             build(specs::SKILL)
                 .subcommand_required(true)
@@ -480,6 +489,8 @@ fn human(command: &str, document: &Value, terminal: Terminal) -> String {
         "theme" => theme::text(document, terminal),
         "view" => view::text(document, terminal),
         "cron" => cron_command::text(document, terminal),
+        "focus" => focus_command::text(document, terminal),
+        "checklist" => checklist_command::text_output(document, terminal),
         "jump" => {
             let mut output = done(
                 terminal,
@@ -611,6 +622,7 @@ fn human(command: &str, document: &Value, terminal: Terminal) -> String {
 fn human_failures(command: &str, document: &Value) -> Vec<(String, Option<String>)> {
     let text = |value: &Value| value["message"].as_str().unwrap_or_default().to_owned();
     match command {
+        "checklist" => checklist_command::failure(document),
         "add" => document["results"]
             .as_array()
             .into_iter()
@@ -755,6 +767,15 @@ fn run(
     if command == "layout" {
         return layout::run(matches).map(Outcome::from);
     }
+    if command == "checklist" {
+        let invocation = match checklist_command::parse(matches) {
+            Ok(invocation) => invocation,
+            Err(error) => return Ok(checklist_command::finish(Err(error))),
+        };
+        let core = Core::discover()?;
+        let config = Config::load(&core)?;
+        return Ok(checklist_command::run(&core, &config, invocation));
+    }
     let core = Core::discover()?;
     let text = |name: &str| matches.get_one::<String>(name).map(String::as_str);
     let many = |name: &str| {
@@ -769,6 +790,9 @@ fn run(
         return member_actions::back(&core);
     }
     let mut config = Config::load(&core)?;
+    if command == "focus" {
+        return focus_command::run(&core, &config, matches).map(Outcome::from);
+    }
     if command == "cron" {
         return cron_command::run(&core, &config, matches).map(|document| Outcome {
             complete: document["complete"] != false,
@@ -914,6 +938,7 @@ fn ls_document(
     };
     let you = me::resolve_you(core, config)?;
     let mut documents = Vec::with_capacity(squads.len());
+    let mut active_ids = std::collections::BTreeSet::new();
     for squad in &squads {
         let layout = config.layout(&squad.name)?;
         let sections = config.sections(&squad.name)?;
@@ -932,6 +957,7 @@ fn ls_document(
                 notes: false,
             }),
         )?;
+        active_ids.extend(observation.members.iter().map(|member| member.id.clone()));
         if refresh_fields {
             provider::refresh(
                 &squad.name,
@@ -969,6 +995,7 @@ fn ls_document(
         (_, Ok([one])) => json!({"squads": [one]}),
         (_, Err(all)) => json!({"squads": all}),
     };
+    focus::enrich(core, &mut [&mut document], &active_ids);
     document["you"] = you.map_or(
         Value::Null,
         |(me, source)| json!({"id": me.id, "name": me.name, "source": source.as_str()}),
@@ -976,15 +1003,15 @@ fn ls_document(
     Ok(document.into())
 }
 
-/// `tmt squad` with no command (options such as `--json` aside) is `board`,
-/// which is the board for a person at a terminal and `ls` anywhere else.
-fn bare_is_board(argv: Vec<OsString>) -> Vec<OsString> {
+/// `tmt squad` with no command (options such as `--json` aside) is `ls`,
+/// which always lists members; only an explicit `board` opens the TUI.
+fn bare_is_list(argv: Vec<OsString>) -> Vec<OsString> {
     if argv.iter().skip(1).all(|word| {
         word.to_str().is_some_and(|word| word.starts_with('-'))
             && !matches!(word.to_str(), Some("-h" | "--help" | "-V" | "--version"))
     }) {
         let mut words = argv;
-        words.insert(1.min(words.len()), "board".into());
+        words.insert(1.min(words.len()), "ls".into());
         return words;
     }
     argv
@@ -1000,7 +1027,9 @@ fn main() -> ExitCode {
         return hook_protocol::run(&argv[1..]);
     }
     let json = argv.iter().skip(1).any(|arg| arg == "--json");
-    let matches = match request(&bare_is_board(argv)) {
+    let routed = bare_is_list(argv.clone());
+    let bare = routed != argv;
+    let matches = match request(&routed) {
         Ok(Request::Run(matches)) => matches,
         Ok(Request::Help(mut command)) => return print_help(&command.render_help(), json),
         Err(error) if error.kind() == ErrorKind::DisplayHelp => {
@@ -1053,7 +1082,10 @@ fn main() -> ExitCode {
                 return print_document(&outcome.document, code);
             }
             let mut stdout = tmt_cli_style::stream::stdout(false);
-            let body = human(command, &outcome.document, stdout.terminal());
+            let mut body = human(command, &outcome.document, stdout.terminal());
+            if bare {
+                body.push_str("\ntmt sq board opens the board\n");
+            }
             let written = stdout
                 .write_all(body.as_bytes())
                 .and_then(|()| stdout.flush());
@@ -1234,9 +1266,29 @@ mod tests {
         assert_eq!(
             complete(&words("-- ")),
             [
-                "add", "back", "board", "config", "copy", "cron", "help", "hotkeys", "init",
-                "jump", "layout", "lead", "ls", "me", "open", "playbook", "rm", "set", "skill",
-                "theme", "view"
+                "add",
+                "back",
+                "board",
+                "checklist",
+                "config",
+                "copy",
+                "cron",
+                "focus",
+                "help",
+                "hotkeys",
+                "init",
+                "jump",
+                "layout",
+                "lead",
+                "ls",
+                "me",
+                "open",
+                "playbook",
+                "rm",
+                "set",
+                "skill",
+                "theme",
+                "view"
             ]
         );
         assert_eq!(complete(&words("-- view ")), ["ls", "rm", "set"]);
@@ -1396,15 +1448,15 @@ mod tests {
     }
 
     #[test]
-    fn a_bare_invocation_is_the_board_but_help_and_version_are_not() {
+    fn a_bare_invocation_lists_members_but_help_and_version_are_not() {
         let argv = |words: &[&str]| -> Vec<OsString> {
             std::iter::once("tmt-squad")
                 .chain(words.iter().copied())
                 .map(Into::into)
                 .collect()
         };
-        assert_eq!(bare_is_board(argv(&[])), argv(&["board"]));
-        assert_eq!(bare_is_board(argv(&["--json"])), argv(&["board", "--json"]));
+        assert_eq!(bare_is_list(argv(&[])), argv(&["ls"]));
+        assert_eq!(bare_is_list(argv(&["--json"])), argv(&["ls", "--json"]));
         for kept in [
             &["-h"][..],
             &["--help"],
@@ -1413,7 +1465,7 @@ mod tests {
             &["ls"],
             &["help"],
         ] {
-            assert_eq!(bare_is_board(argv(kept)), argv(kept), "{kept:?}");
+            assert_eq!(bare_is_list(argv(kept)), argv(kept), "{kept:?}");
         }
     }
 

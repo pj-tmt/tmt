@@ -24,6 +24,11 @@ Its surface modules under `board/view/` retain the existing painters:
 | `waiting`   | Acquired decision text, inline composer bands and docked ask-lead  |
 | `overlays`  | Overlay dispatch and switcher painting                             |
 
+`board/row_detail.rs` owns the shared in-place detail projection and renderer,
+expansion reconciliation, worker-acquired reply cache and read-only full-reply
+reader. Member, HOME and cron surfaces reserve lines and retain their existing
+list geometry; they call this owner for detail content.
+
 `row_paint` builds the rows scene (admitted cells, solved boxes, ages, waiting line,
 annotation, `✓ sent` line, reserved input lines) and paints it through
 `tmt-tui::paint::paint_with`; `rows` only prepares and caches it.
@@ -45,6 +50,27 @@ Raw ratatui widget enforcement and its verification belong to the
 [tmt-tui skill](../tmt-tui/SKILL.md). A surface split preserves captured cells,
 styles, hits and list bytes; it grants no parity-regeneration permission.
 
+## Focus ownership
+
+`management.rs` shares active-actor and user-or-current-lead admission with cron;
+cron retains its original errors and tests. `focus_command.rs` owns bounded compound
+s/m/h duration parsing (1s–24h), command output and Core revision-conflict guidance.
+`focus.rs` owns the typed optional policy projection, UUID deduplication and one
+bounded `focus.policy.show` (up to 256 identities) per list/board acquisition.
+Eligible UUIDs come from the acquired `rooms.roster` snapshots, whose contract
+excludes retired/nonmembers; document-shaped objects cannot add eligible identities.
+Presence (including offline/unknown) is independent of identity retirement.
+Command writes pass exactly the [focus contract](../../../contracts/extension-api.md#focus-policy-and-checklist)
+fields: target, owner `me_id`, setter, expected revision and set-only expiry.
+No policy storage or retry lives in Squad. `ls` enriches once after all source
+observations; aggregate/HOME acquisition shares one read across source and flat rows.
+Unsupported, failed or malformed policy reads silently omit focus. Overflow UUIDs
+beyond the one bounded batch omit focus. The existing worker acquires board values;
+paint/input never read Core. The board clock advances minute labels and hides expiry,
+and the existing row cache keys include labels. Shared row detail shows clipped focus
+information. Use the native row-shape/management cases, focused parser/projection
+and injected-clock renderer checks alongside unchanged cron tests.
+
 ## References
 
 - [references/development.md](references/development.md): build, test and verification commands moved from DEVELOPMENT.md.
@@ -59,7 +85,7 @@ grammar or key tables into the references below.
 | Topic                                                                                | File                                                      |
 | ------------------------------------------------------------------------------------ | --------------------------------------------------------- |
 | Membership, leadership marker, `me`, field providers, staleness, reminders, cron     | [data-and-state.md](references/data-and-state.md)         |
-| `squad.toml` layering and writes, themes, views, settings, link and action effects   | [config-and-effects.md](references/config-and-effects.md) |
+| `ops.toml` layering and writes, themes, views, settings, link and action effects     | [config-and-effects.md](references/config-and-effects.md) |
 | Board frame, row grid, composition, tabs, scrolling, composers, overlays, validation | [board.md](references/board.md)                           |
 | HOME model, section scenes, cursor projection and cache invalidation                 | [board-home.md](references/board-home.md)                 |
 | Lead/member notebooks, links, annotations, detail and replies                        | [board-notebooks.md](references/board-notebooks.md)       |
@@ -76,8 +102,8 @@ grammar or key tables into the references below.
   `tmt-invoke` and `tmt-tui`.
 - A squad is the core room `squad-<name>`. Member fields are identity metadata
   `squad.<name>.<field>`; Squad has no membership store of its own.
-- Squad-owned data lives under `<dataRoot>/squad` (`storage.root` from `tmt api`),
-  plus disposable caches under `$XDG_CACHE_HOME/tmt-squad/`. `squad.toml` is the
+- Squad-owned data lives under `<dataRoot>/ops` (`storage.root` from `tmt api`),
+  plus disposable caches under `$XDG_CACHE_HOME/tmt-squad/`. `ops.toml` is the
   user's file; agents never write it, and no cron data goes into it or the core
   database.
 - Squad never writes `config.json`, a provider directory or tmux state except
@@ -90,8 +116,8 @@ grammar or key tables into the references below.
   on workers (see [refresh-and-meter.md](references/refresh-and-meter.md)).
 - Command grammar, help and human output go through `tmt-cli-style`
   (`CommandSpec`, `Interaction`); `board` runs only when `Interaction::view()` is
-  `Interactive`, decided once in `main`, otherwise it is `ls`. `tmt squad` with no
-  command is `board`. Consent for hotkeys and playbooks is a `Consent` decided in
+  `Interactive`, decided once in `main`, otherwise it is `ls`. Bare `tmt squad` lists members and adds
+  `tmt sq board opens the board`; bare `--json` is identical to `ls --json`. Consent for hotkeys and playbooks is a `Consent` decided in
   `main` from `--yes` and `prompt()`.
 - Squad's dependencies must not change the CLI product: prove it package-scoped
   (`cargo ... -p tmt-cli` alone), because combined workspace builds can unify

@@ -1,5 +1,7 @@
+import type { ThreadPresentation } from './thread-status-presentation.js';
+import type { ThreadStatusCoordinator } from './thread-status-coordinator.js';
 import type { ThreadBinding } from './thread-store.js';
-import type { ThreadView } from './thread-records.js';
+import type { DiscussionRef, ThreadView } from './thread-records.js';
 import type { AskBinding, PageAsk } from './ask-panel.js';
 import type { ExportBundle } from './export.js';
 import type { ManagementPort } from './management.js';
@@ -9,6 +11,7 @@ export interface PageView extends Projection {
   readonly own?: OwnState;
   readonly asks?: readonly PageAsk[];
   readonly threads?: readonly ThreadView[];
+  readonly threadPresentations?: readonly ThreadPresentation[];
   readonly askUnavailable?: boolean;
 }
 import type { PageId } from './bootstrap.js';
@@ -27,11 +30,14 @@ export interface PageSnapshot extends PageSummary {
   readonly own?: OwnState;
   readonly asks?: readonly PageAsk[];
   readonly threads?: readonly ThreadView[];
+  readonly threadPresentations?: readonly ThreadPresentation[];
   readonly askUnavailable?: boolean;
 }
 export interface PageBinding {
   readonly ask?: AskBinding;
   readonly discussion?: ThreadBinding;
+  readonly status?: ThreadStatusCoordinator;
+  markThreadStatusSeen?(thread: DiscussionRef): void;
   reconnect?(): Promise<boolean>;
   subscribe(publish: (value: PageView) => void, failed: (error: Error) => void): () => void;
   edit(source: string, base: string): Promise<void>;

@@ -64,10 +64,18 @@ for serving Remote HTML. Reuse the existing pinned implementations first; select
 Radix needs a separate dependency decision, with a concrete benefit and behavioral
 comparison, before installation or replacement.
 
-A candidate home is `design/browser-ui/`, with a private workspace package. This is
-an unapproved layout proposal: infra reviews the runtime responsibility/map, core
-reviews workspace/lockfile/dependency direction, and Colab/Remote review packaging
-before files are added there. The initial package issue is #1797.
+The `design/browser-ui/` home contains a private presentation leaf owned by
+tmt-ux. Products may depend on the leaf; it must not import product code. Core and
+the CLI must neither depend on nor embed it. The initial #1797 source implements
+checked CSS, static class names and isolated Header, Notice, Field, Action and
+Toggle. The leaf also provides an icon action with hover/focus tooltip and controlled
+pressed state, and Field supports one native or contenteditable text control;
+[the package contract](browser-ui/README.md) owns their accessible associations,
+static markup, entries, generation
+commands and host metric inputs. Product adoption is not delivered. The package and its shared workspace,
+lockfile, quality and static COPY integration are in place. Workspace,
+lockfile and dependency changes receive Core review, and packaging changes receive
+Colab/Remote review at the actual implementation head before delivery/adoption.
 
 The static entry must provide checked, deterministic token/component CSS that the
 native products embed at compile time. A Node build may generate assets in developer
@@ -108,9 +116,10 @@ keyboard users; a blocked action does not disappear. A destructive variant does
 not perform confirmation or mutate anything. Consumers supply consequence wording,
 explicit confirmation intent, and persistence/retry behavior.
 
-Toggle state is controlled by its caller. Fields accept a label, value, description,
-validation message and controlled change callback; the package owns accessible
-association and visual feedback, not validation authority or settings writes.
+Toggle and icon-action pressed state are controlled by their caller. Field accepts
+a label, description, validation message and `renderControl` for one focusable text
+control; the host retains value, ref, caret/IME and editor lifetime. The package owns
+accessible association and visual feedback, not validation authority or settings writes.
 Chips/tags accept visible text, an optional mark and a role; count and state are
 never read from an inbox or inferred from a color. An interactive chip is a control,
 not an arbitrary clickable span. Driver color requires consumer-verified metadata;

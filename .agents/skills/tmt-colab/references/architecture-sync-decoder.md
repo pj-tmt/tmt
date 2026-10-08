@@ -49,12 +49,31 @@ and `limits.rs`; do not restate them.
   where a child may survive blocks it. Invalid output, panic or timeout returns no
   application result. `decoder::Config` carries the program and deadline; only tests inject
   a larger deadline (`tests/support`), and no option tunes the production deadline.
+  Invocation failures also emit a best-effort ASCII stderr record of at most 512 bytes,
+  containing only the private call phase, input size, remaining runner-entry budget,
+  invocation elapsed time, including cleanup, failure kind and cleanup category; original errors are unchanged.
+  Decode-request failures also include parent wire-construction, JSON-serialization and input-hash
+  wall intervals; JSON serialization includes incremental hashing, and the hash interval includes
+  the existing stream guard plus digest finalization and encoding. Other commands omit these
+  fields. The samples consume the original deadline.
+  The record bounds bytes, not write latency, and does not measure CPU, scheduling or child phases.
+
+- `Decoder::prepare_content_batch` uses the private `__decoder prepare-content` entry to return
+  an explicit no-op or ordered causal update batch. The child replays the batch from the supplied
+  admitted base and verifies the expected content projection; the parent checks input/output
+  correlation, strict shape, bounds and expected metadata without parsing Yjs. The batch is
+  preparation only; `tmt colab page write` publishes it through `page::prepare_publication`.
 
 ## Page source and export
 
 - `page.rs` reads and writes admitted source locally: it prepares through the fold and
   decoder, and the opaque token binds the owner head, page epoch and every namespace
   position, because content appends do not advance the membership log.
+- `page::prepare_publication` uses one admitted `fold::Snapshot` and its extracted
+  materialization input owner for exact base/full metadata/own projections and causal decoder inputs.
+  It returns Noop before ID/sequence/seal/certificate work, or a frozen signed content packet and
+  chain through the existing local Keyring writer. Both single-edit and batch gzip admission include
+  all own bytes in the checked raw fastpath. `page write` is its caller; browser Save is not.
 - `page/compact.rs` combines the local device's own stream after a write (best effort, repeatable):
   it opens only that stream's objects through `Snapshot::open_object`, merges them in the decoder
   child (`Decoder::merge`, no projection, since one device's stream can depend on another's structs),
@@ -66,11 +85,28 @@ and `limits.rs`; do not restate them.
   `identity show --json` command in `core.rs`; failures leave no label. The decoder's
   `ContentEdit` replaces/clears `meta.publisherAgent` atomically with source. Browser
   edits preserve it, and owner epoch baselines carry it in their committed update.
-  No label selects an identity or grant.
-- Offline writes hold the serve lifecycle lock and use `Store::write_existing`; when `serve`
-  holds the lock, `page/ipc.rs` makes one bounded request to the owned socket and never
-  retries or falls back. The write signs with a purpose-separated local device certified by
-  the management member; it is not a Remote registration.
+  No label selects an identity or grant. Creation reuses that single bounded identity
+  snapshot and one optional same-root public machine-status observation to freeze
+  `decoder::CreationRecipient`; the browser projection uses the canonical
+  `CreationRecipient` in `fold-protocol.ts`. Strict metadata admission, source-edit
+  before/after checks, fresh/chunked baselines, epoch, checkpoint/history and frozen
+  export preserve the pair. Source edits cannot set it, and absence never backfills.
+  There is no second acquisition, descriptor cache, service startup, private Remote
+  state, HTTP or Session lookup. The [Colab contract](../../../../extensions/tmt-colab/contracts/colab-v1.md)
+  owns the complete-pair grammar and strict-reader compatibility rules; the future
+  #1817 UI default is not integrated by this native/non-UI boundary.
+- `page write` freezes one batch (`prepare_publication`). Offline it holds the serve lifecycle
+  lock, uses `Store::write_existing` and `commit_publication`; when `serve` holds the lock,
+  `page/ipc.rs` posts one `LocalWrite` v2 to `/.tmt/colab/local/page-publish` and never
+  retries, re-signs or falls back. `ipc::send` and `ipc::receive` are split so a failure
+  before the body is fully written is a plain refusal, while any later doubt is resolved
+  by one read-only `publication_status` in `main.rs::publish_write`, else
+  `COLAB_OUTCOME_UNKNOWN` with the original operation ID. `Server::publish` prepares one
+  broadcast per entry before the transaction and fans out only for a new committed
+  outcome, then combines the own tail (`Trigger::until` = request read time plus `PUBLISH_COMBINE`; a later combine publishes
+  nothing, so the page does not move after the reply the client waits for, and the reply
+  carries the revision read under the sync lock). The write signs with a purpose-separated local device certified by the
+  management member; it is not a Remote registration.
 - `export.rs` snapshots exact source and title through `fold::Snapshot` and the decoder and
   writes `page.html`, `conversations.json`, `conversations.md` and `manifest.json` (format and
   disclosure: colab-v1). The fold now keeps each writer's decoded `own` projection and
@@ -82,6 +118,13 @@ and `limits.rs`; do not restate them.
   `contracts/vectors/export-v1.json`, generated by the independent
   `contracts/vectors/export-reference.py`.
 
+- `publication.rs` owns the pure `Manifest`/`SignedJob` (`kind` `content` or `own`, one
+  namespace per job), original-ID `Outcome` and `LocalWrite`/`LocalStatus` codecs, with exact
+  packet/hash/signature vectors for both kinds in `publication-content-v1.json`. It accepts a
+  caller-admitted public key, never authority state, and preserves original envelope bytes.
+  See the content-publication section of colab-v1 for its callers: CLI `page write` and
+  `threads resolve|reopen`; Browser Save does not use it.
+
 ## Browser containment
 
 - The fold runs in a dedicated Worker, with bounds on state and projection; the parent checks every projection and terminates the Worker on failure or
@@ -89,3 +132,9 @@ and `limits.rs`; do not restate them.
 - Parent chrome policy and renderer policy are two constants in `assets.rs` (`POLICY`,
   `RENDERER_POLICY`); change them only with the colab-v1 renderer section and the
   `renderer.spec.ts` browser checks.
+- `Fold.prepareContent` uses the private `prepare-content` Worker command to return an explicit
+  no-op or bounded ordered content deltas with the expected projection. Preparation leaves
+  committed Worker state unchanged, and the parent validates the typed result against its
+  admitted base. This interface has no signing or transport capability; browser Save still uses
+  its existing single-update path until the separately reviewed atomic integration replaces that
+  caller.

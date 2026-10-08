@@ -50,15 +50,13 @@ and audience effects to [config-and-effects.md](config-and-effects.md#home-lead-
   blocked, leads, squads; never the cron line). A start on a lead also sets
   `home_start`, so the first deferred lead read, which reorders the leads, places the
   cursor once more; `select` and the composer clear it. Squad tabs start at row 0.
-- `home::leads` projects deferred exchanges into the shared `view::member_list`
-  `Outline` box. Every visible line of
-  a lead maps to the same cursor target. A blank boxed line follows an exchange
-  before the next lead; consecutive leads without exchanges have no separator.
-  Disabling replies removes previews and separators together. Expanded messages
-  replace their preview below the header, using the shared band and height cap
-  that preserves the target/overflow line.
-  The audience footer is outside the box; header `time_marks` advances ages without
-  another read. Acquisition and audience effects remain with the linked owners.
+- `home::leads` projects deferred lead headings into the shared `view::member_list`
+  `Outline` box. Leads and attention members start collapsed. `board::row_detail`
+  owns their explicit in-place detail and reply blocks; section builders reserve
+  those lines and include their presentation data in cache keys. Every block line
+  maps to its parent cursor target, while selection styles only the heading.
+  The audience footer remains outside the box. Acquisition and audience effects
+  remain with the linked owners.
 
 ## Cache invariant and verification
 
@@ -69,7 +67,8 @@ look and selected block. Ages, cron text, input reservation, sent feedback, sear
 and usage must reach bound data before key comparison; decoration may read only
 look and selected block. Local placement lets a shifted section reuse its block.
 Selection repaints the departed/entered sections; width/look changes rebuild affected
-scenes, and a new snapshot starts empty. The key strip paints without look decoration.
+scenes, and a new snapshot starts empty. The key strip decorates keys and labels through the shared footer painter;
+its bound strings include the conditional reply-reader hint.
 
 `home/tests/cache.rs` compares retained frames with fresh frames. `home/tests/oracle.rs`
 records whole-frame cells/styles/hits around `sm`, `md` and `lg` boundaries;

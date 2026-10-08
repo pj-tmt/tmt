@@ -210,6 +210,10 @@ impl Storage {
         worker: &ProcessIncarnation,
     ) -> Result<bool, StorageError> {
         with_immediate_transaction(self, "reply frame attempt", |db| {
+            let owned:bool=db.query_row("SELECT EXISTS(SELECT 1 FROM reply_notices n JOIN reply_notice_batches b ON b.id=n.batch_id WHERE n.batch_id=? AND n.request_id=? AND n.attempted=0 AND b.sending=1 AND b.worker_pid=? AND b.worker_start=?)",params![id,request_id,checked_now(worker.pid(),"Reply worker PID")?,worker.start_identity()],|r|r.get(0)).map_err(|e|classify(e,"Verify unattempted reply frame owner"))?;
+            if !owned || focus_hold(db, request_id)? {
+                return Ok(false);
+            }
             let changed=db.execute("UPDATE reply_notices SET attempted=1 WHERE batch_id=? AND request_id=? AND attempted=0 AND EXISTS (SELECT 1 FROM reply_notice_batches WHERE id=? AND sending=1 AND worker_pid=? AND worker_start=?)",params![id,request_id,id,checked_now(worker.pid(),"Reply worker PID")?,worker.start_identity()])
                 .map_err(|error|classify(error,"Claim reply notice frame"))?;
             Ok(changed == 1)
@@ -227,6 +231,24 @@ impl Storage {
             let owned:bool=db.query_row("SELECT EXISTS (SELECT 1 FROM reply_notice_batches WHERE id=? AND sending=1 AND worker_pid=? AND worker_start=?)",params![id,checked_now(worker.pid(),"Reply worker PID")?,worker.start_identity()],|row|row.get(0))
                 .map_err(|error|classify(error,"Verify reply host owner"))?;
             if owned {
+                let ids = {
+                    let mut query = db
+                        .prepare(
+                            "SELECT request_id FROM reply_notices WHERE batch_id=? AND attempted=0",
+                        )
+                        .map_err(|e| classify(e, "Read untouched fallback members"))?;
+                    query
+                        .query_map([id], |r| r.get::<_, String>(0))
+                        .and_then(|r| r.collect::<Result<Vec<_>, _>>())
+                        .map_err(|e| classify(e, "Decode untouched fallback members"))?
+                };
+                let mut held = false;
+                for request in ids {
+                    held |= focus_hold(db, &request)?;
+                }
+                if held {
+                    return Ok(false);
+                }
                 db.execute(
                     "UPDATE reply_notices SET attempted=1 WHERE batch_id=?",
                     [id],
@@ -311,4 +333,21 @@ fn validate_outcome(outcome: WakeState) -> Result<(), StorageError> {
             "Invalid reply notice outcome",
         ))
     }
+}
+
+fn focus_hold(db: &Connection, request_id: &str) -> Result<bool, StorageError> {
+    let mut records = super::RequestRows(db);
+    let Some(attempt) = records.find_request(request_id)? else {
+        return Ok(false);
+    };
+    tmt_core::request::focus::hold_originator_notice(
+        &mut records,
+        &attempt,
+        tmt_core::request::notification::HintKind::Reply,
+        crate::request_runtime::wall_time_ms(),
+    )
+    .map_err(|error| match error {
+        tmt_core::request::RequestError::Repository(error) => error,
+        _ => StorageError::new(StorageErrorCode::Unknown, "Focus notice admission failed"),
+    })
 }

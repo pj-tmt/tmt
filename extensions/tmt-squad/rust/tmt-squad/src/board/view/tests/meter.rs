@@ -69,6 +69,152 @@ fn with_meter(now: Instant, reduced: bool) -> App {
 }
 
 #[test]
+fn meter_pointer_targets_retain_geometry_and_modal_keyboard_isolation() {
+    use ratatui::crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
+    let now = Instant::now();
+    let mut app = with_meter(now, true);
+    let mut terminal = Terminal::new(TestBackend::new(100, 24)).unwrap();
+    terminal.draw(|frame| render(frame, &app)).unwrap();
+    let area = meter_region(&app, Rect::new(0, 1, 100, 1)).unwrap().0;
+    let event = |kind, x, y| MouseEvent {
+        kind,
+        column: x,
+        row: y,
+        modifiers: KeyModifiers::NONE,
+    };
+    let group = event(MouseEventKind::Moved, area.x, area.y);
+    assert!(app.move_pointer(group));
+    assert!(
+        !app.move_pointer(group),
+        "unchanged target cannot dirty the frame"
+    );
+    assert_eq!(
+        app.mouse(
+            event(MouseEventKind::Down(MouseButton::Left), area.x, area.y),
+            now
+        ),
+        crate::board::app::Effect::CycleTokenWindow
+    );
+    for x in area.x..area.right() {
+        assert_eq!(
+            app.mouse(
+                event(MouseEventKind::Down(MouseButton::Left), x, area.y),
+                now
+            ),
+            crate::board::app::Effect::CycleTokenWindow
+        );
+    }
+    assert!(app.move_pointer(group), "cell clicks ended on the last bar");
+    let bar = event(MouseEventKind::Moved, area.right() - 1, area.y);
+    assert!(app.move_pointer(bar));
+    assert_eq!(app.meter_hover, Some(Some(7)));
+    terminal.draw(|frame| render(frame, &app)).unwrap();
+    assert_eq!(meter_region(&app, Rect::new(0, 1, 100, 1)).unwrap().0, area);
+    let text: String = (area.x..area.right())
+        .map(|x| terminal.backend().buffer()[(x, area.y)].symbol())
+        .collect();
+    assert!(text.contains("– · now"), "{text}");
+    let selected = app.look().selection();
+    for x in area.x..area.right() {
+        assert_eq!(
+            terminal.backend().buffer()[(x, area.y)].style().bg,
+            Some(selected.bg.unwrap_or(ratatui::style::Color::Reset)),
+            "group background includes padding"
+        );
+    }
+    assert!(!app.move_pointer(bar));
+    assert_eq!(
+        app.mouse(
+            event(MouseEventKind::Down(MouseButton::Left), area.x, area.y),
+            now
+        ),
+        crate::board::app::Effect::CycleTokenWindow
+    );
+    assert_eq!(
+        app.meter_hover,
+        Some(None),
+        "button coordinates leave the old bar readout"
+    );
+    app.move_pointer(bar);
+    assert!(app.move_pointer(event(MouseEventKind::Moved, 0, area.y + 1)));
+    assert_eq!(app.meter_hover, None);
+    app.move_pointer(bar);
+    let current = app.current.clone();
+    app.current = Some("opening-other-squad".into());
+    assert!(app.loading() && app.meter.is_some());
+    assert_eq!(
+        app.mouse(
+            event(MouseEventKind::Down(MouseButton::Left), area.x, area.y),
+            now
+        ),
+        crate::board::app::Effect::None,
+        "a loading view cannot act on stale painted meter hits"
+    );
+    app.current = current;
+    app.move_pointer(bar);
+    app.key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
+    assert_eq!(
+        app.meter_hover, None,
+        "keyboard-only operation clears an active hover"
+    );
+    app.move_pointer(bar);
+    let mut disabled = crate::board::app::tests::snapshot("product", serde_json::json!([]));
+    disabled.view.as_mut().unwrap().token_rate = None;
+    app.apply(disabled);
+    assert_eq!(
+        app.meter_hover, None,
+        "hidden meter clears hover on refresh"
+    );
+    app.key(KeyEvent::new(KeyCode::Char('?'), KeyModifiers::NONE));
+    assert!(
+        !app.move_pointer(bar),
+        "modal input cannot hover underlying meter"
+    );
+    assert_eq!(
+        app.mouse(
+            event(MouseEventKind::Down(MouseButton::Left), area.x, area.y),
+            now
+        ),
+        crate::board::app::Effect::None
+    );
+}
+
+fn saved_cycle(app: &mut App) {
+    assert_eq!(
+        app.key(KeyEvent::new(KeyCode::Char('w'), KeyModifiers::NONE)),
+        crate::board::app::Effect::CycleTokenWindow
+    );
+    static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+    let root = std::env::temp_dir().join(format!(
+        "tmt-meter-window-{}-{}",
+        std::process::id(),
+        NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+    ));
+    std::fs::create_dir(&root).unwrap();
+    let path = root.join("ops.toml");
+    let windows = app
+        .meter
+        .as_ref()
+        .unwrap()
+        .settings
+        .windows
+        .map(|window| window.label())
+        .join("/");
+    std::fs::write(&path, format!("[board]\ntok = '{windows}'\n")).unwrap();
+    let mut config = crate::config::Config::read(path.clone()).unwrap();
+    config
+        .set_setting(
+            None,
+            "board.token_rate.window",
+            &app.next_token_window().unwrap().label(),
+        )
+        .unwrap();
+    let saved = crate::config::Config::read(path.clone()).unwrap();
+    app.notice = Some(app.apply_token_window(&saved));
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn unavailable_meter_shows_mode_and_hint_zero_is_numeric_and_w_reports_selection() {
     use crate::config::{TokenRate, TokenWindow};
     for windows in [
@@ -107,7 +253,7 @@ fn unavailable_meter_shows_mode_and_hint_zero_is_numeric_and_w_reports_selection
                 );
                 assert!(draw(&app, width, 24)[2].contains("no usage reported yet"));
                 assert_eq!(app.token_window, window);
-                app.key(KeyEvent::new(KeyCode::Char('w'), KeyModifiers::NONE));
+                saved_cycle(&mut app);
                 assert!(
                     draw(&app, width, 24)
                         .last()
@@ -130,9 +276,9 @@ fn unavailable_meter_shows_mode_and_hint_zero_is_numeric_and_w_reports_selection
                     "{text}"
                 );
                 assert!(!text.contains("no consumption data"));
-                app.key(KeyEvent::new(KeyCode::Char('w'), KeyModifiers::NONE));
+                saved_cycle(&mut app);
             }
-            app.key(KeyEvent::new(KeyCode::Char('w'), KeyModifiers::NONE));
+            saved_cycle(&mut app);
             let narrow = draw(&app, 30, 24).join("\n");
             assert!(
                 narrow.contains(&format!("Token window: {}", windows[1].label())),
@@ -218,7 +364,7 @@ fn sample_and_animation_emit_only_meter_cells_in_normal_render() {
                 .map(|x| terminal.backend().inner.buffer()[(x, 1)].symbol())
                 .collect();
             assert!(summary.ends_with("~150 tok 1m        █"), "{summary}");
-            assert_eq!(area.width, 23, "seven-cell maximum number region");
+            assert_eq!(area.width, 33, "fixed rate/age slot plus eight bars");
             redraw(&mut terminal, &app);
             assert!(
                 terminal.backend().emitted.is_empty(),

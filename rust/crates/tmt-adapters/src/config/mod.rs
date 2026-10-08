@@ -128,6 +128,15 @@ impl ConfigFiles {
         document::write(path, &value, scope)
     }
 
+    /// Write only the presentation base, validated by the CLI style registry.
+    /// Theme errors must remain independent of runtime settings validation.
+    pub fn set_theme_base(&self, base: &str) -> Result<(), ConfigError> {
+        let path = self.path(Scope::Global);
+        let mut value = document::read(path, Scope::Global)?;
+        document::set_theme_base(&mut value, base, path)?;
+        document::write(path, &value, Scope::Global)
+    }
+
     pub fn clear_local(&self, clear: LocalClear) -> Result<(), ConfigError> {
         let path = self.path(Scope::Local);
         let mut value = document::read(path, Scope::Local)?;

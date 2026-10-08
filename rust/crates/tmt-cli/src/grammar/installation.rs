@@ -201,6 +201,12 @@ pub(in crate::grammar) fn setup(hooked: Vec<&'static str>) -> Command {
 pub(in crate::grammar) fn hook(hooked: Vec<&'static str>) -> Command {
     internal("__hook", "Internal bounded provider lifecycle callback")
         .hide(true)
+        .arg(
+            Arg::new("activity-only")
+                .long("activity-only")
+                .hide(true)
+                .action(ArgAction::SetTrue),
+        )
         .arg(operand("provider", true).value_parser(hooked))
         .arg(
             Arg::new("worker")
@@ -228,6 +234,14 @@ pub(in crate::grammar) fn hook(hooked: Vec<&'static str>) -> Command {
         )
 }
 
+pub(in crate::grammar) fn focus_hook(hooked: Vec<&'static str>) -> Command {
+    hook(hooked)
+        .name("__focus-hook")
+        .mut_arg("activity-only", |arg| arg.conflicts_with("launch"))
+        .about("Internal launch-admitted Focus continuation")
+        .arg(Arg::new("launch").long("launch").required(true).hide(true))
+}
+
 pub(in crate::grammar) fn upgrade() -> Command {
     general(spec!(
         "upgrade",
@@ -243,6 +257,9 @@ pub(in crate::grammar) fn upgrade() -> Command {
     .arg(channel_option())
     .arg(option("to"))
     .arg(option("unpin"))
+    .arg(Arg::new("allow-schema-ahead").long("allow-schema-ahead")
+        .action(ArgAction::SetTrue)
+        .help("Allow a PR schema ahead of latest alpha; newer local data still refuses downgrades"))
 }
 
 pub(in crate::grammar) fn uninstall() -> Command {
@@ -305,7 +322,7 @@ pub(in crate::grammar) fn native_install() -> Command {
         .arg(
             Arg::new("handoff-version")
                 .long("handoff-version")
-                .value_parser(["1"])
+                .value_parser(["1", "2"])
                 .conflicts_with_all([
                     "archive", "manifest", "prefix", "channel", "pin", "unpin", "product",
                 ]),
@@ -339,14 +356,7 @@ pub(in crate::grammar) fn native_install() -> Command {
                 .long("prefix")
                 .required_unless_present("handoff-version"),
         )
-        .arg(
-            Arg::new("channel")
-                .long("channel")
-                .required_unless_present("handoff-version")
-                .value_parser(
-                    tmt_core::native_install::Channel::ALL.map(|channel| channel.as_str()),
-                ),
-        )
+        .arg(channel_option().required_unless_present("handoff-version"))
         .arg(
             Arg::new("pin")
                 .long("pin")
@@ -354,6 +364,31 @@ pub(in crate::grammar) fn native_install() -> Command {
                 .conflicts_with("unpin"),
         )
         .arg(Arg::new("unpin").long("unpin").action(ArgAction::SetTrue))
+}
+
+pub(in crate::grammar) fn native_schema() -> Command {
+    internal(
+        "__native-schema",
+        "Internal compiled application-schema export",
+    )
+    .hide(true)
+    .mut_arg("json", |argument| argument.required(true))
+    .arg(
+        Arg::new("source-sha")
+            .long("source-sha")
+            .required(true)
+            .value_parser(|value: &str| {
+                if value.len() == 40
+                    && value
+                        .bytes()
+                        .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+                {
+                    Ok(value.to_owned())
+                } else {
+                    Err("Select an exact lowercase source SHA.".to_owned())
+                }
+            }),
+    )
 }
 
 pub(in crate::grammar) fn learn() -> Command {

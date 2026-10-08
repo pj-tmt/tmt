@@ -6,8 +6,9 @@ sending. Terminal capture and `check` are diagnostics, not authoritative
 completion or full-body retrieval. Socket denial is confirmed with OS permission
 evidence rather than localized error wording; tmux child locales are preserved,
 including UTF-8 character handling for capture and send. Identified destinations use a durable Inbox
-route with one live-delivery attempt. Explicit `talk --inbox` queues without
-that attempt. Neither implies a daemon, remote transport or authentication.
+route with at most one live-delivery attempt when an endpoint is recorded.
+Unbound identities and explicit `talk --inbox` queue without that attempt.
+Neither implies a daemon, remote transport or authentication.
 
 A cooperating agent submits its complete final body successfully, then may show
 a short truthful summary of work, verification and unresolved items. Submission
@@ -81,6 +82,46 @@ Typed response errors distinguish invalid/oversized input, unknown request, wron
 attempt, wrong recipient, ineligible state, expiry and conflicting content.
 Rejected submissions preserve attempts, cadence and responses. Storage failures
 remain storage failures. There is no cancellation operation or automatic retry routing policy.
+
+## Originator withdrawal
+
+```text
+tmt x withdraw <request-id> --reason <text> [--identity <originator>] [--json]
+```
+
+Only the request's recorded originator identity may withdraw, using the verified
+or explicit identity selection of `x`. Anonymous requests cannot be withdrawn;
+announcements do not accept request withdrawal. This is local attribution, not
+authentication. The required reason is retained exactly, 1–1024 UTF-8 bytes.
+
+Withdrawal and final submission serialize in the same SQLite IMMEDIATE transaction:
+the first commit wins. Any submitted final, including one whose body has expired,
+refuses withdrawal with `REQUEST_ALREADY_FINAL` (exit 5), without mutation.
+A later reply to a withdrawn request fails with `REQUEST_WITHDRAWN` (exit 5).
+Identical withdrawal reasons are idempotent and preserve the original timestamp;
+a different reason yields `REQUEST_WITHDRAWAL_CONFLICT` (exit 5).
+Wrong originator or anonymous-request withdrawal is `REQUEST_ORIGINATOR_MISMATCH`
+(exit 5); an announcement is `REQUEST_WITHDRAWAL_NOT_REQUIRED` (exit 5).
+Invalid reason input is `REQUEST_WITHDRAWAL_INPUT_INVALID` (exit 1), and missing
+or no-longer-retained metadata is `REQUEST_NOT_FOUND` (exit 3).
+
+Success returns `{identity,status:"withdrawn",requestId,reason,withdrawnAtMs,changed}`;
+`changed` is false for an identical retry. `result` returns
+`{status:"withdrawn",requestId,reason,withdrawnAtMs}` (exit 0), including prefix
+selection. It neither returns `RESPONSE_NOT_AVAILABLE` nor invents a response body.
+`x show`, `x ls` and ordinary request history expose
+`final:{status:"withdrawn",reason,withdrawnAtMs}`; incoming show supplies no reply
+instruction for withdrawn requests. Originator results history still contains only
+submitted recipient finals.
+
+Withdrawal preserves the original prompt, history and frozen retention horizons,
+without changing delivery status, allocating attention revisions or acknowledging
+either party. It releases any active waiter; a blocking talk observer ends with
+`REQUEST_WITHDRAWN` (exit 5, `status:"withdrawn"`). A withdrawn exchange is settled,
+and open-request queries exclude it before pagination. Consumers waiting on a
+person must exclude this state. Withdrawal sends no recipient notification and
+does not cancel delivery or work the recipient may already have done. It is never
+a recipient final, successful work or approval.
 
 ## Reply and result commands
 
@@ -257,7 +298,7 @@ request (not an announcement), has no final, and still accepts one: its
 delivery is `sending`, `sent`, `queued` or `uncertain`, and its acceptance
 deadline has not passed. That is the same rule final submission enforces, so
 the inbox never offers a request an answer would refuse. Acknowledgment and
-live delivery do not remove a request; only a final or the deadline does.
+live delivery do not remove a request; a final, originator withdrawal or the deadline does.
 There is no dismiss or decline.
 
 `inbox` is read-only and lists oldest first, at most 50 by default. JSON is
@@ -344,6 +385,17 @@ terminal output to determine completion. `send` follows the same semantics.
 The recipient must cooperate by invoking reply; idle output, fake markers,
 process exit and human summaries do not complete a request.
 
+An active identity with no recorded host binding receives by inbox pull. Ordinary
+`talk` queues and waits for its durable reply without needing tmux, Herdr or a
+host driver; `--detach` returns the queued acceptance immediately. Outside a
+verified host pane, use `--identity <originator>` to identify the sender explicitly.
+The receiving
+agent must actively inspect `tmt inbox --identity <recipient> --json` or run the
+bounded `tmt x listen --identity <recipient>` waiter, then inspect the exact
+request and submit its receipt-bound reply. This does not wake or launch an
+inactive agent. Publishing recipient attention follows notification/waiter
+registration, so a listener's immediate reply is valid.
+
 Timeout defaults to 180 seconds unless configured, accepts finite positive
 seconds or ms/s suffixes, and is bounded to 24 hours. Explicit timeout and
 detach are mutually exclusive. The monotonic deadline starts immediately before
@@ -356,6 +408,16 @@ remain retrievable. Interruption during `--delay`, before preparation, reports
 `INTERRUPTED` (exit 1) without request correlation: no message was sent, so running
 the command again is safe.
 
+The existing global-file `defaults.timeout` and `defaults.pollInterval` configure
+this foreground observation; polling defaults to one second and each wait is
+clipped to the remaining monotonic budget. `--timeout` overrides the configured
+deadline. A timeout for ordinary `talk` to an unbound recipient reports that the agent has not
+responded within the budget, retains exit 4 / `TIMEOUT`, and gives the exact
+`tmt result <request-id> --json`, recipient-UUID inbox pull and
+`tmt x show <request-id> --incoming --identity <recipient UUID> --json` commands.
+It does not claim the agent is dead or that the request was never received, and
+does not start a background timeout observer, cancel the request or resend it.
+
 Detached explicit `talk --inbox` accepts the queue with exit 0 and JSON
 `{status:"queued",requestId,target,identity,recipientIdentityId,notification:"not_attempted",waitingFor:"recipient_inbox_pull"}`.
 No live notification was attempted, even for an enrolled, ready recipient. The
@@ -364,7 +426,7 @@ Human output states this and supplies `tmt inbox --identity '<recipient UUID>' -
 a correlated `tmt x show <request-id> --incoming --identity '<recipient UUID>' --json`,
 and `tmt result <request-id>`. The recipient commands are for that recipient's
 own identity. A completed response does not carry the pending notification or
-waiting fields. Ordinary offline queueing retains `offline:true` and the same
+waiting fields. Detached unbound and recorded offline queueing retain `offline:true` and the same
 unattempted-notification/pull fields, with a recipient pull and repair suggestion; ordinary live
 and uncertain handoffs do not claim that notification was unattempted.
 
@@ -385,7 +447,7 @@ Unavailable or uncertain delivery remains queued; uncertainty still returns
 `DELIVERY_UNCERTAIN`, not permission to resend. A recipient whose host reports
 its agent as waiting on its user (an approval or a question) refuses the
 prompt: `talk` returns `DELIVERY_AWAITING_APPROVAL` (exit 1), nothing reached
-the pane, the request stays queued, and nothing types around the agent. Offline recipients produce an
+the pane, the request stays queued, and nothing types around the agent. Offline recipients with a recorded endpoint produce an
 immediate `queued` result with `offline:true`, without waiting or pasting into a
 shell. Rebinding or coming online never triggers automatic re-wake. Explicit
 `--inbox` and unbound direct-pane behavior remain distinct.
@@ -416,7 +478,7 @@ agent readiness is unverified, not proof of a running provider. The tmux driver
 cannot detect provider approval or attention states. A driver that reports
 denial, pending approval, acceptance or uncertainty never permits host fallback.
 
-A non-detached request to an offline recipient starts one bounded timeout observer, detached
+A non-detached request to an offline recorded endpoint starts one bounded timeout observer, detached
 from terminal streams and the caller's session. It holds no database lock while
 waiting, exits on a final or its deadline, and may claim one timeout hint:
 `▚ … <recipient> · <original request preview> · no reply yet · <duration> · tmt result <id>`.
@@ -532,16 +594,17 @@ The attention contract is identity-scoped and explicit:
 - `tmt x ackall` takes one bounded, atomic snapshot of the
   selected identity's eligible revisions. Results committed concurrently after
   that snapshot remain unacknowledged and cannot be hidden by the batch.
-- An X is settled only when it has a final reply and its current attention
+- An X is settled when its originator has withdrawn it, or when it has a final reply and its current attention
   revision is explicitly acknowledged. A proven failed delivery may be
   acknowledged as an exception for attention management, but that is not
   successful work or a delivered result.
 
 The command surface is `tmt x ls`, `tmt x show <request-id>`,
-`tmt x ack <request-id> --revision <revision>`, and `tmt x ackall`.
+`tmt x ack <request-id> --revision <revision>`, `tmt x ackall`, and
+[`tmt x withdraw <request-id> --reason <text>`](#originator-withdrawal).
 `tmt x` is equivalent to `tmt x ls`. All accept command-local `--identity`
 and `--json`; only list accepts `--limit` and `--after`, and only ack accepts
-the mandatory `--revision`. Old `ack --all` and batch tokens are rejected.
+the mandatory `--revision`. Withdraw requires `--reason`. Old `ack --all` and batch tokens are rejected.
 
 Migration 8 assigns deterministic initial revisions to already known v7 originators
 ordered by preparation time and request ID. Unknown/anonymous provenance stays
@@ -566,7 +629,7 @@ deduplicate by request ID and restart at 0 to refresh. No body is loaded by list
 
 Summary fields are `requestId`, nullable `recipientIdentityId`, `preparedAtMs`,
 `delivery`, `final`, `revision`, `acknowledged`, `settled`, `retentionExpiresAtMs`.
-Final is `not_submitted`, `retained` (submission time, bytes and expiry), `expired`
+Final is `withdrawn` (reason and withdrawal time), `not_submitted`, `retained` (submission time, bytes and expiry), `expired`
 (submission time and expiry), or `unavailable` (marker exists but eligible body
 is absent). Missing final is not evidence that a task is running. Show returns
 `{identity,exchange}` and adds `prompt` plus exact `final.response` when retained.
@@ -581,7 +644,8 @@ use `X_INPUT_INVALID` (exit 1); revision overflow uses `X_REVISION_EXHAUSTED` (1
 Unexpected failures use sanitized `X_ERROR` (1); shared identity errors remain.
 
 `talk`, `reply`, and `result` remain the verbs for sending, submitting, and
-reading. `check` remains a pane diagnostic only. Timeout and interruption
+reading. `check` captures pane diagnostics and may deliver a due
+[Focus checklist](#focus-delivery-windows) at verified idle. Timeout and interruption
 remain observer-only: they do not cancel or complete X, and the existing
 180-second default remains current behavior. Explicit `talk --inbox` queues for
 one existing non-retired local identity, and bounded `x listen` observes local
@@ -657,3 +721,55 @@ input, cursor, JSON fields and preview caps. Expired/unavailable bodies retain
 honest headers while metadata is retained. Reads use an observation snapshot,
 never acknowledge, renew retention, run request housekeeping, or claim successful
 notification. Exact retained body text remains available through detail/result.
+
+## Focus delivery windows
+
+Focus is an identity-UUID delivery policy with a revision and absolute `untilMs`.
+Squad admits recorded-user/current-lead writes and supplies the pinned owner UUID;
+core validates active UUIDs and compare-and-set revisions through the
+[local API](extension-api.md#focus-policy-and-checklist).
+There is no cadence, rotation, timer, daemon or detached Focus worker.
+
+Normal automatic identity requests are prepared, registered for detached result
+notices, published as queued, and held under one IMMEDIATE transaction. They own
+no live waiter and attempt no channel write or paste. Text reports remaining
+seconds and UTC epoch expiry; JSON adds `focus:true`, `focusUntilMs`, `remainingMs`,
+`notification:"held"`, `waitingFor:"focus_checklist"` to ordinary queued correlation.
+This decision does not imply offline status. Explicit `--inbox` retains pull-only
+behavior and acquires no automatic wake or checklist membership.
+
+`talk --urgent` bypasses Focus only; `urgent` remains visible in X and request
+history. A resolved sender UUID equal to the policy's owner bypasses automatically;
+name reuse, anonymous sends and metadata do not establish owner authority.
+Result notices use the responding recipient UUID for this comparison, not the
+originator. `talk --kind decision|review|fyi` records purpose without text guessing
+(default `fyi`); finals use `result`, timeout notices use `fyi`. Classification is
+separate from request/announcement kind. Existing delivery, approval, enrollment,
+receipt and response-acceptance guards remain mandatory. An already claimed
+external attempt cannot be recalled by a later Focus write.
+
+Held references point to canonical request/final records and never renew retention.
+An admitted adapter turn boundary may claim one checklist during Focus; normal
+transport may claim only after expiry/off and fresh verification that the exact
+live session/incarnation is idle. A talk/check invocation touching the target is
+an opportunity, not a scheduled job. Without hooks or traffic, delivery remains
+pending; optional Squad cron reminders belong outside core. Newly arriving work
+cannot join a sealed checklist. Expiry/off immediately restores normal routing
+for new messages while one checklist carries the retained backlog.
+
+A checklist is ordered, deterministic and bounded to 4096 UTF-8 bytes. It names
+sender, purpose, original request ID, normalized first-lines preview and an
+original receipt-bound reply command only while the canonical request remains
+replyable. Finals and unavailable/withdrawn/expired requests retain truthful
+inspection commands. Overflow is counted and readable with the immutable
+checklist ID and sequence cursor. Reading/claiming/settling never acknowledges X,
+submits a final or proves model consumption.
+
+One active claim seals membership and fences competing consumers. Only its exact
+identity/checklist/attempt token may settle `delivered`, `definitely_unsent` or
+`uncertain`; identical settlement retries are no-ops. Definite non-delivery
+releases the members, uncertainty never does. A lost process after claim leaves
+an active claim discoverable through policy/read output, never an automatic retry
+lease. Ordinary wake and queued-notice paths cannot replay checklist-owned items.
+Provider adapters own launch/turn admission and actual handoff evidence. Idle
+transport uses the ordinary fresh binding, channel-first and guarded host route.
