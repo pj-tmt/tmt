@@ -23,7 +23,7 @@ async function fixture() {
   const admission = {
     ...context,
     root,
-    readAuthor: () => hex(v.public),
+    readAuthor: () => ({ key: hex(v.public), ownerDevice: true }),
     cuts: () => [],
   } as unknown as Admission;
   const seal = (ctx = context, bytes = new Uint8Array([1, 2])) =>

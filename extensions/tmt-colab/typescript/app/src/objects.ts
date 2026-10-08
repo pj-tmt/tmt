@@ -43,6 +43,7 @@ interface Head {
 export class Objects {
   #heads = new Map<string, Head>();
   #ownSigningKeys = new Map<string, Uint8Array>();
+  #ownerWriters = new Map<string, boolean>();
   #seen = new Map<string, Uint8Array>();
   #positions = new Map<
     string,
@@ -59,6 +60,12 @@ export class Objects {
    * own envelope. It does not grant current publication or Remote authority. */
   ownSigningKey(writer: string): Uint8Array | undefined {
     return this.#ownSigningKeys.get(writer)?.slice();
+  }
+  /** Whether every own envelope admitted from this writer came from an owner-member device,
+   * the browser's form of native `status_writers`. A bridge's records are visible, but only
+   * an owner device can resolve a thread. */
+  statusWriter(writer: string): boolean {
+    return this.#ownerWriters.get(writer) === true;
   }
   cursors() {
     return [...this.#positions]
@@ -98,7 +105,8 @@ export class Objects {
         (namespace === undefined || c.namespace === namespace) &&
         equal(await env.hash(), hash),
     );
-    const key = a.readAuthor(c, hash);
+    const author = a.readAuthor(c, hash),
+      key = author.key;
     requireValue(
       await strictVerify(
         key,
@@ -171,6 +179,10 @@ export class Objects {
     if (ns === 'own') {
       this.ownData = true;
       this.#ownSigningKeys.set(stream, key.slice());
+      this.#ownerWriters.set(
+        stream,
+        (this.#ownerWriters.get(stream) ?? true) && author.ownerDevice,
+      );
     }
     return { namespace: ns, writer: stream, update: plaintext };
   }

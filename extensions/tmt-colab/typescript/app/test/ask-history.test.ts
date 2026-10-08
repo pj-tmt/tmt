@@ -206,7 +206,12 @@ it('retains cut-admitted Ask and discussion history after revocation but never d
     { operationId: id(81), reply: 'Historical final', canTrack: false },
   ]);
   expect(
-    readThreads(projection.own, scope, (writer) => after.ownSigningKey(writer))[0].comments[0].body,
+    readThreads(
+      projection.own,
+      scope,
+      (writer) => after.ownSigningKey(writer),
+      () => true,
+    )[0].comments[0].body,
   ).toBe(comment.body);
   const retained = after.ownSigningKey(v.page)!;
   retained.fill(0);
@@ -237,7 +242,12 @@ it('retains cut-admitted Ask and discussion history after revocation but never d
     ),
   ).toEqual([id(81)]);
   expect(
-    readThreads(unchanged.own, scope, (writer) => after.ownSigningKey(writer))[0].comments[0].body,
+    readThreads(
+      unchanged.own,
+      scope,
+      (writer) => after.ownSigningKey(writer),
+      () => true,
+    )[0].comments[0].body,
   ).toBe(comment.body);
   doc.destroy();
 });

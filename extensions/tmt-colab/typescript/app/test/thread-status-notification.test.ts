@@ -21,7 +21,13 @@ function fixture() {
       discussionKey(record)
     ] = record as unknown as JsonValue;
   }
-  const read = () => readThreads(own, f.scope, () => new Uint8Array(32));
+  const read = () =>
+    readThreads(
+      own,
+      f.scope,
+      () => new Uint8Array(32),
+      () => true,
+    );
   const thread = read()[0];
   const context = {
     status: thread.status!.ref,

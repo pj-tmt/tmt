@@ -88,8 +88,11 @@ export class ThreadStore implements ThreadBinding {
     return c;
   }
   #views(c: Connection) {
-    return readThreads(this.options.own(), this.options, (writer) =>
-      c.objects.ownSigningKey(writer),
+    return readThreads(
+      this.options.own(),
+      this.options,
+      (writer) => c.objects.ownSigningKey(writer),
+      (writer) => c.objects.statusWriter(writer),
     );
   }
   #thread(c: Connection, ref: DiscussionRef) {

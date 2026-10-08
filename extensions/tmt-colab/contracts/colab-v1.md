@@ -819,7 +819,8 @@ prove record authorship, not status authority. Native status projection separate
 requires owner-member provenance from the certificate chain and issuer verified
 for every admitted own envelope of that writer at its membership revision;
 ambiguous provenance, non-owner members and bridges cannot contribute status
-actions. Their existing thread, comment and Ask admission is unchanged. A later
+actions; the browser applies the same rule (`Objects.statusWriter`). Their existing
+thread, comment and Ask admission is unchanged. A later
 revocation does not erase a valid earlier action within its signed committed cut,
 but current admission remains required to publish another action.
 
@@ -1139,8 +1140,16 @@ The [raw own fold](#implemented-raw-own-fold-1264) defines its bounded projectio
 Historical revoked-device objects MUST predate revocation and remain within the
 exact signed namespace cut; checkpoint replacements require the cut's exact
 envelope hash, and catchup MUST reach every nonempty signed tail endpoint before
-publishing a view. Named-member, link and bridge author policy remains outside
-this owner-browser slice (#1111/#1160).
+publishing a view. The owner browser admits two kinds of author, exactly as native
+does: a stream with an owner-member device chain, and a bridge named by a verified
+`bridge.add` at the envelope's membership revision. A bridge's envelopes are admitted
+only in the `own` namespace, only for a page its `bridge.add` lists, only when the
+membership state at that revision has the page's current epoch, and verify against the
+pinned `machineSignKey`; they stop at the bridge's signed `device.revoke` cut like any
+device, and carry no owner-device provenance. Named-member and link author policy remains
+outside this owner-browser slice (#1111/#1160). `contracts/vectors/bridge-own-v1.json`
+freezes the signed membership logs and sealed envelopes that native and browser admission
+both replay.
 
 Crash before deletion retains replay-safe redundant data; concurrent tail
 updates survive. A gone device's stream remains as signed data within quotas.
