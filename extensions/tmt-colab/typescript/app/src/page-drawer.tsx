@@ -25,9 +25,14 @@ export function PageDrawer({
     const origin = document.activeElement;
     const mobile = matchMedia('(max-width: 640px)');
     const show = () => {
+      // Changing native modality re-runs dialog focus steps; keep an active draft.
+      const focused =
+        node.open && node.contains(document.activeElement) ? document.activeElement : undefined;
       if (node.open) node.close();
       if (mobile.matches) node.showModal();
       else node.show();
+      if (focused instanceof HTMLElement && focused.isConnected && node.contains(focused))
+        focused.focus({ preventScroll: true });
     };
     show();
     mobile.addEventListener('change', show);

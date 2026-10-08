@@ -191,8 +191,23 @@ test('page-visible device Chat threads send exact bytes once, preserve drafts, k
         await expect(input).toBeVisible();
       }
     }
+    await expect(input).toBeFocused();
+    await expect(input).toHaveText('@', { useInnerText: true });
+    const retainedComposer = await input.elementHandle();
     await first.setViewportSize({ width: 1440, height: 900 });
     await first.evaluate(() => (document.documentElement.dataset.theme = 'light'));
+    await expect
+      .poll(() =>
+        first
+          .locator('.page-drawer[data-panel=chat][open]')
+          .evaluate((node) => node.matches(':modal')),
+      )
+      .toBe(false);
+    await expect(input).toBeFocused();
+    expect(await input.evaluate((node, retained) => node === retained, retainedComposer)).toBe(
+      true,
+    );
+    await expect(input).toHaveText('@', { useInnerText: true });
     const next = await composeChat(first, agent, 'Follow up with the earlier answer.');
     const follow = await sendChat(first, next);
     await until(() => agent.received().length === 2, 'follow-up Chat received');
