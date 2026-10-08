@@ -43,7 +43,7 @@
   justify-content: center;
   background: inherit;
 }
-.tmt-ui-icon-action-control:disabled {
+.tmt-ui-icon-action-control:disabled:not([data-variant='text']) {
   color: var(--tmt-ui-color-disabled-text);
   background: var(--tmt-ui-surface-disabled);
   border-color: var(--tmt-ui-color-edge);

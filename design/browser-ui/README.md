@@ -98,6 +98,9 @@ requires its stable ID and remains visible. `onActivate` receives the original
 React MouseEvent from native button click, including keyboard-generated click;
 there is no extra key handler or command DTO. Trusted-event admission remains
 with the caller. Host links remain host links.
+Text actions have a transparent background in ready and disabled states;
+disabled text is muted. Enabled hover and keyboard focus use selection colors.
+Field labels leave room for the control's focus outline and offset.
 
 Toggle is controlled: fixed label, `aria-pressed`, independent visible checked
 indicator and original activation event. It never changes its own pressed value.
