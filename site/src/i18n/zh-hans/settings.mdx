@@ -1,6 +1,6 @@
 ---
 source: site/src/chapters/settings.mdx
-sourceRevision: ab133ca5788ed088a74e52f31f26436570feb2f0
+sourceRevision: 1a22fb69dcc4464d224c1b7f42b3fc5a8fcaf197
 title: 设置与故障排查
 ---
 
@@ -68,7 +68,7 @@ $ tmt completion zsh             # 以相同方式检查 zsh
 
 请自行把那一行加入显示的文件；tmt 不会编辑 shell 的启动文件。使用 zsh 时，请将它放在补全设置完成之后，无论你使用 `compinit`，还是 oh-my-zsh 等框架。如果同一行出现两次，tmt 会提示。然后打开新的 shell。`tmt completion --json` 为脚本提供同样的检查结果。尚未设置补全时，tmt 的主帮助（`tmt --help`）也会在终端显示提醒。
 
-名称补全包含已保存和临时 identity，已保存的排在前面，且无需启动 tmux。`tmt resume` 只提供记录了会话的 identity。名称后面的补全由 `tmt run` 交给 agent 自己处理，因此 Tab 也能补全 agent 的参数；tmt 不会安装这些补全脚本。extension 会补全自己的参数，例如 `tmt sq <Tab>`。
+名称补全包含已保存和临时 identity，已保存的排在前面，且无需启动 tmux。`tmt resume` 只提供记录了会话的 identity。名称后面的补全由 `tmt run` 交给 agent 自己处理，因此 Tab 也能补全 agent 的参数；tmt 不会安装这些补全脚本。extension 会补全自己的参数，例如 `tmt ops sq <Tab>`。
 
 <Mdx.h3 id="the-pane-badge-a-few-extras">窗格徽标的进阶用法</Mdx.h3>
 

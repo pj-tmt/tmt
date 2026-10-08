@@ -77,7 +77,7 @@ export function BoardStepScene() {
     <div className="grid grid-cols-1 gap-3 sm:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
       <div className={mini}>
         <div className="mb-1.5 flex justify-between text-t-muted">
-          <b className="text-t-text">tmt sq board</b>
+          <b className="text-t-text">tmt ops ui</b>
           <New>{scenes.boardNew}</New>
         </div>
         <pre className="m-0 font-mono text-[12.5px] leading-[1.55] whitespace-pre-wrap">

@@ -201,8 +201,11 @@ export function BoardDemo({ steps, label }: { steps: Step[]; label: string }) {
 }
 
 // Demo 1: start a squad, talk to the lead from the board.
-const s1: Line[] = [sh("tmt sq init product"), dm("✓ Created squad product (room squad-product)")];
-const s2: Line[] = [...s1, sh("tmt sq lead sol"), dm("✓ sol leads squad product")];
+const s1: Line[] = [
+  sh("tmt ops sq init product"),
+  dm("✓ Created squad product (room squad-product)"),
+];
+const s2: Line[] = [...s1, sh("tmt ops sq lead sol"), dm("✓ sol leads squad product")];
 const W1 = ["0:shell", "1:sol"];
 
 export const startSquad: Step[] = [
@@ -212,7 +215,7 @@ export const startSquad: Step[] = [
     windows: W1,
     on: 0,
     right: "squad-product",
-    type: "tmt sq init product",
+    type: "tmt ops sq init product",
     out: [dm("✓ Created squad product (room squad-product)")],
   },
   {
@@ -222,17 +225,17 @@ export const startSquad: Step[] = [
     on: 0,
     right: "squad-product",
     pre: s1,
-    type: "tmt sq lead sol",
+    type: "tmt ops sq lead sol",
     out: [dm("✓ sol leads squad product")],
   },
   {
-    cap: "tmt sq opens the board full screen. Press a on the lead, then Tab to talk mode. Send your request, then press e to read the reply inside the row.",
+    cap: "tmt ops ui opens the board full screen. Press t on the lead to talk. Send your request, then press e to read the reply inside the row.",
     sess: "leads",
     windows: W1,
     on: 0,
     right: "squad-product",
     pre: s2,
-    type: "tmt sq",
+    type: "tmt ops ui",
     out: [],
     full: true,
     hold: 2200,

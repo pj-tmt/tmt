@@ -7,8 +7,8 @@ import { BoardDemo, jumpAndTalk, startSquad, updateStatus } from "../demos/Board
 import { components as Mdx } from "../components/mdx";
 
 <Lede>
-  With more than a couple of agents, keeping track of them becomes the work. Squad hands that job to
-  one of them.
+  With more than a couple of agents, keeping track of them becomes the work. TMT Ops hands that job
+  to one of them.
 </Lede>
 
 <KeyList>
@@ -27,19 +27,19 @@ import { components as Mdx } from "../components/mdx";
 <MarkLegend />
 
 <Cmd>{`
-$ tmt extension install squad
-$ tmt sq init product            # name the squad; it never asks
-$ tmt sq lead sol                # optional: sol leads it
-$ tmt sq board                   # the board on a terminal, the member list anywhere else
+$ tmt extension install ops
+$ tmt ops sq init product        # name the squad; it never asks
+$ tmt ops sq lead sol            # optional: sol leads it
+$ tmt ops ui                     # the board on a terminal, the member list anywhere else
 `}</Cmd>
 
-<Waiting /> marks what's waiting on _you_. Squad knows who you are from the pane you run it in, or
-from `tmt sq me ben` if you'd rather record it once. It follows that identity through `tmt mv`. When
-your lead runs a squad command in its own pane, it speaks as itself. Selecting a lead with `tmt sq
-lead` is independent of the `role` and `lead` fields: changing either field keeps leadership
+<Waiting /> marks what's waiting on _you_. Ops knows who you are from the pane you run it in, or
+from `tmt ops sq me ben` if you'd rather record it once. It follows that identity through `tmt mv`.
+When your lead runs a squad command in its own pane, it speaks as itself. Selecting a lead with `tmt
+ops sq lead` is independent of the `role` and `lead` fields: changing either field keeps leadership
 unchanged, and choosing a new lead preserves every member's role text.
 
-<Callout title="Squad doesn't start agents.">
+<Callout title="Ops doesn't start agents.">
   It doesn't create worktrees or windows either. How members come to life is up to you and your
   lead; squad only gives the team a shared board and a list of who's in it.
 </Callout>
@@ -57,7 +57,7 @@ After that you work through the lead. Tell it what you need; it brings members i
 
 ### The board
 
-Squad tabs default to **members**, one boxed lead/member list with inline details and the lead's notes below. The previous **team** side-pane view stays available. Press `/` and type to narrow the rows. A <Waiting /> marks a member that's waiting on you, and those rows sort first. Every key works from what's already on screen; slow lookups such as pull request status refresh in the background. The board reloads within about a second when a member, request or room changes, or when you edit `squad.toml`, and it still refreshes on its interval (`refresh`, or `"off"`) for everything else. Press **ctrl-r** to refresh at once, even while you search or type a message. `tmt sq ls` prints the member list as text, or as JSON with `--json`, and bare `tmt sq` prints the same list with a hint to open the board. `tmt sq board` opens the board on an interactive terminal and prints the same list otherwise.
+Squad tabs default to **members**, one boxed lead/member list with inline details and the lead's notes below. The previous **team** side-pane view stays available. Press `/` and type to narrow the rows. A <Waiting /> marks a member that's waiting on you, and those rows sort first. Every key works from what's already on screen; slow lookups such as pull request status refresh in the background. The board reloads within about a second when a member, request or room changes, or when you edit `ops.toml`, and it still refreshes on its interval (`refresh`, or `"off"`) for everything else. Press **ctrl-r** to refresh at once, even while you search or type a message. `tmt ops sq ls` prints the member list as text, or as JSON with `--json`, and bare `tmt ops sq` prints the same list with a hint to open the board. `tmt ops ui` opens the board on an interactive terminal and prints the same list otherwise.
 
 <BoardSketch />
 
@@ -134,15 +134,15 @@ A tab you've opened before shows at once and refreshes in the background. One yo
 Shift+← and Shift+→ move the current tab, and dragging a tab onto another's place moves it there. The board writes the new order to your config and changes nothing else in the file:
 
 <Code>{`
-# ~/.config/tmux-team/squad.toml
+# ~/.config/tmux-team/ops.toml
 [tabs]
 order = ["all", "leads", "product"]
-hide  = ["quiet"]                      # still reachable with s, or tmt sq board --squad quiet
+hide  = ["quiet"]                      # still reachable with s, or tmt ops ui --squad quiet
 `}</Code>
 
 ### Your own tabs
 
-A user tab filters members across squads, including leads and hidden squads. It uses the squad/member/state/task row preset. Define it beside the built-in tabs in `squad.toml`:
+A user tab filters members across squads, including leads and hidden squads. It uses the squad/member/state/task row preset. Define it beside the built-in tabs in `ops.toml`:
 
 <Code>{`
 [tabs]
@@ -168,32 +168,32 @@ Write it as `tab:needs-me` in `order`, `pin` and `hide`, so it can't be mistaken
 
 Filters combine fields with `=`, `!=`, `not`, `and`, `or` and parentheses, and `waiting_on_you` matches members that wait on you. Prefix a sort key with `-` to reverse it. Sections split the tab's rows: a row can appear in several, and the rest follow untitled. A section's bindings win over the tab's, which win over the global ones.
 
-`tmt sq ls --tab needs-me` prints the same rows, and `--json` gives the board's full document. If a roster or inbox read fails, the board and the list say the result is partial, so an empty partial tab doesn't mean nobody waits on you.
+`tmt ops sq ls --tab needs-me` prints the same rows, and `--json` gives the board's full document. If a roster or inbox read fails, the board and the list say the result is partial, so an empty partial tab doesn't mean nobody waits on you.
 
 ### See your settings
 
-Press `,` to see the settings that apply to the current squad or tab (`?` shows the key if you changed it). The first rows, **Theme**, **View** and **Token window** (while the meter is on), show their current values. Theme and View open their pickers; Token window cycles in place. Each value says where it comes from: a preset, the default, your `squad.toml` (its path is at the top), or tmt's own theme setting. Command entries appear as text and never run from this menu. Scroll with the arrow keys, j/k, PgUp/PgDn, Home/End or the wheel, and close it with Esc. It shows the settings as they were when you opened it, so reopen it after you edit the file.
+Press `,` to see the settings that apply to the current squad or tab (`?` shows the key if you changed it). The first rows, **Theme**, **View** and **Token window** (while the meter is on), show their current values. Theme and View open their pickers; Token window cycles in place. Each value says where it comes from: a preset, the default, your `ops.toml` (its path is at the top), or tmt's own theme setting. Command entries appear as text and never run from this menu. Scroll with the arrow keys, j/k, PgUp/PgDn, Home/End or the wheel, and close it with Esc. It shows the settings as they were when you opened it, so reopen it after you edit the file.
 
-`tmt sq config show` prints the same from the command line: board defaults on its own, one squad with `--squad product`, or one tab with `--tab all` (or `leads`, or a tab you named). Use one of the two flags at a time. `--json` gives the full values and where each comes from.
+`tmt ops sq config show` prints the same from the command line: board defaults on its own, one squad with `--squad product`, or one tab with `--tab all` (or `leads`, or a tab you named). Use one of the two flags at a time. `--json` gives the full values and where each comes from.
 
 ### Change settings from the command line
 
-`tmt sq config set` checks a setting and saves it to `squad.toml`:
+`tmt ops sq config set` checks a setting and saves it to `ops.toml`:
 
 <Cmd>{`
-$ tmt sq config set notes.render plain --squad product
-$ tmt sq config set board.refresh 10s --squad product
-$ tmt sq config set board.hidden_columns '["pr_link"]' --squad product
-$ tmt sq config set tabs.hide '["leads"]'
+$ tmt ops sq config set notes.render plain --squad product
+$ tmt ops sq config set board.refresh 10s --squad product
+$ tmt ops sq config set board.hidden_columns '["pr_link"]' --squad product
+$ tmt ops sq config set tabs.hide '["leads"]'
 `}</Cmd>
 
 Most settings belong to one squad, so add `--squad`. Tab order and hidden tabs (`tabs.*`) are always global, and `board.refresh` is global unless you name a squad. Lists are written as JSON. tmt refuses a value it can't use, and refuses to write if the file changed after it read it; your comments and other settings stay as they are. Changing a split's panes, direction or sizes saves the whole layout to the file, so later preset changes won't override it. Nested splits, commands, state patterns and reminders can only be changed by editing the file.
 
-`board.hidden_columns` hides columns from the board without changing your grid. A cell that spans several columns shrinks to the ones still shown; a setting that would hide all of a cell's columns is refused. Set it to `[]` to show everything again. `tmt sq ls` hides the same columns, and `--json` still includes every value.
+`board.hidden_columns` hides columns from the board without changing your grid. A cell that spans several columns shrinks to the ones still shown; a setting that would hide all of a cell's columns is refused. Set it to `[]` to show everything again. `tmt ops sq ls` hides the same columns, and `--json` still includes every value.
 
 ### Board views
 
-A view chooses the boxed list or an arrangement of panes and their initial folds. It keeps the squad's states, rows, providers, reminders, token meter and theme. List the six factory views with `tmt sq view ls` (or bare `tmt sq view`):
+A view chooses the boxed list or an arrangement of panes and their initial folds. It keeps the squad's states, rows, providers, reminders, token meter and theme. List the six factory views with `tmt ops sq view ls` (or bare `tmt ops sq view`):
 
 | View    | Arrangement                                                                                                                                      |
 | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -205,22 +205,22 @@ A view chooses the boxed list or an arrangement of panes and their initial folds
 | wide    | Rows, detail/replies and notes in three columns at 40/30/30; detail/replies fold below 180 columns.                                              |
 
 <Cmd>{`
-$ tmt sq view set notes                      # all boards
-$ tmt sq view set wide --squad product       # this squad
-$ tmt sq view rm --squad product             # inherit the arrangement
+$ tmt ops sq view set notes                  # all boards
+$ tmt ops sq view set wide --squad product   # this squad
+$ tmt ops sq view rm --squad product         # inherit the arrangement
 `}</Cmd>
 
 A hand-written `board.layout` or `panes` for a squad always wins, then that squad's `view`, then `[board] view`, then the `members` default. Existing simple direction/sizes configurations without a named view keep their pane preset. `view set` changes only the `view` key and refuses a file that changed meanwhile; with `--squad` it also refuses a hand-written layout, so remove that yourself first. `view rm` removes only `view`, so custom layouts and folds stay. Folds you make by hand keep their usual session rules.
 
 Open the `,` settings menu and choose **View** to pick a view. Moving through the list previews each one live; **Tab** switches between all boards and this squad, **Enter** saves, and **Esc** puts back what you had without writing anything. The `default` entry shows what you would inherit and removes only your choice. The leads and home tabs retain their fixed composition; views apply to squad tabs.
 
-A squad with a hand-written `board.layout` or `panes` shows a `custom` entry. You can preview views there, but saving for that squad is refused until you remove those keys from `squad.toml`. A choice for all boards still saves, and that squad keeps its custom layout. The help lists any view and theme keys you bind yourself.
+A squad with a hand-written `board.layout` or `panes` shows a `custom` entry. You can preview views there, but saving for that squad is refused until you remove those keys from `ops.toml`. A choice for all boards still saves, and that squad keeps its custom layout. The help lists any view and theme keys you bind yourself.
 
 ### Boxed squad members
 
 Squad tabs default to one boxed list: the lead first with its `lead` tag, then `── members · N ──`. Each member has a mark/name/state/model/age line and a task line. Waiting members (`◆`) come first, oldest questions first; other exchanges follow newest first, and members without exchanges sort by name. The lead stays first and authored sections keep their positions.
 
-Rows start collapsed. Press **e** on any lead or member, on a squad tab or HOME, to show its details in place under the row: the waits-on-you question, links and the latest reply with its sender and age, without repeating what the row already shows. **e** again collapses it, and several rows can be open at once. A long reply shows its first lines; **v** opens the full reply and **Esc** returns. **a** opens the answer/note/talk/status composer for that row, and **o** opens its PR or link. Reading needs no recorded user; writing needs `tmt sq me`. The lead's notes remain below the list; **n** hides or shows them.
+Rows start collapsed. Press **e** on any lead or member, on a squad tab or HOME, to show its details in place under the row: the waits-on-you question, links and the latest reply with its sender and age, without repeating what the row already shows. **e** again collapses it, and several rows can be open at once. A long reply shows its first lines; **v** opens the full reply and **Esc** returns. **a** opens the answer/note/talk/status composer for that row, and **o** opens its PR or link. Reading needs no recorded user; writing needs `tmt ops sq me`. The lead's notes remain below the list; **n** hides or shows them.
 
 Choose `team` from **,** settings → **View** for the previous detail/replies side panes. Choose `members` to restore the boxed list. A custom `board.layout` or `panes` keeps its configured composition.
 
@@ -236,7 +236,7 @@ Press `a` on a line to send the lead a note about it. The prompt shows the line 
 
 Links in the notes work too. Tab and Shift-Tab move between them (unless you bound Tab to something else), and the bottom line shows what the selected link is and where it goes. Enter opens it; with the mouse, the first click selects a link and the second opens it. Esc clears the selection, and when the notes have no links, Tab moves to the next pane as usual. Web addresses and full GitHub issue or PR links open. An absolute file path shows the file in its folder and never opens the file itself. Relative paths, a bare `#12` and unknown link types stay plain text.
 
-A notebook can also link to board actions: `tmt:jump/<member>`, `tmt:open/<member>`, `tmt:copy/<member>`, `tmt:talk/<member>`, `tmt:answer/<member>`, `tmt:annotate/<member>` and `tmt:back`. `<member>` is a name or id of someone in the squad you're viewing, or its lead; any other name does nothing and says so. Talk, answer and annotate open the usual prompt, filled in from `?text=…` if the link has one; nothing is sent until you press Enter. To run your own program from a link, add it under `[links]` in `squad.toml`, for example `gh = "run gh issue view {path}"`; a note link to `gh:1234` then runs `gh issue view 1234`. tmt runs it directly, not through a shell.
+A notebook can also link to board actions: `tmt:jump/<member>`, `tmt:open/<member>`, `tmt:copy/<member>`, `tmt:talk/<member>`, `tmt:answer/<member>`, `tmt:annotate/<member>` and `tmt:back`. `<member>` is a name or id of someone in the squad you're viewing, or its lead; any other name does nothing and says so. Talk, answer and annotate open the usual prompt, filled in from `?text=…` if the link has one; nothing is sent until you press Enter. To run your own program from a link, add it under `[links]` in `ops.toml`, for example `gh = "run gh issue view {path}"`; a note link to `gh:1234` then runs `gh issue view 1234`. tmt runs it directly, not through a shell.
 
 The detail pane shows the selected member's own notebook below its fields, read-only, with the same Markdown styles as lead notes. Saved members without a notebook show `(no notes yet)`; temporary members show `(temporary identity: no notebook)`. Every member should keep the same short **Current state** section at the top of their notebook. The leads and all tabs remain rows only.
 
@@ -270,7 +270,7 @@ The named **team** view puts the rows beside the selected member's detail and th
 You can change the panes and their arrangement; add your own **sections**, each a titled list with a filter and a sort; and choose the **columns**, the **states** with their colors and order, and how links open. You also set what every key or click does. A binding is an event (a key like `o`, or `click`, `double-click`) and one line: `jump`, `jump lead`, `back`, `talk`, `reply`, `annotate lead`, `open {pr_link}`, `copy {name}: {task}`, or `run <program> {field}…`, where `{field}` is filled from the row. A section can have its own bindings.
 
 <Code>{`
-# ~/.config/tmux-team/squad.toml  (the directory keeps tmt's former name)
+# ~/.config/tmux-team/ops.toml  (the directory keeps tmt's former name)
 [squad.product]
 layout = "crew"                        # start from a preset
 
@@ -280,8 +280,8 @@ O = "open {issue_link}" # your own key: open the row's issue
 
 <More summary="A fuller example: split panes, a custom section, columns, states and more bindings">
 <Code>{`
-# ~/.config/tmux-team/squad.toml  (the directory keeps tmt's former name)
-me = "ben"                             # written by tmt sq me ben, with ben's ID beside it
+# ~/.config/tmux-team/ops.toml  (the directory keeps tmt's former name)
+me = "ben"                             # written by tmt ops sq me ben, with ben's ID beside it
 
 [squad.product]
 layout = "crew" # start from a preset, then override
@@ -322,10 +322,10 @@ A board is laid out the same way at every level, so one set of rules explains al
 
 - **Columns** set a width, or `min`/`max` and a `grow` share of what's left; `align`; `truncate` at the `end` or the `middle` (good for paths and links); and a `priority`. A growing column starts at its `min` (4 cells if you set none) and never passes its `max`; once a column reaches its `max`, the rest goes to the others. On a narrow screen columns first shrink to their `min`. If a row still doesn't fit, columns step aside one at a time, highest `priority` first, until the rest fit whole; columns without a `priority` never do. The last column keeps at least 4 cells, or is hidden.
 - **Lines**: `lines` says how many lines a row takes and what's on each. Each line lists which columns it uses, and a cell can `span` several columns, so a second line can hold what the member is waiting on you for, under the task. A later line with nothing to show is left out. A cell can also name a theme `token` for its color, such as `{ field = "pending", span = 3, token = "waiting" }`; the Team preset does this, so the line about what a member needs from you shows in the waiting color. Other presets keep their colors unless you add a token. A cell's token wins over its column's `color` thresholds. Tokens are theme names, not literal colors. An empty value stays dim, and selection still highlights the whole row.
-- **Where a value comes from**: a column shows the member's squad field of its name, unless `from` binds it to the member's own tmt data: `member`, `presence`, `cwd`, `target`, `session.driver`, `session.model`, `session.usage.tokens`, `session.usage.remaining` (the context window less those tokens, when the driver states a window), `meta.<key>` or `meta.squad.<field>`. The paths are the same for every driver, so a member that switches from Claude to Codex keeps its columns. `format` shows the value as `text`, `tokens` (`487k`), `age` (`5m`) or `count` (`12,345`). Sections, filters and sorts use the same value, and numbers sort as numbers. A missing value shows as `–`, the board's one mark for "nothing here". Squad's own fields (`member`, `role`, `state`, `pending`, `note`) can't be bound. A column can also color its cells by value: `color = [{ at = 400000, token = "review" }, { at = 600000, token = "blocked" }]` gives each cell the theme token of the highest `at` its number reaches. Colors only decorate: the value reads the same without them.
+- **Where a value comes from**: a column shows the member's squad field of its name, unless `from` binds it to the member's own tmt data: `member`, `presence`, `cwd`, `target`, `session.driver`, `session.model`, `session.usage.tokens`, `session.usage.remaining` (the context window less those tokens, when the driver states a window), `meta.<key>` or `meta.squad.<field>`. The paths are the same for every driver, so a member that switches from Claude to Codex keeps its columns. `format` shows the value as `text`, `tokens` (`487k`), `age` (`5m`) or `count` (`12,345`). Sections, filters and sorts use the same value, and numbers sort as numbers. A missing value shows as `–`, the board's one mark for "nothing here". Ops' own fields (`member`, `role`, `state`, `pending`, `note`) can't be bound. A column can also color its cells by value: `color = [{ at = 400000, token = "review" }, { at = 600000, token = "blocked" }]` gives each cell the theme token of the highest `at` its number reaches. Colors only decorate: the value reads the same without them.
 - **Percentage widths** work like CSS. `width = "30%"` is a share of the board's inner width after its borders and row marks, not of what the fixed columns leave; the gaps between columns come on top. The percentages you set total at most 100%, and `min` and `max` still count in cells. To split what's left instead, use `grow`, which works like CSS `fr`. A trailing column that no line places takes no width of its own; its value can still fill another cell. When a column steps aside, the shares are worked out again for the rest.
 - **By default a cell doesn't wrap.** Text that doesn't fit is cut with `…`, measured by what the terminal draws, so Chinese and emoji line up. Set `overflow = "wrap"` on a column to wrap it onto up to `max_lines` lines (1–8, default 2); the last line is cut with `…` if the text still doesn't fit. Continuation lines start under the cell, and selecting, paging, scrolling and clicking follow the lines you see. A spanned cell uses its first column's settings. The older `[squad.<name>.columns]` form accepts percentage widths and `overflow` too.
-- **`tmt sq ls` keeps natural sizing** unless a column it shows uses a percentage width or `overflow`: piped, it never drops or cuts a column. Once a column opts in, the list follows the same fit rules as the board and may truncate, wrap or hide columns. The list takes the gaps out before it works out percentages, so its columns can differ from the board's by a cell or two. The full values are always in the detail pane and in `tmt sq ls --json`.
+- **`tmt ops sq ls` keeps natural sizing** unless a column it shows uses a percentage width or `overflow`: piped, it never drops or cuts a column. Once a column opts in, the list follows the same fit rules as the board and may truncate, wrap or hide columns. The list takes the gaps out before it works out percentages, so its columns can differ from the board's by a cell or two. The full values are always in the detail pane and in `tmt ops sq ls --json`.
 
 <Code>{`
 [squad.product.rows]
@@ -352,9 +352,9 @@ layout = { direction = "left-right", sizes = [60, 40], panes = [
 ] }
 `}</Code>
 
-Bindings come only from your own config file, never from what agents write on the board. `run` starts the program directly, not through a shell: each `{field}` fills exactly one argument, so a row can't smuggle in extra commands, and a value that would start an argument with `-` is refused, so it can't slip in an option either. `open` only opens web links. `tmt sq ls` uses the same sections, so the text and JSON views match the board. Members that match no section follow in an untitled section; section filters never silently hide them.
+Bindings come only from your own config file, never from what agents write on the board. `run` starts the program directly, not through a shell: each `{field}` fills exactly one argument, so a row can't smuggle in extra commands, and a value that would start an argument with `-` is refused, so it can't slip in an option either. `open` only opens web links. `tmt ops sq ls` uses the same sections, so the text and JSON views match the board. Members that match no section follow in an untitled section; section filters never silently hide them.
 
-**Field providers** fill a column with data tmt doesn't have, such as a pull request's state. A provider runs a program of yours for each member, under the same rules as `run`, and shows its first line of output as a field of its name. The board never waits for one: it shows the last value while providers run in the background, and runs them again after `every`. A failed run shows a dim `?`, never an error. `tmt sq ls --refresh-fields` runs the ones that are due before listing. A program may print `{"value": "#412 open", "color": "review"}` to suggest a theme token for its cell; a column's own `color` thresholds win over it.
+**Field providers** fill a column with data tmt doesn't have, such as a pull request's state. A provider runs a program of yours for each member, under the same rules as `run`, and shows its first line of output as a field of its name. The board never waits for one: it shows the last value while providers run in the background, and runs them again after `every`. A failed run shows a dim `?`, never an error. `tmt ops sq ls --refresh-fields` runs the ones that are due before listing. A program may print `{"value": "#412 open", "color": "review"}` to suggest a theme token for its cell; a column's own `color` thresholds win over it.
 
 <Code>{`
 [squad.product.fields.pr_state]
@@ -377,7 +377,7 @@ sort = 0                    # optional: 0-999, lower comes first
 ignore_case = true          # optional; off by default
 `}</Code>
 
-An exact `states` entry always wins. Otherwise the first matching pattern in file order wins, and a state that matches nothing has no color and sorts after the ranked ones. `match` is a glob over the whole state: `*` matches any run of characters, even none, and `?` matches one character. Everything else is literal. A pattern never changes the state's text. `tmt sq ls` and the board share this order, and in `tmt sq ls --json` a row's `colors.state` is the resolved token, left out when none applies.
+An exact `states` entry always wins. Otherwise the first matching pattern in file order wins, and a state that matches nothing has no color and sorts after the ranked ones. `match` is a glob over the whole state: `*` matches any run of characters, even none, and `?` matches one character. Everything else is literal. A pattern never changes the state's text. `tmt ops sq ls` and the board share this order, and in `tmt ops sq ls --json` a row's `colors.state` is the resolved token, left out when none applies.
 
 ### Colors and themes
 
@@ -401,35 +401,35 @@ The theme lives in `~/.config/tmux-team/config.json`. `base` is `tmt`, `tmt-ligh
 
 ### Theming the board
 
-The board follows the `base` you set for the command line. Until you set one, it is **auto**. A board theme never changes the command line's colors; `tmt config show` shows the command line's theme and its file. Choose a board theme with `tmt sq theme`:
+The board follows the `base` you set for the command line. Until you set one, it is **auto**. A board theme never changes the command line's colors; `tmt config show` shows the command line's theme and its file. Choose a board theme with `tmt ops sq theme`:
 
 <Cmd>{`
-$ tmt sq theme                            # list themes; ● marks the one in use and where it comes from
-$ tmt sq theme set auto                   # match your terminal, on every board
-$ tmt sq theme set tmt-light              # every board
-$ tmt sq theme set mono --squad product   # one squad's board
-$ tmt sq theme rm --squad product         # follow the board again; your color tweaks stay
+$ tmt ops sq theme                        # list themes; ● marks the one in use and where it comes from
+$ tmt ops sq theme set auto               # match your terminal, on every board
+$ tmt ops sq theme set tmt-light          # every board
+$ tmt ops sq theme set mono --squad product   # one squad's board
+$ tmt ops sq theme rm --squad product     # follow the board again; your color tweaks stay
 `}</Cmd>
 
-Or choose **Theme** in the `,` settings menu: ↑ and ↓ preview each theme live, **Tab** switches between every board and this squad, **Enter** saves and **Esc** cancels. Either way the choice goes into `squad.toml`, as `[board.theme]` for every board or `[squad.<name>.theme]` for one squad, and the rest of the file stays as it was. A squad's own theme wins over the board's, which wins over the command line's. Each layer can also override single tokens, with the same keys as `config.json`.
+Or choose **Theme** in the `,` settings menu: ↑ and ↓ preview each theme live, **Tab** switches between every board and this squad, **Enter** saves and **Esc** cancels. Either way the choice goes into `ops.toml`, as `[board.theme]` for every board or `[squad.<name>.theme]` for one squad, and the rest of the file stays as it was. A squad's own theme wins over the board's, which wins over the command line's. Each layer can also override single tokens, with the same keys as `config.json`.
 
-**auto** matches your terminal each time the board opens. It reads the `COLORFGBG` variable that many terminals set; without it, the board asks the terminal for its background color. A light background gets **tmt-light**, a dark one gets **tmt**, and when the terminal doesn't answer the board uses **tmt**. The question lasts at most a tenth of a second, so a key you press in that moment is dropped. Listing themes never asks: `tmt sq theme` shows `auto` as `matches the terminal when the board opens`, or as `auto (tmt-light)` or `auto (tmt)` when `COLORFGBG` already says. A theme you choose by name always wins over `auto`.
+**auto** matches your terminal each time the board opens. It reads the `COLORFGBG` variable that many terminals set; without it, the board asks the terminal for its background color. A light background gets **tmt-light**, a dark one gets **tmt**, and when the terminal doesn't answer the board uses **tmt**. The question lasts at most a tenth of a second, so a key you press in that moment is dropped. Listing themes never asks: `tmt ops sq theme` shows `auto` as `matches the terminal when the board opens`, or as `auto (tmt-light)` or `auto (tmt)` when `COLORFGBG` already says. A theme you choose by name always wins over `auto`.
 
-`auto` works in both `squad.toml` layers and in the picker, where it comes first. Only `config.json` refuses it: with `"base": "auto"` there, `tmt config show` prints `error: theme.base auto only works for the board, not in config.json` with the hint `tmt sq theme set auto`, and the board ignores that setting.
+`auto` works in both `ops.toml` layers and in the picker, where it comes first. Only `config.json` refuses it: with `"base": "auto"` there, `tmt config show` prints `error: theme.base auto only works for the board, not in config.json` with the hint `tmt ops sq theme set auto`, and the board ignores that setting.
 
 State colors on rows and tab marks are these tokens too: `blocked = { color = "blocked" }`. The older names `red`, `amber`, `green`, `blue`, `cyan` and `magenta` still work. If the command-line theme has a mistake, the board ignores it and says so on its summary line.
 
 ### Skills for your lead
 
-Squad comes with a skill for the lead agent. It teaches the lead to read the board, keep it current after every dispatch and reply, and find your settings. When a rule isn't clear, the lead **asks you** instead of guessing. That covers which states to use, what counts as waiting on you, and how members get started. It records what you agree on in its notes, or proposes a config change for you to apply; it never edits your settings on its own.
+Ops comes with a skill for the lead agent. It teaches the lead to read the board, keep it current after every dispatch and reply, and find your settings. When a rule isn't clear, the lead **asks you** instead of guessing. That covers which states to use, what counts as waiting on you, and how members get started. It records what you agree on in its notes, or proposes a config change for you to apply; it never edits your settings on its own.
 
-`tmt extension install squad` offers this skill for the agents you use and asks first.
+`tmt extension install ops` offers this skill for the agents you use and asks first.
 
-Optional **playbooks** are example skills for how a lead lays out its team on your host. Today there is one, `tmux-squad` (a leads session and a crew session, one window and worktree per member). Squad never runs it. Read it with `tmt sq playbook show tmux-squad`, then install it, change it, or ignore it.
+Optional **playbooks** are example skills for how a lead lays out its team on your host. Today there is one, `tmux-squad` (a leads session and a crew session, one window and worktree per member). Ops never runs it. Read it with `tmt ops playbook show tmux-squad`, then install it, change it, or ignore it.
 
 ### Observed age
 
-Squad can show how long it has seen a member's task and state, and the lead's notes, unchanged. It is on in **team** and off in the other layouts; set it per squad with a threshold from one minute to 24 hours. `tmt sq ls` then labels stale rows and notes with their age, and the board dims a stale row with its age at the row's end and puts the notes' age on the notes pane title. The clock starts when Squad first sees the content, so it cannot know how long work sat unchanged before that; editing your config or turning the setting off and on keeps the clock as long as the content has not changed.
+Ops can show how long it has seen a member's task and state, and the lead's notes, unchanged. It is on in **team** and off in the other layouts; set it per squad with a threshold from one minute to 24 hours. `tmt ops sq ls` then labels stale rows and notes with their age, and the board dims a stale row with its age at the row's end and puts the notes' age on the notes pane title. The clock starts when Ops first sees the content, so it cannot know how long work sat unchanged before that; editing your config or turning the setting off and on keeps the clock as long as the content has not changed.
 
 <Code>{`
 [squad.product.reminders]
@@ -437,13 +437,13 @@ enabled = true
 stale_after = "30m"
 `}</Code>
 
-With Squad's extension hooks enabled (`tmt extension hooks enable squad`) and the provider hook installed through `tmt setup`, Squad can add one short, informational line to the lead's next turn, including when a session starts. It names stale notes, or stale member rows that have shown relevant activity since. Run `tmt sq ls` or open the board to start the observations: until something has been observed, nothing is said. The [Squad skill](https://github.com/pj-tmt/tmt/blob/main/extensions/tmt-squad/skills/tmt-squad/SKILL.md#optional-observed-age) lists the limits.
+With Ops' extension hooks enabled (`tmt extension hooks enable ops`) and the provider hook installed through `tmt setup`, Ops can add one short, informational line to the lead's next turn, including when a session starts. It names stale notes, or stale member rows that have shown relevant activity since. Run `tmt ops sq ls` or open the board to start the observations: until something has been observed, nothing is said. The [Ops skill](https://github.com/pj-tmt/tmt/blob/main/extensions/tmt-ops/skills/tmt-ops/SKILL.md#optional-observed-age) lists the limits.
 
 Turning on these keys installs no provider hooks. Reminder settings in the board are <Tag kind="planned" />.
 
 ### Where state lives
 
-Squad keeps its roster and board fields in tmt, with optional observed ages in a disposable local cache. A squad is a tmt meeting room named `squad-<name>`. Each member's state, task and links are stored on its tmt identity. Members started for one job leave the board when their pane closes. Decisions a member needs from you arrive in your inbox, where you can answer them from the board or the command line.
+Ops keeps its roster and board fields in tmt, with optional observed ages in a disposable local cache. A squad is a tmt meeting room named `squad-<name>`. Each member's state, task and links are stored on its tmt identity. Members started for one job leave the board when their pane closes. Decisions a member needs from you arrive in your inbox, where you can answer them from the board or the command line.
 
 ### Jumping between members
 
@@ -465,9 +465,9 @@ A layout that works well: leads in one place you keep open, members in another, 
 
 <Caption>Walkthrough in tmux. Output is illustrative.</Caption>
 
-In tmux, `prefix S` opens the board as a popup that closes when you jump, and `prefix B` keeps it as a pane. `tmt sq hotkeys install` shows exactly what it adds to your tmux config and asks first; `--print` only shows it, and `tmt sq hotkeys rm` takes it out. You can pick other keys: `[tmux] popup = "…"` and `pane = "…"` in squad.toml.
+In tmux, `prefix S` opens the board as a popup that closes when you jump, and `prefix B` keeps it as a pane. `tmt ops hotkeys install` shows exactly what it adds to your tmux config and asks first; `--print` only shows it, and `tmt ops hotkeys rm` takes it out. You can pick other keys: `[tmux] popup = "…"` and `pane = "…"` in ops.toml.
 
-To reach a lead without opening the board, `tmt sq jump --lead` jumps to the lead of the squad you're in (or `--squad <name>`), and `tmt sq back` returns. Add `lead = "J"` under `[tmux]` and install the hotkeys again, and `prefix J` does the same from any member's pane.
+To reach a lead without opening the board, `tmt ops sq jump --lead` jumps to the lead of the squad you're in (or `--squad <name>`), and `tmt ops sq back` returns. Add `lead = "J"` under `[tmux]` and install the hotkeys again, and `prefix J` does the same from any member's pane.
 
 | Host           | Jump and back                                 | Where the board opens          |
 | -------------- | --------------------------------------------- | ------------------------------ |
@@ -477,24 +477,24 @@ To reach a lead without opening the board, `tmt sq jump --lead` jumps to the lea
 
 <More summary="More commands">
 <Cmd>{`
-$ tmt sq add auth-fix docs-sweep      # agents already running, however they started
-$ tmt sq set auth-fix state=review    # what leads do to keep the board current; field= clears
-$ tmt sq ls                           # the member list; --json for scripts
+$ tmt ops sq add auth-fix docs-sweep  # agents already running, however they started
+$ tmt ops sq set auth-fix state=review    # what leads do to keep the board current; field= clears
+$ tmt ops sq ls                       # the member list; --json for scripts
 $ tmt talk auth-fix "…" --detach      # the composer's talk mode, from the command line
 $ tmt answer auth-fix "use postgres"  # the composer's answer mode, from the command line
-$ tmt sq annotate auth-fix "split this job"   # the composer's note mode, from the command line
-$ tmt sq jump auth-fix                # and tmt sq back
-$ tmt sq jump --lead                  # your squad's lead
-$ tmt sq rm auth-fix                  # leaves the squad; the agent keeps running
+$ tmt ops sq annotate auth-fix "split this job"   # the composer's note mode, from the command line
+$ tmt ops sq jump auth-fix            # and tmt ops sq back
+$ tmt ops sq jump --lead              # your squad's lead
+$ tmt ops sq rm auth-fix              # leaves the squad; the agent keeps running
 `}</Cmd>
 
-`tmt sq` is short for `tmt squad`. `tmt sq ls` lists every squad unless you select one with `--squad <name>`. Commands that change a squad require `--squad <name>` when several squads exist.
+`tmt ops sq` is short for `tmt ops squad`. `tmt ops sq ls` lists every squad unless you select one with `--squad <name>`. Commands that change a squad require `--squad <name>` when several squads exist.
 
 </More>
 
 ### Reference: tabs, refresh and bindings
 
-The full configuration contract is in the Squad skill, which `tmt sq skill show` prints and which lives [in the repository](https://github.com/pj-tmt/tmt/blob/main/extensions/tmt-squad/skills/tmt-squad/SKILL.md). These are the settings people reach for most.
+The full configuration contract is in the Ops skill, which `tmt ops skill show` prints and which lives [in the repository](https://github.com/pj-tmt/tmt/blob/main/extensions/tmt-ops/skills/tmt-ops/SKILL.md). These are the settings people reach for most.
 
 **Tabs.** Beyond `order` and `hide`, `pin` and `colors` shape the tab line:
 
@@ -509,7 +509,7 @@ blocked = "blocked" # and of one with a blocked member
 
 A pinned tab keeps its place when the tab line scrolls, and the other tabs can't be moved past it. A pinned tab that is hidden or missing is skipped. A color is `default` or a theme token. `squad:<name>` names a squad that shares its name with a built-in tab, such as one called `all`. A hidden squad that you open by name or from the switcher leads the tab line, marked `(hidden)`.
 
-Use `tmt sq ls --tab leads` or `tmt sq ls --tab all` for the same rows in text, or add `--json` for the full tab document. Hidden squads remain included. `--tab` cannot be combined with `--squad` or `--refresh-fields`.
+Use `tmt ops sq ls --tab leads` or `tmt ops sq ls --tab all` for the same rows in text, or add `--json` for the full tab document. Hidden squads remain included. `--tab` cannot be combined with `--squad` or `--refresh-fields`.
 
 **Refresh.** The board reloads on an interval: 5 seconds unless you set `refresh` under `[board]` for every board, or under `[squad.<name>.board]` for one. Use whole seconds or minutes from `"1s"` to `"60m"`, or `"off"` to reload only on **ctrl-r** and the board's own actions.
 

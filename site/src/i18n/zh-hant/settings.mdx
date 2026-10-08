@@ -1,6 +1,6 @@
 ---
 source: site/src/chapters/settings.mdx
-sourceRevision: ab133ca5788ed088a74e52f31f26436570feb2f0
+sourceRevision: 1a22fb69dcc4464d224c1b7f42b3fc5a8fcaf197
 title: 設定與疑難排解
 ---
 
@@ -68,7 +68,7 @@ $ tmt completion zsh             # 以同樣方式檢查 zsh
 
 請自行把那一行加入顯示的檔案；tmt 絕不編輯 shell 的啟動檔案。使用 zsh 時，請放在補完功能設定完成之後，無論你使用 `compinit` 或 oh-my-zsh 等框架。如果同一行出現兩次，tmt 會提醒你。接著開啟新的 shell。`tmt completion --json` 為腳本提供相同的檢查；尚未設定補完時，tmt 的主要說明（`tmt --help`）也會在終端機顯示提醒。
 
-名稱補完會列出已儲存與暫時的 identity，已儲存的優先，不會啟動 tmux。`tmt resume` 只會列出有記錄 session 的 identity。名稱之後，`tmt run` 會交給 agent 自己的補完機制，因此 Tab 也能補完 agent 的旗標；tmt 不會安裝那些補完腳本。擴充套件會補完自己的參數，例如 `tmt sq <Tab>`。
+名稱補完會列出已儲存與暫時的 identity，已儲存的優先，不會啟動 tmux。`tmt resume` 只會列出有記錄 session 的 identity。名稱之後，`tmt run` 會交給 agent 自己的補完機制，因此 Tab 也能補完 agent 的旗標；tmt 不會安裝那些補完腳本。擴充套件會補完自己的參數，例如 `tmt ops sq <Tab>`。
 
 <Mdx.h3 id="the-pane-badge-a-few-extras">窗格徽章的進一步設定</Mdx.h3>
 

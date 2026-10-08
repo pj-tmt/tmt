@@ -262,7 +262,7 @@ export function HomePage() {
           <div>
             <p className="eyebrow">02 / SQUAD</p>
             <h2>
-              <span>Squad</span>
+              <span>Ops</span>
               <span className="squad-heading-line">Your teams. One clear view.</span>
             </h2>
           </div>
@@ -276,7 +276,7 @@ export function HomePage() {
         >
           <div className="mock-toolbar">
             <span>
-              <b className="tiny-mark">▚</b> tmt squad{" "}
+              <b className="tiny-mark">▚</b> tmt ops squad{" "}
               <span className="mock-muted">/ workspace</span>
             </span>
             <span className="mock-muted">ILLUSTRATIVE DATA</span>
@@ -423,9 +423,9 @@ export function HomePage() {
           </div>
         </div>
         <LocalLink className="study-chapter" to="/" hash="squad-demo">
-          Explore Squad <span>↗</span>
+          Explore Ops <span>↗</span>
         </LocalLink>
-        <TopInstall command="tmt extension install squad" label="Install Squad" />
+        <TopInstall command="tmt extension install ops" label="Install Ops" />
       </section>
       <section id="colab" className="study-product content rich-section">
         <div className="section-heading colab-heading">

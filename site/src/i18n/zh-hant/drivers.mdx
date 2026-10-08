@@ -1,6 +1,6 @@
 ---
 source: site/src/chapters/drivers.mdx
-sourceRevision: 58ca656bb374eede2d12b69d3b2abb68d71d016c
+sourceRevision: 1c05410c1cac2ca4103b2382c3fc531e05719622
 title: Driver
 ---
 
@@ -50,7 +50,7 @@ $ tmt driver ls              # herdr 的狀態：ok、changed 或 missing
 - **Context 大小**，記在 `resume.usage`：`tokens` 是下一次請求會重新送出的 token 數；`windowTokens` 是 provider 有回報時的 context window 大小（Codex 會回報，Claude Code 不會）。
 - **消耗量**，記在 `resume.consumption`：已完成請求使用的 token 數。`inputTokens` 包含快取輸入；`outputTokens` 是輸出，包含推理；總量是輸入加輸出。
 
-兩者都會出現在 `tmt ls --json` 和 `tmt identity show --json` 中，[Squad](/extensions/squad) 的欄位也能顯示 context 大小。只會儲存 token 數，不會儲存對話。這個 hook 也讓 `session.activity` 在一輪結束後回到 idle；沒有它，tmt 不會根據沉默猜測 agent 已閒置。`tmt setup --no-usage` 只會移除這個 hook。
+兩者都會出現在 `tmt ls --json` 和 `tmt identity show --json` 中，[Ops](/extensions/squad) 的欄位也能顯示 context 大小。只會儲存 token 數，不會儲存對話。這個 hook 也讓 `session.activity` 在一輪結束後回到 idle；沒有它，tmt 不會根據沉默猜測 agent 已閒置。`tmt setup --no-usage` 只會移除這個 hook。
 
 這些數字是 token 數，不是費用。它們記錄已完成的請求，不是即時串流，可能落後一輪。每個計數都從第一次讀取時開始，不會補算更早的紀錄。沒有計數表示無法取得，不代表零。計算速率的工具應在第一次讀取、`epoch` 改變、`gap` 為 true，或計數下降時，重新建立基準。
 

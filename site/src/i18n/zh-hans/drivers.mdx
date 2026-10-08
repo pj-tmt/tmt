@@ -1,6 +1,6 @@
 ---
 source: site/src/chapters/drivers.mdx
-sourceRevision: 58ca656bb374eede2d12b69d3b2abb68d71d016c
+sourceRevision: 1c05410c1cac2ca4103b2382c3fc531e05719622
 title: Driver
 ---
 
@@ -50,7 +50,7 @@ $ tmt driver ls              # herdr：ok、changed 或 missing
 - **上下文大小**，位于 `resume.usage`：`tokens` 是下一个请求会重新发送的 token 数，`windowTokens` 是提供方报告的上下文窗口大小（Codex 会报告，Claude Code 不会）。
 - **消耗量**，位于 `resume.consumption`：已完成请求使用的 token 数。`inputTokens` 包含缓存输入，`outputTokens` 是输出（包括推理），总量为输入加输出。
 
-两者都会显示在 `tmt ls --json` 和 `tmt identity show --json` 中，[Squad](/extensions/squad) 的一列也可以显示上下文大小。只存储 token 数量，不存储会话内容。该钩子还会在每轮结束时让 `session.activity` 回到空闲状态；没有它，tmt 绝不会仅凭沉默就猜测 agent 已空闲。`tmt setup --no-usage` 只移除这个钩子。
+两者都会显示在 `tmt ls --json` 和 `tmt identity show --json` 中，[Ops](/extensions/squad) 的一列也可以显示上下文大小。只存储 token 数量，不存储会话内容。该钩子还会在每轮结束时让 `session.activity` 回到空闲状态；没有它，tmt 绝不会仅凭沉默就猜测 agent 已空闲。`tmt setup --no-usage` 只移除这个钩子。
 
 这些数字表示 token 数，不是费用。它们描述已完成的请求，而不是实时流式输出，可能落后一轮。每个计数器从首次读数开始，不会计入之前的历史。缺少计数器意味着数据不可用，绝不表示零。计算速率的工具应在首次读数、`epoch` 变化、`gap` 为 true 或计数器下降时建立新的基线。
 

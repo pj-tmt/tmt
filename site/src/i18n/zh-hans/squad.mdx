@@ -1,7 +1,7 @@
 ---
 source: site/src/chapters/squad.mdx
-sourceRevision: 397e8e2c04acfa2d113be656d596b844485cf593
-title: Squad：lead、成员和一个看板
+sourceRevision: f4a28d1fb4b1a7aecfda4543ed244641429f72d5
+title: Ops：lead、成员和一个看板
 ---
 
 import { components as Mdx } from "../../components/mdx";
@@ -12,7 +12,7 @@ import { Spaces, TokenTable } from "../../components/samples";
 import { BoardSketch, SplitBoardSketch, UpdateStatusSketch } from "../../demos/board";
 import { BoardDemo, jumpAndTalk, startSquad, updateStatus } from "../../demos/BoardDemo";
 
-<Lede>agent 一多，光是跟进它们就成了一项工作。Squad 将这项工作交给其中一个 agent。</Lede>
+<Lede>agent 一多，光是跟进它们就成了一项工作。TMT Ops 将这项工作交给其中一个 agent。</Lede>
 
 <KeyList>
   <li>
@@ -30,18 +30,18 @@ import { BoardDemo, jumpAndTalk, startSquad, updateStatus } from "../../demos/Bo
 <MarkLegend />
 
 <Cmd>{`
-$ tmt extension install squad
-$ tmt sq init product            # 为 squad 命名；不会询问
-$ tmt sq lead sol                # 可选：由 sol 带队
-$ tmt sq board                   # 在终端中显示看板，其他情况下显示成员列表
+$ tmt extension install ops
+$ tmt ops sq init product        # 为 squad 命名；不会询问
+$ tmt ops sq lead sol            # 可选：由 sol 带队
+$ tmt ops ui                   # 在终端中显示看板，其他情况下显示成员列表
 `}</Cmd>
 
-<Waiting /> 标出正在等<em>你</em>处理的事项。Squad 根据运行它的窗格识别你，也可以用 `tmt sq me ben`
-记录一次。通过 `tmt mv` 移动后，它仍会跟随这个 identity。当 lead 在自己的窗格中运行 squad
-命令时，使用的是它自己的身份。通过 `tmt sq lead` 选择 lead，与 `role` 和 `lead`
+<Waiting /> 标出正在等<em>你</em>处理的事项。Ops 根据运行它的窗格识别你，也可以用 `tmt ops sq me
+ben` 记录一次。通过 `tmt mv` 移动后，它仍会跟随这个 identity。当 lead 在自己的窗格中运行 squad
+命令时，使用的是它自己的身份。通过 `tmt ops sq lead` 选择 lead，与 `role` 和 `lead`
 字段相互独立：修改任一字段都不会更换 lead，选择新的 lead 也会保留所有成员的角色文本。
 
-<Callout title="Squad 不会启动 agent。">
+<Callout title="Ops 不会启动 agent。">
   它也不会创建 worktree 或窗口。成员如何启动，由你和 lead 决定；squad
   只为团队提供共享看板和成员名单。
 </Callout>
@@ -59,7 +59,7 @@ $ tmt sq board                   # 在终端中显示看板，其他情况下显
 
 <Mdx.h3 id="the-board">看板</Mdx.h3>
 
-squad 标签页默认使用 **members**：lead 与成员显示在同一个带边框的列表中，详情在行内展开，lead 的笔记位于下方。原来的 **team** 侧边窗格视图仍可选择。按 `/` 并输入内容可筛选行。<Waiting /> 标出正在等你的成员，这些行排在最前面。所有按键操作都基于屏幕上已有的内容；拉取请求状态等较慢的查询在后台刷新。成员、请求或房间发生变化，或你编辑 `squad.toml` 后，看板会在大约一秒内重新加载；其他内容仍按刷新间隔（`refresh`，或 `"off"`）更新。按 **ctrl-r** 可立即刷新，即使正在搜索或输入消息也可以。`tmt sq ls` 以文本输出成员列表，加上 `--json` 则输出 JSON；只输入 `tmt sq` 也会显示这个列表，并提示如何打开看板。`tmt sq board` 在交互式终端中打开看板，其他情况下输出同一个列表。
+squad 标签页默认使用 **members**：lead 与成员显示在同一个带边框的列表中，详情在行内展开，lead 的笔记位于下方。原来的 **team** 侧边窗格视图仍可选择。按 `/` 并输入内容可筛选行。<Waiting /> 标出正在等你的成员，这些行排在最前面。所有按键操作都基于屏幕上已有的内容；拉取请求状态等较慢的查询在后台刷新。成员、请求或房间发生变化，或你编辑 `ops.toml` 后，看板会在大约一秒内重新加载；其他内容仍按刷新间隔（`refresh`，或 `"off"`）更新。按 **ctrl-r** 可立即刷新，即使正在搜索或输入消息也可以。`tmt ops sq ls` 以文本输出成员列表，加上 `--json` 则输出 JSON；只输入 `tmt ops sq` 也会显示这个列表，并提示如何打开看板。`tmt ops ui` 在交互式终端中打开看板，其他情况下输出同一个列表。
 
 <BoardSketch />
 
@@ -132,15 +132,15 @@ reduced_motion = false
 Shift+← 和 Shift+→ 移动当前标签页，也可以将一个标签页拖到另一个的位置。看板会将新顺序写入配置，不修改文件中的其他内容：
 
 <Code>{`
-# ~/.config/tmux-team/squad.toml
+# ~/.config/tmux-team/ops.toml
 [tabs]
 order = ["all", "leads", "product"]
-hide  = ["quiet"]                      # still reachable with s, or tmt sq board --squad quiet
+hide  = ["quiet"]                      # still reachable with s, or tmt ops ui --squad quiet
 `}</Code>
 
 <Mdx.h3 id="your-own-tabs">自定义标签页</Mdx.h3>
 
-用户标签页可跨 squad 筛选成员，包括 lead 和隐藏的 squad。它使用 squad/member/state/task 行预设。在 `squad.toml` 中，与内置标签页一起定义：
+用户标签页可跨 squad 筛选成员，包括 lead 和隐藏的 squad。它使用 squad/member/state/task 行预设。在 `ops.toml` 中，与内置标签页一起定义：
 
 <Code>{`
 [tabs]
@@ -166,32 +166,32 @@ o = "tab"
 
 筛选条件用 `=`、`!=`、`not`、`and`、`or` 和括号组合字段，`waiting_on_you` 匹配正在等你的成员。在排序键前加 `-` 可反向排序。分区将标签页的行分组：一行可以出现在多个分区中，其余行放在后面，不带标题。分区的按键绑定优先于标签页，标签页又优先于全局绑定。
 
-`tmt sq ls --tab needs-me` 输出相同的行，`--json` 提供看板的完整文档。如果读取成员名单或收件箱失败，看板和列表会说明结果不完整，因此一个空的不完整标签页不代表没有人在等你。
+`tmt ops sq ls --tab needs-me` 输出相同的行，`--json` 提供看板的完整文档。如果读取成员名单或收件箱失败，看板和列表会说明结果不完整，因此一个空的不完整标签页不代表没有人在等你。
 
 <Mdx.h3 id="see-your-settings">查看设置</Mdx.h3>
 
-按 `,` 查看当前 squad 或标签页的有效设置（自定义按键显示在 `?` 中）。首行 **Theme**、**View** 和 meter 开启时的 **Token window** 显示当前值。Theme 和 View 打开选择器；Token window 在原行循环切换。每个值标明来源：预设、默认值、你的 `squad.toml`（顶部显示路径），或 tmt 的主题设置。命令项仅作为文本显示，不会从菜单执行。用方向键、j/k、PgUp/PgDn、Home/End 或滚轮滚动，Esc 关闭。它保留打开时的设置；编辑文件后需重新打开。
+按 `,` 查看当前 squad 或标签页的有效设置（自定义按键显示在 `?` 中）。首行 **Theme**、**View** 和 meter 开启时的 **Token window** 显示当前值。Theme 和 View 打开选择器；Token window 在原行循环切换。每个值标明来源：预设、默认值、你的 `ops.toml`（顶部显示路径），或 tmt 的主题设置。命令项仅作为文本显示，不会从菜单执行。用方向键、j/k、PgUp/PgDn、Home/End 或滚轮滚动，Esc 关闭。它保留打开时的设置；编辑文件后需重新打开。
 
-`tmt sq config show` 在命令行输出相同内容：不加参数时显示看板默认值，`--squad product` 显示单个 squad，`--tab all`（也可为 `leads` 或你命名的标签页）显示单个标签页。两个选项一次只用一个。`--json` 提供完整值及各自来源。
+`tmt ops sq config show` 在命令行输出相同内容：不加参数时显示看板默认值，`--squad product` 显示单个 squad，`--tab all`（也可为 `leads` 或你命名的标签页）显示单个标签页。两个选项一次只用一个。`--json` 提供完整值及各自来源。
 
 <Mdx.h3 id="change-settings-from-the-command-line">从命令行修改设置</Mdx.h3>
 
-`tmt sq config set` 检查设置并将其保存到 `squad.toml`：
+`tmt ops sq config set` 检查设置并将其保存到 `ops.toml`：
 
 <Cmd>{`
-$ tmt sq config set notes.render plain --squad product
-$ tmt sq config set board.refresh 10s --squad product
-$ tmt sq config set board.hidden_columns '["pr_link"]' --squad product
-$ tmt sq config set tabs.hide '["leads"]'
+$ tmt ops sq config set notes.render plain --squad product
+$ tmt ops sq config set board.refresh 10s --squad product
+$ tmt ops sq config set board.hidden_columns '["pr_link"]' --squad product
+$ tmt ops sq config set tabs.hide '["leads"]'
 `}</Cmd>
 
 大多数设置属于单个 squad，因此要加上 `--squad`。标签页顺序和隐藏的标签页（`tabs.*`）始终是全局设置。`board.refresh` 默认也是全局设置，除非指定 squad。列表用 JSON 表示。tmt 会拒绝无效值；如果文件在读取后发生变化，也会拒绝写入。注释和其他设置保持原样。修改 split 的窗格、方向或尺寸时，会将整个布局保存到文件中，之后的预设变更不会覆盖它。嵌套 split、命令、状态模式和提醒只能通过编辑文件来修改。
 
-`board.hidden_columns` 可以隐藏看板中的列，不改变网格。跨列单元格会缩到仍然显示的列上。如果某个设置会隐藏一个单元格的所有列，tmt 就会拒绝。设为 `[]` 可重新显示全部列。`tmt sq ls` 隐藏相同的列，`--json` 仍包含所有值。
+`board.hidden_columns` 可以隐藏看板中的列，不改变网格。跨列单元格会缩到仍然显示的列上。如果某个设置会隐藏一个单元格的所有列，tmt 就会拒绝。设为 `[]` 可重新显示全部列。`tmt ops sq ls` 隐藏相同的列，`--json` 仍包含所有值。
 
 <Mdx.h3 id="board-views">看板视图</Mdx.h3>
 
-视图可选择带边框的列表，也可安排窗格及其初始折叠状态；squad 的状态、行、数据提供程序、提醒、token 计量器和主题保持不变。用 `tmt sq view ls`（或 `tmt sq view`）列出六个内置视图：
+视图可选择带边框的列表，也可安排窗格及其初始折叠状态；squad 的状态、行、数据提供程序、提醒、token 计量器和主题保持不变。用 `tmt ops sq view ls`（或 `tmt ops sq view`）列出六个内置视图：
 
 | 视图    | 布局                                                                                                  |
 | ------- | ----------------------------------------------------------------------------------------------------- |
@@ -203,22 +203,22 @@ $ tmt sq config set tabs.hide '["leads"]'
 | wide    | 成员行、详情/回复、笔记分为三列，比例为 40/30/30；低于 180 列时折叠详情/回复。                        |
 
 <Cmd>{`
-$ tmt sq view set notes                      # 所有看板
-$ tmt sq view set wide --squad product       # 这个 squad
-$ tmt sq view rm --squad product             # 继承布局
+$ tmt ops sq view set notes                  # 所有看板
+$ tmt ops sq view set wide --squad product   # 这个 squad
+$ tmt ops sq view rm --squad product         # 继承布局
 `}</Cmd>
 
 squad 手写的 `board.layout` 或 `panes` 始终优先，其次是该 squad 的 `view`、`[board] view`，最后是默认的 `members`。现有配置如果只设置 direction/sizes、没有指定视图，会保留原来的窗格预设。`view set` 只修改 `view` 键；文件同时发生变化时会拒绝写入。指定 `--squad` 后，也会拒绝覆盖手写布局，需要你先自行移除。`view rm` 只移除 `view`，自定义布局和折叠设置仍会保留。手动折叠遵循原有的会话规则。
 
 打开 `,` 设置并选择 **View**，移动选项时实时预览；**Tab** 在所有看板和当前 squad 之间切换，**Enter** 保存，**Esc** 恢复原状且不写入内容。`default` 显示将继承的布局，只移除你选的视图。leads 和 home 标签页保持固定构成；视图只应用于 squad 标签页。
 
-手写了 `board.layout` 或 `panes` 的 squad 会显示 `custom` 项。可以预览，但从 `squad.toml` 移除这些设置前无法为该 squad 保存视图。为所有看板选择的视图仍可保存，这个 squad 会保留自定义布局。帮助列出你自行绑定的视图和主题按键。
+手写了 `board.layout` 或 `panes` 的 squad 会显示 `custom` 项。可以预览，但从 `ops.toml` 移除这些设置前无法为该 squad 保存视图。为所有看板选择的视图仍可保存，这个 squad 会保留自定义布局。帮助列出你自行绑定的视图和主题按键。
 
 <Mdx.h3 id="boxed-squad-members">带边框的 squad 成员列表</Mdx.h3>
 
 squad 标签页默认显示一个带边框的列表：lead 排在最前，带有 `lead` 标签，随后是 `── members · N ──` 分隔线。每位成员占用两行：标记、名称、状态、模型和经过时间；下一行显示任务预览。等待你处理的成员（`◆`）按最早的问题优先排列；其他交谈按最新时间排列，没有交谈的成员按名称排序。lead 始终排在最前，自定义分区保持原位。
 
-各行默认折叠。在 squad 标签页或 HOME 中，对任一 lead 或成员按 **e**，会在该行正下方展开详情：`◆ waits on you` 的问题、链接，以及带发送者和时间的最新回复，不重复行内已显示的内容。再按 **e** 折叠，可以同时展开多行。较长的回复只显示前几行；按 **v** 打开全文，按 **Esc** 返回。**a** 打开该行共用的 answer／note／talk／status composer，**o** 打开 PR 或链接。阅读不需要先记录用户，写入则需要 `tmt sq me`。lead 笔记位于列表下方；按 **n** 隐藏或显示。
+各行默认折叠。在 squad 标签页或 HOME 中，对任一 lead 或成员按 **e**，会在该行正下方展开详情：`◆ waits on you` 的问题、链接，以及带发送者和时间的最新回复，不重复行内已显示的内容。再按 **e** 折叠，可以同时展开多行。较长的回复只显示前几行；按 **v** 打开全文，按 **Esc** 返回。**a** 打开该行共用的 answer／note／talk／status composer，**o** 打开 PR 或链接。阅读不需要先记录用户，写入则需要 `tmt ops sq me`。lead 笔记位于列表下方；按 **n** 隐藏或显示。
 
 要使用原来的详情／回复侧边窗格，在 **,** 设置选择 **View** → `team`；选择 `members` 恢复带边框列表。自定义 `board.layout` 或 `panes` 保留配置的布局。
 
@@ -234,7 +234,7 @@ notes 窗格显示 lead 自己的笔记本，也就是 `tmt notes path --identit
 
 笔记中的链接也可以使用。Tab 和 Shift-Tab 在链接之间移动（除非你为 Tab 绑定了其他操作），底部一行会显示所选链接的内容和目标。Enter 打开链接；用鼠标时，第一次点击选中，第二次点击打开。Esc 清除选择。笔记没有链接时，Tab 像往常一样切到下一个窗格。网址和完整的 GitHub issue 或 PR 链接可以打开。绝对文件路径只会在所在文件夹中显示该文件，绝不会打开文件本身。相对路径、单独的 `#12` 和未知类型的链接仍显示为普通文本。
 
-笔记本还可以链接到看板操作：`tmt:jump/<member>`、`tmt:open/<member>`、`tmt:copy/<member>`、`tmt:talk/<member>`、`tmt:answer/<member>`、`tmt:annotate/<member>` 和 `tmt:back`。`<member>` 是当前 squad 中成员或 lead 的名称或 ID。其他名称不会触发操作，并会显示原因。talk、answer 和 annotate 打开常规输入提示；链接含有 `?text=…` 时会预填文本。按下 Enter 之前不会发送。要从链接运行自己的程序，请在 `squad.toml` 的 `[links]` 下添加条目，例如 `gh = "run gh issue view {path}"`。之后，笔记中的 `gh:1234` 链接就会运行 `gh issue view 1234`。tmt 直接运行程序，不经过 shell。
+笔记本还可以链接到看板操作：`tmt:jump/<member>`、`tmt:open/<member>`、`tmt:copy/<member>`、`tmt:talk/<member>`、`tmt:answer/<member>`、`tmt:annotate/<member>` 和 `tmt:back`。`<member>` 是当前 squad 中成员或 lead 的名称或 ID。其他名称不会触发操作，并会显示原因。talk、answer 和 annotate 打开常规输入提示；链接含有 `?text=…` 时会预填文本。按下 Enter 之前不会发送。要从链接运行自己的程序，请在 `ops.toml` 的 `[links]` 下添加条目，例如 `gh = "run gh issue view {path}"`。之后，笔记中的 `gh:1234` 链接就会运行 `gh issue view 1234`。tmt 直接运行程序，不经过 shell。
 
 detail 窗格在成员字段下方只读显示所选成员自己的笔记本，使用与 lead 笔记相同的 Markdown 样式。已保存但没有笔记本的成员显示 `(no notes yet)`；临时成员显示 `(temporary identity: no notebook)`。每个成员都应在自己的笔记本顶部保留同样简短的 **Current state** 部分。leads 和 all 标签页仍然只显示行。
 
@@ -268,7 +268,7 @@ detail 窗格在成员字段下方只读显示所选成员自己的笔记本，�
 你可以修改窗格及其排列方式；添加自己的**分区**，每个分区都是带标题、筛选条件和排序的列表；选择**列**、**状态**及其颜色和顺序，以及链接的打开方式。你也可以设置每个按键或点击的行为。绑定由事件（例如按键 `o`，或 `click`、`double-click`）和一行操作组成：`jump`、`jump lead`、`back`、`talk`、`reply`、`annotate lead`、`open {pr_link}`、`copy {name}: {task}`，或 `run <program> {field}…`，其中 `{field}` 从该行取值。分区可以有自己的绑定。
 
 <Code>{`
-# ~/.config/tmux-team/squad.toml  (the directory keeps tmt's former name)
+# ~/.config/tmux-team/ops.toml  (the directory keeps tmt's former name)
 [squad.product]
 layout = "crew"                        # start from a preset
 
@@ -278,8 +278,8 @@ O = "open {issue_link}" # your own key: open the row's issue
 
 <More summary="完整示例：拆分窗格、自定义分区、列、状态和更多绑定">
 <Code>{`
-# ~/.config/tmux-team/squad.toml  (the directory keeps tmt's former name)
-me = "ben"                             # written by tmt sq me ben, with ben's ID beside it
+# ~/.config/tmux-team/ops.toml  (the directory keeps tmt's former name)
+me = "ben"                             # written by tmt ops sq me ben, with ben's ID beside it
 
 [squad.product]
 layout = "crew" # start from a preset, then override
@@ -320,10 +320,10 @@ Y = "copy - [{name}]({pr_link}) {state}"
 
 - **列**可设置固定宽度，或 `min`/`max` 与剩余空间中的 `grow` 份额；还可设置 `align`、在 `end` 或 `middle` 处 `truncate`（中间截断适合路径和链接），以及 `priority`。可增长的列从 `min` 开始（未设置时为 4 格），不会超过 `max`；一列达到 `max` 后，剩余空间分给其他列。窄屏下，各列先缩到 `min`。如果整行仍放不下，就从最高 `priority` 开始逐列隐藏，直到剩余列能完整放下；没有 `priority` 的列不会隐藏。最后一列至少保留 4 格，否则隐藏。
 - **显示行**：`lines` 指定一行数据占多少个显示行，以及每个显示行的内容。每个显示行列出所用的列，单元格可以通过 `span` 跨多列，因此第二个显示行可以在任务下方显示成员正在等你处理的事项。后续显示行没有内容时会省略。单元格也可以指定主题 `token` 作为颜色，例如 `{ field = "pending", span = 3, token = "waiting" }`。Team 预设采用了这种设置，让成员需要你处理的事项显示为 waiting 颜色。其他预设保持原有颜色，除非你添加 token。单元格的 token 优先于列的 `color` 阈值。token 是主题中的名称，不是具体颜色值。空值仍然暗显，选中时仍会高亮整行。
-- **值的来源**：默认显示成员同名的 squad 字段，也可用 `from` 绑定到成员自己的 tmt 数据：`member`、`presence`、`cwd`、`target`、`session.driver`、`session.model`、`session.usage.tokens`、`session.usage.remaining`（driver 报告窗口大小时，为上下文窗口减去已用 token）、`meta.<key>` 或 `meta.squad.<field>`。所有 driver 使用相同路径，因此成员从 Claude 切换到 Codex 后仍可保留这些列。`format` 将值显示为 `text`、`tokens`（`487k`）、`age`（`5m`）或 `count`（`12,345`）。分区、筛选和排序使用同一个值，数字按数值排序。缺失值显示为 `–`，这是看板统一表示“这里没有内容”的标记。Squad 自身的字段（`member`、`role`、`state`、`pending`、`note`）不能绑定。列还可以按值给单元格着色：`color = [{ at = 400000, token = "review" }, { at = 600000, token = "blocked" }]` 为每个单元格选取其数值达到的最高 `at` 对应的主题 token。颜色只是装饰，没有颜色时值的含义也相同。
+- **值的来源**：默认显示成员同名的 squad 字段，也可用 `from` 绑定到成员自己的 tmt 数据：`member`、`presence`、`cwd`、`target`、`session.driver`、`session.model`、`session.usage.tokens`、`session.usage.remaining`（driver 报告窗口大小时，为上下文窗口减去已用 token）、`meta.<key>` 或 `meta.squad.<field>`。所有 driver 使用相同路径，因此成员从 Claude 切换到 Codex 后仍可保留这些列。`format` 将值显示为 `text`、`tokens`（`487k`）、`age`（`5m`）或 `count`（`12,345`）。分区、筛选和排序使用同一个值，数字按数值排序。缺失值显示为 `–`，这是看板统一表示“这里没有内容”的标记。Ops 自身的字段（`member`、`role`、`state`、`pending`、`note`）不能绑定。列还可以按值给单元格着色：`color = [{ at = 400000, token = "review" }, { at = 600000, token = "blocked" }]` 为每个单元格选取其数值达到的最高 `at` 对应的主题 token。颜色只是装饰，没有颜色时值的含义也相同。
 - **百分比宽度**类似 CSS。`width = "30%"` 是看板扣除边框和行标记后的内部宽度比例，不是固定列占用后剩余空间的比例；列间距另计。百分比之和最多为 100%，`min` 和 `max` 仍按格数计算。要分配剩余空间，使用类似 CSS `fr` 的 `grow`。没有显示行使用的末尾列不单独占宽度，但其值仍可填入其他单元格。隐藏一列后，会为剩余列重新计算份额。
 - **单元格默认不换行。** 放不下的文本用 `…` 截断，宽度按终端实际显示计算，因此中文和 emoji 可以对齐。为列设置 `overflow = "wrap"` 后，可换行显示最多 `max_lines` 行（1–8，默认 2）；如果仍放不下，最后一行用 `…` 截断。续行与单元格起点对齐，选择、翻页、滚动和点击都按实际可见行处理。跨列单元格使用第一列的设置。旧的 `[squad.<name>.columns]` 写法也支持百分比宽度和 `overflow`。
-- **`tmt sq ls` 保持自然宽度**，除非它显示的某列使用百分比宽度或 `overflow`：输出到管道时，不会丢弃或截断任何列。一旦某列启用这些设置，列表就按看板相同的适配规则处理，可能截断、换行或隐藏列。列表先扣除间距再计算百分比，因此列宽可能与看板相差一两格。完整值始终可在详情窗格和 `tmt sq ls --json` 中查看。
+- **`tmt ops sq ls` 保持自然宽度**，除非它显示的某列使用百分比宽度或 `overflow`：输出到管道时，不会丢弃或截断任何列。一旦某列启用这些设置，列表就按看板相同的适配规则处理，可能截断、换行或隐藏列。列表先扣除间距再计算百分比，因此列宽可能与看板相差一两格。完整值始终可在详情窗格和 `tmt ops sq ls --json` 中查看。
 
 <Code>{`
 [squad.product.rows]
@@ -350,9 +350,9 @@ layout = { direction = "left-right", sizes = [60, 40], panes = [
 ] }
 `}</Code>
 
-绑定只来自你自己的配置文件，不来自 agent 在看板上写的内容。`run` 直接启动程序，不经过 shell：每个 `{field}` 恰好填入一个参数，因此行内容无法夹带额外命令；如果值会让参数以 `-` 开头，也会被拒绝，防止夹带选项。`open` 只打开网页链接。`tmt sq ls` 使用相同分区，因此文本和 JSON 视图与看板一致。不匹配任何分区的成员放在后面的无标题分区，分区筛选不会悄悄隐藏它们。
+绑定只来自你自己的配置文件，不来自 agent 在看板上写的内容。`run` 直接启动程序，不经过 shell：每个 `{field}` 恰好填入一个参数，因此行内容无法夹带额外命令；如果值会让参数以 `-` 开头，也会被拒绝，防止夹带选项。`open` 只打开网页链接。`tmt ops sq ls` 使用相同分区，因此文本和 JSON 视图与看板一致。不匹配任何分区的成员放在后面的无标题分区，分区筛选不会悄悄隐藏它们。
 
-**字段提供程序**用 tmt 本身没有的数据填充列，例如拉取请求的状态。它为每个成员运行你指定的程序，遵循与 `run` 相同的规则，并将输出第一行显示为与提供程序同名的字段。看板不会等待它：后台运行时显示上一次的值，经过 `every` 指定的时间后再次运行。运行失败时显示淡化的 `?`，不会显示错误。`tmt sq ls --refresh-fields` 会先运行到期的提供程序，再输出列表。程序可以输出 `{"value": "#412 open", "color": "review"}`，为单元格建议一个主题 token；列自身的 `color` 阈值优先。
+**字段提供程序**用 tmt 本身没有的数据填充列，例如拉取请求的状态。它为每个成员运行你指定的程序，遵循与 `run` 相同的规则，并将输出第一行显示为与提供程序同名的字段。看板不会等待它：后台运行时显示上一次的值，经过 `every` 指定的时间后再次运行。运行失败时显示淡化的 `?`，不会显示错误。`tmt ops sq ls --refresh-fields` 会先运行到期的提供程序，再输出列表。程序可以输出 `{"value": "#412 open", "color": "review"}`，为单元格建议一个主题 token；列自身的 `color` 阈值优先。
 
 <Code>{`
 [squad.product.fields.pr_state]
@@ -375,7 +375,7 @@ sort = 0                    # optional: 0-999, lower comes first
 ignore_case = true          # optional; off by default
 `}</Code>
 
-精确的 `states` 条目始终优先。否则按文件顺序使用第一个匹配模式；没有匹配项的状态不着色，排在有顺序的状态之后。`match` 是匹配完整状态的 glob：`*` 匹配任意数量的字符（包括零个），`?` 匹配一个字符，其他字符均按字面匹配。模式不会修改状态文本。`tmt sq ls` 与看板共用这个顺序；在 `tmt sq ls --json` 中，行的 `colors.state` 是最终使用的 token，没有匹配项时省略。
+精确的 `states` 条目始终优先。否则按文件顺序使用第一个匹配模式；没有匹配项的状态不着色，排在有顺序的状态之后。`match` 是匹配完整状态的 glob：`*` 匹配任意数量的字符（包括零个），`?` 匹配一个字符，其他字符均按字面匹配。模式不会修改状态文本。`tmt ops sq ls` 与看板共用这个顺序；在 `tmt ops sq ls --json` 中，行的 `colors.state` 是最终使用的 token，没有匹配项时省略。
 
 <Mdx.h3 id="colors-and-themes">颜色与主题</Mdx.h3>
 
@@ -399,35 +399,35 @@ ignore_case = true          # optional; off by default
 
 <Mdx.h3 id="theming-the-board">设置看板主题</Mdx.h3>
 
-看板跟随你为命令行设置的 `base`。尚未设置时，使用 **auto**。看板主题不会改变命令行颜色；`tmt config show` 显示命令行的主题及其文件。用 `tmt sq theme` 选择看板主题：
+看板跟随你为命令行设置的 `base`。尚未设置时，使用 **auto**。看板主题不会改变命令行颜色；`tmt config show` 显示命令行的主题及其文件。用 `tmt ops sq theme` 选择看板主题：
 
 <Cmd>{`
-$ tmt sq theme                            # 列出主题；● 标出当前主题及其来源
-$ tmt sq theme set auto                   # 所有看板都匹配终端
-$ tmt sq theme set tmt-light              # 所有看板
-$ tmt sq theme set mono --squad product   # 一个 squad 的看板
-$ tmt sq theme rm --squad product         # 重新跟随看板设置；保留颜色微调
+$ tmt ops sq theme                        # 列出主题；● 标出当前主题及其来源
+$ tmt ops sq theme set auto               # 所有看板都匹配终端
+$ tmt ops sq theme set tmt-light          # 所有看板
+$ tmt ops sq theme set mono --squad product   # 一个 squad 的看板
+$ tmt ops sq theme rm --squad product     # 重新跟随看板设置；保留颜色微调
 `}</Cmd>
 
-也可在 `,` 设置中选择 **Theme**：↑ 和 ↓ 实时预览主题，**Tab** 在所有看板与当前 squad 之间切换，**Enter** 保存，**Esc** 取消。两种方式都会将选择写入 `squad.toml`：所有看板使用 `[board.theme]`，单个 squad 使用 `[squad.<name>.theme]`，文件其他内容保持不变。squad 自己的主题优先于看板主题，看板主题又优先于命令行主题。每一层都可以用与 `config.json` 相同的键覆盖单个 token。
+也可在 `,` 设置中选择 **Theme**：↑ 和 ↓ 实时预览主题，**Tab** 在所有看板与当前 squad 之间切换，**Enter** 保存，**Esc** 取消。两种方式都会将选择写入 `ops.toml`：所有看板使用 `[board.theme]`，单个 squad 使用 `[squad.<name>.theme]`，文件其他内容保持不变。squad 自己的主题优先于看板主题，看板主题又优先于命令行主题。每一层都可以用与 `config.json` 相同的键覆盖单个 token。
 
-**auto** 在每次打开看板时匹配终端。它读取许多终端会设置的 `COLORFGBG` 变量；没有该变量时，看板会向终端查询背景色。浅色背景使用 **tmt-light**，深色背景使用 **tmt**，终端不回答时也使用 **tmt**。查询最多持续十分之一秒，这期间按下的键会被丢弃。列出主题时不会查询：`tmt sq theme` 将 `auto` 显示为 `matches the terminal when the board opens`；如果 `COLORFGBG` 已提供信息，则显示 `auto (tmt-light)` 或 `auto (tmt)`。按名称选择的主题始终优先于 `auto`。
+**auto** 在每次打开看板时匹配终端。它读取许多终端会设置的 `COLORFGBG` 变量；没有该变量时，看板会向终端查询背景色。浅色背景使用 **tmt-light**，深色背景使用 **tmt**，终端不回答时也使用 **tmt**。查询最多持续十分之一秒，这期间按下的键会被丢弃。列出主题时不会查询：`tmt ops sq theme` 将 `auto` 显示为 `matches the terminal when the board opens`；如果 `COLORFGBG` 已提供信息，则显示 `auto (tmt-light)` 或 `auto (tmt)`。按名称选择的主题始终优先于 `auto`。
 
-`auto` 可用于 `squad.toml` 的两个层级，也会排在选择器的第一项。只有 `config.json` 不接受它：在那里设置 `"base": "auto"` 时，`tmt config show` 会输出 `error: theme.base auto only works for the board, not in config.json`，并提示 `tmt sq theme set auto`，看板则忽略该设置。
+`auto` 可用于 `ops.toml` 的两个层级，也会排在选择器的第一项。只有 `config.json` 不接受它：在那里设置 `"base": "auto"` 时，`tmt config show` 会输出 `error: theme.base auto only works for the board, not in config.json`，并提示 `tmt ops sq theme set auto`，看板则忽略该设置。
 
 行状态和标签页标记也使用这些 token：`blocked = { color = "blocked" }`。旧名称 `red`、`amber`、`green`、`blue`、`cyan` 和 `magenta` 仍然可用。命令行主题有误时，看板会忽略它，并在摘要行说明。
 
 <Mdx.h3 id="skills-for-your-lead">供 lead 使用的技能</Mdx.h3>
 
-Squad 自带供 lead agent 使用的技能。它教 lead 读取看板、在每次分派和回复后更新看板，并找到你的设置。规则不清楚时，lead 会**询问你**，不会猜测。这包括使用哪些状态、什么情况算是在等你，以及如何启动成员。它会将约定记入笔记，或提出配置修改建议供你应用；不会自行编辑你的设置。
+Ops 自带供 lead agent 使用的技能。它教 lead 读取看板、在每次分派和回复后更新看板，并找到你的设置。规则不清楚时，lead 会**询问你**，不会猜测。这包括使用哪些状态、什么情况算是在等你，以及如何启动成员。它会将约定记入笔记，或提出配置修改建议供你应用；不会自行编辑你的设置。
 
-`tmt extension install squad` 会为你使用的 agent 提供这个技能，并先询问。
+`tmt extension install ops` 会为你使用的 agent 提供这个技能，并先询问。
 
-可选的 **playbook** 是示例技能，说明 lead 如何在你的 host 上安排团队。目前有一个 `tmux-squad`（一个 leads 会话和一个 crew 会话，每个成员一个窗口和 worktree）。Squad 不会运行它。用 `tmt sq playbook show tmux-squad` 阅读后，你可以安装、修改或忽略它。
+可选的 **playbook** 是示例技能，说明 lead 如何在你的 host 上安排团队。目前有一个 `tmux-squad`（一个 leads 会话和一个 crew 会话，每个成员一个窗口和 worktree）。Ops 不会运行它。用 `tmt ops playbook show tmux-squad` 阅读后，你可以安装、修改或忽略它。
 
 <Mdx.h3 id="observed-age">已观察到的未变时长</Mdx.h3>
 
-Squad 可以显示它观察到成员任务、状态和 lead 笔记保持不变的时长。**team** 默认开启，其他布局默认关闭；可以为每个 squad 设置，阈值从一分钟到 24 小时。开启后，`tmt sq ls` 会为长时间未变的行和笔记标注时长，看板会淡化这些行、在行末显示时长，并在笔记窗格标题上显示笔记的时长。计时从 Squad 首次看到内容开始，因此无法知道此前工作已停留多久；只要内容未变，编辑配置或关闭后重新开启设置都会保留计时。
+Ops 可以显示它观察到成员任务、状态和 lead 笔记保持不变的时长。**team** 默认开启，其他布局默认关闭；可以为每个 squad 设置，阈值从一分钟到 24 小时。开启后，`tmt ops sq ls` 会为长时间未变的行和笔记标注时长，看板会淡化这些行、在行末显示时长，并在笔记窗格标题上显示笔记的时长。计时从 Ops 首次看到内容开始，因此无法知道此前工作已停留多久；只要内容未变，编辑配置或关闭后重新开启设置都会保留计时。
 
 <Code>{`
 [squad.product.reminders]
@@ -435,13 +435,13 @@ enabled = true
 stale_after = "30m"
 `}</Code>
 
-启用 Squad 的 extension 钩子（`tmt extension hooks enable squad`），并通过 `tmt setup` 安装提供方钩子后，Squad 可以在 lead 的下一轮中添加一行简短的信息提示，也包括会话启动时。它会指出长时间未更新的笔记，或期间出现过相关活动但内容仍未更新的成员行。运行 `tmt sq ls` 或打开看板即可开始观察；尚未观察到内容时，不会提示。[Squad 技能](https://github.com/pj-tmt/tmt/blob/main/extensions/tmt-squad/skills/tmt-squad/SKILL.md#optional-observed-age) 列出了限制。
+启用 Ops 的 extension 钩子（`tmt extension hooks enable ops`），并通过 `tmt setup` 安装提供方钩子后，Ops 可以在 lead 的下一轮中添加一行简短的信息提示，也包括会话启动时。它会指出长时间未更新的笔记，或期间出现过相关活动但内容仍未更新的成员行。运行 `tmt ops sq ls` 或打开看板即可开始观察；尚未观察到内容时，不会提示。[Ops 技能](https://github.com/pj-tmt/tmt/blob/main/extensions/tmt-ops/skills/tmt-ops/SKILL.md#optional-observed-age) 列出了限制。
 
 开启这些设置不会安装任何提供方钩子。看板中的提醒设置仍为 <Tag kind="planned" />。
 
 <Mdx.h3 id="where-state-lives">状态存在哪里</Mdx.h3>
 
-Squad 将成员名单和看板字段保存在 tmt 中，可选的观察时长保存在可丢弃的本地缓存里。一个 squad 就是名为 `squad-<name>` 的 tmt 会议房间。每个成员的状态、任务和链接保存在它的 tmt identity 上。为单项工作启动的成员在窗格关闭后离开看板。需要你决定的事项会进入你的收件箱，你可以从看板或命令行回答。
+Ops 将成员名单和看板字段保存在 tmt 中，可选的观察时长保存在可丢弃的本地缓存里。一个 squad 就是名为 `squad-<name>` 的 tmt 会议房间。每个成员的状态、任务和链接保存在它的 tmt identity 上。为单项工作启动的成员在窗格关闭后离开看板。需要你决定的事项会进入你的收件箱，你可以从看板或命令行回答。
 
 <Mdx.h3 id="jumping-between-members">在成员之间跳转</Mdx.h3>
 
@@ -462,9 +462,9 @@ Squad 将成员名单和看板字段保存在 tmt 中，可选的观察时长保
 
 <Caption>在 tmux 中演示。输出仅作示意。</Caption>
 
-在 tmux 中，`prefix S` 将看板打开为弹出窗口，跳转后会关闭；`prefix B` 则将其保留为窗格。`tmt sq hotkeys install` 会准确显示将向 tmux 配置添加的内容，并先询问；`--print` 只显示内容，`tmt sq hotkeys rm` 则移除它。你可以选择其他按键：在 squad.toml 的 `[tmux]` 下设置 `popup = "…"` 和 `pane = "…"`。
+在 tmux 中，`prefix S` 将看板打开为弹出窗口，跳转后会关闭；`prefix B` 则将其保留为窗格。`tmt ops hotkeys install` 会准确显示将向 tmux 配置添加的内容，并先询问；`--print` 只显示内容，`tmt ops hotkeys rm` 则移除它。你可以选择其他按键：在 ops.toml 的 `[tmux]` 下设置 `popup = "…"` 和 `pane = "…"`。
 
-不打开看板也能到达 lead：`tmt sq jump --lead` 跳到当前 squad 的 lead（也可用 `--squad <name>` 指定），`tmt sq back` 返回。在 `[tmux]` 下添加 `lead = "J"` 并重新安装快捷键后，`prefix J` 就能从任意成员窗格完成同样的跳转。
+不打开看板也能到达 lead：`tmt ops sq jump --lead` 跳到当前 squad 的 lead（也可用 `--squad <name>` 指定），`tmt ops sq back` 返回。在 `[tmux]` 下添加 `lead = "J"` 并重新安装快捷键后，`prefix J` 就能从任意成员窗格完成同样的跳转。
 
 | Host     | 跳转和返回                     | 看板打开位置           |
 | -------- | ------------------------------ | ---------------------- |
@@ -474,24 +474,24 @@ Squad 将成员名单和看板字段保存在 tmt 中，可选的观察时长保
 
 <More summary="更多命令">
 <Cmd>{`
-$ tmt sq add auth-fix docs-sweep      # 已经运行的 agent，无论以何种方式启动
-$ tmt sq set auth-fix state=review    # lead 用它更新看板；field= 留空可清除
-$ tmt sq ls                           # 成员列表；脚本可用 --json
+$ tmt ops sq add auth-fix docs-sweep  # 已经运行的 agent，无论以何种方式启动
+$ tmt ops sq set auth-fix state=review    # lead 用它更新看板；field= 留空可清除
+$ tmt ops sq ls                       # 成员列表；脚本可用 --json
 $ tmt talk auth-fix "…" --detach      # the composer's talk mode, from the command line
 $ tmt answer auth-fix "use postgres"  # the composer's answer mode, from the command line
-$ tmt sq annotate auth-fix "split this job"   # the composer's note mode, from the command line
-$ tmt sq jump auth-fix                # 然后可用 tmt sq back 返回
-$ tmt sq jump --lead                  # 当前 squad 的 lead
-$ tmt sq rm auth-fix                  # 离开 squad；agent 继续运行
+$ tmt ops sq annotate auth-fix "split this job"   # the composer's note mode, from the command line
+$ tmt ops sq jump auth-fix            # 然后可用 tmt ops sq back 返回
+$ tmt ops sq jump --lead              # 当前 squad 的 lead
+$ tmt ops sq rm auth-fix              # 离开 squad；agent 继续运行
 `}</Cmd>
 
-`tmt sq` 是 `tmt squad` 的简写。`tmt sq ls` 列出所有 squad，除非用 `--squad <name>` 选择一个。存在多个 squad 时，修改 squad 的命令必须带 `--squad <name>`。
+`tmt ops sq` 是 `tmt ops squad` 的简写。`tmt ops sq ls` 列出所有 squad，除非用 `--squad <name>` 选择一个。存在多个 squad 时，修改 squad 的命令必须带 `--squad <name>`。
 
 </More>
 
 <Mdx.h3 id="reference-tabs-refresh-and-bindings">参考：标签页、刷新和绑定</Mdx.h3>
 
-完整配置约定见 Squad 技能，可用 `tmt sq skill show` 输出，也可在[仓库中](https://github.com/pj-tmt/tmt/blob/main/extensions/tmt-squad/skills/tmt-squad/SKILL.md)阅读。下面是最常用的设置。
+完整配置约定见 Ops 技能，可用 `tmt ops skill show` 输出，也可在[仓库中](https://github.com/pj-tmt/tmt/blob/main/extensions/tmt-ops/skills/tmt-ops/SKILL.md)阅读。下面是最常用的设置。
 
 **标签页。** 除 `order` 和 `hide` 外，`pin` 和 `colors` 也会影响标签行：
 
@@ -506,7 +506,7 @@ blocked = "blocked" # and of one with a blocked member
 
 固定的标签页在标签行滚动时保持原位，其他标签页不能移到它前面。固定项如果隐藏或不存在，就会跳过。颜色可为 `default` 或主题 token。`squad:<name>` 用来指定与内置标签页同名的 squad，例如名为 `all` 的 squad。按名称或通过切换器打开隐藏 squad 时，它会出现在标签行最前面，并标记为 `(hidden)`。
 
-用 `tmt sq ls --tab leads` 或 `tmt sq ls --tab all` 获取相同的文本行，加上 `--json` 可获取完整标签页文档。隐藏的 squad 仍然包含在内。`--tab` 不能与 `--squad` 或 `--refresh-fields` 一起使用。
+用 `tmt ops sq ls --tab leads` 或 `tmt ops sq ls --tab all` 获取相同的文本行，加上 `--json` 可获取完整标签页文档。隐藏的 squad 仍然包含在内。`--tab` 不能与 `--squad` 或 `--refresh-fields` 一起使用。
 
 **刷新。** 看板按间隔重新加载，默认每 5 秒一次。你可以在 `[board]` 下为所有看板设置 `refresh`，或在 `[squad.<name>.board]` 下为单个 squad 设置。使用 `"1s"` 到 `"60m"` 之间的整秒或整分钟，也可用 `"off"`，只在按 **ctrl-r** 和看板自身操作时重新加载。
 

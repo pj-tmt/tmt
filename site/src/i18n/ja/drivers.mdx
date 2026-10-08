@@ -1,6 +1,6 @@
 ---
 source: site/src/chapters/drivers.mdx
-sourceRevision: 58ca656bb374eede2d12b69d3b2abb68d71d016c
+sourceRevision: 1c05410c1cac2ca4103b2382c3fc531e05719622
 title: driver
 ---
 
@@ -50,7 +50,7 @@ tmt を更新しても、新しい driver が追加の権限を求めない限�
 - **コンテキストのサイズ**は `resume.usage` に記録されます。`tokens` は次のリクエストで再送する量、`windowTokens` はプロバイダーが示すコンテキストウィンドウです（Codex は示しますが、Claude Code は示しません）。
 - **消費量**は `resume.consumption` に記録されます。完了したリクエストのトークン数です。`inputTokens` はキャッシュ済みの入力を含み、`outputTokens` は推論を含む出力です。合計は入力と出力の和です。
 
-どちらも `tmt ls --json` と `tmt identity show --json` に表示されます。[Squad](/extensions/squad) の列にコンテキストのサイズを表示することもできます。保存するのはトークン数だけで、会話は保存しません。この hook によって、ターン終了時に `session.activity` を idle に戻すこともできます。hook がなければ、tmt は応答がないことから idle を推測しません。`tmt setup --no-usage` はこの hook だけを削除します。
+どちらも `tmt ls --json` と `tmt identity show --json` に表示されます。[Ops](/extensions/squad) の列にコンテキストのサイズを表示することもできます。保存するのはトークン数だけで、会話は保存しません。この hook によって、ターン終了時に `session.activity` を idle に戻すこともできます。hook がなければ、tmt は応答がないことから idle を推測しません。`tmt setup --no-usage` はこの hook だけを削除します。
 
 数値は費用ではなく、トークン数として読みます。進行中のストリーミングではなく、完了したリクエストを示し、1 ターン遅れることもあります。各カウンターは最初の読み取りから始まり、それ以前の履歴は数えません。カウンターがない場合は取得不能を意味し、ゼロではありません。使用ペースを計算するツールは、最初の読み取り、`epoch` の変更、`gap` が true の場合、またはカウンターが減った場合に、新しい基準値から計算する必要があります。
 

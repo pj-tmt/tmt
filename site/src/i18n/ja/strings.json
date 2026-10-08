@@ -25,7 +25,7 @@
       "drv-claude": "driver / Claude Code",
       "drv-codex": "driver / Codex",
       "extensions": "拡張機能",
-      "squad": "拡張機能 / Squad",
+      "squad": "拡張機能 / Ops",
       "colab": "拡張機能 / Colab",
       "meet": "拡張機能 / Meet",
       "remote": "拡張機能 / Remote",
@@ -95,7 +95,7 @@
         "squad": {
           "eyebrow": "squad",
           "title": "各マークの意味は*1 つ*です。",
-          "text": "Squad 拡張機能は、普段使っているターミナルの 1 つの board に lead とメンバーを表示します。"
+          "text": "Ops 拡張機能は、普段使っているターミナルの 1 つの board に lead とメンバーを表示します。"
         },
         "colab": {
           "eyebrow": "colab",
@@ -240,7 +240,7 @@
       },
       {
         "hint": "チーム全体を 1 つの画面に",
-        "caption": "agent が増えたら、`tmt sq board` でチーム全体を 1 つの画面に表示できます。誰が作業中で、誰があなたを待ち、誰の作業が止まっているかを確認できます。Squad 拡張機能に含まれています。同じ agent に、ウィンドウをもう 1 つ追加するだけです。"
+        "caption": "agent が増えたら、`tmt ops ui` でチーム全体を 1 つの画面に表示できます。誰が作業中で、誰があなたを待ち、誰の作業が止まっているかを確認できます。Ops 拡張機能に含まれています。同じ agent に、ウィンドウをもう 1 つ追加するだけです。"
       },
       {
         "hint": "1 つの共有ページ",

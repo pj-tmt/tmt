@@ -1,6 +1,6 @@
 ---
 source: site/src/chapters/design.mdx
-sourceRevision: 962e2bd12fcd3a3e827acacdc076b2dbc7082c24
+sourceRevision: 59fece53c9538c367373921a2a9a0b2b6611343c
 title: 各处保持一致的外观
 ---
 
@@ -10,7 +10,7 @@ import { Cmd } from "../../components/Cmd";
 import { Tag } from "../../components/marks";
 import { MarkList, TokenPreview, TokenTable, TypePreview } from "../../components/samples";
 
-无论在命令行、Squad 看板还是本站，tmt 都保持一致的外观。本页是它们共同遵循的指南。所有值都来自同一个文件：[`design/tokens/tokens.json`](https://github.com/pj-tmt/tmt/blob/main/design/tokens/tokens.json)。网站样式表和本页所有表格都读取这个文件，没有手工复制的值。
+无论在命令行、Ops 看板还是本站，tmt 都保持一致的外观。本页是它们共同遵循的指南。所有值都来自同一个文件：[`design/tokens/tokens.json`](https://github.com/pj-tmt/tmt/blob/main/design/tokens/tokens.json)。网站样式表和本页所有表格都读取这个文件，没有手工复制的值。
 
 <Mdx.h3 id="interactive-design-guidebook-mdx">MDX 交互式设计指南</Mdx.h3>
 
@@ -51,7 +51,7 @@ import { MarkList, TokenPreview, TokenTable, TypePreview } from "../../component
 
 标题使用展示字体，正文使用正文字体。读者输入的内容和终端输出都使用等宽字体。命令始终按实际输入的形式显示，带有 `$` 提示符和暗显的 `# 注释`：
 
-<Cmd>{`$ tmt sq board --squad product   # 读者可以复制的命令`}</Cmd>
+<Cmd>{`$ tmt ops ui --squad product   # 读者可以复制的命令`}</Cmd>
 
 <Mdx.h3 id="marks">符号</Mdx.h3>
 
