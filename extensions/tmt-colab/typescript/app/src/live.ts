@@ -323,7 +323,12 @@ export class Live implements PageBinding {
             asks,
             threads,
             threadPresentations: threads.map((thread) =>
-              projectThreadPresentation(thread, asks, this.#statusSeen()),
+              projectThreadPresentation(
+                thread,
+                asks,
+                this.#statusSeen(),
+                admission.ownerDevice(this.registration.deviceId),
+              ),
             ),
             askUnavailable: this.#projection.askUnavailable ?? false,
           };
@@ -507,7 +512,12 @@ export class Live implements PageBinding {
     this.#projection = {
       ...this.#projection,
       threadPresentations: threads.map((thread) =>
-        projectThreadPresentation(thread, this.#projection.asks ?? [], seen),
+        projectThreadPresentation(
+          thread,
+          this.#projection.asks ?? [],
+          seen,
+          this.#connection?.admission.ownerDevice(this.registration.deviceId) ?? false,
+        ),
       ),
     };
     this.#listeners.forEach((listener) => listener.publish(structuredClone(this.#projection)));

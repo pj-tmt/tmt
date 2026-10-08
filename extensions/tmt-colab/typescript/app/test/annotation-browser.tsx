@@ -228,24 +228,20 @@ export function mountWindow(mode = 'ready') {
           // Status goes through onStatusChange; the thread binding must never see it.
           updateThread: unused,
         }}
-        status={projectThreadStatus(current)}
-        onStatusChange={
-          mode === 'readonly'
-            ? undefined
-            : async (resolved) => {
-                statusCalls++;
-                await new Promise<void>((resolve, reject) => {
-                  finishStatus = (failed) => {
-                    if (failed) reject(new Error('Unavailable'));
-                    else {
-                      setCurrent((previous) => ({ ...previous, resolved }));
-                      resolve();
-                    }
-                  };
-                });
-                return { changed: true };
+        status={projectThreadStatus(current, undefined, mode !== 'readonly')}
+        onStatusChange={async (resolved) => {
+          statusCalls++;
+          await new Promise<void>((resolve, reject) => {
+            finishStatus = (failed) => {
+              if (failed) reject(new Error('Unavailable'));
+              else {
+                setCurrent((previous) => ({ ...previous, resolved }));
+                resolve();
               }
-        }
+            };
+          });
+          return { changed: true };
+        }}
       />
     );
   }

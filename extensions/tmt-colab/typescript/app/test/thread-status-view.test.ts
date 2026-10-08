@@ -62,7 +62,11 @@ it('counts only open live non-Chat threads and keeps status independent of atten
   const chat = { ...open, anchor: null, ref: { ...open.ref, id: open.ref.writer } };
   const deleted = { ...open, deleted: true };
   expect(openThreadCount([resolved, open, chat, deleted])).toBe(1);
-  expect(projectThreadStatus(chat).controllable).toBe(false);
+  expect(projectThreadStatus(chat, undefined, true).controllable).toBe(false);
+  // Resolve/Reopen needs owner-member provenance on the local device, not just a live thread.
+  expect(projectThreadStatus(open, undefined, true).controllable).toBe(true);
+  expect(projectThreadStatus(open).controllable).toBe(false);
+  expect(projectThreadStatus(open, undefined, false).controllable).toBe(false);
   const unavailable = {
     getItem: () => {
       throw new Error('unavailable');

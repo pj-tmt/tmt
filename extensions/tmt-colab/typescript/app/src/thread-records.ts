@@ -156,6 +156,9 @@ export function readThreads(
   const statuses: Omit<ThreadStatusView, 'depth'>[] = [];
   const notifications: ThreadNotificationRecord[] = [];
   for (const [writer, roots] of Object.entries(own)) {
+    // A signing key exists only for a writer admitted with owner-member provenance
+    // (Admission.readAuthor), the browser's form of the native `status_writers`
+    // rule. Status actions, like every record here, count only from such writers.
     if (!signingKey(writer)) continue;
     const groups = new Map<string, (ThreadRecord | CommentRecord)[]>();
     for (const root of ['threads', 'messages'] as const) {

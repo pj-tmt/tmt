@@ -63,3 +63,17 @@ test('an agent resolution stays unseen until the person opens the thread', async
   expect(await run(page, 'seenProof')).toBe(1);
   await expect(page.getByTestId('comment-thread')).toHaveAttribute('data-anchor', 'resolved');
 });
+
+test('a device without owner-member provenance gets no Resolve or Reopen control', async ({
+  page,
+}) => {
+  const { row } = await open(page);
+  await run(page, 'nonOwnerDevice');
+  await row.click();
+  const thread = page.getByTestId('comment-thread');
+  await expect(thread.getByRole('button', { name: 'Close thread', exact: true })).toBeVisible();
+  await expect(thread.getByRole('button', { name: 'Resolve', exact: true })).toHaveCount(0);
+  await run(page, 'agentResolves');
+  await expect(thread.getByRole('button', { name: 'Reopen', exact: true })).toHaveCount(0);
+  expect(await statusActions(page)).toEqual([]);
+});

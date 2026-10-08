@@ -271,13 +271,13 @@ test('the shared window awaits one admitted status action without replacing its 
   await expect(input).toHaveText('Unsent draft continues', { useInnerText: true });
   expect(await run(page, 'windowProof')).toEqual({ statusCalls: 2, closes: 0 });
 });
-test('window status controls require the parent status seam and current admission', async ({
+test('window status controls require owner-member provenance and current admission', async ({
   page,
 }) => {
   await page.goto('/');
   await run(page, 'mountWindow', 'readonly');
   await expect(page.getByRole('button', { name: 'Resolve', exact: true })).toHaveCount(0);
-  // Status is not writer-owned: another device's thread is controllable through the seam.
+  // Status is not writer-owned: an owner device controls another device's thread.
   await run(page, 'mountWindow', 'other-writer');
   await expect(page.getByRole('button', { name: 'Resolve', exact: true })).toBeEnabled();
   await run(page, 'mountWindow', 'blocked');

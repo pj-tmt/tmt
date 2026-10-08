@@ -75,8 +75,10 @@ owns record fields, limits, revision semantics and trust boundaries.
   keeps drafts and recipients by thread across collapse and explicit Comments
   access. Resolve/Reopen is the parent's `onStatusChange` seam over
   `ThreadStatusCoordinator`, not a thread edit: the window receives the thread's
-  `ThreadPresentation.status` and awaits one status change (any admitted device
-  may change it), collapses the anchored layout only after a resolve that left
+  `ThreadPresentation.status` and awaits one status change (shown only when
+  the local device has owner-member provenance, `Admission.ownerDevice`, the
+  browser form of native `status_writers`; the fold already counts only writers
+  admitted that way), collapses the anchored layout only after a resolve that left
   nothing to tell, and lists mentions that could not become recipients as
   `Not notified`. Only the parent's trusted open paths call
   `markThreadStatusSeen`; rendering, panel opening, close and reload never do.

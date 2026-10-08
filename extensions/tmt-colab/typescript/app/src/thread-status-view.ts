@@ -47,11 +47,17 @@ export class ThreadStatusSeen {
 
 /** Shared metadata for Comments rows and the thread-window header. Copy and
  * icons remain owned by those surfaces; labels and clocks stay in parent UI. */
-export function projectThreadStatus(thread: ThreadView, seen?: ThreadStatusSeen) {
+export function projectThreadStatus(
+  thread: ThreadView,
+  seen?: ThreadStatusSeen,
+  /** The local device has owner-member provenance, as the contract requires to
+   * resolve or reopen. Cosmetic: publication re-checks current admission. */
+  ownerDevice = false,
+) {
   const status = thread.status;
   return {
     resolved: thread.resolved,
-    controllable: isStatusThread(thread),
+    controllable: ownerDevice && isStatusThread(thread),
     unseen: seen?.unseen(thread) ?? false,
     actor: status?.actor,
     actorName: status?.actor === 'agent' ? status.agentName : status?.deviceName,

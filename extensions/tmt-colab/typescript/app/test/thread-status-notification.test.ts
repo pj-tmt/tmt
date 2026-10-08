@@ -124,7 +124,7 @@ it('supplies the window one parent-owned status/outcome view without storage or 
       writes++;
     },
   });
-  const presentation = projectThreadPresentation(thread, [], seen);
+  const presentation = projectThreadPresentation(thread, [], seen, true);
   expect(Object.keys(presentation)).toEqual(['thread', 'status', 'notificationOutcomes']);
   expect(presentation.status).toMatchObject({ resolved: true, controllable: true });
   expect(presentation.notificationOutcomes).toMatchObject([
@@ -132,7 +132,7 @@ it('supplies the window one parent-owned status/outcome view without storage or 
   ]);
   expect(writes).toBe(0);
   expect(structuredClone(presentation)).toEqual(presentation);
-  expect(projectThreadPresentation(thread, [], seen)).toEqual(presentation);
+  expect(projectThreadPresentation(thread, [], seen, true)).toEqual(presentation);
   expect(writes).toBe(0);
 });
 

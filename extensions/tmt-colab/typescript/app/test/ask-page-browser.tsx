@@ -23,13 +23,14 @@ let records: PageAsk[];
 let current: PageView;
 let seen: ThreadStatusSeen | undefined;
 let seenOpens = 0;
+let ownerDevice = true;
 let hooks: { seed(): void; agentResolves(): void } | undefined;
 /** Parent-computed presentation inputs, as Live publishes them. */
 function emit() {
   current = {
     ...current,
     threadPresentations: (current.threads ?? []).map((thread) =>
-      projectThreadPresentation(thread, current.asks ?? [], seen),
+      projectThreadPresentation(thread, current.asks ?? [], seen, ownerDevice),
     ),
   };
   publish?.(current);
@@ -180,6 +181,7 @@ export async function mount() {
     },
   };
   seenOpens = 0;
+  ownerDevice = true;
   seen = new ThreadStatusSeen({ spaceId: selection().space, pageId: id(1), epoch: '1' }, id(4), {
     getItem: () => null,
     setItem: () => {},
@@ -298,6 +300,11 @@ export async function mount() {
       })}
     />,
   );
+}
+/** The local device loses owner-member provenance (a non-owner member). */
+export function nonOwnerDevice() {
+  ownerDevice = false;
+  emit();
 }
 /** An anchored thread, as if a person had just saved it. */
 export function seedThread() {

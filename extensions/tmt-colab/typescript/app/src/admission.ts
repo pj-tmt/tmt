@@ -234,6 +234,18 @@ export class Admission {
         : [],
     );
   }
+  /** Owner-member provenance: the device chain was issued by the owner member
+   * and verified at its membership revision, and the device is not revoked.
+   * Every author this browser admits has it; bridges and non-owner members are
+   * never admitted, so a status record can only come from such a device. */
+  ownerDevice(device: string): boolean {
+    try {
+      this.author(device, this.head!.revision.toString());
+      return true;
+    } catch {
+      return false;
+    }
+  }
   readAuthor(context: Context, envelopeHash: Uint8Array): Uint8Array {
     const revision = decimal(context.membershipRevision);
     const c = this.#authors.get(context.authorDevice);

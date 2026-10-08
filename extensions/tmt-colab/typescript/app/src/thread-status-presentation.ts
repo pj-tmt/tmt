@@ -10,10 +10,11 @@ export function projectThreadPresentation(
   thread: ThreadView,
   asks: readonly PageAsk[],
   seen?: ThreadStatusSeen,
+  ownerDevice = false,
 ) {
   return {
     thread: { ...thread.ref },
-    status: projectThreadStatus(thread, seen),
+    status: projectThreadStatus(thread, seen, ownerDevice),
     notificationOutcomes: projectStatusNotifications(thread, asks),
   };
 }
