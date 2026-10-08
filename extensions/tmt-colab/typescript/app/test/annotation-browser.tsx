@@ -173,8 +173,14 @@ export function mountWindow(mode = 'ready') {
   root?.unmount();
   document.getElementById('annotation-fixture')?.remove();
   document.getElementById('root')?.setAttribute('hidden', '');
-  const host = document.createElement('main');
+  const capture = mode.startsWith('capture-');
+  const host = document.createElement(capture ? 'div' : 'main');
   host.id = 'annotation-fixture';
+  if (capture) {
+    host.className = 'annotation-popover comments-panel';
+    host.style.top = '96px';
+    host.style.left = '12px';
+  }
   document.body.append(host);
   statusCalls = closes = 0;
   finishStatus = undefined;
@@ -195,9 +201,21 @@ export function mountWindow(mode = 'ready') {
     threadId: id(2),
     ref: { writer: id(4), id: id(2) },
     anchor: { exact: 'Frozen original quote', prefix: '', suffix: '' },
-    resolved: false,
+    resolved: mode === 'capture-agent' || mode === 'capture-person',
     comments: [],
   };
+  if (capture)
+    thread.comments = [
+      {
+        ...thread,
+        kind: 'comment',
+        messageId: id(3),
+        ref: { writer: id(4), id: id(3) },
+        thread: thread.ref,
+        body: 'Keep the conversation beside the selected page text.',
+        at: String(Date.now()),
+      },
+    ];
   function WindowFixture() {
     const [current, setCurrent] = useState(thread);
     const [edit, setEdit] = useState({ value: 'Unsent draft' });
@@ -209,12 +227,16 @@ export function mountWindow(mode = 'ready') {
         selection={null}
         asks={[]}
         title="Annotated page"
-        blocked={mode === 'blocked'}
+        layout={capture ? 'anchored' : 'panel'}
+        blocked={mode === 'blocked' || mode === 'capture-disabled'}
         close={() => {
           closes++;
         }}
+        initialEdit={capture ? edit : undefined}
         composer={
-          <MessageComposer label="Window draft" edit={edit} onChange={setEdit} disabled={false} />
+          capture ? undefined : (
+            <MessageComposer label="Window draft" edit={edit} onChange={setEdit} disabled={false} />
+          )
         }
         binding={{
           deviceId: mode === 'readonly' || mode === 'other-writer' ? id(7) : id(4),
@@ -228,7 +250,11 @@ export function mountWindow(mode = 'ready') {
           // Status goes through onStatusChange; the thread binding must never see it.
           updateThread: unused,
         }}
-        status={projectThreadStatus(current, undefined, mode !== 'readonly')}
+        status={{
+          ...projectThreadStatus(current, undefined, mode !== 'readonly'),
+          actor: mode === 'capture-agent' ? 'agent' : 'person',
+          actorName: mode === 'capture-agent' ? 'Release coordination assistant' : 'Browser',
+        }}
         onStatusChange={async (resolved) => {
           statusCalls++;
           await new Promise<void>((resolve, reject) => {

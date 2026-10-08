@@ -1,4 +1,5 @@
 import { Check, CircleCheck, CircleDot, RotateCcw, X } from 'lucide-react';
+import { BrowserAction, BrowserIconAction } from '@tmt/browser-ui/react';
 import { MessageComposer } from './components/message-composer.js';
 import type { ComposerEdit } from './components/message-composer-edit.js';
 import { conversationAsks } from './thread-store.js';
@@ -71,19 +72,24 @@ function Composer({
         onChange={(next) => setBody(next.value)}
       />
       <div className="comment-actions">
-        <button type="submit" disabled={busy || blocked || !body.trim()}>
-          {busy ? text.saving : label}
-        </button>
+        <BrowserAction
+          type="submit"
+          variant="primary"
+          label={label}
+          busy={busy}
+          disabled={blocked || !body.trim()}
+          onActivate={() => {}}
+        />
         {cancel && (
-          <button
+          <BrowserAction
             type="button"
-            disabled={busy}
-            onClick={(event) => {
+            variant="text"
+            label={text.commentCancel}
+            busy={busy}
+            onActivate={(event) => {
               if (event.isTrusted) cancel();
             }}
-          >
-            {text.commentCancel}
-          </button>
+          />
         )}
       </div>
       {error && <p role="alert">{text.commentFailed}</p>}
@@ -195,16 +201,23 @@ export function DiscussionComment({
                 onChange={(next) => setDraft(next.value)}
               />
               <div className="comment-actions">
-                <button disabled={busy || blocked || !draft.trim()}>{text.commentSave}</button>
-                <button
+                <BrowserAction
+                  type="submit"
+                  variant="primary"
+                  label={text.commentSave}
+                  busy={busy}
+                  disabled={blocked || !draft.trim()}
+                  onActivate={() => {}}
+                />
+                <BrowserAction
                   type="button"
-                  disabled={busy}
-                  onClick={(event) => {
+                  variant="text"
+                  label={text.commentCancel}
+                  busy={busy}
+                  onActivate={(event) => {
                     if (event.isTrusted) setEditing(false);
                   }}
-                >
-                  {text.commentCancel}
-                </button>
+                />
               </div>
             </form>
           ) : (
@@ -451,35 +464,28 @@ export function ThreadWindow({
         )}
         <span className="thread-bar-actions">
           {thread && onStatusChange && status?.controllable && !thread.deleted && (
-            <button
-              className="thread-action"
-              disabled={blocked || busy}
-              title={thread.resolved ? text.threadReopen : text.threadResolve}
-              aria-label={thread.resolved ? text.threadReopen : text.threadResolve}
-              onClick={(event) => {
+            <BrowserIconAction
+              type="button"
+              variant="text"
+              disabled={blocked}
+              busy={busy}
+              label={thread.resolved ? text.threadReopen : text.threadResolve}
+              icon={thread.resolved ? <RotateCcw /> : <Check />}
+              onActivate={(event) => {
                 if (event.isTrusted) changeStatus(!thread.resolved);
               }}
-            >
-              {thread.resolved ? <RotateCcw aria-hidden /> : <Check aria-hidden />}
-              <span className="thread-action-caption" aria-hidden={layout === 'anchored'}>
-                {thread.resolved ? text.threadReopen : text.threadResolve}
-              </span>
-            </button>
+            />
           )}
-          <button
-            className="thread-action"
-            title={thread ? text.threadClose : text.annotationClose}
-            aria-label={thread ? text.threadClose : text.annotationClose}
-            disabled={busy}
-            onClick={(event) => {
+          <BrowserIconAction
+            type="button"
+            variant="text"
+            label={thread ? text.threadClose : text.annotationClose}
+            icon={<X />}
+            busy={busy}
+            onActivate={(event) => {
               if (event.isTrusted) close();
             }}
-          >
-            <X aria-hidden />
-            <span className="thread-action-caption" aria-hidden={layout === 'anchored'}>
-              {thread ? text.threadClose : text.annotationClose}
-            </span>
-          </button>
+          />
         </span>
       </header>
       {observationUnavailable && (
@@ -506,45 +512,51 @@ export function ThreadWindow({
         {binding && thread && !thread.deleted && owned && (
           <div className="comment-actions">
             {tracked && !attached && (
-              <button
+              <BrowserAction
+                type="button"
+                variant="text"
+                label={text.commentReattach}
                 disabled={blocked || busy || !selection}
-                onClick={(event) => {
+                onActivate={(event) => {
                   if (event.isTrusted && selection) setReattach(structuredClone(selection));
                 }}
-              >
-                {text.commentReattach}
-              </button>
+              />
             )}
-            <button
-              disabled={blocked || busy}
-              onClick={(event) => {
+            <BrowserAction
+              type="button"
+              variant="text"
+              label={text.threadDelete}
+              disabled={blocked}
+              busy={busy}
+              onActivate={(event) => {
                 if (event.isTrusted) action({ deleted: true });
               }}
-            >
-              {text.threadDelete}
-            </button>
+            />
           </div>
         )}
         {reattach && thread && !thread.deleted && (
           <section className="comment-compose">
             <blockquote>{reattach.exact}</blockquote>
             <div className="comment-actions">
-              <button
-                disabled={blocked || busy}
-                onClick={(event) => {
+              <BrowserAction
+                type="button"
+                variant="text"
+                label={text.commentConfirmReattach}
+                disabled={blocked}
+                busy={busy}
+                onActivate={(event) => {
                   if (event.isTrusted) action({ anchor: reattach });
                 }}
-              >
-                {text.commentConfirmReattach}
-              </button>
-              <button
-                disabled={busy}
-                onClick={(event) => {
+              />
+              <BrowserAction
+                type="button"
+                variant="text"
+                label={text.commentCancel}
+                busy={busy}
+                onActivate={(event) => {
                   if (event.isTrusted) setReattach(null);
                 }}
-              >
-                {text.commentCancel}
-              </button>
+              />
             </div>
           </section>
         )}
@@ -626,15 +638,15 @@ export function ThreadPanel({
           <span>{threads.filter((value) => !value.deleted).length}</span>
         </header>
       )}
-      <button
-        className="comment-page-action"
+      <BrowserAction
+        type="button"
+        variant="text"
+        label={`+ ${text.commentPage}`}
         disabled={!binding || blocked || compose}
-        onClick={(event) => {
+        onActivate={(event) => {
           if (event.isTrusted) setCompose(true);
         }}
-      >
-        + {text.commentPage}
-      </button>
+      />
       {compose && binding && (
         <Composer
           label={text.commentPost}

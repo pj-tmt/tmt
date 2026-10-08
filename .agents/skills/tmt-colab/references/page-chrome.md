@@ -2,7 +2,9 @@
 
 `colab-header.tsx` and `notice-card.tsx` adapt Colab content to the private
 `@tmt/browser-ui/react` Header/Notice exports. Router chrome uses the shared Action/Toggle
-and static classes; original trusted activation events remain Colab-owned. App and reader
+and static classes; Theme and page overflow/close use `BrowserIconAction`.
+The overflow trigger supplies controlled disclosure state and its menu ID; the
+host owns menu dismissal and focus return. Original trusted activation events remain Colab-owned. App and reader
 entry points import `/static.css`. Header/card geometry, opaque square surfaces, mark plus
 visible state word and shadow-free presentation belong to that leaf; its
 [package contract](../../../../design/browser-ui/README.md) owns generation and host inputs.
@@ -72,7 +74,9 @@ mounted on first send; Close, Escape and outside press collapse without sending
 or resolving. Page-owned drafts keep the exact edit and recipient for reopening
 the known thread. Current renderer anchor positions locate marker-opened windows;
 viewport dimensions clamp their square, shadow-free surface independently of
-document height. Header/composer stay in place while messages scroll, including
+document height. Its shared icon actions retain hover/keyboard tooltips; a long
+status title truncates before the fixed right-aligned controls, and narrow headers
+place attachment metadata on a second row. Header/composer stay in place while messages scroll, including
 an associated delayed reply to an earlier turn. Unrelated live publications keep
 the reader's message-history position. This changes no renderer messages,
 subscription, publication admission or reply association. Comments remains the

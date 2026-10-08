@@ -1,5 +1,5 @@
 import type { ComposerEdit } from './components/message-composer-edit.js';
-import { BrowserAction, BrowserToggle } from '@tmt/browser-ui/react';
+import { BrowserAction, BrowserIconAction, BrowserToggle } from '@tmt/browser-ui/react';
 import { browserUiClasses as ui } from '@tmt/browser-ui/static';
 import { validPagePrefix } from './short-links.js';
 import {
@@ -337,17 +337,16 @@ function ThemeButton({ menuLabel = false }: { menuLabel?: boolean }) {
     document.documentElement.dataset.theme = dark ? 'dark' : 'light';
   }, [dark]);
   return (
-    <button
-      className={`theme ${ui.action}`}
-      data-variant="text"
-      aria-label={text.theme}
-      onClick={() => setDark(!dark)}
-    >
-      <span className="theme-symbol" aria-hidden>
-        {dark ? <Moon aria-hidden /> : <Sun aria-hidden />}
-      </span>
+    <span className="theme">
+      <BrowserIconAction
+        type="button"
+        variant="text"
+        label={text.theme}
+        icon={dark ? <Moon /> : <Sun />}
+        onActivate={() => setDark(!dark)}
+      />
       {menuLabel && <span className="theme-label">Theme: {dark ? 'dark' : 'light'}</span>}
-    </button>
+    </span>
   );
 }
 function Shell() {
@@ -509,7 +508,7 @@ function Page() {
     const escape = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         setMenu(false);
-        toolbar.current?.querySelector<HTMLButtonElement>('.page-overflow-toggle')?.focus();
+        toolbar.current?.querySelector<HTMLButtonElement>('.page-overflow-toggle button')?.focus();
       }
     };
     document.addEventListener('pointerdown', outside);
@@ -898,19 +897,22 @@ function Page() {
                       : text.blocked}
               </span>
             </span>
-            <button
-              className={`page-overflow-toggle ${ui.action}`}
-              data-variant="text"
-              aria-label="More page actions"
-              aria-expanded={menu}
-              onClick={(event) => {
-                if (event.isTrusted) setMenu(!menu);
-              }}
-            >
-              <Ellipsis aria-hidden />
-            </button>
+            <span className="page-overflow-toggle">
+              <BrowserIconAction
+                type="button"
+                variant="text"
+                label="More page actions"
+                expanded={menu}
+                controls="page-actions-menu"
+                icon={<Ellipsis />}
+                onActivate={(event) => {
+                  if (event.isTrusted) setMenu(!menu);
+                }}
+              />
+            </span>
             <div
               className="page-secondary"
+              id="page-actions-menu"
               role="group"
               aria-label="Page actions"
               onClick={(event) => {
@@ -922,14 +924,15 @@ function Page() {
                   setMenu(false);
               }}
             >
-              <button
-                className={`page-menu-close ${ui.action}`}
-                data-variant="text"
-                aria-label="Close page actions"
-                onClick={() => setMenu(false)}
-              >
-                <X aria-hidden />
-              </button>
+              <span className="page-menu-close">
+                <BrowserIconAction
+                  type="button"
+                  variant="text"
+                  label="Close page actions"
+                  icon={<X />}
+                  onActivate={() => setMenu(false)}
+                />
+              </span>
               <div className="page-menu-meta">
                 <span title={backendLabel}>{backendLabel}</span>
                 <span>{text[snapshot.sharing]}</span>

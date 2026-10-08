@@ -322,9 +322,9 @@ footer {
     padding: 4px 12px;
     background: var(--c-sheet);
     border: 1px solid var(--c-text);
-    box-shadow: 6px 6px 0 var(--c-text);
+    box-shadow: none;
   }
-  .page-secondary button,
+  .page-secondary > button,
   .page-secondary .page-information summary {
     width: 100%;
     text-align: left;
@@ -344,17 +344,18 @@ footer {
     background: transparent;
   }
   .page-secondary .page-menu-close {
-    display: block;
-    text-align: right;
-    font-size: 20px;
-    border: 0;
-    padding: 6px 0;
+    display: flex;
+    justify-content: flex-end;
+    align-self: flex-end;
   }
   .page-secondary .theme-label,
   .page-secondary .info-label {
     display: inline;
   }
   .page-secondary .theme {
+    display: flex;
+    align-items: center;
+    gap: 8px;
     margin: 0;
   }
   .tmt-ui-header .chip {
@@ -676,16 +677,6 @@ footer {
   gap: 8px;
   margin: 12px 0;
 }
-.comments-panel button:not(.tmt-ui-action) {
-  font-size: 12px;
-  padding: 5px 8px;
-  box-shadow: 2px 2px 0 var(--c-text);
-}
-.comments-panel button:not(.tmt-ui-action):disabled {
-  cursor: default;
-  opacity: 0.6;
-  box-shadow: none;
-}
 .comments-panel textarea {
   display: block;
   width: 100%;
@@ -853,8 +844,7 @@ footer {
   padding: 10px;
   font: inherit;
 }
-.annotation-compose summary,
-.comment-page-action {
+.annotation-compose summary {
   font-size: 12px;
 }
 .annotation-compose pre {
@@ -862,16 +852,6 @@ footer {
   overflow-wrap: anywhere;
   max-height: 200px;
   overflow: auto;
-}
-.comments-panel .comment-page-action {
-  border: 0;
-  background: transparent;
-  padding: 8px 0;
-  color: var(--c-text);
-  box-shadow: none;
-}
-.comments-panel .comment-page-action:hover {
-  text-decoration: underline;
 }
 .comment .ask-panel {
   padding: 0;
@@ -1011,21 +991,37 @@ footer {
   align-items: center;
   gap: 8px;
 }
+.comment-thread > .thread-bar {
+  flex-wrap: nowrap;
+  align-items: center;
+}
+.thread-bar .thread-state {
+  flex: 1;
+  min-width: 0;
+}
+.thread-state strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .thread-bar-actions {
+  flex: none;
   margin-left: auto;
 }
-.thread-action {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 4px;
-  padding: 4px;
-  border: 0;
-  background: transparent;
-  box-shadow: none;
-}
-.thread-action:hover {
-  color: var(--c-accent);
+@media (max-width: 479px) {
+  .comment-thread > .thread-bar {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+  .thread-bar > .comment-status {
+    grid-row: 2;
+    grid-column: 1 / -1;
+  }
+  .thread-bar-actions {
+    grid-column: 2;
+    grid-row: 1;
+  }
 }
 
 .comment-main > header {
@@ -1130,16 +1126,6 @@ footer {
   margin: 12px 0 8px;
   font-weight: 600;
 }
-.comment-thread[data-layout='anchored'] .thread-action {
-  position: relative;
-  margin: 0;
-  padding: 6px;
-}
-.comment-thread[data-layout='anchored'] .thread-action svg {
-  width: 16px;
-  height: 16px;
-}
-.comment-thread[data-layout='anchored'] .comment-actions button:not(.tmt-ui-action),
 .comment-thread[data-layout='anchored'] .tmt-action-menu-list {
   border-width: 1px;
   box-shadow: none;
@@ -1172,22 +1158,4 @@ footer {
 
 .home > .tmt-ui-toggle {
   margin: 0 0 16px;
-}
-
-.comment-thread[data-layout='anchored'] .thread-action-caption {
-  display: none;
-  position: absolute;
-  z-index: 1;
-  top: 100%;
-  right: 0;
-  width: max-content;
-  padding: 4px 8px;
-  border: 1px solid var(--c-rule);
-  background: var(--c-sheet);
-  color: var(--c-text);
-  font-size: 12px;
-}
-.comment-thread[data-layout='anchored'] .thread-action:hover .thread-action-caption,
-.comment-thread[data-layout='anchored'] .thread-action:focus-visible .thread-action-caption {
-  display: block;
 }
