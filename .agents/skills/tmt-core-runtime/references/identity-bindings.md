@@ -77,6 +77,13 @@ in `contracts/`.
   result; no timer, daemon, setup hook or provider settings write is needed.
   `TMT_CALLER_SESSION_DEBUG=1` opts into one stderr diagnostic naming the refusing
   layer, without paths, IDs, provider output or content.
+- A storage-only pane-locator precheck suppresses discovery without an active
+  binding. Private `caller-session-refusals.json` keeps at most 32 refusal hints
+  for 10 minutes; hits do no optional host/provider work and never extend expiry.
+  Keys include harness/session, binding, pane PID/incarnation and server locator;
+  Claude adds `CLAUDE_PID`. Missing Codex PID uses the stored pane partition.
+  Changed coordinates or expiry re-run native admission. Neither env locators
+  nor cache contents grant authority; corrupt/missing cache is a miss.
 - Claude's documented `CLAUDE_CODE_SESSION_ID` and `CLAUDE_PID` locate the main
   resumable session (including same-process subagents). The PID must equal the
   natively verified provider incarnation; nested providers are refused. No Claude

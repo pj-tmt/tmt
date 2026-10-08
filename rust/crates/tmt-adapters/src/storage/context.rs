@@ -4,7 +4,7 @@ use super::{Storage, StorageError, bindings::BindingRows, errors::classify};
 use rusqlite::{Connection, OpenFlags, OptionalExtension, params};
 use std::{path::Path, time::Duration};
 use tmt_core::{
-    binding::{BindingEntry, BindingRecords},
+    binding::{Binding, BindingEntry, BindingRecords},
     host::HostKind,
 };
 
@@ -29,6 +29,54 @@ pub struct IdentityContextSnapshot {
 }
 
 impl Storage {
+    /// Suppression-only selection: env locators and stored rows grant no
+    /// admission. Missing, retired or ambiguous pane mappings skip discovery.
+    pub fn caller_session_binding(
+        path: &Path,
+        caller: &crate::host::CallerEnvironment,
+    ) -> Result<Option<Binding>, StorageError> {
+        let locators = caller.pane_locators();
+        if locators.is_empty() {
+            return Ok(None);
+        }
+        let mut connection = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)
+            .map_err(|error| classify(error, "Open caller binding precheck read-only"))?;
+        connection
+            .busy_timeout(Duration::ZERO)
+            .map_err(|error| classify(error, "Disable caller binding precheck wait"))?;
+        let transaction = connection
+            .transaction()
+            .map_err(|error| classify(error, "Read caller binding precheck snapshot"))?;
+        super::migrations::require_current(&transaction)?;
+        let mut selected = None;
+        for (host, pane, socket) in locators {
+            let mut statement = transaction
+                .prepare(
+                    "SELECT b.identity_id FROM bindings b JOIN identities i ON i.id = b.identity_id
+                 WHERE i.retired_at_ms IS NULL AND b.transport = ?1 AND b.pane_id = ?2
+                 AND (?3 IS NULL OR b.socket_path = ?3) LIMIT 2",
+                )
+                .map_err(|error| classify(error, "Prepare caller binding precheck"))?;
+            let rows = statement
+                .query_map(params![host.as_str(), pane, socket], |row| {
+                    row.get::<_, String>(0)
+                })
+                .map_err(|error| classify(error, "Select caller binding precheck"))?;
+            for row in rows {
+                let id = row.map_err(|error| classify(error, "Decode caller binding precheck"))?;
+                if selected.as_ref().is_some_and(|previous| previous != &id) {
+                    return Ok(None);
+                }
+                selected = Some(id);
+            }
+        }
+        selected.map_or(Ok(None), |id| {
+            BindingRows(&transaction)
+                .entry_by_id(&id)
+                .map(|entry| entry.and_then(|entry| entry.binding))
+        })
+    }
+
     /// A no-effect shortcut for optional caller discovery, never binding or
     /// delivery authority. Remembered history suffices to skip rediscovery.
     pub fn remembers_provider_session(

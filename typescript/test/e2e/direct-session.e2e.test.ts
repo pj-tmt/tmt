@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import Database from 'better-sqlite3';
 import { describe, expect, it } from 'vite-plus/test';
@@ -72,7 +72,13 @@ describe('direct provider conversation discovery', { concurrent: false }, () => 
         const scenario = path.join(fixture.root, 'scenario.json');
         const report = path.join(fixture.root, 'report.json');
         const status = path.join(fixture.root, 'provider.status');
-        writeFileSync(scenario, JSON.stringify([{ args: ['config', 'show', '--json'] }]));
+        writeFileSync(
+          scenario,
+          JSON.stringify([
+            { args: ['config', 'show', '--json'] },
+            { args: ['config', 'show', '--json'] },
+          ])
+        );
         const executable =
           provider === 'claude' ? '/opt/tmt-tests/claude' : '/opt/tmt-tests/hook-runtime/codex';
         const command = [
@@ -105,9 +111,14 @@ describe('direct provider conversation discovery', { concurrent: false }, () => 
             code: number;
             stdout: string;
           }>;
-          expect(calls).toHaveLength(1);
-          expect(calls[0].code).toBe(0);
-          expect(() => JSON.parse(calls[0].stdout)).not.toThrow();
+          expect(calls).toHaveLength(2);
+          for (const call of calls) {
+            expect(call.code).toBe(0);
+            expect(() => JSON.parse(call.stdout)).not.toThrow();
+          }
+          expect(existsSync(path.join(fixture.globalDir, 'caller-session-refusals.json'))).toBe(
+            false
+          );
         }
         expect(readFileSync(diagnostic, 'utf8')).not.toContain('caller session not recorded');
         const database = new Database(path.join(fixture.globalDir, 'tmux-team.db'), {
@@ -374,10 +385,21 @@ describe('direct provider conversation discovery', { concurrent: false }, () => 
           expect(calls.every((call) => call.code === 0)).toBe(true);
           const ordinaryCalls = kind === 'hook-primary' ? calls.slice(1) : calls;
           expect(ordinaryCalls).toHaveLength(3);
+          if (!expectedSession) {
+            const cache = JSON.parse(
+              readFileSync(path.join(fixture.globalDir, 'caller-session-refusals.json'), 'utf8')
+            ) as {
+              version: number;
+              entries: Array<{ key: { harness: string; session: string }; layer: string }>;
+            };
+            expect(cache.version).toBe(1);
+            expect(cache.entries).toHaveLength(1);
+            expect(cache.entries[0].key).toMatchObject({ harness: provider, session });
+          }
           if (kind === 'unknown-header') {
-            expect(ordinaryCalls[0].stderr).toContain(
-              'caller session not recorded: provider-header-shape'
-            );
+            for (const call of ordinaryCalls) {
+              expect(call.stderr).toContain('caller session not recorded: provider-header-shape');
+            }
           } else {
             expect(
               ordinaryCalls.every((call) => !call.stderr.includes('caller session not recorded'))

@@ -1,14 +1,19 @@
 //! Optional post-output discovery; environment coordinates never grant authority.
 use crate::provider_hook_command::{Caller, SessionCommit, commit_session, verified_caller};
-use std::time::{Duration, Instant};
+use std::{
+    io::Write,
+    time::{Duration, Instant},
+};
 use tmt_adapters::{
     config::ConfigPaths,
+    host::CallerEnvironment,
     process::{
         CommandFailure, CommandRequest, CommandRunner, SupervisedProbeRunner, UnixCommandRunner,
         runtime::observe_runtime_process,
     },
     runtime::{
         RuntimeRegistry,
+        caller_refusals::{Key, Refusals},
         lifecycle::{CallerSession, HostEvidence},
     },
     skill_installation::ProviderEnvironment,
@@ -23,6 +28,32 @@ use tmt_core::{
 };
 
 const BUDGET: Duration = Duration::from_millis(500);
+const REFUSAL_LAYERS: &[&str] = &[
+    "environment",
+    "native-admission",
+    "binding",
+    "main-provider",
+    "replacement",
+    "storage",
+    "stale-commit",
+    "budget",
+    "worker",
+    "provider-configuration",
+    "provider-index-unavailable",
+    "provider-index-shape",
+    "provider-header-unavailable",
+    "provider-header-shape",
+    "provider-not-root",
+];
+
+struct Discovery<'a> {
+    database: &'a std::path::Path,
+    global_dir: &'a std::path::Path,
+    caller: &'a CallerEnvironment,
+    executable: &'a std::path::Path,
+    deadline: Instant,
+    now_ms: u64,
+}
 
 pub fn observe() {
     if let Err(layer) = observe_with(&UnixCommandRunner) {
@@ -54,30 +85,53 @@ fn observe_with(runner: &impl CommandRunner) -> Result<(), &'static str> {
     let deadline = Instant::now() + BUDGET;
     let paths = ConfigPaths::discover().map_err(|_| "storage")?;
     let executable = std::env::current_exe().map_err(|_| "worker")?;
+    let caller = CallerEnvironment::current();
     observe_candidate(
         runner,
-        &paths.database,
         harness,
         coordinates,
-        &executable,
-        deadline,
+        Discovery {
+            database: &paths.database,
+            global_dir: &paths.global_dir,
+            caller: &caller,
+            executable: &executable,
+            deadline,
+            now_ms: tmt_adapters::request_runtime::wall_time_ms(),
+        },
     )
 }
 
 fn observe_candidate(
     runner: &impl CommandRunner,
-    database: &std::path::Path,
     harness: &HarnessId,
     coordinates: &CallerSession,
-    executable: &std::path::Path,
-    deadline: Instant,
+    discovery: Discovery<'_>,
 ) -> Result<(), &'static str> {
+    let Discovery {
+        database,
+        global_dir,
+        caller,
+        executable,
+        deadline,
+        now_ms,
+    } = discovery;
     if Storage::remembers_provider_session(database, harness.as_str(), coordinates.session.as_str())
         .map_err(|_| "storage")?
     {
         // Selection is stored correlation only: a matching hint authorizes no
         // effect, so this path needs neither ps nor provider-file evidence.
         return Ok(());
+    }
+    let Some(binding) = Storage::caller_session_binding(database, caller).map_err(|_| "storage")?
+    else {
+        return Err("binding");
+    };
+    let refusals = Refusals::in_directory(global_dir);
+    let key = Key::new(harness, coordinates, &binding);
+    if let Some(layer) = refusals.lookup(&key, now_ms)
+        && let Some(layer) = REFUSAL_LAYERS.iter().copied().find(|known| *known == layer)
+    {
+        return Err(layer);
     }
     let remaining = deadline
         .saturating_duration_since(Instant::now())
@@ -100,50 +154,42 @@ fn observe_candidate(
         deadline,
         max_output_bytes: 256,
     });
-    match result {
+    let result = match result {
         Ok(_) => Ok(()),
         Err(error) => {
             // Worker output contains only a fixed diagnostic generated below;
             // never display a provider's stderr, argv, paths or session IDs.
-            let layers = [
-                "environment",
-                "native-admission",
-                "binding",
-                "main-provider",
-                "replacement",
-                "storage",
-                "stale-commit",
-                "budget",
-                "provider-configuration",
-                "provider-index-unavailable",
-                "provider-index-shape",
-                "provider-header-unavailable",
-                "provider-header-shape",
-                "provider-not-root",
-            ];
-            if let Some(output) = error.output {
-                for layer in layers {
-                    if output.stderr
-                        == format!("warning: caller session not recorded: {layer}\n").as_bytes()
-                    {
-                        return Err(layer);
-                    }
-                }
-            }
-            Err(if matches!(error.kind, CommandFailure::Timeout) {
-                "budget"
-            } else {
-                "worker"
-            })
+            let layer = error
+                .output
+                .as_ref()
+                .and_then(|output| {
+                    REFUSAL_LAYERS.iter().copied().find(|layer| {
+                        output.stderr
+                            == format!("warning: caller session not recorded: {layer}\n").as_bytes()
+                    })
+                })
+                .unwrap_or(if matches!(error.kind, CommandFailure::Timeout) {
+                    "budget"
+                } else {
+                    "worker"
+                });
+            Err(layer)
         }
+    };
+    if let Err(layer) = result {
+        refusals.remember(key, layer, now_ms);
     }
+    result
 }
 
 pub fn worker(provider: &str, budget_ms: Option<u64>) -> u8 {
     let deadline = Instant::now() + Duration::from_millis(budget_ms.unwrap_or(0)).min(BUDGET);
     let result = verified_observation(provider, deadline);
     if let Err(layer) = result {
-        debug_refusal(layer);
+        // Private supervisor evidence is always captured, never forwarded as
+        // default diagnostics. Cache hits retain the original refusing layer.
+        let mut stderr = tmt_cli_style::stream::stderr();
+        let _ = writeln!(stderr, "warning: caller session not recorded: {layer}");
         let _ = SupervisedProbeRunner::abort_worker_group();
     }
     u8::from(result.is_err())

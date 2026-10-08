@@ -36,6 +36,7 @@ impl Drop for Directory {
 struct Worker {
     calls: Cell<usize>,
     allowed: bool,
+    refusal: Option<&'static str>,
 }
 impl CommandRunner for Worker {
     fn execute(&self, request: CommandRequest<'_>) -> Result<CommandOutput, CommandError> {
@@ -44,12 +45,30 @@ impl CommandRunner for Worker {
             "unchanged coordinates must not verify native ancestry or read provider files"
         );
         self.calls.set(self.calls.get() + 1);
+        assert_eq!(request.args[0], "__hook");
+        assert!(["claude", "codex"].contains(&request.args[1].to_str().unwrap()));
         assert_eq!(
-            request.args[..4],
-            ["__hook", "claude", "--worker", "--caller-session"].map(std::ffi::OsString::from)
+            request.args[2..4],
+            ["--worker", "--caller-session"].map(std::ffi::OsString::from)
         );
         assert!(request.input.is_empty());
         assert!(request.deadline.saturating_duration_since(Instant::now()) <= BUDGET);
+        if let Some(layer) = self.refusal {
+            let args = [
+                "-c".into(),
+                format!(
+                    "printf '%s\\n' 'warning: caller session not recorded: {layer}' >&2; exit 1"
+                )
+                .into(),
+            ];
+            return UnixCommandRunner.execute(CommandRequest {
+                program: std::ffi::OsStr::new("/bin/sh"),
+                args: &args,
+                input: &[],
+                deadline: request.deadline,
+                max_output_bytes: 256,
+            });
+        }
         Ok(CommandOutput {
             stdout: vec![],
             stderr: vec![],
@@ -62,10 +81,10 @@ fn identical_coordinates_skip_all_host_and_provider_file_work_even_without_bindi
     let directory = Directory::new();
     let database = directory.0.join("state.db");
     let mut storage = Storage::open(&database).unwrap();
-    let id = create_or_resolve(&mut storage, "Direct", Lifetime::Saved)
+    let identity = create_or_resolve(&mut storage, "Direct", Lifetime::Saved)
         .unwrap()
-        .identity
-        .id;
+        .identity;
+    let id = identity.id.clone();
     let harness = HarnessId::new("claude").unwrap();
     let coordinates = CallerSession {
         session: tmt_core::binding::session::ProviderSessionId::new(
@@ -86,22 +105,32 @@ fn identical_coordinates_skip_all_host_and_provider_file_work_even_without_bindi
         })
         .unwrap();
     storage.close().unwrap();
+    let caller = caller_environment();
     let worker = Worker {
         calls: Cell::new(0),
         allowed: false,
+        refusal: None,
     };
     assert_eq!(
         observe_candidate(
             &worker,
-            &database,
             &harness,
             &coordinates,
-            std::path::Path::new("nonexistent-worker"),
-            Instant::now() + BUDGET
+            Discovery {
+                database: &database,
+                global_dir: &directory.0,
+                caller: &caller,
+                executable: std::path::Path::new("nonexistent-worker"),
+                deadline: Instant::now() + BUDGET,
+                now_ms: 100
+            }
         ),
         Ok(())
     );
     assert_eq!(worker.calls.get(), 0);
+    let mut storage = Storage::open(&database).unwrap();
+    insert_discovery_binding(&mut storage, &identity);
+    storage.close().unwrap();
     let changed = CallerSession {
         session: tmt_core::binding::session::ProviderSessionId::new("changed").unwrap(),
         ..coordinates
@@ -109,15 +138,21 @@ fn identical_coordinates_skip_all_host_and_provider_file_work_even_without_bindi
     let worker = Worker {
         calls: Cell::new(0),
         allowed: true,
+        refusal: None,
     };
     assert_eq!(
         observe_candidate(
             &worker,
-            &database,
             &harness,
             &changed,
-            std::path::Path::new("worker"),
-            Instant::now() + BUDGET
+            Discovery {
+                database: &database,
+                global_dir: &directory.0,
+                caller: &caller,
+                executable: std::path::Path::new("worker"),
+                deadline: Instant::now() + BUDGET,
+                now_ms: 100
+            }
         ),
         Ok(())
     );
@@ -125,15 +160,21 @@ fn identical_coordinates_skip_all_host_and_provider_file_work_even_without_bindi
     let worker = Worker {
         calls: Cell::new(0),
         allowed: false,
+        refusal: None,
     };
     assert_eq!(
         observe_candidate(
             &worker,
-            &database,
             &harness,
             &changed,
-            std::path::Path::new("worker"),
-            Instant::now()
+            Discovery {
+                database: &database,
+                global_dir: &directory.0,
+                caller: &caller,
+                executable: std::path::Path::new("worker"),
+                deadline: Instant::now(),
+                now_ms: 100
+            }
         ),
         Err("budget")
     );
@@ -264,6 +305,158 @@ fn caller_commit_fences_binding_and_preferences_and_preserves_driver_state() {
         } else {
             assert_eq!(after.entry, before.entry);
             assert_eq!(after.preferences, before.preferences);
+        }
+    }
+}
+
+fn caller_environment() -> CallerEnvironment {
+    CallerEnvironment {
+        tmux: Some("/tmp/test.sock,10,0".into()),
+        pane: Some("%1".into()),
+        process_id: 100,
+        driver_env: Default::default(),
+    }
+}
+
+fn insert_discovery_binding(storage: &mut Storage, identity: &tmt_core::identity::Identity) {
+    let server = tmt_core::endpoint::ServerEvidence {
+        host: tmt_core::host::HostKind::Tmux,
+        server_id: "server".into(),
+        socket_path: "/tmp/test.sock".into(),
+        server_pid: 10,
+        server_start_time: "server-start".into(),
+    };
+    let pane = tmt_core::endpoint::PaneObservation {
+        id: "%1".into(),
+        target: None,
+        cwd: None,
+        command: "sh".into(),
+        pane_pid: 11,
+        pane_incarnation: Some("pane-start".into()),
+        suggested_name: None,
+        marker: None,
+    };
+    storage
+        .with_binding_transaction::<_, StorageError>(|records| {
+            records.insert_binding(identity, &server, &pane).map(|_| ())
+        })
+        .unwrap();
+}
+
+#[test]
+fn unbound_or_missing_pane_context_never_spawns_even_on_second_call() {
+    let directory = Directory::new();
+    let database = directory.0.join("state.db");
+    let mut storage = Storage::open(&database).unwrap();
+    create_or_resolve(&mut storage, "Direct", Lifetime::Saved).unwrap();
+    storage.close().unwrap();
+    for pane in [None, Some("%1"), Some("%2")] {
+        let mut caller = caller_environment();
+        caller.pane = pane.map(Into::into);
+        let worker = Worker {
+            calls: Cell::new(0),
+            allowed: false,
+            refusal: None,
+        };
+        for _ in 0..2 {
+            assert_eq!(
+                observe_candidate(
+                    &worker,
+                    &HarnessId::new("claude").unwrap(),
+                    &CallerSession {
+                        session: tmt_core::binding::session::ProviderSessionId::new("thread")
+                            .unwrap(),
+                        runtime_pid: Some(20)
+                    },
+                    Discovery {
+                        database: &database,
+                        global_dir: &directory.0,
+                        caller: &caller,
+                        executable: std::path::Path::new("worker"),
+                        deadline: Instant::now() + BUDGET,
+                        now_ms: 100
+                    }
+                ),
+                Err("binding")
+            );
+        }
+        assert_eq!(worker.calls.get(), 0);
+        assert!(!directory.0.join("caller-session-refusals.json").exists());
+    }
+}
+
+#[test]
+fn refused_callers_skip_worker_until_ttl_or_coordinates_change() {
+    for (provider, pid) in [("claude", Some(20)), ("codex", None)] {
+        for layer in [
+            "native-admission",
+            "main-provider",
+            "provider-not-root",
+            "provider-header-shape",
+            "budget",
+        ] {
+            let directory = Directory::new();
+            let database = directory.0.join("state.db");
+            let mut storage = Storage::open(&database).unwrap();
+            let identity = create_or_resolve(&mut storage, "Direct", Lifetime::Saved)
+                .unwrap()
+                .identity;
+            insert_discovery_binding(&mut storage, &identity);
+            storage.close().unwrap();
+            let caller = caller_environment();
+            let worker = Worker {
+                calls: Cell::new(0),
+                allowed: true,
+                refusal: Some(layer),
+            };
+            let harness = HarnessId::new(provider).unwrap();
+            let coordinates = CallerSession {
+                session: tmt_core::binding::session::ProviderSessionId::new("thread").unwrap(),
+                runtime_pid: pid,
+            };
+            let attempt = |coordinates: &CallerSession, now_ms| {
+                observe_candidate(
+                    &worker,
+                    &harness,
+                    coordinates,
+                    Discovery {
+                        database: &database,
+                        global_dir: &directory.0,
+                        caller: &caller,
+                        executable: std::path::Path::new("worker"),
+                        deadline: Instant::now() + BUDGET,
+                        now_ms,
+                    },
+                )
+            };
+            assert_eq!(attempt(&coordinates, 100), Err(layer));
+            assert_eq!(worker.calls.get(), 1);
+            assert_eq!(attempt(&coordinates, 101), Err(layer));
+            assert_eq!(worker.calls.get(), 1, "second call must not spawn a worker");
+            assert_eq!(
+                attempt(
+                    &coordinates,
+                    100 + tmt_adapters::runtime::caller_refusals::TTL_MS
+                ),
+                Err(layer)
+            );
+            assert_eq!(
+                worker.calls.get(),
+                2,
+                "expiry must re-run admission without sleeps"
+            );
+            let changed = CallerSession {
+                session: tmt_core::binding::session::ProviderSessionId::new("different").unwrap(),
+                runtime_pid: pid,
+            };
+            assert_eq!(
+                attempt(
+                    &changed,
+                    100 + tmt_adapters::runtime::caller_refusals::TTL_MS
+                ),
+                Err(layer)
+            );
+            assert_eq!(worker.calls.get(), 3);
         }
     }
 }
