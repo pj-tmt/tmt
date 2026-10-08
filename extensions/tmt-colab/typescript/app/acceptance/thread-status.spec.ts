@@ -43,7 +43,7 @@ test('thread status reaches the other device and the CLI, and an agent resolutio
     const input = compose.getByRole('combobox', { name: 'Message', exact: true });
     await expect(input).toBeEnabled();
     await input.fill('Please check this passage.');
-    await compose.getByRole('button', { name: 'Post comment', exact: true }).click();
+    await compose.getByRole('button', { name: 'Send', exact: true }).click();
     const window = compose.getByTestId('comment-thread');
     await expect(window).toBeVisible();
     const threadId = (await window.getAttribute('data-thread-id'))!;
@@ -190,7 +190,7 @@ test('status states captured for the UX look', async () => {
     await input.fill('Please check @ghost-agent this passage.');
     // Escape would cancel the whole annotation unless a candidate list is open.
     if (await first.getByRole('listbox').isVisible()) await input.press('Escape');
-    await compose.getByRole('button', { name: 'Post comment', exact: true }).click();
+    await compose.getByRole('button', { name: 'Send', exact: true }).click();
     const window = compose.getByTestId('comment-thread');
     await expect(window).toBeVisible();
     const threadId = (await window.getAttribute('data-thread-id'))!;
