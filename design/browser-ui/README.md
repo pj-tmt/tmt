@@ -91,8 +91,9 @@ attributes on that same control when access changes; no remount or draft reset.
 
 Action uses an explicit native button type, retained visible label and optional
 busy mark. Keep the same optional `busyMark` supplied in ready and busy states;
-its reserved slot remains in flow while visibility changes, preserving button
-geometry without changing host padding or typography. Without a mark, both
+its leading slot remains in flow while visibility changes, with an equal trailing
+reservation that centers the label in both states and preserves button geometry
+without changing host padding or typography. Without a mark, both
 states retain label-only geometry. Disabled/busy blocks callback delivery. A supplied disabled reason
 requires its stable ID and remains visible. `onActivate` receives the original
 React MouseEvent from native button click, including keyboard-generated click;
