@@ -59,7 +59,7 @@ const providers: Provider[] = [
 const session = '55555555-5555-4555-8555-555555555555';
 const other = '66666666-6666-4666-8666-666666666666';
 
-async function runScenario(fixture: E2EFixture, provider: Provider) {
+async function runScenario(fixture: E2EFixture, provider: Provider, historyBaseline = false) {
   const home = path.join(fixture.root, `${provider.name} home`);
   const tree = path.join(home, provider.tree);
   fs.mkdirSync(tree, { recursive: true });
@@ -77,6 +77,7 @@ async function runScenario(fixture: E2EFixture, provider: Provider) {
   const scenario = path.join(fixture.root, `${provider.name}-usage.json`);
   const report = path.join(fixture.root, `${provider.name}-usage-report.json`);
   const checkpoint = path.join(fixture.root, `${provider.name}-append-ready`);
+  const historyCheckpoint = path.join(fixture.root, `${provider.name}-history-baseline`);
   fs.writeFileSync(
     scenario,
     JSON.stringify([
@@ -91,6 +92,9 @@ async function runScenario(fixture: E2EFixture, provider: Provider) {
       stop(path.join(tree, 'missing.jsonl')),
       stop(null),
       list,
+      // Missing transcript evidence clears history continuity. The C1 history
+      // cases need a new valid seed before measuring the following increment.
+      ...(historyBaseline ? [{ ...stop(transcript), checkpoint: historyCheckpoint }] : []),
       // Append after the admitted baseline, then replay the unchanged Stop.
       { ...stop(transcript), checkpoint },
       list,
@@ -115,11 +119,36 @@ async function runScenario(fixture: E2EFixture, provider: Provider) {
   const pane = fixture.createShellPane(`${provider.name}-usage`).pane;
   fixture.tmux(['send-keys', '-t', pane, '-l', command]);
   fixture.tmux(['send-keys', '-t', pane, 'Enter']);
+  const historySeed = () => {
+    const db = new Database(path.join(fixture.globalDir, 'tmux-team.db'), { readonly: true });
+    try {
+      return db
+        .prepare('SELECT latest FROM consumption_sources WHERE driver=? AND session=?')
+        .get(provider.name, session) as { latest: string | null };
+    } finally {
+      db.close();
+    }
+  };
+  if (historyBaseline) {
+    await fixture.waitFor(
+      () => fs.existsSync(historyCheckpoint),
+      15000,
+      `${provider.name} unknown history checkpoint`
+    );
+    expect(historySeed().latest, 'missing evidence invalidates the prior history seed').toBeNull();
+    fs.writeFileSync(historyCheckpoint, 'continue');
+  }
   await fixture.waitFor(
     () => fs.existsSync(checkpoint),
     15000,
     `${provider.name} append checkpoint`
   );
+  if (historyBaseline) {
+    expect(JSON.parse(historySeed().latest!).consumption).toMatchObject({
+      ...provider.consumption,
+      sequence: 1,
+    });
+  }
   fs.appendFileSync(transcript, provider.appended);
   fs.writeFileSync(checkpoint, 'continue');
   await fixture.waitFor(() => fs.existsSync(report), 15000, `${provider.name} usage report`);
@@ -531,13 +560,13 @@ describe('consumption cache-write and turn model attribution', { concurrent: fal
       };
       await withE2EFixture(
         async (fixture) => {
-          const results = await runScenario(fixture, provider);
-          expect(results).toHaveLength(15);
+          const results = await runScenario(fixture, provider, true);
+          expect(results).toHaveLength(16);
           for (const result of results) {
             expect(result.code).toBe(0);
             expect(result.stderr).toBe('');
           }
-          const updated = resumeOf(results[10].stdout);
+          const updated = resumeOf(results[11].stdout);
           expect(updated).toMatchObject({
             model: 'model-a',
             consumption: {
@@ -548,7 +577,7 @@ describe('consumption cache-write and turn model attribution', { concurrent: fal
               sequence: 2,
             },
           });
-          expect(resumeOf(results[12].stdout)?.consumption).toEqual(updated?.consumption);
+          expect(resumeOf(results[13].stdout)?.consumption).toEqual(updated?.consumption);
           const db = new Database(path.join(fixture.globalDir, 'tmux-team.db'), { readonly: true });
           try {
             const persisted = db
