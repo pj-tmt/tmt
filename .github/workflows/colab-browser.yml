@@ -45,10 +45,7 @@ jobs:
     concurrency:
       group: colab-browser-interop-${{ github.event.pull_request.number || github.ref }}
       cancel-in-progress: ${{ github.event_name == 'pull_request' }}
-    if: >-
-      github.event.action != 'labeled' && github.event.action != 'unlabeled' &&
-      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' ||
-       needs.changes.outputs.colab_harness == 'true')
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || needs.changes.outputs.colab_harness == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
@@ -139,7 +136,6 @@ jobs:
     permissions:
       contents: read
     env:
-      CARGO_BUILD_JOBS: 2
       CARGO_PROFILE_DEV_DEBUG: 0
       CARGO_INCREMENTAL: 0
       TMT_COLAB_APP_DIR: ${{ github.workspace }}/extensions/tmt-colab/typescript/app/dist
@@ -159,7 +155,7 @@ jobs:
           echo "PLAYWRIGHT_JSON_OUTPUT_FILE=$RUNNER_TEMP/colab-acceptance-private/results.json" >> "$GITHUB_ENV"
       - name: Install frozen app tooling
         working-directory: typescript
-        run: pnpm --filter @tmt/colab-app --fail-if-no-match install --frozen-lockfile --ignore-scripts
+        run: pnpm --filter @tmt/colab-app... --fail-if-no-match install --frozen-lockfile --ignore-scripts
       - name: Install Chromium and Linux dependencies
         working-directory: typescript
         run: pnpm --filter @tmt/colab-app exec playwright install --with-deps chromium
@@ -175,7 +171,7 @@ jobs:
           shared-key: native-rust
           save-if: false
       - name: Build all three real executables once
-        run: cargo build --locked --manifest-path rust/Cargo.toml -p tmt-cli -p tmt-remote -p tmt-colab --bins
+        run: cargo build --locked --manifest-path rust/Cargo.toml -j 2 -p tmt-cli -p tmt-remote -p tmt-colab --bins
       - name: Record the tested source and exact build hashes
         shell: bash
         run: |

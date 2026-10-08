@@ -2399,15 +2399,16 @@ describe('required CI gate', () => {
     };
     for (const name of ['changes', 'colab-browser']) {
       const body = job(name);
-      expect(body).toContain(
-        "github.event.action != 'labeled' && github.event.action != 'unlabeled'"
-      );
       expect(body).toMatch(/^ {4}concurrency:\n {6}group: colab-browser-/m);
       expect(body).toContain("cancel-in-progress: ${{ github.event_name == 'pull_request' }}");
     }
+    expect(job('changes')).toContain(
+      "github.event.action != 'labeled' && github.event.action != 'unlabeled'"
+    );
+    expect(job('colab-browser')).toContain('needs: changes');
     expect(workflow).toContain('ci-scope.mjs "$BASE_SHA" "$HEAD_SHA" >> "$GITHUB_OUTPUT"');
     expect(workflow).toContain(
-      "(github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' ||\n       needs.changes.outputs.colab_harness == 'true')"
+      "if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || needs.changes.outputs.colab_harness == 'true'"
     );
     expect(workflow).toContain('playwright install --with-deps chromium firefox webkit');
     expect(workflow).toContain('test:browser --engines chromium 2>&1 | tee');
@@ -2444,7 +2445,11 @@ describe('required CI gate', () => {
     expect(acceptance).toContain('runs-on: ubuntu-24.04');
     expect(acceptance).toContain('timeout-minutes: 30');
     expect(acceptance).toContain('permissions:\n      contents: read');
-    expect(acceptance).toContain('CARGO_BUILD_JOBS: 2');
+    expect(acceptance).not.toContain('CARGO_BUILD_JOBS:');
+    expect(acceptance).toContain('cargo build --locked --manifest-path rust/Cargo.toml -j 2');
+    expect(acceptance).toContain(
+      'pnpm --filter @tmt/colab-app... --fail-if-no-match install --frozen-lockfile --ignore-scripts'
+    );
     expect(acceptance).toContain(
       'uses: ./.github/actions/apt-install\n        with:\n          packages: tmux'
     );
