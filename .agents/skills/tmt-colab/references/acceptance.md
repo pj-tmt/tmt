@@ -136,6 +136,11 @@ writers' comments, the accepted Ask and the stored reply.
 sessions of one device can coexist, while session eviction at the configured
 limit ends only the evicted tab's transports and reports the active limit.
 
+`idle-tab.spec.ts` (#2170) leaves one live tab idle for 150 s, past the door's 120 s tunnel
+limit, and counts the page's `/sync` sockets: none may close or reopen, because the server pings
+every 30 s. It takes about 2.5 minutes, so run it only for changes to the sync keepalive, the
+tunnel limits or the live reconnect path.
+
 `chat.spec.ts` (#1645) covers one null-anchor thread per asking device, two paired
 viewers, page-visible history, Comments exclusion, exact follow-up context, retained
 drafts, current-app-dir native CSP privacy and 1440/390 light/dark captures. Its
