@@ -36,7 +36,6 @@ test('a directory read Remote refused keeps the generic line and shows its code 
   await expect(status.locator('[data-failure-reference]')).toHaveCount(0);
 });
 
-
 test('the shared window awaits one admitted status action without replacing its draft or quote', async ({
   page,
 }) => {

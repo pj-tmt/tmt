@@ -97,7 +97,6 @@ sentence of its own; one cause is a full per-device request journal (1000 owned 
 which reads such as `agents.list` also consume, #2170), cleared as entries expire and prevented
 by the sync keepalive that stops idle tabs from reconnecting.
 
-
 Candidate geometry is input-only in the shared Listbox: it uses viewport bounds and
 the native popover layer, remaining inside the current modal dialog's ownership.
 Management pickers retain their button policy. No native asset allowlist, embedding

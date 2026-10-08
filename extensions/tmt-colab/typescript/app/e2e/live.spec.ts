@@ -1741,7 +1741,7 @@ test('an upgraded server shows the update row under the header without covering 
     await expect(dialog).toBeVisible();
     if (width === 1440)
       expect((await dialog.boundingBox())!.y).toBeGreaterThanOrEqual(rowBox.y + rowBox.height - 1);
-    await expectUncovered(dialog.getByRole('button', { name: 'Ask agent', exact: true }));
+    await expectUncovered(dialog.getByRole('button', { name: 'Send', exact: true }));
     for (const theme of ['light', 'dark']) {
       await page.evaluate((value) => (document.documentElement.dataset.theme = value), theme);
       await page.screenshot({ path: testInfo.outputPath(`update-annotate-${theme}-${width}.png`) });

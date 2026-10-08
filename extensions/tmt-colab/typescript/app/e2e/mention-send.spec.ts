@@ -402,3 +402,22 @@ test('unknown adoption shows per-recipient uncertainty without claiming Not deli
     sends: [],
   });
 });
+
+test('a new Chat Send clears local failures from the prior message', async ({ page }) => {
+  const input = await mount(page, { surface: 'chat', mode: 'partial-preparation' });
+  await input.fill('@alpha First question.');
+  await input.press('Enter');
+  await expect(page.getByTestId('recipient-failure')).toContainText('@alpha · Not delivered');
+  expect(await run(page, 'proof')).toMatchObject({
+    writes: 1,
+    preparations: 1,
+    commits: 1,
+    sends: [],
+  });
+  await input.fill('@beta Next question.');
+  await input.press('Enter');
+  await expect(page.getByTestId('ask-entry')).toHaveAttribute('data-ledger-state', 'accepted');
+  await expect(page.getByTestId('recipient-failure')).toHaveCount(0);
+  expect(await run(page, 'proof')).toMatchObject({ writes: 2, preparations: 2, commits: 2 });
+  expect((await run(page, 'proof')).sends).toHaveLength(1);
+});

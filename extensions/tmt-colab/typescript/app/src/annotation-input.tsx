@@ -161,6 +161,7 @@ export function AnnotationInput({
       url: location.href,
     };
     sending.current = true;
+    setFailures([]);
     setBusy(true);
     setError(undefined);
     let origin: Awaited<ReturnType<ThreadBinding['create']>> | undefined;
@@ -271,7 +272,6 @@ export function AnnotationInput({
                 </small>
               </>
             )}
-
         </p>
         {binding && !busy && !recoveryRequired && (directory.state === 'failed' || retrying) && (
           <span data-agent-retry>
