@@ -54,7 +54,9 @@ describe('post-upgrade Remote notice', () => {
           await owner.stop();
           owner.seedGrant(paired.clientId, { mode: 'hold' });
           await owner.start();
-          const beforeStatus = expectJsonResult(await fixture.runJsonCli(['remote', 'status']));
+          const beforeStatus = expectJsonResult(
+            await fixture.runCli(['remote', 'status', '--json'])
+          );
           expect(beforeStatus).toMatchObject({ running: true });
           const session = await owner.session(device, paired);
           const operationId = randomUUID();
@@ -80,7 +82,7 @@ describe('post-upgrade Remote notice', () => {
             else expect(upgraded.stdout).toContain(restart);
             expect(upgraded.stdout.split('Remote was upgraded').length - 1).toBe(1);
             expect(expectJsonResult(await install(artifact))).not.toHaveProperty('restartHint');
-            expect(expectJsonResult(await fixture.runJsonCli(['remote', 'status']))).toEqual(
+            expect(expectJsonResult(await fixture.runCli(['remote', 'status', '--json']))).toEqual(
               beforeStatus
             );
             expect(await session.append('operation.show', { operationId })).toEqual({
@@ -109,7 +111,7 @@ describe('post-upgrade Remote notice', () => {
             'remote'
           );
           expect(expectJsonResult(await install(stopped))).not.toHaveProperty('restartHint');
-          expect(expectJsonResult(await fixture.runJsonCli(['remote', 'status']))).toEqual({
+          expect(expectJsonResult(await fixture.runCli(['remote', 'status', '--json']))).toEqual({
             running: false,
             lastPort: Number(new URL(String(beforeStatus.origin)).port),
           });
