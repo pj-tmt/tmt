@@ -165,8 +165,8 @@ test.describe('Ask agent real-binary acceptance (#1110)', () => {
           );
           const ask = await sendChat(s.askerPage, initial);
           const entry = askEntry(s.askerPage, ask.operationId);
-          await expect(entry.getByTestId('ask-reply')).toHaveText(replyBody(initial.delivered()));
           await until(() => s.recipient.received().length === 1, 'one original recipient wake');
+          await expect(entry.getByTestId('ask-reply')).toHaveText(replyBody(initial.delivered()));
           await s.askerPage.setViewportSize({ width, height: 900 });
           if (surface === 'annotation') {
             await s.askerPage.getByRole('button', { name: 'Close Chat', exact: true }).click();
