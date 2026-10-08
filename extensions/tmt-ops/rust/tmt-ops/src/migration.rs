@@ -234,7 +234,7 @@ fn regular(metadata: &fs::Metadata) -> io::Result<()> {
         ))
     }
 }
-fn directory(path: &Path) -> io::Result<()> {
+pub(crate) fn directory(path: &Path) -> io::Result<()> {
     let metadata = fs::symlink_metadata(path)?;
     if metadata.is_dir() && metadata.uid() == getuid().as_raw() {
         Ok(())
@@ -245,7 +245,7 @@ fn directory(path: &Path) -> io::Result<()> {
         )))
     }
 }
-fn open(path: &Path) -> io::Result<File> {
+pub(crate) fn open(path: &Path) -> io::Result<File> {
     let file = OpenOptions::new()
         .read(true)
         .custom_flags((OFlag::O_NOFOLLOW | OFlag::O_NONBLOCK).bits())

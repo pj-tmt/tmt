@@ -8,7 +8,7 @@ use super::{
     app::{Notes, Snapshot, View},
     changes::{Changes, Stamp},
     notes::sanitize,
-    tabs, timing,
+    snapshot_cache, tabs, timing,
 };
 use crate::{
     attention::Attention,
@@ -103,15 +103,47 @@ impl Worker {
             let mut migration_notice = core.paths.board_notice();
             let mut history = super::rate::history::Cache::default();
             let mut places = super::cronboard::Places::new(crate::effects::tmux_socket());
+            // Root discovery and all cache work stay off the UI thread. Resolve
+            // lazily after a successful publication, without delaying its event.
+            let mut cache: Option<snapshot_cache::Store> = None;
             serve(
                 &pending,
-                |snapshot, generation| {
-                    events
-                        .send(super::BoardEvent::Snapshot {
-                            cancellation: read_generation.cancellation(generation),
+                |snapshot, rooms, generation| {
+                    let cancellation = read_generation.cancellation(generation);
+                    let trace = snapshot.timing.clone();
+                    let display = snapshot_cache::Display::project(
+                        &snapshot,
+                        &rooms,
+                        crate::status::now_ms(),
+                    );
+                    let sent = timing::measure(trace.as_ref(), "snapshot_publish", || {
+                        events.send(super::BoardEvent::Snapshot {
+                            cancellation: cancellation.clone(),
                             snapshot: Box::new(snapshot),
                         })
-                        .is_ok()
+                    })
+                    .is_ok();
+                    if sent
+                        && !cancellation.cancelled()
+                        && let Some(display) = display
+                    {
+                        // A failure cannot change the published board's result.
+                        let _ = timing::measure(trace.as_ref(), "snapshot_cache", || {
+                            if cache.is_none() {
+                                cache = crate::migration::data_root(
+                                    &core.cancellable(cancellation.clone()),
+                                )
+                                .ok()
+                                .and_then(|root| snapshot_cache::Store::new(&root));
+                            }
+                            let store = cache.as_ref().ok_or_else(|| {
+                                std::io::Error::other("snapshot root unavailable")
+                            })?;
+                            store.write(&display, || !cancellation.cancelled())?;
+                            Ok::<_, std::io::Error>(())
+                        });
+                    }
+                    sent
                 },
                 CHECK_EVERY,
                 &read_generation.number,
@@ -316,6 +348,7 @@ struct Reload {
 }
 
 struct Loaded {
+    rooms: snapshot_cache::Rooms,
     snapshot: Snapshot,
     attention: Option<AttentionJob>,
     home_leads: Option<super::home_leads::Fetch>,
@@ -327,6 +360,7 @@ struct Loaded {
 impl Loaded {
     fn only(snapshot: Snapshot) -> Self {
         Self {
+            rooms: Default::default(),
             snapshot,
             attention: None,
             home_leads: None,
@@ -498,7 +532,7 @@ fn fetcher() -> Sender<Fetch> {
 /// interval reloads are requests like any other and never wait on this.
 fn serve(
     pending: &Receiver<Work>,
-    mut publish: impl FnMut(Snapshot, u64) -> bool,
+    mut publish: impl FnMut(Snapshot, snapshot_cache::Rooms, u64) -> bool,
     check_every: Duration,
     generation: &AtomicU64,
     mut stamp: impl FnMut(u64, bool) -> Stamp,
@@ -579,6 +613,7 @@ fn serve(
             continue;
         }
         let Loaded {
+            rooms,
             snapshot,
             attention: job,
             cron,
@@ -640,7 +675,7 @@ fn serve(
                     .min()
                     .map(|every| (MeterRead::Home, every, Instant::now() + every))
             });
-        if !publish(snapshot, wanted.generation) {
+        if !publish(snapshot, rooms, wanted.generation) {
             break;
         }
         if let Some(job) = history
@@ -702,6 +737,10 @@ fn load(
         }
     };
     let names: Vec<String> = squads.iter().map(|squad| squad.name.clone()).collect();
+    let rooms = squads
+        .iter()
+        .map(|squad| (squad.name.clone(), squad.room_id.clone()))
+        .collect();
     let config = timing::measure(trace, "Config::load", || Config::load(core));
     // An invalid [tabs] still shows every squad; the view reports the error.
     let settings = config
@@ -826,6 +865,7 @@ fn load(
         view.history_pending = history.is_some();
     }
     Loaded {
+        rooms,
         snapshot: Snapshot {
             timing: None,
             squad_keys: names,
@@ -1159,7 +1199,7 @@ mod tests {
         std::thread::spawn(move || {
             serve(
                 &pending,
-                |snapshot, _| sender.send(snapshot).is_ok(),
+                |snapshot, _, _| sender.send(snapshot).is_ok(),
                 Duration::from_millis(10),
                 &AtomicU64::new(0),
                 |_, _| Stamp::cursor(read.load(Ordering::SeqCst)),
@@ -1209,7 +1249,7 @@ mod tests {
         let mut completed = Vec::new();
         serve(
             &pending,
-            |_, _| panic!("no reload"),
+            |_, _, _| panic!("no reload"),
             Duration::from_secs(1),
             &AtomicU64::new(2),
             |_, _| Stamp::cursor(0),
@@ -1385,7 +1425,7 @@ printf '%s\n' '{{}}'
         let steps = std::cell::RefCell::new(Vec::new());
         serve(
             &pending,
-            |_, _| {
+            |_, _, _| {
                 steps.borrow_mut().push("snapshot".to_owned());
                 queue(Some("stale"), 2, 0);
                 queue(Some("old"), 3, 1);
@@ -1422,7 +1462,7 @@ printf '%s\n' '{{}}'
         drop(sender);
         serve(
             &pending,
-            |_, _| panic!("no snapshot"),
+            |_, _, _| panic!("no snapshot"),
             CHECK_EVERY,
             &generation,
             |_, _| Stamp::cursor(0),
@@ -1848,6 +1888,115 @@ esac
     }
 
     #[test]
+    fn fresh_publication_precedes_cache_io_and_cache_failure_preserves_the_view() {
+        use std::{
+            fs,
+            os::unix::fs::{PermissionsExt, symlink},
+        };
+        const ROOM: &str = "11111111-1111-4111-8111-111111111111";
+        let root = std::env::temp_dir().join(format!("ops-worker-snapshot-{}", std::process::id()));
+        fs::create_dir(&root).unwrap();
+        fs::write(root.join(".ops-paths-v1"), "{}").unwrap();
+        fs::write(
+            root.join("ops.toml"),
+            "[squad.product]\nrefresh = \"off\"\n[board.token_rate]\nenabled = false\n",
+        )
+        .unwrap();
+        let fake = root.join("tmt");
+        let configured = json!({"paths":{"global":root.join("config.json")}});
+        let listed = json!({"rooms":[{"id":ROOM,"name":"squad-product"}]});
+        let roster = json!({"members":[{"id":"22222222-2222-4222-8222-222222222222","name":"alice","lifetime":"saved","metadata":{"squad.product.task":"ship"}}]});
+        crate::test_support::write_ready_executable(
+            &fake,
+            &format!(
+                r###"#!/bin/sh
+case "$1 $2" in
+  'config show') printf '%s\n' '{configured}'; exit 0 ;;
+  'room list') printf '%s\n' '{listed}'; exit 0 ;;
+  'ls --room') printf '%s\n' '{{"identities":[]}}'; exit 0 ;;
+esac
+if [ "$1" = api ]; then
+  request=$(cat)
+  case "$request" in
+    *'"storage.root"'*) printf '%s\n' '{{"dataRoot":"{root}"}}'; exit 0 ;;
+    *'"rooms.roster"'*) printf '%s\n' '{roster}'; exit 0 ;;
+    *'"changes.cursor"'*) printf '%s\n' '{{"cursor":0}}'; exit 0 ;;
+  esac
+fi
+printf '%s\n' '{{}}'
+"###,
+                root = root.display()
+            ),
+        );
+        let path = root.join("ops/cache/board/squad-product.json");
+        for unsafe_path in [false, true] {
+            if unsafe_path {
+                let victim = root.join("untouched");
+                fs::write(&victim, b"preserve").unwrap();
+                fs::remove_file(&path).unwrap();
+                symlink(&victim, &path).unwrap();
+            }
+            let (trace, records) = timing::Trace::buffer();
+            let (events, input) = mpsc::channel();
+            let worker = Worker::spawn(Core::at(fake.clone()), false, events, Some(trace));
+            worker.request(Some("product".into()), false, false);
+            let super::super::BoardEvent::Snapshot {
+                snapshot,
+                cancellation,
+            } = input.recv_timeout(Duration::from_secs(30)).unwrap()
+            else {
+                panic!("fresh snapshot");
+            };
+            assert!(!cancellation.cancelled());
+            assert_eq!(
+                snapshot.view.as_ref().unwrap().document["sections"][0]["rows"][0]["name"],
+                "alice"
+            );
+            // Attention is deferred behind cache publication on the same worker.
+            assert!(
+                (0..2).any(|_| matches!(
+                    input.recv_timeout(Duration::from_secs(30)).unwrap(),
+                    super::super::BoardEvent::Attention { .. }
+                )),
+                "deferred attention follows cron/cache work"
+            );
+            drop(worker);
+            let records = records.lock().unwrap();
+            let stages = std::str::from_utf8(&records)
+                .unwrap()
+                .lines()
+                .map(|line| serde_json::from_str::<Value>(line).unwrap())
+                .collect::<Vec<_>>();
+            let published = stages
+                .iter()
+                .position(|record| record["stage"] == "snapshot_publish")
+                .unwrap();
+            let cached = stages
+                .iter()
+                .position(|record| record["stage"] == "snapshot_cache")
+                .unwrap();
+            assert!(published < cached, "fresh event is sent before cache IO");
+            assert_eq!(stages[published]["status"], "ok");
+            assert_eq!(
+                stages[cached]["status"],
+                if unsafe_path { "error" } else { "ok" }
+            );
+            if unsafe_path {
+                assert_eq!(fs::read(root.join("untouched")).unwrap(), b"preserve");
+            } else {
+                let cached: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+                assert_eq!(cached["rooms"]["product"], ROOM);
+                assert_eq!(cached["view"]["sections"][0]["rows"][0]["name"], "alice");
+                assert_eq!(
+                    fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+                    0o600
+                );
+            }
+        }
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn advancing_generation_stops_all_old_readers_and_never_resets_them() {
         let generation = Generation::default();
         let old = generation.cancellation(0);
@@ -1928,7 +2077,7 @@ esac
         let worker = std::thread::spawn(move || {
             serve(
                 &pending,
-                |_, _| true,
+                |_, _, _| true,
                 Duration::from_millis(10),
                 &AtomicU64::new(0),
                 |_, _| {
@@ -2171,7 +2320,7 @@ esac
         let mut published = Vec::new();
         serve(
             &pending,
-            |snapshot, _| {
+            |snapshot, _, _| {
                 published.push(snapshot.squad);
                 true
             },
@@ -2223,7 +2372,7 @@ esac
             let steps = std::cell::RefCell::new(Vec::new());
             serve(
                 &pending,
-                |_, _| {
+                |_, _, _| {
                     steps.borrow_mut().push("shown");
                     if cancel {
                         generation.store(1, Ordering::Release);
@@ -2287,7 +2436,7 @@ esac
         let mut config = Some(config);
         serve(
             &pending,
-            |_, _| {
+            |_, _, _| {
                 steps.borrow_mut().push("shown");
                 true
             },
@@ -2295,6 +2444,7 @@ esac
             &AtomicU64::new(0),
             |_, _| Stamp::cursor(1),
             |_, _, _, _| Loaded {
+                rooms: Default::default(),
                 history: None,
                 snapshot: crate::board::app::tests::snapshot("product", json!([])),
                 attention: Some(AttentionJob {
@@ -2369,7 +2519,7 @@ esac
         let stages = RefCell::new(Vec::new());
         serve(
             &pending,
-            |snapshot, current| {
+            |snapshot, _, current| {
                 let mut app = app.borrow_mut();
                 app.apply(snapshot);
                 assert!(!app.loading());
@@ -2494,7 +2644,7 @@ esac
             let steps = std::cell::RefCell::new(Vec::new());
             serve(
                 &pending,
-                |snapshot, _| {
+                |snapshot, _, _| {
                     assert!(snapshot.view.is_ok());
                     steps.borrow_mut().push("usable");
                     if cancel {
@@ -2589,7 +2739,7 @@ esac
         let mut samples = 0;
         serve(
             &pending,
-            |_, _| {
+            |_, _, _| {
                 let count = published.get() + 1;
                 published.set(count);
                 match count {
@@ -2648,7 +2798,7 @@ esac
         let mut samples = 0;
         serve(
             &pending,
-            |_, _| true,
+            |_, _, _| true,
             Duration::from_millis(1),
             &AtomicU64::new(0),
             |_, _| Stamp::cursor(1),
@@ -2699,7 +2849,7 @@ esac
         let mut openings = Vec::new();
         serve(
             &pending,
-            |_, _| {
+            |_, _, _| {
                 if let Some(next) = names.next() {
                     sender.send(reload(next)).unwrap();
                     true

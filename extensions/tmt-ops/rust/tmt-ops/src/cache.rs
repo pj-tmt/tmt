@@ -6,6 +6,7 @@ use std::{
     io::{self, Write},
     os::unix::fs::{DirBuilderExt, OpenOptionsExt},
     path::{Path, PathBuf},
+    sync::atomic::{AtomicU64, Ordering},
 };
 
 /// `$XDG_CACHE_HOME/tmt-ops/<name>`, else `~/.cache/tmt-ops/<name>`.
@@ -23,21 +24,37 @@ pub fn directory(name: &str) -> Option<PathBuf> {
 /// Replaces `path` atomically with a file only the user can read, creating
 /// its directory the same way, so a reader never sees half a file.
 pub fn replace(path: &Path, contents: &[u8]) -> io::Result<()> {
+    replace_if(path, contents, || Ok(()))
+}
+
+/// Shares publication with a caller that must recheck cancellation before rename.
+/// Existing cache callers retain their paths and existing-directory permissions.
+pub(crate) fn replace_if(
+    path: &Path,
+    contents: &[u8],
+    before_publish: impl FnOnce() -> io::Result<()>,
+) -> io::Result<()> {
+    static NEXT: AtomicU64 = AtomicU64::new(0);
     let directory = path.parent().ok_or(io::ErrorKind::InvalidInput)?;
     fs::DirBuilder::new()
         .recursive(true)
         .mode(0o700)
         .create(directory)?;
-    let temporary = path.with_extension(format!("{}.tmp", std::process::id()));
-    // A leftover from a process that had this id is stale.
-    let _ = fs::remove_file(&temporary);
+    let temporary = path.with_extension(format!(
+        "{}-{}.tmp",
+        std::process::id(),
+        NEXT.fetch_add(1, Ordering::Relaxed)
+    ));
     // Readable only by the user, like its directory.
-    let written = fs::OpenOptions::new()
+    // Never remove another writer's staging file, even after PID reuse.
+    let mut file = fs::OpenOptions::new()
         .write(true)
         .create_new(true)
         .mode(0o600)
-        .open(&temporary)
-        .and_then(|mut file| file.write_all(contents))
+        .open(&temporary)?;
+    let written = file
+        .write_all(contents)
+        .and_then(|()| before_publish())
         .and_then(|()| fs::rename(&temporary, path));
     if written.is_err() {
         let _ = fs::remove_file(&temporary);
@@ -64,5 +81,24 @@ mod tests {
         let entries: Vec<_> = fs::read_dir(path.parent().unwrap()).unwrap().collect();
         assert_eq!(entries.len(), 1, "no temporary file is left behind");
         let _ = fs::remove_dir_all(root);
+    }
+}
+
+#[cfg(test)]
+mod publication_failures {
+    use super::*;
+
+    #[test]
+    fn rename_failure_removes_only_the_exclusively_created_staging_file() {
+        let root =
+            std::env::temp_dir().join(format!("ops-cache-rename-failure-{}", std::process::id()));
+        fs::create_dir_all(root.join("target.json")).unwrap();
+        let foreign = root.join("foreign.tmp");
+        fs::write(&foreign, b"preserve").unwrap();
+        assert!(replace(&root.join("target.json"), b"candidate").is_err());
+        assert!(root.join("target.json").is_dir());
+        assert_eq!(fs::read(&foreign).unwrap(), b"preserve");
+        assert_eq!(fs::read_dir(&root).unwrap().count(), 2);
+        fs::remove_dir_all(root).unwrap();
     }
 }
