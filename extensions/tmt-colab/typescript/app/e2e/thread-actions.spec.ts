@@ -35,6 +35,8 @@ for (const width of [1440, 390])
               title: node.querySelector('.thread-state')?.textContent,
               header: node.querySelector('.thread-bar')?.getBoundingClientRect().toJSON(),
               actions: node.querySelector('.thread-bar-actions')?.getBoundingClientRect().toJSON(),
+              quote: node.querySelector('blockquote')?.getBoundingClientRect().toJSON(),
+              scrollTop: node.querySelector('.thread-messages')?.scrollTop,
               focus: document.activeElement?.getAttribute('aria-label'),
               buttons: Array.from(node.querySelectorAll('button')).map((button) => ({
                 label: button.getAttribute('aria-label') || button.textContent,
@@ -78,8 +80,32 @@ for (const width of [1440, 390])
           await expect(
             page.getByRole('button', { name: 'Post reply', exact: true }),
           ).toHaveAttribute('data-variant', 'primary');
+          const label = window
+            .getByRole('button', { name: 'Delete thread', exact: true })
+            .locator('.tmt-ui-action-label');
+          expect(
+            Math.abs((await label.boundingBox())!.x - (await title.boundingBox())!.x),
+          ).toBeLessThan(1);
         }
         await capture(state);
+        if (state === 'open') {
+          const history = window.locator('.thread-messages');
+          await history.evaluate((node) => {
+            node.scrollTop = 0;
+          });
+          const quote = history.locator('blockquote');
+          await expect(quote).toHaveText('Frozen original quote');
+          const quoteRect = (await quote.boundingBox())!;
+          const historyRect = (await history.boundingBox())!;
+          const headerRect = (await window.locator('.thread-bar').boundingBox())!;
+          expect(quoteRect.y).toBeGreaterThanOrEqual(historyRect.y);
+          expect(quoteRect.y).toBeGreaterThan(headerRect.y + headerRect.height);
+          expect(quoteRect.y + quoteRect.height).toBeLessThanOrEqual(
+            historyRect.y + historyRect.height,
+          );
+          expect(await history.evaluate((node) => node.scrollTop)).toBe(0);
+          await capture('quote-top');
+        }
         if (state === 'agent') {
           const reopen = window.getByRole('button', { name: 'Reopen', exact: true });
           await reopen.focus();
@@ -138,6 +164,54 @@ for (const width of [1440, 390])
       await run(page, 'finishWindowStatus', 'failed');
       await expect(window.getByRole('alert')).toBeVisible();
       await expect(input).toHaveText('Reply draft with a retained caret.', { useInnerText: true });
+    });
+    test(`thread submits ${width}px ${theme}: visible busy feedback and retained failed draft`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await page.emulateMedia({ colorScheme: theme });
+      await page.addInitScript((theme) => {
+        document.documentElement.dataset.theme = theme;
+      }, theme);
+      await page.goto('/');
+      for (const kind of ['post', 'edit']) {
+        await run(page, 'mountWindow', kind === 'post' ? 'capture-compose' : 'capture-open');
+        if (kind === 'post')
+          await page.getByRole('button', { name: '+ Comment on page', exact: true }).click();
+        else {
+          await page.getByRole('button', { name: 'Message actions', exact: true }).click();
+          await page.getByRole('menuitem', { name: 'Edit', exact: true }).click();
+        }
+        const input = page.getByRole('combobox', {
+          name: kind === 'post' ? 'Post comment' : 'Edit comment',
+          exact: true,
+        });
+        const draft = `Retain this ${kind} draft on failure.`;
+        await input.fill(draft);
+        const form = input.locator('xpath=ancestor::form');
+        const submit = form.locator('.comment-actions > button:not([type="button"])');
+        await submit.click();
+        await expect(submit).toBeDisabled();
+        if (!before) {
+          await expect(submit).toHaveAttribute('aria-busy', 'true');
+          await expect(
+            submit.locator('.tmt-ui-action-mark[data-busy="true"] .lucide-loader-circle'),
+          ).toBeVisible();
+        }
+        expect(await run(page, 'windowWriteProof')).toEqual({ writes: 1, captured: [draft] });
+        const directory = process.env.COLAB_1804B_CAPTURE_DIR;
+        if (directory) {
+          mkdirSync(directory, { recursive: true });
+          await input.scrollIntoViewIfNeeded();
+          await page.screenshot({ path: `${directory}/${width}-${theme}-submit-${kind}-busy.png` });
+        }
+        await run(page, 'finishWindowWrite', 'failed');
+        await expect(page.getByRole('alert')).toBeVisible();
+        await expect(input).toHaveText(draft, { useInnerText: true });
+        await expect(submit).toBeEnabled();
+        if (!before) await expect(submit.locator('.tmt-ui-action-mark')).toBeHidden();
+        expect(await run(page, 'windowWriteProof')).toEqual({ writes: 1, captured: [draft] });
+      }
     });
     test(`page icon actions ${width}px ${theme}: disclosure keeps host Escape`, async ({
       page,

@@ -1,4 +1,4 @@
-import { Check, CircleCheck, CircleDot, RotateCcw, X } from 'lucide-react';
+import { Check, CircleCheck, CircleDot, LoaderCircle, RotateCcw, X } from 'lucide-react';
 import { BrowserAction, BrowserIconAction } from '@tmt/browser-ui/react';
 import { MessageComposer } from './components/message-composer.js';
 import type { ComposerEdit } from './components/message-composer-edit.js';
@@ -77,6 +77,7 @@ function Composer({
           variant="primary"
           label={label}
           busy={busy}
+          busyMark={<LoaderCircle />}
           disabled={blocked || !body.trim()}
           onActivate={() => {}}
         />
@@ -206,6 +207,7 @@ export function DiscussionComment({
                   variant="primary"
                   label={text.commentSave}
                   busy={busy}
+                  busyMark={<LoaderCircle />}
                   disabled={blocked || !draft.trim()}
                   onActivate={() => {}}
                 />

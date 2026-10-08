@@ -677,6 +677,10 @@ footer {
   gap: 8px;
   margin: 12px 0;
 }
+.thread-messages > .comment-actions {
+  /* Align text labels with the content edge while retaining their padded hit area. */
+  margin-inline-start: -12px;
+}
 .comments-panel textarea {
   display: block;
   width: 100%;

@@ -1,6 +1,6 @@
 /** Component-only send/keyboard double; durable writer and Remote proof lives in acceptance. */
 import { createRoot, type Root } from 'react-dom/client';
-import { ThreadWindow } from '../src/thread-panel.js';
+import { ThreadPanel, ThreadWindow } from '../src/thread-panel.js';
 import { MessageComposer } from '../src/components/message-composer.js';
 import type { ThreadView } from '../src/thread-records.js';
 import { useState } from 'react';
@@ -168,6 +168,7 @@ export function editingProof() {
 
 let statusCalls = 0;
 let finishStatus: ((failed: boolean) => void) | undefined;
+let finishWrite: ((failed: boolean) => void) | undefined;
 /** Presentation-only writer binding double, with no status store or dispatch adapter. */
 export function mountWindow(mode = 'ready') {
   root?.unmount();
@@ -184,6 +185,9 @@ export function mountWindow(mode = 'ready') {
   document.body.append(host);
   statusCalls = closes = 0;
   finishStatus = undefined;
+  finishWrite = undefined;
+  writes = 0;
+  captured = [];
   const unused = async () => {
     throw new Error('Not used');
   };
@@ -216,9 +220,51 @@ export function mountWindow(mode = 'ready') {
         at: String(Date.now()),
       },
     ];
+  async function write(body: string) {
+    writes++;
+    captured.push(body);
+    await new Promise<void>((resolve, reject) => {
+      finishWrite = (failed) => (failed ? reject(new Error('Unavailable')) : resolve());
+    });
+  }
+  const binding: ThreadBinding = {
+    deviceId: mode === 'readonly' || mode === 'other-writer' ? id(7) : id(4),
+    create: async (body) => {
+      await write(body);
+      return {
+        thread: thread.ref,
+        threadRevision: '1',
+        message: { writer: id(4), id: id(3) },
+        messageRevision: '1',
+      };
+    },
+    createChat: unused,
+    reply: unused,
+    edit: async (_ref, _revision, body) => write(body),
+    deleteComment: unused,
+    setStatus: unused,
+    notificationFailed: unused,
+    // Status goes through onStatusChange; the thread binding must never see it.
+    updateThread: unused,
+  };
   function WindowFixture() {
     const [current, setCurrent] = useState(thread);
     const [edit, setEdit] = useState({ value: 'Unsent draft' });
+    if (mode === 'capture-compose')
+      return (
+        <ThreadPanel
+          threads={[]}
+          resolved={[]}
+          anchorsChecked
+          selection={null}
+          binding={binding}
+          asks={[]}
+          title="Annotated page"
+          blocked={false}
+          active={null}
+          select={() => {}}
+        />
+      );
     return (
       <ThreadWindow
         thread={current}
@@ -238,18 +284,7 @@ export function mountWindow(mode = 'ready') {
             <MessageComposer label="Window draft" edit={edit} onChange={setEdit} disabled={false} />
           )
         }
-        binding={{
-          deviceId: mode === 'readonly' || mode === 'other-writer' ? id(7) : id(4),
-          create: unused,
-          createChat: unused,
-          reply: unused,
-          edit: unused,
-          deleteComment: unused,
-          setStatus: unused,
-          notificationFailed: unused,
-          // Status goes through onStatusChange; the thread binding must never see it.
-          updateThread: unused,
-        }}
+        binding={binding}
         status={{
           ...projectThreadStatus(current, undefined, mode !== 'readonly'),
           actor: mode === 'capture-agent' ? 'agent' : 'person',
@@ -280,4 +315,12 @@ export function finishWindowStatus(mode?: string) {
 }
 export function windowProof() {
   return { statusCalls, closes };
+}
+
+export function finishWindowWrite(mode?: string) {
+  finishWrite?.(mode === 'failed');
+  finishWrite = undefined;
+}
+export function windowWriteProof() {
+  return { writes, captured };
 }
