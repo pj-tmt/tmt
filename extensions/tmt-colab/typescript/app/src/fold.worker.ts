@@ -96,7 +96,11 @@ function project(doc: Y.Doc, complete = true) {
           typeof part.insert !== 'string' || part.attributes,
       ) ||
     [...meta.keys()].some(
-      (key) => key !== 'title' && key !== 'publisherAgent' && key !== 'creationRecipient',
+      (key) =>
+        key !== 'title' &&
+        key !== 'publisherAgent' &&
+        key !== 'creationRecipient' &&
+        key !== 'attachments',
     ) ||
     (meta.has('title') && typeof meta.get('title') !== 'string')
   )
@@ -106,6 +110,7 @@ function project(doc: Y.Doc, complete = true) {
     title: (meta.get('title') ?? '') as string,
     ...(meta.has('publisherAgent') ? { publisherAgent: meta.get('publisherAgent') as string } : {}),
     ...(meta.has('creationRecipient') ? { creationRecipient: meta.get('creationRecipient') } : {}),
+    ...(meta.has('attachments') ? { attachments: meta.get('attachments') } : {}),
   };
   validateProjection(projection);
   return projection;

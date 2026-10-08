@@ -1,5 +1,5 @@
 import { validateDiscussionRecord } from './thread-records.js';
-import { coreId, exactKeys, generatedId, requireValue, text } from '@tmt/colab-client';
+import { attachment, coreId, exactKeys, generatedId, requireValue, text } from '@tmt/colab-client';
 /** Plaintext-only decoder protocol. No CryptoKeys or transport capabilities. */
 // Mirror decoder.rs: UPDATE_BYTES, WRITE_TAIL_UPDATES, WRITE_TAIL_BYTES, UPDATES, STATE_BYTES and
 // BASELINE_UPDATE_BYTES. Read admission is wider; prepare/check still use write limits.
@@ -44,6 +44,7 @@ export function validateCreationRecipient(value: unknown): asserts value is Crea
   coreId(value.agentId);
 }
 export interface Projection {
+  attachments?: attachment.AttachmentDescriptor[];
   creationRecipient?: CreationRecipient;
   source: string;
   title: string;
@@ -133,6 +134,8 @@ export interface FoldResult extends Projection {
 export function validateProjection(value: unknown): asserts value is Projection {
   if (!value || typeof value !== 'object') throw new Error('Invalid decoder projection');
   const { source, title, publisherAgent, creationRecipient } = value as Projection;
+  if (Object.hasOwn(value, 'attachments'))
+    attachment.attachmentList((value as Projection).attachments, attachment.DOCUMENT_ATTACHMENTS);
   if (Object.hasOwn(value, 'creationRecipient')) validateCreationRecipient(creationRecipient);
   if (
     typeof source !== 'string' ||
@@ -184,6 +187,9 @@ export function sameContent(a: ContentSnapshot, b: ContentSnapshot): boolean {
     Object.hasOwn(a, 'creationRecipient') === Object.hasOwn(b, 'creationRecipient') &&
     a.creationRecipient?.machineId === b.creationRecipient?.machineId &&
     a.creationRecipient?.agentId === b.creationRecipient?.agentId &&
+    Object.hasOwn(a, 'attachments') === Object.hasOwn(b, 'attachments') &&
+    JSON.stringify(a.attachments?.map(attachment.attachmentDescriptor)) ===
+      JSON.stringify(b.attachments?.map(attachment.attachmentDescriptor)) &&
     JSON.stringify(a.own) === JSON.stringify(b.own)
   );
 }

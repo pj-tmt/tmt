@@ -38,6 +38,10 @@ proposed, not shipped by this contract. Existing membership, crypto, sync and
 renderer owners remain authoritative; no new core object API or reader credential
 is introduced.
 
+The [attachment byte grammar](attachment-v1.md) defines #1853's descriptor,
+manifest and bounded metadata/comment projection slice. It reuses asset envelopes;
+runtime reference/history admission and object-channel activation remain separate.
+
 ## Channel boundary
 
 Colab is an app on remote. The [remote channel contract](../../../contracts/remote-channel-v1.md#extension-channel-api)

@@ -492,6 +492,7 @@ impl Snapshot {
             baseline = values::binary(&body.update, crate::decoder::BASELINE_UPDATE_BYTES)?;
             decoder.verify_baseline(
                 BaselineInput {
+                    attachments: None,
                     source: body.source.as_bytes(),
                     title: &d.title,
                     publisher_agent: None,

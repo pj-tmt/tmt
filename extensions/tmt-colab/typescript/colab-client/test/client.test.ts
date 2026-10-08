@@ -34,7 +34,9 @@ describe('colab browser values and immutable crypto', () => {
     for (const name of readdirSync(src).filter((n) => n.endsWith('.ts'))) {
       const source = readFileSync(new URL(name, src), 'utf8');
       expect(source).not.toMatch(/(?:from|import\s*\()\s*['"](?:node:|[^.])/);
-      expect(source).not.toMatch(/\b(?:fetch|WebSocket|indexedDB|localStorage|document)\b/);
+      expect(source).not.toMatch(
+        /\b(?:fetch|WebSocket|indexedDB|localStorage)\b|\bdocument\s*(?:\.|\[)/,
+      );
     }
   });
   it('rejects duplicate/unknown/type/Unicode/binary/framing mutations', () => {

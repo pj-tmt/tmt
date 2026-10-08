@@ -108,6 +108,7 @@ pub fn valid_publisher_agent(value: &str) -> bool {
 /// Exact current view supplied by the owner's authenticated fold. This seam
 /// does not establish log, page or epoch authority.
 pub struct BaselineInput<'a> {
+    pub attachments: Option<&'a tmt_colab_model::attachment::DocumentAttachments>,
     pub source: &'a [u8],
     pub title: &'a str,
     pub publisher_agent: Option<&'a str>,
@@ -532,6 +533,14 @@ impl Decoder {
             return Err(DecodeFault::CleanupBlocked);
         }
         validate_view(view.source, view.title, &view.source_digest)?;
+        if let Some(list) = view.attachments {
+            tmt_colab_model::attachment::validate_attachment_list(
+                list.as_slice(),
+                tmt_colab_model::attachment::DOCUMENT_ATTACHMENTS,
+                None,
+            )
+            .map_err(|_| DecodeFault::InvalidInput)?;
+        }
         if view.creation_recipient.is_some_and(|v| !v.valid()) {
             return Err(DecodeFault::InvalidInput);
         }
@@ -555,6 +564,7 @@ impl Decoder {
             BaselineAction::Verify { .. } => ChildCommand::BaselineVerify,
         };
         let input = serde_json::to_vec(&WireBaseline {
+            attachments: view.attachments.cloned(),
             version: 1,
             source: if matches!(action, BaselineAction::Produce { .. }) {
                 URL_SAFE_NO_PAD.encode(view.source)
@@ -920,6 +930,8 @@ pub const BASELINE_UPDATE_BYTES: usize = STATE_BYTES + BASELINE_TITLE_BYTES + 10
 #[serde(deny_unknown_fields)]
 struct WireBaseline {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    attachments: Option<tmt_colab_model::attachment::DocumentAttachments>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     creation_recipient: Option<CreationRecipient>,
     version: u8,
     source: String,
@@ -1004,6 +1016,17 @@ fn validate_projection(namespace: Namespace, value: &Value) -> Result<(), Decode
                 "creationRecipient" => {
                     !serde_json::from_value::<CreationRecipient>(v.clone()).is_ok_and(|v| v.valid())
                 }
+                "attachments" => !serde_json::from_value::<
+                    tmt_colab_model::attachment::DocumentAttachments,
+                >(v.clone())
+                .is_ok_and(|list| {
+                    tmt_colab_model::attachment::validate_attachment_list(
+                        list.as_slice(),
+                        tmt_colab_model::attachment::DOCUMENT_ATTACHMENTS,
+                        None,
+                    )
+                    .is_ok()
+                }),
                 _ => true,
             }) {
                 return Err(DecodeFault::InvalidOutput);

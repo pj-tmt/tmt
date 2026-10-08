@@ -403,3 +403,56 @@ it('preserves admitted creation preferences in parent preparation and rejects ch
     }
   }
 });
+it('carries admitted attachments through the parent and rejects a preparation that drops them', async () => {
+  const corpus = JSON.parse(
+    readFileSync(new URL('../../../contracts/vectors/attachment-v1.json', import.meta.url), 'utf8'),
+  );
+  const projection = JSON.parse(
+    corpus.cases.find((c: { name: string }) => c.name === 'projection-document').input,
+  );
+  const worker = {
+    postMessage: vi.fn(),
+    terminate: vi.fn(),
+    onerror: null,
+    onmessage: null as unknown as (event: unknown) => void,
+  };
+  const fold = new Fold(worker as unknown as Worker);
+  const pending = fold.run({ type: 'apply', updates: [] });
+  worker.onmessage({
+    data: {
+      id: 1,
+      source: projection.html,
+      title: projection.meta.title,
+      attachments: projection.meta.attachments,
+      own: {},
+      update: new Uint8Array([0, 0]),
+    },
+  });
+  const initial = await pending;
+  expect(initial.attachments).toEqual(projection.meta.attachments);
+  const base = contentBase(initial);
+  const prepared = fold.prepareContent('changed source', base);
+  worker.onmessage({
+    data: {
+      id: 2,
+      type: 'prepared-content',
+      kind: 'updates',
+      projection: { ...base, source: 'changed source' },
+      updates: [new Uint8Array([0, 0])],
+    },
+  });
+  expect((await prepared).projection.attachments).toEqual(initial.attachments);
+  const dropped = fold.prepareContent('changed source', base);
+  const rejected = expect(dropped).rejects.toThrow();
+  worker.onmessage({
+    data: {
+      id: 3,
+      type: 'prepared-content',
+      kind: 'updates',
+      projection: { ...base, source: 'changed source', attachments: [] },
+      updates: [new Uint8Array([0, 0])],
+    },
+  });
+  await rejected;
+  expect(worker.terminate).toHaveBeenCalledOnce();
+});

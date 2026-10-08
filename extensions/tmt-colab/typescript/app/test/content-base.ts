@@ -6,6 +6,7 @@ export function contentBase(result: FoldResult): ContentSnapshot {
     source: result.source,
     title: result.title,
     own: result.own,
+    ...(Object.hasOwn(result, 'attachments') ? { attachments: result.attachments } : {}),
     ...(result.publisherAgent !== undefined ? { publisherAgent: result.publisherAgent } : {}),
     ...(Object.hasOwn(result, 'creationRecipient')
       ? { creationRecipient: result.creationRecipient }

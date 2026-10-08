@@ -662,6 +662,7 @@ fn own_maps_have_a_positive_control_and_array_substitution_rejects() {
 fn view<'a>(source: &'a [u8], title: &'a str) -> BaselineInput<'a> {
     use sha2::{Digest, Sha256};
     BaselineInput {
+        attachments: None,
         creation_recipient: None,
         source,
         title,
@@ -725,6 +726,7 @@ fn baseline_exact_vectors_materialize_and_concurrent_clients_converge() {
         let produced = decoder
             .produce_baseline(
                 BaselineInput {
+                    attachments: None,
                     creation_recipient: recipient.as_ref(),
                     publisher_agent: vector["publisherAgent"].as_str(),
                     ..view(source.as_bytes(), title)
@@ -781,6 +783,7 @@ fn baseline_digest_commitment_and_materialization_mismatches_return_no_result() 
         .unwrap();
     gone(baseline.child_pid);
     let wrong_digest = BaselineInput {
+        attachments: None,
         creation_recipient: None,
         source: b"exact",
         title: "title",
@@ -988,6 +991,7 @@ fn publisher_metadata_updates_and_unknown_cli_edits_clear_it() {
     let baseline = decoder
         .produce_baseline(
             BaselineInput {
+                attachments: None,
                 creation_recipient: None,
                 publisher_agent: Some("publisher"),
                 ..view(b"before", "Title")
@@ -1177,6 +1181,7 @@ fn creation_recipient_survives_chunked_baselines_and_known_or_unknown_source_edi
         let baseline = decoder
             .produce_page(
                 BaselineInput {
+                    attachments: None,
                     creation_recipient: hint,
                     ..view(source.as_bytes(), "Title")
                 },
@@ -1635,6 +1640,7 @@ fn content_batch_preserves_creation_recipient_through_replay_and_noop() {
         let baseline = decoder
             .produce_page(
                 BaselineInput {
+                    attachments: None,
                     creation_recipient: hint,
                     ..view(b"old", "T")
                 },

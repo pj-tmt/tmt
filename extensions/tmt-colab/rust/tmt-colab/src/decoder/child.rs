@@ -657,6 +657,7 @@ fn baseline(input: &[u8]) -> Result<(), DecodeFault> {
                         &wire.title,
                         wire.publisher_agent.as_deref(),
                         wire.creation_recipient.as_ref(),
+                        wire.attachments.as_ref(),
                         size,
                     );
                     doc.transact()
@@ -669,6 +670,7 @@ fn baseline(input: &[u8]) -> Result<(), DecodeFault> {
                     &wire.title,
                     wire.publisher_agent.as_deref(),
                     wire.creation_recipient.as_ref(),
+                    wire.attachments.as_ref(),
                 ),
             };
             (update, Some(source), None)
@@ -711,6 +713,13 @@ fn baseline(input: &[u8]) -> Result<(), DecodeFault> {
                     .map(|v| serde_json::to_value(v).expect("typed recipient"))
                     .as_ref())
         || expected_source.is_some_and(|source| source != source_text.as_bytes())
+        || (producing
+            && projection["meta"].get("attachments")
+                != wire
+                    .attachments
+                    .as_ref()
+                    .map(|v| serde_json::to_value(v).expect("typed attachments"))
+                    .as_ref())
     {
         return Err(DecodeFault::Rejected);
     }
@@ -758,6 +767,7 @@ fn chunked_baseline(
     title: &str,
     publisher_agent: Option<&str>,
     creation_recipient: Option<&CreationRecipient>,
+    attachments: Option<&tmt_colab_model::attachment::DocumentAttachments>,
     size: usize,
 ) -> Vec<Vec<u8>> {
     let html = doc.get_or_insert_text("html");
@@ -782,6 +792,14 @@ fn chunked_baseline(
             if let Some(recipient) = creation_recipient {
                 meta.insert(&mut txn, "creationRecipient", recipient_any(recipient));
             }
+            if let Some(attachments) = attachments {
+                meta.insert(
+                    &mut txn,
+                    "attachments",
+                    Any::from_json(&serde_json::to_string(attachments).expect("typed attachments"))
+                        .expect("inert attachments"),
+                );
+            }
         }
         updates.push(txn.encode_update_v1());
         rest = tail;
@@ -795,6 +813,7 @@ fn fresh_baseline(
     title: &str,
     publisher_agent: Option<&str>,
     creation_recipient: Option<&CreationRecipient>,
+    attachments: Option<&tmt_colab_model::attachment::DocumentAttachments>,
 ) -> Vec<u8> {
     let html = doc.get_or_insert_text("html");
     let meta = doc.get_or_insert_map("meta");
@@ -806,6 +825,14 @@ fn fresh_baseline(
     }
     if let Some(recipient) = creation_recipient {
         meta.insert(&mut txn, "creationRecipient", recipient_any(recipient));
+    }
+    if let Some(attachments) = attachments {
+        meta.insert(
+            &mut txn,
+            "attachments",
+            Any::from_json(&serde_json::to_string(attachments).expect("typed attachments"))
+                .expect("inert attachments"),
+        );
     }
     txn.encode_state_as_update_v1(&StateVector::default())
 }
@@ -843,6 +870,7 @@ mod baseline_tests {
                     .get("creationRecipient")
                     .map(|v| serde_json::from_value::<CreationRecipient>(v.clone()).unwrap())
                     .as_ref(),
+                None,
             );
             let encoded = URL_SAFE_NO_PAD.encode(&update);
             let expected_commitment = if encoded == vector["update"] {

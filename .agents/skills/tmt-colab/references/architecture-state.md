@@ -16,6 +16,13 @@ restate them.
 
 ## Gotchas
 
+Attachment syntax/asset verification lives in model `attachment.rs` and client
+`attachment.ts`, using the existing envelope crypto; [attachment-v1](../../../../extensions/tmt-colab/contracts/attachment-v1.md)
+owns exact bytes and limits. Decoder/Worker metadata and immutable comments carry
+descriptors, and epoch baselines preserve them. These codecs do not establish an
+authenticated reference, historical key eligibility or a transport permit; the
+remaining #1853 content/channel slices compose those existing admission owners.
+
 - Run Rust gates with your own `CARGO_TARGET_DIR` and `CARGO_BUILD_JOBS=2`. Add
   `--no-fail-fast` when judging `cargo test -p tmt-colab`: Cargo stops at the first failing
   test binary and hides the rest. Timing-sensitive decoder tests can fail under load; rerun

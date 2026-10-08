@@ -2,6 +2,7 @@
 //! Callers own log, session, role, epoch, sequence and aggregate-quota admission.
 //! Two crypto-only OS-entropy uses: seal object IDs and HPKE ephemeral keys;
 //! no filesystem, process or network access, and no long-term key-generation RNG.
+pub mod attachment;
 pub mod auth;
 pub mod bounded;
 pub mod certificate;
