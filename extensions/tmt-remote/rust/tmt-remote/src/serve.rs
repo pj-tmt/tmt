@@ -25,7 +25,7 @@ use tmt_remote::{
     error::RemoteError,
     http::{Door, Handler},
     mount::{self, Extension, Mounts, ObjectDeclaration},
-    object_service::{ActivateError, ObjectService, Origins, ServiceBounds},
+    object_service::{ActivateError, ObjectReadiness, ObjectService, Origins, ServiceBounds},
     objects::{IoBudget, Quotas, system_clock},
     operations::Operations,
     pages::Pages,
@@ -770,7 +770,14 @@ fn foreground_with(
         fence(stop)?;
         approval.cancel_pending()?;
         fence(stop)?;
-        let control = Control::start(
+        let readiness = objects
+            .as_ref()
+            .map(ObjectService::readiness)
+            .unwrap_or_else(|| ObjectReadiness::unavailable(extensions));
+        let reactivation = objects
+            .as_ref()
+            .map(|objects| objects.reactivation(Arc::clone(stop)));
+        let control = Control::start_with_objects(
             &serving,
             Arc::clone(&pairing),
             Arc::clone(&devices),
@@ -780,19 +787,22 @@ fn foreground_with(
             },
             Some(Arc::clone(&approval)),
             Arc::clone(stop),
+            readiness,
         )?;
+        let mut mounts = Mounts::with_extensions(
+            root,
+            &door.origin,
+            &machine.route_prefix,
+            sessions,
+            extensions,
+        )
+        .with_origins(Arc::new(origins));
+        if let Some(reactivation) = &reactivation {
+            mounts = mounts.with_activation(reactivation.clone());
+        }
         let site = Arc::new(Site {
             routes,
-            mounts: Arc::new(
-                Mounts::with_extensions(
-                    root,
-                    &door.origin,
-                    &machine.route_prefix,
-                    sessions,
-                    extensions,
-                )
-                .with_origins(Arc::new(origins)),
-            ),
+            mounts: Arc::new(mounts),
             pages: Some(
                 Pages::new(
                     &door.origin,
@@ -826,7 +836,13 @@ fn foreground_with(
         } else {
             publish(&ready, json_output, false)?;
         }
-        let result = door.run(stop, site as Arc<dyn Handler>);
+        let result = if let (Some(objects), Some(reactivation)) = (&objects, &reactivation) {
+            objects.with_reactivation(reactivation, &site.mounts, || {
+                door.run(stop, site.clone() as Arc<dyn Handler>)
+            })
+        } else {
+            door.run(stop, site as Arc<dyn Handler>)
+        };
         if let Some(objects) = &objects {
             objects.shutdown();
         }

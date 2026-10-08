@@ -20,10 +20,15 @@ use crate::{
 };
 use std::{
     io,
-    sync::{Mutex, MutexGuard},
+    sync::{Arc, Mutex, MutexGuard},
     time::{Duration, Instant},
 };
 use tmt_extension_objects::{Budget, Budgets, Bus, Caps, Fault, Offer, Uuid4, initiate};
+
+mod activation;
+mod readiness;
+pub use activation::Reactivation;
+pub use readiness::ObjectReadiness;
 
 mod config;
 mod dispatch;
@@ -99,6 +104,7 @@ struct Declared {
     /// A candidate is being set up outside the lock.
     setup: bool,
     active: Option<Running>,
+    failure: Option<ActivateError>,
 }
 impl Declared {
     /// Whether the extension has a channel that has not ended.
@@ -146,7 +152,7 @@ pub struct ObjectService<'s> {
     budget: Budget,
     /// Where the origins of this service's channels are kept, shared with the mounts.
     origins: Origins,
-    state: Mutex<State>,
+    state: Arc<Mutex<State>>,
     /// Pauses a worker between a request's two admissions, so a test can spend its time.
     #[cfg(test)]
     hook: Mutex<dispatch::Hook>,
@@ -198,6 +204,7 @@ impl<'s> ObjectService<'s> {
                     tunnels,
                     setup: false,
                     active: None,
+                    failure: None,
                 }
             })
             .collect();
@@ -206,10 +213,10 @@ impl<'s> ObjectService<'s> {
             bounds,
             budget: Budget::new(bounds.installation.requests, bounds.installation.callbacks),
             origins,
-            state: Mutex::new(State {
+            state: Arc::new(Mutex::new(State {
                 stopped: false,
                 slots,
-            }),
+            })),
             #[cfg(test)]
             hook: Mutex::new(None),
         }))
@@ -227,9 +234,36 @@ impl<'s> ObjectService<'s> {
     /// `mounts` with exactly the `Host` and mount values the door sets on every request
     /// it sends that extension.
     pub fn activate(&self, mounts: &Mounts, name: &str) -> Result<Uuid4, ActivateError> {
+        self.activate_until(mounts, name, Instant::now() + self.bounds.setup)
+    }
+    fn activate_until(
+        &self,
+        mounts: &Mounts,
+        name: &str,
+        deadline: Instant,
+    ) -> Result<Uuid4, ActivateError> {
+        if Instant::now() >= deadline {
+            return Err(ActivateError::Channel(Fault::Timeout(
+                tmt_extension_objects::Stage::Head,
+            )));
+        }
         let (index, id, source, tunnels) = self.begin_setup(name)?;
-        let built = self.connect(mounts, name, id, source, tunnels);
-        self.finish_setup(index, built)
+        let built = self.connect(
+            mounts,
+            name,
+            id,
+            source,
+            tunnels,
+            deadline.min(Instant::now() + self.bounds.setup),
+        );
+        #[cfg(test)]
+        if built.is_ok() {
+            let hook = self.hook.lock().unwrap_or_else(|p| p.into_inner()).clone();
+            if let Some(hook) = hook {
+                hook(dispatch::Pause::BeforeInstall, deadline);
+            }
+        }
+        self.finish_setup(index, built, deadline)
     }
     fn begin_setup(
         &self,
@@ -253,6 +287,7 @@ impl<'s> ObjectService<'s> {
             .map(|slot| usize::from(slot.setup) + usize::from(slot.running()))
             .sum();
         if buses >= self.bounds.buses {
+            state.slots[index].failure = Some(ActivateError::Capacity);
             return Err(ActivateError::Capacity);
         }
         state.slots[index].setup = true;
@@ -270,8 +305,8 @@ impl<'s> ObjectService<'s> {
         id: ExtensionId,
         source: ConfigSource,
         tunnels: usize,
+        setup: Instant,
     ) -> Result<Running, ActivateError> {
-        let setup = Instant::now() + self.bounds.setup;
         let endpoint = mounts
             .open_object_channel(name, setup)
             .map_err(|error| ActivateError::Connect(error.kind()))?;
@@ -285,6 +320,14 @@ impl<'s> ObjectService<'s> {
             generation,
         };
         let link = initiate(endpoint.stream, &offer, setup).map_err(ActivateError::Channel)?;
+        if self.locked().stopped {
+            return Err(ActivateError::Stopped);
+        }
+        if Instant::now() >= setup {
+            return Err(ActivateError::Channel(Fault::Timeout(
+                tmt_extension_objects::Stage::Head,
+            )));
+        }
         let bus = Bus::start(
             link,
             self.bounds.frames,
@@ -317,6 +360,7 @@ impl<'s> ObjectService<'s> {
         &self,
         index: usize,
         built: Result<Running, ActivateError>,
+        deadline: Instant,
     ) -> Result<Uuid4, ActivateError> {
         // Channels are ended after the lock is released: ending joins threads.
         let (result, closing) = {
@@ -325,10 +369,22 @@ impl<'s> ObjectService<'s> {
             let slot = &mut state.slots[index];
             slot.setup = false;
             match built {
-                Err(error) => (Err(error), None),
-                Ok(running) if stopped => (Err(ActivateError::Stopped), Some(running)),
+                Err(error) => {
+                    slot.failure = Some(error);
+                    (Err(error), None)
+                }
+                Ok(running) if stopped || Instant::now() >= deadline => {
+                    let error = if stopped {
+                        ActivateError::Stopped
+                    } else {
+                        ActivateError::Channel(Fault::Timeout(tmt_extension_objects::Stage::Head))
+                    };
+                    slot.failure = Some(error);
+                    (Err(error), Some(running))
+                }
                 Ok(running) => {
                     let generation = running.generation();
+                    slot.failure = None;
                     (Ok(generation), slot.active.replace(running))
                 }
             }

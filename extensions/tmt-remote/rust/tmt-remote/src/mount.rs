@@ -184,6 +184,13 @@ pub trait OriginSink: Send + Sync {
         owner: Option<OwnerBinding>,
     ) -> Option<Arc<dyn OriginTicket>>;
 }
+/// Demand-triggered setup cannot change whether an admitted websocket is forwarded.
+/// The setup owner, not mounts, coalesces attempts and owns their short budget.
+pub trait ActivationSink: Send + Sync {
+    /// True only when an installed live channel may supply an origin ticket.
+    fn prepare(&self, extension: &str, deadline: Instant) -> bool;
+    fn close(&self);
+}
 /// One tunnel's origin. It is Pending until the tunnel is adopted, then established, and a
 /// close ends it for good: establishing after a close does nothing. Dropping the last
 /// handle closes it, and closing never blocks on a socket or on sessions.
@@ -281,6 +288,7 @@ pub struct Mounts {
     tunnels: Mutex<Tunnels>,
     /// Receives the origins of upgrades to object-declared extensions, when there is one.
     origins: Option<Arc<dyn OriginSink>>,
+    activation: Option<Arc<dyn ActivationSink>>,
 }
 #[derive(Default)]
 struct Tunnels {
@@ -318,6 +326,7 @@ impl Mounts {
             active: extensions.iter().map(|_| Arc::default()).collect(),
             tunnels: Mutex::default(),
             origins: None,
+            activation: None,
         }
     }
     /// The session resolver the mounts admit owner requests with.
@@ -329,8 +338,15 @@ impl Mounts {
         self.origins = Some(origins);
         self
     }
+    pub fn with_activation(mut self, activation: Arc<dyn ActivationSink>) -> Self {
+        self.activation = Some(activation);
+        self
+    }
     /// Close every live tunnel and join its thread; later tunnels are refused.
     pub fn shutdown(&self) {
+        if let Some(activation) = &self.activation {
+            activation.close();
+        }
         let running = match self.tunnels.lock() {
             Ok(mut tunnels) => {
                 tunnels.closed = true;
@@ -524,25 +540,35 @@ impl Mounts {
             Some(slot) => slot,
             None => None,
         };
+        let deadline = Instant::now() + limits::MOUNT_RESPONSE;
+        let object_ready = if websocket
+            && extension.objects == ObjectDeclaration::Local
+            && let Some(activation) = &self.activation
+        {
+            activation.prepare(extension.name, deadline)
+        } else {
+            true
+        };
         let Some(mut stream) = UnixStream::connect(&socket)
             .and_then(|s| s.set_nonblocking(true).map(|()| s))
             .ok()
         else {
             return Some(Reply::empty(503));
         };
-        let deadline = Instant::now() + limits::MOUNT_RESPONSE;
         let context = admitted.as_ref().map(|a| &a.context);
         // An origin exists only for a websocket upgrade to an extension that declares
         // objects and has an active channel; anything else carries no origin header.
         let origin = match (&self.origins, websocket) {
-            (Some(sink), true) if extension.objects == ObjectDeclaration::Local => sink.pending(
-                extension.name,
-                admitted.as_ref().map(|a| OwnerBinding {
-                    session: Arc::clone(&a.session),
-                    device_id: a.context.device_id.clone(),
-                    grant_revision: a.context.grant_revision,
-                }),
-            ),
+            (Some(sink), true) if object_ready && extension.objects == ObjectDeclaration::Local => {
+                sink.pending(
+                    extension.name,
+                    admitted.as_ref().map(|a| OwnerBinding {
+                        session: Arc::clone(&a.session),
+                        device_id: a.context.device_id.clone(),
+                        grant_revision: a.context.grant_revision,
+                    }),
+                )
+            }
             _ => None,
         };
         let origin_id = origin.as_ref().map(|ticket| ticket.id());

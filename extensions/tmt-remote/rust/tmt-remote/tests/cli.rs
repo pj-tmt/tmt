@@ -2634,3 +2634,98 @@ fn machine_status_preserves_unsupported_errors_and_strict_projection_shapes() {
     }
     assert_eq!(stopped_files(&pilot), before);
 }
+
+#[test]
+fn object_status_is_opt_in_live_only_and_preserves_strict_ordinary_discovery() {
+    let mut pilot = Pilot::new();
+    let stopped = pilot
+        .command()
+        .args(["status", "--objects", "--json"])
+        .output()
+        .unwrap();
+    assert!(stopped.status.success());
+    assert_eq!(
+        serde_json::from_slice::<Value>(&stopped.stdout).unwrap(),
+        serde_json::json!({"running":false,"lastPort":null})
+    );
+    let ready: Value =
+        serde_json::from_str(&start_door(&mut pilot, &["--port", "0"], false)).unwrap();
+    let (origin, path, _) = address_parts(ready["address"].as_str().unwrap());
+    let observed = pilot
+        .command()
+        .args(["status", "--objects", "--json"])
+        .output()
+        .unwrap();
+    assert!(observed.status.success());
+    assert_eq!(
+        serde_json::from_slice::<Value>(&observed.stdout).unwrap(),
+        serde_json::json!({"running":true,"origin":origin,"path":path,"objectChannels":[]})
+    );
+    for arguments in [
+        vec!["status", "--objects"],
+        vec!["status", "--objects", "--machine", "--json"],
+    ] {
+        assert!(
+            !pilot
+                .command()
+                .args(arguments)
+                .output()
+                .unwrap()
+                .status
+                .success()
+        );
+    }
+    terminate(pilot.child.take().unwrap());
+    let before = stopped_files(&pilot);
+    let valid = serde_json::json!({"running":true,"origin":origin,"path":path,"objectChannels":[{"extension":"alpha","state":"ready"},{"extension":"beta","state":"unavailable","reason":"setup"}]});
+    let reply = format!("{valid}\n");
+    let result = control_reply(
+        &pilot,
+        &["status", "--objects", "--json"],
+        serde_json::json!({"op":"status","objects":true}),
+        Some(&reply),
+    );
+    assert!(result.status.success());
+    assert_eq!(
+        serde_json::from_slice::<Value>(&result.stdout).unwrap(),
+        valid
+    );
+    for channels in [
+        Value::Null,
+        serde_json::json!([{"extension":"alpha","state":"ready","reason":null}]),
+        serde_json::json!([{"extension":"alpha","state":"ready"},{"extension":"alpha","state":"ready"}]),
+        serde_json::json!([{"extension":"../alpha","state":"ready"}]),
+        serde_json::json!([{"extension":"alpha","state":"unavailable"}]),
+        serde_json::json!([{"extension":"alpha","state":"unavailable","reason":"/private/socket"}]),
+        serde_json::json!([{"extension":"alpha","state":"ready","extra":true}]),
+    ] {
+        let mut malformed = valid.clone();
+        malformed["objectChannels"] = channels;
+        let reply = format!("{malformed}\n");
+        let result = control_reply(
+            &pilot,
+            &["status", "--objects", "--json"],
+            serde_json::json!({"op":"status","objects":true}),
+            Some(&reply),
+        );
+        assert!(!result.status.success(), "accepted {malformed}");
+        assert_eq!(
+            serde_json::from_slice::<Value>(&result.stdout).unwrap()["error"]["code"],
+            "REMOTE_IO"
+        );
+    }
+    let refusal = serde_json::json!({"error":{"code":"REMOTE_CONTROL_UNSUPPORTED","message":"Unknown control operation."}});
+    let reply = format!("{refusal}\n");
+    let result = control_reply(
+        &pilot,
+        &["status", "--objects", "--json"],
+        serde_json::json!({"op":"status","objects":true}),
+        Some(&reply),
+    );
+    assert_eq!(
+        serde_json::from_slice::<Value>(&result.stdout).unwrap(),
+        refusal
+    );
+    assert!(!result.status.success());
+    assert_eq!(stopped_files(&pilot), before);
+}
