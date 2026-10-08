@@ -1248,7 +1248,3 @@ core discovery or storage access.
 - **Plaintext invariant.** Page source, discussion reads and export are root-local: only the isolated decoder
   child decodes Yjs, no route serves plaintext, and the browser Worker is resource
   containment, not a security sandbox. Private causal preparation returns deltas; pure [publication codecs](extensions/tmt-colab/contracts/colab-v1.md#content-publication-1908-1928-1934) validate sealed intent. The native library prepares a frozen signed packet and chain from one authenticated snapshot, then atomically retains content (or, as `kind:"own"`, a status action) with its scoped terminal outcome in the existing Store; `tmt colab page write` and `threads resolve|reopen` publish through it (offline or the local `page-publish` route), while Browser Save still uses its single-update path.
-- **Discussion authority.** Status authority derives from the verified owner-member issuer
-  of admitted own envelopes, not from a historical signing key. Revocation blocks new
-  publication without erasing admitted history. Native and browser follow the same
-  authenticated status projection. See [Discussion modules](.agents/skills/tmt-colab/references/discussion.md).
