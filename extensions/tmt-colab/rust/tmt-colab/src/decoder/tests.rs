@@ -5,7 +5,7 @@ fn invocation_phases_follow_existing_namespace_edit_merge_and_baseline_actions()
     for (namespace, edit, merge, expected) in [
         (Namespace::Content, false, false, "content.decode"),
         (Namespace::Own, false, false, "own.decode"),
-        (Namespace::Content, true, false, "content.edit"),
+        (Namespace::Own, true, false, "own.edit"),
         (Namespace::Content, false, true, "content.merge"),
         (Namespace::Own, false, true, "own.merge"),
     ] {
@@ -31,7 +31,7 @@ fn failure_record_is_finite_ascii_and_excludes_original_private_causes() {
         ChildCommand::OwnDecode,
         ChildCommand::ContentMerge,
         ChildCommand::OwnMerge,
-        ChildCommand::ContentEdit,
+        ChildCommand::OwnEdit,
         ChildCommand::BaselineProduce,
         ChildCommand::BaselinePage,
         ChildCommand::BaselineVerify,
@@ -511,43 +511,33 @@ fn edited_projection_preserves_full_metadata_publisher_set_clear_and_noop() {
 }
 
 #[test]
-fn borrowed_binary_wire_matches_fixed_own_content_edit_and_merge_bytes() {
+fn borrowed_binary_wire_matches_fixed_own_content_read_and_merge_bytes() {
     let baseline = [0, 1, 2];
     let first = [255];
-    for (namespace, source, publisher, merge, expected) in [
+    for (namespace, merge, expected) in [
         (
             Namespace::Own,
-            None,
-            None,
             false,
             r#"{"version":1,"namespace":"own","baseline":"AAEC","updates":["_w",""]}"#,
         ),
         (
             Namespace::Content,
-            Some("x🐈\n\"\\"),
-            Some("agent"),
             false,
-            r#"{"version":1,"source":"x🐈\n\"\\","publisher_agent":"agent","namespace":"content","baseline":"AAEC","updates":["_w",""]}"#,
+            r#"{"version":1,"namespace":"content","baseline":"AAEC","updates":["_w",""]}"#,
         ),
         (
             Namespace::Content,
-            Some(""),
-            None,
-            false,
-            r#"{"version":1,"source":"","namespace":"content","baseline":"AAEC","updates":["_w",""]}"#,
+            true,
+            r#"{"version":1,"namespace":"content","baseline":"AAEC","updates":["_w",""],"merge_only":true}"#,
         ),
         (
             Namespace::Own,
-            None,
-            None,
             true,
             r#"{"version":1,"namespace":"own","baseline":"AAEC","updates":["_w",""],"merge_only":true}"#,
         ),
     ] {
         let wire = WireBatch {
             version: 1,
-            source: source.map(str::to_owned),
-            publisher_agent: publisher.map(str::to_owned),
             namespace,
             baseline: EncodedBytes(&baseline),
             updates: vec![EncodedBytes(&first), EncodedBytes(&[])],
@@ -592,8 +582,9 @@ fn borrowed_binary_wire_matches_fixed_own_content_edit_and_merge_bytes() {
             assert!(serde_json::from_str::<WireBatch>(&malformed).is_err());
         }
     }
-    // The original optional fields accept explicit null and serialize by omission.
-    let explicit_null = r#"{"version":1,"source":null,"publisher_agent":null,"namespace":"own","baseline":"","updates":[]}"#;
+    // The own-record optional field accepts explicit null and serializes by omission.
+    let explicit_null =
+        r#"{"version":1,"records":null,"namespace":"own","baseline":"","updates":[]}"#;
     let wire: WireBatch = serde_json::from_str(explicit_null).unwrap();
     assert_eq!(
         serde_json::to_string(&wire).unwrap(),
@@ -780,6 +771,8 @@ fn child_borrowed_parse_matches_owned_strict_grammar_and_escape_fallback() {
     let mut malformed: Vec<Vec<u8>> = [
         literal.replace("\"version\":1", "\"version\":1,\"version\":1"),
         literal.replace("\"version\":1", "\"version\":1,\"extra\":0"),
+        literal.replace("\"version\":1", "\"version\":1,\"source\":null"),
+        literal.replace("\"version\":1", "\"version\":1,\"publisher_agent\":null"),
         literal.replace("\"AAEC\"", "null"),
         literal.replace("\"AAEC\"", "1"),
         literal.replace("[\"_w\",\"\"]", "[null]"),
@@ -981,8 +974,6 @@ fn observation_reader_reply_preserves_deterministic_read_merge_and_failure_order
         for merge_only in [false, true] {
             let wire = WireBatch {
                 version: 1,
-                source: None,
-                publisher_agent: None,
                 namespace,
                 baseline: String::new(),
                 updates: vec![URL_SAFE_NO_PAD.encode(&update)],
@@ -1256,7 +1247,7 @@ sys.stdout.buffer.write(reply)
 }
 
 #[test]
-fn observation_edit_delta_and_wrong_base_keep_independent_semantics() {
+fn observation_preparation_delta_and_wrong_base_keep_independent_semantics() {
     use yrs::{
         Doc, GetString, Map, ReadTxn, StateVector, Text, Transact, Update, updates::decoder::Decode,
     };
@@ -1268,27 +1259,30 @@ fn observation_edit_delta_and_wrong_base_keep_independent_semantics() {
     let baseline = doc
         .transact()
         .encode_state_as_update_v1(&StateVector::default());
-    let wire = WireBatch {
+    let wire = WireContentPreparation {
         version: 1,
-        source: Some("new 🐈".into()),
-        publisher_agent: Some("agent".into()),
-        namespace: Namespace::Content,
         baseline: URL_SAFE_NO_PAD.encode(&baseline),
         updates: Vec::<String>::new(),
-        records: None,
-        merge_only: false,
+        expected_base: serde_json::json!({"html":"old","meta":{"title":"T"}}),
+        source: "new 🐈",
+        publisher_agent: Some("agent"),
     };
     let input = serde_json::to_vec(&wire).unwrap();
     for observe in [false, true] {
         let mut output = Vec::new();
         let mut checkpoints = Vec::new();
-        child::request_for_test(input.as_slice(), None, &mut output, &mut |s, e, n| {
-            if observe {
-                checkpoints.push((s, e, n));
-            }
-        })
+        child::request_for_test(
+            input.as_slice(),
+            Some("prepare-content"),
+            &mut output,
+            &mut |s, e, n| {
+                if observe {
+                    checkpoints.push((s, e, n));
+                }
+            },
+        )
         .unwrap();
-        let reply: WireResult = serde_json::from_slice(&output).unwrap();
+        let reply: WirePreparedContent = serde_json::from_slice(&output).unwrap();
         assert_eq!(
             reply.projection,
             serde_json::json!({"html":"new 🐈","meta":{"title":"T","publisherAgent":"agent"}})
@@ -1304,10 +1298,15 @@ fn observation_edit_delta_and_wrong_base_keep_independent_semantics() {
             .transact_mut()
             .apply_update(Update::decode_v1(&baseline).unwrap())
             .unwrap();
-        reader
-            .transact_mut()
-            .apply_update(Update::decode_v1(&binary(&reply.merged, UPDATE_BYTES).unwrap()).unwrap())
-            .unwrap();
+        let WireContentBatch::Updates { updates } = &reply.batch else {
+            panic!("changed source must produce causal updates");
+        };
+        for delta in updates {
+            reader
+                .transact_mut()
+                .apply_update(Update::decode_v1(&binary(delta, UPDATE_BYTES).unwrap()).unwrap())
+                .unwrap();
+        }
         assert_eq!(
             reader
                 .get_or_insert_text("html")
@@ -1315,11 +1314,9 @@ fn observation_edit_delta_and_wrong_base_keep_independent_semantics() {
             "new 🐈"
         );
         if observe {
-            assert!(
-                checkpoints
-                    .iter()
-                    .any(|v| v.0 == child::Stage::Edit && v.1 == child::CheckpointBoundary::Leave)
-            );
+            assert!(checkpoints.iter().any(
+                |v| v.0 == child::Stage::Generation && v.1 == child::CheckpointBoundary::Leave
+            ));
         }
     }
     let wrong = WireContentPreparation {
@@ -1663,15 +1660,9 @@ fn one_generated_reply_preserves_owned_wire_projection_and_independent_replay() 
         let update = doc
             .transact()
             .encode_state_as_update_v1(&StateVector::default());
-        for (source, publisher, merge_only) in
-            [(None, None, false), (None, None, true)].into_iter().chain(
-                (namespace == Namespace::Content).then_some((Some("new 🐈"), Some("next"), false)),
-            )
-        {
+        for merge_only in [false, true] {
             let input = serde_json::to_vec(&WireBatch {
                 version: 1,
-                source: source.map(str::to_owned),
-                publisher_agent: publisher.map(str::to_owned),
                 namespace,
                 baseline: String::new(),
                 updates: vec![URL_SAFE_NO_PAD.encode(&update)],
@@ -1712,29 +1703,12 @@ fn one_generated_reply_preserves_owned_wire_projection_and_independent_replay() 
                     }
                 }
             }
-            if source.is_some() {
-                reader
-                    .transact_mut()
-                    .apply_update(Update::decode_v1(&update).unwrap())
-                    .unwrap();
-            }
             reader
                 .transact_mut()
                 .apply_update(Update::decode_v1(&merged).unwrap())
                 .unwrap();
             if merge_only {
                 assert_eq!(reply.projection, Value::Null);
-            } else if let Some(source) = source {
-                assert_eq!(
-                    reader
-                        .get_or_insert_text("html")
-                        .get_string(&reader.transact()),
-                    source
-                );
-                assert_eq!(
-                    reply.projection,
-                    serde_json::json!({"html":source,"meta":{"title":"T","publisherAgent":"next"}})
-                );
             } else {
                 assert_eq!(reply.projection, expected);
                 if namespace == Namespace::Content {

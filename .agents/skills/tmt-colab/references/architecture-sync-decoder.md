@@ -72,7 +72,7 @@ and `limits.rs`; do not restate them.
 - `page::prepare_publication` uses one admitted `fold::Snapshot` and its extracted
   materialization input owner for exact base/full metadata/own projections and causal decoder inputs.
   It returns Noop before ID/sequence/seal/certificate work, or a frozen signed content packet and
-  chain through the existing local Keyring writer. Both single-edit and batch gzip admission include
+  chain through the existing local Keyring writer. Batch gzip admission includes
   all own bytes in the checked raw fastpath. `page write` and the browser Save (`page/save.rs`) are its callers.
 - `page/compact.rs` combines the local device's own stream after a write (best effort, repeatable):
   it opens only that stream's objects through `Snapshot::open_object`, merges them in the decoder

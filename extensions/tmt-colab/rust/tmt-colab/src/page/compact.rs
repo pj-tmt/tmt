@@ -153,11 +153,10 @@ pub fn compact(
             .iter()
             .map(|(_, _, index, _, merged)| (*index, merged.clone()))
             .collect::<BTreeMap<_, _>>();
-        let candidate =
-            match s.materialize_with_replacements(key, page, decoder, None, &replacements) {
-                Ok(candidate) => candidate,
-                Err(_) => return Ok(None),
-            };
+        let candidate = match s.materialize_with_replacements(key, page, decoder, &replacements) {
+            Ok(candidate) => candidate,
+            Err(_) => return Ok(None),
+        };
         if current.source != candidate.source
             || current.meta != candidate.meta
             || current.own != candidate.own

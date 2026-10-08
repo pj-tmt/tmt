@@ -154,12 +154,6 @@ fn execute_with(
     checkpoint(Stage::Json, CheckpointBoundary::Leave, 0);
     if wire.version != 1
         || wire.updates.len() > UPDATES
-        || wire
-            .publisher_agent
-            .as_deref()
-            .is_some_and(|v| !valid_publisher_agent(v))
-        || (wire.source.is_none() && wire.publisher_agent.is_some())
-        || (wire.source.is_some() && wire.records.is_some())
         || (wire.records.is_some() && wire.namespace != Namespace::Own)
     {
         return Err(DecodeFault::InvalidInput);
@@ -218,9 +212,6 @@ fn execute_with(
         }
     }
     if wire.merge_only {
-        if wire.source.is_some() {
-            return Err(DecodeFault::InvalidInput);
-        }
         checkpoint(Stage::Merge, CheckpointBoundary::Enter, 0);
         let merged = yrs::merge_updates_v1(updates.iter().map(Vec::as_slice))
             .map_err(|_| DecodeFault::Rejected)?;
@@ -244,44 +235,8 @@ fn execute_with(
     checkpoint(Stage::Project, CheckpointBoundary::Enter, 0);
     let before = project(&doc, wire.namespace)?;
     checkpoint(Stage::Project, CheckpointBoundary::Leave, 0);
-    let recipient = before["meta"].get("creationRecipient").cloned();
     // Edit only the admitted structs. The delta never reattributes foreign content.
-    let (merged, projection) = if let Some(source) = &wire.source {
-        if wire.namespace != Namespace::Content || source.len() > BASELINE_BYTES {
-            return Err(DecodeFault::InvalidInput);
-        }
-        checkpoint(Stage::Edit, CheckpointBoundary::Enter, 0);
-        let old = before["html"].as_str().ok_or(DecodeFault::Rejected)?;
-        let (start, end) = content_diff(old, source);
-        let vector = doc.transact().state_vector();
-        let text = doc.get_or_insert_text("html");
-        let meta = doc.get_or_insert_map("meta");
-        let mut tx = doc.transact_mut();
-        text.remove_range(
-            &mut tx,
-            start.try_into().map_err(|_| DecodeFault::Rejected)?,
-            (old.len() - start - end)
-                .try_into()
-                .map_err(|_| DecodeFault::Rejected)?,
-        );
-        text.insert(
-            &mut tx,
-            start.try_into().map_err(|_| DecodeFault::Rejected)?,
-            &source[start..source.len() - end],
-        );
-        if let Some(agent) = wire.publisher_agent.as_deref() {
-            meta.insert(&mut tx, "publisherAgent", agent);
-        } else {
-            meta.remove(&mut tx, "publisherAgent");
-        }
-        let merged = tx.encode_state_as_update_v1(&vector);
-        drop(tx);
-        checkpoint(Stage::Edit, CheckpointBoundary::Leave, 0);
-        checkpoint(Stage::Project, CheckpointBoundary::Enter, 1);
-        let projection = project(&doc, wire.namespace)?;
-        checkpoint(Stage::Project, CheckpointBoundary::Leave, 1);
-        (merged, projection)
-    } else if let Some(records) = &wire.records {
+    let (merged, projection) = if let Some(records) = &wire.records {
         checkpoint(Stage::Edit, CheckpointBoundary::Enter, 0);
         let vector = doc.transact().state_vector();
         let mut tx = doc.transact_mut();
@@ -319,12 +274,9 @@ fn execute_with(
         checkpoint(Stage::Merge, CheckpointBoundary::Leave, 0);
         (merged, before)
     };
-    if wire.source.is_some() && projection["meta"].get("creationRecipient") != recipient.as_ref() {
-        return Err(DecodeFault::Rejected);
-    }
     // A prepared edit is one update; a read's merged tail may be the whole state.
     if merged.len()
-        > if wire.source.is_some() || wire.records.is_some() {
+        > if wire.records.is_some() {
             UPDATE_BYTES
         } else {
             STATE_BYTES

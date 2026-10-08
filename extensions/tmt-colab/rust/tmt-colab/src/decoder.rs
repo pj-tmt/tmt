@@ -81,11 +81,6 @@ pub struct OwnRecord {
     pub key: String,
     pub value: Value,
 }
-#[derive(Clone, Copy)]
-enum Edit<'a> {
-    Content(ContentEdit<'a>),
-    Own(&'a [OwnRecord]),
-}
 fn validate_own_records(records: &[OwnRecord]) -> Result<(), DecodeFault> {
     let mut keys = std::collections::BTreeSet::new();
     if records.is_empty() || records.len() > crate::limits::OWN_RECORDS {
@@ -187,7 +182,7 @@ enum ChildCommand {
     OwnDecode,
     ContentMerge,
     OwnMerge,
-    ContentEdit,
+    OwnEdit,
     BaselineProduce,
     BaselinePage,
     BaselineVerify,
@@ -196,10 +191,10 @@ enum ChildCommand {
 impl ChildCommand {
     fn decode(namespace: Namespace, edit: bool, merge_only: bool) -> Self {
         match (namespace, edit, merge_only) {
-            (_, true, _) => Self::ContentEdit,
-            (Namespace::Content, false, true) => Self::ContentMerge,
+            (Namespace::Own, true, _) => Self::OwnEdit,
+            (Namespace::Content, _, true) => Self::ContentMerge,
             (Namespace::Own, false, true) => Self::OwnMerge,
-            (Namespace::Content, false, false) => Self::ContentDecode,
+            (Namespace::Content, _, false) => Self::ContentDecode,
             (Namespace::Own, false, false) => Self::OwnDecode,
         }
     }
@@ -209,7 +204,7 @@ impl ChildCommand {
             Self::OwnDecode => "own.decode",
             Self::ContentMerge => "content.merge",
             Self::OwnMerge => "own.merge",
-            Self::ContentEdit => "content.edit",
+            Self::OwnEdit => "own.edit",
             Self::BaselineProduce => "baseline.produce",
             Self::BaselinePage => "baseline.page",
             Self::BaselineVerify => "baseline.verify",
@@ -312,7 +307,7 @@ impl Decoder {
         &mut self,
         batch: UpdateBatch<'_>,
         role: Role,
-        edit: Option<Edit<'_>>,
+        records: Option<&[OwnRecord]>,
         merge_only: bool,
         stop: Option<&AtomicBool>,
         deadline: Instant,
@@ -338,18 +333,7 @@ impl Decoder {
         let wire = WireBatch {
             version: 1,
             namespace: batch.namespace,
-            source: match edit {
-                Some(Edit::Content(v)) => Some(v.source.to_owned()),
-                _ => None,
-            },
-            publisher_agent: match edit {
-                Some(Edit::Content(v)) => v.publisher_agent.map(str::to_owned),
-                _ => None,
-            },
-            records: match edit {
-                Some(Edit::Own(v)) => Some(v.to_vec()),
-                _ => None,
-            },
+            records: records.map(<[OwnRecord]>::to_vec),
             baseline: EncodedBytes(batch.baseline),
             updates: batch.updates.iter().map(|v| EncodedBytes(v)).collect(),
             merge_only,
@@ -364,7 +348,7 @@ impl Decoder {
         let after_hash = Instant::now();
         let output = self.invoke(
             &input,
-            ChildCommand::decode(batch.namespace, edit.is_some(), merge_only),
+            ChildCommand::decode(batch.namespace, records.is_some(), merge_only),
             stop,
             deadline,
             Some(ParentTiming::from_samples([
@@ -394,25 +378,20 @@ impl Decoder {
         } else {
             validate_projection(batch.namespace, &reply.projection)?;
         }
-        let wrong_edit = match edit {
-            Some(Edit::Content(value)) => {
-                reply.projection["html"].as_str() != Some(value.source)
-                    || reply.projection["meta"]["publisherAgent"].as_str() != value.publisher_agent
-            }
-            Some(Edit::Own(records)) => records.iter().any(|record| {
+        let wrong_edit = records.is_some_and(|records| {
+            records.iter().any(|record| {
                 reply
                     .projection
                     .get(&record.root)
                     .and_then(|root| root.get(&record.key))
                     != Some(&record.value)
-            }),
-            None => false,
-        };
+            })
+        });
         if wrong_edit {
             return Err(DecodeFault::InvalidOutput);
         }
         // A prepared edit returns one update; a read returns the merged tail.
-        let merged_limit = if edit.is_some() {
+        let merged_limit = if records.is_some() {
             UPDATE_BYTES
         } else {
             STATE_BYTES
@@ -424,29 +403,6 @@ impl Decoder {
             memory_limit: reply.memory_limit,
             child_pid: reply.pid,
         })
-    }
-    pub fn prepare(
-        &mut self,
-        batch: UpdateBatch<'_>,
-        edit: ContentEdit<'_>,
-        stop: Option<&AtomicBool>,
-    ) -> Result<Decoded, DecodeFault> {
-        if edit.source.len() > BASELINE_BYTES
-            || batch.namespace != Namespace::Content
-            || edit
-                .publisher_agent
-                .is_some_and(|v| !valid_publisher_agent(v))
-        {
-            return Err(DecodeFault::InvalidInput);
-        }
-        self.decode_request(
-            batch,
-            Role::Editor,
-            Some(Edit::Content(edit)),
-            false,
-            stop,
-            Instant::now() + self.config.deadline,
-        )
     }
     /// Prepares one immutable own update without committing it to any stream.
     pub fn prepare_own(
@@ -462,7 +418,7 @@ impl Decoder {
         self.decode_request(
             batch,
             Role::Commenter,
-            Some(Edit::Own(records)),
+            Some(records),
             false,
             stop,
             Instant::now() + self.config.deadline,
@@ -671,7 +627,7 @@ impl Decoder {
             | ChildCommand::OwnDecode
             | ChildCommand::ContentMerge
             | ChildCommand::OwnMerge
-            | ChildCommand::ContentEdit => {}
+            | ChildCommand::OwnEdit => {}
             ChildCommand::BaselineProduce
             | ChildCommand::BaselinePage
             | ChildCommand::BaselineVerify => args.push("baseline".into()),
@@ -849,10 +805,6 @@ impl std::ops::Deref for BorrowedWireText<'_> {
 #[serde(deny_unknown_fields)]
 struct WireBatch<B = String> {
     version: u8,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    source: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    publisher_agent: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     records: Option<Vec<OwnRecord>>,
     namespace: Namespace,
