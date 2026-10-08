@@ -235,8 +235,8 @@ describe('former Squad hook consent during Ops replacement', () => {
       await enableHooks(sandbox, 'squad');
       const candidate = await createArtifact(sandbox, '0.1.0-alpha.2', new Uint8Array(), 'ops');
       await install(sandbox, candidate, prefix, ['--product', 'ops']);
-      const bin = path.join(prefix, 'bin');
-      chmodSync(bin, 0o500);
+      const formerRoot = path.join(prefix, 'lib/tmt-squad');
+      chmodSync(formerRoot, 0o500);
       try {
         const failed = await runCli(sandbox, [...replacementArgs(candidate, prefix), '--json'], {
           deadlineMs: INSTALL_PROCESS_BUDGET_MS,
@@ -251,9 +251,11 @@ describe('former Squad hook consent during Ops replacement', () => {
             .extensions
         ).toEqual([]);
         expect(existsSync(path.join(prefix, 'lib/tmt-squad'))).toBe(true);
+        expect(existsSync(path.join(prefix, 'bin/tmt-squad'))).toBe(false);
+        expect(existsSync(path.join(prefix, 'bin/tmt-sq'))).toBe(false);
         expect(existsSync(path.join(prefix, 'bin/tmt-ops'))).toBe(true);
       } finally {
-        chmodSync(bin, 0o755);
+        chmodSync(formerRoot, 0o700);
       }
       const recovered = await runCli(sandbox, [...replacementArgs(candidate, prefix), '--json'], {
         deadlineMs: INSTALL_PROCESS_BUDGET_MS,
