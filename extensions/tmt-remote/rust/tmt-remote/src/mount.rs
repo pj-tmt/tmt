@@ -56,14 +56,14 @@ pub enum ObjectDeclaration {
     Local,
 }
 /// Slice 1 mounts exactly colab; a general enabled-extension registry is later work.
-/// Colab's object declaration stays disabled until its real adapter is ready.
+/// Only Colab declares Local objects; its current callback must admit each operation.
 pub static EXTENSIONS: [Extension; 1] = [Extension {
     name: "colab",
     body_bytes: 64 * 1024,
     reply_bytes: 16 * 1024 * 1024,
     tunnels: 16,
     tunnel_idle: Duration::from_secs(120),
-    objects: ObjectDeclaration::Disabled,
+    objects: ObjectDeclaration::Local,
 }];
 /// Seconds a client should wait before retrying a refused upgrade.
 pub const RETRY_AFTER_SECONDS: u32 = 5;

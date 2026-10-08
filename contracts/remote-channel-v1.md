@@ -1174,14 +1174,13 @@ Visibility is the extension's rule, not a remote grant.
 
 ### Object channel frames
 
-**Status:** library wire schema only. `rust/crates/tmt-extension-objects` implements and tests the five frame kinds below
-(request, result, admit, admission and origin-state), all decoded and encoded by the same checks, and, on Unix, the
-carrier below that opens the channel, moves frames with bounded waits and enforces direction and correlation; no mount
-or route integration, callback executor or backend is shipped (#1852). Remote's object service (`tmt-remote`, library
-code that is not routed or reachable in production) opens the channel to an extension only when a static, trusted
-per-extension declaration enables it; every production declaration is disabled and nothing in production opens a
-channel. Serve attempts each Local declaration before door readiness. Subsequently, a validated Local websocket
-upgrade with an absent or ended channel joins one bounded reactivation attempt; healthy channels are unchanged.
+**Status:** Remote ships the wire schema, Unix carrier, callback executor and lease-bound backend below.
+The static production registry enables only Colab; no other extension declares objects, and no route, SDK setting
+or user action enables them. Serve may open an empty ledger, but without a Colab adapter's current admission every
+object operation is refused before a ledger effect. Transport-only negative fixtures do not establish Colab routed
+acceptance: #1852 still requires Colab's upload/read proof on shipped binaries. Serve attempts each Local declaration
+before door readiness. Subsequently, a validated Local websocket upgrade with an absent or ended channel joins one
+bounded reactivation attempt; healthy channels are unchanged.
 Failure forwards the upgrade without an origin, preserving page sync. Channel end, assets and status never trigger
 setup. New generations inherit no old origins; no object operation is replayed. On an opened channel it answers `config` after current `acquire` and `disclose`
 admissions, for a local-extension origin (the owner's limits) and for a mounted origin that stands (the reduced browser
@@ -1189,7 +1188,7 @@ limits, whether or not an owner session is bound). It also answers observational
 `read` after fresh acquire and disclose admissions, with an exact current-context, metadata, cancellation and absolute
 request-budget fence before disclosure. Original lookup is scoped by installed extension, caller transfer ID and actual
 owner device, local extension or non-owner connection origin; a non-owner reconnect has a new scope. Status never adopts
-or repairs an original. The library also answers `begin`, `part`, `commit` and `discard` through the existing local
+or repairs an original. The service also answers `begin`, `part`, `commit` and `discard` through the existing local
 backend algorithm after fresh acquire and effect admissions, then disclose admission for successful results. Later
 upload callbacks use the scoped original's frozen input, and staging work clips its budget to the original expiry,
 without renewal. A connection-scoped upload cannot be recovered after reconnect; its retained row stays charged and

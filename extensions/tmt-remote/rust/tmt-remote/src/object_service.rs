@@ -7,8 +7,8 @@
 //! at most [`ServiceBounds::buses`] buses in all. A channel is opened only by an
 //! explicit [`ObjectService::activate`]; a failed setup is reported and dropped, with no
 //! retry and no polling. Serve attempts activation once per Local declaration before
-//! door readiness and shuts down the service before releasing its lease. Every
-//! production declaration remains Disabled, so no production object channel opens.
+//! door readiness and shuts down the service before releasing its lease. The
+//! static mount registry alone chooses enabled extensions; callbacks grant no cached authority.
 //!
 //! Locks are short and never held across I/O, a connect, a handshake or a close.
 use crate::{

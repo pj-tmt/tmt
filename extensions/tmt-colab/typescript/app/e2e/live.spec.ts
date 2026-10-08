@@ -1,6 +1,12 @@
 import { readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
-import { expect, test, type BrowserContext, type WebSocketRoute } from '@playwright/test';
+import {
+  expect,
+  test,
+  type BrowserContext,
+  type Locator,
+  type WebSocketRoute,
+} from '@playwright/test';
 import { capturePath } from './captures.js';
 import * as c from '@tmt/colab-client';
 import type { PageView } from '../src/transport.js';
@@ -1651,6 +1657,98 @@ for (const width of [1440, 390])
         await expect.poll(() => f.connections).toBe(0);
       });
     }
+
+/** The control is the topmost element at its own center: nothing sits over it. */
+async function expectUncovered(control: Locator) {
+  await expect(control).toBeVisible();
+  const covered = await control.evaluate((node) => {
+    const box = node.getBoundingClientRect();
+    const top = document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2);
+    return !top || !(node === top || node.contains(top));
+  });
+  expect(covered).toBe(false);
+}
+
+// A tab that outlives an upgrade shows one row directly under the fixed header; the page
+// moves down by its height, so no control (Chat composer, annotate window) is covered.
+test('an upgraded server shows the update row under the header without covering page controls', async ({
+  page,
+  context,
+}, testInfo) => {
+  const built = (hash: string) => `/assets/index-${hash}.js`;
+  const [oldEntry, newEntry] = [built('OLDOLD12'), built('NEWNEW34')];
+  await draftRecoveryWire(context);
+  let loaded = false;
+  await context.route(`**${mount}`, async (route) => {
+    const first = route.request().isNavigationRequest() && !loaded;
+    loaded ||= route.request().isNavigationRequest();
+    const response = await route.fetch();
+    const html = await response.text();
+    await route.fulfill({
+      response,
+      body: html.replace('/src/main.tsx', first ? oldEntry : newEntry),
+    });
+  });
+  for (const entry of [oldEntry, newEntry])
+    await context.route(`**${entry}`, (route) =>
+      route.fulfill({ contentType: 'text/javascript', body: "import '/src/main.tsx';" }),
+    );
+  await page.goto(mount);
+  await page.locator(`[data-page-id="${v.page}"] a`).click();
+  const heading = page.frameLocator('iframe').getByRole('heading', { name: 'Live fixture' });
+  await expect(heading).toBeVisible();
+  const row = page.locator('[data-update-notice]');
+  await expect(row).toHaveText(`${copy.updated}${copy.reload}`);
+  await expect(row).toHaveAttribute('role', 'status');
+  for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 900 });
+    const rowBox = (await row.boundingBox())!;
+    const headerBox = (await page.locator('header.tmt-ui-header').boundingBox())!;
+    // Directly under the header bar, full width, one line, pushing the page down.
+    expect(rowBox.y).toBeCloseTo(headerBox.y + headerBox.height, 0);
+    expect(rowBox.width).toBeCloseTo(width, 0);
+    expect(rowBox.height).toBe(40);
+    const mainBox = (await page.locator('main').boundingBox())!;
+    expect(mainBox.y).toBeGreaterThanOrEqual(rowBox.y + rowBox.height - 1);
+    // Chat open: the composer's actions stay reachable, not under the row.
+    const toggle = page.getByTestId('chat-toggle');
+    if (!(await page.locator('.page-drawer[data-panel=chat][open]').isVisible())) {
+      if (!(await toggle.isVisible()))
+        await page.getByRole('button', { name: 'More page actions' }).click();
+      await toggle.click();
+    }
+    const panel = page.getByTestId('chat-panel');
+    await expect(panel).toBeVisible();
+    // At 390 the drawer is a full-screen modal above header and row alike.
+    if (width === 1440)
+      expect((await panel.boundingBox())!.y).toBeGreaterThanOrEqual(rowBox.y + rowBox.height - 1);
+    await expectUncovered(panel.getByRole('button', { name: 'Send', exact: true }));
+    for (const theme of ['light', 'dark']) {
+      await page.evaluate((value) => (document.documentElement.dataset.theme = value), theme);
+      await page.screenshot({ path: testInfo.outputPath(`update-chat-${theme}-${width}.png`) });
+    }
+    await page.getByRole('button', { name: 'Close Chat', exact: true }).click();
+    // The annotate window opens below the row as well.
+    await heading.evaluate((node) => {
+      const range = document.createRange();
+      range.selectNodeContents(node);
+      const selection = getSelection()!;
+      selection.removeAllRanges();
+      selection.addRange(range);
+    });
+    await page.getByTestId('selection-ask').click();
+    const dialog = page.getByRole('dialog', { name: 'Annotate selection' });
+    await expect(dialog).toBeVisible();
+    if (width === 1440)
+      expect((await dialog.boundingBox())!.y).toBeGreaterThanOrEqual(rowBox.y + rowBox.height - 1);
+    await expectUncovered(dialog.getByRole('button', { name: 'Ask agent', exact: true }));
+    for (const theme of ['light', 'dark']) {
+      await page.evaluate((value) => (document.documentElement.dataset.theme = value), theme);
+      await page.screenshot({ path: testInfo.outputPath(`update-annotate-${theme}-${width}.png`) });
+    }
+    await page.keyboard.press('Escape');
+  }
+});
 
 test('same-device tabs stay connected and exchange source edits without reopening', async ({
   page,

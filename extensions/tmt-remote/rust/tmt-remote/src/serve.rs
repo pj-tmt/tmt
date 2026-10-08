@@ -692,7 +692,7 @@ fn foreground_with(
         // The origins of tunnels to object-declared extensions, shared by mounts and service.
         let origins = Origins::default();
         // Object readiness requires settled accounting, but its failure leaves the door usable.
-        // Every production declaration remains disabled.
+        // The static registry alone selects object storage; missing listeners remain degraded.
         let objects = ObjectService::open(
             &serving,
             extensions,
@@ -819,10 +819,19 @@ fn foreground_with(
         fence(stop)?;
         if let Some(objects) = &objects {
             for failure in activate_objects(objects, &site.mounts, extensions, stop)? {
-                object_warning(&format!(
-                    "Object channel unavailable for {}: {:?}",
-                    failure.extension, failure.error
-                ));
+                // An extension that is not running is ordinary degraded storage,
+                // visible through opt-in status rather than startup noise.
+                if !matches!(
+                    failure.error,
+                    ActivateError::Connect(
+                        std::io::ErrorKind::NotFound | std::io::ErrorKind::ConnectionRefused
+                    )
+                ) {
+                    object_warning(&format!(
+                        "Object channel unavailable for {}: {:?}",
+                        failure.extension, failure.error
+                    ));
+                }
             }
         }
         fence(stop)?;
