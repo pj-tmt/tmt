@@ -53,7 +53,18 @@ async function waitForProcessExit(pid: number, timeoutMs: number): Promise<void>
 async function waitForFile(file: string, timeoutMs: number): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   while (!fs.existsSync(file)) {
-    if (Date.now() >= deadline) throw new Error(`File ${file} did not appear.`);
+    if (Date.now() >= deadline) {
+      const directory = path.dirname(file);
+      let entries: string;
+      try {
+        entries = JSON.stringify(fs.readdirSync(directory).sort());
+      } catch (error) {
+        entries = `unavailable (${error instanceof Error ? error.message : String(error)})`;
+      }
+      throw new Error(
+        `File ${file} did not appear. Started marker present: ${fs.existsSync(path.join(directory, 'started'))}; directory entries: ${entries}.`
+      );
+    }
     await new Promise((resolve) => setTimeout(resolve, 20));
   }
 }
@@ -266,7 +277,7 @@ describe('CLI executable descriptors', () => {
     const executable = writeExecutable(
       root,
       'long-running',
-      '#!/bin/sh\n(sleep 30) &\necho "$!" > "$1"\nwhile :; do sleep 1; done\n'
+      '#!/bin/sh\necho started > "${1%/*}/started"\n(sleep 30) &\necho "$!" > "$1"\nwhile :; do sleep 1; done\n'
     );
     const sandbox = sandboxWithEnv({ TMT_TEST_CLI: descriptor(executable, [childPidPath]) });
 
