@@ -56,9 +56,9 @@ test('a same-request annotation reply recovers from a visible transient read fai
       page.getByRole('dialog', { name: 'Annotate selection' }),
       agent.name,
     );
-    await expect(input).toHaveText('', { useInnerText: true });
-    await input.fill('Explain this passage.');
-    await page.getByRole('button', { name: 'Ask agent', exact: true }).click();
+    await expect(input).toHaveText(`@${agent.name} `, { useInnerText: true });
+    await input.fill(`@${agent.name} Explain this passage.`);
+    await page.getByRole('button', { name: 'Send', exact: true }).click();
     await until(() => agent.received().length === 1, 'annotation delivery');
     await expect(page.getByTestId('ask-state')).toHaveAttribute('data-state', 'accepted');
     const requestId = agent.received()[0].requestId as string;
@@ -252,6 +252,7 @@ test('paired writers retain anchored annotation conversations, direct exact send
     await first.getByTestId('selection-ask').click();
     const compose = first.locator('.annotation-new');
     const input = await inputFor(compose, agent.name);
+    // The reader removed the mention and closed this same selection earlier.
     await expect(input).toHaveText('', { useInnerText: true });
     const over = `@${agent.name} ${'é'.repeat(8193)}`;
     await input.fill(over);
@@ -296,7 +297,7 @@ test('paired writers retain anchored annotation conversations, direct exact send
     await expect(compose.getByText(text.commentQuoteChanged)).toBeVisible();
     expect(Math.abs((await first.evaluate(() => window.scrollY)) - offset)).toBeLessThan(2);
     await input.evaluate((node) => Object.assign(window, { retainedAnnotationInput: node }));
-    await compose.getByRole('button', { name: 'Ask agent', exact: true }).click();
+    await compose.getByRole('button', { name: 'Send', exact: true }).click();
     await until(() => agent.received().length === 1, 'opening annotation delivered');
     expect(agent.received()[0].message).toContain('[remote: discussion-author]\n');
     expect(agent.received()[0].message).toContain(opening);
@@ -524,7 +525,7 @@ test('paired writers retain anchored annotation conversations, direct exact send
   });
 });
 
-test('composer records plain annotations and replies without a recipient, then sends one explicitly selected no-prefix Ask', async () => {
+test('composer records plain annotations and replies without a recipient, then sends one explicit mention Ask', async () => {
   await withWorld(async (world) => {
     const door = await startDoor(world, await freePort());
     const agent = await world.startAgent('composer-agent', { gated: true });
@@ -567,8 +568,8 @@ test('composer records plain annotations and replies without a recipient, then s
     await expect(compose.getByRole('status')).toContainText(text.messageAgentsUnavailable);
     await expect(input).toBeEnabled();
     await input.fill(plain);
-    await expect(compose.getByRole('button', { name: 'Post comment', exact: true })).toBeEnabled();
-    await compose.getByRole('button', { name: 'Post comment', exact: true }).click();
+    await expect(compose.getByRole('button', { name: 'Send', exact: true })).toBeEnabled();
+    await compose.getByRole('button', { name: 'Send', exact: true }).click();
     // A plain turn becomes the same anchored window, without opening Comments or requesting an agent.
     const thread = compose.getByTestId('comment-thread');
     await expect(thread).toBeVisible();
@@ -593,7 +594,7 @@ test('composer records plain annotations and replies without a recipient, then s
     const reply = thread.getByRole('combobox', { name: 'Message', exact: true });
     const plainReply = 'Plain reply without a recipient.\n  Retained bytes.  ';
     await reply.fill(plainReply);
-    await thread.getByRole('button', { name: 'Post reply', exact: true }).click();
+    await thread.getByRole('button', { name: 'Send', exact: true }).click();
     await expect(thread.getByTestId('comment-entry')).toHaveCount(2);
     const replyEntry = thread
       .getByTestId('comment-entry')
@@ -609,25 +610,20 @@ test('composer records plain annotations and replies without a recipient, then s
     await expect(page.frameLocator('iframe').locator('#quote')).toHaveText(
       'Frozen original quote.',
     );
-    await expect(
-      thread.getByRole('button', { name: 'Choose recipient', exact: true }),
-    ).toBeDisabled();
+    await expect(thread.getByRole('button', { name: 'Try again', exact: true })).toBeEnabled();
     await page.unroute('**/api/session', unavailableDirectoryContext);
     // The failed read says so in place; Try again recovers without closing the thread.
     await expect(
       thread.getByText('Agents are unavailable. You can still post a comment.', { exact: true }),
     ).toBeVisible();
     await thread.getByRole('button', { name: 'Try again', exact: true }).click();
-    await expect(
-      thread.getByRole('button', { name: 'Choose recipient', exact: true }),
-    ).toBeEnabled();
+    await expect(thread.locator('.annotation-status-row')).toContainText('Posts as a comment.');
     await expect(thread.getByTestId('comment-entry')).toHaveCount(2);
-    const question =
-      'Explain this exact quote, with no mandatory prefix.\n  Keep these spaces and this line.  ';
+    const question = `@${agent.name} Explain this exact quote.\n  Keep these spaces and this line.  `;
     await reply.fill(question);
     await inputFor(thread, agent.name);
     await expect.poll(() => reply.innerText()).toBe(question);
-    // Choose, then Change the same admitted recipient; both preserve multiline bytes.
+    // Re-reading the shared field preserves exact multiline mention bytes.
     await inputFor(thread, agent.name);
     await expect.poll(() => reply.innerText()).toBe(question);
     expect(agent.received()).toHaveLength(0);
@@ -650,7 +646,7 @@ test('composer records plain annotations and replies without a recipient, then s
     }
     expect(operations.filter((operation) => operation === 'session.open')).toHaveLength(opened);
     world.armNextBarrier('after');
-    await thread.getByRole('button', { name: 'Ask agent', exact: true }).click();
+    await thread.getByRole('button', { name: 'Send', exact: true }).click();
     const parked = await world.barrierEntered();
     const entry = thread.getByTestId('ask-entry');
     await expect(entry).toHaveCount(1);
@@ -666,11 +662,11 @@ test('composer records plain annotations and replies without a recipient, then s
     expect(delivered.slice(-question.length)).toBe(question);
     const askComment = thread
       .getByTestId('comment-entry')
-      .filter({ hasText: 'Explain this exact quote, with no mandatory prefix.' });
+      .filter({ hasText: 'Explain this exact quote.' });
     const askMessageId = (await askComment.getAttribute('data-message-id'))!;
     await expect.poll(() => askComment.locator('.comment-body').textContent()).toBe(question);
     expect(agent.received()[0].message).toContain('Frozen original quote.');
-    expect(agent.received()[0].message).not.toContain(`@${agent.name}`);
+    expect(agent.received()[0].message).toContain(`@${agent.name}`);
     expect(world.coreCalls().filter((call) => call.operation === 'dispatch.create')).toHaveLength(
       1,
     );

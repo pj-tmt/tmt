@@ -1,3 +1,4 @@
+import type { CreationRecipient } from './fold-protocol.js';
 import { Check, CircleCheck, CircleDot, LoaderCircle, RotateCcw, X } from 'lucide-react';
 import { BrowserAction, BrowserIconAction } from '@tmt/browser-ui/react';
 import { MessageComposer } from './components/message-composer.js';
@@ -282,6 +283,7 @@ export function CommentExchange({
 }
 
 export type ThreadWindowProps = {
+  creationRecipient?: CreationRecipient;
   /** Absent until the first committed turn; the composer stays in this same window. */
   thread?: ThreadView;
   anchor?: QuoteSelector;
@@ -309,6 +311,7 @@ export type ThreadWindowProps = {
 export function ThreadWindow({
   thread,
   anchor: initialAnchor,
+  creationRecipient,
   layout = 'panel',
   attached,
   anchorsChecked,
@@ -513,6 +516,7 @@ export function ThreadWindow({
             !thread.deleted &&
             binding && (
               <AnnotationInput
+                creationRecipient={creationRecipient}
                 binding={ask}
                 discussion={binding}
                 anchor={thread.anchor}
@@ -605,6 +609,7 @@ export function ThreadWindow({
 }
 
 export function ThreadPanel({
+  creationRecipient,
   hideHeader = false,
   threads,
   resolved,
@@ -623,6 +628,7 @@ export function ThreadPanel({
   onStatusChange,
   onBusy,
 }: {
+  creationRecipient?: CreationRecipient;
   hideHeader?: boolean;
   threads: readonly ThreadView[];
   resolved: readonly string[];
@@ -726,6 +732,7 @@ export function ThreadPanel({
               </button>
               {active === id && (
                 <ThreadWindow
+                  creationRecipient={creationRecipient}
                   thread={thread}
                   attached={resolved.includes(id)}
                   anchorsChecked={anchorsChecked}

@@ -43,7 +43,7 @@ test('the annotation popover closes by its × , Escape anywhere in it, an outsid
       if (touch) await tap(page, bubble);
       else await bubble.click();
       await expect(popover).toBeVisible();
-      await expect(input).toHaveText('', { useInnerText: true });
+      await expect(input).toHaveText(`@${agent.name} `, { useInnerText: true });
     };
     for (const width of [1440, 390]) {
       const touch = width === 390;
@@ -76,7 +76,7 @@ test('the annotation popover closes by its × , Escape anywhere in it, an outsid
         else await bar.click({ position: { x: 4, y: 4 } });
         await expect(popover).toHaveCount(0);
 
-        // A cleared selection closes an untouched empty composer.
+        // A cleared selection closes an untouched composer, including its automatic creator seed.
         await open(touch);
         await clearSelection(page);
         await expect(popover).toHaveCount(0);
@@ -147,7 +147,7 @@ test('the annotation popover closes by its × , Escape anywhere in it, an outsid
     expect(world.coreCalls().filter((call) => call.operation === 'dispatch.create')).toHaveLength(
       1,
     );
-    await input.fill('Continue this annotation.');
+    await input.fill(`@${agent.name} Continue this annotation.`);
     expect(agent.received()).toHaveLength(1);
     await input.press('Enter');
     await expect.poll(() => agent.received().length).toBe(2);

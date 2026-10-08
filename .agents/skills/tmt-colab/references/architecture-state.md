@@ -74,42 +74,38 @@ annotations, agent follow-ups, plain replies and comment edits. Exact 0.52.0
 runtime dependencies; only plaintext/history extensions are imported. The source
 editor is a separate editing mode. Reader and recovery entries have no composer.
 
-`ComposerEdit` emits one atomic snapshot of exact plaintext, optional parent-selected
-machine/agent identity and cosmetic mention-token range. Paragraphs serialize with
-one LF, retaining blank and trailing lines. Parent echoes preserve the editing
-history/selection; explicit reset keys end a draft's editing lifetime. Mention-node
-identity follows edits and undo; editing/removing the token invalidates its cosmetic
-metadata without changing recipient authority. The recipient list opens for `@` or the
-full-width `＠` at the start, after whitespace, or after any character that is not
-address-like ASCII (`mentionQuery`), so CJK text without spaces triggers it and
-`email@host` does not. No Lexical document is persisted or sent as a routing instruction.
+`ComposerEdit` emits one atomic snapshot of exact plaintext and all bound
+machine/agent UUIDs with UTF16 mention ranges. Paragraphs serialize with one LF,
+retaining blank and trailing lines. Parent echoes preserve history/selection;
+explicit reset keys end a draft's editing lifetime. Mention-node identity follows
+edits and undo; editing/removing a token invalidates that binding. `mentionQuery`
+opens completion at `@` or full-width `＠` after non-address-like text, including CJK;
+`email@host` never routes. No Lexical document is persisted or sent as authority.
 
-`AnnotationInput` owns the plaintext draft, selected recipient, trusted action,
-current write/Ask admission and immutable send capture. `messageRecipient` is a pure
-parent presentation policy: plain comments resolve before agent discovery, while an
-explicit Ask uses a current stable destination. Creation defaults require a canonical
-stable creation binding and a unique current admitted match; no such binding is currently projected. Latest publisher and
-original-author labels, or a sole directory candidate, never substitute for it.
-Prior replies use UUID/machine keys, never display labels. Ambiguous/stale choices
-do not silently retarget. `conversationAsks` owns comment/Ask association for display, reply defaults
-and captured conversation; the editor has no storage, ledger, notification or Remote
-capability. Content-write and Ask failures retain the existing draft/recorded-turn
-and uncertainty rules; recipient selection performs no preparation or dispatch.
-`agent-directory.ts` (`useAgentDirectory`) gives the composer one explicit directory state,
-`loading`, `failed` or `ready` (an empty `ready` list is a real answer), for the Ask binding it holds.
-A new binding (Reconnect replaces the Ask facade) or a retry reads again and shows `loading` in the
-same render, and a read for a replaced binding or attempt is ignored. Ask/Send is fenced until
-`ready`: click and Enter do nothing before preparation, with no error; plain comments, draft,
-caret and chosen recipient are untouched. `failed` shows the status line with an in-place Try
-again (kept mounted and busy during the retry, focus restored); Reconnect's "Reconnect to send."
-line wins while disconnected. Reconnect and Try again are the only triggers; there is no timer.
+`AnnotationInput` owns the draft, trusted action, current content/Ask admission and
+immutable one-comment send capture. `message-recipient.ts` resolves exact typed names
+and distinct UUID pairs for presentation only; LiveAsk re-admits each frozen Ask.
+The [browser discussion contract](../../../../extensions/tmt-colab/contracts/colab-v1.md#inline-annotation-conversations-1587)
+owns default-creator lookup, typed/picked binding, eight-recipient fan-out, offline
+handling and recipient failure rules. `conversationAsks` owns comment/Ask association
+and captured conversation; neither prior replies nor display names select recipients.
+The editor has no storage, ledger, notification or Remote capability. `LiveAsk` reports
+whether Send adopted an operation. Only an authoritative failure before adoption
+starts can be shown locally without inventing a signed Ask row; missing read views
+after publication failure remain uncertain. Adopted outcomes come from the admitted stream.
+
+`agent-directory.ts` (`useAgentDirectory`) gives each Ask binding one explicit
+`loading`, `failed` or `ready` state (empty `ready` is a real answer). Replacement
+and explicit retry read again, show loading in the same render, and ignore obsolete
+results. Mention Sends stay fenced before preparation until ready; plain comments,
+draft, caret and token UUIDs remain. Failed discovery shows Try again in place,
+kept mounted/busy during retry with focus restored. Disconnected recovery's
+"Reconnect to send." wins. There is no per-keystroke/recipient read or retry timer.
 A `failed` read that Remote refused or ended carries Remote's code as a muted `Code: …` reference
 under the same generic line. `REMOTE_STATE_UNAVAILABLE` is any Remote storage fault, so it gets no
 sentence of its own; one cause is a full per-device request journal (1000 owned entries per 24 h,
 which reads such as `agents.list` also consume, #2170), cleared as entries expire and prevented
 by the sync keepalive that stops idle tabs from reconnecting.
-The explicit Choose/Change recipient picker preserves message bytes, including typed `@` text; mention
-completion remains optional.
 
 Candidate geometry is input-only in the shared Listbox: it uses viewport bounds and
 the native popover layer, remaining inside the current modal dialog's ownership.
@@ -186,7 +182,7 @@ that fallback. The guarded fallback marker still spans its reload: only its
 explicitly started network failure clears the failed marker. Automatic guidance
 keeps its marker until authenticated boot clears it.
 The Remote restart and retained-draft cases in `acceptance/ask.spec.ts` verify
-original-ID observation, no resend and fresh explicit Send/Ask/Post after recovery.
+original-ID observation, no resend and fresh explicit Send after recovery.
 
 ## Persistence layout
 

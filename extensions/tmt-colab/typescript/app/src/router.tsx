@@ -741,14 +741,14 @@ function Page() {
   const annotationKey = (value: NonNullable<typeof annotation>) =>
     value.thread ? `${value.thread.writer}:${value.thread.id}` : JSON.stringify(value.selector);
   /** Every nonblank message is a draft; recipient selection never replaces its bytes. */
-  const typed = () => annotationDraft.current.value.trim() !== '';
+  const typed = () =>
+    annotationDraft.current.edited !== false && annotationDraft.current.value.trim() !== '';
   /** Closes without losing typed text: it comes back when the same selection is annotated again. */
   function closeAnnotation(focusPage: boolean) {
     // A send in flight is not interrupted by the ×, Escape, an outside press or a cleared selection.
     if (!annotation || annotationBusy.current || statusBusy.current) return;
     const key = annotationKey(annotation);
-    if (typed() || annotationDraft.current.recipient)
-      drafts.current.set(key, annotationDraft.current);
+    if (typed() || annotationDraft.current.edited) drafts.current.set(key, annotationDraft.current);
     else drafts.current.delete(key);
     annotationDraft.current = { value: '' };
     setAnnotation(undefined);
@@ -1234,6 +1234,7 @@ function Page() {
                       )}
                       {annotationThread && <p className="annotation-reply-label">Reply</p>}
                       <AnnotationInput
+                        creationRecipient={view.creationRecipient}
                         binding={snapshot.binding.ask}
                         discussion={snapshot.binding.discussion}
                         anchor={annotationThread ? annotationThread.anchor : annotation.selector}
@@ -1305,6 +1306,7 @@ function Page() {
         close={() => setPanel(null)}
       >
         <ThreadPanel
+          creationRecipient={view.creationRecipient}
           hideHeader
           key={`discussion:${snapshot.id}`}
           threads={(view.threads ?? []).filter((thread) => !isChatThread(thread))}
@@ -1358,6 +1360,7 @@ function Page() {
       >
         {chatOpened && (
           <ChatPanel
+            creationRecipient={view.creationRecipient}
             key={`chat:${snapshot.id}`}
             observationUnavailable={view.askUnavailable}
             threads={view.threads ?? []}

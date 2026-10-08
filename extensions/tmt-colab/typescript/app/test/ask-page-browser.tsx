@@ -38,7 +38,11 @@ function emit() {
 let readRefusal: ConstructorParameters<typeof ReadRefusedError>[0] | undefined;
 let prepareRelease: (() => void) | undefined;
 let preparing: Promise<void> | undefined;
-export async function mount() {
+let finishDirectory: (() => void) | undefined;
+export function finishMentionDirectory() {
+  finishDirectory?.();
+}
+export async function mount(options: { creator?: boolean; checking?: boolean } = {}) {
   root?.unmount();
   document.getElementById('ask-page-fixture')?.remove();
   document.getElementById('root')?.setAttribute('hidden', '');
@@ -58,9 +62,16 @@ export async function mount() {
     asks: [],
     threads: [],
     publisherAgent: 'Agent 1',
+    ...(options.creator
+      ? { creationRecipient: { machineId: destination().machine, agentId: destination().agent } }
+      : {}),
   };
   const ask: AskBinding = {
     async destinations() {
+      if (options.checking)
+        await new Promise<void>((resolve) => {
+          finishDirectory = resolve;
+        });
       return Array.from({ length: 5 }, (_, index) => ({
         ...destination(),
         agent: id(6 + index),

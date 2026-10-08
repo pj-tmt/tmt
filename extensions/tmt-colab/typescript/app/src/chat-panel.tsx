@@ -5,7 +5,7 @@ import { text } from './strings.js';
 import { useEffect, useRef } from 'react';
 import { AnnotationInput } from './annotation-input.js';
 import { AskPanel, type AskBinding, type PageAsk } from './ask-panel.js';
-import { conversationAsks } from './thread-store.js';
+import type { CreationRecipient } from './fold-protocol.js';
 import { CommentExchange } from './thread-panel.js';
 import { isChatThread, type ThreadView } from './thread-records.js';
 import type { ThreadBinding } from './thread-store.js';
@@ -17,6 +17,7 @@ export function ChatPanel({
   binding,
   discussion,
   title,
+  creationRecipient,
   blocked,
   recoveryRequired = false,
   observationUnavailable,
@@ -27,6 +28,7 @@ export function ChatPanel({
   binding?: AskBinding;
   discussion?: ThreadBinding;
   title: string;
+  creationRecipient?: CreationRecipient;
   blocked: boolean;
   recoveryRequired?: boolean;
   observationUnavailable?: boolean;
@@ -36,13 +38,6 @@ export function ChatPanel({
   const chats = threads.filter(isChatThread);
   const own = chats.find((thread) => thread.ref.writer === discussion?.deviceId);
   const legacy = asks.filter((ask) => !ask.thread);
-  const latest = conversationAsks(own, asks)
-    .filter((ask) => ask.reply !== undefined)
-    .reduce<PageAsk | undefined>(
-      (latest, ask) => (!latest || ask.issuedAt > latest.issuedAt ? ask : latest),
-      undefined,
-    );
-  const replier = latest ? { machine: latest.machine, agent: latest.agent } : undefined;
   useEffect(() => {
     const node = history.current;
     if (node) node.scrollTop = node.scrollHeight;
@@ -83,7 +78,7 @@ export function ChatPanel({
           thread={own}
           asks={asks}
           title={title}
-          replier={replier}
+          creationRecipient={creationRecipient}
           blocked={blocked || !!own?.deleted}
           recoveryRequired={recoveryRequired && !own?.deleted}
           cancel={close}

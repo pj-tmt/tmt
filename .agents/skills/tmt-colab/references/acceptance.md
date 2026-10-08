@@ -99,6 +99,11 @@ paired device. A second case drives `tmt colab stop` (#1594): the started door c
 stop is `not-running`, and the pairing stays listed. A third attaches to a door started outside
 Colab: stop and exit leave that door running.
 
+`mention-send.spec.ts` creates a page from a real agent pane and verifies its removable creator mention,
+one comment with three distinct Asks, live recipient bytes, durable offline inbox delivery,
+and reload without replay. `createPage` links the extensions onto the isolated world's PATH
+so native creator provenance resolves through the real core.
+
 `discussion.spec.ts` covers two paired writers and comment-origin Ask. Its module
 contracts and focused cases are described in [discussion.md](discussion.md).
 
@@ -121,7 +126,7 @@ uncertain, recheck, abandon, no-effect, accepted, one-dispatch and one-wake asse
 Explicit-Reconnect draft cases keep the same Chat and anchored composer at 1440/390,
 including a mid-text caret through a failed click and a verified in-place replacement.
 They count the original Ask and the next explicit Send separately, verify a new
-registration without main-frame navigation, and exercise Post before an anchored Ask.
+registration without main-frame navigation, and exercise a plain-comment Send before an anchored Ask.
 Enable a case by making its body pass, never with
 a stand-in. Assert the recipient's text equals the disclosed bytes captured on Enter, including the
 `[remote: <device>]` line, and that no delivery state is shown (presence only).

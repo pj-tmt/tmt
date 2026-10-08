@@ -114,16 +114,12 @@ modules in `extensions/tmt-colab/typescript/app/src` and `rust/tmt-colab/src/ask
   cut-admitted own envelope (revoked history stays inert and grants no authority). Slow
   verification keeps one active and the latest pending snapshot, so source edit and export
   keep reading the committed document.
-- **UI.** `annotation-input.tsx` uses the same Ask binding for direct explicit Enter
-  sends; it freezes the current text and captured conversation references without a
-  confirmation screen; no surface offers a "show what was sent" view. In Chat it
-  chooses a stable recipient independently of message bytes from an explicit choice
-  or an admitted bound prior reply. Unknown creation identity requires a choice;
-  latest-publisher display names and a sole directory candidate are not creator bindings.
-  No mention prefix is mandatory; ambiguity requires explicit selection. Choosing
-  a recipient performs no preparation or dispatch. Plain comments remain available
-  under content-write admission while discovery loads or fails; Ask/Send waits for the
-  current directory (`agent-directory.ts`) and a failure offers Try again in place. `thread-panel.tsx`
+- **UI.** `annotation-input.tsx` owns one trusted Send across Chat, thread and annotation:
+  exact visible mentions choose UUID pairs, one comment is recorded, and each distinct
+  recipient gets one frozen Ask under current admission. Plain text records a comment.
+  The [discussion contract](../../../../extensions/tmt-colab/contracts/colab-v1.md#inline-annotation-conversations-1587)
+  defines creator defaults, binding, fan-out limits and per-recipient failures.
+  No confirmation or sent-bytes disclosure is offered. `thread-panel.tsx`
   renders verified replies inline and puts Edit (own annotation comments) and Delete
   (own) in the square `⋯` menu (`components/action-menu.tsx`); held/recheck/uncertainty keep the existing ledger.
   `chat-panel.tsx` replaces standalone Ask with one bottom input and page-visible

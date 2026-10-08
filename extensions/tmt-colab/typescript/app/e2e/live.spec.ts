@@ -1329,9 +1329,9 @@ result:async()=>({state:'replied',requestId:'${requestId}',message:${JSON.string
   await annotate();
   const annotation = page.getByRole('dialog', { name: 'Annotate selection' });
   const annotationInput = annotation.getByRole('combobox', { name: 'Message', exact: true });
-  await annotationInput.fill('Keep this anchored draft.');
-  const post = annotation.getByRole('button', { name: 'Post comment', exact: true });
-  const askAction = annotation.getByRole('button', { name: 'Ask agent', exact: true });
+  await annotationInput.fill('Keep this anchored draft. @Wire agent');
+  const post = annotation.getByRole('button', { name: 'Send', exact: true });
+  const askAction = annotation.getByRole('button', { name: 'Send', exact: true });
   await expect(post).toBeEnabled();
   await expect(askAction).toBeEnabled();
   // Successful mounted-session replacement rebinds this same draft to the new
@@ -1348,7 +1348,7 @@ result:async()=>({state:'replied',requestId:'${requestId}',message:${JSON.string
   f.resumeSync();
   await expect.poll(() => opens).toBe(beforeReplacement + 1);
   await expect(askAction).toBeDisabled();
-  await expect(annotationInput).toHaveText('Keep this anchored draft.');
+  await expect(annotationInput).toHaveText('Keep this anchored draft. @Wire agent');
   releaseOpen!();
   pendingOpen = undefined;
   await expect.poll(() => f.connections).toBe(1);
@@ -1361,7 +1361,7 @@ result:async()=>({state:'replied',requestId:'${requestId}',message:${JSON.string
       (node) => node === (window as unknown as { recoveryDraftNode: Element }).recoveryDraftNode,
     ),
   ).toBe(true);
-  await expect(annotationInput).toHaveText('Keep this anchored draft.');
+  await expect(annotationInput).toHaveText('Keep this anchored draft. @Wire agent');
 
   doorDown = true;
   oldSessionEnded = true;
@@ -1538,13 +1538,13 @@ for (const width of [1440, 390])
             : page.getByRole('dialog', { name: 'Annotate selection' });
         const input = container.getByRole('combobox', { name: 'Message', exact: true });
         const action = container.getByRole('button', {
-          name: surface === 'Chat' ? 'Send' : 'Ask agent',
+          name: 'Send',
           exact: true,
           includeHidden: true,
         });
-        await container.getByRole('button', { name: 'Choose recipient', exact: true }).click();
+        await input.pressSequentially('@');
         await page.getByRole('option').filter({ hasText: '@Draft agent ·' }).click();
-        const draft = 'Keep this exact recovery draft.';
+        const draft = 'Keep this exact recovery draft. @Draft agent';
         await input.fill(draft);
         await input.press('Home');
         for (let i = 0; i < 5; i++) await input.press('ArrowRight');
@@ -1575,9 +1575,7 @@ for (const width of [1440, 390])
         await expect(input).toHaveText(draft);
         await expect(action).toBeDisabled();
         if (surface === 'annotation')
-          await expect(
-            container.getByRole('button', { name: 'Post comment', exact: true }),
-          ).toBeDisabled();
+          await expect(container.getByRole('button', { name: 'Send', exact: true })).toBeDisabled();
         const admittedOpens = f.opens;
         const navigations: string[] = [];
         page.on('framenavigated', (frame) => {
@@ -1639,13 +1637,15 @@ for (const width of [1440, 390])
         const edited = draft.slice(0, 5) + 'X' + draft.slice(selected ? 9 : 5);
         await expect(input).toHaveText(edited);
         if (surface === 'annotation') {
-          const post = container.getByRole('button', { name: 'Post comment', exact: true });
+          const post = container.getByRole('button', { name: 'Send', exact: true });
           await expect(post).toBeEnabled();
+          const plain = edited.replace(' @Draft agent', '');
+          await input.fill(plain);
           await post.click();
           await expect(input).toHaveText('');
-          await expect(container.getByText(edited, { exact: true })).toBeVisible();
+          await expect(container.getByText(plain, { exact: true })).toBeVisible();
           expect(f.sends).toBe(0);
-          await input.fill('Explicit Ask after verified recovery.');
+          await input.fill('@Draft agent Explicit Ask after verified recovery.');
         }
         await action.click();
         await expect.poll(() => f.sends).toBe(1);
@@ -1741,7 +1741,7 @@ test('an upgraded server shows the update row under the header without covering 
     await expect(dialog).toBeVisible();
     if (width === 1440)
       expect((await dialog.boundingBox())!.y).toBeGreaterThanOrEqual(rowBox.y + rowBox.height - 1);
-    await expectUncovered(dialog.getByRole('button', { name: 'Ask agent', exact: true }));
+    await expectUncovered(dialog.getByRole('button', { name: 'Send', exact: true }));
     for (const theme of ['light', 'dark']) {
       await page.evaluate((value) => (document.documentElement.dataset.theme = value), theme);
       await page.screenshot({ path: testInfo.outputPath(`update-annotate-${theme}-${width}.png`) });
