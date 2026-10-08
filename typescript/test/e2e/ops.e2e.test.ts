@@ -140,8 +140,8 @@ describe('squad on a private tmux server', { concurrent: false }, () => {
         const screen = fixture.capture(24, shell.pane);
         expect(screen).toContain('Ops migration pending; retrying. Old clock PID 123 in pane %41.');
         expect(
-          fixture.tmux(['display-message', '-p', '-t', shell.pane, '#{pane_width}'])
-        ).toContain(String(width));
+          Number(fixture.tmux(['display-message', '-p', '-t', shell.pane, '#{pane_width}']).trim())
+        ).toBe(width);
         console.info(
           'OPS_MIGRATION_CAPTURE ' +
             JSON.stringify({
