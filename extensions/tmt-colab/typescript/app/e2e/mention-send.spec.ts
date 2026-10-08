@@ -333,22 +333,23 @@ test('accepted recipients reach independent observation deadlines without redisp
   expect(await run(page, 'proof')).toEqual(before);
 });
 
-test('a rate-limited recipient retains its own refused operation and leaves the sibling delivered once', async ({
-  page,
-}) => {
-  const input = await mount(page, { mode: 'partial-refusal' });
-  await input.fill('@alpha @beta Explain.');
-  await input.press('Enter');
-  const entries = page.getByTestId('ask-entry');
-  await expect(entries).toHaveCount(2);
-  await expect(entries.nth(0)).toHaveAttribute('data-ledger-state', 'refused');
-  await expect(entries.nth(0)).toContainText('Mention @alpha in a new message to ask again.');
-  await expect(entries.nth(1)).toHaveAttribute('data-ledger-state', 'accepted');
-  await expect(page.getByRole('button', { name: 'Retry', exact: true })).toHaveCount(0);
-  expect(await run(page, 'proof')).toMatchObject({ writes: 1, preparations: 2, commits: 1 });
-  await input.press('Enter');
-  expect((await run(page, 'proof')).sends).toHaveLength(2);
-});
+for (const mode of ['partial-refusal', 'core-refusal'])
+  test(`${mode}: a pre-effect refusal retains its own operation and leaves the sibling delivered once`, async ({
+    page,
+  }) => {
+    const input = await mount(page, { mode });
+    await input.fill('@alpha @beta Explain.');
+    await input.press('Enter');
+    const entries = page.getByTestId('ask-entry');
+    await expect(entries).toHaveCount(2);
+    await expect(entries.nth(0)).toHaveAttribute('data-ledger-state', 'refused');
+    await expect(entries.nth(0)).toContainText('Mention @alpha in a new message to ask again.');
+    await expect(entries.nth(1)).toHaveAttribute('data-ledger-state', 'accepted');
+    await expect(page.getByRole('button', { name: 'Retry', exact: true })).toHaveCount(0);
+    expect(await run(page, 'proof')).toMatchObject({ writes: 1, preparations: 2, commits: 1 });
+    await input.press('Enter');
+    expect((await run(page, 'proof')).sends).toHaveLength(2);
+  });
 
 test('a pre-adoption Send failure has a local Not delivered label and no invented Ask row', async ({
   page,

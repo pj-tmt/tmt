@@ -3,7 +3,7 @@ import { CircleAlert, Clock, Pause } from 'lucide-react';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { PreviewAttempt } from './ask-preview.js';
 import { ASK_OBSERVATION_MS, type LedgerState } from './ask-records.js';
-import { ReadRefusedError } from './ask-remote.js';
+import { ReadRefusedError, REMOTE_REFUSAL_CODES } from './ask-remote.js';
 import type { RemoteAgent } from './ask-remote.js';
 import type { AskDestination } from './ask-intent.js';
 import type { AgentDirectoryObservation } from './live-ask.js';
@@ -248,13 +248,7 @@ export function AskPanel({
         )}
         {record.reply === undefined &&
           record.state === 'refused' &&
-          [
-            'REMOTE_STATE_UNAVAILABLE',
-            'REMOTE_RATE_LIMITED',
-            'REMOTE_SCOPE_DENIED',
-            'REMOTE_INPUT_INVALID',
-            'REMOTE_INPUT_TOO_LARGE',
-          ].includes(record.reason ?? '') && (
+          REMOTE_REFUSAL_CODES.some((code) => code === record.reason) && (
             <p className="ask-supporting">{text.messageAskAgain(agent)}</p>
           )}
         {record.state === 'uncertain' &&

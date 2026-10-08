@@ -62,6 +62,7 @@ export function mount(
     | 'prepare-failure'
     | 'partial-preparation'
     | 'partial-refusal'
+    | 'core-refusal'
     | 'no-adoption'
     | 'unknown-adoption'
     | 'multi'
@@ -163,11 +164,13 @@ export function mount(
         if (mode === 'prepare-failure' || (mode === 'partial-preparation' && preparations === 1))
           throw new Error('Preparation refused');
         captured.push(input);
-        const refused = mode === 'partial-refusal' && preparations === 1;
+        const refused = ['partial-refusal', 'core-refusal'].includes(mode) && preparations === 1;
+        const refusal = mode === 'core-refusal' ? 'REMOTE_CORE_UNAVAILABLE' : 'REMOTE_RATE_LIMITED';
         const result = await fixtureAttempt({ ...selection(), ...input }, input.destination, {
           mode:
             mode === 'partial-preparation' ||
             mode === 'partial-refusal' ||
+            mode === 'core-refusal' ||
             mode === 'no-adoption' ||
             mode === 'unknown-adoption'
               ? 'accepted'
@@ -182,7 +185,7 @@ export function mount(
             return {
               state: 'refused',
               operationId: input.operationId,
-              reason: 'REMOTE_RATE_LIMITED',
+              reason: refusal,
             };
           };
         return {
@@ -206,7 +209,7 @@ export function mount(
               machine: target.machine,
               state: state.state as PageAsk['state'],
               canTrack: true,
-              ...(refused ? { reason: 'REMOTE_RATE_LIMITED' } : {}),
+              ...(refused ? { reason: refusal } : {}),
             };
             setRecords((previous) => [...previous, record]);
             return state;
