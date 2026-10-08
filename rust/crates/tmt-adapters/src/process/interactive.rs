@@ -7,6 +7,7 @@ use super::{CLEANUP_TIMEOUT, CommandError, CommandFailure};
 use nix::{
     errno::Errno,
     poll::{PollFd, PollFlags, PollTimeout, poll},
+    sys::signal::{SigSet, SigmaskHow, Signal, pthread_sigmask},
 };
 use signal_hook::{
     SigId,
@@ -70,6 +71,22 @@ impl InteractiveChild {
 
     pub fn pid(&self) -> u32 {
         self.job.pid()
+    }
+
+    /// Finish the launch owner's storage close before a pending terminal stop.
+    /// Called only after spawn, so the provider never inherits this mask. The
+    /// closure still runs if masking fails; signal errors do not undo a launch.
+    /// Dispositions and every signal other than SIGTSTP remain untouched.
+    pub fn with_deferred_suspend<T>(&self, close: impl FnOnce() -> T) -> (T, io::Result<()>) {
+        match SuspendDeferral::block() {
+            Ok(mut guard) => {
+                let result = close();
+                // A pending Ctrl-Z takes effect here, after the close returns.
+                let restored = guard.restore();
+                (result, restored)
+            }
+            Err(error) => (close(), Err(error)),
+        }
     }
 
     /// Retain a real start identity even if this directly owned child has
@@ -203,6 +220,43 @@ impl Drop for InteractiveChild {
     }
 }
 
+/// Thread-local scope: preserve the entire inherited mask, including an already
+/// blocked SIGTSTP. No signal handler is installed or removed.
+struct SuspendDeferral {
+    previous: SigSet,
+    restored: bool,
+    thread: std::marker::PhantomData<std::rc::Rc<()>>,
+}
+
+impl SuspendDeferral {
+    fn block() -> io::Result<Self> {
+        let mut blocked = SigSet::empty();
+        blocked.add(Signal::SIGTSTP);
+        let mut previous = SigSet::empty();
+        pthread_sigmask(SigmaskHow::SIG_BLOCK, Some(&blocked), Some(&mut previous))?;
+        Ok(Self {
+            previous,
+            restored: false,
+            thread: std::marker::PhantomData,
+        })
+    }
+
+    fn restore(&mut self) -> io::Result<()> {
+        pthread_sigmask(SigmaskHow::SIG_SETMASK, Some(&self.previous), None)?;
+        self.restored = true;
+        Ok(())
+    }
+}
+
+impl Drop for SuspendDeferral {
+    fn drop(&mut self) {
+        if !self.restored {
+            // Also restore on unwinding, or retry a failed explicit restoration.
+            let _ = self.restore();
+        }
+    }
+}
+
 struct ChildSignals {
     reader: UnixStream,
     terminate: Arc<AtomicBool>,
@@ -287,6 +341,109 @@ mod tests {
     // Signal registrations are invocation-owned, so these in-process fixtures
     // must not overlap one another. Terminal/group signaling uses isolated E2E.
     static INVOCATION: Mutex<()> = Mutex::new(());
+
+    #[test]
+    fn suspension_scope_restores_the_entire_mask_on_success_error_and_unwind() {
+        let original = SigSet::thread_get_mask().unwrap();
+        // Restore the test thread even if an assertion panics.
+        let mut cleanup = SuspendDeferral {
+            previous: original,
+            restored: false,
+            thread: std::marker::PhantomData,
+        };
+        for inherited_stop in [false, true] {
+            let mut inherited = original;
+            inherited.add(Signal::SIGUSR1);
+            if inherited_stop {
+                inherited.add(Signal::SIGTSTP);
+            } else {
+                inherited.remove(Signal::SIGTSTP);
+            }
+            inherited.thread_set_mask().unwrap();
+            for outcome in [0, 1, 2] {
+                let result = std::panic::catch_unwind(|| {
+                    let mut guard = SuspendDeferral::block().unwrap();
+                    let during = SigSet::thread_get_mask().unwrap();
+                    for signal in Signal::iterator() {
+                        assert_eq!(
+                            during.contains(signal),
+                            signal == Signal::SIGTSTP || inherited.contains(signal),
+                        );
+                    }
+                    match outcome {
+                        0 => guard.restore(),
+                        1 => Err(io::Error::other("storage close failed")),
+                        _ => panic!("storage close unwound"),
+                    }
+                });
+                assert_eq!(result.is_ok(), outcome != 2);
+                let after = SigSet::thread_get_mask().unwrap();
+                for signal in Signal::iterator() {
+                    assert_eq!(after.contains(signal), inherited.contains(signal));
+                }
+            }
+        }
+        cleanup.restore().unwrap();
+    }
+
+    #[test]
+    fn a_failed_close_still_restores_the_launchers_mask_and_preserves_the_child() {
+        let _invocation = INVOCATION.lock().unwrap();
+        let child =
+            InteractiveChild::start(OsStr::new("/bin/sh"), &["-c".into(), "exit 23".into()])
+                .unwrap();
+        let before = SigSet::thread_get_mask().unwrap();
+        let (closed, restored) = child.with_deferred_suspend(|| {
+            assert!(SigSet::thread_get_mask().unwrap().contains(Signal::SIGTSTP));
+            Err::<(), _>(io::Error::other("storage close failed"))
+        });
+        assert!(closed.is_err());
+        restored.unwrap();
+        let after = SigSet::thread_get_mask().unwrap();
+        for signal in Signal::iterator() {
+            assert_eq!(after.contains(signal), before.contains(signal));
+        }
+        assert_eq!(
+            child.wait(|_| panic!("unexpected degradation")).unwrap(),
+            23
+        );
+    }
+
+    #[test]
+    fn a_child_stopped_before_admission_retains_real_start_evidence() {
+        use crate::process::runtime::ProcessObservation;
+        use nix::sys::wait::{WaitPidFlag, WaitStatus};
+
+        let _invocation = INVOCATION.lock().unwrap();
+        let child = InteractiveChild::start(
+            OsStr::new("/bin/sh"),
+            &["-c".into(), "kill -STOP $$; exit 23".into()],
+        )
+        .unwrap();
+        let pid = Pid::from_raw(i32::try_from(child.pid()).unwrap());
+        // Consume only the stop notification, never reap the owned child.
+        assert_eq!(
+            waitpid(pid, Some(WaitPidFlag::WUNTRACED)).unwrap(),
+            WaitStatus::Stopped(pid, Signal::SIGSTOP)
+        );
+        let observation = child
+            .observe_runtime(Instant::now() + Duration::from_secs(3))
+            .unwrap();
+        let ProcessObservation::Stopped(incarnation) = &observation else {
+            panic!("expected a real stopped incarnation, got {observation:?}");
+        };
+        assert_eq!(incarnation.pid(), u64::from(child.pid()));
+        assert_eq!(
+            observation.matches(incarnation),
+            tmt_core::binding::session::RuntimeLiveness::Unknown
+        );
+        nix::sys::signal::kill(pid, Signal::SIGCONT).unwrap();
+        assert_eq!(
+            child.wait(|_| panic!("unexpected degradation")).unwrap(),
+            23
+        );
+        assert_eq!(waitpid(pid, None), Err(Errno::ECHILD));
+    }
 
     #[test]
     fn fast_owned_exit_retains_start_evidence_without_authorizing_delivery() {

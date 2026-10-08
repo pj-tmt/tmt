@@ -39,6 +39,51 @@ static void gate(const char *name) {
   if (count != 1 || close(fd)) _exit(92);
 }
 
+/* Optional admission boundary for the same owned launcher. Gate the real ps
+ * exec only when its target is a direct child of that launcher, not the ps
+ * helper itself or a prior runtime. The test can stop the provider before the
+ * unmodified native observation executes; no process evidence is synthesized. */
+static void admission_probe(const char *file, char *const argv[]) {
+  const char *ready = getenv("TMT_ADMISSION_READY");
+  if (ready && access(ready, F_OK) && !strcmp(file, "/usr/bin/env")) {
+    long target = 0;
+    int runtime_probe = 0;
+    for (int i = 0; argv[i]; ++i) {
+      if (!strcmp(argv[i], "-p") && argv[i + 1]) target = strtol(argv[i + 1], NULL, 10);
+      if (!strcmp(argv[i], "stat=")) runtime_probe = 1;
+    }
+    if (runtime_probe && target > 0 && target != (long)getpid()) {
+      char children[128];
+      snprintf(children, sizeof children, "/proc/%ld/task/%ld/children", (long)getppid(), (long)getppid());
+      FILE *stream = fopen(children, "r");
+      long child;
+      int owned = 0;
+      while (stream && fscanf(stream, "%ld", &child) == 1) {
+        if (child == target) owned = 1;
+      }
+      if (stream) fclose(stream);
+      if (owned) {
+        marker("TMT_ADMISSION_READY");
+        gate("TMT_ADMISSION_RELEASE");
+      }
+    }
+  }
+}
+
+int execv(const char *file, char *const argv[]) {
+  int (*original)(const char *, char *const[]) = dlsym(RTLD_NEXT, "execv");
+  if (!original) _exit(90);
+  admission_probe(file, argv);
+  return original(file, argv);
+}
+
+int execve(const char *file, char *const argv[], char *const envp[]) {
+  int (*original)(const char *, char *const[], char *const[]) = dlsym(RTLD_NEXT, "execve");
+  if (!original) _exit(90);
+  admission_probe(file, argv);
+  return original(file, argv, envp);
+}
+
 static int invoke(const char *symbol, int fd, int command, va_list args) {
   int (*original)(int, int, ...) = dlsym(RTLD_NEXT, symbol);
   if (!original) _exit(90);
