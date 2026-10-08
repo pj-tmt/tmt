@@ -138,6 +138,7 @@ export class Live implements PageBinding {
               own,
               { spaceId: bootstrap.space, pageId: page.pageId, epoch: page.epoch },
               (writer) => connection.objects.ownSigningKey(writer),
+              (writer) => connection.objects.statusWriter(writer),
             );
             if (!context.conversation) return commentForAsk(threads, context);
             const asks = await pageAsks(own, connection.admission, (writer) =>
@@ -152,6 +153,7 @@ export class Live implements PageBinding {
               this.#admitted.own ?? {},
               { spaceId: bootstrap.space, pageId: page.pageId, epoch: page.epoch },
               (writer) => connection.objects.ownSigningKey(writer),
+              (writer) => connection.objects.statusWriter(writer),
             );
             return statusNotificationForAsk(threads, context, registration.deviceId);
           },
@@ -328,6 +330,7 @@ export class Live implements PageBinding {
             value.own ?? {},
             { spaceId: admission.space, pageId: admission.page, epoch: admission.epoch },
             (writer) => connection.objects.ownSigningKey(writer),
+            (writer) => connection.objects.statusWriter(writer),
           );
           this.#projection = {
             ...value,
@@ -490,14 +493,17 @@ export class Live implements PageBinding {
       requireValue(a.head !== null && a.root !== null);
       const own = this.#admitted.own ?? {};
       const signingKeys: Record<string, Uint8Array> = {};
+      const statusWriters: string[] = [];
       for (const writer of Object.keys(own)) {
         const key = c.objects.ownSigningKey(writer);
         if (key) signingKeys[writer] = key;
+        if (key && c.objects.statusWriter(writer)) statusWriters.push(writer);
       }
       return {
         ...this.#admitted,
         own,
         signingKeys,
+        statusWriters,
         spaceId: a.space,
         pageId: a.page,
         epoch: a.epoch,

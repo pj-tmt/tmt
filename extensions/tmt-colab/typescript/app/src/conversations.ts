@@ -68,6 +68,8 @@ export interface ConversationsInput {
   own: OwnState;
   /** Historical signing key per writer, taken from cut-admitted envelopes. */
   signingKey: (writer: string) => Uint8Array | undefined;
+  /** Whether a writer may resolve threads: owner-member provenance, native `status_writers`. */
+  statusWriter: (writer: string) => boolean;
 }
 
 // Identifiers are ASCII, so UTF-16 order is byte order; never a locale comparison.
@@ -125,7 +127,12 @@ function captureStatus(status: ThreadStatusView): ThreadStatusView {
  * selects another stream. Everything is copied before it is returned. */
 export async function projectConversations(input: ConversationsInput): Promise<Conversations> {
   const { spaceId, pageId, epoch } = input;
-  const threads = readThreads(input.own, { spaceId, pageId, epoch }, input.signingKey)
+  const threads = readThreads(
+    input.own,
+    { spaceId, pageId, epoch },
+    input.signingKey,
+    input.statusWriter,
+  )
     .map((thread): ConversationThread => ({
       writer: thread.ref.writer,
       id: thread.ref.id,

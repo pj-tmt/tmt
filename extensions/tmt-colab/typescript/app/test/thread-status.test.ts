@@ -101,7 +101,7 @@ it('projects only historically authenticated, writer-bound page/epoch actions wi
     ] = record as JsonValue;
   }
   const read = (keys: (writer: string) => Uint8Array | undefined = () => new Uint8Array(32)) =>
-    readThreads(own, fixture.scope, keys)[0];
+    readThreads(own, fixture.scope, keys, (writer) => keys(writer) !== undefined)[0];
   expect(read()).toMatchObject({
     resolved: true,
     ref: { writer: thread.senderDevice, id: thread.threadId },
@@ -110,6 +110,15 @@ it('projects only historically authenticated, writer-bound page/epoch actions wi
     read((writer?: string) => (writer === action.senderDevice ? undefined : new Uint8Array(32)))
       .resolved,
   ).toBe(false);
+  // A keyed writer without owner-device provenance, a bridge, stays readable but cannot resolve.
+  expect(
+    readThreads(
+      own,
+      fixture.scope,
+      () => new Uint8Array(32),
+      (writer) => writer !== action.senderDevice,
+    )[0],
+  ).toMatchObject({ resolved: false, ref: { writer: thread.senderDevice, id: thread.threadId } });
   for (const change of [
     { pageId: fixture.comment.messageId },
     { epoch: '2' },
@@ -141,6 +150,7 @@ for (const row of fixture.statusCases as Case[]) {
       membershipHead: { revision: '1', statementHash: '00'.repeat(32) },
       own,
       signingKey: () => new Uint8Array(32),
+      statusWriter: () => true,
     });
     expect(JSON.stringify(output.threads)).toBe(row.expected.threadsJson);
     expect(renderConversationsMarkdown(output)).toBe(row.expected.markdown);

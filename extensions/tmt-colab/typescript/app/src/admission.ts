@@ -236,8 +236,8 @@ export class Admission {
   }
   /** Owner-member provenance: the device chain was issued by the owner member
    * and verified at its membership revision, and the device is not revoked.
-   * Every author this browser admits has it; bridges and non-owner members are
-   * never admitted, so a status record can only come from such a device. */
+   * A bridge's own envelopes are admitted (`readAuthor`) but never have it, so a
+   * status record can only come from such a device. */
   ownerDevice(device: string): boolean {
     try {
       this.author(device, this.head!.revision.toString());
@@ -246,18 +246,53 @@ export class Admission {
       return false;
     }
   }
-  readAuthor(context: Context, envelopeHash: Uint8Array): Uint8Array {
+  /** The bridge a verified `bridge.add` named at `revision`, as native `open_object` finds it
+   * in the membership state at the envelope's revision: the latest add for this machine,
+   * with the page and epoch that state granted. An archived or deleted page never reaches
+   * here: `validatePage` refuses it for every author. */
+  #bridge(device: string, revision: bigint) {
+    let bridge: { signKey: Uint8Array; pages: readonly string[] } | undefined;
+    let epoch = 1n;
+    for (const { payload: p } of this.#log.slice(0, Number(revision))) {
+      if (p.operation === 'bridge.add' && p.value.machineId === device)
+        bridge = {
+          signKey: binary(p.value.machineSignKey, 32, 32),
+          pages: p.value.pages,
+        };
+      if (p.operation === 'epoch.advance' && p.value.pageId === this.page)
+        epoch = decimal(p.value.epoch);
+    }
+    return bridge && { ...bridge, epoch };
+  }
+  /** The pinned key that signed an envelope and whether its author is an owner-member device.
+   * Admission matches native: a stream with a device chain is an owner-member device; a stream
+   * named by a `bridge.add` at the envelope's revision is a bridge, admitted for the `own`
+   * namespace of its granted pages only, and never as an owner device. Both stop at the
+   * device's signed `device.revoke` cut. */
+  readAuthor(
+    context: Context,
+    envelopeHash: Uint8Array,
+  ): { key: Uint8Array; ownerDevice: boolean } {
     const revision = decimal(context.membershipRevision);
-    const c = this.#authors.get(context.authorDevice);
-    if (!this.head || revision > this.head.revision || !c)
+    if (!this.head || revision > this.head.revision)
       throw new Error('Fresh membership catchup required');
-    requireValue(
-      c.issuerKind === 'member' &&
-        c.issuerId === this.head.ownerMember.id &&
-        decimal(c.membershipRevision) <= revision &&
-        c.issuedAt <= Date.now() &&
-        c.expiresAt > Date.now(),
-    );
+    const bridge = this.#bridge(context.authorDevice, revision),
+      c = bridge ? undefined : this.#authors.get(context.authorDevice);
+    if (!bridge && !c) throw new Error('Fresh membership catchup required');
+    if (bridge)
+      requireValue(
+        context.namespace === 'own' &&
+          bridge.epoch === decimal(this.epoch) &&
+          bridge.pages.includes(this.page),
+      );
+    else
+      requireValue(
+        c!.issuerKind === 'member' &&
+          c!.issuerId === this.head.ownerMember.id &&
+          decimal(c!.membershipRevision) <= revision &&
+          c!.issuedAt <= Date.now() &&
+          c!.expiresAt > Date.now(),
+      );
     for (const statement of this.#log) {
       if (
         statement.payload.operation !== 'device.revoke' ||
@@ -285,7 +320,9 @@ export class Admission {
       else if (context.streamSeq === cut.tailHeadSeq)
         requireValue(equal(envelopeHash, cut.tailHeadHash));
     }
-    return c.signingKey.slice();
+    return bridge
+      ? { key: bridge.signKey.slice(), ownerDevice: false }
+      : { key: c!.signingKey.slice(), ownerDevice: true };
   }
   author(device: string, revision: string): Uint8Array {
     const c = this.#authors.get(device);

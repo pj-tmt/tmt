@@ -30,6 +30,8 @@ export interface ExportView {
   /** The admitted per-writer discussion state and each writer's historical signing key. */
   own: OwnState;
   signingKeys: Record<string, Uint8Array>;
+  /** Writers that may resolve threads (owner-member devices); other keyed writers stay readable. */
+  statusWriters: readonly string[];
 }
 export interface FileInfo {
   readonly name: ExportFile;
@@ -59,6 +61,7 @@ export async function prepareExport(input: ExportView): Promise<ExportBundle> {
   const keys = new Map(
     Object.entries(input.signingKeys).map(([writer, key]) => [writer, key.slice()]),
   );
+  const statusWriters = new Set(input.statusWriters);
   spaceId(view.spaceId);
   generatedId(view.pageId);
   decimal(view.epoch);
@@ -78,6 +81,7 @@ export async function prepareExport(input: ExportView): Promise<ExportBundle> {
     membershipHead: view.membershipHead,
     own,
     signingKey: (writer) => keys.get(writer)?.slice(),
+    statusWriter: (writer) => statusWriters.has(writer),
   });
   const html = text(view.source);
   const json = text(serializeConversations(conversations));

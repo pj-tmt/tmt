@@ -145,20 +145,22 @@ function latest<T extends ThreadRecord | CommentRecord>(records: T[]): T | undef
 }
 const refKey = (ref: DiscussionRef) => `${ref.writer}:${ref.id}`;
 /** Only authenticated per-writer projections and historical envelope keys reach
- * this reader. An expired/revoked writer can remain readable, never writable. */
+ * this reader. An expired/revoked writer can remain readable, never writable.
+ * `statusWriter` says whether a writer may resolve threads (an owner-member device). */
 export function readThreads(
   own: OwnState,
   scope: DiscussionScope,
   signingKey: (writer: string) => Uint8Array | undefined,
+  statusWriter: (writer: string) => boolean,
 ): ThreadView[] {
   const threads = new Map<string, ThreadView>();
   const comments: CommentView[] = [];
   const statuses: Omit<ThreadStatusView, 'depth'>[] = [];
   const notifications: ThreadNotificationRecord[] = [];
   for (const [writer, roots] of Object.entries(own)) {
-    // A signing key exists only for a writer admitted with owner-member provenance
-    // (Admission.readAuthor), the browser's form of the native `status_writers`
-    // rule. Status actions, like every record here, count only from such writers.
+    // A signing key exists only for a writer admitted by Admission.readAuthor. Threads and
+    // comments count from any such writer, a bridge included. Status actions count only
+    // from a writer with owner-member provenance, native `status_writers`.
     if (!signingKey(writer)) continue;
     const groups = new Map<string, (ThreadRecord | CommentRecord)[]>();
     for (const root of ['threads', 'messages'] as const) {
@@ -185,6 +187,7 @@ export function readThreads(
             continue;
           }
           if (value.kind === 'thread-status') {
+            if (!statusWriter(writer)) continue;
             statuses.push({ ...structuredClone(value), ref: { writer, id: value.actionId } });
             continue;
           }

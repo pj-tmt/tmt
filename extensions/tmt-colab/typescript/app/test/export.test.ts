@@ -10,6 +10,7 @@ const input = (): ExportView => {
   const { signingKeys, ...rest } = structuredClone(fixture.input);
   return {
     ...rest,
+    statusWriters: Object.keys(signingKeys),
     signingKeys: Object.fromEntries(
       Object.entries(signingKeys as Record<string, string>).map(([writer, key]) => [
         writer,

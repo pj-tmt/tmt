@@ -86,7 +86,7 @@ vi.mock('../src/admission.js', () => ({
 }));
 vi.mock('../src/connection.js', () => ({
   Connection: class {
-    objects = { ownSigningKey: () => undefined };
+    objects = { ownSigningKey: () => undefined, statusWriter: () => false };
     ready = Promise.resolve({ source: 'verified', title: 'Page' });
     constructor(
       readonly admission: (typeof connections)[number]['admission'],

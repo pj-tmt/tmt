@@ -19,7 +19,12 @@ function thread() {
       discussionKey(record)
     ] = record as unknown as JsonValue;
   }
-  return readThreads(own, fixture.scope, () => new Uint8Array(32))[0];
+  return readThreads(
+    own,
+    fixture.scope,
+    () => new Uint8Array(32),
+    () => true,
+  )[0];
 }
 it('keeps an agent resolution unseen until an explicit open, including reload and new winning actions', () => {
   const value = thread();
