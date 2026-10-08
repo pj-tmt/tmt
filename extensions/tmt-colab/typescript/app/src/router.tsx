@@ -548,7 +548,34 @@ function Page() {
     [eviction, setEviction] = useState<SessionEvictedError | null>(null),
     [editError, setEditError] = useState<SaveProblem | null>(null);
   const recoveryRequired = liveError instanceof RecoveryRequiredError;
+  const recoverySelection = useRef<{ node: HTMLElement; range: Range; backward: boolean } | null>(
+    null,
+  );
+  function keepRecoverySelection() {
+    if (!recoveryRequired) return;
+    const node = document.activeElement;
+    const selection = document.getSelection();
+    if (
+      !(node instanceof HTMLElement) ||
+      !node.matches('[contenteditable="true"]') ||
+      !node.closest('.annotation-compose') ||
+      !selection?.rangeCount
+    )
+      return;
+    const range = selection.getRangeAt(0);
+    if (!node.contains(range.startContainer) || !node.contains(range.endContainer)) return;
+    recoverySelection.current = {
+      node,
+      range: range.cloneRange(),
+      backward:
+        selection.anchorNode === range.endContainer && selection.anchorOffset === range.endOffset,
+    };
+  }
   useEffect(() => {
+    keepRecoverySelection();
+  }, [recoveryRequired]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    recoverySelection.current = null;
     dirty.current = false;
     base.current = snapshot.source;
     setDraft(snapshot.source);
@@ -608,10 +635,15 @@ function Page() {
     setReconnecting(true);
     setReconnectFailed(false);
     try {
-      if (!(await snapshot.binding?.reconnect?.())) setReconnectFailed(true);
+      if (await snapshot.binding?.reconnect?.()) {
+        setLiveError(null);
+        setEviction(null);
+      } else setReconnectFailed(true);
     } catch {
       setReconnectFailed(true);
     } finally {
+      if (document.activeElement === recoverySelection.current?.node)
+        recoverySelection.current = null;
       setReconnecting(false);
     }
   }
@@ -717,13 +749,14 @@ function Page() {
       if (
         target instanceof Element &&
         !popover.current?.contains(target) &&
-        !target.closest('[role="listbox"]')
+        !target.closest('[role="listbox"]') &&
+        !(recoveryRequired && target.closest('[data-colab-reconnect]'))
       )
         closeRef.current(false);
     };
     document.addEventListener('pointerdown', outside, true);
     return () => document.removeEventListener('pointerdown', outside, true);
-  }, [annotation]);
+  }, [annotation, recoveryRequired]);
   function openThread(ref: DiscussionRef | null) {
     if (annotationBusy.current || statusBusy.current) return;
     if (!ref) {
@@ -849,7 +882,35 @@ function Page() {
     );
   }, [state, view.threads, annotation]);
   return (
-    <section className="page">
+    <section
+      className="page"
+      onPointerDownCapture={keepRecoverySelection}
+      onKeyDownCapture={(event) => {
+        if (event.key === 'Escape' || event.key === 'Tab') keepRecoverySelection();
+      }}
+      onFocusCapture={(event) => {
+        const kept = recoverySelection.current;
+        if (!kept || event.target !== kept.node) return;
+        recoverySelection.current = null;
+        const { node, range, backward } = kept;
+        if (
+          !node.isConnected ||
+          !node.contains(range.startContainer) ||
+          !node.contains(range.endContainer)
+        )
+          return;
+        // Mobile Chat must close its modal drawer to reach Reconnect. Restore
+        // its retained selection only when this same composer regains focus.
+        document
+          .getSelection()
+          ?.setBaseAndExtent(
+            backward ? range.endContainer : range.startContainer,
+            backward ? range.endOffset : range.startOffset,
+            backward ? range.startContainer : range.endContainer,
+            backward ? range.startOffset : range.endOffset,
+          );
+      }}
+    >
       <ColabHeader
         headerRef={toolbar}
         menuOpen={menu}
@@ -1025,16 +1086,29 @@ function Page() {
               actions={
                 recoveryRequired &&
                 snapshot.binding?.reconnect && (
-                  <BrowserAction
-                    type="button"
-                    label={reconnecting ? text.reconnecting : text.reconnect}
-                    variant="primary"
-                    busy={reconnecting}
-                    busyMark={<LoaderCircle />}
-                    onActivate={(event) => {
-                      if (event.isTrusted) void reconnect();
+                  <div
+                    data-colab-reconnect
+                    onPointerDown={(event) => {
+                      // A pointer recovery action does not end the active draft's
+                      // focus/selection. Keyboard activation keeps button policy.
+                      if (
+                        event.isTrusted &&
+                        document.activeElement?.matches('[contenteditable="true"]')
+                      )
+                        event.preventDefault();
                     }}
-                  />
+                  >
+                    <BrowserAction
+                      type="button"
+                      label={reconnecting ? text.reconnecting : text.reconnect}
+                      variant="primary"
+                      busy={reconnecting}
+                      busyMark={<LoaderCircle />}
+                      onActivate={(event) => {
+                        if (event.isTrusted) void reconnect();
+                      }}
+                    />
+                  </div>
                 )
               }
             >

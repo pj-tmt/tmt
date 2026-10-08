@@ -3,6 +3,8 @@ import fs from 'node:fs';
 import { expect, test, type Page, type Response } from '@playwright/test';
 import { pairBrowser, restartColab, restartRemote, startDoor } from './harness/browser.js';
 import {
+  annotationInput,
+  selectInRenderer,
   askEntry,
   askState,
   clientId,
@@ -147,6 +149,155 @@ test.describe('Ask agent real-binary acceptance (#1110)', () => {
       expect(dispatches(world)).toHaveLength(1);
     });
   });
+
+  for (const width of [1440, 390])
+    for (const surface of ['Chat', 'annotation'] as const) {
+      test(`explicit Reconnect retains the mounted ${surface} draft and caret at ${width} without resending`, async ({
+        browserName,
+      }, testInfo) => {
+        expect(browserName).toBe('chromium');
+        await withWorld(async (world) => {
+          const s = await scenario(world);
+          const initial = await composeChat(
+            s.askerPage,
+            s.recipient,
+            'One original Ask before recovery',
+          );
+          const ask = await sendChat(s.askerPage, initial);
+          const entry = askEntry(s.askerPage, ask.operationId);
+          await expect(entry.getByTestId('ask-reply')).toHaveText(replyBody(initial.delivered()));
+          await until(() => s.recipient.received().length === 1, 'one original recipient wake');
+          await s.askerPage.setViewportSize({ width, height: 900 });
+          if (surface === 'annotation') {
+            await s.askerPage.getByRole('button', { name: 'Close Chat', exact: true }).click();
+            await selectInRenderer(s.askerPage, '#quote');
+            await s.askerPage.getByTestId('selection-ask').click();
+            await annotationInput(
+              s.askerPage.getByRole('dialog', { name: 'Annotate selection' }),
+              s.recipient.name,
+            );
+          }
+          const container =
+            surface === 'Chat'
+              ? s.askerPage.getByTestId('chat-panel')
+              : s.askerPage.getByRole('dialog', { name: 'Annotate selection' });
+          const input = container.getByRole('combobox', { name: 'Message', exact: true });
+          const action = container.getByRole('button', {
+            name: surface === 'Chat' ? 'Send' : 'Ask agent',
+            exact: true,
+          });
+          await s.door.remote.kill();
+          const reconnect = s.askerPage.getByRole('button', { name: 'Reconnect', exact: true });
+          await expect(reconnect).toHaveCount(1, { timeout: 60000 });
+          const draft = 'Keep this draft typed while disconnected.';
+          await input.fill(draft);
+          await input.press('Home');
+          for (let i = 0; i < 5; i++) await input.press('ArrowRight');
+          const selection = () =>
+            input.evaluate((node) => {
+              const value = getSelection()!;
+              return {
+                anchor: value.anchorOffset,
+                focus: value.focusOffset,
+                inside: node.contains(value.anchorNode) && node.contains(value.focusNode),
+              };
+            });
+          const before = await selection();
+          expect(before).toEqual({ anchor: 5, focus: 5, inside: true });
+          await input.evaluate((node) => {
+            Object.assign(window, { recoveryDraftNode: node });
+          });
+          await expect(action).toBeDisabled();
+          if (surface === 'annotation')
+            await expect(
+              container.getByRole('button', { name: 'Post comment', exact: true }),
+            ).toBeDisabled();
+          if (surface === 'Chat' && width === 390)
+            await s.askerPage.getByRole('button', { name: 'Close Chat', exact: true }).click();
+          await reconnect.click(); // Door still down: retry remains available, without reload.
+          await expect(reconnect).toBeEnabled();
+          await expect(
+            s.askerPage.getByRole('heading', { name: 'Connection lost', exact: true }),
+          ).toBeVisible();
+          if (surface === 'Chat') await openChat(s.askerPage);
+          await input.focus();
+          await expect.poll(selection).toEqual(before);
+          await expect(input).toHaveText(draft);
+          expect(s.recipient.received()).toHaveLength(1);
+          expect(dispatches(world)).toHaveLength(1);
+          await expect(entry).toHaveAttribute('data-ledger-state', 'accepted');
+          let registrations = 0;
+          const navigations: string[] = [];
+          const registered = (response: Response) => {
+            if (
+              new URL(response.url()).pathname.endsWith('/api/devices/register') &&
+              response.request().method() === 'POST' &&
+              response.status() === 200
+            )
+              registrations++;
+          };
+          s.askerPage.on('response', registered);
+          s.askerPage.on('framenavigated', (frame) => {
+            if (frame === s.askerPage.mainFrame()) navigations.push(frame.url());
+          });
+          await restartRemote(world, s.door);
+          if (surface === 'Chat' && width === 390)
+            await s.askerPage.getByRole('button', { name: 'Close Chat', exact: true }).click();
+          await reconnect.click();
+          await expect(reconnect).toHaveCount(0);
+          await expect(s.askerPage.locator('.status.live .status-label')).toHaveText(
+            'Live preview',
+          );
+          await expect(
+            s.askerPage.frameLocator('iframe').getByRole('heading', { name: 'Ask acceptance' }),
+          ).toBeVisible();
+          await expect.poll(() => registrations).toBe(1);
+          if (surface === 'Chat') await openChat(s.askerPage);
+          await input.focus();
+          await expect.poll(selection).toEqual(before);
+          expect(
+            await input.evaluate(
+              (node) =>
+                node === (window as unknown as { recoveryDraftNode: Element }).recoveryDraftNode,
+            ),
+          ).toBe(true);
+          await expect(input).toHaveText(draft);
+          await expect(action).toBeEnabled();
+          await expect(entry).toHaveAttribute('data-ledger-state', 'accepted');
+          await expect(entry.getByTestId('ask-reply')).toHaveText(replyBody(initial.delivered()));
+          expect(navigations).toEqual([]);
+          expect(s.recipient.received()).toHaveLength(1);
+          expect(dispatches(world)).toHaveLength(1);
+          await input.press('X');
+          const edited = draft.slice(0, 5) + 'X' + draft.slice(5);
+          await expect(input).toHaveText(edited);
+          await s.askerPage.screenshot({
+            path: testInfo.outputPath(`reconnected-${surface}-${width}.png`),
+            fullPage: true,
+          });
+          if (surface === 'annotation') {
+            const post = container.getByRole('button', { name: 'Post comment', exact: true });
+            await expect(post).toBeEnabled();
+            await post.click();
+            await expect(input).toHaveText('');
+            await expect(container.getByText(edited, { exact: true })).toBeVisible();
+            expect(s.recipient.received()).toHaveLength(1);
+            expect(dispatches(world)).toHaveLength(1);
+            await input.fill('One new explicit Ask after recovery.');
+          }
+          await action.click();
+          await until(() => s.recipient.received().length === 2, 'one new explicit recipient wake');
+          expect(s.recipient.received()).toHaveLength(2);
+          expect(dispatches(world)).toHaveLength(2);
+          const received = s.recipient.received()[1];
+          expect(String(received.message)).toContain(
+            surface === 'Chat' ? edited : 'One new explicit Ask after recovery.',
+          );
+          await expect(input).toHaveText('');
+          s.askerPage.off('response', registered);
+        });
+      });
+    }
 
   test(`remote restart after the core accepted recovers via operation.show with no second wake`, async () => {
     await withWorld(async (world) => {

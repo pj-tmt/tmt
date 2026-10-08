@@ -1023,7 +1023,7 @@ for (const mode of ['unpaired', 'failed', 'network', 'cookie-lost'] as const) {
   });
 }
 
-test('a disconnected active tab explicitly reconnects and reloads without background session reopen', async ({
+test('a disconnected active tab explicitly replaces its session without reload or background reopen', async ({
   page,
   context,
 }) => {
@@ -1048,7 +1048,7 @@ test('a disconnected active tab explicitly reconnects and reloads without backgr
   });
   await page.getByRole('button', { name: 'Reconnect', exact: true }).click();
   await expect(heading).toBeVisible();
-  expect(opens).toBe(3); // Explicit recovery plus normal registration after reload.
+  expect(opens).toBe(2); // One explicit admitted replacement, without a reload.
   await expect.poll(() => f.connections).toBe(1);
   await page.getByRole('link', { name: 'Space home' }).click();
   await expect.poll(() => f.connections).toBe(0);
@@ -1295,14 +1295,12 @@ result:async()=>({state:'replied',requestId:'${requestId}',message:${JSON.string
   await reconnect.click();
   await expect(heading).toBeVisible();
   await expect.poll(() => f.connections).toBe(1);
-  await page.getByTestId('chat-toggle').click();
+  await expect(page.getByTestId('chat-panel')).toBeVisible();
   await expect(page.getByTestId('ask-entry')).toHaveAttribute('data-operation-id', operationId!);
   await expect(page.getByTestId('ask-entry')).toHaveAttribute('data-ledger-state', 'accepted');
   await expect(page.getByTestId('ask-reply')).toHaveText(reply);
-  expect(opens).toBe(admittedOpens + 4); // Explicit recovery, then admitted boot.
-  // The existing explicit recovery reload resets local-only drafts. Do not
-  // promise persistence across that reload in the recovery card.
-  await expect(input).toHaveText('');
+  expect(opens).toBe(admittedOpens + 3); // One admitted in-place explicit recovery.
+  await expect(input).toHaveText(draft);
   await input.fill('A new draft after verified recovery.');
   await expect(page.getByRole('button', { name: 'Send', exact: true })).toBeEnabled();
   expect(sends).toBe(1);
@@ -1371,14 +1369,18 @@ result:async()=>({state:'replied',requestId:'${requestId}',message:${JSON.string
   expect(sends).toBe(1);
   await f.settled();
   expect(f.entries).toHaveLength(6);
-  await annotationInput.press('Escape');
   doorDown = false;
   f.resumeSync();
   await reconnect.click();
   await expect(heading).toBeVisible();
   await expect.poll(() => f.connections).toBe(1);
-  await annotate();
-  await annotationInput.fill('A new anchored draft after verified recovery.');
+  await expect(annotationInput).toHaveText('Still editable anchored draft.');
+  await expect(annotationInput).toBeFocused();
+  expect(
+    await annotationInput.evaluate(
+      (node) => node === (window as unknown as { recoveryDraftNode: Element }).recoveryDraftNode,
+    ),
+  ).toBe(true);
   await expect(post).toBeEnabled();
   await expect(askAction).toBeEnabled();
   await annotationInput.press('Escape');
@@ -1393,6 +1395,256 @@ result:async()=>({state:'replied',requestId:'${requestId}',message:${JSON.string
   await page.getByRole('link', { name: 'Space home' }).click();
   await expect.poll(() => f.connections).toBe(0);
 });
+
+/** The mounted/registration/Connection/Worker/Writer path is production; only
+ * the signed server and Remote protocol are fixtures, as in the Ask wire case. */
+async function draftRecoveryWire(context: BrowserContext) {
+  const f = await wire(context);
+  const agent = '00000000-0000-4000-8000-000000000006';
+  let down = false,
+    ended = false,
+    opens = 0,
+    sends = 0;
+  let pending: Promise<void> | undefined, release: (() => void) | undefined;
+  await context.route('**/sdk/remote-v1.js*', (route) =>
+    route.fulfill({
+      contentType: 'text/javascript',
+      body: `export class RefusalError extends Error {constructor(code){super(code);this.code=code;}}
+export async function reopenSession(){const response=await fetch('/test-draft-reopen',{method:'POST'});if(!response.ok)throw new RefusalError('ACCESS_REVOKED');await window.fixtureKeys;return {sessionId:'fixture-session',serverTimeMs:Date.now(),grantRevision:'1',expiresAtMs:null}}
+export async function certifyKey(purpose,bytes){return {publicKey:btoa(String.fromCharCode(...bytes)).replaceAll('+','-').replaceAll('/','_').replace(/=+$/,''),issuedAtMs:Date.now(),signature:'${c.encodeBinary(new Uint8Array(64))}'}}
+export function transportUrl(_session,url){return String(url);}
+export function operations(){return {
+listAgents:async()=>{const response=await fetch('/test-draft-directory');if(response.status===410)throw new RefusalError('REMOTE_SESSION_ENDED');return [{id:'${agent}',name:'Draft agent',presence:'active'}]},
+send:async(input)=>(await fetch('/test-draft-send',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(input)})).json(),
+operation:async(operationId)=>({state:'accepted',operationId,requestId:'req_00000000-0000-4000-8000-000000000007'}),
+result:async()=>({state:'replied',requestId:'req_00000000-0000-4000-8000-000000000007',message:'Draft recovery reply'})
+}}`,
+    }),
+  );
+  await context.route('**/test-draft-reopen', async (route) => {
+    opens++;
+    if (pending) await pending;
+    if (down) return route.abort('connectionrefused');
+    ended = false;
+    f.resumeSync();
+    return route.fulfill({ json: {} });
+  });
+  await context.route('**/test-draft-directory', (route) =>
+    route.fulfill({ status: ended ? 410 : 200, json: {} }),
+  );
+  await context.route('**/sdk/mount', (route) =>
+    route.fulfill({
+      json: {
+        machineId: '00000000-0000-4000-8000-000000000005',
+        windowId: 'fixture',
+        address: 'fixture',
+        extension: 'colab',
+        mount,
+      },
+    }),
+  );
+  await context.route('**/test-draft-send', async (route) => {
+    const input = route.request().postDataJSON();
+    expect(input.agentId).toBe(agent);
+    await f.settled();
+    expect(f.entries.length).toBeGreaterThan(1); // Fresh Writer publication preceded dispatch.
+    sends++;
+    return route.fulfill({
+      json: {
+        state: 'accepted',
+        operationId: input.operationId,
+        requestId: 'req_00000000-0000-4000-8000-000000000007',
+      },
+    });
+  });
+  return {
+    ...f,
+    get connections() {
+      return f.connections;
+    },
+    get opens() {
+      return opens;
+    },
+    get sends() {
+      return sends;
+    },
+    stop() {
+      down = true;
+      ended = true;
+      f.stopSync();
+    },
+    resume() {
+      down = false;
+      f.resumeSync();
+    },
+    hold() {
+      pending = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+    },
+    release() {
+      release!();
+      pending = undefined;
+    },
+  };
+}
+
+for (const width of [1440, 390])
+  for (const surface of ['Chat', 'annotation'] as const)
+    for (const selected of [false, true]) {
+      test(`explicit recovery keeps ${surface} ${selected ? 'selection' : 'caret'} and mounted draft at ${width}`, async ({
+        page,
+        context,
+      }) => {
+        await page.setViewportSize({ width, height: 900 });
+        const f = await draftRecoveryWire(context);
+        await page.goto(mount);
+        await page.locator(`[data-page-id="${v.page}"] a`).click();
+        const heading = page.frameLocator('iframe').getByRole('heading', { name: 'Live fixture' });
+        await expect(heading).toBeVisible();
+        async function openChat() {
+          if (await page.locator('.page-drawer[data-panel=chat][open]').isVisible()) return;
+          const toggle = page.getByTestId('chat-toggle');
+          if (!(await toggle.isVisible()))
+            await page.getByRole('button', { name: 'More page actions' }).click();
+          await toggle.click();
+        }
+        if (surface === 'Chat') await openChat();
+        else {
+          await heading.evaluate((node) => {
+            const range = document.createRange();
+            range.selectNodeContents(node);
+            const selection = getSelection()!;
+            selection.removeAllRanges();
+            selection.addRange(range);
+          });
+          await page.getByTestId('selection-ask').click();
+        }
+        const container =
+          surface === 'Chat'
+            ? page.getByTestId('chat-panel')
+            : page.getByRole('dialog', { name: 'Annotate selection' });
+        const input = container.getByRole('combobox', { name: 'Message', exact: true });
+        const action = container.getByRole('button', {
+          name: surface === 'Chat' ? 'Send' : 'Ask agent',
+          exact: true,
+          includeHidden: true,
+        });
+        await container.getByRole('button', { name: 'Choose recipient', exact: true }).click();
+        await page.getByRole('option').filter({ hasText: '@Draft agent ·' }).click();
+        const draft = 'Keep this exact recovery draft.';
+        await input.fill(draft);
+        await input.press('Home');
+        for (let i = 0; i < 5; i++) await input.press('ArrowRight');
+        if (selected) for (let i = 0; i < 4; i++) await input.press('Shift+ArrowRight');
+        await input.evaluate((node) => {
+          Object.assign(window, { recoveryDraftNode: node });
+        });
+        const selection = () =>
+          input.evaluate((node) => {
+            const selection = getSelection()!;
+            return {
+              anchor: selection.anchorOffset,
+              focus: selection.focusOffset,
+              text: selection.toString(),
+              inside: node.contains(selection.anchorNode) && node.contains(selection.focusNode),
+            };
+          });
+        const before = await selection();
+        expect(before).toEqual({
+          anchor: 5,
+          focus: selected ? 9 : 5,
+          text: selected ? draft.slice(5, 9) : '',
+          inside: true,
+        });
+        f.stop();
+        const reconnect = page.getByRole('button', { name: 'Reconnect', exact: true });
+        await expect(reconnect).toHaveCount(1);
+        await expect(input).toHaveText(draft);
+        await expect(action).toBeDisabled();
+        if (surface === 'annotation')
+          await expect(
+            container.getByRole('button', { name: 'Post comment', exact: true }),
+          ).toBeDisabled();
+        const admittedOpens = f.opens;
+        const navigations: string[] = [];
+        page.on('framenavigated', (frame) => {
+          if (frame === page.mainFrame()) navigations.push(frame.url());
+        });
+        async function clickRecovery() {
+          if (surface === 'Chat' && width === 390)
+            await page.getByRole('button', { name: 'Close Chat', exact: true }).click();
+          await reconnect.click();
+          await expect(
+            page.getByRole('button', { name: 'Reconnecting…', exact: true }),
+          ).toBeDisabled();
+          await expect.poll(() => f.opens).toBe(admittedOpens + 1);
+        }
+        // A failed explicit attempt is one fetch and preserves the same read-only draft.
+        f.hold();
+        await clickRecovery();
+        f.release();
+        await expect(reconnect).toBeEnabled();
+        if (surface === 'Chat') await openChat();
+        await input.focus();
+        await expect.poll(selection).toEqual(before);
+        await expect(input).toHaveText(draft);
+        await expect(action).toBeDisabled();
+        expect(f.sends).toBe(0);
+        await f.settled();
+        expect(f.entries).toHaveLength(1);
+        // A fresh admitted replacement has no navigation and rebinds the original nodes.
+        f.resume();
+        f.hold();
+        if (surface === 'Chat' && width === 390)
+          await page.getByRole('button', { name: 'Close Chat', exact: true }).click();
+        await reconnect.click();
+        await expect(
+          page.getByRole('button', { name: 'Reconnecting…', exact: true }),
+        ).toBeDisabled();
+        await expect(action).toBeDisabled();
+        await expect.poll(() => f.opens).toBe(admittedOpens + 2);
+        f.release();
+        await expect(reconnect).toHaveCount(0);
+        await expect(page.locator('.status.live .status-label')).toHaveText('Live preview');
+        await expect(heading).toBeVisible();
+        if (surface === 'Chat') await openChat();
+        await input.focus();
+        await expect.poll(selection).toEqual(before);
+        expect(
+          await input.evaluate(
+            (node) =>
+              node === (window as unknown as { recoveryDraftNode: Element }).recoveryDraftNode,
+          ),
+        ).toBe(true);
+        await expect(input).toHaveText(draft);
+        await expect(action).toBeEnabled();
+        expect(navigations).toEqual([]);
+        expect(f.sends).toBe(0);
+        await f.settled();
+        expect(f.entries).toHaveLength(1);
+        await input.press('X');
+        const edited = draft.slice(0, 5) + 'X' + draft.slice(selected ? 9 : 5);
+        await expect(input).toHaveText(edited);
+        if (surface === 'annotation') {
+          const post = container.getByRole('button', { name: 'Post comment', exact: true });
+          await expect(post).toBeEnabled();
+          await post.click();
+          await expect(input).toHaveText('');
+          await expect(container.getByText(edited, { exact: true })).toBeVisible();
+          expect(f.sends).toBe(0);
+          await input.fill('Explicit Ask after verified recovery.');
+        }
+        await action.click();
+        await expect.poll(() => f.sends).toBe(1);
+        await expect(input).toHaveText('');
+        await expect(page.getByTestId('ask-reply')).toHaveText('Draft recovery reply');
+        if (surface === 'Chat' && width === 390)
+          await page.getByRole('button', { name: 'Close Chat', exact: true }).click();
+        await page.getByRole('link', { name: 'Space home' }).click();
+        await expect.poll(() => f.connections).toBe(0);
+      });
+    }
 
 test('same-device tabs stay connected and exchange source edits without reopening', async ({
   page,
