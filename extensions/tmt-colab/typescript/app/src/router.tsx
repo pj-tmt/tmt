@@ -33,6 +33,8 @@ import {
 import type { PageView, PageTransport } from './transport.js';
 import { AnnotationInput } from './annotation-input.js';
 import { ThreadPanel, ThreadWindow } from './thread-panel.js';
+import { presentationOf } from './thread-status-presentation.js';
+import { isStatusThread, openThreadCount } from './thread-status-view.js';
 import type { QuoteSelector, DiscussionRef } from './thread-records.js';
 import { ShareDialog } from './share-dialog.js';
 import { mountRenderer } from './renderer.js';
@@ -614,6 +616,8 @@ function Page() {
     /** Text kept from an earlier close of this selection or thread. */
     restored?: ComposerEdit;
   }>();
+  const binding = useRef(snapshot.binding);
+  binding.current = snapshot.binding;
   const annotationRef = useRef(annotation);
   annotationRef.current = annotation;
   const popover = useRef<HTMLElement>(null);
@@ -667,6 +671,9 @@ function Page() {
           thread.ref.id === annotation.thread!.id,
       )
     : undefined;
+  const openThreads = openThreadCount(view.threads ?? []);
+  const unseenThreads = (view.threadPresentations ?? []).some((value) => value.status.unseen);
+  const statusCoordinator = liveError === managementChanged ? undefined : snapshot.binding?.status;
   const annotationKey = (value: NonNullable<typeof annotation>) =>
     value.thread ? `${value.thread.writer}:${value.thread.id}` : JSON.stringify(value.selector);
   /** Every nonblank message is a draft; recipient selection never replaces its bytes. */
@@ -714,6 +721,7 @@ function Page() {
     const id = `${ref.writer}:${ref.id}`;
     if (annotationRef.current) closeRef.current(false);
     setAnnotation(undefined);
+    binding.current?.markThreadStatusSeen?.(ref);
     setActiveThread(id);
     setPanel('comments');
     setMenu(false);
@@ -732,6 +740,7 @@ function Page() {
     );
     if (!thread?.anchor) return;
     closeRef.current(false);
+    binding.current?.markThreadStatusSeen?.(ref);
     renderer.current?.scrollAnchor(`${ref.writer}:${ref.id}`);
     const rectangle = renderer.current?.anchorRectangle(`${ref.writer}:${ref.id}`);
     if (!rectangle) {
@@ -813,8 +822,9 @@ function Page() {
   useEffect(() => {
     if (state !== 'ready') return;
     renderer.current?.highlight(
+      // Resolving hides the margin marker; Reopen restores it. Resolved history stays in Comments.
       (view.threads ?? []).flatMap((thread) =>
-        !thread.deleted && thread.anchor
+        isStatusThread(thread) && !thread.resolved && thread.anchor
           ? [
               {
                 id: `${thread.ref.writer}:${thread.threadId}`,
@@ -935,6 +945,8 @@ function Page() {
                 }}
               >
                 {text.comments}
+                {openThreads > 0 && ` ${openThreads}`}
+                {unseenThreads && ` · ${text.threadUnseen}`}
               </button>
               <button
                 className={ui.action}
@@ -1063,6 +1075,16 @@ function Page() {
                   }}
                   blocked={discussionBlocked}
                   observationUnavailable={view.askUnavailable}
+                  status={
+                    annotationThread
+                      ? presentationOf(view.threadPresentations, annotationThread.ref)?.status
+                      : undefined
+                  }
+                  onStatusChange={
+                    annotationThread && statusCoordinator
+                      ? (resolved) => statusCoordinator.change(annotationThread, resolved)
+                      : undefined
+                  }
                   onBusy={(busy) => {
                     if (annotationRef.current?.key !== annotation.key) return;
                     statusBusy.current = busy;
@@ -1155,6 +1177,16 @@ function Page() {
           asks={view.asks ?? []}
           active={activeThread}
           select={openThread}
+          presentations={view.threadPresentations}
+          onStatusChange={
+            statusCoordinator
+              ? (thread, resolved) => statusCoordinator.change(thread, resolved)
+              : undefined
+          }
+          onBusy={(busy) => {
+            statusBusy.current = busy;
+            setChangingStatus(busy);
+          }}
           draft={(ref) => drafts.current.get(`${ref.writer}:${ref.id}`)}
           onDraft={(ref, edit) => {
             drafts.current.set(`${ref.writer}:${ref.id}`, edit);

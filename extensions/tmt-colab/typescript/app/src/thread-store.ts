@@ -56,7 +56,7 @@ export interface ThreadBinding {
   updateThread(
     thread: DiscussionRef,
     revision: string,
-    change: { resolved: boolean } | { anchor: QuoteSelector } | { deleted: true },
+    change: { anchor: QuoteSelector } | { deleted: true },
   ): Promise<void>;
 }
 export interface ThreadStoreOptions extends DiscussionScope {
@@ -243,12 +243,8 @@ export class ThreadStore implements ThreadBinding {
     await this.#exclusive(async (c) => {
       const previous = this.#thread(c, ref);
       requireValue(previous.revision === revision);
-      // Status is an independent writer-owned action. Anchor/deletion remain
-      // restricted to the originating stream and never copy folded metadata.
-      if ('resolved' in captured) {
-        await this.#status(previous, captured.resolved, []);
-        return;
-      }
+      // Anchor/deletion stay restricted to the originating stream and never copy
+      // folded metadata. Status has its own action: setStatus.
       requireValue(ref.writer === this.deviceId);
       const record: unknown = this.options.own()[this.deviceId]?.threads[`${ref.id}:${revision}`];
       validateDiscussionRecord('threads', `${ref.id}:${revision}`, record);

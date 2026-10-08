@@ -73,8 +73,17 @@ owns record fields, limits, revision semantics and trust boundaries.
   Enter; no drawer opens automatically. Known margin markers reopen that exact
   thread using the current renderer's admitted cosmetic position. The page owner
   keeps drafts and recipients by thread across collapse and explicit Comments
-  access. Resolve uses the existing writer-owned binding and collapses only after
-  success.
+  access. Resolve/Reopen is the parent's `onStatusChange` seam over
+  `ThreadStatusCoordinator`, not a thread edit: the window receives the thread's
+  `ThreadPresentation.status` and awaits one status change (any admitted device
+  may change it), collapses the anchored layout only after a resolve that left
+  nothing to tell, and lists mentions that could not become recipients as
+  `Not notified`. Only the parent's trusted open paths call
+  `markThreadStatusSeen`; rendering, panel opening, close and reload never do.
+  A resolved thread leaves the renderer's anchor set, so its margin marker is
+  hidden until Reopen, while Comments keeps its row (`Resolved`, or
+  `Resolved by <agent>` with an unseen `New` mark) and the Comments toggle shows
+  the open count.
   It extends the same `components/listbox.tsx` used by Manage and the agent list;
   input options portal into its dialog ancestor (otherwise the body) and use the
   browser popover layer with viewport bounds, so mobile modal sheets retain visible,

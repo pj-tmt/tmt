@@ -1,4 +1,4 @@
-import type { ThreadView } from './thread-records.js';
+import type { DiscussionRef, ThreadView } from './thread-records.js';
 import type { PageAsk } from './ask-panel.js';
 import { projectThreadStatus, type ThreadStatusSeen } from './thread-status-view.js';
 import { projectStatusNotifications } from './thread-status-notification.js';
@@ -18,3 +18,18 @@ export function projectThreadPresentation(
   };
 }
 export type ThreadPresentation = ReturnType<typeof projectThreadPresentation>;
+
+/** What a window needs to report after a status change; warnings name mentions
+ * the parent could not turn into a recipient. */
+export interface ThreadStatusOutcome {
+  changed: boolean;
+  warnings?: readonly { name: string }[];
+}
+export function presentationOf(
+  presentations: readonly ThreadPresentation[] | undefined,
+  ref: DiscussionRef,
+) {
+  return presentations?.find(
+    (value) => value.thread.writer === ref.writer && value.thread.id === ref.id,
+  );
+}
