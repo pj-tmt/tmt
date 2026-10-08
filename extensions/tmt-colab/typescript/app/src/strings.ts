@@ -56,6 +56,7 @@ export const text = {
   threadDelete: 'Delete thread',
   conversationAgent: 'agent',
   reconnect: 'Reconnect',
+  recoveryRequired: 'Connection lost. Reconnect to resume.',
   reconnectFailed:
     'Could not reconnect. Open this page from a paired browser, or pair with tmt remote pair.',
   sessionEvicted: (limit: number) =>

@@ -981,6 +981,7 @@ test('Ask publishes owner own envelopes through production Connection before Rem
   page,
   context,
 }, testInfo) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
   const f = await wire(context),
     agentId = '00000000-0000-4000-8000-000000000006',
     requestId = 'req_00000000-0000-4000-8000-000000000007',
@@ -1143,7 +1144,22 @@ result:async()=>({state:'replied',requestId:'${requestId}',message:${JSON.string
   await expect(page.getByTestId('ask-reply')).toHaveText(reply);
   expect(sends).toBe(1);
   expect(f.entries).toHaveLength(6);
-  await page.screenshot({ path: testInfo.outputPath('recovery-required.png'), fullPage: true });
+  await page.screenshot({
+    path: testInfo.outputPath('recovery-required-1440.png'),
+    fullPage: true,
+  });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(reconnect).toBeVisible();
+  await expect(input).toHaveText(draft);
+  await expect(page.getByTestId('ask-reply')).toHaveText(reply);
+  await page.screenshot({ path: testInfo.outputPath('recovery-draft-390.png'), fullPage: true });
+  await page.getByRole('button', { name: 'Close Chat', exact: true }).click();
+  await expect(reconnect).toBeVisible();
+  await page.screenshot({ path: testInfo.outputPath('recovery-required-390.png'), fullPage: true });
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.getByTestId('chat-toggle').click();
+  await expect(input).toHaveText(draft);
+  await expect(page.getByTestId('ask-reply')).toHaveText(reply);
   // Explicit recovery before the door returns stays retryable and read-only.
   await reconnect.click();
   await expect.poll(() => opens).toBe(admittedOpens + 2);

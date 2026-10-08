@@ -421,6 +421,8 @@ export class Live implements PageBinding {
     } else this.#block(error);
   }
   #block(error: Error) {
+    // Connection's single socket.onerror/onclose handler owns this opaque
+    // message; keep its normalization here while the sync socket owner evolves.
     if (error.message === 'Sync disconnected') error = new RecoveryRequiredError(error);
     const connection = this.#connection;
     this.#opening = null;

@@ -1,3 +1,5 @@
+import { text } from './strings.js';
+
 /** One recovery chain spans its successful reload. Authenticated boot clears
  * the marker; another guidance response after reload cannot reopen in a loop. */
 export function recoveryKey(mount: URL) {
@@ -46,6 +48,6 @@ export function clearRecovery(mount: URL, storage?: Pick<Storage, 'removeItem'>)
  * This offers no admission or permission to replay a mutation. */
 export class RecoveryRequiredError extends Error {
   constructor(cause: Error) {
-    super('Connection lost. Reconnect to resume.', { cause });
+    super(text.recoveryRequired, { cause });
   }
 }
