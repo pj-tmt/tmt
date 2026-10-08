@@ -601,6 +601,19 @@ pub fn execute(request: Invocation, mode: OutputMode) -> io::Result<u8> {
         _ => Outcome::None,
     };
     crate::skill_reminder::present(outcome, mode, true);
+    let changed_binding = match &report {
+        Report::Bound(result) => result.presence.binding.as_ref(),
+        Report::Unbound { result, .. } => result.binding.as_ref(),
+        Report::Removed(entry) => entry.binding.as_ref(),
+        Report::Renamed { result, .. } if result.changed() => result.binding.as_ref(),
+        _ => None,
+    };
+    if let Some(binding) = changed_binding
+        && let Ok(paths) = ConfigPaths::discover()
+    {
+        let host = Host::for_server(&binding.server);
+        tmt_adapters::workspace::refresh_server(&paths, &host, &binding.server);
+    }
     Ok(0)
 }
 

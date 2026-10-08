@@ -15,6 +15,13 @@ pub struct ConfigPaths {
 }
 
 impl ConfigPaths {
+    /// Private recovery snapshots; never identity or presence authority.
+    pub fn workspace_directory(&self, socket: &str) -> PathBuf {
+        self.global_dir
+            .join("workspace")
+            .join(tmt_core::content_digest::sha256(socket.as_bytes()))
+    }
+
     pub fn office_directory(&self) -> PathBuf {
         self.global_dir.join("office")
     }

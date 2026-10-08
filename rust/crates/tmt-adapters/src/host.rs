@@ -455,6 +455,53 @@ impl<R: CommandRunner> Host<R> {
         }
     }
 
+    /// Recovery capture is optional; external drivers have no workspace port yet.
+    pub fn workspace_capture(
+        &self,
+        socket: &str,
+        expected: Option<&ServerEvidence>,
+        caller: Option<&CallerEnvironment>,
+        deadline: Instant,
+    ) -> Result<Option<crate::tmux::WorkspaceCapture>, HostError> {
+        match self.primary {
+            HostKind::Tmux => Ok(Some(
+                self.tmux
+                    .workspace_capture(socket, expected, caller, deadline)?,
+            )),
+            HostKind::External(_) => Ok(None),
+        }
+    }
+
+    pub fn workspace_command_marker(
+        &self,
+        socket: &str,
+        pane: &str,
+        document: Option<&str>,
+        deadline: Instant,
+    ) -> Result<(), HostError> {
+        match self.primary {
+            HostKind::Tmux => Ok(self
+                .tmux
+                .workspace_command_marker(socket, pane, document, deadline)?),
+            HostKind::External(_) => Ok(()),
+        }
+    }
+
+    pub fn clear_workspace_command(
+        &self,
+        socket: &str,
+        pane: &str,
+        expected: &str,
+        deadline: Instant,
+    ) -> Result<(), HostError> {
+        match self.primary {
+            HostKind::Tmux => Ok(self
+                .tmux
+                .clear_workspace_command(socket, pane, expected, deadline)?),
+            HostKind::External(_) => Ok(()),
+        }
+    }
+
     pub fn snapshot(&self, options: OperationOptions<'_>) -> Result<EndpointSnapshot, HostError> {
         match self.primary {
             HostKind::Tmux => Ok(self.tmux.snapshot(options)?),

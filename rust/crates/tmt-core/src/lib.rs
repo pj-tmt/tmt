@@ -28,3 +28,5 @@ pub mod skill_catalog;
 mod identity_tests;
 #[cfg(test)]
 mod settings_tests;
+
+pub mod workspace;

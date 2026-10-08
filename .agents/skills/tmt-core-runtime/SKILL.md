@@ -22,6 +22,8 @@ Load the file for the area you change.
 - [references/requests-storage.md](references/requests-storage.md): SQLite adapter and
   migration rules (including the change-cursor trigger rule), the request service, reply
   notices and configuration.
+- [references/workspace.md](references/workspace.md): private recovery snapshots, event
+  capture, configuration and generic foreground extension markers.
 - [references/hosts-drivers.md](references/hosts-drivers.md): process and tmux effects, the
   host port, external host drivers, agent drivers, provider channels, driver protocol.
 - [references/extension-surface.md](references/extension-surface.md): command dispatch and

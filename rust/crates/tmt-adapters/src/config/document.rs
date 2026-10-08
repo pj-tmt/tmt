@@ -10,7 +10,17 @@ struct Field {
     property: &'static str,
 }
 
-const GLOBAL_FIELDS: [Field; 11] = [
+const GLOBAL_FIELDS: [Field; 13] = [
+    Field {
+        key: SettingKey::WorkspaceSnapshotEnabled,
+        container: Some("workspace"),
+        property: "snapshotEnabled",
+    },
+    Field {
+        key: SettingKey::WorkspaceSnapshotIntervalMs,
+        container: Some("workspace"),
+        property: "snapshotIntervalMs",
+    },
     Field {
         key: SettingKey::NotesCompactionReminder,
         container: Some("notes"),
@@ -105,7 +115,14 @@ fn object<'a>(
 fn shape(value: &Value, path: &Path, scope: Scope) -> Result<(), ConfigError> {
     let root = object(value, path, "<root>")?;
     let containers: &[&str] = match scope {
-        Scope::Global => &["defaults", "exchange", "ui", "notifications", "notes"],
+        Scope::Global => &[
+            "defaults",
+            "exchange",
+            "ui",
+            "notifications",
+            "notes",
+            "workspace",
+        ],
         Scope::Local => &["$config"],
     };
     for name in containers {
@@ -194,12 +211,15 @@ fn setting_value(setting: Setting) -> Value {
     match setting {
         Setting::PreambleMode(value) => json!(value.as_str()),
         Setting::PaneBadge(value) => json!(value.as_str()),
-        Setting::NotesCompactionReminder(value) => json!(value),
+        Setting::NotesCompactionReminder(value) | Setting::WorkspaceSnapshotEnabled(value) => {
+            json!(value)
+        }
         Setting::CaptureLines(value)
         | Setting::PreambleEvery(value)
         | Setting::RetentionDays(value)
         | Setting::ReplyBatchWindowMs(value)
-        | Setting::TypingQuietMs(value) => json!(value),
+        | Setting::TypingQuietMs(value)
+        | Setting::WorkspaceSnapshotIntervalMs(value) => json!(value),
         Setting::Timeout(value)
         | Setting::PollInterval(value)
         | Setting::PasteEnterDelayMs(value) => {

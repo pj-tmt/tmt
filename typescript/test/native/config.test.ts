@@ -243,6 +243,54 @@ describe('native configuration process boundary', () => {
     });
   });
 
+  it('edits default-on workspace snapshot policy globally and preserves opaque siblings', async () => {
+    await withSandbox(async (sandbox) => {
+      const initial = parseWholeStdout(await runCli(sandbox, ['config', 'show', '--json']));
+      expect(initial).toMatchObject({
+        resolved: { workspace: { snapshotEnabled: true, snapshotIntervalMs: 60000 } },
+        sources: { workspace: { snapshotEnabled: 'default', snapshotIntervalMs: 'default' } },
+      });
+      fs.mkdirSync(sandbox.globalDir, { recursive: true });
+      fs.writeFileSync(
+        sandbox.globalConfig,
+        JSON.stringify({ workspace: { future: ['keep'] }, other: 7 })
+      );
+      for (const [key, value] of [
+        ['snapshotEnabled', 'false'],
+        ['snapshotIntervalMs', '0'],
+      ]) {
+        const result = await runCli(sandbox, [
+          'config',
+          'set',
+          '--global',
+          `workspace.${key}`,
+          value,
+          '--json',
+        ]);
+        expect(result.status).toBe(0);
+        expect(parseWholeStdout(result)).toEqual({ ok: true });
+      }
+      expect(JSON.parse(fs.readFileSync(sandbox.globalConfig, 'utf8'))).toEqual({
+        workspace: { future: ['keep'], snapshotEnabled: false, snapshotIntervalMs: 0 },
+        other: 7,
+      });
+      const before = fileSnapshot(sandbox.root);
+      for (const args of [
+        ['config', 'set', 'workspace.snapshotEnabled', 'true'],
+        ['config', 'rm', 'workspace.snapshotEnabled'],
+        ['config', 'set', '--global', 'workspace.snapshotEnabled', '1'],
+        ['config', 'set', '--global', 'workspace.snapshotIntervalMs', '2147483648'],
+      ]) {
+        const result = await runCli(sandbox, [...args, '--json']);
+        expect(result.status).toBe(1);
+        expectError(result, 'ERROR');
+        expect(fileSnapshot(sandbox.root)).toEqual(before);
+      }
+      expect(fs.existsSync(sandbox.database)).toBe(false);
+      expect(fs.existsSync(path.join(sandbox.globalDir, 'workspace'))).toBe(false);
+    });
+  });
+
   it('edits the global notes reminder boolean without creating notes or storage', async () => {
     await withSandbox(async (sandbox) => {
       fs.mkdirSync(sandbox.globalDir, { recursive: true });
@@ -393,6 +441,7 @@ describe('native configuration process boundary', () => {
         ui: { paneBadge: 'on' },
         notifications: { replyBatchWindowMs: 5000, typingQuietMs: 2000 },
         notes: { compactionReminder: true },
+        workspace: { snapshotEnabled: true, snapshotIntervalMs: 60000 },
         theme: {},
       });
       expect(document.sources).toEqual({
@@ -403,6 +452,7 @@ describe('native configuration process boundary', () => {
         ui: { paneBadge: 'default' },
         notifications: { replyBatchWindowMs: 'default', typingQuietMs: 'default' },
         notes: { compactionReminder: 'default' },
+        workspace: { snapshotEnabled: 'default', snapshotIntervalMs: 'default' },
         theme: 'default',
       });
       expect(fileSnapshot(sandbox.root)).toEqual(before);
@@ -532,6 +582,7 @@ describe('native configuration process boundary', () => {
         ui: { paneBadge: 'on' },
         notifications: { replyBatchWindowMs: 5000, typingQuietMs: 2000 },
         notes: { compactionReminder: true },
+        workspace: { snapshotEnabled: true, snapshotIntervalMs: 60000 },
         theme: {},
       });
       expect(document.sources).toEqual({
@@ -542,6 +593,7 @@ describe('native configuration process boundary', () => {
         ui: { paneBadge: 'default' },
         notifications: { replyBatchWindowMs: 'default', typingQuietMs: 'default' },
         notes: { compactionReminder: 'default' },
+        workspace: { snapshotEnabled: 'default', snapshotIntervalMs: 'default' },
         theme: 'default',
       });
       expect(fileSnapshot(sandbox.root)).toEqual(before);

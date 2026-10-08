@@ -15,7 +15,14 @@ pub fn execute(name: &str, args: &[OsString], help: bool, prefix: &[OsString]) -
                 "Put options after the extension name: tmt <name> [options].",
             );
         }
-        let error = adapter::execute(&executable, args, &std::env::current_exe()?);
+        let executable_core = std::env::current_exe()?;
+        let marker = (!help)
+            .then(|| tmt_adapters::workspace::DispatchMarker::prepare(name, args))
+            .flatten();
+        let error = adapter::execute(&executable, args, &executable_core);
+        if let Some(marker) = marker {
+            marker.failed();
+        }
         let mut stderr = tmt_cli_style::stream::stderr();
         let terminal = stderr.terminal();
         tmt_cli_style::message::error(

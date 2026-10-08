@@ -42,6 +42,7 @@ pub fn execute(
     let started = Instant::now();
     // A turn end fires after every turn; its failures stay silent.
     let mut turn_end = false;
+    let mut publication_deadline = started;
     let result = (|| {
         let registry = RuntimeRegistry::first_party();
         let harness = HarnessId::new(provider).map_err(|_| ())?;
@@ -53,6 +54,7 @@ pub fn execute(
             channel_duration.unwrap_or(BUDGET)
         };
         let deadline = started + duration;
+        publication_deadline = deadline;
         let input = read_stdin_bounded(
             if channel_duration.is_some() || work_budget_ms.is_some() {
                 deadline.saturating_duration_since(Instant::now())
@@ -64,7 +66,9 @@ pub fn execute(
         .map_err(|_| ())?;
         turn_end = lifecycle.decode_turn(input.as_bytes()).is_some();
         if worker {
-            return observe(provider, &input, deadline, activity_only);
+            let mut workspace = None;
+            let context = observe(provider, &input, deadline, activity_only, &mut workspace)?;
+            return Ok(crate::workspace_hook::Observation { context, workspace });
         }
         lifecycle
             .wait_for_hook_admission(input.as_bytes(), deadline)
@@ -80,18 +84,26 @@ pub fn execute(
                 args: &args,
                 input: input.as_bytes(),
                 deadline,
-                max_output_bytes: 32 * 1024,
+                max_output_bytes: 64 * 1024,
             })
             .map_err(|_| ())?;
         if !output.stderr.is_empty() {
             return Err(());
         }
-        String::from_utf8(output.stdout).map_err(|_| ())
+        crate::workspace_hook::Observation::decode(&output.stdout)
     })();
     let failed = result.is_err();
     match result {
-        Ok(context) => {
-            let _ = io::stdout().lock().write_all(context.as_bytes());
+        Ok(observation) => {
+            if worker {
+                let _ = io::stdout().lock().write_all(&observation.encode());
+            } else {
+                crate::workspace_hook::publish(
+                    &mut io::stdout().lock(),
+                    observation,
+                    publication_deadline,
+                );
+            }
         }
         Err(()) => {
             if worker {
@@ -434,6 +446,7 @@ fn observe(
     input: &str,
     deadline: Instant,
     activity_only: bool,
+    workspace: &mut Option<tmt_core::endpoint::ServerEvidence>,
 ) -> Result<String, ()> {
     let registry = RuntimeRegistry::first_party();
     let harness = HarnessId::new(provider).map_err(|_| ())?;
@@ -580,7 +593,14 @@ fn observe(
     if !changed || Instant::now() >= deadline {
         return Err(());
     }
+    // decode_turn and decode_prompt returned above; only documented session
+    // lifecycle boundaries reach this admitted branch (including clear/compact).
+    let capture_workspace = event.starting()
+        || event.transition() == Some(tmt_core::binding::session::SessionTransition::Ended);
     if !event.starting() {
+        if capture_workspace {
+            *workspace = Some(binding.server.clone());
+        }
         crate::pane_badge::refresh(
             &paths,
             &Host::for_server_with(&binding.server, SupervisedProbeRunner),
@@ -629,6 +649,9 @@ fn observe(
         binding,
         deadline,
     );
+    if capture_workspace {
+        *workspace = Some(binding.server.clone());
+    }
     Ok(encoded)
 }
 
