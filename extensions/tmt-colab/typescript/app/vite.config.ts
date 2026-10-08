@@ -14,6 +14,9 @@ export default defineConfig(({ mode }) => ({
     sortPackageJson: false,
   },
   base: './',
+  // The decoder worker is the first importer of `yjs` in dev. Pre-bundling it up front keeps
+  // Vite from discovering it mid-run and reloading the page under a running test.
+  optimizeDeps: { include: ['yjs'] },
   plugins: [
     react(),
     designTokens(),

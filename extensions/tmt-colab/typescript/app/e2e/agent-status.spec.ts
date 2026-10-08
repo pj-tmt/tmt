@@ -125,7 +125,7 @@ test('same-client admission restoration cannot resurrect cached rows or late res
   await command(page, 'mountAdmissionProbe');
   const panel = page.getByRole('region', { name: 'Agents', exact: true });
   await expect(panel.locator('.agent-status-list li')).toHaveCount(3);
-  const input = page.getByRole('combobox', { name: 'Message to agent' });
+  const input = page.getByRole('combobox', { name: 'Message', exact: true });
   await input.fill('Keep the draft through admission loss');
   await command(page, 'setMode', 'pending');
   await panel.getByRole('button', { name: 'Recheck status' }).click();
@@ -143,7 +143,7 @@ test('same-client admission restoration cannot resurrect cached rows or late res
   await expect(panel.getByText('Read refused', { exact: true })).toBeVisible();
   await expect(panel.locator('.agent-status-list li')).toHaveCount(0);
   await expect(panel.getByText('No successful directory read yet.')).toBeVisible();
-  await expect(input).toHaveValue('Keep the draft through admission loss');
+  await expect(input).toHaveText('Keep the draft through admission loss', { useInnerText: true });
   const effects = await proof(page);
   expect(effects.checks).toBe(3);
   expect(effects.prepares + effects.writes + effects.ledgerActions).toBe(0);
@@ -154,7 +154,7 @@ test('replaced binding drops the old pending directory and retains a Chat draft'
   await page.goto(fixture);
   await page.getByTestId('chat-toggle').click();
   const chat = page.locator('.page-drawer[data-panel=chat]');
-  await chat.getByRole('combobox', { name: 'Message to agent' }).fill('Retain this draft');
+  await chat.getByRole('combobox', { name: 'Message', exact: true }).fill('Retain this draft');
   await chat.getByRole('button', { name: 'Close Chat', exact: true }).click();
   const panel = await openStatus(page);
   await expect(panel.locator('.agent-status-list li')).toHaveCount(3);
@@ -167,8 +167,9 @@ test('replaced binding drops the old pending directory and retains a Chat draft'
   await expect(panel.getByText('Unobserved agent', { exact: true })).toHaveCount(0);
   await panel.getByRole('button', { name: 'Close Agents', exact: true }).click();
   await page.getByTestId('chat-toggle').click();
-  await expect(chat.getByRole('combobox', { name: 'Message to agent' })).toHaveValue(
+  await expect(chat.getByRole('combobox', { name: 'Message', exact: true })).toHaveText(
     'Retain this draft',
+    { useInnerText: true },
   );
   const state = await proof(page);
   expect(state.prepares + state.writes + state.ledgerActions).toBe(0);
