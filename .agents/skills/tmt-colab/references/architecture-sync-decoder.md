@@ -99,7 +99,10 @@ and `limits.rs`; do not restate them.
   lock, uses `Store::write_existing` and `commit_publication`; when `serve` holds the lock,
   `page/ipc.rs` posts one `LocalWrite` v2 to `/.tmt/colab/local/page-publish` and never
   retries, re-signs or falls back. `ipc::send` and `ipc::receive` are split so a failure
-  before the body is fully written is a plain refusal, while any later doubt is resolved
+  before the body is fully written is a plain refusal (an answer already waiting then is an
+  `EarlyReply`), `page::ipc::refusal` reads an untyped 404/413 or a typed
+  `COLAB_SERVER_MISMATCH` (`names_other_write_version`) as a serve of another build, and any
+  other later doubt is resolved
   by one read-only `publication_status` in `main.rs::publish_write`, else
   `COLAB_OUTCOME_UNKNOWN` with the original operation ID. `Server::publish` prepares one
   broadcast per entry before the transaction and fans out only for a new committed

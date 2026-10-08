@@ -404,6 +404,9 @@ impl Server<crate::registration::OwnerAdmission> {
             .lock()
             .map_err(|_| Fault::Unavailable)?
             .author_key()?;
+        if publication::names_other_write_version(body) {
+            return Err(Fault::ServerMismatch.into());
+        }
         let write =
             publication::LocalWrite::from_json(body, &author).map_err(|_| Fault::Invalid)?;
         let job = &write.signed_job;

@@ -2712,6 +2712,17 @@ fn root_local_page_publish_broadcasts_each_entry_in_order_and_replays_without_fa
         assert!(denied.contains("COLAB_DENIED"));
         assert_eq!(fs::read(layout.directory.join("space.db")).unwrap(), before);
     }
+    // A body that names another write version, or a later shape of one, is refused by name
+    // before it is read as this build's: another build wrote it, and nothing changes.
+    for version in [1, 3] {
+        let mut other: Value = serde_json::from_str(&body).unwrap();
+        other["version"] = json!(version);
+        other["fieldOfALaterBuild"] = json!(true);
+        let refused = server.event(page::ipc::PATH, "", &other.to_string());
+        assert!(refused.contains("409"), "{refused}");
+        assert!(refused.contains("COLAB_SERVER_MISMATCH"), "{refused}");
+        assert_eq!(fs::read(layout.directory.join("space.db")).unwrap(), before);
+    }
     let published = page::ipc::publish(&layout, &key, &frozen)
         .unwrap()
         .expect("the server answered");

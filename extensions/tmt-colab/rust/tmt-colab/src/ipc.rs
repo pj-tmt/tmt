@@ -37,13 +37,40 @@ pub(crate) fn send(layout: &Layout, path: &str, body: &[u8]) -> Result<UnixStrea
         "POST {path} HTTP/1.1\r\nHost: localhost\r\nContent-Length: {}\r\n\r\n",
         body.len()
     )?;
-    socket.write_all(body)?;
+    if let Err(error) = socket.write_all(body) {
+        // A server may refuse a request it will not read (a body over its cap) and close. The
+        // refusal is then already waiting; without it the failure is only a failed send.
+        return Err(match read_reply(socket, limits::RESPONSE) {
+            Ok((code, body)) => EarlyReply { code, body }.into(),
+            Err(_) => error.into(),
+        });
+    }
     Ok(socket)
 }
+/// The server's answer, received while the request body was still being sent: it refused the
+/// request before reading it all, so it cannot have acted on it.
+#[derive(Debug)]
+pub(crate) struct EarlyReply {
+    pub code: u16,
+    pub body: Vec<u8>,
+}
+impl std::fmt::Display for EarlyReply {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "The server refused the request with status {}.",
+            self.code
+        )
+    }
+}
+impl std::error::Error for EarlyReply {}
 /// Finish the request and read one framed reply within `wait`. Any error here leaves the
 /// outcome in doubt.
-pub(crate) fn receive(mut socket: UnixStream, wait: std::time::Duration) -> Result<(u16, Vec<u8>)> {
+pub(crate) fn receive(socket: UnixStream, wait: std::time::Duration) -> Result<(u16, Vec<u8>)> {
     socket.shutdown(std::net::Shutdown::Write)?;
+    read_reply(socket, wait)
+}
+fn read_reply(mut socket: UnixStream, wait: std::time::Duration) -> Result<(u16, Vec<u8>)> {
     let deadline = Instant::now() + wait;
     let mut response = Vec::new();
     let mut chunk = [0; 4096];

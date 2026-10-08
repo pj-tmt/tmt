@@ -25,6 +25,19 @@ pub const MAX_PACKET_BYTES: usize = {
 };
 pub const LOCAL_WRITE_BYTES: usize =
     MAX_PACKET_BYTES.div_ceil(3) * 4 + JSON_BYTES + CHAIN_BYTES.div_ceil(3) * 4 + 2048;
+/// The `LocalWrite` body version this build speaks and posts. A serve that receives another
+/// version refuses it by name (`COLAB_SERVER_MISMATCH`) instead of reading it as this one.
+pub const LOCAL_WRITE_VERSION: u8 = 2;
+/// True when the body is JSON whose `version` is not [`LOCAL_WRITE_VERSION`]. Other fields are not
+/// read, so a body of a later shape is still recognised as a later build.
+pub fn names_other_write_version(body: &[u8]) -> bool {
+    #[derive(Deserialize)]
+    struct Versioned {
+        version: serde_json::Value,
+    }
+    serde_json::from_slice::<Versioned>(body)
+        .is_ok_and(|v| v.version != serde_json::json!(LOCAL_WRITE_VERSION))
+}
 fn require(value: bool) -> Result<()> {
     if value { Ok(()) } else { Err(Invalid) }
 }
@@ -480,7 +493,7 @@ pub struct LocalWrite {
 }
 impl LocalWrite {
     fn validate(&self, author_key: &[u8]) -> Result<()> {
-        require(self.version == 2)?;
+        require(self.version == LOCAL_WRITE_VERSION)?;
         self.signed_job.validate()?;
         let evidence = self
             .signed_job
