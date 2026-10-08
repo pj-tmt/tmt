@@ -98,11 +98,9 @@ The restored ask is observed read-only under its original operation ID: accepted
 with abandon recorded as `MAY_HAVE_BEEN_DELIVERED`, never a second dispatch. An in-flight send
 stays "dispatching" until the SDK deadline, so a case reconnects instead of waiting for it.
 The held case waits for a Remote-provided hold fixture, with held behavior covered by unit
-tests. Both Remote restart cases remain active expected failures for
-[#2039](https://github.com/pj-tmt/tmt/issues/2039): a pending recovery can stop with
-`Failed to fetch` and no recovery control. They retain their original-operation, uncertain,
-recheck, abandon, no-effect, accepted, one-dispatch and one-wake assertions; an unexpected pass fails the run.
-Neither restart case is skipped. Remove both annotations when #2039 is fixed and both cases pass.
+tests. Both Remote restart cases are active pass-required cases. A fetch failure during
+replacement leaves explicit Reconnect available. They retain their original-operation,
+uncertain, recheck, abandon, no-effect, accepted, one-dispatch and one-wake assertions.
 Enable a case by making its body pass, never with
 a stand-in. Assert the recipient's text equals the disclosed bytes captured on Enter, including the
 `[remote: <device>]` line, and that no delivery state is shown (presence only).

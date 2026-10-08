@@ -1139,9 +1139,7 @@ result:async()=>({state:'replied',requestId:'${requestId}',message:${JSON.string
   const reconnect = page.getByRole('button', { name: 'Reconnect', exact: true });
   await expect(reconnect).toBeVisible();
   await expect.poll(() => opens).toBe(admittedOpens + 1);
-  await expect(
-    page.getByText('Reconnect to resume live updates.', { exact: true }),
-  ).toBeVisible();
+  await expect(page.getByText('Reconnect to resume live updates.', { exact: true })).toBeVisible();
   await expect(page.getByText('Failed to fetch', { exact: true })).toHaveCount(0);
   await expect(input).toHaveText(draft);
   await expect(page.getByTestId('ask-entry')).toHaveAttribute('data-operation-id', operationId!);

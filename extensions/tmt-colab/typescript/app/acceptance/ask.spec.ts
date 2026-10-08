@@ -149,8 +149,6 @@ test.describe('Ask agent real-binary acceptance (#1110)', () => {
   });
 
   test(`remote restart after the core accepted recovers via operation.show with no second wake`, async () => {
-    // #2039: Preview stopped / Failed to fetch without a recovery control, 3/3 runs.
-    test.fail(true, 'https://github.com/pj-tmt/tmt/issues/2039: restart recovery fails 3/3');
     await withWorld(async (world) => {
       const s = await scenario(world);
       const draft = await composeChat(s.askerPage, s.recipient, 'Survive a restart');
@@ -178,8 +176,6 @@ test.describe('Ask agent real-binary acceptance (#1110)', () => {
   });
 
   test(`remote restart before dispatch stays uncertain with no new dispatch; abandon records MAY_HAVE_BEEN_DELIVERED`, async () => {
-    // #2039: Preview stopped / Failed to fetch without a recovery control, 3/3 runs.
-    test.fail(true, 'https://github.com/pj-tmt/tmt/issues/2039: restart recovery fails 3/3');
     await withWorld(async (world) => {
       const s = await scenario(world);
       const draft = await composeChat(s.askerPage, s.recipient, 'Never reaches the core');
@@ -193,9 +189,8 @@ test.describe('Ask agent real-binary acceptance (#1110)', () => {
       await s.door.remote.kill();
       process.kill(parked.pid as number, 'SIGKILL');
       await restartRemote(world, s.door);
-      // #2039 can leave Preview stopped / Failed to fetch without Reconnect.
-      // Keep recovery, original uncertain state, recheck, abandon and no-effect
-      // oracles active: an unexpected pass makes this expected failure red.
+      // Recovery preserves the original uncertain state and leaves only read-only
+      // recheck or abandon; no recipient effect or second core launch is allowed.
       expect(s.recipient.received()).toHaveLength(0);
       // The harness records the parked launch before core runs; it has no effect.
       expect(dispatches(world)).toHaveLength(1);

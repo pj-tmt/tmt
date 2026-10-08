@@ -115,8 +115,9 @@ Ask facade is absent and rebinds after verified replacement. Concurrent clicks s
 failure clears its failed recovery marker and leaves Reconnect available for another click;
 automatic guidance keeps its marker, and successful reload still spans the marker until
 authenticated boot clears it. No additional automatic reopen or mutation replay is added.
-The Remote restart cases drive that explicit path
-through `reconnect(page)` in `acceptance/ask.spec.ts`.
+The Remote restart cases drive explicit recovery or admitted mounted-owner replacement
+in `acceptance/ask.spec.ts`. Local drafts survive the stopped state and failed clicks;
+successful explicit recovery reloads the page and resets local-only drafts.
 
 ## Persistence layout
 
