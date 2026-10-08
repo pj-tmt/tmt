@@ -368,7 +368,8 @@ describe('Remote replacement notices after partial completion', () => {
           expect(parseWholeStdout(replaced)).toMatchObject({
             error: { code: 'EXTENSION_SKILLS_FAILED', suggestion: hint },
           });
-        else expect(replaced.stderr).toContain(hint);
+        // The human message renderer drops one final period; JSON retains it.
+        else expect(replaced.stderr).toContain(`hint: ${hint.slice(0, -1)}\n`);
         expect((replaced.stdout + replaced.stderr).split('Remote was upgraded').length - 1).toBe(1);
         expect(realpathSync(path.join(prefix, 'lib/tmt-remote/current'))).not.toBe(oldRelease);
         expect(existsSync(oldRelease)).toBe(true);
