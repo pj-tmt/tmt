@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { afterEach, expect, it, vi } from 'vite-plus/test';
 import * as Y from 'yjs';
-import { binary } from '@tmt/colab-client';
+import { binary, digest, frame, text } from '@tmt/colab-client';
 import type {
   FoldCommand,
   FoldResult,
@@ -480,4 +480,44 @@ it('Worker causal replay compares creation preference presence and both members'
     doc.destroy();
     candidate.destroy();
   }
+});
+it('preserves attachment descriptors through source preparation and checkpoints without binaries', async () => {
+  const corpus = JSON.parse(
+    readFileSync(new URL('../../../contracts/vectors/attachment-v1.json', import.meta.url), 'utf8'),
+  );
+  const c = corpus.cases.find((c: { name: string }) => c.name === 'projection-document');
+  const projection = JSON.parse(c.input);
+  const doc = new Y.Doc();
+  doc.getText('html').insert(0, projection.html);
+  for (const [key, value] of Object.entries(projection.meta)) doc.getMap('meta').set(key, value);
+  const run = await worker();
+  const initial = await run({ type: 'apply', updates: [Y.encodeStateAsUpdate(doc)] });
+  expect(initial.attachments).toEqual(projection.meta.attachments);
+  const base = contentBase(initial);
+  const changed = await run({ type: 'prepare-content', base, source: 'changed source' });
+  expect(changed.projection.attachments).toEqual(initial.attachments);
+  await expect(
+    run({ type: 'prepare-content', base: { ...base, attachments: [] }, source: 'changed source' }),
+  ).rejects.toThrow();
+  const committed = await run({ type: 'apply', updates: updatesOf(changed) });
+  expect(committed.attachments).toEqual(initial.attachments);
+  for (const update of updatesOf(changed)) Y.applyUpdate(doc, update);
+  const checkpoint = Y.encodeStateAsUpdate(doc);
+  const restored = await (await worker())({ type: 'checkpoint', update: checkpoint });
+  expect(restored.attachments).toEqual(initial.attachments);
+  expect(restored.source).toBe('changed source');
+  const baseline = await (
+    await worker()
+  )({
+    type: 'baseline',
+    update: checkpoint,
+    title: restored.title,
+    sourceDigest: await digest(text(restored.source)),
+    commitment: await digest(
+      frame(text('tmt-colab-baseline-v1'), text('1'), text(restored.source), checkpoint),
+    ),
+  });
+  expect(baseline.attachments).toEqual(initial.attachments);
+  expect(baseline.source).toBe(restored.source);
+  doc.destroy();
 });

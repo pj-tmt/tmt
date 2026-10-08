@@ -3,6 +3,16 @@
 The [colab-v1 contract](../colab-v1.md) owns byte definitions and full L1 gates.
 All seeds and secrets here are public test fixtures, never runtime inputs.
 
+`attachment-reference.py` independently frames descriptors/manifests and seals
+asset envelopes with Python cryptography over public RFC8032 fixture keys.
+`attachment-v1.json` is shared by Rust model/isolated decoder and browser
+client/Worker tests, with exact canonical bytes, independent raw/envelope hashes,
+source/context/signature substitutions and descriptor/list bounds. The client
+differential gate executes the same codec/crypto cases in all three engines.
+Run the oracle without `--write` to verify frozen bytes; deliberate regeneration
+uses a throwaway virtualenv. Reference/history authority and live object callbacks
+are subsequent #1853 slices, not established by these byte fixtures.
+
 `ed25519-829.jsonl` retains all 148 cases from #829's
 `evidence/ed25519-differential-vectors.json`; each line is an unchanged case value,
 including nine accepted positives and mixed-order controls.

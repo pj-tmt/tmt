@@ -1,4 +1,12 @@
-import { decimal, exactKeys, generatedId, requireValue, spaceId, text } from '@tmt/colab-client';
+import {
+  attachment,
+  decimal,
+  exactKeys,
+  generatedId,
+  requireValue,
+  spaceId,
+  text,
+} from '@tmt/colab-client';
 import type { OwnState } from './fold-protocol.js';
 import {
   foldThreadStatus,
@@ -43,6 +51,7 @@ export interface CommentRecord extends DiscussionRecordScope {
   messageId: string;
   thread: DiscussionRef;
   body: string;
+  attachments?: attachment.AttachmentDescriptor[];
 }
 export type DiscussionRecord =
   | ThreadRecord
@@ -109,12 +118,30 @@ export function validateDiscussionRecord(
     requireValue(root === 'messages');
     validateStatus(r);
   } else {
-    exactKeys(r, [...scope, 'messageId', 'thread', 'body']);
+    exactKeys(r, [
+      ...scope,
+      'messageId',
+      'thread',
+      'body',
+      ...(Object.hasOwn(r, 'attachments') ? ['attachments'] : []),
+    ]);
     requireValue(root === 'messages' && r.kind === 'comment');
     generatedId(r.messageId as string);
     validateRef(r.thread);
     requireValue(typeof r.body === 'string' && text(r.body).length <= COMMENT_BYTES);
-    requireValue(r.deleted ? r.body === '' : (r.body as string).length > 0);
+    const attachments = Object.hasOwn(r, 'attachments')
+      ? attachment.attachmentList(
+          r.attachments,
+          attachment.MESSAGE_ATTACHMENTS,
+          r.spaceId as string,
+          r.pageId as string,
+        )
+      : [];
+    requireValue(
+      r.deleted
+        ? r.body === '' && attachments.length === 0
+        : (r.body as string).length > 0 || attachments.length > 0,
+    );
   }
   requireValue(r.version === 1 && typeof r.deleted === 'boolean');
   spaceId(r.spaceId as string);

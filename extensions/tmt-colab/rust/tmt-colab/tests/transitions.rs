@@ -3108,3 +3108,109 @@ fn retention_and_archive_are_signed_replayable_policies_without_rotation() {
     let now = revision(&f);
     policy(&mut f, 147, now, OwnerAction::Delete { page: PAGE }).unwrap();
 }
+
+#[test]
+fn epoch_rotation_preserves_authenticated_attachment_metadata_and_original_asset_provenance() {
+    use tmt_colab::decoder::{Decoder, Role, UpdateBatch};
+    use tmt_colab_model::attachment::Descriptor;
+    let mut f = Fixture::new();
+    let asset = f.object(0, [0; 32], "asset", "content", b"fixture attachment");
+    let raw = asset.to_json().unwrap();
+    let corpus: Value = serde_json::from_str(include_str!(
+        "../../../contracts/vectors/attachment-v1.json"
+    ))
+    .unwrap();
+    let mut descriptor: Value =
+        serde_json::from_str(corpus["cases"][0]["input"].as_str().unwrap()).unwrap();
+    let hex = |v: &[u8]| v.iter().map(|b| format!("{b:02x}")).collect::<String>();
+    descriptor["space"] = json!(f.key.space_id);
+    descriptor["page"] = json!(PAGE);
+    descriptor["authorDevice"] = json!(DEVICE);
+    descriptor["objectId"] = json!(object::Header::decode(asset.header()).unwrap().object_id);
+    descriptor["envelopeHash"] = json!(hex(&asset.hash().unwrap()));
+    descriptor["signature"] = json!(values::encode_binary(asset.signature()));
+    descriptor["payloadSha256"] = json!(hex(&crypto::digest(&raw)));
+    descriptor["payloadBytes"] = json!(raw.len().to_string());
+    descriptor["plaintextBytes"] = json!(b"fixture attachment".len().to_string());
+    descriptor["source"]["sourceDigest"] = json!(hex(&crypto::digest(b"original source")));
+    let descriptor_typed =
+        Descriptor::from_json(&serde_json::to_vec(&descriptor).unwrap()).unwrap();
+    assert_eq!(
+        descriptor_typed
+            .open(
+                &raw,
+                &descriptor_typed.context(),
+                &[11; 32],
+                &signer(9).verifying_key().to_bytes()
+            )
+            .unwrap(),
+        b"fixture attachment"
+    );
+    let doc = Doc::with_client_id(1853);
+    doc.get_or_insert_text("html")
+        .insert(&mut doc.transact_mut(), 0, "original source");
+    let meta = doc.get_or_insert_map("meta");
+    meta.insert(&mut doc.transact_mut(), "title", "owner view");
+    meta.insert(
+        &mut doc.transact_mut(),
+        "attachments",
+        yrs::Any::from_json(&json!([descriptor]).to_string()).unwrap(),
+    );
+    let update = doc
+        .transact()
+        .encode_state_as_update_v1(&StateVector::default());
+    let sealed = f.object(1, [0; 32], "update", "content", &update);
+    f.append(&sealed);
+    let mut decoder = Decoder::new(env!("CARGO_BIN_EXE_tmt-colab").into()).unwrap();
+    for (epoch, operation, revision) in [(2, OP, 2), (3, "40000000-0000-4000-8000-000000000003", 3)]
+    {
+        f.advance(operation, revision).unwrap();
+        assert_eq!(baseline_source(&f, epoch), "original source");
+        let saved = f.store.baseline(PAGE, epoch).unwrap().unwrap();
+        let envelope = object::Envelope::from_json(&saved.envelope).unwrap();
+        let header = object::Header::decode(envelope.header()).unwrap();
+        let secret: Vec<u8> = f
+            .db()
+            .query_row(
+                "SELECT secret FROM epoch_secrets WHERE page=? AND epoch=?",
+                params![PAGE, format!("{epoch:020}")],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let body: Value = serde_json::from_slice(
+            &object::open(
+                &envelope,
+                &header.context,
+                &secret.try_into().unwrap(),
+                &f.key.management_member().unwrap().signing_key,
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        let update = values::binary(
+            body["update"].as_str().unwrap(),
+            tmt_colab::decoder::BASELINE_UPDATE_BYTES,
+        )
+        .unwrap();
+        let current = decoder
+            .decode(
+                UpdateBatch {
+                    namespace: Namespace::Content,
+                    baseline: &update,
+                    updates: &[],
+                },
+                Role::Editor,
+                None,
+            )
+            .unwrap();
+        assert_eq!(
+            current.projection["meta"]["attachments"],
+            json!([descriptor])
+        );
+        assert_eq!(current.projection["meta"]["attachments"][0]["epoch"], "1");
+        assert_eq!(
+            current.projection["meta"]["attachments"][0]["source"],
+            descriptor["source"]
+        );
+    }
+}

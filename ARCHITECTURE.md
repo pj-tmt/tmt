@@ -1241,10 +1241,9 @@ core discovery or storage access.
   author HTML and passes no application capability. Parent highlight messages carry only
   anchor IDs and quote selectors; discussion bodies and display labels never enter author code.
   This contains author code; page self-navigation can still leak a request.
-- **Planned attachments.** The [local storage proposal](extensions/tmt-colab/contracts/storage-v1-proposal.md)
-  keeps generic backend/channel/quota/origin ownership in Remote and authenticated references,
-  crypto/history/read admission and consumers in Colab. No core object API, new reader credential
-  or runtime implementation is claimed; archive/history/native acceptance remains required.
+- **Attachments.** Colab implements the [descriptor/manifest grammar](extensions/tmt-colab/contracts/attachment-v1.md) with existing asset crypto and inert fold metadata.
+  Authenticated reference/read/channel consumers and activation remain planned in the [storage proposal](extensions/tmt-colab/contracts/storage-v1-proposal.md).
+  Remote owns generic backend/channel/quota/origin; Colab owns crypto/history/admission. No core object API or new reader credential is introduced; archive/history/native acceptance remains required.
 - **Plaintext invariant.** Page source, discussion reads and export are root-local: only the isolated decoder
   child decodes Yjs, no route serves plaintext, and the browser Worker is resource
   containment, not a security sandbox. Private causal preparation returns deltas; pure [publication codecs](extensions/tmt-colab/contracts/colab-v1.md#content-publication-1908-1928-1934) validate sealed intent. The native library prepares a frozen signed packet and chain from one authenticated snapshot, then atomically retains content (or, as `kind:"own"`, a status action) with its scoped terminal outcome in the existing Store; `tmt colab page write` and `threads resolve|reopen` publish through it (offline or the local `page-publish` route), and the browser Save does over the owner sync socket (colab-v1 Browser Save), signed by the root-local writer.

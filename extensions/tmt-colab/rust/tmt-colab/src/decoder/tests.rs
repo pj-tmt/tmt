@@ -1,6 +1,33 @@
 use super::*;
 
 #[test]
+fn shared_attachment_grammar_admits_document_and_message_projections() {
+    let corpus: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../../contracts/vectors/attachment-v1.json"
+    ))
+    .unwrap();
+    for case in corpus["cases"].as_array().unwrap() {
+        let value: serde_json::Value =
+            serde_json::from_str(case["input"].as_str().unwrap()).unwrap();
+        let result = match case["operation"].as_str().unwrap() {
+            "document" => validate_projection(Namespace::Content, &value).is_ok(),
+            "comment" => crate::threads::validate_record(
+                "messages",
+                &format!(
+                    "{}:{}",
+                    value["messageId"].as_str().unwrap(),
+                    value["revision"].as_str().unwrap()
+                ),
+                &value,
+            )
+            .is_ok(),
+            _ => continue,
+        };
+        assert_eq!(result, case["admit"].as_bool().unwrap(), "{}", case["name"]);
+    }
+}
+
+#[test]
 fn invocation_phases_follow_existing_namespace_edit_merge_and_baseline_actions() {
     for (namespace, edit, merge, expected) in [
         (Namespace::Content, false, false, "content.decode"),

@@ -62,6 +62,7 @@ export class Fold {
             'own',
             ...(Object.hasOwn(value.projection, 'publisherAgent') ? ['publisherAgent'] : []),
             ...(Object.hasOwn(value.projection, 'creationRecipient') ? ['creationRecipient'] : []),
+            ...(Object.hasOwn(value.projection, 'attachments') ? ['attachments'] : []),
           ]);
           validateProjection(value.projection);
           validateOwn(value.projection.own);
@@ -90,6 +91,7 @@ export class Fold {
           'update',
           'own',
           ...(Object.hasOwn(event.data as object, 'publisherAgent') ? ['publisherAgent'] : []),
+          ...(Object.hasOwn(event.data as object, 'attachments') ? ['attachments'] : []),
           ...(Object.hasOwn(event.data as object, 'creationRecipient')
             ? ['creationRecipient']
             : []),
@@ -110,6 +112,7 @@ export class Fold {
               title: value.title,
               publisherAgent: value.publisherAgent,
               creationRecipient: value.creationRecipient,
+              attachments: value.attachments,
               own: value.own,
             }),
           ).length > STATE_BYTES
@@ -124,6 +127,7 @@ export class Fold {
         pending.resolve({
           source: value.source,
           title: value.title,
+          ...(Object.hasOwn(value, 'attachments') ? { attachments: value.attachments } : {}),
           ...(value.publisherAgent === undefined ? {} : { publisherAgent: value.publisherAgent }),
           ...(value.creationRecipient === undefined
             ? {}
@@ -147,6 +151,7 @@ export class Fold {
       'own',
       ...(Object.hasOwn(base, 'publisherAgent') ? ['publisherAgent'] : []),
       ...(Object.hasOwn(base, 'creationRecipient') ? ['creationRecipient'] : []),
+      ...(Object.hasOwn(base, 'attachments') ? ['attachments'] : []),
     ]);
     validateProjection(base);
     validateProjection({ ...base, source });
