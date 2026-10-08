@@ -114,6 +114,11 @@ announced once. `pressed` is omitted when absent; supplied false/true becomes
 `aria-pressed`, and activation never changes it. Pressed uses selection colors
 and a 1px text-colored edge; disabled/busy styling and event fences take priority.
 The icon and busy mark share one fixed square target without changing geometry.
+Disclosure actions instead supply controlled `expanded` and optional `controls`,
+forwarded as `aria-expanded`/`aria-controls` on the same button. The type contract
+requires `expanded` with `controls` and excludes `pressed` from disclosure actions.
+Expanded uses the same selection treatment as pressed. While expanded, the tooltip
+stays hidden and installs no Escape listener; the host owns menu dismissal.
 
 The tooltip is a manual native popover, below the button and bounded by the visual
 viewport. Hover and keyboard `:focus-visible` show it immediately. Its transparent

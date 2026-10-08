@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vite-plus/test';
 import { renderToStaticMarkup } from 'react-dom/server';
 import type { MouseEvent, ReactElement } from 'react';
+import type { BrowserIconActionProps } from '../src/react';
 import {
   BrowserHeader,
   BrowserNotice,
@@ -195,6 +196,33 @@ describe('presentation contracts', () => {
     expect(() =>
       renderToStaticMarkup(<BrowserIconAction {...props} disabledReason="Blocked" />),
     ).toThrow('stable ID');
+  });
+  it('keeps disclosure attributes on the original button and excludes toggle semantics', () => {
+    const props = {
+      type: 'button' as const,
+      label: 'More actions',
+      variant: 'text' as const,
+      icon: '+',
+      onActivate: () => {},
+    };
+    const checkType = (_value: BrowserIconActionProps) => {};
+    checkType({ ...props, expanded: false });
+    checkType({ ...props, expanded: true, controls: 'host-menu' });
+    // @ts-expect-error A menu trigger cannot also be a pressed toggle.
+    checkType({ ...props, expanded: true, pressed: true });
+    // @ts-expect-error A controlled target requires disclosure state.
+    checkType({ ...props, controls: 'host-menu' });
+    for (const expanded of [false, true]) {
+      const html = renderToStaticMarkup(
+        <BrowserIconAction {...props} expanded={expanded} controls="host-menu" />,
+      );
+      expect(html).toContain(`aria-expanded="${expanded}"`);
+      expect(html).toContain('aria-controls="host-menu"');
+      expect(html).not.toContain('aria-pressed');
+    }
+    const plain = renderToStaticMarkup(<BrowserIconAction {...props} />);
+    expect(plain).not.toContain('aria-expanded');
+    expect(plain).not.toContain('aria-controls');
   });
   it('forwards the original native-button activation object and fences busy and disabled', () => {
     const calls: unknown[] = [];

@@ -17,7 +17,8 @@
 .tmt-ui-icon-action-control[data-variant='destructive'] {
   color: var(--tmt-ui-color-blocked);
 }
-.tmt-ui-icon-action-control[aria-pressed='true']:not(:disabled) {
+.tmt-ui-icon-action-control[aria-pressed='true']:not(:disabled),
+.tmt-ui-icon-action-control[aria-expanded='true']:not(:disabled) {
   color: var(--tmt-ui-color-selected-text);
   background: var(--tmt-ui-surface-selection);
   border-color: var(--tmt-ui-color-selected-text);

@@ -109,3 +109,35 @@ it('consumes Escape only while the tooltip is visible and releases the listener 
     place.mockRestore();
   }
 });
+
+it('leaves tooltip placement and Escape with the host while disclosure is expanded', () => {
+  const show = vi.fn();
+  const add = vi.fn();
+  hooks.refs = [
+    { current: { ownerDocument: { addEventListener: add } } },
+    { current: { showPopover: show } },
+  ];
+  hooks.states = [
+    [true, vi.fn()],
+    [true, vi.fn()],
+    [false, vi.fn()],
+  ];
+  const place = vi.spyOn(placement, 'placeIconActionTooltip');
+  try {
+    BrowserIconAction({
+      type: 'button',
+      label: 'More actions',
+      variant: 'text',
+      icon: '+',
+      expanded: true,
+      controls: 'host-menu',
+      onActivate: vi.fn(),
+    });
+    expect(hooks.effect!()).toBeUndefined();
+    expect(show).not.toHaveBeenCalled();
+    expect(place).not.toHaveBeenCalled();
+    expect(add).not.toHaveBeenCalled();
+  } finally {
+    place.mockRestore();
+  }
+});
