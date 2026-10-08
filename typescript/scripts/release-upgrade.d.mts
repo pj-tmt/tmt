@@ -86,6 +86,8 @@ export function proveArchiveAcceptance(input: {
   ) => string;
   environment?: NodeJS.ProcessEnv;
   report?: (message: string) => void;
+  /** Monotonic milliseconds for passive stderr diagnostics only. */
+  clock?: () => number;
 }): { outcome: 'nothing' | 'predates' | 'proved' };
 export const PROOF_FILES: readonly string[];
 export function assessUpgrade(input: {

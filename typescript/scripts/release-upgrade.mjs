@@ -500,6 +500,7 @@ export function proveArchiveAcceptance({
   execute = runPackedCommand,
   environment = process.env,
   report = () => {},
+  clock = () => performance.now(),
 }) {
   if (product !== 'cli') throw new Error('The adapter archive acceptance proof is CLI-only.');
   const { previous, now, before, floor } = stagedUpgrade({ directory, product, tag, target });
@@ -525,8 +526,32 @@ export function proveArchiveAcceptance({
     TMT_UPGRADE_NEW_MANIFEST: now.manifest,
     TMT_UPGRADE_TARGET: target,
   };
+  const executePhase = (phase, executable, args, options) => {
+    const started = clock();
+    const log = (status) => {
+      try {
+        const elapsed =
+          status === 'started' ? '' : ` seconds=${((clock() - started) / 1000).toFixed(3)}`;
+        process.stderr.write(
+          `Adapter phase timing: target=${target} phase=${phase} status=${status}${elapsed}\n`
+        );
+      } catch {
+        // Passive diagnostics cannot replace a proof result or its original error.
+      }
+    };
+    log('started');
+    try {
+      const output = execute(executable, args, options);
+      log('returned');
+      return output;
+    } catch (error) {
+      log('failed');
+      throw error;
+    }
+  };
   const started = performance.now();
-  const compiled = execute(
+  const compiled = executePhase(
+    'compile',
     'cargo',
     [
       'test',
@@ -561,21 +586,31 @@ export function proveArchiveAcceptance({
   if (binaries.length !== 1)
     throw new Error('Expected exactly one tmt-adapters lib-test executable.');
   const options = { cwd: rustRoot, env, timeoutMs: 120_000 };
-  const listed = execute(binaries[0], [ACCEPTANCE_TEST, '--exact', '--ignored', '--list'], options);
+  const listed = executePhase(
+    'discovery',
+    binaries[0],
+    [ACCEPTANCE_TEST, '--exact', '--ignored', '--list'],
+    options
+  );
   const tests = listed.split('\n').filter((line) => line.endsWith(': test'));
   if (tests.length !== 1 || tests[0] !== `${ACCEPTANCE_TEST}: test`) {
     throw new Error('Expected exactly one discovered real-archive upgrade acceptance test.');
   }
   for (const source of [before, ...(floor ? [floor] : [])]) {
     const started = performance.now();
-    const output = execute(binaries[0], [ACCEPTANCE_TEST, '--exact', '--ignored', '--nocapture'], {
-      ...options,
-      env: {
-        ...env,
-        TMT_UPGRADE_OLD_ARCHIVE: source.archive,
-        TMT_UPGRADE_OLD_MANIFEST: source.manifest,
-      },
-    });
+    const output = executePhase(
+      source === before ? 'run-previous' : 'run-floor',
+      binaries[0],
+      [ACCEPTANCE_TEST, '--exact', '--ignored', '--nocapture'],
+      {
+        ...options,
+        env: {
+          ...env,
+          TMT_UPGRADE_OLD_ARCHIVE: source.archive,
+          TMT_UPGRADE_OLD_MANIFEST: source.manifest,
+        },
+      }
+    );
     report(output.trim());
     if (
       !/^test result: ok\. 1 passed; 0 failed; 0 ignored; 0 measured; \d+ filtered out;/m.test(

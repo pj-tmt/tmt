@@ -5,7 +5,7 @@ import { createHash } from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { afterAll, beforeAll, describe, expect, it } from 'vite-plus/test';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vite-plus/test';
 import type { DraftAsset, DraftRelease } from '../../scripts/release-draft-assets.mjs';
 import {
   PROOF_FILES,
@@ -867,6 +867,183 @@ describe('fetchUpgrade and proveStaged', () => {
         })
       ).toEqual({ outcome: 'proved' });
       expect(jobs).toEqual(['2', '2', '2']);
+    });
+
+    it('logs exact ordered phase durations only on stderr without changing proof reports', () => {
+      const stderr: string[] = [];
+      const writer = vi.spyOn(process.stderr, 'write').mockImplementation((line) => {
+        stderr.push(String(line));
+        return true;
+      });
+      const fixture = input();
+      const reports: string[] = [];
+      let clock = 10_000;
+      let call = 0;
+      try {
+        const result = proveArchiveAcceptance({
+          ...fixture,
+          clock: () => clock,
+          report: (line) => reports.push(line),
+          execute: (_executable, _args, options) => {
+            expect(stderr.at(-1)).toBe(
+              `Adapter phase timing: target=${TARGET} phase=${['compile', 'discovery', 'run-previous'][call]} status=started\n`
+            );
+            expect(options.timeoutMs).toBe(call === 0 ? 600_000 : 120_000);
+            clock += [187_125, 25, 12_500][call];
+            return [compiled, listed, passed][call++];
+          },
+        });
+        expect(result).toEqual({ outcome: 'proved' });
+        expect(call).toBe(3);
+        expect(stderr).toEqual([
+          `Adapter phase timing: target=${TARGET} phase=compile status=started\n`,
+          `Adapter phase timing: target=${TARGET} phase=compile status=returned seconds=187.125\n`,
+          `Adapter phase timing: target=${TARGET} phase=discovery status=started\n`,
+          `Adapter phase timing: target=${TARGET} phase=discovery status=returned seconds=0.025\n`,
+          `Adapter phase timing: target=${TARGET} phase=run-previous status=started\n`,
+          `Adapter phase timing: target=${TARGET} phase=run-previous status=returned seconds=12.500\n`,
+        ]);
+        expect(reports).toHaveLength(3);
+        expect(reports[0]).toMatch(/^Real-archive adapter acceptance compile: \d+ seconds\.$/);
+        expect(reports[1]).toBe(passed.trim());
+        expect(reports[2]).toMatch(/^Real-archive adapter acceptance: passed /);
+        expect(reports.join('\n')).not.toContain('Adapter phase timing');
+      } finally {
+        writer.mockRestore();
+      }
+    });
+
+    it.each(['compile', 'discovery', 'run-previous'])(
+      'logs elapsed %s failure and preserves the original error without later commands',
+      (phase) => {
+        const stderr: string[] = [];
+        const writer = vi.spyOn(process.stderr, 'write').mockImplementation((line) => {
+          stderr.push(String(line));
+          return true;
+        });
+        const error = new Error('owned process failed');
+        const failingCall = ['compile', 'discovery', 'run-previous'].indexOf(phase);
+        let clock = 1_000;
+        let call = 0;
+        try {
+          let caught: unknown;
+          try {
+            proveArchiveAcceptance({
+              ...input(),
+              clock: () => clock,
+              execute: () => {
+                clock += 2_750;
+                if (call++ === failingCall) throw error;
+                return [compiled, listed][call - 1];
+              },
+            });
+          } catch (failure) {
+            caught = failure;
+          }
+          expect(caught).toBe(error);
+          expect(call).toBe(failingCall + 1);
+          expect(stderr.slice(-2)).toEqual([
+            `Adapter phase timing: target=${TARGET} phase=${phase} status=started\n`,
+            `Adapter phase timing: target=${TARGET} phase=${phase} status=failed seconds=2.750\n`,
+          ]);
+          expect(stderr).toHaveLength(2 * call);
+        } finally {
+          writer.mockRestore();
+        }
+      }
+    );
+
+    it.each([false, true])('times the separate floor run, including failure=%s', (fail) => {
+      const entries = [
+        release('v5.0.0-alpha.36', { targets: TARGETS }),
+        release('v5.0.0-alpha.45', { targets: TARGETS }),
+        release('v5.0.0-alpha.46', { draft: true, targets: TARGETS }),
+      ];
+      const asset = { id: nextId++, name: 'install.sh', digest: digestOf('bootstrap') };
+      contents.set(asset.id, 'bootstrap');
+      entries[2] = { ...entries[2], assets: [...(entries[2].assets ?? []), asset] };
+      const { directory } = fetchInto('cli', entries[2].tag_name, { releases: entries });
+      const stderr: string[] = [];
+      const writer = vi.spyOn(process.stderr, 'write').mockImplementation((line) => {
+        stderr.push(String(line));
+        return true;
+      });
+      const error = new Error('original floor failure');
+      let clock = 0;
+      let call = 0;
+      let caught: unknown;
+      try {
+        try {
+          const result = proveArchiveAcceptance({
+            ...input(),
+            directory,
+            tag: entries[2].tag_name,
+            clock: () => clock,
+            execute: (_executable, _args, options) => {
+              clock += [187_000, 50, 12_000, 11_000][call];
+              if (call === 3) {
+                expect(options.env.TMT_UPGRADE_OLD_ARCHIVE).toContain('/floor/');
+                expect(options.timeoutMs).toBe(120_000);
+                if (fail) {
+                  call++;
+                  throw error;
+                }
+              }
+              return [compiled, listed, passed, passed][call++];
+            },
+          });
+          expect(result).toEqual({ outcome: 'proved' });
+        } catch (failure) {
+          caught = failure;
+        }
+        expect(caught).toBe(fail ? error : undefined);
+        expect(call).toBe(4);
+        expect(stderr).toEqual([
+          `Adapter phase timing: target=${TARGET} phase=compile status=started\n`,
+          `Adapter phase timing: target=${TARGET} phase=compile status=returned seconds=187.000\n`,
+          `Adapter phase timing: target=${TARGET} phase=discovery status=started\n`,
+          `Adapter phase timing: target=${TARGET} phase=discovery status=returned seconds=0.050\n`,
+          `Adapter phase timing: target=${TARGET} phase=run-previous status=started\n`,
+          `Adapter phase timing: target=${TARGET} phase=run-previous status=returned seconds=12.000\n`,
+          `Adapter phase timing: target=${TARGET} phase=run-floor status=started\n`,
+          `Adapter phase timing: target=${TARGET} phase=run-floor status=${fail ? 'failed' : 'returned'} seconds=11.000\n`,
+        ]);
+      } finally {
+        writer.mockRestore();
+      }
+    });
+
+    it('does not let diagnostic output failure change success or the original process error', () => {
+      const writer = vi.spyOn(process.stderr, 'write').mockImplementation(() => {
+        throw new Error('diagnostic stream unavailable');
+      });
+      try {
+        let call = 0;
+        expect(
+          proveArchiveAcceptance({
+            ...input(),
+            clock: () => 0,
+            execute: () => [compiled, listed, passed][call++],
+          })
+        ).toEqual({ outcome: 'proved' });
+        expect(call).toBe(3);
+        const error = new Error('original compiler error');
+        let caught: unknown;
+        try {
+          proveArchiveAcceptance({
+            ...input(),
+            clock: () => 0,
+            execute: () => {
+              throw error;
+            },
+          });
+        } catch (failure) {
+          caught = failure;
+        }
+        expect(caught).toBe(error);
+      } finally {
+        writer.mockRestore();
+      }
     });
 
     it('compiles and executes the release adapter from sourceRoot on a rerun', () => {
