@@ -1,5 +1,6 @@
 /** Controlled admitted-parent fixture; no real Remote credentials or dispatch. */
 import 'virtual:tokens.css';
+import '@tmt/browser-ui/static.css';
 import '../src/style.css';
 import { createRoot } from 'react-dom/client';
 import { useEffect, useState } from 'react';

@@ -209,8 +209,12 @@ test('Worker rejects unknown, mixed and rich-text roots before publishing any pr
     for (const update of invalidUpdates()) {
       const fold = new Fold();
       try {
-        const previous = await fold.run({ type: 'prepare', source: 'previous valid source' });
-        await fold.run({ type: 'apply', updates: [previous.update] });
+        const previous = await fold.prepareContent('previous valid source', {
+          source: '',
+          title: '',
+          own: {},
+        });
+        await fold.run({ type: 'apply', updates: previous.updates });
         await fold.run({ type: 'apply', updates: [update] }).catch(() => rejected++);
       } finally {
         fold.close();
@@ -229,12 +233,17 @@ test('prepared edits never leak through a later committed projection', async ({ 
     const a = new Fold(),
       b = new Fold();
     try {
-      const seed = await a.run({ type: 'prepare', source: 'initial' });
-      await a.run({ type: 'apply', updates: [seed.update] });
-      await b.run({ type: 'apply', updates: [seed.update] });
-      await a.run({ type: 'prepare', source: 'unsaved draft' });
-      const remote = await b.run({ type: 'prepare', source: 'initial saved' });
-      return (await a.run({ type: 'apply', updates: [remote.update] })).source;
+      const snapshot = (r: { source: string; title: string; own: unknown }) => ({
+        source: r.source,
+        title: r.title,
+        own: r.own,
+      });
+      const seed = await a.prepareContent('initial', { source: '', title: '', own: {} });
+      const baseA = await a.run({ type: 'apply', updates: seed.updates });
+      const baseB = await b.run({ type: 'apply', updates: seed.updates });
+      await a.prepareContent('unsaved draft', snapshot(baseA));
+      const remote = await b.prepareContent('initial saved', snapshot(baseB));
+      return (await a.run({ type: 'apply', updates: remote.updates })).source;
     } finally {
       a.close();
       b.close();
@@ -278,9 +287,17 @@ test('baseline vectors reset exact struct identities and reject digest, title an
           two.publisherAgent !== v.publisherAgent
         )
           throw new Error('Baseline vector projection');
-        const edit = await a.run({ type: 'prepare', source: v.source + 'later' });
-        const left = await a.run({ type: 'apply', updates: [edit.update] }),
-          right = await b.run({ type: 'apply', updates: [edit.update] });
+        const edit = await a.prepareContent(v.source + 'later', {
+          source: one.source,
+          title: one.title,
+          own: one.own,
+          ...(one.publisherAgent === undefined ? {} : { publisherAgent: one.publisherAgent }),
+          ...(one.creationRecipient === undefined
+            ? {}
+            : { creationRecipient: one.creationRecipient }),
+        });
+        const left = await a.run({ type: 'apply', updates: edit.updates }),
+          right = await b.run({ type: 'apply', updates: edit.updates });
         if (
           left.source !== right.source ||
           left.publisherAgent !== v.publisherAgent ||
