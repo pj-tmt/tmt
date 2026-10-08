@@ -397,9 +397,13 @@ export function pending() {
 /** Admitted presentation double for shared Chat/annotation turns; no Remote effects. */
 export function conversation(options: {
   surface: 'thread' | 'chat';
-  state: 'waiting' | 'held' | 'replied' | 'failed' | 'empty' | 'uncertain';
+  state: PageAsk['state'] | 'waiting' | 'replied' | 'empty' | 'unavailable' | 'timeout';
+  message?: string;
+  agentName?: string;
 }) {
-  const at = String(Date.now() - 5 * 60 * 1000);
+  const at = String(
+    Date.now() - (options.state === 'timeout' ? 2 * 60 * 60 * 1000 + 1 : 5 * 60 * 1000),
+  );
   const thread: ThreadView = {
     version: 1,
     kind: 'thread',
@@ -430,7 +434,9 @@ export function conversation(options: {
     revision: '1',
     at,
     thread: thread.ref,
-    body: 'Explain <img src=x onerror=alert(1)> in this selection.\nKeep the exact text.',
+    body:
+      options.message ??
+      'Explain <img src=x onerror=alert(1)> in this selection.\nKeep the exact text.',
     deleted: false,
     ref: { writer: id(4), id: id(42) },
   });
@@ -442,15 +448,15 @@ export function conversation(options: {
       operationId: id(43),
       writer: id(4),
       agent: id(6),
-      agentName: 'Atlas',
+      agentName: options.agentName ?? 'Atlas',
       deviceName: 'Asker browser',
       issuedAt: Number(at),
       machine: id(5),
       message: 'Frozen ask bytes',
-      state:
-        options.state === 'replied' || options.state === 'empty' || options.state === 'waiting'
-          ? 'accepted'
-          : options.state,
+      state: ['replied', 'empty', 'waiting', 'unavailable', 'timeout'].includes(options.state)
+        ? 'accepted'
+        : (options.state as PageAsk['state']),
+      ...(options.state === 'unavailable' ? { resultUnavailable: true } : {}),
       canTrack: true,
       ...(replied
         ? {

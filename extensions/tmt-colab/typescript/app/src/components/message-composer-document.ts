@@ -11,6 +11,7 @@ import {
   TextNode,
   type LexicalNode,
   type NodeKey,
+  type EditorConfig,
   type SerializedTextNode,
   type Spread,
 } from 'lexical';
@@ -47,6 +48,11 @@ export class MessageMentionNode extends TextNode {
       recipient: this.__recipient,
       token: this.__token,
     };
+  }
+  createDOM(config: EditorConfig) {
+    const node = super.createDOM(config);
+    node.classList.add('message-mention');
+    return node;
   }
   isTextEntity() {
     return true;

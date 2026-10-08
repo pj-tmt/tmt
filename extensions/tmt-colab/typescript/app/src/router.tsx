@@ -1347,11 +1347,17 @@ function Page() {
           admitted={!!snapshot.binding && !liveError}
         />
       </PageDrawer>
-      <PageDrawer open={panel === 'chat'} title="Chat" kind="chat" close={() => setPanel(null)}>
-        {view.askUnavailable && <p role="status">{text.askObservationUnavailable}</p>}
+      <PageDrawer
+        open={panel === 'chat'}
+        title="Chat"
+        kind="chat"
+        hideHeader
+        close={() => setPanel(null)}
+      >
         {chatOpened && (
           <ChatPanel
             key={`chat:${snapshot.id}`}
+            observationUnavailable={view.askUnavailable}
             threads={view.threads ?? []}
             asks={view.asks ?? []}
             binding={liveError?.message === managementChanged ? undefined : snapshot.binding?.ask}

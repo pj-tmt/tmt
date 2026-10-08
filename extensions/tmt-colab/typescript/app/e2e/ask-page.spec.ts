@@ -56,13 +56,13 @@ test('Chat retains drafts across close and live edits; only trusted Enter freeze
   await expect(page.getByTestId('annotation-row')).toHaveCount(0);
   await page.locator('#ask-page-fixture').getByTestId('chat-toggle').click();
   await run(page, 'syncRecords');
-  await expect(page.locator('.chat-user-turn .conversation-body > pre').first()).toHaveText(
+  await expect(page.locator('[data-turn-role="user"] .conversation-body > pre').first()).toHaveText(
     '<script>inert ask</script>',
   );
   await expect(page.locator('.chat-panel script,.chat-panel img')).toHaveCount(0);
   await expect(page.getByText('The agent returned an empty reply.')).toBeVisible();
   await expect(page.getByTestId('ask-reply-attribution')).toContainText('Agent 2');
-  await page.getByRole('button', { name: 'Re-check delivery' }).click();
+  await page.getByRole('button', { name: 'Check again' }).click();
   await page.getByRole('button', { name: 'Abandon tracking' }).click();
   expect((await run(page, 'proof')).actions).toEqual([
     'recheck:00000000-0000-4000-8000-000000000021',
@@ -99,15 +99,15 @@ test('Chat shows held, pending, replied and display-only reply timeout without c
   // Every state is a Lucide mark plus its word, the mark colored by the state's role.
   const state = (tone: string) =>
     page.getByTestId('ask-state').first().locator(`.ask-state[data-tone="${tone}"]`);
-  await expect(page.getByTestId('ask-state').first()).toContainText('held');
+  await expect(page.getByTestId('ask-state').first()).toContainText('Waiting for approval');
   await expect(state('held').locator('svg.lucide')).toBeVisible();
   await page.screenshot({ path: '/tmp/1730-390-dark-held.png' });
   await run(page, 'pending');
-  await expect(page.getByTestId('ask-state').first()).toContainText('waiting');
+  await expect(page.getByTestId('ask-state').first()).toContainText('Waiting for Agent 1');
   await expect(state('waiting').locator('svg.lucide')).toBeVisible();
   await page.screenshot({ path: '/tmp/1730-390-dark-waiting.png' });
   await page.clock.fastForward(2 * 60 * 60 * 1000 + 1);
-  await expect(page.getByTestId('ask-state').first()).toContainText('no reply yet');
+  await expect(page.getByTestId('ask-state').first()).toContainText('No reply yet from Agent 1');
   await expect(state('waiting').locator('svg.lucide')).toBeVisible();
   await expect(page.getByTestId('ask-state').first()).toHaveAttribute('data-state', 'accepted');
   await page.screenshot({ path: '/tmp/1645-chromium-390-dark-timeout.png' });
@@ -140,12 +140,13 @@ test('verified refusal reasons use actionable copy without exposing a resend', a
     ],
   ]) {
     await run(page, 'syncRefusal', reason);
-    await expect(page.getByTestId('ask-state').first()).toContainText(copy);
+    await expect(page.getByTestId('ask-state').first()).toContainText('Not delivered');
+    await expect(page.getByTestId('ask-entry').first()).toContainText(copy);
     await expect(
       page.getByTestId('ask-state').first().locator('.ask-state[data-tone="problem"] svg.lucide'),
     ).toBeVisible();
     await expect(page.getByRole('button', { name: 'Abandon tracking' })).toHaveCount(0);
-    await expect(page.getByRole('button', { name: 'Re-check delivery' })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Check again' })).toHaveCount(0);
   }
   expect((await run(page, 'proof')).sends).toEqual([]);
   await page.screenshot({
@@ -161,11 +162,11 @@ test('read refusals show ephemeral copy without changing the admitted operation 
   await run(page, 'syncRecords');
   for (const [code, copy] of [
     ['REMOTE_INPUT_TOO_LARGE', 'Remote rejected the message size. Write a shorter message.'],
-    ['REMOTE_STATE_UNAVAILABLE', 'Remote cannot read this operation yet. Re-check delivery later.'],
-    ['REMOTE_CORE_UNAVAILABLE', 'The agent service is unavailable. Re-check delivery later.'],
+    ['REMOTE_STATE_UNAVAILABLE', 'Remote cannot read this operation yet. Check again later.'],
+    ['REMOTE_CORE_UNAVAILABLE', 'The agent service is unavailable. Check again later.'],
   ]) {
     await run(page, 'refuseRead', code);
-    await page.getByRole('button', { name: 'Re-check delivery' }).click();
+    await page.getByRole('button', { name: 'Check again' }).click();
     await expect(page.locator('.ask-panel [role=alert]')).toContainText(copy);
     await expect(page.getByTestId('ask-state').first()).toHaveAttribute('data-state', 'uncertain');
     expect((await run(page, 'proof')).sends).toEqual([]);

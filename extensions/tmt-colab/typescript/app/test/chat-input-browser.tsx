@@ -78,7 +78,6 @@ export function mountMenu(options: { tight?: boolean; spaceAbove?: boolean } = {
   const row = (
     <ConversationTurn
       role="user"
-      layout="thread"
       author="You"
       at={Date.now()}
       className="comment"

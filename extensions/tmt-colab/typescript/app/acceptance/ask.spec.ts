@@ -415,7 +415,7 @@ test.describe('Ask agent real-binary acceptance (#1110)', () => {
         'uncertain',
         { timeout: 60_000 },
       );
-      await s.askerPage.getByRole('button', { name: 'Re-check delivery' }).click();
+      await s.askerPage.getByRole('button', { name: 'Check again' }).click();
       await expect(askState(s.askerPage, ask.operationId)).toHaveAttribute(
         'data-state',
         'uncertain',
