@@ -180,18 +180,6 @@ footer {
   color: var(--c-muted);
   font: 11px var(--f-mono);
 }
-.drawer-bar button {
-  color: var(--c-text);
-  background: transparent;
-  border: 0;
-  box-shadow: none;
-  white-space: nowrap;
-  padding: 7px 8px;
-}
-.drawer-bar button:hover {
-  text-decoration: underline;
-  text-underline-offset: 4px;
-}
 .tmt-ui-header .export-control {
   margin: 0;
 }
@@ -204,10 +192,6 @@ footer {
 .tmt-ui-header .page-menu-close,
 .tmt-ui-header .page-overflow-toggle {
   display: none;
-}
-.drawer-bar button {
-  font-size: 20px;
-  line-height: 1;
 }
 .status {
   color: var(--c-muted);
@@ -267,12 +251,12 @@ footer {
 .page-drawer[data-panel='source'] {
   width: min(660px, 100vw);
 }
-.page-drawer button:not([data-testid='ask-send']) {
+.page-drawer button:not(.tmt-ui-action):not([data-testid='ask-send']) {
   background: transparent;
   border: 0;
   box-shadow: none;
 }
-.page-drawer button:not([data-testid='ask-send']):hover:not(:disabled) {
+.page-drawer button:not(.tmt-ui-action):not([data-testid='ask-send']):hover:not(:disabled) {
   text-decoration: underline;
   text-underline-offset: 4px;
 }
@@ -677,12 +661,12 @@ footer {
   gap: 8px;
   margin: 12px 0;
 }
-.comments-panel button {
+.comments-panel button:not(.tmt-ui-action) {
   font-size: 12px;
   padding: 5px 8px;
   box-shadow: 2px 2px 0 var(--c-text);
 }
-.comments-panel button:disabled {
+.comments-panel button:not(.tmt-ui-action):disabled {
   cursor: default;
   opacity: 0.6;
   box-shadow: none;
@@ -1140,7 +1124,7 @@ footer {
   width: 16px;
   height: 16px;
 }
-.comment-thread[data-layout='anchored'] .comment-actions button,
+.comment-thread[data-layout='anchored'] .comment-actions button:not(.tmt-ui-action),
 .comment-thread[data-layout='anchored'] .tmt-action-menu-list {
   border-width: 1px;
   box-shadow: none;

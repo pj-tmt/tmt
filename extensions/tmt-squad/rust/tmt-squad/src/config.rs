@@ -1,4 +1,4 @@
-//! `squad.toml`: the user's file, beside TMT's global configuration.
+//! `ops.toml`: the user's file, beside TMT's global configuration.
 //! Named edits pass through one format-preserving writer.
 
 use crate::core::{Core, SquadError};
@@ -880,7 +880,9 @@ impl Config {
     /// so TMT alone owns path discovery. A missing file is an empty document.
     pub fn load(core: &Core) -> Result<Self, SquadError> {
         let shown = core.json(&["config", "show"])?;
-        let mut config = Self::read(Self::squad_file(&shown)?)?;
+        let path = crate::migration::paths(core, Some(&shown))?.config;
+        let _migration = crate::migration::config_write_guard(&path)?;
+        let mut config = Self::read(path)?;
         config.global_theme(&shown);
         Ok(config)
     }
@@ -909,20 +911,9 @@ impl Config {
         });
     }
 
-    /// Where squad.toml lives, without reading it.
+    /// The invocation-selected config path, including a deferred cutover.
     pub fn locate(core: &Core) -> Result<PathBuf, SquadError> {
-        Self::squad_file(&core.json(&["config", "show"])?)
-    }
-
-    /// squad.toml beside the global config `config show` reports.
-    fn squad_file(shown: &serde_json::Value) -> Result<PathBuf, SquadError> {
-        let global = shown["paths"]["global"]
-            .as_str()
-            .ok_or_else(|| invalid("tmt config show did not report the global config path."))?;
-        Ok(Path::new(global)
-            .parent()
-            .ok_or_else(|| invalid("The global config path has no directory."))?
-            .join("squad.toml"))
+        Ok(crate::migration::paths(core, None)?.config)
     }
 
     pub fn read(path: PathBuf) -> Result<Self, SquadError> {
@@ -1554,7 +1545,7 @@ impl Config {
                 &format!("squad {squad} has a hand-written board layout"),
                 "; ",
                 &format!(
-                    "remove squad.{squad}.board.layout or panes from squad.toml manually before saving a view"
+                    "remove squad.{squad}.board.layout or panes from ops.toml manually before saving a view"
                 ),
             ));
         }
@@ -2109,7 +2100,7 @@ impl Config {
             .collect();
         if !matches!(self.document.get("tabs"), None | Some(Item::Table(_))) {
             return Err(invalid(
-                "`tabs` is not a [tabs] table, so the order cannot be saved; edit squad.toml.",
+                "`tabs` is not a [tabs] table, so the order cannot be saved; edit ops.toml.",
             ));
         }
         self.write(|document| {
@@ -2124,6 +2115,7 @@ impl Config {
     /// editor changed the file since it was read, rather than overwriting
     /// their edit.
     fn write(&mut self, edit: impl FnOnce(&mut DocumentMut)) -> Result<(), SquadError> {
+        let _migration = crate::migration::config_write_guard(&self.path)?;
         let current = read_bounded(&self.path).map_err(|error| write_failed(&self.path, error))?;
         if current != self.original {
             return Err(SquadError::new(
@@ -2187,7 +2179,7 @@ fn publish(path: &Path, bytes: &[u8]) -> io::Result<()> {
         .parent()
         .ok_or_else(|| io::Error::other("no parent directory"))?;
     fs::create_dir_all(directory)?;
-    let staged = directory.join(format!(".squad.toml.{}", std::process::id()));
+    let staged = directory.join(format!(".ops.toml.{}", std::process::id()));
     let mut file = fs::OpenOptions::new()
         .write(true)
         .create_new(true)
@@ -2405,6 +2397,23 @@ mod tests {
     }
 
     #[test]
+    fn legacy_byte_cas_alone_refuses_archival_without_recreating_old_config() {
+        let path = temp("legacy-cas").with_file_name("squad.toml");
+        fs::write(&path, "[board.theme]\nbase='tmt'\n").unwrap();
+        let mut old = Config::read(path.clone()).unwrap();
+        // No completion marker: exercise the byte CAS used by the old binary.
+        fs::rename(&path, path.with_extension("toml.migrated-100")).unwrap();
+        assert_eq!(
+            old.set_theme_base(&crate::theme::ThemeScope::Board, tmt_cli_style::Base::Mono)
+                .unwrap_err()
+                .code,
+            "SQUAD_CONFIG_CHANGED"
+        );
+        assert!(!path.exists());
+        fs::remove_dir_all(path.parent().unwrap()).unwrap();
+    }
+
+    #[test]
     fn theme_writes_refuse_changed_files_even_for_an_identical_base() {
         use crate::theme::ThemeScope;
         use tmt_cli_style::Base;
@@ -2448,7 +2457,7 @@ mod tests {
         let staged = path
             .parent()
             .unwrap()
-            .join(format!(".squad.toml.{}", std::process::id()));
+            .join(format!(".ops.toml.{}", std::process::id()));
         fs::write(&staged, "occupied stage").unwrap();
         assert_eq!(
             config
@@ -2479,7 +2488,7 @@ mod tests {
         let staged = path
             .parent()
             .unwrap()
-            .join(format!(".squad.toml.{}", std::process::id()));
+            .join(format!(".ops.toml.{}", std::process::id()));
         fs::write(&staged, "publish would fail").unwrap();
         assert!(
             !config
@@ -2638,7 +2647,7 @@ mod tests {
             std::env::temp_dir().join(format!("tmt-squad-{name}-{}", std::process::id()));
         let _ = fs::remove_dir_all(&directory);
         fs::create_dir_all(&directory).unwrap();
-        directory.join("squad.toml")
+        directory.join("ops.toml")
     }
 
     #[test]

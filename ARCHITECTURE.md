@@ -993,12 +993,12 @@ Module/drawing ownership and guard verification: [Squad](.agents/skills/tmt-squa
   (for example cron's planned `dispatch.create` and `identityHooks`) changes the seam and goes to tmt-lead.
 - **Data ownership.** A squad is the core room `squad-<name>`; member fields are
   identity metadata `squad.<name>.<field>`, with no Squad membership store. Squad owns
-  `<dataRoot>/squad` (`storage.root`) and disposable `$XDG_CACHE_HOME/tmt-squad` caches.
-  `squad.toml` is the user's file: agents never write it; Squad uses its compare-and-set
-  writer. No Squad data goes into `config.json` or the core database.
+  `<dataRoot>/ops` (`storage.root`) and disposable `$XDG_CACHE_HOME/tmt-squad` caches.
+  `ops.toml` is the user's file: agents never write it; Squad uses its compare-and-set
+  writer; `migration` owns the locked, byte-preserving legacy cutover. No Squad data goes into `config.json` or the core database.
 - **Checklist.** `checklist_command` exposes native grammar and scoped output over the existing
   `checklist` caller/room admission, `model` revisions/tombstones and `store` versioned room-UUID JSON
-  under `<dataRoot>/squad/checklist`. Reads create nothing; locked admission precedes synced replacement outside a Core/file transaction.
+  under `<dataRoot>/ops/checklist`. Reads create no checklist files; locked admission precedes synced replacement outside a Core/file transaction.
   Prepublication failure preserves bytes; uncertainty remains Unknown after readback. The board Checklist controller consumes the same typed service, retaining exact previews and uncertain outcomes without dispatch.
 - **Row detail and focus.** Shared detail ownership and Core-owned focus policy acquisition/admission live in the [Squad skill](.agents/skills/tmt-squad-dev/SKILL.md); the [board reference](.agents/skills/tmt-squad-dev/references/board.md) owns worker fences.
 - **Entry and public JSON.** The [Squad reference](.agents/skills/tmt-squad-dev/references/config-and-effects.md#cli-entry-and-public-json) owns CLI entry and display-document contracts.

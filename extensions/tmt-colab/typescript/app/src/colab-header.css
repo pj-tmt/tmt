@@ -39,6 +39,14 @@
   --tmt-ui-host-action-font: var(--tmt-ui-font-body);
   --tmt-ui-host-action-gap: 6px;
   --tmt-ui-host-action-underline-offset: 4px;
+  --tmt-ui-host-icon-action-size: 34px;
+  --tmt-ui-host-field-padding: 8px;
+  --tmt-ui-host-field-size: 14px;
+  --tmt-ui-host-field-line-height: 1.5;
+  --tmt-ui-host-field-label-size: 12px;
+  --tmt-ui-host-field-label-weight: 400;
+  --tmt-ui-host-field-label-line-height: 1.5;
+  --tmt-ui-host-field-label-font: var(--tmt-ui-font-body);
   color-scheme: light;
 }
 @media (prefers-color-scheme: dark) {

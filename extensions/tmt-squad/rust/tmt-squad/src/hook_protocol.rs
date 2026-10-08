@@ -4,7 +4,7 @@
 //! Core runs it only after the user enabled squad's hooks, within a shared
 //! deadline. Lifecycle observations follow committed commands; context runs
 //! before a turn. Squad observes one lifecycle event: an identity
-//! rename, so `me` in `squad.toml` follows the user's renamed identity at
+//! rename, so `me` in `ops.toml` follows the user's renamed identity at
 //! once. Hooks are optional: without them the next command that needs `me`
 //! repairs it (`me::resolve`). Lifecycle output is empty and non-vetoing.
 //! Context returns an optional informational reminder within its own budget.

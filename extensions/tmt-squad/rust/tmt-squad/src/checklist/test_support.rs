@@ -66,11 +66,7 @@ impl Fixture {
             "members":[{"id":USER,"name":"Ben","lifetime":"saved"},{"id":LEAD,"name":"Lead","lifetime":"saved"},{"id":WORKER,"name":"Worker","lifetime":"saved"}],
             "pending":"waiting","agentState":"busy","requests":["unchanged request"]});
         fs::write(root.join("model.json"), state.to_string()).unwrap();
-        fs::write(
-            root.join("squad.toml"),
-            format!("me='Ben'\nme_id='{USER}'\n"),
-        )
-        .unwrap();
+        fs::write(root.join("ops.toml"), format!("me='Ben'\nme_id='{USER}'\n")).unwrap();
         for name in ["pending", "agent-state", "requests", "config.json"] {
             fs::write(root.join(name), format!("untouched {name}\n")).unwrap();
         }
@@ -88,7 +84,7 @@ def fail(code):
 def identities(ids):
  return [dict(next((x for x in m['members'] if x['id']==i),{'id':i}),found=any(x['id']==i for x in m['members']) and i not in m['absent'],retired=i in m['retired']) for i in ids]
 locked=False
-lock=p/'squad/checklist'/m.get('lockRoom',m['roomId'])/'items.lock'
+lock=p/'ops/checklist'/m.get('lockRoom',m['roomId'])/'items.lock'
 if lock.exists():
  with open(lock,'r') as f:
   try:fcntl.flock(f,fcntl.LOCK_SH|fcntl.LOCK_NB)
@@ -106,6 +102,7 @@ if a[0]=='api':
  else:
   if i['room']!=m['roomId'] or m['roomRetired']:fail('ROOM_NOT_FOUND')
   prefix=i['metadataPrefix'];out={'members':[dict(x,metadata={prefix+'lead.marker':'true' if x['id']==m['lead'] else 'false'}) for x in m['members'] if x['id'] not in m['retired']+m['absent']+m['removed']]}
+elif a[0]=='config':out={'paths':{'global':str(p/'config.toml')}}
 elif a[0]=='whoami':
  if m['caller']=='ambiguous':fail('CALLER_IDENTITY_AMBIGUOUS')
  out={'bound':False} if m['caller'] is None else dict(next(x for x in m['members'] if x['id']==m['caller']),bound=True)
@@ -128,7 +125,7 @@ save();print(json.dumps(out))
             ),
         );
         let core = Core::at(executable);
-        let config = Config::read(root.join("squad.toml")).unwrap();
+        let config = Config::read(root.join("ops.toml")).unwrap();
         Self { root, core, config }
     }
     pub fn service(&self) -> Service {
@@ -155,7 +152,7 @@ save();print(json.dumps(out))
         self.service()
     }
     pub fn directory(&self) -> PathBuf {
-        self.root.join("squad/checklist").join(ROOM)
+        self.root.join("ops/checklist").join(ROOM)
     }
     pub fn bytes(&self) -> Vec<u8> {
         fs::read(self.directory().join("items.json")).unwrap()

@@ -154,7 +154,13 @@ impl Service {
             core: core.clone(),
             config_path: config.path().into(),
             actor_id: Id::parse(&actor.id)?,
-            store: Store::new(&root, room_id)?,
+            store: Store::new(
+                &root,
+                room_id,
+                crate::migration::paths(core, None)
+                    .map_err(Error::storage)?
+                    .subtree(),
+            )?,
         })
     }
 
@@ -277,6 +283,8 @@ impl Service {
     /// Full inventory and eligible identities for an explicit board preview.
     /// This does not initialize storage or turn a projection into write authority.
     pub fn preview(&self) -> Result<Preview, Error> {
+        let _migration =
+            crate::migration::config_write_guard(&self.config_path).map_err(Error::storage)?;
         let (admission, _) = self.admit(false, false, None)?;
         let document = self.store.read()?;
         Ok(Preview {
@@ -291,6 +299,8 @@ impl Service {
     }
 
     pub fn list(&self, filter: &Filter) -> Result<List, Error> {
+        let _migration =
+            crate::migration::config_write_guard(&self.config_path).map_err(Error::storage)?;
         let (admission, _) = self.admit(false, false, None)?;
         let document = self.store.read()?;
         let mut current = project(&admission, document.as_ref(), None);
@@ -312,6 +322,8 @@ impl Service {
     }
 
     pub fn show(&self, checklist_id: &Id, item_id: &Id) -> Result<Current, Error> {
+        let _migration =
+            crate::migration::config_write_guard(&self.config_path).map_err(Error::storage)?;
         let (admission, _) = self.admit(false, false, None)?;
         let document = self.store.read()?;
         let current = project(&admission, document.as_ref(), Some(item_id));
@@ -347,6 +359,8 @@ impl Service {
             ));
         }
         // Refuse unauthorized operations before creating any storage infrastructure.
+        let _migration =
+            crate::migration::config_write_guard(&self.config_path).map_err(Error::storage)?;
         self.admit(true, request.action.manager(), request.action.assignment())?;
         self.store.update(
             |document| {

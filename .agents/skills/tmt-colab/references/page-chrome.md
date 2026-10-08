@@ -47,8 +47,12 @@ thread highlights are projected again when the new render is ready. `renderer.ts
 checks the frozen composer quote through the same bounded cosmetic resolver: the
 reserved empty anchor ID resolves without painting a highlight or creating a
 marker/action. Only an admitted resolution response marks the check complete;
-pending checks do not show the stale-quote hint. Annotation and shared composer
-actions use the leaf action class; annotation surfaces and drawers are shadow-free.
+pending checks do not show the stale-quote hint. Annotation/Chat submits and recipient selection use `BrowserAction`: the existing
+Enter intent selects the one primary submit, while other submits and recipient selection
+remain text actions. `MessageComposer` renders its retained Lexical editable combobox through
+`BrowserField`, with host-owned popup ARIA, draft, ref, caret/IME and editor history.
+`PageDrawer` close uses `BrowserIconAction`; its tooltip and focus presentation belong to
+the leaf. Annotation surfaces and drawers are shadow-free.
 Source loading does not block
 discussion input or explicit sends, which use the frozen quote and verified
 connection; renderer failures and connection errors still block them. It

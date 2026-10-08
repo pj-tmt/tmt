@@ -394,7 +394,7 @@ fn plan(core: &Core, config: &Config, explicit: Option<&Path>) -> Result<Plan, S
     let squad_file = config
         .path()
         .parent()
-        .ok_or_else(|| failed("SQUAD_CONFIG_INVALID", "squad.toml has no directory."))?
+        .ok_or_else(|| failed("SQUAD_CONFIG_INVALID", "ops.toml has no directory."))?
         .join("squad.tmux.conf");
     let tmt = launcher(core.executable(), std::env::var_os("PATH"));
     let home = std::env::var_os("HOME")
@@ -660,7 +660,7 @@ fn taken(collisions: &[String]) -> SquadError {
         "SQUAD_HOTKEY_TAKEN",
         &format!("Nothing was changed: {}.", collisions.join("; ")),
         " ",
-        "Choose other keys under [tmux] in squad.toml.",
+        "Choose other keys under [tmux] in ops.toml.",
     )
 }
 
@@ -676,11 +676,11 @@ mod tests {
         ]);
         assert_eq!(
             error.to_json().to_string(),
-            r#"{"error":{"code":"SQUAD_HOTKEY_TAKEN","message":"Nothing was changed: prefix S is bound to x; prefix B is bound to y. Choose other keys under [tmux] in squad.toml."}}"#
+            r#"{"error":{"code":"SQUAD_HOTKEY_TAKEN","message":"Nothing was changed: prefix S is bound to x; prefix B is bound to y. Choose other keys under [tmux] in ops.toml."}}"#
         );
         assert_eq!(
             error.human().1,
-            Some("Choose other keys under [tmux] in squad.toml.")
+            Some("Choose other keys under [tmux] in ops.toml.")
         );
     }
 

@@ -136,7 +136,7 @@ pub fn grammar() -> Command {
     .subcommand(spec("set", "Set a board view without changing workflow settings", &[
         Example { command: "tmt squad view set notes", note: "Read lead notes on all boards" },
         Example { command: "tmt squad view set wide --squad product", note: "Choose one squad's view" },
-    ], "Writes only view in squad.toml. A hand-written board.layout or panes must be removed manually first.").arg(Arg::new("name").required(true).help("Factory view name")).arg(scope_option()))
+    ], "Writes only view in ops.toml. A hand-written board.layout or panes must be removed manually first.").arg(Arg::new("name").required(true).help("Factory view name")).arg(scope_option()))
     .subcommand(spec("rm", "Remove only a view override and inherit the arrangement", &[
         Example { command: "tmt squad view rm", note: "Reset the all-boards view" },
         Example { command: "tmt squad view rm --squad product", note: "Reset one squad's view" },
@@ -253,7 +253,7 @@ mod tests {
     fn fixture(name: &str, text: &str) -> (std::path::PathBuf, Config) {
         let dir = std::env::temp_dir().join(format!("tmt-view-{name}-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
-        let path = dir.join("squad.toml");
+        let path = dir.join("ops.toml");
         std::fs::write(&path, text).unwrap();
         let config = Config::read(path.clone()).unwrap();
         (path, config)
@@ -476,7 +476,7 @@ mod tests {
         ] {
             let dir = std::env::temp_dir().join(format!("tmt-view-invalid-{}", std::process::id()));
             std::fs::create_dir_all(&dir).unwrap();
-            let path = dir.join("squad.toml");
+            let path = dir.join("ops.toml");
             std::fs::write(&path, text).unwrap();
             assert_eq!(
                 Config::read(path.clone()).err().unwrap().code,

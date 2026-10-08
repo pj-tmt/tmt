@@ -13,7 +13,10 @@ use std::{
 mod ledger;
 mod local;
 mod tree;
+#[cfg(test)]
+pub(crate) use local::Milestone;
 pub use local::{LocalFs, LocalHandle};
+pub(crate) use local::{LocalObjectReader, LocalObjectWriter};
 
 pub type Digest = [u8; 32];
 

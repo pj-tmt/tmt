@@ -617,7 +617,7 @@ mod tests {
             std::env::temp_dir().join(format!("squad-cell-colors-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&directory);
         std::fs::create_dir_all(&directory).unwrap();
-        let path = directory.join("squad.toml");
+        let path = directory.join("ops.toml");
         std::fs::write(
             &path,
             "[squad.product.rows]\ncolumns = [\n  { name = \"member\" },\n  \
@@ -728,7 +728,7 @@ mod tests {
         let directory =
             std::env::temp_dir().join(format!("squad-state-patterns-{}", std::process::id()));
         std::fs::create_dir_all(&directory).unwrap();
-        let path = directory.join("squad.toml");
+        let path = directory.join("ops.toml");
         std::fs::write(
             &path,
             r#"
@@ -826,7 +826,7 @@ sort = ["state"]
     fn a_bound_column_is_one_value_for_rows_sections_and_sorts() {
         let directory = std::env::temp_dir().join(format!("squad-bound-{}", std::process::id()));
         std::fs::create_dir_all(&directory).unwrap();
-        let path = directory.join("squad.toml");
+        let path = directory.join("ops.toml");
         std::fs::write(
             &path,
             "[[squad.product.section]]\ntitle = \"Busy\"\nfilter = \"ctx\"\nsort = [\"-ctx\"]\n\

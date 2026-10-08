@@ -31,6 +31,7 @@ mod markup;
 mod me;
 mod member_actions;
 mod membership;
+mod migration;
 mod observe;
 mod playbook;
 mod provider;

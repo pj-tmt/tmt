@@ -176,7 +176,7 @@ impl Config {
         let path = Self::setting_path(squad, key)?;
         if !self.can_edit_setting(key, squad) {
             return Err(invalid(
-                "Nested board layouts are read-only; edit the split tree in squad.toml.",
+                "Nested board layouts are read-only; edit the split tree in ops.toml.",
             ));
         }
         if key == "board.view" {

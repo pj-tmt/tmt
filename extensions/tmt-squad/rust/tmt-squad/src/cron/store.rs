@@ -212,19 +212,19 @@ impl Jobs {
     }
 }
 
-/// A durable extension subtree. The caller obtains data_root from storage.root;
+/// A durable extension subtree. The caller supplies the invocation-selected Ops or pending legacy root;
 /// merely constructing or reading an absent Store creates nothing.
 pub struct Store {
     directory: PathBuf,
 }
 
 impl Store {
-    pub fn new(data_root: &Path) -> Result<Self, Error> {
-        if !data_root.is_absolute() {
-            return Err(io("storage.root must return an absolute dataRoot."));
+    pub fn new(extension_root: &Path) -> Result<Self, Error> {
+        if !extension_root.is_absolute() {
+            return Err(io("The selected extension root must be absolute."));
         }
         Ok(Self {
-            directory: data_root.join("squad/cron"),
+            directory: extension_root.join("cron"),
         })
     }
     fn lock(&self, create: bool) -> Result<Option<Flock<File>>, Error> {

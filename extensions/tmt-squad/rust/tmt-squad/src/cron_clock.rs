@@ -152,7 +152,8 @@ impl Dispatch for Scheduled<'_> {
     }
 }
 
-fn acquire(clock: &Clock, time: i64) -> Result<Option<Lease>, SquadError> {
+fn acquire(core: &Core, clock: &Clock, time: i64) -> Result<Option<Lease>, SquadError> {
+    let _migration = crate::migration::state_guard(core)?;
     Ok(clock.acquire(time, std::process::id(), std::env::var("TMUX_PANE").ok())?)
 }
 fn occupied() -> SquadError {
@@ -233,7 +234,7 @@ pub fn run(core: &Core, config: &Config, parent: &ArgMatches) -> Result<Value, S
             json!({"action":"clock","complete":status != ClockStatus::Unknown,"clock":status_document(status)}),
         );
     }
-    let mut lease = acquire(&clock, now())?.ok_or_else(occupied)?;
+    let mut lease = acquire(core, &clock, now())?.ok_or_else(occupied)?;
     let result = pass(
         core,
         config,
@@ -324,7 +325,7 @@ fn serve(
                 }
             }
             if lease.is_none() {
-                lease = match acquire(&clock, time) {
+                lease = match acquire(core, &clock, time) {
                     Ok(lease) => lease,
                     Err(error) if !foreground && error.code == "SQUAD_CRON_CLOCK_BUSY" => None,
                     Err(error) => return Err(error),

@@ -26,7 +26,10 @@ use tmt_extension_objects::{Budget, Budgets, Bus, Caps, Fault, Offer, Uuid4, ini
 
 mod config;
 mod dispatch;
+mod observe;
+mod original;
 mod origins;
+mod upload;
 use config::ConfigSource;
 pub use dispatch::ChannelEnd;
 use dispatch::{Launch, Running};
@@ -111,6 +114,9 @@ struct State {
 
 /// The service is bound to the held serve lease for its lifetime: the lease cannot be
 /// released while it or any handle it gave out exists.
+/// It must be dropped or shut down, never forgotten: scoped ownership joins all
+/// mutating workers before its Serving borrow ends. Production serve owns it by
+/// scope.
 ///
 /// ```compile_fail,E0505
 /// use std::{sync::atomic::AtomicBool, time::Instant};
@@ -220,11 +226,14 @@ impl<'s> ObjectService<'s> {
     /// `mounts` with exactly the `Host` and mount values the door sets on every request
     /// it sends that extension.
     pub fn activate(&self, mounts: &Mounts, name: &str) -> Result<Uuid4, ActivateError> {
-        let (index, source, tunnels) = self.begin_setup(name)?;
-        let built = self.connect(mounts, name, source, tunnels);
+        let (index, id, source, tunnels) = self.begin_setup(name)?;
+        let built = self.connect(mounts, name, id, source, tunnels);
         self.finish_setup(index, built)
     }
-    fn begin_setup(&self, name: &str) -> Result<(usize, ConfigSource, usize), ActivateError> {
+    fn begin_setup(
+        &self,
+        name: &str,
+    ) -> Result<(usize, ExtensionId, ConfigSource, usize), ActivateError> {
         let mut state = self.locked();
         if state.stopped {
             return Err(ActivateError::Stopped);
@@ -246,12 +255,18 @@ impl<'s> ObjectService<'s> {
             return Err(ActivateError::Capacity);
         }
         state.slots[index].setup = true;
-        Ok((index, state.slots[index].source, state.slots[index].tunnels))
+        Ok((
+            index,
+            state.slots[index].id.clone(),
+            state.slots[index].source,
+            state.slots[index].tunnels,
+        ))
     }
     fn connect(
         &self,
         mounts: &Mounts,
         name: &str,
+        id: ExtensionId,
         source: ConfigSource,
         tunnels: usize,
     ) -> Result<Running, ActivateError> {
@@ -292,6 +307,8 @@ impl<'s> ObjectService<'s> {
             extension: name,
             tunnels,
             sessions: mounts.sessions(),
+            backend: self.storage.reader(id.clone()),
+            writer: self.storage.writer(id),
         };
         Running::start(bus, launch).map_err(ActivateError::Channel)
     }
@@ -344,7 +361,7 @@ impl<'s> ObjectService<'s> {
         slot.active.as_ref().map(Running::bus)
     }
 
-    /// Install the pause that runs between a request's two admissions on later channels.
+    /// Install the request boundary pause on later channels.
     #[cfg(test)]
     fn set_hook(&self, hook: dispatch::Hook) {
         *self

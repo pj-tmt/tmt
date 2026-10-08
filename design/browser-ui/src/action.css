@@ -19,14 +19,15 @@
 }
 .tmt-ui-action[data-variant='text'] {
   border: 0;
-  background: var(--tmt-ui-surface-sheet);
+  background: transparent;
   text-decoration: underline;
   text-underline-offset: var(--tmt-ui-host-action-underline-offset);
 }
 .tmt-ui-action[data-variant='destructive'] .tmt-ui-action-label {
   color: var(--tmt-ui-color-blocked);
 }
-.tmt-ui-action:not(:disabled):hover {
+.tmt-ui-action:not(:disabled):hover,
+.tmt-ui-action:not(:disabled):focus-visible {
   color: var(--tmt-ui-color-selected-text);
   background: var(--tmt-ui-surface-selection);
   box-shadow: none;
@@ -38,9 +39,14 @@
 .tmt-ui-action:disabled,
 .tmt-ui-action:disabled .tmt-ui-action-label {
   color: var(--tmt-ui-color-disabled-text);
-  background: var(--tmt-ui-surface-disabled);
   cursor: default;
   opacity: 1;
+}
+.tmt-ui-action:disabled {
+  background: var(--tmt-ui-surface-disabled);
+}
+.tmt-ui-action[data-variant='text']:disabled {
+  background: transparent;
 }
 .tmt-ui-action-mark {
   color: inherit;

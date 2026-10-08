@@ -18,7 +18,7 @@ mod bus;
 mod handshake;
 mod ledger;
 
-pub use bus::Bus;
+pub use bus::{Bus, StampedObjectFrame};
 pub use handshake::{Expect, Offer, accept, accept_head, initiate};
 pub use ledger::{Budget, Caps, Reason};
 
@@ -173,13 +173,19 @@ fn read_checked(
     generation: Uuid4,
     idle: Idle<'_>,
     budgets: &Budgets,
-) -> Result<(Frame, usize), Fault> {
-    let body = reader.frame(idle, budgets.frame)?;
+) -> Result<(StampedObjectFrame, usize), Fault> {
+    let (body, first_prefix) = reader.frame(idle, budgets.frame)?;
     let frame = crate::decode(&body).map_err(Fault::Frame)?;
     if generation_of(&frame) != generation {
         return Err(Fault::Generation);
     }
-    Ok((frame, body.len()))
+    Ok((
+        StampedObjectFrame {
+            frame,
+            first_prefix,
+        },
+        body.len(),
+    ))
 }
 /// The bytes to write for `frame`, once it is known to belong to this generation and to
 /// be a valid frame. Nothing is sent or recorded yet.

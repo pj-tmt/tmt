@@ -77,7 +77,7 @@ pub fn grammar() -> Command {
     .subcommand(spec("set", "Set a board theme base; keep token overrides and CLI colors", &[
         Example { command: "tmt squad theme set tmt-light", note: "Use a light theme for all boards" },
         Example { command: "tmt squad theme set mono --squad product", note: "Choose a theme for one squad" },
-    ], "Only the base is replaced in squad.toml; token overrides and CLI colors stay unchanged.")
+    ], "Only the base is replaced in ops.toml; token overrides and CLI colors stay unchanged.")
         .arg(Arg::new("name").required(true).help("Built-in theme name"))
         .arg(scope_option()))
     .subcommand(spec("rm", "Remove a board base override; retain token overrides and CLI colors", &[
@@ -247,7 +247,7 @@ mod tests {
     fn bare_list_alias_and_scoped_list_have_consistent_human_and_json_results() {
         let directory = std::env::temp_dir().join(format!("tmt-theme-list-{}", std::process::id()));
         std::fs::create_dir_all(&directory).unwrap();
-        let path = directory.join("squad.toml");
+        let path = directory.join("ops.toml");
         std::fs::write(
             &path,
             "[board.theme]\nbase = \"terminal\"\n[squad.product.theme]\nbase = \"mono\"\n",
@@ -327,7 +327,7 @@ mod tests {
         use tmt_cli_style::theme::background::Background;
         let directory = std::env::temp_dir().join(format!("tmt-theme-auto-{}", std::process::id()));
         std::fs::create_dir_all(&directory).unwrap();
-        let path = directory.join("squad.toml");
+        let path = directory.join("ops.toml");
         std::fs::write(&path, "").unwrap();
         let config = Config::read(path.clone()).unwrap();
         let plain = report_with_background(&config, &ThemeScope::Board, None).unwrap();

@@ -200,7 +200,7 @@ impl Picker {
                 "SQUAD_VIEW_CUSTOM",
                 "This squad has a custom layout",
                 "; ",
-                "remove board.layout or panes from squad.toml to use a view",
+                "remove board.layout or panes from ops.toml to use a view",
             )),
         }?;
         if let Some(squad) = &self.squad {
@@ -251,7 +251,7 @@ pub(super) fn render(frame: &mut Frame, picker: &Picker, look: crate::look::Look
         .map(str::to_owned);
     let rows: Vec<_> = picker.choices().into_iter().map(|choice| {
         let (name, description) = match choice {
-            Choice::Custom => ("custom", "(squad.toml)"),
+            Choice::Custom => ("custom", "(ops.toml)"),
             Choice::Reset => ("default", inherited.as_str()),
             Choice::View(view) => (view.name(), view.description()),
         };
@@ -298,7 +298,7 @@ mod tests {
         let root =
             std::env::temp_dir().join(format!("tmt-view-picker-{name}-{}", std::process::id()));
         std::fs::create_dir_all(&root).unwrap();
-        let path = root.join("squad.toml");
+        let path = root.join("ops.toml");
         std::fs::write(&path, text).unwrap();
         let config = Config::read(path.clone()).unwrap();
         let mut app = App::new(Some("product".into()));

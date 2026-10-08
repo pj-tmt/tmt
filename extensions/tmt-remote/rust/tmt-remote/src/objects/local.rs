@@ -23,7 +23,7 @@ use std::{
     fs::File,
     os::unix::fs::MetadataExt,
     path::PathBuf,
-    sync::{Condvar, Mutex, MutexGuard},
+    sync::{Arc, Condvar, Mutex, MutexGuard},
     time::{Duration, Instant},
 };
 
@@ -87,7 +87,7 @@ struct Inner {
 /// ```
 pub struct LocalFs<'s> {
     _lease: &'s Serving,
-    inner: Inner,
+    inner: Arc<Inner>,
 }
 impl<'s> LocalFs<'s> {
     /// Open the ledger and settle every interrupted original under the lease
@@ -109,7 +109,7 @@ impl<'s> LocalFs<'s> {
             .to_owned();
         let local = Self {
             _lease: serving,
-            inner: Inner {
+            inner: Arc::new(Inner {
                 data_root,
                 ledger,
                 flight: Flight::default(),
@@ -117,7 +117,7 @@ impl<'s> LocalFs<'s> {
                 clock,
                 #[cfg(test)]
                 observer: Mutex::new(None),
-            },
+            }),
         };
         local.reconcile(io).map_err(unavailable)?;
         if !local.inner.ledger.settled(io).map_err(unavailable)? {
@@ -138,6 +138,22 @@ impl<'s> LocalFs<'s> {
             inner: &self.inner,
             extension,
         }
+    }
+    /// Observational access for the service's owned, joined workers. Never public:
+    /// the service retains its Serving borrow until every worker has ended.
+    pub(crate) fn reader(&self, extension: ExtensionId) -> Arc<LocalObjectReader> {
+        Arc::new(LocalObjectReader {
+            inner: Arc::clone(&self.inner),
+            extension,
+        })
+    }
+    /// Mutating access for the same scoped, owned workers. ObjectService must
+    /// shut down or drop and join every holder; it is never forgotten.
+    pub(crate) fn writer(&self, extension: ExtensionId) -> Arc<LocalObjectWriter> {
+        Arc::new(LocalObjectWriter {
+            inner: Arc::clone(&self.inner),
+            extension,
+        })
     }
     pub fn installation_usage(&self, io: &IoBudget<'_>) -> BackendResult<Usage> {
         let usage = io
@@ -177,6 +193,77 @@ fn unavailable(error: BackendError) -> RemoteError {
 pub struct LocalHandle<'a> {
     inner: &'a Inner,
     extension: ExtensionId,
+}
+
+/// Read-only worker view; ObjectService owns and joins every holder before its
+/// lease borrow ends. It cannot adopt, reconcile or change an original.
+pub(crate) struct LocalObjectReader {
+    inner: Arc<Inner>,
+    extension: ExtensionId,
+}
+impl LocalObjectReader {
+    pub(crate) fn extension(&self) -> &ExtensionId {
+        &self.extension
+    }
+    fn handle(&self) -> LocalHandle<'_> {
+        LocalHandle {
+            inner: &self.inner,
+            extension: self.extension.clone(),
+        }
+    }
+    pub(crate) fn status(&self, intent: IntentId, io: &IoBudget<'_>) -> BackendResult<Transfer> {
+        self.handle().status(intent, io)
+    }
+    pub(crate) fn stat(&self, key: BlobKey, io: &IoBudget<'_>) -> BackendResult<Receipt> {
+        self.handle().stat(key, io)
+    }
+    pub(crate) fn read(
+        &self,
+        key: BlobKey,
+        offset: u64,
+        count: u32,
+        io: &IoBudget<'_>,
+    ) -> BackendResult<ReadPart> {
+        self.handle().read(key, offset, count, io)
+    }
+}
+
+/// Mutating worker view of the one coordinator. Its owning ObjectService must
+/// be shut down or dropped, never forgotten: that owner joins all holders before
+/// its Serving borrow ends. Public LocalHandle remains borrowed.
+pub(crate) struct LocalObjectWriter {
+    inner: Arc<Inner>,
+    extension: ExtensionId,
+}
+impl LocalObjectWriter {
+    fn handle(&self) -> LocalHandle<'_> {
+        LocalHandle {
+            inner: &self.inner,
+            extension: self.extension.clone(),
+        }
+    }
+    /// The backend's injected clock, for clipping callbacks to persisted expiry.
+    pub(crate) fn now_ms(&self) -> u64 {
+        self.inner.now()
+    }
+    pub(crate) fn begin(&self, spec: &BeginSpec, io: &IoBudget<'_>) -> BackendResult<BeginResult> {
+        self.handle().begin(spec, io)
+    }
+    pub(crate) fn append(
+        &self,
+        intent: IntentId,
+        index: u32,
+        bytes: &[u8],
+        io: &IoBudget<'_>,
+    ) -> BackendResult<Progress> {
+        self.handle().append(intent, index, bytes, io)
+    }
+    pub(crate) fn commit(&self, intent: IntentId, io: &IoBudget<'_>) -> BackendResult<Receipt> {
+        self.handle().commit(intent, io)
+    }
+    pub(crate) fn discard(&self, intent: IntentId, io: &IoBudget<'_>) -> BackendResult<()> {
+        self.handle().discard(intent, io)
+    }
 }
 
 fn fs(_: TreeError) -> BackendError {

@@ -388,3 +388,89 @@ fn an_installation_budget_is_returned_when_a_bus_ends() {
     first.close();
     second.send(&request(1, t)).unwrap();
 }
+
+#[test]
+fn stamped_receive_keeps_the_first_prefix_instant_through_body_and_queue() {
+    let (ours, mut peer) = UnixStream::pair().unwrap();
+    let (mut reader, writer) = super::super::halves(ours, Vec::new()).unwrap();
+    let (seen, stamp) = std::sync::mpsc::channel();
+    reader.prefix_seen = Some(seen);
+    let bus = Bus::start(
+        Link {
+            generation: generation(GEN),
+            role: Role::Remote,
+            reader,
+            writer,
+        },
+        quick(),
+        Caps::contract(),
+        None,
+    )
+    .unwrap();
+    let frame = request(1, transfer(1));
+    let bytes = crate::encode(&frame).unwrap();
+    assert!(peer.write_all(&bytes[..1]).is_ok());
+    let first = stamp.recv_timeout(Duration::from_secs(5)).unwrap();
+    assert!(peer.write_all(&bytes[1..]).is_ok());
+    let received = bus.recv_stamped(soon(5000)).unwrap();
+    assert_eq!(received.first_prefix, first);
+    assert_eq!(received.frame, frame);
+}
+
+#[test]
+fn a_spent_send_budget_writes_nothing_and_does_not_spend_correlation() {
+    let (remote, extension) = buses();
+    let frame = origin_state_n(1);
+    assert_eq!(
+        remote.send_until(&frame, Instant::now()),
+        Err(Fault::Timeout(Stage::Write))
+    );
+    assert_eq!(remote.fault(), None);
+    assert_eq!(extension.recv(soon(10)), Err(Fault::Timeout(Stage::Idle)));
+    remote.send(&frame).unwrap();
+    assert_eq!(next(&extension).unwrap(), frame);
+    let request = read_request(1);
+    assert_eq!(
+        extension.send_until(&request, Instant::now()),
+        Err(Fault::Timeout(Stage::Write))
+    );
+    extension.send(&request).unwrap();
+    assert_eq!(next(&remote).unwrap(), request);
+}
+
+#[test]
+fn the_absolute_send_deadline_clips_a_blocked_writer() {
+    let (ours, _held_peer) = UnixStream::pair().unwrap();
+    let (reader, writer) = super::super::halves(ours, Vec::new()).unwrap();
+    let mut filler = reader.duplicate_stream().unwrap();
+    let bytes = [0u8; 32_768];
+    loop {
+        match filler.write(&bytes) {
+            Ok(0) => panic!("socket refused before it filled"),
+            Ok(_) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => break,
+            Err(error) => panic!("socket fill failed: {error}"),
+        }
+    }
+    let mut bounds = quick();
+    bounds.write = Duration::from_secs(5);
+    let bus = Bus::start(
+        Link {
+            generation: generation(GEN),
+            role: Role::Remote,
+            reader,
+            writer,
+        },
+        bounds,
+        Caps::contract(),
+        None,
+    )
+    .unwrap();
+    let start = Instant::now();
+    assert_eq!(
+        bus.send_until(&origin_state_n(1), start + Duration::from_millis(20)),
+        Err(Fault::Timeout(Stage::Write))
+    );
+    assert!(start.elapsed() < bounds.write);
+    assert_eq!(bus.fault(), Some(Fault::Timeout(Stage::Write)));
+}

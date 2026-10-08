@@ -113,7 +113,7 @@ impl SettingNotice {
         let file = std::path::Path::new(path)
             .file_name()
             .and_then(|name| name.to_str())
-            .unwrap_or("squad.toml");
+            .unwrap_or("ops.toml");
         let message = self.message.replace(path, file);
         let split = message.find(char::is_whitespace).unwrap_or(message.len());
         let first = &message[..split];
@@ -414,7 +414,7 @@ impl Overlay {
                 if let Some(entry) = self.selected_entry() {
                     if !entry.editable {
                         self.notice = Some(SettingNotice {
-                            message: "This setting is read-only; edit squad.toml.".into(),
+                            message: "This setting is read-only; edit ops.toml.".into(),
                             mark: Mark::Warning,
                         });
                         return Input::None;
@@ -484,7 +484,7 @@ impl Overlay {
                     } else {
                         Mark::Done
                     },
-                    message: pinning.unwrap_or_else(|| "Saved to squad.toml".into()),
+                    message: pinning.unwrap_or_else(|| "Saved to ops.toml".into()),
                 });
                 true
             }
@@ -895,7 +895,7 @@ mod tests {
     #[test]
     fn unpublished_reset_and_window_keep_effective_state_and_can_recover() {
         let mut f = fixture("unpublished-reset-window", "refresh = 'off'\n");
-        let staged = f.root.join(format!(".squad.toml.{}", std::process::id()));
+        let staged = f.root.join(format!(".ops.toml.{}", std::process::id()));
         std::fs::write(&staged, "occupied publication path").unwrap();
         let overlay = f.app.settings.as_mut().unwrap();
         overlay.surface.borrow_mut().select("board.refresh");
@@ -955,7 +955,7 @@ mod tests {
     #[test]
     fn overlay_scrolls_escaped_values_and_closes_without_row_actions() {
         let mut shown = BoardSettings {
-            path: "/isolated/squad.toml".into(),
+            path: "/isolated/ops.toml".into(),
             context: Some("x".into()),
             host: "plain",
             entries: Vec::new(),
@@ -1052,7 +1052,7 @@ mod tests {
         let root =
             std::env::temp_dir().join(format!("tmt-settings-editor-{name}-{}", std::process::id()));
         std::fs::create_dir_all(&root).unwrap();
-        let path = root.join("squad.toml");
+        let path = root.join("ops.toml");
         let original = format!(
             "# preserve comments\nunknown = 'opaque'\n[squad.product]\nlayout = 'crew'\n[squad.product.board]\npanes = ['rows', 'notes']\nsizes = [60, 40]\n{extra}"
         ).replace("{marker}", root.join("unexpected").to_str().unwrap());
@@ -1312,7 +1312,7 @@ mod tests {
             let line: String = (area.x..area.right())
                 .map(|x| terminal.backend().buffer()[(x, area.y)].symbol())
                 .collect();
-            assert!(line.starts_with("✗ squad.toml"), "{line:?}");
+            assert!(line.starts_with("✗ ops.toml"), "{line:?}");
             assert!(!line.contains("/private/"));
         }
         let notice = SettingNotice {

@@ -3,6 +3,7 @@ import { browserUiClasses as c } from './static';
 export interface BrowserFieldControlProps {
   id: string;
   className: string;
+  'aria-labelledby': string;
   'aria-describedby': string | undefined;
   'aria-invalid': boolean | undefined;
 }
@@ -30,6 +31,7 @@ export function BrowserField({
 }: BrowserFieldProps) {
   const hasDescription = description !== undefined && description !== null;
   const hasError = error !== undefined && error !== null;
+  const labelId = `${controlId}-label`;
   const localIds = [hasDescription ? descriptionId : undefined, hasError ? errorId : undefined];
   if (
     !controlId.trim() ||
@@ -38,24 +40,25 @@ export function BrowserField({
     (hasError && !errorId)
   )
     throw new Error('Field content requires explicit nonempty IDs');
-  const ids = [controlId, ...localIds.filter((id): id is string => id !== undefined)];
+  const ids = [controlId, labelId, ...localIds.filter((id): id is string => id !== undefined)];
   if (ids.some((id) => !id.trim() || /\s/.test(id)) || new Set(ids).size !== ids.length)
     throw new Error('Field IDs must be distinct single IDs');
   const describedBy =
     [
       ...new Set([
         ...describedByIds.flatMap((id) => id.split(/\s+/).filter(Boolean)),
-        ...ids.slice(1),
+        ...ids.slice(2),
       ]),
     ].join(' ') || undefined;
   return (
     <div className={c.field}>
-      <label className={c.fieldLabel} htmlFor={controlId}>
+      <label className={c.fieldLabel} id={labelId} htmlFor={controlId}>
         {label}
       </label>
       {renderControl({
         id: controlId,
         className: c.fieldControl,
+        'aria-labelledby': labelId,
         'aria-describedby': describedBy,
         'aria-invalid': invalid,
       })}

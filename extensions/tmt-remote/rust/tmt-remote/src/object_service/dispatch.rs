@@ -12,7 +12,10 @@ use super::{
     config::ConfigSource,
     origins::{Events, Next, Origins},
 };
-use crate::mount::Sessions;
+use crate::{
+    mount::Sessions,
+    objects::{LocalObjectReader, LocalObjectWriter},
+};
 #[cfg(test)]
 use std::sync::Weak;
 use std::{
@@ -30,14 +33,20 @@ use tmt_extension_objects::{
     ResultFrame, Stage, Success, Uuid4,
 };
 
-/// Where a test-only pause runs in a `config` request.
+/// Where a test-only pause runs in a request.
 #[cfg(test)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Pause {
+    /// Before serving a dequeued request, including an early refusal.
+    BeforeRequest,
+    /// After the callback entry check, before admitting its frame.
+    BeforeAdmitWrite,
     /// After the acquire decision, before the disclose callback.
     BetweenAdmissions,
     /// After the disclose decision, before the result is sent.
     BeforeResult,
+    /// After the final service fence, immediately before admitting a result write.
+    BeforeResultWrite,
 }
 /// A test-only pause; it receives the request's deadline.
 #[cfg(test)]
@@ -55,6 +64,8 @@ pub(super) struct Launch<'a> {
     pub(super) tunnels: usize,
     /// The owner sessions mounted tunnels were admitted under.
     pub(super) sessions: Arc<dyn Sessions>,
+    pub(super) backend: Arc<LocalObjectReader>,
+    pub(super) writer: Arc<LocalObjectWriter>,
 }
 
 /// The most origin-state notices a channel may hold: an `established` and a `closed` for
@@ -93,7 +104,7 @@ struct Work {
     request: Request,
     received: Instant,
 }
-struct Hub {
+pub(super) struct Hub {
     generation: Uuid4,
     extension: String,
     origins: Origins,
@@ -101,11 +112,13 @@ struct Hub {
     /// Origin-state notices for the announcer, the only sender of them.
     events: Arc<Events>,
     source: ConfigSource,
+    pub(super) backend: Arc<LocalObjectReader>,
+    pub(super) writer: Arc<LocalObjectWriter>,
     callback: Duration,
     request: Duration,
     #[cfg_attr(not(test), allow(dead_code))]
     hook: Hook,
-    stop: AtomicBool,
+    pub(super) stop: AtomicBool,
     ended: Mutex<Option<ChannelEnd>>,
     queue: Mutex<VecDeque<Work>>,
     queued: Condvar,
@@ -150,6 +163,8 @@ impl Running {
             extension,
             tunnels,
             sessions,
+            backend,
+            writer,
         } = launch;
         let hub = Arc::new(Hub {
             generation: bus.generation(),
@@ -158,6 +173,8 @@ impl Running {
             sessions,
             events: Arc::new(Events::new(notice_limit(tunnels))),
             source,
+            backend,
+            writer,
             callback: bounds.callback,
             request: bounds.request,
             hook,
@@ -220,6 +237,18 @@ impl Running {
             let _ = thread.join();
         }
     }
+    #[cfg(test)]
+    pub(super) fn view(&self) -> Weak<LocalObjectReader> {
+        Arc::downgrade(&self.hub.backend)
+    }
+    #[cfg(test)]
+    pub(super) fn hub(&self) -> Weak<Hub> {
+        Arc::downgrade(&self.hub)
+    }
+    #[cfg(test)]
+    pub(super) fn writer_view(&self) -> Weak<LocalObjectWriter> {
+        Arc::downgrade(&self.hub.writer)
+    }
     /// The bus, which is gone once every thread has ended.
     #[cfg(test)]
     pub(super) fn bus(&self) -> Weak<Bus> {
@@ -230,15 +259,21 @@ impl Running {
 /// The only reader of the bus.
 fn dispatch(hub: &Hub, bus: &Bus) {
     while !hub.stopped() {
-        match bus.recv(Some(Instant::now() + SLICE)) {
-            Ok(Frame::Request(request)) => {
+        match bus.recv_stamped(Some(Instant::now() + SLICE)) {
+            Ok(tmt_extension_objects::StampedObjectFrame {
+                frame: Frame::Request(request),
+                first_prefix,
+            }) => {
                 locked(&hub.queue).push_back(Work {
                     request,
-                    received: Instant::now(),
+                    received: first_prefix,
                 });
                 hub.queued.notify_one();
             }
-            Ok(Frame::Admission(answer)) => {
+            Ok(tmt_extension_objects::StampedObjectFrame {
+                frame: Frame::Admission(answer),
+                ..
+            }) => {
                 locked(&hub.decisions).insert(answer.callback_id.get(), answer.decision);
                 hub.decided.notify_all();
             }
@@ -299,22 +334,16 @@ fn take(hub: &Hub) -> Option<Work> {
 fn serve(hub: &Hub, bus: &Bus, next: Work) -> Result<(), ChannelEnd> {
     let Work { request, received } = next;
     let deadline = received + hub.request;
-    let denied = || Outcome::Failure(ErrorCode::Denied);
-    match (request.origin, &request.call) {
-        (Origin::LocalExtension, Call::Config(_)) => config(hub, bus, &request, deadline),
-        // The other six methods belong to later slices: no callback and no effect.
-        (Origin::LocalExtension, _) => {
-            send_result(hub, bus, &request, Outcome::Failure(ErrorCode::Unavailable))
+    #[cfg(test)]
+    if let Some(hook) = &hub.hook {
+        hook(Pause::BeforeRequest, deadline);
+    }
+    match &request.call {
+        Call::Status(_) | Call::Read(_) => super::observe::serve(hub, bus, &request, deadline),
+        Call::Begin(_) | Call::Part(_) | Call::Commit(_) | Call::Discard(_) => {
+            super::upload::serve(hub, bus, &request, deadline)
         }
-        // A mounted request is only as good as its origin: established on this channel and,
-        // for an owner session, still current. Anything else is denied without a callback.
-        (Origin::Mounted(id), call) => match (standing(hub, id), call) {
-            (None, _) => send_result(hub, bus, &request, denied()),
-            (Some(_), Call::Config(_)) => config(hub, bus, &request, deadline),
-            (Some(_), _) => {
-                send_result(hub, bus, &request, Outcome::Failure(ErrorCode::Unavailable))
-            }
-        },
+        Call::Config(_) => config(hub, bus, &request, deadline),
     }
 }
 
@@ -339,7 +368,7 @@ fn standing(hub: &Hub, origin: Uuid4) -> Option<Context> {
         grant_revision: revision,
     })
 }
-fn stands(hub: &Hub, origin: Origin) -> Option<Context> {
+pub(super) fn stands(hub: &Hub, origin: Origin) -> Option<Context> {
     match origin {
         Origin::LocalExtension => Some(Context::LocalExtension),
         Origin::Mounted(id) => standing(hub, id),
@@ -423,11 +452,28 @@ fn config(hub: &Hub, bus: &Bus, request: &Request, deadline: Instant) -> Result<
     send_result(hub, bus, request, Outcome::Success(Success::Config(config)))
 }
 
+pub(super) fn between(hub: &Hub, deadline: Instant) {
+    #[cfg(test)]
+    if let Some(hook) = &hub.hook {
+        hook(Pause::BetweenAdmissions, deadline);
+    }
+    #[cfg(not(test))]
+    let _ = (hub, deadline);
+}
+pub(super) fn before_result(hub: &Hub, deadline: Instant) {
+    #[cfg(test)]
+    if let Some(hook) = &hub.hook {
+        hook(Pause::BeforeResult, deadline);
+    }
+    #[cfg(not(test))]
+    let _ = (hub, deadline);
+}
+
 /// Send one admission callback and wait for its decision, within the callback bound and
 /// the request's own deadline. `None` means the request's time was already spent, so no
 /// callback was sent and the request is simply unavailable; a callback that is sent and
 /// not answered in time ends the channel.
-fn ask(
+pub(super) fn ask(
     hub: &Hub,
     bus: &Bus,
     request: &Request,
@@ -454,16 +500,25 @@ fn ask(
             context,
             operation,
         });
-        bus.send(&admit).map_err(ChannelEnd::Bus)?;
+        #[cfg(test)]
+        if let Some(hook) = &hub.hook {
+            hook(Pause::BeforeAdmitWrite, limit);
+        }
+        match bus.send_until(&admit, limit) {
+            Ok(()) => {}
+            // The writer refused before admission: no callback is outstanding.
+            Err(Fault::Timeout(Stage::Write)) if bus.fault().is_none() => return Ok(None),
+            Err(fault) => return Err(ChannelEnd::Bus(fault)),
+        }
         *last
     };
     let mut decisions = locked(&hub.decisions);
     loop {
-        if let Some(decision) = decisions.remove(&id) {
-            return Ok(Some(decision));
-        }
         if hub.stopped() {
             return Err(ChannelEnd::Stopped);
+        }
+        if let Some(decision) = decisions.remove(&id) {
+            return Ok(Some(decision));
         }
         let left = limit
             .checked_duration_since(Instant::now())
@@ -477,7 +532,7 @@ fn ask(
     }
 }
 
-fn send_result(
+pub(super) fn send_result(
     hub: &Hub,
     bus: &Bus,
     request: &Request,
@@ -491,6 +546,52 @@ fn send_result(
         outcome,
     });
     bus.send(&result).map_err(ChannelEnd::Bus)
+}
+/// Data results share the request's remaining write budget. If the writer refuses
+/// before admission, answer only unavailable under the normal write bound and
+/// keep serving. An admitted write failure still ends the channel.
+pub(super) fn send_until(
+    hub: &Hub,
+    bus: &Bus,
+    request: &Request,
+    outcome: Outcome,
+    deadline: Instant,
+) -> Result<(), ChannelEnd> {
+    send_until_or(hub, bus, request, outcome, deadline, ErrorCode::Unavailable)
+}
+/// A mutating request whose backend was invoked cannot fall back to unavailable:
+/// missing its publication budget is unknown, regardless of retained backend state.
+pub(super) fn send_until_or(
+    hub: &Hub,
+    bus: &Bus,
+    request: &Request,
+    outcome: Outcome,
+    deadline: Instant,
+    spent: ErrorCode,
+) -> Result<(), ChannelEnd> {
+    if hub.stopped() {
+        return Err(ChannelEnd::Stopped);
+    }
+    #[cfg(test)]
+    if let Some(hook) = &hub.hook {
+        hook(Pause::BeforeResultWrite, deadline);
+    }
+    let sent = bus.send_until(
+        &Frame::Result(ResultFrame {
+            generation: hub.generation,
+            request_id: request.request_id,
+            method: request.call.method(),
+            transfer_id: transfer_of(&request.call),
+            outcome,
+        }),
+        deadline,
+    );
+    match sent {
+        Err(Fault::Timeout(Stage::Write)) if bus.fault().is_none() => {
+            send_result(hub, bus, request, Outcome::Failure(spent))
+        }
+        other => other.map_err(ChannelEnd::Bus),
+    }
 }
 /// The transfer a request names, which its result repeats.
 fn transfer_of(call: &Call) -> Option<Uuid4> {

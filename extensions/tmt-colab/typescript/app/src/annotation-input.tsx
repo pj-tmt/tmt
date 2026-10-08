@@ -1,4 +1,4 @@
-import { browserUiClasses as ui } from '@tmt/browser-ui/static';
+import { BrowserAction } from '@tmt/browser-ui/react';
 import { useEffect, useRef, useState } from 'react';
 import { MessageComposer } from './components/message-composer.js';
 import type { ComposerEdit, RecipientKey } from './components/message-composer-edit.js';
@@ -206,34 +206,35 @@ export function AnnotationInput({
       )}
       <div className="comment-actions">
         {!chat && (
-          <button
-            className={ui.action}
+          <BrowserAction
             type="button"
-            disabled={busy || blocked || !!recorded || !discussion || !value.trim()}
-            onClick={(event) => {
+            label={thread ? text.commentPostReply : text.commentPost}
+            variant={defaultIntent === 'comment' ? 'primary' : 'text'}
+            busy={busy}
+            disabled={blocked || !!recorded || !discussion || !value.trim()}
+            onActivate={(event) => {
               if (event.isTrusted) void send('comment');
             }}
-          >
-            {thread ? text.commentPostReply : text.commentPost}
-          </button>
+          />
         )}
-        <button
-          className={ui.action}
+        <BrowserAction
           type="button"
-          disabled={busy || blocked || !!recorded || !discussion || !binding || !value.trim()}
-          onClick={(event) => {
+          label={chat ? text.askSend : text.ask}
+          variant={defaultIntent === 'agent' ? 'primary' : 'text'}
+          busy={busy}
+          disabled={blocked || !!recorded || !discussion || !binding || !value.trim()}
+          onActivate={(event) => {
             if (event.isTrusted) void send('agent');
           }}
-        >
-          {chat ? text.askSend : text.ask}
-        </button>
+        />
       </div>
       {error && <p role="alert">{error}</p>}
       {recorded && (chat || !thread) && (
-        <button
-          className={ui.action}
+        <BrowserAction
           type="button"
-          onClick={(event) => {
+          label={chat ? text.messageAnother : text.messageOpenRecorded}
+          variant="text"
+          onActivate={(event) => {
             if (event.isTrusted) {
               if (chat) {
                 setRecorded(undefined);
@@ -242,9 +243,7 @@ export function AnnotationInput({
               } else committed(recorded);
             }
           }}
-        >
-          {chat ? text.messageAnother : text.messageOpenRecorded}
-        </button>
+        />
       )}
     </section>
   );

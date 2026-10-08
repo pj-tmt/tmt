@@ -6,6 +6,7 @@ import {
   BrowserNotice,
   BrowserField,
   BrowserAction,
+  BrowserIconAction,
   BrowserToggle,
 } from '../src/react';
 
@@ -80,6 +81,7 @@ describe('presentation contracts', () => {
     expect(seen[0]).toEqual({
       id: 'device-name',
       className: 'tmt-ui-field-control',
+      'aria-labelledby': 'device-name-label',
       'aria-describedby': 'limit access conflict',
       'aria-invalid': false,
     });
@@ -96,6 +98,7 @@ describe('presentation contracts', () => {
     expect(seen[1]).toEqual({
       id: 'device-name',
       className: 'tmt-ui-field-control',
+      'aria-labelledby': 'device-name-label',
       'aria-describedby': 'limit',
       'aria-invalid': undefined,
     });
@@ -110,6 +113,88 @@ describe('presentation contracts', () => {
         />,
       ),
     ).toThrow('distinct');
+  });
+  it('names one focusable contenteditable control and keeps ordered description IDs', () => {
+    const html = renderToStaticMarkup(
+      <BrowserField
+        controlId="message"
+        label="Message"
+        description="Draft kept"
+        descriptionId="draft"
+        describedByIds={['limit draft', 'limit']}
+        invalid
+        renderControl={(props) => (
+          <div {...props} role="textbox" aria-multiline="true" tabIndex={0} contentEditable />
+        )}
+      />,
+    );
+    expect(html).toContain('id="message-label"');
+    expect(html).toContain('aria-labelledby="message-label"');
+    expect(html).toContain('aria-describedby="limit draft"');
+    expect(html).toContain('aria-invalid="true"');
+    expect(html).toContain('role="textbox"');
+    expect(html).toContain('aria-multiline="true"');
+    expect(() =>
+      renderToStaticMarkup(
+        <BrowserField
+          controlId="message"
+          label="Message"
+          description="Copy"
+          descriptionId="message-label"
+          renderControl={(props) => <textarea {...props} />}
+        />,
+      ),
+    ).toThrow('distinct');
+  });
+  it('keeps icon names separate from visual tooltip copy and controlled pressed state', () => {
+    const props = {
+      type: 'button' as const,
+      label: 'Show details',
+      variant: 'text' as const,
+      icon: (
+        <svg>
+          <title>Decorative details</title>
+        </svg>
+      ),
+      onActivate: () => {},
+    };
+    for (const pressed of [undefined, false, true]) {
+      const html = renderToStaticMarkup(<BrowserIconAction {...props} pressed={pressed} />);
+      expect(html).toContain('aria-label="Show details"');
+      expect(html).toContain('tmt-ui-icon-action-icon" aria-hidden="true"');
+      expect(html).toContain('popover="manual" aria-hidden="true"');
+      expect(html).toContain('tmt-ui-icon-action-tooltip-label">Show details');
+      expect(html).not.toContain('aria-describedby');
+      expect(html).not.toContain(' title=');
+      if (pressed === undefined) expect(html).not.toContain('aria-pressed');
+      else expect(html).toContain(`aria-pressed="${pressed}"`);
+    }
+    for (const variant of ['text', 'primary', 'destructive'] as const) {
+      expect(renderToStaticMarkup(<BrowserIconAction {...props} variant={variant} />)).toContain(
+        `data-variant="${variant}"`,
+      );
+    }
+    const disabled = renderToStaticMarkup(
+      <BrowserIconAction
+        {...props}
+        pressed
+        disabled
+        busy
+        busyMark="◌"
+        disabledReason="Access is read only"
+        disabledReasonId="access-reason"
+      />,
+    );
+    expect(disabled).toContain('disabled=""');
+    expect(disabled).toContain('aria-busy="true"');
+    expect(disabled).toContain('aria-describedby="access-reason"');
+    expect(disabled).toContain('id="access-reason">Access is read only');
+    expect(() => renderToStaticMarkup(<BrowserIconAction {...props} label=" " />)).toThrow(
+      'nonempty label',
+    );
+    expect(() =>
+      renderToStaticMarkup(<BrowserIconAction {...props} disabledReason="Blocked" />),
+    ).toThrow('stable ID');
   });
   it('forwards the original native-button activation object and fences busy and disabled', () => {
     const calls: unknown[] = [];

@@ -259,7 +259,7 @@ esac
         }
 
         fn config(&self) -> Config {
-            let path = self.root.join("squad.toml");
+            let path = self.root.join("ops.toml");
             fs::write(&path, "").unwrap();
             Config::read(path).unwrap()
         }

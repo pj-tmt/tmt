@@ -43,7 +43,7 @@ fn existing(
 }
 
 fn store(f: &Fixture) -> Vec<u8> {
-    fs::read(f.directory.join("squad/cron/jobs.json")).unwrap()
+    fs::read(f.directory.join("ops/cron/jobs.json")).unwrap()
 }
 
 #[test]
