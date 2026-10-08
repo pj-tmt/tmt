@@ -478,6 +478,7 @@ pub(super) fn draw(app: &App, width: u16, height: u16) -> Vec<String> {
 pub(super) fn board(sections: Value) -> App {
     let mut app = App::new(Some("product".into()));
     app.apply(Snapshot {
+        timing: None,
         squad_keys: Vec::new(),
         tabs: vec!["product".into(), "reviews".into()],
         hidden: Vec::new(),
@@ -1226,6 +1227,7 @@ fn paned(board: crate::config::Board, notes: Notes) -> App {
     let bindings = crate::action::with_action_keys(crate::action::preset(true, &board.panes));
     let mut app = App::new(Some("product".into()));
     app.apply(Snapshot {
+            timing: None,
             squad_keys: Vec::new(),
             tabs: vec!["product".into()],
             hidden: Vec::new(),
@@ -2915,6 +2917,7 @@ fn the_leads_tab_is_labelled_leads_and_counts_squad_leads() {
     view.rows = crate::rows::Rows::leads();
     let mut app = App::new(Some(crate::board::LEADS.into()));
     app.apply(Snapshot {
+        timing: None,
         squad_keys: Vec::new(),
         tabs: vec!["product".into(), crate::board::LEADS.into()],
         hidden: Vec::new(),

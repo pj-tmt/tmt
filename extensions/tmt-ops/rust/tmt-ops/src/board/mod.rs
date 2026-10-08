@@ -27,6 +27,7 @@ mod status_update;
 pub(crate) use crate::tabs;
 mod terminal;
 mod theme_picker;
+mod timing;
 mod view;
 mod view_picker;
 
@@ -316,6 +317,12 @@ fn session<T: Into<ActionOutcome>>(
         marks = next_marks;
         if dirty {
             draw(app)?;
+            if app.timing.is_some() {
+                let usable = app.view.is_some() && !app.loading();
+                if let Some(timing) = &mut app.timing {
+                    timing.drawn(app.current.as_deref(), usable);
+                }
+            }
             dirty = false;
         }
         let identity = app.selected_read();
@@ -761,9 +768,13 @@ pub fn run(
     popup: bool,
     interaction: tmt_cli_style::Interaction,
 ) -> Result<Option<i32>, SquadError> {
+    let trace = timing::Trace::from_env();
+    let startup = trace.as_ref().map(timing::Trace::startup);
     terminal::restore_before_panic_reports();
     let stop = terminal::stop_requested().map_err(failed)?;
-    let config = Config::load(&core)?;
+    let config = timing::measure(startup.as_ref(), "startup.Config::load", || {
+        Config::load(&core)
+    })?;
     let (picks, squad) = selection(&core, &config, picks.as_deref(), squad.as_deref())?;
     composition::admit().map_err(|message| SquadError::new("SQUAD_LAYOUT_INVALID", message))?;
     let initial_theme = config.theme(squad.as_deref().unwrap_or(""))?.0;
@@ -787,9 +798,11 @@ pub fn run(
         core.clone(),
         effects::tmux_socket().is_some(),
         events.clone(),
+        trace.clone(),
     );
     worker.request(squad.clone(), false, false);
     let mut app = App::new(squad);
+    app.timing = trace.map(timing::Ui::new);
     app.migration_notice = core.paths.board_notice();
     app.notice = crate::migration::paths(&core, None)?
         .notice
@@ -1301,6 +1314,83 @@ mod tests {
             run(false, Ok("Showing auth-fix.".into())),
             (Some(HANGUP), 1)
         );
+    }
+
+    #[test]
+    fn timing_milestones_follow_successful_draw_and_snapshot_admission() {
+        for case in ["fresh", "cancelled", "failed", "other-tab", "draw-error"] {
+            let (trace, bytes) = timing::Trace::buffer();
+            let mut app = App::new(Some("product".into()));
+            app.timing = Some(timing::Ui::new(trace.clone()));
+            let (events, input) = channel();
+            let mut frames = 0;
+            let result = session(
+                &mut app,
+                &AtomicUsize::new(0),
+                &input,
+                |_, _, _| {},
+                |_, _| {},
+                |_| {},
+                no_actions,
+                no_load_config,
+                |_| {
+                    if case == "draw-error" {
+                        return Err(io::Error::other("draw refused"));
+                    }
+                    frames += 1;
+                    if frames == 1 {
+                        let tab = if case == "other-tab" {
+                            "infra"
+                        } else {
+                            "product"
+                        };
+                        let mut snapshot = app::tests::snapshot(tab, serde_json::json!([]));
+                        snapshot.timing = Some(trace.load(Some(tab), 3));
+                        if case == "failed" {
+                            snapshot.view = Err("read failed".into());
+                        }
+                        let cancellation = crate::runner::Cancellation::default();
+                        if case == "cancelled" {
+                            cancellation.cancel();
+                        }
+                        events
+                            .send(BoardEvent::Snapshot {
+                                cancellation,
+                                snapshot: Box::new(snapshot),
+                            })
+                            .unwrap();
+                        events.send(key(KeyCode::Char('q'))).unwrap();
+                    }
+                    Ok(())
+                },
+            );
+            assert_eq!(result.is_err(), case == "draw-error");
+            let bytes = bytes.lock().unwrap();
+            let records: Vec<serde_json::Value> = std::str::from_utf8(&bytes)
+                .unwrap()
+                .lines()
+                .map(|line| serde_json::from_str(line).unwrap())
+                .collect();
+            assert_eq!(
+                records
+                    .iter()
+                    .filter(|record| record["event"] == "first_frame")
+                    .count(),
+                usize::from(case != "draw-error"),
+                "{case}"
+            );
+            assert_eq!(
+                records
+                    .iter()
+                    .filter(|record| record["event"] == "fresh_board")
+                    .count(),
+                usize::from(case == "fresh"),
+                "{case}"
+            );
+            if case == "fresh" {
+                assert_eq!(records[1]["generation"], 3);
+            }
+        }
     }
 
     #[test]

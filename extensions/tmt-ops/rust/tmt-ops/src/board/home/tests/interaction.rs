@@ -286,6 +286,7 @@ fn refresh_and_search_reconcile_the_stable_target() {
         .insert(0, first);
     let refreshed = board(&[("a", doc)]);
     app.apply(Snapshot {
+        timing: None,
         squad_keys: vec!["a".into()],
         tabs: app.tabs.clone(),
         hidden: vec![],
@@ -553,6 +554,7 @@ fn middle_home_row_composes_inline_and_success_survives_answer_refresh() {
             answered["sections"][0]["rows"][2]["waitingOnYou"] = json!([]);
             let refreshed = board(&[("a", answered)]);
             app.apply(Snapshot {
+                timing: None,
                 squad_keys: vec!["a".into()],
                 tabs: app.tabs.clone(),
                 hidden: vec![],

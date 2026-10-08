@@ -143,6 +143,7 @@ pub enum Notes {
 }
 
 pub struct Snapshot {
+    pub(super) timing: Option<super::timing::Load>,
     /// Squad names in core list order, before tab policy.
     pub squad_keys: Vec<String>,
     /// Tab keys in order: squad names and built-in tabs (`board::tabs`).
@@ -598,6 +599,7 @@ pub struct TitleHit {
 
 #[derive(Default)]
 pub struct App {
+    pub(super) timing: Option<super::timing::Ui>,
     pub(super) checklist: Option<super::checklist::Controller>,
     pub(super) checklist_generation: u64,
     pub(super) initial_look: Option<crate::look::Look>,
@@ -1255,7 +1257,12 @@ impl App {
         changed
     }
 
-    pub fn apply(&mut self, snapshot: Snapshot) {
+    pub fn apply(&mut self, mut snapshot: Snapshot) {
+        if let Some(timing) = &mut self.timing {
+            let accepted =
+                snapshot.view.is_ok() && (self.current.is_none() || self.current == snapshot.squad);
+            timing.snapshot(snapshot.timing.take(), accepted);
+        }
         debug_assert!(
             !snapshot.view.as_ref().is_ok_and(|view| view.home.is_some())
                 || snapshot.squad.as_deref() == Some(super::ALL),
@@ -4236,6 +4243,7 @@ pub(crate) mod tests {
 
     pub(crate) fn snapshot(squad: &str, sections: Value) -> Snapshot {
         Snapshot {
+            timing: None,
             squad_keys: vec!["infra".into(), "product".into()],
             tabs: vec!["infra".into(), "product".into()],
             hidden: Vec::new(),
@@ -4377,6 +4385,7 @@ pub(crate) mod tests {
             press(&mut app, KeyCode::Right);
             assert!(app.meter.is_none() && app.meters.contains_key("product"));
             app.apply(Snapshot {
+                timing: None,
                 squad_keys: Vec::new(),
                 tabs: vec!["product".into(), "infra".into()],
                 hidden: Vec::new(),
@@ -5365,6 +5374,7 @@ pub(crate) mod tests {
             json!([{"title": null, "rows": [row("a", "")]}]),
         ));
         app.apply(Snapshot {
+            timing: None,
             squad_keys: Vec::new(),
             tabs: vec!["product".into()],
             hidden: Vec::new(),

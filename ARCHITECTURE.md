@@ -1001,6 +1001,7 @@ Independent releases use `tmt-ops-v<version>`; module/drawing ownership and guar
   under `<dataRoot>/ops/checklist`. Reads create no checklist files; locked admission precedes synced replacement outside a Core/file transaction.
   Prepublication failure preserves bytes; uncertainty remains Unknown after readback. The board Checklist controller consumes the same typed service, retaining exact previews and uncertain outcomes without dispatch.
 - **Row detail and focus.** Shared detail ownership and Core-owned focus policy acquisition/admission live in the [Ops skill](.agents/skills/tmt-ops-dev/SKILL.md); the [board reference](.agents/skills/tmt-ops-dev/references/board.md) owns worker fences.
+- **Timing diagnostics.** `board::timing` owns opt-in sinks and painted milestones; the existing refresh worker/session own acquisition and draw. Stable fields and names: [refresh reference](.agents/skills/tmt-ops-dev/references/refresh-and-meter.md#load-timing-trace).
 - **Entry and public JSON.** The [Ops reference](.agents/skills/tmt-ops-dev/references/config-and-effects.md#cli-entry-and-public-json) owns CLI entry and display-document contracts.
 
 Contracts index: the [embedded lead skill](extensions/tmt-ops/skills/tmt-ops/SKILL.md)
