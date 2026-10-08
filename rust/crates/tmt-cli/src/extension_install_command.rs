@@ -5,6 +5,7 @@
 mod board_switch;
 mod install;
 mod list_upgrade;
+mod post_upgrade;
 mod repair;
 mod skills;
 pub(crate) mod upgrade_all;
@@ -281,6 +282,7 @@ struct InstalledExtension {
     executable: PathBuf,
     previous: Vec<String>,
     changed: bool,
+    notice: post_upgrade::PostUpgradeNotice,
 }
 
 fn run(request: ExtensionInstallRequest, mode: OutputMode) -> Result<Outcome, Failure> {
@@ -312,6 +314,7 @@ fn run(request: ExtensionInstallRequest, mode: OutputMode) -> Result<Outcome, Fa
                 executable,
                 previous,
                 changed,
+                notice,
             } = if repair {
                 repair_extension(product, &prefix, archive.as_deref(), manifest.as_deref())?
             } else {
@@ -333,8 +336,10 @@ fn run(request: ExtensionInstallRequest, mode: OutputMode) -> Result<Outcome, Fa
                     Some(mode),
                     &mut document,
                     &mut human,
-                )?;
+                )
+                .map_err(|error| notice.retain(error))?;
             }
+            notice.record(&mut document, &mut human);
             Ok(Some((document, human)))
         }
         ExtensionInstallRequest::Upgrade {

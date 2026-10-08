@@ -3,6 +3,8 @@
 mod artifact;
 pub mod handoff;
 mod online;
+mod post_upgrade;
+pub use post_upgrade::post_upgrade_hint;
 mod remove;
 pub use online::{default_install_prefix, install_release, latest_release_version};
 pub use remove::{
@@ -107,6 +109,21 @@ pub struct InstallReport {
 struct ActivatedInstallation {
     report: InstallReport,
     cause: io::Error,
+}
+
+/// Captured activation evidence when publication/finalization failed after the
+/// new release became current. Absence never implies that an upgrade happened.
+pub fn activated_report(error: &io::Error) -> Option<&InstallReport> {
+    let cause = error.get_ref()?;
+    if let Some(activated) = cause.downcast_ref::<ActivatedInstallation>() {
+        Some(&activated.report)
+    } else {
+        cause
+            .downcast_ref::<UpgradeFailure>()?
+            .activated
+            .as_ref()
+            .map(|report| &report.installation)
+    }
 }
 
 impl std::fmt::Display for ActivatedInstallation {

@@ -318,6 +318,80 @@ describe('former Squad hook consent during Ops replacement', () => {
   }, 60_000);
 });
 
+describe('Remote replacement notices after partial completion', () => {
+  it.each([true, false])(
+    'retains one restart hint when skill settlement fails, JSON=%s',
+    async (json) => {
+      await withSandbox(async (sandbox) => {
+        const prefix = path.join(sandbox.root, 'remote partial prefix');
+        const installRemote = (artifact: ArtifactFixture) =>
+          runCli(
+            sandbox,
+            [
+              'extension',
+              'install',
+              'remote',
+              '--yes',
+              '--archive',
+              artifact.archive,
+              '--manifest',
+              artifact.manifest,
+              '--prefix',
+              prefix,
+              ...(json ? ['--json'] : []),
+            ],
+            { deadlineMs: INSTALL_PROCESS_BUDGET_MS }
+          );
+        const first = await createArtifact(sandbox, '0.1.0-alpha.1', new Uint8Array(), 'remote');
+        const installed = await installRemote(first);
+        expect(installed.status, installed.stdout + installed.stderr).toBe(0);
+        expect(installed.stdout + installed.stderr).not.toContain('Remote was upgraded');
+        const oldRelease = realpathSync(path.join(prefix, 'lib/tmt-remote/current'));
+        mkdirSync(path.join(sandbox.globalDir, 'remote'), { recursive: true });
+        writeFileSync(path.join(sandbox.globalDir, 'remote/machine.key'), 'retained invalid key');
+        writeFileSync(
+          path.join(sandbox.globalDir, 'remote/remote.db'),
+          'retained invalid database'
+        );
+        writeFileSync(path.join(sandbox.globalDir, 'skill-owners.json'), '{invalid');
+        const second = await createArtifact(
+          sandbox,
+          '0.1.0-alpha.2',
+          new Uint8Array([1]),
+          'remote'
+        );
+        const replaced = await installRemote(second);
+        expect(replaced.status, replaced.stdout + replaced.stderr).toBe(1);
+        const hint =
+          'Remote was upgraded, but its door status could not be confirmed. Finish active pairing and held approvals, then restart if running: tmt remote stop && tmt remote serve.';
+        if (json)
+          expect(parseWholeStdout(replaced)).toMatchObject({
+            error: { code: 'EXTENSION_SKILLS_FAILED', suggestion: hint },
+          });
+        else expect(replaced.stderr).toContain(hint);
+        expect((replaced.stdout + replaced.stderr).split('Remote was upgraded').length - 1).toBe(1);
+        expect(realpathSync(path.join(prefix, 'lib/tmt-remote/current'))).not.toBe(oldRelease);
+        expect(existsSync(oldRelease)).toBe(true);
+        const listed = await runCli(sandbox, ['extension', 'ls', '--prefix', prefix, '--json']);
+        expect(parseWholeStdout(listed).extensions).toContainEqual(
+          expect.objectContaining({ name: 'remote', version: '0.1.0-alpha.2' })
+        );
+        expect(readFileSync(path.join(sandbox.globalDir, 'remote/machine.key'), 'utf8')).toBe(
+          'retained invalid key'
+        );
+        expect(readFileSync(path.join(sandbox.globalDir, 'remote/remote.db'), 'utf8')).toBe(
+          'retained invalid database'
+        );
+        expect(readFileSync(path.join(sandbox.globalDir, 'skill-owners.json'), 'utf8')).toBe(
+          '{invalid'
+        );
+        expect(existsSync(path.join(sandbox.globalDir, 'remote/control.sock'))).toBe(false);
+      });
+    },
+    60_000
+  );
+});
+
 describe('tmt extension install surface', () => {
   it('offers every registered official extension independently of release activation', async () => {
     await withSandbox(async (sandbox) => {
@@ -394,6 +468,14 @@ describe('tmt extension install surface', () => {
           changed: true,
           version: '0.1.0-alpha.2',
         });
+        if (name === 'remote') {
+          expect(parseWholeStdout(upgraded).restartHint).toBe(
+            'Remote was upgraded, but its door status could not be confirmed. Finish active pairing and held approvals, then restart if running: tmt remote stop && tmt remote serve.'
+          );
+          expect(upgraded.stdout.match(/Remote was upgraded/g)).toHaveLength(1);
+        } else {
+          expect(parseWholeStdout(upgraded)).not.toHaveProperty('restartHint');
+        }
         expect(existsSync(oldRelease)).toBe(true);
         const listed = await cli(['extension', 'ls', '--prefix', prefix]);
         expect(parseWholeStdout(listed).extensions).toContainEqual({

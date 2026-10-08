@@ -55,6 +55,15 @@ publication and verification procedures are in the [tmt-release skill](../../tmt
 - Receipts anchor to the installation prefix and current executable, not `ConfigPaths.global_dir`.
   Failed validation or cancellation keeps the previous release and receipt; a post-activation
   skill failure reports partial completion, not an atomic transaction.
+- `Product::post_upgrade_check` declares optional read-only observations after an actual version
+  replacement. The adapter queries the captured verified executable with a two-second process
+  budget and bounded output, outside the install lock. Remote status produces one restart notice
+  for running, legacy-outdated or unknown evidence; it never stops or starts a door. Initial
+  installs, unchanged versions (including pin/channel-only changes), skipped pins, stopped doors
+  and other products stay quiet. CLI success exposes `restartHint` (under product `details` in
+  bulk upgrades); post-activation failure retains the notice in `error.suggestion`. Standalone
+  and bulk human output render it once, including skill-settlement failure. Finish active pairing
+  and held approvals before manually restarting; legacy doors require Ctrl-C in their terminal.
 
 ## Former product replacement
 

@@ -1,5 +1,6 @@
 //! Managed extension observations and consented upgrades.
 
+use super::post_upgrade::PostUpgradeNotice;
 use super::skills::settle_skills;
 use super::{
     ExtensionListRow, Human, INSTALLABLE_EXTENSIONS, Outcome, ask, extension, extension_list,
@@ -112,11 +113,19 @@ pub(super) fn upgrade_at(
         None => native_install::upgrade_product(product, request, verifier, checkpoint),
     }
     .map_err(|error| {
-        failure(
-            "EXTENSION_UPGRADE_FAILED",
-            io::Error::new(error.kind(), error),
-        )
+        let error = io::Error::new(error.kind(), error);
+        let notice = PostUpgradeNotice::after_failure(
+            product,
+            &error,
+            Some(&current.state.version.to_string()),
+        );
+        notice.retain(failure("EXTENSION_UPGRADE_FAILED", error))
     })?;
+    let notice = PostUpgradeNotice::observe(
+        product,
+        &report.installation,
+        Some(&current.state.version.to_string()),
+    );
     let version = report.installation.version.clone();
     let human = if report.skipped_pinned {
         Human::plain(format!(
@@ -149,8 +158,10 @@ pub(super) fn upgrade_at(
             None,
             &mut document,
             &mut human,
-        )?;
+        )
+        .map_err(|error| notice.retain(error))?;
     }
+    notice.record(&mut document, &mut human);
     Ok(Some((document, human)))
 }
 

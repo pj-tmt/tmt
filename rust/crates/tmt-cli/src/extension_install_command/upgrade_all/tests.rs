@@ -1,6 +1,30 @@
 use super::*;
 use std::cell::Cell;
 
+#[test]
+fn bulk_protocol_retains_one_notice_on_success_and_partial_failure() {
+    let success = upgraded(
+        Product::Remote,
+        json!({"changed":true,"version":"0.1.0-alpha.2","restartHint":"one restart notice"}),
+    );
+    let failed = failed(
+        Product::Remote,
+        Failure::new("EXTENSION_SKILLS_FAILED", "release active", 1)
+            .suggestion("one restart notice".into()),
+    );
+    for row in [success, failed] {
+        let bytes = serde_json::to_vec(&json!({"products":[row]})).unwrap();
+        assert_eq!(
+            String::from_utf8(bytes.clone())
+                .unwrap()
+                .matches("one restart notice")
+                .count(),
+            1
+        );
+        assert_eq!(parse_results(&bytes).unwrap(), vec![row]);
+    }
+}
+
 fn pending(product: Product) -> (Product, String, String) {
     (product, "1.0.0".into(), "1.1.0".into())
 }

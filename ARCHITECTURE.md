@@ -958,8 +958,8 @@ Extension-owned skills arrive as bytes through `skills.install`/`skills.remove`
 owner of a name keeps it until an explicit force and core names are reserved.
 
 Native executable installation is a different owner under `tmt-adapters::native_install`.
-The fixed `Product` policy owns package identity, inventory, namespace and command
-links for the CLI and the official extensions (Ops, Remote, Colab and the frozen
+The fixed `Product` policy owns package identity, inventory, namespace, links and optional
+read-only post-upgrade checks for the CLI and extensions (Ops, Remote, Colab and frozen
 Office); archive data never adds a product. Every product uses one acquisition,
 receipt and atomic-publication path with independent links, lock and current
 release, and the active executable is the authority for a managed update: receipts
