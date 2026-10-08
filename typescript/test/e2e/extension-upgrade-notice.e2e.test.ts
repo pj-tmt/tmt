@@ -39,9 +39,10 @@ describe('post-upgrade Remote notice', () => {
         // processes. Installation versions are synthetic archive coordinates;
         // neither archive impersonates the binary's compiled provider version.
         const oldRelease = realpathSync(path.join(prefix, 'lib/tmt-remote/current'));
-        expect(readFileSync(path.join(oldRelease, 'tmt-remote'))).toEqual(
-          readFileSync(path.resolve('../rust/target/debug/tmt-remote'))
-        );
+        const expectedRemote = readFileSync(path.resolve('../rust/target/debug/tmt-remote'));
+        // Object equality expands every byte into an entry. Native Buffer
+        // equality checks the complete debug payload without that allocation.
+        expect(readFileSync(path.join(oldRelease, 'tmt-remote')).equals(expectedRemote)).toBe(true);
         symlinkSync(
           path.join(prefix, 'bin/tmt-remote'),
           path.join(fixture.wrapperDir, 'tmt-remote')
@@ -87,8 +88,8 @@ describe('post-upgrade Remote notice', () => {
               operationId,
             });
             expect(requestAttempts(fixture)).toEqual(before);
-            expect(readFileSync(path.join(oldRelease, 'tmt-remote'))).toEqual(
-              readFileSync(path.resolve('../rust/target/debug/tmt-remote'))
+            expect(readFileSync(path.join(oldRelease, 'tmt-remote')).equals(expectedRemote)).toBe(
+              true
             );
           }
           const ended = await approval.finish('confirm');
