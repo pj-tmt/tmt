@@ -247,6 +247,29 @@ test('a failed directory recovers in place with Try again, keeping focus and the
   expect(await run(page, 'proof')).toMatchObject({ writes: 0, preparations: 0, sends: [] });
 });
 
+test('a directory read Remote refused keeps the generic line and shows its code as a reference (#2170)', async ({
+  page,
+}) => {
+  // REMOTE_STATE_UNAVAILABLE covers any Remote storage fault (its journal being full is only
+  // one), so the line stays generic and the code is the reference, as for terminal failures.
+  await mount(page, 'discovery-failure');
+  const status = page.getByRole('status');
+  const retry = page.getByRole('button', { name: 'Try again', exact: true });
+  // An unattributed failure shows no reference.
+  await expect(status).toHaveText('Agents are unavailable. You can still post a comment.');
+  await expect(status.locator('[data-failure-reference]')).toHaveCount(0);
+  await run(page, 'setDirectory', 'refuse');
+  await retry.click();
+  await expect(status).toContainText('Agents are unavailable. You can still post a comment.');
+  await expect(status.locator('[data-failure-reference]')).toHaveText('REMOTE_STATE_UNAVAILABLE');
+  await expect(status).toContainText('Code:');
+  // The reference goes away with the failure.
+  await run(page, 'setDirectory', 'ok');
+  await retry.click();
+  await expect(status).toHaveText('Enter sends · Shift+Enter adds a line · Esc closes');
+  await expect(status.locator('[data-failure-reference]')).toHaveCount(0);
+});
+
 test('after Reconnect Ask is fenced until the fresh directory resolves, then one click sends once (#2066)', async ({
   page,
 }) => {

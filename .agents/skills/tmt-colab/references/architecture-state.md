@@ -93,6 +93,11 @@ same render, and a read for a replaced binding or attempt is ignored. Ask/Send i
 caret and chosen recipient are untouched. `failed` shows the status line with an in-place Try
 again (kept mounted and busy during the retry, focus restored); Reconnect's "Reconnect to send."
 line wins while disconnected. Reconnect and Try again are the only triggers; there is no timer.
+A `failed` read that Remote refused or ended carries Remote's code as a muted `Code: …` reference
+under the same generic line. `REMOTE_STATE_UNAVAILABLE` is any Remote storage fault, so it gets no
+sentence of its own; one cause is a full per-device request journal (1000 owned entries per 24 h,
+which reads such as `agents.list` also consume, #2170), cleared as entries expire and prevented
+by the sync keepalive that stops idle tabs from reconnecting.
 The explicit Choose/Change recipient picker preserves message bytes, including typed `@` text; mention
 completion remains optional.
 
