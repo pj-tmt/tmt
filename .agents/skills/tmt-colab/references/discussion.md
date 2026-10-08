@@ -60,7 +60,8 @@ owns record fields, limits, revision semantics and trust boundaries.
   including an empty one, removes pending status and delivery actions.
 - `thread-panel.tsx` exports `ThreadWindow`/`ThreadWindowProps` for the shared
   conversation body, including the initial selection before a thread exists. The
-  anchored layout grows toward the viewport bottom before its messages scroll;
+  anchored layout fits its content and grows away from its selection edge up to
+  the available viewport height before its messages scroll;
   its header and parent composer stay stationary during message scrolling. First
   open, new comment IDs and changed associated replies move that area to the
   arrival. Unrelated cloned publications preserve a reader's history position.
