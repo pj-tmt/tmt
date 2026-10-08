@@ -834,7 +834,7 @@ describe('release upgrade proof (native-release-upgrade.yml)', () => {
 
   it('requires CLI adapter acceptance after the existing proof on every host, with bounded compilation and read-only caching', () => {
     const prove = job(proveWf, 'prove');
-    expect(prove).toContain('timeout-minutes: 10');
+    expect(prove).toContain('timeout-minutes: 13');
     expect(prove).toMatch(/name: Install Rust for version-only resolution and adapter acceptance/);
     expect(prove).toMatch(
       /name: Restore Rust dependencies for version-only resolution and adapter acceptance/
