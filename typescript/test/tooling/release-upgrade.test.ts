@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { writeExecutable } from '../support/executable-fixture.mjs';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -7,6 +7,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vite-plus/test';
 import type { DraftAsset, DraftRelease } from '../../scripts/release-draft-assets.mjs';
+import { checkReleaseParity } from '../../scripts/release-parity.mjs';
 import {
   PROOF_FILES,
   ACCEPTANCE_TEST,
@@ -1350,14 +1351,166 @@ describe('ghAssetDownloader', () => {
     expect([...readFileSync(file)]).toEqual([0, 255, 10, 65]);
   });
 
-  it('reports the status and stderr of a failed download', () => {
-    const spawn = () => ({ status: 1, stdout: Buffer.from(''), stderr: Buffer.from('HTTP 404') });
+  it('retries failed reads by the same id, keeps their errors and writes only successful bytes', () => {
+    const file = path.join(mkdtempSync(path.join(root, 'download-')), 'archive');
+    const env = { GH_TOKEN: 'inert-fixture' };
+    const errors = ['HTTP 503', 'unexpected end of JSON input'];
+    const waits: number[] = [];
+    const lines: string[] = [];
+    const writer = vi.spyOn(process.stderr, 'write').mockImplementation((line) => {
+      lines.push(String(line));
+      return true;
+    });
+    let calls = 0;
+    const spawn = vi.fn((_command: string, _args: string[], _options: object) => {
+      expect(existsSync(file)).toBe(false);
+      const error = errors[calls++];
+      return error
+        ? { status: 1, stdout: Buffer.from('partial discarded'), stderr: Buffer.from(error) }
+        : { status: 0, stdout: Buffer.from([0, 255, 10, 65]), stderr: Buffer.from('') };
+    });
+    try {
+      ghAssetDownloader({ repository: 'wkh237/tmt', env, spawn, sleep: (ms) => waits.push(ms) })(
+        { id: 42, name: 'a.tar.gz' },
+        file
+      );
+      expect(spawn.mock.calls).toEqual(
+        Array.from({ length: 3 }, () => [
+          'gh',
+          ['api', '-H', 'Accept: application/octet-stream', 'repos/wkh237/tmt/releases/assets/42'],
+          { env, encoding: 'buffer', timeout: 300_000, maxBuffer: 80 * 1024 * 1024 },
+        ])
+      );
+      expect(waits).toEqual([1000, 2000]);
+      expect(lines).toEqual([
+        'Asset download attempt 1/3 failed: gh could not download a.tar.gz (1): HTTP 503\nRetrying in 1000 ms.\n',
+        'Asset download attempt 2/3 failed: gh could not download a.tar.gz (1): unexpected end of JSON input\nRetrying in 2000 ms.\n',
+      ]);
+      expect([...readFileSync(file)]).toEqual([0, 255, 10, 65]);
+    } finally {
+      writer.mockRestore();
+    }
+  });
+
+  it('exhausts three failed reads and preserves the last status and stderr', () => {
+    const file = path.join(root, 'failed-download');
+    const waits: number[] = [];
+    const lines: string[] = [];
+    let calls = 0;
+    const spawn = vi.fn(() => {
+      calls += 1;
+      return {
+        status: calls,
+        stdout: Buffer.from('partial discarded'),
+        stderr: Buffer.from(`failure ${calls}`),
+      };
+    });
+    const writer = vi.spyOn(process.stderr, 'write').mockImplementation((line) => {
+      lines.push(String(line));
+      return true;
+    });
+    try {
+      let caught: unknown;
+      try {
+        ghAssetDownloader({ repository: 'wkh237/tmt', spawn, sleep: (ms) => waits.push(ms) })(
+          { id: 1, name: 'x' },
+          file
+        );
+      } catch (failure) {
+        caught = failure;
+      }
+      expect(caught).toBeInstanceOf(Error);
+      expect(caught).toHaveProperty('message', 'gh could not download x (3): failure 3');
+      expect(spawn).toHaveBeenCalledTimes(3);
+      expect(waits).toEqual([1000, 2000]);
+      expect(lines).toEqual([
+        'Asset download attempt 1/3 failed: gh could not download x (1): failure 1\nRetrying in 1000 ms.\n',
+        'Asset download attempt 2/3 failed: gh could not download x (2): failure 2\nRetrying in 2000 ms.\n',
+      ]);
+      expect(existsSync(file)).toBe(false);
+    } finally {
+      writer.mockRestore();
+    }
+  });
+
+  it('preserves the original last spawn error object after exhausting acquisition retries', () => {
+    const error = new Error('spawn ETIMEDOUT');
+    const spawn = vi.fn(() => ({
+      error,
+      status: null,
+      stdout: Buffer.from(''),
+      stderr: Buffer.from(''),
+    }));
+    const sleep = vi.fn();
+    const writer = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    let caught: unknown;
+    try {
+      try {
+        ghAssetDownloader({ repository: 'wkh237/tmt', spawn, sleep })(
+          { id: 1, name: 'x' },
+          path.join(root, 'spawn-error')
+        );
+      } catch (failure) {
+        caught = failure;
+      }
+      expect(caught).toBe(error);
+      expect(spawn).toHaveBeenCalledTimes(3);
+      expect(sleep.mock.calls).toEqual([[1000], [2000]]);
+    } finally {
+      writer.mockRestore();
+    }
+  });
+
+  it('does not retry successful acquisition whose bytes fail the staged digest', () => {
+    const cli = release('v5.0.0-alpha.8');
+    const spawn = vi.fn(() => ({
+      status: 0,
+      stdout: Buffer.from('wrong bytes'),
+      stderr: Buffer.from(''),
+    }));
+    const sleep = vi.fn();
+    const directory = mkdtempSync(path.join(root, 'wrong-download-'));
     expect(() =>
-      ghAssetDownloader({ repository: 'wkh237/tmt', spawn })(
-        { id: 1, name: 'x' },
-        path.join(root, 'x')
-      )
-    ).toThrow('could not download x (1): HTTP 404');
+      stageRelease({
+        download: ghAssetDownloader({ repository: 'wkh237/tmt', spawn, sleep }),
+        release: cli,
+        product: 'cli',
+        target: TARGET,
+        directory,
+      })
+    ).toThrow(`tmt-cli-${TARGET}.tar.gz of v5.0.0-alpha.8 does not match its recorded digest.`);
+    expect(spawn).toHaveBeenCalledTimes(1);
+    expect(sleep).not.toHaveBeenCalled();
+    expect(readFileSync(path.join(directory, `tmt-cli-${TARGET}.tar.gz`), 'utf8')).toBe(
+      'wrong bytes'
+    );
+  });
+
+  it('records #2197 download retry policy coverage in the pre-merge tooling suite', () => {
+    const read = (file: string) =>
+      readFileSync(new URL(`../../../${file}`, import.meta.url), 'utf8');
+    const manifest = JSON.parse(read('.github/release-parity.json'));
+    expect(manifest.incidents['2197']).toEqual({
+      release: {
+        workflow: 'native-release-upgrade.yml',
+        job: 'fetch',
+        step: 'name:Download and check the release assets',
+      },
+      preMerge: [
+        {
+          workflow: 'ci.yml',
+          job: 'unit-tests',
+          selection: { kind: 'ci-scope', output: 'native_scope', value: 'full' },
+          coverage: 'policy',
+          tests: ['typescript/test/tooling/release-upgrade.test.ts'],
+        },
+      ],
+    });
+    expect(() => checkReleaseParity(manifest, { read })).not.toThrow();
+    delete manifest.incidents['2197'];
+    expect(() => checkReleaseParity(manifest, { read })).toThrow(
+      'release incidents: unmapped 2197'
+    );
   });
 });
 

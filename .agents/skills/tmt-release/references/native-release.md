@@ -238,6 +238,8 @@ published tag) does this on four hosts through the shared proof stages in
 `verify-native-extension-upgrade.mjs` and `verify-native-driver-upgrade.mjs`. A product with
 neither own nor predecessor published history has nothing to upgrade from and says so; a commit
 that predates the scripts fails the proof with that message and is proven by hand.
+Asset acquisition by immutable GitHub id allows three attempts with 1/2 s backoff and the unchanged
+300 s per-call bound, logging earlier failures; staged-byte verification and local file errors are never retried.
 
 Extension-upgrade proofs (`test/native/extension-upgrade-proof.test.ts`) use one native
 recording driver on macOS and Linux; build it first and publish the built bytes through
