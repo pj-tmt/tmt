@@ -4425,7 +4425,50 @@ async function withBoardSwitch<T>(body: (fixture: SwitchFixture) => Promise<T>):
         dataRoot,
       });
     } finally {
+      // kill-server acknowledges the request before its panes and their HUP
+      // handlers finish. Observe natural exit; never mask a board leak by killing it.
+      const server = tmux(['display-message', '-p', '#{pid}']);
+      const ttys = new Set(
+        tmux(['list-panes', '-a', '-F', '#{pane_tty}'])
+          .split('\n')
+          .map((tty) => tty.replace('/dev/', ''))
+      );
+      const table = spawnSync('/bin/ps', ['-axo', 'pid=,tty='], {
+        env: sandbox.env,
+        encoding: 'utf8',
+        timeout: 5000,
+      });
+      expect(table.status, table.stderr).toBe(0);
+      const incarnation = (pid: string): string | undefined => {
+        if (process.platform === 'linux') {
+          try {
+            const stat = readFileSync(`/proc/${pid}/stat`, 'utf8');
+            return stat.slice(stat.lastIndexOf(') ') + 2).split(' ')[19];
+          } catch (error) {
+            if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined;
+            throw error;
+          }
+        }
+        const result = spawnSync('/bin/ps', ['-p', pid, '-o', 'lstart='], {
+          env: sandbox.env,
+          encoding: 'utf8',
+          timeout: 5000,
+        });
+        expect(result.error).toBeUndefined();
+        expect([0, 1]).toContain(result.status);
+        return result.stdout.trim() || undefined;
+      };
+      const occupants = table.stdout
+        .split('\n')
+        .map((line) => line.trim().split(/\s+/))
+        .filter(([pid, tty]) => pid === server || ttys.has(tty!))
+        .map(([pid]) => ({ pid: pid!, start: incarnation(pid!) }))
+        .filter(({ start }) => start !== undefined);
       tmux(['kill-server']);
+      await vi.waitFor(
+        () => expect(occupants.filter(({ pid, start }) => incarnation(pid) === start)).toEqual([]),
+        { timeout: 5000, interval: 25 }
+      );
     }
   });
 }
