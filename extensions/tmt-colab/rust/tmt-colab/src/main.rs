@@ -333,11 +333,17 @@ fn run(matches: &clap::ArgMatches) -> Result<()> {
         let store = Store::open(&layout)?;
         let space_id = keyring.space_id.clone();
         let (pages, all_pages) = open_pages(&store, &keyring);
-        let registration = Arc::new(Mutex::new(Registration::new(
-            store,
-            keyring,
-            std::env::current_exe()?,
-        )?));
+        let save_root = root.clone();
+        let registration = Arc::new(Mutex::new(
+            Registration::new(store, keyring, std::env::current_exe()?)?.with_save_source(
+                Arc::new(move || {
+                    tmt_colab::page::save::open_source(
+                        &save_root,
+                        tmt_colab::decoder::Config::new(std::env::current_exe()?),
+                    )
+                }),
+            ),
+        ));
         let socket = MountSocket::bind(&layout, &space_id, Tunnels::PRODUCT)?
             .with_registration(&layout, Arc::clone(&registration))?
             .with_app(app);
@@ -578,12 +584,15 @@ fn page(root: &std::path::Path, args: &clap::ArgMatches) -> Result<()> {
     let json_output = args.get_flag("json");
     let mut output = tmt_cli_style::stream::stdout(json_output);
     if let Some(source) = source {
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)?
-            .as_millis()
-            .try_into()?;
         let publisher_agent = core::publisher_agent();
-        let preparation = page::prepare_publication(
+        // Read once after the page snapshot to prepare, and again to commit.
+        let clock = || -> tmt_colab::Result<u64> {
+            Ok(std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)?
+                .as_millis()
+                .try_into()?)
+        };
+        let preparation = page::prepare_publication_with_clock(
             &store,
             &key,
             &id,
@@ -594,7 +603,7 @@ fn page(root: &std::path::Path, args: &clap::ArgMatches) -> Result<()> {
             args.get_one::<String>("expected-revision")
                 .map(String::as_str),
             &mut decoder,
-            now,
+            &clock,
         )?;
         store.close()?;
         let receipt = match preparation {
@@ -613,7 +622,7 @@ fn page(root: &std::path::Path, args: &clap::ArgMatches) -> Result<()> {
                 memory_limit,
             ),
             page::PublicationPreparation::Write(frozen) => {
-                let published = publish_write(&layout, &key, &id, &frozen, &mut decoder, now)?;
+                let published = publish_write(&layout, &key, &id, &frozen, &mut decoder, clock()?)?;
                 let mut receipt = page::publication_receipt(frozen.job(), &published.record)?;
                 // A write's combine can move the revision after its outcome was retained. The
                 // revision read by the writer that excluded every other writer is the one a next

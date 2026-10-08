@@ -1122,7 +1122,7 @@ ledgers support retries, not browser authority; no additional ledger proof or
 signature scheme is required. Checkpoint plaintext is raw merged update-v1 bytes.
 The browser MUST bound each checkpoint and the combined baseline, checkpoints
 and retained tail plaintext by the 24 MiB read state budget, with at most 5,000
-tail updates. Browser writes retain the 200-update/4 MiB write tail budget and 256 KiB per update. Apply
+tail updates. Native writes (the CLI and the browser Save) retain the 200-update/4 MiB write tail budget and 256 KiB per update. Apply
 checkpoints as single-item Worker steps before
 the tail. Those unpublished steps may retain cross-writer pending dependencies;
 the final tail step MUST resolve them and validate complete content before
@@ -1155,26 +1155,28 @@ compaction and revocation cuts need Rust/browser interop evidence. Load cost
 must be bounded and measured in L3/L4 before a performance promise. Compare decoded state-vector client clocks, not
 encoding byte order; declare all schema root types before projection.
 
-| Default limit                                | Value                         |
-| -------------------------------------------- | ----------------------------- |
-| Exact HTML source / snapshot source          | 2 MiB each                    |
-| Message body                                 | 16 KiB UTF-8                  |
-| Threads per page                             | 1,000                         |
-| Update-envelope plaintext                    | 256 KiB                       |
-| Compaction trigger per stream                | 200 updates or 256 KiB tail   |
-| Per-device append rate                       | 10/s sustained, burst 50      |
-| Per-page decoder concurrency                 | 1                             |
-| Rust decoder batch deadline                  | 2 seconds                     |
-| Updates after checkpoints a write accepts    | 200 updates, 4 MiB            |
-| CLI page write, whole source                 | 2 MiB; within the tail above  |
-| Native compaction trigger, per device stream | 50 updates or 1 MiB           |
-| New page source, per published update        | 192 KiB of text               |
-| Page budget (browser load, gzipped)          | 5,000,000 bytes               |
-| Rust decoder new-baseline source             | 2 MiB                         |
-| Rust decoder read state (all bytes)          | 24 MiB, at most 5,000 updates |
-| Rust decoder input/output streams            | 208 MiB each                  |
-| Linux decoder address-space limit            | 512 MiB                       |
-| Spark deletion budget                        | 500/page/day                  |
+| Default limit                                | Value                                         |
+| -------------------------------------------- | --------------------------------------------- |
+| Exact HTML source / snapshot source          | 2 MiB each                                    |
+| Message body                                 | 16 KiB UTF-8                                  |
+| Threads per page                             | 1,000                                         |
+| Update-envelope plaintext                    | 256 KiB                                       |
+| Compaction trigger per stream                | 200 updates or 256 KiB tail                   |
+| Per-device append rate                       | 10/s sustained, burst 50                      |
+| Per-page decoder concurrency                 | 1                                             |
+| Rust decoder batch deadline                  | 2 seconds                                     |
+| Updates after checkpoints a write accepts    | 200 updates, 4 MiB                            |
+| CLI page write, whole source                 | 2 MiB; within the tail above                  |
+| Browser Save, whole source                   | 2 MiB; the same tail and page budget          |
+| Browser Save upload window                   | 10 s from the `save` frame, at most 64 chunks |
+| Native compaction trigger, per device stream | 50 updates or 1 MiB                           |
+| New page source, per published update        | 192 KiB of text                               |
+| Page budget (browser load, gzipped)          | 5,000,000 bytes                               |
+| Rust decoder new-baseline source             | 2 MiB                                         |
+| Rust decoder read state (all bytes)          | 24 MiB, at most 5,000 updates                 |
+| Rust decoder input/output streams            | 208 MiB each                                  |
+| Linux decoder address-space limit            | 512 MiB                                       |
+| Spark deletion budget                        | 500/page/day                                  |
 
 The read caps are derived once, from measurement (#1627), not from the write caps.
 Decoding peaked near 9 bytes of child memory per state byte, so 24 MiB of state stays
@@ -1712,17 +1714,20 @@ upgrade cannot establish authorship. Removed access terminates live subscription
 space, page and epoch. The backend moves bytes, not Yjs state vectors. The wire
 operations are:
 
-| Type        | Additional fields / behavior                                                                                                                 |
-| ----------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| `hello`     | `device, membershipRevision, cursors`; authenticated session/proof from upgrade, page/epoch admission before catch-up                        |
-| `catchup`   | `membershipHead, baseline, optional baselineObject, streams, more`; bounded pages of each stream's namespace checkpoints and subsequent tail |
-| `subscribe` | `cursors`; observe only the admitted page/current epoch                                                                                      |
-| `append`    | `streamId, seq, envelopeHash, envelope`; create-only, exact frozen retry returns original receipt                                            |
-| `receipt`   | `streamId, seq, envelopeHash`; durable acceptance, not task completion                                                                       |
-| `broadcast` | `streamId, seq, envelopeHash, envelope`; subscriber must verify before applying                                                              |
-| `ack`       | `cursors`; scoped delivery positions only                                                                                                    |
-| `awareness` | `device, data`; bounded ephemeral presence, never persisted or authority                                                                     |
-| `error`     | `code`; one of DENIED, EXPIRED, STALE_EPOCH, INVALID, GAP, CAPACITY, CONFLICT, RESYNC_REQUIRED                                               |
+| Type         | Additional fields / behavior                                                                                                                 |
+| ------------ | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| `hello`      | `device, membershipRevision, cursors`; authenticated session/proof from upgrade, page/epoch admission before catch-up                        |
+| `catchup`    | `membershipHead, baseline, optional baselineObject, streams, more`; bounded pages of each stream's namespace checkpoints and subsequent tail |
+| `subscribe`  | `cursors`; observe only the admitted page/current epoch                                                                                      |
+| `append`     | `streamId, seq, envelopeHash, envelope`; create-only, exact frozen retry returns original receipt                                            |
+| `save`       | `operationId, baseSha256, sourceSha256, source`; owner device only; the browser's whole-source Save, prepared and committed natively         |
+| `savestatus` | `operationId`; owner device only; what the page recorded for an earlier `save`                                                               |
+| `saveresult` | `operationId, state` and `revision` or `code, message`; the one reply to a `save` or `savestatus`                                            |
+| `receipt`    | `streamId, seq, envelopeHash`; durable acceptance, not task completion                                                                       |
+| `broadcast`  | `streamId, seq, envelopeHash, envelope`; subscriber must verify before applying                                                              |
+| `ack`        | `cursors`; scoped delivery positions only                                                                                                    |
+| `awareness`  | `device, data`; bounded ephemeral presence, never persisted or authority                                                                     |
+| `error`      | `code`; one of DENIED, EXPIRED, STALE_EPOCH, INVALID, GAP, CAPACITY, CONFLICT, RESYNC_REQUIRED                                               |
 
 ### Implemented stream subset (#1156, #1166)
 
@@ -1736,14 +1741,16 @@ Every client message is one UTF-8 JSON object with exactly the common fields
 Epoch is a positive canonical decimal string. Duplicate/unknown fields, nulls,
 wrong types, noncanonical values and unsupported operations reject.
 
-| Client type | Exact additional fields                       | Implemented behavior                                                                                                       |
-| ----------- | --------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| `hello`     | `device, membershipRevision, cursors`         | Device matches principal; one successful hello per connection starts server-driven catchup, then live delivery.            |
-| `subscribe` | `cursors`                                     | Empty list starts live delivery; nonempty list resolves cursors and starts catchup, then live delivery.                    |
-| `append`    | `streamId, seq, envelopeHash, envelope`       | Inline update or object reference; verify complete exact bytes and durably append before receipt.                          |
-| `chunk`     | `objectId, envelopeHash, index, count, bytes` | Complete the connection's pending referenced append; no standalone upload or partial append.                               |
-| `ack`       | `cursors`                                     | Resolve retained scoped positions and release one frame credit; no deletion, core acknowledgment or application authority. |
-| `awareness` | `device, data`                                | Device matches principal; at most 4 KiB canonical base64url bytes, ephemeral.                                              |
+| Client type  | Exact additional fields                         | Implemented behavior                                                                                                       |
+| ------------ | ----------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `hello`      | `device, membershipRevision, cursors`           | Device matches principal; one successful hello per connection starts server-driven catchup, then live delivery.            |
+| `subscribe`  | `cursors`                                       | Empty list starts live delivery; nonempty list resolves cursors and starts catchup, then live delivery.                    |
+| `append`     | `streamId, seq, envelopeHash, envelope`         | Inline update or object reference; verify complete exact bytes and durably append before receipt.                          |
+| `chunk`      | `objectId, envelopeHash, index, count, bytes`   | Complete the connection's pending referenced append or save; no standalone upload or partial append.                       |
+| `save`       | `operationId, baseSha256, sourceSha256, source` | Owner device only. Inline source or `{objectId}` plus chunks; see Browser Save below.                                      |
+| `savestatus` | `operationId`                                   | Owner device only. Answers from the root-local operation record; see Browser Save below.                                   |
+| `ack`        | `cursors`                                       | Resolve retained scoped positions and release one frame credit; no deletion, core acknowledgment or application authority. |
+| `awareness`  | `device, data`                                  | Device matches principal; at most 4 KiB canonical base64url bytes, ephemeral.                                              |
 
 `cursors` has at most 256 strict objects `{streamId, namespace, seq, envelopeHash}`,
 unique by stream/namespace. Sequence zero is an explicit bootstrap sentinel and
@@ -1771,6 +1778,47 @@ exact retries return the original receipt without a second broadcast. Server
 awareness has `device, data`. Scoped errors have `code` from the table above.
 Malformed, oversized, binary or inbound server-only frames close with code 1008
 and reason `INVALID`. Capacity never evicts accepted receipts or payloads.
+
+#### Browser Save (#2032)
+
+The browser publishes its whole source over this socket, never as a content update it signs
+itself. Only a registered owner device may send `save` or `savestatus`; readers and public readers
+are denied by the same per-frame admission as `append`, and the socket gains no body route and no
+change to any body cap.
+
+`save` carries `operationId` (a client-chosen generated ID), `baseSha256` (canonical base64url
+SHA-256 of the UTF-8 source the editor started from), `sourceSha256` (the same for the new source)
+and `source`: inline canonical base64url when it is at most 32 KiB, otherwise the strict object
+`{objectId}` (lowercase hex SHA-256 of the source) followed by `chunk` frames whose `envelopeHash`
+is `sourceSha256`, exactly 32 KiB each except the last. At most one upload assembles per
+connection, at most `SAVE_CHUNKS` (64) chunks and 2 MiB, and it completes within `SAVE_UPLOAD`
+(10 s) of the `save` frame; anything else, a digest that does not match the bytes, or a second
+request while one assembles ends the connection with `INVALID` and commits nothing.
+
+The serve verifies the digest, then prepares natively exactly as `tmt colab page write` does
+(`page::prepare_publication` in the isolated decoder) from its own fresh read-only snapshot,
+outside the sync lock, with the base-source digest as a precondition. It then re-takes the lock
+only to commit through `commit_publication` with the same fences, so a page that moved while the
+save prepared refuses as `COLAB_STALE_BASE` and never overwrites the newer content. A commit is
+signed by the root-local writer (`Keyring::local_writer`), the same stream the CLI publishes on,
+never by a browser device: the browser holds no content-signing authority, and its edit appears
+in catch-up under the root-local stream. Subscribers receive the same ordered broadcasts as for a
+CLI write. A source equal to the page's current source is `unchanged` and publishes nothing.
+
+`saveresult` has `operationId` and `state`: `committed` or `unchanged` with the opaque `revision`,
+`rejected` with the stable `code` and a person-readable `message`, or, for `savestatus` only,
+`pending` (the save is still preparing, even if its connection is gone, so its outcome is not
+final) or `absent` (the operation never reached the page, so nothing changed). It is the one reply to a `save`
+or `savestatus`. A wide fan-out may end the originator's connection with `RESYNC_REQUIRED` before
+its reply; the browser then reconnects and sends one `savestatus` for the same ID, answered from
+the root-local operation record by (page, root-local stream, `operationId`). A reused
+`operationId` with different bytes is `COLAB_OPERATION_CONFLICT`. The browser never resends a
+save: an unanswered status names the original ID, and a later Save is a new operation. The
+browser refuses a source over 2 MiB before sending, naming its size and the limit.
+Measured with incompressible fixtures through the real door: a fully different 1.5 MiB source
+replaces a 1.5 MiB page repeatedly, exactly 2 MiB saves onto a small page, and 80 consecutive
+8 KiB-growth saves each land. Replacement of a page by a fully different 2 MiB source is bounded
+by the same tail as the CLI write above.
 
 ### Implemented catchup and chunk protocol
 
@@ -2502,7 +2550,7 @@ a page of that size repeatedly, while a fully different 2 MiB replacement of a f
 2 MiB page is refused for the 4 MiB tail. A source equal to the page's current source publishes
 nothing: it exits 0 with `changed:false` and the captured revision. Stdin has a
 five-second EOF deadline. Invalid UTF-8, capacity, stale-base and inactive-page writes
-reject without mutating page content.
+reject without mutating page content. The browser Save below is the same preparation and commit with a different front door.
 
 The opaque `revision` is `v1:` plus lowercase hex SHA-256 of framed domain
 `tmt-colab-page-revision-v1`, space, page, decimal membership revision, head hash,

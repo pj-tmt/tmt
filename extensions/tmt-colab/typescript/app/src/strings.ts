@@ -1,4 +1,11 @@
 /** English chrome catalog; page content and fixture text are not UI strings. */
+/** A size as a person reads it, and exactly: 2.5 MiB (2,621,440 bytes). */
+function formatBytes(bytes: number): string {
+  const [value, unit] =
+    bytes >= 1024 * 1024 ? [bytes / (1024 * 1024), 'MiB'] : [bytes / 1024, 'KiB'];
+  return `${value.toFixed(2).replace(/\.?0+$/, '')} ${unit} (${bytes.toLocaleString('en-US')} bytes)`;
+}
+
 export const text = {
   unknownPageTitle: 'Untitled page',
   messageLabel: 'Message',
@@ -182,6 +189,15 @@ export const text = {
   saving: 'Saving…',
   editFailed:
     'The edit was not saved. Reopen the page to review the latest source before trying again.',
+  saveTooLarge: (size: number, limit: number) =>
+    `The source is ${formatBytes(size)}, over the ${formatBytes(limit)} one page can hold. Shorten it, then save again.`,
+  saveStale:
+    'The page changed while you were editing, so nothing was saved. Copy your changes, reload to get the latest source, then apply them again.',
+  saveNotSaved: 'Not saved',
+  saveUnconfirmed: 'Unconfirmed',
+  saveNotApplied: 'The save did not reach the page, so nothing changed. Save again.',
+  saveUnknown: (operationId: string) =>
+    `The connection dropped before the save was confirmed. Copy your changes, then reload to see whether they were saved. Reference: ${operationId}`,
   reload: 'Reload',
   pages: 'Pages',
   home: 'Space home',

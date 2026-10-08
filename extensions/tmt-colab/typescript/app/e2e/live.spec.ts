@@ -286,7 +286,9 @@ async function wire(
     signer,
     reset ? new Uint8Array([0, 0]) : new Uint8Array(Y.encodeStateAsUpdate(doc)),
   );
-  const contentSnapshot = new Uint8Array(Y.encodeStateAsUpdate(doc));
+  // The content every peer holds, so a save replaces exactly what the browser shows.
+  const liveContent = new Y.Doc();
+  if (!compacted) Y.applyUpdate(liveContent, new Uint8Array(Y.encodeStateAsUpdate(doc)));
   const entry = async (env: c.Envelope) => ({
     seq: c.decodeHeader(env.header()).context.streamSeq,
     envelopeHash: c.encodeBinary(await env.hash()),
@@ -302,6 +304,7 @@ async function wire(
       doc.getText('html').insert(doc.getText('html').length, 'é' + 'x'.repeat(1598));
       const update = new Uint8Array(Y.encodeStateAsUpdate(doc, vector));
       tailBytes += update.length;
+      Y.applyUpdate(liveContent, update);
       const env = await c.Envelope.seal(
         {
           space: v.space,
@@ -340,6 +343,8 @@ async function wire(
     writer.getText('html').insert(writer.getText('html').length, 'x'.repeat(120_000));
     const secondPadding = Y.encodeStateAsUpdate(writer, middle),
       padding = Y.mergeUpdates([firstPadding, secondPadding]);
+    Y.applyUpdate(liveContent, Y.mergeUpdates([c.binary(cp.checkpoint, 256 * 1024), padding]));
+    Y.applyUpdate(liveContent, c.binary(cp.tail, 256 * 1024));
     writer.destroy();
     entries.length = 0;
     let previous = new Uint8Array(32);
@@ -476,7 +481,12 @@ async function wire(
     retries = 0,
     chunked = 0,
     hellos = 0,
-    statementChunks = 0;
+    statementChunks = 0,
+    statusChecks = 0;
+  // Saves the fixture committed, by operation ID, so a lost reply can be settled by status.
+  const saved = new Map<string, string>();
+  // The source of the last save: the next save's base must be exactly that.
+  let lastSource: string | null = null;
   const outgoing = new Map<WebSocketRoute, { frames: string[]; waiting: boolean }>();
   const pump = (socket: WebSocketRoute) => {
     const state = outgoing.get(socket);
@@ -518,6 +528,7 @@ async function wire(
       return;
     }
     let pending: { frame: Record<string, unknown>; parts: Uint8Array[] } | null = null;
+    let upload: { frame: Record<string, unknown>; parts: Uint8Array[] } | null = null;
     outgoing.set(socket, { frames: [], waiting: false });
     socket.onClose(() => {
       peers.delete(socket);
@@ -698,6 +709,36 @@ async function wire(
           peers.add(socket);
           return;
         }
+        if (frame.type === 'save') {
+          expect(upload).toBeNull();
+          if (typeof frame.source === 'string') {
+            await finishSave(socket, frame, c.binary(frame.source, 32768));
+            return;
+          }
+          upload = { frame, parts: [] };
+          return;
+        }
+        if (frame.type === 'savestatus') {
+          statusChecks++;
+          send(socket, 'saveresult', {
+            operationId: frame.operationId,
+            ...(saved.has(frame.operationId)
+              ? { state: 'committed', revision: saved.get(frame.operationId) }
+              : { state: 'absent' }),
+          });
+          return;
+        }
+        if (frame.type === 'chunk' && upload) {
+          expect(frame.objectId).toBe((upload.frame.source as { objectId: string }).objectId);
+          expect(frame.envelopeHash).toBe(upload.frame.sourceSha256);
+          expect(frame.index).toBe(upload.parts.length);
+          upload.parts.push(c.binary(frame.bytes, 32768));
+          if (upload.parts.length !== frame.count) return;
+          const done = upload;
+          upload = null;
+          await finishSave(socket, done.frame, c.concat(...done.parts));
+          return;
+        }
         if (frame.type === 'append' && typeof frame.envelope !== 'string') {
           pending = { frame, parts: [] };
           chunked++;
@@ -716,6 +757,33 @@ async function wire(
         expect(frame.type).toBe('append');
         await append(frame);
       });
+      // A save arrives whole: check its digests, publish it as the one update every peer sees,
+      // then answer the originator, or drop the reply once to model a lost one.
+      async function finishSave(
+        socket: WebSocketRoute,
+        frame: Record<string, unknown>,
+        bytes: Uint8Array,
+      ) {
+        expect(frame.sourceSha256).toBe(c.encodeBinary(await c.digest(bytes)));
+        const source = new TextDecoder().decode(bytes);
+        if (lastSource !== null)
+          expect(frame.baseSha256).toBe(c.encodeBinary(await c.digest(c.text(lastSource))));
+        lastSource = source;
+        await fixture.contentUpdate(source);
+        const operationId = frame.operationId as string;
+        saved.set(operationId, String(entries.length));
+        if (drop) {
+          drop = false;
+          peers.delete(socket);
+          socket.close({ code: 1011 });
+          return;
+        }
+        send(socket, 'saveresult', {
+          operationId,
+          state: 'committed',
+          revision: saved.get(operationId),
+        });
+      }
       async function append(frame: Record<string, unknown>) {
         const row = {
             seq: frame.seq as string,
@@ -756,7 +824,7 @@ async function wire(
       }
     });
   });
-  return {
+  const fixture = {
     head: head.head,
     entries,
     tailBytes,
@@ -778,37 +846,42 @@ async function wire(
       for (const peer of peers) send(peer, 'error', { code: 'RESYNC_REQUIRED' });
     },
     async contentUpdate(source: string) {
-      const writer = new Y.Doc();
-      try {
-        Y.applyUpdate(writer, contentSnapshot);
-        const vector = Y.encodeStateVector(writer);
-        const html = writer.getText('html');
-        writer.transact(() => {
-          html.delete(0, html.length);
-          html.insert(0, source);
-        });
-        const env = await c.Envelope.seal(
-          {
-            space: v.space,
-            page: v.page,
-            epoch,
-            kind: 'update',
-            namespace: 'content',
-            authorDevice: v.device,
-            membershipRevision: String(head.head.revision),
-            streamSeq: String(entries.length + 1),
-            prevHash: c.binary(entries.at(-1)!.envelopeHash, 32, 32),
-          },
-          hex(v.epochKey),
-          signer,
-          new Uint8Array(Y.encodeStateAsUpdate(writer, vector)),
-        );
-        const row = await entry(env);
-        entries.push(row);
-        for (const peer of peers) deliver(peer, 'broadcast', row, { streamId: v.device });
-      } finally {
-        writer.destroy();
-      }
+      const vector = Y.encodeStateVector(liveContent);
+      const html = liveContent.getText('html');
+      // The smallest replaced span, as native preparation publishes it.
+      const old = html.toString();
+      let start = 0;
+      while (start < old.length && start < source.length && old[start] === source[start]) start++;
+      let end = 0;
+      while (
+        end < old.length - start &&
+        end < source.length - start &&
+        old[old.length - 1 - end] === source[source.length - 1 - end]
+      )
+        end++;
+      liveContent.transact(() => {
+        html.delete(start, old.length - start - end);
+        html.insert(start, source.slice(start, source.length - end));
+      });
+      const env = await c.Envelope.seal(
+        {
+          space: v.space,
+          page: v.page,
+          epoch,
+          kind: 'update',
+          namespace: 'content',
+          authorDevice: v.device,
+          membershipRevision: String(head.head.revision),
+          streamSeq: String(entries.length + 1),
+          prevHash: c.binary(entries.at(-1)!.envelopeHash, 32, 32),
+        },
+        hex(v.epochKey),
+        signer,
+        new Uint8Array(Y.encodeStateAsUpdate(liveContent, vector)),
+      );
+      const row = await entry(env);
+      entries.push(row);
+      for (const peer of peers) deliver(peer, 'broadcast', row, { streamId: v.device });
     },
     async ownUpdate() {
       const env = await c.Envelope.seal(
@@ -846,7 +919,11 @@ async function wire(
     async settled() {
       await queue;
     },
+    get statusChecks() {
+      return statusChecks;
+    },
   };
+  return fixture;
 }
 
 async function recoverySdk(context: BrowserContext) {
@@ -1433,13 +1510,21 @@ test('paired checkpoints precede an authenticated interleaved tail, preserve edi
     page.frameLocator('iframe').getByRole('heading', { name: 'After compacted reload' }),
   ).toBeVisible();
   expect(f.entries.at(-1)!.seq).toBe('9');
+  // The reply to this save is lost: the page reconnects and one status request settles it,
+  // with the save committed exactly once and never sent again.
   f.dropNext();
-  await page.getByRole('textbox').fill('<h1>Frozen retry after prune</h1>');
+  await page.getByRole('textbox').fill('<h1>Lost reply settled</h1>');
   await page.getByRole('button', { name: 'Save source' }).click();
-  await expect(page.getByRole('alert')).toContainText('edit was not saved');
+  await expect(
+    page.frameLocator('iframe').getByRole('heading', { name: 'Lost reply settled' }),
+  ).toBeVisible();
+  await expect(page.getByRole('alert')).toHaveCount(0);
+  await f.settled();
+  expect(f.statusChecks).toBe(1);
+  expect(f.entries.at(-1)!.seq).toBe('10');
   await page.reload();
   await page.getByRole('button', { name: 'Source', exact: true }).click();
-  await expect(page.getByRole('textbox')).toHaveValue('<h1>Frozen retry after prune</h1>');
+  await expect(page.getByRole('textbox')).toHaveValue('<h1>Lost reply settled</h1>');
   await page.getByRole('textbox').fill('<h1>After compacted reload</h1>');
   await page.getByRole('button', { name: 'Save source' }).click();
   await expect(
@@ -1447,7 +1532,7 @@ test('paired checkpoints precede an authenticated interleaved tail, preserve edi
   ).toBeVisible();
   await expect(page.getByRole('button', { name: 'Save source' })).toBeDisabled();
   await f.settled();
-  expect(f.retries).toBe(1);
+  expect(f.statusChecks).toBe(1);
   expect(f.entries.at(-1)!.seq).toBe('11');
   const before = f.hellos;
   f.resync();

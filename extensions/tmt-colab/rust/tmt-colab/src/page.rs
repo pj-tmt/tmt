@@ -1,6 +1,7 @@
 //! Root-local source access: isolated preparation, then fenced ciphertext commit.
 pub mod compact;
 pub mod ipc;
+pub mod save;
 use crate::{
     Result,
     decoder::{Decoder, MemoryLimit},
@@ -325,18 +326,57 @@ impl FrozenPublication {
         &self.chain
     }
 }
-pub fn prepare_publication(
+/// What a caller requires of the page, or supplies, before a source replacement is prepared.
+/// `Option<&str>` converts to the revision-only form the CLI uses.
+#[derive(Clone, Copy, Default)]
+pub struct PublishOptions<'a> {
+    /// Refuse unless the page is at this revision token.
+    pub expected_revision: Option<&'a str>,
+    /// Refuse unless the page's current source has this SHA-256: the browser's editing base.
+    pub base_source_sha256: Option<[u8; 32]>,
+    /// The caller's own operation ID, so it can ask about the original after a lost reply.
+    pub operation_id: Option<&'a str>,
+}
+impl<'a> From<Option<&'a str>> for PublishOptions<'a> {
+    fn from(expected_revision: Option<&'a str>) -> Self {
+        Self {
+            expected_revision,
+            ..Self::default()
+        }
+    }
+}
+/// `prepare_publication_with_clock` at a time the caller already knows.
+pub fn prepare_publication<'a>(
     store: &Store,
     key: &Keyring,
     page: &str,
     edit: crate::decoder::ContentEdit<'_>,
-    expected: Option<&str>,
+    options: impl Into<PublishOptions<'a>>,
     decoder: &mut Decoder,
     now: u64,
 ) -> Result<PublicationPreparation> {
+    prepare_publication_with_clock(store, key, page, edit, options, decoder, &|| Ok(now))
+}
+/// Prepare one publication from a single snapshot of the page. `clock` is read once, after that
+/// snapshot is taken: a certificate another writer issued before the snapshot was taken is issued
+/// no later than the reading, so it is never "from the future" and cannot turn this preparation
+/// into a denial. A certificate issued after the snapshot is not in it, and the commit's fences
+/// refuse the stale base instead.
+pub fn prepare_publication_with_clock<'a>(
+    store: &Store,
+    key: &Keyring,
+    page: &str,
+    edit: crate::decoder::ContentEdit<'_>,
+    options: impl Into<PublishOptions<'a>>,
+    decoder: &mut Decoder,
+    clock: &dyn Fn() -> Result<u64>,
+) -> Result<PublicationPreparation> {
     use crate::{decoder::ContentBatch, publication::PublicationKind};
+    let options = options.into();
     values::generated_id(page)?;
-    values::time(now)?;
+    if let Some(id) = options.operation_id {
+        values::generated_id(id)?;
+    }
     if edit.source.len() > crate::decoder::BASELINE_BYTES {
         return Err(
             SourceTooLarge::exact(edit.source.len(), crate::decoder::BASELINE_BYTES).into(),
@@ -352,11 +392,19 @@ pub fn prepare_publication(
     // recording a terminal rejection for a write that was never going to be admitted.
     let s = snapshot(store, key, page, true)?;
     let revision = token(&key.space_id, page, &s.authority.head, s.epoch, &s.cuts)?;
-    if expected.is_some_and(|r| r != revision) {
+    if options.expected_revision.is_some_and(|r| r != revision) {
         return Err(Fault::StaleBase.into());
     }
+    let now = clock()?;
+    values::time(now)?;
     let author = Author::of(key, &s, now)?;
-    let prepared = s.prepare_content_batch(key, page, edit, decoder)?;
+    let prepared = s.prepare_content_batch(
+        key,
+        page,
+        edit,
+        options.base_source_sha256.as_ref(),
+        decoder,
+    )?;
     let ContentBatch::Updates(updates) = prepared.batch else {
         return Ok(PublicationPreparation::Noop {
             epoch: s.epoch.to_string(),
@@ -376,6 +424,7 @@ pub fn prepare_publication(
             revision,
             source: edit.source,
             memory_limit: prepared.memory_limit,
+            operation_id: options.operation_id,
         },
         now,
     )?;
@@ -409,6 +458,7 @@ pub(crate) fn prepare_own_publication(
             revision,
             source,
             memory_limit,
+            operation_id: None,
         },
         now,
     )
@@ -506,6 +556,8 @@ struct Sealing<'a> {
     revision: String,
     source: &'a str,
     memory_limit: MemoryLimit,
+    /// The caller's own operation ID; a fresh one when absent.
+    operation_id: Option<&'a str>,
 }
 /// Seals, signs and verifies the exact bytes of one publication of `kind`.
 fn freeze(
@@ -523,6 +575,7 @@ fn freeze(
         revision,
         source,
         memory_limit,
+        operation_id,
     } = sealing;
     let Author { id, sign, existing } = author;
     let issuer = s.genesis_hash()?;
@@ -585,7 +638,10 @@ fn freeze(
     }
     let manifest = Manifest {
         version: 1,
-        operation_id: fresh_id()?,
+        operation_id: match operation_id {
+            Some(given) => given.to_owned(),
+            None => fresh_id()?,
+        },
         space_id: key.space_id.clone(),
         page_id: page.into(),
         epoch: s.epoch.to_string(),
@@ -850,6 +906,29 @@ pub fn commit_publication(
     })
 }
 /// Observational original-key lookup; never issues or persists a certificate or UNKNOWN.
+/// Read-only: what this page's root-local stream recorded for a caller-chosen operation ID.
+/// `None` means the original never reached a terminal outcome here, so nothing was committed.
+pub fn publication_status_by_operation(
+    store: &Store,
+    key: &Keyring,
+    page: &str,
+    operation_id: &str,
+) -> Result<Option<PublicationRecord>> {
+    values::generated_id(page)?;
+    let (stream, _, _) = key.local_writer()?;
+    store.owner_read(&key.space_id, &key.owner_public(), |tx| {
+        let Some(original) = tx.publication_key_by_operation(page, &stream, operation_id)? else {
+            return Ok(None);
+        };
+        let bytes = tx
+            .saved_publication(&original, None)?
+            .ok_or(Fault::Invalid)?;
+        Ok(Some(PublicationRecord {
+            outcome: crate::publication::Outcome::from_json(&bytes, &original, None)?,
+            bytes,
+        }))
+    })
+}
 pub fn publication_status(
     store: &Store,
     key: &Keyring,

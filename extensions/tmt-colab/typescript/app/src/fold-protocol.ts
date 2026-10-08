@@ -15,7 +15,6 @@ export type OwnRoot = 'threads' | 'intents' | 'messages' | 'replies';
 export type FoldCommand =
   | { type: 'apply' | 'check'; updates: Uint8Array[]; own?: OwnUpdate[] }
   | { type: 'checkpoint'; update: Uint8Array; writer?: string }
-  | { type: 'prepare'; source: string; base?: string }
   | {
       type: 'prepare-own';
       writer: string;

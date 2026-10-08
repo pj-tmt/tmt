@@ -48,6 +48,8 @@ import { PageDrawer } from './page-drawer.js';
 import { AgentStatusPanel } from './agent-status-panel.js';
 import { ChatPanel } from './chat-panel.js';
 import { isChatThread } from './thread-records.js';
+import { SaveOutcomeUnknown, saveMessage } from './save.js';
+import { SaveNotice, type SaveProblem } from './save-notice.js';
 
 function SelectionAnnotation({
   host,
@@ -544,7 +546,7 @@ function Page() {
     [saving, setSaving] = useState(false);
   const [liveError, setLiveError] = useState<Error | null>(null),
     [eviction, setEviction] = useState<SessionEvictedError | null>(null),
-    [editError, setEditError] = useState<string | null>(null);
+    [editError, setEditError] = useState<SaveProblem | null>(null);
   const recoveryRequired = liveError instanceof RecoveryRequiredError;
   useEffect(() => {
     dirty.current = false;
@@ -590,8 +592,11 @@ function Page() {
       dirty.current = false;
       base.current = latest.current.source;
       setDraft(latest.current.source);
-    } catch {
-      setEditError(text.editFailed);
+    } catch (error) {
+      setEditError({
+        message: saveMessage(error),
+        unconfirmed: error instanceof SaveOutcomeUnknown,
+      });
     } finally {
       setSaving(false);
     }
@@ -1180,6 +1185,7 @@ function Page() {
               </button>
             )}
           </span>
+          {editError && <SaveNotice problem={editError} />}
           <textarea
             id="source-edit"
             readOnly={!snapshot.binding || saving || !!liveError}
@@ -1190,7 +1196,6 @@ function Page() {
               setDraft(event.target.value);
             }}
           />
-          {editError && <p role="alert">{editError}</p>}
         </div>
       </PageDrawer>
       <PageDrawer

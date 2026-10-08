@@ -10,6 +10,7 @@ import type {
   ContentPreparation,
   ContentSnapshot,
 } from '../src/fold-protocol.js';
+import { contentBase, updatesOf } from './content-base.js';
 const v = JSON.parse(
   readFileSync(new URL('../../../contracts/vectors/own-v1.json', import.meta.url), 'utf8'),
 );
@@ -56,20 +57,29 @@ it('matches native raw own projections and isolates colliding keys and client ID
   expect(final.own[a]).toEqual(v.expected);
   expect(final.own[b]).toEqual(v.expectedPrefix);
   expect(final.source).toBe('');
-  const edit = await run({ type: 'prepare', source: 'content only' });
-  const content = await run({ type: 'apply', updates: [edit.update] });
+  const edit = await run({
+    type: 'prepare-content',
+    source: 'content only',
+    base: contentBase(final),
+  });
+  const content = await run({ type: 'apply', updates: updatesOf(edit) });
   expect(content.source).toBe('content only');
   expect(content.own).toEqual(final.own);
 });
 it('checks do not commit own drafts and failed combined candidates change no committed document', async () => {
   const run = await worker();
   await run({ type: 'check', updates: [], own: [{ writer: a, update: bytes(v.checkpoint) }] });
-  expect((await run({ type: 'apply', updates: [] })).own).toEqual({});
-  const edit = await run({ type: 'prepare', source: 'must not commit' });
+  const unchanged = await run({ type: 'apply', updates: [] });
+  expect(unchanged.own).toEqual({});
+  const edit = await run({
+    type: 'prepare-content',
+    source: 'must not commit',
+    base: contentBase(unchanged),
+  });
   await expect(
     run({
       type: 'apply',
-      updates: [edit.update],
+      updates: updatesOf(edit),
       own: [{ writer: a, update: bytes(v.negative[0].update) }],
     }),
   ).rejects.toThrow();

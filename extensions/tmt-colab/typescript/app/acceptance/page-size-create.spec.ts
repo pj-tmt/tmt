@@ -42,6 +42,11 @@ test('a 1.5 MiB page creates, opens in the browser and takes edits from both sid
       el.dispatchEvent(new Event('input', { bubbles: true }));
     }, browserEdit);
     await page.getByRole('button', { name: 'Save source', exact: true }).click();
+    // The save is done when the editor leaves "Saving…": the serve then has combined the new tail,
+    // so the CLI write below starts from the page as it will stay.
+    await expect(page.getByRole('button', { name: 'Saving…', exact: true })).toHaveCount(0, {
+      timeout: 120_000,
+    });
     await expect(page.getByRole('alert')).toHaveCount(0);
     await expect.poll(() => read(created.pageId).source === browserEdit).toBe(true);
 

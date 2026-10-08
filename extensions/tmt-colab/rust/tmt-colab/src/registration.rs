@@ -159,6 +159,7 @@ pub struct Registration {
     engine: Engine,
     readers: crate::readers::Sessions,
     reader_clock: std::sync::Arc<dyn Fn() -> std::result::Result<u64, Code> + Send + Sync>,
+    save_source: Option<crate::page::save::SourceOpener>,
 }
 impl Registration {
     pub fn new(
@@ -179,6 +180,7 @@ impl Registration {
             engine: Engine::with_decoder_config(decoder_config)?,
             readers: Default::default(),
             reader_clock: std::sync::Arc::new(now_ms),
+            save_source: None,
         })
     }
     /// Server-owned reader clock, injected for deterministic expiry verification.
@@ -331,6 +333,32 @@ impl Registration {
         .then(|| crate::page::revision(&self.store, &self.keyring, &job.manifest.page_id).ok())
         .flatten();
         Ok((committed, revision))
+    }
+    /// What the root-local stream recorded for an operation a browser Save chose. Read-only.
+    pub(crate) fn save_status(
+        &self,
+        page: &str,
+        operation_id: &str,
+    ) -> crate::Result<crate::page::save::SaveResult> {
+        crate::page::save::SaveResult::recorded(
+            operation_id,
+            crate::page::publication_status_by_operation(
+                &self.store,
+                &self.keyring,
+                page,
+                operation_id,
+            )?,
+        )
+    }
+    /// Where a browser Save gets a snapshot of its own to prepare from, outside every lock.
+    pub(crate) fn save_source(&self) -> Option<crate::page::save::SourceOpener> {
+        self.save_source.clone()
+    }
+    /// The serve supplies how to open a fresh read-only store, keyring and decoder, so that a
+    /// large preparation never holds the writer or the sync mutex.
+    pub fn with_save_source(mut self, open: crate::page::save::SourceOpener) -> Self {
+        self.save_source = Some(open);
+        self
     }
     pub(crate) fn management_device(
         &mut self,
@@ -611,6 +639,39 @@ impl Registration {
 /// The pinned local management member represents the owner across local pages.
 pub struct OwnerAdmission(pub std::sync::Arc<std::sync::Mutex<Registration>>);
 impl crate::sync::Admission for OwnerAdmission {
+    fn save_source(&self) -> Option<crate::page::save::SourceOpener> {
+        self.0.lock().ok()?.save_source()
+    }
+    fn save_author(&self) -> crate::Result<[u8; 32]> {
+        self.0
+            .lock()
+            .map_err(|_| crate::page::Fault::Unavailable)?
+            .author_key()
+    }
+    fn commit_save(
+        &mut self,
+        job: &crate::publication::SignedJob,
+        packet: &[u8],
+        chain: &[u8],
+        now: u64,
+        combine_until: std::time::Instant,
+    ) -> crate::Result<(crate::page::PublicationCommitted, Option<String>)> {
+        self.0
+            .lock()
+            .map_err(|_| crate::page::Fault::Unavailable)?
+            .publish(job, packet, chain, now, combine_until)
+    }
+    fn save_status(
+        &self,
+        page: &str,
+        operation_id: &str,
+    ) -> crate::Result<crate::page::save::SaveResult> {
+        self.0
+            .lock()
+            .map_err(|_| crate::page::Fault::Unavailable)?
+            .save_status(page, operation_id)
+    }
+
     fn alive(&self, principal: &str) -> std::result::Result<(), crate::sync::Code> {
         let service = self.0.lock().map_err(|_| crate::sync::Code::Denied)?;
         if service.readers.contains(principal) {

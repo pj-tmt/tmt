@@ -170,6 +170,40 @@ impl OwnerTransaction<'_> {
     pub(crate) fn saved_operation(&self, id: &str, digest: &[u8; 32]) -> Result<Option<Vec<u8>>> {
         legacy_operation(self.tx, id, digest)
     }
+    /// The original key of this operation if this writer's stream recorded it for this page. A
+    /// caller that chose the ID learns the job digest here, which only the preparing side knew.
+    pub(crate) fn publication_key_by_operation(
+        &self,
+        page: &str,
+        stream: &str,
+        operation_id: &str,
+    ) -> Result<Option<crate::publication::JobKey>> {
+        values::generated_id(operation_id)?;
+        let row: Option<(Vec<u8>, String, String)> = self
+            .tx
+            .query_row(
+                "SELECT digest,space,original_epoch FROM owner_operations
+                 WHERE id=? AND publication_kind='content' AND page=? AND original_stream=?
+                   AND typeof(digest)='blob' AND length(digest)=32
+                   AND typeof(space)='text' AND typeof(original_epoch)='text'",
+                params![operation_id, page, stream],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            )
+            .optional()?;
+        let Some((digest, space, epoch)) = row else {
+            return Ok(None);
+        };
+        let key = crate::publication::JobKey {
+            operation_id: operation_id.into(),
+            job_digest: values::encode_binary(&digest),
+            space_id: space,
+            page_id: page.into(),
+            original_epoch: epoch,
+            stream_id: stream.into(),
+        };
+        key.validate().map_err(|_| OwnerFault::Invalid)?;
+        Ok(Some(key))
+    }
     pub(crate) fn saved_publication(
         &self,
         key: &crate::publication::JobKey,
