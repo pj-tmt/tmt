@@ -92,7 +92,9 @@ drive direct Chat (`composeChat`, `sendChat`, `askEntry`, `askState`) and run ag
 Remote stores sessions and door cookies in memory. The mounted owner can replace a verified
 ended Session after a restart without a reload.
 The cases admit that in-place recovery or the page's explicit Reconnect action before checking
-the original Ask outcome. The restored ask is observed read-only under its original operation ID: accepted, or uncertain
+the original Ask outcome. They observe a fresh successful mounted device registration after
+Remote dies, then require live status and no stopped preview; an old iframe is not recovery.
+The restored ask is observed read-only under its original operation ID: accepted, or uncertain
 with abandon recorded as `MAY_HAVE_BEEN_DELIVERED`, never a second dispatch. An in-flight send
 stays "dispatching" until the SDK deadline, so a case reconnects instead of waiting for it.
 The held case waits for a Remote-provided hold fixture, with held behavior covered by unit

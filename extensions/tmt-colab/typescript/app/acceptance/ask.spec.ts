@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page, type Response } from '@playwright/test';
 import { pairBrowser, restartColab, restartRemote, startDoor } from './harness/browser.js';
 import {
   askEntry,
@@ -29,18 +29,37 @@ import type { AcceptanceWorld } from './harness/world.js';
 
 const PAGE_HTML = '<h1>Ask acceptance</h1><p id="quote">Exact selected sentence for the agent.</p>';
 
-/** Current mounted-owner recovery may finish without showing a manual control. */
-async function reconnect(page: Page) {
+/** Arm before Remote dies; a fresh mounted registration proves post-restart recovery. */
+function restartRecovery(page: Page) {
   const control = page.getByRole('button', { name: 'Reconnect', exact: true });
   const content = page.frameLocator('iframe').getByRole('heading', { name: 'Ask acceptance' });
-  await expect
-    .poll(async () => (await content.isVisible()) || (await control.isVisible()), {
-      timeout: 60_000,
-    })
-    .toBe(true);
-  if (await control.isVisible()) await control.click();
-  await expect(content).toBeVisible({ timeout: 60_000 });
-  await openChat(page);
+  let registered = false;
+  const observe = (response: Response) => {
+    if (
+      new URL(response.url()).pathname.endsWith('/api/devices/register') &&
+      response.request().method() === 'POST' &&
+      response.status() === 200
+    )
+      registered = true;
+  };
+  page.on('response', observe);
+  return async () => {
+    try {
+      await expect
+        .poll(async () => registered || (await control.isVisible()), { timeout: 60_000 })
+        .toBe(true);
+      if (await control.isVisible()) await control.click();
+      await expect.poll(() => registered, { timeout: 60_000 }).toBe(true);
+      await expect(page.locator('.status.live .status-label')).toHaveText('Live preview');
+      await expect(page.getByRole('heading', { name: 'Preview stopped', exact: true })).toHaveCount(
+        0,
+      );
+      await expect(content).toBeVisible();
+      await openChat(page);
+    } finally {
+      page.off('response', observe);
+    }
+  };
 }
 
 async function scenario(world: AcceptanceWorld, options: { gated?: boolean } = {}) {
@@ -140,12 +159,13 @@ test.describe('Ask agent real-binary acceptance (#1110)', () => {
       const parked = await world.barrierEntered();
       expect(parked.operationId).toBe(ask.operationId);
       // The real core has accepted; Remote dies before it can answer the browser.
+      const recover = restartRecovery(s.askerPage);
       await s.door.remote.kill();
       world.releaseBarrier();
       await restartRemote(world, s.door);
       // The mounted owner can replace a verified ended Session automatically.
       // Recovery observes the original operation ID read-only, never a resend.
-      await reconnect(s.askerPage);
+      await recover();
       await expect(askEntry(s.askerPage, ask.operationId)).toHaveAttribute(
         'data-ledger-state',
         'accepted',
@@ -169,6 +189,7 @@ test.describe('Ask agent real-binary acceptance (#1110)', () => {
       expect(parked.operationId).toBe(ask.operationId);
       // Remote dies and its parked core launch is killed before the core acts, so
       // nothing is dispatched (releasing it would let the dispatch run).
+      const recover = restartRecovery(s.askerPage);
       await s.door.remote.kill();
       process.kill(parked.pid as number, 'SIGKILL');
       await restartRemote(world, s.door);
@@ -178,7 +199,7 @@ test.describe('Ask agent real-binary acceptance (#1110)', () => {
       expect(s.recipient.received()).toHaveLength(0);
       // The harness records the parked launch before core runs; it has no effect.
       expect(dispatches(world)).toHaveLength(1);
-      await reconnect(s.askerPage);
+      await recover();
       await expect(askState(s.askerPage, ask.operationId)).toHaveAttribute(
         'data-state',
         'uncertain',
