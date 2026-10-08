@@ -41,6 +41,7 @@ import { ShareDialog } from './share-dialog.js';
 import { mountRenderer, MAX_RENDER_SOURCE_BYTES } from './renderer.js';
 import type { RenderState, SelectionRect } from './renderer.js';
 import { text } from './strings.js';
+import { terminalFailure } from './terminal-failure.js';
 import { SessionEvictedError } from './ask-remote.js';
 import { RecoveryRequiredError } from './session-recovery.js';
 import { ExportPanel } from './export-panel.js';
@@ -170,6 +171,24 @@ function SelectionAnnotation({
   );
 }
 const managementChanged = 'Management changed. Reopen the page to load its latest state.';
+
+/** A terminal refusal as a sentence; its raw code stays as a small reference. */
+function TerminalFailure({ error }: { error: Error }) {
+  if (error.message === managementChanged) return <p>{managementChanged}</p>;
+  const { sentence, reference } = terminalFailure(error);
+  return (
+    <>
+      <p>{sentence}</p>
+      {reference && (
+        <p>
+          <small className="failure-reference">
+            {text.failureCodeLabel} <code data-failure-reference>{reference}</code>
+          </small>
+        </p>
+      )}
+    </>
+  );
+}
 
 const root = createRootRouteWithContext<{ transport: PageTransport }>()({
   component: Shell,
@@ -1132,9 +1151,11 @@ function Page() {
                 </>
               ) : (
                 <>
-                  <p>
-                    {liveError?.message ?? (state === 'navigation' ? text.navigation : text.failed)}
-                  </p>
+                  {liveError ? (
+                    <TerminalFailure error={liveError} />
+                  ) : (
+                    <p>{state === 'navigation' ? text.navigation : text.failed}</p>
+                  )}
                   {!liveError &&
                     state === 'failed' &&
                     new TextEncoder().encode(view.source).length > MAX_RENDER_SOURCE_BYTES && (
