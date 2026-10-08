@@ -396,16 +396,7 @@ impl Snapshot {
         })
     }
     pub fn materialize(&self, key: &Keyring, page: &str, decoder: &mut Decoder) -> Result<View> {
-        self.materialize_edit(key, page, decoder, None)
-    }
-    pub fn materialize_edit(
-        &self,
-        key: &Keyring,
-        page: &str,
-        decoder: &mut Decoder,
-        edit: Option<crate::decoder::ContentEdit<'_>>,
-    ) -> Result<View> {
-        self.materialize_with_replacements(key, page, decoder, edit, &BTreeMap::new())
+        self.materialize_with_replacements(key, page, decoder, &BTreeMap::new())
     }
     /// Decode a candidate checkpoint in place of each selected stream's retained objects.
     /// Original objects are still opened and authenticated before the candidate is considered.
@@ -414,11 +405,10 @@ impl Snapshot {
         key: &Keyring,
         page: &str,
         decoder: &mut Decoder,
-        edit: Option<crate::decoder::ContentEdit<'_>>,
         replacements: &BTreeMap<usize, Vec<u8>>,
     ) -> Result<View> {
         self.materialization_input(key, page, decoder, replacements)?
-            .materialize(page, decoder, edit)
+            .materialize(page, decoder)
     }
     /// The verified genesis belongs to the same read snapshot as the page base.
     pub(crate) fn genesis_hash(&self) -> Result<[u8; 32]> {
@@ -433,7 +423,7 @@ impl Snapshot {
         decoder: &mut Decoder,
     ) -> Result<crate::decoder::PreparedContent> {
         let input = self.materialization_input(key, page, decoder, &BTreeMap::new())?;
-        let base = input.materialize(page, decoder, None)?;
+        let base = input.materialize(page, decoder)?;
         // A caller that edited from a source it saw refuses to overwrite a different one.
         if base_sha256.is_some_and(|d| *d != crypto::digest(base.source.as_bytes())) {
             return Err(crate::page::Fault::StaleBase.into());
@@ -632,12 +622,7 @@ impl MaterializationInput {
         }
         Ok(())
     }
-    fn materialize(
-        &self,
-        page: &str,
-        decoder: &mut Decoder,
-        edit: Option<crate::decoder::ContentEdit<'_>>,
-    ) -> Result<View> {
+    fn materialize(&self, page: &str, decoder: &mut Decoder) -> Result<View> {
         let Self {
             baseline,
             updates,
@@ -649,33 +634,6 @@ impl MaterializationInput {
         } = self;
         let state =
             checked_bytes(std::iter::once(baseline.len()).chain(updates.iter().map(Vec::len)))?;
-        if edit.is_some() {
-            // Legacy edits refuse an already full retained tail before decoding. Batch
-            // preparation decides Noop first and admits only its actual added deltas.
-            let detail = if self.tail_count >= crate::decoder::WRITE_TAIL_UPDATES {
-                Some(format!(
-                    "it has {} changes, the most one page can hold",
-                    count(self.tail_count)
-                ))
-            } else if self.tail_bytes >= crate::decoder::WRITE_TAIL_BYTES {
-                Some(format!(
-                    "its changes add up to {}; one page holds at most {}",
-                    size(self.tail_bytes),
-                    size(crate::decoder::WRITE_TAIL_BYTES)
-                ))
-            } else if baseline.len() > crate::decoder::BASELINE_BYTES {
-                Some(format!(
-                    "its content is {}, the most one page can hold is {}",
-                    size(baseline.len()),
-                    size(crate::decoder::BASELINE_BYTES)
-                ))
-            } else {
-                None
-            };
-            if let Some(detail) = detail {
-                return Err(OwnerFault::too_large_to_edit(page, detail).into());
-            }
-        }
         if state > crate::decoder::STATE_BYTES {
             return Err(OwnerFault::too_large(
                 page,
@@ -731,51 +689,26 @@ impl MaterializationInput {
             baseline,
             updates: &refs,
         };
-        let folded = if let Some(edit) = edit {
-            decoder
-                .prepare(batch, edit, None)
-                .map_err(|fault| match fault {
-                    // A source bigger than one update can carry replaces more than one update holds.
-                    DecodeFault::Rejected
-                        if edit.source.len() > crate::decoder::UPDATE_BYTES - 1024 =>
-                    {
-                        OwnerFault::too_large_to_edit(
-                            page,
-                            format!(
-                                "this edit changes more than the {} one change can carry; make it in smaller steps",
-                                size(crate::decoder::UPDATE_BYTES)
-                            ),
-                        )
-                        .into()
-                    }
-                    other => Box::<dyn std::error::Error + Send + Sync>::from(other),
-                })?
-        } else {
-            decoder
-                .decode(batch, Role::Editor, None)
-                .map_err(|fault| match fault {
-                    // The decoder's own deadline is the containment; say which page hit it.
-                    DecodeFault::Invoke(ref invoke)
-                        if invoke.kind == tmt_invoke::FailureKind::Deadline =>
-                    {
-                        OwnerFault::too_large(
-                            page,
-                            format!(
-                                "decoding its {} changes ({}) did not finish within {} s",
-                                count(updates.len()),
-                                size(state),
-                                crate::decoder::DEADLINE.as_secs()
-                            ),
-                        )
-                        .into()
-                    }
-                    other => Box::<dyn std::error::Error + Send + Sync>::from(other),
-                })?
-        };
-        if edit.is_some() {
-            self.admit_deltas(page, 1, folded.merged.len())?;
-            self.admit_gzip(page, std::iter::once(folded.merged.as_slice()))?;
-        }
+        let folded = decoder
+            .decode(batch, Role::Editor, None)
+            .map_err(|fault| match fault {
+                // The decoder's own deadline is the containment; say which page hit it.
+                DecodeFault::Invoke(ref invoke)
+                    if invoke.kind == tmt_invoke::FailureKind::Deadline =>
+                {
+                    OwnerFault::too_large(
+                        page,
+                        format!(
+                            "decoding its {} changes ({}) did not finish within {} s",
+                            count(updates.len()),
+                            size(state),
+                            crate::decoder::DEADLINE.as_secs()
+                        ),
+                    )
+                    .into()
+                }
+                other => Box::<dyn std::error::Error + Send + Sync>::from(other),
+            })?;
         Ok(View {
             creation_recipient: folded.projection["meta"]
                 .get("creationRecipient")

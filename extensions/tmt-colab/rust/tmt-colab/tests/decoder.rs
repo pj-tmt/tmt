@@ -998,14 +998,17 @@ fn publisher_metadata_updates_and_unknown_cli_edits_clear_it() {
         )
         .unwrap();
     let mut update = baseline.update;
+    let mut base =
+        serde_json::json!({"html":"before","meta":{"title":"Title","publisherAgent":"publisher"}});
     for (source, publisher) in [("after", Some("next-agent")), ("after", None)] {
         let edited = decoder
-            .prepare(
+            .prepare_content_batch(
                 UpdateBatch {
                     namespace: Namespace::Content,
                     baseline: &update,
                     updates: &[],
                 },
+                &base,
                 ContentEdit {
                     source,
                     publisher_agent: publisher,
@@ -1013,12 +1016,16 @@ fn publisher_metadata_updates_and_unknown_cli_edits_clear_it() {
                 None,
             )
             .unwrap();
+        let tmt_colab::decoder::ContentBatch::Updates(updates) = &edited.batch else {
+            panic!("publisher change must produce causal updates");
+        };
+        let refs = updates.iter().map(Vec::as_slice).collect::<Vec<_>>();
         let folded = decoder
             .decode(
                 UpdateBatch {
                     namespace: Namespace::Content,
                     baseline: &update,
-                    updates: &[&edited.merged],
+                    updates: &refs,
                 },
                 Role::Editor,
                 None,
@@ -1031,7 +1038,10 @@ fn publisher_metadata_updates_and_unknown_cli_edits_clear_it() {
         );
         let doc = Doc::new();
         apply_baseline(&doc, &update);
-        apply_baseline(&doc, &edited.merged);
+        for delta in updates {
+            apply_baseline(&doc, delta);
+        }
+        base = folded.projection;
         update = doc
             .transact()
             .encode_state_as_update_v1(&yrs::StateVector::default());
@@ -1039,12 +1049,13 @@ fn publisher_metadata_updates_and_unknown_cli_edits_clear_it() {
     for invalid in ["".to_owned(), "x".repeat(129), "line\nbreak".to_owned()] {
         assert!(
             decoder
-                .prepare(
+                .prepare_content_batch(
                     UpdateBatch {
                         namespace: Namespace::Content,
                         baseline: &update,
                         updates: &[]
                     },
+                    &base,
                     ContentEdit {
                         source: "after",
                         publisher_agent: Some(&invalid)
@@ -1203,12 +1214,13 @@ fn creation_recipient_survives_chunked_baselines_and_known_or_unknown_source_edi
         gone(folded.child_pid);
         for publisher in [Some("later-agent"), None] {
             let prepared = decoder
-                .prepare(
+                .prepare_content_batch(
                     UpdateBatch {
                         namespace: Namespace::Content,
                         baseline: &merged,
                         updates: &[],
                     },
+                    &folded.projection,
                     ContentEdit {
                         source: "later",
                         publisher_agent: publisher,
@@ -1216,12 +1228,16 @@ fn creation_recipient_survives_chunked_baselines_and_known_or_unknown_source_edi
                     None,
                 )
                 .unwrap();
+            let tmt_colab::decoder::ContentBatch::Updates(updates) = &prepared.batch else {
+                panic!("source replacement must produce causal updates");
+            };
+            let refs = updates.iter().map(Vec::as_slice).collect::<Vec<_>>();
             let folded = decoder
                 .decode(
                     UpdateBatch {
                         namespace: Namespace::Content,
                         baseline: &merged,
-                        updates: &[&prepared.merged],
+                        updates: &refs,
                     },
                     Role::Editor,
                     None,
