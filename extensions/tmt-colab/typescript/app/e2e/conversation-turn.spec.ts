@@ -269,7 +269,7 @@ test('mention tokens use the same neutral styling before and after explicit send
   await input.fill('@');
   await page.getByRole('option').first().click();
   await input.press('End');
-  await page.keyboard.type('Explain this.');
+  await page.keyboard.type('Explain this. @someone');
   const token = input.locator('.message-mention');
   await expect(token).toHaveText('@Agent 1');
   const before = await token.evaluate((node) => {
@@ -282,8 +282,9 @@ test('mention tokens use the same neutral styling before and after explicit send
   const thread = page.getByTestId('comment-thread');
   await expect(thread).toHaveAttribute('data-layout', 'anchored');
   await expect(input).toHaveAttribute('id', id!);
-  await expect(thread.locator('.comment-body')).toHaveText('@Agent 1 Explain this.');
+  await expect(thread.locator('.comment-body')).toHaveText('@Agent 1 Explain this. @someone');
   const sent = thread.locator('.comment-body .message-mention');
+  await expect(sent).toHaveCount(1);
   await expect(sent).toHaveText('@Agent 1');
   expect(
     await sent.evaluate((node) => {

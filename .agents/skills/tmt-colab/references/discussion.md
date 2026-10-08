@@ -53,7 +53,8 @@ owns record fields, limits, revision semantics and trust boundaries.
   shared flat message markup: neutral 1px row rules, muted author/time and an agent
   3px ink rail. Status and trusted text actions share the meta line's right side;
   they wrap together at narrow widths. `components/message-text.tsx` and Lexical
-  mention nodes share a cosmetic grey token style; display labels grant no routing
+  mention nodes share a cosmetic grey token style. Sent text marks only supplied
+  bound recipient names; other `@text` remains plain. Display labels grant no routing
   authority. `conversationAsks` owns admitted comment/Ask association, reply defaults
   and captured context; `CommentExchange` presents it on both surfaces. A reply,
   including an empty one, removes pending status and delivery actions.
