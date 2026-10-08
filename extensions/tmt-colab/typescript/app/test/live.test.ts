@@ -38,7 +38,7 @@ const connectionPlans = vi.hoisted(
     [] as {
       ready: Promise<PageView>;
       constructed(): void;
-      closed(): void;
+      closed(error?: Error): void;
     }[],
 );
 const saves = vi.hoisted(() => ({ save: vi.fn(), status: vi.fn() }));
@@ -1334,6 +1334,67 @@ it('a fresh typed session refusal alone permits a successful reload fallback wit
     expectNoRecoveryMutations(h.remote);
   } finally {
     h.live.close();
+  }
+});
+
+it.each(['disposed', 'evicted'] as const)(
+  'a %s replacement during verified publication cannot report explicit recovery success',
+  async (state) => {
+    const h = heldResync();
+    try {
+      await h.live.snapshot();
+      const oldWriter = writers.at(-1)!;
+      let armed = false;
+      h.live.subscribe(
+        () => {
+          if (!armed || writers.at(-1) === oldWriter) return;
+          armed = false;
+          if (state === 'disposed') h.live.close();
+          else connections.at(-1)!.failed(new SessionEvictedError(8));
+        },
+        () => {},
+      );
+      h.reconnect.mockRejectedValueOnce(new TypeError('Failed to fetch'));
+      connections.at(-1)!.failed(new SessionEndedError('REMOTE_SESSION_ENDED'));
+      await expect(h.live.snapshot()).rejects.toBeInstanceOf(RecoveryRequiredError);
+      armed = true;
+      expect(await h.live.reconnect()).toBe(false);
+      expect(h.recover).not.toHaveBeenCalled();
+      expect(connections.at(-1)!.close).toHaveBeenCalledOnce();
+      expectNoRecoveryMutations(h.remote);
+    } finally {
+      h.live.close();
+    }
+  },
+);
+
+it('an admitted fresh-session end preserves its typed readiness refusal for the reload fallback', async () => {
+  const h = heldResync();
+  try {
+    await h.live.snapshot();
+    h.reconnect.mockRejectedValueOnce(new TypeError('Failed to fetch'));
+    connections.at(-1)!.failed(new SessionEndedError('REMOTE_SESSION_ENDED'));
+    await expect(h.live.snapshot()).rejects.toBeInstanceOf(RecoveryRequiredError);
+    connectionPlans.push({
+      ready: h.ready,
+      constructed: h.constructed,
+      closed: (error) => h.reject(error!),
+    });
+    h.recover.mockResolvedValueOnce(true);
+    const attempt = h.live.reconnect();
+    await h.created;
+    const pending = connections.at(-1)!;
+    asks.instances.at(-1)!.options.sessionEnded?.();
+    const failure = h.failed.mock.calls.at(-1)![0];
+    expect(failure).toBeInstanceOf(RecoveryRequiredError);
+    expect(failure.cause).toBeInstanceOf(SessionEndedError);
+    expect(pending.close).toHaveBeenCalledExactlyOnceWith(failure.cause);
+    expect(await attempt).toBe(true);
+    expect(h.recover).toHaveBeenCalledOnce();
+    expectNoRecoveryMutations(h.remote);
+  } finally {
+    h.live.close();
+    h.release({ source: 'unused', title: 'Unused' });
   }
 });
 

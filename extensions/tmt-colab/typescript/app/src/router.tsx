@@ -632,12 +632,12 @@ function Page() {
   const [reconnectFailed, setReconnectFailed] = useState(false);
   async function reconnect() {
     if (reconnecting) return;
+    const interrupted = liveError;
     setReconnecting(true);
     setReconnectFailed(false);
     try {
       if (await snapshot.binding?.reconnect?.()) {
-        setLiveError(null);
-        setEviction(null);
+        setLiveError((error) => (error === interrupted ? null : error));
       } else setReconnectFailed(true);
     } catch {
       setReconnectFailed(true);

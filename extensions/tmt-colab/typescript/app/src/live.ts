@@ -424,6 +424,7 @@ export class Live implements PageBinding {
     } else this.#block(error);
   }
   #block(error: Error) {
+    const failure = error;
     // Connection's single socket.onerror/onclose handler owns this opaque
     // message; keep its normalization here while the sync socket owner evolves.
     if (
@@ -446,7 +447,7 @@ export class Live implements PageBinding {
     this.ask?.close();
     this.ask = undefined;
     this.#writer.close();
-    connection?.close();
+    connection?.close(failure);
     this.#listeners.forEach((v) => v.failed(error));
   }
   async snapshot(): Promise<PageSnapshot> {
@@ -573,7 +574,7 @@ export class Live implements PageBinding {
             listener.publish(structuredClone(this.#projection)),
           );
           this.#observe();
-          return true;
+          return this.#owns(open) && !this.#error;
         } catch (error) {
           if (this.#closed) return false;
           if (this.#owns(open))
