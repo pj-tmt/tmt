@@ -91,11 +91,11 @@ impl Worker {
                 bodies: BTreeMap::new(),
                 fetch: fetcher(),
             };
-            // The board's pane and ops.toml's place never change, so both
-            // are read once.
+            // Caller identity stays fixed; the watched config can promote to Ops.
             let caller = crate::me::caller(&initial).ok().flatten();
             let mut changes =
                 Changes::new(Config::locate(&initial).ok(), provider::Cache::directory());
+            let mut migration_notice = core.paths.board_notice();
             let mut history = super::rate::history::Cache::default();
             let mut places = super::cronboard::Places::new(crate::effects::tmux_socket());
             serve(
@@ -110,8 +110,18 @@ impl Worker {
                 },
                 CHECK_EVERY,
                 &read_generation.number,
-                |generation| {
-                    changes.stamp(&core.cancellable(read_generation.cancellation(generation)))
+                |generation, automatic| {
+                    let notice = core.paths.board_notice();
+                    if notice != migration_notice {
+                        migration_notice = notice.clone();
+                        let _ = events.send(super::BoardEvent::Migration(notice));
+                    }
+                    changes.retarget(Config::locate(&core).ok());
+                    if automatic {
+                        changes.stamp(&core.cancellable(read_generation.cancellation(generation)))
+                    } else {
+                        changes.layout_stamp()
+                    }
                 },
                 |wanted, generation, preview_panes, opening| {
                     load(
@@ -469,7 +479,7 @@ fn serve(
     mut publish: impl FnMut(Snapshot, u64) -> bool,
     check_every: Duration,
     generation: &AtomicU64,
-    mut stamp: impl FnMut(u64) -> Stamp,
+    mut stamp: impl FnMut(u64, bool) -> Stamp,
     mut load: impl FnMut(Option<String>, u64, bool, bool) -> Loaded,
     mut deferred: impl FnMut(Deferred, u64) -> bool,
 ) {
@@ -484,7 +494,12 @@ fn serve(
         let received = match pending.recv_timeout(wait) {
             Ok(wanted) => wanted,
             Err(RecvTimeoutError::Timeout) => match &last {
-                Some((reload, true, seen)) if seen.moved(&stamp(reload.generation)) => {
+                Some((reload, automatic, seen))
+                    if {
+                        let now = stamp(reload.generation, *automatic);
+                        seen.layout_moved(&now) || (*automatic && seen.moved(&now))
+                    } =>
+                {
                     Work::Reload(reload.clone())
                 }
                 _ => {
@@ -537,7 +552,7 @@ fn serve(
         };
         // Reloads take priority; their snapshot schedules a fresh selected read.
         // Taken before the load, so a change during it shows at the next check.
-        let seen = stamp(wanted.generation);
+        let seen = stamp(wanted.generation, true);
         if generation.load(Ordering::Acquire) != wanted.generation {
             continue;
         }
@@ -1095,7 +1110,7 @@ mod tests {
                 |snapshot, _| sender.send(snapshot).is_ok(),
                 Duration::from_millis(10),
                 &AtomicU64::new(0),
-                |_| Stamp::cursor(read.load(Ordering::SeqCst)),
+                |_, _| Stamp::cursor(read.load(Ordering::SeqCst)),
                 |wanted, _, _, _| {
                     let _ = loaded.send(wanted.clone());
                     let mut snapshot = crate::board::app::tests::snapshot(
@@ -1145,7 +1160,7 @@ mod tests {
             |_, _| panic!("no reload"),
             Duration::from_secs(1),
             &AtomicU64::new(2),
-            |_| Stamp::cursor(0),
+            |_, _| Stamp::cursor(0),
             |_, _, _, _| panic!("no reload"),
             |job, _| {
                 let Deferred::Checklist(task) = job else {
@@ -1327,7 +1342,7 @@ printf '%s\n' '{{}}'
             },
             CHECK_EVERY,
             &generation,
-            |_| Stamp::cursor(0),
+            |_, _| Stamp::cursor(0),
             |_, _, _, _| Loaded::only(crate::board::app::tests::snapshot("product", json!([]))),
             |job, expected| {
                 let Deferred::Selected {
@@ -1358,7 +1373,7 @@ printf '%s\n' '{{}}'
             |_, _| panic!("no snapshot"),
             CHECK_EVERY,
             &generation,
-            |_| Stamp::cursor(0),
+            |_, _| Stamp::cursor(0),
             |_, _, _, _| panic!("no load"),
             |_, _| panic!("no read"),
         );
@@ -1825,7 +1840,7 @@ esac
         assert_eq!(loads.recv_timeout(WAIT), Ok(Some("infra".into())));
     }
 
-    /// `refresh = "off"` means ctrl-r and actions only: no early reload either.
+    /// Ordinary record changes cannot reload a refresh-off view.
     #[test]
     fn a_view_with_automatic_reload_off_is_never_reloaded_early() {
         use std::sync::atomic::Ordering;
@@ -1848,6 +1863,54 @@ esac
             }))
             .unwrap();
         assert_eq!(loads.recv_timeout(WAIT), Ok(Some("product".into())));
+    }
+
+    #[test]
+    fn layout_promotion_reloads_once_even_with_automatic_refresh_off() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        let (requests, pending) = mpsc::channel();
+        let (loaded, loads) = mpsc::channel();
+        let promoted = Arc::new(AtomicBool::new(false));
+        let read = promoted.clone();
+        let worker = std::thread::spawn(move || {
+            serve(
+                &pending,
+                |_, _| true,
+                Duration::from_millis(10),
+                &AtomicU64::new(0),
+                |_, _| {
+                    Stamp::cursor(1).with_layout(if read.load(Ordering::Acquire) {
+                        "ops.toml"
+                    } else {
+                        "squad.toml"
+                    })
+                },
+                |wanted, _, _, _| {
+                    let mut snapshot =
+                        crate::board::app::tests::snapshot(wanted.as_deref().unwrap(), json!([]));
+                    snapshot.view.as_mut().unwrap().refresh = None;
+                    loaded.send(()).unwrap();
+                    Loaded::only(snapshot)
+                },
+                |_, _| true,
+            );
+        });
+        requests
+            .send(Work::Reload(Reload {
+                squad: Some("product".into()),
+                preview_panes: false,
+                generation: 0,
+            }))
+            .unwrap();
+        loads.recv_timeout(WAIT).unwrap();
+        promoted.store(true, Ordering::Release);
+        loads.recv_timeout(WAIT).unwrap();
+        assert!(
+            loads.recv_timeout(WAIT).is_err(),
+            "promotion reload is not periodic refresh"
+        );
+        drop(requests);
+        worker.join().unwrap();
     }
 
     #[test]
@@ -2061,7 +2124,7 @@ esac
             },
             Duration::from_secs(1),
             &generation,
-            |_| Stamp::cursor(1),
+            |_, _| Stamp::cursor(1),
             |squad, _, _, _| {
                 loaded.push(squad.clone());
                 if squad.as_deref() == Some("old") {
@@ -2116,7 +2179,7 @@ esac
                 },
                 CHECK_EVERY,
                 &generation,
-                |_| Stamp::cursor(0),
+                |_, _| Stamp::cursor(0),
                 |_, _, _, _| {
                     let home = super::super::home::Home {
                         windows: crate::config::TokenWindow::DEFAULTS,
@@ -2177,7 +2240,7 @@ esac
             },
             Duration::from_secs(1),
             &AtomicU64::new(0),
-            |_| Stamp::cursor(1),
+            |_, _| Stamp::cursor(1),
             |_, _, _, _| Loaded {
                 history: None,
                 snapshot: crate::board::app::tests::snapshot("product", json!([])),
@@ -2264,7 +2327,7 @@ esac
             },
             CHECK_EVERY,
             &generation.number,
-            |_| Stamp::cursor(0),
+            |_, _| Stamp::cursor(0),
             |squad, current, _, opening_history| {
                 loads.set(loads.get() + 1);
                 assert_eq!(
@@ -2388,7 +2451,7 @@ esac
                 },
                 CHECK_EVERY,
                 &generation,
-                |_| Stamp::cursor(0),
+                |_, _| Stamp::cursor(0),
                 |_, _, _, _| {
                     let mut loaded =
                         Loaded::only(crate::board::app::tests::snapshot("product", json!([])));
@@ -2485,7 +2548,7 @@ esac
             },
             Duration::from_millis(1),
             &AtomicU64::new(0),
-            |_| Stamp::cursor(1),
+            |_, _| Stamp::cursor(1),
             |wanted, _, _, _| {
                 let mut snapshot =
                     crate::board::app::tests::snapshot(wanted.as_deref().unwrap(), json!([]));
@@ -2535,7 +2598,7 @@ esac
             |_, _| true,
             Duration::from_millis(1),
             &AtomicU64::new(0),
-            |_| Stamp::cursor(1),
+            |_, _| Stamp::cursor(1),
             |wanted, _, _, _| {
                 loads.push(wanted.clone());
                 let mut snapshot =
@@ -2593,7 +2656,7 @@ esac
             },
             CHECK_EVERY,
             &AtomicU64::new(0),
-            |_| Stamp::cursor(0),
+            |_, _| Stamp::cursor(0),
             |wanted, _, _, opening| {
                 openings.push(opening);
                 let mut snapshot =

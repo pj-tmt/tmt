@@ -84,6 +84,15 @@ withdrawn and reports partial replacement. An unpinned upgrade with no publicati
 change retries settlement only when a verified former installation remains;
 pinned no-ops retain it.
 
+Before removing former Squad, the CLI's bounded replacement adapter invokes the
+verified Ops executable's `migration switch --yes` operation. Ops owns process
+evidence, consent fallback, pane relaunch and application-data migration; the CLI
+does not discover or signal boards. A deferred/failed switch retains the former
+installation and returns Ops's recovery command. Successful switching is reported
+as `switched N boards to Ops`; the CLI revalidates the active successor before cleanup.
+The [Ops migration guidance](../../tmt-ops-dev/references/config-and-effects.md#ops-path-migration)
+owns the deleted-executable fallback and private pending-switch record.
+
 `remove::finish_product_replacement` then verifies the new activation and links,
 locks and verifies the old activation, removes only old command links whose target
 resolves inside the verified old namespace, and removes that installation namespace.

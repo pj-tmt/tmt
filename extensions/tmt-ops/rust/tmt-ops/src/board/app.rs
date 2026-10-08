@@ -648,6 +648,7 @@ pub struct App {
     /// read can reorder the leads, so it places the cursor once more.
     pub(super) home_start: bool,
     pub notice: Option<String>,
+    pub(super) migration_notice: Option<String>,
     pub help: bool,
     pub(super) help_state: RefCell<super::help::Help>,
     overlay_focus: tmt_tui::app::FocusStack,

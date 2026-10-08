@@ -322,3 +322,121 @@ fn worker_shutdown_cancels_and_joins_an_inflight_core_child_then_releases_lease(
     );
     assert!(request_calls(&f.model()).is_empty());
 }
+
+#[test]
+fn deferred_ui_workers_never_take_the_old_clock_and_migrate_without_stopping() {
+    let mut f = Fixture::new();
+    let actor = f.actor(LEAD);
+    f.add(&actor, WORKER).unwrap();
+    let original = fs::read(f.directory.join("ops/cron/jobs.json")).unwrap();
+    fs::rename(f.directory.join("ops"), f.directory.join("squad")).unwrap();
+    fs::rename(f.directory.join("ops.toml"), f.directory.join("squad.toml")).unwrap();
+    for name in [".ops-paths-v1", ".ops-paths-cutover-v1"] {
+        fs::remove_file(f.directory.join(name)).unwrap();
+    }
+    let old_clock = Clock::new(&f.directory.join("squad")).unwrap();
+    let old_lease = old_clock
+        .acquire(now(), 123, Some("%41".into()))
+        .unwrap()
+        .unwrap();
+    let held = fs::read(f.directory.join("squad/cron/clock.json")).unwrap();
+    f.core = Core::at(f.core.executable().into());
+    f.config = Config::load(&f.core).unwrap();
+    let calls = || {
+        f.model()["calls"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|call| call["request"]["operation"] == "storage.root")
+            .count()
+    };
+    let before = calls();
+    let mut first = ClockWorker::spawn(f.core.clone(), f.config.clone(), false);
+    let mut second = ClockWorker::spawn(f.core.clone(), f.config.clone(), false);
+    wait_for(|| (calls() >= before + 2).then_some(()));
+    assert_eq!(
+        fs::read(f.directory.join("squad/cron/clock.json")).unwrap(),
+        held
+    );
+    assert!(!f.directory.join("ops").exists());
+    assert!(request_calls(&f.model()).is_empty());
+    old_lease.release().unwrap();
+    wait_for(|| f.directory.join(".ops-paths-v1").exists().then_some(()));
+    wait_for(|| {
+        matches!(
+            Clock::new(&f.directory.join("ops")).unwrap().status(now()),
+            ClockStatus::Running(_)
+        )
+        .then_some(())
+    });
+    assert!(!crate::migration::paths(&f.core, None).unwrap().legacy);
+    assert_eq!(
+        Config::load(&f.core).unwrap().path(),
+        f.directory.join("ops.toml")
+    );
+    assert_eq!(
+        fs::read(f.directory.join("ops/cron/jobs.json")).unwrap(),
+        original
+    );
+    assert!(!f.directory.join("squad").exists());
+    assert!(first.finished.try_recv().is_err());
+    assert!(second.finished.try_recv().is_err());
+    first.stop().unwrap();
+    second.stop().unwrap();
+    assert!(!f.directory.join("ops/cron/clock.json").exists());
+}
+
+#[test]
+fn stopping_a_deferred_ui_worker_is_interruptible_and_preserves_the_old_holder() {
+    let f = Fixture::new();
+    crate::migration::paths(&f.core, None).unwrap();
+    fs::rename(f.directory.join("ops.toml"), f.directory.join("squad.toml")).unwrap();
+    for name in [".ops-paths-v1", ".ops-paths-cutover-v1"] {
+        fs::remove_file(f.directory.join(name)).unwrap();
+    }
+    let old = Clock::new(&f.directory.join("squad")).unwrap();
+    let lease = old.acquire(now(), 123, None).unwrap().unwrap();
+    let core = Core::at(f.core.executable().into());
+    let config = Config::load(&core).unwrap();
+    let mut worker = ClockWorker::spawn(core, config, false);
+    let started = Instant::now();
+    worker.stop().unwrap();
+    assert!(
+        started.elapsed() < EVERY,
+        "disconnect must wake the retry wait"
+    );
+    assert!(matches!(old.status(now()), ClockStatus::Running(holder) if holder.pid == 123));
+    assert!(!f.directory.join("ops").exists());
+    lease.release().unwrap();
+}
+
+#[test]
+fn deferred_worker_shutdown_cancels_and_joins_an_inflight_migration_read() {
+    let f = Fixture::new();
+    crate::migration::paths(&f.core, None).unwrap();
+    fs::rename(f.directory.join("ops.toml"), f.directory.join("squad.toml")).unwrap();
+    for name in [".ops-paths-v1", ".ops-paths-cutover-v1"] {
+        fs::remove_file(f.directory.join(name)).unwrap();
+    }
+    let old = Clock::new(&f.directory.join("squad")).unwrap();
+    let lease = old.acquire(now(), 123, None).unwrap().unwrap();
+    let core = Core::at(f.core.executable().into());
+    let config = Config::load(&core).unwrap();
+    f.change_model(|model| model["blockOn"] = json!("storage.root"));
+    let mut worker = ClockWorker::spawn(core, config, false);
+    let pid: i32 = wait_for(|| {
+        fs::read_to_string(f.directory.join("blocked.pid"))
+            .ok()
+            .and_then(|text| text.parse().ok())
+    });
+    let started = Instant::now();
+    worker.stop().unwrap();
+    assert!(started.elapsed() < Duration::from_secs(5));
+    assert_eq!(
+        nix::sys::signal::kill(nix::unistd::Pid::from_raw(pid), None),
+        Err(nix::errno::Errno::ESRCH)
+    );
+    assert!(matches!(old.status(now()), ClockStatus::Running(holder) if holder.pid == 123));
+    assert!(!f.directory.join("ops").exists());
+    lease.release().unwrap();
+}

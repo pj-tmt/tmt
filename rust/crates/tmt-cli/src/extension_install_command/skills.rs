@@ -264,6 +264,18 @@ fn settle_replacement(
         former.name,
         product.as_str()
     );
+    if disabled {
+        document["hooks"] = json!({
+            "disabled": [former.name],
+            "enableCommand": format!("tmt extension hooks enable {}", product.as_str()),
+        });
+        human.push(hint.clone());
+    }
+    if !super::board_switch::run(installation, document, human)? {
+        return Ok(());
+    }
+    native_install::inspect_product(product, &installation.active_executable)
+        .map_err(|error| failure("EXTENSION_INSTALLATION_INVALID", error))?;
     let replacement = native_install::finish_product_replacement(prefix, product)
         .map_err(|error| {
             Failure::new(
@@ -276,13 +288,6 @@ fn settle_replacement(
                 1,
             ).caused_by(error)
         })?;
-    if disabled {
-        document["hooks"] = json!({
-            "disabled": [former.name],
-            "enableCommand": format!("tmt extension hooks enable {}", product.as_str()),
-        });
-        human.push(hint);
-    }
     if !replacement.removed.is_empty() || !replacement.kept.is_empty() {
         document["replaced"] = json!(former.name);
         document["removed"] = json!(replacement.removed);

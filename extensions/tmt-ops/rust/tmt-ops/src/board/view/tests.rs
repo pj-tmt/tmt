@@ -5200,3 +5200,37 @@ fn capture_focus_window_rows() {
     });
     std::fs::write(output, serde_json::to_vec_pretty(&cases).unwrap()).unwrap();
 }
+
+#[test]
+fn migration_notice_survives_keys_and_refresh_until_promotion_in_all_themes() {
+    let paused = "Ops migration pending; scheduled sends paused until migration completes.";
+    let holder = "Ops migration pending; retrying. Old clock PID 123 in pane %41.";
+    for width in [80, 100, 160] {
+        for (base, depth) in [
+            ("tmt", tmt_cli_style::Depth::TrueColor),
+            ("tmt-light", tmt_cli_style::Depth::TrueColor),
+            ("tmt", tmt_cli_style::Depth::None),
+        ] {
+            let mut app = board(json!([]));
+            app.view.as_mut().unwrap().look = crate::look::Look {
+                theme: tmt_cli_style::Theme::new(tmt_cli_style::Base::parse(base).unwrap()),
+                depth,
+            };
+            for notice in [paused, holder] {
+                app.migration_notice = Some(notice.into());
+                app.notice = Some("Unrelated action".into());
+                app.key(KeyEvent::new(KeyCode::Char('r'), KeyModifiers::CONTROL));
+                assert_eq!(draw(&app, width, 24).last().unwrap(), notice);
+                app.apply(crate::board::app::tests::snapshot("product", json!([])));
+                assert_eq!(draw(&app, width, 24).last().unwrap(), notice);
+            }
+            app.migration_notice = None;
+            assert!(
+                !draw(&app, width, 24)
+                    .last()
+                    .unwrap()
+                    .contains("migration pending")
+            );
+        }
+    }
+}

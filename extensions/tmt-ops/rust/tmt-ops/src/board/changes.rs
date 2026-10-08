@@ -9,21 +9,33 @@ use std::{path::PathBuf, time::SystemTime};
 
 /// The two change signals as last read. A signal that could not be read is
 /// None and never counts as a change on its own.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct Stamp {
     cursor: Option<Value>,
     /// ops.toml's modification time and length; None when it is missing.
     config: Option<(SystemTime, u64)>,
+    layout: Option<PathBuf>,
     /// The field provider cache directory's modification time: it moves
     /// when a provider run saves new values.
     fields: Option<SystemTime>,
 }
 
 impl Stamp {
+    /// A cutover changes the watched file even when its bytes/stamp match.
+    pub(super) fn layout_moved(&self, now: &Stamp) -> bool {
+        self.layout != now.layout
+    }
+
     /// History is stored in core tables; unlike pane/notebook freshness it may
     /// reuse a successful durable cursor within the same closed time bucket.
     pub(super) fn history_cursor(&self) -> Option<u64> {
         self.cursor.as_ref().and_then(Value::as_u64)
+    }
+
+    #[cfg(test)]
+    pub(super) fn with_layout(mut self, path: &str) -> Self {
+        self.layout = Some(PathBuf::from(path));
+        self
     }
 
     /// A stamp with only a cursor, for tests of what reads it.
@@ -32,6 +44,7 @@ impl Stamp {
         Self {
             cursor: Some(json!(cursor)),
             config: None,
+            layout: None,
             fields: None,
         }
     }
@@ -40,7 +53,8 @@ impl Stamp {
     /// disappearing or being rewritten counts; the cursor counts only when
     /// both reads succeeded, so a failed read never triggers a reload.
     pub fn moved(&self, now: &Stamp) -> bool {
-        self.config != now.config
+        self.layout_moved(now)
+            || self.config != now.config
             || self.fields != now.fields
             || matches!((&self.cursor, &now.cursor), (Some(then), Some(now)) if then != now)
     }
@@ -64,8 +78,21 @@ impl Changes {
         }
     }
 
+    pub(super) fn retarget(&mut self, config: Option<PathBuf>) {
+        self.config = config;
+    }
+
+    /// Refresh-off views observe promotion without polling Core or the filesystem.
+    pub(super) fn layout_stamp(&self) -> Stamp {
+        Stamp {
+            layout: self.config.clone(),
+            ..Stamp::default()
+        }
+    }
+
     pub fn stamp(&mut self, core: &Core) -> Stamp {
         Stamp {
+            layout: self.config.clone(),
             cursor: self.cursor(core),
             config: self.config.as_ref().and_then(|path| {
                 let metadata = std::fs::metadata(path).ok()?;
@@ -181,5 +208,19 @@ mod tests {
         );
         assert_eq!(calls(&dir), asked, "and costs no more core calls");
         let _ = std::fs::remove_dir_all(dir);
+    }
+    #[test]
+    fn retargeting_missing_config_is_a_layout_change_even_with_identical_metadata() {
+        let (mut changes, _, _, dir) = fake("retarget");
+        let core = Core::at(dir.join("tmt"));
+        changes.retarget(Some(dir.join("squad.toml")));
+        let before = changes.stamp(&core);
+        changes.retarget(Some(dir.join("ops.toml")));
+        let next = changes.stamp(&core);
+        assert_eq!(before.config, next.config);
+        assert!(before.layout_moved(&next));
+        assert!(before.moved(&next));
+        assert!(!next.layout_moved(&changes.stamp(&core)));
+        std::fs::remove_dir_all(dir).unwrap();
     }
 }
