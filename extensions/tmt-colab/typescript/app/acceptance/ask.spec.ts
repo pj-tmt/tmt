@@ -205,7 +205,17 @@ test.describe('Ask agent real-binary acceptance (#1110)', () => {
         'data-state',
         'uncertain',
       );
-      await expect(s.askerPage.getByRole('button', { name: 'Send', exact: true })).toHaveCount(0);
+      await expect(
+        askEntry(s.askerPage, ask.operationId).getByRole('button', { name: 'Send', exact: true }),
+      ).toHaveCount(0);
+      await expect(
+        s.askerPage
+          .getByTestId('chat-panel')
+          .getByRole('combobox', { name: 'Message', exact: true }),
+      ).toHaveText('');
+      await expect(
+        s.askerPage.getByTestId('chat-panel').getByRole('button', { name: 'Send', exact: true }),
+      ).toBeDisabled();
       await s.askerPage.getByRole('button', { name: 'Abandon tracking' }).click();
       await expect(askState(s.askerPage, ask.operationId)).toHaveAttribute(
         'data-state',
