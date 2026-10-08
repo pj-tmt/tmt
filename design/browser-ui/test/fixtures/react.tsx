@@ -2,6 +2,7 @@ import { act, createRef } from 'react';
 import type { MouseEvent } from 'react';
 import { createRoot } from 'react-dom/client';
 import { BrowserAction, BrowserField, BrowserIconAction } from '../../src/react.js';
+import { checkFieldFocus } from './field-focus.js';
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
   true;
@@ -34,6 +35,36 @@ async function run() {
   assertions = 0;
   activations = 0;
   parentEscapes = 0;
+  await act(() =>
+    root.render(
+      <>
+        <BrowserField
+          controlId="focus-native"
+          label="Native message"
+          renderControl={(props) => <textarea {...props} defaultValue="Native draft" />}
+        />
+        <BrowserField
+          controlId="focus-editable"
+          label="Editable message"
+          renderControl={(props) => (
+            <div
+              {...props}
+              role="textbox"
+              tabIndex={0}
+              contentEditable
+              suppressContentEditableWarning
+            >
+              Editable draft
+            </div>
+          )}
+        />
+      </>,
+    ),
+  );
+  assertions += checkFieldFocus([
+    document.getElementById('focus-native')!,
+    document.getElementById('focus-editable')!,
+  ]);
   const ref = createRef<HTMLDivElement>();
   let compositions = 0;
   const field = (readonly: boolean) => (

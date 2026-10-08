@@ -101,7 +101,11 @@ there is no extra key handler or command DTO. Trusted-event admission remains
 with the caller. Host links remain host links.
 Text actions have a transparent background in ready and disabled states;
 disabled text is muted. Enabled hover and keyboard focus use selection colors.
-Field labels leave room for the control's focus outline and offset.
+Field focus strengthens the same 1px edge to a contiguous 2px rule in the focus
+color, entirely inside the border box. Native fields and contenteditable controls
+use the same `:focus-visible` treatment, without an outward ring, shadow or size
+change. The host's `focus-offset` applies to other controls, not field focus paint;
+field label spacing retains its existing host metrics.
 
 Toggle is controlled: fixed label, `aria-pressed`, independent visible checked
 indicator and original activation event. It never changes its own pressed value.
@@ -147,6 +151,9 @@ using checked CSS and a small fixture-only static host. The hover/focus examples
 are labeled CSS demonstrations; all icons also support actual hover/keyboard focus.
 `/test/fixtures/react.html` runs observable editor/action/tooltip lifecycle assertions
 with **Run lifecycle checks**, then retains interactive React controls.
+**Run field focus checks** in the static fixture and the React lifecycle checks
+both exercise native and textbox fields: contained focus paint, unchanged geometry
+within 1px, a visible contiguous 1px-to-2px edge change, and restoration on blur.
 Use the document's `data-theme` to capture light/dark at 390/1440 and inspect
 320px fit. Fixtures use local font fallbacks and no product runtime or remote assets.
 

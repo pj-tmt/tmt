@@ -1,4 +1,18 @@
 import { placeIconActionTooltip } from '../../src/icon-action-tooltip.ts';
+import { checkFieldFocus } from './field-focus.ts';
+
+document.querySelector('#run-focus').addEventListener('click', () => {
+  const result = document.querySelector('#focus-result');
+  try {
+    const count = checkFieldFocus([
+      document.querySelector('#native'),
+      document.querySelector('#editable'),
+    ]);
+    result.textContent = `Passed ${count} field focus assertions`;
+  } catch (error) {
+    result.textContent = `Failed: ${error.message}`;
+  }
+});
 
 for (const variant of ['text', 'primary', 'destructive']) {
   for (const suppliedMark of [false, true]) {
