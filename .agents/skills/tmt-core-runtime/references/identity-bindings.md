@@ -243,13 +243,20 @@ or X acknowledgment. There is no Focus timer, polling worker or settings install
   binding.
 - A verified live or stopped previous runtime blocks a second launch; an inconclusive probe
   allows a degraded launch only after fencing that attachment's Running state to Unknown.
+  A directly owned child stopped before admission retains its exact attachment in Unknown
+  for duplicate refusal; only fresh live evidence can admit it for automatic delivery.
 - SQLite is closed before the interactive wait; completion ends only the matching binding, child
   incarnation and launch owner. Storage diagnostics never replace the child's exit code, and
   admission failure never kills a launched child. `HookObserver` runs only for committed
   observations, outside transactions.
-- Foreground suspension tests wait for launch-storage descriptors to close before Ctrl-Z:
-  committed Running alone can precede SQLite's exclusive WAL-close lock release. They also
-  require the shell continuation before submitting the conflict command.
+- The foreground launcher masks only SIGTSTP during the post-spawn storage close and restores
+  its exact prior mask on return or unwind. A pending terminal stop takes effect after close;
+  dispositions, SIGSTOP and other signals stay unchanged. The already-spawned provider retains
+  normal signal state. The close-gate regression sends real Ctrl-Z while the lock is held,
+  proves the child stops first, then the launcher stops with database descriptors closed.
+  Ordinary suspension scenarios wait for descriptor closure before Ctrl-Z: committed Running
+  can precede SQLite's exclusive WAL-close lock release. All suspension scenarios require shell
+  continuation before submitting the conflict command.
 - `Storage::identity_candidates` (completion, pickers) opens read-only without migration or
   reconciliation; failure is not evidence an identity is absent. Only hidden
   `__completion-script` emits scripts; no completion command writes startup files.

@@ -257,6 +257,38 @@ pub enum RuntimeLiveness {
 }
 
 impl BindingSessionState {
+    /// A directly owned child stopped before live admission. Keep its exact
+    /// attachment for duplicate refusal, but never manufacture Running evidence.
+    /// Only a subsequent fresh live observation may admit it for delivery.
+    pub fn record_stopped_launch(
+        &self,
+        key: ObservedSessionKey,
+        owner: ProcessIncarnation,
+        transition: SessionTransition,
+    ) -> Option<Self> {
+        if !matches!(
+            transition,
+            SessionTransition::Started | SessionTransition::Resumed
+        ) || self.key.as_ref().is_some_and(|old| {
+            old.incarnation == key.incarnation
+                && (self.state == RuntimeState::Ended
+                    || self
+                        .launch_owner
+                        .as_ref()
+                        .is_some_and(|current| current != &owner)
+                    || (old.provider_session.is_some()
+                        && old.provider_session != key.provider_session))
+        }) {
+            return None;
+        }
+        Some(Self {
+            key: Some(key),
+            launch_owner: Some(owner),
+            state: RuntimeState::Unknown,
+            last_transition: Some(transition),
+        })
+    }
+
     /// Record an already-exited, directly owned and unreaped launch. The caller
     /// must retain actual start evidence for that child and its launch owner.
     /// Unlike admission, this never constructs a deliverable Running state.
@@ -686,6 +718,60 @@ mod tests {
                 )
                 .is_none()
         );
+    }
+
+    #[test]
+    fn stopped_launch_retains_exact_ownership_without_live_admission() {
+        let key = key("stopped-child", "session-a");
+        let owner = ProcessIncarnation::new(41, "owner-start").unwrap();
+        for transition in [SessionTransition::Started, SessionTransition::Resumed] {
+            let stopped = BindingSessionState::default()
+                .record_stopped_launch(key.clone(), owner.clone(), transition)
+                .unwrap();
+            assert_eq!(stopped.state, RuntimeState::Unknown);
+            assert_eq!(stopped.key, Some(key.clone()));
+            assert_eq!(stopped.launch_owner, Some(owner.clone()));
+            assert_eq!(stopped.last_transition, Some(transition));
+            assert!(
+                stopped
+                    .admit(key.clone(), transition, RuntimeLiveness::Unknown)
+                    .is_none()
+            );
+            assert!(
+                stopped
+                    .record_stopped_launch(
+                        key.clone(),
+                        ProcessIncarnation::new(41, "other-owner").unwrap(),
+                        transition,
+                    )
+                    .is_none()
+            );
+            let mut other_session = key.clone();
+            other_session.provider_session = None;
+            assert!(
+                stopped
+                    .record_stopped_launch(other_session, owner.clone(), transition)
+                    .is_none()
+            );
+            assert!(
+                stopped
+                    .record_stopped_launch(key.clone(), owner.clone(), SessionTransition::Ended)
+                    .is_none()
+            );
+            let admitted = stopped
+                .admit(key.clone(), transition, RuntimeLiveness::Alive)
+                .unwrap();
+            assert_eq!(admitted.state, RuntimeState::Running);
+            assert_eq!(admitted.launch_owner, Some(owner.clone()));
+            let ended = stopped
+                .record_launched_exit(key.clone(), owner.clone())
+                .unwrap();
+            assert!(
+                ended
+                    .record_stopped_launch(key.clone(), owner.clone(), transition)
+                    .is_none()
+            );
+        }
     }
 
     #[test]
