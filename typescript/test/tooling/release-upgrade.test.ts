@@ -882,7 +882,7 @@ describe('fetchUpgrade and proveStaged', () => {
       try {
         const result = proveArchiveAcceptance({
           ...fixture,
-          now: () => clock,
+          clock: () => clock,
           report: (line) => reports.push(line),
           execute: (_executable, _args, options) => {
             expect(stderr.at(-1)).toBe(
@@ -930,7 +930,7 @@ describe('fetchUpgrade and proveStaged', () => {
           try {
             proveArchiveAcceptance({
               ...input(),
-              now: () => clock,
+              clock: () => clock,
               execute: () => {
                 clock += 2_750;
                 if (call++ === failingCall) throw error;
@@ -978,7 +978,7 @@ describe('fetchUpgrade and proveStaged', () => {
             ...input(),
             directory,
             tag: entries[2].tag_name,
-            now: () => clock,
+            clock: () => clock,
             execute: (_executable, _args, options) => {
               clock += [187_000, 50, 12_000, 11_000][call];
               if (call === 3) {
@@ -1022,7 +1022,7 @@ describe('fetchUpgrade and proveStaged', () => {
         expect(
           proveArchiveAcceptance({
             ...input(),
-            now: () => 0,
+            clock: () => 0,
             execute: () => [compiled, listed, passed][call++],
           })
         ).toEqual({ outcome: 'proved' });
@@ -1032,7 +1032,7 @@ describe('fetchUpgrade and proveStaged', () => {
         try {
           proveArchiveAcceptance({
             ...input(),
-            now: () => 0,
+            clock: () => 0,
             execute: () => {
               throw error;
             },

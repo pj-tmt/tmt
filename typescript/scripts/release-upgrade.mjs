@@ -500,7 +500,7 @@ export function proveArchiveAcceptance({
   execute = runPackedCommand,
   environment = process.env,
   report = () => {},
-  now: readNow = () => performance.now(),
+  clock = () => performance.now(),
 }) {
   if (product !== 'cli') throw new Error('The adapter archive acceptance proof is CLI-only.');
   const { previous, now, before, floor } = stagedUpgrade({ directory, product, tag, target });
@@ -527,11 +527,11 @@ export function proveArchiveAcceptance({
     TMT_UPGRADE_TARGET: target,
   };
   const executePhase = (phase, executable, args, options) => {
-    const started = readNow();
+    const started = clock();
     const log = (status) => {
       try {
         const elapsed =
-          status === 'started' ? '' : ` seconds=${((readNow() - started) / 1000).toFixed(3)}`;
+          status === 'started' ? '' : ` seconds=${((clock() - started) / 1000).toFixed(3)}`;
         process.stderr.write(
           `Adapter phase timing: target=${target} phase=${phase} status=${status}${elapsed}\n`
         );
