@@ -3670,7 +3670,10 @@ fn a_concurrent_edit_is_not_blocked_by_a_large_prepare_and_the_save_then_reports
     }
     // The save is parked in its preparation, holding no sync lock...
     parked.recv_timeout(Duration::from_secs(10)).unwrap();
-    // ...so another writer commits meanwhile, through the same serve.
+    // ...so another writer commits meanwhile, through the same serve. It is the first publisher,
+    // so it also issues the root-local writer's certificate, a few milliseconds after the save
+    // started: the save must not read that certificate as issued in its own future.
+    std::thread::sleep(Duration::from_millis(5));
     let small = prepare_write(&layout, &key, "<p>Someone else's edit</p>");
     let published = tmt_colab::page::ipc::publish(&layout, &key, &small)
         .unwrap()
@@ -3732,4 +3735,39 @@ fn a_status_request_while_a_dropped_save_still_prepares_is_pending_never_absent(
     }
     assert_eq!(settled["state"], "committed", "{settled}");
     assert_eq!(native_source(&layout, &key), source);
+}
+
+#[test]
+fn a_save_reads_the_clock_only_after_its_snapshot_is_open() {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    let (server, _layout, _key, _peer) = publish_fixture();
+    let opened = Arc::new(AtomicBool::new(false));
+    let flag = Arc::clone(&opened);
+    let root = server.root.clone();
+    let open: tmt_colab::page::save::SourceOpener = Arc::new(move || {
+        let source = tmt_colab::page::save::open_source(
+            &root,
+            support::decoder_config(env!("CARGO_BIN_EXE_tmt-colab").into()),
+        );
+        flag.store(true, Ordering::SeqCst);
+        source
+    });
+    let save = tmt_colab::page::save::Save {
+        page: PAGE.into(),
+        operation_id: SAVE_ONE.into(),
+        base_sha256: tmt_colab_model::crypto::digest(b""),
+        source: "<p>Late clock</p>".into(),
+    };
+    let sampled_after_open = Arc::new(AtomicBool::new(false));
+    let seen = Arc::clone(&sampled_after_open);
+    let after = Arc::clone(&opened);
+    let prepared = tmt_colab::page::save::prepare(&open, &save, &move || {
+        seen.store(after.load(Ordering::SeqCst), Ordering::SeqCst);
+        Ok(now())
+    });
+    assert!(prepared.is_ok());
+    assert!(
+        sampled_after_open.load(Ordering::SeqCst),
+        "the clock was read before the snapshot was open"
+    );
 }

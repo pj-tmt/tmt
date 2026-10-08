@@ -50,9 +50,18 @@ pub enum Prepared {
 }
 /// Prepare outside every lock. The commit that follows rechecks every fence, so a page that
 /// moved meanwhile turns this save into a stale-base refusal, never a silent overwrite.
-pub fn prepare(open: &SourceOpener, save: &Save, now: u64) -> crate::Result<Prepared> {
+///
+/// The clock is read only after the snapshot is open: a certificate another writer issued before
+/// that snapshot was taken is issued no later than this reading, so a chain renewed while this
+/// save was waiting is never "from the future" and cannot turn the save into a denial.
+pub fn prepare(
+    open: &SourceOpener,
+    save: &Save,
+    clock: &dyn Fn() -> crate::Result<u64>,
+) -> crate::Result<Prepared> {
     use super::PublicationPreparation;
     let mut source = open()?;
+    let now = clock()?;
     let prepared = super::prepare_publication(
         &source.store,
         &source.keyring,

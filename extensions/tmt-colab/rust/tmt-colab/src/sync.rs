@@ -1271,10 +1271,9 @@ impl<S: Read + Write, A: Admission> Connection<S, A> {
     /// an edit that landed meanwhile turns this save into a stale-base reply.
     fn run_save(&self, job: SaveJob) -> Result<(), Code> {
         let clock = || crate::registration::now_ms().map_err(|_| Code::Denied);
-        let prepared = match clock() {
-            Ok(now) => crate::page::save::prepare(&job.open, &job.save, now),
-            Err(_) => Err(crate::page::Fault::Unavailable.into()),
-        };
+        let prepared = crate::page::save::prepare(&job.open, &job.save, &|| {
+            clock().map_err(|_| crate::page::Fault::Unavailable.into())
+        });
         let now = clock();
         let mut state = self.server.0.lock().map_err(|_| Code::Denied)?;
         match now {

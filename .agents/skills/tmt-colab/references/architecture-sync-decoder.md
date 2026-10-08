@@ -111,7 +111,8 @@ and `limits.rs`; do not restate them.
   `sync.rs`: `process` assembles and authorizes the request under the sync lock and hands back a
   `SaveJob`; `page::save::prepare` then opens its own read-only store, keyring and decoder through the
   `SourceOpener` that `serve` supplies (`Registration::with_save_source`) and prepares with the sync
-  lock released, so a large save never stalls other peers; `finish_save` re-takes the lock only for
+  lock released (reading the clock only after its snapshot is open, so a chain another writer issued
+  while the save waited is never in the save's future), so a large save never stalls other peers; `finish_save` re-takes the lock only for
   `commit_publication` (through `Admission::commit_save` and the same combine as a CLI write), the one
   `saveresult` and the shared fan-out. The browser's `Connection.save` paces the chunks and holds one
   request in flight; `Live.edit` settles a lost reply with one `savestatus` and never resends.
