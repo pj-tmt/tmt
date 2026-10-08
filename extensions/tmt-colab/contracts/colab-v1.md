@@ -2804,8 +2804,7 @@ state only. It MUST NOT initialize missing state or run migrations. The
 current native fold refuses inactive pages, so archived pages fail
 with `COLAB_EXPORT_INACTIVE` and the explanation "archived or deleted pages
 cannot be exported yet"; deleted operands fail earlier with `COLAB_PAGE_DELETED`.
-After the archive/delete read-policy split (#1348),
-archived exports are enabled separately; deleted pages remain denied.
+Archived exports are not supported; deleted pages remain denied.
 
 The destination names an existing parent directory, defaulting to the current
 directory. Export creates a fresh UUID-named 0700 subdirectory with regular
@@ -2847,7 +2846,7 @@ to browser-managed downloads. Parent-owned Blob URLs use attachment filenames
 `page.html`, `conversations.json`, `conversations.md` and `manifest.json`, never source/title paths. Revoke each URL after
 bounded download handoff and all outstanding URLs on close/navigation or blocked
 binding cleanup. The renderer receives no export handler, URL or capability.
-Archived browser export remains deferred until #1348; deletion stays denied.
+Archived browser export is not supported; deleted pages remain denied.
 
 ### Browser page title hints (#1564)
 
