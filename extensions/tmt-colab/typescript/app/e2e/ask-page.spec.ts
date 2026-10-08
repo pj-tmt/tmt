@@ -238,3 +238,70 @@ test('mobile Chat preserves an open autocomplete inside its dialog across keyboa
   await expect(input).toHaveText('@Agent 1 ', { useInnerText: true });
   expect((await run(page, 'proof')).sends).toEqual([]);
 });
+
+for (const selected of [false, true]) {
+  test(`Chat keeps focused ${selected ? 'selected text' : 'mid-text caret'} across both drawer breakpoints`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 390, height: 900 });
+    await mount(page);
+    const drawer = page.locator('.page-drawer[data-panel=chat][open]');
+    const input = drawer.getByRole('combobox', { name: 'Message', exact: true });
+    const draft = 'Before draft after';
+    await input.fill(draft);
+    await expect(input).toHaveText(draft, { useInnerText: true });
+    const editorId = await input.getAttribute('id');
+    const selection = () =>
+      input.evaluate((node) => {
+        const range = node.ownerDocument.getSelection()!;
+        return {
+          anchor: range.anchorNode?.textContent,
+          anchorOffset: range.anchorOffset,
+          focus: range.focusNode?.textContent,
+          focusOffset: range.focusOffset,
+          inside: node.contains(range.anchorNode) && node.contains(range.focusNode),
+        };
+      });
+    for (const width of [1440, 390]) {
+      await input.focus();
+      await input.press('Home');
+      for (let index = 0; index < 7; index++) await input.press('ArrowRight');
+      if (selected) for (let index = 0; index < 5; index++) await input.press('Shift+ArrowRight');
+      const before = await selection();
+      expect(before).toEqual({
+        anchor: draft,
+        anchorOffset: 7,
+        focus: draft,
+        focusOffset: selected ? 12 : 7,
+        inside: true,
+      });
+      await page.setViewportSize({ width, height: 900 });
+      await page.evaluate((width) => {
+        document.documentElement.dataset.theme = width === 390 ? 'dark' : 'light';
+      }, width);
+      // Wait for the real native mode transition, not just updated CSS geometry.
+      await expect
+        .poll(() => drawer.evaluate((node) => node.matches(':modal')))
+        .toBe(width === 390);
+      await expect(input).toBeFocused();
+      await expect(input).toHaveAttribute('id', editorId!);
+      await expect(input).toHaveText(draft, { useInnerText: true });
+      expect(await selection()).toEqual(before);
+    }
+    await page.keyboard.type('kept');
+    await expect(input).toHaveText(selected ? 'Before kept after' : 'Before keptdraft after', {
+      useInnerText: true,
+    });
+    expect((await run(page, 'proof')).sends).toEqual([]);
+    expect(await run(page, 'discussionProof')).toEqual([]);
+    await drawer.getByRole('button', { name: 'Choose recipient', exact: true }).click();
+    await drawer.getByRole('option').first().click();
+    await input.press('Enter');
+    await expect.poll(async () => (await run(page, 'proof')).sends.length).toBe(1);
+    expect((await run(page, 'proof')).sends[0].message).toContain(
+      selected ? 'Before kept after' : 'Before keptdraft after',
+    );
+    await expect(input).toHaveText('', { useInnerText: true });
+    expect((await run(page, 'proof')).sends).toHaveLength(1);
+  });
+}

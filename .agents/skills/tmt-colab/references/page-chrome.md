@@ -81,6 +81,8 @@ explicit full-history/details view.
 `page-drawer.tsx` portals chrome outside the header/menu. Desktop panels float on
 the right on an opaque square surface; mobile uses a full-screen native modal sheet. Neither
 changes renderer width or content layout. The panel body scrolls independently.
+Crossing the mobile breakpoint changes native modality in place, preserving a connected
+focused descendant and its editing selection; it does not restart a draft or run initial-open focus.
 Close/Escape restores focus, and media listeners/dialogs clean up on close or
 unmount. Chat initializes on first opening; closed Source, Comments and Chat panels retain drafts and admitted history;
 closing never dispatches, abandons or retries. Export closes its preparation and
