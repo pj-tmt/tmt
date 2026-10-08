@@ -757,7 +757,7 @@ never runs a hook; ownership and a stat fingerprint are re-checked before each
 delivery. Capture is per connection and transactional, delivery is bounded and
 never changes a command's result, and a nested `tmt` captures nothing. Extension
 summaries are untrusted informational data. With no consent file a command spawns
-nothing.
+nothing. Verified former-product replacement withdraws the former extension's hook consent; consent never transfers to its successor.
 
 ### Core command surface
 

@@ -1,10 +1,18 @@
 import path from 'node:path';
+import {
+  readFileSync,
+  realpathSync,
+  renameSync,
+  symlinkSync,
+  unlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { expect } from 'vite-plus/test';
 import { parseWholeStdout, runCli, withSandbox, type Sandbox } from './cli-process.js';
 import { syntheticAlphaVersion } from '../../scripts/release-versions.mjs';
 import { workspaceVersion } from './workspace-version.js';
-import type { ArtifactFixture } from './native-artifact.js';
+import { createArtifact, type ArtifactFixture } from './native-artifact.js';
 
 /** Installation and upgrade tests use a real, mechanically injected synthetic alpha CLI. */
 export function withReleaseSandbox<T>(callback: (sandbox: Sandbox) => T | Promise<T>): Promise<T> {
@@ -85,4 +93,26 @@ export function currentPointer(prefix: string): string {
 
 export function receiptPath(prefix: string): string {
   return path.join(currentPointer(prefix), 'receipt.json');
+}
+
+/** Project a verified synthetic receipt into the shipped former Squad layout.
+ * This matches the adapter's former-product fixture; no historical binary or
+ * user installation is selected, and the Core CLI remains the command runner.
+ */
+export async function installFormerSquad(sandbox: Sandbox, prefix: string): Promise<void> {
+  const artifact = await createArtifact(sandbox, '0.1.0-alpha.1', new Uint8Array(), 'ops');
+  await install(sandbox, artifact, prefix, ['--product', 'ops']);
+  const release = realpathSync(path.join(prefix, 'lib/tmt-ops/current'));
+  const receiptFile = path.join(release, 'receipt.json');
+  const receipt = JSON.parse(readFileSync(receiptFile, 'utf8'));
+  receipt.file_sha256['tmt-squad'] = receipt.file_sha256['tmt-ops'];
+  delete receipt.file_sha256['tmt-ops'];
+  receipt.archive = receipt.archive.replace('ops-', 'squad-');
+  renameSync(path.join(release, 'tmt-ops'), path.join(release, 'tmt-squad'));
+  writeFileSync(receiptFile, JSON.stringify(receipt));
+  unlinkSync(path.join(prefix, 'bin/tmt-ops'));
+  renameSync(path.join(prefix, 'lib/tmt-ops'), path.join(prefix, 'lib/tmt-squad'));
+  for (const name of ['tmt-squad', 'tmt-sq']) {
+    symlinkSync('../lib/tmt-squad/current/tmt-squad', path.join(prefix, 'bin', name));
+  }
 }

@@ -1,4 +1,5 @@
 import {
+  chmodSync,
   existsSync,
   lstatSync,
   mkdirSync,
@@ -12,11 +13,261 @@ import {
 import { writeExecutable } from '../support/executable-fixture.mjs';
 import path from 'node:path';
 import { describe, expect, it } from 'vite-plus/test';
-import { expectError, parseWholeStdout, runCli, withSandbox } from '../support/cli-process.js';
-import { withReleaseSandbox } from '../support/native-installation.js';
+import {
+  expectError,
+  parseWholeStdout,
+  runCli,
+  withSandbox,
+  type Sandbox,
+} from '../support/cli-process.js';
+import { install, installFormerSquad, withReleaseSandbox } from '../support/native-installation.js';
 import { createArtifact, type ArtifactFixture } from '../support/native-artifact.js';
 
 const INSTALL_PROCESS_BUDGET_MS = 15_000;
+
+function replacementArgs(artifact: ArtifactFixture, prefix: string): string[] {
+  return [
+    'extension',
+    'install',
+    'ops',
+    '--yes',
+    '--archive',
+    artifact.archive,
+    '--manifest',
+    artifact.manifest,
+    '--prefix',
+    prefix,
+    '--channel',
+    'alpha',
+  ];
+}
+
+async function enableHooks(sandbox: Sandbox, name: string): Promise<unknown> {
+  const result = await runCli(sandbox, ['extension', 'hooks', 'enable', name, '--json']);
+  expect(result.status, result.stdout + result.stderr).toBe(0);
+  return parseWholeStdout(result).enabled;
+}
+
+describe('former Squad hook consent during Ops replacement', () => {
+  const hint =
+    'Removed former squad hook consent; Ops hooks require separate consent. Enable with: tmt extension hooks enable ops';
+
+  it.each([
+    { consent: true, json: true, independentOps: false },
+    { consent: false, json: true, independentOps: false },
+    { consent: true, json: false, independentOps: false },
+    { consent: false, json: false, independentOps: false },
+    { consent: true, json: true, independentOps: true },
+  ])(
+    'replaces verified Squad with $consent consent, JSON=$json, independent Ops=$independentOps',
+    async ({ consent, json, independentOps }) => {
+      await withSandbox(async (sandbox) => {
+        const prefix = path.join(sandbox.root, 'replacement prefix');
+        await installFormerSquad(sandbox, prefix);
+        sandbox.env.PATH = [path.join(prefix, 'bin'), '/usr/bin', '/bin'].join(':');
+        // A separately consented observer proves removal is scoped to the former name.
+        symlinkSync(path.join(prefix, 'bin/tmt-squad'), path.join(prefix, 'bin/tmt-observer'));
+        const observer = consent ? await enableHooks(sandbox, 'observer') : undefined;
+        if (consent) await enableHooks(sandbox, 'squad');
+        const settings = path.join(sandbox.globalDir, 'extension-hooks.json');
+        const sentinel = path.join(sandbox.globalDir, 'ops.toml');
+        mkdirSync(sandbox.globalDir, { recursive: true });
+        writeFileSync(sentinel, 'retained user configuration\n');
+        const candidate = await createArtifact(sandbox, '0.1.0-alpha.2', new Uint8Array(), 'ops');
+        let ops: unknown;
+        if (independentOps) {
+          await install(sandbox, candidate, prefix, ['--product', 'ops']);
+          ops = await enableHooks(sandbox, 'ops');
+        }
+        const result = await runCli(
+          sandbox,
+          [...replacementArgs(candidate, prefix), ...(json ? ['--json'] : [])],
+          { deadlineMs: INSTALL_PROCESS_BUDGET_MS }
+        );
+        expect(result.status, result.stdout + result.stderr).toBe(0);
+        expect(result.stderr).toBe('');
+        if (json) {
+          const report = parseWholeStdout(result);
+          expect(report.replaced).toBe('squad');
+          expect(report.removed).toEqual([
+            path.join(prefix, 'bin/tmt-squad'),
+            path.join(prefix, 'bin/tmt-sq'),
+            path.join(prefix, 'lib/tmt-squad'),
+          ]);
+          if (consent)
+            expect(report.hooks).toEqual({
+              disabled: ['squad'],
+              enableCommand: 'tmt extension hooks enable ops',
+            });
+          else expect(report).not.toHaveProperty('hooks');
+        } else {
+          expect(result.stdout.includes(hint)).toBe(consent);
+        }
+        expect(existsSync(path.join(prefix, 'lib/tmt-squad'))).toBe(false);
+        expect(existsSync(path.join(prefix, 'bin/tmt-squad'))).toBe(false);
+        expect(readlinkSync(path.join(prefix, 'bin/tmt-ops'))).toBe(
+          '../lib/tmt-ops/current/tmt-ops'
+        );
+        expect(
+          JSON.parse(readFileSync(path.join(prefix, 'lib/tmt-ops/current/receipt.json'), 'utf8'))
+            .version
+        ).toBe(candidate.version);
+        const listed = await runCli(sandbox, ['extension', 'hooks', 'ls', '--json']);
+        expect(parseWholeStdout(listed).extensions).toEqual(
+          independentOps ? [observer, ops] : consent ? [observer] : []
+        );
+        const stored = existsSync(settings)
+          ? JSON.parse(readFileSync(settings, 'utf8')).extensions
+          : [];
+        expect(stored.map((item: { name: string }) => item.name)).toEqual(
+          independentOps ? ['observer', 'ops'] : consent ? ['observer'] : []
+        );
+        expect(readFileSync(sentinel, 'utf8')).toBe('retained user configuration\n');
+        const before = existsSync(settings) ? readFileSync(settings) : undefined;
+        const repeated = await runCli(sandbox, [...replacementArgs(candidate, prefix), '--json'], {
+          deadlineMs: INSTALL_PROCESS_BUDGET_MS,
+        });
+        expect(repeated.status, repeated.stdout + repeated.stderr).toBe(0);
+        expect(parseWholeStdout(repeated)).not.toHaveProperty('hooks');
+        if (before) expect(readFileSync(settings).equals(before)).toBe(true);
+        else expect(existsSync(settings)).toBe(false);
+        expect(existsSync(sandbox.database)).toBe(false);
+      });
+    },
+    60_000
+  );
+
+  it.each(['former', 'successor'] as const)(
+    'retains former hook consent on a pinned %s upgrade no-op',
+    async (selected) => {
+      await withSandbox(async (sandbox) => {
+        const prefix = path.join(sandbox.root, 'replacement prefix');
+        await installFormerSquad(sandbox, prefix);
+        sandbox.env.PATH = [path.join(prefix, 'bin'), '/usr/bin', '/bin'].join(':');
+        await enableHooks(sandbox, 'squad');
+        if (selected === 'successor') {
+          const candidate = await createArtifact(sandbox, '0.1.0-alpha.2', new Uint8Array(), 'ops');
+          await install(sandbox, candidate, prefix, ['--product', 'ops']);
+        }
+        const receiptFile = path.join(
+          prefix,
+          `lib/tmt-${selected === 'former' ? 'squad' : 'ops'}/current/receipt.json`
+        );
+        const receipt = JSON.parse(readFileSync(receiptFile, 'utf8'));
+        receipt.pinned_version = receipt.version;
+        writeFileSync(receiptFile, JSON.stringify(receipt));
+        const settings = path.join(sandbox.globalDir, 'extension-hooks.json');
+        const before = readFileSync(settings);
+        const result = await runCli(
+          sandbox,
+          ['extension', 'upgrade', 'ops', '--yes', '--prefix', prefix, '--json'],
+          { deadlineMs: INSTALL_PROCESS_BUDGET_MS }
+        );
+        expect(result.status, result.stdout + result.stderr).toBe(0);
+        expect(parseWholeStdout(result)).toMatchObject({ changed: false, skippedPinned: true });
+        expect(parseWholeStdout(result)).not.toHaveProperty('hooks');
+        expect(readFileSync(settings).equals(before)).toBe(true);
+        expect(existsSync(path.join(prefix, 'lib/tmt-squad'))).toBe(true);
+        expect(existsSync(path.join(prefix, 'bin/tmt-squad'))).toBe(true);
+      });
+    },
+    60_000
+  );
+
+  it.each(['invalid', 'unwritable'] as const)(
+    'retains former installation on %s consent failure and retries at the active Ops version',
+    async (kind) => {
+      await withSandbox(async (sandbox) => {
+        const prefix = path.join(sandbox.root, 'replacement prefix');
+        await installFormerSquad(sandbox, prefix);
+        sandbox.env.PATH = [path.join(prefix, 'bin'), '/usr/bin', '/bin'].join(':');
+        await enableHooks(sandbox, 'squad');
+        const settings = path.join(sandbox.globalDir, 'extension-hooks.json');
+        const original = readFileSync(settings);
+        if (kind === 'invalid') writeFileSync(settings, '{invalid consent');
+        else chmodSync(sandbox.globalDir, 0o500);
+        const before = readFileSync(settings);
+        const candidate = await createArtifact(sandbox, '0.1.0-alpha.2', new Uint8Array(), 'ops');
+        try {
+          const result = await runCli(sandbox, [...replacementArgs(candidate, prefix), '--json'], {
+            deadlineMs: INSTALL_PROCESS_BUDGET_MS,
+          });
+          const error = expectError(
+            result,
+            kind === 'invalid' ? 'EXTENSION_HOOKS_INVALID' : 'EXTENSION_HOOKS_UNAVAILABLE'
+          ).error as { message: string };
+          expect(error.message).toContain(
+            'ops is installed, but former squad hook consent cleanup failed'
+          );
+          expect(error.message).toContain(settings);
+          expect(error.message).toContain('former installation was retained');
+          expect(readFileSync(settings).equals(before)).toBe(true);
+          expect(existsSync(path.join(prefix, 'lib/tmt-squad'))).toBe(true);
+          expect(existsSync(path.join(prefix, 'bin/tmt-squad'))).toBe(true);
+          expect(readlinkSync(path.join(prefix, 'bin/tmt-ops'))).toBe(
+            '../lib/tmt-ops/current/tmt-ops'
+          );
+        } finally {
+          chmodSync(sandbox.globalDir, 0o700);
+        }
+        writeFileSync(settings, original);
+        const recovered = await runCli(sandbox, [...replacementArgs(candidate, prefix), '--json'], {
+          deadlineMs: INSTALL_PROCESS_BUDGET_MS,
+        });
+        expect(recovered.status, recovered.stdout + recovered.stderr).toBe(0);
+        expect(parseWholeStdout(recovered)).toMatchObject({
+          changed: false,
+          replaced: 'squad',
+          hooks: { disabled: ['squad'], enableCommand: 'tmt extension hooks enable ops' },
+        });
+        expect(existsSync(path.join(prefix, 'lib/tmt-squad'))).toBe(false);
+        expect(JSON.parse(readFileSync(settings, 'utf8')).extensions).toEqual([]);
+      });
+    },
+    60_000
+  );
+
+  it('keeps withdrawn consent on partial former removal and completes a retry without enabling Ops', async () => {
+    await withSandbox(async (sandbox) => {
+      const prefix = path.join(sandbox.root, 'replacement prefix');
+      await installFormerSquad(sandbox, prefix);
+      sandbox.env.PATH = [path.join(prefix, 'bin'), '/usr/bin', '/bin'].join(':');
+      await enableHooks(sandbox, 'squad');
+      const candidate = await createArtifact(sandbox, '0.1.0-alpha.2', new Uint8Array(), 'ops');
+      await install(sandbox, candidate, prefix, ['--product', 'ops']);
+      const bin = path.join(prefix, 'bin');
+      chmodSync(bin, 0o500);
+      try {
+        const failed = await runCli(sandbox, [...replacementArgs(candidate, prefix), '--json'], {
+          deadlineMs: INSTALL_PROCESS_BUDGET_MS,
+        });
+        const error = expectError(failed, 'EXTENSION_INSTALL_FAILED').error as { message: string };
+        expect(error.message).toContain(
+          'ops is installed, but former squad replacement cleanup failed'
+        );
+        expect(error.message).toContain(hint);
+        expect(
+          JSON.parse(readFileSync(path.join(sandbox.globalDir, 'extension-hooks.json'), 'utf8'))
+            .extensions
+        ).toEqual([]);
+        expect(existsSync(path.join(prefix, 'lib/tmt-squad'))).toBe(true);
+        expect(existsSync(path.join(prefix, 'bin/tmt-ops'))).toBe(true);
+      } finally {
+        chmodSync(bin, 0o755);
+      }
+      const recovered = await runCli(sandbox, [...replacementArgs(candidate, prefix), '--json'], {
+        deadlineMs: INSTALL_PROCESS_BUDGET_MS,
+      });
+      expect(recovered.status, recovered.stdout + recovered.stderr).toBe(0);
+      expect(parseWholeStdout(recovered)).toMatchObject({ changed: false, replaced: 'squad' });
+      expect(parseWholeStdout(recovered)).not.toHaveProperty('hooks');
+      expect(existsSync(path.join(prefix, 'lib/tmt-squad'))).toBe(false);
+      expect(
+        parseWholeStdout(await runCli(sandbox, ['extension', 'hooks', 'ls', '--json'])).extensions
+      ).toEqual([]);
+    });
+  }, 60_000);
+});
 
 describe('tmt extension install surface', () => {
   it('offers every registered official extension independently of release activation', async () => {
