@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import Database from 'better-sqlite3';
 import { describe, expect, it } from 'vite-plus/test';
@@ -140,6 +140,7 @@ describe('direct provider conversation discovery', { concurrent: false }, () => 
       mkdirSync(home);
       const gate = path.join(fixture.root, 'probe-gate');
       const once = path.join(fixture.root, 'probe-once');
+      const probeEntered = path.join(fixture.root, 'probe-entered');
       const outputSeen = path.join(fixture.root, 'output-seen');
       const report = path.join(fixture.root, 'report.json');
       const status = path.join(fixture.root, 'provider.status');
@@ -148,15 +149,17 @@ describe('direct provider conversation discovery', { concurrent: false }, () => 
       // command's complete JSON. Recording proves admission ran after output;
       // moving admission before output spends its unchanged budget and refuses.
       fixture.tmux(['run-shell', `mkfifo ${quote(gate)}`]);
+      const tmuxDelegate = path.join(fixture.wrapperDir, 'direct-tmux');
+      renameSync(path.join(fixture.wrapperDir, 'tmux'), tmuxDelegate);
       writeExecutable(
-        path.join(fixture.wrapperDir, 'ps'),
-        `#!/bin/sh\nif mkdir ${quote(once)} 2>/dev/null; then read -r release < ${quote(gate)}; fi\nexec /bin/ps "$@"\n`,
+        path.join(fixture.wrapperDir, 'tmux'),
+        `#!/bin/sh\nif [ "$TMT_TEST_DIRECT_PROBE_GATE" = 1 ] && mkdir ${quote(once)} 2>/dev/null; then printf '%s' entered > ${quote(probeEntered)}; read -r release < ${quote(gate)}; fi\nexec ${quote(tmuxDelegate)} "$@"\n`,
         0o700
       );
       const cli = path.join(fixture.wrapperDir, 'output-cli');
       writeExecutable(
         cli,
-        `#!${process.execPath}\nconst fs = require('node:fs');\nconst child = require('node:child_process').spawn(${JSON.stringify(fixture.executables.cli.executable)}, ${JSON.stringify([...fixture.executables.cli.args, 'config', 'show', '--json'])}, {env: {...process.env, CLAUDE_PID: String(process.ppid)}, stdio: ['ignore', 'pipe', 'inherit']});\nlet output = ''; let released = false;\nchild.stdout.on('data', bytes => { output += bytes.toString(); process.stdout.write(bytes); if (!released) { try { JSON.parse(output); } catch { return; } released = true; fs.writeFileSync(${JSON.stringify(outputSeen)}, 'json-before-probe'); fs.writeFile(${JSON.stringify(gate)}, 'continue\\n', error => { if (error) process.exit(1); }); }});\nchild.on('exit', code => process.exit(code ?? 1));\n`,
+        `#!${process.execPath}\nconst fs = require('node:fs');\nconst control = fs.openSync(${JSON.stringify(gate)}, fs.constants.O_RDWR);\nconst child = require('node:child_process').spawn(${JSON.stringify(fixture.executables.cli.executable)}, ${JSON.stringify([...fixture.executables.cli.args, 'config', 'show', '--json'])}, {env: {...process.env, CLAUDE_PID: String(process.ppid)}, stdio: ['ignore', 'pipe', 'inherit']});\nlet output = ''; let released = false;\nchild.stdout.on('data', bytes => { output += bytes.toString(); process.stdout.write(bytes); if (!released) { try { JSON.parse(output); } catch { return; } released = true; fs.writeFileSync(${JSON.stringify(outputSeen)}, 'json-before-probe'); fs.writeSync(control, 'continue\\n'); }});\nchild.on('exit', code => { fs.closeSync(control); process.exit(code ?? 1); });\n`,
         0o700
       );
       const scenario = path.join(fixture.root, 'scenario.json');
@@ -167,6 +170,7 @@ describe('direct provider conversation discovery', { concurrent: false }, () => 
         'CODEX_THREAD_ID',
         `HOME=${home}`,
         `CLAUDE_CODE_SESSION_ID=${session}`,
+        'TMT_TEST_DIRECT_PROBE_GATE=1',
         '/opt/tmt-tests/claude',
         cli,
         scenario,
@@ -186,6 +190,7 @@ describe('direct provider conversation discovery', { concurrent: false }, () => 
         '0'
       );
       expect(readFileSync(outputSeen, 'utf8')).toBe('json-before-probe');
+      expect(readFileSync(probeEntered, 'utf8')).toBe('entered');
       const calls = JSON.parse(readFileSync(report, 'utf8')) as Array<{
         code: number;
         stdout: string;
@@ -393,9 +398,15 @@ describe('direct provider conversation discovery', { concurrent: false }, () => 
             const resume = await fixture.runCli(['resume', 'Direct'], { pane });
             expect(resume.code).toBe(0);
             const argv = JSON.parse(readFileSync(resumedArgs, 'utf8')) as string[];
-            expect(argv.slice(0, 2)).toEqual(
-              provider === 'claude' ? ['--resume', expectedSession] : ['resume', expectedSession]
-            );
+            if (provider === 'claude')
+              expect(argv.slice(0, 2)).toEqual(['--resume', expectedSession]);
+            else {
+              expect(argv[0]).toBe('resume');
+              // Session-only hooks insert invocation options before the exact
+              // positional thread; they do not replace or repeat that thread.
+              expect(argv.at(-1)).toBe(expectedSession);
+              expect(argv.filter((argument) => argument === expectedSession)).toHaveLength(1);
+            }
           } else {
             const resume = await fixture.runCli(['resume', 'Direct'], { pane });
             expect(resume.code).toBe(1);
