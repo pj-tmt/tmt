@@ -151,11 +151,14 @@ impl<'a, R: CommandRunner> CodexCaller<'a, R> {
                 }
                 if direct
                     && tail.split_whitespace().any(|word| {
-                        matches!(word, "-c" | "--config" | "-p" | "--profile")
+                        matches!(word, "--config" | "--profile")
                             || word.starts_with("--config=")
                             || word.starts_with("--profile=")
-                            || word.starts_with("-c=")
-                            || word.starts_with("-p=")
+                            // Short options also accept attached values. ps
+                            // cannot recover quoting, so refuse rather than
+                            // infer which configuration the runtime selected.
+                            || word.starts_with("-c")
+                            || word.starts_with("-p")
                     })
                 {
                     return Err(());

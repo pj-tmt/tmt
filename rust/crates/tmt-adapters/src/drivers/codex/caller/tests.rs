@@ -11,6 +11,8 @@ fn direct_metadata_lookup_refuses_runtime_configuration_overrides() {
         "codex --config=sqlite_home='/different'",
         "codex --profile other",
         "codex -p=other",
+        "codex -csqlite_home='/different'",
+        "codex -pother",
     ] {
         let probe = Probe::new([Ok("42 41 /bin/sh\n41 1 codex\n"), Ok(argv)]);
         let caller = CodexCaller::new(
@@ -23,7 +25,8 @@ fn direct_metadata_lookup_refuses_runtime_configuration_overrides() {
         assert!(
             caller
                 .observe_direct_host(Instant::now() + Duration::from_millis(500))
-                .is_err()
+                .is_err(),
+            "configuration override must refuse: {argv}"
         );
     }
 }

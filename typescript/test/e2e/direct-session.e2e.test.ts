@@ -401,11 +401,15 @@ describe('direct provider conversation discovery', { concurrent: false }, () => 
             if (provider === 'claude')
               expect(argv.slice(0, 2)).toEqual(['--resume', expectedSession]);
             else {
-              expect(argv[0]).toBe('resume');
-              // Session-only hooks insert invocation options before the exact
-              // positional thread; they do not replace or repeat that thread.
-              expect(argv.at(-1)).toBe(expectedSession);
-              expect(argv.filter((argument) => argument === expectedSession)).toHaveLength(1);
+              // Embedded resume inserts session-only hooks after the subcommand
+              // and retains the exact positional thread before --no-daemon.
+              expect(argv).toEqual([
+                'resume',
+                '-c',
+                expect.stringMatching(/^hooks=/),
+                expectedSession,
+                '--no-daemon',
+              ]);
             }
           } else {
             const resume = await fixture.runCli(['resume', 'Direct'], { pane });
