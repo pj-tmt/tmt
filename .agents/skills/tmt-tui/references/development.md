@@ -56,6 +56,18 @@ One spelling per value kind; anything else fails admission with a located error:
   viewport, while nowrap slots keep their one-line default.
 - `text::measure` is a capped upper bound, not the widest wrapped line; measurement
   and fitting share the recorded text width, and paint reuses it.
+- `components::StatusSlot { label, frame }` paints into a caller-reserved `Rect`
+  with injected `Theme`/`Depth`, touching only its first row. `StatusLabel::Text`
+  takes complete display text; `Age { prefix, age: Duration }` formats the largest
+  floored unit (`s`, `m`, `h`, `d`) followed by English `ago`. Subsecond ages are
+  `0s`; an empty prefix has no leading space. For example, prefix `cached` and
+  120 seconds produce `cached 2m ago`. Localized labels can use `Text`.
+  `frame: Some(index)` selects one of ten single-cell spinner frames modulo ten;
+  `None` hides the marker. The caller controls cadence and reduced motion.
+  NO_COLOR (`Depth::None`) also means no animation: every busy frame paints the
+  same `[busy]` marker. Markers that do not fit whole are omitted; labels use the
+  existing escaped grapheme clipping. A shorter or empty label clears old text
+  inside the fixed row. Present it with replacement rows in one completed frame.
 
 ## Board parity baseline
 

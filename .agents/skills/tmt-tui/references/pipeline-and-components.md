@@ -107,6 +107,13 @@ Maintained module reference. Commands and admitted spellings are in [development
   borders. Their explicit `paint_flat` choice shares horizontal rules and blank
   side slots, retaining every edge reservation, title policy and inner rectangle;
   Modal also retains its full Clear/opaque mask and fixed slots.
+- `StatusSlot` paints the first row of a caller-reserved rectangle through `strip`,
+  replacing its trailing blanks without changing layout or presenting a terminal
+  frame. `StatusLabel` takes complete caller text or a prefix and elapsed `Duration`;
+  the caller also supplies an optional spinner frame index. Time, refresh acquisition
+  and frame presentation stay with the application. NO_COLOR (`Depth::None`) uses
+  steady `[busy]` text instead of animation. Rows and status can be composed into one
+  completed buffer; collection replacement still computes its own geometry.
 - `Picker` owns bounded grapheme query editing and returns query changes,
   selection changes, confirmation or cancellation. The application filters
   projected data, routes focused fields and owns previews, saves and rollback.
