@@ -27,7 +27,26 @@ afterEach(() => {
   vi.useRealTimers();
   vi.unstubAllGlobals();
 });
-async function fixture() {
+async function worker() {
+  const surface = {
+    onmessage: null as unknown as (event: {
+      data: { id: number; command: FoldCommand };
+    }) => Promise<void>,
+    postMessage: vi.fn(),
+  };
+  vi.stubGlobal('self', surface);
+  vi.resetModules();
+  await import('../src/fold.worker.js');
+  return async (command: FoldCommand) => {
+    surface.postMessage.mockClear();
+    await surface.onmessage({ data: { id: 1, command } });
+    const result = surface.postMessage.mock.calls[0][0];
+    if (result.error) throw new Error(result.error);
+    return result;
+  };
+}
+async function fixture(expiredCreator = false) {
+  const creator = expiredCreator ? '00000000-0000-4000-8000-000000000094' : v.device;
   records.clear();
   vi.stubGlobal('navigator', {
     locks: { request: async (_key: string, fn: () => unknown) => fn() },
@@ -52,7 +71,8 @@ async function fixture() {
     original = c.certificate.Chain.fromJson(c.text(JSON.stringify(v.chain))),
     certificate = c.certificate.input({
       ...original.certificate(),
-      deviceId: v.device,
+      deviceId: creator,
+      expiresAt: expiredCreator ? 100 : original.certificate().expiresAt,
       encryptionKey: enc.publicKey(),
     }),
     chainBytes = c.text(
@@ -64,7 +84,25 @@ async function fixture() {
       }),
     ),
     chain = c.certificate.Chain.fromJson(chainBytes);
-  const registration = { deviceId: v.device, chain, keys: { enc } } as Registration;
+  const callerCertificate = c.certificate.input({
+      ...original.certificate(),
+      deviceId: v.device,
+      expiresAt: 10000,
+      encryptionKey: enc.publicKey(),
+    }),
+    callerBytes = c.text(
+      JSON.stringify({
+        version: 1,
+        issuerStatement: v.chain.issuerStatement,
+        deviceCertificate: c.encodeBinary(callerCertificate),
+        issuerSignature: c.encodeBinary(await c.sign(signer, callerCertificate)),
+      }),
+    );
+  const registration = {
+    deviceId: v.device,
+    chain: expiredCreator ? c.certificate.Chain.fromJson(callerBytes) : chain,
+    keys: { enc },
+  } as Registration;
   const a = new Admission(v.space, v.page, '1', bytes(v.public), registration);
   await a.membership(
     {
@@ -106,19 +144,15 @@ async function fixture() {
     );
   };
   await appendStatement('page.share', { pageId: v.page, epoch: '1', mode: 'private' });
-  await a.chains([{ deviceId: v.device, chain: c.encodeBinary(chainBytes) }]);
+  await a.chains([
+    { deviceId: creator, chain: c.encodeBinary(chainBytes) },
+    ...(expiredCreator ? [{ deviceId: v.device, chain: c.encodeBinary(callerBytes) }] : []),
+  ]);
   await a.wraps([encoded(v.wrap)]);
   const objects = new Objects(a),
-    surface = {
-      onmessage: null as unknown as (event: {
-        data: { id: number; command: FoldCommand };
-      }) => Promise<void>,
-      postMessage: vi.fn(),
-    };
-  vi.stubGlobal('self', surface);
-  vi.resetModules();
-  await import('../src/fold.worker.js');
-  let projection: PageView = { source: 'Source', title: 'Title' };
+    runFold = await worker();
+  let projection: PageView = { source: 'Source', title: 'Title' },
+    active = true;
   const owner: AttachmentReadOwner = {
     snapshot: async (epoch = '1') => {
       if (!active || epoch !== '1') throw new Error('Attachment history unavailable');
@@ -130,12 +164,8 @@ async function fixture() {
       };
     },
   };
-  let active = true;
   const fold = async (command: FoldCommand) => {
-    surface.postMessage.mockClear();
-    await surface.onmessage({ data: { id: 1, command } });
-    const result = surface.postMessage.mock.calls[0][0];
-    if (result.error) throw new Error(result.error);
+    const result = await runFold(command);
     projection = result;
     return result;
   };
@@ -143,6 +173,7 @@ async function fixture() {
   content.getText('html').insert(0, 'Source');
   content.getMap('meta').set('title', 'Title');
   // This initial plaintext has no attachment reference; the stream is admitted below.
+  const sealed: { seq: string; envelopeHash: string; envelope: string }[] = [];
   let sequence = 0n,
     previous = new Uint8Array(32);
   const admit = async (namespace: 'own' | 'content', update: Uint8Array) => {
@@ -153,7 +184,7 @@ async function fixture() {
         epoch: '1',
         kind: 'update',
         namespace,
-        authorDevice: v.device,
+        authorDevice: creator,
         membershipRevision: '2',
         streamSeq: (++sequence).toString(),
         prevHash: previous,
@@ -163,17 +194,19 @@ async function fixture() {
       update,
     );
     const hash = await env.hash();
-    const result = await objects.admit(v.device, {
+    const entry = {
       seq: sequence.toString(),
       envelopeHash: c.encodeBinary(hash),
       envelope: c.encodeBinary(env.toJson()),
-    });
+    };
+    sealed.push(entry);
+    const result = await objects.admit(creator, entry);
     previous = hash;
     expect(result).not.toBeNull();
     await fold({
       type: 'apply',
       updates: namespace === 'content' ? [result!.update] : [],
-      own: namespace === 'own' ? [{ writer: v.device, update: result!.update }] : [],
+      own: namespace === 'own' ? [{ writer: creator, update: result!.update }] : [],
     });
   };
   await admit('content', Y.encodeStateAsUpdate(content));
@@ -185,7 +218,7 @@ async function fixture() {
         epoch: '1',
         kind: 'asset',
         namespace: 'content',
-        authorDevice: v.device,
+        authorDevice: creator,
         membershipRevision: '2',
         streamSeq: '0',
         prevHash: new Uint8Array(32),
@@ -203,7 +236,7 @@ async function fixture() {
     epoch: '1',
     namespace: 'content',
     objectId: c.decodeHeader(env.header()).objectId,
-    authorDevice: v.device,
+    authorDevice: creator,
     membershipRevision: '2',
     source: { kind: 'document', sourceDigest: hex(await c.digest(c.text('Source'))) },
     envelopeHash: hex(await env.hash()),
@@ -227,14 +260,34 @@ async function fixture() {
     },
   };
   const publish = async (withProof = true) => {
-    const proof = await prepareAttachmentPublication(
-      owner,
-      d,
-      await objects.revision(),
-      backend,
-      deadline(),
-      'private',
-    );
+    // A different creator's historical record is independently signed and
+    // cut-admitted below; it cannot use this actual caller's fresh preparation.
+    const proof = expiredCreator
+      ? {
+          root: 'intents' as const,
+          key: d.attachmentId,
+          value: c.attachment.attachmentPublication({
+            version: 1,
+            kind: 'attachment-publication',
+            spaceId: d.space,
+            pageId: d.page,
+            epoch: d.epoch,
+            senderDevice: creator,
+            membershipRevision: d.membershipRevision,
+            attachmentId: d.attachmentId,
+            descriptorHash: hex(await c.attachment.attachmentHash(d)),
+            source: d.source,
+            baseRevision: await objects.revision(),
+          }),
+        }
+      : await prepareAttachmentPublication(
+          owner,
+          d,
+          await objects.revision(),
+          backend,
+          deadline(),
+          'private',
+        );
     const own = new Y.Doc();
     if (withProof) own.getMap(proof.root).set(proof.key, proof.value);
     const comment = {
@@ -243,17 +296,26 @@ async function fixture() {
       spaceId: v.space,
       pageId: v.page,
       epoch: '1',
-      senderDevice: v.device,
+      senderDevice: creator,
       revision: '1',
       deleted: false,
       deviceName: 'Browser',
       at: '50',
       messageId: '00000000-0000-4000-8000-000000000043',
-      thread: { writer: v.device, id: v.device },
+      thread: { writer: creator, id: creator },
       body: 'Chat/annotation',
       attachments: [d],
     };
     own.getMap('messages').set(`${comment.messageId}:1`, comment);
+    // An ordinary historical comment exercises the broader fold parity, without
+    // any attachment descriptor or attachment read owner.
+    const plainComment = {
+      ...comment,
+      messageId: '00000000-0000-4000-8000-000000000095',
+      body: 'Plain historical comment',
+    };
+    delete (plainComment as Partial<typeof comment>).attachments;
+    own.getMap('messages').set(`${plainComment.messageId}:1`, plainComment);
     await admit('own', Y.encodeStateAsUpdate(own));
     const vector = Y.encodeStateVector(content);
     content.getMap('meta').set('attachments', [d]);
@@ -267,6 +329,9 @@ async function fixture() {
   });
   return {
     a,
+    creator,
+    creatorChain: c.encodeBinary(chainBytes),
+    sealed,
     objects,
     owner,
     backend,
@@ -417,4 +482,46 @@ it('requires the original cut-admitted creation proof and one unexpired read bud
       'private',
     ),
   ).rejects.toThrow();
+});
+
+it('admits expired original attachment/comment creators while refusing an expired actual caller', async () => {
+  const f = await fixture(true);
+  await f.publish();
+  vi.spyOn(Date, 'now').mockReturnValue(200);
+  await expect(f.a.chains([{ deviceId: f.creator, chain: f.creatorChain }])).resolves.toHaveLength(
+    1,
+  );
+  const objects = new Objects(f.a),
+    updates: Uint8Array[] = [],
+    own: { writer: string; update: Uint8Array }[] = [];
+  for (const entry of f.sealed) {
+    const admitted = await objects.admit(f.creator, entry);
+    if (admitted!.namespace === 'own') own.push({ writer: f.creator, update: admitted!.update });
+    else updates.push(admitted!.update);
+  }
+  expect(objects.statusWriter(f.creator)).toBe(true);
+  const replay = await worker(),
+    view = await replay({ type: 'apply', updates, own });
+  const owner: AttachmentReadOwner = {
+    snapshot: async () => ({
+      ...(await f.owner.snapshot()),
+      objects,
+      projection: structuredClone(view),
+      revision: await objects.revision(),
+    }),
+  };
+  const ordinary = view.own[f.creator].messages['00000000-0000-4000-8000-000000000095:1'];
+  expect(ordinary.body).toBe('Plain historical comment');
+  expect(ordinary).not.toHaveProperty('attachments');
+  const read = await AdmittedAttachmentRead.capture(
+    owner,
+    await f.selector(),
+    f.deadline(),
+    'private',
+  );
+  expect(await read.disclose(f.backend, 'private')).toEqual(f.plaintext);
+  expect(() => f.a.author(f.creator, f.a.head!.revision.toString())).toThrow();
+  vi.spyOn(Date, 'now').mockReturnValue(10000);
+  expect(() => f.a.validateRead('private')).toThrow();
+  await expect(read.disclose(f.backend, 'private')).rejects.toThrow();
 });

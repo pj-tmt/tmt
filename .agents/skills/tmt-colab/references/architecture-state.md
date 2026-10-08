@@ -26,7 +26,10 @@ read-only. Native Session reads use registration/readers' actual context and eli
 addressed wraps or owner-signed public keys; browser history keys are opaque addressed-wrap
 handles. The internal committed verifier is DI, with production channel/peer-generation
 composition and activation still planned in the final #1853 slice. Snapshot/retained-reference
-persistence is #1856, not a new Store/schema here.
+persistence is #1856, not a new Store/schema here. Historical `chains`/`readAuthor`
+ignore original-creator current expiry, matching native folds; issuedAt, issuer/signature,
+membership and revocation cuts still apply. Fresh `author()` and the actual caller
+`validateRead()` retain expiry checks.
 
 - Run Rust gates with your own `CARGO_TARGET_DIR` and `CARGO_BUILD_JOBS=2`. Add
   `--no-fail-fast` when judging `cargo test -p tmt-colab`: Cargo stops at the first failing

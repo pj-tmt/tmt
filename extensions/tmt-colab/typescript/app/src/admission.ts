@@ -154,6 +154,8 @@ export class Admission {
     this.#raw = raw;
     this.#target = target;
   }
+  /** Historical issuer verification ignores current expiry, matching native
+   * fold. Fresh author() and the actual caller validateRead() still enforce it. */
   async chains(values: unknown) {
     requireValue(Array.isArray(values) && values.length <= 64 && this.head !== null);
     const verified: certificate.Certificate[] = [];
@@ -168,8 +170,7 @@ export class Admission {
           c.issuerKind === 'member' &&
           c.issuerId === this.head.ownerMember.id &&
           issuer !== undefined &&
-          c.issuedAt <= Date.now() &&
-          c.expiresAt > Date.now(),
+          c.issuedAt <= Date.now(),
       );
       await chain.verify(issuer.head.hash, c, this.head.ownerMember.signingKey);
       const prior = this.#authors.get(c.deviceId);
@@ -295,8 +296,7 @@ export class Admission {
         c!.issuerKind === 'member' &&
           c!.issuerId === this.head.ownerMember.id &&
           decimal(c!.membershipRevision) <= revision &&
-          c!.issuedAt <= Date.now() &&
-          c!.expiresAt > Date.now(),
+          c!.issuedAt <= Date.now(),
       );
     for (const statement of this.#log) {
       if (
