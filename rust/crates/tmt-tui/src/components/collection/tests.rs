@@ -359,3 +359,108 @@ fn oversized_selected_row_can_scroll_inside_it_without_repaint_snapping_back() {
     assert!(next.geometry[0].lines.len() > usize::from(next.viewport.height));
     assert_eq!(next.geometry[0].visible, next.viewport);
 }
+
+#[test]
+fn replacement_rows_and_status_compose_in_place_with_stable_selection() {
+    use super::super::{StatusLabel, StatusSlot};
+    let mut model = data();
+    model["rows"] = json!([
+        {"id":"alpha","disabled":false,"mark":"a","role":"text","text":"old alpha","path":"one"},
+        {"id":"beta","disabled":false,"mark":"b","role":"text","text":"old beta","path":"two"}
+    ]);
+    let mut state = ListState::default();
+    let (mut before, first) = draw(&surface(&model), &mut state, 28, 4, Depth::None);
+    let status_area = Rect::new(first.viewport.x, first.viewport.bottom(), 28, 1);
+    let status = StatusSlot {
+        label: StatusLabel::Text("updating"),
+        frame: Some(0),
+    };
+    status.paint(&mut before, status_area, &Theme::default(), Depth::None);
+
+    model["rows"][0]["text"] = json!("new alpha");
+    model["rows"][1]["text"] = json!("new beta");
+    let (mut replaced, next) = draw(&surface(&model), &mut state, 28, 4, Depth::None);
+    status.paint(&mut replaced, status_area, &Theme::default(), Depth::None);
+    assert_eq!(state.selected(), Some("alpha"));
+    assert_eq!(next.viewport, first.viewport);
+    for (old, new) in first.geometry.iter().zip(&next.geometry) {
+        assert_eq!(old.id, new.id);
+        assert_eq!(old.lines, new.lines);
+        assert_eq!(old.visible, new.visible);
+    }
+    assert!(line(&replaced, next.viewport, next.geometry[0].visible.y).contains("new alpha"));
+    for y in before.area.top()..before.area.bottom() {
+        for x in before.area.left()..before.area.right() {
+            if !first.viewport.contains((x, y).into()) {
+                assert_eq!(
+                    replaced[(x, y)],
+                    before[(x, y)],
+                    "unrelated chrome and status"
+                );
+            }
+        }
+    }
+
+    model["rows"].as_array_mut().unwrap().swap(0, 1);
+    let (reordered, frame) = draw(&surface(&model), &mut state, 28, 4, Depth::None);
+    assert_eq!(state.selected(), Some("alpha"));
+    assert_eq!(frame.viewport, first.viewport);
+    assert_eq!(frame.geometry[0].id, "beta");
+    assert_eq!(frame.geometry[1].id, "alpha");
+    assert!(line(&reordered, frame.viewport, frame.geometry[0].visible.y).contains("new beta"));
+    // The current frame routes a click to the row now painted at that position.
+    use ratatui::crossterm::event::{MouseEvent, MouseEventKind};
+    let click = Event::Mouse(MouseEvent {
+        kind: MouseEventKind::Down(ratatui::crossterm::event::MouseButton::Left),
+        column: frame.geometry[0].visible.x,
+        row: frame.geometry[0].visible.y,
+        modifiers: KeyModifiers::NONE,
+    });
+    assert_eq!(
+        state.input(&click, &frame),
+        Some(super::super::ListEvent::Changed("beta".into()))
+    );
+
+    model["rows"] = json!([
+        {"id":"beta","disabled":false,"mark":"b","role":"text","text":"ok","path":"two"}
+    ]);
+    let (mut final_buffer, final_frame) = draw(&surface(&model), &mut state, 28, 4, Depth::None);
+    StatusSlot {
+        label: StatusLabel::Text("ready"),
+        frame: None,
+    }
+    .paint(
+        &mut final_buffer,
+        status_area,
+        &Theme::default(),
+        Depth::None,
+    );
+    assert_eq!(state.selected(), Some("beta"));
+    assert_eq!(final_frame.geometry.len(), 1);
+    assert!(
+        line(
+            &final_buffer,
+            final_frame.viewport,
+            final_frame.geometry[0].visible.y
+        )
+        .contains("ok")
+    );
+    assert_eq!(
+        line(
+            &final_buffer,
+            final_frame.viewport,
+            final_frame.viewport.y + 1
+        ),
+        "                            ",
+        "removed row leaves a blank line"
+    );
+    assert_eq!(
+        line(&final_buffer, status_area, status_area.y),
+        "ready                       "
+    );
+    assert_eq!(
+        final_buffer[(0, 0)],
+        before[(0, 0)],
+        "chrome survives replacement"
+    );
+}

@@ -680,9 +680,9 @@ leaf for TMT terminal UIs (markup admission, one Taffy geometry computation, Rat
 paint, reusable components). It has no Squad vocabulary, acquires no terminal, clock,
 settings or provider data, and takes its tokens from `tmt-cli-style` roles. The guard
 permits only XML parsing, borrowed JSON, shared style, private Taffy and Ratatui, never
-core, adapters, CLI or extension behavior. Ops is its sole reviewed consumer; a new
-consumer or dependency goes to tmt-lead. Rules and limits: the
-[`tmt-tui` skill](.agents/skills/tmt-tui/SKILL.md).
+core, adapters, CLI or extension behavior. Its fixed status slot takes caller text/age
+and frame indices, paints without layout, and stays static under NO_COLOR. Ops is its sole
+reviewed consumer; new consumers/dependencies go to tmt-lead. See the [`tmt-tui` skill](.agents/skills/tmt-tui/SKILL.md).
 
 `rust/crates/tmt-invoke` owns neutral executable discovery, bounded waited byte
 capture and the shared browser-opening policy, discovery and launch. It takes plain
