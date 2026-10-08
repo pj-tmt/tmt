@@ -67,7 +67,13 @@ impl std::error::Error for EarlyReply {}
 /// Finish the request and read one framed reply within `wait`. Any error here leaves the
 /// outcome in doubt.
 pub(crate) fn receive(socket: UnixStream, wait: std::time::Duration) -> Result<(u16, Vec<u8>)> {
-    socket.shutdown(std::net::Shutdown::Write)?;
+    match socket.shutdown(std::net::Shutdown::Write) {
+        Ok(()) => {}
+        // A server that already answered and closed leaves nothing to half-close (macOS says
+        // so); its reply is still waiting to be read.
+        Err(error) if error.kind() == std::io::ErrorKind::NotConnected => {}
+        Err(error) => return Err(error.into()),
+    }
     read_reply(socket, wait)
 }
 fn read_reply(mut socket: UnixStream, wait: std::time::Duration) -> Result<(u16, Vec<u8>)> {
@@ -91,7 +97,10 @@ fn read_reply(mut socket: UnixStream, wait: std::time::Duration) -> Result<(u16,
                     Err(_) => return Err(Fault::Unavailable.into()),
                 }
             }
-            Err(_) => return Err(Fault::Unavailable.into()),
+            // A peer that closed with request bytes unread resets the connection (Linux), and the
+            // error follows the reply it already sent. Whatever was read is judged below: a
+            // complete, exactly framed reply stands, a truncated one is refused.
+            Err(_) => break,
         };
         if n == 0 {
             break;
@@ -125,4 +134,49 @@ fn read_reply(mut socket: UnixStream, wait: std::time::Duration) -> Result<(u16,
     }
     let code = parsed.code.ok_or(Fault::Unavailable)?;
     Ok((code, response[end..].to_vec()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Duration;
+
+    const REPLY: &[u8] = b"HTTP/1.1 413 Payload Too Large\r\nContent-Length: 9\r\nConnection: close\r\n\r\nTOO LARGE";
+
+    /// The server answers and closes before the writer half-closes: macOS refuses that shutdown
+    /// with `NotConnected`, which used to discard the waiting reply.
+    #[test]
+    fn a_reply_already_sent_and_closed_is_still_read() {
+        let (client, mut server) = UnixStream::pair().unwrap();
+        server.write_all(REPLY).unwrap();
+        drop(server);
+        let (code, body) = receive(client, Duration::from_secs(5)).unwrap();
+        assert_eq!((code, body.as_slice()), (413, b"TOO LARGE".as_slice()));
+    }
+
+    /// The server refuses a request it did not read to the end: closing with request bytes
+    /// unread resets the connection on Linux, and the reset used to turn the reply it had sent
+    /// into a failed read.
+    #[test]
+    fn a_reply_followed_by_a_reset_from_unread_request_bytes_is_still_read() {
+        let (mut client, mut server) = UnixStream::pair().unwrap();
+        client.write_all(&[7; 4096]).unwrap();
+        server.write_all(REPLY).unwrap();
+        drop(server);
+        let (code, body) = read_reply(client, Duration::from_secs(5)).unwrap();
+        assert_eq!((code, body.as_slice()), (413, b"TOO LARGE".as_slice()));
+    }
+
+    /// Only a reply that is complete by its own length stands: a reset or close mid-reply, or
+    /// before any reply, is a failed read.
+    #[test]
+    fn a_truncated_or_missing_reply_is_still_a_failed_read() {
+        for sent in [&REPLY[..REPLY.len() - 1], &REPLY[..20], b"".as_slice()] {
+            let (mut client, mut server) = UnixStream::pair().unwrap();
+            client.write_all(&[7; 4096]).unwrap();
+            server.write_all(sent).unwrap();
+            drop(server);
+            assert!(receive(client, Duration::from_secs(5)).is_err(), "{sent:?}");
+        }
+    }
 }

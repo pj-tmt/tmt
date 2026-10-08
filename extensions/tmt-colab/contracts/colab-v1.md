@@ -2627,7 +2627,10 @@ resends. A failure before the request was fully written is a plain `COLAB_UNAVAI
 the server acts only on a complete body. A serve of another build is told apart from doubt
 by the answers it gives before it reads the job: an untyped 404 (the route does not
 exist, as on a serve older than CLI batches) or 413 (the body is over its cap), whether
-it arrives after the body or while the CLI is still sending it, and a typed
+it arrives after the body or while the CLI is still sending it (a reply that is complete by
+its `Content-Length` stands even when the connection is reset or already closed after it, as
+Linux does when the server closes with request bytes unread and macOS does at the writer's
+half-close; an incomplete one is a failed read), and a typed
 `COLAB_SERVER_MISMATCH`, which a serve answers (409) to a `LocalWrite` whose `version` is not
 `LOCAL_WRITE_VERSION` (2), read before any other field. The CLI exits 1 with
 `COLAB_SERVER_MISMATCH`, "Nothing was written", and the fix (stop and serve again so the
