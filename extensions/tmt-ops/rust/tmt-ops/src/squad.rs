@@ -43,13 +43,13 @@ fn not_found(name: Option<&str>) -> SquadError {
             "SQUAD_NOT_FOUND",
             &format!("Squad '{name}' does not exist"),
             "; run: ",
-            &format!("tmt squad init {name}"),
+            &format!("tmt ops squad init {name}"),
         ),
         None => SquadError::hinted(
             "SQUAD_NOT_FOUND",
             "No squad exists yet",
             "; run: ",
-            "tmt squad init <name>",
+            "tmt ops squad init <name>",
         ),
     }
 }
@@ -316,18 +316,18 @@ mod tests {
         let named = not_found(Some("product"));
         assert_eq!(
             named.to_json().to_string(),
-            r#"{"error":{"code":"SQUAD_NOT_FOUND","message":"Squad 'product' does not exist; run: tmt squad init product"}}"#
+            r#"{"error":{"code":"SQUAD_NOT_FOUND","message":"Squad 'product' does not exist; run: tmt ops squad init product"}}"#
         );
         assert_eq!(
             named.human(),
             (
                 "Squad 'product' does not exist",
-                Some("tmt squad init product")
+                Some("tmt ops squad init product")
             )
         );
         assert_eq!(
             not_found(None).to_json().to_string(),
-            r#"{"error":{"code":"SQUAD_NOT_FOUND","message":"No squad exists yet; run: tmt squad init <name>"}}"#
+            r#"{"error":{"code":"SQUAD_NOT_FOUND","message":"No squad exists yet; run: tmt ops squad init <name>"}}"#
         );
     }
 

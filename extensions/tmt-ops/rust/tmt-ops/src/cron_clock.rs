@@ -18,7 +18,7 @@ use std::{
     time::Duration,
 };
 use tmt_cli_style::{Terminal, detail, message};
-use tmt_squad::cron::{self, Clock, ClockStatus, Dispatch, Job, Lease, Store, Tick};
+use tmt_ops::cron::{self, Clock, ClockStatus, Dispatch, Job, Lease, Store, Tick};
 
 const EVERY: Duration = Duration::from_secs(1);
 
@@ -159,7 +159,7 @@ fn acquire(core: &Core, clock: &Clock, time: i64) -> Result<Option<Lease>, Squad
 fn occupied() -> SquadError {
     failed(
         "SQUAD_CRON_CLOCK_RUNNING",
-        "Another clock holds the lease; inspect tmt sq cron clock.",
+        "Another clock holds the lease; inspect tmt ops sq cron clock.",
     )
 }
 
@@ -450,7 +450,7 @@ fn text_at(document: &Value, terminal: Terminal, now_ms: i64) -> String {
                 ),
             ]);
         } else if clock["state"] == "no clock" {
-            fields.push(("start", "tmt sq cron run".into()));
+            fields.push(("start", "tmt ops sq cron run".into()));
         }
         let _ = detail::write(&mut out, terminal, "cron clock", &fields);
     }

@@ -3049,6 +3049,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "tmt-ops"
+version = "0.1.0-dev"
+dependencies = [
+ "clap",
+ "jiff",
+ "nix",
+ "pulldown-cmark",
+ "ratatui",
+ "serde_json",
+ "sha2",
+ "signal-hook 0.4.4",
+ "subprocess",
+ "tmt-cli-style",
+ "tmt-invoke",
+ "tmt-test-support",
+ "tmt-tui",
+ "toml_edit",
+ "unicode-width",
+]
+
+[[package]]
 name = "tmt-release-tool"
 version = "5.0.0-dev"
 dependencies = [
@@ -3076,27 +3097,6 @@ dependencies = [
  "tmt-extension-objects",
  "tmt-extension-state",
  "tmt-invoke",
-]
-
-[[package]]
-name = "tmt-squad"
-version = "0.1.0-dev"
-dependencies = [
- "clap",
- "jiff",
- "nix",
- "pulldown-cmark",
- "ratatui",
- "serde_json",
- "sha2",
- "signal-hook 0.4.4",
- "subprocess",
- "tmt-cli-style",
- "tmt-invoke",
- "tmt-test-support",
- "tmt-tui",
- "toml_edit",
- "unicode-width",
 ]
 
 [[package]]

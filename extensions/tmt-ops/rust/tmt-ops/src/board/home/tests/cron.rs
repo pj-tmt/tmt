@@ -5,7 +5,7 @@ use crate::board::{
     home::paint,
 };
 use ratatui::{Terminal, backend::TestBackend, crossterm::event::KeyCode::*, layout::Rect};
-use tmt_squad::cron::ClockStatus;
+use tmt_ops::cron::ClockStatus;
 
 fn with_jobs(app: &mut App) {
     let mut job = test_view("lead-a", "merge queue sweep", Some(TEST_NOW + 3_600_000));

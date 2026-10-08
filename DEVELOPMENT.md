@@ -13,7 +13,7 @@ gates every change shares; per-area procedures live in the skills below.
 | Docker E2E, native process fixtures, test helpers and cleanup, smoke matrix, provider and Herdr checks | [tmt-e2e](.agents/skills/tmt-e2e/SKILL.md) (`references/test-boundaries.md`)      |
 | Core runtime internals: identity, bindings, requests, storage, hosts, drivers, channels, installer     | [tmt-core-runtime](.agents/skills/tmt-core-runtime/SKILL.md)                      |
 | Driver, runtime, completion, request-ID and CLI-style focused checks                                   | [tmt-dev](.agents/skills/tmt-dev/SKILL.md) (`references/focused-checks.md`)       |
-| Squad extension and board                                                                              | [tmt-squad-dev](.agents/skills/tmt-squad-dev/SKILL.md)                            |
+| Ops extension and board                                                                                | [tmt-ops-dev](.agents/skills/tmt-ops-dev/SKILL.md)                                |
 | Internal TUI markup (`tmt-tui`)                                                                        | [tmt-tui](.agents/skills/tmt-tui/SKILL.md)                                        |
 | Remote door and embedded browser client                                                                | [tmt-remote](.agents/skills/tmt-remote/SKILL.md)                                  |
 | Colab executable, app and browser client                                                               | [tmt-colab](.agents/skills/tmt-colab/SKILL.md)                                    |
@@ -102,8 +102,8 @@ and never restart Docker Desktop.
 ```bash
 (cd rust && cargo build --locked -p tmt-cli)
 sh scripts/tmt-dev.sh --version
-(cd rust && cargo build --locked -p tmt-squad)
-./rust/target/debug/tmt-squad --help
+(cd rust && cargo build --locked -p tmt-ops)
+./rust/target/debug/tmt-ops --help
 ```
 
 `scripts/tmt-dev.sh` and `pnpm tmt` launch only this checkout's
@@ -173,7 +173,7 @@ review the diff. CI never updates snapshots.
 **CLI style and printed-command guards** ([enforcement](design/cli-style.md#enforcement))
 run in `cargo test`. When a migrated command leaves its list, run them directly:
 `cargo test --locked -p tmt-cli --bin tmt cli_style` and
-`cargo test --locked -p tmt-squad cli_style`; a failure prints the list entry to
+`cargo test --locked -p tmt-ops cli_style`; a failure prints the list entry to
 add or remove. When adding or changing a printed command template, update its
 presentation site's test-only `HintSpec` list (explicit command boundaries,
 representative operands, and a reason for any external-command skip); the guard
@@ -238,7 +238,7 @@ selection defaults to the debug build.
 
 **Fixture builds belong in the process job itself.** Process and archive fixtures
 need the CLI and Herdr together (`cargo build --locked -p tmt-cli -p
-tmt-driver-herdr --bins`); extension archive scenarios also need `tmt-squad`,
+tmt-driver-herdr --bins`); extension archive scenarios also need `tmt-ops`,
 `tmt-remote` and `tmt-colab`, and Colab's verifier needs `cargo build --locked -p
 tmt-test-support --example colab-runtime-fixture`. Another job's build or a warm
 local target does not supply them.
@@ -325,9 +325,9 @@ owns the legacy-bundle regressions, `skill_installation::owned_tests` the
 extension-owned skills, and every fixture uses the isolated HOME/config sandbox.
 Provider and custom-root usage: [Settings chapter](site/src/chapters/settings.mdx)
 and `skills/README.md`. The squad lead skill
-(`extensions/tmt-squad/skills/tmt-squad/SKILL.md`) and playbooks are embedded by the
-squad executable and sit outside this bundle (see
-[tmt-squad-dev](.agents/skills/tmt-squad-dev/SKILL.md)).
+(`extensions/tmt-ops/skills/tmt-ops/SKILL.md`) and playbooks are embedded by the
+Ops executable and sit outside this bundle (see
+[tmt-ops-dev](.agents/skills/tmt-ops-dev/SKILL.md)).
 
 ## Project tracking
 

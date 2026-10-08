@@ -11,17 +11,17 @@ use clap::{Arg, ArgAction, Command};
 use serde_json::{Value, json};
 use tmt_cli_style::{CommandSpec, Example, OutputModes};
 
-/// The owner recorded with core, shared with the `tmt-squad` lead skill that
-/// `tmt extension install squad` offers, so uninstalling the extension removes
+/// The owner recorded with core, shared with the `tmt-ops` lead skill that
+/// `tmt extension install ops` offers, so uninstalling the extension removes
 /// both.
-const OWNER: &str = "squad";
+const OWNER: &str = "ops";
 
 struct Playbook {
     name: &'static str,
     skill: &'static str,
 }
 
-/// The catalog. Sources live in `extensions/tmt-squad/playbooks/`, beside
+/// The catalog. Sources live in `extensions/tmt-ops/playbooks/`, beside
 /// `skills/` and not inside it: the release archive ships every skill under
 /// `skills/` and the extension installer offers them all, while a playbook is
 /// installed only by asking for it here.
@@ -30,7 +30,7 @@ const PLAYBOOKS: &[Playbook] = &[Playbook {
     skill: include_str!("../../../playbooks/tmux-squad/SKILL.md"),
 }];
 
-/// `tmt squad playbook`, registered through the shared CLI style. `--json` is
+/// `tmt ops playbook`, registered through the shared CLI style. `--json` is
 /// squad's global option, so no command declares its own.
 pub fn grammar() -> Command {
     let name = || {
@@ -49,15 +49,15 @@ pub fn grammar() -> Command {
         summary: "Optional layouts for lead agents to propose (squad never runs them)",
         examples: &[
             Example {
-                command: "tmt squad playbook ls",
+                command: "tmt ops playbook ls",
                 note: "See which playbooks exist",
             },
             Example {
-                command: "tmt squad playbook show tmux-squad",
+                command: "tmt ops playbook show tmux-squad",
                 note: "Read one before installing it",
             },
             Example {
-                command: "tmt squad playbook install tmux-squad",
+                command: "tmt ops playbook install tmux-squad",
                 note: "Install it for your agents, after a prompt",
             },
         ],
@@ -71,11 +71,11 @@ pub fn grammar() -> Command {
             summary: "List the playbooks",
             examples: &[
                 Example {
-                    command: "tmt squad playbook ls",
+                    command: "tmt ops playbook ls",
                     note: "List names and descriptions",
                 },
                 Example {
-                    command: "tmt squad playbook ls --json",
+                    command: "tmt ops playbook ls --json",
                     note: "Read them from a script",
                 },
             ],
@@ -89,7 +89,7 @@ pub fn grammar() -> Command {
             name: "show",
             summary: "Print a playbook exactly as embedded",
             examples: &[Example {
-                command: "tmt squad playbook show tmux-squad",
+                command: "tmt ops playbook show tmux-squad",
                 note: "Print the tmux-squad playbook; nothing is installed",
             }],
             outputs: OutputModes::Human,
@@ -103,15 +103,15 @@ pub fn grammar() -> Command {
             summary: "Show the plan, ask, then publish the playbook as an agent skill",
             examples: &[
                 Example {
-                    command: "tmt squad playbook install tmux-squad --print",
+                    command: "tmt ops playbook install tmux-squad --print",
                     note: "See the plan first; nothing changes",
                 },
                 Example {
-                    command: "tmt squad playbook install tmux-squad",
+                    command: "tmt ops playbook install tmux-squad",
                     note: "Ask, then install for your agents",
                 },
                 Example {
-                    command: "tmt squad playbook install tmux-squad --yes --force",
+                    command: "tmt ops playbook install tmux-squad --yes --force",
                     note: "Replace an unmanaged skill of that name, keeping a backup",
                 },
             ],
@@ -138,7 +138,7 @@ pub fn grammar() -> Command {
             name: "rm",
             summary: "Remove only this playbook's skill",
             examples: &[Example {
-                command: "tmt squad playbook rm tmux-squad",
+                command: "tmt ops playbook rm tmux-squad",
                 note: "Ask, then remove it from your agents",
             }],
             outputs: OutputModes::Human,
@@ -203,7 +203,7 @@ pub fn install(
 ) -> Result<Value, SquadError> {
     let playbook = find(name)?;
     let plan = format!(
-        "tmt squad playbook install will publish the skill '{}' ({} bytes) into the skill directory of each agent tmt detects, owned by '{OWNER}'.\n  {}\n  Squad never runs a playbook; it is guidance for your lead agent.",
+        "tmt ops playbook install will publish the skill '{}' ({} bytes) into the skill directory of each agent tmt detects, owned by '{OWNER}'.\n  {}\n  Squad never runs a playbook; it is guidance for your lead agent.",
         playbook.name,
         playbook.skill.len(),
         if force {
@@ -256,7 +256,7 @@ pub fn install(
 pub fn remove(core: &Core, name: &str, consent: Consent) -> Result<Value, SquadError> {
     let playbook = find(name)?;
     let plan = format!(
-        "tmt squad playbook rm will remove the skill '{}' that squad published into your agents' skill directories.\n  A copy you replaced or edited is kept, and squad's other skills (such as tmt-squad) stay.",
+        "tmt ops playbook rm will remove the skill '{}' that squad published into your agents' skill directories.\n  A copy you replaced or edited is kept, and squad's other skills (such as tmt-ops) stay.",
         playbook.name
     );
     ask(consent, &plan, "Remove this playbook?")?;
@@ -293,7 +293,7 @@ pub fn text(document: &Value, terminal: tmt_cli_style::Terminal) -> String {
         }
         let hint = playbooks
             .first()
-            .map(|playbook| format!("tmt squad playbook show {}", string(&playbook["name"])));
+            .map(|playbook| format!("tmt ops playbook show {}", string(&playbook["name"])));
         let section = tmt_cli_style::list::Section {
             title: "playbooks",
             count: Some(playbooks.len()),
@@ -430,12 +430,12 @@ mod tests {
     #[test]
     fn no_playbook_is_in_the_release_skills_tree() {
         // The archive ships every skill directory under `skills/`, and
-        // `tmt extension install squad` offers them all.
+        // `tmt extension install ops` offers them all.
         let shipped: BTreeSet<String> = fs::read_dir(crate_dir().join("../../skills"))
             .unwrap()
             .map(|entry| entry.unwrap().file_name().into_string().unwrap())
             .collect();
-        assert!(shipped.contains("tmt-squad"), "positive control");
+        assert!(shipped.contains("tmt-ops"), "positive control");
         for playbook in PLAYBOOKS {
             assert!(!shipped.contains(playbook.name), "{}", playbook.name);
         }

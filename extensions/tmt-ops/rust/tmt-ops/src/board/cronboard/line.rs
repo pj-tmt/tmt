@@ -8,7 +8,7 @@ use crate::{board::notes::sanitize, board::view::fit, cron_service::JobView};
 #[cfg(test)]
 use ratatui::text::{Line, Span};
 use tmt_cli_style::Role;
-use tmt_squad::cron::ClockStatus;
+use tmt_ops::cron::ClockStatus;
 use unicode_width::UnicodeWidthStr;
 
 /// One display line of untrusted text with terminal controls neutralized.
@@ -52,7 +52,7 @@ pub(in crate::board) fn clock(
             (first_line(&text), Role::Dim)
         }
         ClockStatus::NoClock if short => ("no clock".into(), Role::Blocked),
-        ClockStatus::NoClock => ("no clock · tmt sq cron run".into(), Role::Blocked),
+        ClockStatus::NoClock => ("no clock · tmt ops sq cron run".into(), Role::Blocked),
         ClockStatus::Unknown => ("clock: unknown".into(), Role::Waiting),
     }
 }

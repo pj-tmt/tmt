@@ -1,4 +1,4 @@
-//! `tmt squad hotkeys`: tmux prefix keys that open the board. The bindings
+//! `tmt ops hotkeys`: tmux prefix keys that open the board. The bindings
 //! live in a squad-owned file; with consent, one owned `source-file` line is
 //! added to the user's tmux configuration. Nothing else there is touched.
 
@@ -19,8 +19,17 @@ use std::{
 };
 
 /// Notes that mark squad's own bindings in `list-keys`.
-const NOTE: &str = "tmt squad";
-const MARK: &str = "# tmt squad hotkeys";
+const NOTE: &str = "tmt ops";
+const FORMER_NOTE: &str = "tmt squad";
+const FORMER_MARK: &str = "# tmt squad hotkeys";
+const MARK: &str = "# tmt ops hotkeys";
+
+fn owned_note(note: &str) -> bool {
+    [NOTE, FORMER_NOTE].iter().any(|prefix| {
+        note.strip_prefix(prefix)
+            .is_some_and(|suffix| suffix.starts_with(' '))
+    })
+}
 
 fn failed(code: &str, message: impl Into<String>) -> SquadError {
     SquadError::new(code, message)
@@ -68,22 +77,22 @@ fn quoted(path: &Path) -> Result<String, SquadError> {
 pub fn bindings(keys: &TmuxKeys, launcher: &Path) -> Result<String, SquadError> {
     let tmt = quoted(launcher)?;
     let mut text = format!(
-        "{MARK}: generated; `tmt squad hotkeys install` replaces this file.\n\
-         bind-key -N \"{NOTE} popup\" {popup} display-popup -E -w 90% -h 85% \"exec {tmt} squad board --popup\"\n\
-         bind-key -N \"{NOTE} pane\" {pane} split-window -h \"exec {tmt} squad board\"\n",
+        "{MARK}: generated; `tmt ops hotkeys install` replaces this file.\n\
+         bind-key -N \"{NOTE} popup\" {popup} display-popup -E -w 90% -h 85% \"exec {tmt} ops ui --popup\"\n\
+         bind-key -N \"{NOTE} pane\" {pane} split-window -h \"exec {tmt} ops ui\"\n",
         popup = keys.popup,
         pane = keys.pane,
     );
     if let Some(back) = &keys.back {
         text.push_str(&format!(
-            "bind-key -N \"{NOTE} back\" {back} run-shell \"{tmt} squad back\"\n"
+            "bind-key -N \"{NOTE} back\" {back} run-shell \"{tmt} ops squad back\"\n"
         ));
     }
     // A run-shell job has `TMUX` but no `TMUX_PANE`; the key's own pane says
     // whose lead to show.
     if let Some(lead) = &keys.lead {
         text.push_str(&format!(
-            "bind-key -N \"{NOTE} lead\" {lead} run-shell \"TMUX_PANE=#{{pane_id}} {tmt} squad jump --lead\"\n"
+            "bind-key -N \"{NOTE} lead\" {lead} run-shell \"TMUX_PANE=#{{pane_id}} {tmt} ops squad jump --lead\"\n"
         ));
     }
     Ok(text)
@@ -245,7 +254,7 @@ fn collisions(
             }
         }
         for (bound, note, command) in server {
-            if bound == key && !note.starts_with(NOTE) {
+            if bound == key && !owned_note(note) {
                 found.push(format!("prefix {key} on the running server: {command}"));
             }
         }
@@ -353,7 +362,7 @@ fn publish(
             let millis = SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .map_or(0, |elapsed| elapsed.as_millis());
-            let backup = directory.join(format!("{name}.tmt-squad-backup-{millis}"));
+            let backup = directory.join(format!("{name}.tmt-ops-backup-{millis}"));
             fs::OpenOptions::new()
                 .write(true)
                 .create_new(true)
@@ -365,7 +374,7 @@ fn publish(
         None => None,
     };
     let mode = fs::metadata(path).map_or(0o644, |metadata| metadata.permissions().mode());
-    let temporary = directory.join(format!(".{name}.tmt-squad-{}", std::process::id()));
+    let temporary = directory.join(format!(".{name}.tmt-ops-{}", std::process::id()));
     let written = fs::write(&temporary, text)
         .and_then(|()| fs::set_permissions(&temporary, fs::Permissions::from_mode(mode)))
         .and_then(|()| fs::rename(&temporary, path));
@@ -380,6 +389,8 @@ fn publish(
 struct Plan {
     keys: TmuxKeys,
     squad_file: PathBuf,
+    former_file: PathBuf,
+    former_line: String,
     bindings: String,
     line: String,
     candidates: Vec<(PathBuf, Option<Vec<u8>>)>,
@@ -395,7 +406,9 @@ fn plan(core: &Core, config: &Config, explicit: Option<&Path>) -> Result<Plan, S
         .path()
         .parent()
         .ok_or_else(|| failed("SQUAD_CONFIG_INVALID", "ops.toml has no directory."))?
-        .join("squad.tmux.conf");
+        .join("ops.tmux.conf");
+    let former_file = squad_file.with_file_name("squad.tmux.conf");
+    let former_line = format!("source-file -q {} {FORMER_MARK}", quoted(&former_file)?);
     let tmt = launcher(core.executable(), std::env::var_os("PATH"));
     let home = std::env::var_os("HOME")
         .map(PathBuf::from)
@@ -429,6 +442,8 @@ fn plan(core: &Core, config: &Config, explicit: Option<&Path>) -> Result<Plan, S
         line: owned_line(&squad_file)?,
         keys,
         squad_file,
+        former_file,
+        former_line,
         candidates,
         resolved: real_path(&target),
         target,
@@ -473,6 +488,7 @@ pub fn install(
     };
     let collisions = collisions(&plan.keys, &files, &server);
     let installed = contains_line(&current, &plan.line)
+        && !contains_line(&current, &plan.former_line)
         && read(&plan.squad_file)?.as_deref() == Some(plan.bindings.as_bytes());
     let document = json!({
         "target": plan.target,
@@ -501,7 +517,7 @@ pub fn install(
         return Ok(document);
     }
     let summary = format!(
-        "tmt squad hotkeys will:\n  write {} (squad's bindings: prefix {} popup, prefix {} pane{}{})\n  {} {} with the line:\n    {}{}",
+        "tmt ops hotkeys will:\n  write {} (squad's bindings: prefix {} popup, prefix {} pane{}{})\n  {} {} with the line:\n    {}{}",
         plan.squad_file.display(),
         plan.keys.popup,
         plan.keys.pane,
@@ -541,7 +557,7 @@ pub fn install(
     let backup = publish(
         &plan.target,
         original.as_deref(),
-        &with_line(&current, &plan.line),
+        &with_line(&without_line(&current, &plan.former_line), &plan.line),
     )?;
     let squad_before = read(&plan.squad_file)?;
     publish(&plan.squad_file, squad_before.as_deref(), &plan.bindings)?;
@@ -565,7 +581,9 @@ pub fn remove(core: &Core, config: &Config, consent: Consent) -> Result<Value, S
         .iter()
         .filter_map(|(path, bytes)| {
             let bytes = bytes.clone()?;
-            contains_line(&text(&Some(bytes.clone())), &plan.line).then(|| (path.clone(), bytes))
+            (contains_line(&text(&Some(bytes.clone())), &plan.line)
+                || contains_line(&text(&Some(bytes.clone())), &plan.former_line))
+            .then(|| (path.clone(), bytes))
         })
         .collect();
     let server = match &plan.socket {
@@ -574,14 +592,14 @@ pub fn remove(core: &Core, config: &Config, consent: Consent) -> Result<Value, S
     };
     let ours: Vec<String> = server
         .iter()
-        .filter(|(_, note, _)| note.starts_with(NOTE))
+        .filter(|(_, note, _)| owned_note(note))
         .map(|(key, _, _)| key.clone())
         .collect();
     if owners.is_empty() && ours.is_empty() {
         return Ok(json!({"removed": [], "unbound": [], "changed": false}));
     }
     let summary = format!(
-        "tmt squad hotkeys will remove the line\n    {}\n  from {}{}",
+        "tmt ops hotkeys will remove the line\n    {}\n  from {}{}",
         plan.line,
         owners
             .iter()
@@ -600,7 +618,10 @@ pub fn remove(core: &Core, config: &Config, consent: Consent) -> Result<Value, S
     ask(consent, &summary, "Remove these tmux hotkeys?")?;
     let mut backups = Vec::new();
     for (path, bytes) in &owners {
-        let kept = without_line(&text(&Some(bytes.clone())), &plan.line);
+        let kept = without_line(
+            &without_line(&text(&Some(bytes.clone())), &plan.line),
+            &plan.former_line,
+        );
         backups.push(publish(path, Some(bytes), &kept)?);
     }
     if let Some(socket) = &plan.socket {
@@ -629,10 +650,15 @@ pub fn report(core: &Core, config: &Config) -> Result<Value, SquadError> {
     let installed_in: Vec<&PathBuf> = plan
         .candidates
         .iter()
-        .filter(|(_, bytes)| contains_line(&text(bytes), &plan.line))
+        .filter(|(_, bytes)| {
+            contains_line(&text(bytes), &plan.line)
+                || contains_line(&text(bytes), &plan.former_line)
+        })
         .map(|(path, _)| path)
         .collect();
-    let written = read(&plan.squad_file)?.map(|bytes| String::from_utf8_lossy(&bytes).into_owned());
+    let written = read(&plan.squad_file)?
+        .or(read(&plan.former_file)?)
+        .map(|bytes| String::from_utf8_lossy(&bytes).into_owned());
     let executable = written.as_deref().and_then(recorded);
     let server = match &plan.socket {
         Some(socket) => server_keys(socket)?,
@@ -648,7 +674,7 @@ pub fn report(core: &Core, config: &Config) -> Result<Value, SquadError> {
         "executableExists": executable.as_ref().map(|path| path.exists()),
         "serverKeys": server
             .iter()
-            .filter(|(_, note, _)| note.starts_with(NOTE))
+            .filter(|(_, note, _)| owned_note(note))
             .map(|(key, _, _)| key)
             .collect::<Vec<_>>(),
     }))
@@ -695,7 +721,7 @@ mod tests {
 
     fn scratch(name: &str) -> PathBuf {
         let path =
-            std::env::temp_dir().join(format!("tmt-squad-hotkeys-{name}-{}", std::process::id()));
+            std::env::temp_dir().join(format!("tmt-ops-hotkeys-{name}-{}", std::process::id()));
         let _ = fs::remove_dir_all(&path);
         fs::create_dir_all(&path).unwrap();
         path
@@ -729,8 +755,8 @@ mod tests {
         assert_eq!(
             text.lines().skip(1).collect::<Vec<_>>(),
             [
-                "bind-key -N \"tmt squad popup\" S display-popup -E -w 90% -h 85% \"exec '/Users/me/.local/bin/tmt' squad board --popup\"",
-                "bind-key -N \"tmt squad pane\" B split-window -h \"exec '/Users/me/.local/bin/tmt' squad board\"",
+                "bind-key -N \"tmt ops popup\" S display-popup -E -w 90% -h 85% \"exec '/Users/me/.local/bin/tmt' ops ui --popup\"",
+                "bind-key -N \"tmt ops pane\" B split-window -h \"exec '/Users/me/.local/bin/tmt' ops ui\"",
             ]
         );
         let with_back = bindings(
@@ -742,8 +768,9 @@ mod tests {
         )
         .unwrap();
         assert!(
-            with_back
-                .ends_with("bind-key -N \"tmt squad back\" b run-shell \"'/x/tmt' squad back\"\n")
+            with_back.ends_with(
+                "bind-key -N \"tmt ops back\" b run-shell \"'/x/tmt' ops squad back\"\n"
+            )
         );
         // The lead key passes its own pane, which a run-shell job lacks.
         let with_lead = bindings(
@@ -755,7 +782,7 @@ mod tests {
         )
         .unwrap();
         assert!(with_lead.ends_with(
-            "bind-key -N \"tmt squad lead\" J run-shell \"TMUX_PANE=#{pane_id} '/x/tmt' squad jump --lead\"\n"
+            "bind-key -N \"tmt ops lead\" J run-shell \"TMUX_PANE=#{pane_id} '/x/tmt' ops squad jump --lead\"\n"
         ));
         assert!(!with_back.contains("jump --lead"), "lead is opt-in");
         assert_eq!(
@@ -774,13 +801,13 @@ mod tests {
         }
         assert_eq!(
             owned_line(Path::new("/c/tmux-team/squad.tmux.conf")).unwrap(),
-            "source-file -q '/c/tmux-team/squad.tmux.conf' # tmt squad hotkeys"
+            "source-file -q '/c/tmux-team/squad.tmux.conf' # tmt ops hotkeys"
         );
     }
 
     #[test]
     fn the_owned_line_is_added_once_and_removed_alone() {
-        let line = "source-file -q '/c/squad.tmux.conf' # tmt squad hotkeys";
+        let line = "source-file -q '/c/squad.tmux.conf' # tmt ops hotkeys";
         let original = "set -g mouse on\n# keep me\nbind r source ~/.tmux.conf";
         let added = with_line(original, line);
         assert_eq!(added, format!("{original}\n{line}\n"));
@@ -815,7 +842,7 @@ mod tests {
         let server = vec![
             (
                 "S".to_owned(),
-                "tmt squad popup".to_owned(),
+                "tmt ops popup".to_owned(),
                 "display-popup …".to_owned(),
             ),
             ("B".to_owned(), String::new(), "split-window".to_owned()),
@@ -918,12 +945,12 @@ mod tests {
     #[test]
     fn server_listings_from_tmux_3_3_and_3_7_parse_alike() {
         let commands = "bind-key -r -T prefix B       resize-pane -L\n\
-            bind-key    -T prefix S       display-popup -E -h \"85%\" -w \"90%\" \"exec '/x y/tmt' squad board --popup\"\n\
+            bind-key    -T prefix S       display-popup -E -h \"85%\" -w \"90%\" \"exec '/x y/tmt' ops ui --popup\"\n\
             bind-key    -T prefix p       previous-window\n\
             bind-key    -T root   S       send-keys x\n";
         for notes in [
-            "S       tmt squad popup\np       Select the previous window\n",
-            " S       tmt squad popup\n p       Select the previous window\n",
+            "S       tmt ops popup\np       Select the previous window\n",
+            " S       tmt ops popup\n p       Select the previous window\n",
         ] {
             assert_eq!(
                 parse_keys(notes, commands),
@@ -931,10 +958,15 @@ mod tests {
                     ("B".into(), String::new(), "resize-pane -L".into()),
                     (
                         "S".into(),
-                        "tmt squad popup".into(),
-                        "display-popup -E -h \"85%\" -w \"90%\" \"exec '/x y/tmt' squad board --popup\"".into()
+                        "tmt ops popup".into(),
+                        "display-popup -E -h \"85%\" -w \"90%\" \"exec '/x y/tmt' ops ui --popup\""
+                            .into()
                     ),
-                    ("p".into(), "Select the previous window".into(), "previous-window".into()),
+                    (
+                        "p".into(),
+                        "Select the previous window".into(),
+                        "previous-window".into()
+                    ),
                 ]
             );
         }
@@ -975,7 +1007,7 @@ mod tests {
             .filter_map(|entry| entry.ok())
             .filter(|entry| {
                 let name = entry.file_name().to_string_lossy().into_owned();
-                name.contains(".tmt-squad-") && !name.contains("backup")
+                name.contains(".tmt-ops-") && !name.contains("backup")
             })
             .count();
         assert_eq!(leftovers, 0, "no temporary files remain");

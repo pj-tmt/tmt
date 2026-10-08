@@ -6,7 +6,7 @@ use crate::{
 };
 use serde_json::{Value, json};
 use std::path::PathBuf;
-use tmt_squad::cron::{self, Job, Jobs, Pause, Schedule, ScheduleInput, Store};
+use tmt_ops::cron::{self, Job, Jobs, Pause, Schedule, ScheduleInput, Store};
 
 mod notices;
 mod retirement;

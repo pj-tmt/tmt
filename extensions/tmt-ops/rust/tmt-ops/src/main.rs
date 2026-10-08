@@ -1,4 +1,4 @@
-//! `tmt squad` (alias `tmt sq`): an optional extension reached through TMT's
+//! `tmt ops`: an optional extension reached through TMT's
 //! external command dispatch. Core owns authoritative state; disposable
 //! extension caches hold derived values and observed ages.
 
@@ -71,7 +71,7 @@ use tmt_cli_style::{
     value,
 };
 
-const SKILL: &str = include_str!("../../../skills/tmt-squad/SKILL.md");
+const SKILL: &str = include_str!("../../../skills/tmt-ops/SKILL.md");
 
 fn squad_option() -> Arg {
     Arg::new("squad")
@@ -80,23 +80,13 @@ fn squad_option() -> Arg {
         .help("Select a squad; optional when exactly one exists")
 }
 
-/// The name is fixed, never argv[0]: `tmt-squad` and its `tmt-sq` link print
+/// The name is fixed, never argv[0]: `tmt-ops` prints
 /// byte-identical help, errors and completion.
 fn grammar() -> Command {
     let operand = |name: &'static str, help: &'static str| Arg::new(name).required(true).help(help);
     let build = tmt_cli_style::command;
-    build(specs::ROOT)
-        .bin_name("tmt squad")
-        .version(env!("CARGO_PKG_VERSION"))
-        // The release proof expects exactly `squad <version>`.
-        .arg(tmt_cli_style::version_arg(ArgAction::Version))
-        .arg(
-            Arg::new("json")
-                .long("json")
-                .global(true)
-                .action(ArgAction::SetTrue)
-                .help("Print one JSON document"),
-        )
+    let squad = build(specs::SQUAD).alias("sq")
+        .bin_name("tmt ops squad")
         .subcommand(
             build(specs::INIT)
                 .arg(operand(
@@ -107,7 +97,7 @@ fn grammar() -> Command {
                     Arg::new("me")
                         .long("me")
                         .value_name("NAME")
-                        .help("Also record your saved identity (same as tmt squad me <name>)"),
+                        .help("Also record your saved identity (same as tmt ops squad me <name>)"),
                 ),
         )
         .subcommand(
@@ -159,53 +149,6 @@ fn grammar() -> Command {
                 ),
         )
         .subcommand(
-            build(specs::BOARD)
-                .arg(squad_option())
-                .arg(Arg::new("tabs").long("tabs").value_name("NAMES")
-                    .help("The tabs this board shows (names as on the tab line); comma-separated, all for the default set"))
-                .arg(
-                    Arg::new("popup")
-                        .long("popup")
-                        .action(ArgAction::SetTrue)
-                        .help("Close after a successful jump (for a tmux popup)"),
-                ),
-        )
-        .subcommand(
-            build(specs::HOTKEYS)
-                .subcommand_required(true)
-                .subcommand(
-                    build(specs::HOTKEYS_INSTALL)
-                        .arg(
-                            Arg::new("print")
-                                .long("print")
-                                .action(ArgAction::SetTrue)
-                                .help("Print the bindings and the line; change nothing"),
-                        )
-                        .arg(
-                            Arg::new("yes")
-                                .long("yes")
-                                .action(ArgAction::SetTrue)
-                                .help("Consent without a prompt"),
-                        )
-                        .arg(
-                            Arg::new("config")
-                                .long("config")
-                                .value_name("PATH")
-                                .help("The tmux configuration to edit (absolute path)"),
-                        ),
-                )
-                .subcommand(
-                    build(specs::HOTKEYS_REMOVE).alias("remove")
-                        .arg(
-                            Arg::new("yes")
-                                .long("yes")
-                                .action(ArgAction::SetTrue)
-                                .help("Consent without a prompt"),
-                        ),
-                )
-                .subcommand(build(specs::HOTKEYS_SHOW)),
-        )
-        .subcommand(
             build(specs::JUMP)
                 .arg(
                     operand("member", "Member or lead to show")
@@ -251,10 +194,64 @@ fn grammar() -> Command {
         .subcommand(settings::grammar())
         .subcommand(theme::grammar())
         .subcommand(view::grammar())
-        .subcommand(playbook::grammar())
         .subcommand(cron_command::grammar())
         .subcommand(focus_command::grammar())
-        .subcommand(checklist_command::grammar())
+        .subcommand(checklist_command::grammar());
+    build(specs::ROOT)
+        .bin_name("tmt ops")
+        .version(env!("CARGO_PKG_VERSION"))
+        .arg(tmt_cli_style::version_arg(ArgAction::Version))
+        .arg(Arg::new("json").long("json").global(true)
+            .action(ArgAction::SetTrue).help("Print one JSON document"))
+        .subcommand(squad)
+        .subcommand(
+            build(specs::UI)
+                .arg(squad_option())
+                .arg(Arg::new("tabs").long("tabs").value_name("NAMES")
+                    .help("The tabs this board shows (names as on the tab line); comma-separated, all for the default set"))
+                .arg(
+                    Arg::new("popup")
+                        .long("popup")
+                        .action(ArgAction::SetTrue)
+                        .help("Close after a successful jump (for a tmux popup)"),
+                ),
+        )
+        .subcommand(
+            build(specs::HOTKEYS)
+                .subcommand_required(true)
+                .subcommand(
+                    build(specs::HOTKEYS_INSTALL)
+                        .arg(
+                            Arg::new("print")
+                                .long("print")
+                                .action(ArgAction::SetTrue)
+                                .help("Print the bindings and the line; change nothing"),
+                        )
+                        .arg(
+                            Arg::new("yes")
+                                .long("yes")
+                                .action(ArgAction::SetTrue)
+                                .help("Consent without a prompt"),
+                        )
+                        .arg(
+                            Arg::new("config")
+                                .long("config")
+                                .value_name("PATH")
+                                .help("The tmux configuration to edit (absolute path)"),
+                        ),
+                )
+                .subcommand(
+                    build(specs::HOTKEYS_REMOVE).alias("remove")
+                        .arg(
+                            Arg::new("yes")
+                                .long("yes")
+                                .action(ArgAction::SetTrue)
+                                .help("Consent without a prompt"),
+                        ),
+                )
+                .subcommand(build(specs::HOTKEYS_SHOW)),
+        )
+        .subcommand(playbook::grammar())
         .subcommand(
             build(specs::SKILL)
                 .subcommand_required(true)
@@ -272,9 +269,17 @@ fn grammar() -> Command {
 
 /// What the command line asks for.
 enum Request {
-    /// `tmt squad help [command...]`: print that command's help.
+    /// `tmt ops help [command...]`: print that command's help.
     Help(Box<Command>),
     Run(ArgMatches),
+}
+
+/// Preserve the squad node's `help <command>` route after nesting it under Ops.
+fn root_help_words(mut words: Vec<String>) -> Vec<String> {
+    if words.len() >= 2 && matches!(words[0].as_str(), "squad" | "sq") && words[1] == "help" {
+        words.swap(0, 1);
+    }
+    words
 }
 
 /// `help <command>` resolves through the shared route, so it prints what
@@ -287,7 +292,7 @@ fn request(argv: &[OsString]) -> Result<Request, clap::Error> {
         .map(|word| word.to_str().map(str::to_owned))
         .collect();
     if let Some(words) = words {
-        match tmt_cli_style::route(&grammar(), &words) {
+        match tmt_cli_style::route(&grammar(), &root_help_words(words)) {
             Route::Help(command) => return Ok(Request::Help(command)),
             Route::Unknown(word) => {
                 return Err(grammar().error(
@@ -305,6 +310,7 @@ fn request(argv: &[OsString]) -> Result<Request, clap::Error> {
 /// lets the shell fall back to file completion.
 fn complete(words: &[String]) -> Vec<String> {
     let words = words.strip_prefix(&["--".to_owned()]).unwrap_or(words);
+    let words = root_help_words(words.to_vec());
     let (current, before) = words
         .split_last()
         .map_or(("", &[][..]), |(last, rest)| (last.as_str(), rest));
@@ -334,7 +340,12 @@ fn complete(words: &[String]) -> Vec<String> {
             .get_subcommands()
             .filter(|sub| !sub.is_hide_set())
             .map(|sub| sub.get_name().to_owned())
-            .chain((before.is_empty() && !helping).then(|| "help".to_owned()))
+            .chain(
+                (!helping
+                    && (before.is_empty()
+                        || (before.len() == 1 && matches!(before[0].as_str(), "squad" | "sq"))))
+                .then(|| "help".to_owned()),
+            )
             .collect()
     };
     candidates.retain(|candidate| candidate.starts_with(current));
@@ -376,10 +387,10 @@ fn hotkeys_text(document: &Value, terminal: Terminal) -> String {
         return if document["changed"] == true {
             done(
                 terminal,
-                &format!("Removed squad's hotkeys ({})", document["removed"]),
+                &format!("Removed Ops hotkeys ({})", document["removed"]),
             )
         } else {
-            "No squad hotkeys were installed; nothing changed.\n".into()
+            "No Ops hotkeys were installed; nothing changed.\n".into()
         };
     }
     // The report: label/value rows, home-abbreviated paths, one next step.
@@ -411,7 +422,7 @@ fn hotkeys_text(document: &Value, terminal: Terminal) -> String {
         )),
     ]);
     table.row([
-        Cell::styled("squad file", Token::Dim),
+        Cell::styled("ops file", Token::Dim),
         Cell::from(format!(
             "{}{}",
             shown(&document["squadFile"]),
@@ -437,7 +448,7 @@ fn hotkeys_text(document: &Value, terminal: Terminal) -> String {
         count: None,
         rows: table,
         note: None,
-        hint: stale.then_some("tmt squad hotkeys install"),
+        hint: stale.then_some("tmt ops hotkeys install"),
     };
     let mut output = Vec::new();
     let _ = section.write(&mut output, terminal);
@@ -462,7 +473,7 @@ fn me_text(document: &Value, terminal: Terminal) -> String {
         _ => {
             let mut output =
                 b"No identity is recorded as you, and this pane has no saved identity.\n".to_vec();
-            let _ = message::hint(&mut output, terminal, "tmt squad me <name>");
+            let _ = message::hint(&mut output, terminal, "tmt ops squad me <name>");
             String::from_utf8(output).unwrap_or_default()
         }
     }
@@ -478,7 +489,7 @@ fn done(terminal: Terminal, text: &str) -> String {
 fn human(command: &str, document: &Value, terminal: Terminal) -> String {
     let text = |value: &Value| value.as_str().unwrap_or_default().to_owned();
     match command {
-        "ls" | "board" => status::text(document, terminal),
+        "ls" | "ui" => status::text(document, terminal),
         "hotkeys" => hotkeys_text(document, terminal),
         "playbook" => playbook::text(document, terminal),
         "layout" => done(
@@ -614,7 +625,7 @@ fn human(command: &str, document: &Value, terminal: Terminal) -> String {
                 )
             }
         }
-        _ => unreachable!("tmt squad {command} has no human output"),
+        _ => unreachable!("tmt ops squad {command} has no human output"),
     }
 }
 
@@ -656,7 +667,7 @@ fn human_failures(command: &str, document: &Value) -> Vec<(String, Option<String
                 ),
                 (!skipped.is_empty()).then(|| {
                     format!(
-                        "tmt squad set {} {skipped}",
+                        "tmt ops squad set {} {skipped}",
                         document["member"].as_str().unwrap_or_default()
                     )
                 }),
@@ -844,14 +855,14 @@ fn run(
     if command == "me" {
         return me_command(&core, &mut config, text("name"), matches.get_flag("clear"));
     }
-    if matches!(command, "ls" | "board") {
+    if matches!(command, "ls" | "ui") {
         let refresh_fields = command == "ls" && matches.get_flag("refresh-fields");
         if command == "ls"
             && let Some(tab) = text("tab")
         {
             return ls_tab_document(&core, &mut config, tab);
         }
-        if command == "board"
+        if command == "ui"
             && let Some(picks) = text("tabs")
         {
             board::selection(&core, &config, Some(picks), text("squad"))?;
@@ -888,7 +899,7 @@ fn run(
             text("member").unwrap_or_default(),
             &many("fields"),
         ),
-        _ => unreachable!("tmt squad {command} is dispatched above"),
+        _ => unreachable!("tmt ops squad {command} is dispatched above"),
     }
 }
 
@@ -918,7 +929,7 @@ fn ls_tab_document(core: &Core, config: &mut Config, name: &str) -> Result<Outco
     Ok(document.into())
 }
 
-/// `ls` (and `board` without a person at a terminal). With `--squad`, that
+/// `ls` (and `ui` without a person at a terminal). With `--squad`, that
 /// squad's document; without it, always `{squads: [...], you}` in name order,
 /// even for one squad or none, so a script's shape never depends on how many
 /// squads exist. "You" is resolved once for all of them.
@@ -1003,15 +1014,23 @@ fn ls_document(
     Ok(document.into())
 }
 
-/// `tmt squad` with no command (options such as `--json` aside) is `ls`,
-/// which always lists members; only an explicit `board` opens the TUI.
+/// `tmt ops squad` with no command (options such as `--json` aside) is `ls`,
+/// which always lists members; `tmt ops ui` opens the TUI.
 fn bare_is_list(argv: Vec<OsString>) -> Vec<OsString> {
-    if argv.iter().skip(1).all(|word| {
-        word.to_str().is_some_and(|word| word.starts_with('-'))
-            && !matches!(word.to_str(), Some("-h" | "--help" | "-V" | "--version"))
-    }) {
+    let Some((index, node)) = argv
+        .iter()
+        .enumerate()
+        .skip(1)
+        .find(|(_, word)| *word != "--json")
+    else {
+        return argv;
+    };
+    if !matches!(node.to_str(), Some("squad" | "sq")) {
+        return argv;
+    }
+    if argv[index + 1..].iter().all(|word| word == "--json") {
         let mut words = argv;
-        words.insert(1.min(words.len()), "ls".into());
+        words.insert(index + 1, "ls".into());
         return words;
     }
     argv
@@ -1044,7 +1063,14 @@ fn main() -> ExitCode {
             return ExitCode::from(if error.use_stderr() { 2 } else { 0 });
         }
     };
-    let (command, sub) = matches.subcommand().expect("subcommand required");
+    let Some((root, flags)) = matches.subcommand() else {
+        return print_help(&grammar().render_help(), json);
+    };
+    let (command, sub) = if root == "squad" {
+        flags.subcommand().expect("bare squad is routed to ls")
+    } else {
+        (root, flags)
+    };
     match command {
         "__complete" => {
             let words: Vec<String> = sub
@@ -1061,7 +1087,7 @@ fn main() -> ExitCode {
     // Decided once: whether a person can see the board or answer a question.
     let interaction = Interaction::detect(json);
     // The board needs a person at a terminal; otherwise it is `ls`.
-    if command == "board" && interaction.view() == Mode::Interactive {
+    if command == "ui" && interaction.view() == Mode::Interactive {
         let squad = sub.get_one::<String>("squad").cloned();
         let popup = sub.get_flag("popup");
         let picks = sub.get_one::<String>("tabs").cloned();
@@ -1084,7 +1110,7 @@ fn main() -> ExitCode {
             let mut stdout = tmt_cli_style::stream::stdout(false);
             let mut body = human(command, &outcome.document, stdout.terminal());
             if bare {
-                body.push_str("\ntmt sq board opens the board\n");
+                body.push_str("\ntmt ops ui opens the board\n");
             }
             let written = stdout
                 .write_all(body.as_bytes())
@@ -1194,6 +1220,8 @@ mod tests {
         let grammar = grammar();
         for command in grammar
             .get_subcommands()
+            .filter(|command| command.get_name() != "squad")
+            .chain(grammar.find_subcommand("squad").unwrap().get_subcommands())
             .filter(|command| !command.is_hide_set())
             .map(Command::get_name)
         {
@@ -1207,7 +1235,10 @@ mod tests {
                     Terminal::PLAIN,
                 )
             });
-            assert!(output.is_ok(), "tmt squad {command} has no human output");
+            assert!(
+                output.is_ok(),
+                "tmt ops squad {command} has no human output"
+            );
         }
     }
 
@@ -1228,7 +1259,7 @@ mod tests {
             human_failures("set", &document),
             [(
                 "Could not set note on coder: Disk full.".to_owned(),
-                Some("tmt squad set coder task=ship pending=".to_owned())
+                Some("tmt ops squad set coder task=ship pending=".to_owned())
             )]
         );
     }
@@ -1238,19 +1269,19 @@ mod tests {
         let report = |current: bool| {
             serde_json::json!({"installed": true, "current": current,
                 "keys": {"popup": "S", "pane": "B", "back": null},
-                "squadFile": "/nowhere/squad.tmux.conf"})
+                "squadFile": "/nowhere/ops.tmux.conf"})
         };
         let text = hotkeys_text(&report(true), Terminal::PLAIN);
-        assert!(text.starts_with("HOTKEYS\n  installed   yes\n"), "{text}");
-        assert!(text.contains("keys        popup S, pane B\n"), "{text}");
+        assert!(text.starts_with("HOTKEYS\n  installed  yes\n"), "{text}");
+        assert!(text.contains("keys       popup S, pane B\n"), "{text}");
         assert!(!text.contains("hint:"), "{text}");
         let stale = hotkeys_text(&report(false), Terminal::PLAIN);
         assert!(
-            stale.contains("/nowhere/squad.tmux.conf (out of date)"),
+            stale.contains("/nowhere/ops.tmux.conf (out of date)"),
             "{stale}"
         );
         assert!(
-            stale.ends_with("hint: tmt squad hotkeys install\n"),
+            stale.ends_with("hint: tmt ops hotkeys install\n"),
             "{stale}"
         );
     }
@@ -1261,40 +1292,22 @@ mod tests {
 
     #[test]
     fn completion_offers_literal_subcommands_and_options_only() {
-        assert_eq!(complete(&words("-- s")), ["set", "skill"]);
-        assert_eq!(complete(&words("-- l")), ["layout", "lead", "ls"]);
+        assert_eq!(complete(&words("-- s")), ["skill", "squad"]);
         assert_eq!(
             complete(&words("-- ")),
-            [
-                "add",
-                "back",
-                "board",
-                "checklist",
-                "config",
-                "copy",
-                "cron",
-                "focus",
-                "help",
-                "hotkeys",
-                "init",
-                "jump",
-                "layout",
-                "lead",
-                "ls",
-                "me",
-                "open",
-                "playbook",
-                "rm",
-                "set",
-                "skill",
-                "theme",
-                "view"
-            ]
+            ["help", "hotkeys", "playbook", "skill", "squad", "ui"]
         );
-        assert_eq!(complete(&words("-- view ")), ["ls", "rm", "set"]);
+        assert_eq!(complete(&words("-- squad l")), ["layout", "lead", "ls"]);
+        assert_eq!(complete(&words("-- sq l")), ["layout", "lead", "ls"]);
+        assert_eq!(complete(&words("-- squad view ")), ["ls", "rm", "set"]);
         assert_eq!(
-            complete(&words("-- view set --")),
+            complete(&words("-- squad view set --")),
             ["--help", "--json", "--squad"]
+        );
+        assert!(
+            complete(&words("-- squad b"))
+                .iter()
+                .all(|word| word != "board")
         );
         assert_eq!(complete(&words("-- h")), ["help", "hotkeys"]);
         assert_eq!(
@@ -1306,11 +1319,11 @@ mod tests {
         assert!(complete(&words("-- help --")).is_empty());
         assert!(!complete(&words("-- help ")).contains(&"help".to_owned()));
         assert_eq!(
-            complete(&words("-- status --")),
+            complete(&words("-- squad status --")),
             ["--help", "--json", "--refresh-fields", "--squad", "--tab"]
         );
         assert_eq!(
-            complete(&words("-- board --")),
+            complete(&words("-- ui --")),
             ["--help", "--json", "--popup", "--squad", "--tabs"]
         );
         assert_eq!(complete(&words("-- skill s")), ["show"]);
@@ -1328,7 +1341,7 @@ mod tests {
             ["--config", "--help", "--json", "--print", "--yes"]
         );
         assert!(
-            complete(&words("-- set auth-fix st")).is_empty(),
+            complete(&words("-- squad set auth-fix st")).is_empty(),
             "values fall back to the shell"
         );
         assert!(
@@ -1338,7 +1351,7 @@ mod tests {
     }
 
     fn argv(line: &str) -> Vec<OsString> {
-        std::iter::once("tmt-squad")
+        std::iter::once("tmt-ops")
             .chain(line.split(' ').filter(|word| !word.is_empty()))
             .map(OsString::from)
             .collect()
@@ -1362,19 +1375,33 @@ mod tests {
     #[test]
     fn help_prints_what_dash_h_prints_and_does_not_reach_a_command() {
         assert_eq!(help_of("help"), help_of("--help"));
-        assert_eq!(help_of("help status"), help_of("status -h"));
+        assert_eq!(help_of("help squad status"), help_of("squad status -h"));
+        for node in ["squad", "sq"] {
+            assert_eq!(help_of(&format!("{node} help")), help_of("squad -h"));
+            assert_eq!(
+                help_of(&format!("{node} help cron run --json")),
+                help_of("squad cron run -h")
+            );
+            assert_eq!(
+                complete(&words(&format!("-- {node} help cron ru"))),
+                ["run"]
+            );
+            assert_eq!(complete(&words(&format!("-- {node} h"))), ["help"]);
+        }
         assert_eq!(
             help_of("help hotkeys install"),
             help_of("hotkeys install --help")
         );
         assert_eq!(help_of("help skill show --json"), help_of("skill show -h"));
-        assert!(help_of("help hotkeys install").contains("Usage: tmt squad hotkeys install"));
+        assert!(help_of("help hotkeys install").contains("Usage: tmt ops hotkeys install"));
         // A word that is no command is an error, never a command that runs.
         for line in [
             "help nope",
             "help init product",
             "help status --squad x",
             "help __complete",
+            "squad help bogus",
+            "sq help ui",
         ] {
             let Err(error) = request(&argv(line)) else {
                 panic!("{line:?} did not fail");
@@ -1386,7 +1413,7 @@ mod tests {
     #[test]
     fn clap_and_routed_help_share_terminal_wrapping_and_unchanged_pipe_bytes() {
         use unicode_width::UnicodeWidthStr;
-        for path in ["", "cron", "cron clock", "hotkeys install"] {
+        for path in ["", "squad cron", "squad cron clock", "hotkeys install"] {
             let short = format!("{path} -h");
             let long = format!("{path} --help");
             let routed = format!("help {path}");
@@ -1424,7 +1451,7 @@ mod tests {
                     tmt_cli_style::examples(&text),
                     tmt_cli_style::examples(&original)
                 );
-                if path == "cron" {
+                if path == "squad cron" {
                     assert_ne!(text, original);
                 }
             }
@@ -1432,7 +1459,7 @@ mod tests {
     }
 
     #[test]
-    fn version_prints_squad_and_the_package_version() {
+    fn version_prints_ops_and_the_package_version() {
         for flag in ["--version", "-V"] {
             let Err(error) = request(&argv(flag)) else {
                 panic!("{flag} ran a command");
@@ -1441,7 +1468,7 @@ mod tests {
             assert!(!error.use_stderr(), "{flag}");
             assert_eq!(
                 error.to_string(),
-                format!("squad {}\n", env!("CARGO_PKG_VERSION")),
+                format!("ops {}\n", env!("CARGO_PKG_VERSION")),
                 "{flag}"
             );
         }
@@ -1450,15 +1477,28 @@ mod tests {
     #[test]
     fn a_bare_invocation_lists_members_but_help_and_version_are_not() {
         let argv = |words: &[&str]| -> Vec<OsString> {
-            std::iter::once("tmt-squad")
+            std::iter::once("tmt-ops")
                 .chain(words.iter().copied())
                 .map(Into::into)
                 .collect()
         };
-        assert_eq!(bare_is_list(argv(&[])), argv(&["ls"]));
-        assert_eq!(bare_is_list(argv(&["--json"])), argv(&["ls", "--json"]));
+        for node in ["squad", "sq"] {
+            assert_eq!(bare_is_list(argv(&[node])), argv(&[node, "ls"]));
+            assert_eq!(
+                bare_is_list(argv(&["--json", node])),
+                argv(&["--json", node, "ls"])
+            );
+            assert_eq!(
+                bare_is_list(argv(&[node, "--json"])),
+                argv(&[node, "ls", "--json"])
+            );
+        }
         for kept in [
-            &["-h"][..],
+            &[][..],
+            &["--json"],
+            &["playbook", "show", "squad"],
+            &["squad", "--help"],
+            &["-h"],
             &["--help"],
             &["-V"],
             &["--version"],
@@ -1471,13 +1511,17 @@ mod tests {
 
     #[test]
     fn lead_requires_exactly_one_name_or_none() {
-        for accepted in ["lead sol", "lead --none", "lead --none --squad product"] {
+        for accepted in [
+            "squad lead sol",
+            "squad lead --none",
+            "squad lead --none --squad product",
+        ] {
             assert!(
                 matches!(request(&argv(accepted)), Ok(Request::Run(_))),
                 "{accepted}"
             );
         }
-        for refused in ["lead", "lead sol --none"] {
+        for refused in ["squad lead", "squad lead sol --none"] {
             assert!(request(&argv(refused)).is_err(), "{refused}");
         }
     }
@@ -1486,10 +1530,15 @@ mod tests {
     fn help_names_the_command_not_the_executable() {
         let help = grammar().render_help().to_string();
         assert!(
-            help.contains("Usage: tmt squad [OPTIONS] [COMMAND]"),
+            help.contains("Usage: tmt ops [OPTIONS] [COMMAND]"),
             "{help}"
         );
-        assert!(help.contains("alias: tmt sq"));
+        assert!(help.contains("squad"));
+        assert!(
+            !help
+                .lines()
+                .any(|line| line.trim_start().starts_with("board "))
+        );
         assert!(!help.contains("__complete"));
         grammar().debug_assert();
     }

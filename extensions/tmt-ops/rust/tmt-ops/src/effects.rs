@@ -338,7 +338,7 @@ mod tests {
 
     #[test]
     fn file_reveal_resolves_symlinks_and_never_gives_the_file_to_a_configured_opener() {
-        let dir = std::env::temp_dir().join(format!("tmt-squad-reveal-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("tmt-ops-reveal-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let file = dir.join("agent.command");
         let link = dir.join("link");
@@ -374,7 +374,7 @@ mod tests {
 
     #[test]
     fn a_configured_clipboard_program_gets_the_text_on_stdin_without_a_shell() {
-        let out = std::env::temp_dir().join(format!("tmt-squad-clip-{}", std::process::id()));
+        let out = std::env::temp_dir().join(format!("tmt-ops-clip-{}", std::process::id()));
         let program = vec![
             "/bin/sh".to_owned(),
             "-c".to_owned(),
@@ -393,7 +393,7 @@ mod tests {
 
     #[test]
     fn inside_tmux_the_text_goes_to_a_buffer_on_the_invoker_socket_from_tmux_3_2() {
-        let dir = std::env::temp_dir().join(format!("tmt-squad-tmux-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("tmt-ops-tmux-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let fake = dir.join("tmux");
         let calls = dir.join("calls");

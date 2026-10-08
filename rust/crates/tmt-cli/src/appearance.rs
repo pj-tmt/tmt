@@ -47,7 +47,7 @@ pub fn parse(settings: &[(String, String)]) -> Result<Theme, tmt_cli_style::them
     if theme.base == tmt_cli_style::Base::Auto {
         return Err(tmt_cli_style::theme::ThemeError {
             key: "theme.base".into(),
-            message: "auto is a board theme; use tmt sq theme set auto or the board picker. It is valid in squad.toml [board.theme] and [squad.<name>.theme], not global config.json".into(),
+            message: "auto is a board theme; use tmt ops sq theme set auto or the board picker. It is valid in ops.toml [board.theme] and [squad.<name>.theme], not global config.json".into(),
         });
     }
     Ok(theme)
@@ -57,7 +57,7 @@ pub fn parse(settings: &[(String, String)]) -> Result<Theme, tmt_cli_style::them
 #[cfg(test)]
 pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] = &[
     crate::cli_style_tests::HintSpec::skipped(
-        "auto is a board theme; use tmt sq theme set auto or the board picker. It is valid in squad.toml [board.theme] and [squad.<name>.theme], not global config.json",
+        "auto is a board theme; use tmt ops sq theme set auto or the board picker. It is valid in ops.toml [board.theme] and [squad.<name>.theme], not global config.json",
         "External extension grammar is owned by its CLI; core parsing cannot validate it.",
     ),
 ];
@@ -101,7 +101,7 @@ mod tests {
         let error = parse(&global).unwrap_err();
         assert_eq!(error.key, "theme.base");
         assert!(error.message.contains("auto is a board theme"));
-        assert!(error.message.contains("tmt sq theme set auto"));
+        assert!(error.message.contains("tmt ops sq theme set auto"));
         assert!(error.message.contains("[board.theme]"));
         assert!(error.message.contains("[squad.<name>.theme]"));
         assert_eq!(

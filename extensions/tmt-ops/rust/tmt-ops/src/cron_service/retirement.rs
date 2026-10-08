@@ -77,7 +77,7 @@ pub fn drain_retired(
                 let message = notices::line(
                     &job,
                     &format!(
-                        "no owner ({name} retired) · reassign with tmt sq cron reassign {} {} <member>",
+                        "no owner ({name} retired) · reassign with tmt ops sq cron reassign {} {} <member>",
                         job.squad,
                         job.id()
                     ),

@@ -24,25 +24,29 @@ import { parseWholeStdout, runCli, withSandbox, type Sandbox } from '../support/
 
 // Scenario-local selector: the built squad extension, never an installed copy.
 const squadExecutable =
-  process.env.TMT_TEST_SQUAD ??
-  fileURLToPath(new URL('../../../rust/target/debug/tmt-squad', import.meta.url));
+  process.env.TMT_TEST_OPS ??
+  fileURLToPath(new URL('../../../rust/target/debug/tmt-ops', import.meta.url));
 
-/** Puts `tmt-squad` and its `tmt-sq` alias link on the sandbox PATH, as shipped. */
+/** Puts the sole shipped `tmt-ops` command on the sandbox PATH. */
 function installSquad(sandbox: Sandbox): string {
   if (!path.isAbsolute(squadExecutable) || !statSync(squadExecutable).isFile()) {
-    throw new Error(`Build tmt-squad first (cargo build -p tmt-squad): ${squadExecutable}`);
+    throw new Error(`Build tmt-ops first (cargo build -p tmt-ops): ${squadExecutable}`);
   }
   const bin = path.join(sandbox.root, 'bin');
   mkdirSync(bin);
-  symlinkSync(squadExecutable, path.join(bin, 'tmt-squad'));
-  symlinkSync('tmt-squad', path.join(bin, 'tmt-sq'));
+  symlinkSync(squadExecutable, path.join(bin, 'tmt-ops'));
   sandbox.env.PATH = `${bin}${path.delimiter}${sandbox.env.PATH ?? ''}`;
   sandbox.env.XDG_CACHE_HOME = path.join(sandbox.root, 'cache');
   return bin;
 }
 
 async function squad(sandbox: Sandbox, args: string[]) {
-  const result = await runCli(sandbox, ['squad', ...args, '--json']);
+  const result = await runCli(sandbox, ['ops', 'squad', ...args, '--json']);
+  return { status: result.status, body: JSON.parse(result.stdout), stderr: result.stderr };
+}
+
+async function ops(sandbox: Sandbox, args: string[]) {
+  const result = await runCli(sandbox, ['ops', ...args, '--json']);
   return { status: result.status, body: JSON.parse(result.stdout), stderr: result.stderr };
 }
 
@@ -96,7 +100,7 @@ async function reminderFixture(sandbox: Sandbox) {
   ).path;
   writeFileSync(notebook, 'Current plan');
   const cacheFile = () => {
-    const directory = path.join(sandbox.root, 'cache', 'tmt-squad', 'staleness');
+    const directory = path.join(sandbox.root, 'cache', 'tmt-ops', 'staleness');
     return path.join(
       directory,
       readdirSync(directory).find((name) => name.endsWith('.json'))!
@@ -134,8 +138,8 @@ async function readyContextFixture(sandbox: Sandbox, file: string, payload: stri
   expect(ready.stdout).toBe('');
 }
 
-/** The version tmt-squad reports: its package version. */
-const squadVersion = workspaceVersion('tmt-squad');
+/** The version tmt-ops reports: its package version. */
+const squadVersion = workspaceVersion('tmt-ops');
 
 describe('squad extension', () => {
   const crewFields = ['member', 'state', 'task', 'pr_link', 'model', 'tok_1', 'tok_2', 'tok_3'];
@@ -152,7 +156,7 @@ describe('squad extension', () => {
         "<tmt-view version='1'><tmt-repeat each='$.rows' as='row'><tmt-cell bind='row.fields.task'/></tmt-repeat></tmt-view>"
       );
       const before = existsSync(sandbox.database);
-      const valid = await runCli(offline, ['layout', 'validate', file, '--json']);
+      const valid = await runCli(offline, ['squad', 'layout', 'validate', file, '--json']);
       expect(valid.status).toBe(0);
       expect(JSON.parse(valid.stdout)).toEqual({
         valid: true,
@@ -160,7 +164,7 @@ describe('squad extension', () => {
         version: 1,
         schema: 'squad-projected-v1',
       });
-      const human = await runCli(offline, ['layout', 'validate', file]);
+      const human = await runCli(offline, ['squad', 'layout', 'validate', file]);
       expect(human.status).toBe(0);
       expect(human.stdout).toContain('Valid layout:');
       expect(human.stderr).toBe('');
@@ -168,20 +172,22 @@ describe('squad extension', () => {
         file,
         "<tmt-view version='1'><tmt-repeat each='$.rows' as='row'><tmt-cell bind='row.fields.Bad'/></tmt-repeat></tmt-view>"
       );
-      const invalid = await runCli(offline, ['layout', 'validate', file, '--json']);
+      const invalid = await runCli(offline, ['squad', 'layout', 'validate', file, '--json']);
       expect(invalid.status).toBe(1);
       expect(JSON.parse(invalid.stdout).error).toMatchObject({
         code: 'LAYOUT_INVALID',
         message: expect.stringContaining(`${file}:1:`),
       });
       writeFileSync(file, ' '.repeat(256 * 1024 + 1));
-      expect((await runCli(offline, ['layout', 'validate', file, '--json'])).status).toBe(1);
+      expect((await runCli(offline, ['squad', 'layout', 'validate', file, '--json'])).status).toBe(
+        1
+      );
       unlinkSync(file);
       expect(
-        JSON.parse((await runCli(offline, ['layout', 'validate', file, '--json'])).stdout).error
-          .code
+        JSON.parse((await runCli(offline, ['squad', 'layout', 'validate', file, '--json'])).stdout)
+          .error.code
       ).toBe('LAYOUT_IO');
-      expect((await runCli(offline, ['layout', 'validate', '--json'])).status).toBe(2);
+      expect((await runCli(offline, ['squad', 'layout', 'validate', '--json'])).status).toBe(2);
       expect(existsSync(sandbox.database)).toBe(before);
       expect(readFileSync(path.join(sandbox.globalDir, 'ops.toml'), 'utf8')).toBe('invalid [');
     });
@@ -219,7 +225,7 @@ o = "run touch ${marker}"
       expect(
         shown.body.entries.find((entry: { key: string }) => entry.key === 'fields.probe').value.run
       ).toEqual(['touch', marker]);
-      const text = await runCli(sandbox, ['sq', 'config', 'show', '--squad', 'product']);
+      const text = await runCli(sandbox, ['ops', 'sq', 'config', 'show', '--squad', 'product']);
       expect(text.status).toBe(0);
       expect(text.stdout).toContain('squad.product.board.refresh');
       expect(text.stdout).toContain('read-only');
@@ -354,7 +360,7 @@ o = "run touch ${marker}"
         hidden.body.sections[0].rows.find((row: { name: string }) => row.name === 'settings-worker')
           .fields.pr_link
       ).toBe('https://example.com/keep-hidden');
-      const text = await runCli(sandbox, ['sq', 'ls', '--squad', 'product']);
+      const text = await runCli(sandbox, ['ops', 'sq', 'ls', '--squad', 'product']);
       expect(text.stdout).toContain('Keep task');
       expect(text.stdout).not.toContain('example.com/keep-hidden');
       expect(
@@ -369,7 +375,7 @@ o = "run touch ${marker}"
           ])
         ).status
       ).toBe(0);
-      expect((await runCli(sandbox, ['sq', 'ls', '--squad', 'product'])).stdout).toContain(
+      expect((await runCli(sandbox, ['ops', 'sq', 'ls', '--squad', 'product'])).stdout).toContain(
         'example.com/keep-hidden'
       );
       const pinned = await squad(sandbox, [
@@ -399,14 +405,14 @@ o = "run touch ${marker}"
       const before = observe(sandbox);
       const listed = await squad(sandbox, ['ls', '--squad', 'product']);
       for (const names of ['all', 'product,infra', 'leads,@tab:needs-me', 'needs-me', 'quiet']) {
-        const board = await squad(sandbox, ['board', '--tabs', names]);
+        const board = await ops(sandbox, ['ui', '--tabs', names]);
         expect(board.status).toBe(0);
       }
-      expect(
-        (await squad(sandbox, ['board', '--squad', 'product', '--tabs', 'product'])).body
-      ).toEqual(listed.body);
+      expect((await ops(sandbox, ['ui', '--squad', 'product', '--tabs', 'product'])).body).toEqual(
+        listed.body
+      );
       for (const names of ['missing', '', 'product,', 'all,product']) {
-        const invalid = await squad(sandbox, ['board', '--tabs', names]);
+        const invalid = await ops(sandbox, ['ui', '--tabs', names]);
         expect(invalid.status).not.toBe(0);
         expect(invalid.body.error.code).toBe('USAGE_ERROR');
         for (const name of ['product', 'infra', '@tab:needs-me', 'all', 'leads']) {
@@ -464,7 +470,7 @@ o = "run touch ${marker}"
         { name: 'product', fields: { lead: 'Sol', members: '1' } },
         { name: 'quiet', fields: { lead: null, members: '0' } },
       ]);
-      const text = await runCli(sandbox, ['sq', 'ls', '--tab', 'all']);
+      const text = await runCli(sandbox, ['ops', 'sq', 'ls', '--tab', 'all']);
       expect(text.status).toBe(0);
       expect(text.stdout).toContain('product');
       expect(text.stdout).toContain('Sol');
@@ -486,7 +492,7 @@ o = "run touch ${marker}"
         )
       );
       expect(leads.body.columns[1].title).toBe('LEAD');
-      const memberText = await runCli(sandbox, ['sq', 'ls', '--tab', 'members']);
+      const memberText = await runCli(sandbox, ['ops', 'sq', 'ls', '--tab', 'members']);
       expect(memberText.status).toBe(0);
       expect(memberText.stdout).toContain('LEADS');
       expect(memberText.stdout).toContain('worker');
@@ -663,7 +669,7 @@ o = "run touch ${marker}"
       expect(await context()).toBeNull(); // No observation: no core reads or notebook creation.
       expect((await squad(sandbox, ['ls'])).status).toBe(0);
       expect(await context()).toBeNull();
-      const directory = path.join(sandbox.root, 'cache', 'tmt-squad', 'staleness');
+      const directory = path.join(sandbox.root, 'cache', 'tmt-ops', 'staleness');
       const file = path.join(
         directory,
         readdirSync(directory).find((name) => name.endsWith('.json'))!
@@ -843,7 +849,7 @@ o = "run touch ${marker}"
         activityAfterUpdate: false,
         reasons: [],
       });
-      const directory = path.join(sandbox.root, 'cache', 'tmt-squad', 'staleness');
+      const directory = path.join(sandbox.root, 'cache', 'tmt-ops', 'staleness');
       expect(existsSync(directory)).toBe(false);
       expect(readFileSync(toml, 'utf8')).toBe(original);
       const created = await runCli(sandbox, ['notes', 'path', '--identity', 'Sol', '--json']);
@@ -898,7 +904,7 @@ o = "run touch ${marker}"
       expect(afterMe.body.sections[0].rows[0].staleness.unchangedSinceMs).toBe(since);
       expect(afterMe.body.squad.notesStaleness.unchangedSinceMs).toBe(since);
 
-      const human = await runCli(sandbox, ['sq', 'ls', '--squad', 'product']);
+      const human = await runCli(sandbox, ['ops', 'sq', 'ls', '--squad', 'product']);
       expect(human.status).toBe(0);
       expect(human.stdout).toContain('lead notes: stale 2m');
       expect(human.stdout).toContain('stale 2m');
@@ -986,54 +992,85 @@ o = "run touch ${marker}"
 
   // The Squad release proof (native-runtime-proof.mjs) expects this exact
   // line; PR CI never runs that proof, so this pins it.
-  it('prints exactly squad <version> for --version and -V, directly and through tmt', async () => {
+  it('exposes only Ops at the product root and keeps the squad alias below it', async () => {
+    await withSandbox(async (sandbox) => {
+      const bin = installSquad(sandbox);
+      expect(existsSync(path.join(bin, 'tmt-sq'))).toBe(false);
+      expect(existsSync(path.join(bin, 'tmt-squad'))).toBe(false);
+      const bare = await runCli(sandbox, ['ops']);
+      expect(bare.status).toBe(0);
+      expect(bare.stdout).toContain('Usage: tmt ops [OPTIONS] [COMMAND]');
+      expect(bare.stdout).toContain('ui');
+      for (const args of [
+        ['ops', 'ls'],
+        ['ops', 'sq', 'board'],
+      ]) {
+        expect((await runCli(sandbox, args)).status).toBe(2);
+      }
+      const retired = await runCli(sandbox, ['sq']);
+      expect(retired.status).not.toBe(0);
+      expect(retired.stderr).toContain('renamed to tmt ops sq');
+      const rootCompletion = await runCli(sandbox, ['__complete', '--', '']);
+      expect(rootCompletion.status).toBe(0);
+      const rootCandidates = rootCompletion.stdout.trim().split('\n');
+      expect(rootCandidates).toContain('ops');
+      expect(rootCandidates).not.toContain('squad');
+      expect(rootCandidates).not.toContain('sq');
+      const direct = { ...sandbox, cli: { executable: path.join(bin, 'tmt-ops'), args: [] } };
+      expect((await runCli(direct, ['__complete', '--', ''])).stdout).toBe(
+        'help\nhotkeys\nplaybook\nskill\nsquad\nui\n'
+      );
+    });
+  });
+
+  it('prints exactly ops <version> for --version and -V, directly and through tmt', async () => {
     await withSandbox(async (sandbox) => {
       const bin = installSquad(sandbox);
       expect(squadVersion).toBe('0.1.0-dev');
-      const direct = { ...sandbox, cli: { executable: path.join(bin, 'tmt-squad'), args: [] } };
+      const direct = { ...sandbox, cli: { executable: path.join(bin, 'tmt-ops'), args: [] } };
       for (const [target, args] of [
         [direct, ['--version']],
         [direct, ['-V']],
-        [sandbox, ['squad', '--version']],
+        [sandbox, ['ops', '--version']],
       ] as const) {
         const result = await runCli(target, [...args]);
         expect(result, args.join(' ')).toMatchObject({
           status: 0,
-          stdout: `squad ${squadVersion}\n`,
+          stdout: `ops ${squadVersion}\n`,
           stderr: '',
         });
       }
     });
   });
 
-  it('behaves identically through tmt squad, tmt sq and both help paths', async () => {
+  it('behaves identically through tmt ops squad, tmt ops sq and both help paths', async () => {
     await withSandbox(async (sandbox) => {
       const bin = installSquad(sandbox);
       const pairs = [
         [
-          ['squad', '--help'],
-          ['sq', '--help'],
+          ['ops', 'squad', '--help'],
+          ['ops', 'sq', '--help'],
         ],
         [
-          ['help', 'squad'],
-          ['help', 'sq'],
+          ['help', 'ops', 'squad'],
+          ['help', 'ops', 'sq'],
         ],
         [
-          ['squad', 'status', '--json'],
-          ['sq', 'status', '--json'],
+          ['ops', 'squad', 'status', '--json'],
+          ['ops', 'sq', 'status', '--json'],
         ],
         [
-          ['squad', 'bogus'],
-          ['sq', 'bogus'],
+          ['ops', 'squad', 'bogus'],
+          ['ops', 'sq', 'bogus'],
         ],
         // `help <command>` prints exactly what `<command> --help` prints.
         [
-          ['squad', 'help', 'hotkeys', 'install'],
-          ['sq', 'hotkeys', 'install', '--help'],
+          ['ops', 'help', 'hotkeys', 'install'],
+          ['ops', 'hotkeys', 'install', '--help'],
         ],
         [
-          ['squad', 'help', 'bogus'],
-          ['sq', 'help', 'bogus'],
+          ['ops', 'squad', 'help', 'bogus'],
+          ['ops', 'sq', 'help', 'bogus'],
         ],
       ];
       for (const [long, short] of pairs) {
@@ -1044,39 +1081,38 @@ o = "run touch ${marker}"
           stderr: a.stderr,
         });
       }
-      const help = await runCli(sandbox, ['squad', '--help']);
-      expect(help.stdout).toContain('Usage: tmt squad [OPTIONS] [COMMAND]');
-      const routed = await runCli(sandbox, ['squad', 'help', 'hotkeys', 'install']);
+      const help = await runCli(sandbox, ['ops', 'squad', '--help']);
+      expect(help.stdout).toContain('Usage: tmt ops squad [OPTIONS] [COMMAND]');
+      const routed = await runCli(sandbox, ['ops', 'help', 'hotkeys', 'install']);
       expect(routed.status).toBe(0);
-      expect(routed.stdout).toContain('Usage: tmt squad hotkeys install [OPTIONS]');
+      expect(routed.stdout).toContain('Usage: tmt ops hotkeys install [OPTIONS]');
       expect(routed.stdout).toContain('\nExamples:\n  # See the bindings and the line');
-      const unknown = await runCli(sandbox, ['squad', 'help', 'bogus']);
+      const unknown = await runCli(sandbox, ['ops', 'squad', 'help', 'bogus']);
       expect(unknown.status).toBe(2);
       expect(unknown.stderr).toContain("unrecognized subcommand 'bogus'");
       // Without --squad the shape never depends on how many squads exist.
       const none = await squad(sandbox, ['status']);
       expect(none).toMatchObject({ status: 0, body: { squads: [], you: null } });
-      expect((await runCli(sandbox, ['sq', 'ls'])).stdout).toBe(
-        'No squad exists yet.\nhint: tmt squad init <name>\n'
+      expect((await runCli(sandbox, ['ops', 'sq', 'ls'])).stdout).toBe(
+        'No squad exists yet.\nhint: tmt ops squad init <name>\n'
       );
       const named = await squad(sandbox, ['status', '--squad', 'product']);
       expect(named).toMatchObject({ status: 1, body: { error: { code: 'SQUAD_NOT_FOUND' } } });
       // Completion v1: core invokes `tmt-<name> __complete -- <words>` directly.
       const completions = [];
-      for (const name of ['tmt-squad', 'tmt-sq']) {
+      for (const name of ['tmt-ops']) {
         const direct = { ...sandbox, cli: { executable: path.join(bin, name), args: [] } };
         completions.push(await runCli(direct, ['__complete', '--', 's']));
       }
-      expect(completions[0].stdout).toBe('set\nskill\n');
-      expect(completions[1].stdout).toBe(completions[0].stdout);
-      const skill = await runCli(sandbox, ['sq', 'skill', 'show']);
+      expect(completions[0].stdout).toBe('skill\nsquad\n');
+      const skill = await runCli(sandbox, ['ops', 'skill', 'show']);
       expect(skill.stdout).toContain('`ctrl-r` refreshes the board in squad, leads and all views');
       expect(skill.stdout).toContain('`f5 = "refresh"` binding remains supported');
       expect(skill.stdout).not.toContain('Ctrl-R');
       expect(skill.stdout).toBe(
         readFileSync(
           fileURLToPath(
-            new URL('../../../extensions/tmt-squad/skills/tmt-squad/SKILL.md', import.meta.url)
+            new URL('../../../extensions/tmt-ops/skills/tmt-ops/SKILL.md', import.meta.url)
           ),
           'utf8'
         )
@@ -1109,7 +1145,7 @@ o = "run touch ${marker}"
         'detail',
         'wide',
       ]);
-      expect((await runCli(sandbox, ['sq', 'view', 'ls'])).stdout).toContain('VIEWS 6');
+      expect((await runCli(sandbox, ['ops', 'sq', 'view', 'ls'])).stdout).toContain('VIEWS 6');
       expect((await squad(sandbox, ['view', 'set', 'notes', '--squad', 'product'])).status).toBe(0);
       expect(readFileSync(file, 'utf8')).toBe(
         original.replace("view = 'focus' # own", 'view = "notes" # own')
@@ -1149,8 +1185,8 @@ o = "run touch ${marker}"
       expect((await squad(sandbox, ['view', 'set', 'bogus'])).body.error.code).toBe(
         'SQUAD_VIEW_UNKNOWN'
       );
-      const help = await runCli(sandbox, ['sq', 'view', 'set', '--help']);
-      expect(help.stdout).toContain('Usage: tmt squad view set');
+      const help = await runCli(sandbox, ['ops', 'sq', 'view', 'set', '--help']);
+      expect(help.stdout).toContain('Usage: tmt ops squad view set');
       expect(help.stdout).toContain('hand-written board.layout or panes');
     });
   });
@@ -1164,7 +1200,7 @@ o = "run touch ${marker}"
       writeFileSync(sandbox.globalConfig, JSON.stringify({ theme: { waiting: 'orange' } }));
       const none = await squad(sandbox, ['ls']);
       expect(none).toMatchObject({ status: 0, body: { squads: [], you: null } });
-      expect((await runCli(sandbox, ['squad', 'init', 'product', '--json'])).status).toBe(0);
+      expect((await runCli(sandbox, ['ops', 'squad', 'init', 'product', '--json'])).status).toBe(0);
       const listed = await squad(sandbox, ['ls']);
       expect(listed.status).toBe(0);
       expect(listed.body.squads[0].squad.name).toBe('product');
@@ -1213,17 +1249,17 @@ o = "run touch ${marker}"
       expect(edited.stderr).toContain(
         "warning: ops.toml named 'rin' as you, but me_id is ada-3; still acting as ada-3"
       );
-      expect(edited.stderr).toContain('hint: tmt squad me rin');
+      expect(edited.stderr).toContain('hint: tmt ops squad me rin');
       expect(me()).toEqual({ me: 'ada-3', id: ada });
       expect((await squad(sandbox, ['me', 'rin'])).status).toBe(0);
       expect(me()).toEqual({ me: 'rin', id: rin });
 
       // Hooks on: the rename observation follows the user at once.
-      const capabilities = await runCli(sandbox, ['squad', '__tmt-hooks', '1', 'capabilities']);
+      const capabilities = await runCli(sandbox, ['ops', '__tmt-hooks', '1', 'capabilities']);
       expect(capabilities.stdout).toBe('TMT-HOOKS/1\nlifecycle_observations_v1\ncontext_v1\n');
-      const enabled = await runCli(sandbox, ['extension', 'hooks', 'enable', 'squad', '--json']);
+      const enabled = await runCli(sandbox, ['extension', 'hooks', 'enable', 'ops', '--json']);
       expect(enabled.status, enabled.stdout + enabled.stderr).toBe(0);
-      expect(realpathSync(path.join(bin, 'tmt-squad'))).toBe(realpathSync(squadExecutable));
+      expect(realpathSync(path.join(bin, 'tmt-ops'))).toBe(realpathSync(squadExecutable));
       expect((await runCli(sandbox, ['rename', 'rin', 'rin-2', '--json'])).status).toBe(0);
       expect(me()).toEqual({ me: 'rin-2', id: rin });
 
@@ -1246,7 +1282,7 @@ o = "run touch ${marker}"
       expect(created).toMatchObject({ status: 0, body: { created: true, me: null } });
       expect(observe(sandbox).rooms).toEqual([{ name: 'squad-product', retired: 0 }]);
       expect(existsSync(squadToml)).toBe(false);
-      const text = await runCli(sandbox, ['sq', 'init', 'reviews']);
+      const text = await runCli(sandbox, ['ops', 'sq', 'init', 'reviews']);
       expect(text).toMatchObject({ status: 0, stderr: '' });
       expect(text.stdout).toBe('✓ Created squad reviews (room squad-reviews)\n');
 
@@ -1284,14 +1320,14 @@ o = "run touch ${marker}"
       // Nobody yet: outside a pane, nothing is recorded or derived.
       const nobody = await squad(sandbox, ['me']);
       expect(nobody.body).toMatchObject({ action: 'show', me: null, source: null });
-      const nobodyText = await runCli(sandbox, ['sq', 'me']);
+      const nobodyText = await runCli(sandbox, ['ops', 'sq', 'me']);
       expect(nobodyText.stdout).toBe(
-        'No identity is recorded as you, and this pane has no saved identity.\nhint: tmt squad me <name>\n'
+        'No identity is recorded as you, and this pane has no saved identity.\nhint: tmt ops squad me <name>\n'
       );
       const status = await squad(sandbox, ['status']);
       expect(status.body.you).toBeNull();
-      expect((await runCli(sandbox, ['sq', 'status'])).stdout).toContain(
-        '◆ needs to know who you are: tmt squad me <name>'
+      expect((await runCli(sandbox, ['ops', 'sq', 'status'])).stdout).toContain(
+        '◆ needs to know who you are: tmt ops squad me <name>'
       );
 
       // Recording needs a saved identity and changes nothing else.
@@ -1303,23 +1339,23 @@ o = "run touch ${marker}"
         path: squadToml,
       });
       expect(readFileSync(squadToml, 'utf8')).toBe(`me = "Ben"\nme_id = "${ben}"\n`);
-      const shown = await runCli(sandbox, ['sq', 'me']);
+      const shown = await runCli(sandbox, ['ops', 'sq', 'me']);
       expect(shown.stdout).toBe(`You are Ben (recorded in ${squadToml}).\n`);
       expect((await squad(sandbox, ['status'])).body.you).toEqual({
         id: ben,
         name: 'Ben',
         source: 'recorded',
       });
-      expect((await runCli(sandbox, ['sq', 'status'])).stdout).not.toContain('◆ needs');
+      expect((await runCli(sandbox, ['ops', 'sq', 'status'])).stdout).not.toContain('◆ needs');
       const missing = await squad(sandbox, ['me', 'Nobody']);
       expect(missing.body.error.code).toBe('NAME_NOT_FOUND');
 
       const cleared = await squad(sandbox, ['me', '--clear']);
       expect(cleared.body).toMatchObject({ action: 'clear', changed: true, me: null });
       expect(readFileSync(squadToml, 'utf8')).toBe('');
-      const repeat = await runCli(sandbox, ['sq', 'me', '--clear']);
+      const repeat = await runCli(sandbox, ['ops', 'sq', 'me', '--clear']);
       expect(repeat.stdout).toBe('No identity was recorded; nothing changed.\n');
-      const both = await runCli(sandbox, ['sq', 'me', 'Ben', '--clear']);
+      const both = await runCli(sandbox, ['ops', 'sq', 'me', 'Ben', '--clear']);
       expect(both.status).toBe(2);
     });
   });
@@ -1333,7 +1369,7 @@ o = "run touch ${marker}"
       await squad(sandbox, ['lead', 'Sol']);
       await squad(sandbox, ['add', 'auth-fix']);
       await squad(sandbox, ['me', 'Ben']);
-      const help = await runCli(sandbox, ['sq', '--help']);
+      const help = await runCli(sandbox, ['ops', 'sq', '--help']);
       expect(help.status).toBe(0);
 
       // Talking and answering are core's (tmt talk, tmt answer); annotating is
@@ -1342,7 +1378,7 @@ o = "run touch ${marker}"
       for (const command of ['talk', 'reply', 'replies', 'annotate']) {
         const json = await squad(sandbox, [command, 'auth-fix', 'hello']);
         expect(json.status, command).toBe(2);
-        const human = await runCli(sandbox, ['sq', command, 'auth-fix', 'hello']);
+        const human = await runCli(sandbox, ['ops', 'sq', command, 'auth-fix', 'hello']);
         expect(human.status, command).toBe(2);
         expect(human.stdout, command).toBe('');
         expect(human.stderr, command).toContain(`unrecognized subcommand '${command}'`);
@@ -1387,8 +1423,10 @@ o = "run touch ${marker}"
         ).status
       ).toBe(0);
       const legacy = observe(sandbox);
-      for (const command of ['ls', 'board']) {
-        const read = await squad(sandbox, [command, '--squad', 'product']);
+      for (const read of [
+        await squad(sandbox, ['ls', '--squad', 'product']),
+        await ops(sandbox, ['ui', '--squad', 'product']),
+      ]) {
         expect(read.status).toBe(0);
         expect(read.body.squad.lead.id).toBe(sol);
         expect(observe(sandbox)).toEqual(legacy);
@@ -1409,7 +1447,7 @@ o = "run touch ${marker}"
           { identity: 'Sol', key: 'squad.product.lead.marker', value: 'true' },
         ])
       );
-      const textListing = await runCli(sandbox, ['sq', 'ls', '--squad', 'product']);
+      const textListing = await runCli(sandbox, ['ops', 'sq', 'ls', '--squad', 'product']);
       expect(textListing.status).toBe(0);
       expect(textListing.stdout).not.toContain('lead.marker');
       expect((await squad(sandbox, ['set', 'Sol', 'role='])).status).toBe(0);
@@ -1647,7 +1685,7 @@ o = "run touch ${marker}"
       expect(invalid.body.error.message).toContain('task=');
       expect(invalid.body.error.message).toContain('pending=');
       expect(observe(sandbox)).toEqual(before);
-      const human = await runCli(sandbox, ['sq', 'set', 'coder', 'note=new summary']);
+      const human = await runCli(sandbox, ['ops', 'sq', 'set', 'coder', 'note=new summary']);
       expect(human.status).toBe(1);
       expect(human.stdout).toBe('');
       expect(human.stderr).toContain('error: The per-member note is retired');
@@ -1663,7 +1701,7 @@ o = "run touch ${marker}"
       const row = listed.body.sections[0].rows[0];
       expect(row).not.toHaveProperty('note');
       expect(row.fields).not.toHaveProperty('note');
-      const text = await runCli(sandbox, ['sq', 'ls', '--squad', 'product']);
+      const text = await runCli(sandbox, ['ops', 'sq', 'ls', '--squad', 'product']);
       expect(text.status).toBe(0);
       expect(text.stdout).not.toContain('legacy summary');
       expect(text.stdout).not.toContain('note:');
@@ -1740,7 +1778,7 @@ o = "run touch ${marker}"
       // The lead skill documents this row shape; it must not drift silently.
       const skill = readFileSync(
         fileURLToPath(
-          new URL('../../../extensions/tmt-squad/skills/tmt-squad/SKILL.md', import.meta.url)
+          new URL('../../../extensions/tmt-ops/skills/tmt-ops/SKILL.md', import.meta.url)
         ),
         'utf8'
       );
@@ -1789,10 +1827,10 @@ o = "run touch ${marker}"
         'roomId',
       ]);
       // Without a terminal, the board is exactly status, in text and JSON.
-      const statusText = await runCli(sandbox, ['squad', 'status']);
-      expect(await runCli(sandbox, ['squad', 'board'])).toEqual(statusText);
-      expect((await squad(sandbox, ['board', '--squad', 'product'])).body).toEqual(status.body);
-      const text = await runCli(sandbox, ['sq', 'status']);
+      const statusText = await runCli(sandbox, ['ops', 'squad', 'status']);
+      expect(await runCli(sandbox, ['ops', 'ui'])).toEqual(statusText);
+      expect((await ops(sandbox, ['ui', '--squad', 'product'])).body).toEqual(status.body);
+      const text = await runCli(sandbox, ['ops', 'sq', 'status']);
       // One leading mark: ◆ when the member waits on you; the state has its column.
       expect(text.stdout).toMatch(
         /\n {2}◆ {2}auth-fix +blocked +waiting on you: approve the token rotation plan/
@@ -1846,11 +1884,11 @@ o = "run touch ${marker}"
       ).toMatchObject([{ name: 'Sol', fields: { role: 'lead', task: 'Review' } }]);
       expect((await squad(sandbox, ['lead', '--none'])).body.replaced).toEqual([]);
       expect(observe(sandbox)).toEqual(after);
-      const text = await runCli(sandbox, ['sq', 'ls', '--squad', 'product']);
+      const text = await runCli(sandbox, ['ops', 'sq', 'ls', '--squad', 'product']);
       expect(text.stdout).toContain('squad product · no lead · layout team');
-      expect(text.stdout).not.toContain('hint: tmt squad lead');
+      expect(text.stdout).not.toContain('hint: tmt ops squad lead');
       await squad(sandbox, ['lead', 'Rin']);
-      const clearedText = await runCli(sandbox, ['sq', 'lead', '--none']);
+      const clearedText = await runCli(sandbox, ['ops', 'sq', 'lead', '--none']);
       expect(clearedText.stdout).toBe('✓ Squad product has no lead; Rin remains a member\n');
       await squad(sandbox, ['init', 'reviews']);
       expect((await squad(sandbox, ['lead', '--none'])).body.error.code).toBe('SQUAD_AMBIGUOUS');
@@ -1883,7 +1921,7 @@ o = "run touch ${marker}"
       installSquad(sandbox);
       for (const name of ['Ben', 'Sol', 'Rin', 'coder', 'outsider']) await identity(sandbox, name);
       expect((await squad(sandbox, ['init', 'product', '--me', 'Ben'])).status).toBe(0);
-      const text = (args: string[]) => runCli(sandbox, ['sq', ...args]);
+      const text = (args: string[]) => runCli(sandbox, ['ops', 'sq', ...args]);
 
       expect(await text(['lead', 'Sol'])).toMatchObject({
         status: 0,
@@ -1931,13 +1969,13 @@ o = "run touch ${marker}"
       );
       await squad(sandbox, ['add', 'auth-fix']);
       await squad(sandbox, ['set', 'auth-fix', 'task=rotate session tokens']);
-      const ls = await runCli(sandbox, ['sq', 'ls']);
+      const ls = await runCli(sandbox, ['ops', 'sq', 'ls']);
       expect(ls.status).toBe(0);
       // The board's default columns: member, state, task, PR.
       expect(ls.stdout).toContain('auth-fix  working  rotate session tokens');
       for (const args of [
-        ['sq', 'status'],
-        ['sq', 'board'],
+        ['ops', 'sq', 'status'],
+        ['ops', 'ui'],
       ]) {
         const same = await runCli(sandbox, args);
         expect({ status: same.status, stdout: same.stdout }, args.join(' ')).toEqual({
@@ -1945,10 +1983,13 @@ o = "run touch ${marker}"
           stdout: ls.stdout,
         });
       }
-      for (const args of [['sq'], ['squad']]) {
+      for (const args of [
+        ['ops', 'sq'],
+        ['ops', 'squad'],
+      ]) {
         const bare = await runCli(sandbox, args);
         expect(bare.status).toBe(0);
-        expect(bare.stdout).toBe(`${ls.stdout}\ntmt sq board opens the board\n`);
+        expect(bare.stdout).toBe(`${ls.stdout}\ntmt ops ui opens the board\n`);
       }
       // Both JSON shapes are pinned: --squad gives that squad's document;
       // without it, always {squads, you}, even with one squad.
@@ -1974,14 +2015,14 @@ o = "run touch ${marker}"
       expect(one.body.columns[3]).toMatchObject({ field: 'pr_link', width: 12, priority: 6 });
       expect(one.body.lines).toEqual([crewFields.map((field) => ({ field, span: 1 }))]);
       for (const args of [
-        ['sq', 'status', '--json'],
-        ['sq', '--json'],
+        ['ops', 'sq', 'status', '--json'],
+        ['ops', 'sq', '--json'],
       ]) {
         const same = await runCli(sandbox, args);
         expect(JSON.parse(same.stdout), args.join(' ')).toEqual(json.body);
       }
-      const help = await runCli(sandbox, ['sq', '--help']);
-      expect(help.stdout).toContain('Usage: tmt squad [OPTIONS] [COMMAND]');
+      const help = await runCli(sandbox, ['ops', 'sq', '--help']);
+      expect(help.stdout).toContain('Usage: tmt ops squad [OPTIONS] [COMMAND]');
       expect(help.stdout).toMatch(/\n {2}ls +List members or a board tab/);
       expect(help.stdout).not.toMatch(/\n {2}status /);
       // Explicit F5 remains valid while the host preset uses ctrl-r.
@@ -2041,7 +2082,7 @@ o = "run touch ${marker}"
       });
       expect(configured.body.columns[1]).not.toHaveProperty('lines');
       expect(configured.body.sections).toEqual(before.body.sections);
-      const text = await runCli(sandbox, ['sq', 'ls', '--squad', 'product']);
+      const text = await runCli(sandbox, ['ops', 'sq', 'ls', '--squad', 'product']);
       expect(text.status).toBe(0);
       const data = text.stdout.split('\n').filter((line) => line.startsWith('  '));
       expect(data).toHaveLength(2);
@@ -2069,7 +2110,7 @@ o = "run touch ${marker}"
       ]);
       const example = readFileSync(
         new URL(
-          '../../../extensions/tmt-squad/rust/tmt-squad/src/rows/fixtures/uncovered-tracks.toml',
+          '../../../extensions/tmt-ops/rust/tmt-ops/src/rows/fixtures/uncovered-tracks.toml',
           import.meta.url
         ),
         'utf8'
@@ -2100,12 +2141,12 @@ o = "run touch ${marker}"
       expect(result.body.sections[0].rows[0].fields.task).toBe(
         'alpha beta gamma delta epsilon zeta eta theta'
       );
-      const first = await runCli(sandbox, ['sq', 'ls', '--squad', 'checkout']);
+      const first = await runCli(sandbox, ['ops', 'sq', 'ls', '--squad', 'checkout']);
       writeFileSync(
         file,
         example.replace('width = 6', 'width = 200').replace('width = 14', 'width = 200')
       );
-      const second = await runCli(sandbox, ['sq', 'ls', '--squad', 'checkout']);
+      const second = await runCli(sandbox, ['ops', 'sq', 'ls', '--squad', 'checkout']);
       expect(second.status).toBe(0);
       expect(second.stdout).toBe(first.stdout);
     });
@@ -2127,7 +2168,7 @@ o = "run touch ${marker}"
         'product',
         'reviews',
       ]);
-      const bothText = (await runCli(sandbox, ['sq', 'ls'])).stdout;
+      const bothText = (await runCli(sandbox, ['ops', 'sq', 'ls'])).stdout;
       expect(bothText).toMatch(/^squad product · .*\n[\s\S]*\n\nsquad reviews · /);
       expect((await squad(sandbox, ['add', 'worker'])).body.error.code).toBe('SQUAD_AMBIGUOUS');
       await squad(sandbox, ['add', 'worker', '--squad', 'product']);
@@ -2197,7 +2238,7 @@ sort = 9
           undefined,
         ]);
         expect(rows[3]).not.toHaveProperty('colors');
-        const text = await runCli(sandbox, ['sq', 'ls', '--squad', 'product']);
+        const text = await runCli(sandbox, ['ops', 'sq', 'ls', '--squad', 'product']);
         expect(text.status).toBe(0);
         const order = ['pattern', 'working', 'exact', 'unknown'].map((name) =>
           text.stdout.indexOf(name)
@@ -2249,7 +2290,7 @@ sort = ["-name"]
         ['Needs me', ['auth-fix']],
         ['Everyone', ['perf-cache', 'docs-sweep', 'auth-fix']],
       ]);
-      const text = await runCli(sandbox, ['sq', 'status']);
+      const text = await runCli(sandbox, ['ops', 'sq', 'status']);
       expect(text.stdout).toMatch(/\nNEEDS ME 1\n {2}◆ {2}auth-fix /);
 
       writeFileSync(
@@ -2388,7 +2429,7 @@ sort = ["-name"]
       ).toMatchObject({ member: 'Sol' });
       expect(readFileSync(copied, 'utf8')).toBe('- [Sol](Sol)');
       expect(existsSync(path.join(sandbox.root, 'pwned'))).toBe(false);
-      expect((await runCli(sandbox, ['sq', 'copy', 'auth-fix'])).stdout).toBe(
+      expect((await runCli(sandbox, ['ops', 'sq', 'copy', 'auth-fix'])).stdout).toBe(
         '✓ Copied with the configured clipboard program\n'
       );
     });
@@ -2515,7 +2556,9 @@ sort = ["-name"]
         'auth-fix': { requestId: toLead.requestId, to: 'Sol', text: 'split the job' },
         docs: { requestId: toMember.requestId, to: 'docs', text: 'add examples' },
       });
-      expect((await runCli(sandbox, ['sq', 'status'])).stdout).toContain('✎ to Sol: split the job');
+      expect((await runCli(sandbox, ['ops', 'sq', 'status'])).stdout).toContain(
+        '✎ to Sol: split the job'
+      );
       const incoming = async (who: string, requestId: string) =>
         JSON.parse(
           (
@@ -2668,7 +2711,7 @@ sort = ["-name"]
       installSquad(sandbox);
       const source = readFileSync(
         fileURLToPath(
-          new URL('../../../extensions/tmt-squad/playbooks/tmux-squad/SKILL.md', import.meta.url)
+          new URL('../../../extensions/tmt-ops/playbooks/tmux-squad/SKILL.md', import.meta.url)
         ),
         'utf8'
       );
@@ -2676,7 +2719,7 @@ sort = ["-name"]
       // publishes optional skills into its other provider roots.
       mkdirSync(path.join(sandbox.home, '.claude'));
       mkdirSync(path.join(sandbox.home, '.codex'));
-      const playbook = (args: string[]) => squad(sandbox, ['playbook', ...args]);
+      const playbook = (args: string[]) => ops(sandbox, ['playbook', ...args]);
       const snapshotState = () =>
         existsSync(sandbox.database) ? readFileSync(sandbox.database) : null;
 
@@ -2684,7 +2727,7 @@ sort = ["-name"]
       expect(listed.body.playbooks).toEqual([
         { name: 'tmux-squad', description: expect.stringContaining('Propose a tmux layout') },
       ]);
-      const shown = await runCli(sandbox, ['sq', 'playbook', 'show', 'tmux-squad']);
+      const shown = await runCli(sandbox, ['ops', 'playbook', 'show', 'tmux-squad']);
       expect(shown.stdout, 'the exact embedded bytes').toBe(source);
       expect((await playbook(['show', 'tmux-squad'])).body.content).toBe(source);
       expect((await playbook(['show', 'nope'])).body.error.code).toBe('SQUAD_PLAYBOOK_UNKNOWN');
@@ -2693,7 +2736,7 @@ sort = ["-name"]
       const agentsSkill = path.join(sandbox.home, '.agents/skills/tmux-squad');
       const before = snapshotState();
       const printed = await playbook(['install', 'tmux-squad', '--print']);
-      expect(printed.body).toMatchObject({ name: 'tmux-squad', owner: 'squad' });
+      expect(printed.body).toMatchObject({ name: 'tmux-squad', owner: 'ops' });
       const refused = await playbook(['install', 'tmux-squad']);
       expect(refused.body.error.code, 'no terminal and no --yes').toBe('SQUAD_CONSENT_REQUIRED');
       expect(existsSync(claudeSkill) || existsSync(agentsSkill)).toBe(false);
@@ -2709,7 +2752,7 @@ sort = ["-name"]
       expect(existsSync(agentsSkill), 'nothing is published after a conflict').toBe(false);
 
       const forced = await playbook(['install', 'tmux-squad', '--yes', '--force']);
-      expect(forced.body).toMatchObject({ name: 'tmux-squad', owner: 'squad', changed: true });
+      expect(forced.body).toMatchObject({ name: 'tmux-squad', owner: 'ops', changed: true });
       const backups = forced.body.published.filter(
         (item: { backup: string | null }) => item.backup
       );
@@ -2724,7 +2767,7 @@ sort = ["-name"]
       const again = await playbook(['install', 'tmux-squad', '--yes']);
       expect(again.body.changed, 'a repeat is a no-op').toBe(false);
       expect(
-        (await runCli(sandbox, ['sq', 'playbook', 'install', 'tmux-squad', '--yes'])).stdout
+        (await runCli(sandbox, ['ops', 'playbook', 'install', 'tmux-squad', '--yes'])).stdout
       ).toBe('Already installed; nothing changed.\n');
 
       // The lead skill shares the owner; removing the playbook must not touch it.
@@ -2733,13 +2776,13 @@ sort = ["-name"]
           version: 1,
           operation: 'skills.install',
           input: {
-            owner: 'squad',
+            owner: 'ops',
             consent: true,
-            skills: [{ name: 'tmt-squad', files: [{ path: 'SKILL.md', content: 'lead skill' }] }],
+            skills: [{ name: 'tmt-ops', files: [{ path: 'SKILL.md', content: 'lead skill' }] }],
           },
         }),
       });
-      expect(JSON.parse(lead.stdout).owner).toBe('squad');
+      expect(JSON.parse(lead.stdout).owner).toBe('ops');
       const userSkill = path.join(sandbox.home, '.claude/skills/mine');
       mkdirSync(userSkill);
       writeFileSync(path.join(userSkill, 'SKILL.md'), 'user skill');
@@ -2756,7 +2799,7 @@ sort = ["-name"]
       expect(published).toEqual(expect.arrayContaining([claudeSkill, agentsSkill]));
       expect(removed.body.removed.sort()).toEqual([...published].sort());
       expect(published.some((target) => existsSync(target))).toBe(false);
-      for (const target of ['.claude/skills/tmt-squad', '.agents/skills/tmt-squad']) {
+      for (const target of ['.claude/skills/tmt-ops', '.agents/skills/tmt-ops']) {
         expect(readFileSync(path.join(sandbox.home, target, 'SKILL.md'), 'utf8')).toBe(
           'lead skill'
         );
@@ -2780,13 +2823,13 @@ sort = ["-name"]
       symlinkSync(sandbox.cli.executable, launcher);
       sandbox.env.PATH = `${launcherDir}${path.delimiter}${sandbox.env.PATH ?? ''}`;
       const conf = path.join(sandbox.home, '.tmux.conf');
-      const squadFile = path.join(sandbox.globalDir, 'squad.tmux.conf');
-      const hotkeys = (args: string[]) => squad(sandbox, ['hotkeys', ...args]);
+      const squadFile = path.join(sandbox.globalDir, 'ops.tmux.conf');
+      const hotkeys = (args: string[]) => ops(sandbox, ['hotkeys', ...args]);
 
       const printed = await hotkeys(['install', '--print']);
       expect(printed.body).toMatchObject({ target: conf, creates: true, collisions: [] });
       expect(printed.body.bindings).toContain(
-        `bind-key -N "tmt squad popup" S display-popup -E -w 90% -h 85% "exec '${launcher}' squad board --popup"`
+        `bind-key -N "tmt ops popup" S display-popup -E -w 90% -h 85% "exec '${launcher}' ops ui --popup"`
       );
       expect(printed.body.bindings).not.toContain(sandbox.cli.executable);
       expect(existsSync(conf) || existsSync(squadFile), '--print changes nothing').toBe(false);
@@ -2809,13 +2852,13 @@ sort = ["-name"]
       );
       const installed = await hotkeys(['install', '--yes']);
       expect(installed.body).toMatchObject({ installed: true, changed: true, creates: false });
-      const line = `source-file -q '${squadFile}' # tmt squad hotkeys`;
+      const line = `source-file -q '${squadFile}' # tmt ops hotkeys`;
       expect(readFileSync(conf, 'utf8')).toBe(`${original}\n${line}\n`);
       expect(readFileSync(installed.body.backup, 'utf8'), 'byte-exact backup').toBe(original);
       const bindings = readFileSync(squadFile, 'utf8');
-      expect(bindings).toContain(`bind-key -N "tmt squad popup" C-s display-popup`);
+      expect(bindings).toContain(`bind-key -N "tmt ops popup" C-s display-popup`);
       expect(bindings).toContain(
-        `bind-key -N "tmt squad back" b run-shell "'${launcher}' squad back"`
+        `bind-key -N "tmt ops back" b run-shell "'${launcher}' ops squad back"`
       );
       const again = await hotkeys(['install', '--yes']);
       expect(again.body).toMatchObject({ installed: true, changed: false });
@@ -2832,14 +2875,55 @@ sort = ["-name"]
       });
       unlinkSync(launcher);
       expect((await hotkeys(['show'])).body.executableExists).toBe(false);
-      const report = (await runCli(sandbox, ['sq', 'hotkeys', 'show'])).stdout;
+      const report = (await runCli(sandbox, ['ops', 'hotkeys', 'show'])).stdout;
       expect(report).toContain(`${launcher} (no longer exists)`);
-      expect(report).toContain('hint: tmt squad hotkeys install\n');
+      expect(report).toContain('hint: tmt ops hotkeys install\n');
 
       const removed = await hotkeys(['remove', '--yes']);
       expect(removed.body).toMatchObject({ removed: [conf], changed: true, unbound: [] });
       expect(readFileSync(conf, 'utf8'), 'only the owned line is gone').toBe(`${original}\n`);
       expect((await hotkeys(['remove', '--yes'])).body.changed).toBe(false);
+    });
+  });
+
+  it('replaces only the exact former hotkey source line after consent and retains the old file', async () => {
+    await withSandbox(async (sandbox) => {
+      installSquad(sandbox);
+      await identity(sandbox, 'Ben');
+      await squad(sandbox, ['init', 'product', '--me', 'Ben']);
+      const conf = path.join(sandbox.home, '.tmux.conf');
+      const former = path.join(sandbox.globalDir, 'squad.tmux.conf');
+      const current = path.join(sandbox.globalDir, 'ops.tmux.conf');
+      const formerLine = `source-file -q '${former}' # tmt squad hotkeys`;
+      const foreign = `${formerLine} # my custom line\r\n`;
+      const retained = '# user settings\r\n' + foreign;
+      const original = retained + formerLine + '\n';
+      const oldBindings = '# old generated bindings remain available\n';
+      writeFileSync(conf, original);
+      writeFileSync(former, oldBindings);
+      const hotkeys = (args: string[]) => ops(sandbox, ['hotkeys', ...args]);
+      expect((await hotkeys(['show'])).body).toMatchObject({ installed: true, current: false });
+      expect((await hotkeys(['install'])).body.error.code).toBe('SQUAD_CONSENT_REQUIRED');
+      expect(readFileSync(conf, 'utf8')).toBe(original);
+      expect(existsSync(current)).toBe(false);
+      const installed = await hotkeys(['install', '--yes']);
+      expect(installed.body).toMatchObject({ installed: true, changed: true });
+      expect(readFileSync(installed.body.backup, 'utf8')).toBe(original);
+      expect(readFileSync(conf, 'utf8')).toBe(
+        retained + `source-file -q '${current}' # tmt ops hotkeys\n`
+      );
+      expect(readFileSync(former, 'utf8')).toBe(oldBindings);
+      expect(readFileSync(current, 'utf8')).toContain(' ops ui --popup');
+      // A resumed installation must retire the exact former line even when
+      // the current generated file and its source line are already present.
+      const currentConfig = readFileSync(conf, 'utf8');
+      writeFileSync(conf, currentConfig + formerLine + '\n');
+      expect((await hotkeys(['install', '--yes'])).body.changed).toBe(true);
+      expect(readFileSync(conf, 'utf8')).toBe(currentConfig);
+      expect((await hotkeys(['install', '--yes'])).body.changed).toBe(false);
+      expect((await hotkeys(['remove', '--yes'])).body.changed).toBe(true);
+      expect(readFileSync(conf, 'utf8')).toBe(retained);
+      expect(readFileSync(former, 'utf8')).toBe(oldBindings);
     });
   });
 
@@ -2854,7 +2938,7 @@ sort = ["-name"]
       writeFileSync(real, 'set -g mouse on\n');
       const conf = path.join(sandbox.home, '.tmux.conf');
       symlinkSync('../dotfiles/tmux.conf', conf);
-      const hotkeys = (args: string[]) => squad(sandbox, ['hotkeys', ...args]);
+      const hotkeys = (args: string[]) => ops(sandbox, ['hotkeys', ...args]);
 
       const printed = await hotkeys(['install', '--print']);
       expect(printed.body).toMatchObject({ target: conf, creates: false });
@@ -2863,7 +2947,7 @@ sort = ["-name"]
       expect(installed.body.changed).toBe(true);
       expect(lstatSync(conf).isSymbolicLink(), 'the link stays a link').toBe(true);
       expect(readFileSync(real, 'utf8')).toMatch(
-        /^set -g mouse on\nsource-file -q .* # tmt squad hotkeys\n$/
+        /^set -g mouse on\nsource-file -q .* # tmt ops hotkeys\n$/
       );
       expect(realpathSync(path.dirname(installed.body.backup))).toBe(realpathSync(dotfiles));
       const removed = await hotkeys(['remove', '--yes']);
@@ -2905,7 +2989,7 @@ describe('Squad cron clock', () => {
       const absent = await squad(sandbox, ['cron', 'clock']);
       expect(absent).toMatchObject({ status: 0, body: { clock: { state: 'no clock' } } });
       expect(existsSync(directory)).toBe(false);
-      const help = await runCli(sandbox, ['squad', 'cron', '--help']);
+      const help = await runCli(sandbox, ['ops', 'squad', 'cron', '--help']);
       expect(help.status).toBe(0);
       for (const command of ['send', 'run', 'tick', 'clock']) {
         expect(help.stdout).toMatch(new RegExp(`^  ${command}\\s`, 'm'));
@@ -2969,7 +3053,7 @@ describe('Squad cron clock', () => {
         expiresMs: sinceMs + 300_000,
       });
       writeFileSync(lease, evidence);
-      const runningText = await runCli(sandbox, ['squad', 'cron', 'clock']);
+      const runningText = await runCli(sandbox, ['ops', 'squad', 'cron', 'clock']);
       expect(runningText.status).toBe(0);
       expect(runningText.stdout).toContain('3m ago');
       const running = await squad(sandbox, ['cron', 'clock']);
@@ -3024,7 +3108,7 @@ describe('Squad cron management', () => {
       expect(announcements()).toMatchObject([
         { recipient: worker, actor: user, kind: 'announcement' },
       ]);
-      const activeText = await runCli(sandbox, ['squad', 'cron', 'show', 'product', 'c1']);
+      const activeText = await runCli(sandbox, ['ops', 'squad', 'cron', 'show', 'product', 'c1']);
       expect(activeText.status).toBe(0);
       expect(activeText.stdout).toContain('schedule');
       expect(activeText.stdout).not.toMatch(/^\s+pause\s/m);
@@ -3051,7 +3135,7 @@ describe('Squad cron management', () => {
       expect(announcements()).toHaveLength(1);
       const paused = await squad(sandbox, ['cron', 'pause', 'product', 'c1', '--identity', 'Sol']);
       expect(paused.body.job).toMatchObject({ state: 'paused', pause: { by: lead }, revision: 2 });
-      const pausedText = await runCli(sandbox, ['squad', 'cron', 'show', 'product', 'c1']);
+      const pausedText = await runCli(sandbox, ['ops', 'squad', 'cron', 'show', 'product', 'c1']);
       expect(pausedText.status).toBe(0);
       expect(pausedText.stdout).toMatch(/^\s+pause\s/m);
       expect(pausedText.stdout).toContain(lead);
@@ -3309,6 +3393,7 @@ describe('Squad checklist native commands', () => {
       expect(statSync(file).mode & 0o777).toBe(0o600);
       expect(existsSync(path.join(sandbox.root, 'executed'))).toBe(false);
       const alias = await runCli(sandbox, [
+        'ops',
         'sq',
         'checklist',
         'list',
@@ -3346,6 +3431,7 @@ describe('Squad checklist native commands', () => {
       });
       expect(readFileSync(file)).toEqual(bytes);
       const human = await runCli(sandbox, [
+        'ops',
         'squad',
         'checklist',
         'complete',
@@ -3581,7 +3667,7 @@ describe('Squad checklist native commands', () => {
       ).toBe('CHECKLIST_NOT_FOUND');
       expect(unrelatedState(sandbox)).toEqual(before);
       expect(existsSync(path.join(f.directory, 'items.tmp'))).toBe(false);
-      const help = await runCli(sandbox, ['sq', 'checklist', '--help']);
+      const help = await runCli(sandbox, ['ops', 'sq', 'checklist', '--help']);
       expect(help.status).toBe(0);
       expect(help.stderr).toBe('');
       expect(help.stdout).toMatch(/^  ls\s/m);
@@ -3593,21 +3679,22 @@ describe('Squad checklist native commands', () => {
         env: { ...sandbox.env, TMT_EXECUTABLE: 'relative-invalid-core' },
       };
       for (const words of [
-        ['checklist', '--help'],
-        ['help', 'checklist', 'delete'],
-        ['checklist', 'create', '--help'],
+        ['squad', 'checklist', '--help'],
+        ['help', 'squad', 'checklist', 'delete'],
+        ['squad', 'checklist', 'create', '--help'],
       ]) {
         const shown = await runCli(offline, words);
         expect(shown.status).toBe(0);
         expect(shown.stderr).toBe('');
-        expect(shown.stdout).toContain('Usage: tmt squad checklist');
+        expect(shown.stdout).toContain('Usage: tmt ops squad checklist');
       }
-      const completion = await runCli(offline, ['__complete', '--', 'checklist', '']);
+      const completion = await runCli(offline, ['__complete', '--', 'squad', 'checklist', '']);
       expect(completion.status).toBe(0);
       expect(completion.stderr).toBe('');
       expect(completion.stdout.split('\n')).toContain('ls');
       expect(completion.stdout.split('\n')).not.toContain('list');
       const invalidBeforeDiscovery = await runCli(offline, [
+        'squad',
         'checklist',
         'ls',
         '--room',
@@ -3773,7 +3860,7 @@ sys.exit(result.returncode)
             cli: { executable: squadExecutable, args: [] },
             env: { ...sandbox.env, TMT_EXECUTABLE: shim },
           },
-          args.concat('--json')
+          ['squad', ...args, '--json']
         );
         return { status: result.status, stderr: result.stderr, body: JSON.parse(result.stdout) };
       };
@@ -3932,7 +4019,7 @@ sys.exit(result.returncode)
           cli: { executable: squadExecutable, args: [] },
           env: { ...sandbox.env, TMT_EXECUTABLE: shim },
         },
-        ['focus', worker, '--squad', 'product']
+        ['squad', 'focus', worker, '--squad', 'product']
       );
       expect(human.status, human.stderr).toBe(0);
       expect(human.stdout).toContain('worker: focus off');
@@ -3964,7 +4051,7 @@ sys.exit(result.returncode)
           (await focus(['focus', 'worker', duration, '--squad', 'product'])).body.error.code
         ).toBe('SQUAD_FOCUS_DURATION_INVALID');
       }
-      const help = await runCli(sandbox, ['sq', 'focus', '--help']);
+      const help = await runCli(sandbox, ['ops', 'sq', 'focus', '--help']);
       expect(help.status).toBe(0);
       expect(help.stdout).toContain('24h');
       expect(help.stdout).toContain('Showing, setting and clearing');
@@ -3982,15 +4069,15 @@ describe('Ops path migration with unchanged Squad commands', () => {
       const bytes = '# not read by offline commands\ninvalid [';
       writeFileSync(old, bytes);
       for (const args of [
-        ['squad', '--help'],
-        ['squad', 'cron', '--help'],
-        ['squad', 'skill', 'show'],
+        ['ops', 'squad', '--help'],
+        ['ops', 'squad', 'cron', '--help'],
+        ['ops', 'skill', 'show'],
       ]) {
         const result = await runCli(sandbox, args);
         expect(result.status, result.stderr).toBe(0);
       }
       const direct = { ...sandbox, cli: { executable: squadExecutable, args: [] } };
-      expect((await runCli(direct, ['__complete', '--', 'cron', ''])).status).toBe(0);
+      expect((await runCli(direct, ['__complete', '--', 'squad', 'cron', ''])).status).toBe(0);
       expect(readFileSync(old, 'utf8')).toBe(bytes);
       expect(existsSync(path.join(sandbox.globalDir, 'ops.toml'))).toBe(false);
       expect(existsSync(path.join(sandbox.globalDir, '.ops-paths.lock'))).toBe(false);
@@ -4045,17 +4132,17 @@ describe('Ops path migration with unchanged Squad commands', () => {
         readFileSync(config),
       ]);
       writeFileSync(config, configBytes);
-      const ops = path.join(root, 'ops');
-      const jobs = path.join(ops, 'cron', 'jobs.json');
+      const opsRoot = path.join(root, 'ops');
+      const jobs = path.join(opsRoot, 'cron', 'jobs.json');
       // This fixture retains the shipped v1 schema and independently chooses a
       // due anchor; no expected migration output is generated by migration.
       const stored = JSON.parse(readFileSync(jobs, 'utf8'));
       stored.jobs[0].schedule.anchorMs = Date.now() - 10_000;
       writeFileSync(jobs, JSON.stringify(stored));
       const jobBytes = readFileSync(jobs);
-      const checklistBytes = readFileSync(path.join(ops, 'checklist', room, 'items.json'));
+      const checklistBytes = readFileSync(path.join(opsRoot, 'checklist', room, 'items.json'));
       renameSync(config, path.join(sandbox.globalDir, 'squad.toml'));
-      renameSync(ops, path.join(root, 'squad'));
+      renameSync(opsRoot, path.join(root, 'squad'));
       unlinkSync(path.join(sandbox.globalDir, '.ops-paths-v1'));
       unlinkSync(path.join(sandbox.globalDir, '.ops-paths-cutover-v1'));
       const backup = path.join(sandbox.globalDir, 'squad.toml.bak-user');
@@ -4083,7 +4170,7 @@ describe('Ops path migration with unchanged Squad commands', () => {
       expect(pending.stderr.match(/Ops migration deferred/g)).toHaveLength(1);
       expect(pending.stderr).toContain('PID 123 in pane %41');
       expect(pending.stderr).toContain('kill -TERM 123');
-      const board = await squad(sandbox, ['board', '--squad', 'product']);
+      const board = await ops(sandbox, ['ui', '--squad', 'product']);
       expect(board.status).toBe(0);
       expect(
         board.body.sections
@@ -4095,7 +4182,7 @@ describe('Ops path migration with unchanged Squad commands', () => {
       expect(competitor.status).toBe(1);
       expect(competitor.body.error.code).toBe('SQUAD_CRON_CLOCK_RUNNING');
       expect(existsSync(config)).toBe(false);
-      expect(existsSync(ops)).toBe(false);
+      expect(existsSync(opsRoot)).toBe(false);
       expect(readFileSync(path.join(sandbox.globalDir, 'squad.toml'))).toEqual(configBytes);
       unlinkSync(lease);
       const migrated = await squad(sandbox, ['cron', 'ls', '--squad', 'product']);
@@ -4107,8 +4194,10 @@ describe('Ops path migration with unchanged Squad commands', () => {
         schedule: stored.jobs[0].schedule,
       });
       expect(readFileSync(config)).toEqual(configBytes);
-      expect(readFileSync(path.join(ops, 'cron', 'jobs.json'))).toEqual(jobBytes);
-      expect(readFileSync(path.join(ops, 'checklist', room, 'items.json'))).toEqual(checklistBytes);
+      expect(readFileSync(path.join(opsRoot, 'cron', 'jobs.json'))).toEqual(jobBytes);
+      expect(readFileSync(path.join(opsRoot, 'checklist', room, 'items.json'))).toEqual(
+        checklistBytes
+      );
       expect(readFileSync(backup, 'utf8')).toBe('user backup');
       expect(existsSync(path.join(root, 'squad'))).toBe(false);
       expect(existsSync(path.join(sandbox.globalDir, 'squad.toml'))).toBe(false);

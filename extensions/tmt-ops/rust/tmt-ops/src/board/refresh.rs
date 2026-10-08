@@ -710,8 +710,10 @@ fn load(
             pinned,
             attention: BTreeMap::new(),
             view: Err(match &wanted {
-                Some(name) => format!("Squad '{name}' does not exist; run: tmt squad init {name}"),
-                None => "No squad exists yet; run: tmt squad init <name>".into(),
+                Some(name) => {
+                    format!("Squad '{name}' does not exist; run: tmt ops squad init {name}")
+                }
+                None => "No squad exists yet; run: tmt ops squad init <name>".into(),
             }),
             squad: wanted,
         });

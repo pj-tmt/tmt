@@ -15,7 +15,7 @@ mod rows;
 mod surface;
 
 use crate::cron_service::{CronActor, JobView};
-use tmt_squad::cron::ClockStatus;
+use tmt_ops::cron::ClockStatus;
 
 pub(super) use act::{CronRequest, Op, act};
 pub(super) use forms::Draft;

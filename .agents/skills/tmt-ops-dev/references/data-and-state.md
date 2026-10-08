@@ -2,7 +2,7 @@
 
 Maintained reference for the modules that read or write member data. The user-facing
 row shape, state patterns and reminder keys are documented in the embedded lead
-skill (`extensions/tmt-squad/skills/tmt-squad/SKILL.md`).
+skill (`extensions/tmt-ops/skills/tmt-ops/SKILL.md`).
 
 ## Membership and leadership
 
@@ -40,14 +40,14 @@ skill (`extensions/tmt-squad/skills/tmt-squad/SKILL.md`).
 ## The recorded user (`me`)
 
 - `me` and `me_id` are written together. `init` only creates the room (`--me` is
-  checked before any effect); `tmt squad me [<name>|--clear]` shows, records or
+  checked before any effect); `tmt ops squad me [<name>|--clear]` shows, records or
   removes it. Nothing else asks for `me`.
 - The UUID decides. While `me_id` names an active identity, that identity is the user
   and `me::resolve` rewrites `me` to its current name. Only when `me_id` is missing
   or inactive does the name decide and its UUID get recorded. An edited `me` naming a
   different identity is reported with a warning, never followed. A failed write never
   fails the command; the board's refresh (`me::current`) neither writes nor prints.
-- With hooks enabled, `tmt-squad __tmt-hooks 1 observe` applies an `identity.renamed`
+- With hooks enabled, `tmt-ops __tmt-hooks 1 observe` applies an `identity.renamed`
   observation for `me_id` at once; the hooks are optional and the next command that
   reads `me` makes the same repair.
 - Sender (`me::resolve_sender`): explicit `--identity`, else the identity core
@@ -132,7 +132,7 @@ skill (`extensions/tmt-squad/skills/tmt-squad/SKILL.md`).
   refused), `PARALLEL` 4 at a time, bounded in time and output (`OUTPUT_LIMIT` 4 KiB,
   `VALUE_LIMIT` 200, `MAX_PROVIDERS` 8).
 - `provider::Cache` stores each value with the argv that produced it in
-  `$XDG_CACHE_HOME/tmt-squad/fields/<squad>.json` (atomic replacement via `cache`: a
+  `$XDG_CACHE_HOME/tmt-ops/fields/<squad>.json` (atomic replacement via `cache`: a
   0600 file in a 0700 directory), so a changed input never shows an old value.
   `preset = "github-pr"` is a fixed `gh pr view {pr_link}` argv whose JSON
   `provider::github_pr` renders as `#<n> <state>[ · <review>]`; anything else from `gh`
@@ -158,7 +158,7 @@ skill (`extensions/tmt-squad/skills/tmt-squad/SKILL.md`).
   in `waiting`; the label text carries the meaning without color. The leads tab reads
   rosters without an observer and shows no marks; the home model observes squads for
   blocked-member ages. Content age is unrelated to `App::loading`.
-- The observation cache under `$XDG_CACHE_HOME/tmt-squad/staleness` is bounded to
+- The observation cache under `$XDG_CACHE_HOME/tmt-ops/staleness` is bounded to
   `FILE_LIMIT` 512 KiB and `MEMBERS_LIMIT` 128 members per room, namespaced by the
   absolute config/data-root path and room UUID with member/lead UUID ownership.
   SHA-256 fingerprints (`sha2`) keep no notebook body. A nonblocking Unix advisory lock
@@ -205,7 +205,7 @@ skill (`extensions/tmt-squad/skills/tmt-squad/SKILL.md`).
 
 The native binary's `checklist` module provides typed list/show/create/edit/assign/
 unassign/complete/reopen/archive/restore/delete/reorder operations. `checklist_command`
-exposes them through `tmt squad checklist` (`tmt sq` dispatch alias); primary `ls` has
+exposes them through `tmt ops squad checklist` (`tmt ops sq` dispatch alias); primary `ls` has
 hidden accepted alias `list`, both returning semantic JSON action `list`. The adapter
 parses only explicit UUIDs and revisions, invokes the unchanged service once and
 projects its typed results/errors. The board consumes the same typed service directly; `Service::preview` reuses read admission to expose its captured actor, current inventory and eligible roster. Board filters and authored drafts remain presentation state.

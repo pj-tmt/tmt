@@ -721,8 +721,7 @@ mod tests {
                 Err(fault) => fault.code.to_owned(),
             }
         };
-        let skills =
-            json!([{"name": "tmt-squad", "files": [{"path": "SKILL.md", "content": "x"}]}]);
+        let skills = json!([{"name": "tmt-ops", "files": [{"path": "SKILL.md", "content": "x"}]}]);
         assert_eq!(
             code(
                 "skills.install",

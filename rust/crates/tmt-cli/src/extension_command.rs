@@ -41,6 +41,9 @@ pub fn execute(name: &str, args: &[OsString], help: bool, prefix: &[OsString]) -
     };
     let mut error =
         crate::parser::parse_core(&original).expect_err("external name is not a core command");
+    if name == "sq" {
+        error.message.push_str("\nrenamed to tmt ops sq\n");
+    }
     if !help
         && let Some(suggestion) =
             extensions::suggestion(name, adapter::discover(&search)?.into_keys())
@@ -147,11 +150,16 @@ fn group_aliases(
 
 // Source-checked command samples for the printed-command guard.
 #[cfg(test)]
-pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] =
-    &[crate::cli_style_tests::HintSpec::skipped(
+pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] = &[
+    crate::cli_style_tests::HintSpec::skipped(
         "Put options after the extension name: tmt <name> [options].",
         "External extension grammar is owned by its CLI; core parsing cannot validate it.",
-    )];
+    ),
+    crate::cli_style_tests::HintSpec::skipped(
+        "\nrenamed to tmt ops sq\n",
+        "Ops owns the nested squad alias grammar; core cannot validate extension commands.",
+    ),
+];
 
 #[cfg(test)]
 mod tests {

@@ -66,23 +66,23 @@ fn scope_option() -> Arg {
 
 pub fn grammar() -> Command {
     spec("theme", "Choose a board theme; CLI colors stay unchanged", &[
-        Example { command: "tmt squad theme", note: "List themes and mark the current board default" },
-        Example { command: "tmt squad theme set tmt-light", note: "Choose a default for all boards" },
+        Example { command: "tmt ops squad theme", note: "List themes and mark the current board default" },
+        Example { command: "tmt ops squad theme set tmt-light", note: "Choose a default for all boards" },
     ], "Without a subcommand, list themes. Board choices do not change CLI colors.")
     .arg(scope_option())
     .subcommand(spec("ls", "List board themes and the current base's source", &[
-        Example { command: "tmt squad theme ls", note: "List themes for all boards" },
-        Example { command: "tmt squad theme ls --squad product", note: "Inspect one squad's effective theme" },
+        Example { command: "tmt ops squad theme ls", note: "List themes for all boards" },
+        Example { command: "tmt ops squad theme ls --squad product", note: "Inspect one squad's effective theme" },
     ], "The base source is default, cli, board, squad or detected; token overrides layer separately.").alias("list").arg(scope_option()))
     .subcommand(spec("set", "Set a board theme base; keep token overrides and CLI colors", &[
-        Example { command: "tmt squad theme set tmt-light", note: "Use a light theme for all boards" },
-        Example { command: "tmt squad theme set mono --squad product", note: "Choose a theme for one squad" },
+        Example { command: "tmt ops squad theme set tmt-light", note: "Use a light theme for all boards" },
+        Example { command: "tmt ops squad theme set mono --squad product", note: "Choose a theme for one squad" },
     ], "Only the base is replaced in ops.toml; token overrides and CLI colors stay unchanged.")
         .arg(Arg::new("name").required(true).help("Built-in theme name"))
         .arg(scope_option()))
     .subcommand(spec("rm", "Remove a board base override; retain token overrides and CLI colors", &[
-        Example { command: "tmt squad theme rm", note: "Let all boards inherit the CLI theme" },
-        Example { command: "tmt squad theme rm --squad product", note: "Remove one squad's base override" },
+        Example { command: "tmt ops squad theme rm", note: "Let all boards inherit the CLI theme" },
+        Example { command: "tmt ops squad theme rm --squad product", note: "Remove one squad's base override" },
     ], "Removes only base from the selected theme table. Token overrides and CLI colors are retained.").arg(scope_option()))
 }
 
@@ -93,7 +93,7 @@ pub fn parse_base(name: &str) -> Result<Base, SquadError> {
             &format!("Unknown theme '{name}'"),
             "; ",
             &format!(
-                "tmt sq theme set <name>; choose {}",
+                "tmt ops sq theme set <name>; choose {}",
                 Base::ALL.map(Base::name).join(", ")
             ),
         )
@@ -255,11 +255,16 @@ mod tests {
         .unwrap();
         let mut config = Config::read(path).unwrap();
         let run_words = |config: &mut Config, words: &[&str]| {
-            let argv: Vec<_> = std::iter::once("squad")
+            let argv: Vec<_> = ["tmt-ops", "squad"]
+                .into_iter()
                 .chain(words.iter().copied())
                 .collect();
             let parsed = crate::grammar().try_get_matches_from(argv).unwrap();
-            run(config, parsed.subcommand().unwrap().1).unwrap()
+            run(
+                config,
+                parsed.subcommand().unwrap().1.subcommand().unwrap().1,
+            )
+            .unwrap()
         };
         let bare = run_words(&mut config, &["theme"]);
         assert_eq!(bare, run_words(&mut config, &["theme", "ls"]));

@@ -5,7 +5,7 @@ use ratatui::{
     backend::TestBackend,
     crossterm::event::{KeyEvent, MouseButton, MouseEvent, MouseEventKind},
 };
-use tmt_squad::cron::ClockStatus;
+use tmt_ops::cron::ClockStatus;
 
 fn jobs() -> State {
     let mut a = view("tmt-lead", "merge queue sweep", Some(NOW + 3_600_000));
@@ -258,7 +258,7 @@ fn up_and_down_move_one_job_per_press_and_keep_the_selection_visible() {
 #[test]
 fn cursor_uses_the_mark_id_gap_and_tracks_refresh_survivors_without_state_changes() {
     let mut state = jobs();
-    state.cron.as_mut().unwrap().jobs[1].job.pause = Some(tmt_squad::cron::Pause {
+    state.cron.as_mut().unwrap().jobs[1].job.pause = Some(tmt_ops::cron::Pause {
         by: "fixture".into(),
         at_ms: 0,
     });

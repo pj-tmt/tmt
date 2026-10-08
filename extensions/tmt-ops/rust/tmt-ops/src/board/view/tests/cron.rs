@@ -2,7 +2,7 @@
 use super::*;
 use crate::board::cronboard::{TEST_NOW, test_cron, test_view, test_views};
 use std::time::Instant;
-use tmt_squad::cron::ClockStatus;
+use tmt_ops::cron::ClockStatus;
 
 fn members() -> Value {
     json!([{"rows": [
@@ -64,7 +64,7 @@ fn members_sit_above_the_squads_jobs_with_the_clock_on_the_rule() {
 }
 
 fn running_in(pane: &str) -> ClockStatus {
-    ClockStatus::Running(tmt_squad::cron::Holder {
+    ClockStatus::Running(tmt_ops::cron::Holder {
         pane: Some(pane.into()),
         pid: 7,
         since_ms: TEST_NOW - 60_000,
@@ -372,7 +372,7 @@ mod controls {
             press(&mut app, KeyCode::Char('x')),
             existing(&key, Op::Send)
         );
-        app.cron.cron.as_mut().unwrap().jobs[0].job.pause = Some(tmt_squad::cron::Pause {
+        app.cron.cron.as_mut().unwrap().jobs[0].job.pause = Some(tmt_ops::cron::Pause {
             by: "u".into(),
             at_ms: 0,
         });
@@ -541,7 +541,7 @@ mod controls {
     fn controls_need_a_known_actor_and_a_selected_job() {
         let (mut app, _) = focused();
         app.cron.cron.as_mut().unwrap().actor =
-            Err("Record yourself with tmt squad me <name>".into());
+            Err("Record yourself with tmt ops squad me <name>".into());
         press(&mut app, KeyCode::Char('p'));
         assert!(
             app.notice.as_deref().unwrap().contains("known user"),

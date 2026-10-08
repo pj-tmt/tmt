@@ -136,7 +136,7 @@ mod tests {
     /// checked as a whole offline: a missing default or a number is refused.
     #[test]
     fn the_skills_examples_validate_and_a_malformed_switch_does_not() {
-        let skill = include_str!("../../../skills/tmt-squad/SKILL.md");
+        let skill = include_str!("../../../skills/tmt-ops/SKILL.md");
         let section = skill
             .split("## Offline markup authoring")
             .nth(1)

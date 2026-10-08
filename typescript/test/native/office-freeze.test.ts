@@ -232,7 +232,7 @@ describe('frozen Office extension lifecycle', () => {
         expect(after.status).toBe(0);
         expect(
           (parseWholeStdout(after).extensions as Array<{ name: string }>).map((row) => row.name)
-        ).toEqual(['squad', 'remote', 'colab']);
+        ).toEqual(['ops', 'remote', 'colab']);
       });
     }
   );

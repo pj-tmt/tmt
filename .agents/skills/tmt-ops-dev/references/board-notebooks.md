@@ -1,8 +1,8 @@
 # Board notebooks, detail and replies
 
 [board.md](board.md) owns frame reset, composers and `Scrolls`. The shipped Squad
-skill owns [notebook controls and link syntax](../../../../extensions/tmt-squad/skills/tmt-squad/SKILL.md#keep-your-notebook-current)
-and [detail/reply appearance](../../../../extensions/tmt-squad/skills/tmt-squad/SKILL.md#board-appearance).
+skill owns [notebook controls and link syntax](../../../../extensions/tmt-ops/skills/tmt-ops/SKILL.md#keep-your-notebook-current)
+and [detail/reply appearance](../../../../extensions/tmt-ops/skills/tmt-ops/SKILL.md#board-appearance).
 Effect policy belongs to [config-and-effects.md](config-and-effects.md#actions-and-effects);
 the [refresh reference](refresh-and-meter.md#refresh-worker) owns worker priority/cancellation.
 

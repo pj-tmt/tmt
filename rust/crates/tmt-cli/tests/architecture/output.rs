@@ -14,7 +14,7 @@ use syn::visit::{self, Visit};
 pub const GUARDED: &[&str] = &[
     "tmt-cli",
     "tmt-office-command",
-    "tmt-squad",
+    "tmt-ops",
     "tmt-remote",
     "tmt-colab",
 ];

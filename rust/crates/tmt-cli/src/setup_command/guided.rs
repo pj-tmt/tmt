@@ -24,7 +24,7 @@ use tmt_cli_style::{
 };
 
 /// The extension the closing hint offers when it is not installed.
-const SUGGESTED_EXTENSION: &str = "squad";
+const SUGGESTED_EXTENSION: &str = "ops";
 
 struct Plan {
     detections: Vec<(&'static DriverDefinition, Detection)>,
@@ -459,8 +459,8 @@ pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] =
         "tmt extension install {SUGGESTED_EXTENSION} adds the Squad board",
         &[" adds the Squad board"],
         &[
-            ("{name}", "squad"),
-            ("{}", "squad"),
-            ("{SUGGESTED_EXTENSION}", "squad"),
+            ("{name}", "ops"),
+            ("{}", "ops"),
+            ("{SUGGESTED_EXTENSION}", "ops"),
         ],
     )];

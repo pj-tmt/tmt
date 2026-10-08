@@ -2,6 +2,19 @@ use super::*;
 use crate::cron::{Jobs, Pause, Schedule, ScheduleInput};
 use std::collections::BTreeMap;
 
+#[test]
+fn persisted_squad_slot_identity_survives_the_ops_product_rename() {
+    // A pre-rename dispatch receipt's operation UUID, retained across releases.
+    assert_eq!(
+        operation_id(
+            "11111111-1111-4111-8111-111111111111",
+            "c1",
+            1_700_000_000_000
+        ),
+        "b17e22b9-5806-8721-984c-36c414c6f81b"
+    );
+}
+
 fn jobs() -> Vec<Job> {
     let mut jobs = Jobs::default();
     jobs.insert(Job::new(

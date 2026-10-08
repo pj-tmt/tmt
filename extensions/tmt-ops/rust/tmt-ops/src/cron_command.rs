@@ -14,7 +14,7 @@ use tmt_cli_style::{
     message,
     table::{Cell, Column, Table},
 };
-use tmt_squad::cron::{Schedule, ScheduleInput};
+use tmt_ops::cron::{Schedule, ScheduleInput};
 
 fn selected(command: Command) -> Command {
     command

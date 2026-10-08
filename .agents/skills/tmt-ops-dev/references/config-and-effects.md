@@ -2,8 +2,8 @@
 
 ## CLI entry and public JSON
 
-Bare `tmt squad` lists members with an explicit board hint; only `board` admits the
-interactive view. Bare `--json` equals `ls --json`. Display-ready documents exclude
+Bare `tmt ops` shows help; bare `tmt ops squad` lists members with an explicit board hint.
+Only `tmt ops ui` admits the interactive view. Bare squad `--json` equals squad `ls --json`. Display-ready documents exclude
 board-only home/meter/`usage.*` data.
 
 ## `ops.toml` reading and writing
@@ -58,8 +58,8 @@ Help, completion, embedded skills and offline layout checks never migrate.
 | `<dataRoot>/ops/checklist/<room-uuid>/{items.json,items.lock,items.tmp}`                                                  | Checklist document, stable lock and staging.                                   |
 | `.ops-paths-pending.json`, `.ops-paths-cutover-v1`, `.ops-paths-v1`, `.ops-paths*.tmp`, `.ops-migrate-<name>-<timestamp>` | Migration journal, durable cutover/completion markers and unpublished staging. |
 | `squad.toml.migrated-<timestamp>`, `<dataRoot>/squad.migrated-<timestamp>`                                                | Retained original backups; no reader enumerates them.                          |
-| `$XDG_CACHE_HOME/tmt-squad/{fields,staleness,back}`                                                                       | Disposable observations and navigation; unchanged in this slice.               |
-| `squad.tmux.conf`, tmux-config `.tmt-squad-backup-*` / staging                                                            | Consented hotkey owner; unchanged in this slice.                               |
+| `$XDG_CACHE_HOME/tmt-ops/{fields,staleness,back}`                                                                         | Disposable observations and navigation.                                        |
+| `ops.tmux.conf`, tmux-config `.tmt-ops-backup-*` / staging                                                                | Consented hotkey owner; former `squad.tmux.conf` is retained.                  |
 
 Old-only files are copied and synced, checked for byte/tree equality (config is also
 parsed), then all new targets are atomically published and reverified. Only after
@@ -225,7 +225,7 @@ their required squad scope.
   exactly one roster, else the only squad, and jumps to that roster's lead; no lead is a
   refusal before any focus.
 - `back` keeps a disposable stack per tmux server and client
-  (`$XDG_CACHE_HOME/tmt-squad/back`, 0700, atomic replacement, `LIMIT` 32 entries; corrupt
+  (`$XDG_CACHE_HOME/tmt-ops/back`, 0700, atomic replacement, `LIMIT` 32 entries; corrupt
   or foreign files read as empty). Every jump pushes the pane the client left, under the
   client `tmt focus` reports; `back` asks core for the invoker's client with
   `tmt focus --client`, pops its entry and focuses it.
@@ -235,12 +235,13 @@ their required squad scope.
   passes through Squad); nothing acknowledges. Squad has no talk, reply, replies or annotate
   command: conversation is core's, and a note on a row is the board's `a` key only (an in-process
   `Request::Annotate`), never a command or a hidden `__` entry.
-- `hotkeys` generates `squad.tmux.conf` (bindings noted `tmt squad popup|pane|back|lead`;
+- `hotkeys` generates `ops.tmux.conf` (bindings noted `tmt ops popup|pane|back|lead`;
   the optional lead key's `run-shell` job has `TMUX` but no `TMUX_PANE`, so it passes
   `TMUX_PANE=#{pane_id}` for core to name the caller) and owns one `source-file` line in
   the user's tmux configuration. It edits that file only after consent, rereads it before
   publication, keeps a byte-exact backup and replaces it atomically with the original mode;
-  removal drops only the exact owned line. A linked configuration is resolved (at most eight
+  install retires the exact former source line; removal drops exact current/former lines.
+  The former generated file is retained. A linked configuration is resolved (at most eight
   hops, each relative to the link's real directory) and written beside its real file;
   dangling or looping links are refused before consent. Bindings record the first `tmt` on
   PATH that resolves to the running executable, not the release path. Collisions and
@@ -250,8 +251,8 @@ their required squad scope.
 
 ## Playbooks
 
-Optional playbooks (`tmt squad playbook ls|show|install|rm`, first `tmux-squad`) live in
-`extensions/tmt-squad/playbooks/`, deliberately not under `skills/`: the release archive
+Optional playbooks (`tmt ops playbook ls|show|install|rm`, first `tmux-squad`) live in
+`extensions/tmt-ops/playbooks/`, deliberately not under `skills/`: the release archive
 ships and the extension installer offers every skill under `skills/`, while a playbook is
 installed only on request, and a test pins that no playbook is in that tree. `playbook.rs`
 holds the one catalog of embedded sources and registers the subtree through `tmt-cli-style`.

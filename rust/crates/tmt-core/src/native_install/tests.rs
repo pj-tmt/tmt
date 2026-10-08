@@ -308,19 +308,33 @@ fn explicit_unpinned_alpha_to_stable_forward_transition_is_allowed() {
 }
 
 #[test]
-fn squad_is_a_fixed_extension_product_with_two_command_links() {
+fn ops_is_a_fixed_extension_product_and_former_names_are_not_selectable() {
     use super::Product;
     assert_eq!(
         Product::ALL,
         [
             Product::Cli,
             Product::Office,
-            Product::Squad,
+            Product::Ops,
             Product::Remote,
             Product::Colab
         ]
     );
-    let squad = Product::parse("squad").unwrap();
+    for former in ["squad", "sq", "tmt-squad", "tmt-sq"] {
+        assert_eq!(Product::parse(former), None);
+        assert!(
+            !Product::ALL
+                .iter()
+                .any(|product| product.as_str() == former)
+        );
+    }
+    let squad = Product::parse("ops").unwrap();
+    let former = squad.former().unwrap();
+    assert_eq!(former.name, "squad");
+    assert_eq!(former.executable, "tmt-squad");
+    assert_eq!(former.namespace, "lib/tmt-squad");
+    assert_eq!(former.links, ["tmt-squad", "tmt-sq"]);
+    assert_eq!(former.tag_prefix, "tmt-squad-v");
     assert_eq!(
         (
             squad.tag_prefix(),
@@ -330,14 +344,14 @@ fn squad_is_a_fixed_extension_product_with_two_command_links() {
             squad.links(),
         ),
         (
-            "tmt-squad-v",
-            "tmt-squad",
-            "tmt-squad",
-            "lib/tmt-squad",
-            &["tmt-squad", "tmt-sq"][..],
+            "tmt-ops-v",
+            "tmt-ops",
+            "tmt-ops",
+            "lib/tmt-ops",
+            &["tmt-ops"][..],
         )
     );
-    assert_eq!(squad.link_target(), "../lib/tmt-squad/current/tmt-squad");
+    assert_eq!(squad.link_target(), "../lib/tmt-ops/current/tmt-ops");
     // Tag prefixes never overlap, so release selection stays per product.
     for product in Product::ALL {
         for other in Product::ALL.into_iter().filter(|other| *other != product) {
@@ -417,7 +431,7 @@ fn the_cli_accepts_either_prerelease_flag_on_an_alpha_and_extensions_match_exact
     assert!(!Product::Cli.accepts_prerelease_flag(&stable, true));
     for extension in [
         Product::Office,
-        Product::Squad,
+        Product::Ops,
         Product::Remote,
         Product::Colab,
     ] {

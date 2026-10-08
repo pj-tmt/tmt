@@ -198,7 +198,7 @@ impl App {
             return self.say("Nothing to answer here; c opens the cron list.");
         }
         let Some(send) = self.row_send(self.selected, false) else {
-            return self.say("Who is sending? Record yourself with tmt squad me <name>.");
+            return self.say("Who is sending? Record yourself with tmt ops squad me <name>.");
         };
         let squad = match &send.target {
             crate::board::app::RowTarget::Home(target) => target.squad.clone(),
@@ -293,7 +293,7 @@ impl App {
             return Effect::None;
         };
         let Some(sender) = view.me_id.clone() else {
-            return self.say("Record yourself with tmt squad me <name>.");
+            return self.say("Record yourself with tmt ops squad me <name>.");
         };
         let name = if all {
             "all leads".to_owned()

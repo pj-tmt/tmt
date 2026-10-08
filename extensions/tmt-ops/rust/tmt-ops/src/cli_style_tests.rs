@@ -1,4 +1,4 @@
-//! The #436 help guard for `tmt squad`: every visible command follows
+//! The #436 help guard for `tmt ops squad`: every visible command follows
 //! `design/cli-style.md` and its examples parse through Squad's grammar, except
 //! the commands still listed in `cli_style_allowlist.rs`.
 
@@ -13,22 +13,26 @@ mod allowlist;
 
 #[test]
 fn every_listing_command_uses_ls_with_the_list_alias() {
-    let report = audit::list_spelling_report(&super::grammar(), &["tmt", "squad"]);
+    let report = audit::list_spelling_report(&super::grammar(), &["tmt", "ops"]);
     assert!(report.is_empty(), "{}", report.join("\n"));
 }
 
 #[test]
 fn hidden_commands_are_listed_with_a_reason_and_double_underscore_commands_are_hidden() {
-    let report = audit::hidden_report(&super::grammar(), &["tmt", "squad"], allowlist::HIDDEN);
+    let report = audit::hidden_report(&super::grammar(), &["tmt", "ops"], allowlist::HIDDEN);
     assert!(report.is_empty(), "{}", report.join("\n"));
 }
 
 #[test]
 fn concise_commands_and_aliases_reach_the_same_squad_dispatch() {
     let cases: &[(&[&str], &[&str], &[&str])] = &[
-        (&["remove"], &["rm"], &["worker", "--squad", "product"]),
-        (&["list"], &["ls"], &["--refresh-fields"]),
-        (&["status"], &["ls"], &[]),
+        (
+            &["squad", "remove"],
+            &["squad", "rm"],
+            &["worker", "--squad", "product"],
+        ),
+        (&["squad", "list"], &["squad", "ls"], &["--refresh-fields"]),
+        (&["squad", "status"], &["squad", "ls"], &[]),
         (&["hotkeys", "remove"], &["hotkeys", "rm"], &["--yes"]),
         (&["playbook", "list"], &["playbook", "ls"], &[]),
         (
@@ -64,13 +68,13 @@ fn concise_commands_and_aliases_reach_the_same_squad_dispatch() {
         };
         let text = shown(primary);
         assert_eq!(shown(old), text);
-        assert!(!text.contains(&format!("tmt squad {}", old.join(" "))));
-        assert!(text.contains(&format!("Usage: tmt squad {}", primary.join(" "))));
+        assert!(!text.contains(&format!("tmt ops {}", old.join(" "))));
+        assert!(text.contains(&format!("Usage: tmt ops {}", primary.join(" "))));
     }
 }
 
 fn request(words: &[String]) -> Result<super::Request, clap::Error> {
-    let argv: Vec<std::ffi::OsString> = std::iter::once("tmt-squad".into())
+    let argv: Vec<std::ffi::OsString> = std::iter::once("tmt-ops".into())
         .chain(words.iter().map(Into::into))
         .collect();
     super::request(&argv)
@@ -97,7 +101,7 @@ fn parse(words: &[String]) -> Result<(), String> {
 
 #[test]
 fn every_command_follows_the_help_style_or_is_still_migrating() {
-    let program = ["tmt", "squad"];
+    let program = ["tmt", "ops"];
     let violations = audit::walk(
         &super::grammar(),
         &Probe {

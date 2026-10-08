@@ -99,38 +99,38 @@ mod tests {
     #[test]
     fn only_extension_releases_carry_bounded_canonical_skill_trees() {
         let valid = [
-            "skills/tmt-squad/SKILL.md",
-            "skills/tmt-squad/references/usage.md",
+            "skills/tmt-ops/SKILL.md",
+            "skills/tmt-ops/references/usage.md",
             "skills/tmt-sq-play/SKILL.md",
         ];
-        validate(Product::Squad, valid).unwrap();
+        validate(Product::Ops, valid).unwrap();
         validate(Product::Office, []).unwrap();
         assert!(validate(Product::Cli, ["skills/tmux-team/SKILL.md"]).is_err());
         for bad in [
-            vec!["skills/tmt-squad/SKILL.md", "notes.txt"],
-            vec!["skills/tmt-squad/SKILL.md", "skills/tmt-squad//x.md"],
-            vec!["skills/tmt-squad/SKILL.md", "skills/tmt-squad/ref/"],
-            vec!["skills/tmt-squad/SKILL.md", "skills/tmt-squad/.hidden"],
-            vec!["skills/tmt-squad/SKILL.md", "skills/tmt-squad/../escape"],
+            vec!["skills/tmt-ops/SKILL.md", "notes.txt"],
+            vec!["skills/tmt-ops/SKILL.md", "skills/tmt-ops//x.md"],
+            vec!["skills/tmt-ops/SKILL.md", "skills/tmt-ops/ref/"],
+            vec!["skills/tmt-ops/SKILL.md", "skills/tmt-ops/.hidden"],
+            vec!["skills/tmt-ops/SKILL.md", "skills/tmt-ops/../escape"],
             vec!["skills/Squad/SKILL.md"],
-            vec!["skills/tmt-squad/README.md"],
-            vec!["skills/tmt-squad/SKILL.md", "skills/tmt-squad/SKILL.md"],
+            vec!["skills/tmt-ops/README.md"],
+            vec!["skills/tmt-ops/SKILL.md", "skills/tmt-ops/SKILL.md"],
             vec![
-                "skills/tmt-squad/SKILL.md",
-                "skills/tmt-squad/ref",
-                "skills/tmt-squad/ref/inner.md",
+                "skills/tmt-ops/SKILL.md",
+                "skills/tmt-ops/ref",
+                "skills/tmt-ops/ref/inner.md",
             ],
         ] {
-            assert!(validate(Product::Squad, bad.clone()).is_err(), "{bad:?}");
+            assert!(validate(Product::Ops, bad.clone()).is_err(), "{bad:?}");
         }
         let many_skills = (0..=MAXIMUM_SKILLS)
             .map(|index| format!("skills/s{index}/SKILL.md"))
             .collect::<Vec<_>>();
-        assert!(validate(Product::Squad, many_skills.iter().map(String::as_str)).is_err());
+        assert!(validate(Product::Ops, many_skills.iter().map(String::as_str)).is_err());
         let many_files = std::iter::once("skills/s/SKILL.md".to_owned())
             .chain((0..MAXIMUM_FILES).map(|index| format!("skills/s/f{index}.md")))
             .collect::<Vec<_>>();
-        assert!(validate(Product::Squad, many_files.iter().map(String::as_str)).is_err());
+        assert!(validate(Product::Ops, many_files.iter().map(String::as_str)).is_err());
         assert!(file_fits(1) && file_fits(MAXIMUM_FILE_BYTES as u64));
         assert!(!file_fits(0) && !file_fits(MAXIMUM_FILE_BYTES as u64 + 1));
     }
@@ -145,7 +145,7 @@ mod tests {
             "0".repeat(64)
         );
         assert!(largest_entry.len() <= RECEIPT_ENTRY_BYTES);
-        for product in [Product::Office, Product::Squad] {
+        for product in [Product::Office, Product::Ops] {
             assert_eq!(
                 receipt_limit(product),
                 64 * 1024 + MAXIMUM_SKILLS * MAXIMUM_FILES * RECEIPT_ENTRY_BYTES

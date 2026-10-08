@@ -98,7 +98,7 @@ pub(super) fn render_replies(frame: &mut Frame, app: &App, area: Rect) {
     let lines = if view.replies.is_empty() {
         vec![Line::styled(
             if view.me.is_none() {
-                "(tmt squad me <name> shows the replies to your requests)"
+                "(tmt ops squad me <name> shows the replies to your requests)"
             } else {
                 "(no replies to your squad requests yet)"
             },

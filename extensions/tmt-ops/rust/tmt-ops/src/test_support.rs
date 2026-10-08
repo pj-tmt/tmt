@@ -49,7 +49,7 @@ mod tests {
     #[test]
     fn readiness_has_no_payload_effects_and_a_stalled_probe_is_bounded() {
         let dir = std::env::temp_dir().join(format!(
-            "tmt-squad-ready-{}-{}",
+            "tmt-ops-ready-{}-{}",
             std::process::id(),
             NEXT.fetch_add(1, Ordering::Relaxed)
         ));

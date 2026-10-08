@@ -163,7 +163,7 @@ fn write_theme_problem(
             output,
             terminal,
             "theme.base auto only works for the board, not in config.json",
-            Some("tmt sq theme set auto"),
+            Some("tmt ops sq theme set auto"),
         );
     }
     tmt_cli_style::message::error(
@@ -378,7 +378,7 @@ fn show_text(
 #[cfg(test)]
 pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] =
     &[crate::cli_style_tests::HintSpec::skipped(
-        "tmt sq theme set auto",
+        "tmt ops sq theme set auto",
         "External extension grammar is owned by its CLI; core parsing cannot validate it.",
     )];
 
@@ -426,7 +426,7 @@ mod tests {
         .unwrap();
         assert_eq!(
             String::from_utf8(output).unwrap(),
-            "error: theme.base auto only works for the board, not in config.json\nhint: tmt sq theme set auto\n"
+            "error: theme.base auto only works for the board, not in config.json\nhint: tmt ops sq theme set auto\n"
         );
     }
 

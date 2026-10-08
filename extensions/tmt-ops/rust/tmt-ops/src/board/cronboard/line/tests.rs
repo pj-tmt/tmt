@@ -1,6 +1,6 @@
 use super::*;
 use crate::board::cronboard::Cron;
-use tmt_squad::cron::{Holder, Job, Schedule, ScheduleInput};
+use tmt_ops::cron::{Holder, Job, Schedule, ScheduleInput};
 
 pub(in crate::board) const NOW: i64 = 1_791_124_200_000; // 2026-10-04T14:30:00Z
 
@@ -31,7 +31,7 @@ pub(in crate::board) fn view(owner: &str, message: &str, next: Option<i64>) -> J
 /// `count` jobs of one squad with the distinct c-ids (`c1`, `c2`, ...) the store
 /// assigns; the plain `view` fixture reuses one id.
 pub(in crate::board) fn views(count: usize, squad: &str, room: &str) -> Vec<JobView> {
-    let mut store = tmt_squad::cron::Jobs::default();
+    let mut store = tmt_ops::cron::Jobs::default();
     (1..=count)
         .map(|index| {
             let mut job = view(

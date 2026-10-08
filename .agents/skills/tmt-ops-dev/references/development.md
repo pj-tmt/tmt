@@ -1,6 +1,6 @@
-# Squad development
+# Ops development
 
-The shipped lead skill is `extensions/tmt-squad/skills/tmt-squad/SKILL.md`; this skill
+The shipped lead skill is `extensions/tmt-ops/skills/tmt-ops/SKILL.md`; this skill
 is for developing the extension. Shared gates are in
 [DEVELOPMENT.md](../../../../DEVELOPMENT.md). Board rendering uses the internal TUI
 markup: see [tmt-tui](../../tmt-tui/SKILL.md).
@@ -8,15 +8,15 @@ markup: see [tmt-tui](../../tmt-tui/SKILL.md).
 ## Checks
 
 ```bash
-(cd rust && cargo build --locked)                       # default tmt-squad for the native test
-(cd rust && cargo test --locked -p tmt-squad)
-(cd rust && cargo test --locked -p tmt-squad --lib cron)
-(cd rust && cargo test --locked -p tmt-squad cli_style_tests)
+(cd rust && cargo build --locked)                       # default tmt-ops for the native test
+(cd rust && cargo test --locked -p tmt-ops)
+(cd rust && cargo test --locked -p tmt-ops --lib cron)
+(cd rust && cargo test --locked -p tmt-ops cli_style_tests)
 ```
 
-- `typescript/test/native/squad.test.ts` runs `rust/target/debug/tmt-squad` (or an
-  absolute path in `TMT_TEST_SQUAD`) through real `tmt` dispatch, with a sandbox
-  `PATH` holding the `tmt-squad` and `tmt-sq` links and no installed-copy fallback.
+- `typescript/test/native/squad.test.ts` runs `rust/target/debug/tmt-ops` (or an
+  absolute path in `TMT_TEST_OPS`) through real `tmt` dispatch, with a sandbox
+  `PATH` holding only the `tmt-ops` link and no installed-copy fallback.
   It reads rooms and metadata through an independent SQLite reader.
 - Squad-scoped CI runs `squad.test.ts`, `extension-install.test.ts`,
   `extension-upgrade-proof.test.ts` and the `squad` E2E files listed under
@@ -28,13 +28,13 @@ markup: see [tmt-tui](../../tmt-tui/SKILL.md).
   with `main` and the package-scoped release `tmt` to prove the CLI is unchanged.
 - Cron tests use disposable roots and must not touch the core database or
   `ops.toml`.
-- Checklist storage/service: `cargo test --locked -p tmt-squad checklist` exercises
+- Checklist storage/service: `cargo test --locked -p tmt-ops checklist` exercises
   real temporary documents, literal schema/tombstones, separate revisions, contention,
   lifecycle and independently controlled public-port admission changes. Publication fault
   tests inspect committed bytes, temporary cleanup, lock release and retained Unknown
   after readback. Run unfiltered Squad tests on current/MSRV toolchains, owning clippy,
   fmt, CLI architecture/current+MSRV and the native Squad regression as well. This storage
-  service remains the only admission/persistence owner. `cargo test --locked -p tmt-squad
+  service remains the only admission/persistence owner. `cargo test --locked -p tmt-ops
 checklist_command` covers adapter grammar, exact typed requests, literal JSON projections,
   alias/help/completion, authorized conflict/deletion errors and retained Unknown. Native
   `squad.test.ts` exercises actual dispatch, streams/exits and independently read durable
@@ -44,32 +44,32 @@ checklist_command` covers adapter grammar, exact typed requests, literal JSON pr
   `tmt_cli_style::rendered_help` before core discovery. Specs and argument help
   remain in `specs.rs`/`main.rs`; the shared style crate owns terminal wrapping.
   Main's help regression pins 80-cell wrapping and unchanged pipe bytes across
-  root and nested commands; verify the real `tmt sq cron --help` in a private tmux.
-- Hidden commands: `cargo test --locked -p tmt-squad cli_style_tests` also runs
+  root and nested commands; verify the real `tmt ops sq cron --help` in a private tmux.
+- Hidden commands: `cargo test --locked -p tmt-ops cli_style_tests` also runs
   `tmt_cli_style::audit::hidden_report` over Squad's grammar against `HIDDEN` in
   `cli_style_allowlist.rs` (today only `__complete`). Board-only actions are not
   commands: do not add a CLI or hidden twin for a board key
   ([rule](../../../../design/cli-style.md#hidden-commands)).
-- Cron management (service, announcements, retirement): `cargo test --locked -p tmt-squad
+- Cron management (service, announcements, retirement): `cargo test --locked -p tmt-ops
 cron_service` and the native `squad.test.ts` cron cases cover actor permission, locked
   room/revision refusal, exact messages, post-commit announcement recipients, hook
   registration rollback and obsolete/replayed retirement references; the private-tmux
   `squad.e2e.test.ts` cron case reads committed announcement and hook state independently.
-- Cron clock: `cargo test --locked -p tmt-squad --lib cron` covers lease competition,
+- Cron clock: `cargo test --locked -p tmt-ops --lib cron` covers lease competition,
   stale takeover, ownership-checked release, slot windows and operation IDs;
-  `cargo test --locked -p tmt-squad cron_clock` covers fresh service admission,
+  `cargo test --locked -p tmt-ops cron_clock` covers fresh service admission,
   anonymous dispatch, same-ID receipt recovery and cancelled/joined children.
   Native `squad.test.ts` checks read-only status, explicit manual actors, exact
   paused sends and JSON/help. The private-tmux `squad.e2e.test.ts` clock case
   corroborates one slot acceptance and one causal peer wake with independent SQL,
   rejects a second clock, replays standalone ticks without another send and
   verifies signal cleanup. Run Docker lifecycle verification twice.
-- Board cron: `cargo test --locked -p tmt-squad cronboard` covers the projection, line, list and
+- Board cron: `cargo test --locked -p tmt-ops cronboard` covers the projection, line, list and
   controls against disposable roots (`cron_service::test_support::Fixture`); `view::tests::cron`
   covers the split squad tab, focus transfer, scoped keys and forms; `home::tests::cron` the home
   cursor. Capture the home line, `c` list, split tab, expanded job and forms at 160/100/80 in
   `tmt`, `tmt-light` and `NO_COLOR` with a private HOME, `TMUX_TEAM_HOME` and tmux socket.
-- Row paint: `cargo test --locked -p tmt-squad board::view` covers painted cells and hits. A
+- Row paint: `cargo test --locked -p tmt-ops board::view` covers painted cells and hits. A
   scene change keeps the frozen parity capture and compares the old and new renderers on
   literal buffers, styles and hits (themes, depths, widths, selection, stale, waiting, cron labels,
   annotation) before the old one goes.
@@ -83,10 +83,10 @@ cron_service` and the native `squad.test.ts` cron cases cover actor permission, 
   of crew rows, team rows, home with attention sections only (meter on) and home with every
   section through `Terminal::draw`, split by the phases of
   `view::render`, plus a `strip::paint_left` microbench. Run it with
-  `CARGO_BUILD_JOBS=2 cargo test --release -p tmt-squad frame_timing -- --ignored --nocapture`;
+  `CARGO_BUILD_JOBS=2 cargo test --release -p tmt-ops frame_timing -- --ignored --nocapture`;
   compare runs from one machine and build, never as a CI threshold. A render change keeps
   `render_replica_matches_render` passing (it pins the replica to `view::render`).
-- Layout validation: `cargo test --locked -p tmt-squad layout` and the native `squad.test.ts`
+- Layout validation: `cargo test --locked -p tmt-ops layout` and the native `squad.test.ts`
   offline case cover invalid core/config inputs, located errors, the size bound and the
   human/JSON exit codes.
 - Tab parity: `built_in_board_documents_equal_ls_tab_documents` and
@@ -132,7 +132,7 @@ cron_service` and the native `squad.test.ts` cron cases cover actor permission, 
 ## Embedded skills
 
 The squad executable embeds the lead skill and the playbooks
-(`extensions/tmt-squad/playbooks/<name>/SKILL.md`), outside the core skill bundle.
+(`extensions/tmt-ops/playbooks/<name>/SKILL.md`), outside the core skill bundle.
 `playbook.rs` tests pin the catalog to the source files; `squad.test.ts` covers
 install and removal against isolated provider roots and checks the documented
 status row shape against real output. Every command a playbook tells an agent to run

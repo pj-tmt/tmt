@@ -12,15 +12,19 @@ import { withE2EFixture, type E2EFixture, type MockEvent } from './harness.js';
 /** Puts the built squad extension and a `tmt` launcher on the fixture PATH. */
 function installSquad(fixture: E2EFixture): void {
   const cli = resolveCliExecutables().cli.executable;
-  const squad = path.join(path.dirname(cli), 'tmt-squad');
-  if (!fs.existsSync(squad)) throw new Error(`Build tmt-squad first: ${squad}`);
-  fs.symlinkSync(squad, path.join(fixture.wrapperDir, 'tmt-squad'));
+  const squad = path.join(path.dirname(cli), 'tmt-ops');
+  if (!fs.existsSync(squad)) throw new Error(`Build tmt-ops first: ${squad}`);
+  fs.symlinkSync(squad, path.join(fixture.wrapperDir, 'tmt-ops'));
   fs.symlinkSync(cli, path.join(fixture.wrapperDir, 'tmt'));
 }
 
 /** Extension options follow the extension name, so `--json` goes last. */
 function squadCli<T = Record<string, unknown>>(fixture: E2EFixture, args: string[]) {
-  return fixture.runCli<T>(['squad', ...args, '--json']);
+  return fixture.runCli<T>(['ops', 'squad', ...args, '--json']);
+}
+
+function opsCli<T = Record<string, unknown>>(fixture: E2EFixture, args: string[]) {
+  return fixture.runCli<T>(['ops', ...args, '--json']);
 }
 
 function errorCode(result: { json?: unknown }): string | undefined {
@@ -112,7 +116,7 @@ describe('squad on a private tmux server', { concurrent: false }, () => {
         'send-keys',
         '-t',
         shell.pane,
-        'tmt squad board --squad product; echo MIGRATION_BOARD_EXIT=$?',
+        'tmt ops ui --squad product; echo MIGRATION_BOARD_EXIT=$?',
         'Enter',
       ]);
       await fixture.waitForCapture(
@@ -170,7 +174,7 @@ describe('squad on a private tmux server', { concurrent: false }, () => {
         expectJsonResult(await squadCli(fixture, ['init', 'product', '--me', 'Ben']));
         expectJsonResult(await squadCli(fixture, ['add', 'worker']));
         const leasePath = path.join(fixture.globalDir, 'ops', 'cron', 'clock.json');
-        const clock = await spawnRealTmuxCli(fixture, ['squad', 'cron', 'run', '--json'], {
+        const clock = await spawnRealTmuxCli(fixture, ['ops', 'squad', 'cron', 'run', '--json'], {
           name: 'primary-clock',
           json: false,
         });
@@ -178,7 +182,7 @@ describe('squad on a private tmux server', { concurrent: false }, () => {
         await fixture.waitFor(() => fs.existsSync(leasePath), 5_000, 'clock lease publication');
         const holder = JSON.parse(fs.readFileSync(leasePath, 'utf8'));
         expect(holder.pane).toBe(clock.pane);
-        const second = await spawnRealTmuxCli(fixture, ['squad', 'cron', 'run', '--json'], {
+        const second = await spawnRealTmuxCli(fixture, ['ops', 'squad', 'cron', 'run', '--json'], {
           name: 'second-clock',
           json: false,
         });
@@ -275,10 +279,14 @@ describe('squad on a private tmux server', { concurrent: false }, () => {
       expectJsonResult(await squadCli(fixture, ['add', 'worker']));
       let commandNumber = 0;
       const cron = async (args: string[]) => {
-        const process = await spawnRealTmuxCli(fixture, ['squad', 'cron', ...args, '--json'], {
-          name: `cron-${commandNumber++}`,
-          json: false,
-        });
+        const process = await spawnRealTmuxCli(
+          fixture,
+          ['ops', 'squad', 'cron', ...args, '--json'],
+          {
+            name: `cron-${commandNumber++}`,
+            json: false,
+          }
+        );
         await releaseRealTmuxCli(fixture, process);
         const result = readRealTmuxCli<Record<string, unknown>>(process);
         return {
@@ -401,25 +409,25 @@ describe('squad on a private tmux server', { concurrent: false }, () => {
       const install = ['hotkeys', 'install', '--yes', '--config', conf];
 
       fixture.tmux(['bind-key', 'S', 'choose-tree']);
-      const taken = await squadCli(fixture, install);
+      const taken = await opsCli(fixture, install);
       expect(errorCode(taken)).toBe('SQUAD_HOTKEY_TAKEN');
       expect(JSON.stringify(taken.json)).toContain('running server');
       expect(fs.readFileSync(conf, 'utf8')).toBe('set -g mouse on\n');
 
       fixture.tmux(['unbind-key', 'S']);
-      expectJsonResult(await squadCli(fixture, install));
+      expectJsonResult(await opsCli(fixture, install));
       expect(notedKeys(fixture)).toEqual(
-        expect.arrayContaining(['S|tmt squad popup', 'B|tmt squad pane'])
+        expect.arrayContaining(['S|tmt ops popup', 'B|tmt ops pane'])
       );
-      expect(boundCommand(fixture, 'S')).toContain('squad board --popup');
+      expect(boundCommand(fixture, 'S')).toContain('ops ui --popup');
       expect(fs.readFileSync(conf, 'utf8')).toMatch(
-        /^set -g mouse on\nsource-file -q '.*squad\.tmux\.conf' # tmt squad hotkeys\n$/
+        /^set -g mouse on\nsource-file -q '.*ops\.tmux\.conf' # tmt ops hotkeys\n$/
       );
 
       // The user rebinds B afterwards: removal must leave it alone.
       fixture.tmux(['bind-key', 'B', 'split-window']);
       const removed = expectJsonResult<{ unbound: string[] }>(
-        await squadCli<{ unbound: string[] }>(fixture, ['hotkeys', 'remove', '--yes'])
+        await opsCli<{ unbound: string[] }>(fixture, ['hotkeys', 'remove', '--yes'])
       );
       expect(removed.unbound).toEqual(['S']);
       expect(boundCommand(fixture, 'S')).toBeUndefined();
@@ -443,7 +451,7 @@ describe('squad on a private tmux server', { concurrent: false }, () => {
           'send-keys',
           '-t',
           shell.pane,
-          'tmt squad board --squad product; echo CHECKLIST_BOARD_EXIT=$?',
+          'tmt ops ui --squad product; echo CHECKLIST_BOARD_EXIT=$?',
           'Enter',
         ]);
         await fixture.waitForCapture(
@@ -535,7 +543,7 @@ describe('squad on a private tmux server', { concurrent: false }, () => {
         'send-keys',
         '-t',
         shell.pane,
-        'tmt squad board --squad product --popup; echo BOARD_EXIT=$?',
+        'tmt ops ui --squad product --popup; echo BOARD_EXIT=$?',
         'Enter',
       ]);
       await fixture.waitForCapture((screen) => screen.includes('auth-fix'), shell.pane);
@@ -545,13 +553,7 @@ describe('squad on a private tmux server', { concurrent: false }, () => {
 
       // The pane form: the same jump leaves the board running.
       fixture.tmux(['switch-client', '-t', shell.pane]);
-      fixture.tmux([
-        'send-keys',
-        '-t',
-        shell.pane,
-        'clear; tmt squad board --squad product',
-        'Enter',
-      ]);
+      fixture.tmux(['send-keys', '-t', shell.pane, 'clear; tmt ops ui --squad product', 'Enter']);
       await fixture.waitForCapture(
         (screen) => screen.includes('auth-fix') && !screen.includes('BOARD_EXIT'),
         shell.pane

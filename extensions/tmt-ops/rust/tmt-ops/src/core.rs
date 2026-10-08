@@ -104,7 +104,7 @@ impl Core {
             }),
         };
         let executable = executable.ok_or_else(|| {
-            unavailable("Could not find the tmt executable; run through `tmt squad`.")
+            unavailable("Could not find the tmt executable; run through `tmt ops squad`.")
         })?;
         reject_self(&executable)?;
         Ok(Self {

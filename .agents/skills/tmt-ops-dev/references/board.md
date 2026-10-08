@@ -4,8 +4,8 @@ The [developer SKILL](../SKILL.md#board-surface-ownership) owns the surface map 
 extension invariants. [Full-screen interaction](../../../../design/cli-style.md#full-screen-interaction)
 owns interaction and appearance rules; the [TUI reference](../../tmt-tui/references/pipeline-and-components.md)
 owns admission, geometry, painting and shared components. The shipped Squad skill owns
-[board controls](../../../../extensions/tmt-squad/skills/tmt-squad/SKILL.md#board-appearance)
-and [row configuration](../../../../extensions/tmt-squad/skills/tmt-squad/SKILL.md#columns-and-row-lines).
+[board controls](../../../../extensions/tmt-ops/skills/tmt-ops/SKILL.md#board-appearance)
+and [row configuration](../../../../extensions/tmt-ops/skills/tmt-ops/SKILL.md#columns-and-row-lines).
 
 Surface references: [HOME](board-home.md), [notebooks/detail/replies](board-notebooks.md)
 and [cron](board-cron.md). Acquisition belongs to [refresh-and-meter.md](refresh-and-meter.md);
@@ -274,7 +274,7 @@ TUI admission and eager `squad-projected-v1` binding. Field/source validity reus
 `rows::field_name`, `OWN_FIELDS`, `ColumnSource` and `Format`; provider names are
 checked syntactically, without configuration/data. It materializes nothing and the
 board never loads the file. The shipped skill owns the
-[schema and examples](../../../../extensions/tmt-squad/skills/tmt-squad/SKILL.md#offline-markup-authoring).
+[schema and examples](../../../../extensions/tmt-ops/skills/tmt-ops/SKILL.md#offline-markup-authoring).
 
 ## Verification
 

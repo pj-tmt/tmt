@@ -2235,7 +2235,7 @@ impl App {
             Some(super::LEADS | super::ALL) if self.selected_row().is_none() => {
                 "no row is selected".to_owned()
             }
-            _ => "this squad has no lead; set one with tmt squad lead <name>".to_owned(),
+            _ => "this squad has no lead; set one with tmt ops squad lead <name>".to_owned(),
         })
     }
 
@@ -2247,7 +2247,7 @@ impl App {
             return Effect::None;
         };
         let Some(sender) = view.me.clone() else {
-            return self.say("Who is sending? Record yourself with tmt squad me <name>.");
+            return self.say("Who is sending? Record yourself with tmt ops squad me <name>.");
         };
         let to = match self.lead() {
             Ok(to) => to,
@@ -2458,7 +2458,7 @@ impl App {
             .and_then(|view| view.me.as_ref())
             .is_none()
         {
-            return self.say("Who is sending? Record yourself with tmt squad me <name>, or open the board from your named pane.");
+            return self.say("Who is sending? Record yourself with tmt ops squad me <name>, or open the board from your named pane.");
         }
         let rows = self.rows();
         let index = rows
@@ -2669,7 +2669,7 @@ impl App {
             return self.say("No notebook line to annotate.");
         };
         if view.me.is_none() {
-            return self.say("Record yourself with tmt squad me <name> before annotating.");
+            return self.say("Record yourself with tmt ops squad me <name> before annotating.");
         }
         let Some(to) = view.document["squad"]["lead"]["name"]
             .as_str()
@@ -4516,7 +4516,7 @@ pub(crate) mod tests {
         assert_eq!(lead(&mut app), Effect::None);
         assert_eq!(
             app.notice.as_deref(),
-            Some("jump lead: this squad has no lead; set one with tmt squad lead <name>.")
+            Some("jump lead: this squad has no lead; set one with tmt ops squad lead <name>.")
         );
 
         // The all tab: a row per squad, with its lead as a field.
@@ -4533,7 +4533,7 @@ pub(crate) mod tests {
         assert_eq!(lead(&mut app), Effect::None);
         assert_eq!(
             app.notice.as_deref(),
-            Some("jump lead: this squad has no lead; set one with tmt squad lead <name>.")
+            Some("jump lead: this squad has no lead; set one with tmt ops squad lead <name>.")
         );
 
         // A missing lead is data, so a custom binding gets the same missing-field
@@ -4688,7 +4688,7 @@ pub(crate) mod tests {
             app.notice
                 .as_deref()
                 .unwrap()
-                .starts_with("Who is sending? Record yourself with tmt squad me"),
+                .starts_with("Who is sending? Record yourself with tmt ops squad me"),
             "sending needs me"
         );
         assert_eq!(press(&mut app, KeyCode::Char('x')), Effect::None);

@@ -110,7 +110,7 @@ pub fn run(core: &Core, config: &Config, matches: &ArgMatches) -> Result<Value, 
             "SQUAD_FOCUS_OWNER_REQUIRED",
             "No owner UUID is recorded.",
             " ",
-            "Record the saved owner with tmt squad me <name>.",
+            "Record the saved owner with tmt ops squad me <name>.",
         )
     })?;
     let mut fields = json!({"identityId":target.id,"ownerIdentityId":owner,

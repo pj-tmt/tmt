@@ -2171,7 +2171,7 @@ fn lead_detail_omits_missing_fields_and_wraps_safe_text_through_the_shared_scrol
         detail_text(&buffer),
         [
             "sol  lead",
-            "no row fields set · tmt sq set sol task=…",
+            "no row fields set · tmt ops sq set sol task=…",
             "notes below · replies at right",
         ]
     );
@@ -2670,7 +2670,7 @@ fn reply_empty_hints_and_consecutive_body_headings_keep_their_meaning() {
     assert!(
         draw(&app, 120, 16)
             .join("\n")
-            .contains("(tmt squad me <name> shows the replies to your requests)")
+            .contains("(tmt ops squad me <name> shows the replies to your requests)")
     );
     app.view.as_mut().unwrap().me = Some("user".into());
     assert!(
@@ -3129,7 +3129,7 @@ fn tabs_show_one_pane_and_tab_moves_focus() {
     assert!(
         screen
             .iter()
-            .any(|line| line.contains("tmt squad me <name> shows the replies"))
+            .any(|line| line.contains("tmt ops squad me <name> shows the replies"))
     );
     tab(&mut app);
     assert!(

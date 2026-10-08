@@ -5,7 +5,7 @@ half/list painting and scoped hints. It reaches jobs through `cron_service`, man
 sends through `cron_clock::send_now`, and clock status through `cron::Clock::status`.
 [data-and-state.md](data-and-state.md#cron) owns storage, actor/revision admission,
 dispatch and the independent clock lifecycle. The shipped Squad skill owns
-[board job controls](../../../../extensions/tmt-squad/skills/tmt-squad/SKILL.md#cron-on-the-board).
+[board job controls](../../../../extensions/tmt-ops/skills/tmt-ops/SKILL.md#cron-on-the-board).
 
 ## Acquisition and placement
 

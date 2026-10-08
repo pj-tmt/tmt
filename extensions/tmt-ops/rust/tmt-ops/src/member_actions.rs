@@ -1,4 +1,4 @@
-//! `tmt squad jump|back|open|copy`: the board's row
+//! `tmt ops squad jump|back|open|copy`: the board's row
 //! actions for one member, for scripts and terminals without the board.
 
 use crate::{
@@ -84,7 +84,7 @@ pub fn jump(
     Ok(document.into())
 }
 
-/// `tmt squad jump --lead`: the squad's lead, through the same jump as any
+/// `tmt ops squad jump --lead`: the squad's lead, through the same jump as any
 /// member, so `back` returns from it. No lead changes nothing.
 pub fn jump_lead(core: &Core, squad: &Squad, config: &Config) -> Result<Outcome, SquadError> {
     let lead = squad
@@ -93,7 +93,7 @@ pub fn jump_lead(core: &Core, squad: &Squad, config: &Config) -> Result<Outcome,
         .find(crate::squad::Member::is_lead)
         .ok_or_else(|| {
             refused(format!(
-                "Squad {} has no lead; set one with tmt squad lead <name>.",
+                "Squad {} has no lead; set one with tmt ops squad lead <name>.",
                 squad.name
             ))
         })?;
@@ -139,7 +139,7 @@ pub fn caller_squad(core: &Core, explicit: Option<&str>) -> Result<Squad, SquadE
     }
 }
 
-/// `tmt squad back`: needs no squad; the stack belongs to the tmux client.
+/// `tmt ops squad back`: needs no squad; the stack belongs to the tmux client.
 pub fn back(core: &Core) -> Result<Outcome, SquadError> {
     Ok(match back::back(core)? {
         Some(focus) => json!({"back": {"focused": {"pane": focus.pane}, "client": focus.client}}),
@@ -316,7 +316,7 @@ esac
         assert_eq!(error.code, "SQUAD_ACTION_REFUSED");
         assert_eq!(
             error.message,
-            "Squad a has no lead; set one with tmt squad lead <name>."
+            "Squad a has no lead; set one with tmt ops squad lead <name>."
         );
         assert_eq!(fixture.focused(), "", "nothing changed");
     }

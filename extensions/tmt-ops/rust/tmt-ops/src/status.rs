@@ -319,7 +319,7 @@ pub fn text(document: &Value, terminal: Terminal) -> String {
     };
     if squads.is_empty() {
         let _ = writeln!(output, "No squad exists yet.");
-        let _ = tmt_cli_style::message::hint(&mut output, terminal, "tmt squad init <name>");
+        let _ = tmt_cli_style::message::hint(&mut output, terminal, "tmt ops squad init <name>");
     }
     for (index, squad) in squads.iter().enumerate() {
         if index > 0 {
@@ -574,7 +574,7 @@ fn squad_text(document: &Value, terminal: Terminal, output: &mut Vec<u8>) {
 
 /// Shown when no one is "you": ◆ for requests needs a recorded identity or a
 /// saved identity bound to the calling pane.
-pub const UNKNOWN_YOU: &str = "◆ needs to know who you are: tmt squad me <name>";
+pub const UNKNOWN_YOU: &str = "◆ needs to know who you are: tmt ops squad me <name>";
 
 #[cfg(test)]
 mod tests {
@@ -944,8 +944,7 @@ sort = ["state"]
             name: "product".into(),
             room_id: "room".into(),
         };
-        let path =
-            std::env::temp_dir().join(format!("tmt-squad-status-{}.toml", std::process::id()));
+        let path = std::env::temp_dir().join(format!("tmt-ops-status-{}.toml", std::process::id()));
         std::fs::write(
             &path,
             "[[squad.product.section]]\ntitle = \"Needs me\"\nfilter = \"pending or state = blocked\"\n\
@@ -999,7 +998,7 @@ sort = ["state"]
             name: "product".into(),
             room_id: "room".into(),
         };
-        let path = std::env::temp_dir().join(format!("tmt-squad-rest-{}.toml", std::process::id()));
+        let path = std::env::temp_dir().join(format!("tmt-ops-rest-{}.toml", std::process::id()));
         std::fs::write(
             &path,
             "[[squad.product.section]]\ntitle = \"Needs me\"\nfilter = \"pending\"\n",
@@ -1236,7 +1235,7 @@ columns = [{ name = "member", width = "20%" },
              squad reviews · no lead · layout crew\n\n\
              MEMBERS 1\n\
              \x20 ○  amy  review\n\
-             \n◆ needs to know who you are: tmt squad me <name>\n"
+             \n◆ needs to know who you are: tmt ops squad me <name>\n"
         );
     }
 }

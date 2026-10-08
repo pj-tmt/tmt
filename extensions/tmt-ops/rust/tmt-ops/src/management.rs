@@ -61,7 +61,7 @@ pub fn actor(
         .ok_or_else(|| {
             failure(
                 "SQUAD_SENDER_UNKNOWN",
-                "Record yourself with tmt squad me <name>, or supply --identity.",
+                "Record yourself with tmt ops squad me <name>, or supply --identity.",
             )
         })
 }

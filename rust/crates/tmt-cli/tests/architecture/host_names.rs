@@ -14,7 +14,7 @@ const OWNERS: [(&str, &str); 4] = [
     ("tmt-core", "host.rs"),
     ("tmt-adapters", "host.rs"),
     ("tmt-adapters", "tmux/"),
-    ("tmt-squad", ""),
+    ("tmt-ops", ""),
 ];
 
 pub fn violations(sources: &[Source], names: &[&str]) -> Vec<String> {
@@ -56,7 +56,7 @@ mod tests {
             ("tmt-core", "host.rs"),
             ("tmt-adapters", "host.rs"),
             ("tmt-adapters", "tmux/mod.rs"),
-            ("tmt-squad", "effects.rs"),
+            ("tmt-ops", "effects.rs"),
         ] {
             assert!(
                 violations(&[source(package, file, text)], &["hostx"]).is_empty(),

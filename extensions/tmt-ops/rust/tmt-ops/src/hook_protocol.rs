@@ -1,5 +1,5 @@
 //! Squad's side of the consented extension hook protocol:
-//! `tmt-squad __tmt-hooks 1 capabilities|observe|context`.
+//! `tmt-ops __tmt-hooks 1 capabilities|observe|context`.
 //!
 //! Core runs it only after the user enabled squad's hooks, within a shared
 //! deadline. Lifecycle observations follow committed commands; context runs

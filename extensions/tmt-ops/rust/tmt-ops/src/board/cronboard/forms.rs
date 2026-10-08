@@ -7,7 +7,7 @@ use crate::{
     board::app::{App, Choice, Compose, Effect, Hint, Input, Menu, MenuEntry, Request},
     cron_service::{CronActor, JobKey, JobView, schedule_text},
 };
-use tmt_squad::cron::Schedule;
+use tmt_ops::cron::Schedule;
 
 /// Longest message the one-line input can hold; longer ones are kept as stored.
 const LINE_LIMIT: usize = 4000;
@@ -184,7 +184,7 @@ impl App {
                     Step::Schedule => draft.original.as_ref().expect("edit").1.clone(),
                 };
                 let note = (key == 'E' && !editable).then(|| {
-                    "the message has several lines or is long: kept as stored, use tmt sq cron edit --message".to_owned()
+                    "the message has several lines or is long: kept as stored, use tmt ops sq cron edit --message".to_owned()
                 });
                 self.cron_ask(draft, prefill, note.map(|text| Hint { text, error: false }))
             }

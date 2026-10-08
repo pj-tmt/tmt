@@ -47,15 +47,20 @@ fn canonical_listing_alias_filters_and_completion_share_the_real_grammar() {
         assert_eq!(filter.completion, Some(Completion::Complete));
         assert_eq!(filter.assignee, Some(id(WORKER)));
     }
-    let helping = crate::complete(&["help".into(), "checklist".into(), "".into()]);
+    let helping = crate::complete(&["help".into(), "squad".into(), "checklist".into(), "".into()]);
     assert!(helping.contains(&"ls".into()));
     assert!(!helping.contains(&"list".into()));
     assert_eq!(
-        crate::complete(&["checklist".into(), "delete".into(), "--confirm".into()]),
+        crate::complete(&[
+            "squad".into(),
+            "checklist".into(),
+            "delete".into(),
+            "--confirm".into()
+        ]),
         vec!["--confirm-item", "--confirm-revision"]
     );
     assert!(
-        tmt_cli_style::audit::list_spelling_report(&crate::grammar(), &["tmt", "squad"]).is_empty()
+        tmt_cli_style::audit::list_spelling_report(&crate::grammar(), &["tmt", "ops"]).is_empty()
     );
 }
 

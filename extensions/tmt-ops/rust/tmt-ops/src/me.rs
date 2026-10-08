@@ -105,7 +105,7 @@ fn warn_edited(written: &str, kept: &str) {
         &mut stderr,
         terminal,
         &format!("ops.toml named '{written}' as you, but me_id is {kept}; still acting as {kept}."),
-        Some(&format!("tmt squad me {written}")),
+        Some(&format!("tmt ops squad me {written}")),
     );
 }
 
@@ -175,7 +175,7 @@ pub fn resolve_you(core: &Core, config: &mut Config) -> Result<Option<(Me, Sourc
     Ok(you(None, caller(core).ok().flatten().as_ref()).map(|pane| (pane, Source::Pane)))
 }
 
-/// `tmt squad me <name>`: a saved identity becomes the user.
+/// `tmt ops squad me <name>`: a saved identity becomes the user.
 pub fn set(core: &Core, config: &mut Config, name: &str) -> Result<Me, SquadError> {
     let shown = core.json(&["identity", "show", name])?;
     let identity = &shown["identity"];
@@ -258,7 +258,7 @@ mod tests {
     /// stdout, or a core error with its exit status.
     fn whoami(name: &str, stdout: &str, status: i32) -> Result<Option<Caller>, SquadError> {
         let dir =
-            std::env::temp_dir().join(format!("tmt-squad-whoami-{name}-{}", std::process::id()));
+            std::env::temp_dir().join(format!("tmt-ops-whoami-{name}-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let fake = dir.join("tmt");
         crate::test_support::write_ready_executable(

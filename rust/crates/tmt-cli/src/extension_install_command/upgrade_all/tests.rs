@@ -13,14 +13,14 @@ fn one_consent_lists_all_versions_and_failure_does_not_stop_other_products() {
         vec![],
         vec![
             pending(Product::Office),
-            pending(Product::Squad),
+            pending(Product::Ops),
             pending(Product::Remote),
             pending(Product::Colab),
         ],
         |question| {
             asked.set(asked.get() + 1);
             assert!(question.contains("office 1.0.0 -> 1.1.0"));
-            assert!(question.contains("squad 1.0.0 -> 1.1.0"));
+            assert!(question.contains("ops 1.0.0 -> 1.1.0"));
             assert!(question.contains("remote 1.0.0 -> 1.1.0"));
             assert!(question.contains("colab 1.0.0 -> 1.1.0"));
             Ok(true)
@@ -42,7 +42,7 @@ fn one_consent_lists_all_versions_and_failure_does_not_stop_other_products() {
         applied,
         vec![
             Product::Office,
-            Product::Squad,
+            Product::Ops,
             Product::Remote,
             Product::Colab
         ]
@@ -58,7 +58,7 @@ fn one_consent_lists_all_versions_and_failure_does_not_stop_other_products() {
 fn missing_consent_changes_no_extension_and_returns_exact_rerun_hint() {
     let rows = settle(
         vec![],
-        vec![pending(Product::Squad)],
+        vec![pending(Product::Ops)],
         |_| Ok(false),
         |_, _| panic!("must not mutate"),
     );
@@ -82,7 +82,7 @@ fn child_protocol_rejects_duplicate_products_unknown_fields_and_unbounded_report
     let valid = Plan {
         products: Vec::new(),
         pending: vec![
-            pending(Product::Squad),
+            pending(Product::Ops),
             pending(Product::Remote),
             pending(Product::Colab),
         ],
@@ -102,9 +102,9 @@ fn child_protocol_rejects_duplicate_products_unknown_fields_and_unbounded_report
     wrong_product["pending"][0]["product"] = "cli".into();
     assert!(Plan::parse(&serde_json::to_vec(&wrong_product).unwrap()).is_none());
     assert!(Plan::parse(&vec![b' '; LIMIT + 1]).is_none());
-    assert!(Plan::parse(br#"{"products":[{"product":"squad","status":"changed","version":"1.1.0"}],"pending":[]}"#).is_none());
+    assert!(Plan::parse(br#"{"products":[{"product":"ops","status":"changed","version":"1.1.0"}],"pending":[]}"#).is_none());
     assert!(
-        parse_results(br#"{"products":[{"product":"squad","status":"failed","error":{}}]}"#)
+        parse_results(br#"{"products":[{"product":"ops","status":"failed","error":{}}]}"#)
             .is_none()
     );
 }

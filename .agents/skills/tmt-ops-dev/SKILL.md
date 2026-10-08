@@ -1,9 +1,9 @@
 ---
-name: tmt-squad-dev
-description: Build and verify the Squad extension (`tmt-squad`, `tmt-sq`, the board, notebook, cron library, embedded lead skill and playbooks). Load when changing extensions/tmt-squad or running its native and E2E checks. Owner - the tmt-squad squad. Not the shipped lead skill `tmt-squad`.
+name: tmt-ops-dev
+description: Build and verify the Ops extension (`tmt-ops`, the board, notebook, cron library, embedded lead skill and playbooks). Load when changing extensions/tmt-ops or running its native and E2E checks. Owner - the tmt-squad squad. Not the shipped lead skill `tmt-ops`.
 ---
 
-# Squad development
+# Ops development
 
 ## Board surface ownership
 
@@ -75,9 +75,9 @@ and injected-clock renderer checks alongside unchanged cron tests.
 
 - [references/development.md](references/development.md): build, test and verification commands moved from DEVELOPMENT.md.
 
-[ARCHITECTURE](../../../ARCHITECTURE.md#squad-extension) owns the seam, dependency direction and
+[ARCHITECTURE](../../../ARCHITECTURE.md#ops-extension) owns the seam, dependency direction and
 public-contract index. The user-facing row and config reference is the embedded lead skill
-(`extensions/tmt-squad/skills/tmt-squad/SKILL.md`); do not copy its field lists, state-pattern
+(`extensions/tmt-ops/skills/tmt-ops/SKILL.md`); do not copy its field lists, state-pattern
 grammar or key tables into the references below.
 
 ## Reference files
@@ -103,7 +103,7 @@ grammar or key tables into the references below.
 - A squad is the core room `squad-<name>`. Member fields are identity metadata
   `squad.<name>.<field>`; Squad has no membership store of its own.
 - Squad-owned data lives under `<dataRoot>/ops` (`storage.root` from `tmt api`),
-  plus disposable caches under `$XDG_CACHE_HOME/tmt-squad/`. `ops.toml` is the
+  plus disposable caches under `$XDG_CACHE_HOME/tmt-ops/`. `ops.toml` is the
   user's file; agents never write it, and no cron data goes into it or the core
   database.
 - Squad never writes `config.json`, a provider directory or tmux state except
@@ -115,14 +115,14 @@ grammar or key tables into the references below.
 - Paint and input perform no core reads; refresh, providers and notebook reads run
   on workers (see [refresh-and-meter.md](references/refresh-and-meter.md)).
 - Command grammar, help and human output go through `tmt-cli-style`
-  (`CommandSpec`, `Interaction`); `board` runs only when `Interaction::view()` is
-  `Interactive`, decided once in `main`, otherwise it is `ls`. Bare `tmt squad` lists members and adds
-  `tmt sq board opens the board`; bare `--json` is identical to `ls --json`. Consent for hotkeys and playbooks is a `Consent` decided in
+  (`CommandSpec`, `Interaction`); `ui` runs only when `Interaction::view()` is
+  `Interactive`, decided once in `main`, otherwise it is `ls`. Bare `tmt ops squad` lists members and adds
+  `tmt ops ui opens the board`; bare squad `--json` is identical to squad `ls --json`. Bare Ops shows help. Consent for hotkeys and playbooks is a `Consent` decided in
   `main` from `--yes` and `prompt()`.
 - Squad's dependencies must not change the CLI product: prove it package-scoped
   (`cargo ... -p tmt-cli` alone), because combined workspace builds can unify
   shared-dependency features.
-- Squad is versioned and released independently (`tmt-squad-v<version>` tags). Its
-  archive also carries `skills/tmt-squad/`, the same source as the embedded lead
-  skill; playbooks under `extensions/tmt-squad/playbooks/` are deliberately outside
+- Squad is versioned and released independently (`tmt-ops-v<version>` tags). Its
+  archive also carries `skills/tmt-ops/`, the same source as the embedded lead
+  skill; playbooks under `extensions/tmt-ops/playbooks/` are deliberately outside
   `skills/` (see [config-and-effects.md](references/config-and-effects.md#playbooks)).

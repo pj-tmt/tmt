@@ -76,7 +76,7 @@ fn clock_status_projection_keeps_full_holder_evidence() {
             &json!({"action":"clock","clock":{"state":"no clock"}}),
             Terminal::PLAIN
         )
-        .contains("tmt sq cron run")
+        .contains("tmt ops sq cron run")
     );
 }
 

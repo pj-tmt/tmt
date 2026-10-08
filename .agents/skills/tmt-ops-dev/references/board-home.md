@@ -1,7 +1,7 @@
 # HOME board surface
 
 [board.md](board.md) owns frame routing, row composers and shared scroll integration.
-The shipped Squad skill owns [HOME controls and appearance](../../../../extensions/tmt-squad/skills/tmt-squad/SKILL.md#home-dashboard).
+The shipped Squad skill owns [HOME controls and appearance](../../../../extensions/tmt-ops/skills/tmt-ops/SKILL.md#home-dashboard).
 Acquisition/selection fences belong to [refresh-and-meter.md](refresh-and-meter.md#refresh-worker),
 usage evidence to its [meter reference](refresh-and-meter.md#token-window-meter),
 and audience effects to [config-and-effects.md](config-and-effects.md#home-lead-sends).

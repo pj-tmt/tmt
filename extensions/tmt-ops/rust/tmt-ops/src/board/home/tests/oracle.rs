@@ -15,7 +15,7 @@ use crate::board::{
 };
 use ratatui::{Terminal, backend::TestBackend, buffer::Buffer, crossterm::event::KeyCode::*};
 use std::collections::BTreeMap;
-use tmt_squad::cron::ClockStatus;
+use tmt_ops::cron::ClockStatus;
 
 /// Tall enough to hold the whole HOME stream of the rich model at every width.
 const HEIGHT: u16 = 60;

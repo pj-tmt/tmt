@@ -237,7 +237,7 @@ fn render_lead(frame: &mut Frame, app: &App, area: Rect, row: &Value) {
     }
     if lines.is_empty() {
         lines.push(Line::styled(
-            format!("no row fields set · tmt sq set {name} task=…"),
+            format!("no row fields set · tmt ops sq set {name} task=…"),
             look.role(Role::Dim),
         ));
     }

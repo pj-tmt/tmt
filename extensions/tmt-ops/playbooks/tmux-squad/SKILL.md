@@ -5,7 +5,7 @@ description: Propose a tmux layout for a TMT squad - a leads session, a crew ses
 
 # tmux squad playbook (optional)
 
-Use this when you lead a squad (see the `tmt-squad` skill), the user works in
+Use this when you lead a squad (see the `tmt-ops` skill), the user works in
 tmux, and they want members laid out predictably. It is a suggestion, not a
 procedure. Squad never runs it, and you don't run a step until the user has
 agreed to it. Propose the commands, show what they will change, and wait.
@@ -36,8 +36,8 @@ Skip this if you already run in the session the user wants as `leads`.
 ```sh
 tmux new-session -d -s leads -n lead -c "$(git rev-parse --show-toplevel)"
 tmux send-keys -t "leads:=lead" "tmt run -s lead claude" Enter
-tmt squad init product   # once per squad; it never asks
-tmt squad lead lead
+tmt ops squad init product   # once per squad; it never asks
+tmt ops squad lead lead
 ```
 
 ## Add a member
@@ -61,20 +61,20 @@ Replace `claude` with the agent the user chose. When `tmt ls` shows the member
 active, put it on the board and say what it is doing:
 
 ```sh
-tmt squad add "$member"
-tmt squad set "$member" state=working task="rotate session tokens" branch="$branch"
+tmt ops squad add "$member"
+tmt ops squad set "$member" state=working task="rotate session tokens" branch="$branch"
 ```
 
 Members already running elsewhere skip the worktree and window steps; `tmt
-squad add` is enough.
+ops squad add` is enough.
 
 ## Show the board
 
 Squad installs the hotkeys only with the user's consent:
 
 ```sh
-tmt squad hotkeys install --print   # what would change; changes nothing
-tmt squad hotkeys install           # shows the plan and asks
+tmt ops hotkeys install --print   # what would change; changes nothing
+tmt ops hotkeys install           # shows the plan and asks
 ```
 
 ## Retire a member
@@ -82,7 +82,7 @@ tmt squad hotkeys install           # shows the plan and asks
 Do these in order, and stop at the first step the user hasn't approved.
 
 ```sh
-tmt squad rm "$member"                          # off the board; the agent keeps running
+tmt ops squad rm "$member"                          # off the board; the agent keeps running
 git -C "$worktree" status --short               # anything uncommitted or untracked?
 git -C "$worktree" log --oneline "$base..HEAD"  # commits that are not in the base branch?
 ```

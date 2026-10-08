@@ -125,21 +125,21 @@ fn scope_option() -> Arg {
 }
 pub fn grammar() -> Command {
     spec("view", "Choose a board pane arrangement and fold defaults", &[
-        Example { command: "tmt squad view", note: "List factory views" },
-        Example { command: "tmt squad view set focus", note: "Choose a view for all boards" },
+        Example { command: "tmt ops squad view", note: "List factory views" },
+        Example { command: "tmt ops squad view set focus", note: "Choose a view for all boards" },
     ], "Without a subcommand, list views. Views change panes and folds only; workflow states, rows and providers stay unchanged.")
     .arg(scope_option())
     .subcommand(spec("ls", "List factory views and the effective arrangement's source", &[
-        Example { command: "tmt squad view ls", note: "List views for all boards" },
-        Example { command: "tmt squad view ls --squad product", note: "Inspect one squad's view" },
+        Example { command: "tmt ops squad view ls", note: "List views for all boards" },
+        Example { command: "tmt ops squad view ls --squad product", note: "Inspect one squad's view" },
     ], "Custom layouts take precedence; views arrange panes and fold defaults only.").alias("list").arg(scope_option()))
     .subcommand(spec("set", "Set a board view without changing workflow settings", &[
-        Example { command: "tmt squad view set notes", note: "Read lead notes on all boards" },
-        Example { command: "tmt squad view set wide --squad product", note: "Choose one squad's view" },
+        Example { command: "tmt ops squad view set notes", note: "Read lead notes on all boards" },
+        Example { command: "tmt ops squad view set wide --squad product", note: "Choose one squad's view" },
     ], "Writes only view in ops.toml. A hand-written board.layout or panes must be removed manually first.").arg(Arg::new("name").required(true).help("Factory view name")).arg(scope_option()))
     .subcommand(spec("rm", "Remove only a view override and inherit the arrangement", &[
-        Example { command: "tmt squad view rm", note: "Reset the all-boards view" },
-        Example { command: "tmt squad view rm --squad product", note: "Reset one squad's view" },
+        Example { command: "tmt ops squad view rm", note: "Reset the all-boards view" },
+        Example { command: "tmt ops squad view rm --squad product", note: "Reset one squad's view" },
     ], "Removes only view from the chosen layer; custom layouts and all other settings are retained.").arg(scope_option()))
 }
 
@@ -159,7 +159,7 @@ pub fn run(config: &mut Config, parent: &ArgMatches) -> Result<Value, SquadError
                     "SQUAD_VIEW_UNKNOWN",
                     &format!("Unknown view '{name}'"),
                     "; ",
-                    "tmt sq view ls lists factory views",
+                    "tmt ops sq view ls lists factory views",
                 )
             })?;
             let changed = config.set_view(&scope, view)?;
@@ -218,7 +218,7 @@ pub fn text(document: &Value, terminal: Terminal) -> String {
             count: Some(ViewName::ALL.len()),
             rows,
             note: Some(&note),
-            hint: Some("tmt sq view set <name> [--squad <name>]"),
+            hint: Some("tmt ops sq view set <name> [--squad <name>]"),
         }
         .write(&mut output, terminal);
     } else {
@@ -259,12 +259,16 @@ mod tests {
         (path, config)
     }
     fn words(config: &mut Config, args: &[&str]) -> Value {
-        let argv: Vec<_> = ["squad", "view"]
+        let argv: Vec<_> = ["tmt-ops", "squad", "view"]
             .into_iter()
             .chain(args.iter().copied())
             .collect();
         let parsed = crate::grammar().try_get_matches_from(argv).unwrap();
-        run(config, parsed.subcommand().unwrap().1).unwrap()
+        run(
+            config,
+            parsed.subcommand().unwrap().1.subcommand().unwrap().1,
+        )
+        .unwrap()
     }
     #[test]
     fn command_aliases_scopes_sources_and_reset_preserve_unrelated_bytes() {
@@ -278,7 +282,7 @@ mod tests {
         assert!(human.starts_with("VIEWS 6\n"));
         assert_eq!(human.matches("board\n").count(), 1);
         assert!(human.contains("workflow: team\n"));
-        assert!(human.ends_with("hint: tmt sq view set <name> [--squad <name>]\n"));
+        assert!(human.ends_with("hint: tmt ops sq view set <name> [--squad <name>]\n"));
         let scoped = words(&mut config, &["ls", "--squad", "product"]);
         assert_eq!(scoped["effective"]["source"], "squad");
         assert_eq!(scoped["effective"]["layout"], "crew");

@@ -22,7 +22,7 @@ pub(in crate::grammar) fn extension() -> Command {
             "Manage lifecycle hooks for trusted extensions",
             [
                 "List extensions with hooks enabled" => "tmt extension hooks ls",
-                "Deliver lifecycle hooks to Squad" => "tmt extension hooks enable squad",
+                "Deliver lifecycle hooks to Ops" => "tmt extension hooks enable ops",
             ]
         ))
         .subcommand_required(true)
@@ -31,7 +31,7 @@ pub(in crate::grammar) fn extension() -> Command {
                 "enable",
                 "Trust tmt-<name> on PATH to receive lifecycle observations",
                 [
-                    "Deliver lifecycle hooks to Squad" => "tmt extension hooks enable squad",
+                    "Deliver lifecycle hooks to Ops" => "tmt extension hooks enable ops",
                 ]
             ))
             .arg(operand("name", true)),
@@ -41,7 +41,7 @@ pub(in crate::grammar) fn extension() -> Command {
                 "disable",
                 "Stop delivering hooks to an extension",
                 [
-                    "Stop hooks for Squad" => "tmt extension hooks disable squad",
+                    "Stop hooks for Ops" => "tmt extension hooks disable ops",
                 ]
             ))
             .arg(operand("name", true)),
@@ -60,9 +60,9 @@ pub(in crate::grammar) fn extension() -> Command {
     .subcommand(
         extension_target(general(spec!(
             "install",
-            "Install an official extension (squad, remote, colab)",
+            "Install an official extension (ops, remote, colab)",
             [
-                "Install Squad" => "tmt extension install squad --yes",
+                "Install Ops" => "tmt extension install ops --yes",
                 "Install Remote" => "tmt extension install remote --yes",
                 "Install Colab" => "tmt extension install colab --yes",
             ]
@@ -99,8 +99,8 @@ pub(in crate::grammar) fn extension() -> Command {
             "upgrade",
             "Update an installed official extension",
             [
-                "Update Squad" => "tmt extension upgrade squad --yes",
-                "Install an exact version" => "tmt extension upgrade squad --to 0.1.0-alpha.2 --yes",
+                "Update Ops" => "tmt extension upgrade ops --yes",
+                "Install an exact version" => "tmt extension upgrade ops --to 0.1.0-alpha.2 --yes",
             ]
         )))
         .arg(channel_option())
@@ -112,7 +112,7 @@ pub(in crate::grammar) fn extension() -> Command {
             "rm",
             "Remove an extension's commands; releases and data are kept",
             [
-                "Remove Squad's commands" => "tmt extension rm squad --yes",
+                "Remove Ops' commands" => "tmt extension rm ops --yes",
             ]
         ))
         .alias("uninstall"),

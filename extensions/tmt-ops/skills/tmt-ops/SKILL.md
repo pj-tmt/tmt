@@ -1,25 +1,25 @@
 ---
-name: tmt-squad
+name: tmt-ops
 description: Lead a TMT squad - read the squad board, keep member state current after every dispatch and reply, and agree conventions with the user instead of guessing.
 ---
 
 # TMT squad (for leads)
 
-Use this skill when you lead a squad: `tmt squad ls` shows you as the
+Use this skill when you lead a squad: `tmt ops squad ls` shows you as the
 squad's `lead`. A squad is a TMT room named `squad-<name>`. Each member's board
 fields are that member's identity metadata `squad.<name>.<field>`. The authoritative roster and board fields stay in TMT; optional age observations
-live in a disposable Squad cache. `tmt sq` is the
-same command as `tmt squad`. Bare `tmt sq` prints the member list followed by
-`tmt sq board opens the board`; `--json` prints only the same document as
-`tmt sq ls --json`. Run `tmt sq board` to open the interactive board.
+live in a disposable Ops cache. `tmt ops squad` has the alias
+`tmt ops sq`. Bare `tmt ops` prints Ops help. Bare `tmt ops squad` prints the member list followed by
+`tmt ops ui opens the board`; `--json` prints only the same document as
+`tmt ops sq ls --json`. Run `tmt ops ui` to open the interactive board.
 
 ## Read the board
 
 ```sh
-tmt squad ls --json [--squad <name>]
+tmt ops squad ls --json [--squad <name>]
 ```
 
-`tmt sq ls --tab <name>` returns one configured or built-in board tab's document,
+`tmt ops sq ls --tab <name>` returns one configured or built-in board tab's document,
 with the same rows, sections, attention, columns and lines as the board. Hidden
 squads remain included. `leads` lists each squad lead; `all` lists squad summaries.
 `--tab` cannot be combined with `--squad` or `--refresh-fields`. An unknown tab
@@ -48,7 +48,7 @@ sort = ["squad", "name"]
 o = "tab"
 ```
 
-Run `tmt sq ls --tab needs-me --json` for that view. It includes leads and
+Run `tmt ops sq ls --tab needs-me --json` for that view. It includes leads and
 members across all squads, including hidden squads. Names use the squad-name
 rules; `leads`, `all`, `colors`, `order`, `pin` and `hide` are reserved.
 `tab:<name>` distinguishes a user view from a squad in `order`, `pin` and
@@ -196,7 +196,7 @@ interrupt groups. Grouping changes display only: each squad keeps its own mark
 slot, count, selection, click and drag target. The prefix is not clickable.
 The `s` switcher retains full names, including hidden tabs.
 
-`tmt sq board --tabs product,infra,needs-me` picks the tabs this board shows,
+`tmt ops ui --tabs product,infra,needs-me` picks the tabs this board shows,
 using names from the tab line. Squad names take precedence over user-tab labels;
 use `@tab:NAME` for an unambiguous user tab. `leads` selects leads; omit `--tabs`
 or use `--tabs all` for the default set. Unknown names produce a usage error
@@ -263,9 +263,9 @@ reinforce words and marks; never infer state from color alone. The CLI theme is 
 `tmt config show` shows its value and file. Board themes layer that resolved
 theme, then `[board.theme]`, then `[squad.<name>.theme]` in `ops.toml`.
 `auto` works in both `ops.toml` theme layers and both picker scopes; the global
-`config.json` theme rejects it. Use `tmt sq theme set auto` for all boards.
+`config.json` theme rejects it. Use `tmt ops sq theme set auto` for all boards.
 
-`tmt sq theme ls` (or bare `tmt sq theme`) lists built-in bases, marking the
+`tmt ops sq theme ls` (or bare `tmt ops sq theme`) lists built-in bases, marking the
 current base and its source: `default`, `cli`, `board`, `squad` or `detected`.
 `auto` is first and is the board default when no layer sets a base. It chooses
 `tmt` or `tmt-light` from COLORFGBG, then an OSC 11 query only when opening an
@@ -279,10 +279,10 @@ and `detected`, retaining its configuration layer in `baseSource`. Add
 CLI colors stay unchanged.
 
 ```sh
-tmt sq theme set auto                      # match the terminal on all boards
-tmt sq theme set tmt-light                 # all boards
-tmt sq theme set mono --squad product      # this squad
-tmt sq theme rm --squad product            # remove only its base override
+tmt ops sq theme set auto                      # match the terminal on all boards
+tmt ops sq theme set tmt-light                 # all boards
+tmt ops sq theme set mono --squad product      # this squad
+tmt ops sq theme rm --squad product            # remove only its base override
 ```
 
 Set and remove keep token overrides and the rest of the user's TOML. They
@@ -297,7 +297,7 @@ Agents change the user's appearance only when the user requests it.
 When the squad tab's lead row is selected, detail shows its name with a dim `lead`
 tag, state/model/cap, task, nonempty pending as `◆ waits on you`, and links.
 Missing values are omitted. With no row fields set, it shows
-`no row fields set · tmt sq set <lead> task=…`.
+`no row fields set · tmt ops sq set <lead> task=…`.
 The dim `notes below · replies at right` line points to the separate panes;
 lead detail reads and displays neither the notebook nor reply bodies.
 
@@ -331,12 +331,12 @@ request path.
 
 Set the question with `[board] ask_lead`, overridden by
 `[squad.<name>.board] ask_lead`. It must be a nonempty single line of at most
-4000 characters. The settings editor and `tmt sq config set board.ask_lead`
+4000 characters. The settings editor and `tmt ops sq config set board.ask_lead`
 use the same validation and concurrent-edit refusal as other board settings.
 
 ```sh
-tmt sq config set board.ask_lead "What needs my decision?"
-tmt sq config set board.ask_lead "Summarize our pending decisions." --squad product
+tmt ops sq config set board.ask_lead "What needs my decision?"
+tmt ops sq config set board.ask_lead "Summarize our pending decisions." --squad product
 ```
 
 Press `a` on a home, squad member or leads row, including its expanded `e` band, to write to it. One composer
@@ -425,7 +425,7 @@ The squads heading names shared windows once. Mixed `tok` settings label each
 tile's actual windows. Attention rows show only member, squad and available relative
 age; blocked ages say `observed` to identify the task/state observation. Questions
 appear in the inline composer after `a`. Quiet needs-you takes one line, and empty
-blocked disappears. Public `tmt sq ls --tab all --json` and text retain the aggregate document.
+blocked disappears. Public `tmt ops sq ls --tab all --json` and text retain the aggregate document.
 
 Leads show the latest exchange with you in one full-width group between horizontal
 rules, with blank side margins. Each header has a bold name, its squad from 100 columns, and an event age
@@ -456,10 +456,10 @@ switcher, and `/` searches. Home has no r/R reply shortcut or numeric navigation
 
 ## Focus time
 
-`tmt sq focus <member> [duration|off] [--squad <name>] [--json]` shows, sets or clears
+`tmt ops sq focus <member> [duration|off] [--squad <name>] [--json]` shows, sets or clears
 one active member or lead policy. Showing, setting and clearing all require the
 recorded user or the current squad lead; a lead needs the saved owner recorded with
-`tmt sq me <owner>`. Human output names the member. JSON includes `member` (the
+`tmt ops sq me <owner>`. Human output names the member. JSON includes `member` (the
 resolved name) and `identityId` (the UUID), alongside the policy fields.
 Use whole `s`/`m`/`h` segments from **1s through 24h**, such as `30m` or `1h30m`.
 Zero, negative and larger windows are refused. Omit duration to inspect; `off` clears.
@@ -491,17 +491,17 @@ keeps its binding. New, edit and reassign use the input line one step at a time:
 (member name), message, then schedule (`every 3h from 09:00`, `daily 09:00`, `weekdays 09:00`,
 `mon,thu 10:00` or five cron fields); Esc cancels and nothing is written. The message is sent as
 typed, and an edit leaves untouched fields as stored; a message with several lines is kept and
-only its owner and schedule can be changed there (use `tmt sq cron edit --message`). Changes
+only its owner and schedule can be changed there (use `tmt ops sq cron edit --message`). Changes
 use the same permission and revision checks as the commands: only the recorded user or the
 squad's lead can change jobs, and a job that changed since you looked is refused, not
-overwritten. Failures are shown and never retried. `x` sends once, like `tmt sq cron send`.
+overwritten. Failures are shown and never retried. `x` sends once, like `tmt ops sq cron send`.
 
 ## Manage checklists
 
-`tmt sq checklist ls --room ROOM_UUID` reads a manually authored room checklist;
+`tmt ops sq checklist ls --room ROOM_UUID` reads a manually authored room checklist;
 `--json` returns one complete document. `list` remains an accepted hidden alias;
-help and examples use `ls`. These commands are also available as `tmt squad checklist`.
-The board has no checklist actions yet. Every command requires the exact room UUID,
+help and examples use `ls`. These commands are also available as `tmt ops squad checklist`.
+The board's Checklist actions use the same admitted service. Every command requires the exact room UUID,
 never a squad name; writes freeze supplied checklist/item UUIDs and revisions.
 No command accepts an actor override or uses a member filter as assignment.
 
@@ -568,19 +568,19 @@ remains unknown. No operation ledger is introduced.
 
 ## Manage recurring jobs
 
-`tmt sq cron ls [--squad NAME]` lists jobs across all active squads, including
+`tmt ops sq cron ls [--squad NAME]` lists jobs across all active squads, including
 hidden boards. `show <squad> <id>` shows the exact message, pause attribution and
 up to three future slots. All management commands take `--json`.
 
 ```sh
-tmt sq cron add product worker --every 30m "Review the queue"
-tmt sq cron add product worker --at 09:00 --on weekdays "Review the queue"
-tmt sq cron add product worker --cron "0 */3 * * *" "Review the queue"
-tmt sq cron edit product c1 --message "Review pending changes"
-tmt sq cron pause product c1
-tmt sq cron resume product c1
-tmt sq cron reassign product c1 reviewer
-tmt sq cron rm product c1
+tmt ops sq cron add product worker --every 30m "Review the queue"
+tmt ops sq cron add product worker --at 09:00 --on weekdays "Review the queue"
+tmt ops sq cron add product worker --cron "0 */3 * * *" "Review the queue"
+tmt ops sq cron edit product c1 --message "Review pending changes"
+tmt ops sq cron pause product c1
+tmt ops sq cron resume product c1
+tmt ops sq cron reassign product c1 reviewer
+tmt ops sq cron rm product c1
 ```
 
 Writes require the recorded user or that squad's current lead. `--identity`
@@ -598,7 +598,7 @@ old/new owners, and the actor's own notice is suppressed. A committed change can
 report notification warnings. Owner retirement pauses the job as no owner and
 notifies the lead; each management invocation handles at most 16 pending hooks.
 An open board keeps the clock running independently of its refresh setting.
-Outside a board, `tmt sq cron run` keeps it in the current pane; `clock` shows
+Outside a board, `tmt ops sq cron run` keeps it in the current pane; `clock` shows
 its pane, PID and how long it has held the lease. Only one clock holds the lease. Stop `run` with
 Ctrl-C; stale leases can be taken over. Startup and takeover begin at now, so
 slots missed while no clock was running are not caught up. A running clock
@@ -606,7 +606,7 @@ admits slots since its previous tick, capped at five minutes. `tick` makes one
 pass over the last 60 seconds and refuses an active clock. Scheduled messages
 are anonymous requests; the same room/job/slot operation is accepted once.
 
-`tmt sq cron send product c1` sends once now using the recorded or explicit
+`tmt ops sq cron send product c1` sends once now using the recorded or explicit
 user/lead actor. It can send a paused job with a current owner and changes no
 schedule. Each explicit send is a separate action. Output confirms acceptance,
 not delivery or completion; Squad stores no run results. If acceptance is
@@ -666,13 +666,13 @@ settings that differ from all boards. Press `r` on that row to remove only its
 squad key and use the shared value; other rows ignore `r`. Comments and unrelated
 keys stay intact. A failed or conflicting write leaves the effective value unchanged.
 
-`tmt sq config show` inspects board defaults. Use `--squad product` for one
+`tmt ops sq config show` inspects board defaults. Use `--squad product` for one
 squad or `--tab all` (also `leads` or a configured tab name) for an aggregate
 view, and `--json` for full values and source paths. These scope flags are
 exclusive. Inspection changes no configuration or member state. JSON marks the
 settings supported by `config set`; the board uses the same validation and writer.
 
-Use `tmt sq config set KEY VALUE [--squad NAME]` for validated edits. Squad scope
+Use `tmt ops sq config set KEY VALUE [--squad NAME]` for validated edits. Squad scope
 is required for `layout`, `board.panes`, `board.direction`, `board.sizes`,
 `board.hidden_columns`, `notes.render`, `states.STATE.color`, `reminders.enabled`
 and `reminders.stale_after`. `board.refresh`, `board.ask_lead`, `board.view` and `board.token_rate.window`
@@ -683,10 +683,10 @@ always edit global Squad tab policy. Arrays use JSON;
 other values are unquoted scalar arguments. Examples:
 
 ```sh
-tmt sq config set notes.render plain --squad product
-tmt sq config set board.refresh 10s --squad product
-tmt sq config set board.hidden_columns '["pr_link"]' --squad product
-tmt sq config set tabs.hide '["leads"]'
+tmt ops sq config set notes.render plain --squad product
+tmt ops sq config set board.refresh 10s --squad product
+tmt ops sq config set board.hidden_columns '["pr_link"]' --squad product
+tmt ops sq config set tabs.hide '["leads"]'
 ```
 
 Editing `board.direction`, `board.sizes` or `board.panes` pins the effective workflow
@@ -709,16 +709,16 @@ extension consent.
 
 ## Choose a board view
 
-`tmt sq view ls` (or bare `tmt sq view`) lists factory pane arrangements:
+`tmt ops sq view ls` (or bare `tmt ops sq view`) lists factory pane arrangements:
 `members`, `team`, `focus`, `notes`, `detail` and `wide`. The default `members`
 view uses one grouped list; the other views use the configured row grid and pane
 arrangements. Workflow states, rows, providers, reminders, the token meter
 and theme keep their settings; crew, pr-queue and minimal remain workflow layouts.
 
 ```sh
-tmt sq view set notes                      # all boards
-tmt sq view set wide --squad product       # this squad
-tmt sq view rm --squad product             # inherit the arrangement
+tmt ops sq view set notes                      # all boards
+tmt ops sq view set wide --squad product       # this squad
+tmt ops sq view rm --squad product             # inherit the arrangement
 ```
 
 The effective arrangement comes from a hand-written per-squad `board.layout`
@@ -779,7 +779,7 @@ and Esc closes it without changing row expansion. Rows without replies ignore `v
 The footer shows `v view` only for an expanded selected row with a reply; `?` always
 lists it. Enter keeps its jump/menu action and `o` keeps its link action.
 `a` opens the existing answer/note/talk/status composer, and `t` opens talk mode.
-Reading works without recording yourself; writing requires `tmt sq me`.
+Reading works without recording yourself; writing requires `tmt ops sq me`.
 
 Choose `team` from the `,` settings menu's View row for the previous detail/replies
 side panes; `members` restores the grouped list.
@@ -835,12 +835,12 @@ A stale board is worse than none. Update the board as part of every dispatch
 and every reply you receive, not later.
 
 ```sh
-tmt squad add <name>...                       # agents that are already running
-tmt squad set <member> state=review task="rotate session tokens"
-tmt squad set <member> pending="approve the token rotation plan"
-tmt squad set <member> pending=               # clear it once answered
-tmt squad set <member> pr_link=https://github.com/acme/app/pull/412
-tmt squad rm <name>                           # leaves the squad; the agent keeps running
+tmt ops squad add <name>...                       # agents that are already running
+tmt ops squad set <member> state=review task="rotate session tokens"
+tmt ops squad set <member> pending="approve the token rotation plan"
+tmt ops squad set <member> pending=               # clear it once answered
+tmt ops squad set <member> pr_link=https://github.com/acme/app/pull/412
+tmt ops squad rm <name>                           # leaves the squad; the agent keeps running
 ```
 
 - `task` describes what the member is doing; `pending` describes what it waits
@@ -856,12 +856,12 @@ tmt squad rm <name>                           # leaves the squad; the agent keep
   bytes. `field=` removes a field.
 - `set` applies its pairs in order and reports what it applied. After a
   failure, re-run it with the same pairs.
-- `tmt squad lead <name>` selects the lead independently of free-text `role`
+- `tmt ops squad lead <name>` selects the lead independently of free-text `role`
   and `lead` fields. Setting or clearing either field never changes leadership,
   and selecting a new lead preserves every member's role text and membership.
-  `tmt squad lead --none` clears leadership. Former leads remain members; use
-  `tmt squad rm <name>` separately when they should leave.
-- Repeating `tmt squad add <name>` reports that the member is already in the
+  `tmt ops squad lead --none` clears leadership. Former leads remain members; use
+  `tmt ops squad rm <name>` separately when they should leave.
+- Repeating `tmt ops squad add <name>` reports that the member is already in the
   squad and preserves its state and task. A missing state receives the configured
   initial value.
 - Legacy members with only `role=lead` still appear as lead until a role write
@@ -876,7 +876,7 @@ tmt squad rm <name>                           # leaves the squad; the agent keep
   on you for use `tmt inbox` and `tmt answer` (or `tmt reply --receipt` when you
   were given a receipt). Adding a note to a row is the user's board key, not a command, and
   agents never call hidden or `__` commands (TMT's CLI style, "Hidden commands").
-  Without a lead, select one with `tmt squad lead <name> --squad <squad>`.
+  Without a lead, select one with `tmt ops squad lead <name> --squad <squad>`.
 
 ## Keep your notebook current
 
@@ -939,7 +939,7 @@ to it, because that is how the user sees you handled it.
 
 `ops.toml` sits in TMT's global configuration directory, next to
 `config.json` (`tmt config show` prints that path). It may hold `me` (the
-user's saved identity, recorded with `tmt squad me <name>`) and `me_id` (its
+user's saved identity, recorded with `tmt ops squad me <name>`) and `me_id` (its
 UUID, which lets `me` follow a rename; squad maintains it), each squad's `layout`, the board panes, sections, columns,
 states and key bindings. Bindings and actions are the user's. Never edit them
 silently. If a change would help, propose the exact lines and let the user
@@ -954,8 +954,10 @@ migration: config and jobs stay visible on legacy paths, and the notice names th
 holder and how to stop it. Invoke again after stopping the clock to migrate.
 Restart boards started before the upgrade before editing settings. A legacy config
 that reappears is reported but never read or merged; move wanted settings into
-`ops.toml`, then delete the old file yourself. Commands and binaries remain named
-Squad in this slice; generated hotkeys and the `tmt-squad` cache namespace remain.
+`ops.toml`, then delete the old file yourself. Commands use `tmt ops` and the
+binary is `tmt-ops`; disposable observations use the `tmt-ops` cache namespace.
+Refresh former generated hotkeys with consent using `tmt ops hotkeys install`.
+The former generated file and immutable skill sources remain available.
 
 ## Observed token usage
 
@@ -964,7 +966,7 @@ and this board's observations, in **1m / 5m / 1h windows**. The default member g
 session model and those three totals, declared in the TEAM/crew preset rows.
 Custom grids opt in with `from = "usage.w1"`, `"usage.w2"`, or `"usage.w3"` on a
 column. Default headers follow `tok`; an explicit `title` stays as configured.
-One-shot `tmt sq ls` has no window history. JSON keeps column descriptors without
+One-shot `tmt ops sq ls` has no window history. JSON keeps column descriptors without
 usage values; text omits columns whose source is board-only.
 When token sampling is off, usage columns hide and MODEL remains. Default
 member grids keep at least 20 cells for TASK when space permits. On narrow
@@ -1089,7 +1091,7 @@ what remains. Priority hides optional tracks whole before sizing when their
 minimums cannot fit. Non-priority overflow keeps earlier sizes; a right cut
 needs four visible cells, otherwise that cell hides whole. CLI lists retain
 their after-gap percentage base, bounds, weighted growth and scalar fitter.
-The board and `tmt sq ls` can therefore differ by a cell or two in a column
+The board and `tmt ops sq ls` can therefore differ by a cell or two in a column
 with a percentage width.
 
 A column's own width/min/max/grow apply only if some line covers its positional
@@ -1203,11 +1205,11 @@ reads retain that idle evidence; the reminder never probes live presence or
 uses self-reported activity. Cold provider data and bounded room history can
 miss transitions. Idle is never guessed from silence or offline presence.
 
-With Squad's extension hooks enabled (`tmt extension hooks enable squad`) and
+With Ops extension hooks enabled (`tmt extension hooks enable ops`) and
 the provider hook installed through consented `tmt setup`, Squad may add one
 informational line to the lead's next turn, including SessionStart context.
 It never emits at Stop. Enabling reminder settings installs no hook. Start
-observations with `tmt sq ls` or the board: a cold cache stays silent. Disabled,
+observations with `tmt ops sq ls` or the board: a cold cache stays silent. Disabled,
 fresh, already-claimed and non-lead cache checks call no core and take no room
 lock; warm candidates revalidate the current config, room and sole lead. The
 best-effort preflight examines at most 128 cache-directory entries per call.
@@ -1228,7 +1230,7 @@ notification queue. Board reminder-setting controls are a separate slice.
 
 ## Offline markup authoring
 
-`tmt sq layout validate board.xml` checks an authoring file only; add `--json`
+`tmt ops sq layout validate board.xml` checks an authoring file only; add `--json`
 for a structured result. Success exits 0, invalid/unreadable files exit 1, and
 invalid command syntax exits 2. It does not discover core, read Squad config, run
 providers or open a terminal. **The board does not load these files.** Board rows

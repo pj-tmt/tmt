@@ -14,7 +14,7 @@ use std::{
 
 const LIMIT: usize = 32;
 
-/// `$XDG_CACHE_HOME/tmt-squad/back`, else `~/.cache/tmt-squad/back`.
+/// `$XDG_CACHE_HOME/tmt-ops/back`, else `~/.cache/tmt-ops/back`.
 pub fn directory() -> Option<PathBuf> {
     crate::cache::directory("back")
 }
@@ -129,8 +129,7 @@ mod tests {
     use std::os::unix::fs::PermissionsExt;
 
     fn scratch(name: &str) -> PathBuf {
-        let path =
-            std::env::temp_dir().join(format!("tmt-squad-back-{name}-{}", std::process::id()));
+        let path = std::env::temp_dir().join(format!("tmt-ops-back-{name}-{}", std::process::id()));
         let _ = fs::remove_dir_all(&path);
         path
     }

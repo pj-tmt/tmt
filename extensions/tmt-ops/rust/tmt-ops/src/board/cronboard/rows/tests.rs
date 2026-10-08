@@ -34,7 +34,7 @@ fn rows_show_state_owner_schedule_and_next_and_expand_in_place() {
     let a = view("tmt-lead", "merge queue sweep", Some(NOW + 3_600_000));
     let mut b = view("tmt-ops", "worktree cleanup\nsecond line", None);
     b.job.room_id = "room-b".into();
-    b.job.pause = Some(tmt_squad::cron::Pause {
+    b.job.pause = Some(tmt_ops::cron::Pause {
         by: "u".into(),
         at_ms: 0,
     });
@@ -130,7 +130,7 @@ fn row_ids_are_namespaced_and_untrusted_names_are_neutralized() {
 fn clipped_prompt_and_target_remain_in_detail_until_the_whole_field_is_visible() {
     let message = "Review the long release checklist before shipping";
     let mut job = view("tmt-lead", message, None);
-    job.job.pause = Some(tmt_squad::cron::Pause {
+    job.job.pause = Some(tmt_ops::cron::Pause {
         by: "u".into(),
         at_ms: 0,
     });

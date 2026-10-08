@@ -77,7 +77,7 @@ fn authored_home_and_cron_labels_use_only_registered_spaced_marks_and_structural
         let state = crate::board::cronboard::State {
             cron: Some(crate::board::cronboard::test_cron(
                 Vec::new(),
-                tmt_squad::cron::ClockStatus::NoClock,
+                tmt_ops::cron::ClockStatus::NoClock,
             )),
             failure: None,
             reads: 2,

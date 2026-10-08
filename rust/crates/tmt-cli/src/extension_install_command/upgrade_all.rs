@@ -219,9 +219,9 @@ pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] = &[
         "tmt extension upgrade {name} --unpin",
         &[""],
         &[
-            ("{name}", "squad"),
-            ("{}", "squad"),
-            ("{SUGGESTED_EXTENSION}", "squad"),
+            ("{name}", "ops"),
+            ("{}", "ops"),
+            ("{SUGGESTED_EXTENSION}", "ops"),
         ],
     ),
     crate::cli_style_tests::HintSpec::core("tmt upgrade --yes", &[""], &[]),

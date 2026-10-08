@@ -8,7 +8,7 @@ fn fake(dir: &std::path::Path, script: &str) -> PathBuf {
 }
 
 fn dir(name: &str) -> PathBuf {
-    std::env::temp_dir().join(format!("tmt-squad-place-{name}-{}", std::process::id()))
+    std::env::temp_dir().join(format!("tmt-ops-place-{name}-{}", std::process::id()))
 }
 
 #[test]

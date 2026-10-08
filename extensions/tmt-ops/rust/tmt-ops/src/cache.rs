@@ -8,7 +8,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-/// `$XDG_CACHE_HOME/tmt-squad/<name>`, else `~/.cache/tmt-squad/<name>`.
+/// `$XDG_CACHE_HOME/tmt-ops/<name>`, else `~/.cache/tmt-ops/<name>`.
 pub fn directory(name: &str) -> Option<PathBuf> {
     let absolute = |name: &str| {
         std::env::var_os(name)
@@ -17,7 +17,7 @@ pub fn directory(name: &str) -> Option<PathBuf> {
     };
     let cache =
         absolute("XDG_CACHE_HOME").or_else(|| absolute("HOME").map(|home| home.join(".cache")))?;
-    Some(cache.join("tmt-squad").join(name))
+    Some(cache.join("tmt-ops").join(name))
 }
 
 /// Replaces `path` atomically with a file only the user can read, creating

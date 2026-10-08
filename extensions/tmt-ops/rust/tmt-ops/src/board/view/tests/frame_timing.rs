@@ -1,7 +1,7 @@
 //! Reproducible per-frame timing of the board at 160x50 (not a CI gate):
 //!
 //! ```text
-//! CARGO_BUILD_JOBS=2 cargo test --release -p tmt-squad frame_timing -- --ignored --nocapture
+//! CARGO_BUILD_JOBS=2 cargo test --release -p tmt-ops frame_timing -- --ignored --nocapture
 //! ```
 //!
 //! Each scene (crew rows, team rows, home with attention sections only, home with

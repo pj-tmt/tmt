@@ -184,6 +184,32 @@ impl Receipt {
         Ok(receipt)
     }
 
+    pub(super) fn read_former(
+        product: Product,
+        directory: &Path,
+        prefix: &Path,
+        id: Uuid,
+    ) -> io::Result<Self> {
+        let former = product
+            .former()
+            .ok_or_else(|| invalid("Product has no former installation."))?;
+        let bytes = bounded_file::read_no_follow(
+            &directory.join("receipt.json"),
+            skills_tree::receipt_limit(product),
+        )
+        .map_err(io::Error::other)?;
+        let receipt = Self::parse_metadata_identity(product, &bytes, prefix, id, Some(former))?;
+        if receipt
+            .provenance
+            .as_ref()
+            .is_some_and(|source| matches!(source, Provenance::Pr(_)))
+        {
+            return Err(invalid("Former product cannot carry PR provenance."));
+        }
+        receipt.verify_identity(product, directory, Some(former))?;
+        Ok(receipt)
+    }
+
     pub(super) fn read_metadata(
         product: Product,
         directory: &Path,
@@ -205,6 +231,17 @@ impl Receipt {
         prefix: &Path,
         id: Uuid,
     ) -> io::Result<Self> {
+        Self::parse_metadata_identity(product, bytes, prefix, id, None)
+    }
+
+    fn parse_metadata_identity(
+        product: Product,
+        bytes: &[u8],
+        prefix: &Path,
+        id: Uuid,
+        former: Option<&tmt_core::native_install::FormerProduct>,
+    ) -> io::Result<Self> {
+        let files = former.map_or_else(|| product.files(), |former| former.files());
         let value: Value = super::pr_json::parse(bytes, skills_tree::receipt_limit(product))?;
         let text = |key: &str| {
             value[key]
@@ -311,15 +348,12 @@ impl Receipt {
             .copied()
             .filter(|name| hashes.contains_key(*name))
             .collect::<Vec<_>>();
-        if hashes.len()
-            != product.files().len() + skill_hashes.len() + companions.len() + optional.len()
-        {
+        if hashes.len() != files.len() + skill_hashes.len() + companions.len() + optional.len() {
             return Err(invalid("Unexpected installed file digest inventory."));
         }
         skills_tree::validate(product, skill_hashes.iter().copied())?;
         let mut file_hashes = BTreeMap::new();
-        for name in product
-            .files()
+        for name in files
             .into_iter()
             .chain(skill_hashes.iter().copied())
             .chain(companions.iter().copied())
@@ -344,6 +378,17 @@ impl Receipt {
     }
 
     pub(super) fn verify(&self, product: Product, directory: &Path) -> io::Result<()> {
+        self.verify_identity(product, directory, None)
+    }
+
+    fn verify_identity(
+        &self,
+        product: Product,
+        directory: &Path,
+        former: Option<&tmt_core::native_install::FormerProduct>,
+    ) -> io::Result<()> {
+        let files = former.map_or_else(|| product.files(), |former| former.files());
+        let executable_name = files[0];
         let companions = product
             .companions()
             .iter()
@@ -357,12 +402,7 @@ impl Receipt {
             .filter(|name| self.file_hashes.contains_key(*name))
             .collect::<Vec<_>>();
         let mut inventory = fs::read_dir(directory)?
-            .take(
-                product.files().len()
-                    + product.companions().len()
-                    + product.optional_files().len()
-                    + 3,
-            )
+            .take(files.len() + product.companions().len() + product.optional_files().len() + 3)
             .map(|entry| entry.map(|entry| entry.file_name()))
             .collect::<io::Result<Vec<_>>>()?;
         inventory.sort();
@@ -370,8 +410,7 @@ impl Receipt {
         // predates it fails closed here with the same error.
         let has_skills =
             product != Product::Cli && inventory.iter().any(|name| name == skills_tree::ROOT);
-        let mut expected = product
-            .files()
+        let mut expected = files
             .into_iter()
             .chain(["receipt.json"])
             .chain(companions.iter().copied())
@@ -392,15 +431,14 @@ impl Receipt {
         if has_skills == skill_hashes.is_empty() {
             return Err(inventory_changed());
         }
-        for name in product
-            .files()
+        for name in files
             .into_iter()
             .chain(companions.iter().copied())
             .chain(optional.iter().copied())
         {
             let metadata = fs::symlink_metadata(directory.join(name))?;
             let mode = metadata.permissions().mode();
-            let executable = name == product.executable() || companions.contains(&name);
+            let executable = name == executable_name || companions.contains(&name);
             if !metadata.file_type().is_file()
                 || mode & 0o7000 != 0
                 || (executable && mode & 0o111 == 0)

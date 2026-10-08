@@ -14,6 +14,8 @@ pub trait Dispatch {
 /// The operation excludes actor, clock and revision so changed slot intent conflicts.
 pub fn operation_id(room_id: &str, job_id: &str, slot_ms: i64) -> String {
     let mut hash = Sha256::new();
+    // This historical domain is persisted as dispatch identity. Renaming it
+    // would replay already accepted slots after an upgrade.
     hash.update(b"tmt-squad-cron-slot-v1\0");
     for value in [room_id.as_bytes(), job_id.as_bytes()] {
         hash.update((value.len() as u64).to_be_bytes());

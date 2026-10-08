@@ -1026,8 +1026,8 @@ impl Config {
     }
 
     /// `[tmux]`: the prefix keys that open the board as a popup (default `S`)
-    /// or a pane (default `B`), and optional keys for `tmt squad back` and
-    /// `tmt squad jump --lead`.
+    /// or a pane (default `B`), and optional keys for `tmt ops squad back` and
+    /// `tmt ops squad jump --lead`.
     pub fn tmux_keys(&self) -> Result<TmuxKeys, SquadError> {
         let table = match self.document.get("tmux") {
             None => None,
@@ -2643,8 +2643,7 @@ mod tests {
     }
 
     fn temp(name: &str) -> PathBuf {
-        let directory =
-            std::env::temp_dir().join(format!("tmt-squad-{name}-{}", std::process::id()));
+        let directory = std::env::temp_dir().join(format!("tmt-ops-{name}-{}", std::process::id()));
         let _ = fs::remove_dir_all(&directory);
         fs::create_dir_all(&directory).unwrap();
         directory.join("ops.toml")
