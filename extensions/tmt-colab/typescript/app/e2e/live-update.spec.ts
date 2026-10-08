@@ -417,7 +417,7 @@ for (const width of [1440, 390]) {
       await resolve.press('Tab');
       const close = thread.getByRole('button', { name: text.threadClose, exact: true });
       await expect(close).toBeFocused();
-      await expect(close.locator('.thread-action-caption')).toBeVisible();
+      await expect(close.locator('..').locator('.tmt-ui-icon-action-tooltip')).toBeVisible();
       await page.screenshot({ path: `${captureDir}/window-${width}-${theme}-header-focus.png` });
       await resolve.click();
       await expect(dialog).toHaveCount(0);

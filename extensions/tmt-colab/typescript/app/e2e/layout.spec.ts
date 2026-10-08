@@ -53,9 +53,7 @@ for (const width of [1440, 390])
         await page.getByRole('button', { name: 'More page actions' }).click();
         await expect(page.locator('.page-menu-meta')).toContainText('local · Studio Mac');
         await expect(page.locator('.page-menu-meta')).toContainText('Private');
-        await expect(
-          page.getByRole('button', { name: 'Change color theme' }).locator('.theme-label'),
-        ).toHaveText(`Theme: ${theme}`);
+        await expect(page.locator('.page-secondary .theme-label')).toHaveText(`Theme: ${theme}`);
         await page.screenshot({ path: `/tmp/1586-${width}-${theme}-menu.png` });
         await page.keyboard.press('Escape');
       }

@@ -61,9 +61,12 @@ owns record fields, limits, revision semantics and trust boundaries.
   A parent composer slot preserves the same input instance through first commit;
   existing writer-owned controls await the discussion binding with busy/error
   display and no notification or storage capability.
-  It owns muted author/time labels with device-ID tooltips, Resolve/Reopen/Close
-  Lucide controls (visible labels in Comments, hover/focus captions in the anchored
-  window), plain-text
+  It owns muted author/time labels with device-ID tooltips and the parent
+  Resolve/Reopen/Close actions. Their icons, hover/focus tooltips and disabled/busy
+  presentation use `BrowserIconAction`; remaining thread/edit submits use `BrowserAction`,
+  with primary reserved for the form's default submit and other actions text. The
+  host header gives its status title flexible space before fixed right-aligned
+  actions, with a separate attachment row on narrow screens. It retains plain-text
   parent controls, one all-annotations list, expanded conversation and explicit
   reattach confirmation. Row action menus choose below/above placement when it
   fits, otherwise clamp inside their scroll container so the stationary window

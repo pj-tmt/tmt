@@ -4,10 +4,12 @@ import type { BrowserActionProps } from './action.js';
 import { placeIconActionTooltip } from './icon-action-tooltip.js';
 import { browserUiClasses as c } from './static.js';
 
-export interface BrowserIconActionProps extends BrowserActionProps {
+export type BrowserIconActionProps = BrowserActionProps & {
   icon: ReactNode;
-  pressed?: boolean;
-}
+} & (
+    | { pressed?: boolean; expanded?: never; controls?: never }
+    | { pressed?: never; expanded: boolean; controls?: string }
+  );
 
 export function BrowserIconAction({
   type,
@@ -15,6 +17,8 @@ export function BrowserIconAction({
   variant,
   icon,
   pressed,
+  expanded,
+  controls,
   disabled = false,
   disabledReason,
   disabledReasonId,
@@ -27,7 +31,7 @@ export function BrowserIconAction({
   const [hovered, setHovered] = useState(false);
   const [focused, setFocused] = useState(false);
   const [dismissed, setDismissed] = useState(false);
-  const open = (hovered || focused) && !dismissed;
+  const open = (hovered || focused) && !dismissed && !expanded;
   useEffect(() => {
     const node = tooltip.current;
     const anchor = button.current;
@@ -72,6 +76,8 @@ export function BrowserIconAction({
           disabled={disabled || busy}
           aria-label={label}
           aria-pressed={pressed}
+          aria-expanded={expanded}
+          aria-controls={controls}
           aria-busy={busy || undefined}
           aria-describedby={disabledReason !== undefined ? disabledReasonId : undefined}
           onFocus={(event) => {

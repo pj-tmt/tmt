@@ -342,8 +342,8 @@ for (const width of [1440, 390, 320])
       });
       const header = page.locator('#chrome-fixture .tmt-ui-header');
       await expect(header).toBeVisible();
-      const overflow = header.locator('.page-overflow-toggle');
-      const close = header.locator('.page-menu-close');
+      const overflow = header.locator('.page-overflow-toggle button');
+      const close = header.locator('.page-menu-close button');
       await expect(close).toBeHidden();
       if (width === 1440) {
         // Every action fits: no "more" button and no bare × in the header.

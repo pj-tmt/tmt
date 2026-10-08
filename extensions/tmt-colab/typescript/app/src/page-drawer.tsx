@@ -41,7 +41,7 @@ export function PageDrawer({
       node.close();
       if (origin instanceof HTMLElement && origin.isConnected && origin.getClientRects().length)
         origin.focus();
-      else document.querySelector<HTMLButtonElement>('.page-overflow-toggle')?.focus();
+      else document.querySelector<HTMLButtonElement>('.page-overflow-toggle button')?.focus();
     };
   }, [open]);
   return createPortal(
