@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import { expect, test, type BrowserContext, type WebSocketRoute } from '@playwright/test';
 import * as c from '@tmt/colab-client';
 import type { PageView } from '../src/transport.js';
+import { text as copy } from '../src/strings.js';
 import * as Y from 'yjs'; // Test-only producer. Foreign update decoding stays in the app Worker.
 const v = JSON.parse(
   readFileSync(new URL('../../../contracts/vectors/authority-v1.json', import.meta.url), 'utf8'),
@@ -1077,7 +1078,7 @@ test('Ask publishes owner own envelopes through production Connection before Rem
     route.fulfill({
       contentType: 'text/javascript',
       body: `export class RefusalError extends Error {constructor(code){super(code);this.code=code;}}
-export async function reopenSession(){const response=await fetch('/test-wire-reopen',{method:'POST'});if(!response.ok)throw new RefusalError('ACCESS_REVOKED');await window.fixtureKeys;return {sessionId:'fixture-session',serverTimeMs:Date.now(),grantRevision:'1',expiresAtMs:null}}
+export async function reopenSession(){const response=await fetch('/test-wire-reopen',{method:'POST'});if(!response.ok)throw new RefusalError('REMOTE_DEVICE_REVOKED');await window.fixtureKeys;return {sessionId:'fixture-session',serverTimeMs:Date.now(),grantRevision:'1',expiresAtMs:null}}
 export async function certifyKey(purpose,bytes){return {publicKey:btoa(String.fromCharCode(...bytes)).replaceAll('+','-').replaceAll('/','_').replace(/=+$/,''),issuedAtMs:Date.now(),signature:'${c.encodeBinary(new Uint8Array(64))}'}}
 export function transportUrl(_session,url){return String(url);}
 export function operations(){return {
@@ -1390,6 +1391,10 @@ result:async()=>({state:'replied',requestId:'${requestId}',message:${JSON.string
   f.stopSync();
   await expect(page.getByRole('heading', { name: 'Preview stopped', exact: true })).toBeVisible();
   await expect(page.locator('.tmt-ui-notice')).toHaveAttribute('data-tone', 'blocked');
+  // The body is a sentence; the raw token is only the small reference under it.
+  await expect(page.locator('.tmt-ui-notice')).toContainText(copy.failureAccessEnded);
+  await expect(page.locator('[data-failure-reference]')).toHaveText('REMOTE_DEVICE_REVOKED');
+  await expect(page.locator('.failure-reference')).toContainText(copy.failureCodeLabel);
   await expect(reconnect).toHaveCount(0);
   await capture('terminal-refusal');
   await page.getByRole('link', { name: 'Space home' }).click();
@@ -1410,7 +1415,7 @@ async function draftRecoveryWire(context: BrowserContext) {
     route.fulfill({
       contentType: 'text/javascript',
       body: `export class RefusalError extends Error {constructor(code){super(code);this.code=code;}}
-export async function reopenSession(){const response=await fetch('/test-draft-reopen',{method:'POST'});if(!response.ok)throw new RefusalError('ACCESS_REVOKED');await window.fixtureKeys;return {sessionId:'fixture-session',serverTimeMs:Date.now(),grantRevision:'1',expiresAtMs:null}}
+export async function reopenSession(){const response=await fetch('/test-draft-reopen',{method:'POST'});if(!response.ok)throw new RefusalError('REMOTE_DEVICE_REVOKED');await window.fixtureKeys;return {sessionId:'fixture-session',serverTimeMs:Date.now(),grantRevision:'1',expiresAtMs:null}}
 export async function certifyKey(purpose,bytes){return {publicKey:btoa(String.fromCharCode(...bytes)).replaceAll('+','-').replaceAll('/','_').replace(/=+$/,''),issuedAtMs:Date.now(),signature:'${c.encodeBinary(new Uint8Array(64))}'}}
 export function transportUrl(_session,url){return String(url);}
 export function operations(){return {

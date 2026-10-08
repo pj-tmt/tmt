@@ -45,6 +45,18 @@ const SAVE_BUFFER_BYTES = 256 * 1024;
 
 /** A connection owns one reader/Worker. Queued messages and all local Worker
  * requests share one executor; no authority or keys enter the decoder. */
+/** The refusal codes a sync error frame may carry; the terminal card words each one. */
+export const SYNC_ERROR_CODES = [
+  'DENIED',
+  'EXPIRED',
+  'STALE_EPOCH',
+  'INVALID',
+  'GAP',
+  'CAPACITY',
+  'CONFLICT',
+  'RESYNC_REQUIRED',
+] as const;
+
 export class Connection {
   readonly objects: Objects;
   readonly fold = new Fold();
@@ -237,16 +249,7 @@ export class Connection {
       exactKeys(frame, ['version', 'type', 'space', 'page', 'epoch', 'code']);
       requireValue(
         typeof frame.code === 'string' &&
-          [
-            'DENIED',
-            'EXPIRED',
-            'STALE_EPOCH',
-            'INVALID',
-            'GAP',
-            'CAPACITY',
-            'CONFLICT',
-            'RESYNC_REQUIRED',
-          ].includes(frame.code),
+          (SYNC_ERROR_CODES as readonly string[]).includes(frame.code),
       );
       throw new Error(frame.code);
     }

@@ -13,3 +13,8 @@
     margin-top: 48px;
   }
 }
+.failure-reference {
+  color: var(--c-muted);
+  font-size: 0.875em;
+  overflow-wrap: anywhere;
+}
