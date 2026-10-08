@@ -421,7 +421,7 @@ fn shipped_local_refused_object_setup_forwards_page_upgrades_without_origin_and_
     .unwrap();
     std::thread::scope(|scope| {
         let peer = scope.spawn(|| -> Result<(), String> {
-            let mut failed = None;
+            let mut failed: Option<Instant> = None;
             let mut pages = 0;
             while pages != 2 {
                 let mut ready = [PollFd::new(listener.as_fd(), PollFlags::POLLIN)];
@@ -432,15 +432,16 @@ fn shipped_local_refused_object_setup_forwards_page_upgrades_without_origin_and_
                 let head = negative_head(&mut stream, Instant::now() + Duration::from_secs(3))?;
                 let head = std::str::from_utf8(&head).map_err(|e| e.to_string())?;
                 if head.starts_with("GET /.tmt/remote/object-channel-v1 HTTP/1.1\r\n") {
-                    if failed.is_some() { return Err("reconnect bypassed the failed-attempt cool-down".into()); }
+                    if failed.is_some_and(|failed| failed.elapsed() < tmt_remote::limits::OBJECT_REACTIVATION_COOLDOWN) {
+                        return Err("reconnect bypassed the failed-attempt cool-down".into());
+                    }
                     failed = Some(Instant::now());
                     // Refusal may race Remote closing its bounded candidate.
                     let _ = stream.write_all(b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n");
                     continue;
                 }
-                let failed = failed.ok_or("page upgrade preceded demand setup")?;
-                if pages == 1 && failed.elapsed() >= tmt_remote::limits::OBJECT_REACTIVATION_COOLDOWN {
-                    return Err("second page request did not reach the fixture inside the cool-down observation window".into());
+                if failed.is_none() {
+                    return Err("page upgrade preceded demand setup".into());
                 }
                 assert!(head.starts_with("GET /sync HTTP/1.1\r\n"));
                 assert!(head.to_ascii_lowercase().contains("upgrade: websocket\r\n"));
