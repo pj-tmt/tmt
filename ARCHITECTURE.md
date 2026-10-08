@@ -791,7 +791,7 @@ falls back to a working directory, active pane or sole identity.
 - `binding::session` separates identity-owned session preferences from
   binding-owned runtime observations, and observation writes are compare-and-set
   inside the binding transaction. Drivers own process verification, event mapping
-  and driver-state persistence; core stores driver state without parsing it.
+  and driver-state persistence; ordinary CLI calls learn direct sessions after output through the same admission/CAS, with bounded silent refusal, storage-only prechecks and private TTL hints; core stores driver state without parsing it.
   Provider end leaves stored readiness Unknown pending a fresh start; only conclusive
   process loss ends the runtime incarnation.
 - Presence reads acquire host evidence outside the database writer lock and

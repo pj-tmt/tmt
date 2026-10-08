@@ -4,6 +4,7 @@ mod appearance;
 mod binding_command;
 mod binding_error;
 mod caller_context;
+mod caller_session_command;
 mod channel_command;
 mod channel_server_command;
 mod check_command;
@@ -110,9 +111,25 @@ fn execute(parsed: invocation::Parsed) -> io::Result<u8> {
     // This process may observe lifecycle changes for enabled extension hooks;
     // delivery runs after the command's own effects and output.
     tmt_adapters::extension_hooks::allow_capture();
+    let learn_session = !matches!(
+        parsed.invocation,
+        Invocation::Help(_)
+            | Invocation::Version
+            | Invocation::ProviderHook { .. }
+            | Invocation::FocusHook { .. }
+            | Invocation::ReplyNoticeWorker { .. }
+            | Invocation::RequestObserver { .. }
+            | Invocation::Mcp { .. }
+            | Invocation::Api
+    );
     let code = dispatch(parsed);
     tmt_adapters::extension_hooks::deliver_pending();
     let code = code?;
+    if learn_session {
+        // Flush the user's result before any optional native/provider I/O.
+        let _ = tmt_cli_style::stream::stdout(mode.json).flush();
+        caller_session_command::observe();
+    }
     // A Herdr pane without its driver: whatever the result, say how to
     // approve one. It replaces the passive drift line.
     if driver_hint && skill_reminder::present_driver_hint() {
@@ -264,11 +281,15 @@ fn dispatch(parsed: invocation::Parsed) -> io::Result<u8> {
             );
         }
         Invocation::ProviderHook {
+            caller_session,
             activity_only,
             provider,
             worker,
             work_budget_ms,
         } => {
+            if caller_session {
+                return Ok(caller_session_command::worker(&provider, work_budget_ms));
+            }
             return provider_hook_command::execute(
                 &provider,
                 worker,

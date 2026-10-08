@@ -1,0 +1,9 @@
+{
+  "providerVersion": "Claude Code 2.1.288",
+  "capturedAt": "2026-10-09",
+  "environment": {
+    "CLAUDECODE": "1",
+    "CLAUDE_CODE_SESSION_ID": "50fec1a2-581c-4adc-924d-15c31cef4da4",
+    "CLAUDE_PID": "12345"
+  }
+}

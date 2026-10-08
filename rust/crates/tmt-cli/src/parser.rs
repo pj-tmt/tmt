@@ -226,6 +226,7 @@ fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
             work_budget_ms: m.get_one::<u64>("work-budget-ms").copied(),
         },
         ["__hook"] => Invocation::ProviderHook {
+            caller_session: flag(m, "caller-session"),
             activity_only: flag(m, "activity-only"),
             provider: text(m, "provider").expect("required provider"),
             worker: flag(m, "worker"),

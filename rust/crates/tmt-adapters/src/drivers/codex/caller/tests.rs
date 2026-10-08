@@ -4,6 +4,33 @@ use std::{cell::RefCell, collections::VecDeque};
 
 const SESSION: &str = "11111111-1111-4111-8111-111111111111";
 
+#[test]
+fn direct_metadata_lookup_refuses_runtime_configuration_overrides() {
+    for argv in [
+        "codex -c sqlite_home='/different'",
+        "codex --config=sqlite_home='/different'",
+        "codex --profile other",
+        "codex -p=other",
+        "codex -csqlite_home='/different'",
+        "codex -pother",
+    ] {
+        let probe = Probe::new([Ok("42 41 /bin/sh\n41 1 codex\n"), Ok(argv)]);
+        let caller = CodexCaller::new(
+            &probe,
+            CallerEnvironment {
+                thread_id: Some(SESSION.into()),
+                process_id: 42,
+            },
+        );
+        assert!(
+            caller
+                .observe_direct_host(Instant::now() + Duration::from_millis(500))
+                .is_err(),
+            "configuration override must refuse: {argv}"
+        );
+    }
+}
+
 struct Probe {
     outputs: RefCell<VecDeque<Result<String, CommandFailure>>>,
     calls: RefCell<Vec<(Vec<OsString>, Instant)>>,

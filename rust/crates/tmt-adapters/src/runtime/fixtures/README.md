@@ -1,5 +1,27 @@
 # Provider hook payload fixtures
 
+## Ordinary caller session discovery (#2131)
+
+- `claude-caller-session.json`: real-session environment shape supplied by
+  tmt-lead in request `req_53a06c6f`, 2026-10-09, Claude Code 2.1.288
+  (`CLAUDE_CODE_EXECPATH` ends in `claude/versions/2.1.288`). The UUID is the
+  supplied session ID; the positive decimal PID is normalized. The documented
+  tool variables locate the main resumable conversation. Native PID equality
+  and ancestry authorize recording; this path reads no Claude transcript files.
+- `codex-caller-session.json`: captured on 2026-10-09 from core-1's natively
+  verified running codex-cli 0.160.0 session. Version is corroborated by both
+  that exact index row and its rollout header `cli_version`. The installed
+  standalone package is 0.161.0; installation alone does not prove the version
+  of an already running process. No 0.161.0 session was captured. Only
+  `CODEX_THREAD_ID`, `PRAGMA table_info(threads)`, one parameterized exact-thread
+  index projection, and the first bounded rollout metadata header were inspected.
+  UUIDs are replaced
+  consistently by a UUID of the same version; the private path is normalized.
+  Prompt, instruction, user-path and transcript fields are omitted. These are
+  implementation formats, not documented compatibility promises. Unknown
+  index/header/env shapes silently leave the session unrecorded; mutation tests
+  derive incompatible shapes from these recorded fixtures.
+
 These fixtures pin the provider fields the first-party drivers read. Each driver
 keeps only the fields it needs, and a `model` field is optional input. Update a
 fixture only from the provider's documentation or a recorded payload, and keep

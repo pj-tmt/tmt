@@ -107,6 +107,7 @@ fn setup_has_one_provider_consent_surface_and_hook_dispatch_is_hidden() {
     assert_eq!(
         parsed(&["__hook", "claude"]).invocation,
         Invocation::ProviderHook {
+            caller_session: false,
             activity_only: false,
             provider: "claude".into(),
             worker: false,
@@ -116,6 +117,7 @@ fn setup_has_one_provider_consent_surface_and_hook_dispatch_is_hidden() {
     assert_eq!(
         parsed(&["__hook", "codex"]).invocation,
         Invocation::ProviderHook {
+            caller_session: false,
             activity_only: false,
             provider: "codex".into(),
             worker: false,
@@ -156,6 +158,7 @@ fn private_hook_worker_budget_is_typed_bounded_and_requires_worker() {
         assert_eq!(
             parsed(&["__hook", "codex", "--worker", "--work-budget-ms", budget]).invocation,
             Invocation::ProviderHook {
+                caller_session: false,
                 activity_only: false,
                 provider: "codex".into(),
                 worker: true,
@@ -179,6 +182,7 @@ fn private_hook_worker_budget_is_typed_bounded_and_requires_worker() {
     assert_eq!(
         parsed(&["__hook", "claude", "--worker"]).invocation,
         Invocation::ProviderHook {
+            caller_session: false,
             activity_only: false,
             provider: "claude".into(),
             worker: true,

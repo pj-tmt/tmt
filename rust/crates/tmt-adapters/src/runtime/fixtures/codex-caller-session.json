@@ -1,0 +1,278 @@
+{
+  "providerVersion": "codex-cli 0.160.0",
+  "capturedAt": "2026-10-09",
+  "environment": {
+    "CODEX_THREAD_ID": "01234567-89ab-7cde-8fab-0123456789ab"
+  },
+  "index": {
+    "database": "state_5.sqlite",
+    "columns": [
+      {
+        "name": "id",
+        "type": "TEXT",
+        "notNull": 0,
+        "primaryKey": 1
+      },
+      {
+        "name": "rollout_path",
+        "type": "TEXT",
+        "notNull": 1,
+        "primaryKey": 0
+      },
+      {
+        "name": "created_at",
+        "type": "INTEGER",
+        "notNull": 1,
+        "primaryKey": 0
+      },
+      {
+        "name": "updated_at",
+        "type": "INTEGER",
+        "notNull": 1,
+        "primaryKey": 0
+      },
+      {
+        "name": "source",
+        "type": "TEXT",
+        "notNull": 1,
+        "primaryKey": 0
+      },
+      {
+        "name": "model_provider",
+        "type": "TEXT",
+        "notNull": 1,
+        "primaryKey": 0
+      },
+      {
+        "name": "cwd",
+        "type": "TEXT",
+        "notNull": 1,
+        "primaryKey": 0
+      },
+      {
+        "name": "title",
+        "type": "TEXT",
+        "notNull": 1,
+        "primaryKey": 0
+      },
+      {
+        "name": "sandbox_policy",
+        "type": "TEXT",
+        "notNull": 1,
+        "primaryKey": 0
+      },
+      {
+        "name": "approval_mode",
+        "type": "TEXT",
+        "notNull": 1,
+        "primaryKey": 0
+      },
+      {
+        "name": "tokens_used",
+        "type": "INTEGER",
+        "notNull": 1,
+        "primaryKey": 0
+      },
+      {
+        "name": "has_user_event",
+        "type": "INTEGER",
+        "notNull": 1,
+        "primaryKey": 0
+      },
+      {
+        "name": "archived",
+        "type": "INTEGER",
+        "notNull": 1,
+        "primaryKey": 0
+      },
+      {
+        "name": "archived_at",
+        "type": "INTEGER",
+        "notNull": 0,
+        "primaryKey": 0
+      },
+      {
+        "name": "git_sha",
+        "type": "TEXT",
+        "notNull": 0,
+        "primaryKey": 0
+      },
+      {
+        "name": "git_branch",
+        "type": "TEXT",
+        "notNull": 0,
+        "primaryKey": 0
+      },
+      {
+        "name": "git_origin_url",
+        "type": "TEXT",
+        "notNull": 0,
+        "primaryKey": 0
+      },
+      {
+        "name": "cli_version",
+        "type": "TEXT",
+        "notNull": 1,
+        "primaryKey": 0
+      },
+      {
+        "name": "first_user_message",
+        "type": "TEXT",
+        "notNull": 1,
+        "primaryKey": 0
+      },
+      {
+        "name": "agent_nickname",
+        "type": "TEXT",
+        "notNull": 0,
+        "primaryKey": 0
+      },
+      {
+        "name": "agent_role",
+        "type": "TEXT",
+        "notNull": 0,
+        "primaryKey": 0
+      },
+      {
+        "name": "memory_mode",
+        "type": "TEXT",
+        "notNull": 1,
+        "primaryKey": 0
+      },
+      {
+        "name": "model",
+        "type": "TEXT",
+        "notNull": 0,
+        "primaryKey": 0
+      },
+      {
+        "name": "reasoning_effort",
+        "type": "TEXT",
+        "notNull": 0,
+        "primaryKey": 0
+      },
+      {
+        "name": "agent_path",
+        "type": "TEXT",
+        "notNull": 0,
+        "primaryKey": 0
+      },
+      {
+        "name": "created_at_ms",
+        "type": "INTEGER",
+        "notNull": 0,
+        "primaryKey": 0
+      },
+      {
+        "name": "updated_at_ms",
+        "type": "INTEGER",
+        "notNull": 0,
+        "primaryKey": 0
+      },
+      {
+        "name": "thread_source",
+        "type": "TEXT",
+        "notNull": 0,
+        "primaryKey": 0
+      },
+      {
+        "name": "preview",
+        "type": "TEXT",
+        "notNull": 1,
+        "primaryKey": 0
+      },
+      {
+        "name": "recency_at",
+        "type": "INTEGER",
+        "notNull": 1,
+        "primaryKey": 0
+      },
+      {
+        "name": "recency_at_ms",
+        "type": "INTEGER",
+        "notNull": 1,
+        "primaryKey": 0
+      },
+      {
+        "name": "history_mode",
+        "type": "TEXT",
+        "notNull": 1,
+        "primaryKey": 0
+      },
+      {
+        "name": "name",
+        "type": "TEXT",
+        "notNull": 0,
+        "primaryKey": 0
+      },
+      {
+        "name": "is_pinned",
+        "type": "INTEGER",
+        "notNull": 1,
+        "primaryKey": 0
+      },
+      {
+        "name": "thread_section_id",
+        "type": "TEXT",
+        "notNull": 0,
+        "primaryKey": 0
+      },
+      {
+        "name": "section_position",
+        "type": "INTEGER",
+        "notNull": 0,
+        "primaryKey": 0
+      },
+      {
+        "name": "section_entered_at_ms",
+        "type": "INTEGER",
+        "notNull": 0,
+        "primaryKey": 0
+      },
+      {
+        "name": "project_id",
+        "type": "TEXT",
+        "notNull": 0,
+        "primaryKey": 0
+      },
+      {
+        "name": "originator",
+        "type": "TEXT",
+        "notNull": 0,
+        "primaryKey": 0
+      },
+      {
+        "name": "daybreak_enabled",
+        "type": "BOOLEAN",
+        "notNull": 0,
+        "primaryKey": 0
+      },
+      {
+        "name": "creator_user_id",
+        "type": "TEXT",
+        "notNull": 0,
+        "primaryKey": 0
+      },
+      {
+        "name": "creator_account_id",
+        "type": "TEXT",
+        "notNull": 0,
+        "primaryKey": 0
+      }
+    ],
+    "row": {
+      "id": "01234567-89ab-7cde-8fab-0123456789ab",
+      "rollout_path": "<CODEX_HOME>/sessions/2026/10/09/rollout-current-01234567-89ab-7cde-8fab-0123456789ab.jsonl",
+      "source": "cli"
+    }
+  },
+  "header": {
+    "type": "session_meta",
+    "payload": {
+      "session_id": "01234567-89ab-7cde-8fab-0123456789ab",
+      "id": "01234567-89ab-7cde-8fab-0123456789ab",
+      "source": "cli",
+      "cli_version": "0.160.0"
+    }
+  }
+}

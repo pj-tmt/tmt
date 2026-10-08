@@ -158,6 +158,7 @@ pub enum Invocation {
         work_budget_ms: Option<u64>,
     },
     ProviderHook {
+        caller_session: bool,
         activity_only: bool,
         provider: String,
         worker: bool,
