@@ -327,7 +327,8 @@ test('paired writers retain anchored annotation conversations, direct exact send
     await expect(t2.getByTestId('comment-entry').first().locator('.comment-byline')).toHaveText(
       'discussion-author · just now',
     );
-    await expect(t2.getByRole('button', { name: text.threadResolve, exact: true })).toHaveCount(0);
+    // Status is not writer-owned: this is another owner device, so it may resolve the thread.
+    await expect(t2.getByRole('button', { name: text.threadResolve, exact: true })).toBeEnabled();
     await expect(t1.getByTestId('ask-reply')).toBeVisible();
     await expect(t2.getByTestId('ask-reply')).toBeVisible();
     await expect(t1.getByTestId('ask-reply-attribution')).toContainText(

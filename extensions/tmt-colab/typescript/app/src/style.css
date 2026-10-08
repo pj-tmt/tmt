@@ -824,6 +824,20 @@ footer {
   color: var(--c-muted);
   font-size: 12px;
 }
+.annotation-row [data-testid='thread-row-status'] {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.annotation-row [data-testid='thread-row-status'] svg {
+  width: 14px;
+  height: 14px;
+  flex: none;
+}
+.annotation-row [data-testid='thread-row-status'][data-unseen] {
+  color: var(--c-text);
+  font-weight: 600;
+}
 .annotation-row:hover strong {
   text-decoration: underline;
 }
