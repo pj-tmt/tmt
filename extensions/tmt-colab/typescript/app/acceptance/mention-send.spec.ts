@@ -70,6 +70,9 @@ test('visible mentions fan out one recorded Chat turn to live and offline saved 
       .getByTestId('chat-panel')
       .getByRole('combobox', { name: 'Message', exact: true });
     await plain.fill('@missing This is a comment.');
+    await expect(panel.locator('.annotation-status-row [role=status]')).toHaveText(
+      'No agent named @missing. This posts as a comment.',
+    );
     await plain.press('Enter');
     await expect(page.getByTestId('comment-entry')).toHaveCount(2);
     expect(world.coreCalls().filter((call) => call.operation === 'dispatch.create')).toHaveLength(
