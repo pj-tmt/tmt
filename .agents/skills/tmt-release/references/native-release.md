@@ -235,9 +235,9 @@ unchanged SQLite bytes and migration of state the previous release wrote. The
 `native-release-upgrade.yml` proof (also `workflow_dispatch` from `main` for any draft or
 published tag) does this on four hosts through the shared proof stages in
 `native-release-upgrade-prove.yml`; extension and driver releases use
-`verify-native-extension-upgrade.mjs` and `verify-native-driver-upgrade.mjs`. The first
-release of a product has nothing to upgrade from and says so; a commit that predates the
-scripts fails the proof with that message and is proven by hand.
+`verify-native-extension-upgrade.mjs` and `verify-native-driver-upgrade.mjs`. A product with
+neither own nor predecessor published history has nothing to upgrade from and says so; a commit
+that predates the scripts fails the proof with that message and is proven by hand.
 
 Extension-upgrade proofs (`test/native/extension-upgrade-proof.test.ts`) use one native
 recording driver on macOS and Linux; build it first and publish the built bytes through

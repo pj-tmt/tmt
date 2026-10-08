@@ -458,7 +458,7 @@ export async function verifyExtensionUpgrade(values, runCommand = runPackedComma
         assert.equal(refusal.error.code, 'EXTENSION_INSTALL_FAILED');
         assert.equal(
           refusal.error.message,
-          'Native archive must belong to exactly one TMT release.'
+          'Native archive must belong to exactly one TMT release. Inspect with: tmt extension ls'
         );
         assertInstalled();
         unchanged();
