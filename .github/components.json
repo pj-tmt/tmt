@@ -66,7 +66,8 @@
         "nativeTests": [
           "ops.test.ts",
           "extension-install.test.ts",
-          "extension-upgrade-proof.test.ts"
+          "extension-upgrade-proof.test.ts",
+          "uninstall.test.ts"
         ],
         "e2eFiles": ["ops.e2e.test.ts", "ops-reminder.e2e.test.ts"]
       },

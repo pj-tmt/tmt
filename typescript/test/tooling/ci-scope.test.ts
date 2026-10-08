@@ -583,7 +583,12 @@ describe('component map', () => {
 
   it('names the checks a scoped component runs and none for the other scopes', () => {
     expect(scopedChecks('ops', map)).toEqual({
-      nativeTests: ['ops.test.ts', 'extension-install.test.ts', 'extension-upgrade-proof.test.ts'],
+      nativeTests: [
+        'ops.test.ts',
+        'extension-install.test.ts',
+        'extension-upgrade-proof.test.ts',
+        'uninstall.test.ts',
+      ],
       e2eFiles: ['ops.e2e.test.ts', 'ops-reminder.e2e.test.ts'],
     });
     expect(scopedChecks('full', map)).toEqual({ nativeTests: [], e2eFiles: [] });
@@ -1144,7 +1149,7 @@ describe('CI diff and command integration', () => {
         native_scope: 'ops',
         native_notices: 'false',
         scoped_native_tests:
-          'ops.test.ts extension-install.test.ts extension-upgrade-proof.test.ts',
+          'ops.test.ts extension-install.test.ts extension-upgrade-proof.test.ts uninstall.test.ts',
         e2e_shard_1: 'ops.e2e.test.ts ops-reminder.e2e.test.ts',
         e2e_shard_2: '',
       });

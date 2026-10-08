@@ -73,6 +73,17 @@ targets absent. Modified/foreign targets fail closed. Immutable source generatio
 remain; interrupted link transitions can retry. Ordinary Ops refresh uses recorded
 targets only; discovering new providers needs explicit publication consent.
 
+After successful skill settlement, the CLI verifies both installations and
+uses `extension_hooks::disable` to withdraw only the former name's recorded
+consent. Prior consent removal adds the separate-successor enable command to human
+output and `hooks.disabled`/`hooks.enableCommand` to JSON; absent consent adds
+neither. No successor consent is created or refreshed. A consent read/write failure
+reports the hook error and settings path, leaves the successor active and retains
+the former installation for retry. A later former-removal failure keeps consent
+withdrawn and reports partial replacement. An unpinned upgrade with no publication
+change retries settlement only when a verified former installation remains;
+pinned no-ops retain it.
+
 `remove::finish_product_replacement` then verifies the new activation and links,
 locks and verifies the old activation, removes only old command links whose target
 resolves inside the verified old namespace, and removes that installation namespace.
