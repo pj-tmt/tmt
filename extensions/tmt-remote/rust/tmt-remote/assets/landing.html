@@ -8,18 +8,27 @@
     <script type="module" src="/sdk/landing.js"></script>
   </head>
   <body>
-    <header class="header">
-      <span class="header-brand">
-        <span class="header-mark">tmt</span><span class="header-wordmark">Remote</span>
+    <header class="header tmt-ui-header">
+      <span class="header-brand tmt-ui-brand">
+        <span class="header-mark tmt-ui-mark">tmt</span
+        ><span class="header-wordmark tmt-ui-wordmark">Remote</span>
       </span>
-      <h1 class="header-title">Remote connection</h1>
+      <h1 class="header-title tmt-ui-title">Remote connection</h1>
     </header>
     <main class="page">
-      <section class="sheet" aria-labelledby="heading">
-        <div class="sheet-body">
-          <span id="mark" class="state-mark" aria-hidden="true">○</span>
-          <p class="eyebrow">This browser</p>
-          <h2 id="heading">Remote connection</h2>
+      <section
+        id="notice"
+        class="sheet tmt-ui-notice"
+        data-tone="waiting"
+        aria-labelledby="heading"
+      >
+        <div class="sheet-body tmt-ui-notice-body">
+          <div class="tmt-ui-notice-mark">
+            <span id="mark" class="state-mark" aria-hidden="true">○</span
+            ><span id="state-label">Not connected</span>
+          </div>
+          <p class="eyebrow tmt-ui-notice-eyebrow">This browser</p>
+          <h2 id="heading" class="tmt-ui-notice-heading">Remote connection</h2>
           <dl class="entry-status">
             <dt>Pairing</dt>
             <dd id="pairing-status">Pairing status unknown</dd>
@@ -27,17 +36,19 @@
             <dd id="access-status">Not checked</dd>
           </dl>
           <p id="status" role="status">No connection is opened until you choose Connect.</p>
-          <button id="check" type="button" disabled>Connect</button>
+          <button id="check" class="tmt-ui-action" type="button" aria-describedby="status" disabled>
+            <span class="tmt-ui-action-label">Connect</span>
+          </button>
           <p class="entry-note">
             Pairing gives this browser its own access. It does not designate a settings
             administrator.
           </p>
         </div>
       </section>
-      <section class="sheet entry-help" aria-labelledby="pair-heading">
-        <div class="sheet-body">
-          <p class="eyebrow">Local owner confirmation</p>
-          <h2 id="pair-heading">Pair this browser</h2>
+      <section class="sheet entry-help tmt-ui-notice" aria-labelledby="pair-heading">
+        <div class="sheet-body tmt-ui-notice-body">
+          <p class="eyebrow tmt-ui-notice-eyebrow">Local owner confirmation</p>
+          <h2 id="pair-heading" class="tmt-ui-notice-heading">Pair this browser</h2>
           <ol>
             <li>
               In the terminal on the machine running Remote, run <code>tmt remote pair</code>.

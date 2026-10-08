@@ -52,9 +52,9 @@ tracked-file guard. Handbook language exceptions belong to
 
 Shared visual tokens have one owner, `design/tokens/tokens.json`, maintained by
 the design lead. Its Vite projection and Rust CLI theme tests consume that source; `design/browser-ui` projects browser roles, fonts and `header` metrics into checked static CSS.
-Colab app/reader use the leaf's React/static exports; native guidance embeds its CSS plus Colab host metrics and viewport styles at compile time, without running a generator in Cargo or serving.
-Docker stages preserve those inputs and CI retains native checks. Remote's current static pages still ship header metrics in `pages.css`, checked by a Remote test; adoption is separate.
-The private design-tokens component attributes token changes to Colab through `releaseConsumers`.
+Colab app/reader use the leaf's React/static exports; Colab guidance and Remote pages embed its checked CSS plus product-owned host metrics and viewport styles at compile time, without a generator in Cargo or serving.
+Docker stages preserve those inputs and CI retains native checks. Remote's `pages.css` owns layout and host metrics; socket tests check exact shared-plus-host asset bytes.
+The private design-tokens component attributes token changes to Colab and Remote through `releaseConsumers`.
 Release procedures belong to the
 [release skill](.agents/skills/tmt-release/SKILL.md), including the archive's
 product-neutral `rust/archive/NATIVE-INSTALL.md`; [dev-only embed](site/README.md) stays site-owned.
@@ -1146,7 +1146,7 @@ absolute `TMT_EXECUTABLE`, run by `tmt-invoke`) and owns the private
 `<dataRoot>/remote/` subtree through the
 [shared extension state layout](#shared-extension-state-layout). Core never owns a
 listener or Remote state and only registers Remote as an installable product; its
-archive embeds its static browser pages, stylesheet, SDK and wordlist with no
+archive embeds its static browser pages, checked shared CSS plus host styles, SDK and wordlist with no
 companions or skills, and publication gates belong to the
 [release skill](.agents/skills/tmt-release/SKILL.md).
 Colab has no door of its own: Remote mounts its owner-only socket under

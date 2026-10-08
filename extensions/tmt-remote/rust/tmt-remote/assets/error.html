@@ -7,18 +7,27 @@
     <link rel="stylesheet" href="/sdk/pages.css" />
   </head>
   <body>
-    <header class="header">
-      <span class="header-brand">
-        <span class="header-mark">tmt</span><span class="header-wordmark">Remote</span>
+    <header class="header tmt-ui-header">
+      <span class="header-brand tmt-ui-brand">
+        <span class="header-mark tmt-ui-mark">tmt</span
+        ><span class="header-wordmark tmt-ui-wordmark">Remote</span>
       </span>
-      <h1 class="header-title">Page unavailable</h1>
+      <h1 class="header-title tmt-ui-title">Page unavailable</h1>
     </header>
     <main class="page error">
-      <section class="sheet" aria-labelledby="heading">
-        <div class="sheet-body">
-          <span class="state-mark" aria-hidden="true">✗</span>
-          <p class="eyebrow">Page unavailable</p>
-          <h2 id="heading">This page is unavailable</h2>
+      <section
+        id="notice"
+        class="sheet tmt-ui-notice"
+        data-tone="blocked"
+        aria-labelledby="heading"
+      >
+        <div class="sheet-body tmt-ui-notice-body">
+          <div class="tmt-ui-notice-mark">
+            <span class="state-mark" aria-hidden="true">✗</span
+            ><span id="state-label">Page unavailable</span>
+          </div>
+          <p class="eyebrow tmt-ui-notice-eyebrow">Page unavailable</p>
+          <h2 id="heading" class="tmt-ui-notice-heading">This page is unavailable</h2>
           <p>Run <code>tmt remote pair</code> again for a new link.</p>
         </div>
       </section>

@@ -25,6 +25,7 @@ import {
   ownerOf,
   parseComponentMap,
   releasedComponentsForPath,
+  releasedComponentNamesOfPath,
   readChangedCiAreas,
   renderSelectionEvidence,
   runCiScope,
@@ -306,9 +307,17 @@ describe('CI area selection', () => {
   });
 
   it('selects native checks for shared design tokens without narrowing look-alikes', () => {
+    const map = parseComponentMap(
+      readFileSync(new URL('../../../.github/components.json', import.meta.url), 'utf8')
+    );
     for (const name of ['tokens.json', 'tokens-plugin.ts', 'package.json']) {
       const file = `design/tokens/${name}`;
       expect(explainCiSelection([file])[0].rule).toBe('design-tokens');
+      expect([...releasedComponentNamesOfPath(file, map)].sort()).toEqual([
+        'cli',
+        'tmt-colab',
+        'tmt-remote',
+      ]);
       expect(selectCiAreas([file])).toEqual({ native: true, office: false, nativeOffice: false });
       expect(selectNativeScope([file])).toBe('full');
     }

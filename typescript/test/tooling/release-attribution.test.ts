@@ -171,13 +171,13 @@ it('attributes embedded app changes to Colab, rejecting invalid marker combinati
   }
 });
 
-it('attributes shared token changes to CLI and the embedded Colab consumer', () => {
+it('attributes shared token changes to CLI and embedded Colab and Remote consumers', () => {
   const path = 'design/tokens/tokens.json';
   expect(affectedProducts([path], map, workspace)).toEqual({
-    products: ['cli', 'colab'],
+    products: ['cli', 'colab', 'remote'],
     unpublished: [],
   });
-  for (const product of ['cli', 'colab']) {
+  for (const product of ['cli', 'colab', 'remote']) {
     expect(
       attributeCutCommits(
         [{ sha, message: 'fix: shared tokens', files: [path] }],

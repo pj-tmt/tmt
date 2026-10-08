@@ -88,7 +88,7 @@
     "design-tokens": {
       "owns": ["design/tokens"],
       "release": false,
-      "releaseConsumers": ["tmt-colab"]
+      "releaseConsumers": ["tmt-colab", "tmt-remote"]
     },
     "colab-client": {
       "owns": ["extensions/tmt-colab/typescript/colab-client"],
@@ -185,13 +185,13 @@
     {
       "id": "browser-ui",
       "consumers": ["native"],
-      "why": "The private presentation leaf retains conservative full native verification. Registration does not establish product embedding or activation; Office web jobs do not consume this isolated leaf.",
+      "why": "The private presentation leaf retains conservative full native verification. Colab guidance and Remote pages embed the checked CSS; Office web jobs do not consume this isolated leaf.",
       "paths": ["design/browser-ui/**"]
     },
     {
       "id": "design-tokens",
       "consumers": ["native"],
-      "why": "Shared tokens are embedded by native Colab guidance and read by Rust CLI palette and contrast tests; Site has its own workflow watching this path. Office web checks read none of these files.",
+      "why": "Shared tokens project checked CSS embedded by native Colab guidance and Remote pages, and are read by Rust CLI palette and contrast tests; Site has its own workflow watching this path. Office web checks read none of these files.",
       "paths": ["design/tokens/**"]
     },
     {
