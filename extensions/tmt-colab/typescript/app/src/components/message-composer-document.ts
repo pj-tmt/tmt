@@ -103,9 +103,15 @@ export function $messageMention(): ComposerEdit['mention'] {
   return mention;
 }
 
+/**
+ * The @ query at the caret. The trigger is `@` or the full-width `＠` an IME may type, one UTF16
+ * unit either way. It must start the text or follow whitespace or any character that is not
+ * address-like ASCII: Chinese and Japanese are written without spaces, so "請@bot" asks for a
+ * recipient while "email@bot" stays plain text.
+ */
 export function mentionQuery(value: string, caret: number) {
   const before = value.slice(0, caret);
-  const match = /(?:^|\s)@([^\s@]*)$/.exec(before);
+  const match = /(?:^|[^A-Za-z0-9_.+\-@＠])[@＠]([^\s@＠]*)$/.exec(before);
   return match ? { start: caret - match[1].length - 1, end: caret, query: match[1] } : undefined;
 }
 
