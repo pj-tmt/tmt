@@ -432,12 +432,12 @@ jobs:
       - name: Install shell test dependency
         uses: ./.github/actions/apt-install
         with:
-          packages: zsh
+          packages: zsh tmux
       - name: Build independent native process fixtures
         if: needs.changes.outputs.native_scope == 'full'
         working-directory: rust
         run: |
-          cargo build --locked -p tmt-ops
+          cargo build --locked -p tmt-ops --bins --examples
           extension_started=$SECONDS
           cargo build --locked -p tmt-remote -p tmt-colab --bins
           echo "Built Remote/Colab process fixtures in $((SECONDS - extension_started)) s." | tee -a "$GITHUB_STEP_SUMMARY"
@@ -448,7 +448,7 @@ jobs:
         if: needs.changes.outputs.native_scope == 'ops'
         working-directory: rust
         run: |
-          cargo build --locked -p tmt-ops
+          cargo build --locked -p tmt-ops --bins --examples
           extension_started=$SECONDS
           cargo build --locked -p tmt-remote -p tmt-colab --bins
           echo "Built Remote/Colab process fixtures in $((SECONDS - extension_started)) s." | tee -a "$GITHUB_STEP_SUMMARY"
