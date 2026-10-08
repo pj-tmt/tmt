@@ -1398,6 +1398,28 @@ it('a lost reply the page never recorded is reported as not applied; a failing s
   }
 });
 
+it('a status that is still pending is an unknown outcome naming the operation, never a retry', async () => {
+  const live = openLive();
+  try {
+    await live.snapshot();
+    saves.save.mockImplementationOnce(async (connection) => {
+      connection.failed(new Error('Sync disconnected'));
+      throw new Error('Sync disconnected');
+    });
+    saves.status.mockImplementationOnce(async (_connection, operationId) => ({
+      operationId,
+      state: 'pending',
+    }));
+    const unknown = await live.edit('<p>new</p>', 'verified').catch((error) => error);
+    expect(unknown).toBeInstanceOf(SaveOutcomeUnknown);
+    expect(unknown.operationId).toBe(saves.save.mock.calls[0][1]);
+    expect(saves.save).toHaveBeenCalledOnce();
+    expect(saves.status).toHaveBeenCalledOnce();
+  } finally {
+    live.close();
+  }
+});
+
 it('refusals and an over-limit source surface unchanged on a connection that stays up', async () => {
   const live = openLive();
   try {

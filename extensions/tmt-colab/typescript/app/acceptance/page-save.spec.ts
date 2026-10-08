@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { createHash } from 'node:crypto';
+import { mkdirSync } from 'node:fs';
 import { text } from '../src/strings.js';
 import { pairBrowser, startDoor } from './harness/browser.js';
 import { createPage, freePort, openPage, run } from './harness/ask.js';
@@ -15,6 +16,20 @@ const distinct = (bytes: number, seed: string) => {
     out += createHash('sha256').update(`${seed}:${i}`).digest('hex');
   return `<p>${out.slice(0, bytes - 7)}</p>`;
 };
+/** The alert at the 390px look, light and dark, for the UX review. */
+async function capture(page: Page, name: string) {
+  if (!process.env.COLAB_SAVE_CAPTURE_DIR) return;
+  mkdirSync(process.env.COLAB_SAVE_CAPTURE_DIR, { recursive: true });
+  await page.setViewportSize({ width: 390, height: 900 });
+  for (const theme of ['light', 'dark']) {
+    await page.evaluate((value) => (document.documentElement.dataset.theme = value), theme);
+    await page.mouse.move(389, 899);
+    await page.screenshot({
+      path: `${process.env.COLAB_SAVE_CAPTURE_DIR}/${name}-390-${theme}.png`,
+    });
+  }
+  await page.setViewportSize({ width: 1280, height: 720 });
+}
 const source = (page: Page) => page.getByRole('textbox', { name: 'Source', exact: true });
 async function openSource(page: Page) {
   await page.getByRole('button', { name: 'Source', exact: true }).click();
@@ -216,9 +231,59 @@ test('a save on a stale base is refused and the newer version stays', async () =
     await box.fill('<p>v1 edited in the browser</p>');
     await save(page);
     await expect(page.getByRole('alert')).toHaveText(text.saveStale);
+    await expect(box).toHaveValue('<p>v1 edited in the browser</p>');
+    await expect(page.getByRole('alert')).not.toBeFocused();
+    await capture(page, 'save-stale');
     const after = JSON.parse(run(world, colab, ['page', 'read', created.pageId, '--json'])) as {
       source: string;
     };
     expect(after.source).toBe('<p>v2 by CLI</p>');
+  });
+});
+
+test('an unconfirmed save names its operation, keeps the typed text and never resends', async () => {
+  test.setTimeout(300_000);
+  await withWorld(async (world) => {
+    const door = await startDoor(world, await freePort());
+    const browser = await pairBrowser(world, 'save-unknown');
+    const colab = world.binaries.colab;
+    const sent: string[] = [];
+    let lost = 0;
+    await browser.context.routeWebSocket(/\/sync/, (ws) => {
+      const server = ws.connectToServer();
+      ws.onMessage((message) => {
+        const type = (JSON.parse(String(message)) as { type: string }).type;
+        if (type === 'save' || type === 'savestatus') sent.push(type);
+        server.send(message);
+      });
+      server.onMessage((message) => {
+        // The reply to the save and then the reply to its status request are both lost.
+        if ((JSON.parse(String(message)) as { type: string }).type === 'saveresult' && lost < 2) {
+          lost++;
+          ws.close();
+          return;
+        }
+        ws.send(message);
+      });
+    });
+    const created = createPage(world, 'Save unknown', '<p>before</p>');
+    const page = await openPage(door, browser, created);
+    const box = await openSource(page);
+    await expect(box).toHaveValue('<p>before</p>');
+    const typed = '<p>typed while the connection dropped</p>';
+    await box.fill(typed);
+    await page.getByRole('button', { name: text.save, exact: true }).click();
+    const alert = page.getByRole('alert');
+    await expect(alert).toContainText('The connection dropped before the save was confirmed.');
+    await expect(alert).toContainText(/Reference: [0-9a-f-]{36}/);
+    await expect(box).toHaveValue(typed);
+    await expect(alert).not.toBeFocused();
+    expect(sent).toEqual(['save', 'savestatus']);
+    await capture(page, 'save-unknown');
+    const after = JSON.parse(run(world, colab, ['page', 'read', created.pageId, '--json'])) as {
+      source: string;
+    };
+    // The page really took the save; only its confirmation was lost twice.
+    expect(after.source).toBe(typed);
   });
 });

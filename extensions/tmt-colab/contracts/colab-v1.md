@@ -1806,8 +1806,9 @@ in catch-up under the root-local stream. Subscribers receive the same ordered br
 CLI write. A source equal to the page's current source is `unchanged` and publishes nothing.
 
 `saveresult` has `operationId` and `state`: `committed` or `unchanged` with the opaque `revision`,
-`rejected` with the stable `code` and a person-readable `message`, or `absent` (status only: the
-operation never reached a terminal outcome, so nothing changed). It is the one reply to a `save`
+`rejected` with the stable `code` and a person-readable `message`, or, for `savestatus` only,
+`pending` (the save is still preparing, even if its connection is gone, so its outcome is not
+final) or `absent` (the operation never reached the page, so nothing changed). It is the one reply to a `save`
 or `savestatus`. A wide fan-out may end the originator's connection with `RESYNC_REQUIRED` before
 its reply; the browser then reconnects and sends one `savestatus` for the same ID, answered from
 the root-local operation record by (page, root-local stream, `operationId`). A reused

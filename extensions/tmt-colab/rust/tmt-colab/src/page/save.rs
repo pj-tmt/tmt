@@ -123,6 +123,10 @@ impl SaveResult {
             ..Self::state(operation_id, "unchanged")
         }
     }
+    /// Status only: the save is still preparing, so its outcome is not final yet.
+    pub fn pending(operation_id: &str) -> Self {
+        Self::state(operation_id, "pending")
+    }
     pub fn absent(operation_id: &str) -> Self {
         Self::state(operation_id, "absent")
     }

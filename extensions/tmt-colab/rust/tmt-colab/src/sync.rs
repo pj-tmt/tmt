@@ -339,6 +339,10 @@ struct State<A> {
     admission: A,
     peers: HashMap<u64, Peer>,
     next: u64,
+    /// Saves between `save_job` and `finish_save`, by (page, operation ID) with a count: while
+    /// one is preparing, a status request for it is `pending`, never `absent`, even after the
+    /// connection that sent it is gone.
+    saving: HashMap<(String, String), usize>,
 }
 /// Shared queue/admission/store owner. No worker threads; dropping a Connection
 /// removes its subscriber. Mutate authority only through update_admission.
@@ -439,6 +443,7 @@ impl<A: Admission> Server<A> {
             admission,
             peers: HashMap::new(),
             next: 0,
+            saving: HashMap::new(),
         })))
     }
     /// Serializes live-authority changes with append and clears revoked peers'
@@ -770,12 +775,18 @@ impl<A: Admission> State<A> {
                     return Err(Code::Invalid);
                 }
                 values::generated_id(&operation_id)?;
-                let reply = self
-                    .admission
-                    .save_status(&scope.page, &operation_id)
-                    .unwrap_or_else(|error| {
-                        crate::page::save::SaveResult::rejected(&operation_id, error.as_ref())
-                    });
+                let reply = if self
+                    .saving
+                    .contains_key(&(scope.page.clone(), operation_id.clone()))
+                {
+                    crate::page::save::SaveResult::pending(&operation_id)
+                } else {
+                    self.admission
+                        .save_status(&scope.page, &operation_id)
+                        .unwrap_or_else(|error| {
+                            crate::page::save::SaveResult::rejected(&operation_id, error.as_ref())
+                        })
+                };
                 self.reply_save(id, &scope, &reply)?;
             }
         }
@@ -783,7 +794,7 @@ impl<A: Admission> State<A> {
     }
     /// An assembled source, once its bytes match the digest the client bound to it.
     fn save_job(
-        &self,
+        &mut self,
         scope: &SyncScope,
         principal: String,
         operation_id: String,
@@ -795,8 +806,13 @@ impl<A: Admission> State<A> {
             return Err(Code::Invalid);
         }
         let source = String::from_utf8(bytes).map_err(|_| Code::Invalid)?;
+        let open = self.admission.save_source().ok_or(Code::Denied)?;
+        *self
+            .saving
+            .entry((scope.page.clone(), operation_id.clone()))
+            .or_default() += 1;
         Ok(SaveJob {
-            open: self.admission.save_source().ok_or(Code::Denied)?,
+            open,
             scope: scope.clone(),
             principal,
             save: crate::page::save::Save {
@@ -806,6 +822,16 @@ impl<A: Admission> State<A> {
                 source,
             },
         })
+    }
+    /// The save is no longer preparing; its outcome, if any, is in the store.
+    fn unsave(&mut self, job: &SaveJob) {
+        let key = (job.save.page.clone(), job.save.operation_id.clone());
+        if let Some(count) = self.saving.get_mut(&key) {
+            *count -= 1;
+            if *count == 0 {
+                self.saving.remove(&key);
+            }
+        }
     }
     fn reply_save(
         &mut self,
@@ -834,6 +860,8 @@ impl<A: Admission> State<A> {
         now_ms: u64,
     ) -> Result<(), Code> {
         use crate::page::save::{Prepared, SaveResult};
+        // Under this lock hold the commit and the removal are one step for a status request.
+        self.unsave(&job);
         let operation = job.save.operation_id.clone();
         let done = (|| -> crate::Result<(SaveResult, Vec<_>)> {
             let write = match prepared? {
@@ -1243,13 +1271,19 @@ impl<S: Read + Write, A: Admission> Connection<S, A> {
     /// an edit that landed meanwhile turns this save into a stale-base reply.
     fn run_save(&self, job: SaveJob) -> Result<(), Code> {
         let clock = || crate::registration::now_ms().map_err(|_| Code::Denied);
-        let prepared = crate::page::save::prepare(&job.open, &job.save, clock()?);
-        self.server.0.lock().map_err(|_| Code::Denied)?.finish_save(
-            self.id,
-            job,
-            prepared,
-            clock()?,
-        )
+        let prepared = match clock() {
+            Ok(now) => crate::page::save::prepare(&job.open, &job.save, now),
+            Err(_) => Err(crate::page::Fault::Unavailable.into()),
+        };
+        let now = clock();
+        let mut state = self.server.0.lock().map_err(|_| Code::Denied)?;
+        match now {
+            Ok(now) => state.finish_save(self.id, job, prepared, now),
+            Err(code) => {
+                state.unsave(&job);
+                Err(code)
+            }
+        }
     }
     fn close(&mut self, code: Code) -> Progress {
         if let Some(mut socket) = self.socket.take()

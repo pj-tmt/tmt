@@ -3686,3 +3686,50 @@ fn a_concurrent_edit_is_not_blocked_by_a_large_prepare_and_the_save_then_reports
     assert_eq!(result["code"], "COLAB_STALE_BASE", "{result}");
     assert_eq!(native_source(&layout, &key), "<p>Someone else's edit</p>");
 }
+
+#[test]
+fn a_status_request_while_a_dropped_save_still_prepares_is_pending_never_absent() {
+    let (server, layout, key, mut peer) = publish_fixture();
+    let (entered, parked) = std::sync::mpsc::channel();
+    let (release, wait) = std::sync::mpsc::channel();
+    *server.save_gate.lock().unwrap() = Some((entered, wait));
+    let source = distinct(100_000, "p");
+    for frame in server.save_frames(SAVE_ONE, "", &source) {
+        send(&mut peer, frame);
+    }
+    parked.recv_timeout(Duration::from_secs(10)).unwrap();
+    // The originator is gone while its save is still preparing on the serve.
+    drop(peer);
+    let mut again = server.peer(DEVICE);
+    again
+        .get_ref()
+        .set_read_timeout(Some(Duration::from_secs(60)))
+        .unwrap();
+    for _ in 0..3 {
+        send(
+            &mut again,
+            server.frame("savestatus", json!({"operationId":SAVE_ONE})),
+        );
+        let (result, _) = receive_until(&mut again, "saveresult");
+        assert_eq!(result["state"], "pending", "{result}");
+    }
+    assert_eq!(native_source(&layout, &key), "");
+    release.send(()).unwrap();
+    // Once the preparation finishes the answer is final, and it is never "absent" on the way.
+    let mut settled = Value::Null;
+    for _ in 0..200 {
+        send(
+            &mut again,
+            server.frame("savestatus", json!({"operationId":SAVE_ONE})),
+        );
+        let (result, _) = receive_until(&mut again, "saveresult");
+        assert_ne!(result["state"], "absent", "{result}");
+        if result["state"] != "pending" {
+            settled = result;
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    assert_eq!(settled["state"], "committed", "{settled}");
+    assert_eq!(native_source(&layout, &key), source);
+}

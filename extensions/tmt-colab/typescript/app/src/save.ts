@@ -5,7 +5,7 @@ import { text } from './strings.js';
 /** The most one page source can hold; mirrors decoder.rs `BASELINE_BYTES`. */
 export const SAVE_SOURCE_BYTES = SOURCE_BYTES;
 
-export type SaveState = 'committed' | 'unchanged' | 'absent' | 'rejected';
+export type SaveState = 'committed' | 'unchanged' | 'absent' | 'pending' | 'rejected';
 /** The one reply to a save or a status request (`saveresult`). */
 export interface SaveResult {
   operationId: string;
@@ -46,7 +46,7 @@ export class SaveOutcomeUnknown extends Error {
   }
 }
 
-const STATES: readonly string[] = ['committed', 'unchanged', 'absent', 'rejected'];
+const STATES: readonly string[] = ['committed', 'unchanged', 'absent', 'pending', 'rejected'];
 export function saveResult(frame: Record<string, unknown>, operationId: string): SaveResult {
   const state = frame.state;
   requireValue(typeof state === 'string' && STATES.includes(state));
@@ -83,6 +83,8 @@ export function saveResult(frame: Record<string, unknown>, operationId: string):
 }
 /** A settled result as the outcome the caller sees: success returns, everything else throws. */
 export function settled(result: SaveResult): SaveResult {
+  // Still preparing on the page: the outcome is not final, and the save is never sent again.
+  if (result.state === 'pending') throw new SaveOutcomeUnknown(result.operationId);
   if (result.state === 'absent') throw new SaveNotApplied(result.operationId);
   if (result.state === 'rejected')
     throw new SaveRefused(result.code ?? 'COLAB_UNAVAILABLE', result.message ?? '');
