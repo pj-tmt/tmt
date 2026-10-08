@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { describe, expect, it } from 'vite-plus/test';
+import { describe, expect, it, vi } from 'vite-plus/test';
 import { withE2EFixture, type E2EFixture } from './harness.js';
 import { installTmuxTrace, type TmuxTrace } from './tmux-trace.js';
 import { waitForFileContent } from './wait-for-file.js';
@@ -123,6 +123,18 @@ function events(s: Session, name: string): Event[] {
         .map((line) => JSON.parse(line) as Event)
         .filter((e) => e.event === name)
     : [];
+}
+function publishFocusStep(s: Session, step: Record<string, unknown>): void {
+  const destination = `${s.log}.focus-step`;
+  const staged = `${destination}.${randomUUID()}.tmp`;
+  try {
+    // The peer removes the watched file before parsing it. Publish only complete
+    // bytes, never the create/truncate boundary that can kill its hook worker.
+    fs.writeFileSync(staged, JSON.stringify(step));
+    fs.renameSync(staged, destination);
+  } finally {
+    fs.rmSync(staged, { force: true });
+  }
 }
 async function ready(f: E2EFixture, s: Session) {
   await f.waitFor(
@@ -707,12 +719,20 @@ describe('Codex native channel product routing', { concurrent: false }, () => {
             if (resume) expect(composed).toEqual(definitions);
             else definitions = composed;
             const step = async (name: string, more: Record<string, unknown> = {}) => {
-              fs.writeFileSync(`${s.log}.focus-step`, JSON.stringify({ name, ...more }));
-              await f.waitFor(
-                () => events(s, 'focus-step-done').some((e) => e.step === name),
-                10000,
-                `owned hook step ${name}`
-              );
+              publishFocusStep(s, { name, ...more });
+              try {
+                await f.waitFor(
+                  () => events(s, 'focus-step-done').some((e) => e.step === name),
+                  10000,
+                  `owned hook step ${name}`
+                );
+              } catch (error) {
+                const tail = fs.readFileSync(s.log, 'utf8').split('\n').slice(-21).join('\n');
+                throw new Error(
+                  `${String(error)}; launch=${resume ? 'resume' : 'fresh'}, channel=${channel}, setup=${setup}\nProvider pane:\n${f.capture(60, s.pane)}\nRecent fixture events:\n${tail}`,
+                  { cause: error }
+                );
+              }
             };
             await step('start', {
               hookEvent: 'SessionStart',
@@ -885,7 +905,7 @@ describe('Codex native channel product routing', { concurrent: false }, () => {
     await withE2EFixture(async (f) => {
       const s = start(f, 'UntrustedFocus', false, { MOCK_FOCUS_HOOKS: '1', MOCK_TRUST_HOOKS: '0' });
       await ready(f, s);
-      fs.writeFileSync(`${s.log}.focus-step`, JSON.stringify({ name: 'skipped' }));
+      publishFocusStep(s, { name: 'skipped' });
       await f.waitFor(
         () => events(s, 'focus-step-done').length === 1,
         5000,
@@ -901,6 +921,45 @@ describe('Codex native channel product routing', { concurrent: false }, () => {
       await quit(s);
     });
   }, 60000);
+
+  it('publishes a Focus step only after its private preparation is complete', async () => {
+    await withE2EFixture(async (f) => {
+      const s = start(f, 'AtomicFocus', true, { MOCK_FOCUS_HOOKS: '1', MOCK_TRUST_HOOKS: '0' });
+      await ready(f, s);
+      const destination = `${s.log}.focus-step`;
+      const write = fs.writeFileSync.bind(fs);
+      let preparations = 0;
+      try {
+        // Expose the real writer's empty-file boundary deterministically. The
+        // watched path must remain absent until all JSON bytes are complete.
+        const writer = vi.spyOn(fs, 'writeFileSync').mockImplementation((file, data, options) => {
+          expect(file === destination, 'writer must not expose the watched path').toBe(false);
+          write(file, '', options);
+          expect(fs.existsSync(destination)).toBe(false);
+          write(file, data, options);
+          preparations += 1;
+        });
+        try {
+          publishFocusStep(s, { name: 'atomic-publication' });
+        } finally {
+          writer.mockRestore();
+        }
+        expect(preparations).toBe(1);
+        await f.waitFor(
+          () => events(s, 'focus-step-done').length === 1,
+          5000,
+          'native peer consumed complete atomic step'
+        );
+        expect(events(s, 'focus-step-done')[0].step).toBe('atomic-publication');
+        expect(events(s, 'focus-skipped')).toHaveLength(1);
+        expect(events(s, 'focus-handler')).toEqual([]);
+        expect(fs.existsSync(destination)).toBe(false);
+      } finally {
+        await quit(s);
+        await f.waitFor(() => records(f).length === 0, 5000, 'atomic step owned channel cleanup');
+      }
+    });
+  });
 
   it('queue receipt is delivery only; durable reply completes and name/raw sends never paste', async () => {
     await withE2EFixture(async (f) => {
