@@ -1420,6 +1420,29 @@ it('a status that is still pending is an unknown outcome naming the operation, n
   }
 });
 
+it('a lost save whose page cannot reopen ends as an unknown outcome instead of waiting', async () => {
+  const live = openLive();
+  try {
+    await live.snapshot();
+    connectionPlans.push({
+      ready: Promise.reject(new Error('Sync unavailable')),
+      constructed() {},
+      closed() {},
+    });
+    saves.save.mockImplementationOnce(async (connection) => {
+      connection.failed(new Error('Sync disconnected'));
+      throw new Error('Sync disconnected');
+    });
+    const unknown = await live.edit('<p>new</p>', 'verified').catch((error) => error);
+    expect(unknown).toBeInstanceOf(SaveOutcomeUnknown);
+    expect(unknown.operationId).toBe(saves.save.mock.calls[0][1]);
+    expect(saves.status).not.toHaveBeenCalled();
+    expect(saves.save).toHaveBeenCalledOnce();
+  } finally {
+    live.close();
+  }
+});
+
 it('refusals and an over-limit source surface unchanged on a connection that stays up', async () => {
   const live = openLive();
   try {
