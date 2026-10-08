@@ -14,6 +14,7 @@ export function ChatPanel({
   discussion,
   title,
   blocked,
+  recoveryRequired = false,
   close,
 }: {
   threads: readonly ThreadView[];
@@ -22,6 +23,7 @@ export function ChatPanel({
   discussion?: ThreadBinding;
   title: string;
   blocked: boolean;
+  recoveryRequired?: boolean;
   close(): void;
 }) {
   const history = useRef<HTMLDivElement>(null);
@@ -81,6 +83,7 @@ export function ChatPanel({
         title={title}
         replier={replier}
         blocked={blocked || !!own?.deleted}
+        recoveryRequired={recoveryRequired && !own?.deleted}
         cancel={close}
         committed={() => {}}
       />

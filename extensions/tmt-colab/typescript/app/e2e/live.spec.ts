@@ -918,7 +918,7 @@ test('authenticated tail past write limits opens and renders exact source', asyn
   await expect(page.getByRole('textbox')).toHaveValue(source);
 });
 
-for (const mode of ['unpaired', 'failed', 'cookie-lost'] as const) {
+for (const mode of ['unpaired', 'failed', 'network', 'cookie-lost'] as const) {
   test(`private guidance ${mode} stays visible without an automatic reopen loop`, async ({
     page,
     context,
@@ -928,6 +928,7 @@ for (const mode of ['unpaired', 'failed', 'cookie-lost'] as const) {
     let opens = 0;
     await context.route('**/test-recovery-open', (route) => {
       opens++;
+      if (mode === 'network') return route.abort('connectionrefused');
       return route.fulfill({ status: mode === 'cookie-lost' ? 200 : 503, json: {} });
     });
     await context.route(`**${mount}`, (route) =>
@@ -979,28 +980,48 @@ test('a disconnected active tab explicitly reconnects and reloads without backgr
 test('Ask publishes owner own envelopes through production Connection before Remote dispatch', async ({
   page,
   context,
-}) => {
+}, testInfo) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
   const f = await wire(context),
     agentId = '00000000-0000-4000-8000-000000000006',
     requestId = 'req_00000000-0000-4000-8000-000000000007',
     reply = 'Wire reply <script>inert</script>';
   let sends = 0;
   let operationId: string | null = null;
+  let opens = 0;
+  let doorDown = false;
+  let oldSessionEnded = false;
+  let terminalReplacement = false;
+  let pendingOpen: Promise<void> | undefined;
+  let releaseOpen: (() => void) | undefined;
   // Only Remote and the signed sync server are doubles: registration, controller,
   // Worker preparation, Writer, Connection, receipts and projection are production.
   await context.route('**/sdk/remote-v1.js*', (route) =>
     route.fulfill({
       contentType: 'text/javascript',
-      body: `export async function reopenSession(){await window.fixtureKeys;return {sessionId:'fixture-session',serverTimeMs:Date.now(),grantRevision:'1',expiresAtMs:null}}
+      body: `export class RefusalError extends Error {constructor(code){super(code);this.code=code;}}
+export async function reopenSession(){const response=await fetch('/test-wire-reopen',{method:'POST'});if(!response.ok)throw new RefusalError('ACCESS_REVOKED');await window.fixtureKeys;return {sessionId:'fixture-session',serverTimeMs:Date.now(),grantRevision:'1',expiresAtMs:null}}
 export async function certifyKey(purpose,bytes){return {publicKey:btoa(String.fromCharCode(...bytes)).replaceAll('+','-').replaceAll('/','_').replace(/=+$/,''),issuedAtMs:Date.now(),signature:'${c.encodeBinary(new Uint8Array(64))}'}}
 export function transportUrl(_session,url){return String(url);}
 export function operations(){return {
-listAgents:async()=>[{id:'${agentId}',name:'Wire agent',presence:'active'}],
+listAgents:async()=>{const response=await fetch('/test-wire-directory');if(response.status===410)throw new RefusalError('REMOTE_SESSION_ENDED');return [{id:'${agentId}',name:'Wire agent',presence:'active'}]},
 send:async(input)=>(await fetch('/test-wire-send',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(input)})).json(),
 operation:async(operationId)=>({state:'accepted',operationId,requestId:'${requestId}'}),
 result:async()=>({state:'replied',requestId:'${requestId}',message:${JSON.stringify(reply)}})
 }}`,
     }),
+  );
+  await context.route('**/test-wire-reopen', async (route) => {
+    opens++;
+    if (pendingOpen) await pendingOpen;
+    if (terminalReplacement) return route.fulfill({ status: 403, json: {} });
+    if (doorDown) return route.abort('connectionrefused');
+    oldSessionEnded = false;
+    f.resumeSync();
+    return route.fulfill({ json: {} });
+  });
+  await context.route('**/test-wire-directory', (route) =>
+    route.fulfill({ status: oldSessionEnded ? 410 : 200, json: {} }),
   );
   await context.route('**/sdk/mount', (route) =>
     route.fulfill({
@@ -1109,6 +1130,189 @@ result:async()=>({state:'replied',requestId:'${requestId}',message:${JSON.string
   await f.settled();
   expect(sends).toBe(1);
   expect(f.entries).toHaveLength(6);
+  let draft = 'Keep this composer draft while the door is down.';
+  await input.fill(draft);
+  const admittedOpens = opens;
+  doorDown = true;
+  oldSessionEnded = true;
+  f.stopSync();
+  const reconnect = page.getByRole('button', { name: 'Reconnect', exact: true });
+  await expect(reconnect).toBeVisible();
+  await expect.poll(() => opens).toBe(admittedOpens + 1);
+  await expect(page.getByText('Reconnect to resume live updates.', { exact: true })).toBeVisible();
+  await expect(page.getByText('Failed to fetch', { exact: true })).toHaveCount(0);
+  await expect(input).toHaveText(draft);
+  await expect(page.getByTestId('ask-entry')).toHaveAttribute('data-operation-id', operationId!);
+  await expect(page.getByTestId('ask-entry')).toHaveAttribute('data-ledger-state', 'accepted');
+  await expect(page.getByTestId('ask-reply')).toHaveText(reply);
+  expect(sends).toBe(1);
+  expect(f.entries).toHaveLength(6);
+  await expect(page.getByRole('heading', { name: 'Connection lost', exact: true })).toBeVisible();
+  await expect(page.locator('.status')).toHaveText('Connection lost');
+  await expect(page.locator('.tmt-ui-notice')).toHaveAttribute('data-tone', 'waiting');
+  await expect(page.locator('.tmt-ui-notice-mark')).toContainText('Disconnected');
+  await expect(page.getByText('This preview accepts pages up to 2 MiB of HTML.')).toHaveCount(0);
+  await expect(input).toBeFocused(); // Recovery must not take focus from a draft.
+  await expect(input).toHaveAttribute('contenteditable', 'true');
+  draft += ' Still editable.';
+  await input.fill(draft);
+  await expect(page.getByRole('button', { name: 'Send', exact: true })).toBeDisabled();
+  await expect(page.getByText('Reconnect to send.', { exact: true })).toBeVisible();
+  await input.press('Enter');
+  expect(sends).toBe(1);
+  await f.settled();
+  expect(f.entries).toHaveLength(6);
+  async function capture(state: string, keyboardFocus = false) {
+    for (const theme of ['light', 'dark']) {
+      await page.evaluate((theme) => {
+        document.documentElement.dataset.theme = theme;
+      }, theme);
+      for (const width of [1440, 390]) {
+        await page.setViewportSize({ width, height: width === 390 ? 844 : 900 });
+        if (keyboardFocus) {
+          await reconnect.focus();
+          await page.keyboard.press('Tab');
+          await page.keyboard.press('Shift+Tab');
+          await expect(reconnect).toBeFocused();
+        }
+        await page.screenshot({
+          path: testInfo.outputPath(`${state}-${theme}-${width}.png`),
+          fullPage: true,
+        });
+      }
+    }
+  }
+  await capture('recovery-draft');
+  await page.getByRole('button', { name: 'Close Chat', exact: true }).click();
+  await capture('recovery-card');
+  await capture('recovery-focus', true);
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.getByTestId('chat-toggle').click();
+  await expect(input).toHaveText(draft);
+  await expect(page.getByTestId('ask-reply')).toHaveText(reply);
+  await page.getByRole('button', { name: 'Close Chat', exact: true }).click();
+  // Explicit recovery before the door returns stays retryable and read-only.
+  pendingOpen = new Promise<void>((resolve) => {
+    releaseOpen = resolve;
+  });
+  await reconnect.click();
+  await expect.poll(() => opens).toBe(admittedOpens + 2);
+  const busyReconnect = page.getByRole('button', { name: 'Reconnecting…', exact: true });
+  await expect(busyReconnect).toHaveAttribute('aria-busy', 'true');
+  await expect(busyReconnect).toBeDisabled();
+  await capture('recovery-busy');
+  expect(opens).toBe(admittedOpens + 2);
+  releaseOpen!();
+  pendingOpen = undefined;
+  await expect(reconnect).toBeEnabled();
+  await expect(page.locator('.tmt-ui-notice')).toHaveAttribute('data-tone', 'waiting');
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.getByTestId('chat-toggle').click();
+  await expect(input).toHaveText(draft);
+  await expect(page.getByTestId('ask-entry')).toHaveAttribute('data-operation-id', operationId!);
+  await expect(page.getByTestId('ask-reply')).toHaveText(reply);
+  expect(sends).toBe(1);
+  expect(f.entries).toHaveLength(6);
+  doorDown = false;
+  f.resumeSync();
+  await reconnect.click();
+  await expect(heading).toBeVisible();
+  await expect.poll(() => f.connections).toBe(1);
+  await page.getByTestId('chat-toggle').click();
+  await expect(page.getByTestId('ask-entry')).toHaveAttribute('data-operation-id', operationId!);
+  await expect(page.getByTestId('ask-entry')).toHaveAttribute('data-ledger-state', 'accepted');
+  await expect(page.getByTestId('ask-reply')).toHaveText(reply);
+  expect(opens).toBe(admittedOpens + 4); // Explicit recovery, then admitted boot.
+  // The existing explicit recovery reload resets local-only drafts. Do not
+  // promise persistence across that reload in the recovery card.
+  await expect(input).toHaveText('');
+  await input.fill('A new draft after verified recovery.');
+  await expect(page.getByRole('button', { name: 'Send', exact: true })).toBeEnabled();
+  expect(sends).toBe(1);
+  await f.settled();
+  expect(f.entries).toHaveLength(6);
+  // The anchored composer shares draft editing but cannot publish Ask or Post.
+  await page.getByRole('button', { name: 'Close Chat', exact: true }).click();
+  async function annotate() {
+    await heading.evaluate((node) => {
+      const range = node.ownerDocument.createRange();
+      range.selectNodeContents(node);
+      const selection = node.ownerDocument.getSelection()!;
+      selection.removeAllRanges();
+      selection.addRange(range);
+    });
+    await page.getByTestId('selection-ask').click();
+  }
+  await annotate();
+  const annotation = page.getByRole('dialog', { name: 'Annotate selection' });
+  const annotationInput = annotation.getByRole('combobox', { name: 'Message', exact: true });
+  await annotationInput.fill('Keep this anchored draft.');
+  const post = annotation.getByRole('button', { name: 'Post comment', exact: true });
+  const askAction = annotation.getByRole('button', { name: 'Ask agent', exact: true });
+  await expect(post).toBeEnabled();
+  await expect(askAction).toBeEnabled();
+  // Successful mounted-session replacement rebinds this same draft to the new
+  // Ask facade. It must not require closing and opening the annotation again.
+  await annotationInput.evaluate((node) => {
+    Object.assign(window, { recoveryDraftNode: node });
+  });
+  const beforeReplacement = opens;
+  pendingOpen = new Promise<void>((resolve) => {
+    releaseOpen = resolve;
+  });
+  oldSessionEnded = true;
+  f.stopSync();
+  f.resumeSync();
+  await expect.poll(() => opens).toBe(beforeReplacement + 1);
+  await expect(askAction).toBeDisabled();
+  await expect(annotationInput).toHaveText('Keep this anchored draft.');
+  releaseOpen!();
+  pendingOpen = undefined;
+  await expect.poll(() => f.connections).toBe(1);
+  await expect(heading).toBeVisible();
+  await expect(post).toBeEnabled();
+  await expect(askAction).toBeEnabled();
+  await expect(annotationInput).toBeFocused();
+  expect(
+    await annotationInput.evaluate(
+      (node) => node === (window as unknown as { recoveryDraftNode: Element }).recoveryDraftNode,
+    ),
+  ).toBe(true);
+  await expect(annotationInput).toHaveText('Keep this anchored draft.');
+
+  doorDown = true;
+  oldSessionEnded = true;
+  f.stopSync();
+  await expect(reconnect).toBeVisible();
+  await expect(annotationInput).toBeFocused();
+  await expect(annotationInput).toHaveAttribute('contenteditable', 'true');
+  await annotationInput.fill('Still editable anchored draft.');
+  await expect(post).toBeDisabled();
+  await expect(askAction).toBeDisabled();
+  await annotationInput.press('Enter');
+  await expect(annotationInput).toHaveText('Still editable anchored draft.');
+  expect(sends).toBe(1);
+  await f.settled();
+  expect(f.entries).toHaveLength(6);
+  await annotationInput.press('Escape');
+  doorDown = false;
+  f.resumeSync();
+  await reconnect.click();
+  await expect(heading).toBeVisible();
+  await expect.poll(() => f.connections).toBe(1);
+  await annotate();
+  await annotationInput.fill('A new anchored draft after verified recovery.');
+  await expect(post).toBeEnabled();
+  await expect(askAction).toBeEnabled();
+  await annotationInput.press('Escape');
+  // An authority refusal is terminal, with a distinct blocked presentation.
+  terminalReplacement = true;
+  oldSessionEnded = true;
+  f.stopSync();
+  await expect(page.getByRole('heading', { name: 'Preview stopped', exact: true })).toBeVisible();
+  await expect(page.locator('.tmt-ui-notice')).toHaveAttribute('data-tone', 'blocked');
+  await expect(reconnect).toHaveCount(0);
+  await capture('terminal-refusal');
   await page.getByRole('link', { name: 'Space home' }).click();
   await expect.poll(() => f.connections).toBe(0);
 });

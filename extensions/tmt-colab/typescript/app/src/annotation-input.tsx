@@ -24,6 +24,7 @@ export function AnnotationInput({
   onDraft,
   onBusy,
   blocked,
+  recoveryRequired = false,
   cancel,
   committed,
   chat = false,
@@ -44,6 +45,8 @@ export function AnnotationInput({
   /** Reports a send in flight, which nothing outside may interrupt. */
   onBusy?(busy: boolean): void;
   blocked: boolean;
+  /** Recovery keeps local editing available; blocked still fences every publish. */
+  recoveryRequired?: boolean;
   cancel(): void;
   committed(ref: DiscussionRef): void;
   chat?: boolean;
@@ -102,7 +105,7 @@ export function AnnotationInput({
     setResetKey((key) => key + 1);
   }
   async function send(intent: 'comment' | 'agent') {
-    if (sending.current || recorded) return;
+    if (sending.current || recorded || (blocked && recoveryRequired)) return;
     const admitted = decide(intent);
     if (admitted.kind === 'blocked' || !discussion || (intent === 'agent' && !binding)) {
       setError(text.messageUnavailable);
@@ -182,7 +185,7 @@ export function AnnotationInput({
         }
         resetKey={resetKey}
         autoFocus
-        disabled={busy || blocked || !!recorded || !discussion}
+        disabled={busy || (blocked && !recoveryRequired) || !!recorded || !discussion}
         onSubmit={(event) => {
           if (event.isTrusted && !event.isComposing && event.keyCode !== 229)
             void send(defaultIntent);
@@ -192,7 +195,9 @@ export function AnnotationInput({
             cancel();
         }}
       />
-      <p className="annotation-hint">{busy ? text.messageSending : text.messageKeys}</p>
+      <p className="annotation-hint">
+        {busy ? text.messageSending : recoveryRequired ? text.reconnectToSend : text.messageKeys}
+      </p>
       {destination && (
         <p className="annotation-hint">
           {text.messageRecipient}: {destination.agentName} · {destination.machineName}

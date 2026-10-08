@@ -329,7 +329,7 @@ export function change(source: string) {
   emit();
 }
 export function block() {
-  fail?.(new Error('Sync disconnected'));
+  fail?.(new Error('Page unavailable'));
 }
 export function pausePrepare() {
   preparing = new Promise<void>((resolve) => {

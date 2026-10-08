@@ -16,6 +16,7 @@ import { Connection } from './connection.js';
 import { Writer } from './writer.js';
 import { prepareExport, hex, type ExportBundle } from './export.js';
 import { text } from './strings.js';
+import { RecoveryRequiredError } from './session-recovery.js';
 
 export interface LiveSession {
   registration: Registration;
@@ -59,6 +60,7 @@ export class Live implements PageBinding {
   #projection: PageView = { source: '', title: '' };
   #listeners = new Set<{ publish(value: PageView): void; failed(error: Error): void }>();
   #error: Error | null = null;
+  #recovering: Promise<boolean> | null = null;
   constructor(
     readonly mount: URL,
     readonly bootstrap: Bootstrap,
@@ -248,7 +250,10 @@ export class Live implements PageBinding {
     try {
       if (open.replaceSession) {
         if (!this.sessionOwner) throw new Error('Session replacement unavailable');
-        const session = await this.sessionOwner.reconnect(open.registration);
+        const session = await this.sessionOwner.reconnect(open.registration).catch((error) => {
+          if (error instanceof TypeError) throw new RecoveryRequiredError(error);
+          throw error;
+        });
         requireValue(this.#owns(open));
         this.registration = open.registration = session.registration;
         open.remote = session.remote;
@@ -416,6 +421,9 @@ export class Live implements PageBinding {
     } else this.#block(error);
   }
   #block(error: Error) {
+    // Connection's single socket.onerror/onclose handler owns this opaque
+    // message; keep its normalization here while the sync socket owner evolves.
+    if (error.message === 'Sync disconnected') error = new RecoveryRequiredError(error);
     const connection = this.#connection;
     this.#opening = null;
     this.#connection = null;
@@ -522,11 +530,39 @@ export class Live implements PageBinding {
     };
     this.#listeners.forEach((listener) => listener.publish(structuredClone(this.#projection)));
   }
-  async reconnect(): Promise<boolean> {
-    if (!this.sessionOwner?.recover || this.#closed) return false;
+  reconnect(): Promise<boolean> {
+    if (this.#recovering) return this.#recovering;
+    if (
+      !this.sessionOwner?.recover ||
+      this.#closed ||
+      (this.#error && !(this.#error instanceof RecoveryRequiredError))
+    )
+      return Promise.resolve(false);
     // Stop the page's socket, Ask and observer before any new Remote session.
-    this.close();
-    return this.sessionOwner.recover();
+    // Keep the admitted projection and subscribers through a network failure.
+    if (!this.#error) this.#block(new RecoveryRequiredError(new Error('Sync disconnected')));
+    this.#recovering = this.sessionOwner
+      .recover()
+      .then((recovered) => {
+        if (!recovered && !this.#closed) this.#block(new Error(text.reconnectFailed));
+        this.close();
+        return recovered;
+      })
+      .catch((error: unknown) => {
+        if (!this.#closed && error instanceof RecoveryRequiredError) {
+          this.#error = error;
+          this.#listeners.forEach((listener) => listener.failed(error));
+        } else {
+          if (!this.#closed)
+            this.#block(error instanceof Error ? error : new Error(text.reconnectFailed));
+          this.close();
+        }
+        return false;
+      })
+      .finally(() => {
+        this.#recovering = null;
+      });
+    return this.#recovering;
   }
   async edit(source: string, base: string) {
     if (this.#closed || this.#error) throw new Error('Page editing unavailable');

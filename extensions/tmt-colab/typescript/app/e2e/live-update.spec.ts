@@ -279,7 +279,8 @@ for (const width of [1440, 390]) {
       await expect(composer.locator('blockquote')).toHaveText('Exact selected text');
       await expect(page.locator('#ask-page-fixture iframe')).toHaveCount(0);
       const notice = page.getByRole('alert');
-      await expect(notice).toContainText(text.limit);
+      await expect(notice).toContainText('Page unavailable');
+      await expect(notice).not.toContainText(text.limit);
       await expect
         .poll(async () => {
           const card = await notice.boundingBox();

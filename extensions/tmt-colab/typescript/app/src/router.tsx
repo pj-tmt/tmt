@@ -6,6 +6,7 @@ import {
   FileText,
   ArrowUpRight,
   Circle,
+  Diamond,
   LoaderCircle,
   Ellipsis,
   Info,
@@ -37,10 +38,11 @@ import { presentationOf } from './thread-status-presentation.js';
 import { isStatusThread, openThreadCount } from './thread-status-view.js';
 import type { QuoteSelector, DiscussionRef } from './thread-records.js';
 import { ShareDialog } from './share-dialog.js';
-import { mountRenderer } from './renderer.js';
+import { mountRenderer, MAX_RENDER_SOURCE_BYTES } from './renderer.js';
 import type { RenderState, SelectionRect } from './renderer.js';
 import { text } from './strings.js';
 import { SessionEvictedError } from './ask-remote.js';
+import { RecoveryRequiredError } from './session-recovery.js';
 import { ExportPanel } from './export-panel.js';
 import { PageDrawer } from './page-drawer.js';
 import { AgentStatusPanel } from './agent-status-panel.js';
@@ -540,9 +542,10 @@ function Page() {
     base = useRef(snapshot.source);
   const [draft, setDraft] = useState(snapshot.source),
     [saving, setSaving] = useState(false);
-  const [liveError, setLiveError] = useState<string | null>(null),
+  const [liveError, setLiveError] = useState<Error | null>(null),
     [eviction, setEviction] = useState<SessionEvictedError | null>(null),
     [editError, setEditError] = useState<string | null>(null);
+  const recoveryRequired = liveError instanceof RecoveryRequiredError;
   useEffect(() => {
     dirty.current = false;
     base.current = snapshot.source;
@@ -570,7 +573,7 @@ function Page() {
         }
       },
       (error) => {
-        setLiveError(error.message);
+        setLiveError(error);
         setEviction(error instanceof SessionEvictedError ? error : null);
       },
     );
@@ -598,10 +601,13 @@ function Page() {
   async function reconnect() {
     if (reconnecting) return;
     setReconnecting(true);
+    setReconnectFailed(false);
     try {
       if (!(await snapshot.binding?.reconnect?.())) setReconnectFailed(true);
     } catch {
       setReconnectFailed(true);
+    } finally {
+      setReconnecting(false);
     }
   }
   const [selector, setSelector] = useState<QuoteSelector | null>(null);
@@ -673,7 +679,8 @@ function Page() {
     : undefined;
   const openThreads = openThreadCount(view.threads ?? []);
   const unseenThreads = (view.threadPresentations ?? []).some((value) => value.status.unseen);
-  const statusCoordinator = liveError === managementChanged ? undefined : snapshot.binding?.status;
+  const statusCoordinator =
+    liveError?.message === managementChanged ? undefined : snapshot.binding?.status;
   const annotationKey = (value: NonNullable<typeof annotation>) =>
     value.thread ? `${value.thread.writer}:${value.thread.id}` : JSON.stringify(value.selector);
   /** Every nonblank message is a draft; recipient selection never replaces its bytes. */
@@ -856,11 +863,19 @@ function Page() {
             <span
               className={`status ${state === 'ready' ? 'live' : ''}`}
               title={
-                state === 'ready' ? text.loaded : state === 'loading' ? text.loading : text.blocked
+                recoveryRequired
+                  ? text.connectionLost
+                  : state === 'ready'
+                    ? text.loaded
+                    : state === 'loading'
+                      ? text.loading
+                      : text.blocked
               }
             >
               <span aria-hidden>
-                {state === 'failed' || state === 'navigation' ? (
+                {recoveryRequired ? (
+                  <Diamond fill="currentColor" aria-hidden />
+                ) : state === 'failed' || state === 'navigation' ? (
                   <X aria-hidden />
                 ) : state === 'loading' ? (
                   <LoaderCircle aria-hidden />
@@ -869,11 +884,13 @@ function Page() {
                 )}
               </span>
               <span className="status-label">
-                {state === 'ready'
-                  ? text.loaded
-                  : state === 'loading'
-                    ? text.loading
-                    : text.blocked}
+                {recoveryRequired
+                  ? text.connectionLost
+                  : state === 'ready'
+                    ? text.loaded
+                    : state === 'loading'
+                      ? text.loading
+                      : text.blocked}
               </span>
             </span>
             <button
@@ -974,7 +991,7 @@ function Page() {
                 title={view.title || snapshot.title}
                 changed={() => {
                   snapshot.binding?.close();
-                  setLiveError(managementChanged);
+                  setLiveError(new Error(managementChanged));
                 }}
               />
               <ThemeButton menuLabel />
@@ -995,8 +1012,30 @@ function Page() {
         <div className="canvas">
           <div className="frame-host" ref={host} />
           {(state === 'navigation' || state === 'failed') && (
-            <NoticeCard state="blocked" eyebrow={text.product} title={text.blocked}>
-              {eviction ? (
+            <NoticeCard
+              state={recoveryRequired ? 'waiting' : 'blocked'}
+              stateLabel={recoveryRequired ? text.disconnected : undefined}
+              eyebrow={text.product}
+              title={recoveryRequired ? text.connectionLost : text.blocked}
+              actions={
+                recoveryRequired &&
+                snapshot.binding?.reconnect && (
+                  <BrowserAction
+                    type="button"
+                    label={reconnecting ? text.reconnecting : text.reconnect}
+                    variant="primary"
+                    busy={reconnecting}
+                    busyMark={<LoaderCircle />}
+                    onActivate={(event) => {
+                      if (event.isTrusted) void reconnect();
+                    }}
+                  />
+                )
+              }
+            >
+              {recoveryRequired ? (
+                <p>{text.recoveryRequired}</p>
+              ) : eviction ? (
                 <>
                   <p>{text.sessionEvicted(eviction.limit)}</p>
                   <p>
@@ -1011,30 +1050,23 @@ function Page() {
                 </>
               ) : (
                 <>
-                  <p>{liveError ?? (state === 'navigation' ? text.navigation : text.failed)}</p>
-                  <p>{text.limit}</p>
+                  <p>
+                    {liveError?.message ?? (state === 'navigation' ? text.navigation : text.failed)}
+                  </p>
+                  {!liveError &&
+                    state === 'failed' &&
+                    new TextEncoder().encode(view.source).length > MAX_RENDER_SOURCE_BYTES && (
+                      <p>{text.limit}</p>
+                    )}
                 </>
               )}
-              {liveError === 'Sync disconnected' && snapshot.binding?.reconnect && (
-                <button
-                  className={ui.action}
-                  data-variant="text"
-                  disabled={reconnecting}
-                  data-testid="colab-reconnect"
-                  onClick={(event) => {
-                    if (event.isTrusted) void reconnect();
-                  }}
-                >
-                  {text.reconnect}
-                </button>
-              )}
-              {reconnectFailed && <p>{text.reconnectFailed}</p>}
+              {!recoveryRequired && reconnectFailed && <p>{text.reconnectFailed}</p>}
             </NoticeCard>
           )}
         </div>
       </div>
       {snapshot.binding?.discussion &&
-        snapshot.binding?.ask &&
+        (snapshot.binding?.ask || annotation) &&
         (annotation || (!liveError && state === 'ready')) && (
           <SelectionAnnotation
             host={host.current}
@@ -1104,6 +1136,9 @@ function Page() {
                         asks={view.asks ?? []}
                         title={view.title || snapshot.title}
                         blocked={discussionBlocked || changingStatus || !!annotationThread?.deleted}
+                        recoveryRequired={
+                          recoveryRequired && !changingStatus && !annotationThread?.deleted
+                        }
                         initialEdit={annotation.restored}
                         onDraft={(_value, edit) => {
                           if (annotationRef.current?.key !== annotation.key) return;
@@ -1171,8 +1206,10 @@ function Page() {
           resolved={resolved}
           anchorsChecked={anchorsChecked}
           selection={selector}
-          binding={liveError === managementChanged ? undefined : snapshot.binding?.discussion}
-          ask={liveError === managementChanged ? undefined : snapshot.binding?.ask}
+          binding={
+            liveError?.message === managementChanged ? undefined : snapshot.binding?.discussion
+          }
+          ask={liveError?.message === managementChanged ? undefined : snapshot.binding?.ask}
           title={view.title || snapshot.title}
           asks={view.asks ?? []}
           active={activeThread}
@@ -1214,10 +1251,13 @@ function Page() {
             key={`chat:${snapshot.id}`}
             threads={view.threads ?? []}
             asks={view.asks ?? []}
-            binding={liveError === managementChanged ? undefined : snapshot.binding?.ask}
-            discussion={liveError === managementChanged ? undefined : snapshot.binding?.discussion}
+            binding={liveError?.message === managementChanged ? undefined : snapshot.binding?.ask}
+            discussion={
+              liveError?.message === managementChanged ? undefined : snapshot.binding?.discussion
+            }
             title={view.title || snapshot.title}
             blocked={discussionBlocked}
+            recoveryRequired={recoveryRequired}
             close={() => setPanel(null)}
           />
         )}

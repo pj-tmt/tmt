@@ -100,14 +100,24 @@ Connection/Registration/Remote owner. A current pending same-session attempt kee
 that owner while diagnosis settles, even if readiness has already rejected.
 Verified session end starts one existing mounted-owner replacement; verified eviction
 blocks. A pending failed attempt also blocks on a successful read without session end
-or an unverified read failure. A failure during pending Session replacement is terminal.
+or an unverified read failure. An opaque socket disconnect, or a native fetch
+`TypeError` during mounted-owner Session replacement, stops the binding with
+`RecoveryRequiredError` (original cause retained) and offers explicit Reconnect.
+Other replacement, admission and eviction failures remain terminal.
 Ready-page transport failures retain bounded same-session catchup. Superseded callbacks,
 readiness, publications and diagnosis cannot alter the current attempt. Recovery
 never replays an Ask or mutation. If recovery
-fails, the explicit Reconnect button uses `recoverSession` through `Live.reconnect`, closing
-the page socket, Ask and observer first. The Remote restart cases drive that explicit path
-or admitted mounted-owner replacement in `acceptance/ask.spec.ts`; both restart cases
-stay active expected failures until #2039 restores their fetch-failure recovery path.
+fails, the explicit Reconnect button uses `recoverSession` through `Live.reconnect`, stopping
+the page socket, Ask and observer first while retaining the admitted Ask view and composer
+draft. Recovery uses a waiting notice and keeps local composer editing available while all
+sends and publications remain blocked. An open annotation stays mounted while its retired
+Ask facade is absent and rebinds after verified replacement. Concurrent clicks share one in-flight attempt. Only an explicitly started network
+failure clears its failed recovery marker and leaves Reconnect available for another click;
+automatic guidance keeps its marker, and successful reload still spans the marker until
+authenticated boot clears it. No additional automatic reopen or mutation replay is added.
+The Remote restart cases drive explicit recovery or admitted mounted-owner replacement
+in `acceptance/ask.spec.ts`. Local drafts survive the stopped state and failed clicks;
+successful explicit recovery reloads the page and resets local-only drafts.
 
 ## Persistence layout
 
