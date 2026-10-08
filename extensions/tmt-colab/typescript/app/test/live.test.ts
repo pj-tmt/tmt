@@ -38,7 +38,7 @@ const connectionPlans = vi.hoisted(
     [] as {
       ready: Promise<PageView>;
       constructed(): void;
-      closed(): void;
+      closed(error?: Error): void;
     }[],
 );
 const saves = vi.hoisted(() => ({ save: vi.fn(), status: vi.fn() }));
@@ -118,12 +118,19 @@ vi.mock('../src/connection.js', () => ({
     close = vi.fn();
   },
 }));
+const writerFailures = vi.hoisted(() => [] as Error[]);
+const writers = vi.hoisted(() => [] as { key: string; close: ReturnType<typeof vi.fn> }[]);
 vi.mock('../src/writer.js', () => ({
   Writer: class {
+    constructor(readonly key: string) {
+      const failure = writerFailures.shift();
+      if (failure) throw failure;
+      writers.push(this);
+    }
     submitOwn = mutations.submitOwn;
     submitOwnRecords = mutations.submitOwnRecords;
     submitRecords = mutations.submitRecords;
-    close() {}
+    close = vi.fn();
   },
 }));
 
@@ -550,7 +557,7 @@ it('mounted ownership loss closes the Ask controller, observer and tunnel withou
   }
 });
 
-it('explicit recovery stops Live, Ask and observation before reopening, with no automatic retry', async () => {
+it('only a typed fresh-session refusal uses bounded reload after stopping Live, Ask and observation', async () => {
   const registration = {
     deviceId: 'device',
     keys: { sign: {}, signPublic: new Uint8Array(32) },
@@ -564,7 +571,12 @@ it('explicit recovery stops Live, Ask and observation before reopening, with no 
     expect(signal.aborted).toBe(true);
     return false;
   });
-  const reconnect = vi.fn();
+  const reconnect = vi.fn(async () => {
+    expect(connection.close).toHaveBeenCalledOnce();
+    expect(ask.close).toHaveBeenCalledOnce();
+    expect(signal.aborted).toBe(true);
+    throw new SessionEndedError('REMOTE_SESSION_ENDED');
+  });
   const live = new Live(
     new URL('https://example.test/colab/'),
     {
@@ -591,7 +603,7 @@ it('explicit recovery stops Live, Ask and observation before reopening, with no 
   expect(await live.reconnect()).toBe(false);
   expect(await live.reconnect()).toBe(false);
   expect(recover).toHaveBeenCalledOnce();
-  expect(reconnect).not.toHaveBeenCalled();
+  expect(reconnect).toHaveBeenCalledOnce();
 });
 
 it('remembers only accepted fold titles under the exact admission registration', async () => {
@@ -1235,47 +1247,240 @@ it('already-replacing ready rejection offers explicit recovery without an old-se
   }
 });
 
-it('a replacement fetch failure retains a typed recovery state, and concurrent explicit clicks check once', async () => {
+it('explicit in-place recovery coalesces clicks, keeps failed retries read-only and restores one writer', async () => {
   const h = heldResync();
   const network = new TypeError('Failed to fetch');
   h.reconnect.mockRejectedValueOnce(network);
-  let rejectRecovery!: (error: Error) => void;
-  const recovery = new Promise<boolean>((_, reject) => {
-    rejectRecovery = reject;
+  let rejectReplacement!: (error: Error) => void;
+  const replacement = new Promise<never>((_, reject) => {
+    rejectReplacement = reject;
   });
-  h.recover.mockImplementationOnce(() => recovery).mockResolvedValueOnce(true);
   try {
     await h.live.snapshot();
     const current = connections.at(-1)!;
+    const writer = writers.at(-1)!;
+    const ask = asks.instances.at(-1)!;
     current.failed(new SessionEndedError('REMOTE_SESSION_ENDED'));
     await expect(h.live.snapshot()).rejects.toMatchObject({ cause: network });
     expect(h.failed).toHaveBeenCalledOnce();
     expect(h.failed.mock.calls[0][0]).toBeInstanceOf(RecoveryRequiredError);
     expect(h.live.registration).toBe(h.first);
+    h.reconnect.mockImplementationOnce(() => replacement);
     const one = h.live.reconnect();
     const two = h.live.reconnect();
     expect(one).toBe(two);
-    expect(h.recover).toHaveBeenCalledOnce();
+    await vi.waitFor(() => expect(h.reconnect).toHaveBeenCalledTimes(2));
     await expect(h.live.edit('unadmitted edit', 'verified')).rejects.toThrow(
       'Page editing unavailable',
     );
     expect(current.close).toHaveBeenCalledOnce();
-    expect(asks.instances.at(-1)!.close).toHaveBeenCalled();
+    expect(ask.close).toHaveBeenCalledOnce();
+    expect(writer.close).toHaveBeenCalled();
+    expect(writers.at(-1)).toBe(writer);
     expectNoRecoveryMutations(h.remote);
-    const nextFailure = new RecoveryRequiredError(new TypeError('Failed to fetch'));
-    rejectRecovery(nextFailure);
+    rejectReplacement(new TypeError('Failed to fetch'));
     expect(await one).toBe(false);
     expect(h.failed).toHaveBeenCalledTimes(2);
-    expect(h.failed.mock.calls[1][0]).toBe(nextFailure);
-    expect(h.recover).toHaveBeenCalledOnce();
+    expect(h.failed.mock.calls[1][0]).toBeInstanceOf(RecoveryRequiredError);
+    expect(h.live.registration).toBe(h.first);
     expect(await h.live.reconnect()).toBe(true);
-    expect(h.recover).toHaveBeenCalledTimes(2);
-    expect(h.reconnect).toHaveBeenCalledOnce();
+    expect(h.reconnect).toHaveBeenCalledTimes(3);
+    expect(h.recover).not.toHaveBeenCalled();
+    expect(h.live.registration).toBe(h.second);
+    expect(writers.at(-1)).not.toBe(writer);
+    expect(writers.at(-1)!.key).toBe(writer.key);
     expectNoRecoveryMutations(h.remote);
   } finally {
     h.live.close();
   }
 });
+
+it('a failed writer replacement remains terminal and retires the admitted Connection without reload', async () => {
+  const h = heldResync();
+  try {
+    await h.live.snapshot();
+    h.reconnect.mockRejectedValueOnce(new TypeError('Failed to fetch'));
+    connections.at(-1)!.failed(new SessionEndedError('REMOTE_SESSION_ENDED'));
+    await expect(h.live.snapshot()).rejects.toBeInstanceOf(RecoveryRequiredError);
+    const error = new Error('Writer unavailable');
+    writerFailures.push(error);
+    expect(await h.live.reconnect()).toBe(false);
+    expect(h.failed.mock.calls.at(-1)![0]).toBe(error);
+    expect(connections.at(-1)!.close).toHaveBeenCalledOnce();
+    expect(await h.live.reconnect()).toBe(false);
+    expect(h.recover).not.toHaveBeenCalled();
+    expectNoRecoveryMutations(h.remote);
+  } finally {
+    h.live.close();
+    writerFailures.length = 0;
+  }
+});
+
+it('a fresh typed session refusal alone permits a successful reload fallback without restoring a writer', async () => {
+  const h = heldResync();
+  try {
+    await h.live.snapshot();
+    const writer = writers.at(-1)!;
+    h.reconnect.mockRejectedValueOnce(new TypeError('Failed to fetch'));
+    connections.at(-1)!.failed(new SessionEndedError('REMOTE_SESSION_ENDED'));
+    await expect(h.live.snapshot()).rejects.toBeInstanceOf(RecoveryRequiredError);
+    h.reconnect.mockRejectedValueOnce(new SessionEndedError('REMOTE_SESSION_ENDED'));
+    h.recover.mockResolvedValueOnce(true);
+    expect(await h.live.reconnect()).toBe(true);
+    expect(h.recover).toHaveBeenCalledOnce();
+    expect(writers.at(-1)).toBe(writer);
+    expect(await h.live.reconnect()).toBe(false);
+    expect(h.reconnect).toHaveBeenCalledTimes(2);
+    expectNoRecoveryMutations(h.remote);
+  } finally {
+    h.live.close();
+  }
+});
+
+it.each(['disposed', 'evicted'] as const)(
+  'a %s replacement during verified publication cannot report explicit recovery success',
+  async (state) => {
+    const h = heldResync();
+    try {
+      await h.live.snapshot();
+      const oldWriter = writers.at(-1)!;
+      let armed = false;
+      h.live.subscribe(
+        () => {
+          if (!armed || writers.at(-1) === oldWriter) return;
+          armed = false;
+          if (state === 'disposed') h.live.close();
+          else connections.at(-1)!.failed(new SessionEvictedError(8));
+        },
+        () => {},
+      );
+      h.reconnect.mockRejectedValueOnce(new TypeError('Failed to fetch'));
+      connections.at(-1)!.failed(new SessionEndedError('REMOTE_SESSION_ENDED'));
+      await expect(h.live.snapshot()).rejects.toBeInstanceOf(RecoveryRequiredError);
+      armed = true;
+      expect(await h.live.reconnect()).toBe(false);
+      expect(h.recover).not.toHaveBeenCalled();
+      expect(connections.at(-1)!.close).toHaveBeenCalledOnce();
+      expectNoRecoveryMutations(h.remote);
+    } finally {
+      h.live.close();
+    }
+  },
+);
+
+it('an admitted fresh-session end preserves its typed readiness refusal for the reload fallback', async () => {
+  const h = heldResync();
+  try {
+    await h.live.snapshot();
+    h.reconnect.mockRejectedValueOnce(new TypeError('Failed to fetch'));
+    connections.at(-1)!.failed(new SessionEndedError('REMOTE_SESSION_ENDED'));
+    await expect(h.live.snapshot()).rejects.toBeInstanceOf(RecoveryRequiredError);
+    connectionPlans.push({
+      ready: h.ready,
+      constructed: h.constructed,
+      closed: (error) => h.reject(error!),
+    });
+    h.recover.mockResolvedValueOnce(true);
+    const attempt = h.live.reconnect();
+    await h.created;
+    const pending = connections.at(-1)!;
+    asks.instances.at(-1)!.options.sessionEnded?.();
+    const failure = h.failed.mock.calls.at(-1)![0];
+    expect(failure).toBeInstanceOf(RecoveryRequiredError);
+    expect(failure.cause).toBeInstanceOf(SessionEndedError);
+    expect(pending.close).toHaveBeenCalledExactlyOnceWith(failure.cause);
+    expect(await attempt).toBe(true);
+    expect(h.recover).toHaveBeenCalledOnce();
+    expectNoRecoveryMutations(h.remote);
+  } finally {
+    h.live.close();
+    h.release({ source: 'unused', title: 'Unused' });
+  }
+});
+
+it('a typed fresh refusal keeps recovery visible during its fallback and a failed fallback stays retryable', async () => {
+  const h = heldResync();
+  let rejectFallback!: (error: Error) => void;
+  const fallback = new Promise<boolean>((_, reject) => {
+    rejectFallback = reject;
+  });
+  try {
+    await h.live.snapshot();
+    h.reconnect.mockRejectedValueOnce(new TypeError('Failed to fetch'));
+    connections.at(-1)!.failed(new SessionEndedError('REMOTE_SESSION_ENDED'));
+    await expect(h.live.snapshot()).rejects.toBeInstanceOf(RecoveryRequiredError);
+    const refused = new SessionEndedError('REMOTE_SESSION_ENDED');
+    h.reconnect.mockRejectedValueOnce(refused);
+    h.recover.mockImplementationOnce(() => fallback);
+    const attempt = h.live.reconnect();
+    await vi.waitFor(() => expect(h.recover).toHaveBeenCalledOnce());
+    expect(h.failed.mock.calls.at(-1)![0]).toBeInstanceOf(RecoveryRequiredError);
+    expect(h.failed.mock.calls.at(-1)![0].cause).toBe(refused);
+    await expect(h.live.edit('unadmitted edit', 'verified')).rejects.toThrow(
+      'Page editing unavailable',
+    );
+    rejectFallback(new RecoveryRequiredError(new TypeError('Failed to fetch')));
+    expect(await attempt).toBe(false);
+    expect(h.failed.mock.calls.at(-1)![0]).toBeInstanceOf(RecoveryRequiredError);
+    expect(await h.live.reconnect()).toBe(true);
+    expect(h.reconnect).toHaveBeenCalledTimes(3);
+    expect(h.recover).toHaveBeenCalledOnce();
+    expectNoRecoveryMutations(h.remote);
+  } finally {
+    h.live.close();
+  }
+});
+
+it('explicit recovery keeps publication blocked until admitted catchup and ignores disposed readiness', async () => {
+  const h = heldResync();
+  try {
+    await h.live.snapshot();
+    h.reconnect.mockRejectedValueOnce(new TypeError('Failed to fetch'));
+    connections.at(-1)!.failed(new SessionEndedError('REMOTE_SESSION_ENDED'));
+    await expect(h.live.snapshot()).rejects.toBeInstanceOf(RecoveryRequiredError);
+    const writer = writers.at(-1)!;
+    connectionPlans.push({ ready: h.ready, constructed: h.constructed, closed: () => {} });
+    const recovering = h.live.reconnect();
+    await h.created;
+    const pending = connections.at(-1)!;
+    await expect(h.live.edit('unadmitted edit', 'verified')).rejects.toThrow(
+      'Page editing unavailable',
+    );
+    expect(writers.at(-1)).toBe(writer);
+    h.live.close();
+    h.release({ source: 'late', title: 'Late' });
+    pending.publish({ source: 'late', title: 'Late' });
+    expect(await recovering).toBe(false);
+    expect(writers.at(-1)).toBe(writer);
+    expect(h.recover).not.toHaveBeenCalled();
+    expectNoRecoveryMutations(h.remote);
+  } finally {
+    h.live.close();
+    h.release({ source: 'unused', title: 'Unused' });
+  }
+});
+
+it.each([new Error('replacement registration rejected'), new SessionEvictedError(8)])(
+  'an explicit non-session refusal remains terminal without reload: %s',
+  async (error) => {
+    const h = heldResync();
+    try {
+      await h.live.snapshot();
+      h.reconnect.mockRejectedValueOnce(new TypeError('Failed to fetch'));
+      connections.at(-1)!.failed(new SessionEndedError('REMOTE_SESSION_ENDED'));
+      await expect(h.live.snapshot()).rejects.toBeInstanceOf(RecoveryRequiredError);
+      h.reconnect.mockRejectedValueOnce(error);
+      expect(await h.live.reconnect()).toBe(false);
+      expect(h.failed.mock.calls.at(-1)![0]).toBe(error);
+      expect(await h.live.reconnect()).toBe(false);
+      expect(h.reconnect).toHaveBeenCalledTimes(2);
+      expect(h.recover).not.toHaveBeenCalled();
+      expectNoRecoveryMutations(h.remote);
+    } finally {
+      h.live.close();
+    }
+  },
+);
 
 it.each([
   new Error('replacement registration rejected'),

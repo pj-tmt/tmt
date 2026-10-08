@@ -223,9 +223,11 @@ export class Live implements PageBinding {
       });
   }
   #owns(open: LiveOpen) {
+    // #block clears #opening before closing the Connection, so even an
+    // in-flight blocked attempt loses ownership before its callbacks run.
+    // A retained recovery error fences writes, not the fresh replacement read.
     return (
       !this.#closed &&
-      !this.#error &&
       this.#opening === open &&
       this.registration === open.registration &&
       this.#remote === open.remote
@@ -425,18 +427,30 @@ export class Live implements PageBinding {
     } else this.#block(error);
   }
   #block(error: Error) {
+    const failure = error;
     // Connection's single socket.onerror/onclose handler owns this opaque
     // message; keep its normalization here while the sync socket owner evolves.
-    if (error.message === 'Sync disconnected') error = new RecoveryRequiredError(error);
+    if (
+      error.message === 'Sync disconnected' ||
+      (error instanceof SessionEndedError &&
+        this.#recovering &&
+        this.#opening?.pending &&
+        this.#opening.replaceSession)
+    )
+      // An explicit fresh-session refusal keeps the waiting card while its
+      // bounded reload fallback runs; other non-network faults stay terminal.
+      error = new RecoveryRequiredError(error);
     const connection = this.#connection;
     this.#opening = null;
     this.#connection = null;
     this.#pendingView = null;
     this.#error = error;
     this.#observation?.abort();
+    this.#observation = null;
     this.ask?.close();
+    this.ask = undefined;
     this.#writer.close();
-    connection?.close();
+    connection?.close(failure);
     this.#listeners.forEach((v) => v.failed(error));
   }
   async snapshot(): Promise<PageSnapshot> {
@@ -537,31 +551,52 @@ export class Live implements PageBinding {
   reconnect(): Promise<boolean> {
     if (this.#recovering) return this.#recovering;
     if (
-      !this.sessionOwner?.recover ||
+      !this.sessionOwner ||
       this.#closed ||
       (this.#error && !(this.#error instanceof RecoveryRequiredError))
     )
       return Promise.resolve(false);
-    // Stop the page's socket, Ask and observer before any new Remote session.
-    // Keep the admitted projection and subscribers through a network failure.
+    // Keep this binding's projection, composers and write fence until a fresh
+    // same-device Session and Connection have admitted the replacement view.
     if (!this.#error) this.#block(new RecoveryRequiredError(new Error('Sync disconnected')));
-    this.#recovering = this.sessionOwner
-      .recover()
-      .then((recovered) => {
-        if (!recovered && !this.#closed) this.#block(new Error(text.reconnectFailed));
-        this.close();
-        return recovered;
-      })
-      .catch((error: unknown) => {
-        if (!this.#closed && error instanceof RecoveryRequiredError) {
-          this.#error = error;
-          this.#listeners.forEach((listener) => listener.failed(error));
-        } else {
-          if (!this.#closed)
+    const stopped = this.#error;
+    this.#recovering = Promise.resolve()
+      .then(async () => {
+        if (this.#closed) return false;
+        this.#current = this.#startOpen(true);
+        const open = this.#opening!;
+        try {
+          await this.#current;
+          await this.#views;
+          if (!this.#owns(open) || this.#error !== stopped) return false;
+          // #block retired the old writer. Its existing lock/staging owner keeps
+          // exact pending envelopes; replacement itself submits nothing.
+          this.#writer = new Writer(this.#writer.key, () => this.#current);
+          this.#error = null;
+          this.#listeners.forEach((listener) =>
+            listener.publish(structuredClone(this.#projection)),
+          );
+          this.#observe();
+          return this.#owns(open) && !this.#error;
+        } catch (error) {
+          if (this.#closed) return false;
+          if (this.#owns(open))
             this.#block(error instanceof Error ? error : new Error(text.reconnectFailed));
-          this.close();
+          // Only a verified refusal of the fresh Session permits the bounded
+          // guidance/reload fallback. Network and admission failures do not.
+          if (!(error instanceof SessionEndedError) || !this.sessionOwner?.recover) return false;
+          try {
+            const recovered = await this.sessionOwner.recover();
+            if (this.#closed) return false;
+            if (!recovered) this.#block(new Error(text.reconnectFailed));
+            this.close();
+            return recovered;
+          } catch (fallback) {
+            if (!this.#closed)
+              this.#block(fallback instanceof Error ? fallback : new Error(text.reconnectFailed));
+            return false;
+          }
         }
-        return false;
       })
       .finally(() => {
         this.#recovering = null;

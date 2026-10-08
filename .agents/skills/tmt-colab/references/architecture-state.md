@@ -106,18 +106,28 @@ or an unverified read failure. An opaque socket disconnect, or a native fetch
 Other replacement, admission and eviction failures remain terminal.
 Ready-page transport failures retain bounded same-session catchup. Superseded callbacks,
 readiness, publications and diagnosis cannot alter the current attempt. Recovery
-never replays an Ask or mutation. If recovery
-fails, the explicit Reconnect button uses `recoverSession` through `Live.reconnect`, stopping
-the page socket, Ask and observer first while retaining the admitted Ask view and composer
-draft. Recovery uses a waiting notice and keeps local composer editing available while all
-sends and publications remain blocked. An open annotation stays mounted while its retired
-Ask facade is absent and rebinds after verified replacement. Concurrent clicks share one in-flight attempt. Only an explicitly started network
-failure clears its failed recovery marker and leaves Reconnect available for another click;
-automatic guidance keeps its marker, and successful reload still spans the marker until
-authenticated boot clears it. No additional automatic reopen or mutation replay is added.
-The Remote restart cases drive explicit recovery or admitted mounted-owner replacement
-in `acceptance/ask.spec.ts`. Local drafts survive the stopped state and failed clicks;
-successful explicit recovery reloads the page and resets local-only drafts.
+never re-sends an Ask or generates a new mutation. Pending own-stream envelopes
+may be re-delivered through the Writer's existing staging path; exact accepted
+envelopes deduplicate as `Replay`. If automatic recovery fails, explicit Reconnect
+first reuses the admitted mounted-owner replacement on the same Live binding. The
+stopped write fence remains until the fresh Connection and projection are verified;
+then a new Writer uses the identical stream key and the new Ask facade resumes
+read-only observation. Recovery keeps the admitted Ask view and mounted composer
+drafts; all sends and publications stay blocked until verification. An open annotation
+stays mounted while its retired Ask facade is absent and rebinds after replacement.
+A recovery press does not dismiss it or take focus from an active composer. Mobile
+Chat closes its modal drawer to reach Reconnect; its DOM selection is retained only
+for that recovery and restored when the same connected composer regains focus.
+Concurrent clicks share one in-flight attempt. Network failure returns to the waiting
+notice and editable draft without another automatic reopen. Eviction, authority,
+admission and page faults remain terminal. Only a typed fresh `SessionEndedError`
+permits the existing guarded `recoverSession`/reload fallback, whose successful
+reload resets local-only drafts. The card makes no draft-persistence promise for
+that fallback. The guarded fallback marker still spans its reload: only its
+explicitly started network failure clears the failed marker. Automatic guidance
+keeps its marker until authenticated boot clears it.
+The Remote restart and retained-draft cases in `acceptance/ask.spec.ts` verify
+original-ID observation, no resend and fresh explicit Send/Ask/Post after recovery.
 
 ## Persistence layout
 

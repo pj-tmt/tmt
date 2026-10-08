@@ -108,6 +108,10 @@ The held case waits for a Remote-provided hold fixture, with held behavior cover
 tests. Both Remote restart cases are active pass-required cases. A fetch failure during
 replacement leaves explicit Reconnect available. They retain their original-operation,
 uncertain, recheck, abandon, no-effect, accepted, one-dispatch and one-wake assertions.
+Explicit-Reconnect draft cases keep the same Chat and anchored composer at 1440/390,
+including a mid-text caret through a failed click and a verified in-place replacement.
+They count the original Ask and the next explicit Send separately, verify a new
+registration without main-frame navigation, and exercise Post before an anchored Ask.
 Enable a case by making its body pass, never with
 a stand-in. Assert the recipient's text equals the disclosed bytes captured on Enter, including the
 `[remote: <device>]` line, and that no delivery state is shown (presence only).
