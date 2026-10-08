@@ -263,6 +263,9 @@ test.describe('Ask agent real-binary acceptance (#1110)', () => {
           ).toBe(true);
           await expect(input).toHaveText(draft);
           await expect(action).toBeEnabled();
+          await expect(
+            container.getByText(`Recipient: ${s.recipient.name} · This machine`, { exact: true }),
+          ).toBeVisible();
           await expect(entry).toHaveAttribute('data-ledger-state', 'accepted');
           await expect(entry.getByTestId('ask-reply')).toHaveText(replyBody(initial.delivered()));
           expect(navigations).toEqual([]);
