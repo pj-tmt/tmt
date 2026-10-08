@@ -30,8 +30,9 @@ eight buses in all, and opens a channel only on an explicit `activate` (no retry
 polling). Its extension names come only from the declaration list and it names no
 extension itself. Serve attempts each static Local declaration once after constructing
 Site/Mounts and device events, before remembering the port and publishing door readiness.
-Open or setup failure is reported as an unavailable warning on the existing foreground
-output, drops the failed candidate and leaves the ordinary door running. Each initial
+An absent or refusing listener is silent; unsafe, malformed or storage failures warn
+on the existing foreground output. The failed candidate is dropped and the ordinary
+door keeps running. Each initial
 attempt uses the same absolute 250 ms budget as demand setup, so a bound listener that
 is not yet accepting cannot spend the general 15-second service setup bound before ready.
 The 35-second whole-startup bound and stop fences are unchanged; setup deadlines do not

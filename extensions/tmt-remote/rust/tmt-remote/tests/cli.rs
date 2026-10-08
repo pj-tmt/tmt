@@ -1475,10 +1475,11 @@ fn explicit_zero_ignores_the_remembered_port_and_explicit_busy_does_not_fallback
         serde_json::from_str(&start_door(&mut pilot, &["--port", "0"], false)).unwrap();
     let (_, _, random_port) = address_parts(random["address"].as_str().unwrap());
     assert_ne!(random_port, port);
-    assert_eq!(
-        fs::read_to_string(pilot.root.join("serve.stderr")).unwrap(),
-        "warning: Object channel unavailable for colab: Connect(NotFound)\n",
-        "explicit 0 must not attempt remembered port; only missing adapter is reported"
+    assert!(
+        fs::read(pilot.root.join("serve.stderr"))
+            .unwrap()
+            .is_empty(),
+        "explicit 0 must not attempt remembered port"
     );
     terminate(pilot.child.take().unwrap());
     drop(occupied);

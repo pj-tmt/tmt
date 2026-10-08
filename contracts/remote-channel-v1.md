@@ -1175,7 +1175,7 @@ Visibility is the extension's rule, not a remote grant.
 ### Object channel frames
 
 **Status:** Remote ships the wire schema, Unix carrier, callback executor and lease-bound backend below.
-The static production registry enables only Colab; other declarations remain Disabled, and no route, SDK setting
+The static production registry enables only Colab; no other extension declares objects, and no route, SDK setting
 or user action enables them. Serve may open an empty ledger, but without a Colab adapter's current admission every
 object operation is refused before a ledger effect. Transport-only negative fixtures do not establish Colab routed
 acceptance: #1852 still requires Colab's upload/read proof on shipped binaries. Serve attempts each Local declaration
