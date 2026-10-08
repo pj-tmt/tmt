@@ -1,7 +1,7 @@
 import { act, createRef } from 'react';
 import type { MouseEvent } from 'react';
 import { createRoot } from 'react-dom/client';
-import { BrowserField, BrowserIconAction } from '../../src/react.js';
+import { BrowserAction, BrowserField, BrowserIconAction } from '../../src/react.js';
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
   true;
@@ -12,6 +12,11 @@ let assertions = 0;
 function check(value: unknown, description: string) {
   if (!value) throw new Error(description);
   assertions += 1;
+}
+function tokenColor(name: string) {
+  const probe = document.createElement('span');
+  probe.style.color = getComputedStyle(host).getPropertyValue(name);
+  return probe.style.color;
 }
 let activations = 0;
 let parentEscapes = 0;
@@ -65,6 +70,13 @@ async function run() {
   await act(() => root.render(field(false)));
   const original = ref.current!;
   original.focus();
+  const label = document.getElementById('live-message-label')!;
+  const fieldStyle = getComputedStyle(original);
+  check(
+    original.getBoundingClientRect().top - label.getBoundingClientRect().bottom >=
+      parseFloat(fieldStyle.outlineWidth) + parseFloat(fieldStyle.outlineOffset),
+    'Field label overlaps the focus outline',
+  );
   // Non-English text is deliberate composition/Unicode fixture data.
   original.textContent = 'Draft <literal> with 日本語';
   const text = original.firstChild!;
@@ -120,14 +132,29 @@ async function run() {
     'Activation stripped the original event',
   );
   check(button.getAttribute('aria-pressed') === 'true', 'Pressed state changed itself');
+  check(
+    getComputedStyle(button).backgroundColor === tokenColor('--tmt-ui-surface-selection'),
+    'Pressed icon lost its selection fill',
+  );
   for (const state of [{ busy: true }, { disabled: true }]) {
     await act(() => root.render(action(state)));
     await act(() => button.click());
     check(activations === 1, 'Busy/disabled action delivered an activation');
+    const style = getComputedStyle(button);
+    check(style.backgroundColor === 'rgba(0, 0, 0, 0)', 'Disabled text icon has a fill');
+    check(style.borderTopColor === 'rgba(0, 0, 0, 0)', 'Disabled text icon has a visible edge');
+    check(
+      style.color === tokenColor('--tmt-ui-color-disabled-text'),
+      'Disabled text icon lost its muted text',
+    );
   }
   await act(() => root.render(action({ pressed: false })));
   check(host.querySelector('button') === button, 'Action update remounted the native button');
   check(button.getAttribute('aria-pressed') === 'false', 'Caller pressed update was ignored');
+  check(
+    getComputedStyle(button).backgroundColor === 'rgba(0, 0, 0, 0)',
+    'Ready text icon has a fill',
+  );
   await act(() => button.dispatchEvent(new PointerEvent('pointerover', { bubbles: true })));
   check(tooltip.matches(':popover-open'), 'Pointer entry did not show the tooltip');
   check(tooltip.getAttribute('aria-hidden') === 'true', 'Tooltip duplicates the accessible name');
@@ -152,11 +179,45 @@ async function run() {
     document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })),
   );
   check(parentEscapes === 2, 'Tooltip listener survived component removal');
+  for (const state of [{}, { disabled: true }, { busy: true }]) {
+    await act(() =>
+      root.render(
+        <BrowserAction
+          type="button"
+          label="Change recipient"
+          variant="text"
+          onActivate={onActivate}
+          {...state}
+        />,
+      ),
+    );
+    const textAction = host.querySelector('button')!;
+    check(
+      getComputedStyle(textAction).backgroundColor === 'rgba(0, 0, 0, 0)',
+      'Text action has a fill without hover or focus',
+    );
+    check(
+      getComputedStyle(textAction.querySelector('.tmt-ui-action-label')!).backgroundColor ===
+        'rgba(0, 0, 0, 0)',
+      'Text action label has a fill',
+    );
+    if (textAction.disabled)
+      check(
+        getComputedStyle(textAction).color === tokenColor('--tmt-ui-color-disabled-text'),
+        'Disabled text action lost its muted text',
+      );
+  }
   await act(() =>
     root.render(
       <>
         {field(false)}
         <div className="fixture-actions">
+          <BrowserAction
+            type="button"
+            label="Change recipient"
+            variant="text"
+            onActivate={onActivate}
+          />
           {action({ pressed: true })}
           <BrowserIconAction
             type="button"

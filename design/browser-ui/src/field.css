@@ -4,6 +4,7 @@
 }
 .tmt-ui-field-label {
   display: block;
+  margin-block-end: calc(var(--tmt-ui-host-focus-offset) + var(--tmt-ui-focus-width));
   color: var(--tmt-ui-color-secondary);
   font: var(--tmt-ui-host-field-label-weight)
     var(--tmt-ui-host-field-label-size)/var(--tmt-ui-host-field-label-line-height)

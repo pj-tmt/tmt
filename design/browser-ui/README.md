@@ -76,8 +76,10 @@ visible state words carry their meaning.
 
 Field requires stable `controlId`, distinct IDs for rendered description/error,
 and an explicit `renderControl` that spreads exactly the supplied ID, class and
-ARIA props onto one focusable text control: a native input/textarea or a
-contenteditable root with `role="textbox"` and `aria-multiline="true"` when multiline.
+ARIA props onto one focusable text control: a native input/textarea, or a
+contenteditable root with `role="textbox"` (plus `aria-multiline="true"` when multiline),
+or `role="combobox"` when that root owns a popup such as mention completion
+(with `aria-expanded`/`aria-controls` supplied by the host).
 The supplied `aria-labelledby` points to the visible label's `${controlId}-label`
 ID; that ID must also be distinct from control/description/error IDs. A host
 supplies focusability, such as `tabIndex={0}`, for a non-native control.
@@ -96,6 +98,9 @@ requires its stable ID and remains visible. `onActivate` receives the original
 React MouseEvent from native button click, including keyboard-generated click;
 there is no extra key handler or command DTO. Trusted-event admission remains
 with the caller. Host links remain host links.
+Text actions have a transparent background in ready and disabled states;
+disabled text is muted. Enabled hover and keyboard focus use selection colors.
+Field labels leave room for the control's focus outline and offset.
 
 Toggle is controlled: fixed label, `aria-pressed`, independent visible checked
 indicator and original activation event. It never changes its own pressed value.
