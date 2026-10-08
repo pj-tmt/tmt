@@ -1007,9 +1007,18 @@ o = "run touch ${marker}"
       ]) {
         expect((await runCli(sandbox, args)).status).toBe(2);
       }
-      const retired = await runCli(sandbox, ['sq']);
-      expect(retired.status).not.toBe(0);
-      expect(retired.stderr).toContain('renamed to tmt ops sq');
+      for (const name of ['squad', 'sq']) {
+        for (const args of [[name], [name, 'ls']]) {
+          const retired = await runCli(sandbox, args);
+          expect(retired.status).not.toBe(0);
+          expect(retired.stderr).toContain(`renamed to tmt ops ${name}\n`);
+        }
+      }
+      for (const name of ['squd', 'sqq']) {
+        const unknown = await runCli(sandbox, [name]);
+        expect(unknown.status).not.toBe(0);
+        expect(unknown.stderr).not.toMatch(/Similar command: (?:squad|sq)(?:\s|$)/);
+      }
       const rootCompletion = await runCli(sandbox, ['__complete', '--', '']);
       expect(rootCompletion.status).toBe(0);
       const rootCandidates = rootCompletion.stdout.trim().split('\n');
