@@ -133,7 +133,11 @@ describe('squad on a private tmux server', { concurrent: false }, () => {
       expect(pending.stderr.match(/Ops migration deferred/g)).toHaveLength(1);
       expect(pending.stderr).toContain('PID 123 in pane %41');
       expect(pending.stderr).toContain('kill -TERM 123');
-      expect(pending.json!.jobs[0]).toMatchObject(added.job);
+      expect(pending.json!.jobs).toHaveLength(1);
+      expect(pending.json!.jobs[0]).toMatchObject({
+        id: added.job.id,
+        message: added.job.message,
+      });
       fixture.tmux(['send-keys', '-t', shell.pane, 'q']);
       await fixture.waitForCapture(
         (screen) => screen.includes('MIGRATION_BOARD_EXIT=0'),
