@@ -9,6 +9,7 @@ import {
   isComponentRetired,
   isProductRetired,
   productOfComponent,
+  predecessorOfProduct,
   releasePolicy,
 } from './native-release-policy.mjs';
 
@@ -235,11 +236,7 @@ export function parseComponentMap(text) {
     while (predecessor !== undefined) {
       if (visited.has(predecessor)) throw new Error(`Predecessor cycle for ${component.name}.`);
       visited.add(predecessor);
-      const records = components.filter(
-        ({ name }) => name === predecessor || name === `tmt-${predecessor}`
-      );
-      if (!records.length && isProductRetired(predecessor)) break;
-      predecessor = componentOfProduct(productMap, predecessor).predecessor;
+      predecessor = predecessorOfProduct(productMap, predecessor);
     }
   }
   if (components.length === 0) throw new Error('The component map has no components.');

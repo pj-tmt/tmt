@@ -390,7 +390,6 @@ export async function planReleaseCuts({ metadata, map, workspace, git, date, ver
     try {
       const product = productOfComponent(component.name);
       row.product = product;
-      if (!isProductReleased(map, product)) continue;
       const { tagPrefix } = releasePolicy(product);
       const history = releaseCutHistory({
         releases: metadata.releases,

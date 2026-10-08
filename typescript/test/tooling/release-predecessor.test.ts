@@ -138,21 +138,25 @@ describe('component predecessor validation', () => {
       }).components[0].predecessor
     ).toBe('fixture-active');
   });
-  it.each(['', 'unknown', 'tmt-fixture-old', 'fixture-new', null, 7])(
-    'refuses invalid predecessor %s',
-    (predecessor) => {
-      expect(() =>
-        scope.parseComponentMap(
-          JSON.stringify({
-            components: {
-              ...definitions,
-              'fixture-new': { ...definitions['fixture-new'], predecessor },
-            },
-          })
-        )
-      ).toThrow();
-    }
-  );
+  it.each([
+    ['', 'needs a package and product key'],
+    ['unknown', 'Unknown native product: unknown'],
+    ['tmt-fixture-old', 'Unknown native product: tmt-fixture-old'],
+    ['fixture-new', 'cannot be its own predecessor'],
+    [null, 'needs a package and product key'],
+    [7, 'needs a package and product key'],
+  ] as const)('refuses invalid predecessor %s', (predecessor, message) => {
+    expect(() =>
+      scope.parseComponentMap(
+        JSON.stringify({
+          components: {
+            ...definitions,
+            'fixture-new': { ...definitions['fixture-new'], predecessor },
+          },
+        })
+      )
+    ).toThrow(message);
+  });
   it('requires the declaring package and an unambiguous product identity', () => {
     expect(() =>
       scope.parseComponentMap(
