@@ -2137,7 +2137,7 @@ describe('required CI gate', () => {
       'utf8'
     );
     const install = colab.indexOf('sh scripts/install-ci-rust.sh 1.97.0 --profile minimal');
-    expect(colab.match(/sh scripts\/install-ci-rust\.sh /g)).toHaveLength(1);
+    expect(colab.match(/sh scripts\/install-ci-rust\.sh /g)).toHaveLength(2);
     expect(install).toBeGreaterThan(0);
     expect(install).toBeLessThan(colab.indexOf('uses: Swatinem/rust-cache@'));
     expect(colab).toContain('shared-key: native-rust');
@@ -2389,10 +2389,25 @@ describe('required CI gate', () => {
     expect(workflow).not.toContain('\n  push:');
     expect(workflow).toContain('workflow_dispatch:');
     expect(workflow).toContain("cron: '23 5 * * 1'");
-    expect(workflow).toContain("cancel-in-progress: ${{ github.event_name == 'pull_request' }}");
+    expect(workflow).not.toMatch(/^concurrency:/m);
+    expect(workflow).toContain('types: [opened, synchronize, reopened, labeled, unlabeled]');
+    expect(ci).not.toContain('needs.colab-acceptance');
+    const job = (name: string) => {
+      const start = workflow.indexOf(`\n  ${name}:\n`);
+      const next = workflow.slice(start + 1).search(/\n {2}[a-z0-9-]+:\n/);
+      return workflow.slice(start, next < 0 ? undefined : start + 1 + next);
+    };
+    for (const name of ['changes', 'colab-browser']) {
+      const body = job(name);
+      expect(body).toContain(
+        "github.event.action != 'labeled' && github.event.action != 'unlabeled'"
+      );
+      expect(body).toMatch(/^ {4}concurrency:\n {6}group: colab-browser-/m);
+      expect(body).toContain("cancel-in-progress: ${{ github.event_name == 'pull_request' }}");
+    }
     expect(workflow).toContain('ci-scope.mjs "$BASE_SHA" "$HEAD_SHA" >> "$GITHUB_OUTPUT"');
     expect(workflow).toContain(
-      "if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || needs.changes.outputs.colab_harness == 'true'"
+      "(github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' ||\n       needs.changes.outputs.colab_harness == 'true')"
     );
     expect(workflow).toContain('playwright install --with-deps chromium firefox webkit');
     expect(workflow).toContain('test:browser --engines chromium 2>&1 | tee');
@@ -2410,6 +2425,53 @@ describe('required CI gate', () => {
     );
     expect(workflow).toContain('actions/cache/save@v4');
     expect(workflow).toContain('shared-key: native-rust\n          save-if: false');
+    const acceptance = job('colab-acceptance');
+    expect(acceptance).not.toContain('needs:');
+    expect(acceptance).toContain(
+      "github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' ||"
+    );
+    expect(acceptance).toContain(
+      "github.event_name == 'pull_request' && github.event.action != 'unlabeled'"
+    );
+    expect(acceptance).toContain(
+      "contains(github.event.pull_request.labels.*.name, 'colab-acceptance')"
+    );
+    expect(acceptance).toContain(
+      "github.event.action != 'labeled' || github.event.label.name == 'colab-acceptance'"
+    );
+    expect(acceptance).toMatch(/^ {4}concurrency:\n {6}group: colab-acceptance-/m);
+    expect(acceptance).toContain('cancel-in-progress: false');
+    expect(acceptance).toContain('runs-on: ubuntu-24.04');
+    expect(acceptance).toContain('timeout-minutes: 30');
+    expect(acceptance).toContain('permissions:\n      contents: read');
+    expect(acceptance).toContain('CARGO_BUILD_JOBS: 2');
+    expect(acceptance).toContain(
+      'uses: ./.github/actions/apt-install\n        with:\n          packages: tmux'
+    );
+    expect(acceptance).toContain('sh scripts/install-ci-rust.sh 1.97.0 --profile minimal');
+    expect(acceptance).toContain('shared-key: native-rust\n          save-if: false');
+    expect(acceptance).not.toContain('actions/cache/save');
+    expect(acceptance).toContain('ref: ${{ github.event.pull_request.head.sha || github.sha }}');
+    expect(acceptance).toContain('persist-credentials: false');
+    const appBuild = acceptance.indexOf('pnpm --filter @tmt/colab-app --fail-if-no-match build');
+    const nativeBuild = acceptance.indexOf('cargo build --locked --manifest-path rust/Cargo.toml');
+    expect(appBuild).toBeGreaterThan(0);
+    expect(nativeBuild).toBeGreaterThan(appBuild);
+    expect(acceptance.match(/cargo build /g)).toHaveLength(1);
+    expect(acceptance).toContain('-p tmt-cli -p tmt-remote -p tmt-colab --bins');
+    expect(acceptance).toContain('test:acceptance --workers=1 --reporter=list,json');
+    expect(acceptance).not.toContain('continue-on-error');
+    expect(acceptance).not.toContain('|| true');
+    const upload = acceptance.slice(
+      acceptance.indexOf('      - name: Upload public acceptance evidence')
+    );
+    expect(upload).toContain('if: always()');
+    expect(upload).toContain('path: ${{ runner.temp }}/colab-acceptance-results');
+    expect(upload).toContain('retention-days: 7');
+    expect(upload).not.toContain('colab-acceptance-private');
+    expect(acceptance).toContain(
+      'test.results.map(({ status, duration }) => ({ status, duration }))'
+    );
   });
 
   it('runs the advisory browser partitions in their own workflow from one shared image', () => {
