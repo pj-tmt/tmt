@@ -76,6 +76,7 @@ async function captureState(page: Page, state: string, lookAt: string): Promise<
   if (!directory) return;
   await mkdir(directory, { recursive: true });
   const viewport = page.viewportSize();
+  const position = await page.evaluate(() => ({ x: scrollX, y: scrollY }));
   const originalTheme = await page.evaluate(() =>
     matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light',
   );
@@ -88,6 +89,7 @@ async function captureState(page: Page, state: string, lookAt: string): Promise<
           true,
         );
         const path = join(directory, `${state}-${width}-${theme}.png`);
+        await page.evaluate(() => scrollTo(0, 0));
         await page.screenshot({ path, fullPage: true });
         await appendFile(
           join(directory, 'index.jsonl'),
@@ -98,6 +100,7 @@ async function captureState(page: Page, state: string, lookAt: string): Promise<
   } finally {
     await page.emulateMedia({ colorScheme: originalTheme });
     if (viewport) await page.setViewportSize(viewport);
+    await page.evaluate(({ x, y }) => scrollTo(x, y), position);
   }
 }
 
