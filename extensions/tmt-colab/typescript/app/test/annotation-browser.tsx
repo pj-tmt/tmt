@@ -6,6 +6,7 @@ import type { ThreadView } from '../src/thread-records.js';
 import { useEffect, useState } from 'react';
 import { AnnotationInput } from '../src/annotation-input.js';
 import { AskPanel, type AskBinding, type PageAsk } from '../src/ask-panel.js';
+import { ReadRefusedError } from '../src/ask-remote.js';
 import type { ThreadBinding } from '../src/thread-store.js';
 import { projectThreadStatus } from '../src/thread-status-view.js';
 import { destination, id, selection, type RemoteDouble } from './ask-fixtures.js';
@@ -19,7 +20,7 @@ let draft = '';
 let captured: unknown[] = [];
 let remote: RemoteDouble | undefined;
 /** What the next directory read does: answer, fail, or wait until released. */
-let directoryMode: 'ok' | 'fail' | 'park' = 'ok';
+let directoryMode: 'ok' | 'fail' | 'refuse' | 'park' = 'ok';
 let directoryReads = 0;
 let parkedReads: { resolve(): void; reject(error: Error): void }[] = [];
 let reconnect: (() => void) | undefined;
@@ -28,7 +29,7 @@ let surface: 'annotation' | 'reply' | 'chat' = 'annotation';
 export function setSurface(next: 'annotation' | 'reply' | 'chat') {
   surface = next;
 }
-export function setDirectory(mode: 'ok' | 'fail' | 'park') {
+export function setDirectory(mode: 'ok' | 'fail' | 'refuse' | 'park') {
   directoryMode = mode;
 }
 /** Settles every parked read, as a slow Remote answer or a late failure would. */
@@ -129,6 +130,8 @@ export function mount(
       async destinations() {
         directoryReads++;
         if (directoryMode === 'fail') throw new Error('Discovery refused');
+        // Remote's signed refusal, as the Remote SDK raises it for a read.
+        if (directoryMode === 'refuse') throw new ReadRefusedError('REMOTE_STATE_UNAVAILABLE');
         if (directoryMode === 'park')
           await new Promise<void>((resolve, reject) => parkedReads.push({ resolve, reject }));
         return mode === 'multi'

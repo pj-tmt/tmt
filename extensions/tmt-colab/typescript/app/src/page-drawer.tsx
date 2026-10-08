@@ -10,12 +10,14 @@ export function PageDrawer({
   kind,
   close,
   children,
+  hideHeader = false,
 }: {
   open: boolean;
   title: string;
   kind: string;
   close(): void;
   children: ReactNode;
+  hideHeader?: boolean;
 }) {
   const label = useId();
   const dialog = useRef<HTMLDialogElement>(null);
@@ -49,7 +51,8 @@ export function PageDrawer({
       ref={dialog}
       className="page-drawer"
       data-panel={kind}
-      aria-labelledby={label}
+      aria-labelledby={hideHeader ? undefined : label}
+      aria-label={hideHeader ? title : undefined}
       onCancel={(event) => {
         event.preventDefault();
         close();
@@ -61,18 +64,20 @@ export function PageDrawer({
         }
       }}
     >
-      <header className="drawer-bar">
-        <h2 id={label}>{title}</h2>
-        <BrowserIconAction
-          type="button"
-          label={`Close ${title}`}
-          variant="text"
-          icon={<X />}
-          onActivate={(event) => {
-            if (event.isTrusted) close();
-          }}
-        />
-      </header>
+      {!hideHeader && (
+        <header className="drawer-bar">
+          <h2 id={label}>{title}</h2>
+          <BrowserIconAction
+            type="button"
+            label={`Close ${title}`}
+            variant="text"
+            icon={<X />}
+            onActivate={(event) => {
+              if (event.isTrusted) close();
+            }}
+          />
+        </header>
+      )}
       <div className="drawer-body">{children}</div>
     </dialog>,
     document.body,

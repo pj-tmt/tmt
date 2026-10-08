@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react';
+import { ReadRefusedError, SessionEndedError } from './ask-remote.js';
 import type { AgentDestination } from './live-ask.js';
 
 /** What a composer knows about the agents it can ask. `ready` with no agents is a real answer;
- * `loading` and `failed` are not, and the composer must not offer an Ask for either. */
+ * `loading` and `failed` are not, and the composer must not offer an Ask for either. A failure
+ * carries Remote's refusal code when Remote refused the read, as a reference for the reader. */
 export type AgentDirectory =
   | { state: 'loading' }
-  | { state: 'failed' }
+  | { state: 'failed'; code?: string }
   | { state: 'ready'; agents: AgentDestination[] };
 
 const LOADING: AgentDirectory = { state: 'loading' };
@@ -30,7 +32,13 @@ export function useAgentDirectory(
     };
     void binding.destinations().then(
       (agents) => settle({ state: 'ready', agents }),
-      () => settle({ state: 'failed' }),
+      (error: unknown) =>
+        settle({
+          state: 'failed',
+          ...(error instanceof ReadRefusedError || error instanceof SessionEndedError
+            ? { code: error.code }
+            : {}),
+        }),
     );
     return () => {
       active = false;

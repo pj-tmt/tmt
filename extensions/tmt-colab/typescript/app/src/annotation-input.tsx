@@ -206,6 +206,18 @@ export function AnnotationInput({
                     ? text.messageAgentsUnavailable
                     : `${text.messageAgentsUnavailable} ${text.messageCommentAvailable}`
                   : text.messageKeys}
+          {!busy &&
+            !recoveryRequired &&
+            binding &&
+            directory.state === 'failed' &&
+            directory.code && (
+              <>
+                {' '}
+                <small className="failure-reference">
+                  {text.failureCodeLabel} <code data-failure-reference>{directory.code}</code>
+                </small>
+              </>
+            )}
         </p>
         {binding && !busy && !recoveryRequired && (directory.state === 'failed' || retrying) && (
           <span data-agent-retry>
