@@ -109,3 +109,174 @@ test('recipient selection keeps multiline surrounding text and performs no effec
   expect(proof.sends).toHaveLength(0);
   await expect(input).toHaveText('Before @Other agent \nAfter', { useInnerText: true });
 });
+
+test('shared field retains its root, label association and undo history across access changes', async ({
+  page,
+}) => {
+  await page.goto(`${fixture}?field`);
+  await page.evaluate(async () => {
+    const path = '/test/message-composer-browser.tsx';
+    (await import(path)).mountField();
+  });
+  const input = page.getByRole('combobox', { name: 'Retained message', exact: true });
+  await expect(input).toHaveText('', { useInnerText: true });
+  await input.pressSequentially('Draft survives');
+  await input.evaluate((node) => Object.assign(window, { retainedField: node }));
+  const id = await input.getAttribute('id');
+  expect(id).toBeTruthy();
+  await expect(page.locator(`[id="${id}-label"]`)).toHaveText('Retained message');
+  await expect(input).toHaveAttribute('aria-labelledby', `${id}-label`);
+  await page.getByRole('button', { name: 'Toggle access' }).click();
+  await expect(input).toHaveAttribute('contenteditable', 'false');
+  await expect(input).toHaveAttribute('aria-disabled', 'true');
+  await expect(input).toHaveText('Draft survives', { useInnerText: true });
+  await page.getByRole('button', { name: 'Toggle access' }).click();
+  await expect(input).toHaveAttribute('aria-disabled', 'false');
+  expect(
+    await input.evaluate(
+      (node) => (window as unknown as { retainedField: Element }).retainedField === node,
+    ),
+  ).toBe(true);
+  await expect(input).toHaveAttribute('id', id!);
+  await input.press('ControlOrMeta+Z');
+  await expect(input).toHaveText('', { useInnerText: true });
+});
+
+test('the primary submit follows recipient intent without moving actions or admitting synthetic clicks', async ({
+  page,
+}) => {
+  await page.goto(fixture);
+  const input = page.getByRole('combobox', { name: 'Message', exact: true });
+  const comment = page.getByRole('button', { name: 'Post comment', exact: true });
+  const ask = page.getByRole('button', { name: 'Ask agent', exact: true });
+  await expect(comment).toHaveAttribute('data-variant', 'primary');
+  await expect(ask).toHaveAttribute('data-variant', 'text');
+  await input.pressSequentially('Keep this note.');
+  const order = await comment.evaluate((node) =>
+    [...node.parentElement!.children].map((child) => child.textContent),
+  );
+  await page.getByRole('button', { name: 'Choose recipient', exact: true }).click();
+  await page.getByRole('option').filter({ hasText: '@Other agent' }).click();
+  await expect(input).toHaveText('Keep this note.', { useInnerText: true });
+  await expect(comment).toHaveAttribute('data-variant', 'text');
+  await expect(ask).toHaveAttribute('data-variant', 'primary');
+  await expect(page.getByRole('button', { name: 'Change recipient', exact: true })).toHaveAttribute(
+    'data-variant',
+    'text',
+  );
+  expect(
+    await comment.evaluate((node) =>
+      [...node.parentElement!.children].map((child) => child.textContent),
+    ),
+  ).toEqual(order);
+  await ask.evaluate((node) => (node as HTMLButtonElement).click());
+  const proof = await page.evaluate(async () => {
+    const path = '/test/annotation-browser.tsx';
+    return (await import(path)).proof();
+  });
+  expect(proof.writes).toBe(0);
+  expect(proof.sends).toHaveLength(0);
+  await input.press('Enter');
+  await expect
+    .poll(() =>
+      page.evaluate(async () => {
+        const path = '/test/annotation-browser.tsx';
+        return (await import(path)).proof().writes;
+      }),
+    )
+    .toBe(1);
+});
+
+for (const width of [1440, 390]) {
+  for (const theme of ['light', 'dark'] as const) {
+    test(`interaction presentation evidence: ${width}px ${theme}`, async ({ page }) => {
+      const directory =
+        process.env.COLAB_INTERACTION_CAPTURE_DIR ?? '/tmp/colab-interaction-captures';
+      mkdirSync(directory, { recursive: true });
+      await page.setViewportSize({ width, height: 900 });
+      await page.emulateMedia({ colorScheme: theme });
+      await page.addInitScript((theme) => {
+        document.documentElement.dataset.theme = theme;
+      }, theme);
+      await page.goto('/');
+      const run = (method: string) =>
+        page.evaluate(async (method) => {
+          const path = '/test/ask-page-browser.tsx';
+          return (await import(path))[method]();
+        }, method);
+      await run('mount');
+      await expect(page.locator('#ask-page-fixture .status')).toContainText('Live preview');
+      await page
+        .frameLocator('#ask-page-fixture iframe')
+        .locator('#selected')
+        .evaluate((node) => {
+          const range = node.ownerDocument.createRange();
+          range.selectNodeContents(node);
+          const selection = node.ownerDocument.getSelection()!;
+          selection.removeAllRanges();
+          selection.addRange(range);
+        });
+      await page.getByTestId('selection-ask').click();
+      const dialog = page.getByRole('dialog', { name: 'Annotate selection' });
+      const input = dialog.getByRole('combobox', { name: 'Message', exact: true });
+      const capture = (name: string) =>
+        page.screenshot({ path: `${directory}/${width}-${theme}-${name}.png` });
+      await expect(input).toBeFocused();
+      await capture('annotation-empty');
+      await input.pressSequentially('A plain comment about the selected text.');
+      await capture('annotation-comment');
+      await input.press('Enter');
+      await expect(dialog.getByTestId('comment-entry')).toHaveCount(1);
+      await input.pressSequentially('A reply to the original comment.');
+      await capture('reply-comment');
+      await dialog.getByRole('button', { name: 'Choose recipient', exact: true }).click();
+      await page.getByRole('option').filter({ hasText: '@Agent 1 ·' }).click();
+      await capture('reply-agent');
+      await run('pausePrepare');
+      await dialog.getByRole('button', { name: 'Ask agent', exact: true }).click();
+      await expect(input).toHaveAttribute('contenteditable', 'false');
+      await capture('reply-busy');
+      await run('resumePrepare');
+      await expect(input).toHaveAttribute('contenteditable', 'true');
+      await dialog.getByRole('button', { name: 'Close thread', exact: true }).click();
+      const toggle = page.locator('#ask-page-fixture').getByTestId('chat-toggle');
+      if (!(await toggle.isVisible()))
+        await page.getByRole('button', { name: 'More page actions' }).click();
+      await toggle.click();
+      const chat = page.getByTestId('chat-panel');
+      const chatInput = chat.getByRole('combobox', { name: 'Message', exact: true });
+      await chat.getByRole('button', { name: 'Choose recipient', exact: true }).click();
+      await page.getByRole('option').filter({ hasText: '@Agent 1 ·' }).click();
+      await chatInput.pressSequentially('Ask about the complete page.');
+      await capture('chat-ready');
+      await run('pausePrepare');
+      await chat.getByRole('button', { name: 'Send', exact: true }).click();
+      await expect(chatInput).toHaveAttribute('contenteditable', 'false');
+      await capture('chat-busy');
+      await run('resumePrepare');
+      await expect(chatInput).toHaveAttribute('contenteditable', 'true');
+      const close = page.getByRole('button', { name: 'Close Chat', exact: true });
+      await close.focus();
+      await close.press('Shift+Tab');
+      await page.keyboard.press('Tab');
+      await expect(close).toBeFocused();
+      if (!process.env.COLAB_INTERACTION_BASELINE)
+        await expect(page.locator('.tmt-ui-icon-action-tooltip:popover-open')).toHaveText(
+          'Close Chat',
+        );
+      await capture('drawer-focus');
+      if (!process.env.COLAB_INTERACTION_BASELINE) {
+        await page.keyboard.press('Escape');
+        await expect(page.locator('.tmt-ui-icon-action-tooltip:popover-open')).toHaveCount(0);
+        await expect(chat).toBeVisible();
+      }
+      await run('block');
+      await expect(chatInput).toHaveAttribute('contenteditable', 'false');
+      await capture('chat-disabled');
+      if (!process.env.COLAB_INTERACTION_BASELINE) {
+        await page.keyboard.press('Escape');
+        await expect(chat).not.toBeVisible();
+      }
+    });
+  }
+}

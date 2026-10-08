@@ -5,6 +5,8 @@ import { MessageComposer } from '../src/components/message-composer.js';
 import type { ComposerEdit } from '../src/components/message-composer-edit.js';
 import { destination, id } from './ask-fixtures.js';
 import 'virtual:tokens.css';
+import '@tmt/browser-ui/static.css';
+import '../src/colab-header.css';
 import '../src/style.css';
 
 let snapshot: ComposerEdit = { value: '' };

@@ -1,5 +1,5 @@
-import { browserUiClasses as ui } from '@tmt/browser-ui/static';
-import { useCallback, useEffect, useRef, useState, type Ref } from 'react';
+import { BrowserAction, BrowserField } from '@tmt/browser-ui/react';
+import { useCallback, useEffect, useId, useRef, useState, type Ref } from 'react';
 import { LexicalExtensionComposer } from '@lexical/react/LexicalExtensionComposer';
 import { ReactExtension } from '@lexical/react/ReactExtension';
 import { ContentEditable } from '@lexical/react/LexicalContentEditable';
@@ -52,6 +52,7 @@ export function MessageComposer(props: MessageComposerProps) {
 
 function MessageField(props: MessageComposerProps) {
   const [editor] = useLexicalComposerContext();
+  const controlId = useId();
   const current = useRef(props);
   current.current = props;
   const recipient = useRef(props.edit.recipient);
@@ -200,60 +201,66 @@ function MessageField(props: MessageComposerProps) {
           open: open && options.length > 0 && !props.disabled,
           onOpenChange: setOpen,
           render: (trigger) => (
-            <ContentEditable
-              {...trigger}
-              onKeyDown={undefined}
-              placeholder={null}
-              aria-placeholder={undefined}
-              className="message-composer-field"
-              aria-multiline="true"
-              aria-label={props.label}
-              ref={trigger.ref as Ref<HTMLDivElement>}
-              data-placeholder={props.placeholder}
-              onKeyDownCapture={(event) => {
-                const native = event.nativeEvent;
-                if (
-                  !native.isTrusted ||
-                  native.isComposing ||
-                  editor.isComposing() ||
-                  native.keyCode === 229 ||
-                  props.disabled
-                )
-                  return;
-                trigger.onKeyDown?.(event);
-                if (event.defaultPrevented) return;
-                if (event.key === 'Enter' && !event.shiftKey && props.onSubmit) {
-                  event.preventDefault();
-                  event.stopPropagation();
-                  props.onSubmit(native);
-                } else if (event.key === 'Escape' && props.onCancel) {
-                  event.preventDefault();
-                  event.stopPropagation();
-                  props.onCancel(native);
-                }
-              }}
+            <BrowserField
+              controlId={controlId}
+              label={props.label}
+              renderControl={(field) => (
+                <ContentEditable
+                  {...trigger}
+                  {...field}
+                  onKeyDown={undefined}
+                  placeholder={null}
+                  aria-placeholder={undefined}
+                  className={`${field.className} message-composer-field`}
+                  aria-multiline="true"
+                  aria-disabled={props.disabled}
+                  ref={trigger.ref as Ref<HTMLDivElement>}
+                  data-placeholder={props.placeholder}
+                  onKeyDownCapture={(event) => {
+                    const native = event.nativeEvent;
+                    if (
+                      !native.isTrusted ||
+                      native.isComposing ||
+                      editor.isComposing() ||
+                      native.keyCode === 229 ||
+                      props.disabled
+                    )
+                      return;
+                    trigger.onKeyDown?.(event);
+                    if (event.defaultPrevented) return;
+                    if (event.key === 'Enter' && !event.shiftKey && props.onSubmit) {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      props.onSubmit(native);
+                    } else if (event.key === 'Escape' && props.onCancel) {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      props.onCancel(native);
+                    }
+                  }}
+                />
+              )}
             />
           ),
         }}
       />
       {props.recipientPickerLabel && (
-        <button
-          className={ui.action}
+        <BrowserAction
           type="button"
+          label={props.recipientPickerLabel}
+          variant="text"
           disabled={
             props.disabled ||
             !props.candidates?.some(
               (candidate) => candidate.online === 'online' && candidate.presence !== 'offline',
             )
           }
-          onClick={(event) => {
+          onActivate={(event) => {
             if (!event.isTrusted) return;
             editor.focus();
             setSuggestions((previous) => ({ ...previous, open: true, explicit: true }));
           }}
-        >
-          {props.recipientPickerLabel}
-        </button>
+        />
       )}
     </>
   );

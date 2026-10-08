@@ -76,8 +76,10 @@ visible state words carry their meaning.
 
 Field requires stable `controlId`, distinct IDs for rendered description/error,
 and an explicit `renderControl` that spreads exactly the supplied ID, class and
-ARIA props onto one focusable text control: a native input/textarea or a
-contenteditable root with `role="textbox"` and `aria-multiline="true"` when multiline.
+ARIA props onto one focusable text control: a native input/textarea, or a
+contenteditable root with `role="textbox"` (plus `aria-multiline="true"` when multiline),
+or `role="combobox"` when that root owns a popup such as mention completion
+(with `aria-expanded`/`aria-controls` supplied by the host).
 The supplied `aria-labelledby` points to the visible label's `${controlId}-label`
 ID; that ID must also be distinct from control/description/error IDs. A host
 supplies focusability, such as `tabIndex={0}`, for a non-native control.
