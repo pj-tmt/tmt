@@ -5,10 +5,12 @@ Follow [tmt-dev](../../tmt-dev/SKILL.md) and the
 [storage proposal](../../../../extensions/tmt-colab/contracts/storage-v1-proposal.md)
 owns the accepted behavior and bounds; this guide owns how the implemented backend
 in `extensions/tmt-remote/rust/tmt-remote/src/objects*` works and how to add an
-adapter. Serve owns the lease-bound `object_service` below, but every production
-`mount::EXTENSIONS` entry has `ObjectDeclaration::Disabled`: no production object
-channel opens, and no route, SDK setting or user action enables it. Production
-activation remains a separate Core decision under #1852.
+adapter. Serve owns the lease-bound `object_service` below. Only the production
+`colab` declaration is Local; every other declaration remains Disabled, with no
+route, SDK setting or user action enabling storage. Starting serve may open an
+empty ledger. Without a Colab adapter's current admission, every object operation
+is refused before a ledger effect. Colab's shipped-binary upload/read proof remains
+a #1852 delivery requirement; a transport-only fixture is not that proof.
 
 ## Modules
 

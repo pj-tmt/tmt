@@ -34,8 +34,9 @@ troubleshooting. Do not reset state or automatically restart after uncertain sta
 Serve also owns the optional lease-bound object service: one attempt per static Local
 declaration before door readiness, bounded by the same 250 ms absolute setup budget as
 websocket demand, explicit shutdown after Site, and Drop on early exit.
-Setup failure warns and leaves the ordinary door running; all production declarations
-remain Disabled. Validated Local websocket demand can reactivate an absent/ended channel;
+Setup failure warns and leaves the ordinary door running. Only Colab declares Local;
+without its adapter's admission, operations are refused before ledger effects.
+Validated Local websocket demand can reactivate an absent/ended channel;
 failure still forwards without an origin. The [object-backend guide](object-backends.md)
 owns the bounded single-flight lifecycle; ordinary discovery shapes are unchanged.
 

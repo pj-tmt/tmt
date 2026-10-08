@@ -352,7 +352,7 @@ fn startup_reads_capabilities_and_root_mounts_without_core_calls_and_sigterm_rea
         let request: Value =
             serde_json::from_slice(&fs::read(pilot.root.join("input")).unwrap()).unwrap();
         assert_eq!(request["operation"], "storage.root");
-        // Startup creates only remote's private subtree beside the extension roots.
+        // With no listener or object request, startup opens only Remote's ledger subtree.
         let state: Vec<_> = fs::read_dir(pilot.root.join("state"))
             .unwrap()
             .map(|e| e.unwrap().file_name())
@@ -796,7 +796,15 @@ impl DeviceCallback {
             if let Some(end) = bytes.windows(4).position(|w| w == b"\r\n\r\n") {
                 let head = std::str::from_utf8(&bytes[..end]).map_err(|e| e.to_string())?;
                 let mut lines = head.split("\r\n");
-                if lines.next() != Some("POST /.tmt/remote/device-events HTTP/1.1") {
+                let request = lines.next();
+                // This device-event-only peer has no object adapter. Refuse its
+                // distinct setup request without treating it as a device event.
+                if request == Some("GET /.tmt/remote/object-channel-v1 HTTP/1.1") {
+                    let _ =
+                        stream.write_all(b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n");
+                    return Ok(None);
+                }
+                if request != Some("POST /.tmt/remote/device-events HTTP/1.1") {
                     return Err("unexpected device-event request line".into());
                 }
                 let mut marker = false;
@@ -1467,11 +1475,10 @@ fn explicit_zero_ignores_the_remembered_port_and_explicit_busy_does_not_fallback
         serde_json::from_str(&start_door(&mut pilot, &["--port", "0"], false)).unwrap();
     let (_, _, random_port) = address_parts(random["address"].as_str().unwrap());
     assert_ne!(random_port, port);
-    assert!(
-        fs::read(pilot.root.join("serve.stderr"))
-            .unwrap()
-            .is_empty(),
-        "explicit 0 must not attempt remembered port"
+    assert_eq!(
+        fs::read_to_string(pilot.root.join("serve.stderr")).unwrap(),
+        "warning: Object channel unavailable for colab: Connect(NotFound)\n",
+        "explicit 0 must not attempt remembered port; only missing adapter is reported"
     );
     terminate(pilot.child.take().unwrap());
     drop(occupied);
@@ -2659,7 +2666,7 @@ fn object_status_is_opt_in_live_only_and_preserves_strict_ordinary_discovery() {
     assert!(observed.status.success());
     assert_eq!(
         serde_json::from_slice::<Value>(&observed.stdout).unwrap(),
-        serde_json::json!({"running":true,"origin":origin,"path":path,"objectChannels":[]})
+        serde_json::json!({"running":true,"origin":origin,"path":path,"objectChannels":[{"extension":"colab","state":"unavailable","reason":"setup"}]})
     );
     for arguments in [
         vec!["status", "--objects"],
@@ -2729,3 +2736,6 @@ fn object_status_is_opt_in_live_only_and_preserves_strict_ordinary_discovery() {
     assert!(!result.status.success());
     assert_eq!(stopped_files(&pilot), before);
 }
+
+#[path = "cli/object_negative.rs"]
+mod object_negative;
