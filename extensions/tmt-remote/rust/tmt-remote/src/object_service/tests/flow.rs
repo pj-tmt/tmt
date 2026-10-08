@@ -1996,3 +1996,49 @@ fn a_late_setup_candidate_never_supplies_an_origin_to_the_forwarded_upgrade() {
     drop(live);
     drop(ext);
 }
+
+#[test]
+fn initial_absolute_deadline_is_captured_and_later_upgrade_reactivates() {
+    let env = Env::new();
+    let origins = Origins::default();
+    let service = env.service_with(&ALPHA, bounds(), origins.clone()).unwrap();
+    let hook = service.reactivation(Arc::new(AtomicBool::new(false)));
+    let (live, _) = Live::with_hook(&env, &origins, |_| Tabs::new(), Some(hook.clone()));
+    let held = Ext::launch_mode(&env, &live, false, true);
+    let (captured, observed) = mpsc::sync_channel(1);
+    service.set_hook(Some(Arc::new(move |phase, deadline| {
+        if phase == Pause::BeforeSetup {
+            captured.send(deadline).unwrap();
+        }
+    })));
+    let deadline = Instant::now() + limits::OBJECT_REACTIVATION;
+    assert_eq!(
+        service.activate_until(live.mounts(), "alpha", deadline),
+        Err(ActivateError::Channel(Fault::Timeout(
+            tmt_extension_objects::Stage::Head
+        )))
+    );
+    assert_eq!(
+        observed.recv_timeout(Duration::from_secs(10)).unwrap(),
+        deadline,
+        "setup renewed the initial budget"
+    );
+    assert_eq!(held.attempts.load(Ordering::SeqCst), 1);
+    assert!(service.active("alpha").is_none());
+    assert_eq!(origins.count(), 0);
+    service.set_hook(None);
+    drop(held);
+    let ext = Ext::start(&env, &live);
+    service.with_reactivation(&hook, live.mounts(), || {
+        let (client, reply) = live.upgrade(OWNER, "");
+        assert!(reply.starts_with("HTTP/1.1 101"));
+        let origin = origin_of(&ext.head(0));
+        ext.await_established(&[origin]);
+        assert_eq!(service.readiness().snapshot()[0]["state"], "ready");
+        drop(client);
+    });
+    service.shutdown();
+    drop(live);
+    drop(ext);
+    assert!(!env.directory("alpha").join("door.sock").exists());
+}

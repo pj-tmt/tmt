@@ -26,6 +26,8 @@ const fn declaration(objects: ObjectDeclaration) -> Extension {
 static LOCAL: [Extension; 1] = [declaration(ObjectDeclaration::Local)];
 static DISABLED: [Extension; 1] = [declaration(ObjectDeclaration::Disabled)];
 const LEASE_RELEASE_WAIT: Duration = Duration::from_secs(3);
+// Scheduling slack separates the 250 ms attempt from the old 15 s bound.
+const OBJECT_READY_OBSERVATION: Duration = Duration::from_secs(5);
 
 struct ServeObjectFixture {
     root: PathBuf,
@@ -117,7 +119,10 @@ impl ServeObjectRun {
         self.ready_after(|| {})
     }
     fn ready_after(&mut self, check: impl FnOnce()) -> Ready {
-        let (tag, value) = read_frame(&mut self.parent, Instant::now() + STARTUP, &self.stop)
+        self.ready_before(Instant::now() + STARTUP, check)
+    }
+    fn ready_before(&mut self, deadline: Instant, check: impl FnOnce()) -> Ready {
+        let (tag, value) = read_frame(&mut self.parent, deadline, &self.stop)
             .expect("serve did not report readiness");
         assert_eq!(tag, READY);
         let ready = Ready::validate(value).unwrap();
@@ -200,6 +205,12 @@ struct ServeObjectPeer {
 }
 impl ServeObjectPeer {
     fn refuse(fixture: &ServeObjectFixture) -> Self {
+        Self::launch(fixture, None)
+    }
+    fn launch(
+        fixture: &ServeObjectFixture,
+        entered: Option<std::sync::mpsc::SyncSender<Instant>>,
+    ) -> Self {
         let listener = fixture.socket();
         let path = fixture.data().join("alpha/door.sock");
         let completed = Arc::new(AtomicBool::new(false));
@@ -219,6 +230,12 @@ impl ServeObjectPeer {
             }
             assert!(head.starts_with(b"GET /.tmt/remote/object-channel-v1 "));
             listener.set_nonblocking(true).unwrap();
+            if let Some(entered) = entered {
+                stream.set_read_timeout(Some(STARTUP)).unwrap();
+                entered.send(Instant::now()).unwrap();
+                // No reply or fixture release: only Remote's deadline closes this head.
+                while matches!(stream.read(&mut byte), Ok(1)) {}
+            }
             observed.store(true, Ordering::Release);
             let _ = stream.shutdown(std::net::Shutdown::Both);
             listener
@@ -370,5 +387,39 @@ fn object_activation_has_typed_failure_and_stop_prevents_a_successor_attempt() {
     objects.shutdown();
     drop(objects);
     drop(serving);
+    fixture.released();
+}
+
+#[test]
+fn serve_hung_object_handshake_expires_before_ready_without_fixture_release() {
+    let fixture = ServeObjectFixture::new();
+    let (entered, observed) = std::sync::mpsc::sync_channel(1);
+    let peer = ServeObjectPeer::launch(&fixture, Some(entered));
+    let mut run = ServeObjectRun::start(&fixture, &LOCAL);
+    let started = observed.recv_timeout(STARTUP).unwrap();
+    let ready = run.ready_before(started + OBJECT_READY_OBSERVATION, || {});
+    eprintln!(
+        "hung object head to ready: {} ns",
+        started.elapsed().as_nanos()
+    );
+    let completed = Arc::clone(&peer.completed);
+    let listener = peer.finish();
+    assert!(
+        completed.load(Ordering::Acquire),
+        "Remote did not close its setup candidate"
+    );
+    ordinary_page(&ready);
+    let status = control::status_with_objects(&fixture.data().join("remote"), false, true)
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        status["objectChannels"],
+        json!([{"extension":"alpha","state":"unavailable","reason":"setup"}])
+    );
+    assert_eq!(
+        listener.accept().unwrap_err().kind(),
+        std::io::ErrorKind::WouldBlock
+    );
+    run.finish();
     fixture.released();
 }

@@ -236,7 +236,8 @@ impl<'s> ObjectService<'s> {
     pub fn activate(&self, mounts: &Mounts, name: &str) -> Result<Uuid4, ActivateError> {
         self.activate_until(mounts, name, Instant::now() + self.bounds.setup)
     }
-    fn activate_until(
+    /// Activate within the caller's absolute deadline; setup I/O also respects its service bound.
+    pub fn activate_until(
         &self,
         mounts: &Mounts,
         name: &str,
@@ -248,6 +249,12 @@ impl<'s> ObjectService<'s> {
             )));
         }
         let (index, id, source, tunnels) = self.begin_setup(name)?;
+        #[cfg(test)]
+        let hook = self.hook.lock().unwrap_or_else(|p| p.into_inner()).clone();
+        #[cfg(test)]
+        if let Some(hook) = &hook {
+            hook(dispatch::Pause::BeforeSetup, deadline);
+        }
         let built = self.connect(
             mounts,
             name,
@@ -257,11 +264,10 @@ impl<'s> ObjectService<'s> {
             deadline.min(Instant::now() + self.bounds.setup),
         );
         #[cfg(test)]
-        if built.is_ok() {
-            let hook = self.hook.lock().unwrap_or_else(|p| p.into_inner()).clone();
-            if let Some(hook) = hook {
-                hook(dispatch::Pause::BeforeInstall, deadline);
-            }
+        if built.is_ok()
+            && let Some(hook) = hook
+        {
+            hook(dispatch::Pause::BeforeInstall, deadline);
         }
         self.finish_setup(index, built, deadline)
     }
