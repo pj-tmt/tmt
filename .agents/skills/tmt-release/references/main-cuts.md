@@ -68,8 +68,8 @@ Keep the `release` Environment restricted to main. The cut job uses its scoped
 workflow token for draft visibility, creation and native dispatch; it requires no
 release-PR App token. Normal primary review, pinned-head checks and queue protection remain required.
 
-The persistent `release-version-injection.yml` PR check proves CLI, Remote and Colab on
-four native hosts; Ops joins the matrix when its component is activated. Callers provide pinned Node through `setup-tooling`, selecting
+The persistent `release-version-injection.yml` PR check proves CLI, Ops, Remote and Colab on
+four native hosts. Callers provide pinned Node through `setup-tooling`, selecting
 x64 for Intel verification. `.github/actions/inject-release-version` consumes that
 Node without reinstalling it or changing its architecture. The proof reuses the
 action, fetches locked dependencies, captures the source/version contract, proves full locked
