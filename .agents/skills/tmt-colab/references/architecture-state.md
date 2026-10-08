@@ -69,8 +69,10 @@ machine/agent identity and cosmetic mention-token range. Paragraphs serialize wi
 one LF, retaining blank and trailing lines. Parent echoes preserve the editing
 history/selection; explicit reset keys end a draft's editing lifetime. Mention-node
 identity follows edits and undo; editing/removing the token invalidates its cosmetic
-metadata without changing recipient authority. No Lexical document is persisted or
-sent as a routing instruction.
+metadata without changing recipient authority. The recipient list opens for `@` or the
+full-width `＠` at the start, after whitespace, or after any character that is not
+address-like ASCII (`mentionQuery`), so CJK text without spaces triggers it and
+`email@host` does not. No Lexical document is persisted or sent as a routing instruction.
 
 `AnnotationInput` owns the plaintext draft, selected recipient, trusted action,
 current write/Ask admission and immutable send capture. `messageRecipient` is a pure
