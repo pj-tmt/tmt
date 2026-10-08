@@ -126,7 +126,8 @@ test('a source over the page limit is refused with both sizes and changes nothin
     await expect(box).toHaveValue(original);
     await box.fill('x'.repeat(LIMIT + 1));
     await save(page);
-    await expect(page.getByRole('alert')).toHaveText(text.saveTooLarge(LIMIT + 1, LIMIT));
+    await expect(page.getByRole('alert')).toContainText(text.saveTooLarge(LIMIT + 1, LIMIT));
+    await expect(page.getByRole('alert')).toContainText(text.saveNotSaved);
     await expect(page.getByRole('alert')).toContainText('2,097,153 bytes');
     await expect(page.getByRole('alert')).toContainText('2,097,152 bytes');
     const after = JSON.parse(run(world, colab, ['page', 'read', created.pageId, '--json'])) as {
@@ -230,7 +231,8 @@ test('a save on a stale base is refused and the newer version stays', async () =
     );
     await box.fill('<p>v1 edited in the browser</p>');
     await save(page);
-    await expect(page.getByRole('alert')).toHaveText(text.saveStale);
+    await expect(page.getByRole('alert')).toContainText(text.saveStale);
+    await expect(page.getByRole('alert')).toContainText(text.saveNotSaved);
     await expect(box).toHaveValue('<p>v1 edited in the browser</p>');
     await expect(page.getByRole('alert')).not.toBeFocused();
     await capture(page, 'save-stale');
@@ -274,6 +276,7 @@ test('an unconfirmed save names its operation, keeps the typed text and never re
     await box.fill(typed);
     await page.getByRole('button', { name: text.save, exact: true }).click();
     const alert = page.getByRole('alert');
+    await expect(alert).toContainText(text.saveUnconfirmed);
     await expect(alert).toContainText('The connection dropped before the save was confirmed.');
     await expect(alert).toContainText(/Reference: [0-9a-f-]{36}/);
     await expect(box).toHaveValue(typed);

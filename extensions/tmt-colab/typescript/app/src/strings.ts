@@ -193,6 +193,8 @@ export const text = {
     `The source is ${formatBytes(size)}, over the ${formatBytes(limit)} one page can hold. Shorten it, then save again.`,
   saveStale:
     'The page changed while you were editing, so nothing was saved. Copy your changes, reload to get the latest source, then apply them again.',
+  saveNotSaved: 'Not saved',
+  saveUnconfirmed: 'Unconfirmed',
   saveNotApplied: 'The save did not reach the page, so nothing changed. Save again.',
   saveUnknown: (operationId: string) =>
     `The connection dropped before the save was confirmed. Copy your changes, then reload to see whether they were saved. Reference: ${operationId}`,
