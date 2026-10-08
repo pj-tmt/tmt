@@ -380,6 +380,11 @@ test('paired writers retain anchored annotation conversations, direct exact send
     await first.locator(`[data-testid=annotation-row][data-thread-id="${threadId}"]`).click();
     await t1.getByRole('button', { name: text.threadResolve, exact: true }).click();
     await expect(row2).toContainText(text.threadResolved);
+    // A person's resolve notifies the mentioned agent exactly once, through the Ask path.
+    await until(() => agent.received().length === 3, 'resolve notification delivered');
+    const notice = String(agent.received()[2].message);
+    expect(notice).toContain('Thread resolved by discussion-author.');
+    expect(notice).toContain(quote!);
     await t1.getByRole('button', { name: text.threadReopen, exact: true }).click();
     await expect(row2).toContainText(text.threadOpen);
     const marker = first.frameLocator('iframe').locator('[data-colab-thread]');
@@ -511,9 +516,10 @@ test('paired writers retain anchored annotation conversations, direct exact send
       second.getByTestId('comment-thread').getByTestId('ask-reply').first(),
     ).toBeVisible();
     expect(messageId).toMatch(/^[a-f0-9-]{36}$/);
-    expect(agent.received()).toHaveLength(2);
+    // Opening, follow-up and the one resolve notification; Reopen sends nothing.
+    expect(agent.received()).toHaveLength(3);
     expect(world.coreCalls().filter((call) => call.operation === 'dispatch.create')).toHaveLength(
-      2,
+      3,
     );
   });
 });
