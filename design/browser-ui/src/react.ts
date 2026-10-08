@@ -6,6 +6,8 @@ export { BrowserField } from './field';
 export type { BrowserFieldProps, BrowserFieldControlProps } from './field';
 export { BrowserAction } from './action';
 export type { BrowserActionProps } from './action';
+export { BrowserIconAction } from './icon-action.js';
+export type { BrowserIconActionProps } from './icon-action.js';
 export { BrowserToggle } from './toggle';
 export type { BrowserToggleProps } from './toggle';
 export type { BrowserNoticeTone, BrowserActionVariant, BrowserAnnouncement } from './static';

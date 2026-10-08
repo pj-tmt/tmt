@@ -23,6 +23,11 @@ export const browserUiClasses = Object.freeze({
   action: 'tmt-ui-action',
   actionLabel: 'tmt-ui-action-label',
   actionMark: 'tmt-ui-action-mark',
+  iconAction: 'tmt-ui-icon-action',
+  iconActionControl: 'tmt-ui-icon-action-control',
+  iconActionIcon: 'tmt-ui-icon-action-icon',
+  iconActionTooltip: 'tmt-ui-icon-action-tooltip',
+  iconActionTooltipLabel: 'tmt-ui-icon-action-tooltip-label',
   toggle: 'tmt-ui-toggle',
   toggleIndicator: 'tmt-ui-toggle-indicator',
 } as const);

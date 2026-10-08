@@ -23,7 +23,7 @@ const fixed = [
   ...Object.entries(tokens.browser.metric).map(([name, value]) => `  --tmt-ui-${name}: ${value};`),
 ].join('\n');
 const fragments = await Promise.all(
-  ['header', 'notice', 'field', 'action', 'toggle'].map((name) =>
+  ['header', 'notice', 'field', 'action', 'icon-action', 'toggle'].map((name) =>
     readFile(new URL(`src/${name}.css`, home), 'utf8'),
   ),
 );
