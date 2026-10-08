@@ -2624,7 +2624,17 @@ immediately following write is prepared against the page it was told about.
 
 An IPC failure never falls back to an offline writer, changes the operation identity or
 resends. A failure before the request was fully written is a plain `COLAB_UNAVAILABLE`:
-the server acts only on a complete body. After that, a lost, malformed, mismatched or late
+the server acts only on a complete body. A serve of another build is told apart from doubt
+by the answers it gives before it reads the job: an untyped 404 (the route does not
+exist, as on a serve older than CLI batches) or 413 (the body is over its cap), whether
+it arrives after the body or while the CLI is still sending it, and a typed
+`COLAB_SERVER_MISMATCH`, which a serve answers (409) to a `LocalWrite` whose `version` is not
+`LOCAL_WRITE_VERSION` (2), read before any other field. The CLI exits 1 with
+`COLAB_SERVER_MISMATCH`, "Nothing was written", and the fix (stop and serve again so the
+server runs the installed build, or upgrade the CLI if the server is newer); it neither
+reports an unknown outcome nor resends. A wire change that an older serve cannot read bumps
+`LOCAL_WRITE_VERSION` or takes a new route name. Typed refusals, a 404 included, keep their
+own codes. After the request was fully sent, any other lost, malformed, mismatched or late
 reply leaves the original operation in doubt, and the CLI reads one original-key status
 (`page::publication_status`, read-only, with the frozen chain; no new route) from its own
 store snapshot. A retained committed or rejected outcome resolves the write as above.

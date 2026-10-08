@@ -35,6 +35,7 @@ impl WriteError {
             Fault::Inactive,
             Fault::Denied,
             Fault::Unavailable,
+            Fault::ServerMismatch,
         ]
         .into_iter()
         .map(|fault| fault.code())
@@ -43,7 +44,10 @@ impl WriteError {
     pub(crate) fn status(&self) -> u16 {
         match self.code() {
             "COLAB_DENIED" => 403,
-            "COLAB_STALE_BASE" | "COLAB_PAGE_INACTIVE" | "COLAB_STATE_MISSING" => 409,
+            "COLAB_STALE_BASE"
+            | "COLAB_PAGE_INACTIVE"
+            | "COLAB_STATE_MISSING"
+            | "COLAB_SERVER_MISMATCH" => 409,
             "COLAB_CAPACITY" => 413,
             "COLAB_INPUT_INVALID" => 400,
             _ => 503,
@@ -84,6 +88,20 @@ pub(crate) fn reply_json(published: &Published) -> Result<Vec<u8>> {
         revision: published.revision.clone(),
     })?)
 }
+/// A definite refusal in a non-200 answer to the publish request, or `None` when the answer
+/// leaves the outcome in doubt. A typed refusal carries its own code. An untyped 404 (the route
+/// does not exist) or 413 (the body is over its cap) is the server's router or header check
+/// answering before it reads the job, so the server is another build and nothing was published.
+/// Every other untyped answer, and a typed one with a code this build does not know, may come
+/// from any stage and stays in doubt.
+fn refusal(code: u16, response: &[u8]) -> Option<Box<dyn std::error::Error + Send + Sync>> {
+    match serde_json::from_slice::<WriteError>(response) {
+        Ok(failure) if failure.known_code().is_some() => Some(failure.into()),
+        Ok(_) => None,
+        Err(_) if matches!(code, 404 | 413) => Some(Fault::ServerMismatch.into()),
+        Err(_) => None,
+    }
+}
 /// Posts one frozen publication. `Ok(Some)` is the answered publish (committed or rejected);
 /// `Err` is a refusal the server reported before any effect. `Ok(None)` is doubt after the
 /// request may have been sent: the caller resolves it by original-operation status, never by a
@@ -95,7 +113,7 @@ pub fn publish(
 ) -> Result<Option<Published>> {
     let original = frozen.job().key()?;
     let body = LocalWrite {
-        version: 2,
+        version: crate::publication::LOCAL_WRITE_VERSION,
         action: WriteAction::Write,
         signed_job: frozen.job().clone(),
         packet: values::encode_binary(frozen.packet()),
@@ -103,18 +121,26 @@ pub fn publish(
     }
     .to_json(&key.local_writer()?.1)?;
     // Nothing was sent: the server acts only on a complete body, so this is a plain refusal.
-    let socket = crate::ipc::send(layout, PATH, &body).map_err(|_| Fault::Unavailable)?;
+    // Either that, or the server refused the request before reading it all.
+    let socket = match crate::ipc::send(layout, PATH, &body) {
+        Ok(socket) => socket,
+        Err(error) => {
+            return Err(match error.downcast_ref::<crate::ipc::EarlyReply>() {
+                Some(early) => {
+                    refusal(early.code, &early.body).unwrap_or(Fault::Unavailable.into())
+                }
+                None => Fault::Unavailable.into(),
+            });
+        }
+    };
     let Ok((code, response)) = crate::ipc::receive(socket, limits::PUBLISH_REPLY) else {
         return Ok(None);
     };
     if code != 200 {
-        let Ok(failure) = serde_json::from_slice::<WriteError>(&response) else {
-            return Ok(None);
+        return match refusal(code, &response) {
+            Some(error) => Err(error),
+            None => Ok(None),
         };
-        if failure.known_code().is_none() {
-            return Ok(None);
-        }
-        return Err(failure.into());
     }
     let Ok(reply) = serde_json::from_slice::<Reply>(&response) else {
         return Ok(None);

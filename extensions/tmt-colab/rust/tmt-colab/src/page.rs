@@ -25,6 +25,7 @@ pub enum Fault {
     Denied,
     Unavailable,
     StreamGap,
+    ServerMismatch,
 }
 impl Fault {
     pub fn code(&self) -> &'static str {
@@ -37,6 +38,7 @@ impl Fault {
             Self::Denied => "COLAB_DENIED",
             Self::Unavailable => "COLAB_UNAVAILABLE",
             Self::StreamGap => "COLAB_STREAM_GAP",
+            Self::ServerMismatch => "COLAB_SERVER_MISMATCH",
         }
     }
 }
@@ -66,6 +68,9 @@ impl std::fmt::Display for Fault {
             }
             Self::StreamGap => {
                 "This device's write stream moved on before the write was admitted. Nothing was written; read the page again before retrying."
+            }
+            Self::ServerMismatch => {
+                "The running Colab server and this CLI are different builds that cannot write pages together. Nothing was written. Run `tmt colab stop`, then start `tmt colab serve` again so the server runs the installed build (or upgrade the CLI if the server is newer)."
             }
         })
     }

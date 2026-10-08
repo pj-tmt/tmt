@@ -1621,6 +1621,170 @@ fn a_lost_reply_is_resolved_by_original_status_and_a_lost_request_names_its_oper
     );
     pilot.stop();
 }
+/// Answers one request with canned bytes in the serve socket's place, as a serve of another
+/// build would. `read_body` false answers as soon as the headers arrive and closes, the way an
+/// older serve refuses a body over its cap. The real socket is restored by `finish`.
+struct Scripted {
+    real: PathBuf,
+    path: PathBuf,
+    thread: JoinHandle<Vec<u8>>,
+}
+impl Scripted {
+    fn start(pilot: &Pilot, reply: Vec<u8>, read_body: bool) -> Self {
+        let path = pilot.root.join("selected/colab/door.sock");
+        let real = pilot.root.join("selected/colab/real.sock");
+        fs::rename(&path, &real).unwrap();
+        let listener = UnixListener::bind(&path).unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
+        let thread = thread::spawn(move || {
+            let (mut client, _) = listener.accept().unwrap();
+            let mut request = Vec::new();
+            let mut chunk = [0; 65536];
+            let body_start = loop {
+                let n = client.read(&mut chunk).unwrap();
+                request.extend_from_slice(&chunk[..n]);
+                if let Some(end) = request.windows(4).position(|w| w == b"\r\n\r\n") {
+                    break end + 4;
+                }
+            };
+            if read_body {
+                let head = String::from_utf8_lossy(&request[..body_start]).to_lowercase();
+                let length: usize = head
+                    .lines()
+                    .find_map(|l| l.strip_prefix("content-length: "))
+                    .unwrap()
+                    .trim()
+                    .parse()
+                    .unwrap();
+                while request.len() < body_start + length {
+                    let n = client.read(&mut chunk).unwrap();
+                    request.extend_from_slice(&chunk[..n]);
+                }
+            }
+            client.write_all(&reply).unwrap();
+            request
+        });
+        Self { real, path, thread }
+    }
+    /// The request line and headers the writer sent, after restoring the real socket.
+    fn finish(self) -> String {
+        let request = self.thread.join().unwrap();
+        fs::remove_file(&self.path).unwrap();
+        fs::rename(&self.real, &self.path).unwrap();
+        let end = request.windows(4).position(|w| w == b"\r\n\r\n").unwrap();
+        String::from_utf8_lossy(&request[..end]).into_owned()
+    }
+}
+fn http(status: &str, body: &str) -> Vec<u8> {
+    format!(
+        "HTTP/1.1 {status}\r\nContent-Type: text/plain\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+        body.len()
+    )
+    .into_bytes()
+}
+#[test]
+fn a_serve_that_cannot_understand_the_write_is_a_mismatch_not_an_unknown_outcome() {
+    let mut pilot = Pilot::new(None);
+    pilot.start();
+    let file = pilot.root.join("source.html");
+    fs::write(&file, "<p>Start</p>").unwrap();
+    let created = pilot.call(&[
+        "page",
+        "create",
+        "--title",
+        "Skew",
+        "--file",
+        file.to_str().unwrap(),
+        "--json",
+    ]);
+    let id = created["pageId"].as_str().unwrap();
+    let args = [
+        "page",
+        "write",
+        id,
+        "--file",
+        file.to_str().unwrap(),
+        "--json",
+    ];
+    let typed =
+        |code: &str| format!(r#"{{"error":{{"code":"{code}","message":"Fixture refusal."}}}}"#);
+    // A serve built before CLI batches has no such route (an untyped 404), refuses a body over
+    // its cap before reading it (413, answered while the writer is still sending), or, when it
+    // is a newer build, names a write version it does not speak with a typed refusal.
+    fs::write(&file, "<p>Never published by a mismatched serve</p>").unwrap();
+    let mismatched: Vec<(&str, Vec<u8>, bool)> = vec![
+        ("untyped 404", http("404 Not Found", "NOT FOUND"), true),
+        (
+            "untyped 413",
+            http("413 Payload Too Large", "TOO LARGE"),
+            true,
+        ),
+        (
+            "typed version refusal",
+            http("409 Conflict", &typed("COLAB_SERVER_MISMATCH")),
+            true,
+        ),
+    ];
+    for (name, reply, read_body) in mismatched {
+        let scripted = Scripted::start(&pilot, reply, read_body);
+        let refused = failure(&pilot, &args, "COLAB_SERVER_MISMATCH");
+        let head = scripted.finish();
+        assert!(
+            head.starts_with("POST /.tmt/colab/local/page-publish HTTP/1.1"),
+            "{name}"
+        );
+        let message = refused["error"]["message"].as_str().unwrap();
+        assert!(!message.contains("operation "), "{name}: {message}");
+        if name.starts_with("untyped") {
+            // The CLI's own words; a typed refusal carries the server's.
+            assert!(message.contains("Nothing was written"), "{name}: {message}");
+            assert!(message.contains("tmt colab stop"), "{name}: {message}");
+        }
+    }
+    // An older serve answers a body over its cap while the writer is still sending it.
+    let big: String = (0..1_500_000u32)
+        .map(|n| char::from(b'a' + ((n.wrapping_mul(2_654_435_761) >> 13) % 26) as u8))
+        .collect();
+    fs::write(&file, format!("<p>{big}</p>")).unwrap();
+    let scripted = Scripted::start(&pilot, http("413 Payload Too Large", "TOO LARGE"), false);
+    failure(&pilot, &args, "COLAB_SERVER_MISMATCH");
+    scripted.finish();
+    // Typed refusals keep their own codes, even a typed 404.
+    fs::write(&file, "<p>Typed refusals are unchanged</p>").unwrap();
+    for (status, code) in [
+        ("404 Not Found", "COLAB_STATE_MISSING"),
+        ("409 Conflict", "COLAB_STALE_BASE"),
+    ] {
+        let scripted = Scripted::start(&pilot, http(status, &typed(code)), true);
+        failure(&pilot, &args, code);
+        scripted.finish();
+    }
+    // Anything else after the request was sent stays in doubt, naming its operation.
+    for reply in [
+        http("503 Unavailable", "BUSY"),
+        http("200 OK", "not an outcome"),
+        http("404 Not Found", &typed("COLAB_SOMETHING_NEW")),
+    ] {
+        let scripted = Scripted::start(&pilot, reply, true);
+        let unknown = failure(&pilot, &args, "COLAB_OUTCOME_UNKNOWN");
+        scripted.finish();
+        assert!(
+            unknown["error"]["message"]
+                .as_str()
+                .unwrap()
+                .contains("operation ")
+        );
+    }
+    // Nothing above published: the page still has its first source, and a real serve takes the
+    // same write.
+    assert_eq!(
+        pilot.call(&["page", "read", id, "--json"])["source"],
+        "<p>Start</p>"
+    );
+    let written = pilot.call(&args);
+    assert_eq!(written["changed"], true);
+    pilot.stop();
+}
 #[test]
 fn create_supports_empty_source_and_stdin_and_refuses_invalid_input_before_state_creation() {
     let pilot = Pilot::new(None);
