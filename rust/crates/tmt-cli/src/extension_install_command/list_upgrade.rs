@@ -136,9 +136,10 @@ pub(super) fn upgrade_at(
     // beside the current release. Retry only that recovery on an unpinned no-op.
     if report.installation.changed
         || (!report.skipped_pinned
-            && native_install::inspect_former_product(product, prefix)
-                .map_err(|error| failure("EXTENSION_INSTALLATION_INVALID", error))?
-                .is_some())
+            && matches!(
+                native_install::inspect_former_product(product, prefix),
+                Ok(Some(_))
+            ))
     {
         settle_skills(
             product,
