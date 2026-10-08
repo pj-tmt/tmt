@@ -49,7 +49,6 @@ const REFUSAL_LAYERS: &[&str] = &[
 struct Discovery<'a> {
     database: &'a std::path::Path,
     global_dir: &'a std::path::Path,
-    caller: &'a CallerEnvironment,
     executable: &'a std::path::Path,
     deadline: Instant,
     now_ms: u64,
@@ -85,7 +84,6 @@ fn observe_with(runner: &impl CommandRunner) -> Result<(), &'static str> {
     let deadline = Instant::now() + BUDGET;
     let paths = ConfigPaths::discover().map_err(|_| "storage")?;
     let executable = std::env::current_exe().map_err(|_| "worker")?;
-    let caller = CallerEnvironment::current();
     observe_candidate(
         runner,
         harness,
@@ -93,11 +91,11 @@ fn observe_with(runner: &impl CommandRunner) -> Result<(), &'static str> {
         Discovery {
             database: &paths.database,
             global_dir: &paths.global_dir,
-            caller: &caller,
             executable: &executable,
             deadline,
             now_ms: tmt_adapters::request_runtime::wall_time_ms(),
         },
+        CallerEnvironment::current,
     )
 }
 
@@ -106,11 +104,11 @@ fn observe_candidate(
     harness: &HarnessId,
     coordinates: &CallerSession,
     discovery: Discovery<'_>,
+    caller_environment: impl FnOnce() -> CallerEnvironment,
 ) -> Result<(), &'static str> {
     let Discovery {
         database,
         global_dir,
-        caller,
         executable,
         deadline,
         now_ms,
@@ -122,7 +120,9 @@ fn observe_candidate(
         // effect, so this path needs neither ps nor provider-file evidence.
         return Ok(());
     }
-    let Some(binding) = Storage::caller_session_binding(database, caller).map_err(|_| "storage")?
+    let caller = caller_environment();
+    let Some(binding) =
+        Storage::caller_session_binding(database, &caller).map_err(|_| "storage")?
     else {
         return Err("binding");
     };

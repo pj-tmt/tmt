@@ -105,7 +105,6 @@ fn identical_coordinates_skip_all_host_and_provider_file_work_even_without_bindi
         })
         .unwrap();
     storage.close().unwrap();
-    let caller = caller_environment();
     let worker = Worker {
         calls: Cell::new(0),
         allowed: false,
@@ -119,11 +118,11 @@ fn identical_coordinates_skip_all_host_and_provider_file_work_even_without_bindi
             Discovery {
                 database: &database,
                 global_dir: &directory.0,
-                caller: &caller,
                 executable: std::path::Path::new("nonexistent-worker"),
                 deadline: Instant::now() + BUDGET,
                 now_ms: 100
-            }
+            },
+            || panic!("remembered coordinates must not capture the host environment"),
         ),
         Ok(())
     );
@@ -148,11 +147,11 @@ fn identical_coordinates_skip_all_host_and_provider_file_work_even_without_bindi
             Discovery {
                 database: &database,
                 global_dir: &directory.0,
-                caller: &caller,
                 executable: std::path::Path::new("worker"),
                 deadline: Instant::now() + BUDGET,
                 now_ms: 100
-            }
+            },
+            caller_environment,
         ),
         Ok(())
     );
@@ -170,11 +169,11 @@ fn identical_coordinates_skip_all_host_and_provider_file_work_even_without_bindi
             Discovery {
                 database: &database,
                 global_dir: &directory.0,
-                caller: &caller,
                 executable: std::path::Path::new("worker"),
                 deadline: Instant::now(),
                 now_ms: 100
-            }
+            },
+            caller_environment,
         ),
         Err("budget")
     );
@@ -351,8 +350,6 @@ fn unbound_or_missing_pane_context_never_spawns_even_on_second_call() {
     create_or_resolve(&mut storage, "Direct", Lifetime::Saved).unwrap();
     storage.close().unwrap();
     for pane in [None, Some("%1"), Some("%2")] {
-        let mut caller = caller_environment();
-        caller.pane = pane.map(Into::into);
         let worker = Worker {
             calls: Cell::new(0),
             allowed: false,
@@ -371,11 +368,14 @@ fn unbound_or_missing_pane_context_never_spawns_even_on_second_call() {
                     Discovery {
                         database: &database,
                         global_dir: &directory.0,
-                        caller: &caller,
                         executable: std::path::Path::new("worker"),
                         deadline: Instant::now() + BUDGET,
                         now_ms: 100
-                    }
+                    },
+                    || CallerEnvironment {
+                        pane: pane.map(Into::into),
+                        ..caller_environment()
+                    },
                 ),
                 Err("binding")
             );
@@ -403,7 +403,6 @@ fn refused_callers_skip_worker_until_ttl_or_coordinates_change() {
                 .identity;
             insert_discovery_binding(&mut storage, &identity);
             storage.close().unwrap();
-            let caller = caller_environment();
             let worker = Worker {
                 calls: Cell::new(0),
                 allowed: true,
@@ -422,11 +421,11 @@ fn refused_callers_skip_worker_until_ttl_or_coordinates_change() {
                     Discovery {
                         database: &database,
                         global_dir: &directory.0,
-                        caller: &caller,
                         executable: std::path::Path::new("worker"),
                         deadline: Instant::now() + BUDGET,
                         now_ms,
                     },
+                    caller_environment,
                 )
             };
             assert_eq!(attempt(&coordinates, 100), Err(layer));
