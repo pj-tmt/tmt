@@ -6,6 +6,7 @@ import './notice-card.css';
 /** Colab owns the state and recovery; browser-ui presents the explicit words. */
 export function NoticeCard({
   state,
+  stateLabel,
   eyebrow,
   title,
   children,
@@ -13,6 +14,7 @@ export function NoticeCard({
   testId,
 }: {
   state: 'opening' | 'waiting' | 'inactive' | 'ended' | 'blocked';
+  stateLabel?: string;
   eyebrow: string;
   title: string;
   children?: ReactNode;
@@ -25,7 +27,7 @@ export function NoticeCard({
     <BrowserNotice
       tone={waiting ? 'waiting' : muted ? 'muted' : 'blocked'}
       announcement={waiting || state === 'inactive' ? 'status' : 'alert'}
-      stateLabel={state === 'blocked' ? 'failed' : state}
+      stateLabel={stateLabel ?? (state === 'blocked' ? 'failed' : state)}
       eyebrow={eyebrow}
       title={title}
       mark={

@@ -6,6 +6,7 @@ import {
   FileText,
   ArrowUpRight,
   Circle,
+  Diamond,
   LoaderCircle,
   Ellipsis,
   Info,
@@ -37,7 +38,7 @@ import { presentationOf } from './thread-status-presentation.js';
 import { isStatusThread, openThreadCount } from './thread-status-view.js';
 import type { QuoteSelector, DiscussionRef } from './thread-records.js';
 import { ShareDialog } from './share-dialog.js';
-import { mountRenderer } from './renderer.js';
+import { mountRenderer, MAX_RENDER_SOURCE_BYTES } from './renderer.js';
 import type { RenderState, SelectionRect } from './renderer.js';
 import { text } from './strings.js';
 import { SessionEvictedError } from './ask-remote.js';
@@ -544,6 +545,7 @@ function Page() {
   const [liveError, setLiveError] = useState<Error | null>(null),
     [eviction, setEviction] = useState<SessionEvictedError | null>(null),
     [editError, setEditError] = useState<string | null>(null);
+  const recoveryRequired = liveError instanceof RecoveryRequiredError;
   useEffect(() => {
     dirty.current = false;
     base.current = snapshot.source;
@@ -861,11 +863,19 @@ function Page() {
             <span
               className={`status ${state === 'ready' ? 'live' : ''}`}
               title={
-                state === 'ready' ? text.loaded : state === 'loading' ? text.loading : text.blocked
+                recoveryRequired
+                  ? text.connectionLost
+                  : state === 'ready'
+                    ? text.loaded
+                    : state === 'loading'
+                      ? text.loading
+                      : text.blocked
               }
             >
               <span aria-hidden>
-                {state === 'failed' || state === 'navigation' ? (
+                {recoveryRequired ? (
+                  <Diamond fill="currentColor" aria-hidden />
+                ) : state === 'failed' || state === 'navigation' ? (
                   <X aria-hidden />
                 ) : state === 'loading' ? (
                   <LoaderCircle aria-hidden />
@@ -874,11 +884,13 @@ function Page() {
                 )}
               </span>
               <span className="status-label">
-                {state === 'ready'
-                  ? text.loaded
-                  : state === 'loading'
-                    ? text.loading
-                    : text.blocked}
+                {recoveryRequired
+                  ? text.connectionLost
+                  : state === 'ready'
+                    ? text.loaded
+                    : state === 'loading'
+                      ? text.loading
+                      : text.blocked}
               </span>
             </span>
             <button
@@ -1000,8 +1012,30 @@ function Page() {
         <div className="canvas">
           <div className="frame-host" ref={host} />
           {(state === 'navigation' || state === 'failed') && (
-            <NoticeCard state="blocked" eyebrow={text.product} title={text.blocked}>
-              {eviction ? (
+            <NoticeCard
+              state={recoveryRequired ? 'waiting' : 'blocked'}
+              stateLabel={recoveryRequired ? text.disconnected : undefined}
+              eyebrow={text.product}
+              title={recoveryRequired ? text.connectionLost : text.blocked}
+              actions={
+                recoveryRequired &&
+                snapshot.binding?.reconnect && (
+                  <BrowserAction
+                    type="button"
+                    label={reconnecting ? text.reconnecting : text.reconnect}
+                    variant="primary"
+                    busy={reconnecting}
+                    busyMark={<LoaderCircle />}
+                    onActivate={(event) => {
+                      if (event.isTrusted) void reconnect();
+                    }}
+                  />
+                )
+              }
+            >
+              {recoveryRequired ? (
+                <p>{text.recoveryRequired}</p>
+              ) : eviction ? (
                 <>
                   <p>{text.sessionEvicted(eviction.limit)}</p>
                   <p>
@@ -1019,29 +1053,20 @@ function Page() {
                   <p>
                     {liveError?.message ?? (state === 'navigation' ? text.navigation : text.failed)}
                   </p>
-                  <p>{text.limit}</p>
+                  {!liveError &&
+                    state === 'failed' &&
+                    new TextEncoder().encode(view.source).length > MAX_RENDER_SOURCE_BYTES && (
+                      <p>{text.limit}</p>
+                    )}
                 </>
               )}
-              {liveError instanceof RecoveryRequiredError && snapshot.binding?.reconnect && (
-                <button
-                  className={ui.action}
-                  data-variant="text"
-                  disabled={reconnecting}
-                  data-testid="colab-reconnect"
-                  onClick={(event) => {
-                    if (event.isTrusted) void reconnect();
-                  }}
-                >
-                  {text.reconnect}
-                </button>
-              )}
-              {reconnectFailed && <p>{text.reconnectFailed}</p>}
+              {!recoveryRequired && reconnectFailed && <p>{text.reconnectFailed}</p>}
             </NoticeCard>
           )}
         </div>
       </div>
       {snapshot.binding?.discussion &&
-        snapshot.binding?.ask &&
+        (snapshot.binding?.ask || annotation) &&
         (annotation || (!liveError && state === 'ready')) && (
           <SelectionAnnotation
             host={host.current}
@@ -1111,6 +1136,9 @@ function Page() {
                         asks={view.asks ?? []}
                         title={view.title || snapshot.title}
                         blocked={discussionBlocked || changingStatus || !!annotationThread?.deleted}
+                        recoveryRequired={
+                          recoveryRequired && !changingStatus && !annotationThread?.deleted
+                        }
                         initialEdit={annotation.restored}
                         onDraft={(_value, edit) => {
                           if (annotationRef.current?.key !== annotation.key) return;
@@ -1229,6 +1257,7 @@ function Page() {
             }
             title={view.title || snapshot.title}
             blocked={discussionBlocked}
+            recoveryRequired={recoveryRequired}
             close={() => setPanel(null)}
           />
         )}

@@ -109,7 +109,9 @@ readiness, publications and diagnosis cannot alter the current attempt. Recovery
 never replays an Ask or mutation. If recovery
 fails, the explicit Reconnect button uses `recoverSession` through `Live.reconnect`, stopping
 the page socket, Ask and observer first while retaining the admitted Ask view and composer
-draft. Concurrent clicks share one in-flight attempt. Only an explicitly started network
+draft. Recovery uses a waiting notice and keeps local composer editing available while all
+sends and publications remain blocked. An open annotation stays mounted while its retired
+Ask facade is absent and rebinds after verified replacement. Concurrent clicks share one in-flight attempt. Only an explicitly started network
 failure clears its failed recovery marker and leaves Reconnect available for another click;
 automatic guidance keeps its marker, and successful reload still spans the marker until
 authenticated boot clears it. No additional automatic reopen or mutation replay is added.
