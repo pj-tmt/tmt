@@ -290,3 +290,100 @@ test('an unconfirmed save names its operation, keeps the typed text and never re
     expect(after.source).toBe(typed);
   });
 });
+
+// #1627: both whole-source writers must replace a near-cap page, then keep taking edits.
+test('near-cap CLI and browser whole replacements keep taking edits and refuse oversize without changes', async () => {
+  test.setTimeout(600_000);
+  await withWorld(async (world) => {
+    world.linkExtensions();
+    console.log(`FINAL_CAP world ${world.root}`);
+    const cli = (args: string[], input?: string) =>
+      run(world, world.binaries.tmt, ['colab', ...args], input);
+    const created = JSON.parse(
+      cli(
+        ['page', 'create', '--title', 'Final cap', '--file', '-', '--json'],
+        '<p>small original</p>',
+      ),
+    ) as { pageId: string; path: string };
+    const read = () =>
+      JSON.parse(cli(['page', 'read', created.pageId, '--json'])) as {
+        source: string;
+        revision: string;
+      };
+    const hash = (s: string) => createHash('sha256').update(s).digest('hex');
+    const verify = (step: string, expected: string, started: number) => {
+      const actual = read();
+      expect(actual.source === expected).toBe(true);
+      expect(Buffer.byteLength(actual.source)).toBe(Buffer.byteLength(expected));
+      console.log(
+        `FINAL_CAP ${JSON.stringify({ step, bytes: Buffer.byteLength(expected), sha256: hash(expected), revision: actual.revision, elapsedMs: Date.now() - started })}`,
+      );
+    };
+    const door = await startDoor(world, await freePort());
+    const browser = await pairBrowser(world, 'final-cap-author');
+    // A whole replacement from a small source, not an append to a large baseline.
+    const a = distinct(LIMIT - 4096, '1627-cli-a');
+    let started = Date.now();
+    const receipt = JSON.parse(cli(['page', 'write', created.pageId, '--file', '-', '--json'], a));
+    console.log(`FINAL_CAP cli receipt ${JSON.stringify(receipt)}`);
+    verify('CLI whole replacement', a, started);
+    const page = await openPage(door, browser, created);
+    let box = await openSource(page);
+    await expect.poll(async () => (await box.inputValue()) === a, { timeout: 60_000 }).toBe(true);
+    const paste = async (s: string) =>
+      box.evaluate((el, value) => {
+        Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(
+          el,
+          value,
+        );
+        el.dispatchEvent(new Event('input', { bubbles: true }));
+      }, s);
+    const b = distinct(LIMIT - 2048, '1627-browser-b');
+    await paste(b);
+    started = Date.now();
+    await save(page);
+    await expect.poll(() => read().source === b, { timeout: 60_000 }).toBe(true);
+    verify('browser whole replacement', b, started);
+    await expect(page.getByRole('alert')).toHaveCount(0);
+    const c = b.slice(0, -4) + 'n'.repeat(2048) + '</p>';
+    expect(Buffer.byteLength(c)).toBe(LIMIT);
+    await paste(c);
+    started = Date.now();
+    await save(page);
+    await expect.poll(() => read().source === c, { timeout: 60_000 }).toBe(true);
+    verify('browser follow-up at exact cap', c, started);
+    await expect(page.getByRole('alert')).toHaveCount(0);
+    const d = c.replace('nnnn', 'EDIT');
+    expect(Buffer.byteLength(d)).toBe(LIMIT);
+    started = Date.now();
+    cli(['page', 'write', created.pageId, '--file', '-', '--json'], d);
+    verify('CLI follow-up at exact cap', d, started);
+    await page.reload();
+    box = await openSource(page);
+    await expect.poll(async () => (await box.inputValue()) === d, { timeout: 60_000 }).toBe(true);
+    verify('reopened browser and CLI', d, Date.now());
+    const acceptedRevision = read().revision;
+    await paste(d + 'x');
+    await save(page);
+    const alert = page.getByRole('alert');
+    await expect(alert).toContainText(text.saveTooLarge(LIMIT + 1, LIMIT));
+    await expect(alert).toContainText(text.saveNotSaved);
+    await expect(alert).toContainText('2,097,153 bytes');
+    await expect(alert).toContainText('2,097,152 bytes');
+    expect((await box.inputValue()) === d + 'x').toBe(true);
+    expect(read().revision).toBe(acceptedRevision);
+    verify('over-cap browser leaves exact source', d, Date.now());
+    let refusal = '';
+    try {
+      cli(['page', 'write', created.pageId, '--file', '-', '--json'], d + 'x');
+    } catch (error) {
+      refusal = (error as Error).message;
+    }
+    expect(refusal).toContain('COLAB_CAPACITY');
+    expect(refusal).toContain('2097153');
+    expect(refusal).toContain('2097152');
+    console.log(`FINAL_CAP CLI over-cap refusal ${refusal}`);
+    expect(read().revision).toBe(acceptedRevision);
+    verify('over-cap CLI leaves exact source', d, Date.now());
+  });
+});
