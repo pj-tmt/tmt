@@ -324,3 +324,240 @@ test('a long agent label wraps the entire status group below the byline without 
   await expect(user.getByRole('button', { name: text.askRecheck })).toBeInViewport();
   expect((await run(page, 'proof')).sends).toEqual([]);
 });
+
+async function windowGeometry(window: Locator) {
+  return window.evaluate((node) => {
+    const rect = (selector: string) =>
+      node.querySelector(selector)!.getBoundingClientRect().toJSON();
+    const history = node.querySelector<HTMLElement>('.conversation-messages')!;
+    const quote = node.querySelector('blockquote')!;
+    return {
+      window: node.getBoundingClientRect().toJSON(),
+      header: rect('.conversation-window-bar'),
+      quote: rect('blockquote'),
+      composer: rect('.conversation-composer'),
+      field: rect('[role="combobox"]'),
+      send: rect('.annotation-status-row > button'),
+      history: rect('.conversation-messages'),
+      scrollHeight: history.scrollHeight,
+      clientHeight: history.clientHeight,
+      quoteSpacing: parseFloat(getComputedStyle(quote).marginBottom),
+      pageScroll: scrollY,
+    };
+  });
+}
+
+async function windowStyles(window: Locator) {
+  return window.evaluate((node) => {
+    const properties = [
+      'display',
+      'align-items',
+      'gap',
+      'padding',
+      'margin',
+      'border',
+      'border-radius',
+      'background-color',
+      'box-shadow',
+      'color',
+      'font',
+      'min-height',
+      'overflow',
+    ];
+    return Object.fromEntries(
+      [
+        '.conversation-window-bar',
+        '.conversation-composer',
+        '.annotation-status-row',
+        '[role="combobox"]',
+        '.annotation-status-row > button',
+      ].map((selector) => {
+        const style = getComputedStyle(node.querySelector(selector)!);
+        return [
+          selector,
+          Object.fromEntries(properties.map((key) => [key, style.getPropertyValue(key)])),
+        ];
+      }),
+    );
+  });
+}
+
+for (const width of [1440, 390])
+  for (const theme of ['light', 'dark'] as const)
+    test(`annotation content fit and shared thread geometry at ${width} ${theme}`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await page.emulateMedia({ colorScheme: theme });
+      await page.addInitScript((theme) => {
+        document.documentElement.dataset.theme = theme;
+      }, theme);
+      const directory = process.env.COLAB_2134_CAPTURE_DIR;
+      const record = async (window: Locator, state: string) => {
+        await page.mouse.move(width - 1, 899);
+        const geometry = await windowGeometry(window);
+        if (directory) {
+          mkdirSync(directory, { recursive: true });
+          const name = `${width}-${theme}-${state}`;
+          await page.screenshot({ path: `${directory}/${name}.png` });
+          writeFileSync(`${directory}/${name}.json`, JSON.stringify(geometry, null, 2));
+        }
+        return geometry;
+      };
+      await annotate(page);
+      const annotation = page.getByTestId('annotation-window');
+      const short = await record(annotation, 'short-quote');
+      const annotationStyles = await windowStyles(annotation);
+      const input = page
+        .getByRole('dialog', { name: 'Annotate selection' })
+        .getByRole('combobox', { name: 'Message', exact: true });
+      const inputId = await input.getAttribute('id');
+      await input.fill('A plain first turn.');
+      await input.press('Enter');
+      const continued = page.getByTestId('comment-thread');
+      await expect(continued.getByTestId('comment-entry')).toHaveCount(1);
+      await expect(input).toHaveAttribute('id', inputId!);
+      const firstSend = await windowGeometry(continued);
+      const newTurn = (await continued.getByTestId('comment-entry').boundingBox())!;
+      const threadActions = await continued
+        .locator('.conversation-messages > .comment-actions')
+        .evaluate((node) => {
+          const style = getComputedStyle(node);
+          return (
+            node.getBoundingClientRect().height +
+            parseFloat(style.marginTop) +
+            parseFloat(style.marginBottom)
+          );
+        });
+      const replyLabel = (await continued.locator('.annotation-reply-label').boundingBox())!;
+      const replySpacing = await continued.locator('.annotation-reply-label').evaluate((node) => {
+        const style = getComputedStyle(node);
+        return parseFloat(style.marginTop) + parseFloat(style.marginBottom);
+      });
+
+      await annotate(page);
+      const longQuote = 'This selected passage must scroll inside the annotation window. '
+        .repeat(50)
+        .trim();
+      await page.getByRole('button', { name: 'Close annotation', exact: true }).click();
+      const frame = page.locator('#ask-page-fixture iframe');
+      const render = await frame.getAttribute('data-render-id');
+      await run(
+        page,
+        'change',
+        `<p id="selected" style="margin:0;font:14px/1.5 sans-serif">${longQuote}</p>`,
+      );
+      await expect(frame).not.toHaveAttribute('data-render-id', render!);
+      await expect(page.locator('#ask-page-fixture .status')).toContainText('Live preview');
+      await page
+        .frameLocator('#ask-page-fixture iframe')
+        .locator('#selected')
+        .evaluate((node) => {
+          const range = node.ownerDocument.createRange();
+          range.selectNodeContents(node);
+          const selection = node.ownerDocument.getSelection()!;
+          selection.removeAllRanges();
+          selection.addRange(range);
+        });
+      await page.getByTestId('selection-ask').click();
+      await expect(annotation.locator('blockquote')).toHaveText(longQuote);
+      const long = await record(annotation, 'long-quote');
+      const history = annotation.locator('.conversation-messages');
+      await history.evaluate((node) => {
+        node.scrollTop = node.scrollHeight;
+      });
+      const scrolled = await windowGeometry(annotation);
+
+      await mount(page, 'thread');
+      const thread = page.getByTestId('comment-thread');
+      await record(thread, 'anchored-thread');
+      expect(await windowStyles(thread)).toEqual(annotationStyles);
+      expect(short.composer.top - short.quote.bottom).toBeLessThanOrEqual(short.quoteSpacing + 1);
+      expect(short.history.height).toBeCloseTo(short.quote.height + short.quoteSpacing * 2, 0);
+      expect(firstSend.window.height - short.window.height).toBeLessThanOrEqual(
+        newTurn.height + threadActions + replyLabel.height + replySpacing + 1,
+      );
+      expect(firstSend.header).toEqual(short.header);
+      expect(firstSend.quote).toEqual(short.quote);
+      expect(firstSend.field.width).toBe(short.field.width);
+      expect(firstSend.field.height).toBe(short.field.height);
+      expect(firstSend.composer.top - short.composer.top).toBeLessThanOrEqual(
+        newTurn.height + threadActions + 1,
+      );
+      expect(long.scrollHeight).toBeGreaterThan(long.clientHeight);
+      expect(long.window.top).toBeGreaterThanOrEqual(48);
+      expect(long.window.bottom).toBeLessThanOrEqual(892);
+      for (const bounds of [long.field, long.send]) {
+        expect(bounds.top).toBeGreaterThanOrEqual(long.window.top);
+        expect(bounds.bottom).toBeLessThanOrEqual(long.window.bottom);
+      }
+      expect(scrolled.header).toEqual(long.header);
+      expect(scrolled.field).toEqual(long.field);
+      expect(scrolled.send).toEqual(long.send);
+      expect(scrolled.pageScroll).toBe(long.pageScroll);
+    });
+
+for (const width of [1440, 390])
+  for (const theme of ['light', 'dark'] as const)
+    test(`above annotation retains its selection edge on first Send at ${width} ${theme}`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await page.emulateMedia({ colorScheme: theme });
+      await page.addInitScript((theme) => {
+        document.documentElement.dataset.theme = theme;
+      }, theme);
+      await page.goto('/');
+      await run(page, 'mount');
+      await expect(page.locator('#ask-page-fixture .status')).toContainText('Live preview');
+      const frame = page.locator('#ask-page-fixture iframe');
+      const render = await frame.getAttribute('data-render-id');
+      await run(
+        page,
+        'change',
+        '<div style="height:600px"></div><p id="selected">Exact selected text</p>',
+      );
+      await expect(frame).not.toHaveAttribute('data-render-id', render!);
+      await expect(page.locator('#ask-page-fixture .status')).toContainText('Live preview');
+      const selected = page.frameLocator('#ask-page-fixture iframe').locator('#selected');
+      await selected.evaluate((node) => {
+        const range = node.ownerDocument.createRange();
+        range.selectNodeContents(node);
+        const selection = node.ownerDocument.getSelection()!;
+        selection.removeAllRanges();
+        selection.addRange(range);
+      });
+      await page.getByTestId('selection-ask').click();
+      const dialog = page.getByRole('dialog', { name: 'Annotate selection' });
+      const window = dialog.locator('.conversation-window');
+      const before = await windowGeometry(window);
+      const selection = (await selected.boundingBox())!;
+      const input = dialog.getByRole('combobox', { name: 'Message', exact: true });
+      await input.fill('First turn above the selection.');
+      await input.press('Enter');
+      await expect(window.getByTestId('comment-entry')).toHaveCount(1);
+      const after = await windowGeometry(window);
+      const directory = process.env.COLAB_2134_CAPTURE_DIR;
+      if (directory) {
+        mkdirSync(directory, { recursive: true });
+        await page.mouse.move(width - 1, 899);
+        const name = `${width}-${theme}-above-first-send`;
+        await page.screenshot({ path: `${directory}/${name}.png` });
+        writeFileSync(
+          `${directory}/${name}.json`,
+          JSON.stringify({ before, after, selection }, null, 2),
+        );
+      }
+      for (const geometry of [before, after]) {
+        expect(selection.y - geometry.window.bottom).toBeGreaterThanOrEqual(6);
+        expect(selection.y - geometry.window.bottom).toBeLessThanOrEqual(7);
+        expect(geometry.window.top).toBeGreaterThanOrEqual(48);
+      }
+      expect(after.window.bottom).toBe(before.window.bottom);
+      const growth = after.window.height - before.window.height;
+      expect(before.header.top - after.header.top).toBeCloseTo(growth, 0);
+      expect(before.quote.top - after.quote.top).toBeCloseTo(growth, 0);
+      expect(after.field.width).toBe(before.field.width);
+      expect(after.field.height).toBe(before.field.height);
+      expect(after.pageScroll).toBe(before.pageScroll);
+    });

@@ -1616,8 +1616,10 @@ small anchored window at that span. On the first committed turn, the same input
 continues below the thread's user turns, agent state and admitted replies; Comments
 and Chat do not open automatically. The header and composer stay stationary, only
 messages scroll, and new turns/replies scroll that area to the new content. The
-window grows toward the viewport bottom before scrolling, with about 240 px for
-messages when space permits, independently of document bounds. First open, new
+window fits its header, quote, turns and composer without reserved history height,
+growing away from its selection edge up to the available viewport height. Only
+history scrolls beyond that cap; the field and Send stay visible independently of
+document bounds. First open, new
 comment IDs and changed associated replies scroll into view; unrelated live
 publications preserve a reader's position in history.
 Its placement is cosmetic; the captured quote

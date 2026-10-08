@@ -758,10 +758,9 @@ footer {
   z-index: 40;
 }
 .annotation-popover {
-  height: min(480px, calc(100dvh - 80px));
+  height: auto;
   display: flex;
   width: min(380px, calc(100vw - 24px));
-  max-height: calc(100vh - 80px);
   overflow: hidden;
   padding: 0;
   border: 1px solid var(--c-text);
@@ -917,6 +916,9 @@ footer {
   overflow: auto;
   border-top: 1px solid var(--c-rule);
   padding: 10px 14px;
+}
+.annotation-popover .conversation-composer {
+  flex-shrink: 0;
 }
 .ask-panel {
   margin: 0;
