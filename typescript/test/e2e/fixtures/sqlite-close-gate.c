@@ -43,9 +43,7 @@ static void gate(const char *name) {
  * exec only when its target is a direct child of that launcher, not the ps
  * helper itself or a prior runtime. The test can stop the provider before the
  * unmodified native observation executes; no process evidence is synthesized. */
-int execve(const char *file, char *const argv[], char *const envp[]) {
-  int (*original)(const char *, char *const[], char *const[]) = dlsym(RTLD_NEXT, "execve");
-  if (!original) _exit(90);
+static void admission_probe(const char *file, char *const argv[]) {
   const char *ready = getenv("TMT_ADMISSION_READY");
   if (ready && access(ready, F_OK) && !strcmp(file, "/usr/bin/env")) {
     long target = 0;
@@ -70,6 +68,19 @@ int execve(const char *file, char *const argv[], char *const envp[]) {
       }
     }
   }
+}
+
+int execv(const char *file, char *const argv[]) {
+  int (*original)(const char *, char *const[]) = dlsym(RTLD_NEXT, "execv");
+  if (!original) _exit(90);
+  admission_probe(file, argv);
+  return original(file, argv);
+}
+
+int execve(const char *file, char *const argv[], char *const envp[]) {
+  int (*original)(const char *, char *const[], char *const[]) = dlsym(RTLD_NEXT, "execve");
+  if (!original) _exit(90);
+  admission_probe(file, argv);
   return original(file, argv, envp);
 }
 
