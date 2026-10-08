@@ -31,6 +31,12 @@ cannot clear it; writes/close precede lease release. Empty/missing/unwritable re
 of healthy exit. Inspect the local file alongside `status`; use `serve --foreground` for terminal
 troubleshooting. Do not reset state or automatically restart after uncertain startup.
 
+Serve also owns the optional lease-bound object service: one attempt per static Local
+declaration before door readiness, explicit shutdown after Site, and Drop on early exit.
+Setup failure warns and leaves the ordinary door running; all production declarations
+remain Disabled. The [object-backend guide](object-backends.md) owns the lifecycle limits,
+late-listener restriction and production-flip prerequisites; discovery shapes are unchanged.
+
 ## Discovery and restart implementation
 
 Serve remembers the bound port since Remote schema 5 (`door_port`). Schema 6

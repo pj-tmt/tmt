@@ -1292,3 +1292,61 @@ fn upload_frozen_expiry_crossed_after_commit_is_unknown_not_late_receipt() {
         })
     ));
 }
+
+#[test]
+fn scoped_service_shutdown_joins_bus_then_restart_reads_same_committed_original() {
+    let env = Env::new();
+    let (service, peer) = running(&env, bounds());
+    let original = spec(Context::LocalExtension, 7, b"hello");
+    admitted(&peer, 1, begin(&original), &original);
+    admitted(&peer, 2, part(b"hello", 0), &original);
+    let committed = admitted(&peer, 3, commit(), &original);
+    assert!(matches!(
+        committed,
+        Outcome::Success(Success::Committed { .. })
+    ));
+    let receipt = service
+        .handle("alpha")
+        .unwrap()
+        .status(original.intent, &io())
+        .unwrap();
+    let generation = service.active("alpha").unwrap();
+    let bus = service.bus("alpha").unwrap();
+    service.shutdown();
+    assert!(service.active("alpha").is_none());
+    assert!(
+        bus.upgrade().is_none(),
+        "shutdown must join every socket/view holder"
+    );
+    with_bus(&peer, |bus| {
+        assert_eq!(
+            bus.recv(Some(Instant::now() + Duration::from_secs(5))),
+            Err(Fault::Closed)
+        )
+    });
+    drop(service);
+    peer.buses.lock().unwrap().clear();
+    let service = env.service(&ALPHA, bounds()).unwrap();
+    let next = service.activate(&env.mounts(&ALPHA), "alpha").unwrap();
+    assert_ne!(generation, next);
+    assert_eq!(
+        service
+            .handle("alpha")
+            .unwrap()
+            .status(original.intent, &io())
+            .unwrap(),
+        receipt
+    );
+    assert_eq!(allowed(&peer, 1, status_input(&original)).1, committed);
+    assert_eq!(
+        service
+            .handle("alpha")
+            .unwrap()
+            .read(original.key, 0, 5, &io())
+            .unwrap()
+            .bytes,
+        b"hello"
+    );
+    service.shutdown();
+    drop(service);
+}

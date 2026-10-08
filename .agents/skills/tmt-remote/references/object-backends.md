@@ -5,11 +5,10 @@ Follow [tmt-dev](../../tmt-dev/SKILL.md) and the
 [storage proposal](../../../../extensions/tmt-colab/contracts/storage-v1-proposal.md)
 owns the accepted behavior and bounds; this guide owns how the implemented backend
 in `extensions/tmt-remote/rust/tmt-remote/src/objects*` works and how to add an
-adapter. Nothing here is reachable from a route, the SDK or a setting, and no
-production extension declares object storage (`mount::ObjectDeclaration`, disabled for
-every entry of `mount::EXTENSIONS`): the lease-bound `object_service` below is library
-code that tests exercise; the routed channel and consumers belong to #1852 and later
-children.
+adapter. Serve owns the lease-bound `object_service` below, but every production
+`mount::EXTENSIONS` entry has `ObjectDeclaration::Disabled`: no production object
+channel opens, and no route, SDK setting or user action enables it. Production
+activation remains a separate Core decision under #1852.
 
 ## Modules
 
@@ -23,11 +22,24 @@ children.
 
 `ObjectService` (`src/object_service.rs`, not under `objects/`) is the one installation
 owner above these: it opens `LocalFs` only when a static declaration enables an extension
-(`ObjectService::open` refuses readiness when accounting cannot settle and creates
-nothing otherwise), keeps at most one active bus and one setup candidate per extension and
+(`ObjectService::open` fails when accounting cannot settle and creates
+nothing for an all-Disabled declaration list), keeps at most one active bus and one setup candidate per extension and
 eight buses in all, and opens a channel only on an explicit `activate` (no retry, no
-polling). `activate` is not called by production code. Its extension names come only from
-the declaration list and it names no extension itself.
+polling). Its extension names come only from the declaration list and it names no
+extension itself. Serve attempts each static Local declaration once after constructing
+Site/Mounts and device events, before remembering the port and publishing door readiness.
+Open or setup failure is reported as an unavailable warning on the existing foreground
+output, drops the failed candidate and leaves the ordinary door running. The 15-second
+setup and 35-second startup bounds and stop fences are unchanged; they do not preempt
+underlying filesystem calls or cleanup joins. Detached workers retain their existing
+output/discovery shape: visible Local-channel readiness is a prerequisite of the later
+production flip, not supplied by the door descriptor here.
+
+One attempt cannot reach an extension whose listener starts later or restarts: a failed
+or ended channel stays unavailable until serve restarts. The activation/reactivation
+policy must be decided with Colab/Core before the production flip; serve has no reconnect
+loop. Each channel uses the existing extension-private `<dataRoot>/<extension>/door.sock`
+upgrade endpoint, not a second socket owner.
 
 Origins (`object_service/origins.rs`, shared with `Mounts` through the `mount::OriginSink`
 trait, so mounts name neither the service nor the protocol) are the only owner of origin
@@ -77,8 +89,11 @@ lease ends; `serve.rs` owns it by scope. Connection-scoped uploads are allowed o
 admission. Their durable rows cannot be recovered after reconnect; staging expiry and active-intent/entry quotas
 bound them, and closing the connection does not release their charge.
 `shutdown`, `Drop` and replacement end the channel: threads are joined and the last one
-drops the bus, which closes the socket. All of this is library code, not routed and not
-reachable in production.
+drops the bus, which closes the socket. Serve explicitly shuts the service down after
+`Door::run` has shut down Site and joined its workers, before releasing the lease; Drop
+covers every earlier return. Service fixtures prove channel success, recovery and joins,
+while binary serve fixtures prove startup ordering, disabled declarations and degraded
+failures without importing the wire leaf.
 
 `LocalFs` borrows the `Serving` proof, so the lease cannot be released while it or a
 handle exists, and `Store::open` and the ledger share only the private connection setup
