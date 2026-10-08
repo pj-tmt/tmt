@@ -1,3 +1,4 @@
+import { generateKeyPairSync, randomUUID } from 'node:crypto';
 import { expect, test, type Locator, type Page } from '@playwright/test';
 import { pairBrowser, startDoor } from './harness/browser.js';
 import { createPage, freePort, openPage, composeChat, run } from './harness/ask.js';
@@ -97,9 +98,31 @@ test('native sharing and lifecycle verification preserve Ask, page recovery and 
     await expect(dialog.getByRole('status')).toContainText('Change verified');
     await dialog.getByRole('button', { name: 'Manage another change' }).click();
     await dialog.getByRole('button', { name: 'Create link', exact: true }).click();
+    await expect(dialog).toContainText('Shared links open read-only, whatever their role.');
+    const captureCopy = async (phase: 'confirm' | 'verified') => {
+      for (const width of [1440, 390]) {
+        await page.setViewportSize({ width, height: 900 });
+        for (const theme of ['light', 'dark']) {
+          await page.evaluate((value) => {
+            document.documentElement.dataset.theme = value;
+          }, theme);
+          await page.screenshot({
+            path: testInfo.outputPath(`link-copy-${phase}-${width}-${theme}.png`),
+            mask: [dialog.getByLabel('Link seed')],
+          });
+        }
+      }
+      await page.setViewportSize({ width: 1280, height: 900 });
+      await page.evaluate(() => {
+        document.documentElement.dataset.theme = 'light';
+      });
+    };
+    await captureCopy('confirm');
     await expect(dialog.getByLabel('Link seed')).toHaveCount(0);
     await dialog.getByRole('button', { name: 'Confirm create link' }).click();
     await expect(dialog.getByLabel('Link seed')).toHaveValue(/^[A-Za-z0-9_-]{43}$/);
+    await expect(dialog).toContainText('This dialog does not create a URL to open.');
+    await captureCopy('verified');
     const oldLink = await dialog.getByLabel('Link ID', { exact: true }).inputValue();
     await dialog.getByRole('button', { name: 'Manage another change' }).click();
     await dialog.getByRole('button', { name: 'Reset link', exact: true }).click();
@@ -158,5 +181,127 @@ test('native sharing and lifecycle verification preserve Ask, page recovery and 
     const catalog = JSON.parse(run(world, world.binaries.colab, ['ls', '--archived', '--json']));
     expect(catalog.pages).toHaveLength(0);
     expect(recipient.received()).toHaveLength(0);
+  });
+});
+
+// L6: browser intent is checked against the real owner's verified CLI projection.
+test('member roles, shared/current joins and epoch advance admit the same owner policy', async () => {
+  await withWorld(async (world) => {
+    const door = await startDoor(world, await freePort());
+    const device = await pairBrowser(world, 'member-policy-browser');
+    const created = createPage(
+      world,
+      'Member policy',
+      '<p>Current baseline survives policy changes.</p>',
+    );
+    const page = await openPage(door, device, created);
+    const detail = () =>
+      JSON.parse(run(world, world.binaries.colab, ['show', created.pageId, '--json']));
+    let dialog = await manage(page);
+    const initialEpoch = BigInt(detail().page.epoch);
+    const add = async () => {
+      const id = randomUUID();
+      const key = (type: 'ed25519' | 'x25519') =>
+        (type === 'ed25519'
+          ? generateKeyPairSync('ed25519')
+          : generateKeyPairSync('x25519')
+        ).publicKey
+          .export({ type: 'spki', format: 'der' })
+          .subarray(-32)
+          .toString('base64url');
+      await dialog.getByLabel('Member ID', { exact: true }).fill(id);
+      await dialog.getByLabel('Signing public key').fill(key('ed25519'));
+      await dialog.getByLabel('Encryption public key').fill(key('x25519'));
+      await dialog.getByRole('button', { name: 'Add member', exact: true }).click();
+      await dialog.getByRole('button', { name: 'Confirm add member', exact: true }).click();
+      await expect(dialog.getByRole('status')).toContainText('Change verified');
+      expect(detail().members.find((m: { id: string }) => m.id === id)).toMatchObject({
+        role: 'viewer',
+        pages: [created.pageId],
+        revoked: false,
+      });
+      await dialog.getByRole('button', { name: 'Manage another change' }).click();
+      return id;
+    };
+    const shared = await add();
+    expect(BigInt(detail().page.epoch)).toBe(initialEpoch);
+    await choose(dialog, 'Member role', 'editor');
+    await dialog.getByRole('button', { name: 'Confirm change member role' }).click();
+    await expect(dialog.getByRole('status')).toContainText('Change verified');
+    expect(detail().members.find((m: { id: string }) => m.id === shared).role).toBe('editor');
+    await dialog.getByRole('button', { name: 'Manage another change' }).click();
+    await dialog.getByRole('button', { name: 'Remove member', exact: true }).click();
+    await dialog.getByRole('button', { name: 'Confirm remove member' }).click();
+    await expect(dialog.getByRole('status')).toContainText('Change verified');
+    expect(detail().members.find((m: { id: string }) => m.id === shared).revoked).toBe(true);
+    await dialog.getByRole('button', { name: 'Manage another change' }).click();
+    await choose(dialog, 'History mode', 'Current');
+    await dialog.getByRole('button', { name: 'Confirm change history' }).click();
+    await expect(dialog.getByRole('status')).toContainText('Change verified');
+    expect(detail().page.history).toBe('current');
+    const beforeCurrent = BigInt(detail().page.epoch);
+    await dialog.getByRole('button', { name: 'Manage another change' }).click();
+    await add();
+    expect(BigInt(detail().page.epoch)).toBe(beforeCurrent + 1n);
+    await dialog.getByRole('button', { name: 'Advance epoch', exact: true }).click();
+    await dialog.getByRole('button', { name: 'Confirm advance epoch' }).click();
+    await expect(dialog.getByRole('status')).toContainText('Change verified');
+    expect(BigInt(detail().page.epoch)).toBe(beforeCurrent + 2n);
+    await dialog.getByRole('button', { name: 'Close', exact: true }).click();
+    await page.reload();
+    await expect(
+      page.frameLocator('iframe').getByText('Current baseline survives policy changes.'),
+    ).toBeVisible();
+    expect(world.coreCalls().filter((c) => c.operation === 'dispatch.create')).toHaveLength(0);
+  });
+});
+
+test('a lost management reply permits only an explicit byte-identical retry of the original operation', async () => {
+  await withWorld(async (world) => {
+    const door = await startDoor(world, await freePort());
+    const device = await pairBrowser(world, 'management-retry-browser');
+    const created = createPage(world, 'Frozen management retry', '<p>No agent work.</p>');
+    const page = await openPage(door, device, created);
+    const dialog = await manage(page);
+    const before = JSON.parse(run(world, world.binaries.colab, ['show', created.pageId, '--json']));
+    const bodies: string[] = [];
+    let acknowledgment:
+      | { operationId: string; membershipHead: { revision: string; statementHash: string } }
+      | undefined;
+    await device.context.route('**/api/management', async (route) => {
+      bodies.push(route.request().postData()!);
+      const response = await route.fetch(); // Commit at the real owner before losing the first reply.
+      expect(response.status()).toBe(200);
+      const result = await response.json();
+      if (bodies.length === 1) {
+        acknowledgment = result;
+        await route.abort('failed');
+      } else {
+        expect(result).toEqual(acknowledgment);
+        await route.fulfill({ response });
+      }
+    });
+    await dialog.getByLabel('Keep forever').check();
+    await dialog.getByRole('button', { name: 'Set retention', exact: true }).click();
+    await dialog.getByRole('button', { name: 'Confirm set retention', exact: true }).click();
+    await expect(dialog.getByRole('alert')).toContainText('Result unknown');
+    expect(bodies).toHaveLength(1);
+    const committed = JSON.parse(
+      run(world, world.binaries.colab, ['show', created.pageId, '--json']),
+    );
+    expect(committed.page.retentionDays).toBeNull();
+    expect(committed.membershipHead).toEqual(acknowledgment!.membershipHead);
+    expect(BigInt(committed.membershipHead.revision)).toBe(
+      BigInt(before.membershipHead.revision) + 1n,
+    );
+    await dialog.getByRole('button', { name: 'Retry exact request' }).click();
+    await expect(dialog.getByRole('status')).toContainText('Change verified');
+    expect(bodies).toHaveLength(2);
+    expect(bodies[1]).toBe(bodies[0]); // Includes original ID, signed framing, expiry and selected payload.
+    expect(
+      JSON.parse(run(world, world.binaries.colab, ['show', created.pageId, '--json']))
+        .membershipHead,
+    ).toEqual(committed.membershipHead);
+    expect(world.coreCalls().filter((c) => c.operation === 'dispatch.create')).toHaveLength(0);
   });
 });
