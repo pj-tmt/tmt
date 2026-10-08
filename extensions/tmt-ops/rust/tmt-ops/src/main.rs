@@ -1127,7 +1127,9 @@ fn main() -> ExitCode {
             if command == "migration"
                 && let Some(command) = outcome.document["command"].as_str()
             {
-                eprintln!("{command}");
+                if board_switch::write_notice(command).is_err() {
+                    return ExitCode::FAILURE;
+                }
             }
             if json {
                 return print_document(&outcome.document, code);

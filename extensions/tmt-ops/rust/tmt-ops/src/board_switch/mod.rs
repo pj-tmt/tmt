@@ -72,6 +72,13 @@ fn fail(error: impl std::fmt::Display) -> SquadError {
     SquadError::new("OPS_BOARD_SWITCH_FAILED", error.to_string())
 }
 
+pub(crate) fn write_notice(value: &str) -> Result<(), SquadError> {
+    let mut stderr = tmt_cli_style::stream::stderr();
+    writeln!(stderr, "{value}")
+        .and_then(|()| stderr.flush())
+        .map_err(fail)
+}
+
 fn text(program: &Path, arguments: &[&str]) -> Result<String, SquadError> {
     let arguments: Vec<OsString> = arguments.iter().map(OsString::from).collect();
     let output = runner::run(program, &arguments, b"", Duration::from_secs(3), 256 * 1024)
@@ -201,6 +208,15 @@ fn discover(prefix: &Path, socket: &str) -> Result<Discovery, SquadError> {
             .filter(|p| process::in_pane(p, pane.pid, &pane.tty, &table))
         {
             let Ok((executable, _)) = process::kernel(observed.pid) else {
+                // A vanished process needs no switch. A still-live foreground
+                // process with unavailable executable evidence must not let
+                // replacement cleanup claim that every former board switched.
+                let latest = process::table()?;
+                deferred |= latest.iter().any(|p| {
+                    p.pid == observed.pid
+                        && p.start == observed.start
+                        && process::in_pane(p, pane.pid, &pane.tty, &latest)
+                });
                 continue;
             };
             if !process::former(&executable, prefix) {
@@ -571,7 +587,7 @@ fn switch(core: &Core, prefix: &Path, socket: Option<&str>) -> Result<Value, Squ
         }
         if fresh.deferred {
             return Err(fail(
-                "A former process has unrecognized board arguments; it was left running.",
+                "A former process could not be verified as a board; it was left running.",
             ));
         }
         Ok::<_, SquadError>(())
@@ -623,7 +639,7 @@ pub(crate) fn offer(interaction: Interaction) -> Result<(), SquadError> {
     let prefix = verify_prefix(&core, None)?;
     let hint = command(&prefix, socket.as_deref());
     if interaction.prompt() != Mode::Interactive {
-        eprintln!("{hint}");
+        write_notice(&hint)?;
         return Ok(());
     }
     if consent::ask(
@@ -637,15 +653,15 @@ pub(crate) fn offer(interaction: Interaction) -> Result<(), SquadError> {
     }
     let result = attempt(&core, &prefix, socket.as_deref());
     if result["complete"] == true || result["switched"].as_u64().unwrap_or(0) > 0 {
-        eprintln!("switched {} boards to Ops", result["switched"]);
+        write_notice(&format!("switched {} boards to Ops", result["switched"]))?;
     }
     if result["complete"] == false
         && let Some(reason) = result["reason"].as_str()
     {
-        eprintln!("{reason}");
+        write_notice(reason)?;
     }
     if let Some(command) = result["command"].as_str() {
-        eprintln!("{command}");
+        write_notice(command)?;
     }
     Ok(())
 }
