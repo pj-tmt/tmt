@@ -1035,7 +1035,7 @@ o = "run touch ${marker}"
       expect(rootCandidates).not.toContain('sq');
       const direct = { ...sandbox, cli: { executable: path.join(bin, 'tmt-ops'), args: [] } };
       expect((await runCli(direct, ['__complete', '--', ''])).stdout).toBe(
-        'help\nhotkeys\nplaybook\nskill\nsquad\nui\n'
+        'help\nhotkeys\nmigration\nplaybook\nskill\nsquad\nui\n'
       );
     });
   });
