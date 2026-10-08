@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test, vi } from 'vite-plus/test';
-import { landingPage } from '../src/browser.js';
+import { landingPage, pairingPage } from '../src/browser.js';
 import { Door, paired } from './door.js';
 
 function request(result: unknown) {
@@ -256,6 +256,81 @@ for (const mode of ['signing', 'pending-admission']) {
       assert.equal(f.nodes.get('status')!.textContent, status);
     } finally {
       vi.restoreAllMocks();
+      vi.unstubAllGlobals();
+    }
+  });
+}
+
+for (const outcome of ['valid', 'refused', 'malformed', 'transport']) {
+  test(`pairing enables only with its listener and a validated offer: ${outcome}`, async () => {
+    const door = new Door();
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let arrive!: () => void;
+    const reached = new Promise<void>((resolve) => {
+      arrive = resolve;
+    });
+    let listener: ((event: Event) => void) | undefined;
+    let validated = false;
+    let disabled = true;
+    let enables = 0;
+    const button = {
+      get disabled() {
+        return disabled;
+      },
+      set disabled(value: boolean) {
+        if (!value) {
+          assert.equal(validated, true, 'offer response precedes enablement');
+          assert.equal(typeof listener, 'function', 'submit listener precedes enablement');
+          enables++;
+        }
+        disabled = value;
+      },
+    };
+    const form = {
+      hidden: false,
+      querySelector: () => button,
+      addEventListener: (type: string, value: (event: Event) => void) => {
+        assert.equal(type, 'submit');
+        listener = value;
+      },
+    };
+    const status = { dataset: {} as Record<string, string>, textContent: '' };
+    const mark = { textContent: '' };
+    vi.stubGlobal('document', {
+      readyState: 'complete',
+      getElementById: (id: string) =>
+        (({ pair: form, status, mark }) as Record<string, unknown>)[id],
+    });
+    vi.stubGlobal('fetch', async () => {
+      arrive();
+      await held;
+      if (outcome === 'transport') throw new Error('Fixture offer failed.');
+      validated = outcome === 'valid';
+      return Response.json(outcome === 'valid' ? door.descriptor : {}, {
+        status: outcome === 'refused' ? 404 : 200,
+      });
+    });
+    const attempt = pairingPage(door.link());
+    try {
+      await reached;
+      assert.equal(button.disabled, true);
+      assert.equal(listener, undefined);
+      assert.equal(enables, 0);
+      release();
+      await attempt;
+      assert.equal(button.disabled, outcome !== 'valid');
+      assert.equal(enables, outcome === 'valid' ? 1 : 0);
+      assert.equal(form.hidden, outcome !== 'valid');
+      if (outcome !== 'valid') {
+        assert.equal(listener, undefined);
+        assert.equal(status.dataset.state, 'blocked');
+      }
+    } finally {
+      release();
+      await attempt.catch(() => {});
       vi.unstubAllGlobals();
     }
   });

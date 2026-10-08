@@ -95,6 +95,10 @@ fn the_pairing_page_and_sdk_are_served_with_exact_types_and_policy() {
     );
     assert!(page.body.contains(r#"data-tmt-page="pair""#));
     assert!(page.body.contains(r#"<script src="/sdk/pair.js">"#));
+    assert!(
+        page.body
+            .contains(r#"<button type="submit" disabled>Pair</button>"#)
+    );
     let sdk = get(
         &h,
         "/sdk/remote-v1.js",
