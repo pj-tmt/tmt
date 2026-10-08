@@ -166,16 +166,20 @@ describe(
               complete: false,
               gap: true,
             });
-            expect(Object.keys(recorded?.consumption as object).sort()).toEqual([
-              'cachedInputTokens',
-              'complete',
-              'epoch',
-              'gap',
-              'inputTokens',
-              'observedAtMs',
-              'outputTokens',
-              'sequence',
-            ]);
+            expect(Object.keys(recorded?.consumption as object).sort()).toEqual(
+              [
+                'cacheWriteTokens',
+                ...(provider.name === 'claude' ? ['deltaByModel', 'modelId'] : []),
+                'cachedInputTokens',
+                'complete',
+                'epoch',
+                'gap',
+                'inputTokens',
+                'observedAtMs',
+                'outputTokens',
+                'sequence',
+              ].sort()
+            );
             expect(resumeOf(results[8].stdout)).toEqual(recorded);
             const updated = resumeOf(results[10].stdout)?.consumption;
             expect(updated).toMatchObject({
@@ -442,3 +446,125 @@ for (const provider of providers) {
     });
   }, 45000);
 }
+
+// C1: launch selection and completed-turn billing models are distinct. Each
+// provider changes model twice inside one accepted Stop read, without replay.
+describe('consumption cache-write and turn model attribution', { concurrent: false }, () => {
+  for (const base of providers) {
+    it(`persists ${base.name} model changes and cache-write separately through the CLI`, async () => {
+      const context = (model: string) =>
+        JSON.stringify({ type: 'turn_context', payload: { model, turn_id: model } }) +
+        '\n' +
+        JSON.stringify({ type: 'event_msg', payload: { type: 'task_started', turn_id: model } }) +
+        '\n';
+      const claude = (id: string, model: string, write: number) => {
+        const entry = JSON.parse(claudeRecords[0]);
+        entry.message.id = id;
+        entry.message.model = model;
+        entry.message.usage = {
+          input_tokens: 2,
+          cache_read_input_tokens: 5,
+          cache_creation_input_tokens: write,
+          output_tokens: 7,
+        };
+        return JSON.stringify(entry) + '\n';
+      };
+      const codex = (input: number, output: number, cached: number, write: number) => {
+        const entry = JSON.parse(codexLine);
+        Object.assign(entry.payload.info.total_token_usage, {
+          input_tokens: input,
+          output_tokens: output,
+          cached_input_tokens: cached,
+          cache_write_input_tokens: write,
+          total_tokens: input + output,
+        });
+        return JSON.stringify(entry) + '\n';
+      };
+      const rows =
+        base.name === 'claude'
+          ? [
+              {
+                modelId: 'billing-b',
+                inputTokens: 10,
+                outputTokens: 7,
+                cachedInputTokens: 5,
+                cacheWriteTokens: 3,
+              },
+              {
+                modelId: 'billing-c',
+                inputTokens: 13,
+                outputTokens: 7,
+                cachedInputTokens: 5,
+                cacheWriteTokens: 6,
+              },
+            ]
+          : [
+              {
+                modelId: 'billing-b',
+                inputTokens: 100,
+                outputTokens: 10,
+                cachedInputTokens: 50,
+                cacheWriteTokens: 20,
+              },
+              {
+                modelId: 'billing-c',
+                inputTokens: 100,
+                outputTokens: 10,
+                cachedInputTokens: 30,
+                cacheWriteTokens: 10,
+              },
+            ];
+      const provider: Provider = {
+        ...base,
+        line: base.name === 'claude' ? base.line : context('billing-a') + base.line,
+        appended:
+          base.name === 'claude'
+            ? claude('c1-b', 'billing-b', 3) + claude('c1-c', 'billing-c', 6)
+            : context('billing-b') +
+              codex(2674657971, 6910978, 2624251058, 20) +
+              context('billing-c') +
+              codex(2674658071, 6910988, 2624251088, 30),
+        updated:
+          base.name === 'claude'
+            ? { inputTokens: 23, outputTokens: 14, cachedInputTokens: 10 }
+            : { inputTokens: 2674658071, outputTokens: 6910988, cachedInputTokens: 2624251088 },
+      };
+      await withE2EFixture(
+        async (fixture) => {
+          const results = await runScenario(fixture, provider);
+          expect(results).toHaveLength(15);
+          for (const result of results) {
+            expect(result.code).toBe(0);
+            expect(result.stderr).toBe('');
+          }
+          const updated = resumeOf(results[10].stdout);
+          expect(updated).toMatchObject({
+            model: 'model-a',
+            consumption: {
+              ...provider.updated,
+              cacheWriteTokens: base.name === 'claude' ? 9 : 30,
+              modelId: 'billing-c',
+              deltaByModel: rows,
+              sequence: 2,
+            },
+          });
+          expect(resumeOf(results[12].stdout)?.consumption).toEqual(updated?.consumption);
+          const db = new Database(path.join(fixture.globalDir, 'tmux-team.db'), { readonly: true });
+          try {
+            const persisted = db
+              .prepare('SELECT details FROM consumption_buckets WHERE input_tokens > 0')
+              .all() as { details: string }[];
+            expect(persisted).toHaveLength(1);
+            expect(JSON.parse(persisted[0].details)).toEqual({
+              cacheWriteTokens: base.name === 'claude' ? 9 : 30,
+              byModel: rows,
+            });
+          } finally {
+            db.close();
+          }
+        },
+        { mode: 'input-log' }
+      );
+    }, 45000);
+  }
+});

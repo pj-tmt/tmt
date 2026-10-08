@@ -249,6 +249,10 @@ const MIGRATIONS: &[Migration] = &[
         "hold focus delivery and seal ordered checklists",
         "schema/049.sql"
     ),
+    migration!(
+        "retain consumption cache-write and per-turn model attribution",
+        "schema/050.sql"
+    ),
 ];
 
 pub(super) fn apply(connection: &mut Connection) -> Result<(), StorageError> {

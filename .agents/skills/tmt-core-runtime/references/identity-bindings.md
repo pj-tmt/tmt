@@ -159,7 +159,14 @@ in `contracts/`.
   `gap=true, complete=false`; history is never recounted and a partial last line waits for its
   newline. Claude counts each contiguous `message.id` group once keeping only hashed IDs, device,
   inode and offset; Codex baselines at cumulative totals and an invalid newest `token_count` is
-  unavailable. The Claude scan gets half the hook's remaining deadline and keeps validated counts
+  unavailable. Optional `cacheWriteTokens` stays a subset of unchanged input totals;
+  missing fields are unknown. `modelId`/`deltaByModel` read completed-request/turn model
+  evidence (Claude `message.model`, Codex `turn_context.model`), separately from the
+  starting-hook resume model. Deltas group at most four models per sequence, compacted
+  only inside the existing opaque cursor; size/evidence loss omits attribution before
+  evicting legacy counters. History stores additive cache-write and `byModel` evidence
+  in the existing buckets, coalesces every model change, and omits unknown mixed portions.
+  The Claude scan gets half the hook's remaining deadline and keeps validated counts
   with `complete=false` on expiry; the hook supervisor stays the hard time authority.
 - `run_command/run.rs` ticks the foreground wait every five seconds into
   `consumption_sample_command`, one supervised two-second worker that revalidates the full

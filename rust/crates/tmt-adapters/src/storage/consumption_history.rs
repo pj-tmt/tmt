@@ -4,7 +4,9 @@ use super::{
     IdentityContextSnapshot, Storage, StorageError, StorageErrorCode, bindings::BindingRows,
     errors::classify, identities::with_immediate_transaction,
 };
-use crate::runtime::consumption::Consumption;
+use crate::runtime::consumption::{Consumption, ModelUsage};
+mod details;
+use details::Details;
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -80,16 +82,17 @@ struct Bucket {
     discontinuous: bool,
     sampled: Option<u64>,
     latest: Option<String>,
+    details: Details,
 }
 
 impl Bucket {
     fn read(connection: &Connection, id: &str, from: u64) -> Result<Self, StorageError> {
-        connection.query_row("SELECT input_tokens,output_tokens,cached_input_tokens,covered_ms,complete,gap,discontinuous,sampled_at_ms,latest FROM consumption_buckets WHERE identity_id=? AND from_ms=?", params![id,from as i64], |row| Self::from_row(row, from))
+        connection.query_row("SELECT input_tokens,output_tokens,cached_input_tokens,covered_ms,complete,gap,discontinuous,sampled_at_ms,latest,details FROM consumption_buckets WHERE identity_id=? AND from_ms=?", params![id,from as i64], |row| Self::from_row(row, from))
             .optional().map(|value| value.unwrap_or(Self { from, ..Self::default() })).map_err(|e| classify(e,"Read consumption bucket"))
     }
 
     fn from_row(row: &rusqlite::Row<'_>, from: u64) -> rusqlite::Result<Self> {
-        Ok(Self {
+        let bucket = Self {
             from,
             input: integer(row, 0)?,
             output: integer(row, 1)?,
@@ -100,7 +103,30 @@ impl Bucket {
             discontinuous: row.get(6)?,
             sampled: optional_integer(row, 7)?,
             latest: row.get(8)?,
-        })
+            details: row
+                .get::<_, Option<String>>(9)?
+                .map(|value| serde_json::from_str(&value))
+                .transpose()
+                .map_err(|error| {
+                    rusqlite::Error::FromSqlConversionFailure(
+                        9,
+                        rusqlite::types::Type::Text,
+                        Box::new(error),
+                    )
+                })?
+                .unwrap_or_default(),
+        };
+        if !bucket
+            .details
+            .valid(bucket.input, bucket.output, bucket.cached)
+        {
+            return Err(rusqlite::Error::FromSqlConversionFailure(
+                9,
+                rusqlite::types::Type::Text,
+                Box::new(invalid()),
+            ));
+        }
+        Ok(bucket)
     }
 
     fn write(&self, connection: &Connection, id: &str) -> Result<(), StorageError> {
@@ -110,10 +136,11 @@ impl Bucket {
             .is_none_or(|n| n > MAX_JS_SAFE_INTEGER)
             || self.cached > self.input
             || self.covered > BUCKET_MS
+            || !self.details.valid(self.input, self.output, self.cached)
         {
             return Err(invalid());
         }
-        connection.execute("INSERT INTO consumption_buckets(identity_id,from_ms,input_tokens,output_tokens,cached_input_tokens,covered_ms,complete,gap,discontinuous,sampled_at_ms,latest) VALUES(?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(identity_id,from_ms) DO UPDATE SET input_tokens=excluded.input_tokens,output_tokens=excluded.output_tokens,cached_input_tokens=excluded.cached_input_tokens,covered_ms=excluded.covered_ms,complete=excluded.complete,gap=excluded.gap,discontinuous=excluded.discontinuous,sampled_at_ms=excluded.sampled_at_ms,latest=excluded.latest", params![id,self.from as i64,self.input as i64,self.output as i64,self.cached as i64,self.covered as i64,!self.incomplete,self.gap,self.discontinuous,self.sampled.map(|n|n as i64),self.latest]).map_err(|e|classify(e,"Write consumption bucket"))?;
+        connection.execute("INSERT INTO consumption_buckets(identity_id,from_ms,input_tokens,output_tokens,cached_input_tokens,covered_ms,complete,gap,discontinuous,sampled_at_ms,latest,details) VALUES(?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(identity_id,from_ms) DO UPDATE SET input_tokens=excluded.input_tokens,output_tokens=excluded.output_tokens,cached_input_tokens=excluded.cached_input_tokens,covered_ms=excluded.covered_ms,complete=excluded.complete,gap=excluded.gap,discontinuous=excluded.discontinuous,sampled_at_ms=excluded.sampled_at_ms,latest=excluded.latest,details=excluded.details", params![id,self.from as i64,self.input as i64,self.output as i64,self.cached as i64,self.covered as i64,!self.incomplete,self.gap,self.discontinuous,self.sampled.map(|n|n as i64),self.latest,serde_json::to_string(&self.details).map_err(|_|invalid())?]).map_err(|e|classify(e,"Write consumption bucket"))?;
         Ok(())
     }
 }
@@ -209,7 +236,7 @@ impl Storage {
         let mut identity = transaction
             .prepare("SELECT EXISTS(SELECT 1 FROM identities WHERE id=? AND retired_at_ms IS NULL)")
             .map_err(|e| classify(e, "Read consumption identity"))?;
-        let mut statement = transaction.prepare("SELECT input_tokens,output_tokens,cached_input_tokens,covered_ms,complete,gap,discontinuous,sampled_at_ms,latest,from_ms FROM consumption_buckets WHERE identity_id=? AND from_ms>=? AND from_ms<? ORDER BY from_ms")
+        let mut statement = transaction.prepare("SELECT input_tokens,output_tokens,cached_input_tokens,covered_ms,complete,gap,discontinuous,sampled_at_ms,latest,details,from_ms FROM consumption_buckets WHERE identity_id=? AND from_ms>=? AND from_ms<? ORDER BY from_ms")
             .map_err(|e| classify(e, "Read retained consumption buckets"))?;
         for id in ids {
             let found: bool = identity
@@ -223,7 +250,7 @@ impl Storage {
             // checks still include evidence outside the requested display windows.
             let rows: Vec<Bucket> = statement
                 .query_map(params![id, retained as i64, through as i64], |row| {
-                    Bucket::from_row(row, integer(row, 9)?)
+                    Bucket::from_row(row, integer(row, 10)?)
                 })
                 .and_then(|rows| rows.collect())
                 .map_err(|e| classify(e, "Read consumption bucket"))?;
@@ -263,6 +290,11 @@ impl Storage {
                     // at most once per window instead of rescanning for every bin.
                     while let Some(row) = rows.get(cursor).filter(|row| row.from < end) {
                         cursor += 1;
+                        if aggregate.input == 0 && aggregate.output == 0 {
+                            aggregate.details = row.details.clone();
+                        } else if row.input != 0 || row.output != 0 {
+                            aggregate.details.merge(&row.details)?;
+                        }
                         aggregate.input =
                             aggregate.input.checked_add(row.input).ok_or_else(invalid)?;
                         aggregate.output = aggregate
@@ -290,7 +322,15 @@ impl Storage {
                     }
                     let complete =
                         aggregate.covered == end - start && !aggregate.incomplete && !aggregate.gap;
-                    buckets.push(json!({"fromMs":start,"toMs":end,"inputTokens":aggregate.input,"outputTokens":aggregate.output,"cachedInputTokens":aggregate.cached,"coveredMs":aggregate.covered,"complete":complete,"gap":aggregate.gap || aggregate.covered<end-start,"discontinuous":aggregate.discontinuous}));
+                    let mut projected = json!({"fromMs":start,"toMs":end,"inputTokens":aggregate.input,"outputTokens":aggregate.output,"cachedInputTokens":aggregate.cached,"coveredMs":aggregate.covered,"complete":complete,"gap":aggregate.gap || aggregate.covered<end-start,"discontinuous":aggregate.discontinuous});
+                    projected.as_object_mut().ok_or_else(invalid)?.extend(
+                        serde_json::to_value(&aggregate.details)
+                            .map_err(|_| invalid())?
+                            .as_object()
+                            .ok_or_else(invalid)?
+                            .clone(),
+                    );
+                    buckets.push(projected);
                     start = end;
                 }
                 readings.push(json!({"windowMs":window,"fromMs":from,"toMs":through,"bucketMs":width,"buckets":buckets}));
@@ -374,6 +414,14 @@ fn record_sample(
             || old.consumption.epoch != next.consumption.epoch
     });
     if let Some((old, next)) = continuous {
+        let details = Details::delta(&old.consumption, &next.consumption);
+        if bucket.input == 0 && bucket.output == 0 {
+            bucket.details = details;
+        } else if next.consumption.input_tokens != old.consumption.input_tokens
+            || next.consumption.output_tokens != old.consumption.output_tokens
+        {
+            bucket.details.merge(&details)?;
+        }
         bucket.input = bucket
             .input
             .checked_add(next.consumption.input_tokens - old.consumption.input_tokens)
