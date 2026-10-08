@@ -127,7 +127,8 @@ or on a PR carrying `colab-acceptance`. Only adding that exact label can start
 acceptance from a label event; removing a label never starts it. Label edits skip
 the existing selector and interop jobs. Job-level concurrency keeps those edits
 from cancelling in-flight checks; acceptance never cancels an active run.
-The acceptance job checks the exact PR head, builds the app before one build of
+The acceptance job checks the default PR merge ref and records both the PR head
+and tested merge SHA in `tested-head.txt`. It builds the app before one build of
 all three executables, and runs Chromium with one worker on Ubuntu x64 within
 30 minutes. It restores Rust dependencies without saving and retains only source,
 build hashes and test outcomes with bounded assertion locations/timeouts for seven
