@@ -223,6 +223,9 @@ export class Live implements PageBinding {
       });
   }
   #owns(open: LiveOpen) {
+    // #block clears #opening before closing the Connection, so even an
+    // in-flight blocked attempt loses ownership before its callbacks run.
+    // A retained recovery error fences writes, not the fresh replacement read.
     return (
       !this.#closed &&
       this.#opening === open &&

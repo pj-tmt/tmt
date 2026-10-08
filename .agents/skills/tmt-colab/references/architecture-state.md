@@ -106,7 +106,9 @@ or an unverified read failure. An opaque socket disconnect, or a native fetch
 Other replacement, admission and eviction failures remain terminal.
 Ready-page transport failures retain bounded same-session catchup. Superseded callbacks,
 readiness, publications and diagnosis cannot alter the current attempt. Recovery
-never replays an Ask or mutation. If automatic recovery fails, explicit Reconnect
+never re-sends an Ask or generates a new mutation. Pending own-stream envelopes
+may be re-delivered through the Writer's existing staging path; exact accepted
+envelopes deduplicate as `Replay`. If automatic recovery fails, explicit Reconnect
 first reuses the admitted mounted-owner replacement on the same Live binding. The
 stopped write fence remains until the fresh Connection and projection are verified;
 then a new Writer uses the identical stream key and the new Ask facade resumes
