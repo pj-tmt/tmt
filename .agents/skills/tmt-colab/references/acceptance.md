@@ -26,7 +26,9 @@ before execution. Keep that directory unchanged throughout both acceptance runs.
 Run it twice for lifecycle acceptance; it remains a recorded manual gate on the PR head.
 The separate advisory `colab-browser.yml` acceptance job runs once weekly, manually,
 or for a PR carrying `colab-acceptance`, using one app/native build and one Playwright
-worker. It retains exact build hashes and test outcomes without private traces or profiles;
+worker. It retains exact build hashes, test outcomes and bounded assertion locations/timeouts
+without private error values, traces or profiles. An unexpected outcome also prints this
+bounded summary even if the list reporter's detailed failure is absent from the job log;
 selection and concurrency are owned by the [CI reference](../../tmt-release/references/ci-selection.md#advisory-browser-selection).
 Set `TMT_ACCEPTANCE_KEEP=1` to keep a world's root (counter rows, `*.stderr`) after a run.
 Use that setting only for diagnostics: the harness's injected-failure case requires root deletion,

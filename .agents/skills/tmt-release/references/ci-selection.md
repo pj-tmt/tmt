@@ -130,7 +130,9 @@ from cancelling in-flight checks; acceptance never cancels an active run.
 The acceptance job checks the exact PR head, builds the app before one build of
 all three executables, and runs Chromium with one worker on Ubuntu x64 within
 30 minutes. It restores Rust dependencies without saving and retains only source,
-build hashes and test outcomes for seven days, never private traces or profiles.
+build hashes and test outcomes with bounded assertion locations/timeouts for seven
+days, never raw error values, private traces or profiles. Unexpected outcomes also
+print the bounded summary from the private JSON report for triage.
 It remains outside required aggregates and does not authorize publication.
 
 ## Verification

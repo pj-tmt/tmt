@@ -2474,9 +2474,7 @@ describe('required CI gate', () => {
     expect(upload).toContain('path: ${{ runner.temp }}/colab-acceptance-results');
     expect(upload).toContain('retention-days: 7');
     expect(upload).not.toContain('colab-acceptance-private');
-    expect(acceptance).toContain(
-      'test.results.map(({ status, duration }) => ({ status, duration }))'
-    );
+    expect(acceptance).toContain('node typescript/scripts/colab-acceptance-report.mjs');
   });
 
   it('runs the advisory browser partitions in their own workflow from one shared image', () => {

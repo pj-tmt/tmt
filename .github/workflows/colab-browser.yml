@@ -186,32 +186,7 @@ jobs:
         if: always()
         shell: bash
         run: |
-          node --input-type=module <<'JS'
-          import fs from 'node:fs';
-          import path from 'node:path';
-          const file = process.env.PLAYWRIGHT_JSON_OUTPUT_FILE;
-          const tests = [];
-          const visit = (suite) => {
-            for (const spec of suite.specs ?? []) {
-              for (const test of spec.tests ?? []) {
-                tests.push({
-                  title: spec.title,
-                  outcome: test.status,
-                  expectedStatus: test.expectedStatus,
-                  results: test.results.map(({ status, duration }) => ({ status, duration })),
-                });
-              }
-            }
-            for (const child of suite.suites ?? []) visit(child);
-          };
-          if (file && fs.existsSync(file)) {
-            const report = JSON.parse(fs.readFileSync(file, 'utf8'));
-            for (const suite of report.suites) visit(suite);
-          }
-          const output = path.join(process.env.RUNNER_TEMP, 'colab-acceptance-results');
-          fs.mkdirSync(output, { recursive: true });
-          fs.writeFileSync(path.join(output, 'outcomes.json'), JSON.stringify({ tests }, null, 2) + '\n');
-          JS
+          node typescript/scripts/colab-acceptance-report.mjs
       - name: Upload public acceptance evidence
         if: always()
         uses: actions/upload-artifact@v4
