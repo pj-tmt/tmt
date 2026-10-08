@@ -1076,7 +1076,7 @@ own Node architecture selection; version injection preserves it.
 Notes, migration comparison and breaking authorization share the newest published
 ancestor. Before own publication, a predecessor supplies history; both lines reserve versions.
 Retired identities stay historical. Rename staging binds two published CLI drivers by registration
-ancestry; offline proof rechecks digests. Drafts never advance published evidence. Tags become
+ancestry; one verifier checks replacement state and skills after digest readback. Drafts never advance published evidence. Tags become
 immutable after all gates pass; only the CLI converges latest to its highest publication.
 
 Automatic publication covers authorized existing alpha products only. Ben retains

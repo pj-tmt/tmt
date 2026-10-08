@@ -20,11 +20,8 @@ const { parseComponentMap } = (await import(scripts('ci-scope.mjs'))) as {
 const { shipsSkills } = (await import(scripts('component-skills.mjs'))) as {
   shipsSkills: (product: string, text?: string) => boolean;
 };
-const { productOfComponent, isComponentRetired } = (await import(
-  scripts('native-release-policy.mjs')
-)) as {
+const { productOfComponent } = (await import(scripts('native-release-policy.mjs'))) as {
   productOfComponent: (name: string) => string;
-  isComponentRetired: (name: string) => boolean;
 };
 const { runPackedCommand } = (await import(scripts('packed-command.mjs'))) as {
   runPackedCommand: (
@@ -35,9 +32,7 @@ const { runPackedCommand } = (await import(scripts('packed-command.mjs'))) as {
 };
 const text = fs.readFileSync(path.join(repositoryRoot, '.github', 'components.json'), 'utf8');
 const { components } = parseComponentMap(text);
-const skillsComponents = components.filter(
-  (component) => component.skills && !isComponentRetired(component.name)
-);
+const skillsComponents = components.filter((component) => component.skills);
 
 describe('components that ship agent skills', () => {
   it('declares at least one, and the reader agrees with the parsed map for every product', () => {

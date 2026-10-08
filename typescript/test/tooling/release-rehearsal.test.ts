@@ -71,6 +71,7 @@ describe('release rehearsal selection', () => {
     'typescript/scripts/publication-gates.mjs',
     'typescript/scripts/verify-native-installation.mjs',
     'typescript/scripts/verify-native-extension-upgrade.mjs',
+    'typescript/scripts/native-artifact-policy.mjs',
     'rust/crates/tmt-core/Cargo.toml',
   ])('rehearses every active product for the shared release input %s', (changed) => {
     expect(select(changed)).toEqual(all);

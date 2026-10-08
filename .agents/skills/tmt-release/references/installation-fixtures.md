@@ -64,3 +64,28 @@ selected CLI, preserving argv, stdio, cwd, environment and exit behavior.
 The note is fixture configuration, not shipped installation guidance.
 Publish the built bytes through `writeExecutable`; do not package a shell driver,
 compile during a scenario, relax exact Mach-O inspection or extend its deadline.
+
+## Prepared Squad to Ops qualification
+
+The explicit case in `extension-upgrade-proof.test.ts` consumes one task-owned
+`TMT_EXTENSION_UPGRADE_PROOF_DIRECTORY`: `plan.json` and the target subdirectories
+from `release-upgrade.mjs` staging, plus `component-map.json` containing the reviewed
+registration/activation copy. Never change the committed activation map for a rehearsal.
+The old driver and Squad alpha.50 archive are digest-checked published assets; the candidate
+CLI is built with source/version injection from the captured Ops dependency commit, and the
+Ops archive carries genuine independently built fixture bytes. No shell/mock installer or
+scenario-time compilation substitutes for either CLI. Default PR CI has no prepared input and
+excludes this explicit qualification; supplying an empty or malformed input fails.
+
+After the separate heavy-slot, load and disk admission, run only this prepared case:
+
+```sh
+TMT_EXTENSION_UPGRADE_PROOF_DIRECTORY=/absolute/task-owned/staging corepack pnpm exec vp test run --config test/native/vitest.config.ts test/native/extension-upgrade-proof.test.ts -t 'prepared two-real-CLI'
+```
+
+It rechecks staged digests and provenance through `proveStaged`, invokes the existing verifier,
+retains real command stdout/stderr and the result beside the staged inputs, and checks the
+private proof home was removed. The verifier preserves every sentinel byte and old immutable
+skill generation through replacement, repeat and old-archive refusal. This local qualification
+is not a published-release proof; the first Ops release uses the normal published driver pair.
+Reported removal order and final state do not prove internal lock/syscall timing.
