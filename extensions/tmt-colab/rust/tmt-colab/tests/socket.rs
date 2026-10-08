@@ -295,6 +295,22 @@ fn chrome_browser_responses() {
     drop(server);
 }
 
+// A tab that outlives an upgrade must be able to read the served build uncached, and a
+// reload must fetch it: the app root and the bundles it names are never cached.
+#[test]
+fn app_root_and_assets_are_served_uncached() {
+    let server = Running::start(Tunnels::PRODUCT);
+    let admitted = format!("{}\r\n", owner(DEVICE));
+    for path in ["/", "/assets/chrome.css"] {
+        let response = server.request(&Running::get(path, &admitted));
+        assert!(response.starts_with("HTTP/1.1 200"), "{path}: {response}");
+        assert!(
+            response.contains("Cache-Control: no-store"),
+            "{path}: {response}"
+        );
+    }
+}
+
 #[test]
 fn pages_follow_the_forwarded_owner_context_within_the_door_bounds() {
     let server = Running::start(Tunnels::PRODUCT);

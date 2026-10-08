@@ -145,6 +145,18 @@ then a new Writer uses the identical stream key and the new Ask facade resumes
 read-only observation. Recovery keeps the admitted Ask view and mounted composer
 drafts; all sends and publications stay blocked until verification. An open annotation
 stays mounted while its retired Ask facade is absent and rebinds after replacement.
+
+A tab that outlives an app upgrade says so (`app-build.ts`). The build is the hashed entry
+module the page references (`assets/index-<hash>.js`; every response is `no-store`, so a
+reload always fetches the served build). On a failure path (mounted registration, a live
+page ending) and on route resolution, at most once a minute, the tab reads its own root page
+uncached and shows the non-blocking `Colab has been updated.` row with a Reload action only when
+the same bundle name has a different hash. The row sits directly under the fixed header and
+`--colab-update-height` (set by `data-colab-update` on the root) extends the header metric, so
+the page moves down instead of being covered. An offline read, an unreadable page, or a page of
+another kind (pairing guidance, the reader) never counts. There is no polling and no
+automatic reload: Reload is the reader's action, and unsent in-tab drafts follow the existing
+rules (memory only, so a reload discards them).
 A recovery press does not dismiss it or take focus from an active composer. Mobile
 Chat closes its modal drawer to reach Reconnect; its DOM selection is retained only
 for that recovery and restored when the same connected composer regains focus.
