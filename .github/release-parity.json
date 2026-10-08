@@ -322,7 +322,7 @@
           "name:Recheck version-only source after runtime proof and adapter acceptance",
           "name:Keep the log of a failed proof"
         ],
-        "sha256": "2da118aa2e1e310017232c4e73252b7678c8b147d9d2506e0249fdb9b0820f9d",
+        "sha256": "d14a7a9df09647ab38dc9d4dd18af0690008d007c753d6ae6ff0c402c06628e1",
         "preMerge": [
           {
             "workflow": "ci.yml",
