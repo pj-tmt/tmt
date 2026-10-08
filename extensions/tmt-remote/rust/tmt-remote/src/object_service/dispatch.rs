@@ -12,7 +12,10 @@ use super::{
     config::ConfigSource,
     origins::{Events, Next, Origins},
 };
-use crate::{mount::Sessions, objects::LocalObjectReader};
+use crate::{
+    mount::Sessions,
+    objects::{LocalObjectReader, LocalObjectWriter},
+};
 #[cfg(test)]
 use std::sync::Weak;
 use std::{
@@ -30,7 +33,7 @@ use tmt_extension_objects::{
     ResultFrame, Stage, Success, Uuid4,
 };
 
-/// Where a test-only pause runs in a `config` request.
+/// Where a test-only pause runs in a request.
 #[cfg(test)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Pause {
@@ -42,6 +45,8 @@ pub(super) enum Pause {
     BetweenAdmissions,
     /// After the disclose decision, before the result is sent.
     BeforeResult,
+    /// After the final service fence, immediately before admitting a result write.
+    BeforeResultWrite,
 }
 /// A test-only pause; it receives the request's deadline.
 #[cfg(test)]
@@ -60,6 +65,7 @@ pub(super) struct Launch<'a> {
     /// The owner sessions mounted tunnels were admitted under.
     pub(super) sessions: Arc<dyn Sessions>,
     pub(super) backend: Arc<LocalObjectReader>,
+    pub(super) writer: Arc<LocalObjectWriter>,
 }
 
 /// The most origin-state notices a channel may hold: an `established` and a `closed` for
@@ -107,6 +113,7 @@ pub(super) struct Hub {
     events: Arc<Events>,
     source: ConfigSource,
     pub(super) backend: Arc<LocalObjectReader>,
+    pub(super) writer: Arc<LocalObjectWriter>,
     callback: Duration,
     request: Duration,
     #[cfg_attr(not(test), allow(dead_code))]
@@ -157,6 +164,7 @@ impl Running {
             tunnels,
             sessions,
             backend,
+            writer,
         } = launch;
         let hub = Arc::new(Hub {
             generation: bus.generation(),
@@ -166,6 +174,7 @@ impl Running {
             events: Arc::new(Events::new(notice_limit(tunnels))),
             source,
             backend,
+            writer,
             callback: bounds.callback,
             request: bounds.request,
             hook,
@@ -235,6 +244,10 @@ impl Running {
     #[cfg(test)]
     pub(super) fn hub(&self) -> Weak<Hub> {
         Arc::downgrade(&self.hub)
+    }
+    #[cfg(test)]
+    pub(super) fn writer_view(&self) -> Weak<LocalObjectWriter> {
+        Arc::downgrade(&self.hub.writer)
     }
     /// The bus, which is gone once every thread has ended.
     #[cfg(test)]
@@ -325,23 +338,12 @@ fn serve(hub: &Hub, bus: &Bus, next: Work) -> Result<(), ChannelEnd> {
     if let Some(hook) = &hub.hook {
         hook(Pause::BeforeRequest, deadline);
     }
-    let denied = || Outcome::Failure(ErrorCode::Denied);
-    match (request.origin, &request.call) {
-        (_, Call::Status(_) | Call::Read(_)) => super::observe::serve(hub, bus, &request, deadline),
-        (Origin::LocalExtension, Call::Config(_)) => config(hub, bus, &request, deadline),
-        // Upload methods belong to the next slice: no callback and no effect.
-        (Origin::LocalExtension, _) => {
-            send_result(hub, bus, &request, Outcome::Failure(ErrorCode::Unavailable))
+    match &request.call {
+        Call::Status(_) | Call::Read(_) => super::observe::serve(hub, bus, &request, deadline),
+        Call::Begin(_) | Call::Part(_) | Call::Commit(_) | Call::Discard(_) => {
+            super::upload::serve(hub, bus, &request, deadline)
         }
-        // A mounted request is only as good as its origin: established on this channel and,
-        // for an owner session, still current. Anything else is denied without a callback.
-        (Origin::Mounted(id), call) => match (standing(hub, id), call) {
-            (None, _) => send_result(hub, bus, &request, denied()),
-            (Some(_), Call::Config(_)) => config(hub, bus, &request, deadline),
-            (Some(_), _) => {
-                send_result(hub, bus, &request, Outcome::Failure(ErrorCode::Unavailable))
-            }
-        },
+        Call::Config(_) => config(hub, bus, &request, deadline),
     }
 }
 
@@ -530,7 +532,7 @@ pub(super) fn ask(
     }
 }
 
-fn send_result(
+pub(super) fn send_result(
     hub: &Hub,
     bus: &Bus,
     request: &Request,
@@ -555,8 +557,24 @@ pub(super) fn send_until(
     outcome: Outcome,
     deadline: Instant,
 ) -> Result<(), ChannelEnd> {
+    send_until_or(hub, bus, request, outcome, deadline, ErrorCode::Unavailable)
+}
+/// A mutating request whose backend was invoked cannot fall back to unavailable:
+/// missing its publication budget is unknown, regardless of retained backend state.
+pub(super) fn send_until_or(
+    hub: &Hub,
+    bus: &Bus,
+    request: &Request,
+    outcome: Outcome,
+    deadline: Instant,
+    spent: ErrorCode,
+) -> Result<(), ChannelEnd> {
     if hub.stopped() {
         return Err(ChannelEnd::Stopped);
+    }
+    #[cfg(test)]
+    if let Some(hook) = &hub.hook {
+        hook(Pause::BeforeResultWrite, deadline);
     }
     let sent = bus.send_until(
         &Frame::Result(ResultFrame {
@@ -570,7 +588,7 @@ pub(super) fn send_until(
     );
     match sent {
         Err(Fault::Timeout(Stage::Write)) if bus.fault().is_none() => {
-            send_result(hub, bus, request, Outcome::Failure(ErrorCode::Unavailable))
+            send_result(hub, bus, request, Outcome::Failure(spent))
         }
         other => other.map_err(ChannelEnd::Bus),
     }

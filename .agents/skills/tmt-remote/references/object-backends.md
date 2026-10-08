@@ -41,8 +41,8 @@ the registry never calls sessions or writes a frame, and a ticket drop never blo
 A request naming a mounted origin stands only while Remote's registry has that origin
 established on the channel's generation and, if an owner session was attached, `Sessions::current`
 confirms the same live session, device and grant revision (a bounded check that fails closed). It
-is checked before `acquire`, before `disclose` and before the result leaves; anything else is
-`denied` with no callback. The admits carry `owner-session` or `mounted` as Remote established
+is checked at each acquire, effect and disclose boundary and before the result leaves;
+loss before a mutation is `denied`, and loss after invoking it is `unknown`. The admits carry `owner-session` or `mounted` as Remote established
 it, and every mounted origin gets the reduced `Limits::Browser` projection.
 
 Each running channel has one dispatcher thread, the only reader of the bus, two workers and one announcer.
@@ -51,9 +51,15 @@ them, so a decision is never stuck behind a request. A worker answers `config` f
 local-extension origin (owner limits) or a standing mounted origin (reduced limits) from a
 snapshot of the delivered backend taken at `open` (backend identifier, capabilities and
 `Quotas`; no usage, ledger row, path or secret): it asks for `acquire` admission, then for
-`disclose` admission naming the projection, and refuses on anything but an allow. The other
-four upload methods are `unavailable`, with no callback or effect; they belong to the next slice. No decision is
-remembered. `observe.rs` owns observational `status` and bounded raw-byte `read`: each asks for acquire and disclose,
+`disclose` admission naming the projection, and refuses on anything but an allow. No decision is
+remembered. `upload.rs` owns begin, part, commit and discard through the existing backend algorithm: fresh acquire,
+then effect admission immediately before invoking the mutation, then disclose admission for successful results.
+`original.rs` derives the shared original identity. Later upload callbacks carry only the scoped original's frozen
+namespace, key, policy, digest and length (parts add index/length, never bytes). Staging work clips its budget to that
+original's stored expiry, without renewal. Invalid, conflict and capacity errors retain their wire class; no error
+proves unchanged storage. Invoked missing, unavailable, cancellation or deadline maps to unknown, without retry,
+rollback or charge release. After invocation, any lost authority, budget or disclosure decision is bare unknown
+under the normal write bound and the channel lives; an unanswered sent callback or admitted write failure ends it. `observe.rs` owns observational `status` and bounded raw-byte `read`: each asks for acquire and disclose,
 compares the exact captured context at every boundary, rechecks the observed backend metadata after disclose, and
 clips the result write by the remaining absolute request time. The bus preserves first-prefix time through decoding
 and queueing. Config and observations use one expiry rule: no late data; a spent request with no outstanding callback
@@ -64,8 +70,12 @@ principal: authenticated owner device (stable across sessions/revisions), instal
 non-owner connection origin (no cross-origin recovery). It compares retained namespace and frozen policy bytes and
 never adopts, expires, repairs or reconciles. A read compares stat's raw digest and length against the request, then
 reads at most 32,768 bytes; its current reference/history policy need not equal an upload's frozen write policy.
-The crate-private `LocalObjectReader` shares the one `LocalFs` inner coordinator with owned workers; public
-`LocalHandle` stays borrowed. No second opener or mutation interface is available to workers.
+The crate-private read-only `LocalObjectReader` and mutating `LocalObjectWriter` share the one `LocalFs` inner
+coordinator with owned workers; public `LocalHandle` stays borrowed. There is no second opener or per-request
+reconciliation. `ObjectService` must be dropped or shut down, never forgotten: it joins all view holders before the
+lease ends; `serve.rs` owns it by scope. Connection-scoped uploads are allowed only by the extension's effect
+admission. Their durable rows cannot be recovered after reconnect; staging expiry and active-intent/entry quotas
+bound them, and closing the connection does not release their charge.
 `shutdown`, `Drop` and replacement end the channel: threads are joined and the last one
 drops the bus, which closes the socket. All of this is library code, not routed and not
 reachable in production.

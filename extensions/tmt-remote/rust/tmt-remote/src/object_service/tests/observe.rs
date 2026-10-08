@@ -10,7 +10,7 @@ pub(super) fn transfer() -> Uuid4 {
 }
 pub(super) fn spec(context: Context, tag: u8, bytes: &[u8]) -> BeginSpec {
     BeginSpec {
-        intent: super::super::observe::original_id(
+        intent: super::super::original::original_id(
             &ExtensionId::new("alpha").unwrap(),
             context,
             transfer(),
@@ -54,7 +54,7 @@ pub(super) fn seed(service: &ObjectService<'_>, spec: &BeginSpec, bytes: &[u8], 
         backend.commit(spec.intent, &io()).unwrap();
     }
 }
-fn allowed(peer: &Peer, id: u64, call: Call) -> (Disclosure, Outcome) {
+pub(super) fn allowed(peer: &Peer, id: u64, call: Call) -> (Disclosure, Outcome) {
     request(peer, id, Origin::LocalExtension, call.clone());
     let acquire = callback(peer);
     assert_eq!(
@@ -81,7 +81,7 @@ fn view(service: &ObjectService<'_>) -> std::sync::Weak<crate::objects::LocalObj
     service.locked().slots[0].active.as_ref().unwrap().view()
 }
 
-fn payload_snapshot(directory: &Path) -> Vec<(String, Vec<u8>)> {
+pub(super) fn payload_snapshot(directory: &Path) -> Vec<(String, Vec<u8>)> {
     tree(directory)
         .into_iter()
         .filter_map(|name| {
