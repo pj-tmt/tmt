@@ -780,6 +780,26 @@
         "step": "name:Install from the public release"
       },
       "releaseOnly": "GitHub's public releases/latest pointer and its download redirect exist only after publication and can name the previous alpha for minutes; no pull request can reproduce that propagation. The injected-clock tests cover the bounded lag deadline."
+    },
+    "2197": {
+      "release": {
+        "workflow": "native-release-upgrade.yml",
+        "job": "fetch",
+        "step": "name:Download and check the release assets"
+      },
+      "preMerge": [
+        {
+          "workflow": "ci.yml",
+          "job": "unit-tests",
+          "selection": {
+            "kind": "ci-scope",
+            "output": "native_scope",
+            "value": "full"
+          },
+          "coverage": "policy",
+          "tests": ["typescript/test/tooling/release-upgrade.test.ts"]
+        }
+      ]
     }
   }
 }
