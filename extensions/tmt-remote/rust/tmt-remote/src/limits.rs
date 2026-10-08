@@ -24,6 +24,10 @@ pub const ACQUISITION: Duration = Duration::from_secs(5);
 pub const RESPONSE: Duration = Duration::from_secs(1);
 /// Total time for a mounted extension to accept a request and reply.
 pub const MOUNT_RESPONSE: Duration = Duration::from_secs(15);
+/// One demand-triggered object setup, including queue time; ordinary forwarding keeps its budget.
+pub const OBJECT_REACTIVATION: Duration = Duration::from_millis(250);
+/// Failed setups cannot turn a reconnect loop into an activation loop.
+pub const OBJECT_REACTIVATION_COOLDOWN: Duration = Duration::from_secs(1);
 /// No-progress bound for pending bytes inside an upgraded tunnel.
 pub const SPLICE_WRITE: Duration = Duration::from_secs(5);
 

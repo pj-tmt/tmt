@@ -137,10 +137,10 @@ impl Drop for ServeObjectRun {
         self.stop.store(true, Ordering::SeqCst);
         let _ = self.parent.shutdown(std::net::Shutdown::Both);
         if let Some(thread) = self.thread.take() {
-            assert!(
-                thread.join().is_ok(),
-                "foreground thread leaked or panicked"
-            );
+            let joined = thread.join();
+            if !thread::panicking() {
+                assert!(joined.is_ok(), "foreground thread leaked or panicked");
+            }
         }
     }
 }
@@ -240,7 +240,10 @@ impl Drop for ServeObjectPeer {
             if let Ok(stream) = UnixStream::connect(&self.path) {
                 let _ = stream.shutdown(std::net::Shutdown::Both);
             }
-            assert!(thread.join().is_ok(), "extension fixture thread panicked");
+            let joined = thread.join();
+            if !thread::panicking() {
+                assert!(joined.is_ok(), "extension fixture thread panicked");
+            }
         }
     }
 }
@@ -258,6 +261,23 @@ fn serve_one_failed_object_handshake_precedes_ready_and_leaves_door_running() {
     });
     let listener = peer.finish();
     ordinary_page(&ready);
+    let before = control::status(&fixture.data().join("remote"), false)
+        .unwrap()
+        .unwrap();
+    let observed = control::status_with_objects(&fixture.data().join("remote"), false, true)
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        observed["objectChannels"],
+        json!([{"extension":"alpha","state":"unavailable","reason":"setup"}])
+    );
+    assert_eq!(observed["origin"], before["origin"]);
+    assert_eq!(
+        control::status(&fixture.data().join("remote"), false)
+            .unwrap()
+            .unwrap(),
+        before
+    );
     assert!(fixture.data().join("remote/objects.db").exists());
     assert_eq!(
         listener.accept().unwrap_err().kind(),
@@ -268,7 +288,7 @@ fn serve_one_failed_object_handshake_precedes_ready_and_leaves_door_running() {
 }
 
 #[test]
-fn serve_missing_object_listener_is_not_retried_when_it_appears_after_ready() {
+fn ordinary_pages_do_not_reactivate_a_listener_that_appears_after_ready() {
     let fixture = ServeObjectFixture::new();
     let mut run = ServeObjectRun::start(&fixture, &LOCAL);
     let ready = run.ready();
@@ -294,6 +314,13 @@ fn serve_object_storage_failure_is_degraded_without_reset_or_door_failure() {
     let mut run = ServeObjectRun::start(&fixture, &LOCAL);
     let ready = run.ready();
     ordinary_page(&ready);
+    let observed = control::status_with_objects(&layout.directory, false, true)
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        observed["objectChannels"],
+        json!([{"extension":"alpha","state":"unavailable","reason":"storage"}])
+    );
     assert_eq!(fs::read(&ledger).unwrap(), damaged);
     run.finish();
     fixture.released();

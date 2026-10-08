@@ -776,6 +776,24 @@ canonical lowercase non-nil UUIDv4/variant validation for `machineId`. Partial, 
 fields fail closed. Stopped/absent inspection remains exactly the two-key document above, without
 `machineId` even when stored state remembers one; legacy state is not migrated.
 
+`tmt remote status --objects --json` selects a separate optional running-only observation;
+`--objects` requires `--json` and cannot be combined with `--machine`. It sends exactly
+`{"op":"status","objects":true}` to the same control owner and returns exactly:
+
+```text
+{"running":true,"origin":"http://127.0.0.1:<port>","path":"/r/k7qxm4tz2pbwn6rh","objectChannels":[{"extension":"<installed Local name>","state":"ready"}]}
+```
+
+`objectChannels` contains only static Local declarations, with no credentials, paths or backend
+identities. Each entry has exactly `extension` and `state`; `state` is `ready` while the current
+channel has not ended, or `starting` while its setup is in progress. An `unavailable` entry also
+has exactly `reason`, one of `storage`, `setup`, `channel-ended` or `capacity`. Names must be valid
+extension IDs and unique. This is a best-effort observation, not authority or a promise that the
+next request succeeds; status never activates or retries a channel. The ordinary and machine
+projections remain unchanged. Stopped inspection keeps the two-key stopped shape, without
+`objectChannels`. Unsupported optional requests preserve their original error code/message;
+malformed or silent replies are errors, never proof of stopped or healthy storage.
+
 An old command rejects `--machine` before state work. Against an old live serve, the optional
 projection preserves the standard nonzero error document and its original unsupported code/message:
 `REMOTE_CONTROL_UNSUPPORTED`, or the exact legacy `REMOTE_INPUT_INVALID` / "Unknown control operation."
@@ -809,7 +827,9 @@ line on stdout after binding the door and control socket and recording the bound
 {"profile":"local-v1","binding":"loopback-http","state":"ready","address":"http://127.0.0.1:<port>/r/k7qxm4tz2pbwn6rh","machineId":"<uuid>","windowId":"<uuid>","startupCoreCalls":2}
 ```
 
-The stable fields a supervisor reads are `state:"ready"` and `address`. This descriptor has no
+Door readiness does not imply Local object-channel readiness; observe the optional running
+`status --objects --json` projection separately. The stable fields a supervisor reads are
+`state:"ready"` and `address`. This descriptor has no
 separate `origin` or `path` fields: `address` is their concatenation, with no trailing slash.
 `machineId` is the stable machine UUID and `windowId` is the UUID for this serve run. The other
 fields identify the local profile, binding and two startup core calls. A startup failure emits the
@@ -1160,7 +1180,10 @@ carrier below that opens the channel, moves frames with bounded waits and enforc
 or route integration, callback executor or backend is shipped (#1852). Remote's object service (`tmt-remote`, library
 code that is not routed or reachable in production) opens the channel to an extension only when a static, trusted
 per-extension declaration enables it; every production declaration is disabled and nothing in production opens a
-channel. On an opened channel it answers `config` after current `acquire` and `disclose`
+channel. Serve attempts each Local declaration before door readiness. Subsequently, a validated Local websocket
+upgrade with an absent or ended channel joins one bounded reactivation attempt; healthy channels are unchanged.
+Failure forwards the upgrade without an origin, preserving page sync. Channel end, assets and status never trigger
+setup. New generations inherit no old origins; no object operation is replayed. On an opened channel it answers `config` after current `acquire` and `disclose`
 admissions, for a local-extension origin (the owner's limits) and for a mounted origin that stands (the reduced browser
 limits, whether or not an owner session is bound). It also answers observational original-ID `status` and bounded raw-byte
 `read` after fresh acquire and disclose admissions, with an exact current-context, metadata, cancellation and absolute

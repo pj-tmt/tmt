@@ -34,8 +34,9 @@ troubleshooting. Do not reset state or automatically restart after uncertain sta
 Serve also owns the optional lease-bound object service: one attempt per static Local
 declaration before door readiness, explicit shutdown after Site, and Drop on early exit.
 Setup failure warns and leaves the ordinary door running; all production declarations
-remain Disabled. The [object-backend guide](object-backends.md) owns the lifecycle limits,
-late-listener restriction and production-flip prerequisites; discovery shapes are unchanged.
+remain Disabled. Validated Local websocket demand can reactivate an absent/ended channel;
+failure still forwards without an origin. The [object-backend guide](object-backends.md)
+owns the bounded single-flight lifecycle; ordinary discovery shapes are unchanged.
 
 ## Discovery and restart implementation
 
@@ -60,7 +61,10 @@ without that restart advice, using the same control request/framing owner. Its e
 live reply adds `Pairing::machine_id`, already captured by serve; it never opens Store or an offer.
 The existing canonical UUIDv4 validator and origin/prefix rules validate that projection. Ordinary
 live status keeps exactly three keys, and both projections keep the same two-key stopped result.
-No HTTP descriptor or second status acquisition supplies a replacement hint; the
+`status --objects --json` is a separate optional four-key running projection of Local channel
+state, from a read-only view of the same service slots. It never triggers setup; stopped output
+is unchanged. Door readiness is independent of channel readiness. Both optional projections
+preserve unsupported peer errors. No HTTP descriptor or second status acquisition supplies a replacement hint; the
 [owning contract](../../../../contracts/remote-channel-v1.md#local-cli-discovery) defines its
 best-effort observation and use-time authority limits.
 

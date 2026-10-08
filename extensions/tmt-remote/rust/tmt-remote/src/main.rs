@@ -52,11 +52,15 @@ const STATUS: CommandSpec = CommandSpec {
             command: "tmt remote status --machine --json",
             note: "Include the running owner's machine UUID as an optional local observation",
         },
+        Example {
+            command: "tmt remote status --objects --json",
+            note: "Observe Local object-channel readiness without starting a channel",
+        },
     ],
     outputs: OutputModes::HumanAndJson,
     details: "Read-only; does not start the door or pair a device. Live addresses come from serve.
 Stopped status reports only the remembered port, which is not a live address.
---machine requires --json; an older running door may not support this optional projection.",
+--machine and --objects each require --json and cannot be combined; an older running door may not support these optional projections.",
 };
 const PAIR: CommandSpec = CommandSpec {
     name: "pair",
@@ -207,13 +211,22 @@ fn grammar() -> Command {
         )
         .subcommand(tmt_cli_style::command(&STOP))
         .subcommand(
-            tmt_cli_style::command(&STATUS).arg(
-                Arg::new("machine")
-                    .long("machine")
-                    .action(ArgAction::SetTrue)
-                    .requires("json")
-                    .help("Include the live machine UUID (requires --json)"),
-            ),
+            tmt_cli_style::command(&STATUS)
+                .arg(
+                    Arg::new("machine")
+                        .long("machine")
+                        .action(ArgAction::SetTrue)
+                        .requires("json")
+                        .help("Include the live machine UUID (requires --json)"),
+                )
+                .arg(
+                    Arg::new("objects")
+                        .long("objects")
+                        .action(ArgAction::SetTrue)
+                        .requires("json")
+                        .conflicts_with("machine")
+                        .help("Include live Local object-channel readiness (requires --json)"),
+                ),
         )
         .subcommand(
             tmt_cli_style::command(&PAIR)
@@ -281,7 +294,11 @@ fn run(matches: &clap::ArgMatches) -> Result<(), RemoteError> {
         return pair(arguments.get_flag("json"), open::flag(arguments));
     }
     if name == "status" {
-        return status(arguments.get_flag("json"), arguments.get_flag("machine"));
+        return status(
+            arguments.get_flag("json"),
+            arguments.get_flag("machine"),
+            arguments.get_flag("objects"),
+        );
     }
     if name == "stop" {
         return stop_command(arguments.get_flag("json"));
@@ -365,11 +382,11 @@ fn stop_command(json_output: bool) -> Result<(), RemoteError> {
 }
 /// Public discovery for local extensions. Only the control socket supplies
 /// live values; stopped reads hold the same lease as every database opener.
-fn status(json_output: bool, machine: bool) -> Result<(), RemoteError> {
+fn status(json_output: bool, machine: bool, objects: bool) -> Result<(), RemoteError> {
     let root = discovery_root()?;
     let answer = match Layout::existing(&root)? {
         None => json!({"running":false,"lastPort":null}),
-        Some(layout) => match control::status(&layout.directory, machine) {
+        Some(layout) => match control::status_with_objects(&layout.directory, machine, objects) {
             Ok(Some(answer)) => answer,
             Ok(None) => {
                 let last_port = match layout.existing_serve_lock()? {

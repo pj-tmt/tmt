@@ -30,16 +30,26 @@ extension itself. Serve attempts each static Local declaration once after constr
 Site/Mounts and device events, before remembering the port and publishing door readiness.
 Open or setup failure is reported as an unavailable warning on the existing foreground
 output, drops the failed candidate and leaves the ordinary door running. The 15-second
-setup and 35-second startup bounds and stop fences are unchanged; they do not preempt
-underlying filesystem calls or cleanup joins. Detached workers retain their existing
-output/discovery shape: visible Local-channel readiness is a prerequisite of the later
-production flip, not supplied by the door descriptor here.
+initial setup and 35-second startup bounds and stop fences are unchanged; they do not
+preempt underlying filesystem calls or cleanup joins. Door/startup descriptors are
+unchanged and promise no object readiness; optional `status --objects --json` observes
+only Local declarations from the existing live slots, without activating or opening storage.
 
-One attempt cannot reach an extension whose listener starts later or restarts: a failed
-or ended channel stays unavailable until serve restarts. The activation/reactivation
-policy must be decided with Colab/Core before the production flip; serve has no reconnect
-loop. Each channel uses the existing extension-private `<dataRoot>/<extension>/door.sock`
-upgrade endpoint, not a second socket owner.
+After startup, a validated Local websocket upgrade whose channel is absent or ended joins
+one single-flight attempt for that extension. Its absolute 250 ms budget includes queue
+wait and private setup, clipped by the upgrade's existing deadline; forwarding keeps that
+normal deadline. Failure or a late candidate leaves the upgrade on the existing no-origin
+path, never an object-caused refusal. A failed attempt sets a one-second monotonic cooldown;
+concurrent demands join one flight, and cooldown demands forward immediately without a
+new attempt. Status, assets and channel end alone do not trigger setup, and no polling or
+object-operation replay occurs. Healthy demand is a no-op. Each channel uses the existing
+extension-private `<dataRoot>/<extension>/door.sock`, not a second socket owner.
+
+Static Mounts/HTTP workers cannot retain the lease-borrowed ObjectService. Their hook owns
+only a bounded demand queue and a read-only state view; one scoped worker borrows the same
+service for setup. Site shutdown closes the hook before joining HTTP/tunnel workers, rejects
+late candidates and wakes queued demands. Serve joins the setup worker before explicit
+ObjectService shutdown and before releasing the lease; early paths retain Drop cleanup.
 
 Origins (`object_service/origins.rs`, shared with `Mounts` through the `mount::OriginSink`
 trait, so mounts name neither the service nor the protocol) are the only owner of origin

@@ -81,12 +81,20 @@ impl Live {
         origins: &Origins,
         sessions: impl FnOnce(&str) -> Arc<S>,
     ) -> (Self, Arc<S>) {
+        Self::with_hook(env, origins, sessions, None)
+    }
+    fn with_hook<S: Sessions + 'static>(
+        env: &Env,
+        origins: &Origins,
+        sessions: impl FnOnce(&str) -> Arc<S>,
+        hook: Option<Arc<dyn crate::mount::ActivationSink>>,
+    ) -> (Self, Arc<S>) {
         let routes = Routes::new(1024, "/r/k7qxm4tz2pbwn6rh".into()).unwrap();
         let prefix = routes.prefix().to_owned();
         let door = Door::bind(0).unwrap();
         let (addr, origin) = (door.socket_addr().unwrap(), door.origin.clone());
         let resolver = sessions(&origin);
-        let mounts = Mounts::with_extensions(
+        let mut mounts = Mounts::with_extensions(
             env.root.clone(),
             &origin,
             &prefix,
@@ -94,6 +102,9 @@ impl Live {
             &ALPHA,
         )
         .with_origins(Arc::new(origins.clone()));
+        if let Some(hook) = hook {
+            mounts = mounts.with_activation(hook);
+        }
         let site = Arc::new(Site {
             routes,
             mounts: Arc::new(mounts),
@@ -165,6 +176,7 @@ impl Drop for Live {
 
 /// The fixture extension: object channel and websocket routes on one `door.sock`.
 struct Ext {
+    attempts: Arc<AtomicUsize>,
     path: PathBuf,
     stop: Arc<AtomicBool>,
     heads: Arc<Mutex<Vec<String>>>,
@@ -180,10 +192,15 @@ impl Ext {
         Self::launch(env, live, true)
     }
     fn launch(env: &Env, live: &Live, closing: bool) -> Self {
+        Self::launch_mode(env, live, closing, false)
+    }
+    fn launch_mode(env: &Env, live: &Live, closing: bool, held_setup: bool) -> Self {
         let path = env.directory("alpha").join("door.sock");
         let listener = UnixListener::bind(&path).unwrap();
         fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
         let stop = Arc::new(AtomicBool::new(false));
+        let attempts = Arc::new(AtomicUsize::new(0));
+        let counting = Arc::clone(&attempts);
         let heads = Arc::new(Mutex::new(Vec::new()));
         let buses = Arc::new(Mutex::new(Vec::new()));
         let expect = live.expect();
@@ -195,8 +212,11 @@ impl Ext {
                     break;
                 }
                 let (expect, seen, held) = (expect.clone(), Arc::clone(&seen), Arc::clone(&held));
+                let counting = Arc::clone(&counting);
                 connections.push(thread::spawn(move || {
-                    serve_connection(stream, closing, &expect, &seen, &held);
+                    serve_connection(
+                        stream, closing, held_setup, &counting, &expect, &seen, &held,
+                    );
                 }));
             }
             for connection in connections {
@@ -204,6 +224,7 @@ impl Ext {
             }
         });
         Self {
+            attempts,
             path,
             stop,
             heads,
@@ -274,6 +295,8 @@ impl Drop for Ext {
 fn serve_connection(
     mut stream: UnixStream,
     closing: bool,
+    held_setup: bool,
+    attempts: &AtomicUsize,
     expect: &Expect,
     seen: &Mutex<Vec<String>>,
     held: &Mutex<Vec<Bus>>,
@@ -291,6 +314,13 @@ fn serve_connection(
     }
     let text = String::from_utf8_lossy(&head).into_owned();
     if text.starts_with(ROUTE) {
+        attempts.fetch_add(1, Ordering::SeqCst);
+        if held_setup {
+            // Read until Remote's absolute setup budget closes its candidate. No reply,
+            // fixed sleep or unowned timer stands in for a hung extension listener.
+            while matches!(stream.read(&mut byte), Ok(1)) {}
+            return;
+        }
         let setup = Instant::now() + Duration::from_secs(5);
         if let Ok(link) = accept_head(stream, &head, &[], expect, &Budgets::contract(), setup) {
             let bus = Bus::start(link, Budgets::contract(), Caps::contract(), None).unwrap();
@@ -1679,4 +1709,290 @@ fn original_upload_close_at_the_mutation_boundary_suppresses_disclosure() {
             .active_uploads,
         1
     );
+}
+
+#[test]
+fn validated_upgrade_activates_a_late_listener_and_restart_replaces_origins() {
+    let env = Env::new();
+    let origins = Origins::default();
+    let service = env.service_with(&ALPHA, bounds(), origins.clone()).unwrap();
+    let hook = service.reactivation(Arc::new(AtomicBool::new(false)));
+    let (live, _) = Live::with_hook(&env, &origins, |_| Tabs::new(), Some(hook.clone()));
+    let ext = Ext::start(&env, &live);
+    assert_eq!(service.readiness().snapshot()[0]["state"], "unavailable");
+    service.with_reactivation(&hook, live.mounts(), || {
+        assert!(
+            live.upgrade(OWNER, "Sec-Fetch-Site: cross-site\r\n")
+                .1
+                .starts_with("HTTP/1.1 403")
+        );
+        assert!(
+            live.upgrade_at(".tmt/remote/object-channel-v1", OWNER, "")
+                .1
+                .starts_with("HTTP/1.1 404")
+        );
+        assert_eq!(ext.attempts.load(Ordering::SeqCst), 0);
+        // Ordinary page access is not an activation demand.
+        assert!(live.page().starts_with("HTTP/1.1 200"));
+        assert_eq!(service.readiness().snapshot()[0]["state"], "unavailable");
+        let (first, response) = live.upgrade(OWNER, "");
+        assert!(response.starts_with("HTTP/1.1 101"));
+        let old = origin_of(&ext.head(1));
+        ext.await_established(&[old]);
+        assert_eq!(service.readiness().snapshot()[0]["state"], "ready");
+        let generation = service.locked().slots[0]
+            .active
+            .as_ref()
+            .unwrap()
+            .generation();
+        let original = super::observe::spec(Context::LocalExtension, 7, b"hello");
+        let talk = Talk(&ext, 0);
+        for (id, call) in [
+            (1, super::upload::begin(&original)),
+            (2, super::upload::part(b"hello", 0)),
+            (3, super::upload::commit()),
+        ] {
+            talk.say(Frame::Request(Request {
+                generation: talk.generation(),
+                request_id: counter(id),
+                origin: Origin::LocalExtension,
+                call,
+            }));
+            assert!(matches!(
+                upload_allowed(&talk, Context::LocalExtension),
+                Outcome::Success(_)
+            ));
+        }
+        let (old_bus, old_reader, old_writer) = {
+            let state = service.locked();
+            let running = state.slots[0].active.as_ref().unwrap();
+            (running.bus(), running.view(), running.writer_view())
+        };
+        // A healthy upgrade does not replace the channel.
+        let (second, response) = live.upgrade(OWNER, "");
+        assert!(response.starts_with("HTTP/1.1 101"));
+        let sibling = origin_of(&ext.head(2));
+        ext.await_established(&[sibling]);
+        assert_eq!(
+            service.locked().slots[0]
+                .active
+                .as_ref()
+                .unwrap()
+                .generation(),
+            generation
+        );
+        ext.buses.lock().unwrap().remove(0).close();
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while service.readiness().snapshot()[0]["state"] == "ready" {
+            assert!(Instant::now() < deadline);
+            thread::yield_now();
+        }
+        assert_eq!(service.readiness().snapshot()[0]["reason"], "channel-ended");
+        let (third, response) = live.upgrade(OWNER, "");
+        assert!(response.starts_with("HTTP/1.1 101"));
+        let current = origin_of(&ext.head(3));
+        assert_ne!(old, current);
+        assert!(origins.established(old, "alpha", generation).is_none());
+        assert_ne!(
+            service.locked().slots[0]
+                .active
+                .as_ref()
+                .unwrap()
+                .generation(),
+            generation
+        );
+        assert_eq!(service.readiness().snapshot()[0]["state"], "ready");
+        let successor = Talk(&ext, 0); // the fixture removed its closed first bus
+        successor.say(Frame::Request(Request {
+            generation: successor.generation(),
+            request_id: counter(1),
+            origin: Origin::LocalExtension,
+            call: super::observe::status_input(&original),
+        }));
+        assert!(matches!(
+            observe_allowed(&successor, Context::LocalExtension),
+            Outcome::Success(Success::Committed {
+                payload_bytes: 5,
+                ..
+            })
+        ));
+        assert!(old_bus.upgrade().is_none());
+        assert!(old_reader.upgrade().is_none());
+        assert!(old_writer.upgrade().is_none());
+        drop((first, second, third));
+    });
+    service.shutdown();
+    drop(live);
+    drop(ext);
+    assert!(!env.directory("alpha").join("door.sock").exists());
+}
+
+#[test]
+fn hung_setup_is_single_flight_forwards_without_origin_and_cools_down_monotonically() {
+    use crate::mount::ActivationSink;
+    let env = Env::new();
+    let origins = Origins::default();
+    let service = env.service_with(&ALPHA, bounds(), origins.clone()).unwrap();
+    let elapsed = Arc::new(AtomicUsize::new(0));
+    let clock_elapsed = elapsed.clone();
+    let anchor = Instant::now();
+    let hook = super::super::activation::Reactivation::new(
+        &service,
+        Arc::new(AtomicBool::new(false)),
+        Arc::new(move || {
+            anchor + Duration::from_millis(clock_elapsed.load(Ordering::SeqCst) as u64)
+        }),
+    );
+    let (live, _) = Live::with_hook(&env, &origins, |_| Tabs::new(), Some(hook.clone()));
+    let ext = Ext::launch_mode(&env, &live, false, true);
+    service.with_reactivation(&hook, live.mounts(), || {
+        thread::scope(|scope| {
+            let mut clients = Vec::new();
+            for _ in 0..4 {
+                clients.push(scope.spawn(|| live.upgrade(OWNER, "")));
+            }
+            for client in clients {
+                let (socket, response) = client.join().unwrap();
+                assert!(response.starts_with("HTTP/1.1 101"));
+                drop(socket);
+            }
+        });
+        // Wait on the typed setup outcome, not elapsed fixture wall time: the real
+        // held private head must have exhausted exactly the 250 ms demand deadline.
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while !hook.idle() {
+            assert!(Instant::now() < deadline);
+            thread::yield_now();
+        }
+        assert_eq!(
+            service.locked().slots[0].failure,
+            Some(ActivateError::Channel(Fault::Timeout(
+                tmt_extension_objects::Stage::Head
+            )))
+        );
+        assert_eq!(ext.attempts.load(Ordering::SeqCst), 1);
+        for index in 0..4 {
+            assert!(values(&ext.head(index), "tmt-origin").is_empty());
+        }
+        assert_eq!(origins.count(), 0);
+        assert_eq!(service.readiness().snapshot()[0]["state"], "unavailable");
+        elapsed.store(999, Ordering::SeqCst);
+        let (client, response) = live.upgrade(OWNER, "");
+        assert!(response.starts_with("HTTP/1.1 101"));
+        drop(client);
+        assert_eq!(ext.attempts.load(Ordering::SeqCst), 1);
+        elapsed.store(1000, Ordering::SeqCst);
+        let (client, response) = live.upgrade(OWNER, "");
+        assert!(response.starts_with("HTTP/1.1 101"));
+        drop(client);
+        assert_eq!(ext.attempts.load(Ordering::SeqCst), 2);
+        hook.close();
+        elapsed.store(2000, Ordering::SeqCst);
+        hook.prepare("alpha", Instant::now() + limits::MOUNT_RESPONSE);
+        assert_eq!(ext.attempts.load(Ordering::SeqCst), 2);
+    });
+    service.shutdown();
+    drop(live);
+    drop(ext);
+}
+
+#[test]
+fn stop_during_demand_setup_wakes_joiners_and_cannot_publish_a_late_channel() {
+    use crate::mount::ActivationSink;
+    let env = Env::new();
+    let origins = Origins::default();
+    let service = env.service_with(&ALPHA, bounds(), origins.clone()).unwrap();
+    let hook = service.reactivation(Arc::new(AtomicBool::new(false)));
+    let live = Live::new(&env, &origins);
+    let ext = Ext::launch_mode(&env, &live, false, true);
+    let readiness = service.readiness();
+    service.with_reactivation(&hook, live.mounts(), || {
+        thread::scope(|scope| {
+            let waiting =
+                scope.spawn(|| hook.prepare("alpha", Instant::now() + limits::MOUNT_RESPONSE));
+            let deadline = Instant::now() + Duration::from_secs(10);
+            while ext.attempts.load(Ordering::SeqCst) == 0 {
+                assert!(Instant::now() < deadline);
+                thread::yield_now();
+            }
+            assert_eq!(readiness.snapshot()[0]["state"], "starting");
+            hook.close();
+            waiting.join().unwrap();
+            assert_eq!(readiness.snapshot()[0]["state"], "unavailable");
+        });
+    });
+    assert!(service.active("alpha").is_none());
+    assert_eq!(origins.count(), 0);
+    assert_eq!(ext.attempts.load(Ordering::SeqCst), 1);
+    service.shutdown();
+    drop(live);
+    drop(ext);
+    drop(service);
+    // A retained status view has no worker or storage handle to keep mutating.
+    assert_eq!(readiness.snapshot()[0]["state"], "unavailable");
+}
+
+#[test]
+fn a_late_setup_candidate_never_supplies_an_origin_to_the_forwarded_upgrade() {
+    use crate::mount::ActivationSink;
+    let env = Env::new();
+    let origins = Origins::default();
+    let service = env.service_with(&ALPHA, bounds(), origins.clone()).unwrap();
+    let hook = service.reactivation(Arc::new(AtomicBool::new(false)));
+    let (live, _) = Live::with_hook(&env, &origins, |_| Tabs::new(), Some(hook.clone()));
+    let ext = Ext::start(&env, &live);
+    let (entered, observed) = mpsc::sync_channel(1);
+    let (release, held) = mpsc::sync_channel(1);
+    let held = Mutex::new(held);
+    service.set_hook(Some(Arc::new(move |phase, deadline| {
+        if phase == Pause::BeforeInstall {
+            entered.send(deadline).unwrap();
+            let released = held.lock().unwrap().recv_timeout(Duration::from_secs(10));
+            assert!(
+                !matches!(released, Err(mpsc::RecvTimeoutError::Timeout)),
+                "setup hold exceeded its fixture bound"
+            );
+        }
+    })));
+    service.with_reactivation(&hook, live.mounts(), || {
+        // Own the only sender in the scope: assertion unwinding disconnects the hold
+        // before the setup worker is joined, just as an explicit release does.
+        thread::scope(|scope| {
+            let release = release;
+            let waiting = scope.spawn(|| live.upgrade(OWNER, ""));
+            let setup_deadline = observed.recv_timeout(Duration::from_secs(10)).unwrap();
+            assert!(
+                setup_deadline <= Instant::now() + Duration::from_millis(250),
+                "demand setup renewed or exceeded its short absolute budget"
+            );
+            assert_eq!(service.readiness().snapshot()[0]["state"], "starting");
+            let joining =
+                scope.spawn(|| hook.prepare("alpha", Instant::now() + limits::MOUNT_RESPONSE));
+            let (client, response) = waiting.join().unwrap();
+            assert!(!joining.join().unwrap());
+            assert_eq!(hook.queued(), 0, "a joiner queued a successor attempt");
+            // The caller has spent the 250 ms demand budget, while the built candidate
+            // remains held before its installation fence. Page sync still gets its 101.
+            assert!(response.starts_with("HTTP/1.1 101"));
+            assert!(values(&ext.head(0), "tmt-origin").is_empty());
+            release.send(()).unwrap();
+            drop(client);
+        });
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while !hook.idle() {
+            assert!(Instant::now() < deadline);
+            thread::yield_now();
+        }
+        assert!(service.active("alpha").is_none());
+        assert_eq!(origins.count(), 0);
+        assert_eq!(
+            service.locked().slots[0].failure,
+            Some(ActivateError::Channel(Fault::Timeout(
+                tmt_extension_objects::Stage::Head
+            )))
+        );
+    });
+    service.shutdown();
+    drop(live);
+    drop(ext);
 }
