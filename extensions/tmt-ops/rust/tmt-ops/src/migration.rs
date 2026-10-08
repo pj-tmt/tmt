@@ -394,7 +394,7 @@ fn live_clock(root: &Path, now: i64) -> io::Result<Option<(String, String)>> {
         );
         Ok(Some((
             format!(
-                "Ops migration deferred: old clock PID {pid}{}. Stop it with Ctrl-C there, or verify the PID and run `kill -TERM {pid}`. Invoke again after it stops to migrate; legacy config/state stay active.",
+                "Ops migration deferred: old clock PID {pid}{}; legacy config/state stay active until the board switch completes.",
                 pane.map(|pane| format!(" in pane {pane}"))
                     .unwrap_or_default()
             ),

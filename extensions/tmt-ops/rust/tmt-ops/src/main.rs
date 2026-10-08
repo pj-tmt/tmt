@@ -6,6 +6,7 @@ mod action;
 mod attention;
 mod back;
 mod board;
+mod board_switch;
 mod cache;
 pub mod checklist;
 mod checklist_command;
@@ -204,6 +205,7 @@ fn grammar() -> Command {
         .arg(Arg::new("json").long("json").global(true)
             .action(ArgAction::SetTrue).help("Print one JSON document"))
         .subcommand(squad)
+        .subcommand(board_switch::grammar())
         .subcommand(
             build(specs::UI)
                 .arg(squad_option())
@@ -489,6 +491,11 @@ fn done(terminal: Terminal, text: &str) -> String {
 fn human(command: &str, document: &Value, terminal: Terminal) -> String {
     let text = |value: &Value| value.as_str().unwrap_or_default().to_owned();
     match command {
+        "migration" if document["complete"] == false && document["switched"] == 0 => String::new(),
+        "migration" => format!(
+            "switched {} boards to Ops\n",
+            document["switched"].as_u64().unwrap_or(0)
+        ),
         "ls" | "ui" => status::text(document, terminal),
         "hotkeys" => hotkeys_text(document, terminal),
         "playbook" => playbook::text(document, terminal),
@@ -771,6 +778,12 @@ fn run(
     matches: &ArgMatches,
     interaction: Interaction,
 ) -> Result<Outcome, SquadError> {
+    if command == "migration" {
+        return board_switch::run(matches, interaction).map(|document| Outcome {
+            complete: document["complete"] != false,
+            document,
+        });
+    }
     if command == "playbook" {
         return playbook_command(matches, interaction);
     }
@@ -1081,11 +1094,18 @@ fn main() -> ExitCode {
                 .collect();
             return print_completion(&complete(&words));
         }
-        "skill" => return print_embedded(SKILL),
         _ => {}
     }
     // Decided once: whether a person can see the board or answer a question.
     let interaction = Interaction::detect(json);
+    if command != "migration"
+        && let Err(failure) = board_switch::offer(interaction)
+    {
+        report(&failure);
+    }
+    if command == "skill" {
+        return print_embedded(SKILL);
+    }
     // The board needs a person at a terminal; otherwise it is `ls`.
     if command == "ui" && interaction.view() == Mode::Interactive {
         let squad = sub.get_one::<String>("squad").cloned();
@@ -1104,6 +1124,11 @@ fn main() -> ExitCode {
     match run(command, sub, interaction) {
         Ok(outcome) => {
             let code = if outcome.complete { 0 } else { 1 };
+            if command == "migration"
+                && let Some(command) = outcome.document["command"].as_str()
+            {
+                eprintln!("{command}");
+            }
             if json {
                 return print_document(&outcome.document, code);
             }
@@ -1295,7 +1320,15 @@ mod tests {
         assert_eq!(complete(&words("-- s")), ["skill", "squad"]);
         assert_eq!(
             complete(&words("-- ")),
-            ["help", "hotkeys", "playbook", "skill", "squad", "ui"]
+            [
+                "help",
+                "hotkeys",
+                "migration",
+                "playbook",
+                "skill",
+                "squad",
+                "ui"
+            ]
         );
         assert_eq!(complete(&words("-- squad l")), ["layout", "lead", "ls"]);
         assert_eq!(complete(&words("-- sq l")), ["layout", "lead", "ls"]);

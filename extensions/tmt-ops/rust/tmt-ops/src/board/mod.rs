@@ -799,6 +799,7 @@ pub fn run(
     app.picks = picks;
     app.popup = popup;
     let mut screen = Terminal::new(CrosstermBackend::new(io::stdout())).map_err(failed)?;
+    let mut switch_ready = crate::board_switch::ready(&core)?;
     let mut clock = crate::cron_clock::ClockWorker::spawn(core.clone(), config, false);
     spawn_input(events, filter);
     let result = session(
@@ -817,7 +818,15 @@ pub fn run(
                     app.set_body_width(frame.area().width);
                     view::render(frame, app);
                 })
-                .map(|_| ())
+                .and_then(|_| {
+                    if app.view.is_some()
+                        && !app.loading()
+                        && let Some(mut file) = switch_ready.take()
+                    {
+                        crate::board_switch::acknowledge(&mut file)?;
+                    }
+                    Ok(())
+                })
         },
     );
     // Restore first, whatever happened; then report the session's outcome.

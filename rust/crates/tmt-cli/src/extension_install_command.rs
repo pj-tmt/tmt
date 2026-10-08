@@ -2,6 +2,7 @@
 //! the official extensions over the native installer. The product table is
 //! fixed; nothing here discovers an extension from archive data or PATH.
 
+mod board_switch;
 mod install;
 mod list_upgrade;
 mod repair;

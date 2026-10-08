@@ -140,8 +140,8 @@ fn live_old_clock_defers_entire_cutover_and_later_invocation_migrates() {
     assert!(paths.legacy);
     let warning = warning.unwrap();
     assert!(warning.contains("PID 123 in pane %41"));
-    assert!(warning.contains("Ctrl-C"));
-    assert!(warning.contains("kill -TERM 123"));
+    assert!(warning.contains("board switch completes"));
+    assert!(!warning.contains("kill -TERM"));
     assert!(!completed(&f.config).unwrap());
     assert!(!f.config.join(PENDING).exists());
     assert!(!f.config.join("ops.toml").exists());

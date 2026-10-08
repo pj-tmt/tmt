@@ -167,7 +167,7 @@ describe('squad on a private tmux server', { concurrent: false }, () => {
         expect(pending.json).toBeDefined();
         expect(pending.stderr.match(/Ops migration deferred/g)).toHaveLength(1);
         expect(pending.stderr).toContain('PID 123 in pane %41');
-        expect(pending.stderr).toContain('kill -TERM 123');
+        expect(pending.stderr).toContain('board switch completes');
         expect(pending.json!.jobs).toHaveLength(1);
         expect(pending.json!.jobs[0]).toMatchObject({
           id: added.job.id,
