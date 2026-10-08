@@ -3,8 +3,13 @@
 The short `/pair#CODE` link loads only `/sdk/pair.js` first, which erases the
 fragment before loading the SDK. `Pages` obtains `/sdk/pair-offer` from `Pairing`'s
 current offer, sharing the descriptor with the control event; it exposes no code.
-Old descriptor-path links refuse. Browser tests check stripping before the SDK
-request, secret-free request URLs, owner confirmation and retained device behavior.
+Old descriptor-path links refuse. The initial HTML disables Pair before the SDK
+loads; `browser.ts` enables it only after validating the current offer and installing
+the submit listener. Failed initialization keeps pairing unavailable. Browser tests
+hold SDK/offer readiness and verify early mouse/Enter produces no native submission
+or candidate, then explicit ready-state activation retains the same ceremony. They
+also check fragment stripping, secret-free request URLs, owner confirmation and
+retained device behavior.
 
 The embedded same-origin stylesheet projects the shared design tokens with system
 font fallbacks and light/dark scheme preference under the contract-defined CSP. Every

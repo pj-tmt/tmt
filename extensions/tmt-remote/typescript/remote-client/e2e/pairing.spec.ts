@@ -160,6 +160,160 @@ test.afterEach(async () => {
   await rm(root, { recursive: true, force: true });
 });
 
+/** Hold an actual route until the test has exercised the pre-readiness page. */
+function routeBarrier() {
+  let arrive!: () => void;
+  let release!: () => void;
+  const reached = new Promise<void>((resolve) => {
+    arrive = resolve;
+  });
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  return { reached, held, arrive, release };
+}
+
+/** Observe native form refusal before any bootstrap/SDK script runs. */
+async function watchPairing(page: Page) {
+  const posts: string[] = [];
+  page.on('request', (request) => {
+    if (request.method() === 'POST' && new URL(request.url()).pathname.endsWith('/pair'))
+      posts.push(request.postData()!);
+  });
+  await page.addInitScript(() => {
+    const violations: string[] = [];
+    Object.assign(window, { pairingViolations: violations });
+    document.addEventListener('securitypolicyviolation', (event) => {
+      violations.push(event.violatedDirective);
+    });
+  });
+  return {
+    posts,
+    violations: () =>
+      page.evaluate(() => (window as unknown as { pairingViolations: string[] }).pairingViolations),
+  };
+}
+
+/** Raw click deliberately avoids Playwright's enabled-control auto-wait. */
+async function earlyPairingAttempt(page: Page) {
+  await page.locator('#name').fill('Readiness browser');
+  const box = await page.getByRole('button', { name: 'Pair', exact: true }).boundingBox();
+  if (!box) throw new Error('No pairing control.');
+  await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+  // Native submission in the broken page can leave navigation pending; do not auto-wait it.
+  await page.evaluate(() => document.getElementById('name')!.focus());
+  await page.keyboard.press('Enter');
+}
+
+for (const phase of ['SDK import', 'offer response']) {
+  test(`pairing stays unavailable during ${phase} and preserves the deliberate attempt`, async () => {
+    pair = spawn(BINARY, ['pair', '--json'], { env });
+    const events = lines(pair);
+    const offer = await events.next();
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    const observed = await watchPairing(page);
+    const gate = routeBarrier();
+    const firstPost = routeBarrier();
+    await page.route(
+      phase === 'SDK import' ? '**/sdk/remote-v1.js' : '**/sdk/pair-offer',
+      async (route) => {
+        gate.arrive();
+        await gate.held;
+        await route.continue();
+      },
+    );
+    await page.route('**/r/*/pair', async (route) => {
+      if (observed.posts.length === 1) {
+        firstPost.arrive();
+        await firstPost.held;
+      }
+      await route.continue();
+    });
+    try {
+      await page.goto(offer.link as string, { waitUntil: 'domcontentloaded' });
+      await gate.reached;
+      await earlyPairingAttempt(page);
+      await expect(page.getByRole('button', { name: 'Pair', exact: true })).toBeDisabled();
+      await expect(page.locator('#pair')).toBeVisible();
+      await expect(page.locator('#name')).toHaveValue('Readiness browser');
+      expect(page.url()).toBe(`${origin}/pair`);
+      expect(observed.posts).toEqual([]);
+      expect(await observed.violations()).toEqual([]);
+      gate.release();
+      await expect(page.getByRole('button', { name: 'Pair', exact: true })).toBeEnabled();
+      await page.locator('#name').focus();
+      await page.keyboard.press('Tab');
+      await expect(page.getByRole('button', { name: 'Pair', exact: true })).toBeFocused();
+      await page.keyboard.press('Enter');
+      await firstPost.reached;
+      expect(observed.posts).toHaveLength(1);
+      expect(JSON.parse(observed.posts[0]!).name).toBe('Readiness browser');
+      firstPost.release();
+      const candidate = await events.next();
+      expect(candidate.event).toBe('candidate');
+      await expect(page.locator('#words')).toHaveText((candidate.words as string[]).join(' '));
+      pair.stdin.write('confirm\n');
+      expect((await events.next()).reason).toBe('paired');
+      await expect(page.locator('#status')).toHaveText(
+        'This browser is paired. You can close this page.',
+      );
+      // Pending polls repeat this exact enrollment; there was only one initial submission.
+      expect(new Set(observed.posts).size).toBe(1);
+      expect(await observed.violations()).toEqual([]);
+    } finally {
+      gate.release();
+      firstPost.release();
+      await context.close();
+    }
+  });
+}
+
+for (const failure of ['SDK abort', 'offer abort', 'offer refused', 'offer malformed']) {
+  test(`pairing remains unavailable after ${failure}`, async () => {
+    pair = spawn(BINARY, ['pair', '--json'], { env });
+    const events = lines(pair);
+    const offer = await events.next();
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    const observed = await watchPairing(page);
+    const failed = routeBarrier();
+    await page.route(
+      failure === 'SDK abort' ? '**/sdk/remote-v1.js' : '**/sdk/pair-offer',
+      async (route) => {
+        if (failure.endsWith('abort')) await route.abort('failed');
+        else
+          await route.fulfill({
+            status: failure === 'offer refused' ? 404 : 200,
+            contentType: 'application/json',
+            body: '{}',
+          });
+        failed.arrive();
+      },
+    );
+    try {
+      await page.goto(offer.link as string);
+      await failed.reached;
+      if (failure !== 'SDK abort') {
+        await expect(page.locator('#status')).toHaveAttribute('data-state', 'blocked');
+        await expect(page.locator('#pair')).toBeHidden();
+      } else {
+        await earlyPairingAttempt(page);
+      }
+      // Hidden controls still retain the disabled property.
+      expect(
+        await page
+          .locator('#pair button')
+          .evaluate((button) => (button as HTMLButtonElement).disabled),
+      ).toBe(true);
+      expect(observed.posts).toEqual([]);
+      expect(await observed.violations()).toEqual([]);
+    } finally {
+      await context.close();
+    }
+  });
+}
+
 test('a browser pairs, gets a door session and certifies only its own extension', async () => {
   pair = spawn(BINARY, ['pair', '--json'], { env });
   const events = lines(pair);
@@ -656,7 +810,7 @@ test('browser pages use local tokens in both schemes and fit desktop and mobile'
         const events = lines(pair);
         const offer = await events.next();
         await page.goto(offer.link as string);
-        await expect(page.locator('#pair')).toBeVisible();
+        await expect(page.getByRole('button', { name: 'Pair', exact: true })).toBeEnabled();
         await inspect('pairing');
         expect(await page.locator('#mark').evaluate((mark) => getComputedStyle(mark).color)).toBe(
           colorScheme === 'light' ? 'rgb(150, 80, 39)' : 'rgb(255, 158, 100)',

@@ -1138,7 +1138,6 @@ async function pairingPage(link) {
 		showState(status, "blocked", "This pairing link is unavailable. Run tmt remote pair again for a new link.");
 		return;
 	}
-	button.disabled = false;
 	form.addEventListener("submit", (event) => {
 		event.preventDefault();
 		form.hidden = true;
@@ -1147,6 +1146,7 @@ async function pairingPage(link) {
 			showState(status, "blocked", "Pairing did not complete. Run tmt remote pair again for a new link.");
 		});
 	});
+	button.disabled = false;
 }
 async function ceremony({ descriptor, code }, name, status) {
 	const key = await DeviceKey.generate();

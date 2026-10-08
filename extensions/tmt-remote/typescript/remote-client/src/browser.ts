@@ -341,7 +341,6 @@ export async function pairingPage(link: string): Promise<void> {
     );
     return;
   }
-  button.disabled = false;
   form.addEventListener('submit', (event) => {
     event.preventDefault();
     form.hidden = true;
@@ -354,6 +353,7 @@ export async function pairingPage(link: string): Promise<void> {
       );
     });
   });
+  button.disabled = false;
 }
 async function ceremony(
   { descriptor, code }: ReturnType<typeof parseLink>,
