@@ -122,7 +122,8 @@ modules in `extensions/tmt-colab/typescript/app/src` and `rust/tmt-colab/src/ask
   latest-publisher display names and a sole directory candidate are not creator bindings.
   No mention prefix is mandatory; ambiguity requires explicit selection. Choosing
   a recipient performs no preparation or dispatch. Plain comments remain available
-  under content-write admission when discovery fails. `thread-panel.tsx`
+  under content-write admission while discovery loads or fails; Ask/Send waits for the
+  current directory (`agent-directory.ts`) and a failure offers Try again in place. `thread-panel.tsx`
   renders verified replies inline and puts Edit (own annotation comments) and Delete
   (own) in the square `⋯` menu (`components/action-menu.tsx`); held/recheck/uncertainty keep the existing ledger.
   `chat-panel.tsx` replaces standalone Ask with one bottom input and page-visible

@@ -191,6 +191,165 @@ test('failed discovery still permits one admitted plain comment without preparin
   ]);
 });
 
+const focused = (page: Page) =>
+  page.evaluate(() => {
+    const active = document.activeElement;
+    return active?.getAttribute('role') === 'combobox'
+      ? 'composer'
+      : active?.textContent === 'Try again'
+        ? 'retry'
+        : (active?.tagName ?? 'none');
+  });
+
+test('a failed directory recovers in place with Try again, keeping focus and the draft (#2014)', async ({
+  page,
+}) => {
+  const input = await mount(page, 'discovery-failure');
+  const status = page.getByRole('status');
+  const retry = page.getByRole('button', { name: 'Try again', exact: true });
+  const ask = page.getByRole('button', { name: 'Ask agent', exact: true });
+  const picker = page.getByRole('button', { name: 'Choose recipient', exact: true });
+  await expect(status).toHaveText('Agents are unavailable. You can still post a comment.');
+  await expect(picker).toBeDisabled();
+  await input.fill('Draft kept across recovery.');
+  await expect(ask).toBeDisabled();
+  // Enter on a default comment and the disabled Ask do nothing about an Ask.
+  expect((await run(page, 'directoryProof')).reads).toBe(1);
+  // A retry that fails again keeps focus on the action, busy while it runs.
+  await run(page, 'setDirectory', 'park');
+  await retry.focus();
+  await retry.press('Enter');
+  await expect(status).toHaveText('Checking for agents…');
+  await expect(retry).toBeDisabled();
+  await expect(retry).toHaveAttribute('aria-busy', 'true');
+  await expect(ask).toBeDisabled();
+  await run(page, 'releaseDirectory', 'fail');
+  await expect(status).toHaveText('Agents are unavailable. You can still post a comment.');
+  await expect(retry).toBeEnabled();
+  expect(await focused(page)).toBe('retry');
+  // The fault clears: one more retry reaches ready without a remount, focus returns to the composer.
+  await run(page, 'setDirectory', 'ok');
+  await retry.press('Enter');
+  await expect(status).toHaveText('Enter sends · Shift+Enter adds a line · Esc closes');
+  await expect(retry).toHaveCount(0);
+  await expect(picker).toBeEnabled();
+  expect(await focused(page)).toBe('composer');
+  await expect(input).toHaveText('Draft kept across recovery.', { useInnerText: true });
+  expect((await run(page, 'directoryProof')).reads).toBe(3);
+  expect(await run(page, 'proof')).toMatchObject({ writes: 0, preparations: 0, sends: [] });
+});
+
+test('after Reconnect Ask is fenced until the fresh directory resolves, then one click sends once (#2066)', async ({
+  page,
+}) => {
+  const input = await mount(page, 'held');
+  const status = page.getByRole('status');
+  const ask = page.getByRole('button', { name: 'Ask agent', exact: true });
+  const picker = page.getByRole('button', { name: /^(Choose|Change) recipient$/ });
+  await input.fill('Explain this.');
+  await expect(picker).toBeEnabled();
+  await input.press('ArrowDown');
+  await input.press('Enter');
+  await expect(page.locator('.annotation-hint').last()).toContainText('Recipient');
+  await expect(ask).toBeEnabled();
+  // Reconnect swaps the Ask binding; its first directory read is slow.
+  await run(page, 'setDirectory', 'park');
+  await run(page, 'reconnectAsk');
+  await expect(status).toHaveText('Checking for agents…');
+  await expect(ask).toBeDisabled();
+  await expect(picker).toBeDisabled();
+  await expect(page.getByRole('button', { name: 'Try again' })).toHaveCount(0);
+  // Enter and the disabled button do nothing: no preparation, no error, no write.
+  await input.press('Enter');
+  await expect(page.getByRole('alert')).toHaveCount(0);
+  expect(await run(page, 'proof')).toMatchObject({ writes: 0, preparations: 0, sends: [] });
+  await expect(input).toHaveText('Explain this.', { useInnerText: true });
+  // The plain comment path stays available while the directory loads.
+  await expect(page.getByRole('button', { name: 'Post comment', exact: true })).toBeEnabled();
+  await run(page, 'releaseDirectory');
+  await expect(ask).toBeEnabled();
+  await expect(picker).toBeEnabled();
+  await expect(page.locator('.annotation-hint').last()).toContainText('Recipient');
+  await ask.click();
+  await expect(page.getByTestId('ask-state')).toHaveAttribute('data-state', 'held');
+  const proof = await run(page, 'proof');
+  expect(proof.preparations).toBe(1);
+  expect(proof.sends).toHaveLength(1);
+});
+
+test('a directory read for a replaced binding or attempt cannot change the composer', async ({
+  page,
+}) => {
+  await mount(page, 'discovery-failure');
+  const status = page.getByRole('status');
+  const ask = page.getByRole('button', { name: 'Ask agent', exact: true });
+  await expect(status).toContainText('Agents are unavailable');
+  // Attempt A is parked; a Reconnect then reads a healthy directory; A fails late.
+  await run(page, 'setDirectory', 'park');
+  await page.getByRole('button', { name: 'Try again', exact: true }).click();
+  await expect(status).toHaveText('Checking for agents…');
+  await run(page, 'setDirectory', 'ok');
+  await run(page, 'reconnectAsk');
+  await expect(status).toHaveText('Enter sends · Shift+Enter adds a line · Esc closes');
+  await run(page, 'releaseDirectory', 'fail');
+  await expect(status).toHaveText('Enter sends · Shift+Enter adds a line · Esc closes');
+  await expect(page.getByRole('button', { name: 'Choose recipient', exact: true })).toBeEnabled();
+  await expect(ask).toBeDisabled();
+});
+
+test('captures the directory states for review', async ({ page }) => {
+  const directory = process.env.COLAB_2014_CAPTURE_DIR;
+  test.skip(!directory, 'review captures only');
+  mkdirSync(directory!, { recursive: true });
+  for (const surface of ['annotation', 'reply', 'chat']) {
+    for (const theme of ['light', 'dark']) {
+      for (const width of [1440, 390]) {
+        await page.goto('/');
+        await run(page, 'setSurface', surface);
+        await run(page, 'mount', 'discovery-failure');
+        await page.setViewportSize({ width, height: 700 });
+        await page.evaluate((theme) => (document.documentElement.dataset.theme = theme), theme);
+        const input = page.getByRole('combobox', { name: 'Message', exact: true });
+        await input.fill('Draft kept while the directory recovers.');
+        const shot = (state: string) =>
+          page.screenshot({ path: `${directory}/${surface}-${state}-${width}-${theme}.png` });
+        await expect(page.getByRole('status')).toContainText('Agents are unavailable');
+        await shot('failed');
+        await run(page, 'setDirectory', 'park');
+        const retry = page.getByRole('button', { name: 'Try again', exact: true });
+        await retry.focus();
+        await retry.press('Enter');
+        await expect(page.getByRole('status')).toHaveText('Checking for agents…');
+        await shot('retry-busy');
+        await run(page, 'releaseDirectory', 'fail');
+        await expect(retry).toBeEnabled();
+        await shot('failed-focused');
+        await run(page, 'setDirectory', 'ok');
+        await retry.press('Enter');
+        await expect(retry).toHaveCount(0);
+        await shot('ready');
+        await run(page, 'setDirectory', 'park');
+        await run(page, 'reconnectAsk');
+        await expect(page.getByRole('status')).toHaveText('Checking for agents…');
+        await shot('reconnect-loading');
+        await run(page, 'releaseDirectory');
+        await expect(page.getByRole('status')).toContainText('Enter sends');
+        await shot('reconnect-ready');
+      }
+    }
+  }
+});
+
+test('a plain comment is available while the directory loads', async ({ page }) => {
+  const input = await mount(page, 'held');
+  await run(page, 'setDirectory', 'park');
+  await run(page, 'reconnectAsk');
+  await expect(page.getByRole('status')).toHaveText('Checking for agents…');
+  await input.fill('Comment while loading.');
+  await page.getByRole('button', { name: 'Post comment', exact: true }).click();
+  expect(await run(page, 'proof')).toMatchObject({ writes: 1, preparations: 0, commits: 1 });
+});
+
 test('explicit Ask uses exact no-prefix bytes once, while candidate selection alone has no effects', async ({
   page,
 }) => {

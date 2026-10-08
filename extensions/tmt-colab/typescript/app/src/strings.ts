@@ -15,6 +15,8 @@ export const text = {
   messageUnavailable: 'Sending is unavailable right now.',
   messageAgentsUnavailable: 'Agents are unavailable.',
   messageCommentAvailable: 'You can still post a comment.',
+  messageAgentsChecking: 'Checking for agents…',
+  messageAgentsRetry: 'Try again',
   messageChooseRecipient: 'Choose a recipient to ask an agent.',
   messageWrite: 'Write a message.',
   messageSending: 'Sending…',

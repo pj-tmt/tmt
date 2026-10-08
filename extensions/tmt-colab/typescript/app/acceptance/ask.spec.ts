@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
-import { expect, test, type Page, type Response } from '@playwright/test';
+import { expect, test, type BrowserContext, type Page, type Response } from '@playwright/test';
 import { pairBrowser, restartColab, restartRemote, startDoor } from './harness/browser.js';
 import {
   annotationInput,
@@ -64,10 +64,31 @@ function restartRecovery(page: Page) {
   };
 }
 
-async function scenario(world: AcceptanceWorld, options: { gated?: boolean } = {}) {
+/** Parks only the browser's fresh SDK `listAgents` read while `__holdFreshDirectory` is set, so a
+ * test can observe the composer between Reconnect and the directory answer. Production binaries,
+ * transport and dispatch are untouched. */
+async function holdableDirectory(context: BrowserContext) {
+  await context.route('**/sdk/remote-v1.js', async (route) => {
+    const response = await route.fetch();
+    let body = await response.text();
+    body = body.replace(
+      'function operations(session, options = {})',
+      'function nativeOperations(session, options = {})',
+    );
+    if (!body.includes('function nativeOperations('))
+      throw new Error('SDK operations owner not found');
+    body += `\nfunction operations(session, options = {}) { const port = nativeOperations(session, options); return { ...port, listAgents: async () => { if (globalThis.__holdFreshDirectory) { globalThis.__directoryHeld = true; await new Promise((resolve) => (globalThis.__heldDirectoryReads ??= []).push(resolve)); } return port.listAgents(); } }; }\n`;
+    await route.fulfill({ response, body });
+  });
+}
+async function scenario(
+  world: AcceptanceWorld,
+  options: { gated?: boolean; holdDirectory?: boolean } = {},
+) {
   const door = await startDoor(world, await freePort());
   const recipient = await world.startAgent('ask-recipient', options);
   const asker = await pairBrowser(world, 'asker-browser');
+  if (options.holdDirectory) await holdableDirectory(asker.context);
   const viewer = await pairBrowser(world, 'viewer-browser');
   // The page is created first; each paired device registers when it opens it.
   const page = createPage(world, 'Ask acceptance', PAGE_HTML);
@@ -157,7 +178,7 @@ test.describe('Ask agent real-binary acceptance (#1110)', () => {
       }, testInfo) => {
         expect(browserName).toBe('chromium');
         await withWorld(async (world) => {
-          const s = await scenario(world);
+          const s = await scenario(world, { holdDirectory: true });
           const initial = await composeChat(
             s.askerPage,
             s.recipient,
@@ -240,6 +261,9 @@ test.describe('Ask agent real-binary acceptance (#1110)', () => {
           s.askerPage.on('framenavigated', (frame) => {
             if (frame === s.askerPage.mainFrame()) navigations.push(frame.url());
           });
+          await s.askerPage.evaluate(() => {
+            Object.assign(window, { __holdFreshDirectory: true });
+          });
           await restartRemote(world, s.door);
           if (surface === 'Chat' && width === 390)
             await s.askerPage.getByRole('button', { name: 'Close Chat', exact: true }).click();
@@ -262,6 +286,43 @@ test.describe('Ask agent real-binary acceptance (#1110)', () => {
             ),
           ).toBe(true);
           await expect(input).toHaveText(draft);
+          // The fresh directory read is parked: nothing can be asked yet (#2066).
+          await expect
+            .poll(() =>
+              s.askerPage.evaluate(
+                () => !!(window as unknown as { __directoryHeld?: boolean }).__directoryHeld,
+              ),
+            )
+            .toBe(true);
+          await expect(container.locator('.annotation-status-row [role="status"]')).toHaveText(
+            'Checking for agents…',
+          );
+          await expect(action).toBeDisabled();
+          for (const theme of ['light', 'dark']) {
+            await s.askerPage.evaluate(
+              (theme) => (document.documentElement.dataset.theme = theme),
+              theme,
+            );
+            await s.askerPage.screenshot({
+              path: testInfo.outputPath(`loading-${surface}-${width}-${theme}.png`),
+            });
+          }
+          await s.askerPage.evaluate(() => delete document.documentElement.dataset.theme);
+          await input.press('Enter');
+          await expect(container.getByRole('alert')).toHaveCount(0);
+          expect(s.recipient.received()).toHaveLength(1);
+          expect(dispatches(world)).toHaveLength(1);
+          await expect(input).toHaveText(draft);
+          // Every parked read is released, and later ones are no longer parked.
+          await s.askerPage.evaluate(() => {
+            const held = window as unknown as {
+              __holdFreshDirectory?: boolean;
+              __heldDirectoryReads?: (() => void)[];
+            };
+            held.__holdFreshDirectory = false;
+            for (const release of held.__heldDirectoryReads ?? []) release();
+            held.__heldDirectoryReads = [];
+          });
           await expect(action).toBeEnabled();
           await expect(
             container.getByText(`Recipient: ${s.recipient.name} · This machine`, { exact: true }),
