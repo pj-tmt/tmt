@@ -1,11 +1,13 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import { once } from 'node:events';
+import { existsSync } from 'node:fs';
 import { mkdtemp, readFile, readdir, rm, writeFile, access, mkdir } from 'node:fs/promises';
 import { createServer, request, type Server } from 'node:http';
 import { type AddressInfo } from 'node:net';
 import { createInterface } from 'node:readline';
 import { fileURLToPath } from 'node:url';
 import { expect, test, type Page } from '@playwright/test';
+import { capturePath } from './captures.js';
 import { writeExecutable } from '../../../../../typescript/test/support/executable-fixture.mjs';
 
 const checkout = fileURLToPath(new URL('../dist/', import.meta.url));
@@ -15,6 +17,13 @@ const binary =
   process.env.COLAB_SERVE_EXECUTABLE ??
   fileURLToPath(new URL('../../../../../rust/target/debug/tmt-colab', import.meta.url));
 const mount = '/r/abcd/x/colab/';
+// The real socket needs the built executable; hosts without it (the CI component job) skip.
+test.beforeEach(() => {
+  test.skip(
+    !existsSync(binary),
+    'Needs the native serve executable: cargo build -p tmt-colab or set COLAB_SERVE_EXECUTABLE',
+  );
+});
 const owner = JSON.stringify({
   owner: true,
   deviceId: '00000000-0000-4000-8000-000000000004',
@@ -288,7 +297,7 @@ for (let run = 1; run <= 2; run++) {
       ).toBe('attempted');
       if (run === 1)
         await page.screenshot({
-          path: '/private/tmp/colab-1110-design/colab-guidance.png',
+          path: capturePath('colab-guidance.png'),
           fullPage: true,
         });
       await context.addCookies([{ name: 'owner', value: '1', url: server.origin }]);
