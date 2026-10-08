@@ -186,7 +186,9 @@ application state.
 Installation and upgrade tests build their fixtures as described in
 [installation-fixtures.md](installation-fixtures.md). Every released product must
 upgrade from its newest lower published version, preserving candidate > previous,
-downgrade rejection and readable old receipts. Standalone drivers use the current
+downgrade rejection and readable old receipts. With no own prior publication, predecessor
+selection and digest-checked staging retain the old product tag/archive identity; cross-product
+installer and migration acceptance requires its separately reviewed Core/product contract. Standalone drivers use the current
 published CLI's path approval surface. Keep ownership in the installation prefix,
 not application-state selectors; verify pin policy, old executable preservation,
 partial command-link finalization and unchanged data. The internal installer is

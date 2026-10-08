@@ -1,9 +1,11 @@
+import type { ComponentMap } from './ci-scope.mjs';
 import type { DraftAsset, DraftRelease } from './release-draft-assets.mjs';
 
 export function selectPrevious(input: {
   releases: readonly DraftRelease[];
   product: string;
   candidateTag: string;
+  map?: ComponentMap;
 }): DraftRelease | null;
 export function selectSupportFloor(input: {
   releases: readonly DraftRelease[];
@@ -48,6 +50,7 @@ export function fetchUpgrade(input: {
   directory: string;
   /** A rehearsal's verified local bundle replaces the candidate release. */
   local?: LocalCandidate;
+  map?: ComponentMap;
 }): UpgradePlan;
 export function proveStaged(input: {
   directory: string;

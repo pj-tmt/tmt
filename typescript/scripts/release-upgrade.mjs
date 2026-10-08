@@ -34,7 +34,13 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { runPackedCommand } from './packed-command.mjs';
-import { archivePrefix, upgradeSupportFloor } from './native-release-policy.mjs';
+import {
+  archivePrefix,
+  predecessorOfProduct,
+  productOfTag,
+  upgradeSupportFloor,
+} from './native-release-policy.mjs';
+import { componentMap } from './ci-scope.mjs';
 import { ghApi } from './release-draft-assets.mjs';
 import { compareVersions, publishedReleases, versionOfTag } from './release-versions.mjs';
 
@@ -52,13 +58,22 @@ const PLAN = 'plan.json';
 const ASSET_LIMIT = 80 * 1024 * 1024;
 
 /** The newest published release of a product below the candidate's version, or null. */
-export function selectPrevious({ releases, product, candidateTag }) {
+export function selectPrevious({ releases, product, candidateTag, map = componentMap() }) {
   const candidate = versionOfTag(candidateTag, product);
-  return (
-    publishedReleases(releases, product).find(
-      (release) => compareVersions(versionOfTag(release.tag_name, product), candidate) < 0
-    ) ?? null
+  const own = publishedReleases(releases, product).find(
+    (release) => compareVersions(versionOfTag(release.tag_name, product), candidate) < 0
   );
+  if (own) return own;
+  let predecessor = predecessorOfProduct(map, product);
+  while (predecessor) {
+    const previous = publishedReleases(releases, predecessor).find(
+      (release) => compareVersions(versionOfTag(release.tag_name, predecessor), candidate) < 0
+    );
+    if (previous) return previous;
+    if (publishedReleases(releases, predecessor).length) return null;
+    predecessor = predecessorOfProduct(map, predecessor);
+  }
+  return null;
 }
 
 /** Historical candidates at/below the floor retain their original single-source proof. */
@@ -167,7 +182,15 @@ export function localCandidate({ directory, product, tag }) {
  * `plan.json` with the tags and the digests. A product with no earlier published release stages
  * nothing: there is nothing to upgrade from.
  */
-export function fetchUpgrade({ releases, download, product, tag, directory, local }) {
+export function fetchUpgrade({
+  releases,
+  download,
+  product,
+  tag,
+  directory,
+  local,
+  map = componentMap(),
+}) {
   const candidate = local ? local.release : releases.find((release) => release.tag_name === tag);
   if (!candidate) throw new Error(`There is no release ${tag}.`);
   if (local) {
@@ -181,7 +204,7 @@ export function fetchUpgrade({ releases, download, product, tag, directory, loca
         `The synthetic candidate ${tag} is not newer than the published ${newest.tag_name}.`
       );
   }
-  const previous = selectPrevious({ releases, product, candidateTag: tag });
+  const previous = selectPrevious({ releases, product, candidateTag: tag, map });
   const floor = selectSupportFloor({ releases, product, candidateTag: tag });
   const plan = {
     product,
@@ -216,7 +239,7 @@ export function fetchUpgrade({ releases, download, product, tag, directory, loca
         }
       };
       stage(candidate, 'candidate', product, local?.download);
-      stage(previous, 'previous', product);
+      stage(previous, 'previous', productOfTag(previous.tag_name));
       if (floor && floor.tag_name !== previous.tag_name) stage(floor, 'floor', product);
       if (floor) {
         const bootstraps = candidate.assets.filter(({ name }) => name === 'install.sh');
@@ -273,7 +296,7 @@ function stagedUpgrade({ directory, product, tag, target }) {
     };
   };
   const now = staged('candidate', product);
-  const before = staged('previous', product);
+  const before = staged('previous', productOfTag(plan.previous));
   if (plan.floor && !Object.hasOwn(plan.files, path.posix.join(target, 'candidate', 'install.sh')))
     throw new Error('Staged candidate install.sh has no recorded digest.');
   return {

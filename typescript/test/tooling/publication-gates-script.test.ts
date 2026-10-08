@@ -1,10 +1,13 @@
 import {
   copyFileSync,
+  cpSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  realpathSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from 'node:fs';
 import { writeExecutable } from '../support/executable-fixture.mjs';
@@ -25,8 +28,33 @@ const repositoryRoot = fileURLToPath(new URL('../../../', import.meta.url));
 const MIGRATIONS = 'rust/crates/tmt-adapters/src/storage/migrations.rs';
 
 let root: string;
+let predecessorScript: string;
 beforeAll(() => {
   root = mkdtempSync(path.join(os.tmpdir(), 'publication-gates-'));
+  // Real gate code; only private registry data is synthetic, as in release-predecessor.test.ts.
+  const tooling = path.join(root, 'synthetic/typescript');
+  cpSync(path.join(repositoryRoot, 'typescript/scripts'), path.join(tooling, 'scripts'), {
+    recursive: true,
+  });
+  symlinkSync(
+    path.join(repositoryRoot, 'typescript/node_modules'),
+    path.join(tooling, 'node_modules'),
+    'dir'
+  );
+  const policy = path.join(tooling, 'scripts/native-release-policy.mjs');
+  const source = readFileSync(policy, 'utf8');
+  expect(source.split('const PRODUCTS = {')).toHaveLength(2);
+  writeFileSync(
+    policy,
+    source.replace(
+      'const PRODUCTS = {',
+      `const PRODUCTS = {
+    'fixture-old': { tagPrefix: 'tmt-fixture-old-v', prerelease: true, latest: false, retired: true },
+    'fixture-new': { tagPrefix: 'tmt-fixture-new-v', prerelease: true, latest: false },`
+    )
+  );
+  // Node canonicalizes import.meta.url; its CLI guard needs the same path through macOS /var.
+  predecessorScript = realpathSync(path.join(tooling, 'scripts/publication-gates.mjs'));
 });
 afterAll(() => rmSync(root, { recursive: true, force: true }));
 
@@ -76,6 +104,7 @@ const green = REQUIRED_CONTEXTS.map((name) => ({
 }));
 
 interface Scenario {
+  predecessor?: boolean;
   migrations?: number;
   failedCut?: 'breaking' | 'migration';
   subject?: string;
@@ -106,7 +135,29 @@ function scenario(options: Scenario = {}) {
     path.join(repositoryRoot, '.github/components.json'),
     path.join(repo, '.github/components.json')
   );
-  writeReleaseWorkspace(repo, ['remote', 'colab', 'driver-herdr']);
+  if (options.predecessor)
+    writeFileSync(
+      path.join(repo, '.github/components.json'),
+      JSON.stringify({
+        components: {
+          'fixture-new': {
+            owns: ['rust/lib.rs'],
+            package: 'tmt-fixture-new',
+            predecessor: 'fixture-old',
+            migrations: [MIGRATIONS],
+          },
+        },
+      })
+    );
+  writeReleaseWorkspace(repo, [
+    'remote',
+    'colab',
+    'driver-herdr',
+    ...(options.predecessor ? ['fixture-new'] : []),
+  ]);
+  const previousTag = options.predecessor ? 'tmt-fixture-old-v0.1.0-alpha.8' : 'v5.0.0-alpha.8';
+  const candidateTag =
+    options.draftTag ?? (options.predecessor ? 'tmt-fixture-new-v0.1.0-alpha.9' : 'v5.0.0-alpha.9');
   // Exact-ref metadata must use the checkout's installed toolchain, not the host default.
   copyFileSync(
     path.join(repositoryRoot, 'rust/rust-toolchain.toml'),
@@ -116,7 +167,7 @@ function scenario(options: Scenario = {}) {
   writeFileSync(path.join(repo, 'rust/lib.rs'), 'fn a() {}\n');
   git('add', '-A');
   git('commit', '-q', '-m', 'feat: the published release');
-  git('tag', 'v5.0.0-alpha.8');
+  git('tag', previousTag);
   const previous = git('rev-parse', 'HEAD');
   writeFileSync(path.join(repo, 'rust/lib.rs'), 'fn a() { 1; }\n');
   if (options.failedCut === 'migration') writeFileSync(path.join(repo, MIGRATIONS), list(3));
@@ -158,7 +209,7 @@ function scenario(options: Scenario = {}) {
     checkRuns: options.checkRuns ?? green,
     assetTexts: {
       '150': JSON.stringify({
-        tag: options.draftTag ?? 'v5.0.0-alpha.9',
+        tag: candidateTag,
         sha: candidate,
         ...(options.hold ?? { gate: 'migration', reason: 'held earlier' }),
       }),
@@ -167,7 +218,7 @@ function scenario(options: Scenario = {}) {
       {
         id: 1,
         draft: false,
-        tag_name: 'v5.0.0-alpha.8',
+        tag_name: previousTag,
         target_commitish: previous,
         created_at: '2026-09-29T00:00:00Z',
         published_at: '2026-09-29T15:00:00Z',
@@ -177,7 +228,7 @@ function scenario(options: Scenario = {}) {
       {
         id: 2,
         draft: options.published !== true,
-        tag_name: options.draftTag ?? 'v5.0.0-alpha.9',
+        tag_name: candidateTag,
         target_commitish: options.draftCommit === 'branch' ? 'main' : candidate,
         created_at: '2026-09-30T00:40:00Z',
         published_at: options.published ? '2026-09-30T02:00:00Z' : null,
@@ -212,7 +263,8 @@ function scenario(options: Scenario = {}) {
   writeFileSync(output, '');
   writeFileSync(summary, '');
   const run = (args: string[], environment: NodeJS.ProcessEnv = process.env) => {
-    const result = spawnSync(process.execPath, [script, ...args], {
+    const entry = options.predecessor ? predecessorScript : script;
+    const result = spawnSync(process.execPath, [entry, ...args], {
       cwd: repo,
       encoding: 'utf8',
       env: {
@@ -293,6 +345,30 @@ const finish = (result: string, outcome: string, more: string[] = []) => [
 ];
 
 describe('publication-gates.mjs early', () => {
+  it('holds the first successor publication for a breaking commit after its predecessor', () => {
+    const { run, uploaded, candidate } = scenario({
+      predecessor: true,
+      subject: 'feat!: remove predecessor API',
+      hold: null,
+    });
+    const result = run([
+      'early',
+      '--product',
+      'fixture-new',
+      '--tag',
+      'tmt-fixture-new-v0.1.0-alpha.9',
+    ]);
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.output).toBe('held=migration\nskip=\n');
+    expect(result.summary).toContain('- FAILED `migration`');
+    expect(uploaded('publication-held.json')).toMatchObject({
+      tag: 'tmt-fixture-new-v0.1.0-alpha.9',
+      sha: candidate,
+      gate: 'migration',
+      reason: `commit ${candidate.slice(0, 8)} is a breaking change: feat!: remove predecessor API`,
+    });
+  });
+
   it('passes a draft whose commit, immutability, order and migrations are all in order', () => {
     const { run, uploaded, calls } = scenario({ hold: null });
     const result = run(early);
