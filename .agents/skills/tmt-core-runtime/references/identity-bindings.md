@@ -247,6 +247,9 @@ or X acknowledgment. There is no Focus timer, polling worker or settings install
   incarnation and launch owner. Storage diagnostics never replace the child's exit code, and
   admission failure never kills a launched child. `HookObserver` runs only for committed
   observations, outside transactions.
+- Foreground suspension tests wait for launch-storage descriptors to close before Ctrl-Z:
+  committed Running alone can precede SQLite's exclusive WAL-close lock release. They also
+  require the shell continuation before submitting the conflict command.
 - `Storage::identity_candidates` (completion, pickers) opens read-only without migration or
   reconciliation; failure is not evidence an identity is absent. Only hidden
   `__completion-script` emits scripts; no completion command writes startup files.
