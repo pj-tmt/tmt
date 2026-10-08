@@ -832,15 +832,19 @@ describe('release upgrade proof (native-release-upgrade.yml)', () => {
     expect(prove.indexOf('warm-xcrun')).toBeLessThan(prove.indexOf('release-upgrade.mjs" prove'));
   });
 
-  it('requires CLI adapter acceptance after the existing proof on every host, with bounded compilation and read-only caching', () => {
+  it('requires CLI adapter acceptance after the existing proof on every host, with bounded compilation and a Darwin adapter cache', () => {
     const prove = job(proveWf, 'prove');
     expect(prove).toContain('timeout-minutes: 13');
     expect(prove).toMatch(/name: Install Rust for version-only resolution and adapter acceptance/);
     expect(prove).toMatch(
       /name: Restore Rust dependencies for version-only resolution and adapter acceptance/
     );
-    expect(prove).toContain('shared-key: native-rust');
-    expect(prove).toContain('save-if: false');
+    expect(prove).toContain(
+      "shared-key: ${{ inputs.product == 'cli' && runner.os == 'macOS' && 'native-upgrade-adapter' || 'native-rust' }}"
+    );
+    expect(prove).toContain(
+      "save-if: ${{ github.ref == 'refs/heads/main' && inputs.product == 'cli' && runner.os == 'macOS' }}"
+    );
     expect(prove).toMatch(
       /name: Prove the real-archive CLI upgrade adapter\n {8}if: inputs.product == 'cli'/
     );
@@ -994,9 +998,57 @@ describe('rehearsal upgrade proof and the publishing upgrade call', () => {
           /\bneeds\.([\w-]+)\.(result|outputs\.\w+)/g,
           (_, name, path) => `ctx.needs['${name}'].${path}`
         )
-        .replace(/\binputs\.([\w-]+)/g, "ctx.inputs['$1']")}) `
+        .replace(/\b(inputs|github|runner)\.([\w-]+)/g, "ctx['$1']['$2']")}) `
     )({ cancelled: false, ...context });
   const ifOf = (text: string) => /^ {4}if: (.+)$/m.exec(text)?.[1] ?? '';
+
+  it('seeds adapter dependencies only from main Darwin CLI proofs without adding compilation', () => {
+    const prove = job(proveWf, 'prove');
+    const caches = prove
+      .split('\n      - ')
+      .filter((step) =>
+        step.startsWith(
+          'name: Restore Rust dependencies for version-only resolution and adapter acceptance\n'
+        )
+      );
+    expect(caches).toHaveLength(1);
+    const cache = caches[0];
+    expect(cache).toContain('uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6');
+    expect(cache).toContain('workspaces: release-source/rust');
+    expect(cache).toContain('CARGO_PROFILE_DEV_DEBUG: 0');
+    expect(cache).toContain('CARGO_INCREMENTAL: 0');
+    expect(prove).toContain('RUSTUP_TOOLCHAIN: 1.97.0');
+    expect(prove).toContain('run: rustup toolchain install 1.97.0 --profile minimal');
+    expect(prove).not.toMatch(
+      /add-rust-environment-hash-key:|cache-on-failure:|cache-workspace-crates:/
+    );
+    const key = /^ {10}shared-key: (.+)$/m.exec(cache)?.[1];
+    const save = /^ {10}save-if: (.+)$/m.exec(cache)?.[1];
+    expect(key).toBeDefined();
+    expect(save).toBeDefined();
+    for (const ref of [
+      'refs/heads/main',
+      'refs/pull/42/merge',
+      'refs/heads/gh-readonly-queue/main/pr-42',
+      'refs/tags/v5.0.0-alpha.1',
+      'refs/heads/feature',
+    ]) {
+      for (const product of ['cli', 'ops', 'remote', 'colab']) {
+        for (const os of ['macOS', 'Linux']) {
+          const context = { github: { ref }, inputs: { product }, runner: { os } };
+          const adapter = product === 'cli' && os === 'macOS';
+          const label = `${ref}/${product}/${os}`;
+          expect(evaluate(key!, context), label).toBe(
+            adapter ? 'native-upgrade-adapter' : 'native-rust'
+          );
+          expect(evaluate(save!, context), label).toBe(adapter && ref === 'refs/heads/main');
+        }
+      }
+    }
+    expect(prove.match(/name: Prove the real-archive CLI upgrade adapter/g)).toHaveLength(1);
+    expect(prove.match(/release-upgrade\.mjs" acceptance --product cli/g)).toHaveLength(1);
+    expect(prove).not.toContain('cargo test');
+  });
 
   it('keeps the same jobs running and the same outputs consumed on the publication path', () => {
     const call = ifOf(job(upgradeWf, 'prove'));

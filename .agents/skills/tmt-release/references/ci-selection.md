@@ -81,10 +81,11 @@ native reader needs CSS; Office product execution remains disabled.
 
 Rust dependency caches use the pinned `Swatinem/rust-cache` action with one
 main-only writer per key: workspace tests for shared dev dependencies, MSRV for
-its toolchain, and each runtime target for its own cache. All writers use the
+its toolchain, and each runtime target for its own cache. These CI writers use the
 shared seed-event classification (`verify=false`) and main ref. PRs, merge groups
 and other workers only restore. Dev debug information and incremental compilation
 are disabled in CI; release profiles keep their manifest policy.
+Release build and adapter cache ownership is described in [native release verification](native-release.md#cli-upgrade-proof).
 
 CI cache consumers and `colab-browser.yml` use `scripts/install-ci-rust.sh` to
 retain only the requested host toolchain before restore, preserving components,
