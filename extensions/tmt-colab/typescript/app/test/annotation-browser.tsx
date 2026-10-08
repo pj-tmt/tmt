@@ -3,7 +3,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { ThreadPanel, ThreadWindow } from '../src/thread-panel.js';
 import { MessageComposer } from '../src/components/message-composer.js';
 import type { ThreadView } from '../src/thread-records.js';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { AnnotationInput } from '../src/annotation-input.js';
 import { AskPanel, type AskBinding, type PageAsk } from '../src/ask-panel.js';
 import type { ThreadBinding } from '../src/thread-store.js';
@@ -18,6 +18,32 @@ let commits = 0;
 let draft = '';
 let captured: unknown[] = [];
 let remote: RemoteDouble | undefined;
+/** What the next directory read does: answer, fail, or wait until released. */
+let directoryMode: 'ok' | 'fail' | 'park' = 'ok';
+let directoryReads = 0;
+let parkedReads: { resolve(): void; reject(error: Error): void }[] = [];
+let reconnect: (() => void) | undefined;
+/** Which composer surface the next mount shows: a new annotation, a reply, or Chat. */
+let surface: 'annotation' | 'reply' | 'chat' = 'annotation';
+export function setSurface(next: 'annotation' | 'reply' | 'chat') {
+  surface = next;
+}
+export function setDirectory(mode: 'ok' | 'fail' | 'park') {
+  directoryMode = mode;
+}
+/** Settles every parked read, as a slow Remote answer or a late failure would. */
+export function releaseDirectory(outcome: 'ok' | 'fail' = 'ok') {
+  const parked = parkedReads;
+  parkedReads = [];
+  for (const read of parked) {
+    if (outcome === 'ok') read.resolve();
+    else read.reject(new Error('Late'));
+  }
+}
+/** A Reconnect replaces the Ask binding the composer holds, mid-draft. */
+export function reconnectAsk() {
+  reconnect?.();
+}
 export function mount(
   mode:
     | 'accepted'
@@ -35,6 +61,9 @@ export function mount(
   host.id = 'annotation-fixture';
   document.body.append(host);
   writes = preparations = closes = commits = 0;
+  directoryMode = mode === 'discovery-failure' ? 'fail' : 'ok';
+  directoryReads = 0;
+  parkedReads = [];
   remote = undefined;
   draft = '';
   captured = [];
@@ -76,12 +105,32 @@ export function mount(
       throw new Error('Not used');
     },
   };
+  const replyThread: ThreadView = {
+    version: 1,
+    kind: 'thread',
+    spaceId: selection().space,
+    pageId: id(1),
+    epoch: '1',
+    senderDevice: id(4),
+    deviceName: 'Browser',
+    revision: '1',
+    deleted: false,
+    at: '1',
+    threadId: id(2),
+    ref,
+    anchor: { exact: 'Selected text', prefix: '', suffix: '' },
+    resolved: false,
+    comments: [],
+  };
   function Fixture() {
     const [records, setRecords] = useState<PageAsk[]>([]);
     const [cancelled, setCancelled] = useState(false);
-    const binding: AskBinding = {
+    const makeBinding = (): AskBinding => ({
       async destinations() {
-        if (mode === 'discovery-failure') throw new Error('Discovery refused');
+        directoryReads++;
+        if (directoryMode === 'fail') throw new Error('Discovery refused');
+        if (directoryMode === 'park')
+          await new Promise<void>((resolve, reject) => parkedReads.push({ resolve, reject }));
         return mode === 'multi'
           ? [
               target,
@@ -128,14 +177,20 @@ export function mount(
       },
       async recheck() {},
       async abandon() {},
-    };
+    });
+    const [binding, setBinding] = useState<AskBinding>(makeBinding);
+    useEffect(() => {
+      reconnect = () => setBinding(makeBinding());
+    });
     return (
       <>
         {!cancelled && (
           <AnnotationInput
             binding={binding}
             discussion={discussion}
-            anchor={{ exact: 'Selected text', prefix: '', suffix: '' }}
+            chat={surface === 'chat'}
+            thread={surface === 'reply' ? replyThread : undefined}
+            anchor={surface === 'chat' ? null : { exact: 'Selected text', prefix: '', suffix: '' }}
             asks={records}
             title="Annotated page"
             blocked={false}
@@ -160,6 +215,9 @@ export function mount(
 }
 export function proof() {
   return { writes, preparations, closes, commits, sends: remote?.sends ?? [] };
+}
+export function directoryProof() {
+  return { reads: directoryReads, parked: parkedReads.length };
 }
 
 export function editingProof() {

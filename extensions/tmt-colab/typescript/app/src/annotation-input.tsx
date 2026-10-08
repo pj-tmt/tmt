@@ -1,11 +1,11 @@
 import { BrowserAction } from '@tmt/browser-ui/react';
 import { useEffect, useRef, useState } from 'react';
+import { useAgentDirectory } from './agent-directory.js';
 import { MessageComposer } from './components/message-composer.js';
 import type { ComposerEdit, RecipientKey } from './components/message-composer-edit.js';
 import { messageRecipient } from './message-recipient.js';
 import { text } from './strings.js';
 import type { AskBinding, PageAsk } from './ask-panel.js';
-import type { AgentDestination } from './live-ask.js';
 import type { ThreadBinding } from './thread-store.js';
 import { captureConversation, conversationAsks } from './thread-store.js';
 import type { DiscussionRef, QuoteSelector, ThreadView } from './thread-records.js';
@@ -51,35 +51,31 @@ export function AnnotationInput({
   committed(ref: DiscussionRef): void;
   chat?: boolean;
 }) {
-  const [agents, setAgents] = useState<AgentDestination[]>();
   const [edit, setEdit] = useState<ComposerEdit>(initialEdit ?? { value: initialValue ?? '' });
   const value = edit.value;
   const [resetKey, setResetKey] = useState(0);
   const [busy, setBusy] = useState(false);
   const sending = useRef(false);
   const [error, setError] = useState<string>();
-  const [discoveryFailed, setDiscoveryFailed] = useState(false);
   const [recorded, setRecorded] = useState<DiscussionRef>();
+  const { directory, retry } = useAgentDirectory(binding);
+  const agents = directory.state === 'ready' ? directory.agents : undefined;
+  const section = useRef<HTMLElement>(null);
+  const [retrying, setRetrying] = useState(false);
+  const focusAfterRetry = useRef(false);
   useEffect(() => {
-    let active = true;
-    if (!binding) return;
-    void binding.destinations().then(
-      (destinations) => {
-        if (!active) return;
-        setAgents(destinations);
-        setDiscoveryFailed(false);
-      },
-      () => {
-        if (active) {
-          setAgents(undefined);
-          setDiscoveryFailed(true);
-        }
-      },
-    );
-    return () => {
-      active = false;
-    };
-  }, [binding]);
+    if (directory.state !== 'loading') setRetrying(false);
+  }, [directory.state]);
+  useEffect(() => {
+    // A retry that had keyboard focus keeps it. The busy action is natively disabled, so focus
+    // moves only once it is enabled again (failed) or gone (ready: the composer takes it).
+    if (directory.state === 'loading' || retrying || !focusAfterRetry.current) return;
+    focusAfterRetry.current = false;
+    (directory.state === 'failed'
+      ? section.current?.querySelector<HTMLElement>('[data-agent-retry] button')
+      : section.current?.querySelector<HTMLElement>('[role="combobox"]')
+    )?.focus();
+  }, [directory.state, retrying]);
   useEffect(() => {
     onDraft?.(value, edit);
   }, [value, edit]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -106,6 +102,8 @@ export function AnnotationInput({
   }
   async function send(intent: 'comment' | 'agent') {
     if (sending.current || recorded || (blocked && recoveryRequired)) return;
+    // No Ask before the current directory is read: nothing to say, nothing to send.
+    if (intent === 'agent' && directory.state !== 'ready') return;
     const admitted = decide(intent);
     if (admitted.kind === 'blocked' || !discussion || (intent === 'agent' && !binding)) {
       setError(text.messageUnavailable);
@@ -170,7 +168,7 @@ export function AnnotationInput({
     }
   }
   return (
-    <section className="annotation-compose" data-testid="annotation-compose">
+    <section className="annotation-compose" data-testid="annotation-compose" ref={section}>
       <MessageComposer
         edit={edit}
         onChange={(next) => {
@@ -195,18 +193,40 @@ export function AnnotationInput({
             cancel();
         }}
       />
-      <p className="annotation-hint">
-        {busy ? text.messageSending : recoveryRequired ? text.reconnectToSend : text.messageKeys}
-      </p>
+      <div className="annotation-status-row">
+        <p role="status" className="annotation-hint">
+          {busy
+            ? text.messageSending
+            : recoveryRequired
+              ? text.reconnectToSend
+              : binding && directory.state === 'loading'
+                ? text.messageAgentsChecking
+                : binding && directory.state === 'failed'
+                  ? chat
+                    ? text.messageAgentsUnavailable
+                    : `${text.messageAgentsUnavailable} ${text.messageCommentAvailable}`
+                  : text.messageKeys}
+        </p>
+        {binding && !busy && !recoveryRequired && (directory.state === 'failed' || retrying) && (
+          <span data-agent-retry>
+            <BrowserAction
+              type="button"
+              label={text.messageAgentsRetry}
+              variant="text"
+              busy={retrying}
+              onActivate={(event) => {
+                if (!event.isTrusted) return;
+                focusAfterRetry.current = event.currentTarget === document.activeElement;
+                setRetrying(true);
+                retry();
+              }}
+            />
+          </span>
+        )}
+      </div>
       {destination && (
         <p className="annotation-hint">
           {text.messageRecipient}: {destination.agentName} · {destination.machineName}
-        </p>
-      )}
-      {discoveryFailed && (
-        <p role="status">
-          {text.messageAgentsUnavailable}
-          {!chat && <> {text.messageCommentAvailable}</>}
         </p>
       )}
       <div className="comment-actions">
@@ -227,7 +247,14 @@ export function AnnotationInput({
           label={chat ? text.askSend : text.ask}
           variant={defaultIntent === 'agent' ? 'primary' : 'text'}
           busy={busy}
-          disabled={blocked || !!recorded || !discussion || !binding || !value.trim()}
+          disabled={
+            blocked ||
+            !!recorded ||
+            !discussion ||
+            !binding ||
+            directory.state !== 'ready' ||
+            !value.trim()
+          }
           onActivate={(event) => {
             if (event.isTrusted) void send('agent');
           }}

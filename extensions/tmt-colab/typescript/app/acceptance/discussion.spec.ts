@@ -613,11 +613,11 @@ test('composer records plain annotations and replies without a recipient, then s
       thread.getByRole('button', { name: 'Choose recipient', exact: true }),
     ).toBeDisabled();
     await page.unroute('**/api/session', unavailableDirectoryContext);
-    // Discovery belongs to the mounted composer; reopening admits the recovered directory.
-    await thread.getByRole('button', { name: text.threadClose, exact: true }).click();
-    await expect(thread).toHaveCount(0);
-    await page.frameLocator('iframe').locator(`[data-colab-thread$="${threadId}"]`).click();
-    await expect(page.locator('.page-drawer[open]')).toHaveCount(0);
+    // The failed read says so in place; Try again recovers without closing the thread.
+    await expect(
+      thread.getByText('Agents are unavailable. You can still post a comment.', { exact: true }),
+    ).toBeVisible();
+    await thread.getByRole('button', { name: 'Try again', exact: true }).click();
     await expect(
       thread.getByRole('button', { name: 'Choose recipient', exact: true }),
     ).toBeEnabled();

@@ -68,6 +68,14 @@ do not silently retarget. `conversationAsks` owns comment/Ask association for di
 and captured conversation; the editor has no storage, ledger, notification or Remote
 capability. Content-write and Ask failures retain the existing draft/recorded-turn
 and uncertainty rules; recipient selection performs no preparation or dispatch.
+`agent-directory.ts` (`useAgentDirectory`) gives the composer one explicit directory state,
+`loading`, `failed` or `ready` (an empty `ready` list is a real answer), for the Ask binding it holds.
+A new binding (Reconnect replaces the Ask facade) or a retry reads again and shows `loading` in the
+same render, and a read for a replaced binding or attempt is ignored. Ask/Send is fenced until
+`ready`: click and Enter do nothing before preparation, with no error; plain comments, draft,
+caret and chosen recipient are untouched. `failed` shows the status line with an in-place Try
+again (kept mounted and busy during the retry, focus restored); Reconnect's "Reconnect to send."
+line wins while disconnected. Reconnect and Try again are the only triggers; there is no timer.
 The explicit Choose/Change recipient picker preserves message bytes, including typed `@` text; mention
 completion remains optional.
 
