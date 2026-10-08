@@ -71,6 +71,16 @@ browsers register: each paired device registers when it first opens the app.
 
 ## Cases
 
+`object-channel.spec.ts` uses the frozen three binaries for first-demand channel activation,
+replacement and original-ID upload recovery. Its standalone browser test client compiles the
+production registration, Connection, crypto, fold, Writer and attachment consumers; only that
+client's module assets are fixture-served. The mounted document, SDK, native admission,
+object backend and replies are real. It refuses incomplete/unpublished reads, verifies
+committed bytes before publishing a reference, reads through the authenticated reference,
+and checks revoke plus world cleanup. The fixture never enters the production app build.
+Discovery attachments record child-process spans and first-demand success under Remote's
+250 ms setup budget; they do not qualify Darwin first-exec or preempt OS delays.
+
 `agent-status.spec.ts` reads the real admitted directory through the Agents drawer,
 checks its served asset hashes and CSP, and injects a labelled context-read refusal
 without sending or reopening. By default it compares every served asset with the app's

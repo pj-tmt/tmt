@@ -34,8 +34,8 @@ without opening another socket or changing the live fold. Browser `Connection`
 requests run outside its Worker executor; historical fetch uses a detached Worker.
 Complete committed reads check every range and raw digest before Colab asset crypto.
 Root-local `MountSocket::read_attachment` requires an established channel and never
-activates storage or opens a backend. Production Remote declares Colab Disabled;
-activation and the real three-binary routed proof remain planned. Snapshot/retained-reference
+activates storage or opens a backend. Production Remote declares Colab Local;
+its routed lifecycle gate uses the three shipped binaries. Snapshot/retained-reference
 persistence is #1856, not a new Store/schema here. Historical `chains`/`readAuthor`
 ignore original-creator current expiry, matching native folds; issuedAt, issuer/signature,
 membership and revocation cuts still apply. Fresh `author()` and the actual caller

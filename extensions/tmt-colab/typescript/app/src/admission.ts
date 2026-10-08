@@ -308,13 +308,27 @@ export class Admission {
       )
         continue;
       requireValue(revision < statement.head.revision);
-      const wrapped = statement.payload.value.cuts.find(
-        (c) =>
-          c.pageId === this.page &&
-          c.epoch === context.epoch &&
-          c.namespace === context.namespace &&
-          streamCut.decode(binary(c.cut, 1024)).streamId === context.authorDevice,
-      );
+      const matches = (cut: payload.Cut) =>
+        cut.pageId === this.page &&
+        cut.epoch === context.epoch &&
+        cut.namespace === context.namespace &&
+        streamCut.decode(binary(cut.cut, 1024)).streamId === context.authorDevice;
+      // Only a verified owner advance that sealed this exact epoch before the
+      // reduction can substitute its cut. Missing both bounds remains a refusal.
+      const wrapped =
+        statement.payload.value.cuts.find(matches) ??
+        this.#log
+          .filter(
+            (seal) => seal.head.revision > revision && seal.head.revision < statement.head.revision,
+          )
+          .flatMap((seal) =>
+            seal.payload.operation === 'epoch.advance' &&
+            seal.payload.value.pageId === this.page &&
+            decimal(seal.payload.value.epoch) === decimal(context.epoch) + 1n
+              ? seal.payload.value.cuts
+              : [],
+          )
+          .find(matches);
       requireValue(wrapped !== undefined);
       const cut = streamCut.decode(binary(wrapped.cut, 1024)),
         seq = decimal(context.streamSeq);

@@ -40,8 +40,8 @@ is introduced.
 
 The [attachment byte grammar](attachment-v1.md) defines #1853's descriptor,
 manifest, bounded metadata/comment projection and runtime reference/history admission.
-The mount-owned adapter consumes the neutral object channel; production activation
-and the real routed proof remain planned, with Remote's Colab declaration Disabled.
+The mount-owned adapter consumes the neutral object channel; Remote declares Colab
+Local. Its routed lifecycle gate uses the three shipped binaries.
 
 ### Internal attachment channel consumer
 
@@ -387,8 +387,13 @@ Both namespaces are committed when affected. The
 checkpoint hash is either hash32 or zero-length `none` paired with checkpoint
 sequence `0`. Require checkpointSeq <= tailHeadSeq; an empty tail uses seq `0`
 and hash zero32. A nonempty tail must resolve through its exact chain. Reduction
-cuts MUST cover every affected stream; unseen offline updates beyond the cut
-are rejected and reported to their writer.
+cuts MUST cover every affected stream in the reduced epoch; unseen offline updates
+beyond the cut are rejected and reported to their writer. For a retained older epoch,
+a later reduction may omit a cut only when an earlier verified owner-signed
+`epoch.advance` sealed that exact page/epoch/namespace/stream. Its seal cut remains
+the binding sequence, checkpoint and tail-hash bound. An unsealed, uncut stream
+still refuses; current caller entitlement and disclosure fences remain unchanged.
+`page.share` carries no cuts: a rotating share uses the separate `epoch.advance`.
 
 A certificate chain is bounded, versioned material, not arbitrary recursive
 certificates. It contains exactly `{version:1, issuerStatement, deviceCertificate,
