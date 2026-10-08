@@ -15,7 +15,7 @@ fn focus_callback_is_hidden_and_does_not_enter_human_output_or_drift() {
         parsed(&argv).invocation,
         Invocation::FocusHook {
             provider: "claude".into(),
-            launch: "{}".into(),
+            launch: Some("{}".into()),
             worker: true,
             work_budget_ms: Some(999)
         }
@@ -184,5 +184,28 @@ fn private_hook_worker_budget_is_typed_bounded_and_requires_worker() {
             worker: true,
             work_budget_ms: None
         }
+    );
+}
+
+#[test]
+fn stable_focus_callback_discovers_launch_without_coordinates() {
+    assert_eq!(
+        parsed(&["__focus-hook", "codex", "--discover-launch"]).invocation,
+        Invocation::FocusHook {
+            provider: "codex".into(),
+            launch: None,
+            worker: false,
+            work_budget_ms: None
+        }
+    );
+    assert!(
+        parse(&args(&[
+            "__focus-hook",
+            "codex",
+            "--discover-launch",
+            "--launch",
+            "{}"
+        ]))
+        .is_err()
     );
 }

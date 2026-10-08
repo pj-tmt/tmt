@@ -47,6 +47,30 @@ describe('native Focus held delivery and checklist seam', () => {
       expect(existsSync(path.join(sandbox.home, '.claude'))).toBe(false);
     });
   });
+  it('stable Codex callback refuses missing turn, recursive, auxiliary and unbound admission without settings or storage writes', async () => {
+    await withSandbox(async (sandbox) => {
+      const good = {
+        hook_event_name: 'Stop',
+        session_id: randomUUID(),
+        turn_id: randomUUID(),
+        stop_hook_active: false,
+      };
+      for (const input of [
+        good,
+        { ...good, turn_id: '' },
+        { ...good, stop_hook_active: true },
+        { ...good, hook_event_name: 'SubagentStop' },
+      ]) {
+        const result = await runCli(sandbox, ['__focus-hook', 'codex', '--discover-launch'], {
+          stdin: JSON.stringify(input),
+        });
+        expect(result).toMatchObject({ status: 0, stdout: '', stderr: '' });
+      }
+      expect(existsSync(sandbox.database)).toBe(false);
+      expect(existsSync(path.join(sandbox.home, '.codex'))).toBe(false);
+    });
+  });
+
   it('diagnoses a target checklist error without rejecting a new talk from its sender', async () => {
     await withSandbox(async (sandbox) => {
       const target = await identity(sandbox, 'Worker');

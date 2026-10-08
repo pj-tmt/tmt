@@ -114,7 +114,11 @@ fn append_event(hooks: &str, event: &str, entry: &Value) -> Result<String, PlanE
     set(hooks, event, &format!("[{}]", values.join(",")))
 }
 
-fn owned_event(provider: &DriverDefinition, text: &str, event: &str) -> Result<bool, PlanError> {
+pub(crate) fn owned_event(
+    provider: &DriverDefinition,
+    text: &str,
+    event: &str,
+) -> Result<bool, PlanError> {
     let root = object(text)?;
     let Some(raw) = field(&root, "hooks") else {
         return Ok(false);

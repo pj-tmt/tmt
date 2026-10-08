@@ -182,7 +182,7 @@ in `contracts/`.
   first; anything differing from what TMT wrote is kept and reported; a failed step stops and a
   rerun resumes. Product removal order derives from `Product::ALL`.
 
-## Claude launch Focus hooks
+## Provider launch Focus hooks
 
 `RuntimeLifecycle::prepare_launch_hooks` is an optional driver-owned launch boundary.
 Claude composes one inline `--settings` object before channel enrollment for fresh
@@ -199,12 +199,27 @@ refuse hook composition while the original launch proceeds. Without a consented 
 hook, the per-launch Stop observer updates activity only; it does not enable
 transcript collection.
 
+Codex composes invocation-only `-c hooks=<TOML>` for fresh and exact resume launches,
+including the owned channel app-server. Definitions use a stable absolute TMT command
+and `--discover-launch`, with no identity, process or session coordinates; launch
+lookup occurs inside the supervised worker using the existing verified caller binding.
+Codex trusts exact hook definition hashes: approval remains user-owned through `/hooks`.
+TMT never approves trust, enables disabled hooks or writes Codex settings. Exact setup
+observers in eligible user/system or explicit invocation sources remain the only
+recorder; missing Stop observation is activity-only. Unsupported profiles/plugins,
+managed hook directories, project hook sources with uncertain eligibility, unreadable
+or edited/duplicated sources, and disabled/managed-only policy use the same original
+command fallback. Other invocation config and user hook entries remain intact.
+
 The separate `__focus-hook` accepts only an unrecursive main-agent Stop and emits
-Claude's documented `decision: "block"` plus `reason` continuation. It does not use
+both providers' documented `decision: "block"` plus `reason` continuation. It does not use
 `additionalContext` alone. Unsupported events, including StopFailure and SubagentStop,
 and `stop_hook_active: true` never claim. Exact identity/binding, fresh host marker,
 native provider incarnation, live foreground launcher owner, and remembered/current
-provider session admit the boundary. The claim transaction fences that binding and
+provider session admit the boundary. Codex additionally requires `turn_id`; an owned
+channel caller must prove its exact private generation, Ready thread, live server,
+foreground and launcher owner. Arbitrary shared servers remain inadmissible.
+The claim transaction fences that binding and
 remembered pair; simultaneous telemetry updates do not grant or remove authority.
 
 A bounded worker seals the canonical checklist and builds its digest. Its private

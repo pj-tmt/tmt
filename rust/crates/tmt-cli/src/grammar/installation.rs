@@ -239,7 +239,19 @@ pub(in crate::grammar) fn focus_hook(hooked: Vec<&'static str>) -> Command {
         .name("__focus-hook")
         .mut_arg("activity-only", |arg| arg.conflicts_with("launch"))
         .about("Internal launch-admitted Focus continuation")
-        .arg(Arg::new("launch").long("launch").required(true).hide(true))
+        .arg(Arg::new("launch").long("launch").hide(true))
+        .arg(
+            Arg::new("discover-launch")
+                .long("discover-launch")
+                .action(ArgAction::SetTrue)
+                .hide(true)
+                .conflicts_with("activity-only"),
+        )
+        .group(
+            clap::ArgGroup::new("launch-source")
+                .args(["launch", "discover-launch"])
+                .required(true),
+        )
 }
 
 pub(in crate::grammar) fn upgrade() -> Command {

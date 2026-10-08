@@ -346,23 +346,27 @@ fn verified_caller<R: CommandRunner + Clone>(
     })))
 }
 
-/// Shared caller verification, followed by this exact foreground launch's
-/// admission. Hook argv is a locator; native ancestry and current rows authorize.
+/// Discover or verify this exact foreground launch in one native admission pass.
+/// Supplied argv and discovered coordinates are locators, never authority.
 pub(crate) fn verified_focus_launch<R: CommandRunner + Clone>(
     provider: &str,
     lifecycle: &dyn RuntimeLifecycle,
-    launch: &tmt_adapters::runtime::hook_protocol::HookLaunch,
+    launch: Option<&tmt_adapters::runtime::hook_protocol::HookLaunch>,
     session: &ProviderSessionId,
     deadline: Instant,
     runner: R,
-) -> Result<(ConfigPaths, IdentityContextSnapshot), ()> {
-    if !launch.valid() {
+) -> Result<
+    (
+        tmt_adapters::runtime::hook_protocol::HookLaunch,
+        ConfigPaths,
+        IdentityContextSnapshot,
+    ),
+    (),
+> {
+    if launch.is_some_and(|v| !v.valid()) {
         return Err(());
     }
     let host = lifecycle.host_evidence().map_err(|_| ())?;
-    if !matches!(host, HostEvidence::Independent { .. }) {
-        return Err(());
-    }
     let Caller::Bound(bound) = verified_caller(
         provider,
         lifecycle,
@@ -376,13 +380,31 @@ pub(crate) fn verified_focus_launch<R: CommandRunner + Clone>(
         return Err(());
     };
     let binding = bound.stored.entry.binding.as_ref().ok_or(())?;
+    let launch = match launch {
+        Some(launch) => launch.clone(),
+        None => {
+            let owner = binding.session.launch_owner.as_ref().ok_or(())?;
+            tmt_adapters::runtime::hook_protocol::HookLaunch {
+                identity_id: binding.identity_id.clone(),
+                binding_id: binding.id.clone(),
+                owner_pid: owner.pid(),
+                owner_start: owner.start_identity().to_owned(),
+            }
+        }
+    };
+    if !launch.valid() {
+        return Err(());
+    }
     let owner = launch.owner().ok_or(())?;
+    let process = lifecycle
+        .focus_process(&binding.session, &bound.process, session, host, deadline)
+        .ok_or(())?;
     let expected = binding.id == launch.binding_id
         && binding.identity_id == launch.identity_id
         && binding.session.state == tmt_core::binding::session::RuntimeState::Running
         && binding.session.launch_owner.as_ref() == Some(&owner)
         && binding.session.key.as_ref().is_some_and(|key| {
-            key.incarnation == bound.process && key.provider_session.as_ref() == Some(session)
+            key.incarnation == process && key.provider_session.as_ref() == Some(session)
         })
         && bound
             .stored
@@ -404,7 +426,7 @@ pub(crate) fn verified_focus_launch<R: CommandRunner + Clone>(
     if !alive || Instant::now() >= deadline {
         return Err(());
     }
-    Ok((bound.paths, bound.stored))
+    Ok((launch, bound.paths, bound.stored))
 }
 
 fn observe(

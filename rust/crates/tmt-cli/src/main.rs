@@ -256,7 +256,12 @@ fn dispatch(parsed: invocation::Parsed) -> io::Result<u8> {
             worker,
             work_budget_ms,
         } => {
-            return focus_hook_command::execute(&provider, &launch, worker, work_budget_ms);
+            return focus_hook_command::execute(
+                &provider,
+                launch.as_deref(),
+                worker,
+                work_budget_ms,
+            );
         }
         Invocation::ProviderHook {
             activity_only,

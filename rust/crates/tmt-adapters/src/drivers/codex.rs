@@ -9,6 +9,7 @@ pub mod channel;
 pub mod channel_context;
 pub mod channel_hooks;
 pub mod delivery;
+mod focus;
 pub mod lease;
 pub mod pane;
 pub mod queue;
@@ -385,6 +386,35 @@ pub fn record_client_exit(
 pub struct CodexLifecycle;
 
 impl crate::runtime::lifecycle::RuntimeLifecycle for CodexLifecycle {
+    fn prepare_launch_hooks(
+        &self,
+        plan: &crate::runtime::hook_protocol::LaunchHooks<'_>,
+    ) -> std::io::Result<Option<crate::runtime::RuntimeCommand>> {
+        focus::prepare(plan).map(Some)
+    }
+    fn decode_focus_turn(&self, bytes: &[u8]) -> Option<ProviderSessionId> {
+        focus::decode(bytes)
+    }
+    fn encode_focus_turn(&self, digest: &str) -> Option<String> {
+        focus::encode(digest)
+    }
+    fn focus_process(
+        &self,
+        current: &BindingSessionState,
+        observed: &ProcessIncarnation,
+        session: &ProviderSessionId,
+        host: crate::runtime::lifecycle::HostEvidence,
+        deadline: std::time::Instant,
+    ) -> Option<ProcessIncarnation> {
+        if host.shared()
+            && (std::env::var_os(channel_context::BINDING_ENV).is_none()
+                || std::env::var_os(channel_context::GENERATION_ENV).is_none())
+        {
+            return None;
+        }
+        channel_hooks::activity_process(current, observed, session, host, deadline)
+    }
+
     fn hook_work_duration(&self) -> Option<std::time::Duration> {
         (std::env::var_os(channel_context::BINDING_ENV).is_some()
             && std::env::var_os(channel_context::GENERATION_ENV).is_some())

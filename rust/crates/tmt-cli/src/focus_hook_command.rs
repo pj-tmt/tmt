@@ -25,7 +25,7 @@ const PUBLICATION_RESERVE: Duration = Duration::from_millis(600);
 
 pub fn execute(
     provider: &str,
-    scope: &str,
+    scope: Option<&str>,
     worker: bool,
     work_budget_ms: Option<u64>,
 ) -> io::Result<u8> {
@@ -35,13 +35,11 @@ pub fn execute(
             .unwrap_or(BUDGET)
             .min(BUDGET);
     let result = (|| -> Result<(), ()> {
-        let launch: HookLaunch = serde_json::from_str(scope).map_err(|_| ())?;
-        if !launch.valid() {
-            return Err(());
-        }
         let registry = RuntimeRegistry::first_party();
         let harness = HarnessId::new(provider).map_err(|_| ())?;
         let lifecycle = registry.lifecycle(&harness).ok_or(())?;
+        let deadline =
+            deadline.min(Instant::now() + lifecycle.hook_work_duration().unwrap_or(BUDGET));
         let input = read_stdin_bounded(
             deadline.saturating_duration_since(Instant::now()),
             HOOK_INPUT_LIMIT,
@@ -51,10 +49,14 @@ pub fn execute(
             return Ok(());
         };
         if worker {
-            let (paths, stored) = crate::provider_hook_command::verified_focus_launch(
+            let supplied = scope
+                .map(serde_json::from_str::<HookLaunch>)
+                .transpose()
+                .map_err(|_| ())?;
+            let (launch, paths, stored) = crate::provider_hook_command::verified_focus_launch(
                 provider,
                 lifecycle,
-                &launch,
+                supplied.as_ref(),
                 &session,
                 deadline,
                 SupervisedProbeRunner,
@@ -85,6 +87,7 @@ pub fn execute(
                 }
             };
             let prepared = FocusHandoff {
+                launch: launch.clone(),
                 checklist_id: batch.id.clone(),
                 attempt_token: batch.attempt_token.clone(),
                 digest: focus::digest(&page, &batch),
@@ -105,15 +108,17 @@ pub fn execute(
         if remaining == 0 {
             return Err(());
         }
-        let args = [
+        let mut args = vec![
             "__focus-hook".into(),
             provider.into(),
-            "--launch".into(),
-            scope.into(),
             "--worker".into(),
             "--work-budget-ms".into(),
             remaining.to_string().into(),
         ];
+        match scope {
+            Some(scope) => args.extend(["--launch".into(), scope.into()]),
+            None => args.push("--discover-launch".into()),
+        }
         let executable = std::env::current_exe().map_err(|_| ())?;
         let output = UnixCommandRunner
             .execute(CommandRequest {
@@ -131,6 +136,14 @@ pub fn execute(
             return Ok(());
         }
         let prepared: FocusHandoff = serde_json::from_slice(&output.stdout).map_err(|_| ())?;
+        let launch = &prepared.launch;
+        if !launch.valid()
+            || scope.is_some_and(|scope| {
+                serde_json::from_str::<HookLaunch>(scope).ok().as_ref() != Some(launch)
+            })
+        {
+            return Err(());
+        }
         if !tmt_core::dispatch::canonical_id(&prepared.checklist_id)
             || !tmt_core::dispatch::canonical_id(&prepared.attempt_token)
         {
@@ -141,7 +154,7 @@ pub fn execute(
         let state = match crate::provider_hook_command::verified_focus_launch(
             provider,
             lifecycle,
-            &launch,
+            Some(launch),
             &session,
             deadline,
             UnixCommandRunner,

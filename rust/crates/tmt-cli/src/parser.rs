@@ -221,7 +221,7 @@ fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
         ["__consumption-sample"] => Invocation::ConsumptionSample,
         ["__focus-hook"] => Invocation::FocusHook {
             provider: text(m, "provider").expect("required provider"),
-            launch: text(m, "launch").expect("required launch"),
+            launch: text(m, "launch"),
             worker: flag(m, "worker"),
             work_budget_ms: m.get_one::<u64>("work-budget-ms").copied(),
         },
