@@ -147,6 +147,14 @@ impl<'s> LocalFs<'s> {
             extension,
         })
     }
+    /// Mutating access for the same scoped, owned workers. ObjectService must
+    /// shut down or drop and join every holder; it is never forgotten.
+    pub(crate) fn writer(&self, extension: ExtensionId) -> Arc<LocalObjectWriter> {
+        Arc::new(LocalObjectWriter {
+            inner: Arc::clone(&self.inner),
+            extension,
+        })
+    }
     pub fn installation_usage(&self, io: &IoBudget<'_>) -> BackendResult<Usage> {
         let usage = io
             .check()
@@ -217,6 +225,44 @@ impl LocalObjectReader {
         io: &IoBudget<'_>,
     ) -> BackendResult<ReadPart> {
         self.handle().read(key, offset, count, io)
+    }
+}
+
+/// Mutating worker view of the one coordinator. Its owning ObjectService must
+/// be shut down or dropped, never forgotten: that owner joins all holders before
+/// its Serving borrow ends. Public LocalHandle remains borrowed.
+pub(crate) struct LocalObjectWriter {
+    inner: Arc<Inner>,
+    extension: ExtensionId,
+}
+impl LocalObjectWriter {
+    fn handle(&self) -> LocalHandle<'_> {
+        LocalHandle {
+            inner: &self.inner,
+            extension: self.extension.clone(),
+        }
+    }
+    /// The backend's injected clock, for clipping callbacks to persisted expiry.
+    pub(crate) fn now_ms(&self) -> u64 {
+        self.inner.now()
+    }
+    pub(crate) fn begin(&self, spec: &BeginSpec, io: &IoBudget<'_>) -> BackendResult<BeginResult> {
+        self.handle().begin(spec, io)
+    }
+    pub(crate) fn append(
+        &self,
+        intent: IntentId,
+        index: u32,
+        bytes: &[u8],
+        io: &IoBudget<'_>,
+    ) -> BackendResult<Progress> {
+        self.handle().append(intent, index, bytes, io)
+    }
+    pub(crate) fn commit(&self, intent: IntentId, io: &IoBudget<'_>) -> BackendResult<Receipt> {
+        self.handle().commit(intent, io)
+    }
+    pub(crate) fn discard(&self, intent: IntentId, io: &IoBudget<'_>) -> BackendResult<()> {
+        self.handle().discard(intent, io)
     }
 }
 

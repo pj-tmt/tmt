@@ -1,37 +1,17 @@
 //! Admitted observational operations. Original IDs are principal-scoped; status
 //! never adopts or repairs. Reads interpret only raw backend metadata and bytes.
-use super::dispatch::{self, ChannelEnd, Hub};
-use crate::objects::{
-    BackendError, BlobKey, ExtensionId, IntentId, IoBudget, NamespaceId, OpaqueKey, TransferState,
+use super::{
+    dispatch::{self, ChannelEnd, Hub},
+    original::original_id,
 };
-use sha2::{Digest as _, Sha256};
+use crate::objects::{
+    BackendError, BlobKey, IntentId, IoBudget, NamespaceId, OpaqueKey, TransferState,
+};
 use std::time::Instant;
 use tmt_extension_objects::{
     AdmitInput, Bus, Bytes32, Call, Checkpoint, Chunk, Context, Decision, Disclosure, ErrorCode,
-    Operation, Outcome, Request, Sha256Hex, State, Success, Uuid4,
+    Operation, Outcome, Request, Sha256Hex, State, Success,
 };
-
-/// Stable across owner-session/grant changes, but never across installed
-/// extensions, principal kinds, owner devices or non-owner connections.
-pub(super) fn original_id(extension: &ExtensionId, context: Context, transfer: Uuid4) -> IntentId {
-    let (kind, principal): (&[u8], &[u8]) = match &context {
-        Context::LocalExtension => (b"local", extension.as_str().as_bytes()),
-        Context::OwnerSession { device_id, .. } => (b"owner", device_id.as_bytes()),
-        Context::Mounted { origin_id } => (b"mounted", origin_id.as_bytes()),
-    };
-    let mut digest = Sha256::new();
-    for field in [
-        b"tmt.remote.original.v1".as_slice(),
-        extension.as_str().as_bytes(),
-        kind,
-        principal,
-        transfer.as_bytes(),
-    ] {
-        digest.update((field.len() as u64).to_be_bytes());
-        digest.update(field);
-    }
-    IntentId(digest.finalize().into())
-}
 
 fn refusal(decision: Decision) -> Option<ErrorCode> {
     match decision {

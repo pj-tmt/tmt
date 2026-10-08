@@ -798,7 +798,7 @@ fn every_request_asks_afresh_and_a_refusal_is_never_an_allow() {
 }
 
 #[test]
-fn a_mounted_origin_is_denied_and_the_other_methods_are_unavailable_without_a_callback() {
+fn every_method_denies_an_unestablished_mounted_origin_without_a_callback() {
     let env = Env::new();
     let (_service, peer) = running(&env, bounds());
     let transfer = Uuid4::parse("5c1f0a3e-9d7b-4c2a-8f61-3b0e7d5a9c24").unwrap();
@@ -885,22 +885,6 @@ fn a_mounted_origin_is_denied_and_the_other_methods_are_unavailable_without_a_ca
         result(&peer),
         config_result(&peer, id, Outcome::Failure(ErrorCode::Denied))
     );
-    // Only uploads remain unavailable; status/read are covered by real admitted fixtures.
-    for (method, transfer_id, call) in calls
-        .into_iter()
-        .filter(|(method, _, _)| !matches!(method, Method::Status | Method::Read))
-    {
-        id += 1;
-        request(&peer, id, Origin::LocalExtension, call);
-        let expected = ResultFrame {
-            generation: generation_of(&peer),
-            request_id: counter(id),
-            method,
-            transfer_id,
-            outcome: Outcome::Failure(ErrorCode::Unavailable),
-        };
-        assert_eq!(result(&peer), expected, "local {method:?}");
-    }
 }
 
 #[test]
@@ -1124,3 +1108,5 @@ fn time_spent_between_acquire_and_disclose_is_unavailable_with_no_second_callbac
 
 mod flow;
 mod observe;
+
+mod upload;
