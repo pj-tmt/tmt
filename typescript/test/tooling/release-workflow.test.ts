@@ -327,7 +327,15 @@ describe('release version gate workflow boundaries', () => {
   it('keeps native injection on pinned PR heads and all four hosts, with no publishing privileges', () => {
     const injection = read('.github/workflows/release-version-injection.yml');
     expect(injection).toContain('github.event.pull_request.head.sha || github.sha');
-    expect(injection).toContain('product: [cli, squad, remote, colab]');
+    expect(injection).toContain('product: [cli, remote, colab]');
+    const products = /product: \[([^\]]+)\]/
+      .exec(injection)?.[1]
+      .split(',')
+      .map((product) => product.trim());
+    const map = JSON.parse(read('.github/components.json'));
+    expect(products?.includes('ops')).toBe(
+      !!map.components.ops && map.components.ops.release !== false
+    );
     for (const host of ['macos-15', 'macos-15-intel', 'ubuntu-24.04-arm', 'ubuntu-24.04'])
       expect(injection).toContain(`runner: ${host}`);
     const action = read('.github/actions/inject-release-version/action.yml');
@@ -407,7 +415,7 @@ describe('per-tag release run (native-release.yml)', () => {
       .split('\n')
       .map((line) => line.replace(/^ {10}/, ''))
       .join('\n');
-    expect(run).toMatch(/options:\n {10}- cli\n {10}- squad/);
+    expect(run).toMatch(/options:\n {10}- cli\n {10}- ops/);
     const directory = mkdtempSync(path.join(os.tmpdir(), 'release-product-'));
     try {
       const gh = path.join(directory, 'gh');
@@ -417,7 +425,7 @@ describe('per-tag release run (native-release.yml)', () => {
         0o700
       );
       const search = `${directory}${path.delimiter}${process.env.PATH ?? ''}`;
-      for (const [product, prepare] of ['office'].flatMap((product) =>
+      for (const [product, prepare] of ['office', 'ops', 'squad'].flatMap((product) =>
         ['true', 'false'].map((prepare) => [product, prepare])
       )) {
         const result = spawnSync('/bin/sh', ['-eu', '-c', shell], {
@@ -433,7 +441,7 @@ describe('per-tag release run (native-release.yml)', () => {
           `${product} is not released (release: false in .github/components.json).`
         );
       }
-      for (const product of ['cli', 'squad', 'driver-herdr', 'remote', 'colab']) {
+      for (const product of ['cli', 'driver-herdr', 'remote', 'colab']) {
         const output = path.join(directory, product);
         const result = spawnSync('/bin/sh', ['-eu', '-c', shell], {
           cwd: repository,
@@ -548,7 +556,7 @@ describe('release bundle pipeline (native-release-bundle.yml)', () => {
 
   it('builds Colab with frozen embedded assets and verifies outside the checkout fallback', () => {
     expect(run).toMatch(
-      /options:\n {10}- cli\n {10}- squad\n {10}- driver-herdr\n {10}- remote\n {10}- colab/
+      /options:\n {10}- cli\n {10}- ops\n {10}- driver-herdr\n {10}- remote\n {10}- colab/
     );
     expect(job(prepare, 'build')).toMatch(
       /- name: Set up Node.js and pnpm\n {8}uses: \.\/\.github\/actions\/setup-tooling/
@@ -693,7 +701,7 @@ describe('live main release cuts (release.yml)', () => {
     );
   });
   it('keeps owner versions explicit and parked products out of manual selection', () => {
-    expect(release).toContain('options: [all, cli, squad, driver-herdr, remote, colab]');
+    expect(release).toContain('options: [all, cli, ops, driver-herdr, remote, colab]');
     expect(release).toContain('VERSION: ${{ inputs.version }}');
     expect(release).toContain('driver-herdr');
     expect(release).toContain('release-cut-plan.json');
@@ -717,7 +725,7 @@ describe('release upgrade proof (native-release-upgrade.yml)', () => {
     for (const input of ['product', 'tag', 'sha']) {
       expect(upgrade.match(new RegExp(`^ {6}${input}:$`, 'gm')), input).toHaveLength(2);
     }
-    expect(upgrade).toMatch(/type: choice\n {8}options:\n {10}- cli\n {10}- office\n {10}- squad/);
+    expect(upgrade).toMatch(/type: choice\n {8}options:\n {10}- cli\n {10}- office\n {10}- ops/);
     // The publication run reads the outcome and the reason, whatever the run's own result is.
     expect(upgrade).toMatch(
       /^ {4}outputs:\n {6}outcome:\n(?: {8}[^\n]*\n)* {8}value: \$\{\{ jobs\.fetch\.outputs\.outcome \}\}\n {6}reason:\n(?: {8}[^\n]*\n)* {8}value: \$\{\{ jobs\.prove\.outputs\.reason \}\}\n/m
@@ -1207,7 +1215,7 @@ describe('public install smoke (native-release-smoke.yml)', () => {
       expect(smokeWorkflow.match(new RegExp(`^ {6}${input}:$`, 'gm')), input).toHaveLength(2);
     }
     expect(smokeWorkflow).toMatch(
-      /type: choice\n {8}options:\n {10}- cli\n {10}- office\n {10}- squad/
+      /type: choice\n {8}options:\n {10}- cli\n {10}- office\n {10}- ops/
     );
   });
 

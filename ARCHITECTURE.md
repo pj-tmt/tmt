@@ -1004,7 +1004,7 @@ Independent releases use `tmt-ops-v<version>`; module/drawing ownership and guar
 - **Entry and public JSON.** The [Ops reference](.agents/skills/tmt-ops-dev/references/config-and-effects.md#cli-entry-and-public-json) owns CLI entry and display-document contracts.
 
 Contracts index: the [embedded lead skill](extensions/tmt-ops/skills/tmt-ops/SKILL.md)
-owns shapes, checked by `typescript/test/native/squad.test.ts`:
+owns shapes, checked by `typescript/test/native/ops.test.ts`:
 
 - `ops sq ls --json`: with `--squad`, one document (`squad`, `sections`, row grid
   `columns`/`lines`, `you`); without it always `{squads: [...], you}`, whatever the

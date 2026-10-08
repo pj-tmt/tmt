@@ -14,12 +14,12 @@ markup: see [tmt-tui](../../tmt-tui/SKILL.md).
 (cd rust && cargo test --locked -p tmt-ops cli_style_tests)
 ```
 
-- `typescript/test/native/squad.test.ts` runs `rust/target/debug/tmt-ops` (or an
+- `typescript/test/native/ops.test.ts` runs `rust/target/debug/tmt-ops` (or an
   absolute path in `TMT_TEST_OPS`) through real `tmt` dispatch, with a sandbox
   `PATH` holding only the `tmt-ops` link and no installed-copy fallback.
   It reads rooms and metadata through an independent SQLite reader.
-- Squad-scoped CI runs `squad.test.ts`, `extension-install.test.ts`,
-  `extension-upgrade-proof.test.ts` and the `squad` E2E files listed under
+- Ops-scoped CI runs `ops.test.ts`, `extension-install.test.ts`,
+  `extension-upgrade-proof.test.ts` and the `ops` E2E files listed under
   `scopedChecks` in `.github/components.json`.
 - The Docker Squad lifecycle test kills temporary and saved panes before the first
   list read, then checks the roster and SQLite retirement/binding state; run it
@@ -37,7 +37,7 @@ markup: see [tmt-tui](../../tmt-tui/SKILL.md).
   service remains the only admission/persistence owner. `cargo test --locked -p tmt-ops
 checklist_command` covers adapter grammar, exact typed requests, literal JSON projections,
   alias/help/completion, authorized conflict/deletion errors and retained Unknown. Native
-  `squad.test.ts` exercises actual dispatch, streams/exits and independently read durable
+  `ops.test.ts` exercises actual dispatch, streams/exits and independently read durable
   bytes across revisions, archive/order, assignment departure and exact room lifecycle.
   No dependency, board action or parity fixture regeneration is introduced.
 - `main::print_help` sends both routed help and clap `DisplayHelp` through
@@ -51,16 +51,16 @@ checklist_command` covers adapter grammar, exact typed requests, literal JSON pr
   commands: do not add a CLI or hidden twin for a board key
   ([rule](../../../../design/cli-style.md#hidden-commands)).
 - Cron management (service, announcements, retirement): `cargo test --locked -p tmt-ops
-cron_service` and the native `squad.test.ts` cron cases cover actor permission, locked
+cron_service` and the native `ops.test.ts` cron cases cover actor permission, locked
   room/revision refusal, exact messages, post-commit announcement recipients, hook
   registration rollback and obsolete/replayed retirement references; the private-tmux
-  `squad.e2e.test.ts` cron case reads committed announcement and hook state independently.
+  `ops.e2e.test.ts` cron case reads committed announcement and hook state independently.
 - Cron clock: `cargo test --locked -p tmt-ops --lib cron` covers lease competition,
   stale takeover, ownership-checked release, slot windows and operation IDs;
   `cargo test --locked -p tmt-ops cron_clock` covers fresh service admission,
   anonymous dispatch, same-ID receipt recovery and cancelled/joined children.
-  Native `squad.test.ts` checks read-only status, explicit manual actors, exact
-  paused sends and JSON/help. The private-tmux `squad.e2e.test.ts` clock case
+  Native `ops.test.ts` checks read-only status, explicit manual actors, exact
+  paused sends and JSON/help. The private-tmux `ops.e2e.test.ts` clock case
   corroborates one slot acceptance and one causal peer wake with independent SQL,
   rejects a second clock, replays standalone ticks without another send and
   verifies signal cleanup. Run Docker lifecycle verification twice.
@@ -86,7 +86,7 @@ cron_service` and the native `squad.test.ts` cron cases cover actor permission, 
   `CARGO_BUILD_JOBS=2 cargo test --release -p tmt-ops frame_timing -- --ignored --nocapture`;
   compare runs from one machine and build, never as a CI threshold. A render change keeps
   `render_replica_matches_render` passing (it pins the replica to `view::render`).
-- Layout validation: `cargo test --locked -p tmt-ops layout` and the native `squad.test.ts`
+- Layout validation: `cargo test --locked -p tmt-ops layout` and the native `ops.test.ts`
   offline case cover invalid core/config inputs, located errors, the size bound and the
   human/JSON exit codes.
 - Tab parity: `built_in_board_documents_equal_ls_tab_documents` and
@@ -133,12 +133,12 @@ cron_service` and the native `squad.test.ts` cron cases cover actor permission, 
 
 The squad executable embeds the lead skill and the playbooks
 (`extensions/tmt-ops/playbooks/<name>/SKILL.md`), outside the core skill bundle.
-`playbook.rs` tests pin the catalog to the source files; `squad.test.ts` covers
+`playbook.rs` tests pin the catalog to the source files; `ops.test.ts` covers
 install and removal against isolated provider roots and checks the documented
 status row shape against real output. Every command a playbook tells an agent to run
 is executed once in a disposable tmux server and git repository before it is
 written down. A row JSON or SKILL.md row-doc change also runs the native
-`squad.test.ts`; give an optional row key its own bullet.
+`ops.test.ts`; give an optional row key its own bullet.
 
 Squad archive build and verification are in
-[tmt-release](../../tmt-release/references/native-release.md#squad-archives).
+[tmt-release](../../tmt-release/references/native-release.md#ops-archives).

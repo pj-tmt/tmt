@@ -17,7 +17,7 @@ const { selectNativeArtifact, withNativeArtifact } = (await import(
     manifestFile: string,
     archiveFile: string,
     target: string,
-    product?: 'cli' | 'office' | 'squad' | 'remote' | 'colab' | 'driver-herdr',
+    product?: 'cli' | 'office' | 'ops' | 'squad' | 'remote' | 'colab' | 'driver-herdr',
     options?: { readonly release?: boolean }
   ) => NativeArtifact;
   withNativeArtifact: <T>(
@@ -34,11 +34,12 @@ const { shipsSkills } = (await import(
 const REQUIRED_FILES = ['tmt', 'LICENSE', 'NATIVE-INSTALL.md', 'THIRD-PARTY-NOTICES.txt'];
 /** Product::companions(): executables a product's archive carries beside its own. */
 const COMPANIONS: Record<
-  'cli' | 'office' | 'squad' | 'remote' | 'colab' | 'driver-herdr',
+  'cli' | 'office' | 'ops' | 'squad' | 'remote' | 'colab' | 'driver-herdr',
   readonly string[]
 > = {
   cli: ['tmt-driver-herdr'],
   office: [],
+  ops: [],
   squad: [],
   remote: [],
   colab: [],
@@ -55,7 +56,7 @@ interface NativeArtifact {
 }
 
 interface ArchiveOptions {
-  readonly product?: 'cli' | 'office' | 'squad' | 'remote' | 'colab' | 'driver-herdr';
+  readonly product?: 'cli' | 'office' | 'ops' | 'squad' | 'remote' | 'colab' | 'driver-herdr';
   /** Files under `skills/`, by path relative to it. */
   readonly skills?: Record<string, string>;
   /** Whether the manifest declares the `skills` asset (default: component skills declaration). */
@@ -101,6 +102,7 @@ async function createArchiveFixture(
   const executable = {
     cli: 'tmt',
     office: 'tmt-office',
+    ops: 'tmt-ops',
     squad: 'tmt-squad',
     remote: 'tmt-remote',
     colab: 'tmt-colab',
@@ -124,8 +126,8 @@ async function createArchiveFixture(
     fs.writeFileSync(path.join(root, 'skills', file), content);
   }
   if (options.skillLink) {
-    fs.mkdirSync(path.join(root, 'skills', 'tmt-squad'), { recursive: true });
-    fs.symlinkSync('../../../outside', path.join(root, 'skills', 'tmt-squad', 'link.md'));
+    fs.mkdirSync(path.join(root, 'skills', 'tmt-ops'), { recursive: true });
+    fs.symlinkSync('../../../outside', path.join(root, 'skills', 'tmt-ops', 'link.md'));
   }
   if (options.executable === false) fs.chmodSync(path.join(root, executable), 0o644);
   if (options.specialPermissions) fs.chmodSync(path.join(root, 'tmt'), 0o4755);
@@ -216,7 +218,7 @@ describe('native artifact policy', () => {
             `tmt-${product}`,
           ]);
         });
-        for (const other of ['cli', 'office', 'squad', 'remote', 'colab'] as const) {
+        for (const other of ['cli', 'office', 'ops', 'remote', 'colab'] as const) {
           if (other === product) continue;
           expect(() =>
             selectNativeArtifact(artifact.manifestFile, artifact.archiveFile, TARGET, other)
@@ -235,7 +237,7 @@ describe('native artifact policy', () => {
       });
     }
   );
-  it.each(['squad', 'colab'] as const)(
+  it.each(['ops', 'squad', 'colab'] as const)(
     'verifies a %s archive with its declared skills tree and rejects missing or malformed trees',
     async (product) => {
       await withSandbox(async (sandbox) => {
@@ -243,8 +245,8 @@ describe('native artifact policy', () => {
           [`tmt-${product}/SKILL.md`]: 'lead skill\n',
           [`tmt-${product}/references/usage.md`]: 'usage\n',
         };
-        const squad = await createArchiveFixture(sandbox, { product, skills });
-        await withNativeArtifact(squad.archiveFile, squad.metadata, (root) => {
+        const ops = await createArchiveFixture(sandbox, { product, skills });
+        await withNativeArtifact(ops.archiveFile, ops.metadata, (root) => {
           expect(fs.readdirSync(root).sort()).toEqual([
             'LICENSE',
             'NATIVE-INSTALL.md',
@@ -586,13 +588,13 @@ describe('native artifact policy', () => {
         withNativeArtifact(undeclared.archiveFile, undeclared.metadata, () => undefined)
       ).rejects.toThrow('Unexpected native archive entry');
 
-      const squad = await createArchiveFixture(sandbox, {
-        product: 'squad',
-        skills: { 'tmt-squad/SKILL.md': 'lead skill\n' },
+      const ops = await createArchiveFixture(sandbox, {
+        product: 'ops',
+        skills: { 'tmt-ops/SKILL.md': 'lead skill\n' },
         extra: 'tmt-driver-herdr',
       });
       await expect(
-        withNativeArtifact(squad.archiveFile, squad.metadata, () => undefined)
+        withNativeArtifact(ops.archiveFile, ops.metadata, () => undefined)
       ).rejects.toThrow('Unexpected native archive entry');
     });
   });

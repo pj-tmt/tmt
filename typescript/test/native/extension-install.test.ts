@@ -14,28 +14,12 @@ import path from 'node:path';
 import { describe, expect, it } from 'vite-plus/test';
 import { expectError, parseWholeStdout, runCli, withSandbox } from '../support/cli-process.js';
 import { withReleaseSandbox } from '../support/native-installation.js';
-const { productOfComponent } = (await import(
-  new URL('../../scripts/native-release-policy.mjs', import.meta.url).href
-)) as { productOfComponent: (name: string) => string };
 import { createArtifact, type ArtifactFixture } from '../support/native-artifact.js';
 
 const INSTALL_PROCESS_BUDGET_MS = 15_000;
 
 describe('tmt extension install surface', () => {
-  it('offers every released extension', async () => {
-    const { components } = JSON.parse(
-      readFileSync(new URL('../../../.github/components.json', import.meta.url), 'utf8')
-    ) as { components: Record<string, { owns: string[]; package?: string; release?: boolean }> };
-    const released = Object.entries(components)
-      .filter(
-        ([, component]) =>
-          component.owns.some((root) => root.startsWith('extensions/')) &&
-          component.package &&
-          component.release !== false
-      )
-      .map(([name]) => productOfComponent(name))
-      .sort();
-    expect(released.length).toBeGreaterThan(0);
+  it('offers every registered official extension independently of release activation', async () => {
     await withSandbox(async (sandbox) => {
       const result = await runCli(sandbox, [
         'extension',
@@ -50,7 +34,11 @@ describe('tmt extension install surface', () => {
         extensions: { name: string; installed: boolean }[];
       };
       expect(listed.extensions.every((extension) => !extension.installed)).toBe(true);
-      expect(listed.extensions.map((extension) => extension.name).sort()).toEqual(released);
+      expect(listed.extensions.map((extension) => extension.name).sort()).toEqual([
+        'colab',
+        'ops',
+        'remote',
+      ]);
       expectError(
         await runCli(sandbox, ['extension', 'install', 'driver-herdr', '--yes', '--json']),
         'EXTENSION_UNKNOWN'

@@ -61,8 +61,8 @@ function bundle(product: string, tag: string) {
       latest: false,
       flags: ['--prerelease', '--latest=false'],
     },
-    squad: {
-      tagPrefix: 'tmt-squad-v',
+    ops: {
+      tagPrefix: 'tmt-ops-v',
       prerelease: true,
       latest: false,
       flags: ['--prerelease', '--latest=false'],
@@ -150,12 +150,8 @@ describe('bundleFiles', () => {
       'install.sh',
     ]);
     expect(
-      bundleFiles(
-        'squad',
-        manifest('tmt-squad-v0.1.0-alpha.2', 'squad'),
-        'tmt-squad-v0.1.0-alpha.2'
-      )
-    ).toEqual([...targets.map((target) => `tmt-squad-${target}.tar.gz`), 'dist-manifest.json']);
+      bundleFiles('ops', manifest('tmt-ops-v0.1.0-alpha.2', 'ops'), 'tmt-ops-v0.1.0-alpha.2')
+    ).toEqual([...targets.map((target) => `tmt-ops-${target}.tar.gz`), 'dist-manifest.json']);
   });
 
   it('refuses a manifest for another tag, a missing target and a foreign archive', () => {
@@ -168,7 +164,7 @@ describe('bundleFiles', () => {
     expect(() =>
       bundleFiles(
         'office',
-        manifest('tmt-office-v0.1.0-alpha.4', 'squad'),
+        manifest('tmt-office-v0.1.0-alpha.4', 'ops'),
         'tmt-office-v0.1.0-alpha.4'
       )
     ).toThrow('Unexpected archive');

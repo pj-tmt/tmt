@@ -9,7 +9,8 @@ import { shipsSkills } from './component-skills.mjs';
 const executables = {
   cli: 'tmt',
   office: 'tmt-office',
-  squad: 'tmt-squad',
+  ops: 'tmt-ops',
+  squad: 'tmt-squad', // Published predecessor archives remain verifiable.
   remote: 'tmt-remote',
   colab: 'tmt-colab',
   'driver-herdr': 'tmt-driver-herdr',
@@ -26,6 +27,7 @@ const executables = {
 const companions = {
   cli: ['tmt-driver-herdr'],
   office: [],
+  ops: [],
   squad: [],
   remote: [],
   colab: [],

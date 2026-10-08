@@ -278,7 +278,7 @@ transport, identity, talk or cleanup changes:
 (cd typescript && corepack pnpm test:e2e)
 ```
 
-`TMT_E2E_FILES="squad.e2e.test.ts"` (space-separated plain file names) limits the
+`TMT_E2E_FILES="ops.e2e.test.ts"` (space-separated plain file names) limits the
 run; the image anchors each name as `test/e2e/<name>` because vitest filters by
 substring. `TMT_E2E_ADAPTER_TESTS=0` skips the Rust adapter tests, and a host
 `CARGO_BUILD_JOBS` (a positive count or `default`) limits the image's builds. CI

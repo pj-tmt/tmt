@@ -11,9 +11,9 @@ export function writeReleaseWorkspace(root: string, products: string[] = []): vo
       version: '5.0.0-dev',
     },
     {
-      name: 'tmt-squad',
-      directory: 'extensions/squad',
-      member: '../extensions/squad',
+      name: 'tmt-ops',
+      directory: 'extensions/ops',
+      member: '../extensions/ops',
       version: '0.1.0-dev',
     },
   ];

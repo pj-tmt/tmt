@@ -53,9 +53,10 @@ until its own first publication, it inherits the predecessor boundary and advanc
 allocation in both lines. Its own published history then takes over; `requiresCliSha` still gates
 the first successor cut. Registry `retired: true` preserves old tag/archive identity but admits
 no new cut, preparation or publication; retaining a retired map record requires `release: false`.
+Immutable source readers preserve historical activation fields, while cut planning still excludes retired products.
 
 For an owner-authorized explicit version, dispatch `release.yml` on main with
-`product=cli|squad|remote|colab`, `version=<canonical stable or alpha version>` and
+`product=cli|ops|remote|colab`, `version=<canonical stable or alpha version>` and
 `dry_run=true` first. Review the exact cut, notes, tag and native holds before the
 owner chooses `dry_run=false`. Without a version, released alpha products advance
 their current prerelease number. The draft starts tagless at the captured main
@@ -67,8 +68,8 @@ Keep the `release` Environment restricted to main. The cut job uses its scoped
 workflow token for draft visibility, creation and native dispatch; it requires no
 release-PR App token. Normal primary review, pinned-head checks and queue protection remain required.
 
-The persistent `release-version-injection.yml` PR check proves CLI, Squad, Remote and Colab on
-four native hosts. Callers provide pinned Node through `setup-tooling`, selecting
+The persistent `release-version-injection.yml` PR check proves CLI, Remote and Colab on
+four native hosts; Ops joins the matrix when its component is activated. Callers provide pinned Node through `setup-tooling`, selecting
 x64 for Intel verification. `.github/actions/inject-release-version` consumes that
 Node without reinstalling it or changing its architecture. The proof reuses the
 action, fetches locked dependencies, captures the source/version contract, proves full locked
@@ -123,7 +124,7 @@ owns `bootstrapSha` (the permanent pre-component history boundary), `initialVers
 (the approved first alpha) and `requiresCliSha` (the supporting CLI registration).
 The first-cut planner resolves the newest published CLI tag and requires that
 registration in its ancestry. Missing or older supporting releases produce a
-non-failing blocked row with a clear reason and no product draft; CLI and Squad
+non-failing blocked row with a clear reason and no product draft; CLI and Ops
 cuts continue independently. The hourly minute-17 cut allocates both products
 automatically once a supporting CLI is published; retain its public-smoke
 acceptance before product publication. No manual dispatch is needed.

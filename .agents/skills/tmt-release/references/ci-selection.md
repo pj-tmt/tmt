@@ -23,7 +23,7 @@ contexts must succeed. Held-draft recovery belongs to
   inputs conservatively retain full native verification. Prose with no build or
   runtime consumers selects only Code quality. The selector records owner, rule, selection and map digest
   for each path in the run summary.
-- If every native-selecting path is Squad-owned, scope is `squad`: retain its
+- If every native-selecting path is Ops-owned, scope is `ops`: retain its
   Cargo checks, architecture guard, native tests and E2E file under the existing
   job names, and skip unchanged CLI runtime builds, packed installs and tooling
   unit tests. Any shared, CLI-owned or unknown native input requires full scope.
@@ -40,7 +40,7 @@ contexts must succeed. Held-draft recovery belongs to
 and MSRV workers. MSRV reads `rust/Cargo.toml` and checks all retained workspace
 package targets. Full scope requires the retained workers and exactly a skipped
 Office worker (`native_office=false`). Required-check names stay stable; the
-aggregate reports success only with those results. Squad scope requires its
+aggregate reports success only with those results. Ops scope requires its
 selected workers, and `none` skips the aggregate. Invalid scope or worker results
 fail closed.
 

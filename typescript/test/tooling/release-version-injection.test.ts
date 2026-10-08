@@ -33,9 +33,9 @@ function fixture(product = 'cli', releaseHerdr = false) {
     // #1278's private independent boundary; activation belongs to owner-authorized #1418.
     'rust/crates/tmt-driver-herdr/Cargo.toml':
       '[package]\nname = "tmt-driver-herdr"\nversion = "0.1.0-dev"\n',
-    'extensions/squad/Cargo.toml': '[package]\nname = "tmt-squad"\nversion = "0.1.0-dev"\n',
+    'extensions/ops/Cargo.toml': '[package]\nname = "tmt-ops"\nversion = "0.1.0-dev"\n',
     'rust/Cargo.lock':
-      'version = 4\n\n[[package]]\nname = "tmt-cli"\nversion = "5.0.0-dev"\ndependencies = ["tmt-core 5.0.0-dev", "tmt-driver-herdr"]\n\n[[package]]\nname = "tmt-core"\nversion = "5.0.0-dev"\n\n[[package]]\nname = "tmt-driver-herdr"\nversion = "0.1.0-dev"\n\n[[package]]\nname = "tmt-squad"\nversion = "0.1.0-dev"\n\n[[package]]\nname = "external"\nversion = "1.0.0"\nsource = "registry+https://example.test"\nchecksum = "safe"\n',
+      'version = 4\n\n[[package]]\nname = "tmt-cli"\nversion = "5.0.0-dev"\ndependencies = ["tmt-core 5.0.0-dev", "tmt-driver-herdr"]\n\n[[package]]\nname = "tmt-core"\nversion = "5.0.0-dev"\n\n[[package]]\nname = "tmt-driver-herdr"\nversion = "0.1.0-dev"\n\n[[package]]\nname = "tmt-ops"\nversion = "0.1.0-dev"\n\n[[package]]\nname = "external"\nversion = "1.0.0"\nsource = "registry+https://example.test"\nchecksum = "safe"\n',
     'rust/crates/tmt-cli/src/main.rs': 'fn main() {}\n',
   };
   for (const extension of ['remote', 'colab']) {
@@ -47,14 +47,7 @@ function fixture(product = 'cli', releaseHerdr = false) {
     mkdirSync(dirname(join(root, file)), { recursive: true });
     writeFileSync(join(root, file), value);
   }
-  const crates = [
-    'tmt-cli',
-    'tmt-core',
-    'tmt-driver-herdr',
-    'tmt-squad',
-    'tmt-remote',
-    'tmt-colab',
-  ];
+  const crates = ['tmt-cli', 'tmt-core', 'tmt-driver-herdr', 'tmt-ops', 'tmt-remote', 'tmt-colab'];
   const metadata: InjectionMetadata = {
     workspace_members: crates,
     packages: crates.map((name) => ({
@@ -63,8 +56,8 @@ function fixture(product = 'cli', releaseHerdr = false) {
       version: name === 'tmt-cli' || name === 'tmt-core' ? '5.0.0-dev' : '0.1.0-dev',
       manifest_path: join(
         root,
-        name === 'tmt-squad'
-          ? 'extensions/squad/Cargo.toml'
+        name === 'tmt-ops'
+          ? 'extensions/ops/Cargo.toml'
           : ['tmt-remote', 'tmt-colab'].includes(name)
             ? `extensions/${name}/rust/${name}/Cargo.toml`
             : `rust/crates/${name}/Cargo.toml`
@@ -75,7 +68,7 @@ function fixture(product = 'cli', releaseHerdr = false) {
     JSON.stringify({
       components: {
         cli: { package: 'tmt-cli', owns: ['.'] },
-        squad: { package: 'tmt-squad', owns: ['extensions/squad'] },
+        ops: { package: 'tmt-ops', owns: ['extensions/ops'] },
         'tmt-remote': { package: 'tmt-remote', owns: ['extensions/tmt-remote'] },
         'tmt-colab': { package: 'tmt-colab', owns: ['extensions/tmt-colab'] },
         'driver-herdr': {
@@ -222,7 +215,7 @@ describe('mechanical version injection', () => {
       expect(readFileSync(join(f.root, f.snapshot.manifest), 'utf8')).toBe(f.snapshot.source);
     }
   );
-  it.each(['cli', 'squad', 'remote', 'colab'])(
+  it.each(['cli', 'ops', 'remote', 'colab'])(
     'injects a synthetic alpha for tagless %s preparation through the unchanged source gate',
     (product) => {
       const f = fixture(product);
@@ -285,7 +278,7 @@ describe('mechanical version injection', () => {
       'Source differs'
     );
   });
-  it.each(['cli', 'squad', 'remote', 'colab'])(
+  it.each(['cli', 'ops', 'remote', 'colab'])(
     'injects %s while preserving private independently versioned Herdr',
     (product) => {
       const f = fixture(product);
@@ -397,7 +390,7 @@ describe('mechanical version injection', () => {
 });
 
 describe('dist and binary version agreement', () => {
-  it.each(['cli', 'squad', 'remote', 'colab'])(
+  it.each(['cli', 'ops', 'remote', 'colab'])(
     'accepts only %s tag/plan/build/binary agreement',
     (product) => {
       const { snapshot } = fixture(product);
@@ -466,7 +459,7 @@ describe('Herdr archive version protocol', () => {
     }
   });
 
-  it.each(['driver-herdr', 'cli', 'squad', 'remote', 'colab'])(
+  it.each(['driver-herdr', 'cli', 'ops', 'remote', 'colab'])(
     'uses the existing %s query ABI with unchanged command bounds',
     (product) => {
       const { root, snapshot, manifest, declaration } = artifact(product);

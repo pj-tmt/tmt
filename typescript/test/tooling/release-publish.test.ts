@@ -22,7 +22,7 @@ import type { DraftRelease } from '../../scripts/release-draft-assets.mjs';
 
 const SHA = 'a'.repeat(40);
 const TAG = 'v5.0.0-alpha.9';
-const EXTENSION_TAG = 'tmt-squad-v0.1.0-alpha.2';
+const EXTENSION_TAG = 'tmt-ops-v0.1.0-alpha.2';
 const assets = (...names: string[]) => names.map((name, index) => ({ id: index + 1, name }));
 
 function draft(tag: string, names: string[], overrides: Partial<DraftRelease> = {}): DraftRelease {
@@ -78,9 +78,9 @@ describe('publishBlocker', () => {
     ],
     [
       'a beta release',
-      draft('tmt-squad-v0.1.0-beta.1', ['release-publication.json']),
-      'squad',
-      'tmt-squad-v0.1.0-beta.1',
+      draft('tmt-ops-v0.1.0-beta.1', ['release-publication.json']),
+      'ops',
+      'tmt-ops-v0.1.0-beta.1',
       'not an alpha release',
     ],
     [
@@ -187,7 +187,7 @@ describe('publishDraft', () => {
 
   it.each([
     ['cli', TAG, ['--draft=false', '--prerelease=false', '--latest=false']],
-    ['squad', EXTENSION_TAG, ['--draft=false', '--prerelease=true', '--latest=false']],
+    ['ops', EXTENSION_TAG, ['--draft=false', '--prerelease=true', '--latest=false']],
   ])('publishes a %s draft with the flags of its policy, once', (product, tag, flags) => {
     const { api, published } = fakeApi([
       draft('v5.0.0-alpha.8', ['release-publication.json']),
@@ -208,7 +208,7 @@ describe('publishDraft', () => {
       expect(published).toEqual([]);
     }
     const { api, published } = fakeApi([draft(TAG, ['release-publication.json'])]);
-    expect(() => publishDraft({ api, product: 'squad', tag: TAG })).toThrow('Not publishing');
+    expect(() => publishDraft({ api, product: 'ops', tag: TAG })).toThrow('Not publishing');
     expect(() => publishDraft({ api, product: 'cli', tag: 'v5.0.0-alpha.99' })).toThrow(
       'there is no release v5.0.0-alpha.99'
     );
@@ -304,7 +304,7 @@ describe('checkPublishedRelease', () => {
         release: published({ tag_name: EXTENSION_TAG, prerelease: true, ...overrides }),
         latest,
         tagCommit: SHA,
-        product: 'squad',
+        product: 'ops',
         tag: EXTENSION_TAG,
       });
 

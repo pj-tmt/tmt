@@ -1,5 +1,5 @@
 //! Fixed artifact identities for the CLI and its official extensions (Office,
-//! Squad, Remote and Colab). The table is reviewed code; archive data never adds a product.
+//! Ops, Remote and Colab). The table is reviewed code; archive data never adds a product.
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Product {

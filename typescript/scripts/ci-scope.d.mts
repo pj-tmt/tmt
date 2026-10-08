@@ -85,7 +85,7 @@ export interface E2eShardResults {
 }
 
 export function globToRegExp(glob: string): RegExp;
-export function parseComponentMap(text: string): ComponentMap;
+export function parseComponentMap(text: string, options?: { historical?: boolean }): ComponentMap;
 export function releasedComponentNamesOfPath(
   path: string,
   map: ComponentMap,

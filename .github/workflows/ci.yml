@@ -271,7 +271,7 @@ jobs:
           shared-key: native-rust
           save-if: false
       - name: Reject an unknown native scope
-        if: needs.changes.outputs.native_scope != 'full' && needs.changes.outputs.native_scope != 'squad'
+        if: needs.changes.outputs.native_scope != 'full' && needs.changes.outputs.native_scope != 'ops'
         run: |
           echo "No native checks are defined for scope '${{ needs.changes.outputs.native_scope }}'." >&2
           exit 1
@@ -283,11 +283,11 @@ jobs:
         working-directory: rust
         run: |
           cargo clippy --locked --workspace --exclude tmt-office --exclude tmt-office-storage --exclude tmt-office-pairing --exclude tmt-office-service --all-targets -- -D warnings
-      - name: Lint Squad
-        if: needs.changes.outputs.native_scope == 'squad'
+      - name: Lint Ops
+        if: needs.changes.outputs.native_scope == 'ops'
         working-directory: rust
         run: |
-          cargo clippy --locked -p tmt-squad --all-targets -- -D warnings
+          cargo clippy --locked -p tmt-ops --all-targets -- -D warnings
 
   native-workspace-tests:
     name: Native Rust workspace tests
@@ -318,11 +318,11 @@ jobs:
           grep -q ': test$' <<< "$remote_tests"
           cargo test --locked --workspace --exclude tmt-office --exclude tmt-office-storage --exclude tmt-office-pairing --exclude tmt-office-service
           cargo build --locked --workspace --exclude tmt-office --exclude tmt-office-storage --exclude tmt-office-pairing --exclude tmt-office-service
-      - name: Test Squad and architecture
-        if: needs.changes.outputs.native_scope == 'squad'
+      - name: Test Ops and architecture
+        if: needs.changes.outputs.native_scope == 'ops'
         working-directory: rust
         run: |
-          cargo test --locked -p tmt-squad
+          cargo test --locked -p tmt-ops
           cargo test --locked -p tmt-cli --test architecture
 
   native-office-build:
@@ -407,7 +407,7 @@ jobs:
   native-process-tests:
     name: Native process contracts
     needs: [changes, native-office-build]
-    if: ${{ always() && needs.changes.outputs.native == 'true' && (needs.changes.outputs.native_scope == 'squad' || needs.changes.outputs.native_office == 'false' || (needs.changes.outputs.native_office == 'true' && needs.native-office-build.result == 'success')) }}
+    if: ${{ always() && needs.changes.outputs.native == 'true' && (needs.changes.outputs.native_scope == 'ops' || needs.changes.outputs.native_office == 'false' || (needs.changes.outputs.native_office == 'true' && needs.native-office-build.result == 'success')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -437,18 +437,18 @@ jobs:
         if: needs.changes.outputs.native_scope == 'full'
         working-directory: rust
         run: |
-          cargo build --locked -p tmt-squad
+          cargo build --locked -p tmt-ops
           extension_started=$SECONDS
           cargo build --locked -p tmt-remote -p tmt-colab --bins
           echo "Built Remote/Colab process fixtures in $((SECONDS - extension_started)) s." | tee -a "$GITHUB_STEP_SUMMARY"
           cargo build --locked --example storage-probe --example runtime-caller-fixture
           cargo build --locked -p tmt-test-support --example recording-cli-fixture
           cargo build --locked --release -p tmt-cli -p tmt-driver-herdr --bins
-      - name: Build Squad process fixtures
-        if: needs.changes.outputs.native_scope == 'squad'
+      - name: Build Ops process fixtures
+        if: needs.changes.outputs.native_scope == 'ops'
         working-directory: rust
         run: |
-          cargo build --locked -p tmt-squad
+          cargo build --locked -p tmt-ops
           extension_started=$SECONDS
           cargo build --locked -p tmt-remote -p tmt-colab --bins
           echo "Built Remote/Colab process fixtures in $((SECONDS - extension_started)) s." | tee -a "$GITHUB_STEP_SUMMARY"
@@ -514,8 +514,8 @@ jobs:
             echo 'Missing Office native selection' >&2
             exit 1
           fi
-      - name: Verify Squad native contracts
-        if: needs.changes.outputs.native_scope == 'squad'
+      - name: Verify Ops native contracts
+        if: needs.changes.outputs.native_scope == 'ops'
         working-directory: typescript
         env:
           TMT_TEST_CLI: '{"executable":"${{ github.workspace }}/rust/target/release/tmt","args":[]}'
@@ -647,7 +647,7 @@ jobs:
     timeout-minutes: 20
     env:
       # Plain file names from typescript/scripts/e2e-shards.mjs (a shard of the full
-      # suite, or the Squad scope's file). Only the first shard of a full run also runs
+      # suite, or the Ops scope's file). Only the first shard of a full run also runs
       # the Rust adapter tests.
       TMT_E2E_FILES: ${{ needs.changes.outputs.e2e_shard_1 }}
       TMT_E2E_ADAPTER_TESTS: ${{ needs.changes.outputs.native_scope == 'full' && '1' || '0' }}

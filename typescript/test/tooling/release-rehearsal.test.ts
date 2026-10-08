@@ -12,10 +12,23 @@ import {
 } from '../../scripts/release-rehearsal.mjs';
 
 const map = componentMap();
-const all = ['cli', 'colab', 'driver-herdr', 'remote', 'squad'];
+const all = ['cli', 'colab', 'driver-herdr', 'remote'];
 const select = (...paths: string[]) => selectReleaseRehearsal(paths, map);
 
 describe('active products', () => {
+  it('keeps Ops blocked until activation and never selects retired Squad', () => {
+    expect(activeProducts(map)).not.toContain('ops');
+    expect(activeProducts(map)).not.toContain('squad');
+    const activated = {
+      ...map,
+      components: map.components.map((component) =>
+        component.name === 'ops' ? { ...component, release: true } : component
+      ),
+    };
+    expect(
+      selectReleaseRehearsal(['extensions/tmt-ops/rust/tmt-ops/Cargo.toml'], activated)
+    ).toEqual(['ops']);
+  });
   it('lists released native products from the component map, not parked or private ones', () => {
     expect(activeProducts(map)).toEqual(all);
   });
@@ -66,7 +79,7 @@ describe('release rehearsal selection', () => {
   it.each([
     ['extensions/tmt-colab/rust/tmt-colab/Cargo.toml', ['colab']],
     ['extensions/tmt-remote/rust/Cargo.toml', ['remote']],
-    ['extensions/tmt-squad/Cargo.toml', ['squad']],
+    ['extensions/tmt-ops/Cargo.toml', []],
   ])('attributes the product manifest %s to its product only', (changed, products) => {
     expect(select(changed)).toEqual(products);
   });

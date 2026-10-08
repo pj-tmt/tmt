@@ -410,7 +410,7 @@ describe('extension objects leaf attribution', () => {
     'tmt-remote': 'extensions/tmt-remote/rust/tmt-remote',
     'tmt-colab': 'extensions/tmt-colab/rust/tmt-colab',
     'tmt-office': 'extensions/tmt-office/rust/tmt-office',
-    'tmt-squad': 'stubs/tmt-squad',
+    'tmt-ops': 'stubs/tmt-ops',
     'tmt-driver-herdr': 'rust/crates/tmt-driver-herdr',
     'tmt-extension-objects': leaf,
   };

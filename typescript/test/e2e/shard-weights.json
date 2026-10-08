@@ -58,7 +58,7 @@
     "session-routing.e2e.test.ts": 20,
     "skill-reminder.e2e.test.ts": 1,
     "smoke.e2e.test.ts": 4,
-    "squad.e2e.test.ts": 5,
+    "ops.e2e.test.ts": 5,
     "talk-completion.e2e.test.ts": 21,
     "tmux-adapter.e2e.test.ts": 2,
     "tmux-trace.e2e.test.ts": 1,

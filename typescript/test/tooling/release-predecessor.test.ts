@@ -232,6 +232,37 @@ describe('component predecessor validation', () => {
 });
 
 describe('predecessor allocation boundaries', () => {
+  it('preserves immutable activation fields without planning a retired historical product', async () => {
+    const text = JSON.stringify({
+      components: {
+        'fixture-old': { owns: ['fixture/old'], package: 'tmt-fixture-old', release: true },
+      },
+    });
+    expect(() => scope.parseComponentMap(text)).toThrow('release: false');
+    // This literal immutable-source fixture represents the product before retirement.
+    const historical = scope.parseComponentMap(text, { historical: true });
+    expect(historical.components[0].release).toBe(true);
+    const calls: string[][] = [];
+    const result = await cut.planReleaseCuts({
+      metadata: {
+        schema: 1,
+        repository: 'pj-tmt/tmt',
+        cut: sha(4),
+        draftVisibility: 'trusted',
+        releases: [],
+      },
+      map: historical,
+      date: '2026-10-08',
+      git: (args) => {
+        calls.push(args);
+        if (args[0] === 'merge-base') return '';
+        throw new Error('retired product must not read allocation or notes');
+      },
+    });
+    expect(result.components).toEqual([]);
+    expect(calls).toEqual([['merge-base', '--is-ancestor', sha(4), 'refs/remotes/origin/main']]);
+  });
+
   it('inherits the published SHA/tag while every old and new draft/orphan allocation reserves numbers', () => {
     const releases = [
       published('fixture-old', 9),

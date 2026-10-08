@@ -20,8 +20,8 @@ import {
 const sha = (n: number) => n.toString(16).padStart(40, 'a');
 const definitions = {
   cli: { owns: ['.'], excludes: ['extensions', 'shared'], package: 'tmt-cli' },
-  squad: { owns: ['extensions/squad'], package: 'tmt-squad', selectedBy: ['tests/squad.*'] },
-  private: { owns: ['shared'], release: false, releaseConsumers: ['squad'] },
+  ops: { owns: ['extensions/ops'], package: 'tmt-ops', selectedBy: ['tests/ops.*'] },
+  private: { owns: ['shared'], release: false, releaseConsumers: ['ops'] },
   never: {
     owns: ['extensions/never'],
     release: false,
@@ -56,12 +56,12 @@ describe('direct component-map cut attribution', () => {
     const commits = [
       commit('feat: CLI', ['rust/x', 'extensions/parked/x']),
       commit('feat: private leaf', ['shared/a', 'shared/b'], 2),
-      commit('fix: selected test', ['tests/squad.test'], 3),
+      commit('fix: selected test', ['tests/ops.test'], 3),
       commit('feat: parked only', ['extensions/parked/a'], 4),
     ];
-    // CI selects Squad for the test; release membership still follows the CLI root.
+    // CI selects Ops for the test; release membership still follows the CLI root.
     expect(attributeCutCommits(commits, map, 'cli').map((c) => c.sha)).toEqual([sha(1), sha(3)]);
-    expect(attributeCutCommits(commits, map, 'squad').map((c) => c.sha)).toEqual([sha(2)]);
+    expect(attributeCutCommits(commits, map, 'ops').map((c) => c.sha)).toEqual([sha(2)]);
   });
   it('rejects unknown, never-shipped or non-private consumption instead of a second attribution list', () => {
     for (const consumers of [['missing'], ['never']]) {
@@ -90,15 +90,15 @@ describe('direct component-map cut attribution', () => {
       )
     ).toThrow('Invalid release consumer');
   });
-  it('preserves CLI plus Squad for style/invoke, and Squad only for CLI-excluded TUI', async () => {
+  it('preserves CLI plus Ops for style/invoke, and Ops only for CLI-excluded TUI', async () => {
     const baseline = {
       cli: {
         owns: ['.'],
-        excludes: ['extensions/squad', 'rust/crates/tmt-tui'],
+        excludes: ['extensions/ops', 'rust/crates/tmt-tui'],
         package: 'tmt-cli',
       },
-      squad: { owns: ['extensions/squad'], package: 'tmt-squad' },
-      tui: { owns: ['rust/crates/tmt-tui'], release: false, releaseConsumers: ['squad'] },
+      ops: { owns: ['extensions/ops'], package: 'tmt-ops' },
+      tui: { owns: ['rust/crates/tmt-tui'], release: false, releaseConsumers: ['ops'] },
     };
     const extended = parseComponentMap(
       JSON.stringify({
@@ -107,9 +107,9 @@ describe('direct component-map cut attribution', () => {
           style: {
             owns: ['rust/crates/tmt-cli-style'],
             release: false,
-            releaseConsumers: ['squad'],
+            releaseConsumers: ['ops'],
           },
-          invoke: { owns: ['rust/crates/tmt-invoke'], release: false, releaseConsumers: ['squad'] },
+          invoke: { owns: ['rust/crates/tmt-invoke'], release: false, releaseConsumers: ['ops'] },
         },
       })
     );
@@ -129,11 +129,11 @@ describe('direct component-map cut attribution', () => {
         )
       )
     );
-    const squad = await render(attributeCutCommits(commits, extended, 'squad'));
-    expect(squad.commits).toEqual([sha(1), sha(2), sha(3)]);
-    expect(squad.notes).toContain('style change');
-    expect(squad.notes).toContain('invocation change');
-    expect(squad.notes).toContain('TUI change');
+    const ops = await render(attributeCutCommits(commits, extended, 'ops'));
+    expect(ops.commits).toEqual([sha(1), sha(2), sha(3)]);
+    expect(ops.notes).toContain('style change');
+    expect(ops.notes).toContain('invocation change');
+    expect(ops.notes).toContain('TUI change');
   });
 });
 
@@ -156,7 +156,7 @@ describe('conventional cut notes', () => {
   it('expands nested messages once per source SHA, including bang and footer breaking notes', async () => {
     const result = await render([
       commit(
-        'chore: aggregate\n\nfix(cli): first fix\n\nBEGIN_NESTED_COMMIT\nfeat(squad)!: nested feature\n\nBREAKING CHANGE: changed shape\nEND_NESTED_COMMIT'
+        'chore: aggregate\n\nfix(cli): first fix\n\nBEGIN_NESTED_COMMIT\nfeat(ops)!: nested feature\n\nBREAKING CHANGE: changed shape\nEND_NESTED_COMMIT'
       ),
     ]);
     expect(result.commits).toEqual([sha(1)]);
@@ -180,7 +180,7 @@ describe('conventional cut notes', () => {
   it('lists a non-conventional subject under Other changes instead of dropping it', async () => {
     const result = await render([
       commit('Keep Remote door origins stable and add status (#1605)'),
-      commit('Squad: capitalized type (#7)', ['rust/x'], 2),
+      commit('Ops: capitalized type (#7)', ['rust/x'], 2),
       commit('docs: explain', ['rust/x'], 3),
       commit('Subject only\n\nfeat: body text is not a subject', ['rust/x'], 4),
     ]);
@@ -220,7 +220,7 @@ describe('conventional cut notes', () => {
 
 describe('historical shadow comparison (fixture-only release PR parents)', () => {
   it.each(history.cases)('reproduces $tag at the immutable historical cut', async (fixture) => {
-    const componentMap = parseComponentMap(JSON.stringify(fixture.map));
+    const componentMap = parseComponentMap(JSON.stringify(fixture.map), { historical: true });
     expect(nextAlphaVersion(versionOfTag(fixture.previousTag, fixture.product))).toBe(
       versionOfTag(fixture.tag, fixture.product)
     );
@@ -256,7 +256,7 @@ function planningFixture() {
     draftVisibility: 'trusted',
     releases: [
       { tag_name: 'v5.0.0-alpha.46', draft: false },
-      { tag_name: 'tmt-squad-v0.1.0-alpha.13', draft: false },
+      { tag_name: 'tmt-ops-v0.1.0-alpha.13', draft: false },
     ],
   };
   const git = vi.fn((args: string[]) => {
@@ -308,7 +308,7 @@ describe('immutable plans and independent cuts', () => {
     expect(result.mode).toBe('plan');
     expect(result.components.map((c) => [c.product, c.status])).toEqual([
       ['cli', 'proposed'],
-      ['squad', 'no-releasable-commits'],
+      ['ops', 'no-releasable-commits'],
     ]);
     expect(result.components[0]).toMatchObject({
       cut: sha(2),
@@ -327,24 +327,24 @@ describe('immutable plans and independent cuts', () => {
       args[0] === 'log'
         ? `${sha(1)}\0Keep Remote door origins stable (#1605)\n\0\n`
         : args[0] === 'diff'
-          ? 'extensions/squad/door.rs\0'
+          ? 'extensions/ops/door.rs\0'
           : original(args)
     );
     const result = await planReleaseCuts(fixture);
     expect(result.components.map((c) => [c.product, c.status])).toEqual([
       ['cli', 'no-releasable-commits'],
-      ['squad', 'proposed'],
+      ['ops', 'proposed'],
     ]);
     expect(result.components[1]).toMatchObject({
       commits: [sha(1)],
-      tag: 'tmt-squad-v0.1.0-alpha.14',
+      tag: 'tmt-ops-v0.1.0-alpha.14',
     });
     expect(result.components[1].notes).toContain('Other changes');
     fixture.git.mockImplementation((args) =>
       args[0] === 'log'
         ? `${sha(1)}\0docs: explain door\n\0\n`
         : args[0] === 'diff'
-          ? 'extensions/squad/door.md\0'
+          ? 'extensions/ops/door.md\0'
           : original(args)
     );
     expect((await planReleaseCuts(fixture)).components.map((c) => c.status)).toEqual([

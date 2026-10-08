@@ -41,7 +41,7 @@ describe('release build plan', () => {
   it('isolates Colab tags and leaves parked Colab drafts untouched', () => {
     const releases = [
       draft('tmt-colab-v0.1.0-alpha.1', '1'),
-      draft('tmt-squad-v0.1.0-alpha.1', '1'),
+      draft('tmt-ops-v0.1.0-alpha.1', '1'),
       draft('v5.0.0-alpha.1', '1'),
     ];
     expect(tags(planReleaseBuilds({ product: 'colab', releases }))).toEqual([
@@ -127,7 +127,7 @@ describe('release build plan', () => {
       product: 'office',
       releases: [
         draft('tmt-office-v0.1.0-alpha.4', '1'),
-        draft('tmt-squad-v0.1.0-alpha.2', '1'),
+        draft('tmt-ops-v0.1.0-alpha.2', '1'),
         draft('v5.0.0-alpha.9', '1'),
         draft('some-other-tag', '1'),
         draft('tmt-office-v0.1.0-alpha.5', '2', [BUNDLE_ASSET, 'dist-manifest.json']),
@@ -165,16 +165,16 @@ describe('release build plan', () => {
 
   it('parks a draft whose failure is recorded, and says why', () => {
     const plan = planReleaseBuilds({
-      product: 'squad',
+      product: 'ops',
       releases: [
-        draft('tmt-squad-v0.1.0-alpha.2', '1', [FAILURE_ASSET]),
-        draft('tmt-squad-v0.1.0-alpha.3', '2'),
+        draft('tmt-ops-v0.1.0-alpha.2', '1', [FAILURE_ASSET]),
+        draft('tmt-ops-v0.1.0-alpha.3', '2'),
       ],
     });
-    expect(tags(plan)).toEqual(['tmt-squad-v0.1.0-alpha.3']);
+    expect(tags(plan)).toEqual(['tmt-ops-v0.1.0-alpha.3']);
     expect(plan.blocked).toEqual([
       {
-        tag: 'tmt-squad-v0.1.0-alpha.2',
+        tag: 'tmt-ops-v0.1.0-alpha.2',
         reason: 'its verification failed earlier; retry it by dispatch or delete the draft',
       },
     ]);
@@ -307,9 +307,9 @@ describe('release build plan', () => {
     expect(() => planReleaseBuilds({ product: 'cli', releases, rerun: 'v5.0.0-alpha.12' })).toThrow(
       'not a commit'
     );
-    expect(() =>
-      planReleaseBuilds({ product: 'squad', releases, rerun: 'v5.0.0-alpha.9' })
-    ).toThrow('not a draft');
+    expect(() => planReleaseBuilds({ product: 'ops', releases, rerun: 'v5.0.0-alpha.9' })).toThrow(
+      'not a draft'
+    );
   });
 
   it.each([{ retry: 'v5.0.0-alpha.9' }, { hold: 'v5.0.0-alpha.9' }])(
@@ -535,7 +535,7 @@ describe('plan-release-builds.mjs', () => {
   });
 
   it('reports an empty plan as an empty matrix', () => {
-    const result = run(['--product', 'squad'], [[draft('v5.0.0-alpha.9', '1')]]);
+    const result = run(['--product', 'ops'], [[draft('v5.0.0-alpha.9', '1')]]);
     expect(result.output).toBe('matrix={"include":[]}\nany=false\n');
   });
 

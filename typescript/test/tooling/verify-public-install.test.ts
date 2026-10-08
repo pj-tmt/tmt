@@ -128,7 +128,7 @@ case "$*" in
     ${fake.upgradeAfterStderr ? `echo '${fake.upgradeAfterStderr}' >&2; exit 1` : ''}
     ${!fake.upgradeCause && fake.upgradeStderr ? `printf '%s' '${fake.upgradeStdout ?? ''}'; echo '${fake.upgradeStderr}' >&2; exit 1` : `printf '%s' '${JSON.stringify(upgrade)}' | sed "s#@EXE@#$exe#"`} ;;
   api) printf '{"dataRoot":"%s"}' "$TMUX_TEAM_HOME" ;;
-  "extension install ${extension.product ?? 'squad'} "*)
+  "extension install ${extension.product ?? 'ops'} "*)
     ${requireToken}
     count=$(cat "$HOME/extension-count" 2>/dev/null || echo 0); echo $((count + 1)) > "$HOME/extension-count"
     ${fake.extensionCause ? `if [ "$count" -lt ${fake.extensionFailures ?? 10} ]; then printf '%s' '${JSON.stringify({ error: { code: 'EXTENSION_INSTALL_FAILED', message: fake.extensionCause + ' Inspect with: tmt extension ls', cause: fake.extensionCause } })}'; exit 1; fi` : ''}
@@ -143,9 +143,9 @@ case "$*" in
     ln -s ../lib/tmt-colab/releases/fixture/tmt-colab "$prefix/bin/tmt-colab"`
         : ''
     }
-    printf '{"extension":"${extension.product ?? 'squad'}","installed":true,"changed":true,"version":"%s"}' '${extension.installs ?? '0.1.0-alpha.4'}' ;;
+    printf '{"extension":"${extension.product ?? 'ops'}","installed":true,"changed":true,"version":"%s"}' '${extension.installs ?? '0.1.0-alpha.4'}' ;;
   "extension list --json --prefix "*)
-    printf '{"extensions":[{"name":"office","installed":false},{"name":"${extension.product ?? 'squad'}","installed":true,"version":"%s"}]}' '${extension.reports ?? extension.installs ?? '0.1.0-alpha.4'}' ;;
+    printf '{"extensions":[{"name":"office","installed":false},{"name":"${extension.product ?? 'ops'}","installed":true,"version":"%s"}]}' '${extension.reports ?? extension.installs ?? '0.1.0-alpha.4'}' ;;
   "driver "*) ${fake.driverExecutable ? `exec ${shellQuote(fake.driverExecutable)} "$@"` : 'exit 9'} ;;
   *) echo "unexpected: $*" >&2; exit 9 ;;
 esac
@@ -281,7 +281,7 @@ describe('the public installer smoke of a CLI release', () => {
     );
   });
 
-  it.each(['cli', 'squad'])(
+  it.each(['cli', 'ops'])(
     'passes only the selected token to %s acquisition without persisting it',
     async (product) => {
       process.env.GH_TOKEN = 'secret-token';
@@ -293,7 +293,7 @@ describe('the public installer smoke of a CLI release', () => {
           {
             githubToken,
             product,
-            tag: product === 'cli' ? 'v5.0.0-alpha.12' : 'tmt-squad-v0.1.0-alpha.4',
+            tag: product === 'cli' ? 'v5.0.0-alpha.12' : 'tmt-ops-v0.1.0-alpha.4',
           }
         );
         const results = await attempt.results;
@@ -451,7 +451,7 @@ describe('the public installer smoke of a CLI release', () => {
     `GitHub API rate limit: reset/earliest retry time 2030-01-01 0:00:02.0 +00:00:00 (UTC epoch ${epoch}); the required wait exceeds the remaining deadline. Retry later or optionally set GITHUB_TOKEN.`;
 
   it('fails native acquisition rate limits immediately without a smoke retry', async () => {
-    for (const product of ['cli', 'squad', 'driver-herdr']) {
+    for (const product of ['cli', 'ops', 'driver-herdr']) {
       const attempt = run(
         { upgradeCause: diagnostic(), extensionCause: diagnostic() },
         {
@@ -459,8 +459,8 @@ describe('the public installer smoke of a CLI release', () => {
           tag:
             product === 'cli'
               ? 'v5.0.0-alpha.12'
-              : product === 'squad'
-                ? 'tmt-squad-v0.1.0-alpha.4'
+              : product === 'ops'
+                ? 'tmt-ops-v0.1.0-alpha.4'
                 : 'tmt-driver-herdr-v0.1.0-alpha.0',
         }
       );
@@ -469,7 +469,7 @@ describe('the public installer smoke of a CLI release', () => {
       expect(failures[0].reason).toContain('GitHub API rate limit');
       expect(failures[0]).not.toHaveProperty('infrastructure');
       expect(attempt.waits).toEqual([]);
-      const count = product === 'squad' ? 'extension-count' : 'upgrade-count';
+      const count = product === 'ops' ? 'extension-count' : 'upgrade-count';
       expect(readFileSync(path.join(attempt.root, 'work/home', count), 'utf8').trim()).toBe('1');
     }
   });
@@ -619,9 +619,9 @@ globalThis.fetch = async () => ({ ok: true, text: async () => ${JSON.stringify(
 });
 
 describe('the public installer smoke of an extension release', () => {
-  const tag = 'tmt-squad-v0.1.0-alpha.4';
+  const tag = 'tmt-ops-v0.1.0-alpha.4';
   const smoke = (extension: Fake['extension'] = {}) =>
-    run({ extension }, { product: 'squad', tag }).results;
+    run({ extension }, { product: 'ops', tag }).results;
 
   it('installs the newest CLI, then the extension, and checks its version and that no CLI link appears', async () => {
     const results = await smoke();
@@ -630,8 +630,8 @@ describe('the public installer smoke of an extension release', () => {
       ['install', true],
       ['PATH selects the installed tmt', true],
       ['installed version', true],
-      ['squad install', true],
-      ['squad list', true],
+      ['ops install', true],
+      ['ops list', true],
     ]);
     // The installer's version is the CLI's, not the extension tag's, and nothing checks the skills.
     expect(results.find(({ check }) => check === 'installed version')?.reason).toBe(
@@ -641,9 +641,9 @@ describe('the public installer smoke of an extension release', () => {
 
   it('names an install through a CLI without `tmt extension`, and never uses a command of the extension itself', async () => {
     const results = await smoke({ command: false });
-    expect(results.at(-1)).toMatchObject({ check: 'squad install', ok: false });
+    expect(results.at(-1)).toMatchObject({ check: 'ops install', ok: false });
     expect(results.at(-1)?.reason).toContain("unrecognized subcommand 'extension'");
-    // The fake knows no `tmt squad ...`: a verifier that used one would fail the passing case.
+    // The fake knows no `tmt ops ...`: a verifier that used one would fail the passing case.
     expect((await smoke()).every(({ ok }) => ok)).toBe(true);
   });
 
@@ -655,17 +655,17 @@ describe('the public installer smoke of an extension release', () => {
       'the list reports 0.1.0-alpha.3, not 0.1.0-alpha.4'
     );
     const linked = await smoke({ link: true });
-    expect(linked.at(-1)).toMatchObject({ check: 'squad list', ok: false });
+    expect(linked.at(-1)).toMatchObject({ check: 'ops list', ok: false });
     expect(linked.at(-1)?.reason).toContain('must not create the CLI link');
   });
 
   it('inspects both the installed CLI driver and extension bytes for an Intel target', async () => {
-    const options = { product: 'squad', tag, target: 'x86_64-apple-darwin' };
+    const options = { product: 'ops', tag, target: 'x86_64-apple-darwin' };
     const control = run({}, { ...options, architectures: ['x86_64', 'x86_64'] });
     expect(failed(await control.results)).toEqual([]);
-    expect(control.inspected.map((file) => path.basename(file))).toEqual(['tmt', 'tmt-squad']);
+    expect(control.inspected.map((file) => path.basename(file))).toEqual(['tmt', 'tmt-ops']);
     const wrong = run({}, { ...options, architectures: ['x86_64', 'arm64'] });
-    expect((await wrong.results).at(-1)).toMatchObject({ check: 'squad install', ok: false });
+    expect((await wrong.results).at(-1)).toMatchObject({ check: 'ops install', ok: false });
     expect((await wrong.results).at(-1)?.reason).toContain('exactly x86_64');
   });
 });

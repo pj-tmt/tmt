@@ -40,6 +40,9 @@ import {
 const { runPackedCommand } = await import(
   new URL('../../scripts/packed-command.mjs', import.meta.url).href
 );
+const { isComponentRetired } = (await import(
+  new URL('../../scripts/native-release-policy.mjs', import.meta.url).href
+)) as { isComponentRetired: (name: string) => boolean };
 
 describe('native dependency notices selection', () => {
   it.each([
@@ -354,9 +357,9 @@ describe('CI area selection', () => {
     'typescript/test/e2e/Dockerfile',
     'typescript/test/native/api.test.ts',
     'typescript/test/tooling/ci-scope.test.ts',
-    'typescript/test/e2e/squad.e2e.test.ts',
+    'typescript/test/e2e/ops.e2e.test.ts',
     'new-owner/file.ts',
-    'extensions/tmt-squad-other/file.rs',
+    'extensions/tmt-ops-other/file.rs',
     'typescript/apps/office/src/main.tsx',
     'contracts/office/request.json',
     'docs/office.md.orig',
@@ -396,7 +399,7 @@ describe('CI area selection', () => {
     'contracts/extension-api.md',
     '.agents/skills/tmt-dev/SKILL.md',
     '.github/pull_request_template.md',
-    'site/src/chapters/squad.mdx',
+    'site/src/chapters/ops.mdx',
     'site/pnpm-lock.yaml',
     '.github/workflows/site.yml',
     'extensions/tmt-remote/typescript/browser-addon/src/popup.ts',
@@ -436,7 +439,8 @@ describe('component map', () => {
 
   it('says which components are released: all but the ones that declare release: false', () => {
     expect(isReleased(map, 'cli')).toBe(true);
-    expect(isReleased(map, 'squad')).toBe(true);
+    expect(isReleased(map, 'ops')).toBe(false);
+    expect(isReleased(map, 'squad')).toBe(false);
     // Office is parked, as the private browser add-on is.
     expect(isReleased(map, 'office')).toBe(false);
     expect(isReleased(map, 'browser-addon')).toBe(false);
@@ -453,12 +457,12 @@ describe('component map', () => {
     ['rust/crates/tmt-invoke/src/lib.rs', ['cli']],
     ['rust/crates/tmt-tui/src/lib.rs', []],
     ['rust/crates/tmt-tui-other/src/lib.rs', ['cli']],
-    ['extensions/tmt-squad/rust/src/lib.rs', ['squad']],
-    ['extensions/tmt-squad-other/rust/src/lib.rs', ['cli']],
+    ['extensions/tmt-ops/rust/src/lib.rs', []],
+    ['extensions/tmt-ops-other/rust/src/lib.rs', ['cli']],
     ['extensions/tmt-office/src/lib.rs', []],
     ['extensions/tmt-colab/rust/src/lib.rs', ['tmt-colab']],
     ['rust/crates/tmt-test-support/src/lib.rs', []],
-    ['typescript/test/native/squad.test.ts', ['cli']],
+    ['typescript/test/native/ops.test.ts', ['cli']],
   ])('finds released root membership independently of CI ownership for %s', (file, names) => {
     expect(releasedComponentsForPath(file, map).map((component) => component.name)).toEqual(names);
     expect(releasedComponentsForPath(file).map((component) => component.name)).toEqual(names);
@@ -492,22 +496,22 @@ describe('component map', () => {
     expect(owner('rust/crates/tmt-core/src/lib.rs')).toBe('cli');
     expect(owner('typescript/test/native/api.test.ts')).toBe('cli');
     expect(owner('extensions/tmt-office/rust/tmt-office/src/main.rs')).toBe('office');
-    expect(owner('extensions/tmt-squad/rust/tmt-squad/src/main.rs')).toBe('squad');
+    expect(owner('extensions/tmt-ops/rust/tmt-ops/src/main.rs')).toBe('ops');
     expect(owner('typescript/test/native/office-board.test.ts')).toBe('office');
-    expect(owner('typescript/test/e2e/squad.e2e.test.ts')).toBe('squad');
-    expect(owner('typescript/test/e2e/squad-reminder.e2e.test.ts')).toBe('squad');
-    expect(owner('extensions/tmt-squad-other/file.rs')).toBe('cli');
+    expect(owner('typescript/test/e2e/ops.e2e.test.ts')).toBe('ops');
+    expect(owner('typescript/test/e2e/ops-reminder.e2e.test.ts')).toBe('ops');
+    expect(owner('extensions/tmt-ops-other/file.rs')).toBe('cli');
     expect(owner('extensions/tmt-officer/file.rs')).toBe('cli');
   });
 
   it('explains every changed path with its owner, rule and consumers', () => {
     const rows = explainCiSelection(
-      ['ARCHITECTURE.md', 'extensions/tmt-squad/rust/tmt-squad/src/main.rs', 'new-owner/file.ts'],
+      ['ARCHITECTURE.md', 'extensions/tmt-ops/rust/tmt-ops/src/main.rs', 'new-owner/file.ts'],
       map
     );
     expect(rows.map(({ path: file, owner, rule }) => [file, owner, rule])).toEqual([
       ['ARCHITECTURE.md', 'cli', 'prose'],
-      ['extensions/tmt-squad/rust/tmt-squad/src/main.rs', 'squad', 'native-source'],
+      ['extensions/tmt-ops/rust/tmt-ops/src/main.rs', 'ops', 'native-source'],
       ['new-owner/file.ts', 'cli', 'unmapped'],
     ]);
     expect(rows[0]).toMatchObject({ native: false, office: false, nativeOffice: false });
@@ -544,22 +548,19 @@ describe('component map', () => {
   });
 
   it.each([
-    [['extensions/tmt-squad/rust/tmt-squad/src/main.rs'], 'squad'],
-    [['extensions/tmt-squad/skills/tmt-squad/SKILL.md', 'ARCHITECTURE.md'], 'squad'],
-    [['typescript/test/e2e/squad.e2e.test.ts', 'typescript/test/native/squad.test.ts'], 'squad'],
-    [['typescript/test/e2e/squad-reminder.e2e.test.ts'], 'squad'],
-    [['extensions/tmt-squad/rust/tmt-squad/src/main.rs', 'rust/Cargo.lock'], 'full'],
+    [['extensions/tmt-ops/rust/tmt-ops/src/main.rs'], 'ops'],
+    [['extensions/tmt-ops/skills/tmt-ops/SKILL.md', 'ARCHITECTURE.md'], 'ops'],
+    [['typescript/test/e2e/ops.e2e.test.ts', 'typescript/test/native/ops.test.ts'], 'ops'],
+    [['typescript/test/e2e/ops-reminder.e2e.test.ts'], 'ops'],
+    [['extensions/tmt-ops/rust/tmt-ops/src/main.rs', 'rust/Cargo.lock'], 'full'],
     [
-      ['extensions/tmt-squad/rust/tmt-squad/src/main.rs', 'rust/crates/tmt-cli-style/src/lib.rs'],
+      ['extensions/tmt-ops/rust/tmt-ops/src/main.rs', 'rust/crates/tmt-cli-style/src/lib.rs'],
       'full',
     ],
-    [['extensions/tmt-squad/rust/tmt-squad/src/main.rs', 'design/cli-style.md'], 'full'],
-    [
-      ['extensions/tmt-squad/rust/tmt-squad/src/main.rs', 'typescript/test/native/api.test.ts'],
-      'full',
-    ],
-    [['extensions/tmt-squad/rust/tmt-squad/src/main.rs', 'new-owner/file.ts'], 'full'],
-    [['extensions/tmt-squad-other/file.rs'], 'full'],
+    [['extensions/tmt-ops/rust/tmt-ops/src/main.rs', 'design/cli-style.md'], 'full'],
+    [['extensions/tmt-ops/rust/tmt-ops/src/main.rs', 'typescript/test/native/api.test.ts'], 'full'],
+    [['extensions/tmt-ops/rust/tmt-ops/src/main.rs', 'new-owner/file.ts'], 'full'],
+    [['extensions/tmt-ops-other/file.rs'], 'full'],
     [['rust/crates/tmt-core/src/lib.rs'], 'full'],
     [['rust/crates/tmt-cli-style/src/lib.rs'], 'full'],
     [['rust/crates/tmt-invoke/src/lib.rs'], 'full'],
@@ -572,13 +573,9 @@ describe('component map', () => {
   });
 
   it('names the checks a scoped component runs and none for the other scopes', () => {
-    expect(scopedChecks('squad', map)).toEqual({
-      nativeTests: [
-        'squad.test.ts',
-        'extension-install.test.ts',
-        'extension-upgrade-proof.test.ts',
-      ],
-      e2eFiles: ['squad.e2e.test.ts', 'squad-reminder.e2e.test.ts'],
+    expect(scopedChecks('ops', map)).toEqual({
+      nativeTests: ['ops.test.ts', 'extension-install.test.ts', 'extension-upgrade-proof.test.ts'],
+      e2eFiles: ['ops.e2e.test.ts', 'ops-reminder.e2e.test.ts'],
     });
     expect(scopedChecks('full', map)).toEqual({ nativeTests: [], e2eFiles: [] });
     expect(scopedChecks('none', map)).toEqual({ nativeTests: [], e2eFiles: [] });
@@ -586,36 +583,39 @@ describe('component map', () => {
   });
 
   it('rejects scoped checks that are not plain file names', () => {
-    for (const bad of ['../squad.test.ts', 'a b.test.ts', 'squad.test.ts;rm', '$HOME']) {
-      expect(invalid((value) => (value.components.squad.scopedChecks.nativeTests = [bad]))).toThrow(
+    for (const bad of ['../ops.test.ts', 'a b.test.ts', 'ops.test.ts;rm', '$HOME']) {
+      expect(invalid((value) => (value.components.ops.scopedChecks.nativeTests = [bad]))).toThrow(
         'plain file names'
       );
     }
-    expect(invalid((value) => (value.components.squad.scopedChecks.e2eFiles = []))).toThrow(
+    expect(invalid((value) => (value.components.ops.scopedChecks.e2eFiles = []))).toThrow(
       'non-empty list'
     );
-    expect(invalid((value) => delete value.components.squad.scopedChecks.nativeTests)).toThrow(
+    expect(invalid((value) => delete value.components.ops.scopedChecks.nativeTests)).toThrow(
       'non-empty list'
     );
   });
 
-  it('lists every test that runs the Squad binary or reads Squad, so the scoped run cannot miss one', () => {
+  it('lists every test that runs the Ops binary or reads Ops, so the scoped run cannot miss one', () => {
     const files = tracked();
-    const checks = scopedChecks('squad', map);
+    const checks = scopedChecks('ops', map);
     for (const file of checks.nativeTests) {
       expect(files, file).toContain(`typescript/test/native/${file}`);
     }
     for (const file of checks.e2eFiles) {
       expect(files, file).toContain(`typescript/test/e2e/${file}`);
     }
-    // Tests that name Squad without exercising its executable or sources.
+    // Tests that name Ops without exercising its executable or sources.
     const namesOnly: Record<string, string> = {
-      'typescript/test/native/api.test.ts': 'a room named Squad and squad.* metadata keys',
+      'typescript/test/e2e/driver-consent.e2e.test.ts':
+        'host-driver protocol ops operation names, no Ops executable or source',
+      'typescript/test/native/api.test.ts':
+        'a synthetic owned skill named tmt-ops; no Ops executable or source',
       'typescript/test/native/office-freeze.test.ts':
-        'the remaining installable catalog name after Office removal, without Squad execution or sources',
+        'the remaining installable catalog name after Office removal, without Ops execution or sources',
       'typescript/test/native/setup-guided.test.ts': 'the install hint text',
     };
-    const mention = /squad/i;
+    const mention = /\bops\b|tmt-ops/i;
     const undeclared = files.filter(
       (file) =>
         /^typescript\/test\/(native\/[^/]+\.test\.ts|e2e\/[^/]+\.e2e\.test\.ts)$/.test(file) &&
@@ -626,16 +626,16 @@ describe('component map', () => {
     );
     expect(
       undeclared,
-      'these tests mention Squad: add them to scopedChecks or to the names-only list'
+      'these tests mention Ops: add them to scopedChecks or to the names-only list'
     ).toEqual([]);
   });
 
-  it('keeps the tooling tests, which the Squad scope skips, from reading Squad sources', () => {
+  it('keeps the tooling tests, which the Ops scope skips, from reading Ops sources', () => {
     const files = tracked().filter((file) =>
       /^typescript\/test\/(tooling|support)\/[^/]+\.ts$/.test(file)
     );
     // Code quality runs these on every pull request, so skipping Unit tests does not skip
-    // them: they check inputs that Squad-only changes can also change.
+    // them: they check inputs that Ops-only changes can also change.
     const alwaysRun = [
       'typescript/test/tooling/ci-scope.test.ts',
       'typescript/test/tooling/component-skills.test.ts',
@@ -654,11 +654,11 @@ describe('component map', () => {
     const readers = files.filter(
       (file) =>
         !alwaysRun.includes(file) &&
-        /extensions\/tmt-squad|rust\/target\/debug\/tmt-squad/.test(
+        /extensions\/tmt-ops|rust\/target\/debug\/tmt-ops/.test(
           readFileSync(path.join(repository, file), 'utf8')
         )
     );
-    // support/native-artifact.ts packages the built Squad binary for the native tests
+    // support/native-artifact.ts packages the built Ops binary for the native tests
     // (not run by Unit tests); it is not a tooling test.
     expect(readers.filter((file) => file.startsWith('typescript/test/tooling/'))).toEqual([]);
   });
@@ -680,6 +680,7 @@ describe('component map', () => {
       ).toBe(true);
     }
     for (const component of map.components) {
+      if (isComponentRetired(component.name)) continue;
       for (const root of [...component.owns, ...component.excludes]) {
         expect(
           root === '.' || files.some((file) => file.startsWith(`${root}/`)),
@@ -805,7 +806,7 @@ describe('remote Rust retains full CI coverage', () => {
     'rust/Cargo.lock',
     'rust/crates/tmt-cli-style/src/lib.rs',
     'rust/crates/tmt-cli/tests/architecture.rs',
-    'extensions/tmt-squad/rust/tmt-squad/src/main.rs',
+    'extensions/tmt-ops/rust/tmt-ops/src/main.rs',
     'unknown/new-file',
   ])('retains all consumers and full scope with %s', (other) => {
     expect(selectNativeScope([remote + 'src/main.rs', other])).toBe('full');
@@ -957,7 +958,7 @@ describe('retired Office browser selection', () => {
     'typescript/test/e2e/harness-other/fixture.ts',
     'typescript/test/e2e/binding.e2e.test.ts',
     'extensions/tmt-office-other/docs/architecture.md',
-    'extensions/tmt-squad/rust/tmt-squad/src/main.rs',
+    'extensions/tmt-ops/rust/tmt-ops/src/main.rs',
   ])('does not spend PR browser runners on non-Office path %s', (file) => {
     expect(selectOfficeBrowser([file])).toBe(false);
   });
@@ -1118,34 +1119,34 @@ describe('CI diff and command integration', () => {
       expect(quiet.text()).toBe(stderr.text());
       runCiScope([base, head], { cwd: root, stdout: capture(), stderr: capture(), summaryFile });
       expect(readFileSync(summaryFile, 'utf8')).toBe(stderr.text() + stderr.text());
-      // A Squad-only change is scoped and names the checks its component runs.
-      mkdirSync(path.join(root, 'extensions/tmt-squad/rust/tmt-squad/src'), { recursive: true });
-      writeFileSync(path.join(root, 'extensions/tmt-squad/rust/tmt-squad/src/main.rs'), '// x\n');
-      const squadHead = commit();
+      // An Ops-only change is scoped and names the checks its component runs.
+      mkdirSync(path.join(root, 'extensions/tmt-ops/rust/tmt-ops/src'), { recursive: true });
+      writeFileSync(path.join(root, 'extensions/tmt-ops/rust/tmt-ops/src/main.rs'), '// x\n');
+      const opsHead = commit();
       const scoped = capture();
       const scopedLog = capture();
-      runCiScope([head, squadHead], { cwd: root, stdout: scoped, stderr: scopedLog });
+      runCiScope([head, opsHead], { cwd: root, stdout: scoped, stderr: scopedLog });
       expect(outputs(scoped.text())).toEqual({
         native: 'true',
         office: 'false',
         native_office: 'false',
         office_browser: 'false',
         colab_harness: 'false',
-        native_scope: 'squad',
+        native_scope: 'ops',
         native_notices: 'false',
         scoped_native_tests:
-          'squad.test.ts extension-install.test.ts extension-upgrade-proof.test.ts',
-        e2e_shard_1: 'squad.e2e.test.ts squad-reminder.e2e.test.ts',
+          'ops.test.ts extension-install.test.ts extension-upgrade-proof.test.ts',
+        e2e_shard_1: 'ops.e2e.test.ts ops-reminder.e2e.test.ts',
         e2e_shard_2: '',
       });
-      expect(scopedLog.text()).toContain('native scope squad.');
+      expect(scopedLog.text()).toContain('native scope ops.');
       // A real remote-only git diff must drive the full output consumed by the workflow.
       mkdirSync(path.join(root, 'extensions/tmt-remote/rust/tmt-remote/src'), { recursive: true });
       writeFileSync(path.join(root, 'extensions/tmt-remote/rust/tmt-remote/src/main.rs'), '// x\n');
       const remoteHead = commit();
       const remoteOutput = capture();
       const remoteLog = capture();
-      runCiScope([squadHead, remoteHead], { cwd: root, stdout: remoteOutput, stderr: remoteLog });
+      runCiScope([opsHead, remoteHead], { cwd: root, stdout: remoteOutput, stderr: remoteLog });
       expect(outputs(remoteOutput.text())).toEqual(full);
       expect(remoteLog.text()).toContain('| tmt-remote | remote-rust | native |');
       const officePath = path.join(root, 'extensions/tmt-office/docs/fixture.md');
@@ -1323,16 +1324,16 @@ describe('CI diff and command integration', () => {
       expect(docsRun.evidence).toContain('.agents/first.md');
       expect(docsRun.evidence).toContain('.agents/second.md');
       expect(docsRun.outputs).toEqual(select([base, docs]).outputs);
-      const squad = commit('extensions/tmt-squad/rust/tmt-squad/src/main.rs', '// squad');
-      const squadRun = select(['merge-group', squad]);
-      expect(squadRun.outputs).toMatchObject({
+      const ops = commit('extensions/tmt-ops/rust/tmt-ops/src/main.rs', '// ops');
+      const opsRun = select(['merge-group', ops]);
+      expect(opsRun.outputs).toMatchObject({
         native: 'true',
         office: 'false',
-        native_scope: 'squad',
+        native_scope: 'ops',
         e2e_shard_2: '',
       });
-      expect(squadRun.outputs.e2e_shard_1).toBe('squad.e2e.test.ts squad-reminder.e2e.test.ts');
-      expect(squadRun.outputs).toEqual(select([base, squad]).outputs);
+      expect(opsRun.outputs.e2e_shard_1).toBe('ops.e2e.test.ts ops-reminder.e2e.test.ts');
+      expect(opsRun.outputs).toEqual(select([base, ops]).outputs);
       const shared = commit('unknown-input', 'shared');
       const full = select(['seed']).outputs;
       expect(select(['full']).outputs).toMatchObject({
@@ -1612,7 +1613,7 @@ describe('required CI gate', () => {
     macosRuntimeBuild: 'skipped',
     macosPackedInstall: 'skipped',
   };
-  const squadRun = native({
+  const opsRun = native({
     unitTests: 'skipped',
     e2eShard2: 'skipped',
     runtimeBuild: 'skipped',
@@ -1623,7 +1624,7 @@ describe('required CI gate', () => {
 
   it.each([
     ['full', native()],
-    ['squad', squadRun],
+    ['ops', opsRun],
     ['none', allSkipped],
   ])('accepts exactly the %s native results', (scope, expected) => {
     expect(nativeGatePasses(scope, expected, 'true')).toBe(true);
@@ -1635,17 +1636,17 @@ describe('required CI gate', () => {
     ['full', native({ packedInstall: 'cancelled' }), 'a cancelled job'],
     ['full', native({ e2eShard2: 'skipped' }), 'a skipped second E2E shard'],
     ['full', native({ e2eShard1: 'failure' }), 'a failed first E2E shard'],
-    ['squad', { ...squadRun, unitTests: 'success' }, 'unit tests that must be skipped'],
-    ['squad', { ...squadRun, e2eShard1: 'skipped' }, 'a skipped E2E shard'],
-    ['squad', { ...squadRun, e2eShard2: 'success' }, 'a second E2E shard that must be skipped'],
-    ['squad', { ...squadRun, nativeRust: 'skipped' }, 'a skipped native contract'],
-    ['squad', { ...squadRun, runtimeBuild: 'success' }, 'a runtime build that must be skipped'],
-    ['squad', { ...squadRun, e2eShard1: 'failure' }, 'a failed E2E shard'],
+    ['ops', { ...opsRun, unitTests: 'success' }, 'unit tests that must be skipped'],
+    ['ops', { ...opsRun, e2eShard1: 'skipped' }, 'a skipped E2E shard'],
+    ['ops', { ...opsRun, e2eShard2: 'success' }, 'a second E2E shard that must be skipped'],
+    ['ops', { ...opsRun, nativeRust: 'skipped' }, 'a skipped native contract'],
+    ['ops', { ...opsRun, runtimeBuild: 'success' }, 'a runtime build that must be skipped'],
+    ['ops', { ...opsRun, e2eShard1: 'failure' }, 'a failed E2E shard'],
     ['none', { ...allSkipped, nativeRust: 'success' }, 'work when nothing was selected'],
     ['unknown', native(), 'an unknown scope'],
     ['', allSkipped, 'an empty scope'],
-    ['office', squadRun, 'a component without scoped checks'],
-    ['squad', { ...squadRun, packedInstall: '' }, 'an empty result'],
+    ['office', opsRun, 'a component without scoped checks'],
+    ['ops', { ...opsRun, packedInstall: '' }, 'an empty result'],
   ])('rejects %s with %o (%s)', (scope, actual) => {
     expect(nativeGatePasses(scope, actual, 'true')).toBe(false);
   });
@@ -1664,9 +1665,9 @@ describe('required CI gate', () => {
     for (const macos of ['', 'unknown', undefined]) {
       expect(nativeGatePasses('full', queue, macos as string)).toBe(false);
       expect(nativeGatePasses('none', allSkipped, macos as string)).toBe(false);
-      expect(nativeGatePasses('squad', squadRun, macos as string)).toBe(false);
+      expect(nativeGatePasses('ops', opsRun, macos as string)).toBe(false);
     }
-    expect(nativeGatePasses('squad', squadRun, 'false')).toBe(true);
+    expect(nativeGatePasses('ops', opsRun, 'false')).toBe(true);
     expect(nativeGatePasses('none', allSkipped, 'false')).toBe(true);
   });
 
@@ -1689,7 +1690,7 @@ describe('required CI gate', () => {
             'success',
           ];
 
-    it.each(['full', 'squad', 'none'])('requires exactly the selected workers for %s', (scope) => {
+    it.each(['full', 'ops', 'none'])('requires exactly the selected workers for %s', (scope) => {
       for (const officeSelected of ['true', 'false']) {
         const expected = expectedFor(scope, officeSelected);
         expect(rustGatePasses(scope, expected, officeSelected)).toBe(true);
@@ -1721,7 +1722,7 @@ describe('required CI gate', () => {
     it('enforces worker selection and failure in the actual command', () => {
       const script = fileURLToPath(new URL('../../scripts/ci-scope.mjs', import.meta.url));
       const options = { cwd: process.cwd(), env: process.env };
-      for (const scope of ['full', 'squad', 'none']) {
+      for (const scope of ['full', 'ops', 'none']) {
         for (const selected of ['true', 'false']) {
           const expected = expectedFor(scope, selected);
           expect(
@@ -1766,7 +1767,7 @@ describe('required CI gate', () => {
   describe('Docker E2E gate', () => {
     it.each([
       ['full', 'success', 'success'],
-      ['squad', 'success', 'skipped'],
+      ['ops', 'success', 'skipped'],
       ['none', 'skipped', 'skipped'],
     ])(
       'passes for %s only with the results the selector implies (%s, %s)',
@@ -1784,10 +1785,10 @@ describe('required CI gate', () => {
       ['full', 'failure', 'success', 'a failed shard'],
       ['full', 'success', '', 'a missing shard result'],
       ['full', '', '', 'both results missing'],
-      ['squad', 'skipped', 'skipped', 'the Squad shard skipped'],
-      ['squad', 'cancelled', 'skipped', 'the Squad shard cancelled'],
-      ['squad', 'success', 'success', 'a second shard that must be skipped'],
-      ['squad', 'success', 'failure', 'a second shard that ran and failed'],
+      ['ops', 'skipped', 'skipped', 'the Ops shard skipped'],
+      ['ops', 'cancelled', 'skipped', 'the Ops shard cancelled'],
+      ['ops', 'success', 'success', 'a second shard that must be skipped'],
+      ['ops', 'success', 'failure', 'a second shard that ran and failed'],
       ['none', 'success', 'skipped', 'a shard that ran although nothing was selected'],
       ['none', 'skipped', 'success', 'a shard that ran although nothing was selected'],
       ['none', 'failure', 'failure', 'failed shards although nothing was selected'],
@@ -1810,7 +1811,7 @@ describe('required CI gate', () => {
         stderr: { write: () => {} },
       });
       runCiScope(['gate-e2e', 'full', 'success', 'success'], io());
-      runCiScope(['gate-e2e', 'squad', 'success', 'skipped'], io());
+      runCiScope(['gate-e2e', 'ops', 'success', 'skipped'], io());
       runCiScope(['gate-e2e', 'none', 'skipped', 'skipped'], io());
       for (const args of [
         ['gate-e2e', 'full', 'success', 'skipped'],
@@ -1845,7 +1846,7 @@ describe('required CI gate', () => {
         [
           'gate-native',
           'true',
-          'squad',
+          'ops',
           'success',
           'skipped',
           'success',
@@ -2284,19 +2285,19 @@ describe('required CI gate', () => {
         .filter((step) => step.scope === `needs.changes.outputs.native_scope == '${scope}'`)
         .map((step) => step.name);
     expect(scoped('native-clippy', 'full')).toEqual(['Lint workspace']);
-    expect(scoped('native-clippy', 'squad')).toEqual(['Lint Squad']);
+    expect(scoped('native-clippy', 'ops')).toEqual(['Lint Ops']);
     expect(scoped('native-workspace-tests', 'full')).toEqual(['Test and build workspace']);
-    expect(scoped('native-workspace-tests', 'squad')).toEqual(['Test Squad and architecture']);
+    expect(scoped('native-workspace-tests', 'ops')).toEqual(['Test Ops and architecture']);
     expect(scoped('native-process-tests', 'full')).toEqual([
       'Build independent native process fixtures',
       'Verify native process and shared parser contracts',
     ]);
-    expect(scoped('native-process-tests', 'squad')).toEqual([
-      'Build Squad process fixtures',
-      'Verify Squad native contracts',
+    expect(scoped('native-process-tests', 'ops')).toEqual([
+      'Build Ops process fixtures',
+      'Verify Ops native contracts',
     ]);
     // Both scopes run extension-install, whose archives use these debug executables.
-    for (const scope of ['full', 'squad']) {
+    for (const scope of ['full', 'ops']) {
       const fixtures = steps(job('native-process-tests')).find(
         (step) =>
           step.scope === `needs.changes.outputs.native_scope == '${scope}'` &&
@@ -2305,7 +2306,7 @@ describe('required CI gate', () => {
       const debugBuilds = [...(fixtures?.body.matchAll(/cargo build ([^\n]+)/g) ?? [])]
         .map((match) => match[1])
         .filter((args) => !args.includes('--release'));
-      for (const product of ['tmt-squad', 'tmt-remote', 'tmt-colab']) {
+      for (const product of ['tmt-ops', 'tmt-remote', 'tmt-colab']) {
         expect(
           debugBuilds.some((args) => new RegExp(`(?:^|\\s)-p\\s+${product}(?=\\s|$)`).test(args)),
           `${scope} native process fixtures must build ${product} in debug`

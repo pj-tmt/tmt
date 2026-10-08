@@ -112,7 +112,7 @@ require('node:fs').appendFileSync(process.env.TMT_RUNNER_LOG, JSON.stringify(pro
   }
 
   it.each([
-    ['squad.e2e.test.ts', ['--env', 'TMT_E2E_FILES=squad.e2e.test.ts']],
+    ['ops.e2e.test.ts', ['--env', 'TMT_E2E_FILES=ops.e2e.test.ts']],
     ['a.e2e.test.ts b.e2e.test.ts', ['--env', 'TMT_E2E_FILES=a.e2e.test.ts b.e2e.test.ts']],
     ['', []],
   ])(
@@ -125,7 +125,7 @@ require('node:fs').appendFileSync(process.env.TMT_RUNNER_LOG, JSON.stringify(pro
     }
   );
 
-  it.each(['../squad.e2e.test.ts', 'a;b', 'a  b', ' a', '$HOME', 'a\nb', 'squad*'])(
+  it.each(['../ops.e2e.test.ts', 'a;b', 'a  b', ' a', '$HOME', 'a\nb', 'ops*'])(
     'rejects the unsafe file list %j before building anything',
     async (files) => {
       const { result, calls } = await runWrapper(files);
