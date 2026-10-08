@@ -275,37 +275,7 @@ fn publish_products(
             }
         }
         for product in products.iter().skip(1) {
-            if let Some(message) = product["message"].as_str() {
-                writeln!(stdout, "{message}")?;
-            } else {
-                writeln!(
-                    stdout,
-                    "{}: {}{}",
-                    product["product"].as_str().unwrap_or("extension"),
-                    product["status"].as_str().unwrap_or("failed"),
-                    product["version"]
-                        .as_str()
-                        .map(|v| format!(" ({v})"))
-                        .unwrap_or_default()
-                )?;
-            }
-            if product["message"].is_null()
-                && let Some(hint) = product["hint"].as_str()
-            {
-                tmt_cli_style::message::hint(&mut stdout, terminal, hint)?;
-            }
-            if product["status"] == "failed" {
-                writeln!(
-                    stdout,
-                    "{}: {}",
-                    product["error"]["code"]
-                        .as_str()
-                        .unwrap_or("EXTENSION_UPGRADE_FAILED"),
-                    product["error"]["message"]
-                        .as_str()
-                        .unwrap_or("Extension update failed")
-                )?;
-            }
+            write_extension_product(&mut stdout, terminal, product)?;
         }
         if let Some(warning) = warning {
             drop(stdout);
@@ -318,6 +288,51 @@ fn publish_products(
         }
     }
     Ok(failure.map_or(u8::from(extension_failed), |failure| failure.status))
+}
+
+fn write_extension_product(
+    stdout: &mut impl Write,
+    terminal: tmt_cli_style::Terminal,
+    product: &Value,
+) -> io::Result<()> {
+    if let Some(message) = product["message"].as_str() {
+        writeln!(stdout, "{message}")?;
+    } else {
+        writeln!(
+            stdout,
+            "{}: {}{}",
+            product["product"].as_str().unwrap_or("extension"),
+            product["status"].as_str().unwrap_or("failed"),
+            product["version"]
+                .as_str()
+                .map(|v| format!(" ({v})"))
+                .unwrap_or_default()
+        )?;
+    }
+    if product["message"].is_null()
+        && let Some(hint) = product["hint"].as_str()
+    {
+        tmt_cli_style::message::hint(stdout, terminal, hint)?;
+    }
+    if product["status"] == "failed" {
+        writeln!(
+            stdout,
+            "{}: {}",
+            product["error"]["code"]
+                .as_str()
+                .unwrap_or("EXTENSION_UPGRADE_FAILED"),
+            product["error"]["message"]
+                .as_str()
+                .unwrap_or("Extension update failed")
+        )?;
+    }
+    if let Some(hint) = product["details"]["restartHint"]
+        .as_str()
+        .or_else(|| product["error"]["suggestion"].as_str())
+    {
+        tmt_cli_style::message::hint(stdout, terminal, hint)?;
+    }
+    Ok(())
 }
 
 fn failure_document(failure: &Failure) -> Value {

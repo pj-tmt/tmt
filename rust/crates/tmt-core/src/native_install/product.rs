@@ -10,6 +10,13 @@ pub enum Product {
     Colab,
 }
 
+/// Optional observation after a replaced release is active. The adapter owns
+/// the bounded process effect; a notice never authorizes a lifecycle mutation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PostUpgradeCheck {
+    RemoteDoor,
+}
+
 /// Read-only installation identity before a product rename. This is never a
 /// selectable product, a dispatch alias or a completion candidate.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -34,6 +41,13 @@ impl FormerProduct {
 }
 
 impl Product {
+    pub const fn post_upgrade_check(self) -> Option<PostUpgradeCheck> {
+        match self {
+            Self::Remote => Some(PostUpgradeCheck::RemoteDoor),
+            _ => None,
+        }
+    }
+
     pub const fn former(self) -> Option<&'static FormerProduct> {
         match self {
             Self::Ops => Some(&FormerProduct {
