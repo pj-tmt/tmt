@@ -1538,8 +1538,16 @@ test('settings draft preserves authority, exact values, drafts and unknown self-
     'Fresh live Session reads committed original; next-name draft retained',
   );
   // Lost self-revoke acknowledgement: one fresh read-only admission, accurate access loss + unknown.
-  page.once('dialog', (dialog) => void dialog.accept());
-  await page.locator('.device button[type=button]').click();
+  const confirmation = page.waitForEvent('dialog');
+  const revokeClick = page.locator('.device button[type=button]').click();
+  const dialog = await confirmation;
+  try {
+    expect(dialog.type()).toBe('confirm');
+    expect(dialog.message()).toBe('Revoke Renamed browser (this device)?');
+  } finally {
+    await dialog.accept();
+  }
+  await revokeClick;
   await expect(page.locator('#outcome')).toContainText('unknown');
   await page.click('#recover');
   await expect(page.locator('#access')).toContainText('refused');

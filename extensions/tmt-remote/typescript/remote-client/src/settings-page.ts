@@ -149,7 +149,7 @@ function render(): void {
           // Confirmation is local presentation, never server authority.
           const target = page.devices?.devices.find((item) => item.clientId === device.clientId);
           if (!target || target.revoked) return;
-          if (confirm(`Revoke ${target.name}${target.thisBrowser ? ' (this browser)' : ''}?`))
+          if (confirm(`Revoke ${target.name}${target.thisBrowser ? ' (this device)' : ''}?`))
             void change({
               kind: 'revoke',
               input: { operationId: crypto.randomUUID(), clientId: device.clientId },

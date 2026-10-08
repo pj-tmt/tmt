@@ -225,7 +225,7 @@ function render() {
 					if (!page.writable) return;
 					const target = page.devices?.devices.find((item) => item.clientId === device.clientId);
 					if (!target || target.revoked) return;
-					if (confirm(`Revoke ${target.name}${target.thisBrowser ? " (this browser)" : ""}?`)) change({
+					if (confirm(`Revoke ${target.name}${target.thisBrowser ? " (this device)" : ""}?`)) change({
 						kind: "revoke",
 						input: {
 							operationId: crypto.randomUUID(),
