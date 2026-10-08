@@ -118,6 +118,26 @@ const RENAME: CommandSpec = CommandSpec {
     outputs: OutputModes::HumanAndJson,
     details: "Names are 1–64 nonblank UTF-8 bytes without controls. Authority stays the same.\nA changed name ends the old door session; the device silently reopens it.\nRepeating the same name preserves the revision. Revoked devices cannot be renamed.",
 };
+const DESIGNATE: CommandSpec = CommandSpec {
+    name: "designate",
+    summary: "Authorize one paired browser to manage Remote settings and devices",
+    examples: &[Example {
+        command: "tmt remote devices designate <client-id>",
+        note: "Select a live browser UUID shown by devices",
+    }],
+    outputs: OutputModes::HumanAndJson,
+    details: "Local-only. No browser is designated automatically. Replaces the previous designation; agent grants stay unchanged.",
+};
+const UNDESIGNATE: CommandSpec = CommandSpec {
+    name: "undesignate",
+    summary: "Remove browser authority to manage Remote settings and devices",
+    examples: &[Example {
+        command: "tmt remote devices undesignate",
+        note: "Keep every browser read-only",
+    }],
+    outputs: OutputModes::HumanAndJson,
+    details: "Local-only. Keeps pairings and existing agent grants; fences later management effects.",
+};
 const SERVE: CommandSpec = CommandSpec {
     name: "serve",
     summary: "Start the IPv4-loopback owner-device door",
@@ -226,6 +246,10 @@ fn grammar() -> Command {
         .subcommand(tmt_cli_style::command(&CANCEL).arg(Arg::new("operation-id").required(true)))
         .subcommand(
             tmt_cli_style::command(&DEVICES)
+                .subcommand(
+                    tmt_cli_style::command(&DESIGNATE).arg(Arg::new("client-id").required(true)),
+                )
+                .subcommand(tmt_cli_style::command(&UNDESIGNATE))
                 .subcommand(
                     tmt_cli_style::command(&REVOKE).arg(
                         Arg::new("client-id")
@@ -700,6 +724,10 @@ fn devices(arguments: &clap::ArgMatches) -> Result<(), RemoteError> {
         Some(("revoke", m)) => {
             json!({"op":"revoke","clientId":m.get_one::<String>("client-id").unwrap()})
         }
+        Some(("designate", m)) => {
+            json!({"op":"designate","clientId":m.get_one::<String>("client-id").unwrap()})
+        }
+        Some(("undesignate", _)) => json!({"op":"undesignate"}),
         Some(_) => unreachable!("typed device grammar"),
         None => json!({"op":"devices"}),
     };
@@ -728,13 +756,33 @@ fn devices(arguments: &clap::ArgMatches) -> Result<(), RemoteError> {
         }
         Err(error) if error.code == "REMOTE_NOT_RUNNING" => {
             let serving = Layout::open(&root)?.serve_lock()?;
-            let devices = Devices::new(Arc::new(Mutex::new(Store::open(&serving)?)), None);
+            let mut store = Store::open(&serving)?;
+            let origin = store
+                .remembered_port()?
+                .map(|port| format!("http://127.0.0.1:{port}"));
+            store.machine()?;
+            let devices = Devices::new(Arc::new(Mutex::new(store)), None);
             match mutation {
                 Some(("rename", m)) => {
                     json!({"device": device_json(&devices.rename(m.get_one::<String>("client-id").unwrap(), m.get_one::<String>("name").unwrap())?)})
                 }
                 Some(("revoke", m)) => {
                     json!({"device": device_json(&devices.revoke(m.get_one::<String>("client-id").unwrap())?)})
+                }
+                Some(("designate", m)) => {
+                    let origin = origin.ok_or_else(|| {
+                        RemoteError::new(
+                            "REMOTE_NOT_RUNNING",
+                            "No remembered door origin; run serve first.",
+                        )
+                    })?;
+                    let grant =
+                        devices.designate(m.get_one::<String>("client-id").unwrap(), &origin)?;
+                    json!({"designatedClientId":grant.client_id})
+                }
+                Some(("undesignate", _)) => {
+                    devices.undesignate()?;
+                    json!({"designatedClientId":null})
                 }
                 Some(_) => unreachable!("typed device grammar"),
                 None => {
@@ -750,6 +798,17 @@ fn devices(arguments: &clap::ArgMatches) -> Result<(), RemoteError> {
         return Ok(());
     }
     let terminal = output.terminal();
+    if let Some(client) = answer.get("designatedClientId") {
+        return Ok(tmt_cli_style::message::success(
+            &mut output,
+            terminal,
+            &if let Some(client) = client.as_str() {
+                format!("Designated browser {client}")
+            } else {
+                "Removed browser management designation".to_owned()
+            },
+        )?);
+    }
     if let Some(device) = answer.get("device") {
         let name = device["name"].as_str().unwrap_or("");
         return Ok(tmt_cli_style::message::success(

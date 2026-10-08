@@ -197,6 +197,39 @@ impl DoorSessions {
         })
     }
 
+    pub(crate) fn door_origin(&self) -> &str {
+        &self.door_origin
+    }
+    /// Disposable per-page snapshot. Latest activity is machine wall time minus
+    /// monotonic idle duration, or null when no live current-revision Session exists.
+    pub(crate) fn management_activity(
+        &self,
+        grants: &[Grant],
+        now: u64,
+    ) -> Result<Vec<(usize, Option<u64>)>, RemoteError> {
+        let live = self.live.lock().map_err(crate::store::database)?;
+        Ok(grants
+            .iter()
+            .map(|grant| {
+                let mut count = 0usize;
+                let mut latest = None;
+                if grant.live_at(now) && !live.stopped {
+                    for session in live.by_session.values().filter(|session| {
+                        session.client_id == grant.client_id
+                            && session.grant_revision == grant.revision
+                            && !self.expired(session)
+                    }) {
+                        count += 1;
+                        let time = now.saturating_sub(
+                            u64::try_from(session.state.idle().as_millis()).unwrap_or(u64::MAX),
+                        );
+                        latest = Some(latest.map_or(time, |old: u64| old.max(time)));
+                    }
+                }
+                (count, latest)
+            })
+            .collect())
+    }
     /// End every device session and close its tunnels.
     pub fn end_device(&self, client_id: &str) {
         if let Ok(mut live) = self.live.lock() {

@@ -29,7 +29,14 @@ pub(crate) fn append(tx: &Transaction<'_>, event: AuditMetadata<'_>) -> Result<(
         || event.time > 9_007_199_254_740_991
         || !matches!(
             event.decision,
-            "adopted" | "refused" | "dispatching" | "held" | "accepted" | "uncertain" | "cancelled"
+            "committed"
+                | "adopted"
+                | "refused"
+                | "dispatching"
+                | "held"
+                | "accepted"
+                | "uncertain"
+                | "cancelled"
         )
     {
         return Err(database("invalid audit metadata"));

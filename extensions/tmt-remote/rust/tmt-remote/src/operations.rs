@@ -163,6 +163,7 @@ pub struct Operations {
     input_limit: usize,
     /// Unconfirmed cleanup forbids another write until restart acquires the child-held lease.
     retry_safe: AtomicBool,
+    management: Option<Arc<crate::devices::Devices>>,
 }
 impl Operations {
     pub fn new(core: CoreClient, stop: Arc<AtomicBool>, input_limit: usize) -> Self {
@@ -171,7 +172,12 @@ impl Operations {
             stop,
             input_limit,
             retry_safe: AtomicBool::new(true),
+            management: None,
         }
+    }
+    pub fn with_management(mut self, devices: Arc<crate::devices::Devices>) -> Self {
+        self.management = Some(devices);
+        self
     }
     fn api(&self, input: &[u8]) -> Result<Value, RemoteError> {
         let result = self.core.api(input, &self.stop);
@@ -185,12 +191,41 @@ impl Operations {
     }
     pub(crate) fn append(&self, permit: &MessagePermit) -> Result<Vec<u8>, RemoteError> {
         let operation = permit.message.envelope().operation;
+        if operation.starts_with("remote.") {
+            return crate::management::append(
+                permit,
+                self.management.as_deref().ok_or_else(invalid)?,
+            );
+        }
         if operation == "capabilities" {
             if permit.message.input != json!({}) {
                 return Err(invalid());
             }
+            let mut supported = vec![
+                "agents.list",
+                "identities.status",
+                "check",
+                "dispatch.create",
+                "dispatch.show",
+                "operation.show",
+                "requests.show",
+                "result",
+            ];
+            if self.management.is_some()
+                && permit.grant.kind == "browser"
+                && permit.grant.origin == permit.sessions.door_origin()
+            {
+                supported.extend([
+                    "remote.settings.show",
+                    "remote.settings.set",
+                    "remote.devices.list",
+                    "remote.devices.rename",
+                    "remote.devices.revoke",
+                    "remote.management.operation",
+                ]);
+            }
             return permit.response(&json!({"version":1,"profile":"local-v1","binding":"loopback-http",
-                "operations":["agents.list","identities.status","check","dispatch.create","dispatch.show","operation.show","requests.show","result"],"limits":{"inputBytes":self.input_limit,"outputBytes":crate::core::OUTPUT_LIMIT,
+                "operations":supported,"limits":{"inputBytes":self.input_limit,"outputBytes":crate::core::OUTPUT_LIMIT,
                     "callsPerDevicePerMinute":crate::budgets::CALLS,"newSendsPerDevicePerMinute":crate::budgets::SENDS,
                     "outstandingHeldPerDevice":crate::budgets::HELDS,"approvalsPerRecipientPerMinute":crate::budgets::APPROVALS}}));
         }

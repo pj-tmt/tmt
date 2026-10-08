@@ -17,6 +17,9 @@ const PAGE: &str = include_str!("../assets/pair.html");
 const ENTRY: &str = include_str!("../assets/landing.js");
 const LANDING: &str = include_str!("../assets/landing.html");
 const ERROR: &str = include_str!("../assets/error.html");
+const SETTINGS: &str = include_str!("../assets/settings.html");
+const SETTINGS_SCRIPT: &str = include_str!("../assets/settings-v1.js");
+const SETTINGS_STYLE: &str = include_str!("../assets/settings.css");
 // Checked shared presentation plus Remote-owned layout; no Cargo-time generator.
 const STYLE: &str = concat!(
     include_str!("../../../../../design/browser-ui/generated/static.css"),
@@ -53,6 +56,7 @@ impl Pages {
     }
     pub fn serves(path: &str) -> bool {
         path == "/"
+            || path == "/settings"
             || path == "/pair"
             || path.starts_with("/pair/")
             || short_page_route(path)
@@ -70,12 +74,15 @@ impl Pages {
             ("GET", path)
                 if matches!(
                     path,
-                    "/" | "/pair"
+                    "/" | "/settings"
+                        | "/pair"
                         | "/sdk/pair.js"
                         | "/sdk/landing.js"
                         | "/sdk/pair-offer"
                         | "/sdk/remote-v1.js"
                         | "/sdk/pages.css"
+                        | "/sdk/settings-v1.js"
+                        | "/sdk/settings.css"
                 ) || path.starts_with("/pair/")
                     || short_page_route(path) =>
             {
@@ -119,6 +126,9 @@ impl Pages {
                 // is not cached across upgrades.
                 asset("text/javascript; charset=utf-8", SDK, None)
             }
+            "/settings" => asset("text/html; charset=utf-8", SETTINGS, Some(PAGE_POLICY)),
+            "/sdk/settings-v1.js" => asset("text/javascript; charset=utf-8", SETTINGS_SCRIPT, None),
+            "/sdk/settings.css" => asset("text/css; charset=utf-8", SETTINGS_STYLE, None),
             "/sdk/pair.js" => asset("text/javascript; charset=utf-8", BOOTSTRAP, None),
             "/sdk/landing.js" => asset("text/javascript; charset=utf-8", ENTRY, None),
             "/sdk/pair-offer" => {
@@ -189,7 +199,12 @@ fn asset(content_type: &str, body: &str, policy: Option<&str>) -> Reply {
 
 /// Only browser page routes receive HTML. SDK and protocol refusals stay JSON.
 fn page_refusal(path: &str, status: u16) -> Reply {
-    if path != "/" && path != "/pair" && !path.starts_with("/pair/") && !short_page_route(path) {
+    if path != "/"
+        && path != "/settings"
+        && path != "/pair"
+        && !path.starts_with("/pair/")
+        && !short_page_route(path)
+    {
         return Reply::empty(status);
     }
     let mut reply = asset("text/html; charset=utf-8", ERROR, Some(PAGE_POLICY));

@@ -140,7 +140,7 @@ impl Store {
 }
 /// Ordered schema history in the core `_migrations` shape. Append only; a
 /// recorded name must match, and a newer database than this build refuses.
-const MIGRATIONS: [(&str, &str); 7] = [
+const MIGRATIONS: [(&str, &str); 8] = [
     (
         "machine",
         "CREATE TABLE machine(
@@ -218,6 +218,16 @@ const MIGRATIONS: [(&str, &str); 7] = [
          ALTER TABLE operations ADD COLUMN session_id TEXT;
          ALTER TABLE operations ADD COLUMN grant_revision INTEGER;
          UPDATE operations SET grant_revision=(SELECT revision FROM grants WHERE grants.client_id=operations.client_id);"),
+    ("management", "CREATE TABLE settings_designation(
+        singleton INTEGER PRIMARY KEY CHECK(singleton=1),
+        machine_id TEXT NOT NULL, client_id TEXT NOT NULL REFERENCES grants(client_id),
+        public_key BLOB NOT NULL CHECK(length(public_key)=32));
+     CREATE TABLE management_receipts(
+        id TEXT PRIMARY KEY, client_id TEXT NOT NULL REFERENCES grants(client_id),
+        operation TEXT NOT NULL, digest BLOB NOT NULL CHECK(length(digest)=32),
+        grant_revision INTEGER NOT NULL, adopted_ms INTEGER NOT NULL, deadline_ms INTEGER NOT NULL,
+        outcome TEXT NOT NULL);
+     CREATE INDEX management_receipts_client ON management_receipts(client_id);"),
 ];
 fn read_port(connection: &Connection) -> Result<Option<u16>, RemoteError> {
     let port: Option<i64> = connection
@@ -274,6 +284,12 @@ impl Store {
         let transaction = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(database)?;
+        transaction
+            .execute(
+                "DELETE FROM settings_designation WHERE public_key=?1",
+                [grant.public_key.as_slice()],
+            )
             .map_err(database)?;
         transaction
             .execute(
@@ -334,62 +350,78 @@ impl Store {
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(database)?;
-        transaction
-            .execute(
-                "UPDATE grants SET disabled = 1, revision = revision + 1
-                 WHERE client_id = ?1 AND disabled = 0 AND revision < 9007199254740991",
-                [client_id],
-            )
-            .map_err(database)?;
+        let grant = revoke_in(&transaction, client_id)?;
         transaction.commit().map_err(database)?;
-        let grant = self.grant(client_id)?;
-        if grant.as_ref().is_some_and(|g| !g.disabled) {
-            return Err(database("grant revision exhausted"));
-        }
         Ok(grant)
     }
     /// Presentation-only rename. Disabled grants remain tombstones; an exact
     /// repeat preserves the revision and never changes grant authority. The last
     /// JSON-safe revision is reserved for revocation.
     pub fn rename(&mut self, client_id: &str, name: &str) -> Result<Option<Grant>, RemoteError> {
-        if !crate::canonical::device_name(name) {
-            return Err(RemoteError::new(
-                "REMOTE_INPUT_INVALID",
-                "Device names must be 1–64 nonblank UTF-8 bytes without controls.",
-            ));
-        }
         let transaction = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(database)?;
-        let disabled: Option<bool> = transaction
-            .query_row(
-                "SELECT disabled FROM grants WHERE client_id = ?1",
-                [client_id],
-                |r| r.get(0),
-            )
-            .optional()
-            .map_err(database)?;
-        if disabled == Some(true) {
-            return Err(RemoteError::new(
-                "REMOTE_DEVICE_REVOKED",
-                "A revoked device cannot be renamed.",
-            ));
-        }
-        transaction
-            .execute(
-                "UPDATE grants SET name = ?2, revision = revision + 1
-             WHERE client_id = ?1 AND name != ?2 AND revision < 9007199254740990",
-                rusqlite::params![client_id, name],
-            )
-            .map_err(database)?;
+        let grant = rename_in(&transaction, client_id, name)?;
         transaction.commit().map_err(database)?;
-        let grant = self.grant(client_id)?;
-        if grant.as_ref().is_some_and(|g| g.name != name) {
-            return Err(database("grant revision exhausted"));
-        }
         Ok(grant)
     }
+}
+/// Shared transaction-local grant writers. Browser receipts and local management
+/// use the same SQL; callers own the transaction and post-commit Session cleanup.
+pub(crate) fn grant_in(
+    connection: &Connection,
+    client_id: &str,
+) -> Result<Option<Grant>, RemoteError> {
+    connection
+        .query_row(
+            &format!("SELECT {GRANT_COLUMNS} FROM grants WHERE client_id=?1"),
+            [client_id],
+            grant_row,
+        )
+        .optional()
+        .map_err(database)
+}
+pub(crate) fn revoke_in(
+    connection: &Connection,
+    client_id: &str,
+) -> Result<Option<Grant>, RemoteError> {
+    connection.execute("UPDATE grants SET disabled=1, revision=revision+1 WHERE client_id=?1 AND disabled=0 AND revision<9007199254740991", [client_id]).map_err(database)?;
+    connection
+        .execute(
+            "DELETE FROM settings_designation WHERE client_id=?1",
+            [client_id],
+        )
+        .map_err(database)?;
+    let grant = grant_in(connection, client_id)?;
+    if grant.as_ref().is_some_and(|grant| !grant.disabled) {
+        return Err(database("grant revision exhausted"));
+    }
+    Ok(grant)
+}
+pub(crate) fn rename_in(
+    connection: &Connection,
+    client_id: &str,
+    name: &str,
+) -> Result<Option<Grant>, RemoteError> {
+    if !crate::canonical::device_name(name) {
+        return Err(RemoteError::new(
+            "REMOTE_INPUT_INVALID",
+            "Device names must be 1–64 nonblank UTF-8 bytes without controls.",
+        ));
+    }
+    if grant_in(connection, client_id)?.is_some_and(|grant| grant.disabled) {
+        return Err(RemoteError::new(
+            "REMOTE_DEVICE_REVOKED",
+            "A revoked device cannot be renamed.",
+        ));
+    }
+    connection.execute("UPDATE grants SET name=?2,revision=revision+1 WHERE client_id=?1 AND name!=?2 AND revision<9007199254740990", rusqlite::params![client_id,name]).map_err(database)?;
+    let grant = grant_in(connection, client_id)?;
+    if grant.as_ref().is_some_and(|grant| grant.name != name) {
+        return Err(database("grant revision exhausted"));
+    }
+    Ok(grant)
 }
 /// Durable counters belong to one live session/run. A restart never adopts an
 /// old row as a live session; each fresh signed open adds independent counters.

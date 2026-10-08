@@ -214,6 +214,64 @@ transport; other tabs remain live. Recover previously unknown send outcomes by o
 the original operation ID after reopening. Never retry a send automatically because its
 transport closed.
 
+## Remote management
+
+`management(session)` uses the same verified serialized Session channel as `operations(session)`.
+It exposes `settings()`, `devices({cursor,limit})`, `set`, `rename`, `revoke` and
+`operation(originalOperationId)`. Every read and effect retains live-grant admission. The [owning protocol](../../../../contracts/remote-channel-v1.md#remote-management-protocol)
+specifies exact shapes and bounds. Session caps are positive decimal **strings** or null, preserving
+native values beyond JavaScript safe integers; default reads as `"8"` and null means unlimited.
+Values/sources, malformed/default warning and management capabilities come from server admission.
+
+Freeze a UUIDv4 and input before a mutation. A verified refusal, committed result and unknown
+outcome are distinct. `ClientError` after publication retains the original operationId; no helper
+resends, reopens, creates a replacement mutation ID or designates a browser automatically.
+Read `operation(originalId)` explicitly, without submitting the setter again. Unknown/pending
+receipts never trigger a write; current values do not establish original commit.
+
+After self-rename, explicitly reopen a fresh verified Session using the still-live grant and read
+the original receipt. After a lost self-revoke acknowledgment, make one fresh read-only admission
+attempt with the same paired identity/current trusted door descriptor. If admission is refused,
+show lost current access **and unknown operation outcome**, with `tmt remote devices` for local
+confirmation. Do not claim revoke committed or offer a mutation retry. Transport failure or an
+unverified/stale descriptor is unconfirmed access and unknown outcome. All reads require a live
+grant; no historical-key reader or general recovery endpoint exists. Losing designation alone
+still permits a live grant to read its own original receipt.
+
+Verified generic management state/ownership/publication errors raise
+`ClientError("outcome_unconfirmed", ..., originalId)` after publication. A valid signature
+alone does not prove a pre-effect refusal. Keep that unknown outcome and read only the
+original operation; never resend it. Read `RefusalError` and agent behavior are unchanged.
+
+Management storage has cumulative limits of 1000 retained identities per caller and 4000
+per installation, including expired rows. The 30-day horizon bounds outcome availability,
+not physical deletion or a rolling allowance. `REMOTE_MANAGEMENT_CAPACITY` refuses new
+adoption before effects; an existing original-ID read still works at capacity. Show the
+local CLI management path, preserve any earlier unknown outcome, and do not retry, reset
+the database or invent a replacement ID to bypass the limit. Compaction is deferred.
+
+The Remote-owned `/settings` page uses the shared browser presentation with three sections and
+server-admitted values/sources/warnings/capabilities. Its separately built `settings-v1.js`
+imports the served SDK; no second channel or public page export is introduced. Checked shared CSS
+owns presentation, while Remote owns layout, native selects and control state. An untouched default
+cap is not saved as explicit 8; there is no invented reset setter. Draft text and original
+intent remain separate, including after unknown outcome or refreshed reads.
+
+The page explicitly calls `reopenSession(previousSession)` for original-outcome recovery.
+It binds to the existing paired identity and trust pins, never a separately persisted old key.
+Before any descriptor read or admission, the stored machine pin must be a 32-byte Uint8Array
+matching every byte of the verified prior Session pin. Invalid or replaced pins produce
+`REMOTE_SESSION_ENDED` without network access.
+There is one fresh admission attempt. An HTTP refusal with an unchanged current trusted door
+descriptor is current-access refusal; a changed/stale/malformed/unavailable descriptor or
+transport/unverified reply is unconfirmed. Neither establishes committed revoke or permanent
+grant loss. A descriptor recheck is another read, never another admission/mutation. Existing
+no-argument reopen behavior is unchanged.
+
+The settings page retains the current device page during value/effect/recovery refreshes.
+First/next navigation focuses an unsent device name and refuses to leave until that name is saved
+or restored to its admitted value. Only the current bounded page's forms are retained.
+
 ## Remote browser entry
 
 The human `tmt remote serve` link opens `/`; the JSON `address` remains the signed protocol base.

@@ -1159,9 +1159,9 @@ static browser entry and pairing ceremony; human serve links name `/`, while pro
 retain their route prefix. Saved pairing is local evidence, not live authority: only an explicit
 connection check opens a signed Session. No state display sends work or designates an administrator.
 Protocol refusals and mounted extension responses retain their own representation.
-[Planned Remote settings administration](contracts/remote-channel-v1.md#remote-settings-browser-authority)
-uses a separate local-owner designation from paired channel trust; its browser/SDK surface is not
-implemented. Remote owns that authority, while shared browser components own presentation only.
+[Remote settings administration](contracts/remote-channel-v1.md#remote-settings-browser-authority)
+separates local effect designation from paired trust; live-grant original-ID reads never reapply
+uncertain effects. Remote owns authority; shared components supply settings presentation; [Remote internals](.agents/skills/tmt-remote/references/door-and-discovery.md#management-implementation) own implementation details.
 The door serves the browser SDK `remote-v1.js` (built from `remote-client`), which
 gives mounted pages `reopenSession`, `operations(session)` and `certifyKey`; its README owns
 the caller-facing recovery rules. The

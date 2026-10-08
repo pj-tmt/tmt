@@ -417,7 +417,7 @@ or the time limit the owner chose at pairing. `revision` is a positive integer; 
 false on issue. Names are presentation only; rename preserves UUID authority, and a retired
 identity's same-name replacement inherits nothing. After pairing, authority may only be narrowed
 or revoked through local management (`tmt remote devices`). The separate
-[planned settings designation](#remote-settings-browser-authority) does not widen this agent grant.
+[settings designation](#remote-settings-browser-authority) does not widen this agent grant.
 
 Default scopes are `agents.read`, `status.read`, `check.read`, `talk` and `results.read`. The owner
 may remove scopes at pairing. Future core capabilities do not silently become remotely callable;
@@ -483,11 +483,9 @@ original operation, never becomes falsely unsent.
 
 ### Remote settings browser authority
 
-**Planned for [#1769](https://github.com/pj-tmt/tmt/issues/1769), not implemented.**
-This section defines Remote's settings and paired-device page; it does not claim a shipped
-management SDK, route or browser capability. Until implementation lands, the local CLI remains
-the settings/device management path. Current landing, pairing and error-page presentation adoption
-does not implement this feature.
+**[#1769](https://github.com/pj-tmt/tmt/issues/1769) implementation: native/SDK and the shared-presentation settings page.** This section owns authority; the fixed management protocol
+below specifies the native/SDK implementation. The local CLI remains the scripting management path.
+Current landing, pairing and error-page presentation adoption does not implement this feature.
 
 A paired channel owner-device is not automatically a settings administrator. Loopback, Host,
 Origin, a route prefix, door cookie, display name or client-supplied owner flag cannot establish
@@ -549,6 +547,169 @@ no effects or holds, and revoke/re-pair/key change, expiry, restart, rename and 
 obey the lifecycle and effect fence above. The actual settings/device page separately requires
 product native/browser acceptance, UX review and publication evidence; a shared presentation
 package or current-page adoption cannot satisfy those requirements.
+
+### Remote management protocol
+
+The #1769 implementation adds the following fixed operations on the existing signed
+`POST /append` request channel. The settings/device page uses the shared browser presentation and Remote host metrics;
+presentation carries no authority.
+Every read and effect retains ordinary live-grant admission. Only a `browser` grant pinned to the
+door's exact origin may use these cases. Agent scopes and direct/hold mode confer no management
+write capability. Unsupported operations, including `remote.management.recover`, remain refused.
+
+Management payloads are at most 1024 decoded UTF-8 bytes, strict JSON objects without unknown
+fields. Mutation `operationId` is a canonical UUIDv4 equal to the signed envelope ID. Read
+requests use a fresh envelope ID; original-operation lookup never adopts or executes a mutation.
+
+| Operation                     | Exact input                                                                                                      | Result                                                                 |
+| ----------------------------- | ---------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
+| `remote.settings.show`        | `{}`                                                                                                             | Settings view below                                                    |
+| `remote.devices.list`         | `{cursor:null\|string,limit:integer}`                                                                            | Device page below; limit 1–50                                          |
+| `remote.settings.set`         | `{operationId,setting:"open",value:boolean}` or `{operationId,setting:"sessions-per-device",value:string\|null}` | Management outcome below                                               |
+| `remote.devices.rename`       | `{operationId,clientId,name}`                                                                                    | Management outcome; existing 1–64-byte nonblank/control-free name rule |
+| `remote.devices.revoke`       | `{operationId,clientId}`                                                                                         | Management outcome                                                     |
+| `remote.management.operation` | `{operationId}`                                                                                                  | Only the caller's original management outcome, with a live grant       |
+
+A settings value is exactly `{open:boolean,source:"default"|"settings.json",
+sessionsPerDevice:string|null,sessionsPerDeviceSource:"default"|"settings.json",warning:string|null}`.
+The cap uses a canonical positive decimal string checked against the native target's `usize`
+range, without JavaScript rounding; default is `"8"`, null means off/unlimited. This wire encoding
+does not change the JSON file or CLI's numeric representation, validation or supported values.
+Warning is null or `settings.json could not be read; defaults apply`. Malformed/unreadable fallback
+reports default effective values and sources with that warning. A save does not evict current
+Sessions; the existing Session opener applies the cap on the next open.
+
+The settings view is exactly `{settings,capabilities:{settingsWrite:boolean,devicesWrite:boolean},
+readOnlyReason:null|"local_cli_required"}`. Both write capabilities represent the current server
+admission, never authorization for a later effect. With no current designation they are false and
+the reason is `local_cli_required`.
+
+A device summary is exactly `{clientId,name,kind,issuedAtMs,expiresAtMs,revision,revoked}`, where kind
+is `browser`, `addon` or `cli`, expiry is null or a JSON-safe millisecond integer and revision is
+positive and JSON-safe. A list row adds exactly `{thisBrowser:boolean,liveSessionCount:integer,
+lastActivityAtMs:null|integer}`. The page is `{devices:[row],nextCursor:null|string}`. Store performs
+UUID-keyset ordering and SQL limit+one-lookahead before materializing rows. Its 98-character
+base64url cursor encodes only caller UUID and last UUID, is checked against the admitted caller,
+and grants no authority. It is not a snapshot lease; concurrent grant changes may affect later
+pages. The Session owner counts only live current-revision Sessions for the bounded page. Latest
+activity is observed machine wall time minus the smallest monotonic idle duration; no live Session
+means count zero and null activity. These are disposable observations, not persisted presence.
+No keys, fingerprints, cookies, Session identifiers, origins, agent grants or core inventory appear.
+
+A management outcome is one of:
+
+- `{operationId,state:"committed",result:{settings}|{device:summary},sessionEnded:boolean}`;
+- `{operationId,state:"refused",reason:<typed Remote refusal code>}`;
+- `{operationId,state:"unknown",reason:"effect_outcome_unconfirmed"}`.
+
+A setting result contains settings; device mutations contain only the target summary.
+`sessionEnded` means the caller's old Session lost authority through a revision/revoke change,
+not proof that a physical TCP socket has closed. Exact-repeat rename preserves the revision and
+returns false. Repeated local revoke preserves the existing revoked revision. Device effects and
+committed receipts share one immediate SQLite transaction; post-commit cleanup/events reuse the
+existing device and Session owners after releasing live/Store locks. A cleanup, signing or transport
+failure cannot remove that receipt or turn committed work into no effect.
+
+Typed signed errors retain `{error:{code,message,limit?,retryAfterMs?,settingsUrl?}}` admission
+conventions. `REMOTE_MANAGEMENT_READ_ONLY` refuses non-designated effects before management intent
+adoption, with no setting/device effects or management holds; ordinary sequence/budget/audit
+accounting remains. `REMOTE_MANAGEMENT_UNAVAILABLE` means an original receipt is missing,
+other-device or outside its deadline, never proof of no effect. `REMOTE_SETTINGS_UNAVAILABLE` is
+used only for a proved failure before the settings-file first-touch boundary. Existing input,
+rate, live-session, intent-conflict, device-not-found/revoked and state-unavailable codes retain
+relevant meanings. Read refusals are SDK `RefusalError`; mutation signed refusals are refused
+outcomes. Unknown transport, timeout or unverifiable acknowledgment raises `ClientError` with
+original operationId. A verified generic state, ownership or response-publication failure is
+phase-ambiguous after publication: the SDK raises `ClientError("outcome_unconfirmed")`, retaining
+that original ID and unknown outcome. `REMOTE_STATE_UNAVAILABLE`, `REMOTE_MANAGEMENT_UNAVAILABLE`,
+and generic closed/ended/core failures cannot prove that the mutation had no effect. Ordinary
+reads retain `RefusalError`; agent operation behavior is unchanged. Only explicit input, scope,
+rate, intent conflict, management read-only/capacity, device not-found/revoked and proved
+settings-before-touch refusal codes establish a pre-effect management refusal. A post-publication HTTP 404 alone is unknown, not a signed zero-effect
+refusal. A prior ended Session that prevented publication is a refused unsent attempt.
+
+Store persists exact intent digest, original caller UUID, grant revision, immutable adoption time,
+30-day deadline and outcome. Management and agent operation IDs cannot collide. Identical
+retained intent returns only its existing outcome; changed operation/input/caller conflicts.
+No lookup renews the deadline. Expired identity rows remain replay tombstones; capacity is bounded
+at 1000 per caller and 4000 installation-wide, refusing new adoption rather than evicting an
+unknown ID into eligibility. These are cumulative retained-identity limits, not a rolling
+30-day allowance. The 30-day horizon
+only bounds outcome availability: expiry does not physically delete identity/receipt rows or
+make their IDs eligible again. `REMOTE_MANAGEMENT_CAPACITY` is a signed pre-effect refusal with
+no adoption/effect. Existing live original-ID reads remain available at capacity. Show the local
+`tmt remote settings` / `tmt remote devices` path without retrying, resetting the database or
+allocating replacement IDs; preserve any previous unknown outcome. Compaction/reclamation is
+a deferred improvement.
+
+Settings adoption and file publication are not one transaction. Persist the original unknown
+receipt first, then recheck current Session/grant/key/revision/designation at the effect fence.
+Lock order is live Session, Store immediate transaction, then settings.lock; no settings-lock
+holder acquires live/Store. The shared settings writer marks uncertainty before the first
+`Layout::file` creation or truncation. Only durable writer success and receipt settlement report
+committed. A later file write/sync or receipt failure retains unknown. Crash, pending adoption and
+settlement failure never authorize another setter; current values cannot establish that original
+operation's outcome. Explicit original-ID lookup is read-only.
+
+Local owner commands `tmt remote devices designate <client-id>` and
+`tmt remote devices undesignate` select/remove the persisted machine/device/key designation
+through the existing control socket or stopped serve lock. Designation validates a live browser
+and exact current/remembered door origin. It is never automatic or remotely callable. Revoke or
+same-key re-pair clears it; rename retains identity while ending old-revision Sessions. The
+optional pairing-confirmation choice is not implemented; later local designation
+is available without another browser ceremony.
+
+The SDK `management(session)` exposes `settings`, `devices`, `set`, `rename`, `revoke` and
+`operation(originalId)` over the same serialized verified channel as agent operations. It opens
+nothing and never resends a mutation or creates a replacement mutation ID after unknown outcome.
+Freeze the original input/ID independently of subsequent form editing.
+
+After self-rename, a still-live grant may explicitly open a fresh verified Session and read only
+its original receipt by ID, without replay. After a lost self-revoke acknowledgment, make one
+read-only fresh-admission attempt with the same paired identity and the current trusted door
+descriptor. If admitted, read the original operation. If refused, show loss of current access
+separately from an accurate unknown outcome and the local `tmt remote devices` confirmation path;
+do not assert committed revoke, mint an ID, resend or offer a mutation retry. Transport error,
+stale/unavailable descriptor and malformed/unverified response remain unknown/unconfirmed, not
+proof of permanent grant loss or committed revoke. Expiry, local revoke, re-pair and key change
+retain existing refusal semantics. Designation loss with a still-live grant permits only ordinary
+own-receipt reading. No historical/revoked-key admission, capture-based capability, new nonce
+framework, agent/held-work recovery exception or general recovery route exists.
+
+### Remote settings page
+
+`GET /settings` serves the Remote-owned shared-presentation page with the existing page CSP,
+origin checks and no-store policy. `/sdk/settings-v1.js` imports `/sdk/remote-v1.js`; it does not
+embed another signer/channel implementation or add public SDK exports. The three sections are
+Browser opening, Session limit per device and Paired devices. Effective values, sources, warning
+and write capabilities come from admitted server reads. The shared package supplies checked CSS
+and static presentation contracts; Remote owns host layout and native select controls. Shared
+presentation never supplies authority or management outcomes.
+
+An untouched unset/default cap remains unset; explicit off is unlimited and custom positive caps
+remain decimal text. The default option describes the missing key and does not invent a reset
+setter. Existing CLI setters do not remove keys. A custom 8 is explicit configuration, distinct
+from an unset default. Ordinary, effect and recovery refreshes retain the current device-page cursor.
+Device-name forms remain bounded to that page; navigation is refused with the unsent name focused
+until it is saved or explicitly restored to the admitted name, so navigation cannot discard a draft.
+Form drafts survive asynchronous outcomes and read refreshes. Non-designated
+browsers retain visible values and persistent local-CLI read-only guidance with disabled mutation
+controls. Read-only accessibility descriptions follow admitted editability on every render/refresh;
+editable forms and device-name inputs do not reference hidden read-only guidance. Independent
+session-limit help remains associated in both roles. Unknown or capacity outcomes disable further mutation submission without discarding
+original input/ID or unsent draft text; no mutation retry/reset/replacement-ID action exists.
+
+The page keeps current access status separate from committed/refused/unknown outcome. Explicit
+original-outcome reading makes at most one fresh admission attempt, then only the original lookup.
+`reopenSession(previousSession)` binds to the existing paired identity/public trust pins and rejects
+re-pair/key replacement before any descriptor read or admission. The stored machine pin must be a
+32-byte Uint8Array equal in every byte to the verified prior Session pin; empty, shortened or
+overlong pins are terminal current-access refusals before network access. It reads the current door descriptor and, after an
+HTTP admission refusal, rechecks that descriptor without a second admission. Changed/unavailable/
+malformed descriptors and transport/unverified replies remain unconfirmed. A refused admission
+against the unchanged trusted descriptor shows current access loss; it never proves the original
+mutation committed or permanent grant loss. No captured key is persisted as a recovery capability.
+The existing no-argument reopen behavior and ordinary agent operations remain unchanged.
 
 ### Browser entry
 
@@ -1115,15 +1276,15 @@ decision, so decisions are delivered while workers wait for them.
 **Request** `{"version":1,"kind":"request","generation":<uuid>,"requestId":<counter>,"origin":<origin>,"method":<method>,"input":<input>}`,
 with `origin` either `{"kind":"local-extension"}` or `{"kind":"mounted","originId":<uuid>}`.
 
-| `method`          | `input` members, in order                                                                                  |
-| ----------------- | ---------------------------------------------------------------------------------------------------------- |
-| `objects.config`  | `namespace`, `policyInput`                                                                                 |
-| `objects.begin`   | `transferId`, `namespace`, `opaqueKey`, `policyInput`, `payloadSha256`, `payloadBytes`                     |
-| `objects.part`    | `transferId`, `index`, `bytes`                                                                             |
-| `objects.commit`  | `transferId`                                                                                               |
-| `objects.status`  | `transferId`, `namespace`, `policyInput`                                                                   |
-| `objects.read`    | `namespace`, `opaqueKey`, `policyInput`, `payloadSha256`, `payloadBytes`, `offset`, `count`                |
-| `objects.discard` | `transferId`                                                                                               |
+| `method`          | `input` members, in order                                                                   |
+| ----------------- | ------------------------------------------------------------------------------------------- |
+| `objects.config`  | `namespace`, `policyInput`                                                                  |
+| `objects.begin`   | `transferId`, `namespace`, `opaqueKey`, `policyInput`, `payloadSha256`, `payloadBytes`      |
+| `objects.part`    | `transferId`, `index`, `bytes`                                                              |
+| `objects.commit`  | `transferId`                                                                                |
+| `objects.status`  | `transferId`, `namespace`, `policyInput`                                                    |
+| `objects.read`    | `namespace`, `opaqueKey`, `policyInput`, `payloadSha256`, `payloadBytes`, `offset`, `count` |
+| `objects.discard` | `transferId`                                                                                |
 
 `namespace` and `opaqueKey` are 32 bytes (43 characters). `policyInput` is opaque, at most 2,048 decoded bytes (the
 bound of the backend's policy binding). `payloadBytes` is at most 12,582,912. `bytes` of a part is 1 to 32,768 decoded
@@ -1135,14 +1296,14 @@ remainder. `count` is 1 to 32,768, and `offset` is below `payloadBytes` (an empt
 has exactly one of `ok` and `error`. `transferId` repeats the original transfer on every result and error of `begin`,
 `part`, `commit`, `status` and `discard`, and is absent for `config` and `read`. `ok` carries a `result` tag:
 
-| `result`    | Further members                                                                                      | Answers                  |
-| ----------- | ---------------------------------------------------------------------------------------------------- | ------------------------ |
-| `config`    | `projection` (`browser` or `local`), `backend`, `capabilities`, `limits`                               | `config`                 |
-| `pending`   | `nextIndex`, `received`, and `expiresAtMs` only for `status`                                          | `begin`, `status`        |
-| `progress`  | `nextIndex`, `received`                                                                              | `part`                   |
-| `committed` | `opaqueKey`, `payloadSha256`, `payloadBytes`                                                         | `begin`, `commit`, `status` |
+| `result`    | Further members                                                                                               | Answers                      |
+| ----------- | ------------------------------------------------------------------------------------------------------------- | ---------------------------- |
+| `config`    | `projection` (`browser` or `local`), `backend`, `capabilities`, `limits`                                      | `config`                     |
+| `pending`   | `nextIndex`, `received`, and `expiresAtMs` only for `status`                                                  | `begin`, `status`            |
+| `progress`  | `nextIndex`, `received`                                                                                       | `part`                       |
+| `committed` | `opaqueKey`, `payloadSha256`, `payloadBytes`                                                                  | `begin`, `commit`, `status`  |
 | `state`     | `state`: `expired`, `discarded`, `unavailable`, `unknown`, `notObserved` (`discard` answers only `discarded`) | `begin`, `status`, `discard` |
-| `read`      | `offset`, `totalBytes`, `bytes` (0 to 32,768 decoded bytes, within `totalBytes`)                       | `read`                   |
+| `read`      | `offset`, `totalBytes`, `bytes` (0 to 32,768 decoded bytes, within `totalBytes`)                              | `read`                       |
 
 A pending `status` answer carries the actual stored expiry; a pending `begin` answer has none and never invents one.
 `config` shows the server-selected backend (`{"id","source":"default","editable":false}`), its three boolean

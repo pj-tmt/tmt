@@ -687,7 +687,14 @@ fn foreground(
             Arc::clone(&store),
             session::IDLE,
         ));
-        let operations = Arc::new(Operations::new(core, Arc::clone(stop), input_limit));
+        let devices = Arc::new(Devices::new(
+            Arc::clone(&store),
+            Some(Arc::clone(&sessions)),
+        ));
+        let operations = Arc::new(
+            Operations::new(core, Arc::clone(stop), input_limit)
+                .with_management(Arc::clone(&devices)),
+        );
         let routes = Routes::new(input_limit, machine.route_prefix.clone())?
             .with_pairing(Arc::clone(&pairing))
             .with_sessions(Arc::clone(&sessions))
@@ -700,10 +707,6 @@ fn foreground(
         ));
         fence(stop)?;
         approval.cancel_pending()?;
-        let devices = Arc::new(Devices::new(
-            Arc::clone(&store),
-            Some(Arc::clone(&sessions)),
-        ));
         fence(stop)?;
         let control = Control::start(
             &serving,

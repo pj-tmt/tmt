@@ -164,6 +164,7 @@ export class Door {
   forceReplay = false;
   replyState = 'replied';
   final = '';
+  managementReply?: (operation: string, payload: Record<string, unknown>) => unknown;
   sendState = 'accepted';
   error?: {
     code: string;
@@ -273,6 +274,15 @@ export class Door {
         case 'agents.list':
           assert.deepEqual(payload, {});
           result = { identities: this.agents };
+          break;
+        case 'remote.settings.show':
+        case 'remote.settings.set':
+        case 'remote.devices.list':
+        case 'remote.devices.rename':
+        case 'remote.devices.revoke':
+        case 'remote.management.operation':
+          assert.ok(this.managementReply, 'Management fixture is explicitly configured.');
+          result = this.managementReply(body.operation as string, payload);
           break;
         default:
           assert.fail(`Unexpected operation ${String(body.operation)}`);

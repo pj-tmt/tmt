@@ -491,3 +491,74 @@ fn short_page_alias_refuses_cross_origin_requests_before_redirecting() {
         assert!(!reply.body.contains(&h.prefix));
     }
 }
+
+#[test]
+fn settings_page_and_product_script_reuse_the_same_door_policy_and_sdk() {
+    let h = Harness::new(FAST);
+    let page = get(&h, "/settings", "");
+    assert_eq!(page.status, 200);
+    assert_eq!(page.body, include_str!("../assets/settings.html"));
+    assert_eq!(
+        page.header("content-type"),
+        Some("text/html; charset=utf-8")
+    );
+    assert!(
+        page.header("content-security-policy")
+            .unwrap()
+            .contains("script-src 'self'")
+    );
+    assert_eq!(page.header("cache-control"), Some("no-store"));
+    let script = get(&h, "/sdk/settings-v1.js", "");
+    assert_eq!(script.body, include_str!("../assets/settings-v1.js"));
+    assert!(script.body.contains("from \"/sdk/remote-v1.js\""));
+    assert!(!script.body.contains("class DeviceKey"));
+    assert_eq!(
+        get(&h, "/settings", "Origin: http://127.0.0.1:1\r\n").status,
+        403
+    );
+    assert_eq!(get(&h, "/settings/extra", "").status, 404);
+    assert_eq!(
+        get(&h, "/sdk/settings.css", "").body,
+        include_str!("../assets/settings.css")
+    );
+}
+
+#[test]
+fn settings_consume_shared_classes_and_native_selects_without_a_palette() {
+    let h = Harness::new(FAST);
+    let html = get(&h, "/settings", "").body;
+    for class in [
+        "tmt-ui-header",
+        "tmt-ui-brand",
+        "tmt-ui-mark",
+        "tmt-ui-wordmark",
+        "tmt-ui-title",
+        "tmt-ui-notice",
+        "tmt-ui-notice-heading",
+        "tmt-ui-field-label",
+        "tmt-ui-field-control",
+        "tmt-ui-action-label",
+    ] {
+        assert!(html.contains(class), "missing {class}");
+    }
+    assert_eq!(html.matches("<h1 ").count(), 1);
+    assert!(html.contains("<select") && html.contains("id=\"opening\""));
+    assert!(html.contains("aria-labelledby=\"limit-custom-label\""));
+    let css = get(&h, "/sdk/settings.css", "").body;
+    for legacy in [
+        "--c-",
+        "--f-",
+        "--header-",
+        "opacity:",
+        "box-shadow:",
+        "@import",
+        "url(",
+    ] {
+        assert!(!css.contains(legacy), "second presentation owner: {legacy}");
+    }
+    assert!(
+        !css.split_whitespace()
+            .any(|word| word.starts_with('#') && word.ends_with(';')),
+        "host CSS must not declare colors"
+    );
+}

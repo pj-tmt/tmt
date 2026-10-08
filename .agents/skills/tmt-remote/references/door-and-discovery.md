@@ -89,7 +89,37 @@ an open. `settings` owns the private `settings.json` / `settings.lock` under Rem
 existing layout, independent of the database/serve lease. Missing settings use the default;
 malformed settings use it with a human warning. Setters serialize through the bounded lock.
 
-The [planned settings/device page authority](../../../../contracts/remote-channel-v1.md#remote-settings-browser-authority)
-is separate from paired channel trust and remains unimplemented. Reuse this settings owner and
-the existing device/session mutation owners when implementing it; shared presentation supplies
-no authority. Current CLI settings/device behavior is unchanged.
+The [settings/device page authority](../../../../contracts/remote-channel-v1.md#remote-settings-browser-authority)
+is separate from paired channel trust. Its native/SDK implementation reuses this settings owner and existing
+device/session mutation owners; shared presentation supplies no authority. Settings semantics and
+agent grants remain unchanged.
+
+## Management implementation
+
+The [fixed management protocol](../../../../contracts/remote-channel-v1.md#remote-management-protocol)
+owns exact wire shapes, immutable outcome/deadline, first-touch uncertainty and recovery policy.
+`management` composes the existing JSON settings writer and Store transaction-local device helpers.
+Store owns local designation and bounded immutable management receipts. Device effects and receipts
+commit in one SQLite transaction; `Devices` owns Session cleanup and events after releasing live/Store
+locks. JSON settings and SQLite receipts are separate durability boundaries: uncertain writes are
+never reapplied by receipt lookup. Live grant admission is required for all reads. Self-rename can reopen then read the original operation. Lost self-revoke acknowledgment
+gets one fresh read-only admission attempt; refusal shows access loss plus unknown outcome and
+`tmt remote devices`, never a resend or a committed-revoke inference. No old-key exception exists.
+The shared-presentation `/settings` page composes the SDK for admitted forms, frozen outcomes and
+original-ID reading; its separate page bundle imports the single served SDK. Shared CSS supplies presentation only. Management identity
+limits are cumulative: 1000 per caller, 4000 installation-wide, including expired rows. The
+30-day deadline bounds outcome availability, not row deletion. Capacity refuses new adoption
+before effects; show the local settings/devices CLI path without automatic retries or storage
+reset, and preserve any original unknown outcome. Compaction is deferred.
+
+Focused native evidence includes `cargo test --offline --locked -p tmt-remote` (management storage,
+signed admission, settings fault, deterministic management process interruption, CLI/state and existing lifecycle), plus SDK package check/test/build
+and regenerated-byte equality. Use the existing isolated roots and the worktree-owned target.
+
+The management interruption test runs the same effect owner in an owned child, reports actual
+adoption/writer/transaction milestones, then the parent SIGKILLs and joins it before reopening
+the root. Production uses a no-op observer; there is no runtime fault flag. Pending identity,
+file uncertainty and device transaction rollback/commit are verified independently. The browser
+fixture also kills/restarts its disposable serve after a signed management commit but before
+acknowledgment, then verifies a fresh live Session's original receipt and designation. These are
+process-interruption tests, not power-loss or complete product/release acceptance.

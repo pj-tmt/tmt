@@ -52,6 +52,18 @@ impl OwnerDoor {
         Self::with_limits(scopes, mode, "all".into(), None)
     }
     fn with_limits(scopes: Vec<String>, mode: &str, agents: String, expiry: Option<u64>) -> Self {
+        Self::with_device(scopes, mode, agents, expiry, "cli")
+    }
+    fn browser() -> Self {
+        Self::with_device(Vec::new(), "hold", "all".into(), None, "browser")
+    }
+    fn with_device(
+        scopes: Vec<String>,
+        mode: &str,
+        agents: String,
+        expiry: Option<u64>,
+        kind: &str,
+    ) -> Self {
         let root = AdmissionRoot::new();
         let layout = Layout::open(&root.0).unwrap();
         let serving = layout.serve_lock().unwrap();
@@ -64,8 +76,13 @@ impl OwnerDoor {
         let grant = Grant {
             client_id: uuid_v4().unwrap(),
             public_key: key.verifying_key().to_bytes(),
-            kind: "cli".into(),
-            origin: "cli".into(),
+            kind: kind.into(),
+            origin: if kind == "browser" {
+                "http://127.0.0.1:32100"
+            } else {
+                "cli"
+            }
+            .into(),
             name: "Test device".into(),
             agents,
             scopes,
@@ -106,7 +123,7 @@ impl OwnerDoor {
         } else {
             "request"
         };
-        let mut wire = json!({"version":1,"profile":"local-v1","kind":kind,"id":id,"correlationId":null,"machineId":self.machine,"windowId":self.window,"clientId":self.grant.client_id,"sessionId":session,"sequence":sequence,"timestampMs":now,"origin":"cli","operation":operation,"payload":canonical::base64url(payload)});
+        let mut wire = json!({"version":1,"profile":"local-v1","kind":kind,"id":id,"correlationId":null,"machineId":self.machine,"windowId":self.window,"clientId":self.grant.client_id,"sessionId":session,"sequence":sequence,"timestampMs":now,"origin":self.grant.origin,"operation":operation,"payload":canonical::base64url(payload)});
         self.resign(&mut wire);
         wire
     }
@@ -122,9 +139,9 @@ impl OwnerDoor {
         let wire = self.wire("new", "0", "session.open", payload.as_bytes());
         let opened = self
             .sessions
-            .open(None, &serde_json::to_vec(&wire).unwrap())
+            .open(self.request_origin(), &serde_json::to_vec(&wire).unwrap())
             .unwrap();
-        assert!(opened.cookie.is_none());
+        assert_eq!(opened.cookie.is_some(), self.grant.kind == "browser");
         let reply: Value = serde_json::from_slice(&opened.response).unwrap();
         self.verify_reply(&reply, &wire);
         assert_eq!(reply["sequence"], "1");
@@ -145,10 +162,13 @@ impl OwnerDoor {
         .unwrap();
         strict_json(&payload).unwrap()
     }
+    fn request_origin(&self) -> Option<&str> {
+        (self.grant.kind == "browser").then_some(self.grant.origin.as_str())
+    }
     fn admit(&self, wire: &Value) -> Result<MessagePermit, MessageRefusal> {
         self.sessions.admit(
             BindingAction::Append,
-            None,
+            self.request_origin(),
             &serde_json::to_vec(wire).unwrap(),
             1024,
         )
@@ -818,3 +838,9 @@ fn default_limit_is_eight_and_eviction_reports_the_active_limit() {
         }
     }
 }
+
+#[path = "admission/management.rs"]
+mod management;
+
+#[path = "support/core.rs"]
+mod core_fixture;

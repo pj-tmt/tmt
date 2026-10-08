@@ -1,6 +1,13 @@
 import { channelFor } from './session-channel.js';
 import { RefusalError } from './operations.js';
 export { operations, ClientError, RefusalError } from './operations.js';
+export { management } from './management.js';
+export type {
+  RemoteManagement,
+  ManagementOutcome,
+  RemoteSettings,
+  DevicePage,
+} from './management.js';
 export type {
   ClientErrorCode,
   RemoteRefusalCode,
@@ -88,19 +95,66 @@ async function paired(): Promise<{ record: Stored; key: DeviceKey }> {
 }
 
 /** Reopen this browser's door session for the running remote; no owner step. */
-export async function reopenSession(): Promise<Session> {
+export async function reopenSession(previous?: Session): Promise<Session> {
   const { record, key } = await paired();
+  if (previous) {
+    const old = channelFor(previous);
+    if (!old) throw new TypeError('Use a verified previous Session.');
+    if (
+      record.paired.clientId !== old.paired.clientId ||
+      record.paired.machineId !== old.paired.machineId ||
+      record.paired.origin !== old.paired.origin ||
+      !(record.paired.machinePublicKey instanceof Uint8Array) ||
+      record.paired.machinePublicKey.length !== 32 ||
+      old.paired.machinePublicKey.length !== 32 ||
+      record.paired.machinePublicKey.some(
+        (byte, index) => byte !== old.paired.machinePublicKey[index],
+      ) ||
+      record.publicKey.some((byte, index) => byte !== old.key.publicKey()[index])
+    ) {
+      throw new RefusalError('REMOTE_SESSION_ENDED');
+    }
+  }
   const current = await door();
+  validateDoor(current, record);
+  let refused = false;
+  try {
+    return await openSession(
+      { ...record.paired, address: current.address },
+      key,
+      current.windowId,
+      async (url, init) => {
+        const response = await fetch(url, init);
+        refused = response.status === 404;
+        return response;
+      },
+    );
+  } catch (error) {
+    if (!refused || !previous) throw error;
+    // A restart or stale descriptor is uncertainty, not current access refusal.
+    // This is another descriptor read, never another admission or mutation.
+    const latest = await door();
+    validateDoor(latest, record);
+    if (latest.address !== current.address || latest.windowId !== current.windowId) {
+      throw new Error('The door descriptor changed during admission.');
+    }
+    throw new RefusalError('REMOTE_SESSION_ENDED');
+  }
+}
+function validateDoor(current: Door, record: Stored): void {
   if (current.machineId !== record.paired.machineId)
     throw new Error('Paired with another machine.');
-  // A schema migration may replace the non-credential route path while the origin/grant survive.
   if (
+    typeof current.windowId !== 'string' ||
+    !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(
+      current.windowId,
+    ) ||
+    typeof current.address !== 'string' ||
     !current.address.startsWith(`${location.origin}/r/`) ||
     !/^[a-z2-7]{16}$/.test(current.address.slice(`${location.origin}/r/`.length))
   ) {
-    throw new Error('The door advertised an invalid address.');
+    throw new Error('The door advertised an invalid descriptor.');
   }
-  return openSession({ ...record.paired, address: current.address }, key, current.windowId);
 }
 
 type EntryPairing =
