@@ -1,13 +1,19 @@
 import { readFileSync } from 'node:fs';
 import { expect, it, vi } from 'vite-plus/test';
 import { Fold } from '../src/fold.js';
-import { WRITE_TAIL_BYTES, validateProjection, type FoldCommand } from '../src/fold-protocol.js';
+import {
+  WRITE_TAIL_BYTES,
+  validateProjection,
+  type DecoderCommand,
+  type FoldCommand,
+} from '../src/fold-protocol.js';
+import { contentBase } from './content-base.js';
 
 it('terminates a stalled decoder and rejects further use without publishing output', async () => {
   vi.useFakeTimers();
   const worker = { postMessage: vi.fn(), terminate: vi.fn(), onerror: null, onmessage: null };
   const fold = new Fold(worker as unknown as Worker);
-  const pending = fold.run({ type: 'prepare', source: 'uncommitted' });
+  const pending = fold.run({ type: 'apply', updates: [] });
   const rejection = expect(pending).rejects.toThrow('time budget');
   await expect(fold.prepareContent('second', { source: '', title: '', own: {} })).rejects.toThrow(
     'unavailable',
@@ -15,7 +21,7 @@ it('terminates a stalled decoder and rejects further use without publishing outp
   await vi.advanceTimersByTimeAsync(2000);
   await rejection;
   expect(worker.terminate).toHaveBeenCalledOnce();
-  await expect(fold.run({ type: 'prepare', source: 'late' })).rejects.toThrow('unavailable');
+  await expect(fold.run({ type: 'apply', updates: [] })).rejects.toThrow('unavailable');
   vi.useRealTimers();
 });
 it('permits only one in-flight decoder and clears it on route cleanup', async () => {
@@ -134,14 +140,14 @@ it('the actual Worker preserves both independent baseline encodings through sour
       vi.resetModules();
       const surface = {
         onmessage: null as unknown as (event: {
-          data: { id: number; command: FoldCommand };
+          data: { id: number; command: DecoderCommand };
         }) => Promise<void>,
         postMessage: vi.fn(),
       };
       vi.stubGlobal('self', surface);
       try {
         await import('../src/fold.worker.js');
-        const send = async (command: FoldCommand) => {
+        const send = async (command: DecoderCommand) => {
           surface.postMessage.mockClear();
           await surface.onmessage({ data: { id: 1, command } });
           return surface.postMessage.mock.calls[0][0];
@@ -165,10 +171,14 @@ it('the actual Worker preserves both independent baseline encodings through sour
         });
         expect(baseline.error).toBeUndefined();
         expect(baseline.creationRecipient).toEqual(vector.creationRecipient);
-        const edit = await send({ type: 'prepare', source: '<p>Later source</p>' });
+        const edit = await send({
+          type: 'prepare-content',
+          source: '<p>Later source</p>',
+          base: contentBase(baseline),
+        });
         expect(edit.error).toBeUndefined();
-        expect(edit.creationRecipient).toEqual(vector.creationRecipient);
-        const applied = await send({ type: 'apply', updates: [edit.update] });
+        expect(edit.projection.creationRecipient).toEqual(vector.creationRecipient);
+        const applied = await send({ type: 'apply', updates: edit.updates });
         expect(applied.source).toBe('<p>Later source</p>');
         expect(applied.creationRecipient).toEqual(vector.creationRecipient);
       } finally {

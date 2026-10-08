@@ -208,7 +208,6 @@ export class Fold {
         writers,
         commit:
           command.type !== 'check' &&
-          command.type !== 'prepare' &&
           command.type !== 'prepare-own' &&
           command.type !== 'prepare-content',
       };

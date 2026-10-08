@@ -14,9 +14,13 @@ import { SessionEndedError, SessionEvictedError, type RemoteClient } from './ask
 import { Admission } from './admission.js';
 import { Connection } from './connection.js';
 import { Writer } from './writer.js';
+import { SaveOutcomeUnknown, SaveTooLarge, settled, type SaveResult } from './save.js';
 import { prepareExport, hex, type ExportBundle } from './export.js';
 import { text } from './strings.js';
 import { RecoveryRequiredError } from './session-recovery.js';
+
+/** How long a lost save waits for the page to reopen, and for the saved source to show. */
+const SAVE_REOPEN_MS = 20_000;
 
 export interface LiveSession {
   registration: Registration;
@@ -564,17 +568,47 @@ export class Live implements PageBinding {
       });
     return this.#recovering;
   }
+  /** Save the whole source through native publication. A lost reply is settled by exactly one
+   * status request on the reopened connection; the save is never sent again. */
   async edit(source: string, base: string) {
     if (this.#closed || this.#error) throw new Error('Page editing unavailable');
     const c = await this.#current;
-    const prepared = await c.run(() => {
-      requireValue(base === this.#admitted.source);
-      return c.fold.run({ type: 'prepare', source, base });
-    });
+    requireValue(base === this.#admitted.source);
+    const operationId = crypto.randomUUID();
+    let result: SaveResult;
     try {
-      await this.#writer.submit(prepared.update);
-    } finally {
-      prepared.update.fill(0);
+      result = await c.save(operationId, base, source);
+    } catch (error) {
+      if (!(error instanceof Error) || error instanceof SaveTooLarge || c.active) throw error;
+      result = await this.#settleLost(c, operationId);
+    }
+    settled(result);
+    await this.#shows(source);
+  }
+  async #settleLost(lost: Connection, operationId: string): Promise<SaveResult> {
+    try {
+      const next = await this.#reopened(lost);
+      return await next.saveStatus(operationId);
+    } catch {
+      throw new SaveOutcomeUnknown(operationId);
+    }
+  }
+  /** The connection Live reopens after `lost` failed, once it is caught up. */
+  async #reopened(lost: Connection): Promise<Connection> {
+    const deadline = Date.now() + SAVE_REOPEN_MS;
+    while (!this.#closed && !this.#error && Date.now() < deadline) {
+      const next = await this.#current.catch(() => null);
+      if (next && next !== lost && next.active) return next;
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    throw new Error('Page connection unavailable');
+  }
+  /** The admitted page shows the saved source, so the editor's base moves with it. */
+  async #shows(source: string) {
+    const deadline = Date.now() + SAVE_REOPEN_MS;
+    while (this.#admitted.source !== source && !this.#closed && !this.#error) {
+      if (Date.now() >= deadline) return;
+      await new Promise((resolve) => setTimeout(resolve, 25));
     }
   }
   close() {

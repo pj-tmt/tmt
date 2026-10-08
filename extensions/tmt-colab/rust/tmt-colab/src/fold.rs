@@ -14,7 +14,7 @@ use std::{
     sync::Arc,
 };
 use tmt_colab_model::{
-    certificate, object,
+    certificate, crypto, object,
     payload::{self, Payload},
     statement, stream_cut, values,
 };
@@ -429,10 +429,15 @@ impl Snapshot {
         key: &Keyring,
         page: &str,
         edit: crate::decoder::ContentEdit<'_>,
+        base_sha256: Option<&[u8; 32]>,
         decoder: &mut Decoder,
     ) -> Result<crate::decoder::PreparedContent> {
         let input = self.materialization_input(key, page, decoder, &BTreeMap::new())?;
         let base = input.materialize(page, decoder, None)?;
+        // A caller that edited from a source it saw refuses to overwrite a different one.
+        if base_sha256.is_some_and(|d| *d != crypto::digest(base.source.as_bytes())) {
+            return Err(crate::page::Fault::StaleBase.into());
+        }
         let expected_base = serde_json::json!({"html":base.source,"meta":base.meta});
         let refs = input.updates.iter().map(Vec::as_slice).collect::<Vec<_>>();
         let prepared = decoder.prepare_content_batch(

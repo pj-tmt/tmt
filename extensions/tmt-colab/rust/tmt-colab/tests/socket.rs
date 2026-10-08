@@ -67,7 +67,10 @@ fn registration_body(id: &str) -> Vec<u8> {
 const UPGRADE: &str = "Connection: Upgrade\r\nUpgrade: websocket\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Protocol: colab-sync-v1\r\n";
 
 static NEXT: AtomicUsize = AtomicUsize::new(0);
+/// A test parks a save's preparation here, with the sync lock free, until it releases it.
+type SaveGate = Arc<Mutex<Option<(std::sync::mpsc::Sender<()>, std::sync::mpsc::Receiver<()>)>>>;
 struct Running {
+    save_gate: SaveGate,
     registration: Arc<Mutex<Registration>>,
     root: PathBuf,
     path: PathBuf,
@@ -92,12 +95,25 @@ impl Running {
         let space = key.space_id.clone();
         let store = Store::open(&layout).unwrap();
         store.create_page(PAGE).unwrap();
+        let save_gate: SaveGate = Arc::default();
+        let gate = Arc::clone(&save_gate);
+        let save_root = root.clone();
         let mut registration = Registration::with_decoder_config(
             store,
             key,
             support::decoder_config(env!("CARGO_BIN_EXE_tmt-colab").into()),
         )
-        .unwrap();
+        .unwrap()
+        .with_save_source(Arc::new(move || {
+            if let Some((entered, release)) = gate.lock().unwrap().take() {
+                entered.send(()).unwrap();
+                release.recv_timeout(Duration::from_secs(30)).unwrap();
+            }
+            tmt_colab::page::save::open_source(
+                &save_root,
+                support::decoder_config(env!("CARGO_BIN_EXE_tmt-colab").into()),
+            )
+        }));
         for id in [DEVICE, OTHER] {
             registration
                 .register(Some(&context(id)), &registration_body(id), now())
@@ -118,6 +134,7 @@ impl Running {
         let flag = Arc::clone(&stop);
         let worker = std::thread::spawn(move || socket.run(&flag).unwrap());
         Self {
+            save_gate,
             registration,
             root,
             path,
@@ -3339,4 +3356,333 @@ fn archived_owner_pages_remain_readable_but_deny_all_publication() {
             .unwrap(),
         0
     );
+}
+
+// ---- Browser Save over the owner-authenticated sync socket (#2032) ----
+
+fn sha(bytes: &[u8]) -> String {
+    values::encode_binary(&tmt_colab_model::crypto::digest(bytes))
+}
+/// A source no compressor can shrink, so a size really is that size on the wire.
+fn distinct(bytes: usize, seed: &str) -> String {
+    let mut out = String::new();
+    let mut counter = 0u64;
+    while out.len() < bytes {
+        out.push_str(&sha(format!("{seed}:{counter}").as_bytes()).replace(['-', '_'], "a"));
+        counter += 1;
+    }
+    out.truncate(bytes);
+    out
+}
+impl Running {
+    /// The frames of one save: inline when it fits one frame, else a reference and its chunks.
+    fn save_frames(&self, operation: &str, base: &str, source: &str) -> Vec<Value> {
+        let bytes = source.as_bytes();
+        let hash = sha(bytes);
+        let fields = |source: Value| {
+            json!({"operationId":operation,"baseSha256":sha(base.as_bytes()),
+                "sourceSha256":hash,"source":source})
+        };
+        if bytes.len() <= limits::CHUNK_BYTES {
+            return vec![self.frame("save", fields(json!(values::encode_binary(bytes))))];
+        }
+        let object = hash_hex(bytes);
+        let count = bytes.len().div_ceil(limits::CHUNK_BYTES);
+        let mut frames = vec![self.frame("save", fields(json!({"objectId":object})))];
+        for (index, chunk) in bytes.chunks(limits::CHUNK_BYTES).enumerate() {
+            frames.push(self.frame(
+                "chunk",
+                json!({"objectId":object,"envelopeHash":hash,"index":index,"count":count,
+                    "bytes":values::encode_binary(chunk)}),
+            ));
+        }
+        frames
+    }
+    fn save(
+        &self,
+        peer: &mut WebSocket<UnixStream>,
+        operation: &str,
+        base: &str,
+        source: &str,
+    ) -> (Value, Vec<Value>) {
+        for frame in self.save_frames(operation, base, source) {
+            send(peer, frame);
+        }
+        receive_until(peer, "saveresult")
+    }
+}
+fn hash_hex(bytes: &[u8]) -> String {
+    tmt_colab_model::crypto::digest(bytes)
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect()
+}
+/// The first frame of `kind`, and every other frame that came before it.
+fn receive_until(peer: &mut WebSocket<UnixStream>, kind: &str) -> (Value, Vec<Value>) {
+    let mut others = Vec::new();
+    loop {
+        let frame = receive(peer);
+        if frame["type"] == kind {
+            return (frame, others);
+        }
+        others.push(frame);
+    }
+}
+fn native_source(layout: &tmt_colab::keyring::Layout, key: &Keyring) -> String {
+    let store = Store::read(layout).unwrap();
+    let mut decoder = tmt_colab::decoder::Decoder::with_config(support::decoder_config(
+        env!("CARGO_BIN_EXE_tmt-colab").into(),
+    ))
+    .unwrap();
+    let source = tmt_colab::page::read(&store, key, PAGE, &mut decoder)
+        .unwrap()
+        .source;
+    store.close().unwrap();
+    source
+}
+const SAVE_ONE: &str = "50000000-0000-4000-8000-000000000001";
+const SAVE_TWO: &str = "50000000-0000-4000-8000-000000000002";
+const SAVE_THREE: &str = "50000000-0000-4000-8000-000000000003";
+
+#[test]
+fn a_browser_save_commits_as_the_root_local_writer_fans_out_replays_and_answers_status() {
+    let (server, layout, key, mut first) = publish_fixture();
+    let mut second = server.peer(OTHER);
+    hello(&server, &mut second, OTHER);
+    let source = "<p>Saved by the browser 🐈</p>";
+    let (result, before) = server.save(&mut first, SAVE_ONE, "", source);
+    assert!(before.is_empty(), "{before:?}");
+    assert_eq!(result["state"], "committed", "{result}");
+    assert_eq!(result["operationId"], SAVE_ONE);
+    let revision = result["revision"].as_str().unwrap().to_owned();
+    // Every subscriber gets the broadcast; its author is the root-local writer, not a browser.
+    let broadcast = receive(&mut second);
+    assert_eq!(broadcast["type"], "broadcast");
+    // The author is the root-local writer's stream, never one of the browser devices.
+    let author = broadcast["streamId"].as_str().unwrap();
+    assert!(author != DEVICE && author != OTHER, "{broadcast}");
+    assert_eq!(
+        broadcast["chains"][0]["deviceId"].as_str(),
+        Some(author),
+        "{broadcast}"
+    );
+    assert_eq!(receive(&mut first)["type"], "broadcast");
+    assert_eq!(native_source(&layout, &key), source);
+    let store = Store::read(&layout).unwrap();
+    assert_eq!(
+        tmt_colab::page::revision(&store, &key, PAGE).unwrap(),
+        revision
+    );
+    store.close().unwrap();
+    // The same source again is a no-op under a fresh operation ID: nothing is published.
+    let (again, _) = server.save(&mut first, SAVE_TWO, source, source);
+    assert_eq!(again["state"], "unchanged", "{again}");
+    // An operation ID that already committed refuses different bytes, with no state change.
+    let (reused, _) = server.save(&mut first, SAVE_ONE, source, "<p>Another source</p>");
+    assert_eq!(reused["state"], "rejected", "{reused}");
+    assert_eq!(reused["code"], "COLAB_OPERATION_CONFLICT", "{reused}");
+    assert_eq!(native_source(&layout, &key), source);
+    // A lost reply is resolved by one status request on the original operation.
+    for (operation, state) in [(SAVE_ONE, "committed"), (SAVE_THREE, "absent")] {
+        send(
+            &mut first,
+            server.frame("savestatus", json!({"operationId":operation})),
+        );
+        let (status, _) = receive_until(&mut first, "saveresult");
+        assert_eq!(status["state"], state, "{status}");
+        assert_eq!(status["operationId"], operation);
+        if state == "committed" {
+            assert_eq!(status["revision"], revision.as_str());
+        }
+    }
+    // Exactly one commit's broadcast reached the other tab.
+    second.send(Message::Ping(vec![1].into())).unwrap();
+    assert!(matches!(second.read().unwrap(), Message::Pong(_)));
+}
+
+impl Running {
+    /// What a browser sees of a save: the reply on its live connection or, when a wide fan-out
+    /// made the server ask it to resync first, the answer to one status request after it
+    /// reconnects. Either way the original operation is answered exactly once.
+    fn saved_or_resynced(
+        &self,
+        peer: &mut WebSocket<UnixStream>,
+        operation: &str,
+        base: &str,
+        source: &str,
+    ) -> (Value, bool) {
+        for frame in self.save_frames(operation, base, source) {
+            send(peer, frame);
+        }
+        loop {
+            match peer.read() {
+                Ok(Message::Text(text)) => {
+                    let frame: Value = serde_json::from_str(&text).unwrap();
+                    if frame["type"] == "saveresult" {
+                        return (frame, false);
+                    }
+                }
+                Ok(Message::Close(_)) | Err(_) => break,
+                Ok(_) => {}
+            }
+        }
+        let mut again = self.peer(DEVICE);
+        again
+            .get_ref()
+            .set_read_timeout(Some(Duration::from_secs(60)))
+            .unwrap();
+        send(
+            &mut again,
+            self.frame("savestatus", json!({"operationId":operation})),
+        );
+        (receive_until(&mut again, "saveresult").0, true)
+    }
+}
+
+#[test]
+fn a_one_and_a_half_mib_browser_save_uploads_in_chunks_and_every_peer_follows() {
+    let (server, layout, key, mut first) = publish_fixture();
+    let mut second = server.peer(OTHER);
+    hello(&server, &mut second, OTHER);
+    // A large preparation in a debug build outlasts the fixture's three-second read timeout.
+    for peer in [&first, &second] {
+        peer.get_ref()
+            .set_read_timeout(Some(Duration::from_secs(60)))
+            .unwrap();
+    }
+    let source = distinct(1_572_864, "a");
+    let started = std::time::Instant::now();
+    let (result, resynced) = server.saved_or_resynced(&mut first, SAVE_ONE, "", &source);
+    println!(
+        "1.5 MiB browser save took {:?} (resync first: {resynced})",
+        started.elapsed()
+    );
+    assert_eq!(result["state"], "committed", "{result}");
+    assert_eq!(result["operationId"], SAVE_ONE);
+    // The other subscribed tab either follows the broadcasts or is told to resync, the same
+    // slow-peer rule every wide write has.
+    let mut told = false;
+    for _ in 0..200 {
+        match second.read() {
+            Ok(Message::Text(text)) => {
+                let frame: Value = serde_json::from_str(&text).unwrap();
+                told |= frame["type"] == "broadcast";
+            }
+            Ok(Message::Close(frame)) => {
+                told |= frame.is_some_and(|f| f.reason.to_lowercase().contains("resync"));
+                break;
+            }
+            Err(_) => break,
+            Ok(_) => {}
+        }
+        if told {
+            break;
+        }
+    }
+    assert!(told, "the other tab saw neither a broadcast nor a resync");
+    assert!(native_source(&layout, &key) == source);
+    // A second distinct source replaces the first, from the first's digest, on a connection
+    // that is not subscribed to the fan-out.
+    let mut quiet = server.peer(DEVICE);
+    quiet
+        .get_ref()
+        .set_read_timeout(Some(Duration::from_secs(60)))
+        .unwrap();
+    let next = distinct(1_572_864, "b");
+    let (result, _) = server.save(&mut quiet, SAVE_TWO, &source, &next);
+    assert_eq!(result["state"], "committed", "{result}");
+    assert!(native_source(&layout, &key) == next);
+}
+
+#[test]
+fn a_save_that_breaks_the_upload_rules_is_refused_and_leaves_the_page_alone() {
+    let (server, layout, key, mut peer) = publish_fixture();
+    let big = distinct(100_000, "c");
+    let frames = server.save_frames(SAVE_ONE, "", &big);
+    assert!(frames.len() > 2);
+    // A second upload while one assembles is a protocol error that drops the first.
+    send(&mut peer, frames[0].clone());
+    send(&mut peer, frames[0].clone());
+    assert_eq!(receive(&mut peer)["type"], "error");
+    // Chunks out of order, a wrong digest and an over-long count are refused the same way.
+    let mut skipped = frames.clone();
+    skipped.remove(1);
+    for broken in [skipped, {
+        let mut frames = frames.clone();
+        frames[1]["envelopeHash"] = json!(sha(b"something else"));
+        frames
+    }] {
+        for frame in broken {
+            send(&mut peer, frame);
+        }
+        assert_eq!(receive_until(&mut peer, "error").0["type"], "error");
+    }
+    let mut counted = frames.clone();
+    counted[1]["count"] = json!(limits::SAVE_CHUNKS + 1);
+    for frame in counted.iter().take(2) {
+        send(&mut peer, frame.clone());
+    }
+    assert_eq!(receive_until(&mut peer, "error").0["type"], "error");
+    // A source whose bytes do not match the digest bound to it never commits.
+    let mut lying = server.save_frames(SAVE_TWO, "", "<p>small</p>");
+    lying[0]["sourceSha256"] = json!(sha(b"another"));
+    send(&mut peer, lying.remove(0));
+    assert_eq!(receive_until(&mut peer, "error").0["type"], "error");
+    assert_eq!(native_source(&layout, &key), "");
+    // A status request while an upload assembles is refused too.
+    send(&mut peer, frames[0].clone());
+    send(
+        &mut peer,
+        server.frame("savestatus", json!({"operationId":SAVE_THREE})),
+    );
+    assert_eq!(receive_until(&mut peer, "error").0["type"], "error");
+}
+
+#[test]
+fn a_public_reader_cannot_save_or_ask_about_a_save() {
+    let server = Running::start(Tunnels::PRODUCT);
+    server.publish();
+    let session = server.reader_session();
+    let mut reader = server.reader_peer(&session);
+    for frame in [
+        server.reader_frame(
+            &session,
+            "save",
+            json!({"operationId":SAVE_ONE,"baseSha256":sha(b""),
+                "sourceSha256":sha(b"x"),"source":values::encode_binary(b"x")}),
+        ),
+        server.reader_frame(&session, "savestatus", json!({"operationId":SAVE_ONE})),
+    ] {
+        send(&mut reader, frame);
+        assert_eq!(receive_until(&mut reader, "error").0["type"], "error");
+    }
+}
+
+#[test]
+fn a_concurrent_edit_is_not_blocked_by_a_large_prepare_and_the_save_then_reports_a_stale_base() {
+    let (server, layout, key, mut peer) = publish_fixture();
+    let (entered, parked) = std::sync::mpsc::channel();
+    let (release, wait) = std::sync::mpsc::channel();
+    *server.save_gate.lock().unwrap() = Some((entered, wait));
+    let source = distinct(1_572_864, "d");
+    for frame in server.save_frames(SAVE_ONE, "", &source) {
+        send(&mut peer, frame);
+    }
+    // The save is parked in its preparation, holding no sync lock...
+    parked.recv_timeout(Duration::from_secs(10)).unwrap();
+    // ...so another writer commits meanwhile, through the same serve.
+    let small = prepare_write(&layout, &key, "<p>Someone else's edit</p>");
+    let published = tmt_colab::page::ipc::publish(&layout, &key, &small)
+        .unwrap()
+        .expect("the server answered while a save was preparing");
+    assert!(matches!(
+        published.record.outcome,
+        tmt_colab::publication::Outcome::Committed { .. }
+    ));
+    release.send(()).unwrap();
+    // The save was prepared from the page it saw, so it refuses to overwrite the other edit.
+    let (result, _) = receive_until(&mut peer, "saveresult");
+    assert_eq!(result["state"], "rejected", "{result}");
+    assert_eq!(result["code"], "COLAB_STALE_BASE", "{result}");
+    assert_eq!(native_source(&layout, &key), "<p>Someone else's edit</p>");
 }

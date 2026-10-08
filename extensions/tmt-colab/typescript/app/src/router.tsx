@@ -48,6 +48,7 @@ import { PageDrawer } from './page-drawer.js';
 import { AgentStatusPanel } from './agent-status-panel.js';
 import { ChatPanel } from './chat-panel.js';
 import { isChatThread } from './thread-records.js';
+import { saveMessage } from './save.js';
 
 function SelectionAnnotation({
   host,
@@ -590,8 +591,8 @@ function Page() {
       dirty.current = false;
       base.current = latest.current.source;
       setDraft(latest.current.source);
-    } catch {
-      setEditError(text.editFailed);
+    } catch (error) {
+      setEditError(saveMessage(error));
     } finally {
       setSaving(false);
     }

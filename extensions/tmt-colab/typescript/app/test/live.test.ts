@@ -11,6 +11,13 @@ import type { PageView } from '../src/transport.js';
 import type { Registration } from '../src/registration.js';
 import { Live } from '../src/live.js';
 import { RecoveryRequiredError } from '../src/session-recovery.js';
+import {
+  SaveNotApplied,
+  SaveOutcomeUnknown,
+  SaveRefused,
+  SaveTooLarge,
+  type SaveResult,
+} from '../src/save.js';
 
 const connections = vi.hoisted(
   () =>
@@ -34,6 +41,7 @@ const connectionPlans = vi.hoisted(
       closed(): void;
     }[],
 );
+const saves = vi.hoisted(() => ({ save: vi.fn(), status: vi.fn() }));
 const mutations = vi.hoisted(() => ({
   submitOwn: vi.fn(),
   submitOwnRecords: vi.fn(),
@@ -97,6 +105,15 @@ vi.mock('../src/connection.js', () => ({
     }
     async run<T>(fn: () => Promise<T>) {
       return fn();
+    }
+    save(operationId: string, base: string, source: string) {
+      return saves.save(this, operationId, base, source);
+    }
+    saveStatus(operationId: string) {
+      return saves.status(this, operationId);
+    }
+    get active() {
+      return this.close.mock.calls.length === 0;
     }
     close = vi.fn();
   },
@@ -1283,3 +1300,123 @@ it.each([
     }
   },
 );
+
+function openLive() {
+  connections.length = 0;
+  saves.save.mockReset();
+  saves.status.mockReset();
+  return new Live(
+    new URL('https://example.test/colab/'),
+    {
+      space: 'space',
+      revision: '1',
+      owner: new Uint8Array(32),
+      pageIds: [],
+      pages: [],
+    } as Bootstrap,
+    { deviceId: 'device' } as Registration,
+    { pageId: '10000000-0000-4000-8000-000000000001', epoch: '1', sharing: 'private' } as PageInfo,
+  );
+}
+const committed = (operationId: string): SaveResult => ({
+  operationId,
+  state: 'committed',
+  revision: '2',
+});
+const shows = (source: string) => ({ source, title: 'Page' }) as PageView;
+
+it('a save resolves once the page shows the saved source, with one operation ID and no status request', async () => {
+  const live = openLive();
+  try {
+    await live.snapshot();
+    saves.save.mockImplementation(async (connection, operationId) => {
+      setTimeout(() => connection.publish(shows('<p>new</p>')), 20);
+      return committed(operationId);
+    });
+    await live.edit('<p>new</p>', 'verified');
+    expect(saves.save).toHaveBeenCalledOnce();
+    expect(saves.save.mock.calls[0].slice(1)).toEqual([
+      expect.stringMatching(/^[0-9a-f-]{36}$/),
+      'verified',
+      '<p>new</p>',
+    ]);
+    expect(saves.status).not.toHaveBeenCalled();
+  } finally {
+    live.close();
+  }
+});
+
+it('a lost reply reopens the page and asks for the operation status exactly once, never resending', async () => {
+  const live = openLive();
+  try {
+    await live.snapshot();
+    const first = connections.at(-1)!;
+    saves.save.mockImplementationOnce(async (connection) => {
+      connection.failed(new Error('Sync disconnected'));
+      throw new Error('Sync disconnected');
+    });
+    saves.status.mockImplementation(async (connection, operationId) => {
+      connection.publish(shows('<p>new</p>'));
+      return committed(operationId);
+    });
+    await live.edit('<p>new</p>', 'verified');
+    const second = connections.at(-1)!;
+    expect(second).not.toBe(first);
+    expect(saves.save).toHaveBeenCalledOnce();
+    expect(saves.status).toHaveBeenCalledOnce();
+    expect(saves.status.mock.calls[0][0]).toBe(second);
+    expect(saves.status.mock.calls[0][1]).toBe(saves.save.mock.calls[0][1]);
+  } finally {
+    live.close();
+  }
+});
+
+it('a lost reply the page never recorded is reported as not applied; a failing status check names the operation', async () => {
+  const live = openLive();
+  try {
+    await live.snapshot();
+    const lose = () =>
+      saves.save.mockImplementationOnce(async (connection) => {
+        connection.failed(new Error('Sync disconnected'));
+        throw new Error('Sync disconnected');
+      });
+    lose();
+    saves.status.mockImplementationOnce(async (_connection, operationId) => ({
+      operationId,
+      state: 'absent',
+    }));
+    await expect(live.edit('<p>new</p>', 'verified')).rejects.toBeInstanceOf(SaveNotApplied);
+    lose();
+    saves.status.mockRejectedValueOnce(new Error('Sync disconnected'));
+    const unknown = await live.edit('<p>new</p>', 'verified').catch((error) => error);
+    expect(unknown).toBeInstanceOf(SaveOutcomeUnknown);
+    expect(unknown.operationId).toBe(saves.save.mock.calls[1][1]);
+    expect(saves.status).toHaveBeenCalledTimes(2);
+    expect(saves.save).toHaveBeenCalledTimes(2);
+  } finally {
+    live.close();
+  }
+});
+
+it('refusals and an over-limit source surface unchanged on a connection that stays up', async () => {
+  const live = openLive();
+  try {
+    await live.snapshot();
+    saves.save.mockResolvedValueOnce({
+      operationId: 'x',
+      state: 'rejected',
+      code: 'COLAB_STALE_BASE',
+      message: 'Moved.',
+    });
+    await expect(live.edit('<p>new</p>', 'verified')).rejects.toMatchObject({
+      constructor: SaveRefused,
+      code: 'COLAB_STALE_BASE',
+    });
+    saves.save.mockRejectedValueOnce(new SaveTooLarge(3 * 1024 * 1024, 2 * 1024 * 1024));
+    await expect(live.edit('<p>new</p>', 'verified')).rejects.toBeInstanceOf(SaveTooLarge);
+    expect(saves.status).not.toHaveBeenCalled();
+    expect(connections).toHaveLength(1);
+  } finally {
+    live.close();
+  }
+});

@@ -254,21 +254,6 @@ self.onmessage = async (event: MessageEvent<{ id: number; command: DecoderComman
       prepared = updates.length
         ? { kind: 'updates', projection: expected, updates }
         : { kind: 'noop', projection: expected };
-    } else if (command.type === 'prepare') {
-      validateProjection({ source: command.source, title: '' });
-      if (command.base !== undefined && command.base !== committed.getText('html').toString())
-        throw new Error('Source changed before preparing the edit');
-      const html = candidate.getText('html'),
-        old = html.toString(),
-        next = command.source;
-      const diff = contentDiff(old, next);
-      const vector = Y.encodeStateVector(candidate);
-      candidate.transact(() => {
-        html.delete(diff.start, diff.remove);
-        html.insert(diff.start, diff.insert);
-      });
-      update = new Uint8Array(Y.encodeStateAsUpdate(candidate, vector));
-      if (update.length > UPDATE_BYTES) throw new Error('Edit exceeds update capacity');
     } else throw new Error('Invalid decoder command');
     // A writer checkpoint may depend on another writer's checkpoint. Final tail
     // admission requires complete resolution before the parent publishes anything.

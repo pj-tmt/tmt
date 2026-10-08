@@ -59,6 +59,11 @@ pub const SYNC_NAMESPACES: usize = 256;
 /// Raw bytes per chunk; base64 and control fields fit in a 64 KiB frame.
 pub const CHUNK_BYTES: usize = 32 * 1024;
 pub const CHUNK_COUNT: usize = OBJECT_BYTES.div_ceil(CHUNK_BYTES);
+/// Chunk frames of the largest source a browser Save may carry.
+pub const SAVE_CHUNKS: usize = crate::decoder::BASELINE_BYTES.div_ceil(CHUNK_BYTES);
+/// How long a Save may take to arrive, from its first frame to its last chunk. An append keeps
+/// `ACQUISITION`: a whole source is up to `SAVE_CHUNKS` frames rather than one envelope.
+pub const SAVE_UPLOAD: Duration = Duration::from_secs(10);
 /// Serialized update envelope reserve including base64 expansion and JSON syntax.
 pub const UPDATE_BYTES: usize = (CONTENT_UPDATE_BYTES + 2048) * 4 / 3 + 2048;
 /// Exact signed statement JSON cap, including base64 expansion and framing.

@@ -1,0 +1,224 @@
+import { expect, test, type Page } from '@playwright/test';
+import { createHash } from 'node:crypto';
+import { text } from '../src/strings.js';
+import { pairBrowser, startDoor } from './harness/browser.js';
+import { createPage, freePort, openPage, run } from './harness/ask.js';
+import { disposeActiveWorlds, withWorld } from './harness/with-world.js';
+
+// #2032: the browser Save publishes the whole source through native preparation over the owner
+// socket, so a page and a save share one limit (2 MiB) and the CLI and the browser see the same
+// bytes. Every size here is incompressible, so it is the size on the wire.
+const LIMIT = 2 * 1024 * 1024;
+const distinct = (bytes: number, seed: string) => {
+  let out = '';
+  for (let i = 0; out.length < bytes; i++)
+    out += createHash('sha256').update(`${seed}:${i}`).digest('hex');
+  return `<p>${out.slice(0, bytes - 7)}</p>`;
+};
+const source = (page: Page) => page.getByRole('textbox', { name: 'Source', exact: true });
+async function openSource(page: Page) {
+  await page.getByRole('button', { name: 'Source', exact: true }).click();
+  return source(page);
+}
+// A save is done when the editor leaves "Saving…": the reply arrives after the serve has combined
+// the new tail, so a CLI write that follows sees room for its own update.
+async function save(page: Page) {
+  await page.getByRole('button', { name: text.save, exact: true }).click();
+  await expect(page.getByRole('button', { name: text.saving, exact: true })).toHaveCount(0, {
+    timeout: 120_000,
+  });
+}
+
+test.afterEach(disposeActiveWorlds);
+test('a 1.5 MiB page takes a browser save, a CLI write and 80 small browser edits, byte for byte', async () => {
+  test.setTimeout(900_000);
+  await withWorld(async (world) => {
+    const door = await startDoor(world, await freePort());
+    const browser = await pairBrowser(world, 'save-author');
+    const colab = world.binaries.colab;
+    const read = (id: string) =>
+      JSON.parse(run(world, colab, ['page', 'read', id, '--json'])) as { source: string };
+    const big = 1.5 * 1024 * 1024;
+    const a = distinct(big, 'a');
+    const created = createPage(world, 'Save big', a);
+    const page = await openPage(door, browser, created);
+    const box = await openSource(page);
+    await expect(box).toHaveValue(a, { timeout: 60_000 });
+
+    // The browser saves a different 1.5 MiB; the CLI reads exactly those bytes.
+    const b = distinct(big, 'b');
+    await box.fill(b);
+    const started = Date.now();
+    await save(page);
+    await expect.poll(() => read(created.pageId).source === b, { timeout: 60_000 }).toBe(true);
+    console.log(`SAVE_UPLOAD browser 1.5 MiB save reached the CLI in ${Date.now() - started} ms`);
+    await expect(page.getByRole('alert')).toHaveCount(0);
+
+    // A CLI write of another 1.5 MiB reaches the open browser, which then saves on top of it.
+    const c = distinct(big, 'c');
+    run(world, colab, ['page', 'write', created.pageId, '--file', '-', '--json'], c);
+    await expect(box).toHaveValue(c, { timeout: 60_000 });
+    const d = c + '<p>browser after CLI</p>';
+    await box.fill(d);
+    await save(page);
+    await expect.poll(() => read(created.pageId).source === d, { timeout: 60_000 }).toBe(true);
+    await page.reload();
+    await expect(await openSource(page)).toHaveValue(d, { timeout: 60_000 });
+
+    // Many small edits whose changes total far more than one 256 KiB update.
+    const small = createPage(world, 'Save small', '<p>start</p>');
+    const sp = await openPage(door, browser, small);
+    const sbox = await openSource(sp);
+    let current = '<p>start</p>';
+    for (let i = 0; i < 80; i++) {
+      const next = current + `<i>${distinct(8 * 1024, `s${i}`)}</i>`;
+      await sbox.fill(next);
+      await save(sp);
+      await expect
+        .poll(() => read(small.pageId).source === next, { timeout: 30_000, message: `edit ${i}` })
+        .toBe(true);
+      await expect(sbox).toHaveValue(next);
+      current = next;
+    }
+    expect(current.length).toBeGreaterThan(640 * 1024);
+    await expect(sp.getByRole('alert')).toHaveCount(0);
+  });
+});
+
+test('a source over the page limit is refused with both sizes and changes nothing', async () => {
+  test.setTimeout(300_000);
+  await withWorld(async (world) => {
+    const door = await startDoor(world, await freePort());
+    const browser = await pairBrowser(world, 'save-limit');
+    const colab = world.binaries.colab;
+    // When the first frame of a save and its last chunk leave the page: the upload window.
+    let uploadStart = 0,
+      uploadEnd = 0;
+    await browser.context.routeWebSocket(/\/sync/, (ws) => {
+      const server = ws.connectToServer();
+      ws.onMessage((message) => {
+        const type = (JSON.parse(String(message)) as { type: string }).type;
+        if (type === 'save') uploadStart = Date.now();
+        if (type === 'chunk') uploadEnd = Date.now();
+        server.send(message);
+      });
+      server.onMessage((message) => ws.send(message));
+    });
+    const original = '<p>within the limit</p>';
+    const created = createPage(world, 'Save limit', original);
+    const page = await openPage(door, browser, created);
+    const box = await openSource(page);
+    await expect(box).toHaveValue(original);
+    await box.fill('x'.repeat(LIMIT + 1));
+    await save(page);
+    await expect(page.getByRole('alert')).toHaveText(text.saveTooLarge(LIMIT + 1, LIMIT));
+    await expect(page.getByRole('alert')).toContainText('2,097,153 bytes');
+    await expect(page.getByRole('alert')).toContainText('2,097,152 bytes');
+    const after = JSON.parse(run(world, colab, ['page', 'read', created.pageId, '--json'])) as {
+      source: string;
+    };
+    expect(after.source).toBe(original);
+    // Exactly the limit is accepted.
+    const exact = '<p>' + 'y'.repeat(LIMIT - 7) + '</p>';
+    await box.fill(exact);
+    await save(page);
+    await expect
+      .poll(
+        () =>
+          (
+            JSON.parse(run(world, colab, ['page', 'read', created.pageId, '--json'])) as {
+              source: string;
+            }
+          ).source.length,
+        { timeout: 60_000 },
+      )
+      .toBe(LIMIT);
+    // The 2 MiB upload fits the server's upload window with room to spare.
+    const uploadMs = uploadEnd - uploadStart;
+    console.log(`SAVE_UPLOAD 2 MiB upload window used ${uploadMs} ms`);
+    expect(uploadMs).toBeGreaterThan(0);
+    expect(uploadMs).toBeLessThan(5_000);
+  });
+});
+
+test('a lost reply is settled by one status request and the save lands exactly once', async () => {
+  test.setTimeout(300_000);
+  await withWorld(async (world) => {
+    const door = await startDoor(world, await freePort());
+    const browser = await pairBrowser(world, 'save-lost');
+    const colab = world.binaries.colab;
+    const sent: string[] = [];
+    let dropped = 0;
+    await browser.context.routeWebSocket(/\/sync/, (ws) => {
+      const server = ws.connectToServer();
+      ws.onMessage((message) => {
+        const type = (JSON.parse(String(message)) as { type: string }).type;
+        if (type === 'save' || type === 'savestatus') sent.push(type);
+        server.send(message);
+      });
+      server.onMessage((message) => {
+        if ((JSON.parse(String(message)) as { type: string }).type === 'saveresult' && !dropped) {
+          dropped++;
+          ws.close();
+          return;
+        }
+        ws.send(message);
+      });
+    });
+    const created = createPage(world, 'Save lost', '<p>before</p>');
+    const page = await openPage(door, browser, created);
+    const box = await openSource(page);
+    await expect(box).toHaveValue('<p>before</p>');
+    const next = '<p>after a lost reply</p>';
+    await box.fill(next);
+    await save(page);
+    await expect(box).toHaveValue(next);
+    await expect(page.frameLocator('iframe').getByText('after a lost reply')).toBeVisible();
+    await expect(page.getByRole('alert')).toHaveCount(0);
+    expect(dropped).toBe(1);
+    // Exactly one status request, and the save itself is never sent a second time.
+    await expect.poll(() => sent).toEqual(['save', 'savestatus']);
+    await expect(page.getByRole('button', { name: text.saving, exact: true })).toHaveCount(0);
+    const page2 = JSON.parse(run(world, colab, ['page', 'read', created.pageId, '--json'])) as {
+      source: string;
+    };
+    expect(page2.source).toBe(next);
+  });
+});
+
+test('a save on a stale base is refused and the newer version stays', async () => {
+  test.setTimeout(300_000);
+  await withWorld(async (world) => {
+    const door = await startDoor(world, await freePort());
+    const browser = await pairBrowser(world, 'save-stale');
+    const colab = world.binaries.colab;
+    let hold = false;
+    await browser.context.routeWebSocket(/\/sync/, (ws) => {
+      const server = ws.connectToServer();
+      ws.onMessage((message) => server.send(message));
+      server.onMessage((message) => {
+        // While held, the browser misses broadcasts, so its base falls behind the page.
+        if (!hold || (JSON.parse(String(message)) as { type: string }).type !== 'broadcast')
+          ws.send(message);
+      });
+    });
+    const created = createPage(world, 'Save stale', '<p>v1</p>');
+    const page = await openPage(door, browser, created);
+    const box = await openSource(page);
+    await expect(box).toHaveValue('<p>v1</p>');
+    hold = true;
+    run(
+      world,
+      colab,
+      ['page', 'write', created.pageId, '--file', '-', '--json'],
+      '<p>v2 by CLI</p>',
+    );
+    await box.fill('<p>v1 edited in the browser</p>');
+    await save(page);
+    await expect(page.getByRole('alert')).toHaveText(text.saveStale);
+    const after = JSON.parse(run(world, colab, ['page', 'read', created.pageId, '--json'])) as {
+      source: string;
+    };
+    expect(after.source).toBe('<p>v2 by CLI</p>');
+  });
+});

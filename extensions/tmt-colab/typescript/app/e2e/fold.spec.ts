@@ -76,24 +76,30 @@ test('Worker folds concurrent independent writers, reload reconstruction and Uni
       b = new Fold(),
       reloaded = new Fold();
     try {
-      const one = await a.run({ type: 'prepare', source: '<p>😀 café</p>' });
-      await a.run({ type: 'apply', updates: [one.update] });
-      await b.run({ type: 'apply', updates: [one.update] });
-      const two = await a.run({ type: 'prepare', source: '<p>😀 café A</p>' });
-      const three = await b.run({ type: 'prepare', source: '<p>😀 café B</p>' });
-      const mergedA = await a.run({ type: 'apply', updates: [two.update, three.update] });
-      const mergedB = await b.run({ type: 'apply', updates: [two.update, three.update] });
+      const base = (r: { source: string; title: string; own: unknown }) => ({
+        source: r.source,
+        title: r.title,
+        own: r.own,
+      });
+      const one = await a.prepareContent('<p>😀 café</p>', { source: '', title: '', own: {} });
+      const baseA = await a.run({ type: 'apply', updates: one.updates });
+      const baseB = await b.run({ type: 'apply', updates: one.updates });
+      const two = await a.prepareContent('<p>😀 café A</p>', base(baseA));
+      const three = await b.prepareContent('<p>😀 café B</p>', base(baseB));
+      const all = [...two.updates, ...three.updates];
+      const mergedA = await a.run({ type: 'apply', updates: all });
+      const mergedB = await b.run({ type: 'apply', updates: all });
       const restored = await reloaded.run({
         type: 'apply',
-        updates: [one.update, two.update, three.update],
+        updates: [...one.updates, ...all],
       });
       return {
-        one: one.source,
-        two: two.source,
+        one: one.projection.source,
+        two: two.projection.source,
         a: mergedA.source,
         b: mergedB.source,
         restored: restored.source,
-        updateBytes: two.update.length,
+        updateBytes: two.updates.reduce((n: number, u: Uint8Array) => n + u.length, 0),
       };
     } finally {
       a.close();
@@ -119,7 +125,7 @@ test('decoder rejects malformed data and cannot be reused after rejection', asyn
     let errors = 0;
     try {
       await fold.run({ type: 'apply', updates: [new Uint8Array([255])] }).catch(() => errors++);
-      await fold.run({ type: 'prepare', source: 'must not apply' }).catch(() => errors++);
+      await fold.run({ type: 'apply', updates: [] }).catch(() => errors++);
       return errors;
     } finally {
       fold.close();

@@ -1,6 +1,7 @@
 import {
   binary,
   decodeHeader,
+  digest,
   encodeBinary,
   Envelope,
   equal,
@@ -14,7 +15,9 @@ import { Fold } from './fold.js';
 import type { AdmittedUpdate, JsonValue, OwnRecord, Projection } from './fold-protocol.js';
 import type { PageView } from './transport.js';
 import { Frames } from './frames.js';
+import { hex } from './export.js';
 import { Objects, position, UPDATE_ENVELOPE_BYTES, type ObjectEntry } from './objects.js';
+import { SAVE_SOURCE_BYTES, SaveTooLarge, saveResult, type SaveResult } from './save.js';
 import { text as strings } from './strings.js';
 
 function sameValue(a: JsonValue | undefined, b: JsonValue): boolean {
@@ -33,6 +36,12 @@ function sameValue(a: JsonValue | undefined, b: JsonValue): boolean {
     keys.every((key) => Object.hasOwn(a, key) && sameValue(a[key], b[key]))
   );
 }
+
+const CHUNK_BYTES = 32 * 1024;
+/** The whole reply budget for one save: upload window, native preparation and commit. */
+const SAVE_REPLY_MS = 30_000;
+/** Bytes the socket may hold unsent before the next chunk waits; keeps a 2 MiB save paced. */
+const SAVE_BUFFER_BYTES = 256 * 1024;
 
 /** A connection owns one reader/Worker. Queued messages and all local Worker
  * requests share one executor; no authority or keys enter the decoder. */
@@ -54,6 +63,13 @@ export class Connection {
     reject(error: Error): void;
     timer: ReturnType<typeof setTimeout>;
   }>();
+  /** At most one save or status request is in flight per connection. */
+  #reply: {
+    operationId: string;
+    resolve(value: SaveResult): void;
+    reject(error: Error): void;
+    timer: ReturnType<typeof setTimeout>;
+  } | null = null;
   #receipts = new Map<
     string,
     {
@@ -302,7 +318,60 @@ export class Connection {
       this.#receipts.delete(frame.seq);
       clearTimeout(pending.timer);
       pending.resolve();
+    } else if (frame.type === 'saveresult') {
+      const pending = this.#reply;
+      requireValue(pending !== null);
+      const result = saveResult(frame, pending.operationId);
+      this.#reply = null;
+      clearTimeout(pending.timer);
+      pending.resolve(result);
     } else throw new Error('Unexpected sync message');
+  }
+  /** Publish the whole source through native preparation. The reply says what happened; a lost
+   * reply closes this connection and is settled by one `saveStatus` on the next. */
+  async save(operationId: string, base: string, source: string): Promise<SaveResult> {
+    await this.ready;
+    const bytes = text(source);
+    if (bytes.length > SAVE_SOURCE_BYTES) throw new SaveTooLarge(bytes.length, SAVE_SOURCE_BYTES);
+    const [baseHash, sourceHash] = await Promise.all([digest(text(base)), digest(bytes)]);
+    const fields = {
+      operationId,
+      baseSha256: encodeBinary(baseHash),
+      sourceSha256: encodeBinary(sourceHash),
+    };
+    return this.#request(operationId, async () => {
+      if (bytes.length <= CHUNK_BYTES)
+        return this.send('save', { ...fields, source: encodeBinary(bytes) });
+      const objectId = hex(sourceHash),
+        count = Math.ceil(bytes.length / CHUNK_BYTES);
+      this.send('save', { ...fields, source: { objectId } });
+      for (let index = 0; index < count; index++) {
+        while (!this.#stopped && this.#socket.bufferedAmount > SAVE_BUFFER_BYTES)
+          await new Promise((resolve) => setTimeout(resolve, 10));
+        this.send('chunk', {
+          objectId,
+          envelopeHash: fields.sourceSha256,
+          index,
+          count,
+          bytes: encodeBinary(bytes.slice(index * CHUNK_BYTES, (index + 1) * CHUNK_BYTES)),
+        });
+      }
+    });
+  }
+  /** What the page recorded for an operation ID; the one request that settles a lost reply. */
+  async saveStatus(operationId: string): Promise<SaveResult> {
+    await this.ready;
+    return this.#request(operationId, async () => this.send('savestatus', { operationId }));
+  }
+  #request(operationId: string, send: () => Promise<void>): Promise<SaveResult> {
+    requireValue(!this.#stopped && this.#reply === null);
+    return new Promise<SaveResult>((resolve, reject) => {
+      const timer = setTimeout(() => this.close(new Error('Save reply timed out')), SAVE_REPLY_MS);
+      this.#reply = { operationId, resolve, reject, timer };
+      send().catch((error) =>
+        this.close(error instanceof Error ? error : new Error('Save unavailable')),
+      );
+    });
   }
   async append(entry: ObjectEntry): Promise<void> {
     await this.ready;
@@ -374,6 +443,11 @@ export class Connection {
       pending.reject(error);
     }
     this.#receipts.clear();
+    if (this.#reply) {
+      clearTimeout(this.#reply.timer);
+      this.#reply.reject(error);
+      this.#reply = null;
+    }
     for (const pending of this.#ownPublications) {
       clearTimeout(pending.timer);
       pending.reject(error);

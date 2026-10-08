@@ -39,8 +39,8 @@ export class Writer {
       try {
         const value = event.data;
         if (value?.type === 'submit' && this.#leader) {
-          exactKeys(value, ['type', 'id', 'update', 'namespace']);
-          void this.#accept(value.id, value.update, value.namespace);
+          exactKeys(value, ['type', 'id', 'update']);
+          void this.#accept(value.id, value.update);
         } else if (value?.type === 'result') {
           exactKeys(value, ['type', 'id', 'ok']);
           requireValue(typeof value.id === 'string');
@@ -72,11 +72,10 @@ export class Writer {
         if (!this.#closed) this.close();
       });
   }
-  #accept(id: unknown, bytes: unknown, namespace: unknown): Promise<void> {
+  #accept(id: unknown, bytes: unknown): Promise<void> {
     try {
       requireValue(typeof id === 'string');
       generatedId(id);
-      requireValue(namespace === 'content' || namespace === 'own');
       requireValue(
         bytes instanceof Uint8Array && bytes.length <= UPDATE_BYTES && this.#working.size < 8,
       );
@@ -90,7 +89,7 @@ export class Writer {
       update.fill(0);
       return existing;
     }
-    const task = this.#tasks.then(() => this.#write(name, update, namespace as 'content' | 'own'));
+    const task = this.#tasks.then(() => this.#write(name, update));
     this.#tasks = task.then(
       () => {},
       () => {},
@@ -118,7 +117,7 @@ export class Writer {
       else pending.reject(new Error('Edit was not accepted; reconnect before retrying'));
     }
   }
-  async #write(id: string, update: Uint8Array, namespace: 'content' | 'own') {
+  async #write(id: string, update: Uint8Array) {
     requireValue(!this.#closed && this.#leader);
     const c = await this.connection();
     await c.ready;
@@ -142,15 +141,11 @@ export class Writer {
     }
     if (state.completed.includes(id)) return;
     const entry = await c.run(async () => {
-      await c.fold.run(
-        namespace === 'content'
-          ? { type: 'check', updates: [update] }
-          : {
-              type: 'check',
-              updates: [],
-              own: [{ writer: c.admission.registration.deviceId, update }],
-            },
-      );
+      await c.fold.run({
+        type: 'check',
+        updates: [],
+        own: [{ writer: c.admission.registration.deviceId, update }],
+      });
       const a = c.admission,
         head = c.objects.head(a.registration.deviceId);
       requireValue(a.root !== null && a.head !== null);
@@ -161,7 +156,7 @@ export class Writer {
           page: a.page,
           epoch: a.epoch,
           kind: 'update',
-          namespace,
+          namespace: 'own',
           authorDevice: a.registration.deviceId,
           membershipRevision: a.head.revision.toString(),
           streamSeq: String(head.seq + 1n),
@@ -187,7 +182,7 @@ export class Writer {
     state.completed = state.completed.slice(-64);
     await record(this.key, state);
   }
-  submit(update: Uint8Array, namespace: 'content' | 'own' = 'content'): Promise<void> {
+  submit(update: Uint8Array): Promise<void> {
     requireValue(!this.#closed && update.length <= UPDATE_BYTES && this.#pending.size < 8);
     const id = crypto.randomUUID(),
       bytes = update.slice(),
@@ -200,8 +195,8 @@ export class Writer {
           reject(new Error('Writer relay timed out'));
           return;
         }
-        if (this.#leader) void this.#accept(id, bytes, namespace);
-        else this.#channel.postMessage({ type: 'submit', id, update: bytes, namespace });
+        if (this.#leader) void this.#accept(id, bytes);
+        else this.#channel.postMessage({ type: 'submit', id, update: bytes });
         const pending = this.#pending.get(id);
         if (pending) pending.timer = setTimeout(send, 500);
       };
@@ -240,7 +235,7 @@ export class Writer {
       }),
     );
     try {
-      await this.submit(prepared.update, 'own');
+      await this.submit(prepared.update);
       await c.waitForOwnRecords(records);
     } finally {
       prepared.update.fill(0);

@@ -73,7 +73,7 @@ and `limits.rs`; do not restate them.
   materialization input owner for exact base/full metadata/own projections and causal decoder inputs.
   It returns Noop before ID/sequence/seal/certificate work, or a frozen signed content packet and
   chain through the existing local Keyring writer. Both single-edit and batch gzip admission include
-  all own bytes in the checked raw fastpath. `page write` is its caller; browser Save is not.
+  all own bytes in the checked raw fastpath. `page write` and the browser Save (`page/save.rs`) are its callers.
 - `page/compact.rs` combines the local device's own stream after a write (best effort, repeatable):
   it opens only that stream's objects through `Snapshot::open_object`, merges them in the decoder
   child (`Decoder::merge`, no projection, since one device's stream can depend on another's structs),
@@ -107,6 +107,14 @@ and `limits.rs`; do not restate them.
   nothing, so the page does not move after the reply the client waits for, and the reply
   carries the revision read under the sync lock). The write signs with a purpose-separated local device certified by the
   management member; it is not a Remote registration.
+- Browser Save is a sync-socket request (`save`/`savestatus`, colab-v1 Browser Save), owned by
+  `sync.rs`: `process` assembles and authorizes the request under the sync lock and hands back a
+  `SaveJob`; `page::save::prepare` then opens its own read-only store, keyring and decoder through the
+  `SourceOpener` that `serve` supplies (`Registration::with_save_source`) and prepares with the sync
+  lock released, so a large save never stalls other peers; `finish_save` re-takes the lock only for
+  `commit_publication` (through `Admission::commit_save` and the same combine as a CLI write), the one
+  `saveresult` and the shared fan-out. The browser's `Connection.save` paces the chunks and holds one
+  request in flight; `Live.edit` settles a lost reply with one `savestatus` and never resends.
 - `export.rs` snapshots exact source and title through `fold::Snapshot` and the decoder and
   writes `page.html`, `conversations.json`, `conversations.md` and `manifest.json` (format and
   disclosure: colab-v1). The fold now keeps each writer's decoded `own` projection and
@@ -132,9 +140,8 @@ and `limits.rs`; do not restate them.
 - Parent chrome policy and renderer policy are two constants in `assets.rs` (`POLICY`,
   `RENDERER_POLICY`); change them only with the colab-v1 renderer section and the
   `renderer.spec.ts` browser checks.
-- `Fold.prepareContent` uses the private `prepare-content` Worker command to return an explicit
+- The browser Worker produces no content updates: Save is native (Page source and export). `Fold.prepareContent`
+  (the private `prepare-content` Worker command) remains for tests with no production caller. It returns an explicit
   no-op or bounded ordered content deltas with the expected projection. Preparation leaves
   committed Worker state unchanged, and the parent validates the typed result against its
-  admitted base. This interface has no signing or transport capability; browser Save still uses
-  its existing single-update path until the separately reviewed atomic integration replaces that
-  caller.
+  admitted base. This interface has no signing or transport capability.

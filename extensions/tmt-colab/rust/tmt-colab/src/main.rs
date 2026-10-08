@@ -333,11 +333,17 @@ fn run(matches: &clap::ArgMatches) -> Result<()> {
         let store = Store::open(&layout)?;
         let space_id = keyring.space_id.clone();
         let (pages, all_pages) = open_pages(&store, &keyring);
-        let registration = Arc::new(Mutex::new(Registration::new(
-            store,
-            keyring,
-            std::env::current_exe()?,
-        )?));
+        let save_root = root.clone();
+        let registration = Arc::new(Mutex::new(
+            Registration::new(store, keyring, std::env::current_exe()?)?.with_save_source(
+                Arc::new(move || {
+                    tmt_colab::page::save::open_source(
+                        &save_root,
+                        tmt_colab::decoder::Config::new(std::env::current_exe()?),
+                    )
+                }),
+            ),
+        ));
         let socket = MountSocket::bind(&layout, &space_id, Tunnels::PRODUCT)?
             .with_registration(&layout, Arc::clone(&registration))?
             .with_app(app);

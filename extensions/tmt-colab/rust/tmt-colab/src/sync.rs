@@ -10,7 +10,7 @@ use std::{
     collections::{HashMap, VecDeque},
     io::{Read, Write},
     sync::{Arc, Mutex},
-    time::Instant,
+    time::{Duration, Instant},
 };
 use tmt_colab_model::{crypto, object, payload, statement, values};
 use tungstenite::{
@@ -91,6 +91,36 @@ pub trait Admission: Send {
         scope: &SyncScope,
         access: Access<'_>,
     ) -> Result<[u8; 32], Code>;
+
+    /// Where a browser Save prepares from, outside every lock. `None`: this admission has no
+    /// native writer, so a save is denied.
+    fn save_source(&self) -> Option<crate::page::save::SourceOpener> {
+        None
+    }
+    /// The public key that must have signed a root-local save; never request-selected.
+    fn save_author(&self) -> crate::Result<[u8; 32]> {
+        Err(crate::page::Fault::Denied.into())
+    }
+    /// Commit one frozen save publication under the writer, with the revision read while no
+    /// other writer could run.
+    fn commit_save(
+        &mut self,
+        _job: &crate::publication::SignedJob,
+        _packet: &[u8],
+        _chain: &[u8],
+        _now: u64,
+        _combine_until: Instant,
+    ) -> crate::Result<(crate::page::PublicationCommitted, Option<String>)> {
+        Err(crate::page::Fault::Denied.into())
+    }
+    /// What the root-local stream recorded for an operation a browser chose. Read-only.
+    fn save_status(
+        &self,
+        _page: &str,
+        _operation_id: &str,
+    ) -> crate::Result<crate::page::save::SaveResult> {
+        Err(crate::page::Fault::Denied.into())
+    }
 }
 struct Peer {
     principal: String,
@@ -216,9 +246,43 @@ struct AppendRequest {
     bytes: Vec<u8>,
     object_id: Option<String>,
 }
+/// One assembled save, handed out of the sync lock for its long native preparation.
+pub(crate) struct SaveJob {
+    open: crate::page::save::SourceOpener,
+    scope: SyncScope,
+    principal: String,
+    save: crate::page::save::Save,
+}
+/// What an assembling upload becomes when its last chunk arrives.
+enum Upload {
+    Append {
+        stream: String,
+        seq: String,
+    },
+    Save {
+        operation_id: String,
+        base: [u8; 32],
+    },
+}
+impl Upload {
+    /// Bytes the whole object may hold, the chunks it may take and how long it may take.
+    fn bounds(&self) -> (usize, usize, Duration) {
+        match self {
+            Self::Append { .. } => (
+                limits::UPDATE_BYTES,
+                limits::UPDATE_BYTES.div_ceil(limits::CHUNK_BYTES),
+                limits::ACQUISITION,
+            ),
+            Self::Save { .. } => (
+                crate::decoder::BASELINE_BYTES,
+                limits::SAVE_CHUNKS,
+                limits::SAVE_UPLOAD,
+            ),
+        }
+    }
+}
 struct Incoming {
-    stream: String,
-    seq: String,
+    upload: Upload,
     hash: String,
     object_id: String,
     count: Option<usize>,
@@ -284,6 +348,37 @@ impl<A> Clone for Server<A> {
         Self(Arc::clone(&self.0))
     }
 }
+/// One transport broadcast per verified entry, in sequence order, prepared before the commit so
+/// that the transaction never waits on transport. The opaque server never opens the source.
+fn broadcasts(
+    job: &crate::publication::SignedJob,
+    packet: &[u8],
+    chain: &str,
+    author: &[u8; 32],
+) -> crate::Result<Vec<(SyncScope, String, Option<Delivery>)>> {
+    let mut outputs = Vec::new();
+    for entry in job.verify_packet(packet, author)? {
+        let c = &entry.header.context;
+        let scope = SyncScope {
+            space: c.space.clone(),
+            page: c.page.clone(),
+            epoch: c.epoch.clone(),
+        };
+        let hash = entry.envelope.hash()?;
+        let (envelope, transfer) = delivery(&scope, hash, entry.bytes.to_vec())?;
+        let broadcast = wire::output(
+            &scope,
+            "broadcast",
+            serde_json::json!({
+                "streamId": c.author_device, "seq": c.stream_seq,
+                "envelopeHash": values::encode_binary(&hash), "envelope": envelope,
+                "chains": [{"deviceId": c.author_device, "chain": chain}]
+            }),
+        )?;
+        outputs.push((scope, broadcast, transfer));
+    }
+    Ok(outputs)
+}
 impl Server<crate::registration::OwnerAdmission> {
     /// Prepare transport before committing. The opaque server never opens source.
     pub(crate) fn publish(
@@ -313,27 +408,7 @@ impl Server<crate::registration::OwnerAdmission> {
             publication::packet_limit(job.manifest.entries.len())?,
         )?;
         let chain = values::binary(&write.chain, publication::CHAIN_BYTES)?;
-        let mut outputs = Vec::new();
-        for entry in job.verify_packet(&packet, &author)? {
-            let c = &entry.header.context;
-            let scope = SyncScope {
-                space: c.space.clone(),
-                page: c.page.clone(),
-                epoch: c.epoch.clone(),
-            };
-            let hash = entry.envelope.hash()?;
-            let (envelope, transfer) = delivery(&scope, hash, entry.bytes.to_vec())?;
-            let broadcast = wire::output(
-                &scope,
-                "broadcast",
-                serde_json::json!({
-                    "streamId": c.author_device, "seq": c.stream_seq,
-                    "envelopeHash": values::encode_binary(&hash), "envelope": envelope,
-                    "chains": [{"deviceId": c.author_device, "chain": write.chain}]
-                }),
-            )?;
-            outputs.push((scope, broadcast, transfer));
-        }
+        let outputs = broadcasts(job, &packet, &write.chain, &author)?;
         let mut state = self.0.lock().map_err(|_| Fault::Unavailable)?;
         let (committed, revision) = state
             .admission
@@ -455,7 +530,9 @@ impl<A: Admission> State<A> {
             }
         }
     }
-    fn process(&mut self, id: u64, frame: Frame, now: Instant) -> Result<(), Code> {
+    /// `Some` is a save whose long preparation the caller runs outside this lock, then hands back
+    /// to `finish_save`.
+    fn process(&mut self, id: u64, frame: Frame, now: Instant) -> Result<Option<SaveJob>, Code> {
         let scope = frame.scope()?;
         let peer = self.peers.get(&id).ok_or(Code::Denied)?;
         if peer.scope.as_ref().is_some_and(|old| old != &scope) {
@@ -465,7 +542,11 @@ impl<A: Admission> State<A> {
         self.admission.authorize(&principal, &scope, Access::Read)?;
         if matches!(
             &frame,
-            Frame::Append { .. } | Frame::Chunk { .. } | Frame::Awareness { .. }
+            Frame::Append { .. }
+                | Frame::Chunk { .. }
+                | Frame::Awareness { .. }
+                | Frame::Save { .. }
+                | Frame::SaveStatus { .. }
         ) {
             self.admission
                 .authorize(&principal, &scope, Access::Publish)?;
@@ -565,8 +646,10 @@ impl<A: Admission> State<A> {
                     wire::Payload::Reference(reference) => {
                         values::object_id(&reference.object_id)?;
                         self.peers.get_mut(&id).ok_or(Code::Denied)?.incoming = Some(Incoming {
-                            stream: stream_id,
-                            seq,
+                            upload: Upload::Append {
+                                stream: stream_id,
+                                seq,
+                            },
                             hash: envelope_hash,
                             object_id: reference.object_id,
                             count: None,
@@ -594,12 +677,13 @@ impl<A: Admission> State<A> {
                     .incoming
                     .take()
                     .ok_or(Code::Invalid)?;
-                if now.saturating_duration_since(incoming.started) >= limits::ACQUISITION
+                let (cap, chunks, window) = incoming.upload.bounds();
+                if now.saturating_duration_since(incoming.started) >= window
                     || object_id != incoming.object_id
                     || envelope_hash != incoming.hash
                     || index != incoming.next
                     || count == 0
-                    || count > limits::UPDATE_BYTES.div_ceil(limits::CHUNK_BYTES)
+                    || count > chunks
                     || index >= count
                     || incoming.count.is_some_and(|old| old != count)
                 {
@@ -609,29 +693,193 @@ impl<A: Admission> State<A> {
                 if chunk.is_empty() || (index + 1 < count && chunk.len() != limits::CHUNK_BYTES) {
                     return Err(Code::Invalid);
                 }
-                if incoming.bytes.len() + chunk.len() > limits::UPDATE_BYTES {
+                if incoming.bytes.len() + chunk.len() > cap {
                     return Err(Code::Capacity);
                 }
                 incoming.count = Some(count);
                 incoming.next += 1;
                 incoming.bytes.extend_from_slice(&chunk);
                 if incoming.next == count {
-                    self.append(
-                        id,
-                        &scope,
-                        &principal,
-                        AppendRequest {
-                            stream: incoming.stream,
-                            seq: incoming.seq,
-                            hash: incoming.hash,
-                            bytes: incoming.bytes,
-                            object_id: Some(object_id),
-                        },
-                    )?;
+                    match incoming.upload {
+                        Upload::Append { stream, seq } => self.append(
+                            id,
+                            &scope,
+                            &principal,
+                            AppendRequest {
+                                stream,
+                                seq,
+                                hash: incoming.hash,
+                                bytes: incoming.bytes,
+                                object_id: Some(object_id),
+                            },
+                        )?,
+                        Upload::Save { operation_id, base } => {
+                            return self
+                                .save_job(
+                                    &scope,
+                                    principal,
+                                    operation_id,
+                                    base,
+                                    &incoming.hash,
+                                    incoming.bytes,
+                                )
+                                .map(Some);
+                        }
+                    }
                 } else {
                     self.peers.get_mut(&id).ok_or(Code::Denied)?.incoming = Some(incoming);
                 }
             }
+            Frame::Save {
+                operation_id,
+                base_sha256,
+                source_sha256,
+                source,
+                ..
+            } => {
+                if self.peers[&id].incoming.is_some() {
+                    return Err(Code::Invalid);
+                }
+                values::generated_id(&operation_id)?;
+                let base = wire::hash(&base_sha256)?;
+                wire::hash(&source_sha256)?;
+                match source {
+                    wire::Payload::Inline(text) => {
+                        let bytes = values::binary(&text, crate::decoder::BASELINE_BYTES)?;
+                        return self
+                            .save_job(&scope, principal, operation_id, base, &source_sha256, bytes)
+                            .map(Some);
+                    }
+                    wire::Payload::Reference(reference) => {
+                        values::object_id(&reference.object_id)?;
+                        self.admission.save_source().ok_or(Code::Denied)?;
+                        self.peers.get_mut(&id).ok_or(Code::Denied)?.incoming = Some(Incoming {
+                            upload: Upload::Save { operation_id, base },
+                            hash: source_sha256,
+                            object_id: reference.object_id,
+                            count: None,
+                            next: 0,
+                            bytes: Vec::new(),
+                            started: now,
+                        });
+                    }
+                }
+            }
+            Frame::SaveStatus { operation_id, .. } => {
+                if self.peers[&id].incoming.is_some() {
+                    return Err(Code::Invalid);
+                }
+                values::generated_id(&operation_id)?;
+                let reply = self
+                    .admission
+                    .save_status(&scope.page, &operation_id)
+                    .unwrap_or_else(|error| {
+                        crate::page::save::SaveResult::rejected(&operation_id, error.as_ref())
+                    });
+                self.reply_save(id, &scope, &reply)?;
+            }
+        }
+        Ok(None)
+    }
+    /// An assembled source, once its bytes match the digest the client bound to it.
+    fn save_job(
+        &self,
+        scope: &SyncScope,
+        principal: String,
+        operation_id: String,
+        base: [u8; 32],
+        source_sha256: &str,
+        bytes: Vec<u8>,
+    ) -> Result<SaveJob, Code> {
+        if wire::hash(source_sha256)? != crypto::digest(&bytes) {
+            return Err(Code::Invalid);
+        }
+        let source = String::from_utf8(bytes).map_err(|_| Code::Invalid)?;
+        Ok(SaveJob {
+            open: self.admission.save_source().ok_or(Code::Denied)?,
+            scope: scope.clone(),
+            principal,
+            save: crate::page::save::Save {
+                page: scope.page.clone(),
+                operation_id,
+                base_sha256: base,
+                source,
+            },
+        })
+    }
+    fn reply_save(
+        &mut self,
+        id: u64,
+        scope: &SyncScope,
+        reply: &crate::page::save::SaveResult,
+    ) -> Result<(), Code> {
+        let text = wire::output(
+            scope,
+            "saveresult",
+            serde_json::to_value(reply).map_err(|_| Code::Invalid)?,
+        )?;
+        if let Some(peer) = self.peers.get_mut(&id) {
+            peer.push(text);
+        }
+        Ok(())
+    }
+    /// Commit a prepared save: authority is rechecked, the fences of `commit_publication`
+    /// turn a page that moved during preparation into a stale-base refusal, and the originator
+    /// gets one reply while every subscriber gets the same broadcasts as for any write.
+    fn finish_save(
+        &mut self,
+        id: u64,
+        job: SaveJob,
+        prepared: crate::Result<crate::page::save::Prepared>,
+        now_ms: u64,
+    ) -> Result<(), Code> {
+        use crate::page::save::{Prepared, SaveResult};
+        let operation = job.save.operation_id.clone();
+        let done = (|| -> crate::Result<(SaveResult, Vec<_>)> {
+            let write = match prepared? {
+                Prepared::Unchanged(receipt) => {
+                    return Ok((
+                        SaveResult::unchanged(&operation, receipt.revision),
+                        Vec::new(),
+                    ));
+                }
+                Prepared::Write(frozen) => frozen,
+            };
+            self.admission
+                .authorize(&job.principal, &job.scope, Access::Publish)
+                .map_err(|_| crate::page::Fault::Denied)?;
+            let author = self.admission.save_author()?;
+            let outputs = broadcasts(
+                write.job(),
+                write.packet(),
+                &values::encode_binary(write.chain()),
+                &author,
+            )?;
+            let (committed, revision) = self.admission.commit_save(
+                write.job(),
+                write.packet(),
+                write.chain(),
+                now_ms,
+                Instant::now() + limits::PUBLISH_COMBINE,
+            )?;
+            let receipt = crate::page::publication_receipt(write.job(), &committed.record)?;
+            let fan_out = committed.accepted == Accepted::New
+                && matches!(
+                    committed.record.outcome,
+                    crate::publication::Outcome::Committed { .. }
+                );
+            Ok((
+                SaveResult::committed(&operation, revision.unwrap_or(receipt.revision)),
+                if fan_out { outputs } else { Vec::new() },
+            ))
+        })();
+        let (reply, outputs) = match done {
+            Ok(done) => done,
+            Err(error) => (SaveResult::rejected(&operation, error.as_ref()), Vec::new()),
+        };
+        self.reply_save(id, &job.scope, &reply)?;
+        for (scope, broadcast, transfer) in outputs {
+            self.fanout(&scope, broadcast, transfer);
         }
         Ok(())
     }
@@ -990,6 +1238,19 @@ pub struct Connection<S: Read + Write, A> {
     blocked_since: Option<Instant>,
 }
 impl<S: Read + Write, A: Admission> Connection<S, A> {
+    /// A save's native preparation can take seconds: it runs here, holding no lock, so other
+    /// connections keep appending. The commit takes the lock again and every fence rechecks, so
+    /// an edit that landed meanwhile turns this save into a stale-base reply.
+    fn run_save(&self, job: SaveJob) -> Result<(), Code> {
+        let clock = || crate::registration::now_ms().map_err(|_| Code::Denied);
+        let prepared = crate::page::save::prepare(&job.open, &job.save, clock()?);
+        self.server.0.lock().map_err(|_| Code::Denied)?.finish_save(
+            self.id,
+            job,
+            prepared,
+            clock()?,
+        )
+    }
     fn close(&mut self, code: Code) -> Progress {
         if let Some(mut socket) = self.socket.take()
             && self.blocked_since.is_none()
@@ -1026,7 +1287,7 @@ impl<S: Read + Write, A: Admission> Connection<S, A> {
                         p.incoming
                             .as_ref()
                             .filter(|i| {
-                                now.saturating_duration_since(i.started) >= limits::ACQUISITION
+                                now.saturating_duration_since(i.started) >= i.upload.bounds().2
                             })
                             .map(|_| Code::Invalid)
                     })
@@ -1084,6 +1345,11 @@ impl<S: Read + Write, A: Admission> Connection<S, A> {
                     .lock()
                     .map_err(|_| Code::Denied)
                     .and_then(|mut state| state.process(self.id, frame, now));
+                let result = match result {
+                    Ok(Some(job)) => self.run_save(job),
+                    Ok(None) => Ok(()),
+                    Err(code) => Err(code),
+                };
                 if let Err(code) = result {
                     let message = wire::output(&scope, "error", serde_json::json!({"code":code}));
                     if let (Ok(text), Ok(mut state)) = (message, self.server.0.lock())
