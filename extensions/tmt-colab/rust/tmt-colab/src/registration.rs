@@ -637,7 +637,155 @@ impl Registration {
 /// Mounted owner and read-only reader admission. Upgrade verifies owner binding
 /// through active_device or consumes a reader ticket; sync reads live authority.
 /// The pinned local management member represents the owner across local pages.
+#[derive(Clone)]
 pub struct OwnerAdmission(pub std::sync::Arc<std::sync::Mutex<Registration>>);
+impl OwnerAdmission {
+    /// Actual owner/reader Session and historical recipient entitlement. The
+    /// private peer owner supplies the principal; policy JSON cannot select it.
+    pub(crate) fn attachment_context(
+        &self,
+        principal: &str,
+        scope: &crate::sync::SyncScope,
+        epoch: u64,
+    ) -> Result<[u8; 32]> {
+        use crate::sync::{Access, Admission, WrapRecipients};
+        self.authorize(principal, scope, Access::Read)?;
+        let service = self.0.lock().map_err(|_| crate::sync::Code::Denied)?;
+        let current = values::decimal(&scope.epoch, false)?;
+        if epoch == 0 || epoch > current || current - epoch >= 64 {
+            return Err(crate::sync::Code::Denied.into());
+        }
+        let reader = service.readers.contains(principal);
+        let recipients = if reader {
+            service.readers.recipients(principal)?
+        } else {
+            WrapRecipients::Owner
+        };
+        let reader_context = if reader {
+            Some(service.readers.attachment_context(principal)?)
+        } else {
+            None
+        };
+        service
+            .store
+            .owner_read(&scope.space, &service.keyring.owner_public(), |tx| {
+                let head = tx.head().ok_or(crate::sync::Code::Denied)?;
+                if matches!(recipients, WrapRecipients::None) {
+                    let (_, log) =
+                        crate::fold::verify_log(&tx.log()?, &service.keyring, &scope.page)?;
+                    let published = log
+                        .iter()
+                        .rev()
+                        .find_map(|p| match p {
+                            tmt_colab_model::payload::Payload::PageShare(p)
+                                if p.page_id == scope.page =>
+                            {
+                                Some(p)
+                            }
+                            _ => None,
+                        })
+                        .ok_or(crate::sync::Code::Denied)?;
+                    let key = published
+                        .published_keys
+                        .as_ref()
+                        .and_then(|keys| {
+                            keys.as_slice()
+                                .iter()
+                                .find(|k| k.epoch == epoch.to_string())
+                        })
+                        .ok_or(crate::sync::Code::Denied)?;
+                    if !matches!(published.mode, tmt_colab_model::payload::ShareMode::Public)
+                        || values::binary(&key.key, 32)?.as_slice()
+                            != tx
+                                .epoch_secret(&scope.page, epoch)?
+                                .ok_or(crate::sync::Code::Denied)?
+                    {
+                        return Err(crate::sync::Code::Denied.into());
+                    }
+                } else {
+                    let recipient = match &recipients {
+                        WrapRecipients::Owner => ("device", principal),
+                        WrapRecipients::Link(id) => ("link", id.as_str()),
+                        WrapRecipients::None => unreachable!(),
+                    };
+                    let recipient_key = match &recipients {
+                        WrapRecipients::Owner => {
+                            *certificate::Chain::from_json(
+                                &tx.device(principal)?
+                                    .ok_or(crate::sync::Code::Denied)?
+                                    .chain,
+                            )?
+                            .certificate()?
+                            .encryption_key
+                        }
+                        WrapRecipients::Link(id) => {
+                            tx.recipient("link", id)?
+                                .ok_or(crate::sync::Code::Denied)?
+                                .encryption_key
+                        }
+                        WrapRecipients::None => unreachable!(),
+                    };
+                    let mut offset = 0;
+                    let mut entitled = false;
+                    loop {
+                        let (wraps, more) = tx.wrap_page(
+                            &scope.page,
+                            current,
+                            principal,
+                            head,
+                            offset,
+                            &recipients,
+                        )?;
+                        if wraps.is_empty() && more {
+                            return Err(crate::sync::Code::Denied.into());
+                        }
+                        offset += wraps.len();
+                        if offset > 512 {
+                            return Err(crate::sync::Code::Capacity.into());
+                        }
+                        for raw in wraps {
+                            let envelope = tmt_colab_model::wrap::Envelope::from_json(
+                                &values::binary(&raw, 2048)?,
+                            )?;
+                            envelope.verify_owner(&service.keyring.owner_public())?;
+                            let h = envelope.header()?;
+                            if h.space == scope.space
+                                && h.page == scope.page
+                                && h.epoch == epoch.to_string()
+                                && h.recipient_kind == recipient.0
+                                && h.recipient_id == recipient.1
+                                && h.recipient_key == recipient_key
+                                && values::decimal(&h.membership_revision, false)? <= head.revision
+                            {
+                                entitled = true;
+                            }
+                        }
+                        if !more {
+                            break;
+                        }
+                    }
+                    if !entitled {
+                        return Err(crate::sync::Code::Denied.into());
+                    }
+                }
+                if let Some(context) = reader_context {
+                    return Ok(context);
+                }
+                let row = tx
+                    .registration(principal)?
+                    .ok_or(crate::sync::Code::Denied)?;
+                let device = tx.device(principal)?.ok_or(crate::sync::Code::Denied)?;
+                Ok(crypto::digest(&framing::frame(&[
+                    b"tmt-colab-attachment-owner-context-v1",
+                    principal.as_bytes(),
+                    &serde_json::to_vec(scope)?,
+                    row.grant_revision.to_string().as_bytes(),
+                    row.binding.as_deref().ok_or(crate::sync::Code::Denied)?,
+                    &device.chain,
+                ])?))
+            })
+    }
+}
 impl crate::sync::Admission for OwnerAdmission {
     fn save_source(&self) -> Option<crate::page::save::SourceOpener> {
         self.0.lock().ok()?.save_source()

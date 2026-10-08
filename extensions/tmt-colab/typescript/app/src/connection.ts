@@ -153,6 +153,20 @@ export class Connection {
     );
     return result;
   }
+  /** Internal attachment owner: only this executor's authenticated Worker
+   * projection and Objects cuts enter a capture. Historical bootstrap is supplied
+   * by the object adapter, never substituted with the current projection. */
+  attachmentSnapshot(epoch = this.admission.epoch) {
+    return this.run(async () => {
+      requireValue(this.#complete && epoch === this.admission.epoch);
+      return {
+        admission: this.admission,
+        objects: this.objects,
+        projection: structuredClone(this.#projection),
+        revision: await this.objects.revision(),
+      };
+    });
+  }
   send(type: string, fields: Record<string, unknown>) {
     requireValue(!this.#stopped && this.#socket.readyState === WebSocket.OPEN);
     const a = this.admission,
@@ -436,7 +450,7 @@ export class Connection {
       this.#socket.onclose =
         null;
     this.#socket.close();
-    this.admission.root = null;
+    this.admission.closeKeys();
     this.#reject(error);
     for (const pending of this.#receipts.values()) {
       clearTimeout(pending.timer);

@@ -91,3 +91,59 @@ fn gzip_exact_budget_and_one_byte_over_use_one_stream() {
         Some(5_000_001)
     );
 }
+
+#[test]
+fn attachment_reference_revision_and_namespace_match_independent_shared_positions() {
+    let corpus: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../../contracts/vectors/attachment-v1.json"
+    ))
+    .unwrap();
+    for vector in corpus["referenceRevisions"].as_array().unwrap() {
+        let string = |field: &str| vector[field].as_str().unwrap();
+        let hash: [u8; 32] = values::binary(string("headHash"), 32)
+            .unwrap()
+            .try_into()
+            .unwrap();
+        let head = statement::Head {
+            revision: 7,
+            hash,
+            owner_member: statement::OwnerMember {
+                id: string("writer").into(),
+                signing_key: [0; 32],
+                encryption_key: [0; 32],
+            },
+        };
+        let cuts = vector["cuts"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|c| {
+                let bytes = values::binary(c["cut"].as_str().unwrap(), 1024).unwrap();
+                let cut = stream_cut::decode(&bytes).unwrap();
+                Cut {
+                    page: string("page").into(),
+                    epoch: 1,
+                    stream: cut.stream_id.into(),
+                    namespace: cut.namespace.into(),
+                    checkpoint_seq: values::decimal(cut.checkpoint_seq, true).unwrap(),
+                    checkpoint_hash: cut.checkpoint_hash.copied(),
+                    tail_seq: values::decimal(cut.tail_head_seq, true).unwrap(),
+                    tail_hash: *cut.tail_head_hash,
+                }
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            crate::page::token(string("space"), string("page"), &head, 1, &cuts).unwrap(),
+            string("token"),
+            "{}: {:?}",
+            string("name"),
+            cuts.iter().map(Cut::payload).collect::<Vec<_>>()
+        );
+        let hex = crate::attachments::namespace(string("space"), string("page"))
+            .unwrap()
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect::<String>();
+        assert_eq!(hex, corpus["namespace"].as_str().unwrap());
+    }
+}

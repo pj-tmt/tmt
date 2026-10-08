@@ -76,6 +76,7 @@ async function open(rejectChain = false) {
   const admission = {
     ...scope,
     root: new Uint8Array(32),
+    closeKeys() {},
     registration: {
       deviceId: author,
       syncUrl: 'wss://example.test/colab/sync?tmt-session=fixture',

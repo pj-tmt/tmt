@@ -309,6 +309,11 @@ impl OwnerTransaction<'_> {
         if frozen {
             return Err(OwnerFault::Conflict.into());
         }
+        self.read_cuts(page, epoch)
+    }
+    /// Read-only frozen history. A writer still calls cuts(), which refuses a
+    /// frozen epoch; retained old prefixes never become a new publication base.
+    pub(crate) fn read_cuts(&self, page: &str, epoch: u64) -> Result<Vec<Cut>> {
         let mut query = self
             .tx
             .prepare("SELECT stream FROM streams WHERE page=? AND epoch=? ORDER BY stream")?;

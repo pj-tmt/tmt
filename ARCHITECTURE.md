@@ -1241,8 +1241,8 @@ core discovery or storage access.
   author HTML and passes no application capability. Parent highlight messages carry only
   anchor IDs and quote selectors; discussion bodies and display labels never enter author code.
   This contains author code; page self-navigation can still leak a request.
-- **Attachments.** Colab implements the [descriptor/manifest grammar](extensions/tmt-colab/contracts/attachment-v1.md) with existing asset crypto and inert fold metadata.
-  Authenticated reference/read/channel consumers and activation remain planned in the [storage proposal](extensions/tmt-colab/contracts/storage-v1-proposal.md).
+- **Attachments.** Colab implements [descriptor/manifest/reference grammar and internal read/publication capture](extensions/tmt-colab/contracts/attachment-v1.md) with existing crypto, authenticated cuts and fold metadata.
+  Channel consumers/activation and snapshot/retained persistence remain planned in the [storage proposal](extensions/tmt-colab/contracts/storage-v1-proposal.md).
   Remote owns generic backend/channel/quota/origin; Colab owns crypto/history/admission. No core object API or new reader credential is introduced; archive/history/native acceptance remains required.
 - **Plaintext invariant.** Page source, discussion reads and export are root-local: only the isolated decoder
   child decodes Yjs, no route serves plaintext, and the browser Worker is resource

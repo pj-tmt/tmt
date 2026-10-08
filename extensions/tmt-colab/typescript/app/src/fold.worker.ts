@@ -288,12 +288,20 @@ self.onmessage = async (event: MessageEvent<{ id: number; command: DecoderComman
       const previous = own.get(writer);
       if (!previous) continue;
       const roots = projectOwn(previous, false);
-      for (const root of ['threads', 'messages'])
+      for (const root of ['threads', 'intents', 'messages'])
         for (const [key, value] of Object.entries(roots[root])) {
-          if (!['thread', 'comment', 'thread-status', 'thread-notification'].includes(value?.kind))
+          if (
+            ![
+              'thread',
+              'comment',
+              'thread-status',
+              'thread-notification',
+              'attachment-publication',
+            ].includes(value?.kind)
+          )
             continue;
           if (JSON.stringify(value) !== JSON.stringify(ownProjection[writer][root][key]))
-            throw new Error('Discussion record is immutable');
+            throw new Error('Own record is immutable');
         }
     }
 

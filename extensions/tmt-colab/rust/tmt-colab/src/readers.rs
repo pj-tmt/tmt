@@ -289,6 +289,21 @@ impl Sessions {
             ),
         })
     }
+    /// Identity of this active Session, not a transferable read token. Current
+    /// scope, policy and expiry are checked separately by check().
+    pub(crate) fn attachment_context(&self, id: &str) -> crate::Result<[u8; 32]> {
+        let reader = self.0.get(id).ok_or(Code::Denied)?;
+        if !matches!(reader.phase, Phase::Active) {
+            return Err(Code::Denied.into());
+        }
+        Ok(crypto::digest(&framing::frame(&[
+            b"tmt-colab-attachment-reader-context-v1",
+            id.as_bytes(),
+            &serde_json::to_vec(&reader.scope)?,
+            reader.chain.as_deref().unwrap_or(&[]),
+            reader.expires.to_string().as_bytes(),
+        ])?))
+    }
     pub(crate) fn release(&mut self, id: &str) {
         self.0.remove(id);
     }

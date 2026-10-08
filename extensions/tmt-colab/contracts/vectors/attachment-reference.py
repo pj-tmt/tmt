@@ -105,7 +105,60 @@ def generate():
         if name=='annotation': value['thread']['id']=ident(90)
         case('comment-'+name,'comment',value,admit)
     foreign=copy.deepcopy(comment); foreign['pageId']=ident(3); case('comment-cross-page','comment',foreign,False)
-    return dict(version=1, secret=b64(secret),publicKey=b64(public),plaintext=b64(plain),cases=cases)
+    def publication(value):
+        return dict(version=1,kind='attachment-publication',spaceId=value['space'],pageId=value['page'],epoch=value['epoch'],senderDevice=value['authorDevice'],membershipRevision=value['membershipRevision'],attachmentId=value['attachmentId'],descriptorHash=sha(descriptor_input(value)).hex(),source=copy.deepcopy(value['source']),baseRevision='v1:'+sha(b'fixture captured base').hex())
+    pub = publication(d)
+    for name, value in [('document',d),('message',message)]:
+        record=publication(value)
+        case('publication-'+name,'publication',record,True,canonical=wire(record))
+        case('publication-binding-'+name,'publication-binding',record,True,descriptor=wire(value))
+    for key,replacement in [('version',2),('kind','attachment-claim'),('spaceId','a'*31),('pageId',ident(2).replace('4000','3000')),('epoch','01'),('membershipRevision','0'),('descriptorHash','ab'*31),('baseRevision','v1:'+'AF'*32),('unknown','x')]:
+        value=copy.deepcopy(pub); value[key]=replacement
+        case('invalid-publication-'+key,'publication',value,False)
+    for key,replacement in [('senderDevice',ident(19)),('descriptorHash','ab'*32),('epoch','2'),('membershipRevision','3'),('attachmentId',ident(99)),('source',dict(kind='document',sourceDigest='ab'*32))]:
+        value=copy.deepcopy(pub); value[key]=replacement
+        case('publication-binding-'+key,'publication-binding',value,False,descriptor=wire(d))
+    current=dict(kind='document-current',attachmentId=d['attachmentId'],descriptorHash=pub['descriptorHash'],contentRevision=pub['baseRevision'])
+    msg=dict(kind='message',writerId=author,messageId=ident(70),messageRevision='1',attachmentId=message['attachmentId'],descriptorHash=publication(message)['descriptorHash'])
+    for name,value in [('document',current),('message',msg)]:
+        case('selector-'+name,'selector',value,True,canonical=wire(value))
+    for key,replacement in [('kind','snapshot'),('attachmentId',ident(65).replace('4000','3000')),('descriptorHash','ab'*31),('contentRevision','v1:'+'ab'*31),('unknown','x')]:
+        value=copy.deepcopy(current); value[key]=replacement
+        case('invalid-selector-'+key,'selector',value,False)
+    value=copy.deepcopy(msg);value['messageRevision']='0';case('invalid-selector-message-revision','selector',value,False)
+    for name,operation,value in [('publication','publication',pub),('selector','selector',current)]:
+        raw_input=wire(value)
+        field='version' if name=='publication' else 'kind'
+        encoded=wire(value[field])
+        raw_input=raw_input.replace('"'+field+'":'+encoded,'"'+field+'":'+encoded+',"'+field+'":'+encoded)
+        cases.append(dict(name=name+'-duplicate',operation=operation,input=raw_input,admit=False))
+    # Page-token parity uses fixed independently signed stream entries. It is a
+    # byte/position vector, not a membership or source-content authority fixture.
+    revisions = []
+    for name, specs in [('empty', []), ('own-only', [('update','own','1',bytes(32))]), ('paired-checkpoint-tail', [('checkpoint','content','2',bytes([3])*32),('checkpoint','own','2',bytes([3])*32),('update','own','3',bytes([3])*32)])]:
+        entries = []
+        positions, checkpoints = {}, {}
+        for kind, ns, seq, prev in specs:
+            header = lp(b'tmt-colab-object-v1',b'1',b'aes256gcm-hkdfsha256-ed25519-v1',space.encode(),page.encode(),b'1',kind.encode(),ns.encode(),('05'*32).encode(),author.encode(),b'2',seq.encode(),prev)
+            key = hmac.new(hmac.new(bytes(32),secret,hashlib.sha256).digest(),lp(b'tmt-colab-object-key-v1',header)+b'\x01',hashlib.sha256).digest()
+            cipher = AESGCM(key).encrypt(bytes(12),b'position fixture',header)
+            signature = signer.sign(lp(b'tmt-colab-signature-v1',header,bytes(12),sha(cipher)))
+            envelope = dict(header=b64(header),nonce=b64(bytes(12)),ciphertext=b64(cipher),signature=b64(signature))
+            digest = sha(lp(b'tmt-colab-envelope-hash-v1',header,bytes(12),cipher,signature))
+            entries.append(dict(kind=kind,namespace=ns,seq=seq,envelopeHash=b64(digest),envelope=b64(wire(envelope).encode())))
+            positions[ns] = (seq,prev if kind=='checkpoint' else digest)
+            if kind=='checkpoint': checkpoints[ns] = (seq,digest)
+        cuts=[]
+        if specs:
+            for ns in ['content','own']:
+                cp,cp_hash = checkpoints.get(ns,('0',b''))
+                tail,tail_hash = positions.get(ns,('0',bytes(32)))
+                cut=lp(b'tmt-colab-stream-cut-v1',b'1',author.encode(),ns.encode(),cp_hash,cp.encode(),tail.encode(),tail_hash)
+                cuts.append(dict(pageId=page,epoch='1',namespace=ns,cut=b64(cut)))
+        head_hash=bytes([7])*32
+        token='v1:'+sha(lp(b'tmt-colab-page-revision-v1',space.encode(),page.encode(),b'7',head_hash,b'1',wire(cuts).encode())).hex()
+        revisions.append(dict(name=name,space=space,page=page,epoch='1',writer=author,revision='7',headHash=b64(head_hash),entries=entries,cuts=cuts,token=token))
+    return dict(version=1, secret=b64(secret),publicKey=b64(public),plaintext=b64(plain),namespace=sha(lp(b'tmt-colab-attachment-namespace-v1',space.encode(),page.encode())).hex(),referenceRevisions=revisions,cases=cases)
 
 if __name__ == '__main__':
     parser=argparse.ArgumentParser(); parser.add_argument('--write',action='store_true'); args=parser.parse_args()

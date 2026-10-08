@@ -12,7 +12,15 @@ it('admits the same independent descriptor/manifest/asset corpus as Rust', async
     if (c.operation === 'document' || c.operation === 'comment') continue;
     let accepted = false;
     try {
-      if (c.operation === 'manifest') {
+      if (c.operation === 'publication' || c.operation === 'publication-binding') {
+        const record = a.decodeAttachmentPublication(text(c.input));
+        if (c.operation === 'publication-binding')
+          await a.publicationMatchesDescriptor(record, a.decodeAttachment(text(c.descriptor)));
+        else if (c.admit) expect(JSON.stringify(record)).toBe(c.canonical);
+      } else if (c.operation === 'selector') {
+        const selector = a.decodeAttachmentSelector(text(c.input));
+        if (c.admit) expect(JSON.stringify(selector)).toBe(c.canonical);
+      } else if (c.operation === 'manifest') {
         const manifest = a.decodeAttachmentManifest(text(c.input));
         if (c.inputBytes) {
           expect(equal(a.attachmentManifestInput(manifest), bytes(c.inputBytes))).toBe(true);

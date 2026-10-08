@@ -16,12 +16,17 @@ restate them.
 
 ## Gotchas
 
-Attachment syntax/asset verification lives in model `attachment.rs` and client
-`attachment.ts`, using the existing envelope crypto; [attachment-v1](../../../../extensions/tmt-colab/contracts/attachment-v1.md)
-owns exact bytes and limits. Decoder/Worker metadata and immutable comments carry
-descriptors, and epoch baselines preserve them. These codecs do not establish an
-authenticated reference, historical key eligibility or a transport permit; the
-remaining #1853 content/channel slices compose those existing admission owners.
+Attachment descriptor/manifest/selector/publication syntax and asset verification
+live in model `attachment.rs` and client `attachment.ts`, reusing existing crypto;
+[attachment-v1](../../../../extensions/tmt-colab/contracts/attachment-v1.md) owns the bytes.
+Runtime `attachments.rs`/`attachments.ts` join exact authenticated references to
+positive-sequence own creation proof and recheck current authority after committed-object
+I/O. Fold has separate writable and archive-capable read capture; frozen epochs remain
+read-only. Native Session reads use registration/readers' actual context and eligible
+addressed wraps or owner-signed public keys; browser history keys are opaque addressed-wrap
+handles. The internal committed verifier is DI, with production channel/peer-generation
+composition and activation still planned in the final #1853 slice. Snapshot/retained-reference
+persistence is #1856, not a new Store/schema here.
 
 - Run Rust gates with your own `CARGO_TARGET_DIR` and `CARGO_BUILD_JOBS=2`. Add
   `--no-fail-fast` when judging `cargo test -p tmt-colab`: Cargo stops at the first failing

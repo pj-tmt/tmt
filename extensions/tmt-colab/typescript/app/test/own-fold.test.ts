@@ -521,3 +521,46 @@ it('preserves attachment descriptors through source preparation and checkpoints 
   expect(baseline.source).toBe(restored.source);
   doc.destroy();
 });
+
+it('preserves attachment creation proofs through checkpoints and refuses mutation, deletion or wrong roots', async () => {
+  const corpus = JSON.parse(
+    readFileSync(new URL('../../../contracts/vectors/attachment-v1.json', import.meta.url), 'utf8'),
+  );
+  const publication = JSON.parse(
+    corpus.cases.find((v: { name: string }) => v.name === 'publication-document').input,
+  );
+  const writer = publication.senderDevice,
+    key = publication.attachmentId;
+  for (const remove of [false, true]) {
+    const run = await worker(),
+      doc = new Y.Doc();
+    doc.getMap('intents').set(key, publication);
+    const checkpoint = Y.encodeStateAsUpdate(doc),
+      vector = Y.encodeStateVector(doc);
+    const before = await run({ type: 'checkpoint', writer, update: checkpoint });
+    expect(before.own[writer].intents[key]).toEqual(publication);
+    if (remove) doc.getMap('intents').delete(key);
+    else doc.getMap('intents').set(key, { ...publication, descriptorHash: '00'.repeat(32) });
+    await expect(
+      run({
+        type: 'apply',
+        updates: [],
+        own: [{ writer, update: Y.encodeStateAsUpdate(doc, vector) }],
+      }),
+    ).rejects.toThrow();
+    expect((await run({ type: 'apply', updates: [] })).own).toEqual(before.own);
+    doc.destroy();
+  }
+  for (const [root, key] of [
+    ['messages', publication.attachmentId],
+    ['intents', 'wrong-key'],
+  ]) {
+    const run = await worker(),
+      doc = new Y.Doc();
+    doc.getMap(root).set(key, publication);
+    await expect(
+      run({ type: 'apply', updates: [], own: [{ writer, update: Y.encodeStateAsUpdate(doc) }] }),
+    ).rejects.toThrow();
+    doc.destroy();
+  }
+});

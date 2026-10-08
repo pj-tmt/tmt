@@ -3,8 +3,11 @@
 The [colab-v1 contract](../colab-v1.md) owns byte definitions and full L1 gates.
 All seeds and secrets here are public test fixtures, never runtime inputs.
 
-`attachment-reference.py` independently frames descriptors/manifests and seals
-asset envelopes with Python cryptography over public RFC8032 fixture keys.
+`attachment-reference.py` independently frames descriptors/manifests, freezes
+strict selectors/creation-publication records and seals asset envelopes with
+Python cryptography over public RFC8032 fixture keys. Namespace and page-revision
+known answers include empty, own-only and paired-checkpoint/tail positions; these
+positions prove byte parity, not membership or reference authority.
 `attachment-v1.json` is shared by Rust model/isolated decoder and browser
 client/Worker tests, with exact canonical bytes, independent raw/envelope hashes,
 source/context/signature substitutions and descriptor/list bounds. The client

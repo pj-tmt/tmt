@@ -1,6 +1,6 @@
 use serde_json::Value;
 use tmt_colab_model::{
-    attachment::{Descriptor, Manifest},
+    attachment::{AttachmentPublication, AttachmentSelector, Descriptor, Manifest},
     values,
 };
 
@@ -24,6 +24,33 @@ fn shared_attachment_corpus_matches_canonical_bytes_and_verifies_exact_assets() 
                         );
                         assert_eq!(d.input().unwrap(), bytes(&case["inputBytes"]));
                         assert_eq!(hex(&d.hash().unwrap()), case["hash"].as_str().unwrap());
+                    }
+                })
+                .is_ok(),
+            "publication" => AttachmentPublication::from_json(raw)
+                .map(|p| {
+                    if case["admit"] == true {
+                        assert_eq!(
+                            serde_json::to_vec(&p).unwrap(),
+                            case["canonical"].as_str().unwrap().as_bytes()
+                        );
+                    }
+                })
+                .is_ok(),
+            "publication-binding" => AttachmentPublication::from_json(raw)
+                .and_then(|p| {
+                    p.matches_descriptor(&Descriptor::from_json(
+                        case["descriptor"].as_str().unwrap().as_bytes(),
+                    )?)
+                })
+                .is_ok(),
+            "selector" => AttachmentSelector::from_json(raw)
+                .map(|selector| {
+                    if case["admit"] == true {
+                        assert_eq!(
+                            serde_json::to_vec(&selector).unwrap(),
+                            case["canonical"].as_str().unwrap().as_bytes()
+                        );
                     }
                 })
                 .is_ok(),

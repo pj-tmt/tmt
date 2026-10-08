@@ -110,6 +110,15 @@ export function validateOwn(value: unknown): asserts value is OwnState {
           record &&
           typeof record === 'object' &&
           !Array.isArray(record) &&
+          (record as Record<string, unknown>).kind === 'attachment-publication'
+        ) {
+          const publication = attachment.attachmentPublication(record);
+          requireValue(root === 'intents' && key === publication.attachmentId);
+        }
+        if (
+          record &&
+          typeof record === 'object' &&
+          !Array.isArray(record) &&
           ['thread', 'comment', 'thread-status', 'thread-notification'].includes(
             String((record as Record<string, unknown>).kind),
           )
