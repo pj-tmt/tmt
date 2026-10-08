@@ -50,7 +50,7 @@ describe('native release publication policy', () => {
     });
     for (const key of ['requiresCliSha', 'bootstrapSha', 'initialVersion'])
       expect(map.components.ops).not.toHaveProperty(key);
-    expect(map.components.squad).toMatchObject({ release: false });
+    expect(map.components).not.toHaveProperty('squad');
     expect(isProductRetired('squad')).toBe(true);
     expect(isProductRetired('ops')).toBe(false);
     expect(archivePrefix('squad')).toBe('tmt-squad');

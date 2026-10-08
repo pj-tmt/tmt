@@ -449,7 +449,7 @@ describe('component map', () => {
   it('says which components are released: all but the ones that declare release: false', () => {
     expect(isReleased(map, 'cli')).toBe(true);
     expect(isReleased(map, 'ops')).toBe(false);
-    expect(isReleased(map, 'squad')).toBe(false);
+    expect(() => isReleased(map, 'squad')).toThrow('Unknown component squad.');
     // Office is parked, as the private browser add-on is.
     expect(isReleased(map, 'office')).toBe(false);
     expect(isReleased(map, 'browser-addon')).toBe(false);

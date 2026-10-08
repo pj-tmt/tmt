@@ -13,7 +13,7 @@
     "releaseStatus: only with release:false; never means no released product contains this leaf and forbids releaseConsumers, parked means explicitly deferred publication. Absence means awaiting activation. This does not change CI selection.",
     "initialVersion: owner-approved first alpha seed; requiresCliSha: supporting CLI registration commit that must be in its newest published release before a first product cut.",
     "bootstrapSha: first-release history boundary for the release cut (#1399); the last commit before the component existed, kept unchanged.",
-    "predecessor names an exact historical product key. The retired squad record retains historical archive skills policy; ops remains release:false until its supporting CLI registration is published and requiresCliSha is set."
+    "predecessor names an exact historical product key. Published archives declare their own skills inventory; ops remains release:false until its supporting CLI registration is published and requiresCliSha is set."
   ],
   "components": {
     "cli": {
@@ -72,12 +72,6 @@
       },
       "predecessor": "squad",
       "release": false
-    },
-    "squad": {
-      "package": "tmt-squad",
-      "skills": true,
-      "release": false,
-      "owns": ["extensions/tmt-squad"]
     },
     "browser-addon": {
       "owns": ["extensions/tmt-remote/typescript/browser-addon"],

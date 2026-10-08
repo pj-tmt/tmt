@@ -17,6 +17,7 @@ import {
   failureCause,
   fetchUpgrade,
   ghAssetDownloader,
+  ghCliAncestry,
   localCandidate,
   proveStaged,
   proveArchiveAcceptance,
@@ -31,6 +32,87 @@ import {
   publishedReleases,
   versionOfTag,
 } from '../../scripts/release-versions.mjs';
+
+const { extensionUpgradeOptions, assertOpsReplacement } = (await import(
+  new URL('../../scripts/verify-native-extension-upgrade.mjs', import.meta.url).href
+)) as {
+  extensionUpgradeOptions: (args: string[]) => Record<string, string>;
+  assertOpsReplacement: (report: Record<string, unknown>, prefix: string, version: string) => void;
+};
+
+// Literal consumer-contract controls; these never run a native CLI or claim a replacement happened.
+describe('extension verifier replacement contract', () => {
+  const base = [
+    'product',
+    'archive',
+    'manifest',
+    'previous-archive',
+    'previous-manifest',
+    'driver-archive',
+    'driver-manifest',
+    'target',
+  ].flatMap((name) => [`--${name}`, name === 'product' ? 'ops' : name]);
+  const pair = [
+    '--previous-product',
+    'squad',
+    '--previous-driver-archive',
+    'old-cli.tar.gz',
+    '--previous-driver-manifest',
+    'old.json',
+  ];
+  it('keeps same-product options and admits only a complete squad -> ops pair', () => {
+    expect(extensionUpgradeOptions(base)).not.toHaveProperty('previous-product');
+    expect(extensionUpgradeOptions([...base, ...pair])).toHaveProperty('previous-product', 'squad');
+    for (let index = 0; index < pair.length; index += 2) {
+      expect(() =>
+        extensionUpgradeOptions([...base, ...pair.slice(0, index), ...pair.slice(index + 2)])
+      ).toThrow('is required for replacement');
+    }
+    for (const product of ['remote', 'colab', 'office']) {
+      const args = [...base];
+      args[1] = product;
+      expect(() => extensionUpgradeOptions([...args, ...pair])).toThrow('Only squad -> ops');
+    }
+    for (const previous of ['ops', 'remote', 'cli', 'driver-herdr']) {
+      const args = [...pair];
+      args[1] = previous;
+      expect(() => extensionUpgradeOptions([...base, ...args])).toThrow('Only squad -> ops');
+    }
+  });
+  const prefix = '/private/fixture prefix';
+  const literal = () => ({
+    extension: 'ops',
+    installed: true,
+    changed: true,
+    version: '0.1.0-alpha.51',
+    executable: `${prefix}/bin/tmt-ops`,
+    replaced: 'squad',
+    removed: [`${prefix}/bin/tmt-squad`, `${prefix}/bin/tmt-sq`, `${prefix}/lib/tmt-squad`],
+    kept: [],
+  });
+  it('pins replacement output, exact removed order and no kept entries', () => {
+    expect(() => assertOpsReplacement(literal(), prefix, '0.1.0-alpha.51')).not.toThrow();
+    for (const field of Object.keys(literal())) {
+      const report: Record<string, unknown> = literal();
+      delete report[field];
+      expect(() => assertOpsReplacement(report, prefix, '0.1.0-alpha.51'), field).toThrow();
+    }
+    for (const change of [
+      { replaced: 'ops' },
+      { changed: false },
+      { installed: false },
+      { extension: 'squad' },
+      { version: '0.1.0-alpha.50' },
+      { executable: '/wrong/tmt-ops' },
+      { removed: [...literal().removed].reverse() },
+      { removed: literal().removed.slice(0, 2) },
+      { kept: [literal().removed[0]] },
+    ])
+      expect(() =>
+        assertOpsReplacement({ ...literal(), ...change }, prefix, '0.1.0-alpha.51')
+      ).toThrow();
+  });
+});
 
 const script = fileURLToPath(new URL('../../scripts/release-upgrade.mjs', import.meta.url));
 const TARGET = 'aarch64-apple-darwin';
@@ -1263,5 +1345,143 @@ describe('release-upgrade.mjs', () => {
     expect(run(['bogus']).stderr).toContain(
       'Usage: release-upgrade.mjs resolve|fetch|assess|prove|acceptance|reason'
     );
+  });
+});
+
+describe('REST evidence for a published CLI tag', () => {
+  const registration = '3'.repeat(40);
+  const driverSha = '8'.repeat(40);
+  const published = release('v5.0.0-alpha.84', { sha: '9'.repeat(40) });
+  const comparison = (status: string, mergeBase = registration) => ({
+    status,
+    base_commit: { sha: registration },
+    merge_base_commit: { sha: mergeBase },
+  });
+  it.each([
+    ['ahead', driverSha, registration],
+    ['identical', registration, registration],
+    ['behind', driverSha, driverSha],
+    ['diverged', driverSha, '2'.repeat(40)],
+  ])('reads exact tag commit then checks %s comparison evidence', (status, sha, mergeBase) => {
+    const calls: { command: string; args: string[]; options: object }[] = [];
+    const observe = ghCliAncestry({
+      repository: 'fixture/repository',
+      spawn: (command, args, options) => {
+        calls.push({ command, args, options });
+        return {
+          status: 0,
+          stdout: JSON.stringify(calls.length === 1 ? { sha } : comparison(status, mergeBase)),
+        };
+      },
+    });
+    expect(observe(published, registration)).toEqual({ sha, status });
+    expect(calls.map((c) => [c.command, ...c.args])).toEqual([
+      ['gh', 'api', 'repos/fixture/repository/commits/v5.0.0-alpha.84', '--jq', '{sha: .sha}'],
+      [
+        'gh',
+        'api',
+        `repos/fixture/repository/compare/${registration}...${sha}`,
+        '--jq',
+        '{status: .status, base_commit: {sha: .base_commit.sha}, merge_base_commit: {sha: .merge_base_commit.sha}}',
+      ],
+    ]);
+    expect(calls.map((c) => c.options)).toEqual([
+      expect.objectContaining({ timeout: 60_000, maxBuffer: 4 * 1024 * 1024 }),
+      expect.objectContaining({ timeout: 60_000, maxBuffer: 4 * 1024 * 1024 }),
+    ]);
+  });
+  it('requests compact evidence when unrelated REST patches exceed the output bound', () => {
+    const patch = 'x'.repeat(4 * 1024 * 1024 + 1);
+    const bodies = [
+      { sha: driverSha, files: [{ patch }] },
+      { ...comparison('ahead'), files: [{ patch }] },
+    ];
+    const filters = [
+      '{sha: .sha}',
+      '{status: .status, base_commit: {sha: .base_commit.sha}, merge_base_commit: {sha: .merge_base_commit.sha}}',
+    ];
+    let calls = 0;
+    const observe = ghCliAncestry({
+      repository: 'fixture/repository',
+      spawn: (_, args, options) => {
+        const index = calls++;
+        expect(args.slice(-2)).toEqual(['--jq', filters[index]]);
+        const bound = (options as { maxBuffer: number }).maxBuffer;
+        expect(Buffer.byteLength(JSON.stringify(bodies[index]))).toBeGreaterThan(bound);
+        // Fake gh emits the requested fields, never its large files/patches payload.
+        const stdout = JSON.stringify(index === 0 ? { sha: driverSha } : comparison('ahead'));
+        expect(Buffer.byteLength(stdout)).toBeLessThan(bound);
+        return { status: 0, stdout };
+      },
+    });
+    expect(observe(published, registration)).toEqual({ sha: driverSha, status: 'ahead' });
+    expect(calls).toBe(2);
+  });
+  it.each([
+    ['unknown status', comparison('unknown')],
+    ['wrong base', { ...comparison('ahead'), base_commit: { sha: driverSha } }],
+    ['wrong merge base', comparison('ahead', driverSha)],
+    ['ancestor evidence absent', { status: 'behind', base_commit: { sha: registration } }],
+    ['identical mismatch', comparison('identical')],
+  ])('refuses %s', (_, response) => {
+    let calls = 0;
+    const observe = ghCliAncestry({
+      repository: 'fixture/repository',
+      spawn: () => ({
+        status: 0,
+        stdout: JSON.stringify(++calls === 1 ? { sha: driverSha } : response),
+      }),
+    });
+    expect(() => observe(published, registration)).toThrow('Unknown REST CLI ancestry');
+    expect(calls).toBe(2);
+  });
+  it.each(['tag', 'compare'])('refuses %s REST failure without a fallback', (phase) => {
+    let calls = 0;
+    const observe = ghCliAncestry({
+      repository: 'fixture/repository',
+      spawn: () => {
+        calls += 1;
+        return phase === 'tag' || calls === 2
+          ? { status: 1, stdout: '' }
+          : { status: 0, stdout: JSON.stringify({ sha: driverSha }) };
+      },
+    });
+    expect(() => observe(published, registration)).toThrow('REST read failed');
+    expect(calls).toBe(phase === 'tag' ? 1 : 2);
+  });
+  it.each(['main', [driverSha], null])(
+    'refuses invalid tag commit %j and never asks compare',
+    (sha) => {
+      let calls = 0;
+      const observe = ghCliAncestry({
+        repository: 'fixture/repository',
+        spawn: () => {
+          calls += 1;
+          return { status: 0, stdout: JSON.stringify({ sha }) };
+        },
+      });
+      expect(() => observe(published, registration)).toThrow('no resolved commit');
+      expect(calls).toBe(1);
+    }
+  );
+  it('refuses draft/unknown publication and malformed registration before REST', () => {
+    const observe = ghCliAncestry({
+      repository: 'fixture/repository',
+      spawn: () => {
+        throw new Error('must not call REST');
+      },
+    });
+    expect(() => observe({ ...published, draft: true }, registration)).toThrow('published release');
+    expect(() =>
+      observe({ ...published, draft: undefined } as unknown as DraftRelease, registration)
+    ).toThrow('published release');
+    expect(() => observe(published, 'main')).toThrow('registration SHA');
+  });
+  it('retains a subprocess error as unknown ancestry rather than using target_commitish', () => {
+    const observe = ghCliAncestry({
+      repository: 'fixture/repository',
+      spawn: () => ({ error: new Error('request unavailable'), status: null, stdout: '' }),
+    });
+    expect(() => observe(published, registration)).toThrow('request unavailable');
   });
 });

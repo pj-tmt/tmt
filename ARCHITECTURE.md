@@ -1074,10 +1074,10 @@ nothing is committed back to main. Main retains development versions. Workflow j
 own Node architecture selection; version injection preserves it.
 
 Notes, migration comparison and breaking authorization share the newest published
-ancestor. Before its own publication, a map-declared predecessor supplies that
-boundary and both lines reserve versions; retired identities stay historical-only.
-Drafts never advance published evidence. Publication creates an immutable tag only
-after every gate passes; only the CLI converges latest to its highest publication.
+ancestor. Before own publication, a predecessor supplies history; both lines reserve versions.
+Retired identities stay historical. Rename staging binds two published CLI drivers by registration
+ancestry; one verifier checks replacement state and skills after digest readback. Drafts never advance published evidence. Tags become
+immutable after all gates pass; only the CLI converges latest to its highest publication.
 
 Automatic publication covers authorized existing alpha products only. Ben retains
 stable, breaking, version-line changes and manual publication authorization.

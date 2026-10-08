@@ -141,7 +141,7 @@ explicit 15 s subprocess budget for debug archive hashing.
 
 ### Ops archives
 
-A skills product's archive (`skills: true` in `.github/components.json`; the archive policy, the
+A candidate skills product's archive (`skills: true` in `.github/components.json`; the archive policy,
 verifier and `component-skills.test.ts` read that one field) adds `skills/` copied from
 `extensions/<name>/skills/` through the
 package's cargo-dist `include` (a package list replaces the workspace list, so it repeats
@@ -158,7 +158,9 @@ node typescript/scripts/verify-native-artifact.mjs --product ops --manifest /abs
 Runtime proof runs `tmt-ops --version` and checks `tmt-ops skill show` prints the archived
 `SKILL.md`, leaving an empty HOME and config. Then `tmt extension install ops --archive
 <archive> --manifest <manifest> --prefix <task-owned-prefix> --channel alpha --yes`, a repeat
-install and `tmt extension uninstall ops`.
+install and `tmt extension uninstall ops`. Published historical archives declare skills through
+their own verified manifest inventory; retired Squad needs no current component record and
+is refused as a release candidate.
 
 ### Herdr driver archives
 
@@ -233,9 +235,9 @@ unchanged SQLite bytes and migration of state the previous release wrote. The
 `native-release-upgrade.yml` proof (also `workflow_dispatch` from `main` for any draft or
 published tag) does this on four hosts through the shared proof stages in
 `native-release-upgrade-prove.yml`; extension and driver releases use
-`verify-native-extension-upgrade.mjs` and `verify-native-driver-upgrade.mjs`. The first
-release of a product has nothing to upgrade from and says so; a commit that predates the
-scripts fails the proof with that message and is proven by hand.
+`verify-native-extension-upgrade.mjs` and `verify-native-driver-upgrade.mjs`. A product with
+neither own nor predecessor published history has nothing to upgrade from and says so; a commit
+that predates the scripts fails the proof with that message and is proven by hand.
 
 Extension-upgrade proofs (`test/native/extension-upgrade-proof.test.ts`) use one native
 recording driver on macOS and Linux; build it first and publish the built bytes through
@@ -323,6 +325,21 @@ newer than the newest published release or the fetch fails. The same proof stage
 acceptance. The write-token `fetch` of `native-release-upgrade.yml` is called only by the publication
 bundle on main, so a pull request can only reach the local fetch; the publication path's upgrade
 job keeps its jobs and outputs (`release-workflow.test.ts` evaluates the conditions).
+
+When the selected previous release is a declared predecessor, fetch requires the successor's
+`requiresCliSha`, resolves published CLI tags by REST, and checks ancestry against that registration.
+The newest published CLI must contain it; the previous driver is the newest strict ancestor before
+it (drafts and divergent commits cannot substitute). Both drivers use the existing digest-checked
+staging path, with captured tag/commit provenance rechecked before emitting the verifier's second
+driver arguments. Same-product staging keeps one driver. The one extension verifier accepts the
+complete former-product/previous-driver pair only for Squad -> Ops: the old CLI establishes Squad
+and skill consent; the new CLI replaces it, checks reported removal order, owner/target migration,
+list/repeat/old-archive refusal, unchanged application bytes and absence of CLI links.
+Default PR CI does not run the historical two-real-CLI scenario. Explicit matching-host qualification
+uses the digest-recorded staging directory described in [installation fixtures](installation-fixtures.md#prepared-squad-to-ops-qualification),
+with separately admitted builds; the first published Ops release still requires its ordinary token-free proof.
+Reported JSON removal order and final durable state do not independently prove internal lock,
+syscall or failure timing.
 
 **Rehearsal publication gates.** The same rehearsal runs `gates-dry` in the prepare workflow:
 `publication-gates.mjs dry --product P --tag <synthetic tag> --sha <candidate> [--on-main]` evaluates

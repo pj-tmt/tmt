@@ -120,7 +120,9 @@ async function createArchiveFixture(
   const product = options.product ?? 'cli';
   const skills =
     options.skills ??
-    (shipsSkills(product) ? { [`tmt-${product}/SKILL.md`]: 'agent skill\n' } : {});
+    (product === 'squad' || shipsSkills(product)
+      ? { [`tmt-${product}/SKILL.md`]: 'agent skill\n' }
+      : {});
   for (const [file, content] of Object.entries(skills)) {
     fs.mkdirSync(path.dirname(path.join(root, 'skills', file)), { recursive: true });
     fs.writeFileSync(path.join(root, 'skills', file), content);
@@ -178,7 +180,9 @@ async function createArchiveFixture(
           ...files.filter(
             (file) => options.declareCompanions !== false || !companions.includes(file)
           ),
-          ...((options.declareSkills ?? shipsSkills(options.product ?? 'cli')) ? ['skills'] : []),
+          ...((options.declareSkills ?? (product === 'squad' || shipsSkills(product)))
+            ? ['skills']
+            : []),
         ].map((file) => ({ path: file })),
       },
     },
@@ -231,13 +235,46 @@ describe('native artifact policy', () => {
         await expect(
           withNativeArtifact(missing.archiveFile, missing.metadata, () => undefined)
         ).rejects.toThrow('Missing native archive entry:');
-        await expect(
-          createArchiveFixture(sandbox, { product, declareSkills: true })
-        ).rejects.toThrow('Manifest must describe exactly the native runtime files');
+        const wrong = await createArchiveFixture(sandbox, {
+          product,
+          declareSkills: true,
+          skills: { 'unexpected/SKILL.md': 'historical skill\n' },
+        });
+        expect(() =>
+          selectNativeArtifact(wrong.manifestFile, wrong.archiveFile, TARGET, product, {
+            release: true,
+          })
+        ).toThrow('Manifest must describe exactly the native runtime files');
       });
     }
   );
-  it.each(['ops', 'squad', 'colab'] as const)(
+  it('reads retired Squad skills from the published manifest without a current map record, but refuses a candidate', async () => {
+    await withSandbox(async (sandbox) => {
+      expect(() => shipsSkills('squad')).toThrow('Ambiguous or missing component');
+      const historical = await createArchiveFixture(sandbox, {
+        product: 'squad',
+        skills: { 'tmt-squad/SKILL.md': 'published predecessor skill\n' },
+      });
+      expect(historical.metadata).toHaveProperty('skills', true);
+      await withNativeArtifact(historical.archiveFile, historical.metadata, (root) => {
+        expect(fs.readFileSync(path.join(root, 'skills/tmt-squad/SKILL.md'), 'utf8')).toBe(
+          'published predecessor skill\n'
+        );
+      });
+      expect(() =>
+        selectNativeArtifact(historical.manifestFile, historical.archiveFile, TARGET, 'squad', {
+          release: true,
+        })
+      ).toThrow('Retired products cannot be release candidates');
+      const predating = await createArchiveFixture(sandbox, {
+        product: 'squad',
+        skills: {},
+        declareSkills: false,
+      });
+      expect(predating.metadata).not.toHaveProperty('skills');
+    });
+  });
+  it.each(['ops', 'colab'] as const)(
     'verifies a %s archive with its declared skills tree and rejects missing or malformed trees',
     async (product) => {
       await withSandbox(async (sandbox) => {
@@ -288,9 +325,13 @@ describe('native artifact policy', () => {
         await expect(
           withNativeArtifact(linked.archiveFile, linked.metadata, () => undefined)
         ).rejects.toThrow('Native archive entry must be regular');
-        await expect(
-          createArchiveFixture(sandbox, { skills, declareSkills: true })
-        ).rejects.toThrow('Manifest must describe exactly the native runtime files');
+        const published = await createArchiveFixture(sandbox, { skills, declareSkills: true });
+        expect(published.metadata).toHaveProperty('skills', true);
+        expect(() =>
+          selectNativeArtifact(published.manifestFile, published.archiveFile, TARGET, 'cli', {
+            release: true,
+          })
+        ).toThrow('Manifest must describe exactly the native runtime files');
       });
     }
   );

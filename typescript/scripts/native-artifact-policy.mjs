@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { gunzipSync } from 'node:zlib';
 import { shipsSkills } from './component-skills.mjs';
+import { isProductRetired } from './native-release-policy.mjs';
 
 const executables = {
   cli: 'tmt',
@@ -100,6 +101,7 @@ export function selectNativeArtifact(
   product = 'cli',
   { release = false } = {}
 ) {
+  assert(!release || !isProductRetired(product), 'Retired products cannot be release candidates');
   const requiredFiles = runtimeFiles(product);
   const manifest = JSON.parse(readBoundedFile(manifestFile, 4 * 1024 * 1024));
   const name = path.basename(archiveFile);
@@ -118,8 +120,9 @@ export function selectNativeArtifact(
   // cargo-dist declares an included directory as one asset named after it. The archive under
   // release must carry the skills its component declares; a published archive (an upgrade proof's
   // previous release) is read against its own manifest, because it may predate the declaration.
-  const declared =
-    shipsSkills(product) && (release || assets.includes(skillsRoot)) ? [skillsRoot] : [];
+  const declared = (release ? shipsSkills(product) : assets.includes(skillsRoot))
+    ? [skillsRoot]
+    : [];
   // The companions this archive declares, in their one order.
   const carried = companionFiles(product).filter((companion) => assets.includes(companion));
   assert.deepEqual(
