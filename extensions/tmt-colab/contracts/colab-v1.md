@@ -1814,6 +1814,10 @@ the root-local operation record by (page, root-local stream, `operationId`). A r
 `operationId` with different bytes is `COLAB_OPERATION_CONFLICT`. The browser never resends a
 save: an unanswered status names the original ID, and a later Save is a new operation. The
 browser refuses a source over 2 MiB before sending, naming its size and the limit.
+Measured with incompressible fixtures through the real door: a fully different 1.5 MiB source
+replaces a 1.5 MiB page repeatedly, exactly 2 MiB saves onto a small page, and 80 consecutive
+8 KiB-growth saves each land. Replacement of a page by a fully different 2 MiB source is bounded
+by the same tail as the CLI write above.
 
 ### Implemented catchup and chunk protocol
 
