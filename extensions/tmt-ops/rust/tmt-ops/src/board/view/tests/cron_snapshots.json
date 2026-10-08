@@ -24,10 +24,10 @@
       "",
       "",
       "",
-      "── cron · 1 ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── no clock · tmt sq cron run",
+      "── cron · 1 ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────── no clock · tmt ops sq cron run",
       "● c0   someone          job for u1                                                                                       every 30m              Mon 10-05 00:30",
       "",
-      "↑↓ move  ⏎ open  t talk  e expand  / search  ◆ needs to know who you are: tmt squad me <name>  ? more  q quit"
+      "↑↓ move  ⏎ open  t talk  e expand  / search  ◆ needs to know who you are: tmt ops squad me <name>  ? more  q quit"
     ],
     "hits": "[Hit { y: 3, x: 0, width: 160, row: 0 }, Hit { y: 5, x: 0, width: 160, row: 1 }, Hit { y: 6, x: 0, width: 160, row: 2 }, Hit { y: 7, x: 0, width: 160, row: 3 }]"
   },
@@ -56,7 +56,7 @@
       "",
       "",
       "",
-      "── cron · 1 ──────────────────────────────────────────────────────────── no clock · tmt sq cron run",
+      "── cron · 1 ──────────────────────────────────────────────────────── no clock · tmt ops sq cron run",
       "● c0   someone          job for u1                           every 30m              Mon 10-05 00:30",
       "",
       "↑↓ move  ⏎ open  t talk  e expand  / search  ? more  q quit"
@@ -88,7 +88,7 @@
       "",
       "",
       "",
-      "── cron · 1 ──────────────────────────────────────── no clock · tmt sq cron run",
+      "── cron · 1 ──────────────────────────────────── no clock · tmt ops sq cron run",
       "● c0   someone          job for u1       every 30m              Mon 10-05 00:30",
       "",
       "↑↓ move  ⏎ open  t talk  e expand  / search  ? more  q quit"
@@ -120,7 +120,7 @@
       "",
       "",
       "",
-      "── cron · 1 ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── no clock · tmt sq cron run",
+      "── cron · 1 ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────── no clock · tmt ops sq cron run",
       "● c0   someone          job for u1                                                                                       every 30m              Mon 10-05 00:30",
       "",
       "⏎ owner  n new  e expand  E edit  p pause  x send  o reassign  d delete  tab members  c all squads  q quit  ? more"
@@ -152,7 +152,7 @@
       "",
       "",
       "",
-      "── cron · 1 ──────────────────────────────────────────────────────────── no clock · tmt sq cron run",
+      "── cron · 1 ──────────────────────────────────────────────────────── no clock · tmt ops sq cron run",
       "● c0   someone          job for u1                           every 30m              Mon 10-05 00:30",
       "",
       "⏎ owner  n new  e expand  E edit  p pause  x send  o reassign  d delete  tab members  q quit  ? more"
@@ -184,7 +184,7 @@
       "",
       "",
       "",
-      "── cron · 1 ──────────────────────────────────────── no clock · tmt sq cron run",
+      "── cron · 1 ──────────────────────────────────── no clock · tmt ops sq cron run",
       "● c0   someone          job for u1       every 30m              Mon 10-05 00:30",
       "",
       "⏎ owner  n new  e expand  E edit  p pause  x send  o reassign  q quit  ? more"
