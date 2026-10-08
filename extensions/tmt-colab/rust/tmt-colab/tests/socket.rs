@@ -3738,19 +3738,14 @@ fn a_status_request_while_a_dropped_save_still_prepares_is_pending_never_absent(
 }
 
 #[test]
-fn a_save_reads_the_clock_only_after_its_snapshot_is_open() {
-    use std::sync::atomic::{AtomicBool, Ordering};
-    let (server, _layout, _key, _peer) = publish_fixture();
-    let opened = Arc::new(AtomicBool::new(false));
-    let flag = Arc::clone(&opened);
+fn a_save_reads_the_clock_after_its_snapshot_so_a_later_certificate_cannot_deny_it() {
+    let (server, layout, key, _peer) = publish_fixture();
     let root = server.root.clone();
     let open: tmt_colab::page::save::SourceOpener = Arc::new(move || {
-        let source = tmt_colab::page::save::open_source(
+        tmt_colab::page::save::open_source(
             &root,
             support::decoder_config(env!("CARGO_BIN_EXE_tmt-colab").into()),
-        );
-        flag.store(true, Ordering::SeqCst);
-        source
+        )
     });
     let save = tmt_colab::page::save::Save {
         page: PAGE.into(),
@@ -3758,16 +3753,22 @@ fn a_save_reads_the_clock_only_after_its_snapshot_is_open() {
         base_sha256: tmt_colab_model::crypto::digest(b""),
         source: "<p>Late clock</p>".into(),
     };
-    let sampled_after_open = Arc::new(AtomicBool::new(false));
-    let seen = Arc::clone(&sampled_after_open);
-    let after = Arc::clone(&opened);
-    let prepared = tmt_colab::page::save::prepare(&open, &save, &move || {
-        seen.store(after.load(Ordering::SeqCst), Ordering::SeqCst);
-        Ok(now())
+    // The reading is taken now, and then another writer commits as the page's first publisher,
+    // which issues the root-local certificate a few milliseconds after that reading. If the clock
+    // were read before the snapshot, the snapshot would hold a certificate from the save's own
+    // future and the save would be denied. Read after it, that certificate is simply not in the
+    // snapshot, and preparation succeeds.
+    let calls = std::cell::Cell::new(0);
+    let prepared = tmt_colab::page::save::prepare(&open, &save, &|| {
+        calls.set(calls.get() + 1);
+        let reading = now();
+        std::thread::sleep(Duration::from_millis(5));
+        let small = prepare_write(&layout, &key, "<p>Someone else's edit</p>");
+        tmt_colab::page::ipc::publish(&layout, &key, &small)
+            .unwrap()
+            .expect("the server answered");
+        Ok(reading)
     });
-    assert!(prepared.is_ok());
-    assert!(
-        sampled_after_open.load(Ordering::SeqCst),
-        "the clock was read before the snapshot was open"
-    );
+    assert!(prepared.is_ok(), "{:?}", prepared.err());
+    assert_eq!(calls.get(), 1, "the clock is read exactly once");
 }

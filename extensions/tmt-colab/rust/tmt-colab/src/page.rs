@@ -345,6 +345,7 @@ impl<'a> From<Option<&'a str>> for PublishOptions<'a> {
         }
     }
 }
+/// `prepare_publication_with_clock` at a time the caller already knows.
 pub fn prepare_publication<'a>(
     store: &Store,
     key: &Keyring,
@@ -354,10 +355,25 @@ pub fn prepare_publication<'a>(
     decoder: &mut Decoder,
     now: u64,
 ) -> Result<PublicationPreparation> {
+    prepare_publication_with_clock(store, key, page, edit, options, decoder, &|| Ok(now))
+}
+/// Prepare one publication from a single snapshot of the page. `clock` is read once, after that
+/// snapshot is taken: a certificate another writer issued before the snapshot was taken is issued
+/// no later than the reading, so it is never "from the future" and cannot turn this preparation
+/// into a denial. A certificate issued after the snapshot is not in it, and the commit's fences
+/// refuse the stale base instead.
+pub fn prepare_publication_with_clock<'a>(
+    store: &Store,
+    key: &Keyring,
+    page: &str,
+    edit: crate::decoder::ContentEdit<'_>,
+    options: impl Into<PublishOptions<'a>>,
+    decoder: &mut Decoder,
+    clock: &dyn Fn() -> Result<u64>,
+) -> Result<PublicationPreparation> {
     use crate::{decoder::ContentBatch, publication::PublicationKind};
     let options = options.into();
     values::generated_id(page)?;
-    values::time(now)?;
     if let Some(id) = options.operation_id {
         values::generated_id(id)?;
     }
@@ -379,6 +395,8 @@ pub fn prepare_publication<'a>(
     if options.expected_revision.is_some_and(|r| r != revision) {
         return Err(Fault::StaleBase.into());
     }
+    let now = clock()?;
+    values::time(now)?;
     let author = Author::of(key, &s, now)?;
     let prepared = s.prepare_content_batch(
         key,
