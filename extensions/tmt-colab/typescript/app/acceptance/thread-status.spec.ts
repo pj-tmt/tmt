@@ -150,10 +150,17 @@ test('status states captured for the UX look', async () => {
         await page.setViewportSize({ width, height: 900 });
         await page.evaluate((theme) => (document.documentElement.dataset.theme = theme), theme);
         await page.mouse.move(width - 1, 899);
-        if (options.header && width < 600)
+        if (options.header && width < 600) {
+          // The 390px sheet covers the header: shoot the menu with the toggle copy with it closed.
+          await page.getByRole('button', { name: 'Close Comments', exact: true }).click();
           await page.getByRole('button', { name: 'More page actions', exact: true }).click();
+          await page.mouse.move(width - 1, 899);
+          await page.screenshot({ path: `${captureDir}/${state}-menu-${width}-${theme}.png` });
+          await page.keyboard.press('Escape');
+          await comments(page);
+        }
+        await page.mouse.move(width - 1, 899);
         await page.screenshot({ path: `${captureDir}/${state}-${width}-${theme}.png` });
-        if (options.header && width < 600) await page.keyboard.press('Escape');
       }
       await page.setViewportSize({ width: 1440, height: 900 });
       await page.evaluate(() => (document.documentElement.dataset.theme = 'light'));
@@ -181,7 +188,8 @@ test('status states captured for the UX look', async () => {
     const input = compose.getByRole('combobox', { name: 'Message', exact: true });
     await expect(input).toBeEnabled();
     await input.fill('Please check @ghost-agent this passage.');
-    await input.press('Escape');
+    // Escape would cancel the whole annotation unless a candidate list is open.
+    if (await first.getByRole('listbox').isVisible()) await input.press('Escape');
     await compose.getByRole('button', { name: 'Post comment', exact: true }).click();
     const window = compose.getByTestId('comment-thread');
     await expect(window).toBeVisible();
