@@ -17,6 +17,7 @@ import {
   failureCause,
   fetchUpgrade,
   ghAssetDownloader,
+  ghCliAncestry,
   localCandidate,
   proveStaged,
   proveArchiveAcceptance,
@@ -1263,5 +1264,110 @@ describe('release-upgrade.mjs', () => {
     expect(run(['bogus']).stderr).toContain(
       'Usage: release-upgrade.mjs resolve|fetch|assess|prove|acceptance|reason'
     );
+  });
+});
+
+describe('REST evidence for a published CLI tag', () => {
+  const registration = '3'.repeat(40);
+  const driverSha = '8'.repeat(40);
+  const published = release('v5.0.0-alpha.84', { sha: '9'.repeat(40) });
+  const comparison = (status: string, mergeBase = registration) => ({
+    status,
+    base_commit: { sha: registration },
+    merge_base_commit: { sha: mergeBase },
+  });
+  it.each([
+    ['ahead', driverSha, registration],
+    ['identical', registration, registration],
+    ['behind', driverSha, driverSha],
+    ['diverged', driverSha, '2'.repeat(40)],
+  ])('reads exact tag commit then checks %s comparison evidence', (status, sha, mergeBase) => {
+    const calls: { command: string; args: string[]; options: object }[] = [];
+    const observe = ghCliAncestry({
+      repository: 'fixture/repository',
+      spawn: (command, args, options) => {
+        calls.push({ command, args, options });
+        return {
+          status: 0,
+          stdout: JSON.stringify(calls.length === 1 ? { sha } : comparison(status, mergeBase)),
+        };
+      },
+    });
+    expect(observe(published, registration)).toEqual({ sha, status });
+    expect(calls.map((c) => [c.command, ...c.args])).toEqual([
+      ['gh', 'api', 'repos/fixture/repository/commits/v5.0.0-alpha.84'],
+      ['gh', 'api', `repos/fixture/repository/compare/${registration}...${sha}`],
+    ]);
+    expect(calls.map((c) => c.options)).toEqual([
+      expect.objectContaining({ timeout: 60_000, maxBuffer: 4 * 1024 * 1024 }),
+      expect.objectContaining({ timeout: 60_000, maxBuffer: 4 * 1024 * 1024 }),
+    ]);
+  });
+  it.each([
+    ['unknown status', comparison('unknown')],
+    ['wrong base', { ...comparison('ahead'), base_commit: { sha: driverSha } }],
+    ['wrong merge base', comparison('ahead', driverSha)],
+    ['ancestor evidence absent', { status: 'behind', base_commit: { sha: registration } }],
+    ['identical mismatch', comparison('identical')],
+  ])('refuses %s', (_, response) => {
+    let calls = 0;
+    const observe = ghCliAncestry({
+      repository: 'fixture/repository',
+      spawn: () => ({
+        status: 0,
+        stdout: JSON.stringify(++calls === 1 ? { sha: driverSha } : response),
+      }),
+    });
+    expect(() => observe(published, registration)).toThrow('Unknown REST CLI ancestry');
+    expect(calls).toBe(2);
+  });
+  it.each(['tag', 'compare'])('refuses %s REST failure without a fallback', (phase) => {
+    let calls = 0;
+    const observe = ghCliAncestry({
+      repository: 'fixture/repository',
+      spawn: () => {
+        calls += 1;
+        return phase === 'tag' || calls === 2
+          ? { status: 1, stdout: '' }
+          : { status: 0, stdout: JSON.stringify({ sha: driverSha }) };
+      },
+    });
+    expect(() => observe(published, registration)).toThrow('REST read failed');
+    expect(calls).toBe(phase === 'tag' ? 1 : 2);
+  });
+  it.each(['main', [driverSha], null])(
+    'refuses invalid tag commit %j and never asks compare',
+    (sha) => {
+      let calls = 0;
+      const observe = ghCliAncestry({
+        repository: 'fixture/repository',
+        spawn: () => {
+          calls += 1;
+          return { status: 0, stdout: JSON.stringify({ sha }) };
+        },
+      });
+      expect(() => observe(published, registration)).toThrow('no resolved commit');
+      expect(calls).toBe(1);
+    }
+  );
+  it('refuses draft/unknown publication and malformed registration before REST', () => {
+    const observe = ghCliAncestry({
+      repository: 'fixture/repository',
+      spawn: () => {
+        throw new Error('must not call REST');
+      },
+    });
+    expect(() => observe({ ...published, draft: true }, registration)).toThrow('published release');
+    expect(() =>
+      observe({ ...published, draft: undefined } as unknown as DraftRelease, registration)
+    ).toThrow('published release');
+    expect(() => observe(published, 'main')).toThrow('registration SHA');
+  });
+  it('retains a subprocess error as unknown ancestry rather than using target_commitish', () => {
+    const observe = ghCliAncestry({
+      repository: 'fixture/repository',
+      spawn: () => ({ error: new Error('request unavailable'), status: null, stdout: '' }),
+    });
+    expect(() => observe(published, registration)).toThrow('request unavailable');
   });
 });

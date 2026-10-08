@@ -324,6 +324,17 @@ acceptance. The write-token `fetch` of `native-release-upgrade.yml` is called on
 bundle on main, so a pull request can only reach the local fetch; the publication path's upgrade
 job keeps its jobs and outputs (`release-workflow.test.ts` evaluates the conditions).
 
+When the selected previous release is a declared predecessor, fetch requires the successor's
+`requiresCliSha`, resolves published CLI tags by REST, and checks ancestry against that registration.
+The newest published CLI must contain it; the previous driver is the newest strict ancestor before
+it (drafts and divergent commits cannot substitute). Both drivers use the existing digest-checked
+staging path, with captured tag/commit provenance rechecked before emitting the verifier's second
+driver arguments. Same-product staging keeps one driver. These tooling controls do not qualify a
+cross-product runtime: default PR CI does not run the historical two-real-CLI scenario. That
+qualification needs separately prepared matching-host archives and explicit local admission.
+Reported JSON removal order and final durable state do not independently prove internal lock,
+syscall or failure timing.
+
 **Rehearsal publication gates.** The same rehearsal runs `gates-dry` in the prepare workflow:
 `publication-gates.mjs dry --product P --tag <synthetic tag> --sha <candidate> [--on-main]` evaluates
 `channel`, `immutability`, `monotonic` and `migration` for the candidate from published releases and

@@ -31,6 +31,11 @@ export interface UpgradePlan {
   previous: string | null;
   floor: string | null;
   driver: string | null;
+  /** Present only when the selected previous release is a declared predecessor. */
+  previousDriver?: string;
+  previousDriverSha?: string;
+  driverSha?: string;
+  requiresCliSha?: string;
   files: Record<string, string>;
 }
 export interface LocalCandidate {
@@ -51,6 +56,10 @@ export function fetchUpgrade(input: {
   /** A rehearsal's verified local bundle replaces the candidate release. */
   local?: LocalCandidate;
   map?: ComponentMap;
+  observeCli?: (
+    release: DraftRelease,
+    registration: string
+  ) => { sha: string; status: 'ahead' | 'behind' | 'identical' | 'diverged' };
 }): UpgradePlan;
 export function proveStaged(input: {
   directory: string;
@@ -60,6 +69,7 @@ export function proveStaged(input: {
   run: (script: string, args: string[]) => void;
   skill?: string;
   sourceRoot?: string;
+  map?: ComponentMap;
 }): { previous: string | null };
 export const ACCEPTANCE_TEST: string;
 export function acceptanceApplicability(sourceRoot: string): 'applicable' | 'predates';
@@ -95,5 +105,17 @@ export function ghAssetDownloader(input: {
     options: object
   ) => { error?: Error; status: number | null; stdout: Buffer; stderr: Buffer };
 }): (asset: DraftAsset, file: string) => void;
+export function ghCliAncestry(input: {
+  repository: string;
+  env?: NodeJS.ProcessEnv;
+  spawn?: (
+    command: string,
+    args: string[],
+    options: object
+  ) => { error?: Error; status: number | null; stdout: string; stderr?: string };
+}): (
+  release: DraftRelease,
+  registration: string
+) => { sha: string; status: 'ahead' | 'behind' | 'identical' | 'diverged' };
 export function failureCause(log: string): string;
 export function combineFailures(failures: readonly { target: string; log: string }[]): string;

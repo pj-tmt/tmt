@@ -3,11 +3,13 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  realpathSync,
   rmSync,
   symlinkSync,
   writeFileSync,
 } from 'node:fs';
 import { createHash } from 'node:crypto';
+import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -15,6 +17,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vite-plus/test';
 import type { ComponentMap } from '../../scripts/ci-scope.mjs';
 import type { CutMetadata } from '../../scripts/release-cut.mjs';
 import type { DraftRelease } from '../../scripts/release-draft-assets.mjs';
+import { writeExecutable } from '../support/executable-fixture.mjs';
 
 // Copy actual tooling once, changing only its private registry data. Synthetic product
 // names never enter the real map or registry; every history/staging function stays intact.
@@ -35,7 +38,7 @@ let policy: {
 };
 const tooling = fileURLToPath(new URL('../../', import.meta.url));
 beforeAll(async () => {
-  root = mkdtempSync(path.join(tmpdir(), 'release-predecessor-'));
+  root = realpathSync(mkdtempSync(path.join(tmpdir(), 'release-predecessor-')));
   const scripts = path.join(root, 'typescript/scripts');
   cpSync(path.join(tooling, 'scripts'), scripts, { recursive: true });
   symlinkSync(
@@ -82,7 +85,8 @@ const definitions = {
     predecessor: 'fixture-new',
   },
 };
-const mapOf = (components = definitions) => scope.parseComponentMap(JSON.stringify({ components }));
+const mapOf = (components: Record<string, object> = definitions) =>
+  scope.parseComponentMap(JSON.stringify({ components }));
 const published = (product: string, n: number, at = 1) =>
   ({
     id: n,
@@ -468,7 +472,7 @@ describe('predecessor upgrade archives', () => {
     );
     expect(select(releases, 'fixture-next')).toBe('tmt-fixture-old-v0.1.0-alpha.9');
   });
-  it('stages the old archive with its own identity and verifies retained digests before the existing verifier call', () => {
+  it('stages both CLI drivers and the old archive with their own identities before the verifier call', () => {
     const target = 'aarch64-apple-darwin';
     const directory = path.join(root, 'staged');
     let id = 1;
@@ -494,24 +498,37 @@ describe('predecessor upgrade archives', () => {
       release('fixture-old', 'tmt-fixture-old-v0.1.0-alpha.9'),
       release('fixture-new', 'tmt-fixture-new-v0.1.0-alpha.10', true),
       release('cli', 'v5.0.0-alpha.81'),
+      release('cli', 'v5.0.0-alpha.80'),
     ];
+    const map = mapOf({
+      ...definitions,
+      'fixture-new': { ...definitions['fixture-new'], requiresCliSha: sha(3) },
+    });
     const plan = upgrade.fetchUpgrade({
       releases,
       product: 'fixture-new',
       tag: 'tmt-fixture-new-v0.1.0-alpha.10',
       directory,
-      map: mapOf(),
+      map,
+      observeCli: (release) =>
+        release.tag_name === 'v5.0.0-alpha.81'
+          ? { sha: sha(4), status: 'ahead' }
+          : { sha: sha(1), status: 'behind' },
       download: (asset, file) => writeFileSync(file, content.get(asset.id)!),
     });
     expect(plan.previous).toBe('tmt-fixture-old-v0.1.0-alpha.9');
-    expect(Object.keys(plan.files).sort()).toEqual([
-      `${target}/candidate/dist-manifest.json`,
-      `${target}/candidate/tmt-fixture-new-${target}.tar.gz`,
-      `${target}/driver/dist-manifest.json`,
-      `${target}/driver/tmt-cli-${target}.tar.gz`,
-      `${target}/previous/dist-manifest.json`,
-      `${target}/previous/tmt-fixture-old-${target}.tar.gz`,
-    ]);
+    expect(Object.keys(plan.files).sort()).toEqual(
+      [
+        `${target}/candidate/dist-manifest.json`,
+        `${target}/candidate/tmt-fixture-new-${target}.tar.gz`,
+        `${target}/driver/dist-manifest.json`,
+        `${target}/driver/tmt-cli-${target}.tar.gz`,
+        `${target}/previous/dist-manifest.json`,
+        `${target}/previous/tmt-fixture-old-${target}.tar.gz`,
+        `${target}/previous-driver/dist-manifest.json`,
+        `${target}/previous-driver/tmt-cli-${target}.tar.gz`,
+      ].sort()
+    );
     const calls: { script: string; args: string[] }[] = [];
     expect(
       upgrade.proveStaged({
@@ -519,6 +536,7 @@ describe('predecessor upgrade archives', () => {
         product: 'fixture-new',
         tag: plan.tag,
         target,
+        map,
         run: (script, args) => calls.push({ script, args }),
       })
     ).toEqual({ previous: plan.previous });
@@ -527,6 +545,14 @@ describe('predecessor upgrade archives', () => {
     expect(calls[0].args[calls[0].args.indexOf('--previous-archive') + 1]).toBe(
       path.join(directory, target, 'previous', `tmt-fixture-old-${target}.tar.gz`)
     );
+    expect(calls[0].args.slice(-6)).toEqual([
+      '--previous-product',
+      'fixture-old',
+      '--previous-driver-archive',
+      path.join(directory, target, 'previous-driver', `tmt-cli-${target}.tar.gz`),
+      '--previous-driver-manifest',
+      path.join(directory, target, 'previous-driver', 'dist-manifest.json'),
+    ]);
     // This injected call proves staging/arguments, not cross-product runtime verifier acceptance.
     writeFileSync(
       path.join(directory, target, 'previous', `tmt-fixture-old-${target}.tar.gz`),
@@ -538,10 +564,477 @@ describe('predecessor upgrade archives', () => {
         product: 'fixture-new',
         tag: plan.tag,
         target,
+        map,
         run: () => {
           throw new Error('must not execute');
         },
       })
     ).toThrow('recorded digest');
+  });
+});
+
+describe('two published CLI drivers for a predecessor', () => {
+  const targets = [
+    'aarch64-apple-darwin',
+    'aarch64-unknown-linux-musl',
+    'x86_64-apple-darwin',
+    'x86_64-unknown-linux-musl',
+  ];
+  const candidateTag = 'tmt-fixture-new-v0.1.0-alpha.10';
+  const registration = sha(3);
+  const crossDefinitions = () => ({
+    ...definitions,
+    'fixture-new': { ...definitions['fixture-new'], requiresCliSha: registration },
+  });
+  type Observation = { sha: string; status: 'ahead' | 'behind' | 'identical' | 'diverged' };
+  const observations: Record<string, Observation> = {
+    'v5.0.0-alpha.84': { sha: sha(8), status: 'ahead' },
+    'v5.0.0-alpha.83': { sha: registration, status: 'identical' },
+    'v5.0.0-alpha.82': { sha: sha(6), status: 'diverged' },
+    'v5.0.0-alpha.81': { sha: sha(2), status: 'behind' },
+    'v5.0.0-alpha.80': { sha: sha(1), status: 'behind' },
+  };
+  function fixture() {
+    const directory = mkdtempSync(path.join(root, 'two-drivers-'));
+    const contents = new Map<number, string>();
+    let id = 1;
+    const release = (product: string, tag: string, draft = false): DraftRelease => ({
+      id: id++,
+      tag_name: tag,
+      draft,
+      // Deliberately wrong for ancestry: only a resolved published tag is evidence.
+      target_commitish: sha(99),
+      created_at: '2026-10-08T00:00:00Z',
+      assets: [...targets.map((t) => `tmt-${product}-${t}.tar.gz`), 'dist-manifest.json'].map(
+        (name) => {
+          const assetId = id++;
+          const bytes = `${tag}:${name}`;
+          contents.set(assetId, bytes);
+          return {
+            id: assetId,
+            name,
+            digest: `sha256:${createHash('sha256').update(bytes).digest('hex')}`,
+          };
+        }
+      ),
+    });
+    const releases = [
+      release('fixture-old', 'tmt-fixture-old-v0.1.0-alpha.9'),
+      release('fixture-new', candidateTag, true),
+      release('cli', 'v5.0.0-alpha.90', true),
+      ...Object.keys(observations).map((tag) => release('cli', tag)),
+    ];
+    const observed: string[] = [];
+    const downloads: string[] = [];
+    const observeCli = (r: DraftRelease, at: string): Observation => {
+      expect(at).toBe(registration);
+      observed.push(r.tag_name);
+      return observations[r.tag_name];
+    };
+    const download = (asset: NonNullable<DraftRelease['assets']>[number], file: string) => {
+      downloads.push(file);
+      writeFileSync(file, contents.get(asset.id)!);
+    };
+    const input = {
+      releases,
+      directory,
+      product: 'fixture-new',
+      tag: candidateTag,
+      map: mapOf(crossDefinitions()),
+      observeCli,
+      download,
+    };
+    return { input, contents, observed, downloads, release };
+  }
+  it('chooses the newest strict ancestor, skips drafts/divergence, and captures all four target pairs', () => {
+    const f = fixture();
+    const plan = upgrade.fetchUpgrade(f.input);
+    expect(plan).toMatchObject({
+      previous: 'tmt-fixture-old-v0.1.0-alpha.9',
+      driver: 'v5.0.0-alpha.84',
+      previousDriver: 'v5.0.0-alpha.81',
+      driverSha: sha(8),
+      previousDriverSha: sha(2),
+      requiresCliSha: registration,
+    });
+    expect(f.observed).toEqual([
+      'v5.0.0-alpha.84',
+      'v5.0.0-alpha.83',
+      'v5.0.0-alpha.82',
+      'v5.0.0-alpha.81',
+    ]);
+    expect(Object.keys(plan.files)).toHaveLength(32);
+    for (const target of targets) {
+      const calls: { script: string; args: string[] }[] = [];
+      upgrade.proveStaged({
+        ...f.input,
+        target,
+        run: (script, args) => calls.push({ script, args }),
+      });
+      expect(calls).toEqual([
+        {
+          script: 'verify-native-extension-upgrade.mjs',
+          args: [
+            '--archive',
+            path.join(f.input.directory, target, 'candidate', `tmt-fixture-new-${target}.tar.gz`),
+            '--manifest',
+            path.join(f.input.directory, target, 'candidate', 'dist-manifest.json'),
+            '--previous-archive',
+            path.join(f.input.directory, target, 'previous', `tmt-fixture-old-${target}.tar.gz`),
+            '--previous-manifest',
+            path.join(f.input.directory, target, 'previous', 'dist-manifest.json'),
+            '--target',
+            target,
+            '--product',
+            'fixture-new',
+            '--driver-archive',
+            path.join(f.input.directory, target, 'driver', `tmt-cli-${target}.tar.gz`),
+            '--driver-manifest',
+            path.join(f.input.directory, target, 'driver', 'dist-manifest.json'),
+            '--previous-product',
+            'fixture-old',
+            '--previous-driver-archive',
+            path.join(f.input.directory, target, 'previous-driver', `tmt-cli-${target}.tar.gz`),
+            '--previous-driver-manifest',
+            path.join(f.input.directory, target, 'previous-driver', 'dist-manifest.json'),
+          ],
+        },
+      ]);
+    }
+  });
+  it.each([
+    ['missing registration', 'exact requiresCliSha'],
+    ['missing observation', 'published CLI tag ancestry'],
+    ['unknown status', 'Unknown CLI ancestry'],
+    ['unknown SHA', 'Unknown CLI ancestry'],
+    ['array SHA', 'Unknown CLI ancestry'],
+    ['latest behind', 'does not contain registration'],
+    ['latest diverged', 'does not contain registration'],
+    ['no ancestor', 'strict pre-registration ancestor'],
+    ['REST error', 'permission unavailable'],
+    ['no published CLI', 'needs a published CLI release'],
+    ['unreviewed predecessor chain', 'immediate predecessor'],
+  ])('refuses %s before any download', (kind, message) => {
+    const f = fixture();
+    const input = { ...f.input };
+    if (kind === 'missing registration') input.map = mapOf();
+    if (kind === 'missing observation') delete (input as Partial<typeof input>).observeCli;
+    if (kind === 'unknown status')
+      input.observeCli = () => ({ sha: sha(8), status: 'unknown' }) as unknown as Observation;
+    if (kind === 'unknown SHA') input.observeCli = () => ({ sha: 'not-a-commit', status: 'ahead' });
+    if (kind === 'array SHA')
+      input.observeCli = () => ({ sha: [sha(8)], status: 'ahead' }) as unknown as Observation;
+    if (kind === 'latest behind') input.observeCli = () => ({ sha: sha(2), status: 'behind' });
+    if (kind === 'latest diverged') input.observeCli = () => ({ sha: sha(6), status: 'diverged' });
+    if (kind === 'no ancestor') input.observeCli = () => ({ sha: sha(8), status: 'ahead' });
+    if (kind === 'REST error')
+      input.observeCli = () => {
+        throw new Error('permission unavailable');
+      };
+    if (kind === 'no published CLI')
+      input.releases = input.releases.filter((release) => !release.tag_name.startsWith('v'));
+    if (kind === 'unreviewed predecessor chain') {
+      input.product = 'fixture-next';
+      input.tag = 'tmt-fixture-next-v0.1.0-alpha.10';
+      input.releases = [
+        ...input.releases,
+        {
+          ...draft('fixture-next', 10),
+          assets: input.releases[1].assets!.map((asset) => ({
+            ...asset,
+            name: asset.name.replace('tmt-fixture-new-', 'tmt-fixture-next-'),
+          })),
+        },
+      ];
+    }
+    expect(() => upgrade.fetchUpgrade(input)).toThrow(message);
+    expect(f.downloads).toEqual([]);
+  });
+  it('accepts the registration commit itself as the new driver, never as the old driver', () => {
+    const f = fixture();
+    f.input.observeCli = (release) =>
+      release.tag_name === 'v5.0.0-alpha.84'
+        ? { sha: registration, status: 'identical' }
+        : observations[release.tag_name];
+    expect(upgrade.fetchUpgrade(f.input)).toMatchObject({
+      driverSha: registration,
+      previousDriver: 'v5.0.0-alpha.81',
+      previousDriverSha: sha(2),
+    });
+  });
+  it('own published history uses the unchanged one-driver path without ancestry reads', () => {
+    const f = fixture();
+    f.input.releases.push(f.release('fixture-new', 'tmt-fixture-new-v0.1.0-alpha.8'));
+    f.input.observeCli = () => {
+      throw new Error('same-product must not read ancestry');
+    };
+    const plan = upgrade.fetchUpgrade(f.input);
+    expect(plan.previous).toBe('tmt-fixture-new-v0.1.0-alpha.8');
+    expect(Object.keys(plan).sort()).toEqual(
+      ['product', 'tag', 'previous', 'floor', 'driver', 'files'].sort()
+    );
+    expect(Object.keys(plan.files)).toHaveLength(24);
+    const calls: string[][] = [];
+    upgrade.proveStaged({ ...f.input, target: targets[0], run: (_, args) => calls.push(args) });
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).not.toContain('--previous-product');
+    expect(calls[0]).not.toContain('--previous-driver-archive');
+    expect(calls[0]).toHaveLength(16);
+    plan.driverSha = sha(8);
+    writeFileSync(path.join(f.input.directory, 'plan.json'), JSON.stringify(plan));
+    expect(() =>
+      upgrade.proveStaged({
+        ...f.input,
+        target: targets[0],
+        run: () => {
+          throw new Error('must not run');
+        },
+      })
+    ).toThrow('Same-product plan must not carry');
+  });
+  it('no published predecessor retains the original no-op and makes no ancestry or download calls', () => {
+    const f = fixture();
+    f.input.releases = f.input.releases.filter(
+      (release) => !release.tag_name.startsWith('tmt-fixture-old-')
+    );
+    f.input.observeCli = () => {
+      throw new Error('no previous must not read ancestry');
+    };
+    const plan = upgrade.fetchUpgrade(f.input);
+    expect(plan).toEqual({
+      product: 'fixture-new',
+      tag: candidateTag,
+      previous: null,
+      floor: null,
+      driver: null,
+      files: {},
+    });
+    expect(f.downloads).toEqual([]);
+    expect(
+      upgrade.proveStaged({
+        ...f.input,
+        target: targets[0],
+        run: () => {
+          throw new Error('must not run');
+        },
+      })
+    ).toEqual({ previous: null });
+  });
+  it.each(['driver', 'previous-driver'] as const)(
+    'refuses either tampered %s before execution',
+    (kind) => {
+      const f = fixture();
+      upgrade.fetchUpgrade(f.input);
+      writeFileSync(
+        path.join(f.input.directory, targets[0], kind, `tmt-cli-${targets[0]}.tar.gz`),
+        'tampered'
+      );
+      const executed: string[] = [];
+      expect(() =>
+        upgrade.proveStaged({
+          ...f.input,
+          target: targets[0],
+          run: (script) => executed.push(script),
+        })
+      ).toThrow('recorded digest');
+      expect(executed).toEqual([]);
+    }
+  );
+  it.each(['previousDriver', 'previousDriverSha', 'driverSha', 'requiresCliSha'] as const)(
+    'refuses missing %s provenance',
+    (field) => {
+      const f = fixture();
+      const plan = upgrade.fetchUpgrade(f.input);
+      delete plan[field];
+      writeFileSync(path.join(f.input.directory, 'plan.json'), JSON.stringify(plan));
+      expect(() =>
+        upgrade.proveStaged({
+          ...f.input,
+          target: targets[0],
+          run: () => {
+            throw new Error('must not run');
+          },
+        })
+      ).toThrow('registration provenance');
+    }
+  );
+  it.each(['requiresCliSha', 'previousDriverSha', 'previousDriver'] as const)(
+    'refuses inconsistent %s provenance',
+    (field) => {
+      const f = fixture();
+      const plan = upgrade.fetchUpgrade(f.input);
+      plan[field] =
+        field === 'requiresCliSha'
+          ? sha(4)
+          : field === 'previousDriverSha'
+            ? plan.driverSha
+            : plan.driver!;
+      writeFileSync(path.join(f.input.directory, 'plan.json'), JSON.stringify(plan));
+      expect(() =>
+        upgrade.proveStaged({
+          ...f.input,
+          target: targets[0],
+          run: () => {
+            throw new Error('must not run');
+          },
+        })
+      ).toThrow('registration provenance');
+    }
+  );
+  it.each(['driverSha', 'previousDriverSha', 'requiresCliSha'] as const)(
+    'refuses non-string %s provenance even when it stringifies to a SHA',
+    (field) => {
+      const f = fixture();
+      const plan = upgrade.fetchUpgrade(f.input);
+      writeFileSync(
+        path.join(f.input.directory, 'plan.json'),
+        JSON.stringify({ ...plan, [field]: [plan[field]] })
+      );
+      expect(() =>
+        upgrade.proveStaged({
+          ...f.input,
+          target: targets[0],
+          run: () => {
+            throw new Error('must not run');
+          },
+        })
+      ).toThrow('registration provenance');
+    }
+  );
+  it.each(['target', 'digest'] as const)(
+    'refuses missing old driver %s without fallback',
+    (kind) => {
+      const f = fixture();
+      f.input.releases = f.input.releases.map((release) =>
+        release.tag_name !== 'v5.0.0-alpha.81'
+          ? release
+          : {
+              ...release,
+              assets:
+                kind === 'target'
+                  ? release.assets!.filter((asset) => !asset.name.includes(targets[0]))
+                  : release.assets!.map((asset) =>
+                      asset.name.includes(targets[0]) ? { id: asset.id, name: asset.name } : asset
+                    ),
+            }
+      );
+      expect(() => upgrade.fetchUpgrade(f.input)).toThrow(
+        kind === 'target' ? 'has no tmt-cli-' : 'no usable digest'
+      );
+      expect(f.observed).not.toContain('v5.0.0-alpha.80');
+    }
+  );
+  it('requires a recorded previous-driver digest even when its bytes are still present', () => {
+    const f = fixture();
+    const plan = upgrade.fetchUpgrade(f.input);
+    delete plan.files[`${targets[0]}/previous-driver/dist-manifest.json`];
+    writeFileSync(path.join(f.input.directory, 'plan.json'), JSON.stringify(plan));
+    expect(() =>
+      upgrade.proveStaged({
+        ...f.input,
+        target: targets[0],
+        run: () => {
+          throw new Error('must not run');
+        },
+      })
+    ).toThrow('no recorded digest');
+  });
+  it('binds the actual fetch CLI caller to REST tag resolution and registration comparison', () => {
+    const f = fixture();
+    const bin = path.join(f.input.directory, 'bin');
+    mkdirSync(bin);
+    const registry = path.join(root, '.github/components.json');
+    const original = readFileSync(registry);
+    const log = path.join(f.input.directory, 'rest.jsonl');
+    const responses: Record<string, unknown> = {
+      'repos/fixture/repository/releases': [f.input.releases],
+    };
+    for (const [tag, observation] of Object.entries(observations)) {
+      responses[`repos/fixture/repository/commits/${tag}`] = { sha: observation.sha };
+      responses[`repos/fixture/repository/compare/${registration}...${observation.sha}`] = {
+        status: observation.status,
+        base_commit: { sha: registration },
+        merge_base_commit: {
+          sha: observation.status === 'behind' ? observation.sha : registration,
+        },
+      };
+    }
+    const fixtureFile = path.join(f.input.directory, 'responses.json');
+    writeFileSync(
+      fixtureFile,
+      JSON.stringify({ responses, assets: Object.fromEntries(f.contents), log })
+    );
+    writeExecutable(
+      path.join(bin, 'gh'),
+      `#!${process.execPath}
+const fs = require('node:fs');
+const fixture = JSON.parse(fs.readFileSync(process.env.TMT_ANCESTRY_FIXTURE, 'utf8'));
+const args = process.argv.slice(2); const endpoint = args.find(a => a.startsWith('repos/'));
+fs.appendFileSync(fixture.log, JSON.stringify(args) + '\\n');
+if (endpoint?.includes('/releases/assets/')) {
+  const value = fixture.assets[endpoint.split('/').at(-1)];
+  if (value === undefined) process.exit(91); process.stdout.write(value);
+} else {
+  if (!Object.hasOwn(fixture.responses, endpoint)) process.exit(92);
+  process.stdout.write(JSON.stringify(fixture.responses[endpoint]));
+}
+`
+    );
+    try {
+      writeFileSync(registry, JSON.stringify({ components: crossDefinitions() }));
+      const result = spawnSync(
+        process.execPath,
+        [
+          path.join(root, 'typescript/scripts/release-upgrade.mjs'),
+          'fetch',
+          '--product',
+          'fixture-new',
+          '--tag',
+          candidateTag,
+          '--directory',
+          path.join(f.input.directory, 'caller-staged'),
+        ],
+        {
+          env: {
+            ...process.env,
+            PATH: bin,
+            GITHUB_REPOSITORY: 'fixture/repository',
+            TMT_ANCESTRY_FIXTURE: fixtureFile,
+          },
+          encoding: 'utf8',
+          timeout: 10_000,
+        }
+      );
+      expect(result.error).toBeUndefined();
+      expect(result.status, result.stderr).toBe(0);
+      const plan = JSON.parse(
+        readFileSync(path.join(f.input.directory, 'caller-staged/plan.json'), 'utf8')
+      );
+      expect(plan).toMatchObject({
+        previousDriver: 'v5.0.0-alpha.81',
+        previousDriverSha: sha(2),
+        driverSha: sha(8),
+        requiresCliSha: registration,
+      });
+      const args = readFileSync(log, 'utf8')
+        .trim()
+        .split('\n')
+        .map((line) => JSON.parse(line) as string[]);
+      expect(args.filter((a) => a[1].includes('/commits/')).map((a) => a[1])).toEqual([
+        'repos/fixture/repository/commits/v5.0.0-alpha.84',
+        'repos/fixture/repository/commits/v5.0.0-alpha.83',
+        'repos/fixture/repository/commits/v5.0.0-alpha.82',
+        'repos/fixture/repository/commits/v5.0.0-alpha.81',
+      ]);
+      expect(args.filter((a) => a[1].includes('/compare/')).map((a) => a[1])).toEqual([
+        `repos/fixture/repository/compare/${registration}...${sha(8)}`,
+        `repos/fixture/repository/compare/${registration}...${registration}`,
+        `repos/fixture/repository/compare/${registration}...${sha(6)}`,
+        `repos/fixture/repository/compare/${registration}...${sha(2)}`,
+      ]);
+      expect(Object.keys(plan.files)).toHaveLength(32);
+    } finally {
+      writeFileSync(registry, original);
+    }
   });
 });
