@@ -2279,7 +2279,7 @@ describe('required CI gate', () => {
       const shard = consumer
         .split('steps: &docker-e2e-steps\n')[1]
         ?.split('\n  docker-e2e-shard-2:')[0];
-      const seed = owner.split('\n  seed:\n')[1]?.split('\n  qualification:\n')[0];
+      const seed = owner.split('\n  seed:\n')[1];
       return (
         shard?.includes('version: v0.29.1') === true &&
         shard.includes('cache-from: type=gha,version=2,scope=tmt-e2e-dependencies') &&
@@ -2341,22 +2341,7 @@ describe('required CI gate', () => {
     expect(admitted(ci, writer.replace("      - '**/Cargo.toml'\n", ''))).toBe(false);
     const mainPush = ci.split('\n  push:\n')[1].split('\n  schedule:\n')[0];
     expect(mainPush).not.toContain('**/Cargo.toml');
-    // Temporary proof exports runner-local only, changes real source, and refuses a real compiler error.
-    const qualification = writer.split('\n  qualification:\n')[1];
-    expect(qualification).toContain('type=local,dest=$cache,mode=min');
-    expect(qualification).toContain('max-parallel: 1');
-    expect(qualification).toContain('sample: [1, 2]');
-    expect(qualification).toContain('name: e2e-cache-qualification-${{ matrix.sample }}');
-    expect(qualification).toContain('native warm-source-changed qual-warm');
-    expect(qualification).toContain('native warm-unchanged qual-warm');
-    expect(qualification).toContain('>> rust/crates/tmt-core/src/lib.rs');
-    expect(qualification).toContain('compile_error!');
-    expect(qualification).toContain('test "$status" -ne 0');
-    expect(qualification).toContain('Real adapter test artifact count: %s; chosen path: %s');
-    expect(qualification).toContain('test "$adapter_count" -eq 1');
-    expect(qualification).toContain('--file "$proof" --target native-tests');
-    expect(qualification).not.toContain('type=gha');
-    expect(qualification).not.toContain('docker run');
+    expect(writer).not.toMatch(/^  (pull_request|qualification):/m);
   });
 
   it('gives every native step and job an explicit scope, and gates on exactly those results', () => {
