@@ -113,8 +113,9 @@ the known thread. Current renderer anchor positions locate marker-opened windows
 viewport dimensions clamp their square, shadow-free surface independently of
 document height. The shell fits its content without reserved history height and
 grows away from the same selection edge through first Send. At the viewport cap,
-only history scrolls; the field and Send remain visible. Its shared icon actions
-retain hover/keyboard tooltips; a long status title truncates before the fixed
+only history scrolls; the field and Send remain visible. An open annotation stays
+clamped inside the viewport even when its selection endpoint is offscreen.
+Its shared icon actions retain hover/keyboard tooltips; a long status title truncates before the fixed
 right-aligned controls; attachment metadata stays on that same header row.
 Header/composer stay in place while messages scroll, including
 an associated delayed reply to an earlier turn. Unrelated live publications keep
