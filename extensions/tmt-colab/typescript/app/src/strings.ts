@@ -113,7 +113,7 @@ export const text = {
   attachmentReason: {
     denied: 'You can no longer open this file.',
     'not-found': 'This file is no longer on this page.',
-    changed: 'The page changed while opening. Try again.',
+    changed: 'The page changed while opening this file. Try again.',
     unavailable: 'This file is unavailable.',
   },
   attachmentSize: humanSize,
