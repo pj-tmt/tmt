@@ -348,7 +348,10 @@ for (const theme of ['light', 'dark'] as const)
     const input = page.getByRole('combobox', { name: 'Message', exact: true });
     await expect(input).toBeFocused();
     await expect(page.locator('.annotation-popover blockquote')).toHaveText('Exact selected text');
+    await expect(input).toHaveText('', { useInnerText: true });
     expect((await run(page, 'proof')).sends).toEqual([]);
+    // Capture the opened annotation before the separate editing and IME controls type into it.
+    await page.screenshot({ path: capturePath(`selection-annotation-390-${theme}.png`) });
     await input.press('c');
     await expect(input).toHaveText('c', { useInnerText: true });
     await page.evaluate(() => {
@@ -378,5 +381,4 @@ for (const theme of ['light', 'dark'] as const)
     await expect(page.locator('.annotation-popover')).toHaveCount(1);
     expect((await run(page, 'proof')).sends).toEqual([]);
     await client.detach();
-    await page.screenshot({ path: capturePath(`selection-annotation-390-${theme}.png`) });
   });
