@@ -845,6 +845,26 @@
           ]
         }
       ]
+    },
+    "2261": {
+      "release": {
+        "workflow": "native-release-smoke.yml",
+        "job": "smoke",
+        "step": "name:Install from the public release"
+      },
+      "preMerge": [
+        {
+          "workflow": "ci.yml",
+          "job": "unit-tests",
+          "selection": {
+            "kind": "ci-scope",
+            "output": "native_scope",
+            "value": "full"
+          },
+          "coverage": "policy",
+          "tests": ["typescript/test/tooling/verify-public-install.test.ts"]
+        }
+      ]
     }
   }
 }

@@ -8,7 +8,7 @@ const ROOTS = ['native-release.yml', 'release.yml'];
 // Every failed or held release closes its gap here: an incident row names the release step that
 // caught it and either a pre-merge counterpart or a concrete release-only reason.
 const INCIDENTS = [
-  1534, 1541, 1542, 1550, 1593, 1604, 1616, 1643, 1646, 1661, 1680, 1745, 2076, 2197, 2241,
+  1534, 1541, 1542, 1550, 1593, 1604, 1616, 1643, 1646, 1661, 1680, 1745, 2076, 2197, 2241, 2261,
 ];
 const repository = fileURLToPath(new URL('../../', import.meta.url));
 const digest = (text) => createHash('sha256').update(text).digest('hex');
