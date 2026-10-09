@@ -16,14 +16,49 @@ use std::{
     },
     time::{Duration, Instant},
 };
+#[path = "support/deploy_fixture.rs"]
+mod deploy_fixture;
 #[path = "support/executable_fixture.rs"]
 mod executable_fixture;
+use tmt_remote::{deploy_record::DeployRecordStore, error::RemoteError};
 
 const BINARY: &str = env!("CARGO_BIN_EXE_tmt-remote");
 /// Bound on a `serve` child reporting readiness. Startup runs freshly written
 /// fake-core executables, whose first exec waits behind the same assessment
 /// queue as the fixture probe.
 const STARTUP: Duration = executable_fixture::COMPLETION_WINDOW;
+// A parallel fork can briefly retain a writer-lock descriptor until exec.
+// This fixture wait models that possibility; it is not a deployment retry.
+const DEPLOY_WRITER_RELEASE_WAIT: Duration = Duration::from_secs(3);
+const DEPLOY_WRITER_RELEASE_POLL: Duration = Duration::from_millis(5);
+fn wait_for_deploy_writer<'a>(
+    deadline: Instant,
+    mut reopen: impl FnMut() -> Result<DeployRecordStore<'a>, RemoteError>,
+) -> Result<DeployRecordStore<'a>, RemoteError> {
+    let started = Instant::now();
+    loop {
+        match reopen() {
+            Ok(writer) => {
+                eprintln!(
+                    "deploy fixture writer release wait: {} ns",
+                    started.elapsed().as_nanos()
+                );
+                return Ok(writer);
+            }
+            Err(error) if error.code == "REMOTE_DEPLOY_BUSY" => {
+                let remaining = deadline.saturating_duration_since(Instant::now());
+                if remaining.is_zero() {
+                    return Err(error);
+                }
+                std::thread::sleep(remaining.min(DEPLOY_WRITER_RELEASE_POLL));
+                if Instant::now() >= deadline {
+                    return Err(error);
+                }
+            }
+            Err(error) => return Err(error),
+        }
+    }
+}
 static NEXT: AtomicUsize = AtomicUsize::new(0);
 struct Pilot {
     root: PathBuf,
@@ -2910,6 +2945,85 @@ fn status_budget_is_opt_in_and_static() {
 }
 
 #[test]
+fn deploy_writer_wait_observes_a_gated_copied_lock_release_without_changing_the_record() {
+    let root = deploy_fixture::Root::new();
+    let layout = root.layout();
+    let path = root.remote().join("deploy.json");
+    let before = serde_json::to_vec(&serde_json::json!({
+        "version": 1,
+        "record": tmt_remote::deploy_run::DeployRecord::new(deploy_fixture::ID),
+    }))
+    .unwrap();
+    // Seed valid private bytes before any lock owner exists; no preliminary release race.
+    layout
+        .file("deploy.json")
+        .unwrap()
+        .write_all(&before)
+        .unwrap();
+    // Model a copy of the same locked open description, not an identified CI child.
+    let original = layout.file("deploy.lock").unwrap();
+    original.try_lock().unwrap();
+    let copy = original.try_clone().unwrap();
+    drop(original);
+    std::thread::scope(|scope| {
+        let (release, wait) = mpsc::channel();
+        let mut release = Some(release);
+        let holder = scope.spawn(move || {
+            // Dropping the sender on assertion unwind also releases and joins this owner.
+            let _ = wait.recv_timeout(DEPLOY_WRITER_RELEASE_WAIT);
+            drop(copy);
+        });
+        let result = wait_for_deploy_writer(Instant::now() + DEPLOY_WRITER_RELEASE_WAIT, || {
+            let result = DeployRecordStore::open(&layout);
+            if matches!(&result, Err(error) if error.code == "REMOTE_DEPLOY_BUSY")
+                && let Some(release) = release.take()
+            {
+                release.send(()).unwrap();
+            }
+            result
+        });
+        assert!(release.is_none(), "the copied holder was not observed busy");
+        drop(result.expect("copied descriptor did not release within the fixture bound"));
+        holder.join().unwrap();
+    });
+    assert_eq!(fs::read(path).unwrap(), before);
+}
+
+#[test]
+fn deploy_writer_wait_still_refuses_a_held_writer_at_its_absolute_deadline() {
+    let root = deploy_fixture::Root::new();
+    let layout = root.layout();
+    let writer = DeployRecordStore::open(&layout).unwrap();
+    let deadline = Instant::now() + DEPLOY_WRITER_RELEASE_POLL * 2;
+    let result = wait_for_deploy_writer(deadline, || DeployRecordStore::open(&layout));
+    assert!(matches!(result, Err(error) if error.code == "REMOTE_DEPLOY_BUSY"));
+    assert!(Instant::now() >= deadline);
+    drop(writer);
+    drop(
+        wait_for_deploy_writer(Instant::now() + DEPLOY_WRITER_RELEASE_WAIT, || {
+            DeployRecordStore::open(&layout)
+        })
+        .expect("released writer was not available"),
+    );
+}
+
+#[test]
+fn deploy_writer_wait_propagates_non_busy_errors_after_one_attempt() {
+    let mut calls = 0;
+    let result = wait_for_deploy_writer(Instant::now() + DEPLOY_WRITER_RELEASE_WAIT, || {
+        calls += 1;
+        Err(RemoteError::new(
+            "REMOTE_STATE_UNSAFE",
+            "fixture unsafe state",
+        ))
+    });
+    assert!(
+        matches!(result, Err(error) if error.code == "REMOTE_STATE_UNSAFE" && error.message == "fixture unsafe state")
+    );
+    assert_eq!(calls, 1);
+}
+
+#[test]
 fn status_stop_and_serve_diagnostics_preserve_the_deploy_record_while_its_writer_is_locked() {
     use tmt_remote::{deploy_record::DeployRecordStore, deploy_run::DeployRecord, state::Layout};
     let mut pilot = Pilot::new();
@@ -2929,7 +3043,12 @@ fn status_stop_and_serve_diagnostics_preserve_the_deploy_record_while_its_writer
     assert_eq!(status_json(&pilot)["running"], false);
     assert_eq!(fs::read(&path).unwrap(), before);
     drop(writer);
-    drop(DeployRecordStore::open(&layout).unwrap());
+    drop(
+        wait_for_deploy_writer(Instant::now() + DEPLOY_WRITER_RELEASE_WAIT, || {
+            DeployRecordStore::open(&layout)
+        })
+        .expect("deploy writer leaked its lock"),
+    );
 }
 
 #[test]
@@ -3006,7 +3125,12 @@ fn running_layer_status_reads_atomic_deploy_snapshots_without_the_writer_lock() 
     );
     assert_eq!(fs::read(&path).unwrap(), snapshot);
     drop(writer);
-    drop(DeployRecordStore::open(&layout).unwrap());
+    drop(
+        wait_for_deploy_writer(Instant::now() + DEPLOY_WRITER_RELEASE_WAIT, || {
+            DeployRecordStore::open(&layout)
+        })
+        .expect("deploy writer leaked its lock"),
+    );
 }
 
 #[test]
