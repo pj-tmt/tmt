@@ -3,7 +3,6 @@ use crate::native_install::artifact;
 use crate::native_install::publication::Layout;
 use crate::native_install::{InstallRequest, install_observed};
 use crate::process::CommandError;
-use crate::process::CommandFailure;
 use crate::process::CommandOutput;
 use crate::process::CommandRequest;
 use crate::process::CommandRunner;
@@ -14,7 +13,6 @@ use std::{
     env,
     ffi::{OsStr, OsString},
     fs, io,
-    os::unix::fs::symlink,
     path::{Path, PathBuf},
     time::{Duration, Instant},
 };
@@ -242,13 +240,6 @@ fn cargo_dist_upgrade_refreshes_real_artifacts_and_preserves_conflicts() {
     )
     .unwrap();
     let second_target = skill_target(&second_root, &old_skill);
-    let old_source = fs::read_link(&second_target).unwrap();
-    fs::remove_file(&second_target).unwrap();
-    fs::create_dir_all(second_target.parent().unwrap()).unwrap();
-    let mut conflict = old_skill.clone();
-    conflict.extend_from_slice(b"\nuser conflict\n");
-    fs::create_dir(&second_target).unwrap();
-    fs::write(second_target.join("SKILL.md"), &conflict).unwrap();
 
     let release = release_document(
         &new_artifact.version,
@@ -309,45 +300,50 @@ fn cargo_dist_upgrade_refreshes_real_artifacts_and_preserves_conflicts() {
     assert_eq!(skill_name(&new_skill), Some(tmt_core::skill_catalog::MAIN));
     let refreshed_first = skill_target(&first_root, &new_skill);
     let refreshed_second = skill_target(&second_root, &new_skill);
-    let skill_text_changed = new_skill != old_skill;
     assert_eq!(fs::read(first_target.join("SKILL.md")).unwrap(), old_skill);
+    // The support floor used a retired name whose user content remains protected.
+    // Migrate that root before occupying the current bundled name under test.
+    if second_target != refreshed_second {
+        run(
+            &report.installation.active_executable,
+            &[
+                OsString::from("install"),
+                OsString::from("--dir"),
+                second_root.as_os_str().to_os_string(),
+            ],
+            &task,
+        )
+        .unwrap();
+    }
+    fs::remove_file(&refreshed_second).unwrap();
+    let mut user_skill = old_skill.clone();
+    user_skill.extend_from_slice(b"\nuser conflict\n");
+    fs::create_dir(&refreshed_second).unwrap();
+    fs::write(refreshed_second.join("SKILL.md"), &user_skill).unwrap();
+    let skill_text_changed = new_skill != old_skill;
 
     let refresh = run(
         &report.installation.active_executable,
         &command_args(&["__native-refresh-skills", "--json"]),
         &task,
     )
-    .expect_err("modified managed target should produce a partial refresh failure");
-    assert!(matches!(
-        refresh.kind,
-        CommandFailure::Exit {
-            code: Some(1),
-            signal: None
-        }
-    ));
-    let refresh_document: Value = serde_json::from_slice(&refresh.output.unwrap().stdout).unwrap();
-    assert!(refresh_document["error"].is_object());
-    assert!(report_contains(
-        &refresh_document,
-        "refreshed",
-        &refreshed_first
-    ));
-    assert!(report_contains(
-        &refresh_document,
-        "conflicts",
-        &second_target
-    ));
-    assert_eq!(
-        fs::read(refreshed_first.join("SKILL.md")).unwrap(),
-        new_skill
-    );
-    assert_eq!(fs::read(second_target.join("SKILL.md")).unwrap(), conflict);
+    .unwrap();
+    let refresh_document: Value = serde_json::from_slice(&refresh.stdout).unwrap();
+    assert!(refresh_document["error"].is_null());
+    assert_eq!(refresh_document["conflicts"], json!([]));
+    for target in [&refreshed_first, &refreshed_second] {
+        assert!(report_contains(&refresh_document, "refreshed", target));
+        assert!(fs::symlink_metadata(target).unwrap().is_symlink());
+        assert_eq!(fs::read(target.join("SKILL.md")).unwrap(), new_skill);
+    }
+    let new_source = fs::read_link(&refreshed_first).unwrap();
+    assert_eq!(fs::read_link(&refreshed_second).unwrap(), new_source);
+    assert!(!task.join(".tmt-skill-backups").exists());
     if first_target != refreshed_first {
         assert!(!first_target.exists());
-        assert!(
-            !refreshed_second.exists(),
-            "conflict must not publish a duplicate"
-        );
+    }
+    if second_target != refreshed_second {
+        assert!(!second_target.exists());
     }
 
     let old_still_runs = run(&old_executable, &command_args(&["--version"]), &task)
@@ -358,8 +354,6 @@ fn cargo_dist_upgrade_refreshes_real_artifacts_and_preserves_conflicts() {
         old_artifact.version.to_string()
     );
 
-    fs::remove_dir_all(&second_target).unwrap();
-    symlink(old_source, &second_target).unwrap();
     let retry = run(
         &report.installation.active_executable,
         &command_args(&["__native-refresh-skills", "--json"]),
@@ -368,33 +362,26 @@ fn cargo_dist_upgrade_refreshes_real_artifacts_and_preserves_conflicts() {
     .unwrap();
     let retry_document: Value = serde_json::from_slice(&retry.stdout).unwrap();
     assert!(retry_document["error"].is_null());
-    assert!(report_contains(
-        &retry_document,
-        "refreshed",
-        &refreshed_first
-    ));
-    assert!(report_contains(
-        &retry_document,
-        "refreshed",
-        &refreshed_second
-    ));
-    assert_eq!(
-        fs::read(refreshed_first.join("SKILL.md")).unwrap(),
-        new_skill
+    assert_eq!(retry_document["conflicts"], json!([]));
+    assert!(
+        retry_document["refreshed"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|entry| entry["changed"] == false)
     );
-    assert_eq!(
-        fs::read(refreshed_second.join("SKILL.md")).unwrap(),
-        new_skill
-    );
-    if second_target != refreshed_second {
-        assert!(!second_target.exists());
+    for target in [&refreshed_first, &refreshed_second] {
+        assert!(report_contains(&retry_document, "refreshed", target));
+        assert_eq!(fs::read_link(target).unwrap(), new_source);
+        assert_eq!(fs::read(target.join("SKILL.md")).unwrap(), new_skill);
     }
+    assert!(!task.join(".tmt-skill-backups").exists());
     if skill_text_changed {
         println!("skill-content transition: passed (old and candidate text differ)");
     } else {
         println!(
             "skill-content transition: skipped (old and candidate text are identical); \
-             candidate-byte equality, conflict preservation and repair passed"
+             candidate-byte equality, bundled replacement and idempotence passed"
         );
     }
 }
