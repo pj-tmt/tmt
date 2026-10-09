@@ -1,6 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import { mkdirSync } from 'node:fs';
 import { destination, id } from '../test/ask-fixtures.js';
+import { pageAction } from '../test/page-actions.js';
 
 type State = 'online' | 'offline' | 'not-found' | 'same-name';
 const fixture = '/test/message-composer-browser.html';
@@ -41,9 +42,7 @@ for (const width of [1440, 390])
           await (await import(path)).mount({ creator: true, agents });
         }, agents);
         const app = page.locator('#ask-page-fixture');
-        const toggle = app.getByTestId('chat-toggle');
-        if (!(await toggle.isVisible()))
-          await app.getByRole('button', { name: 'More page actions' }).click();
+        const toggle = await pageAction(app, 'Chat');
         await toggle.click();
         const chip = page.getByTestId('chat-panel').locator('.message-mention');
         await expect(chip).toHaveAttribute('data-state', state === 'same-name' ? 'online' : state);
