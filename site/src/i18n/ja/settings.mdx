@@ -1,6 +1,6 @@
 ---
 source: site/src/chapters/settings.mdx
-sourceRevision: 3a8ea875c93d702882147e770416b5ea8bc6e23c
+sourceRevision: 187d39ce0c29258aeb7f0b987c067b5bd40332ba
 title: 設定と困ったときの対処
 ---
 
@@ -111,7 +111,11 @@ $ tmt --version
   skill が tmt 以外の作ったファイルと競合する
 </Mdx.h4>
 
-まず対象を確認してください。`tmt install claude --force` は skill フォルダーの外にバックアップを作り、その場所を表示してから置き換えます。skill や setup を変更した後は、agent のセッションを再起動して読み込ませてください。
+tmt 自身の skill（公式 extension のものを含む）は常に優先されます。インストールやアップグレードでは、tmt の skill 名にあるものを確認なし・バックアップなしで置き換えます。自分の skill は別の名前で置いてください。tmt はほかの名前や、symlink の参照先フォルダーには触れません。
+
+サードパーティ extension の skill が、tmt が書いていないフォルダーを置き換えることはありません。強制することに同意した場合だけ、tmt は先に古いフォルダーを skill フォルダーの隣の `.tmt-skill-backups` に移します。
+
+`tmt install claude --force` が行うのは、廃止された `~/.claude/commands/team.md` をバックアップへ移すことだけです。アップグレード中に skill が失敗しても、アップグレード自体は完了し、パスと原因を表示します。skill や setup を変更した後は、agent のセッションを再起動して読み込ませてください。
 
 <Mdx.h4 id="a-sandboxed-agent-can-t-reach-tmt-s-data-or-tmux">
   sandbox 内の agent が tmt のデータや tmux にアクセスできない

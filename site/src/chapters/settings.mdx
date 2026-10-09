@@ -98,7 +98,11 @@ Use a user-owned prefix rather than `sudo`.
 
 #### Skills conflict with files tmt didn't write
 
-Look at the target first. `tmt install claude --force` replaces it after making a backup outside the skills folder and printing where it went. After changing skills or setup, restart the agent's session so it reads them.
+tmt's own skills, including those of official extensions, always win: installing or upgrading replaces whatever is at a tmt skill name, with no prompt and no backup. Keep your own skills under other names; tmt leaves other names, and the folders that symlinks point to, alone.
+
+A third-party extension's skill never replaces a folder tmt didn't write. Only when you agree to force it does tmt move the old folder to `.tmt-skill-backups` beside the skills folder first.
+
+`tmt install claude --force` only moves the retired `~/.claude/commands/team.md` to a backup. If a skill fails during an upgrade, the upgrade still completes and prints the path and the cause. After changing skills or setup, restart the agent's session so it reads them.
 
 #### A sandboxed agent can't reach tmt's data or tmux
 
