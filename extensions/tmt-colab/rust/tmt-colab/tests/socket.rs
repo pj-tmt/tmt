@@ -1831,7 +1831,22 @@ fn owner_static_assets_have_exact_bytes_types_and_no_filesystem_path_resolution(
     }
     let guidance = server.request(&Running::get("/", ""));
     assert!(guidance.contains("This colab space is private"));
-    assert!(guidance.contains("<span class=\"tmt-ui-brand\"><span class=\"tmt-ui-mark\" aria-hidden=\"true\">▚</span><span class=\"tmt-ui-wordmark\">Colab</span></span>"));
+    let brand_start = r#"<span class="tmt-ui-brand"><svg class="tmt-ui-mark" viewBox="0 0 200 200" aria-hidden="true" fill="currentColor">"#;
+    let mark = guidance
+        .split_once(brand_start)
+        .unwrap()
+        .1
+        .split_once("</svg>")
+        .unwrap()
+        .0;
+    let path =
+        r#"<path d="M100 18A82 82 0 0 1 164 49C143 45 117 55 110 77L92 75C85 50 87 31 100 18Z"/>"#;
+    let blades = [0, 60, 120, 180, 240, 300]
+        .map(|angle| format!(r#"<g transform="rotate({angle} 100 100)">{path}</g>"#))
+        .join("");
+    assert_eq!(mark, blades);
+    assert!(guidance.contains(r#"</svg><span class="tmt-ui-wordmark">Colab</span></span>"#));
+    assert!(!guidance.contains(r#"<span class="tmt-ui-mark""#));
     assert!(guidance.contains("<svg class=\"guidance-mark lucide\""));
     assert!(guidance.contains("<h2 class=\"tmt-ui-notice-heading\">Pair this browser first</h2>"));
     assert!(guidance.contains("<code>tmt remote pair</code>"));

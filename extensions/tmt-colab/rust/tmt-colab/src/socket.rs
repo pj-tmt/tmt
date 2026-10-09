@@ -779,8 +779,19 @@ fn serve(
     } else {
         ("waiting", "waiting")
     };
+    // Aperture paths and viewBox copied from site/src/home/assets/v9-0.svg.
+    let brand_mark = concat!(
+        r#"<svg class="tmt-ui-mark" viewBox="0 0 200 200" aria-hidden="true" fill="currentColor">"#,
+        r#"<g transform="rotate(0 100 100)"><path d="M100 18A82 82 0 0 1 164 49C143 45 117 55 110 77L92 75C85 50 87 31 100 18Z"/></g>"#,
+        r#"<g transform="rotate(60 100 100)"><path d="M100 18A82 82 0 0 1 164 49C143 45 117 55 110 77L92 75C85 50 87 31 100 18Z"/></g>"#,
+        r#"<g transform="rotate(120 100 100)"><path d="M100 18A82 82 0 0 1 164 49C143 45 117 55 110 77L92 75C85 50 87 31 100 18Z"/></g>"#,
+        r#"<g transform="rotate(180 100 100)"><path d="M100 18A82 82 0 0 1 164 49C143 45 117 55 110 77L92 75C85 50 87 31 100 18Z"/></g>"#,
+        r#"<g transform="rotate(240 100 100)"><path d="M100 18A82 82 0 0 1 164 49C143 45 117 55 110 77L92 75C85 50 87 31 100 18Z"/></g>"#,
+        r#"<g transform="rotate(300 100 100)"><path d="M100 18A82 82 0 0 1 164 49C143 45 117 55 110 77L92 75C85 50 87 31 100 18Z"/></g>"#,
+        "</svg>",
+    );
     let page = format!(
-        "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><title>Colab</title>{stylesheet}</head><body class=\"guidance\"><header class=\"tmt-ui-header\"><span class=\"tmt-ui-brand\"><span class=\"tmt-ui-mark\" aria-hidden=\"true\">▚</span><span class=\"tmt-ui-wordmark\">Colab</span></span><h1 class=\"tmt-ui-title\">{screen_title}</h1><div class=\"tmt-ui-actions\"></div></header><main class=\"guidance-main\"><section class=\"guidance-card tmt-ui-notice\" data-tone=\"{state}\"><div class=\"tmt-ui-notice-eyebrow\">{eyebrow}</div><div class=\"tmt-ui-notice-mark\"><span aria-hidden=\"true\">{mark}</span><span>{state_label}</span></div><h2 class=\"tmt-ui-notice-heading\">{heading}</h2><div class=\"tmt-ui-notice-body\">{recovery_status}<div id=\"colab-guidance\" class=\"guidance-detail\"{hidden}>{detail}</div></div></section></main>{script}</body></html>"
+        "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><title>Colab</title>{stylesheet}</head><body class=\"guidance\"><header class=\"tmt-ui-header\"><span class=\"tmt-ui-brand\">{brand_mark}<span class=\"tmt-ui-wordmark\">Colab</span></span><h1 class=\"tmt-ui-title\">{screen_title}</h1><div class=\"tmt-ui-actions\"></div></header><main class=\"guidance-main\"><section class=\"guidance-card tmt-ui-notice\" data-tone=\"{state}\"><div class=\"tmt-ui-notice-eyebrow\">{eyebrow}</div><div class=\"tmt-ui-notice-mark\"><span aria-hidden=\"true\">{mark}</span><span>{state_label}</span></div><h2 class=\"tmt-ui-notice-heading\">{heading}</h2><div class=\"tmt-ui-notice-body\">{recovery_status}<div id=\"colab-guidance\" class=\"guidance-detail\"{hidden}>{detail}</div></div></section></main>{script}</body></html>"
     );
     let _ = response_with_policy(
         &mut socket,
