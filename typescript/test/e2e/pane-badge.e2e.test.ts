@@ -228,13 +228,19 @@ describe('non-invasive pane badge presentation', { concurrent: false }, () => {
           .prepare('SELECT runtime_state, runtime_pid FROM bindings WHERE pane_id=?')
           .get(pane) as { runtime_state: string; runtime_pid: number };
         expect(before.runtime_state).toBe('running');
-        // Exercise delivery's real replacement recovery, rather than passing
-        // a no-hint assertion on a talk that never refreshes the badge.
+        // Seed a keyless Ended observation: delivery invokes replacement
+        // recovery only for Ended, never for the legacy Unknown/no-key path.
+        // Its native admission must restore the real badge and runtime PID.
         database
-          .prepare(`UPDATE bindings SET runtime_state='unknown', last_transition=NULL,
+          .prepare(`UPDATE bindings SET runtime_state='ended', last_transition='ended',
             runtime_pid=NULL, runtime_start_identity=NULL, observed_provider_session_id=NULL
             WHERE pane_id=?`)
           .run(pane);
+        expect(
+          database
+            .prepare('SELECT runtime_state, runtime_pid FROM bindings WHERE pane_id=?')
+            .get(pane)
+        ).toEqual({ runtime_state: 'ended', runtime_pid: null });
         fixture.tmux(['set-option', '-p', '-u', '-t', pane, BADGE_OPTION]);
         fixture.tmux(['set-option', '-p', '-u', '-t', pane, 'pane-border-format']);
         fixture.tmux(['set-option', '-p', '-u', '-t', pane, BORDER_OWNER]);
