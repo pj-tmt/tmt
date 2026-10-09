@@ -72,7 +72,12 @@ it('admits only the strict set/remove shape and reports an empty change', () => 
     { remove: 'not-a-list' },
     { remove: ['not-an-id'] },
     { set: [{ attachmentId: 'x' }] },
-    { remove: Array.from({ length: 129 }, (_, i) => `00000000-0000-4000-8000-${i.toString(16).padStart(12, '0')}`) },
+    {
+      remove: Array.from(
+        { length: 129 },
+        (_, i) => `00000000-0000-4000-8000-${i.toString(16).padStart(12, '0')}`,
+      ),
+    },
   ])
     expect(() => documentChange(bad)).toThrow();
 });
