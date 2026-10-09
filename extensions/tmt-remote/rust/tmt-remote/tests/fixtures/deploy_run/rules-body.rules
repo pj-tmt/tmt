@@ -1,0 +1,14 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /x/colab {
+      match /log/{entry} {
+        allow read: if request.auth != null;
+        allow create: if request.auth != null && request.resource.data.keys().hasAll(['sequence', 'expiresAt']);
+      }
+    }
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
