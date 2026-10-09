@@ -255,9 +255,9 @@ a working directory, active pane or sole identity.
   observation, not routing permission: a marker or socket cannot authorize a
   different identity, and the pane marker proves ownership by IDs, never by name.
 - `binding::session` separates identity-owned session preferences from
-  binding-owned runtime observations, written with CAS inside the binding transaction.
-  `resume.launch` metadata associates bounded launcher presets only with admitted sessions.
-  Drivers own process verification, flag extraction/replay, event mapping and state persistence; ordinary CLI calls learn direct sessions after output through the same admission/CAS, with bounded silent refusal, storage-only prechecks and private TTL hints; core stores driver state without parsing it.
+  binding-owned runtime observations, and observation writes are compare-and-set
+  inside the binding transaction. Drivers own process verification, event mapping
+  and driver-state persistence; ordinary CLI calls learn direct sessions after output through the same admission/CAS, with bounded silent refusal, storage-only prechecks and private TTL hints; core stores driver state without parsing it.
   Provider end leaves stored readiness Unknown pending a fresh start; only conclusive
   process loss ends the runtime incarnation.
 - Presence reads acquire host evidence outside the database writer lock and
