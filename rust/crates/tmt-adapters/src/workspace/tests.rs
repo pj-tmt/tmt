@@ -67,6 +67,141 @@ fn codec_preserves_literal_external_arguments_and_linked_windows() {
     assert_eq!(decode_command(&marker), Some(command));
 }
 
+#[derive(Clone)]
+struct DispatchRunner(std::rc::Rc<crate::scripted_runner::ScriptedRunner>);
+
+impl crate::process::CommandRunner for DispatchRunner {
+    fn execute(
+        &self,
+        request: crate::process::CommandRequest<'_>,
+    ) -> Result<crate::process::CommandOutput, crate::process::CommandError> {
+        self.0.execute(request)
+    }
+}
+
+fn dispatch_context(
+    directory: &std::path::Path,
+    runner: DispatchRunner,
+) -> (
+    ConfigPaths,
+    CallerEnvironment,
+    Host<DispatchRunner>,
+    DispatchRunner,
+) {
+    let caller = CallerEnvironment {
+        tmux: Some("/tmp/dispatch.sock,10,0".into()),
+        pane: Some("%7".into()),
+        process_id: 42,
+        driver_env: Default::default(),
+    };
+    let host = Host::for_caller_with(&caller, runner.clone());
+    (paths(directory), caller, host, runner)
+}
+
+#[test]
+fn non_foreground_dispatch_does_no_discovery_subprocess_or_file_work() {
+    let runner = DispatchRunner(Default::default());
+    let marker = prepare_dispatch("example", &[], 42, |tty, pid| {
+        assert_eq!((tty, pid), ("/dev/tty", 42));
+        false
+    }, || -> Option<(ConfigPaths, CallerEnvironment, Host<DispatchRunner>, DispatchRunner)> {
+        panic!("non-foreground dispatch must return before discovering config or host")
+    });
+    assert!(marker.is_none());
+    assert!(runner.0.calls.borrow().is_empty());
+}
+
+#[test]
+fn eligible_dispatch_only_reads_selected_tty_and_owner_then_writes_marker() {
+    let directory = crate::test_support::TestDirectory::new();
+    let runner = DispatchRunner(Default::default());
+    runner.0.push_output(b"/dev/pts/7\n".to_vec(), vec![]);
+    runner
+        .0
+        .push_output(b"42 Sun Sep 27 10:00:00 2026 S\n".to_vec(), vec![]);
+    runner.0.push_output(vec![], vec![]);
+    let before = Instant::now();
+    let marker = prepare_dispatch(
+        "example",
+        &["literal $(data)".into()],
+        42,
+        |_, _| true,
+        || Some(dispatch_context(&directory.path, runner.clone())),
+    )
+    .unwrap();
+    let calls = runner.0.calls.borrow();
+    assert_eq!(calls.len(), 3);
+    assert_eq!(
+        calls[0].args,
+        [
+            "-S",
+            "/tmp/dispatch.sock",
+            "display-message",
+            "-p",
+            "-t",
+            "%7",
+            "#{pane_tty}"
+        ]
+    );
+    assert_eq!(
+        calls[1].args[4], "42",
+        "one starts read, only for the caller"
+    );
+    assert_eq!(
+        &calls[2].args[..7],
+        [
+            "-S",
+            "/tmp/dispatch.sock",
+            "set-option",
+            "-p",
+            "-t",
+            "%7",
+            "@tmt.workspace-command"
+        ]
+    );
+    assert!(calls.iter().all(|call| call.deadline == calls[0].deadline));
+    assert!(calls[0].deadline >= before);
+    assert!(calls[0].deadline.saturating_duration_since(Instant::now()) <= CAPTURE_BUDGET);
+    assert!(
+        calls
+            .iter()
+            .all(|call| !call.args.iter().any(|arg| arg == "list-panes"))
+    );
+    assert!(
+        !paths(&directory.path)
+            .workspace_directory("/tmp/dispatch.sock")
+            .exists(),
+        "no snapshot publication before exec"
+    );
+    assert!(
+        !paths(&directory.path).database.exists(),
+        "no storage projection"
+    );
+    let command = decode_command(&marker.document).unwrap();
+    assert_eq!(command.argv, ["tmt", "example", "literal $(data)"]);
+    assert_eq!(command.owner.pid(), 42);
+}
+
+#[test]
+fn foreign_or_unknown_selected_tty_refuses_before_starts_or_marker_write() {
+    let directory = crate::test_support::TestDirectory::new();
+    for tty in ["/dev/pts/8\n", "malformed\n", "/dev/pts/7\nextra\n"] {
+        let runner = DispatchRunner(Default::default());
+        runner.0.push_output(tty.as_bytes().to_vec(), vec![]);
+        assert!(
+            prepare_dispatch(
+                "example",
+                &[],
+                42,
+                |tty, _| tty == "/dev/tty",
+                || Some(dispatch_context(&directory.path, runner.clone()))
+            )
+            .is_none()
+        );
+        assert_eq!(runner.0.calls.borrow().len(), 1);
+    }
+}
+
 #[test]
 fn codec_refuses_unknown_versions_and_inconsistent_structure() {
     let mut value: serde_json::Value = serde_json::from_slice(&encode(&sample()).unwrap()).unwrap();

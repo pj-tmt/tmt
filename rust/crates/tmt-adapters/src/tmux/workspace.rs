@@ -12,9 +12,41 @@ use crate::{
 use std::{collections::BTreeMap, time::Instant};
 use tmt_core::{endpoint::ServerEvidence, host::HostKind, workspace::*};
 
-pub(super) const COMMAND_OPTION: &str = "@tmux-team.workspace-command";
+pub(super) const COMMAND_OPTION: &str = "@tmt.workspace-command";
 
 impl<R: CommandRunner> Tmux<R> {
+    /// Eligibility only. Capture independently verifies native owner ancestry.
+    pub fn workspace_pane_tty(
+        &self,
+        socket: &str,
+        pane: &str,
+        deadline: Instant,
+    ) -> Result<String, TmuxError> {
+        if !super::valid_pane_id(pane) {
+            return Err(invalid());
+        }
+        let output = self.run(
+            "tmux",
+            vec![
+                "-S".into(),
+                socket.into(),
+                "display-message".into(),
+                "-p".into(),
+                "-t".into(),
+                pane.into(),
+                "#{pane_tty}".into(),
+            ],
+            deadline,
+            4096,
+            TmuxFailure::Evidence,
+        )?;
+        let tty = output.strip_suffix('\n').unwrap_or(&output);
+        if !tty.starts_with("/dev/") || tty.contains(['\n', '\r', '\0']) {
+            return Err(invalid());
+        }
+        Ok(tty.to_owned())
+    }
+
     pub fn workspace_capture(
         &self,
         socket: &str,
@@ -47,7 +79,7 @@ impl<R: CommandRunner> Tmux<R> {
             "#{pane_current_path}",
             "#{pane_pid}",
             "#{@tmux-team.agent}",
-            "#{@tmux-team.workspace-command}",
+            "#{@tmt.workspace-command}",
             "#{pane_tty}",
         ]
         .join(SEPARATOR);

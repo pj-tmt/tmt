@@ -55,8 +55,13 @@ exit status. Manual layout edits appear at the next eligible event.
 
 ## External foreground dispatch
 
-The generic external-command boundary remembers literal `tmt <extension> ...`
-argv and its native PID/start incarnation in an owned pane option before exec.
+The generic external-command boundary first checks the caller's controlling tty
+and foreground group without subprocess or config discovery. Non-foreground
+tool calls return immediately. Eligible dispatch reads only the selected pane's
+tty, observes the caller's native PID/start incarnation once and writes literal
+`tmt <extension> ...` argv into `@tmt.workspace-command` before exec, sharing one
+finite budget. It never captures or publishes a snapshot before exec; the next
+eligible event or command refresh admits the marker through native evidence.
 There is no board-specific grammar or Ops knowledge in Core. The process survives
 exec; its exact incarnation must remain in the pane's ancestry and foreground
 terminal group to be included by later captures. Ended, background, reused or

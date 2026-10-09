@@ -464,6 +464,18 @@ impl<R: CommandRunner> Host<R> {
         }
     }
 
+    pub fn workspace_pane_tty(
+        &self,
+        socket: &str,
+        pane: &str,
+        deadline: Instant,
+    ) -> Result<Option<String>, HostError> {
+        match self.primary {
+            HostKind::Tmux => Ok(Some(self.tmux.workspace_pane_tty(socket, pane, deadline)?)),
+            HostKind::External(_) => Ok(None),
+        }
+    }
+
     /// Recovery capture is optional; external drivers have no workspace port yet.
     pub fn workspace_capture(
         &self,

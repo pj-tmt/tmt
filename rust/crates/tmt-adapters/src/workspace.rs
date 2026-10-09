@@ -138,9 +138,9 @@ pub fn refresh_server(paths: &ConfigPaths, host: &Host, server: &ServerEvidence)
 }
 
 /// An exec-surviving owned pane marker for any foreground external extension.
-pub struct DispatchMarker {
+pub struct DispatchMarker<R = UnixCommandRunner> {
     paths: ConfigPaths,
-    host: Host,
+    host: Host<R>,
     caller: CallerEnvironment,
     socket: String,
     pane: String,
@@ -149,63 +149,82 @@ pub struct DispatchMarker {
 
 impl DispatchMarker {
     pub fn prepare(name: &str, args: &[std::ffi::OsString]) -> Option<Self> {
-        let paths = ConfigPaths::discover().ok()?;
-        if !(ConfigFiles {
-            paths: paths.clone(),
-        })
-        .workspace_snapshot_enabled()
-        .ok()?
-        {
-            return None;
-        }
-        let caller = CallerEnvironment::current();
-        let socket = caller.selected_server_socket().ok()??.to_owned();
-        let pane = caller.pane.as_ref()?.to_str()?.to_owned();
-        let host = Host::for_caller(&caller);
-        let deadline = Instant::now() + CAPTURE_BUDGET;
-        // The same batch proves native caller ancestry before publishing a marker.
-        let mut capture = host
-            .workspace_capture(&socket, None, Some(&caller), deadline)
-            .ok()??;
-        let pane_tty = capture.terminals.get(&pane)?.to_owned();
-        if !crate::process::terminal::foreground(&pane_tty, caller.process_id) {
-            return None;
-        }
-        let owner = observe_starts(&UnixCommandRunner, &[caller.process_id], deadline)
-            .ok()?
-            .remove(&caller.process_id)?;
-        let mut argv = vec!["tmt".to_owned(), name.to_owned()];
-        argv.extend(
-            args.iter()
-                .map(|value| value.to_str().map(str::to_owned))
-                .collect::<Option<Vec<_>>>()?,
-        );
-        annotate(&paths, &mut capture).ok()?;
-        let document = encode_command(&ExternalCommand { argv, owner }).ok()?;
-        host.workspace_command_marker(&socket, &pane, Some(&document), deadline)
-            .ok()?;
-        // Capture again is unnecessary: amend the already verified topology.
-        let mut snapshot = capture.snapshot;
-        let command = decode_command(&document)?;
-        snapshot
-            .panes
-            .iter_mut()
-            .find(|value| value.id == pane)?
-            .command = Some(command);
-        let _ = publish_event(&paths, &socket, || {
-            snapshot.captured_at_ms = crate::request_runtime::wall_time_ms();
-            Ok(snapshot)
-        });
-        Some(Self {
-            paths,
-            host,
-            caller,
-            socket,
-            pane,
-            document,
-        })
+        let pid = u64::from(std::process::id());
+        prepare_dispatch(
+            name,
+            args,
+            pid,
+            crate::process::terminal::foreground,
+            || {
+                let paths = ConfigPaths::discover().ok()?;
+                // Only tmux has a workspace marker port. Optional marker preparation
+                // never discovers external drivers or probes their caller.
+                let caller = CallerEnvironment {
+                    tmux: std::env::var_os("TMUX"),
+                    pane: std::env::var_os("TMUX_PANE"),
+                    process_id: pid,
+                    driver_env: Default::default(),
+                };
+                let host = Host::for_caller_with(&caller, UnixCommandRunner);
+                Some((paths, caller, host, UnixCommandRunner))
+            },
+        )
     }
+}
 
+fn prepare_dispatch<R: CommandRunner + Clone>(
+    name: &str,
+    args: &[std::ffi::OsString],
+    pid: u64,
+    foreground: impl Fn(&str, u64) -> bool,
+    context: impl FnOnce() -> Option<(ConfigPaths, CallerEnvironment, Host<R>, R)>,
+) -> Option<DispatchMarker<R>> {
+    // Native controlling-tty evidence precedes config and subprocess work.
+    // Agent tool children are not the pane's foreground owner.
+    if !foreground("/dev/tty", pid) {
+        return None;
+    }
+    let deadline = Instant::now() + CAPTURE_BUDGET;
+    let (paths, caller, host, runner) = context()?;
+    if !(ConfigFiles {
+        paths: paths.clone(),
+    })
+    .workspace_snapshot_enabled()
+    .ok()?
+    {
+        return None;
+    }
+    let socket = caller.selected_server_socket().ok()??.to_owned();
+    let pane = caller.pane.as_ref()?.to_str()?.to_owned();
+    let tty = host.workspace_pane_tty(&socket, &pane, deadline).ok()??;
+    if !foreground(&tty, pid) {
+        return None;
+    }
+    let owner = observe_starts(&runner, &[pid], deadline)
+        .ok()?
+        .remove(&pid)?;
+    let mut argv = vec!["tmt".to_owned(), name.to_owned()];
+    argv.extend(
+        args.iter()
+            .map(|value| value.to_str().map(str::to_owned))
+            .collect::<Option<Vec<_>>>()?,
+    );
+    let document = encode_command(&ExternalCommand { argv, owner }).ok()?;
+    host.workspace_command_marker(&socket, &pane, Some(&document), deadline)
+        .ok()?;
+    // Advisory data only: the next eligible capture admits the marker through
+    // exact incarnation, ancestry and foreground evidence. No snapshot IO here.
+    Some(DispatchMarker {
+        paths,
+        host,
+        caller,
+        socket,
+        pane,
+        document,
+    })
+}
+
+impl<R: CommandRunner + Clone> DispatchMarker<R> {
     /// Called only after failed exec while this exact incarnation is still here.
     pub fn failed(self) {
         let _ = self.host.clear_workspace_command(

@@ -165,6 +165,7 @@ describe('event-driven workspace recovery snapshots', () => {
 
   it('records arbitrary foreground extensions with literal args and excludes an ended owner', async () => {
     await withE2EFixture(async (fixture) => {
+      expect((await fixture.runJsonCli(['name', 'Before Dispatch'])).code).toBe(0);
       const directory = path.join(fixture.root, 'extension-bin');
       fs.mkdirSync(directory);
       const ready = path.join(fixture.root, 'extension-ready');
@@ -208,6 +209,7 @@ server.listen(${JSON.stringify(gate)}, () => {
       ]
         .map(quote)
         .join(' ');
+      const previousSnapshot = fs.readFileSync(snapshotPath(fixture));
       const pane = fixture
         .tmux([
           'new-window',
@@ -229,13 +231,16 @@ server.listen(${JSON.stringify(gate)}, () => {
       const panePid = fixture.tmux(['display-message', '-p', '-t', pane, '#{pane_pid}']).trim();
       await fixture.waitFor(() => fs.existsSync(ready), 5000, 'external foreground ready');
       const owner = Number(fs.readFileSync(ready, 'utf8'));
+      // Dispatch writes only an advisory marker. Snapshot IO waits for the next
+      // eligible event, which independently verifies native owner evidence.
+      expect(fs.readFileSync(snapshotPath(fixture))).toEqual(previousSnapshot);
+      expect((await fixture.runJsonCli(['name', 'Snapshot Trigger'])).code).toBe(0);
       expect(readSnapshot(fixture).panes.find((value) => value.id === pane)?.command).toMatchObject(
         {
           argv: ['tmt', 'workspace-example', 'ui', '--tabs=agents,requests', 'literal $(data)'],
           owner: { pid: owner },
         }
       );
-      expect((await fixture.runJsonCli(['name', 'Snapshot Trigger'])).code).toBe(0);
       expect(
         readSnapshot(fixture).panes.find((value) => value.id === pane)?.command?.owner.pid
       ).toBe(owner);
@@ -422,14 +427,7 @@ server.listen(${JSON.stringify(gate)}, () => {
       );
       // Absence cannot pass if marker preparation silently skipped: failed exec
       // can clear only the exact marker it replaced this old value with.
-      fixture.tmux([
-        'set-option',
-        '-p',
-        '-t',
-        pane,
-        '@tmux-team.workspace-command',
-        'previous-dispatch',
-      ]);
+      fixture.tmux(['set-option', '-p', '-t', pane, '@tmt.workspace-command', 'previous-dispatch']);
       const status = path.join(fixture.root, 'failed-exec.status');
       submitForeground(fixture, pane, ['workspace-broken', 'literal argument'], status, {
         PATH: `${directory}:${process.env.PATH}`,
@@ -438,9 +436,7 @@ server.listen(${JSON.stringify(gate)}, () => {
         await waitForFileContent(status, { description: 'failed extension exec settled' })
       ).toBe('1');
       expect(
-        fixture
-          .tmux(['show-options', '-p', '-qv', '-t', pane, '@tmux-team.workspace-command'])
-          .trim()
+        fixture.tmux(['show-options', '-p', '-qv', '-t', pane, '@tmt.workspace-command']).trim()
       ).toBe('');
       const recorded = readSnapshot(fixture).panes.find((value) => value.id === pane)!;
       expect(recorded.command).toBeNull();
