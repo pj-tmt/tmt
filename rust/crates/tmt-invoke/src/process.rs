@@ -38,6 +38,18 @@ pub(crate) fn invoke(
 ) -> Result<Output, InvokeError> {
     remaining(request.deadline, stop)?;
     let mut command = Exec::cmd(request.program);
+    if let Some(directory) = &request.launch.current_dir {
+        if !directory.is_absolute() {
+            return Err(failure(
+                FailureKind::Spawn,
+                Some(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "child working directory must be absolute",
+                )),
+            ));
+        }
+        command = command.cwd(directory);
+    }
     if let EnvironmentPolicy::ClearAllowlist(names) = request.launch.environment {
         command = command
             .env_clear()

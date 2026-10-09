@@ -1,5 +1,5 @@
-//! Library-only deployment command owner. Installed declaration discovery and the real
-//! provider adapter are later prerequisites; no command, help or dispatch is registered.
+//! Deployment plan/authorization/output owner over captured inputs and a provider port.
+//! The CLI composition owns installed discovery; this owner never retries an effect.
 use crate::{
     deploy_plan::Plan,
     deploy_record::DeployRecordStore,
@@ -96,7 +96,7 @@ pub fn execute(
     let json = json!({ "authorized": authorized, "plan": plan.view(), "planDigest": plan.digest(),
         "extensions": input.extensions.view(), "record": record });
     let mut human = format!(
-        "Firestore sharing plan\nAccount: {}\nProject: {}\nDeployment: {}\nDatabase: {} ({}), {}\nSign-in: {}\nRules: {} (replaces {})\nIndex configs: {}\nRoles: none created\nPhysical TTL: not provisioned\nPlan digest: {}\n",
+        "Firestore sharing plan\nAccount: {}\nProject: {}\nDeployment: {}\nDatabase: {} ({}), {}\nSign-in: {}\nRules: {} ({})\nIndex configs: {}\nRoles: none created\nTTL: not set up\nPlan digest: {}\n",
         plan.account(),
         input.project,
         plan.deployment_id(),
@@ -104,29 +104,88 @@ pub fn execute(
         plan.view().database.edition,
         input.location,
         plan.view().sign_in.join(", "),
-        plan.view().rules.digest,
-        plan.view().rules.replaces,
+        &plan.view().rules.digest[..12],
+        if plan.view().rules.replaces == "none" {
+            "no existing Rules"
+        } else {
+            &plan.view().rules.replaces
+        },
         plan.view().index_configs,
-        plan.digest()
+        &plan.digest()[..12]
     );
     if let Some(replaced) = &plan.view().rules.replaced_digest {
-        writeln!(human, "Replaced Rules digest: {replaced}").expect("String write");
+        writeln!(human, "Existing Rules digest: {replaced}\nTo replace these Rules, run the same command with --authorize {} --replace-rules {replaced}", &plan.digest()[..12]).expect("String write");
     }
     for item in &plan.view().destructive {
         writeln!(human, "Destructive change: {item}").expect("String write");
     }
-    writeln!(
-        human,
-        "Extensions and resources:\n{}",
-        serde_json::to_string_pretty(input.extensions.view()).expect("plan serialization")
-    )
-    .expect("String write");
+    human.push_str("Extensions and resources:\n");
+    for extension in &input.extensions.view().extensions {
+        writeln!(
+            human,
+            "{} (declaration {})",
+            extension.name,
+            &extension.declaration_digest[..12]
+        )
+        .expect("String write");
+        writeln!(
+            human,
+            "  Admission: {} (artifact {})",
+            extension.admission.entry_point,
+            &extension.admission.artifact_digest[..12]
+        )
+        .expect("String write");
+        for resource in &extension.resources {
+            writeln!(
+                human,
+                "  {}: {} at {}; object {}, namespace {}, entries {}, TTL: {}",
+                resource.name,
+                resource.kind,
+                resource.path,
+                readable_bytes(resource.limits.max_object_bytes),
+                readable_bytes(resource.limits.max_namespace_bytes),
+                resource.limits.max_entries,
+                if resource.ttl == "none" {
+                    "none"
+                } else {
+                    "not set up"
+                }
+            )
+            .expect("String write");
+            for index in &resource.indexes {
+                writeln!(human, "    Index: {} {}", index.field, index.direction)
+                    .expect("String write");
+            }
+        }
+    }
+    for unavailable in &input.extensions.view().unavailable {
+        writeln!(
+            human,
+            "{}: unavailable ({})",
+            unavailable.name, unavailable.reason
+        )
+        .expect("String write");
+    }
     if authorized {
         describe_record(&mut human, &record);
     } else {
-        human.push_str("Not authorized; nothing changed in your Firebase project.\nAuthorize this exact plan with --authorize <plan-digest-prefix>.\n");
+        writeln!(human, "Not authorized; nothing changed in your Firebase project.\nTo deploy this plan, run the same command with --authorize {}", &plan.digest()[..12]).expect("String write");
     }
     Ok(DeployCommandOutput { json, human })
+}
+fn readable_bytes(bytes: u64) -> String {
+    let (unit, divisor) = if bytes >= 1024 * 1024 {
+        ("MiB", 1024 * 1024)
+    } else if bytes >= 1024 {
+        ("KiB", 1024)
+    } else {
+        return format!("{bytes} B");
+    };
+    if bytes.is_multiple_of(divisor) {
+        format!("{} {unit}", bytes / divisor)
+    } else {
+        format!("{:.2} {unit}", bytes as f64 / divisor as f64)
+    }
 }
 fn describe_record(text: &mut String, record: &DeployRecord) {
     let run = record.run.as_ref().expect("authorized run");

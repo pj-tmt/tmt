@@ -132,3 +132,10 @@ pub const DEPLOY_PROVIDER_CALL: Duration = Duration::from_secs(30);
 pub const DEPLOY_PROVIDER_BYTES: usize = 4 * 1024 * 1024;
 /// Finite inventory of provider field configs or Rulesets.
 pub const DEPLOY_PROVIDER_PAGES: usize = 10;
+
+/// Installed tool metadata is bounded independently of provider output.
+pub const DEPLOY_TOOL_METADATA_BYTES: usize = 64 * 1024;
+/// A declaration and artifact may each expand sixfold in JSON escaping.
+pub const DEPLOY_DECLARATION_REPLY_BYTES: usize = 12 * DECLARATION_BYTES + 4096;
+/// One static declaration read allows cold installed-binary launch, never a provider effect.
+pub const DEPLOY_DECLARATION_CALL: Duration = Duration::from_secs(10);

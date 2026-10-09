@@ -148,3 +148,19 @@ The terminal confirmation prompt and bare JSON confirmation retain their existin
 field, and works through the current serve or under the stopped serve lease. It commits sanitized
 audit metadata with the scope change; designated settings browsers use the existing immutable
 management receipt/effect owner. Changed revisions end previous Sessions; revoked grants stay revoked.
+
+## Firestore deployment
+
+`tmt remote deploy firestore --project <project-id> --region <region> --sign-in anonymous --json`
+reads an exact Spark sharing plan; sign-in selection is required, not inferred. Google sign-in
+uses `google.com`. Provider reads require the owner's installed Firebase CLI and own login.
+`--authorize <plan-digest-prefix>` needs at least 12 lowercase hex characters of the whole
+envelope digest; `--replace-rules <digest>` also requires authorization and the full digest
+of foreign Rules. Login, pairing and installation never authorize deployment. No prompt or
+`--yes` bypass exists. An unknown outcome requires read-back and exact-plan resume, not a
+blind repeat of an effect.
+
+Declarations come from fixed public commands of enabled installed extensions. Colab's command
+is not shipped yet, so its output is unavailable with no provider/record effect; fixture
+bytes are never a production fallback. Installed end-to-end proof waits for that command and
+separate owner authorization. Tier/quota and sharing readiness stay unknown after a deployment.

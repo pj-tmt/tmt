@@ -3,27 +3,28 @@
 Module owners (put a change in the existing owner; `canonical`, `crypto`, `wire`,
 `transport`, `declaration`, `deploy_plan`, `rules`, `firestore_budget`, `firestore_limits`, `readiness` and `deploy_run` have no I/O, clock, storage or `CoreClient` access):
 
-| Module                                 | Owns                                                                                                                                                                                                                  |
-| -------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `main`, binary-private `serve`, `core` | CLI dispatch, one foreground/background composition and the two startup calls; `CoreClient` runs only fixed public `api`, `list --json`, `identity list --json`, `check <name> --json` via `TMT_EXECUTABLE`           |
-| `http`, `routes`, `site`, `limits`     | Loopback door framing and bounds, `/r/` binding routes, route dispatch; every bound is named in `limits`                                                                                                              |
-| `wire`, `canonical`, `crypto`          | Strict JSON admission with exact payload bytes, framing/fingerprint codecs, signature and HMAC verification                                                                                                           |
-| `session`, `admission`, `transport`    | `session.open`, one normal message in flight per session, durable sequence consumption, envelope hand-off                                                                                                             |
-| `journal`, `budgets`, `audit`          | Metadata streams and recovery ownership, persisted budgets, audit written in the owning transaction                                                                                                                   |
-| `operations`, `approval`               | Dispatch/read operations over the public core API; local held-operation confirmation on the control socket                                                                                                            |
-| `authority`, `store`, `state`          | Typed grants, `remote.db` and schema history, layout/machine key/serve lock                                                                                                                                           |
-| `pairing`, `control`, `devices`        | One pairing offer per run, owner-only control socket for discovery/stop and device list/revoke/rename and explicit sending-scope toggles                                                                              |
-| `mount`, `pages`                       | Extension mounts (allowlisted extensions only), static landing/pairing/error pages and embedded stylesheet/SDK assets                                                                                                 |
-| `objects`                              | Object backend trait and `LocalFs`: the `objects.db` ledger and extension-private payload trees under the serve lease; the channel and config belong to `object_service`                                              |
-| `declaration`, `deploy_plan`, `rules`  | Strict backend declaration parse; digest-addressed `sharing` deploy plan; allow-listed Rules/indexes composition (bytes in, library only until #2164)                                                                 |
-| `deploy_command`, `deploy_record`      | Library-only plan/authorization/output over injected inputs/provider; private deployment identity/run file, atomic replacement under its writer lock; lock-free per-request status evidence                           |
-| `firestore_budget`                     | Free-plan Firestore budget model and client guard; vectors in `tests/fixtures/firestore_budget`                                                                                                                       |
-| `firestore_limits`                     | Dated free-plan Firestore limits table and its `status --budget` projection, validator and human lines; golden in `tests/fixtures/firestore_budget/limits-member.json`                                                |
-| `readiness`                            | Layered Firestore readiness: one table of items, reasons and sentences; record projection, validator and human lines over an injected evidence source                                                                 |
-| `deploy_firestore`                     | Library-only real provider port; binary-embedded Node helper, version-gated firebase-tools login, bounded no-retry mutations and exact Rules read-back                                                                |
-| `deploy_run`                           | Authorized Firestore sharing deploy over an injected `DeployPort`: envelope digest, authorization, step order, record and binding rule (library-only; CLI registration awaits reader/provider integration)            |
-| `object_service`                       | Lease-bound `ObjectService`: initial/demand single-flight Local setup, readiness, origins, admitted observation/upload; production Colab-only Local                                                                   |
-| `tmt-extension-objects` (leaf)         | Remote-owned protocol leaf, consumed only by `object_service`: canonical IDs/encodings, protocol bounds, strict JSON, typed frames and the Unix carrier; no backend, policy or Remote/Colab types, and grants nothing |
+| Module                                           | Owns                                                                                                                                                                                                                  |
+| ------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `main`, binary-private `serve`, `core`           | CLI dispatch, one foreground/background composition and the two startup calls; `CoreClient` runs only fixed public `api`, `list --json`, `identity list --json`, `check <name> --json` via `TMT_EXECUTABLE`           |
+| `http`, `routes`, `site`, `limits`               | Loopback door framing and bounds, `/r/` binding routes, route dispatch; every bound is named in `limits`                                                                                                              |
+| `wire`, `canonical`, `crypto`                    | Strict JSON admission with exact payload bytes, framing/fingerprint codecs, signature and HMAC verification                                                                                                           |
+| `session`, `admission`, `transport`              | `session.open`, one normal message in flight per session, durable sequence consumption, envelope hand-off                                                                                                             |
+| `journal`, `budgets`, `audit`                    | Metadata streams and recovery ownership, persisted budgets, audit written in the owning transaction                                                                                                                   |
+| `operations`, `approval`                         | Dispatch/read operations over the public core API; local held-operation confirmation on the control socket                                                                                                            |
+| `authority`, `store`, `state`                    | Typed grants, `remote.db` and schema history, layout/machine key/serve lock                                                                                                                                           |
+| `pairing`, `control`, `devices`                  | One pairing offer per run, owner-only control socket for discovery/stop and device list/revoke/rename and explicit sending-scope toggles                                                                              |
+| `mount`, `pages`                                 | Extension mounts (allowlisted extensions only), static landing/pairing/error pages and embedded stylesheet/SDK assets                                                                                                 |
+| `objects`                                        | Object backend trait and `LocalFs`: the `objects.db` ledger and extension-private payload trees under the serve lease; the channel and config belong to `object_service`                                              |
+| `declaration`, `deploy_plan`, `rules`            | Strict backend declaration parse; digest-addressed `sharing` deploy plan; allow-listed Rules/indexes composition (bytes in; installed discovery belongs to `deploy_discovery`)                                        |
+| `deploy_command`, `deploy_record`                | Plan/authorization/output over captured inputs/provider; private deployment identity/run file, atomic replacement under its writer lock; lock-free per-request status evidence                                        |
+| `firestore_budget`                               | Free-plan Firestore budget model and client guard; vectors in `tests/fixtures/firestore_budget`                                                                                                                       |
+| `firestore_limits`                               | Dated free-plan Firestore limits table and its `status --budget` projection, validator and human lines; golden in `tests/fixtures/firestore_budget/limits-member.json`                                                |
+| `readiness`                                      | Layered Firestore readiness: one table of items, reasons and sentences; record projection, validator and human lines over an injected evidence source                                                                 |
+| `deploy_cli`, `deploy_discovery`, `deploy_tools` | CLI argv/composition; fixed public installed declaration replies; installed Firebase launcher/Node discovery (no receipt parser or mutable helper file)                                                               |
+| `deploy_firestore`                               | Real provider port; binary-embedded Node helper, version-gated firebase-tools login, bounded no-retry mutations and exact Rules read-back                                                                             |
+| `deploy_run`                                     | Authorized Firestore sharing deploy over an injected `DeployPort`: envelope digest, authorization, step order, record and binding rule (CLI composition in `deploy_cli`)                                              |
+| `object_service`                                 | Lease-bound `ObjectService`: initial/demand single-flight Local setup, readiness, origins, admitted observation/upload; production Colab-only Local                                                                   |
+| `tmt-extension-objects` (leaf)                   | Remote-owned protocol leaf, consumed only by `object_service`: canonical IDs/encodings, protocol bounds, strict JSON, typed frames and the Unix carrier; no backend, policy or Remote/Colab types, and grants nothing |
 
 Rules that are easy to get wrong:
 
@@ -116,7 +117,8 @@ Its helper is compiled into the binary and passed to Node with fixed argv and no
 runtime helper path. The package path selects an installed firebase-tools release; only
 version 15.29.0 and its checked auth/layout are supported. Compatibility is checked before
 auth loads or any provider call. The child inherits only HOME, PATH and XDG_CONFIG_HOME;
-tokens stay in that child. Each effect re-resolves the login and verifies its live account.
+every helper child starts at `/`, before auth loads, so project-local Firebase configuration
+cannot apply; tokens stay in that child. Each effect re-resolves the login and verifies its live account.
 Only bounded, fixed-schema JSON crosses stdout; stderr and exception text are discarded.
 The absolute invocation deadline includes process I/O and exit; owned-group cleanup/reaping
 has its existing separate bound. Mutations are never automatically retried. An ambiguous
@@ -132,11 +134,26 @@ it; visible drift refuses, while ambiguity after a possible effect is unknown wi
 Fake process/HTTP tests use a vendored layout stub and canary credentials, never real login.
 Real account/project provisioning remains separately authorized acceptance, not fixture proof.
 
-The library-only deployment owner defaults to a plan and saves one local draft identity,
+The deployment owner defaults to a plan and saves one local draft identity,
 without a provider effect. Explicit digest authorization names the whole envelope; foreign
 Rules replacement needs its own digest. Sign-in providers are explicit inputs. Command
-registration and installed declaration discovery remain planned; the real `deploy_firestore`
-adapter is library-only and is not reachable from the CLI;
+registration wires factories into `deploy_cli`, the single declaration/setup/login/record
+sequencing owner; fixtures drive that same owner and the shipped binary.
+`deploy_discovery` enumerates trusted enabled mounts and invokes their fixed public
+`deploy-declaration --json` commands through supplied `TMT_EXECUTABLE`, with a neutral cwd,
+explicit environment allow-list, a 10 s cold-launch bound and existing waited cleanup.
+The [Remote contract](../../../../contracts/remote-channel-v1.md) owns the strict reply
+schema, byte bounds, digest rules and no-declaration codes. Discovery captures
+and validates exact UTF-8 declaration/artifact bytes and both digests once, then uses the pure
+plan/Rules owners. No installed-root/receipt parser or artifact-path read exists in Remote.
+An old unsupported command means no declaration; malformed/failed replies are unavailable.
+Colab has no shipped declaration yet; production never substitutes Remote fixture data.
+`deploy_tools` resolves the installed Firebase launcher's realpath and exact supported package
+layout, then resolves Node from that launcher's absolute or env-node shebang, excluding
+relative PATH entries. The embedded helper's compatibility gate still precedes credentials.
+No-declaration output touches neither provider nor deployment record. Plan-only inventory
+checks live plus planned field configurations; effect-time allocation rechecks the ceiling.
+Installed Colab acceptance and separately authorized real-project proof wait for its command;
 running `status --layers` now reads recorded deployment evidence without a provider call.
 `DeployRecordEvidence` takes one bounded lock-free snapshot per request; missing/draft is
 empty, damaged state is unknown and never repaired. The pure `readiness::from_record`

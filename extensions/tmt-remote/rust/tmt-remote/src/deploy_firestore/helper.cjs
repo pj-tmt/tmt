@@ -58,6 +58,7 @@ function validate(request) {
     compatibility: [],
     account: [],
     'live-rules': ['project'],
+    'index-budget': ['project', 'fields'],
     'observe-database': ['project', 'location'],
     'apply-database': ['project', 'location'],
     'observe-sign-in': ['project', 'provider'],
@@ -80,6 +81,17 @@ function validate(request) {
   if (i.field !== undefined && !/^[A-Za-z][A-Za-z0-9]{0,63}$/.test(i.field))
     fail('provider-rejected');
   if (i.direction !== undefined && !['asc', 'desc'].includes(i.direction))
+    fail('provider-rejected');
+  if (
+    i.fields !== undefined &&
+    (!Array.isArray(i.fields) ||
+      i.fields.length > 200 ||
+      i.fields.some(
+        (field) =>
+          typeof field !== 'string' || !/^[a-z0-9_-]{1,64}\/[A-Za-z][A-Za-z0-9]{0,63}$/.test(field)
+      ) ||
+      new Set(i.fields).size !== i.fields.length)
+  )
     fail('provider-rejected');
   if (i.source !== undefined) {
     if (
@@ -302,6 +314,32 @@ async function execute(request, deps) {
     const p = await api('firebase', `projects/${project}`);
     if (p.projectId !== project || p.state !== 'ACTIVE') fail('provider-rejected');
     if (r.operation === 'live-rules' || r.operation === 'observe-rules') return await liveRules();
+    if (r.operation === 'index-budget') {
+      // Plan-only inventory includes unrelated live configs, before any effect.
+      const present = await api('firestore', database, 'GET', undefined, true);
+      const configured =
+        present === null
+          ? []
+          : await pages(
+              'firestore',
+              `${database}/collectionGroups/-/fields?filter=${encodeURIComponent('indexConfig.usesAncestorConfig=false OR ttlConfig:*')}`,
+              'fields'
+            );
+      const unique = new Set(configured.map((x) => x.name));
+      if (
+        configured.some(
+          (x) => typeof x.name !== 'string' || !x.name.startsWith(`${database}/collectionGroups/`)
+        ) ||
+        unique.size !== configured.length
+      )
+        fail('unknown');
+      for (const field of i.fields) {
+        const [collection, name] = field.split('/');
+        unique.add(`${database}/collectionGroups/${collection}/fields/${name}`);
+      }
+      if (unique.size > 200) fail('quota-exceeded');
+      return 'within-budget';
+    }
     if (r.operation.endsWith('database')) {
       const existing = await api('firestore', database, 'GET', undefined, true);
       if (existing !== null) {

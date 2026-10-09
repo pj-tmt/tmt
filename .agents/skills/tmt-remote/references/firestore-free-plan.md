@@ -82,9 +82,10 @@ proves Rules admission only, not Firebase provisioning or free-plan capacity.
 
 ## Provider deployment
 
-The library-only `deploy_firestore` adapter counts all live field configurations, including
+The `deploy_firestore` adapter counts all live field configurations, including
 unrelated ones, before adding a new configuration. Adding an index to an existing configuration
 preserves its other indexes and TTL policy. Bounded inventory failure refuses allocation;
 provider quota refusals use the fixed quota code, and a lost mutation reply stays unknown.
-These checks do not observe the project's daily traffic quota or prove its plan tier. The
-adapter is not yet wired to a CLI command; real-project proof requires separate owner approval.
+These checks do not observe the project's daily traffic quota or prove its plan tier. Plan-only CLI inventory checks live plus planned field configurations before effects.
+Installed Colab acceptance waits for its declaration command; real-project proof also requires
+separate owner approval.

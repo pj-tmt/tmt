@@ -219,6 +219,10 @@ fn grammar() -> Command {
                         ),
                 ),
         )
+        .subcommand(tmt_cli_style::command(&tmt_cli_style::CommandSpec {
+            name: "deploy", summary: "Plan and authorize cloud sharing deployment", examples: &[Example { command: "tmt remote deploy firestore --help", note: "Inspect the Firestore deployment inputs and authorization" }],
+            outputs: OutputModes::Human, details: "Only Firestore sharing is supported. Deployment requires explicit exact-plan authorization.",
+        }).subcommand_required(true).subcommand(tmt_remote::deploy_cli::command()))
         .subcommand(tmt_cli_style::command(&STOP))
         .subcommand(
             tmt_cli_style::command(&STATUS)
@@ -341,6 +345,9 @@ fn grammar() -> Command {
 }
 fn run(matches: &clap::ArgMatches) -> Result<(), RemoteError> {
     let (name, arguments) = matches.subcommand().expect("required subcommand");
+    if name == "deploy" {
+        return deploy_firestore_command(arguments);
+    }
     if matches!(name, "approve" | "cancel") {
         return approval_command(name, arguments);
     }
@@ -385,6 +392,57 @@ fn run(matches: &clap::ArgMatches) -> Result<(), RemoteError> {
         return devices(arguments);
     }
     serve::run(arguments)
+}
+fn deploy_firestore_command(matches: &clap::ArgMatches) -> Result<(), RemoteError> {
+    use tmt_remote::{deploy_cli, deploy_discovery, deploy_firestore, deploy_tools};
+    let (_, matches) = matches.subcommand().expect("required backend");
+    // Grammar/authorization shape is checked before tool discovery or provider setup.
+    let args = deploy_cli::arguments(matches).map_err(|_| RemoteError::new("USAGE_ERROR", "Use --project, --region and --sign-in; --authorize needs the first 12 or more lowercase hex characters of the plan digest. --replace-rules also needs --authorize and the full digest of the existing Rules."))?;
+    let stop = Arc::new(AtomicBool::new(false));
+    let _signals = [signal_hook::consts::SIGINT, signal_hook::consts::SIGTERM]
+        .into_iter()
+        .map(|signal| signal_hook::flag::register(signal, stop.clone()))
+        .collect::<Result<Vec<_>, _>>()?;
+    let mut declarations = deploy_discovery::InstalledDeclarations::new(&stop).map_err(|_| {
+        RemoteError::new(
+            "REMOTE_DEPLOY_DECLARATION_UNAVAILABLE",
+            "Could not read what the installed extensions need from Firestore. Nothing changed in your Firebase project.",
+        )
+    })?;
+    let enabled: Vec<_> = tmt_remote::mount::EXTENSIONS
+        .iter()
+        .map(|e| e.name)
+        .collect();
+    let result = deploy_cli::execute(&args, &mut declarations, &enabled,
+        || {
+            let search = std::env::var_os("PATH").unwrap_or_default();
+            let tools = deploy_tools::discover(&search).map_err(deploy_cli::DeployCliError::Tool)?;
+            deploy_firestore::DeployFirestore::at(tools.node, tools.package, &stop).map_err(deploy_cli::DeployCliError::Setup)
+        },
+        || {
+            let root = CoreClient::discover().and_then(|core| core.storage_root(&stop)).map_err(deploy_cli::DeployCliError::Local)?;
+            Layout::open(&root).map_err(deploy_cli::DeployCliError::Local)
+        },
+        || tmt_remote::pairing::now_ms().map_err(deploy_cli::DeployCliError::Local),
+    ).map_err(|error| match error {
+        deploy_cli::DeployCliError::Tool(deploy_tools::ToolDiscoveryError::FirebaseMissing) => RemoteError::new("REMOTE_DEPLOY_TOOL_MISSING", "Firebase CLI is not installed. Install it with: npm install -g firebase-tools@15.29.0"),
+        deploy_cli::DeployCliError::Tool(deploy_tools::ToolDiscoveryError::NodeMissing) => RemoteError::new("REMOTE_DEPLOY_NODE_MISSING", "Node.js could not be found for the installed Firebase CLI. Install Node.js, then try again."),
+        deploy_cli::DeployCliError::Tool(deploy_tools::ToolDiscoveryError::Unsupported) => RemoteError::new("REMOTE_DEPLOY_TOOL_UNSUPPORTED", &deploy_firestore::DeploySetupError::UnsupportedTool.to_string()),
+        deploy_cli::DeployCliError::Setup(error) => RemoteError::new("REMOTE_DEPLOY_SETUP_UNAVAILABLE", &error.to_string()),
+        deploy_cli::DeployCliError::Local(error) | deploy_cli::DeployCliError::Command(tmt_remote::deploy_command::DeployCommandError::Record(error), _) => error,
+        deploy_cli::DeployCliError::Discovery(_) => RemoteError::new("REMOTE_DEPLOY_DECLARATION_UNAVAILABLE", "Could not read what the installed extensions need from Firestore. Nothing changed in your Firebase project."),
+        deploy_cli::DeployCliError::Provider(error) => RemoteError::new(match error { tmt_remote::deploy_run::DeployProviderError::Rejected(fault) => fault.code(), tmt_remote::deploy_run::DeployProviderError::Unknown => "REMOTE_DEPLOY_UNAVAILABLE" }, "Firebase refused to list the project's current setup. Nothing changed in your Firebase project."),
+        deploy_cli::DeployCliError::Command(tmt_remote::deploy_command::DeployCommandError::Refused(reason), _) => RemoteError::new(reason.code(), "The plan or its authorization was refused. Nothing changed in your Firebase project. Run without --authorize to read the current plan, then authorize its digest."),
+        deploy_cli::DeployCliError::Command(tmt_remote::deploy_command::DeployCommandError::Run(_), path) => RemoteError::new("REMOTE_DEPLOY_UNAVAILABLE", &deploy_cli::uncertain_message(&path)),
+        deploy_cli::DeployCliError::Usage => RemoteError::new("USAGE_ERROR", "Use --project, --region and --sign-in; --authorize needs the first 12 or more lowercase hex characters of the plan digest. --replace-rules also needs --authorize and the full digest of the existing Rules."),
+    })?;
+    let mut output = tmt_cli_style::stream::stdout(args.json);
+    if args.json {
+        writeln!(output, "{}", result.json)?;
+    } else {
+        write!(output, "{}", result.human)?;
+    }
+    Ok(())
 }
 fn discovery_root() -> Result<std::path::PathBuf, RemoteError> {
     CoreClient::discover()?

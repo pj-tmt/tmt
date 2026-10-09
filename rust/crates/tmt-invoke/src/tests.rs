@@ -448,3 +448,81 @@ fn environment_policy_child() {
     assert_eq!(snapshot(), before);
     println!("environment fixture checked");
 }
+
+#[test]
+fn explicit_child_directory_does_not_change_the_parent_or_default() {
+    let fixture = Fixture::new(":");
+    let parent = std::env::current_dir().unwrap();
+    for current_dir in [None, Some(fixture.0.clone())] {
+        let output = invoke(
+            Request {
+                program: Path::new("/bin/pwd"),
+                args: &[],
+                input: &[],
+                deadline: Instant::now() + Duration::from_secs(5),
+                max_stream_bytes: 4096,
+                launch: LaunchOptions {
+                    current_dir: current_dir.clone(),
+                    ..Default::default()
+                },
+            },
+            None,
+        )
+        .unwrap();
+        assert!(output.status.success());
+        let observed = PathBuf::from(String::from_utf8(output.stdout).unwrap().trim());
+        assert_eq!(
+            fs::canonicalize(observed).unwrap(),
+            fs::canonicalize(current_dir.as_ref().unwrap_or(&parent)).unwrap()
+        );
+        assert_eq!(std::env::current_dir().unwrap(), parent);
+    }
+}
+
+#[test]
+fn relative_child_directory_is_refused_before_spawn() {
+    let error = invoke(
+        Request {
+            program: Path::new("/bin/sh"),
+            args: &["-c".into(), "exit 99".into()],
+            input: &[],
+            deadline: Instant::now() + Duration::from_secs(5),
+            max_stream_bytes: 16,
+            launch: LaunchOptions {
+                current_dir: Some("relative".into()),
+                ..Default::default()
+            },
+        },
+        None,
+    )
+    .unwrap_err();
+    assert_eq!(error.kind, FailureKind::Spawn);
+    assert!(matches!(error.cleanup, Cleanup::NotStarted));
+    assert_eq!(
+        error.cause.unwrap().kind(),
+        std::io::ErrorKind::InvalidInput
+    );
+}
+
+#[test]
+fn explicit_child_directory_preserves_failed_child_cleanup() {
+    let fixture = Fixture::new(":");
+    let error = invoke(
+        Request {
+            program: Path::new("/bin/sh"),
+            args: &["-c".into(), "echo $$ > pid; exec yes".into()],
+            input: &[],
+            deadline: Instant::now() + Duration::from_secs(5),
+            max_stream_bytes: 64,
+            launch: LaunchOptions {
+                current_dir: Some(fixture.0.clone()),
+                ..Default::default()
+            },
+        },
+        None,
+    )
+    .unwrap_err();
+    assert_eq!(error.kind, FailureKind::OutputLimit(Stream::Stdout));
+    assert!(matches!(error.cleanup, Cleanup::Confirmed));
+    gone(&fixture.0.join("pid"));
+}
