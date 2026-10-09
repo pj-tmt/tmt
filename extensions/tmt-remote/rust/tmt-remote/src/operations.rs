@@ -229,15 +229,13 @@ impl Operations {
                     "callsPerDevicePerMinute":crate::budgets::CALLS,"newSendsPerDevicePerMinute":crate::budgets::SENDS,
                     "outstandingHeldPerDevice":crate::budgets::HELDS,"approvalsPerRecipientPerMinute":crate::budgets::APPROVALS}}));
         }
-        if matches!(
-            operation,
-            "agents.list"
-                | "identities.status"
-                | "check"
-                | "requests.show"
-                | "result"
-                | "dispatch.show"
-        ) {
+        if crate::admission::RemoteOperation::parse(operation).is_some_and(|operation| {
+            matches!(
+                operation.class(),
+                crate::admission::OperationClass::Read
+                    | crate::admission::OperationClass::RecoveryObservation
+            )
+        }) {
             return self.read(permit);
         }
         let id = match operation {
@@ -256,15 +254,6 @@ impl Operations {
                     return Err(invalid());
                 }
                 permit.adopt(Some(&frozen), &value.input.recipient_ids)?.id
-            }
-            "operation.show" => {
-                let value: Lookup =
-                    serde_json::from_value(permit.message.input.clone()).map_err(|_| invalid())?;
-                if !canonical::is_core_id(&value.operation_id) {
-                    return Err(invalid());
-                }
-                permit.adopt(None, &[])?;
-                value.operation_id
             }
             _ => return Err(invalid()),
         };
@@ -352,8 +341,12 @@ impl Operations {
                 resources.push(request_reference(&input.request_id)?);
                 request = Some(input.request_id);
             }
-            "dispatch.show" => {
-                let input: Lookup = read_input(permit)?;
+            "dispatch.show" | "operation.show" => {
+                let input: Lookup = if operation == "dispatch.show" {
+                    read_input(permit)?
+                } else {
+                    serde_json::from_value(permit.message.input.clone()).map_err(|_| invalid())?
+                };
                 if !canonical::is_core_id(&input.operation_id) {
                     return Err(invalid());
                 }
@@ -378,7 +371,6 @@ impl Operations {
                 ));
             }
         }
-        permit.adopt(None, &resources)?;
         let payload = permit.with_store(|store| store.observe(&permit.grant, || {
             match operation {
                 "agents.list" => {
@@ -404,6 +396,16 @@ impl Operations {
                     let api = json!({"version":1,"operation":"requests.show","input":{"requestId":id}});
                     result_state(id, self.api(api.to_string().as_bytes()))
                 },
+                "operation.show" => {
+                    let owned = owned.as_ref().expect("owned operation");
+                    if matches!(owned.phase.as_str(), "held" | "accepted" | "cancelled" | "refused") {
+                        return Ok(state(owned));
+                    }
+                    let frozen = owned.frozen.as_deref().ok_or_else(|| database("owned frozen intent absent"))?;
+                    held_intent(&permit.grant, &owned.id, frozen)?;
+                    // Missing/malformed core receipts stay uncertain; observation never sends.
+                    Ok(self.resolve(frozen, false, &permit.grant).unwrap_or_else(|_| uncertain(&owned.id)))
+                },
                 "dispatch.show" => {
                     let owned = owned.as_ref().expect("owned operation");
                     if matches!(owned.phase.as_str(), "held" | "cancelled" | "refused") { return Ok(state(owned)); }
@@ -416,6 +418,38 @@ impl Operations {
                 _ => unreachable!(),
             }
         }))??;
+        if operation == "operation.show"
+            && payload["state"] == "accepted"
+            && owned
+                .as_ref()
+                .is_some_and(|owned| matches!(owned.phase.as_str(), "dispatching" | "uncertain"))
+        {
+            let owned = owned.as_ref().expect("owned recovery");
+            let metadata = match permit.sessions.operation_response(
+                &permit.grant,
+                &owned.id,
+                &payload,
+                Some(permit.message.envelope().session_id),
+            ) {
+                Ok(metadata) => metadata,
+                Err(_) => return permit.response(&uncertain(&owned.id)),
+            };
+            if permit
+                .with_store(|store| {
+                    store.settle_recovery(
+                        &permit.grant,
+                        &owned.id,
+                        &payload,
+                        metadata.as_deref(),
+                        now_ms()?,
+                    )
+                })
+                .is_err()
+            {
+                return permit.response(&uncertain(&owned.id));
+            }
+            permit.sessions.changed();
+        }
         permit.response(&payload)
     }
     fn resolve(&self, frozen: &[u8], retry: bool, grant: &Grant) -> Result<Value, RemoteError> {
@@ -457,6 +491,11 @@ fn state(owned: &Owned) -> Value {
     } else {
         json!({"state":owned.phase,"operationId":owned.id})
     }
+}
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum SettlementKind {
+    Effect,
+    RecoveryObservation,
 }
 impl Store {
     /// A bounded public observation is ordered against cross-process grant revocation.
@@ -517,6 +556,35 @@ impl Store {
         metadata: Option<&[u8]>,
         now: u64,
     ) -> Result<(), RemoteError> {
+        self.settlement(grant, id, payload, metadata, now, SettlementKind::Effect)
+    }
+    // Recovery updates existing ownership even if no notification entry fits.
+    fn settle_recovery(
+        &mut self,
+        grant: &Grant,
+        id: &str,
+        payload: &Value,
+        metadata: Option<&[u8]>,
+        now: u64,
+    ) -> Result<(), RemoteError> {
+        self.settlement(
+            grant,
+            id,
+            payload,
+            metadata,
+            now,
+            SettlementKind::RecoveryObservation,
+        )
+    }
+    fn settlement(
+        &mut self,
+        grant: &Grant,
+        id: &str,
+        payload: &Value,
+        metadata: Option<&[u8]>,
+        now: u64,
+        kind: SettlementKind,
+    ) -> Result<(), RemoteError> {
         let phase = payload["state"]
             .as_str()
             .filter(|s| {
@@ -539,7 +607,10 @@ impl Store {
         if old == phase {
             return Ok(());
         }
-        if matches!(old.as_str(), "accepted" | "cancelled" | "refused") {
+        if matches!(old.as_str(), "accepted" | "cancelled" | "refused")
+            || (kind == SettlementKind::RecoveryObservation
+                && (!matches!(old.as_str(), "dispatching" | "uncertain") || phase != "accepted"))
+        {
             return Err(invalid());
         }
         let mut resources: Vec<String> = serde_json::from_str(&refs).map_err(database)?;
@@ -576,7 +647,10 @@ impl Store {
                 )
                 .map_err(database)?;
             if entries >= crate::journal::ENTRIES {
-                return Err(database("journal capacity"));
+                return match kind {
+                    SettlementKind::Effect => Err(database("journal capacity")),
+                    SettlementKind::RecoveryObservation => tx.commit().map_err(database),
+                };
             }
 
             if metadata.len() > crate::limits::METADATA_BYTES {

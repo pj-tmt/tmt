@@ -151,24 +151,106 @@ impl Drop for MessagePermit {
         self.busy.store(false, Ordering::Release);
     }
 }
+// This registry admits names; exhaustive typed matches require every admitted
+// operation to declare its scope and journal class. Wire input supplies no class.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum OperationClass {
+    Read,
+    RecoveryObservation,
+    Effect,
+    Control,
+}
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum RemoteOperation {
+    Capabilities,
+    Subscribe,
+    Ack,
+    SettingsShow,
+    SettingsSet,
+    DevicesList,
+    DevicesRename,
+    DevicesRevoke,
+    ManagementOperation,
+    AgentsList,
+    IdentitiesStatus,
+    Check,
+    DispatchCreate,
+    DispatchShow,
+    OperationShow,
+    RequestsShow,
+    Result,
+}
+impl RemoteOperation {
+    const NAMES: &'static [(&'static str, Self)] = &[
+        ("capabilities", Self::Capabilities),
+        ("subscribe", Self::Subscribe),
+        ("ack", Self::Ack),
+        ("remote.settings.show", Self::SettingsShow),
+        ("remote.settings.set", Self::SettingsSet),
+        ("remote.devices.list", Self::DevicesList),
+        ("remote.devices.rename", Self::DevicesRename),
+        ("remote.devices.revoke", Self::DevicesRevoke),
+        ("remote.management.operation", Self::ManagementOperation),
+        ("agents.list", Self::AgentsList),
+        ("identities.status", Self::IdentitiesStatus),
+        ("check", Self::Check),
+        ("dispatch.create", Self::DispatchCreate),
+        ("dispatch.show", Self::DispatchShow),
+        ("operation.show", Self::OperationShow),
+        ("requests.show", Self::RequestsShow),
+        ("result", Self::Result),
+    ];
+    pub(crate) fn parse(name: &str) -> Option<Self> {
+        Self::NAMES
+            .iter()
+            .find(|(candidate, _)| *candidate == name)
+            .map(|(_, operation)| *operation)
+    }
+    pub(crate) fn class(self) -> OperationClass {
+        match self {
+            Self::Capabilities => OperationClass::Read,
+            Self::Subscribe => OperationClass::Control,
+            Self::Ack => OperationClass::Control,
+            Self::SettingsShow => OperationClass::Read,
+            Self::SettingsSet => OperationClass::Effect,
+            Self::DevicesList => OperationClass::Read,
+            Self::DevicesRename => OperationClass::Effect,
+            Self::DevicesRevoke => OperationClass::Effect,
+            Self::ManagementOperation => OperationClass::Read,
+            Self::AgentsList => OperationClass::Read,
+            Self::IdentitiesStatus => OperationClass::Read,
+            Self::Check => OperationClass::Read,
+            Self::DispatchCreate => OperationClass::Effect,
+            Self::DispatchShow => OperationClass::Read,
+            Self::OperationShow => OperationClass::RecoveryObservation,
+            Self::RequestsShow => OperationClass::Read,
+            Self::Result => OperationClass::Read,
+        }
+    }
+    fn scope(self) -> Option<&'static str> {
+        match self {
+            Self::Capabilities => None,
+            Self::Subscribe => None,
+            Self::Ack => None,
+            Self::SettingsShow => None,
+            Self::SettingsSet => None,
+            Self::DevicesList => None,
+            Self::DevicesRename => None,
+            Self::DevicesRevoke => None,
+            Self::ManagementOperation => None,
+            Self::AgentsList => Some("agents.read"),
+            Self::IdentitiesStatus => Some("status.read"),
+            Self::Check => Some("check.read"),
+            Self::DispatchCreate => Some("talk"),
+            Self::DispatchShow => Some("talk"),
+            Self::OperationShow => Some("talk"),
+            Self::RequestsShow => Some("results.read"),
+            Self::Result => Some("results.read"),
+        }
+    }
+}
 pub(crate) fn scope(operation: &str) -> Option<Option<&'static str>> {
-    Some(match operation {
-        "capabilities"
-        | "subscribe"
-        | "ack"
-        | "remote.settings.show"
-        | "remote.settings.set"
-        | "remote.devices.list"
-        | "remote.devices.rename"
-        | "remote.devices.revoke"
-        | "remote.management.operation" => None,
-        "agents.list" => Some("agents.read"),
-        "identities.status" => Some("status.read"),
-        "check" => Some("check.read"),
-        "dispatch.create" | "dispatch.show" | "operation.show" => Some("talk"),
-        "requests.show" | "result" => Some("results.read"),
-        _ => return None,
-    })
+    RemoteOperation::parse(operation).map(RemoteOperation::scope)
 }
 pub(crate) fn refusal(
     sessions: &DoorSessions,
@@ -193,4 +275,20 @@ pub(crate) fn refusal_with_limit(
         .response(message, &payload)
         .map(MessageRefusal::Signed)
         .unwrap_or(MessageRefusal::Unauthenticated)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn every_scoped_operation_has_an_explicit_class() {
+        for (name, operation) in RemoteOperation::NAMES {
+            assert_eq!(scope(name), Some(operation.scope()));
+            assert_eq!(
+                RemoteOperation::parse(name).unwrap().class(),
+                operation.class()
+            );
+        }
+        assert!(scope("future.operation").is_none());
+    }
 }

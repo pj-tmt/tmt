@@ -273,7 +273,7 @@ send is retried.
 
 ## Durable log: append, subscribe and ack
 
-Each paired client sees one machine-owned ordered stream of its admitted-request receipts and
+Each paired client sees one machine-owned ordered stream of its admitted effect receipts and
 correlated state notifications. Another client's IDs/cursors disclose nothing. The log is a remote
 delivery journal over core resources, not a second conversation database or core attention queue.
 Remote retains bounded held/uncertain payloads and immutable operation/request references; core
@@ -281,7 +281,8 @@ alone owns conversation history and retained finals. Final notifications can ref
 request; `result` retrieves its current retained body through the public API. No permanent
 final-body copy or new retention lease is created in remote.
 
-`append(requestEnvelope)` authenticates/adopts the logical request and stores its ID, client
+`append(requestEnvelope)` authenticates every request. Effectful requests adopt the logical intent
+and store its ID, client
 ownership and frozen payload/digest atomically before returning acceptance. Under a hold-mode grant
 this appends a held record and signed `held` response only; it does not call core. Receipts
 distinguish journal acceptance, core acceptance, wake outcome and agent final. Failure before
@@ -306,9 +307,16 @@ cursor is the position after that entry, and envelope is a machine-signed respon
 correlated to the adopted request. Subscribers receive metadata and state, not duplicate client
 payloads. The signed batch payload binds their exact bytes/order. Set nextCursor to the last
 returned entry cursor, or to the input cursor on timeout; initially an empty stream returns its
-beginning cursor. Live read responses are not copied into the journal; append only a signed metadata
-notification `{requestEnvelopeId,operation,state:"observed"}` correlated to that read ID, and
-deliver the full signed read result directly. Response entries contain state/receipt references
+beginning cursor. The fixed observational operations (`capabilities`, `agents.list`, `identities.status`,
+`check`, `requests.show`, `result`, `dispatch.show`, `operation.show`, `remote.settings.show`,
+`remote.devices.list`, `remote.management.operation`) return live signed results without adopting
+the read ID, observed-read metadata or new ownership rows. `operation.show` is recovery observation:
+stable or still-unresolved originals are pure reads; a definitive outcome learned for an unresolved
+caller-owned original settles that original once, with its notification attributed to the observing
+session. It never sends. At journal-entry capacity the original still settles, omitting only that
+notification. A lost read reply requires a new signed
+request, not journal recovery. Signature, freshness, session, scope, sequence and call-budget
+fences still apply. Response entries contain effect state/receipt references
 rather than full final bodies. Release frozen payloads after confirmed core acceptance/cancellation;
 keep only intent digests, ownership and immutable core references, without duplicate permanent
 prompt history. After the initial beginning cursor is issued, a timeout has empty entries and an
@@ -323,7 +331,8 @@ retention renewal. Controls and their responses do not create entries requiring 
 avoiding ack loops. No implicit acknowledgment on subscribe/read. Enforce ack at or before the last
 successfully subscribed position; a client cannot skip unseen entries. Bound retained journal
 entries to 24 hours and 1000 entries/client; acked prefixes may be compacted earlier; refuse new
-adoption if unacknowledged capacity is exhausted. Expired journal metadata can require fresh
+effect adoption if unacknowledged capacity is exhausted; journal capacity never refuses a read.
+Expired journal metadata can require fresh
 own-state recovery; it does not alter core prompt/final retention. Separate bounded
 operation/request ownership records survive journal eviction for 30 days after their last state
 change. Limit these to 1000 operations/client and refuse new adoption at capacity; never evict an
