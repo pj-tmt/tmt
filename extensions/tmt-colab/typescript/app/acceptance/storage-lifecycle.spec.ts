@@ -218,7 +218,7 @@ test('principals: owner, a second paired device and a read-only link read; a rev
       sha(note.buffer),
     );
 
-    // A revoked paired device reads nothing after it reloads, and asks the backend for nothing.
+    // A revoked paired device reads nothing after it reloads.
     run(world, world.binaries.remote, [
       'devices',
       'revoke',
