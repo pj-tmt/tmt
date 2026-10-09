@@ -70,6 +70,17 @@ full DOM copy and title association; the host supplies a visible full-caption
 read path. `brandLink` preserves a caller's native anchor. `disclosure` selects a
 caller-owned data attribute; the leaf does not choose or operate a menu.
 
+The header brand uses the six-blade aperture copied from
+`site/src/home/assets/v9-0.svg`, rendered inline with the original `0 0 200 200`
+viewBox, `aria-hidden="true"` and `fill="currentColor"`. The leaf neither imports
+the site nor fetches the mark. The product label and brand link use the normal
+text colour. Mark size and brand gap derive from the wordmark-size token using
+the handbook's 33/19 and 12/19 ratios (about 24.32px and 8.84px with a 14px label);
+they stay equal at compact and wide widths, within the 48px/56px header. The
+screen title follows the brand as plain text, without a divider.
+Static hosts supply their own inline SVG with the same class, viewBox and
+decorative attributes; the shared stylesheet does not replace a host's text mark.
+
 Notice tone, visible state label, mark and announcement are explicit. No state,
 health, permission or recovery inference occurs. Marks are decorative because
 visible state words carry their meaning.
@@ -154,6 +165,9 @@ with **Run lifecycle checks**, then retains interactive React controls.
 **Run field focus checks** in the static fixture and the React lifecycle checks
 both exercise native and textbox fields: contained focus paint, unchanged geometry
 within 1px, a visible contiguous 1px-to-2px edge change, and restoration on blur.
+The React checks also measure linked/plain header brands against the same handbook
+mark/gap ratios at every viewport, their containment and neutral colour, and the
+absence of a title divider.
 Use the document's `data-theme` to capture light/dark at 390/1440 and inspect
 320px fit. Fixtures use local font fallbacks and no product runtime or remote assets.
 

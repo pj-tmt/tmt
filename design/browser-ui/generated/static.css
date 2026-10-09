@@ -133,22 +133,32 @@
   font-family: var(--tmt-ui-font-body);
 }
 .tmt-ui-brand {
+  /* Handbook wordmark: 33px mark and 12px gap for a 19px label. */
+  --tmt-ui-header-brand-mark-size: calc(var(--tmt-ui-header-wordmark-size) * 33 / 19);
+  --tmt-ui-header-brand-gap: calc(var(--tmt-ui-header-wordmark-size) * 12 / 19);
   display: flex;
   align-items: center;
-  gap: var(--tmt-ui-header-gap);
+  gap: var(--tmt-ui-header-brand-gap);
   flex-shrink: 0;
 }
 .tmt-ui-brand > a {
   display: flex;
   align-items: center;
-  gap: var(--tmt-ui-header-gap);
-  color: var(--tmt-ui-color-link);
+  gap: var(--tmt-ui-header-brand-gap);
+  color: var(--tmt-ui-color-text);
 }
 .tmt-ui-mark {
   font: var(--tmt-ui-header-mark-weight)
     var(--tmt-ui-header-mark-size)/var(--tmt-ui-header-mark-line-height) var(--tmt-ui-font-mono);
 }
+svg.tmt-ui-mark {
+  display: block;
+  flex: none;
+  width: var(--tmt-ui-header-brand-mark-size);
+  height: var(--tmt-ui-header-brand-mark-size);
+}
 .tmt-ui-wordmark {
+  color: var(--tmt-ui-color-text);
   font: var(--tmt-ui-header-wordmark-weight)
     var(--tmt-ui-header-wordmark-size)/var(--tmt-ui-header-wordmark-line-height)
     var(--tmt-ui-font-display);
@@ -157,8 +167,6 @@
 .tmt-ui-header > .tmt-ui-title {
   flex: 1;
   min-width: 0;
-  padding-left: var(--tmt-ui-header-gap);
-  border-left: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
 }
 .tmt-ui-title {
   margin: 0;

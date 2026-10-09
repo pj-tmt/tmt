@@ -1,7 +1,7 @@
 import { act, createRef } from 'react';
 import type { MouseEvent } from 'react';
 import { createRoot } from 'react-dom/client';
-import { BrowserAction, BrowserField, BrowserIconAction } from '../../src/react.js';
+import { BrowserAction, BrowserField, BrowserHeader, BrowserIconAction } from '../../src/react.js';
 import { checkFieldFocus } from './field-focus.js';
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
@@ -35,6 +35,48 @@ async function run() {
   assertions = 0;
   activations = 0;
   parentEscapes = 0;
+  for (const linked of [false, true]) {
+    await act(() =>
+      root.render(
+        <BrowserHeader
+          productLabel="Colab"
+          title="Pages"
+          brandLink={linked ? (brand) => <a href="#pages">{brand}</a> : undefined}
+        />,
+      ),
+    );
+    const header = host.querySelector('header')!;
+    const mark = header.querySelector<SVGSVGElement>('svg.tmt-ui-mark')!;
+    check(mark !== null, 'Header mark is not an inline SVG');
+    check(mark.getAttribute('aria-hidden') === 'true', 'Header mark is exposed to accessibility');
+    check(mark.getAttribute('fill') === 'currentColor', 'Header mark has a fixed colour');
+    const label = header.querySelector<HTMLElement>('.tmt-ui-wordmark')!;
+    const brand = header.querySelector<HTMLElement>(
+      linked ? '.tmt-ui-brand > a' : '.tmt-ui-brand',
+    )!;
+    const heading = header.querySelector<HTMLElement>('.tmt-ui-heading')!;
+    const markBounds = mark.getBoundingClientRect();
+    const headerBounds = header.getBoundingClientRect();
+    const labelSize = parseFloat(getComputedStyle(label).fontSize);
+    check(
+      Math.abs(markBounds.width - (labelSize * 33) / 19) < 0.1 &&
+        Math.abs(markBounds.height - markBounds.width) < 0.1 &&
+        Math.abs(parseFloat(getComputedStyle(brand).gap) - (labelSize * 12) / 19) < 0.1,
+      'Header brand lost the handbook proportions',
+    );
+    check(
+      markBounds.top >= headerBounds.top && markBounds.bottom <= headerBounds.bottom,
+      'Header mark exceeds header height',
+    );
+    check(
+      getComputedStyle(label).color === tokenColor('--tmt-ui-color-text') &&
+        getComputedStyle(mark).color === tokenColor('--tmt-ui-color-text'),
+      'Header brand lost the normal text colour',
+    );
+    check(getComputedStyle(heading).borderLeftWidth === '0px', 'Header title retains a divider');
+    check(header.querySelector('h1')!.textContent === 'Pages', 'Header title changed');
+    if (linked) check(brand.textContent === 'Colab', 'Decorative mark contributes to link name');
+  }
   await act(() =>
     root.render(
       <>
