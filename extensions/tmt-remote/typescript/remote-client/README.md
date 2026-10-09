@@ -24,7 +24,9 @@ This private module implements the device side of
   `decide` allows, warns or refuses an append before any effect (with the reset time), and
   `classifyProviderExhausted` keeps a provider `resource-exhausted` answer after a possible write
   an unknown outcome, never `REMOTE_BUDGET_EXHAUSTED`. Pure: callers pass the clock and keep their
-  own per-day counter. The Rust tests and `test/budget.test.ts` share one set of vectors.
+  own per-day counter, which is per browser and device, so `decide` is a local estimate and the
+  provider's answer is the backstop. `BudgetModel.minFlushIntervalMs()` gives the shortest average
+  interval between flushed updates. The Rust tests and `test/budget.test.ts` share one set of vectors.
 - `src/browser.ts`: the browser entry the door serves as `/sdk/remote-v1.js`. It
   exposes `pairingPage(link)` for the fragment-erasing `/sdk/pair.js` bootstrap and gives mounted extension pages `reopenSession`,
   `operations`, `ClientError`, `RefusalError` and `certifyKey`, whose extension comes from `/sdk/mount`, and the `budget` namespace of `src/budget.ts`.

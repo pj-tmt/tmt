@@ -928,9 +928,11 @@ var budget_exports = /* @__PURE__ */ __exportAll({
 * project-wide, every client sees only its own traffic and Rules cannot read quotas, so the
 * guard works from what a client really has: the member count from the signed membership, the
 * page's parameters, its own persisted counter for today and these constants. It does not read
-* Google's counter. Both implementations are tested against the same independent vectors, so
-* a change to either one fails until both agree; the dated numbers and the derivation are in
-* the Remote reference guide's free-plan table.
+* Google's counter, and the counter a client keeps is per browser and device, so other
+* devices' appends are invisible to it: `decide` is a local estimate and the provider's own
+* `resource-exhausted` answer is the backstop. Both implementations are tested against the
+* same independent vectors, so a change to either one fails until both agree; the dated
+* numbers and the derivation are in the Remote reference guide's free-plan table.
 */
 /** Spark (no-cost) Firestore document reads per day. */
 var READS_PER_DAY = 5e4;
