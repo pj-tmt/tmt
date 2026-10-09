@@ -258,7 +258,9 @@ try {
           assert(invalidBinaryRefused, 'large invalid base64 accepted');
           progress('completed', 'json-cursor');
           progress('started', 'capabilities');
+          const capabilityStart = performance.now();
           await c.probeCapabilities();
+          const capabilityMs = performance.now() - capabilityStart;
           progress('completed', 'capabilities');
           let attachmentCases = 0;
           for (const test of attachments.cases) {
@@ -721,6 +723,7 @@ try {
           assert(!legacyAccepted, 'legacy management operation accepted');
           progress('completed', 'signin-and-management');
           return {
+            capabilityMs,
             rows,
             checks: true,
             jsonCursorChecks: true,
