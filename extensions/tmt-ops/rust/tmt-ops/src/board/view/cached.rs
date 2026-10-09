@@ -60,7 +60,8 @@ fn mark(row: &Value) -> Piece {
             Some("blocked") => ("✗", Role::Blocked),
             Some("review") => ("◐", Role::Review),
             Some("working") => ("●", Role::Working),
-            _ => ("○", Role::Dim),
+            Some("idle") => ("◌", Role::Dim),
+            _ => (" ", Role::Dim),
         }
     };
     (mark.into(), role)
@@ -91,7 +92,7 @@ pub(super) fn lines(view: &Value, width: usize) -> Vec<Vec<Piece>> {
                 ("◆", "waiting", Role::Waiting),
                 ("✗", "blocked", Role::Blocked),
                 ("●", "working", Role::Working),
-                ("○", "idle", Role::Dim),
+                ("◌", "idle", Role::Dim),
             ] {
                 let count = counts[key].as_u64().unwrap_or(0);
                 pieces.push((mark.into(), if count == 0 { Role::Dim } else { role }));

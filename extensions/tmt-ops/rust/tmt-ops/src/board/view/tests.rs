@@ -536,6 +536,56 @@ fn row(name: &str, state: &str, task: &str, extra: Value) -> Value {
 }
 
 #[test]
+fn observed_presence_names_rows_without_state_and_idle_has_its_own_mark() {
+    let mut app = board(json!([{"title": null, "rows": [
+        row("alpha", "", "", json!({"presence": "active"})),
+        row("bravo", "", "", json!({"presence": "offline"})),
+        row("carol", "", "", json!({"presence": "unknown"})),
+        row("delta", "working", "", json!({"presence": "offline", "state": "working"})),
+        row("echo", "idle", "", json!({"presence": "active", "state": "idle"})),
+    ]}]));
+    app.view.as_mut().unwrap().board.members = true;
+    let mut terminal = Terminal::new(TestBackend::new(100, 20)).unwrap();
+    terminal.draw(|frame| render(frame, &app)).unwrap();
+    let buffer = terminal.backend().buffer().clone();
+    let screen = draw(&app, 100, 20);
+    let line = |name: &str| {
+        screen
+            .iter()
+            .position(|line| line.contains(name))
+            .unwrap_or_else(|| panic!("{name} in {screen:#?}"))
+    };
+    let text = |name: &str| &screen[line(name)];
+    assert!(text("alpha").contains("online") && !text("alpha").contains("offline"));
+    assert!(text("bravo").contains("offline") && !text("bravo").contains("online"));
+    assert!(!text("carol").contains("line") && text("carol").contains('–'));
+    assert!(
+        text("delta").contains("working · offline"),
+        "{}",
+        text("delta")
+    );
+    assert!(
+        text("delta").contains('●'),
+        "the reported state keeps its mark"
+    );
+    assert!(text("echo").contains("◌ ") && text("echo").contains("idle"));
+    assert!(
+        !screen.iter().any(|line| line.contains('○')),
+        "○ means offline only and no row draws it: {screen:#?}"
+    );
+    // The word carries the difference; the name also dims while the member is offline.
+    let name = |name: &str| {
+        let y = line(name);
+        buffer[(screen[y].find(name).unwrap() as u16, y as u16)].fg
+    };
+    let role = |role: Role| app.look().role(role).fg.unwrap_or_default();
+    assert_eq!(name("alpha"), role(Role::Text));
+    assert_eq!(name("echo"), role(Role::Text));
+    assert_eq!(name("bravo"), role(Role::Dim));
+    assert_eq!(name("delta"), role(Role::Dim));
+}
+
+#[test]
 fn admitted_ids_belong_to_the_shown_view_during_load_resize_and_search() {
     use crate::board::app::tests::snapshot;
     let sections =

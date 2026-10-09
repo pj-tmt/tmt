@@ -167,7 +167,7 @@ fn members_are_urgency_sorted_and_private_row_values_never_appear() {
     for width in [160, 100, 80] {
         let painted = paint(std::slice::from_ref(&item), width, Look::default(), None);
         let output = text(&painted.lines).join("\n");
-        assert!(output.contains("◆ ✗ ✗ ◐ ● ○ "));
+        assert!(output.contains("◆ ✗ ✗ ◐ ● ◌ "));
         assert!(output.contains("6 members"));
         assert!(!output.contains("private"));
         assert!(

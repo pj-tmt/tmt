@@ -46,7 +46,7 @@
     {
       "lines": [
         "  alpha    beta    gamma    delta-with-a-long-squad-name    epsilon   ▚ tmt",
-        "5 squads · 12 members   ◆ 3 waiting on you  ✗ 3 blocked  ◐ 1 review  ● 4 working  ○ 3 idle",
+        "5 squads · 12 members   ◆ 3 waiting on you  ✗ 3 blocked  ◐ 1 review  ● 4 working  ◌ 3 idle",
         "",
         "",
         "── ◆ needs you · 3 ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
@@ -73,7 +73,7 @@
         "",
         "── squads · 5 ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
         " ◆ alpha                    lead-a                      ◆ ◆ ✗        3 members",
-        "   beta                     lead-b                      ◐ ○          2 members",
+        "   beta                     lead-b                      ◐ ◌          2 members",
         "   gamma                    lead-g                      ●  1 other · 2 members",
         "   delta-with-a-long-squad… lead-delta-with-a-long-name              0 members",
         "   epsilon                  lead-e                                   0 members",
@@ -198,7 +198,7 @@
     {
       "lines": [
         "  alpha    beta    gamma    delta-with-a-long-squad-name    epsilon   ▚ tmt",
-        "5 squads · 12 members   ◆ 3 waiting on you  ✗ 3 blocked  ◐ 1 review  ● 4 working  ○ 3 idle",
+        "5 squads · 12 members   ◆ 3 waiting on you  ✗ 3 blocked  ◐ 1 review  ● 4 working  ◌ 3 idle",
         "",
         "",
         "── ◆ needs you · 3 ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
@@ -225,7 +225,7 @@
         "",
         "── squads · 5 ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
         " ◆ alpha                    lead-a                      ◆ ◆ ✗        3 members",
-        "   beta                     lead-b                      ◐ ○          2 members",
+        "   beta                     lead-b                      ◐ ◌          2 members",
         "   gamma                    lead-g                      ●  1 other · 2 members",
         "   delta-with-a-long-squad… lead-delta-with-a-long-name              0 members",
         "   epsilon                  lead-e                                   0 members",
@@ -350,7 +350,7 @@
     {
       "lines": [
         "  alpha    beta    gamma    delta-with-a-long-squad-name    epsilon   ▚ tmt",
-        "5 squads  ◆ 3  ✗ 3  ◐ 1  ● 4  ○ 3",
+        "5 squads  ◆ 3  ✗ 3  ◐ 1  ● 4  ◌ 3",
         "",
         "",
         "── ◆ needs you · 3 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
@@ -377,7 +377,7 @@
         "",
         "── squads · 5 ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
         " ◆ alpha                    lead-a                      ◆ ◆ ✗        3 members",
-        "   beta                     lead-b                      ◐ ○          2 members",
+        "   beta                     lead-b                      ◐ ◌          2 members",
         "   gamma                    lead-g                      ●  1 other · 2 members",
         "   delta-with-a-long-squad… lead-delta-with-a-long-name              0 members",
         "   epsilon                  lead-e                                   0 members",
@@ -502,7 +502,7 @@
     {
       "lines": [
         "  alpha    beta    gamma    delta-with-a-long-squad-name    epsilon   ▚ tmt",
-        "5 squads  ◆ 3  ✗ 3  ◐ 1  ● 4  ○ 3",
+        "5 squads  ◆ 3  ✗ 3  ◐ 1  ● 4  ◌ 3",
         "",
         "",
         "── ◆ needs you · 3 ─────────────────────────────────────────────────────────────────────────────────────────────────────",
@@ -529,7 +529,7 @@
         "",
         "── squads · 5 ──────────────────────────────────────────────────────────────────────────────────────────────────────────",
         " ◆ alpha                    lead-a                      ◆ ◆ ✗        3 members",
-        "   beta                     lead-b                      ◐ ○          2 members",
+        "   beta                     lead-b                      ◐ ◌          2 members",
         "   gamma                    lead-g                      ●  1 other · 2 members",
         "   delta-with-a-long-squad… lead-delta-with-a-long-name              0 members",
         "   epsilon                  lead-e                                   0 members",
@@ -654,7 +654,7 @@
     {
       "lines": [
         "  alpha    beta    gamma    delta-with-a-long-squad-name    epsilon   ▚ tmt",
-        "5 squads  ◆ 3  ✗ 3  ◐ 1  ● 4  ○ 3",
+        "5 squads  ◆ 3  ✗ 3  ◐ 1  ● 4  ◌ 3",
         "",
         "",
         "── ◆ needs you · 3 ─────────────────────────────────────────────────────────────────────────────────",
@@ -681,7 +681,7 @@
         "",
         "── squads · 5 ──────────────────────────────────────────────────────────────────────────────────────",
         " ◆ alpha                    lead-a                      ◆ ◆ ✗        3 members",
-        "   beta                     lead-b                      ◐ ○          2 members",
+        "   beta                     lead-b                      ◐ ◌          2 members",
         "   gamma                    lead-g                      ●  1 other · 2 members",
         "   delta-with-a-long-squad… lead-delta-with-a-long-name              0 members",
         "   epsilon                  lead-e                                   0 members",
@@ -806,7 +806,7 @@
     {
       "lines": [
         "  alpha    beta    gamma    delta-with-a-long-squad-name    epsilon   ▚ tmt",
-        "5 squads  ◆ 3  ✗ 3  ◐ 1  ● 4  ○ 3",
+        "5 squads  ◆ 3  ✗ 3  ◐ 1  ● 4  ◌ 3",
         "",
         "",
         "── ◆ needs you · 3 ────────────────────────────────────────────────────────────────────────────────",
@@ -833,7 +833,7 @@
         "",
         "── squads · 5 ─────────────────────────────────────────────────────────────────────────────────────",
         " ◆ alpha              lead-a               ◆ ◆ ✗        3 members",
-        "   beta               lead-b               ◐ ○          2 members",
+        "   beta               lead-b               ◐ ◌          2 members",
         "   gamma              lead-g               ●  1 other · 2 members",
         "   delta-with-a-long… lead-delta-with-a-l…              0 members",
         "   epsilon            lead-e                            0 members",
@@ -958,7 +958,7 @@
     {
       "lines": [
         "  alpha    beta    gamma    delta-with-a-long-squad-name    epsilon   ▚ tmt",
-        "5 squads  ◆ 3  ✗ 3  ◐ 1  ● 4  ○ 3",
+        "5 squads  ◆ 3  ✗ 3  ◐ 1  ● 4  ◌ 3",
         "",
         "",
         "── ◆ needs you · 3 ─────────────────────────────────────────────────────────────",
@@ -985,7 +985,7 @@
         "",
         "── squads · 5 ──────────────────────────────────────────────────────────────────",
         " ◆ alpha              lead-a               ◆ ◆ ✗        3 members",
-        "   beta               lead-b               ◐ ○          2 members",
+        "   beta               lead-b               ◐ ◌          2 members",
         "   gamma              lead-g               ●  1 other · 2 members",
         "   delta-with-a-long… lead-delta-with-a-l…              0 members",
         "   epsilon            lead-e                            0 members",
@@ -1110,7 +1110,7 @@
     {
       "lines": [
         "  alpha    beta    gamma    delta-with-a-long-squad-name    epsilon   ▚ tmt",
-        "5 squads  ◆ 3  ✗ 3  ◐ 1  ● 4  ○ 3",
+        "5 squads  ◆ 3  ✗ 3  ◐ 1  ● 4  ◌ 3",
         "",
         "",
         "── ◆ needs you · 3 ────────────────────────────────────────────────────────────",
@@ -1137,7 +1137,7 @@
         "",
         "── squads · 5 ─────────────────────────────────────────────────────────────────",
         " ◆ alpha              lead-a               ◆ ◆ ✗        3 members",
-        "   beta               lead-b               ◐ ○          2 members",
+        "   beta               lead-b               ◐ ◌          2 members",
         "   gamma              lead-g               ●  1 other · 2 members",
         "   delta-with-a-long… lead-delta-with-a-l…              0 members",
         "   epsilon            lead-e                            0 members",
@@ -1262,7 +1262,7 @@
     {
       "lines": [
         "  alpha    beta    gamma    delta-with-a-long-squad-name    epsilon   ▚ tmt",
-        "5 squads · 12 members   ◆ 3 waiting on you  ✗ 3 blocked  ◐ 1 review  ● 4 working  ○ 3 idle",
+        "5 squads · 12 members   ◆ 3 waiting on you  ✗ 3 blocked  ◐ 1 review  ● 4 working  ◌ 3 idle",
         "",
         "",
         "── ◆ needs you · 3 ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
@@ -1289,7 +1289,7 @@
         "",
         "── squads · 5 ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
         " ◆ alpha                    lead-a                      ◆ ◆ ✗        3 members",
-        "   beta                     lead-b                      ◐ ○          2 members",
+        "   beta                     lead-b                      ◐ ◌          2 members",
         "   gamma                    lead-g                      ●  1 other · 2 members",
         "   delta-with-a-long-squad… lead-delta-with-a-long-name              0 members",
         "   epsilon                  lead-e                                   0 members",
@@ -1414,7 +1414,7 @@
     {
       "lines": [
         "  alpha    beta    gamma    delta-with-a-long-squad-name    epsilon   ▚ tmt",
-        "5 squads  ◆ 3  ✗ 3  ◐ 1  ● 4  ○ 3",
+        "5 squads  ◆ 3  ✗ 3  ◐ 1  ● 4  ◌ 3",
         "",
         "",
         "── ◆ needs you · 3 ─────────────────────────────────────────────────────────────",
@@ -1441,7 +1441,7 @@
         "",
         "── squads · 5 ──────────────────────────────────────────────────────────────────",
         " ◆ alpha              lead-a               ◆ ◆ ✗        3 members",
-        "   beta               lead-b               ◐ ○          2 members",
+        "   beta               lead-b               ◐ ◌          2 members",
         "   gamma              lead-g               ●  1 other · 2 members",
         "   delta-with-a-long… lead-delta-with-a-l…              0 members",
         "   epsilon            lead-e                            0 members",
@@ -1566,7 +1566,7 @@
     {
       "lines": [
         "  alpha    beta    gamma    delta-with-a-long-squad-name    epsilon   ▚ tmt",
-        "5 squads · 12 members   ◆ 3 waiting on you  ✗ 3 blocked  ◐ 1 review  ● 4 working  ○ 3 idle",
+        "5 squads · 12 members   ◆ 3 waiting on you  ✗ 3 blocked  ◐ 1 review  ● 4 working  ◌ 3 idle",
         "",
         "",
         "── ◆ needs you · 3 ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
@@ -1593,7 +1593,7 @@
         "",
         "── squads · 5 ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
         " ◆ alpha                    lead-a                      ◆ ◆ ✗        3 members",
-        "   beta                     lead-b                      ◐ ○          2 members",
+        "   beta                     lead-b                      ◐ ◌          2 members",
         "   gamma                    lead-g                      ●  1 other · 2 members",
         "   delta-with-a-long-squad… lead-delta-with-a-long-name              0 members",
         "   epsilon                  lead-e                                   0 members",
@@ -1718,7 +1718,7 @@
     {
       "lines": [
         "  alpha    beta    gamma    delta-with-a-long-squad-name    epsilon   ▚ tmt",
-        "5 squads  ◆ 3  ✗ 3  ◐ 1  ● 4  ○ 3",
+        "5 squads  ◆ 3  ✗ 3  ◐ 1  ● 4  ◌ 3",
         "",
         "",
         "── ◆ needs you · 3 ─────────────────────────────────────────────────────────────────────────────────",
@@ -1745,7 +1745,7 @@
         "",
         "── squads · 5 ──────────────────────────────────────────────────────────────────────────────────────",
         " ◆ alpha                    lead-a                      ◆ ◆ ✗        3 members",
-        "   beta                     lead-b                      ◐ ○          2 members",
+        "   beta                     lead-b                      ◐ ◌          2 members",
         "   gamma                    lead-g                      ●  1 other · 2 members",
         "   delta-with-a-long-squad… lead-delta-with-a-long-name              0 members",
         "   epsilon                  lead-e                                   0 members",
@@ -1870,7 +1870,7 @@
     {
       "lines": [
         "  alpha    beta    gamma    delta-with-a-long-squad-name    epsilon   ▚ tmt",
-        "5 squads  ◆ 3  ✗ 3  ◐ 1  ● 4  ○ 3",
+        "5 squads  ◆ 3  ✗ 3  ◐ 1  ● 4  ◌ 3",
         "",
         "",
         "── ◆ needs you · 3 ────────────────────────────────────────────────────────────────────────────────",
@@ -1897,7 +1897,7 @@
         "",
         "── squads · 5 ─────────────────────────────────────────────────────────────────────────────────────",
         " ◆ alpha              lead-a               ◆ ◆ ✗        3 members",
-        "   beta               lead-b               ◐ ○          2 members",
+        "   beta               lead-b               ◐ ◌          2 members",
         "   gamma              lead-g               ●  1 other · 2 members",
         "   delta-with-a-long… lead-delta-with-a-l…              0 members",
         "   epsilon            lead-e                            0 members",
@@ -2022,7 +2022,7 @@
     {
       "lines": [
         "  alpha    beta    gamma    delta-with-a-long-squad-name    epsilon   ▚ tmt",
-        "5 squads  ◆ 3  ✗ 3  ◐ 1  ● 4  ○ 3",
+        "5 squads  ◆ 3  ✗ 3  ◐ 1  ● 4  ◌ 3",
         "",
         "",
         "── ◆ needs you · 3 ─────────────────────────────────────────────────────────────",
@@ -2049,7 +2049,7 @@
         "",
         "── squads · 5 ──────────────────────────────────────────────────────────────────",
         " ◆ alpha              lead-a               ◆ ◆ ✗        3 members",
-        "   beta               lead-b               ◐ ○          2 members",
+        "   beta               lead-b               ◐ ◌          2 members",
         "   gamma              lead-g               ●  1 other · 2 members",
         "   delta-with-a-long… lead-delta-with-a-l…              0 members",
         "   epsilon            lead-e                            0 members",
@@ -2174,7 +2174,7 @@
     {
       "lines": [
         "  alpha    beta    gamma    delta-with-a-long-squad-name    epsilon   ▚ tmt",
-        "5 squads · 12 members   ◆ 3 waiting on you  ✗ 3 blocked  ◐ 1 review  ● 4 working  ○ 3 idle",
+        "5 squads · 12 members   ◆ 3 waiting on you  ✗ 3 blocked  ◐ 1 review  ● 4 working  ◌ 3 idle",
         "",
         "",
         "── ◆ needs you · 3 ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
@@ -2206,7 +2206,7 @@
         "",
         "── squads · 5 ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
         " ◆ alpha                    lead-a                      ◆ ◆ ✗        3 members",
-        "   beta                     lead-b                      ◐ ○          2 members",
+        "   beta                     lead-b                      ◐ ◌          2 members",
         "   gamma                    lead-g                      ●  1 other · 2 members",
         "   delta-with-a-long-squad… lead-delta-with-a-long-name              0 members",
         "   epsilon                  lead-e                                   0 members",
@@ -2326,7 +2326,7 @@
     {
       "lines": [
         "  alpha    beta    gamma    delta-with-a-long-squad-name    epsilon   ▚ tmt",
-        "5 squads · 12 members   ◆ 3 waiting on you  ✗ 3 blocked  ◐ 1 review  ● 4 working  ○ 3 idle",
+        "5 squads · 12 members   ◆ 3 waiting on you  ✗ 3 blocked  ◐ 1 review  ● 4 working  ◌ 3 idle",
         "",
         "",
         "── ◆ needs you · 3 ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
@@ -2358,7 +2358,7 @@
         "",
         "── squads · 5 ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
         " ◆ alpha                    lead-a                      ◆ ◆ ✗        3 members",
-        "   beta                     lead-b                      ◐ ○          2 members",
+        "   beta                     lead-b                      ◐ ◌          2 members",
         "   gamma                    lead-g                      ●  1 other · 2 members",
         "   delta-with-a-long-squad… lead-delta-with-a-long-name              0 members",
         "   epsilon                  lead-e                                   0 members",
@@ -2478,7 +2478,7 @@
     {
       "lines": [
         "  alpha    beta    gamma    delta-with-a-long-squad-name    epsilon   ▚ tmt",
-        "5 squads  ◆ 3  ✗ 3  ◐ 1  ● 4  ○ 3",
+        "5 squads  ◆ 3  ✗ 3  ◐ 1  ● 4  ◌ 3",
         "",
         "",
         "── ◆ needs you · 3 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
@@ -2510,7 +2510,7 @@
         "",
         "── squads · 5 ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
         " ◆ alpha                    lead-a                      ◆ ◆ ✗        3 members",
-        "   beta                     lead-b                      ◐ ○          2 members",
+        "   beta                     lead-b                      ◐ ◌          2 members",
         "   gamma                    lead-g                      ●  1 other · 2 members",
         "   delta-with-a-long-squad… lead-delta-with-a-long-name              0 members",
         "   epsilon                  lead-e                                   0 members",
@@ -2630,7 +2630,7 @@
     {
       "lines": [
         "  alpha    beta    gamma    delta-with-a-long-squad-name    epsilon   ▚ tmt",
-        "5 squads  ◆ 3  ✗ 3  ◐ 1  ● 4  ○ 3",
+        "5 squads  ◆ 3  ✗ 3  ◐ 1  ● 4  ◌ 3",
         "",
         "",
         "── ◆ needs you · 3 ─────────────────────────────────────────────────────────────────────────────────────────────────────",
@@ -2662,7 +2662,7 @@
         "",
         "── squads · 5 ──────────────────────────────────────────────────────────────────────────────────────────────────────────",
         " ◆ alpha                    lead-a                      ◆ ◆ ✗        3 members",
-        "   beta                     lead-b                      ◐ ○          2 members",
+        "   beta                     lead-b                      ◐ ◌          2 members",
         "   gamma                    lead-g                      ●  1 other · 2 members",
         "   delta-with-a-long-squad… lead-delta-with-a-long-name              0 members",
         "   epsilon                  lead-e                                   0 members",
@@ -2782,7 +2782,7 @@
     {
       "lines": [
         "  alpha    beta    gamma    delta-with-a-long-squad-name    epsilon   ▚ tmt",
-        "5 squads  ◆ 3  ✗ 3  ◐ 1  ● 4  ○ 3",
+        "5 squads  ◆ 3  ✗ 3  ◐ 1  ● 4  ◌ 3",
         "",
         "",
         "── ◆ needs you · 3 ─────────────────────────────────────────────────────────────────────────────────",
@@ -2814,7 +2814,7 @@
         "",
         "── squads · 5 ──────────────────────────────────────────────────────────────────────────────────────",
         " ◆ alpha                    lead-a                      ◆ ◆ ✗        3 members",
-        "   beta                     lead-b                      ◐ ○          2 members",
+        "   beta                     lead-b                      ◐ ◌          2 members",
         "   gamma                    lead-g                      ●  1 other · 2 members",
         "   delta-with-a-long-squad… lead-delta-with-a-long-name              0 members",
         "   epsilon                  lead-e                                   0 members",
@@ -2934,7 +2934,7 @@
     {
       "lines": [
         "  alpha    beta    gamma    delta-with-a-long-squad-name    epsilon   ▚ tmt",
-        "5 squads  ◆ 3  ✗ 3  ◐ 1  ● 4  ○ 3",
+        "5 squads  ◆ 3  ✗ 3  ◐ 1  ● 4  ◌ 3",
         "",
         "",
         "── ◆ needs you · 3 ────────────────────────────────────────────────────────────────────────────────",
@@ -2966,7 +2966,7 @@
         "",
         "── squads · 5 ─────────────────────────────────────────────────────────────────────────────────────",
         " ◆ alpha              lead-a               ◆ ◆ ✗        3 members",
-        "   beta               lead-b               ◐ ○          2 members",
+        "   beta               lead-b               ◐ ◌          2 members",
         "   gamma              lead-g               ●  1 other · 2 members",
         "   delta-with-a-long… lead-delta-with-a-l…              0 members",
         "   epsilon            lead-e                            0 members",
@@ -3086,7 +3086,7 @@
     {
       "lines": [
         "  alpha    beta    gamma    delta-with-a-long-squad-name    epsilon   ▚ tmt",
-        "5 squads  ◆ 3  ✗ 3  ◐ 1  ● 4  ○ 3",
+        "5 squads  ◆ 3  ✗ 3  ◐ 1  ● 4  ◌ 3",
         "",
         "",
         "── ◆ needs you · 3 ─────────────────────────────────────────────────────────────",
@@ -3118,7 +3118,7 @@
         "",
         "── squads · 5 ──────────────────────────────────────────────────────────────────",
         " ◆ alpha              lead-a               ◆ ◆ ✗        3 members",
-        "   beta               lead-b               ◐ ○          2 members",
+        "   beta               lead-b               ◐ ◌          2 members",
         "   gamma              lead-g               ●  1 other · 2 members",
         "   delta-with-a-long… lead-delta-with-a-l…              0 members",
         "   epsilon            lead-e                            0 members",
@@ -3238,7 +3238,7 @@
     {
       "lines": [
         "  alpha    beta    gamma    delta-with-a-long-squad-name    epsilon   ▚ tmt",
-        "5 squads  ◆ 3  ✗ 3  ◐ 1  ● 4  ○ 3",
+        "5 squads  ◆ 3  ✗ 3  ◐ 1  ● 4  ◌ 3",
         "",
         "",
         "── ◆ needs you · 3 ────────────────────────────────────────────────────────────",
@@ -3270,7 +3270,7 @@
         "",
         "── squads · 5 ─────────────────────────────────────────────────────────────────",
         " ◆ alpha              lead-a               ◆ ◆ ✗        3 members",
-        "   beta               lead-b               ◐ ○          2 members",
+        "   beta               lead-b               ◐ ◌          2 members",
         "   gamma              lead-g               ●  1 other · 2 members",
         "   delta-with-a-long… lead-delta-with-a-l…              0 members",
         "   epsilon            lead-e                            0 members",
@@ -3390,7 +3390,7 @@
     {
       "lines": [
         "  alpha    beta    gamma    delta-with-a-long-squad-name    epsilon   ▚ tmt",
-        "5 squads · 12 members   ◆ 3 waiting on you  ✗ 3 blocked  ◐ 1 review  ● 4 working  ○ 3 idle",
+        "5 squads · 12 members   ◆ 3 waiting on you  ✗ 3 blocked  ◐ 1 review  ● 4 working  ◌ 3 idle",
         "",
         "",
         "── ◆ needs you · 3 ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
@@ -3417,7 +3417,7 @@
         "",
         "── squads · 5 ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
         " ◆ alpha                    lead-a                      ◆ ◆ ✗        3 members",
-        "   beta                     lead-b                      ◐ ○          2 members",
+        "   beta                     lead-b                      ◐ ◌          2 members",
         "   gamma                    lead-g                      ●  1 other · 2 members",
         "   delta-with-a-long-squad… lead-delta-with-a-long-name              0 members",
         "   epsilon                  lead-e                                   0 members",
@@ -3542,7 +3542,7 @@
     {
       "lines": [
         "  alpha    beta    gamma    delta-with-a-long-squad-name    epsilon   ▚ tmt",
-        "5 squads  ◆ 3  ✗ 3  ◐ 1  ● 4  ○ 3",
+        "5 squads  ◆ 3  ✗ 3  ◐ 1  ● 4  ◌ 3",
         "",
         "",
         "── ◆ needs you · 3 ─────────────────────────────────────────────────────────────",
@@ -3569,7 +3569,7 @@
         "",
         "── squads · 5 ──────────────────────────────────────────────────────────────────",
         " ◆ alpha              lead-a               ◆ ◆ ✗        3 members",
-        "   beta               lead-b               ◐ ○          2 members",
+        "   beta               lead-b               ◐ ◌          2 members",
         "   gamma              lead-g               ●  1 other · 2 members",
         "   delta-with-a-long… lead-delta-with-a-l…              0 members",
         "   epsilon            lead-e                            0 members",
@@ -3694,7 +3694,7 @@
     {
       "lines": [
         "  alpha    beta    gamma    delta-with-a-long-squad-name    epsilon   ▚ tmt",
-        "5 squads · 12 members   ◆ 3 waiting on you  ✗ 3 blocked  ◐ 1 review  ● 4 working  ○ 3 idle",
+        "5 squads · 12 members   ◆ 3 waiting on you  ✗ 3 blocked  ◐ 1 review  ● 4 working  ◌ 3 idle",
         "",
         "",
         "── ◆ needs you · 3 ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
@@ -3721,7 +3721,7 @@
         "",
         "── squads · 5 ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
         " ◆ alpha                    lead-a                      ◆ ◆ ✗        3 members",
-        "   beta                     lead-b                      ◐ ○          2 members",
+        "   beta                     lead-b                      ◐ ◌          2 members",
         "   gamma                    lead-g                      ●  1 other · 2 members",
         "   delta-with-a-long-squad… lead-delta-with-a-long-name              0 members",
         "   epsilon                  lead-e                                   0 members",
@@ -3846,7 +3846,7 @@
     {
       "lines": [
         "  alpha    beta    gamma    delta-with-a-long-squad-name    epsilon   ▚ tmt",
-        "5 squads  ◆ 3  ✗ 3  ◐ 1  ● 4  ○ 3",
+        "5 squads  ◆ 3  ✗ 3  ◐ 1  ● 4  ◌ 3",
         "",
         "",
         "── ◆ needs you · 3 ─────────────────────────────────────────────────────────────",
@@ -3873,7 +3873,7 @@
         "",
         "── squads · 5 ──────────────────────────────────────────────────────────────────",
         " ◆ alpha              lead-a               ◆ ◆ ✗        3 members",
-        "   beta               lead-b               ◐ ○          2 members",
+        "   beta               lead-b               ◐ ◌          2 members",
         "   gamma              lead-g               ●  1 other · 2 members",
         "   delta-with-a-long… lead-delta-with-a-l…              0 members",
         "   epsilon            lead-e                            0 members",
@@ -3998,7 +3998,7 @@
     {
       "lines": [
         "  alpha    beta    gamma    delta-with-a-long-squad-name    epsilon   ▚ tmt",
-        "5 squads · 12 members   ◆ 3 waiting on you  ✗ 3 blocked  ◐ 1 review  ● 4 working  ○ 3 idle",
+        "5 squads · 12 members   ◆ 3 waiting on you  ✗ 3 blocked  ◐ 1 review  ● 4 working  ◌ 3 idle",
         "",
         "",
         "── ◆ needs you · 3 ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
@@ -4031,7 +4031,7 @@
         "",
         "── squads · 5 ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
         " ◆ alpha                    lead-a                      ◆ ◆ ✗        3 members",
-        "   beta                     lead-b                      ◐ ○          2 members",
+        "   beta                     lead-b                      ◐ ◌          2 members",
         "   gamma                    lead-g                      ●  1 other · 2 members",
         "   delta-with-a-long-squad… lead-delta-with-a-long-name              0 members",
         "   epsilon                  lead-e                                   0 members",
@@ -4150,7 +4150,7 @@
     {
       "lines": [
         "  alpha    beta    gamma    delta-with-a-long-squad-name    epsilon   ▚ tmt",
-        "5 squads  ◆ 3  ✗ 3  ◐ 1  ● 4  ○ 3",
+        "5 squads  ◆ 3  ✗ 3  ◐ 1  ● 4  ◌ 3",
         "",
         "",
         "── ◆ needs you · 3 ─────────────────────────────────────────────────────────────",
@@ -4183,7 +4183,7 @@
         "",
         "── squads · 5 ──────────────────────────────────────────────────────────────────",
         " ◆ alpha              lead-a               ◆ ◆ ✗        3 members",
-        "   beta               lead-b               ◐ ○          2 members",
+        "   beta               lead-b               ◐ ◌          2 members",
         "   gamma              lead-g               ●  1 other · 2 members",
         "   delta-with-a-long… lead-delta-with-a-l…              0 members",
         "   epsilon            lead-e                            0 members",
@@ -4302,7 +4302,7 @@
     {
       "lines": [
         "  alpha    beta    gamma    delta-with-a-long-squad-name    epsilon   ▚ tmt",
-        "5 squads · 12 members   ◆ 3 waiting on you  ✗ 3 blocked  ◐ 1 review  ● 4 working  ○ 3 idle",
+        "5 squads · 12 members   ◆ 3 waiting on you  ✗ 3 blocked  ◐ 1 review  ● 4 working  ◌ 3 idle",
         "",
         "",
         "── ◆ needs you · 3 ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
@@ -4335,7 +4335,7 @@
         "",
         "── squads · 5 ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
         " ◆ alpha                    lead-a                      ◆ ◆ ✗        3 members",
-        "   beta                     lead-b                      ◐ ○          2 members",
+        "   beta                     lead-b                      ◐ ◌          2 members",
         "   gamma                    lead-g                      ●  1 other · 2 members",
         "   delta-with-a-long-squad… lead-delta-with-a-long-name              0 members",
         "   epsilon                  lead-e                                   0 members",
@@ -4454,7 +4454,7 @@
     {
       "lines": [
         "  alpha    beta    gamma    delta-with-a-long-squad-name    epsilon   ▚ tmt",
-        "5 squads  ◆ 3  ✗ 3  ◐ 1  ● 4  ○ 3",
+        "5 squads  ◆ 3  ✗ 3  ◐ 1  ● 4  ◌ 3",
         "",
         "",
         "── ◆ needs you · 3 ─────────────────────────────────────────────────────────────",
@@ -4487,7 +4487,7 @@
         "",
         "── squads · 5 ──────────────────────────────────────────────────────────────────",
         " ◆ alpha              lead-a               ◆ ◆ ✗        3 members",
-        "   beta               lead-b               ◐ ○          2 members",
+        "   beta               lead-b               ◐ ◌          2 members",
         "   gamma              lead-g               ●  1 other · 2 members",
         "   delta-with-a-long… lead-delta-with-a-l…              0 members",
         "   epsilon            lead-e                            0 members",
@@ -4606,7 +4606,7 @@
     {
       "lines": [
         "  alpha    beta    gamma    delta-with-a-long-squad-name    epsilon   ▚ tmt",
-        "5 squads · 12 members   ◆ 3 waiting on you  ✗ 3 blocked  ◐ 1 review  ● 4 working  ○ 3 idle",
+        "5 squads · 12 members   ◆ 3 waiting on you  ✗ 3 blocked  ◐ 1 review  ● 4 working  ◌ 3 idle",
         "",
         "",
         "── ◆ needs you · 3 ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
@@ -4633,7 +4633,7 @@
         "",
         "── squads · 5 ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
         " ◆ alpha                    lead-a                      ◆ ◆ ✗        3 members",
-        "   beta                     lead-b                      ◐ ○          2 members",
+        "   beta                     lead-b                      ◐ ◌          2 members",
         "────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
         "  → lead-b (beta) · note · about beta",
         "  ▏",
@@ -4758,7 +4758,7 @@
     {
       "lines": [
         "  alpha    beta    gamma    delta-with-a-long-squad-name    epsilon   ▚ tmt",
-        "5 squads  ◆ 3  ✗ 3  ◐ 1  ● 4  ○ 3",
+        "5 squads  ◆ 3  ✗ 3  ◐ 1  ● 4  ◌ 3",
         "",
         "",
         "── ◆ needs you · 3 ─────────────────────────────────────────────────────────────",
@@ -4785,7 +4785,7 @@
         "",
         "── squads · 5 ──────────────────────────────────────────────────────────────────",
         " ◆ alpha              lead-a               ◆ ◆ ✗        3 members",
-        "   beta               lead-b               ◐ ○          2 members",
+        "   beta               lead-b               ◐ ◌          2 members",
         "────────────────────────────────────────────────────────────────────────────────",
         "  → lead-b (beta) · note · about beta",
         "  ▏",
@@ -4910,7 +4910,7 @@
     {
       "lines": [
         "  alpha    beta    gamma    delta-with-a-long-squad-name    epsilon   ▚ tmt",
-        "5 squads · 12 members   ◆ 3 waiting on you  ✗ 3 blocked  ◐ 1 review  ● 4 working  ○ 3 idle",
+        "5 squads · 12 members   ◆ 3 waiting on you  ✗ 3 blocked  ◐ 1 review  ● 4 working  ◌ 3 idle",
         "",
         "",
         "── ◆ needs you · 3 ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
@@ -4938,7 +4938,7 @@
         "",
         "── squads · 5 ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
         " ◆ alpha                    lead-a                      ◆ ◆ ✗        3 members",
-        "   beta                     lead-b                      ◐ ○          2 members",
+        "   beta                     lead-b                      ◐ ◌          2 members",
         "   gamma                    lead-g                      ●  1 other · 2 members",
         "   delta-with-a-long-squad… lead-delta-with-a-long-name              0 members",
         "   epsilon                  lead-e                                   0 members",
@@ -5062,7 +5062,7 @@
     {
       "lines": [
         "  alpha    beta    gamma    delta-with-a-long-squad-name    epsilon   ▚ tmt",
-        "5 squads  ◆ 3  ✗ 3  ◐ 1  ● 4  ○ 3",
+        "5 squads  ◆ 3  ✗ 3  ◐ 1  ● 4  ◌ 3",
         "",
         "",
         "── ◆ needs you · 3 ─────────────────────────────────────────────────────────────",
@@ -5090,7 +5090,7 @@
         "",
         "── squads · 5 ──────────────────────────────────────────────────────────────────",
         " ◆ alpha              lead-a               ◆ ◆ ✗        3 members",
-        "   beta               lead-b               ◐ ○          2 members",
+        "   beta               lead-b               ◐ ◌          2 members",
         "   gamma              lead-g               ●  1 other · 2 members",
         "   delta-with-a-long… lead-delta-with-a-l…              0 members",
         "   epsilon            lead-e                            0 members",
@@ -5214,7 +5214,7 @@
     {
       "lines": [
         "  alpha    beta    gamma    delta-with-a-long-squad-name    epsilon   ▚ tmt",
-        "5 squads · 12 members   ◆ 3 waiting on you  ✗ 3 blocked  ◐ 1 review  ● 4 working  ○ 3 idle",
+        "5 squads · 12 members   ◆ 3 waiting on you  ✗ 3 blocked  ◐ 1 review  ● 4 working  ◌ 3 idle",
         "",
         "",
         "── ◆ needs you · 3 ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
@@ -5242,7 +5242,7 @@
         "",
         "── squads · 5 ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
         " ◆ alpha                    lead-a                      ◆ ◆ ✗        3 members",
-        "   beta                     lead-b                      ◐ ○          2 members",
+        "   beta                     lead-b                      ◐ ◌          2 members",
         "   gamma                    lead-g                      ●  1 other · 2 members",
         "   delta-with-a-long-squad… lead-delta-with-a-long-name              0 members",
         "   epsilon                  lead-e                                   0 members",
@@ -5366,7 +5366,7 @@
     {
       "lines": [
         "  alpha    beta    gamma    delta-with-a-long-squad-name    epsilon   ▚ tmt",
-        "5 squads  ◆ 3  ✗ 3  ◐ 1  ● 4  ○ 3",
+        "5 squads  ◆ 3  ✗ 3  ◐ 1  ● 4  ◌ 3",
         "",
         "",
         "── ◆ needs you · 3 ─────────────────────────────────────────────────────────────",
@@ -5394,7 +5394,7 @@
         "",
         "── squads · 5 ──────────────────────────────────────────────────────────────────",
         " ◆ alpha              lead-a               ◆ ◆ ✗        3 members",
-        "   beta               lead-b               ◐ ○          2 members",
+        "   beta               lead-b               ◐ ◌          2 members",
         "   gamma              lead-g               ●  1 other · 2 members",
         "   delta-with-a-long… lead-delta-with-a-l…              0 members",
         "   epsilon            lead-e                            0 members",
@@ -5518,7 +5518,7 @@
     {
       "lines": [
         "  alpha    beta    gamma    delta-with-a-long-squad-name    epsilon   ▚ tmt",
-        "5 squads · 12 members   ◆ 3 waiting on you  ✗ 3 blocked  ◐ 1 review  ● 4 working  ○ 3 idle",
+        "5 squads · 12 members   ◆ 3 waiting on you  ✗ 3 blocked  ◐ 1 review  ● 4 working  ◌ 3 idle",
         "",
         "",
         "── ◆ needs you · 3 ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
@@ -5545,7 +5545,7 @@
         "",
         "── squads · 5 ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
         " ◆ alpha                    lead-a                      ◆ ◆ ✗        3 members",
-        "   beta                     lead-b                      ◐ ○          2 members",
+        "   beta                     lead-b                      ◐ ◌          2 members",
         "   gamma                    lead-g                      ●  1 other · 2 members",
         "   ✓ sent",
         "   delta-with-a-long-squad… lead-delta-with-a-long-name              0 members",
@@ -5670,7 +5670,7 @@
     {
       "lines": [
         "  alpha    beta    gamma    delta-with-a-long-squad-name    epsilon   ▚ tmt",
-        "5 squads  ◆ 3  ✗ 3  ◐ 1  ● 4  ○ 3",
+        "5 squads  ◆ 3  ✗ 3  ◐ 1  ● 4  ◌ 3",
         "",
         "",
         "── ◆ needs you · 3 ─────────────────────────────────────────────────────────────",
@@ -5697,7 +5697,7 @@
         "",
         "── squads · 5 ──────────────────────────────────────────────────────────────────",
         " ◆ alpha              lead-a               ◆ ◆ ✗        3 members",
-        "   beta               lead-b               ◐ ○          2 members",
+        "   beta               lead-b               ◐ ◌          2 members",
         "   gamma              lead-g               ●  1 other · 2 members",
         "   ✓ sent",
         "   delta-with-a-long… lead-delta-with-a-l…              0 members",
@@ -5822,7 +5822,7 @@
     {
       "lines": [
         "  alpha    beta    gamma    delta-with-a-long-squad-name    epsilon   ▚ tmt",
-        "5 squads · 12 members   ◆ 3 waiting on you  ✗ 3 blocked  ◐ 1 review  ● 4 working  ○ 3 idle",
+        "5 squads · 12 members   ◆ 3 waiting on you  ✗ 3 blocked  ◐ 1 review  ● 4 working  ◌ 3 idle",
         "",
         "",
         "── ◆ needs you · 3 ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
@@ -5851,7 +5851,7 @@
         "",
         "── squads · 5 ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
         " ◆ alpha                    lead-a                      ◆ ◆ ✗        3 members",
-        "   beta                     lead-b                      ◐ ○          2 members",
+        "   beta                     lead-b                      ◐ ◌          2 members",
         "   gamma                    lead-g                      ●  1 other · 2 members",
         "   delta-with-a-long-squad… lead-delta-with-a-long-name              0 members",
         "   epsilon                  lead-e                                   0 members",
@@ -5974,7 +5974,7 @@
     {
       "lines": [
         "  alpha    beta    gamma    delta-with-a-long-squad-name    epsilon   ▚ tmt",
-        "5 squads  ◆ 3  ✗ 3  ◐ 1  ● 4  ○ 3",
+        "5 squads  ◆ 3  ✗ 3  ◐ 1  ● 4  ◌ 3",
         "",
         "",
         "── ◆ needs you · 3 ─────────────────────────────────────────────────────────────",
@@ -6003,7 +6003,7 @@
         "",
         "── squads · 5 ──────────────────────────────────────────────────────────────────",
         " ◆ alpha              lead-a               ◆ ◆ ✗        3 members",
-        "   beta               lead-b               ◐ ○          2 members",
+        "   beta               lead-b               ◐ ◌          2 members",
         "   gamma              lead-g               ●  1 other · 2 members",
         "   delta-with-a-long… lead-delta-with-a-l…              0 members",
         "   epsilon            lead-e                            0 members",
@@ -6126,7 +6126,7 @@
     {
       "lines": [
         "  alpha    beta    gamma    delta-with-a-long-squad-name    epsilon   ▚ tmt",
-        "5 squads · 12 members   ◆ 3 waiting on you  ✗ 3 blocked  ◐ 1 review  ● 4 working  ○ 3 idle",
+        "5 squads · 12 members   ◆ 3 waiting on you  ✗ 3 blocked  ◐ 1 review  ● 4 working  ◌ 3 idle",
         "",
         "",
         "── ◆ needs you · 1 ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
@@ -6143,7 +6143,7 @@
         "",
         "── squads · 5 ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
         " ◆ alpha                    lead-a                      ◆ ◆ ✗        3 members",
-        "   beta                     lead-b                      ◐ ○          2 members",
+        "   beta                     lead-b                      ◐ ◌          2 members",
         "   gamma                    lead-g                      ●  1 other · 2 members",
         "   delta-with-a-long-squad… lead-delta-with-a-long-name              0 members",
         "   epsilon                  lead-e                                   0 members",
@@ -6271,7 +6271,7 @@
     {
       "lines": [
         "  alpha    beta    gamma    delta-with-a-long-squad-name    epsilon   ▚ tmt",
-        "5 squads  ◆ 3  ✗ 3  ◐ 1  ● 4  ○ 3",
+        "5 squads  ◆ 3  ✗ 3  ◐ 1  ● 4  ◌ 3",
         "",
         "",
         "── ◆ needs you · 1 ─────────────────────────────────────────────────────────────",
@@ -6288,7 +6288,7 @@
         "",
         "── squads · 5 ──────────────────────────────────────────────────────────────────",
         " ◆ alpha              lead-a               ◆ ◆ ✗        3 members",
-        "   beta               lead-b               ◐ ○          2 members",
+        "   beta               lead-b               ◐ ◌          2 members",
         "   gamma              lead-g               ●  1 other · 2 members",
         "   delta-with-a-long… lead-delta-with-a-l…              0 members",
         "   epsilon            lead-e                            0 members",
@@ -6416,7 +6416,7 @@
     {
       "lines": [
         "  alpha    beta    gamma    delta-with-a-long-squad-name    epsilon   ▚ tmt",
-        "5 squads · 12 members   ◆ 3 waiting on you  ✗ 3 blocked  ◐ 1 review  ● 4 working  ○ 3 idle",
+        "5 squads · 12 members   ◆ 3 waiting on you  ✗ 3 blocked  ◐ 1 review  ● 4 working  ◌ 3 idle",
         "",
         "◆ needs to know who you are: tmt ops squad me <name>",
         "",
@@ -6444,7 +6444,7 @@
         "",
         "── squads · 5 ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
         " ◆ alpha                    lead-a                      ◆ ◆ ✗        3 members",
-        "   beta                     lead-b                      ◐ ○          2 members",
+        "   beta                     lead-b                      ◐ ◌          2 members",
         "   gamma                    lead-g                      ●  1 other · 2 members",
         "   delta-with-a-long-squad… lead-delta-with-a-long-name              0 members",
         "   epsilon                  lead-e                                   0 members",
@@ -6568,7 +6568,7 @@
     {
       "lines": [
         "  alpha    beta    gamma    delta-with-a-long-squad-name    epsilon   ▚ tmt",
-        "5 squads  ◆ 3  ✗ 3  ◐ 1  ● 4  ○ 3",
+        "5 squads  ◆ 3  ✗ 3  ◐ 1  ● 4  ◌ 3",
         "",
         "◆ needs to know who you are: tmt ops squad me <name>",
         "",
@@ -6596,7 +6596,7 @@
         "",
         "── squads · 5 ──────────────────────────────────────────────────────────────────",
         " ◆ alpha              lead-a               ◆ ◆ ✗        3 members",
-        "   beta               lead-b               ◐ ○          2 members",
+        "   beta               lead-b               ◐ ◌          2 members",
         "   gamma              lead-g               ●  1 other · 2 members",
         "   delta-with-a-long… lead-delta-with-a-l…              0 members",
         "   epsilon            lead-e                            0 members",
@@ -6720,7 +6720,7 @@
     {
       "lines": [
         "  alpha    beta    gamma    delta-with-a-long-squad-name    epsilon   ▚ tmt",
-        "5 squads · 12 members   ◆ 3 waiting on you  ✗ 3 blocked  ◐ 1 review  ● 4 working  ○ 3 idle",
+        "5 squads · 12 members   ◆ 3 waiting on you  ✗ 3 blocked  ◐ 1 review  ● 4 working  ◌ 3 idle",
         "",
         "",
         "── ◆ needs you · 3 ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
@@ -6747,7 +6747,7 @@
         "",
         "── squads · 5 ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
         " ◆ alpha                    lead-a                      ◆ ◆ ✗        3 members",
-        "   beta                     lead-b                      ◐ ○          2 members",
+        "   beta                     lead-b                      ◐ ◌          2 members",
         "   gamma                    lead-g                      ●  1 other · 2 members",
         "   delta-with-a-long-squad… lead-delta-with-a-long-name              0 members",
         "   epsilon                  lead-e                                   0 members",
@@ -6872,7 +6872,7 @@
     {
       "lines": [
         "  alpha    beta    gamma    delta-with-a-long-squad-name    epsilon   ▚ tmt",
-        "5 squads  ◆ 3  ✗ 3  ◐ 1  ● 4  ○ 3",
+        "5 squads  ◆ 3  ✗ 3  ◐ 1  ● 4  ◌ 3",
         "",
         "",
         "── ◆ needs you · 3 ─────────────────────────────────────────────────────────────────────────────────",
@@ -6899,7 +6899,7 @@
         "",
         "── squads · 5 ──────────────────────────────────────────────────────────────────────────────────────",
         " ◆ alpha                    lead-a                      ◆ ◆ ✗        3 members",
-        "   beta                     lead-b                      ◐ ○          2 members",
+        "   beta                     lead-b                      ◐ ◌          2 members",
         "   gamma                    lead-g                      ●  1 other · 2 members",
         "   delta-with-a-long-squad… lead-delta-with-a-long-name              0 members",
         "   epsilon                  lead-e                                   0 members",
@@ -7024,7 +7024,7 @@
     {
       "lines": [
         "  alpha    beta    gamma    delta-with-a-long-squad-name    epsilon   ▚ tmt",
-        "5 squads  ◆ 3  ✗ 3  ◐ 1  ● 4  ○ 3",
+        "5 squads  ◆ 3  ✗ 3  ◐ 1  ● 4  ◌ 3",
         "",
         "",
         "── ◆ needs you · 3 ─────────────────────────────────────────────────────────────",
@@ -7051,7 +7051,7 @@
         "",
         "── squads · 5 ──────────────────────────────────────────────────────────────────",
         " ◆ alpha              lead-a               ◆ ◆ ✗        3 members",
-        "   beta               lead-b               ◐ ○          2 members",
+        "   beta               lead-b               ◐ ◌          2 members",
         "   gamma              lead-g               ●  1 other · 2 members",
         "   delta-with-a-long… lead-delta-with-a-l…              0 members",
         "   epsilon            lead-e                            0 members",
@@ -7176,7 +7176,7 @@
     {
       "lines": [
         "‹ 3   delta-with-a-long-squad-name    epsilon   ▚ tmt",
-        "5 squads  ◆ 3  ✗ 3  ◐ 1  ● 4  ○ 3",
+        "5 squads  ◆ 3  ✗ 3  ◐ 1  ● 4  ◌ 3",
         "",
         "",
         "── ◆ needs you · 3 ─────────────────────────────────────────",
@@ -7203,7 +7203,7 @@
         "",
         "── squads · 5 ──────────────────────────────────────────────",
         " ◆ alpha            lead-a            ◆ ◆ ✗        3 members",
-        "   beta             lead-b            ◐ ○          2 members",
+        "   beta             lead-b            ◐ ◌          2 members",
         "   gamma            lead-g            ●  1 other · 2 members",
         "   delta-with-a-lo… lead-delta-with-…              0 members",
         "   epsilon          lead-e                         0 members",
@@ -7328,7 +7328,7 @@
     {
       "lines": [
         "  alpha    beta    gamma    delta-with-a-long-squad-name    epsilon   ▚ tmt",
-        "5 squads · 12 members   ◆ 3 waiting on you  ✗ 3 blocked  ◐ 1 review  ● 4 working  ○ 3 idle",
+        "5 squads · 12 members   ◆ 3 waiting on you  ✗ 3 blocked  ◐ 1 review  ● 4 working  ◌ 3 idle",
         "",
         "",
         "── ◆ needs you · 3 ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
@@ -7355,7 +7355,7 @@
         "",
         "── squads · 5 ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
         " ◆ alpha                    lead-a                      ◆ ◆ ✗        3 members",
-        "   beta                     lead-b                      ◐ ○          2 members",
+        "   beta                     lead-b                      ◐ ◌          2 members",
         "   gamma                    lead-g                      ●  1 other · 2 members",
         "   delta-with-a-long-squad… lead-delta-with-a-long-name              0 members",
         "   epsilon                  lead-e                                   0 members",
@@ -7480,7 +7480,7 @@
     {
       "lines": [
         "  alpha    beta    gamma    delta-with-a-long-squad-name    epsilon   ▚ tmt",
-        "5 squads  ◆ 3  ✗ 3  ◐ 1  ● 4  ○ 3",
+        "5 squads  ◆ 3  ✗ 3  ◐ 1  ● 4  ◌ 3",
         "",
         "",
         "── ◆ needs you · 3 ─────────────────────────────────────────────────────────────────────────────────",
@@ -7507,7 +7507,7 @@
         "",
         "── squads · 5 ──────────────────────────────────────────────────────────────────────────────────────",
         " ◆ alpha                    lead-a                      ◆ ◆ ✗        3 members",
-        "   beta                     lead-b                      ◐ ○          2 members",
+        "   beta                     lead-b                      ◐ ◌          2 members",
         "   gamma                    lead-g                      ●  1 other · 2 members",
         "   delta-with-a-long-squad… lead-delta-with-a-long-name              0 members",
         "   epsilon                  lead-e                                   0 members",
@@ -7632,7 +7632,7 @@
     {
       "lines": [
         "  alpha    beta    gamma    delta-with-a-long-squad-name    epsilon   ▚ tmt",
-        "5 squads  ◆ 3  ✗ 3  ◐ 1  ● 4  ○ 3",
+        "5 squads  ◆ 3  ✗ 3  ◐ 1  ● 4  ◌ 3",
         "",
         "",
         "── ◆ needs you · 3 ─────────────────────────────────────────────────────────────",
@@ -7659,7 +7659,7 @@
         "",
         "── squads · 5 ──────────────────────────────────────────────────────────────────",
         " ◆ alpha              lead-a               ◆ ◆ ✗        3 members",
-        "   beta               lead-b               ◐ ○          2 members",
+        "   beta               lead-b               ◐ ◌          2 members",
         "   gamma              lead-g               ●  1 other · 2 members",
         "   delta-with-a-long… lead-delta-with-a-l…              0 members",
         "   epsilon            lead-e                            0 members",
@@ -7784,7 +7784,7 @@
     {
       "lines": [
         "‹ 3   delta-with-a-long-squad-name    epsilon   ▚ tmt",
-        "5 squads  ◆ 3  ✗ 3  ◐ 1  ● 4  ○ 3",
+        "5 squads  ◆ 3  ✗ 3  ◐ 1  ● 4  ◌ 3",
         "",
         "",
         "── ◆ needs you · 3 ─────────────────────────────────────────",
@@ -7811,7 +7811,7 @@
         "",
         "── squads · 5 ──────────────────────────────────────────────",
         " ◆ alpha            lead-a            ◆ ◆ ✗        3 members",
-        "   beta             lead-b            ◐ ○          2 members",
+        "   beta             lead-b            ◐ ◌          2 members",
         "   gamma            lead-g            ●  1 other · 2 members",
         "   delta-with-a-lo… lead-delta-with-…              0 members",
         "   epsilon          lead-e                         0 members",
@@ -7936,7 +7936,7 @@
     {
       "lines": [
         "‹ 3   delta-with-a-long-squad-name    epsilon   ▚ tmt",
-        "5 squads  ◆ 3  ✗ 3  ◐ 1  ● 4  ○ 3",
+        "5 squads  ◆ 3  ✗ 3  ◐ 1  ● 4  ◌ 3",
         "",
         "",
         "── ◆ needs you · 3 ─────────────────────────────────────────",
@@ -7963,7 +7963,7 @@
         "",
         "── squads · 5 ──────────────────────────────────────────────",
         " ◆ alpha            lead-a            ◆ ◆ ✗        3 members",
-        "   beta             lead-b            ◐ ○          2 members",
+        "   beta             lead-b            ◐ ◌          2 members",
         "   gamma            lead-g            ●  1 other · 2 members",
         "   delta-with-a-lo… lead-delta-with-…              0 members",
         "   epsilon          lead-e                         0 members",
@@ -8088,7 +8088,7 @@
     {
       "lines": [
         "‹ 4   epsilon   ▚ tmt",
-        "5 squads  ◆ 3  ✗ 3  ◐ 1  ● 4  ○ 3",
+        "5 squads  ◆ 3  ✗ 3  ◐ 1  ● 4  ◌ 3",
         "",
         "",
         "── ◆ needs you · 3 ───────────────────────────────",
@@ -8115,7 +8115,7 @@
         "",
         "── squads · 5 ────────────────────────────────────",
         " ◆ alpha       lead-a       ◆ ◆ ✗        3 members",
-        "   beta        lead-b       ◐ ○          2 members",
+        "   beta        lead-b       ◐ ◌          2 members",
         "   gamma       lead-g       ●  1 other · 2 members",
         "   delta-with… lead-delta-…              0 members",
         "   epsilon     lead-e                    0 members",
@@ -8240,7 +8240,7 @@
     {
       "lines": [
         "  alpha    beta    gamma    delta-with-a-long-squad-name    epsilon   ▚ tmt",
-        "5 squads · 12 members   ◆ 3 waiting on you  ✗ 3 blocked  ◐ 1 review  ● 4 working  ○ 3 idle",
+        "5 squads · 12 members   ◆ 3 waiting on you  ✗ 3 blocked  ◐ 1 review  ● 4 working  ◌ 3 idle",
         "tok 1m – · 5m ~1k · 1h ~2k · share 1h: worker ~60% · models sol ~60%, opus ~40% · 2 members without data",
         "",
         "",
@@ -8268,7 +8268,7 @@
         "",
         "── squads · 5 ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
         " ◆ alpha                    lead-a                      ◆ ◆ ✗        3 members",
-        "   beta                     lead-b                      ◐ ○          2 members",
+        "   beta                     lead-b                      ◐ ◌          2 members",
         "   gamma                    lead-g                      ●  1 other · 2 members",
         "   delta-with-a-long-squad… lead-delta-with-a-long-name              0 members",
         "   epsilon                  lead-e                                   0 members",
@@ -8392,7 +8392,7 @@
     {
       "lines": [
         "  alpha    beta    gamma    delta-with-a-long-squad-name    epsilon   ▚ tmt",
-        "5 squads · 12 members   ◆ 3 waiting on you  ✗ 3 blocked  ◐ 1 review  ● 4 working  ○ 3 idle",
+        "5 squads · 12 members   ◆ 3 waiting on you  ✗ 3 blocked  ◐ 1 review  ● 4 working  ◌ 3 idle",
         "tok 1m – · 5m ~1k · 1h ~2k · share 1h: worker ~60% · models sol ~60%, opus ~40% · 2 members without data",
         "",
         "",
@@ -8420,7 +8420,7 @@
         "",
         "── squads · 5 ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
         " ◆ alpha                    lead-a                      ◆ ◆ ✗        3 members",
-        "   beta                     lead-b                      ◐ ○          2 members",
+        "   beta                     lead-b                      ◐ ◌          2 members",
         "   gamma                    lead-g                      ●  1 other · 2 members",
         "   delta-with-a-long-squad… lead-delta-with-a-long-name              0 members",
         "   epsilon                  lead-e                                   0 members",
@@ -8544,7 +8544,7 @@
     {
       "lines": [
         "  alpha    beta    gamma    delta-with-a-long-squad-name    epsilon   ▚ tmt",
-        "5 squads  ◆ 3  ✗ 3  ◐ 1  ● 4  ○ 3",
+        "5 squads  ◆ 3  ✗ 3  ◐ 1  ● 4  ◌ 3",
         "tok 5m ~1k · 1h ~2k · share 1h: worker ~60%",
         "",
         "",
@@ -8572,7 +8572,7 @@
         "",
         "── squads · 5 ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
         " ◆ alpha                    lead-a                      ◆ ◆ ✗        3 members",
-        "   beta                     lead-b                      ◐ ○          2 members",
+        "   beta                     lead-b                      ◐ ◌          2 members",
         "   gamma                    lead-g                      ●  1 other · 2 members",
         "   delta-with-a-long-squad… lead-delta-with-a-long-name              0 members",
         "   epsilon                  lead-e                                   0 members",
@@ -8696,7 +8696,7 @@
     {
       "lines": [
         "  alpha    beta    gamma    delta-with-a-long-squad-name    epsilon   ▚ tmt",
-        "5 squads  ◆ 3  ✗ 3  ◐ 1  ● 4  ○ 3",
+        "5 squads  ◆ 3  ✗ 3  ◐ 1  ● 4  ◌ 3",
         "tok 5m ~1k · 1h ~2k · share 1h: worker ~60%",
         "",
         "",
@@ -8724,7 +8724,7 @@
         "",
         "── squads · 5 ──────────────────────────────────────────────────────────────────────────────────────",
         " ◆ alpha                    lead-a                      ◆ ◆ ✗        3 members",
-        "   beta                     lead-b                      ◐ ○          2 members",
+        "   beta                     lead-b                      ◐ ◌          2 members",
         "   gamma                    lead-g                      ●  1 other · 2 members",
         "   delta-with-a-long-squad… lead-delta-with-a-long-name              0 members",
         "   epsilon                  lead-e                                   0 members",
@@ -8848,7 +8848,7 @@
     {
       "lines": [
         "  alpha    beta    gamma    delta-with-a-long-squad-name    epsilon   ▚ tmt",
-        "5 squads  ◆ 3  ✗ 3  ◐ 1  ● 4  ○ 3",
+        "5 squads  ◆ 3  ✗ 3  ◐ 1  ● 4  ◌ 3",
         "",
         "",
         "── ◆ needs you · 3 ────────────────────────────────────────────────────────────────────────────────",
@@ -8875,7 +8875,7 @@
         "",
         "── squads · 5 ─────────────────────────────────────────────────────────────────────────────────────",
         " ◆ alpha              lead-a               ◆ ◆ ✗        3 members",
-        "   beta               lead-b               ◐ ○          2 members",
+        "   beta               lead-b               ◐ ◌          2 members",
         "   gamma              lead-g               ●  1 other · 2 members",
         "   delta-with-a-long… lead-delta-with-a-l…              0 members",
         "   epsilon            lead-e                            0 members",
@@ -9000,7 +9000,7 @@
     {
       "lines": [
         "  alpha    beta    gamma    delta-with-a-long-squad-name    epsilon   ▚ tmt",
-        "5 squads  ◆ 3  ✗ 3  ◐ 1  ● 4  ○ 3",
+        "5 squads  ◆ 3  ✗ 3  ◐ 1  ● 4  ◌ 3",
         "",
         "",
         "── ◆ needs you · 3 ─────────────────────────────────────────────────────────────",
@@ -9027,7 +9027,7 @@
         "",
         "── squads · 5 ──────────────────────────────────────────────────────────────────",
         " ◆ alpha              lead-a               ◆ ◆ ✗        3 members",
-        "   beta               lead-b               ◐ ○          2 members",
+        "   beta               lead-b               ◐ ◌          2 members",
         "   gamma              lead-g               ●  1 other · 2 members",
         "   delta-with-a-long… lead-delta-with-a-l…              0 members",
         "   epsilon            lead-e                            0 members",
@@ -9152,7 +9152,7 @@
     {
       "lines": [
         "  alpha    beta    gamma    delta-with-a-long-squad-name    epsilon   ▚ tmt",
-        "5 squads · 12 members   ◆ 3 waiting on you  ✗ 3 blocked  ◐ 1 review  ● 4 working  ○ 3 idle",
+        "5 squads · 12 members   ◆ 3 waiting on you  ✗ 3 blocked  ◐ 1 review  ● 4 working  ◌ 3 idle",
         "",
         "",
         "── ◆ needs you · 3 ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
@@ -9179,7 +9179,7 @@
         "",
         "── squads · 5 ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
         " ◆ alpha                    lead-a                      ◆ ◆ ✗        3 members",
-        "   beta                     lead-b                      ◐ ○          2 members",
+        "   beta                     lead-b                      ◐ ◌          2 members",
         "   gamma                    lead-g                      ●  1 other · 2 members",
         "   delta-with-a-long-squad… lead-delta-with-a-long-name              0 members",
         "   epsilon                  lead-e                                   0 members",
@@ -9304,7 +9304,7 @@
     {
       "lines": [
         "  alpha    beta    gamma    delta-with-a-long-squad-name    epsilon   ▚ tmt",
-        "5 squads  ◆ 3  ✗ 3  ◐ 1  ● 4  ○ 3",
+        "5 squads  ◆ 3  ✗ 3  ◐ 1  ● 4  ◌ 3",
         "",
         "",
         "── ◆ needs you · 3 ─────────────────────────────────────────────────────────────",
@@ -9331,7 +9331,7 @@
         "",
         "── squads · 5 ──────────────────────────────────────────────────────────────────",
         " ◆ alpha              lead-a               ◆ ◆ ✗        3 members",
-        "   beta               lead-b               ◐ ○          2 members",
+        "   beta               lead-b               ◐ ◌          2 members",
         "   gamma              lead-g               ●  1 other · 2 members",
         "   delta-with-a-long… lead-delta-with-a-l…              0 members",
         "   epsilon            lead-e                            0 members",
@@ -9456,7 +9456,7 @@
     {
       "lines": [
         "  alpha    beta    gamma    delta-with-a-long-squad-name    epsilon   ▚ tmt",
-        "5 squads · 12 members   ◆ 3 waiting on you  ✗ 3 blocked  ◐ 1 review  ● 4 working  ○ 3 idle",
+        "5 squads · 12 members   ◆ 3 waiting on you  ✗ 3 blocked  ◐ 1 review  ● 4 working  ◌ 3 idle",
         "",
         "",
         "── ◆ needs you · 3 ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
@@ -9483,7 +9483,7 @@
         "",
         "── squads · 5 ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
         " ◆ alpha                    lead-a                      ◆ ◆ ✗        3 members",
-        "   beta                     lead-b                      ◐ ○          2 members",
+        "   beta                     lead-b                      ◐ ◌          2 members",
         "   gamma                    lead-g                      ●  1 other · 2 members",
         "   delta-with-a-long-squad… lead-delta-with-a-long-name              0 members",
         "   epsilon                  lead-e                                   0 members",
@@ -9608,7 +9608,7 @@
     {
       "lines": [
         "  alpha    beta    gamma    delta-with-a-long-squad-name    epsilon   ▚ tmt",
-        "5 squads  ◆ 3  ✗ 3  ◐ 1  ● 4  ○ 3",
+        "5 squads  ◆ 3  ✗ 3  ◐ 1  ● 4  ◌ 3",
         "",
         "",
         "── ◆ needs you · 3 ─────────────────────────────────────────────────────────────",
@@ -9635,7 +9635,7 @@
         "",
         "── squads · 5 ──────────────────────────────────────────────────────────────────",
         " ◆ alpha              lead-a               ◆ ◆ ✗        3 members",
-        "   beta               lead-b               ◐ ○          2 members",
+        "   beta               lead-b               ◐ ◌          2 members",
         "   gamma              lead-g               ●  1 other · 2 members",
         "   delta-with-a-long… lead-delta-with-a-l…              0 members",
         "   epsilon            lead-e                            0 members",
@@ -9760,7 +9760,7 @@
     {
       "lines": [
         "  alpha    beta    gamma    delta-with-a-long-squad-name    epsilon   ▚ tmt",
-        "5 squads · 12 members   ◆ 3 waiting on you  ✗ 3 blocked  ◐ 1 review  ● 4 working  ○ 3 idle",
+        "5 squads · 12 members   ◆ 3 waiting on you  ✗ 3 blocked  ◐ 1 review  ● 4 working  ◌ 3 idle",
         "",
         "",
         "── ◆ needs you · 3 ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
@@ -9793,7 +9793,7 @@
         "",
         "── squads · 5 ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
         " ◆ alpha                    lead-a                      ◆ ◆ ✗        3 members",
-        "   beta                     lead-b                      ◐ ○          2 members",
+        "   beta                     lead-b                      ◐ ◌          2 members",
         "   gamma                    lead-g                      ●  1 other · 2 members",
         "   delta-with-a-long-squad… lead-delta-with-a-long-name              0 members",
         "   epsilon                  lead-e                                   0 members",
@@ -9912,7 +9912,7 @@
     {
       "lines": [
         "  alpha    beta    gamma    delta-with-a-long-squad-name    epsilon   ▚ tmt",
-        "5 squads  ◆ 3  ✗ 3  ◐ 1  ● 4  ○ 3",
+        "5 squads  ◆ 3  ✗ 3  ◐ 1  ● 4  ◌ 3",
         "",
         "",
         "── ◆ needs you · 3 ─────────────────────────────────────────────────────────────",
@@ -9945,7 +9945,7 @@
         "",
         "── squads · 5 ──────────────────────────────────────────────────────────────────",
         " ◆ alpha              lead-a               ◆ ◆ ✗        3 members",
-        "   beta               lead-b               ◐ ○          2 members",
+        "   beta               lead-b               ◐ ◌          2 members",
         "   gamma              lead-g               ●  1 other · 2 members",
         "   delta-with-a-long… lead-delta-with-a-l…              0 members",
         "   epsilon            lead-e                            0 members",
@@ -10064,7 +10064,7 @@
     {
       "lines": [
         "  alpha    beta    gamma    delta-with-a-long-squad-name    epsilon   ▚ tmt",
-        "5 squads · 12 members   ◆ 3 waiting on you  ✗ 3 blocked  ◐ 1 review  ● 4 working  ○ 3 idle",
+        "5 squads · 12 members   ◆ 3 waiting on you  ✗ 3 blocked  ◐ 1 review  ● 4 working  ◌ 3 idle",
         "",
         "",
         "── ◆ needs you · 3 ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
@@ -10093,7 +10093,7 @@
         "",
         "── squads · 5 ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
         " ◆ alpha                    lead-a                      ◆ ◆ ✗        3 members",
-        "   beta                     lead-b                      ◐ ○          2 members",
+        "   beta                     lead-b                      ◐ ◌          2 members",
         "   gamma                    lead-g                      ●  1 other · 2 members",
         "   delta-with-a-long-squad… lead-delta-with-a-long-name              0 members",
         "   epsilon                  lead-e                                   0 members",
@@ -10216,7 +10216,7 @@
     {
       "lines": [
         "  alpha    beta    gamma    delta-with-a-long-squad-name    epsilon   ▚ tmt",
-        "5 squads  ◆ 3  ✗ 3  ◐ 1  ● 4  ○ 3",
+        "5 squads  ◆ 3  ✗ 3  ◐ 1  ● 4  ◌ 3",
         "",
         "",
         "── ◆ needs you · 3 ─────────────────────────────────────────────────────────────",
@@ -10245,7 +10245,7 @@
         "",
         "── squads · 5 ──────────────────────────────────────────────────────────────────",
         " ◆ alpha              lead-a               ◆ ◆ ✗        3 members",
-        "   beta               lead-b               ◐ ○          2 members",
+        "   beta               lead-b               ◐ ◌          2 members",
         "   gamma              lead-g               ●  1 other · 2 members",
         "   delta-with-a-long… lead-delta-with-a-l…              0 members",
         "   epsilon            lead-e                            0 members",
@@ -10368,7 +10368,7 @@
     {
       "lines": [
         "  alpha    beta    gamma    delta-with-a-long-squad-name    epsilon   ▚ tmt",
-        "5 squads · 12 members   ◆ 3 waiting on you  ✗ 3 blocked  ◐ 1 review  ● 4 working  ○ 3 idle",
+        "5 squads · 12 members   ◆ 3 waiting on you  ✗ 3 blocked  ◐ 1 review  ● 4 working  ◌ 3 idle",
         "tok 1m – · 5m ~1k · 1h ~2k · share 1h: worker ~60% · models sol ~60%, opus ~40% · 2 members without data",
         "",
         "",
@@ -10396,7 +10396,7 @@
         "",
         "── squads · 5 ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
         " ◆ alpha                    lead-a                      ◆ ◆ ✗        3 members",
-        "   beta                     lead-b                      ◐ ○          2 members",
+        "   beta                     lead-b                      ◐ ◌          2 members",
         "   gamma                    lead-g                      ●  1 other · 2 members",
         "   delta-with-a-long-squad… lead-delta-with-a-long-name              0 members",
         "   epsilon                  lead-e                                   0 members",
@@ -10520,7 +10520,7 @@
     {
       "lines": [
         "  alpha    beta    gamma    delta-with-a-long-squad-name    epsilon   ▚ tmt",
-        "5 squads  ◆ 3  ✗ 3  ◐ 1  ● 4  ○ 3",
+        "5 squads  ◆ 3  ✗ 3  ◐ 1  ● 4  ◌ 3",
         "",
         "",
         "── ◆ needs you · 3 ─────────────────────────────────────────────────────────────",
@@ -10547,7 +10547,7 @@
         "",
         "── squads · 5 ──────────────────────────────────────────────────────────────────",
         " ◆ alpha              lead-a               ◆ ◆ ✗        3 members",
-        "   beta               lead-b               ◐ ○          2 members",
+        "   beta               lead-b               ◐ ◌          2 members",
         "   gamma              lead-g               ●  1 other · 2 members",
         "   delta-with-a-long… lead-delta-with-a-l…              0 members",
         "   epsilon            lead-e                            0 members",
@@ -10672,7 +10672,7 @@
     {
       "lines": [
         "  alpha    beta    gamma    delta-with-a-long-squad-name    epsilon   ▚ tmt",
-        "5 squads · 12 members   ◆ 3 waiting on you  ✗ 3 blocked  ◐ 1 review  ● 4 working  ○ 3 idle",
+        "5 squads · 12 members   ◆ 3 waiting on you  ✗ 3 blocked  ◐ 1 review  ● 4 working  ◌ 3 idle",
         "",
         "",
         "── ◆ needs you · 3 ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
@@ -10699,7 +10699,7 @@
         "",
         "── squads · 5 ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
         " ◆ alpha                    lead-a                      ◆ ◆ ✗        3 members",
-        "   beta                     lead-b                      ◐ ○          2 members",
+        "   beta                     lead-b                      ◐ ◌          2 members",
         "   gamma                    lead-g                      ●  1 other · 2 members",
         "   delta-with-a-long-squad… lead-delta-with-a-long-name              0 members",
         "   epsilon                  lead-e                                   0 members",
@@ -10824,7 +10824,7 @@
     {
       "lines": [
         "  alpha    beta    gamma    delta-with-a-long-squad-name    epsilon   ▚ tmt",
-        "5 squads  ◆ 3  ✗ 3  ◐ 1  ● 4  ○ 3",
+        "5 squads  ◆ 3  ✗ 3  ◐ 1  ● 4  ◌ 3",
         "",
         "",
         "── ◆ needs you · 3 ─────────────────────────────────────────────────────────────",
@@ -10851,7 +10851,7 @@
         "",
         "── squads · 5 ──────────────────────────────────────────────────────────────────",
         " ◆ alpha              lead-a               ◆ ◆ ✗        3 members",
-        "   beta               lead-b               ◐ ○          2 members",
+        "   beta               lead-b               ◐ ◌          2 members",
         "   gamma              lead-g               ●  1 other · 2 members",
         "   delta-with-a-long… lead-delta-with-a-l…              0 members",
         "   epsilon            lead-e                            0 members",
@@ -10976,7 +10976,7 @@
     {
       "lines": [
         "  alpha    beta    gamma    delta-with-a-long-squad-name    epsilon   ▚ tmt",
-        "5 squads · 12 members   ◆ 3 waiting on you  ✗ 3 blocked  ◐ 1 review  ● 4 working  ○ 3 idle",
+        "5 squads · 12 members   ◆ 3 waiting on you  ✗ 3 blocked  ◐ 1 review  ● 4 working  ◌ 3 idle",
         "",
         "",
         "── ◆ needs you · 3 ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
@@ -11003,7 +11003,7 @@
         "",
         "── squads · 5 ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
         " ◆ alpha                    lead-a                      ◆ ◆ ✗        3 members",
-        "   beta                     lead-b                      ◐ ○          2 members",
+        "   beta                     lead-b                      ◐ ◌          2 members",
         "   gamma                    lead-g                      ●  1 other · 2 members",
         "   delta-with-a-long-squad… lead-delta-with-a-long-name              0 members",
         "   epsilon                  lead-e                                   0 members",
@@ -11128,7 +11128,7 @@
     {
       "lines": [
         "  alpha    beta    gamma    delta-with-a-long-squad-name    epsilon   ▚ tmt",
-        "5 squads  ◆ 3  ✗ 3  ◐ 1  ● 4  ○ 3",
+        "5 squads  ◆ 3  ✗ 3  ◐ 1  ● 4  ◌ 3",
         "",
         "",
         "── ◆ needs you · 3 ─────────────────────────────────────────────────────────────",
@@ -11155,7 +11155,7 @@
         "",
         "── squads · 5 ──────────────────────────────────────────────────────────────────",
         " ◆ alpha              lead-a               ◆ ◆ ✗        3 members",
-        "   beta               lead-b               ◐ ○          2 members",
+        "   beta               lead-b               ◐ ◌          2 members",
         "   gamma              lead-g               ●  1 other · 2 members",
         "   delta-with-a-long… lead-delta-with-a-l…              0 members",
         "   epsilon            lead-e                            0 members",
@@ -11280,7 +11280,7 @@
     {
       "lines": [
         "  alpha    beta    gamma    delta-with-a-long-squad-name    epsilon   ▚ tmt",
-        "5 squads · 12 members   ◆ 3 waiting on you  ✗ 3 blocked  ◐ 1 review  ● 4 working  ○ 3 idle",
+        "5 squads · 12 members   ◆ 3 waiting on you  ✗ 3 blocked  ◐ 1 review  ● 4 working  ◌ 3 idle",
         "",
         "",
         "── ◆ needs you · 3 ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
@@ -11313,7 +11313,7 @@
         "",
         "── squads · 5 ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
         " ◆ alpha                    lead-a                      ◆ ◆ ✗        3 members",
-        "   beta                     lead-b                      ◐ ○          2 members",
+        "   beta                     lead-b                      ◐ ◌          2 members",
         "   gamma                    lead-g                      ●  1 other · 2 members",
         "   delta-with-a-long-squad… lead-delta-with-a-long-name              0 members",
         "   epsilon                  lead-e                                   0 members",
@@ -11432,7 +11432,7 @@
     {
       "lines": [
         "  alpha    beta    gamma    delta-with-a-long-squad-name    epsilon   ▚ tmt",
-        "5 squads  ◆ 3  ✗ 3  ◐ 1  ● 4  ○ 3",
+        "5 squads  ◆ 3  ✗ 3  ◐ 1  ● 4  ◌ 3",
         "",
         "",
         "── ◆ needs you · 3 ─────────────────────────────────────────────────────────────",
@@ -11465,7 +11465,7 @@
         "",
         "── squads · 5 ──────────────────────────────────────────────────────────────────",
         " ◆ alpha              lead-a               ◆ ◆ ✗        3 members",
-        "   beta               lead-b               ◐ ○          2 members",
+        "   beta               lead-b               ◐ ◌          2 members",
         "   gamma              lead-g               ●  1 other · 2 members",
         "   delta-with-a-long… lead-delta-with-a-l…              0 members",
         "   epsilon            lead-e                            0 members",
@@ -11584,7 +11584,7 @@
     {
       "lines": [
         "  alpha    beta    gamma    delta-with-a-long-squad-name    epsilon   ▚ tmt",
-        "5 squads · 12 members   ◆ 3 waiting on you  ✗ 3 blocked  ◐ 1 review  ● 4 working  ○ 3 idle",
+        "5 squads · 12 members   ◆ 3 waiting on you  ✗ 3 blocked  ◐ 1 review  ● 4 working  ◌ 3 idle",
         "",
         "",
         "── ◆ needs you · 3 ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
@@ -11613,7 +11613,7 @@
         "",
         "── squads · 5 ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
         " ◆ alpha                    lead-a                      ◆ ◆ ✗        3 members",
-        "   beta                     lead-b                      ◐ ○          2 members",
+        "   beta                     lead-b                      ◐ ◌          2 members",
         "   gamma                    lead-g                      ●  1 other · 2 members",
         "   delta-with-a-long-squad… lead-delta-with-a-long-name              0 members",
         "   epsilon                  lead-e                                   0 members",
@@ -11736,7 +11736,7 @@
     {
       "lines": [
         "  alpha    beta    gamma    delta-with-a-long-squad-name    epsilon   ▚ tmt",
-        "5 squads  ◆ 3  ✗ 3  ◐ 1  ● 4  ○ 3",
+        "5 squads  ◆ 3  ✗ 3  ◐ 1  ● 4  ◌ 3",
         "",
         "",
         "── ◆ needs you · 3 ─────────────────────────────────────────────────────────────",
@@ -11765,7 +11765,7 @@
         "",
         "── squads · 5 ──────────────────────────────────────────────────────────────────",
         " ◆ alpha              lead-a               ◆ ◆ ✗        3 members",
-        "   beta               lead-b               ◐ ○          2 members",
+        "   beta               lead-b               ◐ ◌          2 members",
         "   gamma              lead-g               ●  1 other · 2 members",
         "   delta-with-a-long… lead-delta-with-a-l…              0 members",
         "   epsilon            lead-e                            0 members",
@@ -11888,7 +11888,7 @@
     {
       "lines": [
         "  alpha    beta    gamma    delta-with-a-long-squad-name    epsilon   ▚ tmt",
-        "5 squads · 12 members   ◆ 3 waiting on you  ✗ 3 blocked  ◐ 1 review  ● 4 working  ○ 3 idle",
+        "5 squads · 12 members   ◆ 3 waiting on you  ✗ 3 blocked  ◐ 1 review  ● 4 working  ◌ 3 idle",
         "tok 1m – · 5m ~1k · 1h ~2k · share 1h: worker ~60% · models sol ~60%, opus ~40% · 2 members without data",
         "",
         "",
@@ -11916,7 +11916,7 @@
         "",
         "── squads · 5 ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
         " ◆ alpha                    lead-a                      ◆ ◆ ✗        3 members",
-        "   beta                     lead-b                      ◐ ○          2 members",
+        "   beta                     lead-b                      ◐ ◌          2 members",
         "   gamma                    lead-g                      ●  1 other · 2 members",
         "   delta-with-a-long-squad… lead-delta-with-a-long-name              0 members",
         "   epsilon                  lead-e                                   0 members",
@@ -12040,7 +12040,7 @@
     {
       "lines": [
         "  alpha    beta    gamma    delta-with-a-long-squad-name    epsilon   ▚ tmt",
-        "5 squads  ◆ 3  ✗ 3  ◐ 1  ● 4  ○ 3",
+        "5 squads  ◆ 3  ✗ 3  ◐ 1  ● 4  ◌ 3",
         "",
         "",
         "── ◆ needs you · 3 ─────────────────────────────────────────────────────────────",
@@ -12067,7 +12067,7 @@
         "",
         "── squads · 5 ──────────────────────────────────────────────────────────────────",
         " ◆ alpha              lead-a               ◆ ◆ ✗        3 members",
-        "   beta               lead-b               ◐ ○          2 members",
+        "   beta               lead-b               ◐ ◌          2 members",
         "   gamma              lead-g               ●  1 other · 2 members",
         "   delta-with-a-long… lead-delta-with-a-l…              0 members",
         "   epsilon            lead-e                            0 members",
@@ -12194,7 +12194,7 @@
     {
       "lines": [
         " ◆ alpha                    lead-a                      opus ◆ ◆ ✗          3 members",
-        " ✗ delta-with-a-long-squad… lead-delta-with-a-long-name opus ✗ ◐ ● ● ● ○ ○  7 members",
+        " ✗ delta-with-a-long-squad… lead-delta-with-a-long-name opus ✗ ◐ ● ● ● ◌ ◌  7 members",
         "   quiet                    no lead                     opus                0 members",
         "   custom                   lead-c                      opus ●    4 other · 5 members"
       ],
@@ -12213,7 +12213,7 @@
     {
       "lines": [
         " ◆ alpha                    lead-a                      opus ◆ ◆ ✗          3 members",
-        " ✗ delta-with-a-long-squad… lead-delta-with-a-long-name opus ✗ ◐ ● ● ● ○ ○  7 members",
+        " ✗ delta-with-a-long-squad… lead-delta-with-a-long-name opus ✗ ◐ ● ● ● ◌ ◌  7 members",
         "   quiet                    no lead                     opus                0 members",
         "   custom                   lead-c                      opus ●    4 other · 5 members"
       ],
@@ -12232,7 +12232,7 @@
     {
       "lines": [
         " ◆ alpha                    lead-a                      opus ◆ ◆ ✗          3 members     1k  ~2.0M      0   ~38%",
-        " ✗ delta-with-a-long-squad… lead-delta-with-a-long-name opus ✗ ◐ ● ● ● ○ ○  7 members      –     2k     9k      –",
+        " ✗ delta-with-a-long-squad… lead-delta-with-a-long-name opus ✗ ◐ ● ● ● ◌ ◌  7 members      –     2k     9k      –",
         "   quiet                    no lead                     opus                0 members      –",
         "   custom                   lead-c                      opus ●    4 other · 5 members"
       ],
@@ -12251,7 +12251,7 @@
     {
       "lines": [
         " ◆ alpha                    lead-a                      opus ◆ ◆ ✗          3 members     1k  ~2.0M      0   ~38%",
-        " ✗ delta-with-a-long-squad… lead-delta-with-a-long-name opus ✗ ◐ ● ● ● ○ ○  7 members      –     2k     9k      –",
+        " ✗ delta-with-a-long-squad… lead-delta-with-a-long-name opus ✗ ◐ ● ● ● ◌ ◌  7 members      –     2k     9k      –",
         "   quiet                    no lead                     opus                0 members      –",
         "   custom                   lead-c                      opus ●    4 other · 5 members"
       ],
@@ -12270,7 +12270,7 @@
     {
       "lines": [
         " ◆ alpha                    lead-a                      opus ◆ ◆ ✗          3 members      1m:1k      5m:2k      1h:3k     1h:50%",
-        " ✗ delta-with-a-long-squad… lead-delta-with-a-long-name opus ✗ ◐ ● ● ● ○ ○  7 members     5m:~4k      1h:5k     24h:6k    24h:25%",
+        " ✗ delta-with-a-long-squad… lead-delta-with-a-long-name opus ✗ ◐ ● ● ● ◌ ◌  7 members     5m:~4k      1h:5k     24h:6k    24h:25%",
         "   quiet                    no lead                     opus                0 members",
         "   custom                   lead-c                      opus ●    4 other · 5 members"
       ],
@@ -12289,7 +12289,7 @@
     {
       "lines": [
         " ◆ alpha                    lead-a                      opus ◆ ◆ ✗          3 members      1m:1k      5m:2k      1h:3k     1h:50%",
-        " ✗ delta-with-a-long-squad… lead-delta-with-a-long-name opus ✗ ◐ ● ● ● ○ ○  7 members     5m:~4k      1h:5k     24h:6k    24h:25%",
+        " ✗ delta-with-a-long-squad… lead-delta-with-a-long-name opus ✗ ◐ ● ● ● ◌ ◌  7 members     5m:~4k      1h:5k     24h:6k    24h:25%",
         "   quiet                    no lead                     opus                0 members",
         "   custom                   lead-c                      opus ●    4 other · 5 members"
       ],
@@ -12308,7 +12308,7 @@
     {
       "lines": [
         " ◆ alpha                    lead-a                      opus ◆ ◆ ✗          3 members",
-        " ✗ delta-with-a-long-squad… lead-delta-with-a-long-name opus ✗ ◐ ● ● ● ○ ○  7 members",
+        " ✗ delta-with-a-long-squad… lead-delta-with-a-long-name opus ✗ ◐ ● ● ● ◌ ◌  7 members",
         "   quiet                    no lead                     opus                0 members",
         "   custom                   lead-c                      opus ●    4 other · 5 members"
       ],
@@ -12327,7 +12327,7 @@
     {
       "lines": [
         " ◆ alpha                    lead-a                      opus ◆ ◆ ✗          3 members",
-        " ✗ delta-with-a-long-squad… lead-delta-with-a-long-name opus ✗ ◐ ● ● ● ○ ○  7 members",
+        " ✗ delta-with-a-long-squad… lead-delta-with-a-long-name opus ✗ ◐ ● ● ● ◌ ◌  7 members",
         "   quiet                    no lead                     opus                0 members",
         "   custom                   lead-c                      opus ●    4 other · 5 members"
       ],
@@ -12346,7 +12346,7 @@
     {
       "lines": [
         " ◆ alpha                    lead-a                      opus ◆ ◆ ✗          3 members     1k  ~2.0M      0   ~38%",
-        " ✗ delta-with-a-long-squad… lead-delta-with-a-long-name opus ✗ ◐ ● ● ● ○ ○  7 members      –     2k     9k      –",
+        " ✗ delta-with-a-long-squad… lead-delta-with-a-long-name opus ✗ ◐ ● ● ● ◌ ◌  7 members      –     2k     9k      –",
         "   quiet                    no lead                     opus                0 members      –",
         "   custom                   lead-c                      opus ●    4 other · 5 members"
       ],
@@ -12365,7 +12365,7 @@
     {
       "lines": [
         " ◆ alpha                    lead-a                      opus ◆ ◆ ✗          3 members     1k  ~2.0M      0   ~38%",
-        " ✗ delta-with-a-long-squad… lead-delta-with-a-long-name opus ✗ ◐ ● ● ● ○ ○  7 members      –     2k     9k      –",
+        " ✗ delta-with-a-long-squad… lead-delta-with-a-long-name opus ✗ ◐ ● ● ● ◌ ◌  7 members      –     2k     9k      –",
         "   quiet                    no lead                     opus                0 members      –",
         "   custom                   lead-c                      opus ●    4 other · 5 members"
       ],
@@ -12384,7 +12384,7 @@
     {
       "lines": [
         " ◆ alpha                    lead-a                      opus ◆ ◆ ✗          3 members      1m:1k      5m:2k      1h:3k     1h:50%",
-        " ✗ delta-with-a-long-squad… lead-delta-with-a-long-name opus ✗ ◐ ● ● ● ○ ○  7 members     5m:~4k      1h:5k     24h:6k    24h:25%",
+        " ✗ delta-with-a-long-squad… lead-delta-with-a-long-name opus ✗ ◐ ● ● ● ◌ ◌  7 members     5m:~4k      1h:5k     24h:6k    24h:25%",
         "   quiet                    no lead                     opus                0 members",
         "   custom                   lead-c                      opus ●    4 other · 5 members"
       ],
@@ -12403,7 +12403,7 @@
     {
       "lines": [
         " ◆ alpha                    lead-a                      opus ◆ ◆ ✗          3 members      1m:1k      5m:2k      1h:3k     1h:50%",
-        " ✗ delta-with-a-long-squad… lead-delta-with-a-long-name opus ✗ ◐ ● ● ● ○ ○  7 members     5m:~4k      1h:5k     24h:6k    24h:25%",
+        " ✗ delta-with-a-long-squad… lead-delta-with-a-long-name opus ✗ ◐ ● ● ● ◌ ◌  7 members     5m:~4k      1h:5k     24h:6k    24h:25%",
         "   quiet                    no lead                     opus                0 members",
         "   custom                   lead-c                      opus ●    4 other · 5 members"
       ],
@@ -12422,7 +12422,7 @@
     {
       "lines": [
         " ◆ alpha                    lead-a                      opus ◆ ◆ ✗          3 members",
-        " ✗ delta-with-a-long-squad… lead-delta-with-a-long-name opus ✗ ◐ ● ● ● ○ ○  7 members",
+        " ✗ delta-with-a-long-squad… lead-delta-with-a-long-name opus ✗ ◐ ● ● ● ◌ ◌  7 members",
         "   quiet                    no lead                     opus                0 members",
         "   custom                   lead-c                      opus ●    4 other · 5 members"
       ],
@@ -12441,7 +12441,7 @@
     {
       "lines": [
         " ◆ alpha                    lead-a                      opus ◆ ◆ ✗          3 members",
-        " ✗ delta-with-a-long-squad… lead-delta-with-a-long-name opus ✗ ◐ ● ● ● ○ ○  7 members",
+        " ✗ delta-with-a-long-squad… lead-delta-with-a-long-name opus ✗ ◐ ● ● ● ◌ ◌  7 members",
         "   quiet                    no lead                     opus                0 members",
         "   custom                   lead-c                      opus ●    4 other · 5 members"
       ],
@@ -12460,7 +12460,7 @@
     {
       "lines": [
         " ◆ alpha                    lead-a                      opus ◆ ◆ ✗          3 members     1k  ~2.0M      0   ~38%",
-        " ✗ delta-with-a-long-squad… lead-delta-with-a-long-name opus ✗ ◐ ● ● ● ○ ○  7 members      –     2k     9k      –",
+        " ✗ delta-with-a-long-squad… lead-delta-with-a-long-name opus ✗ ◐ ● ● ● ◌ ◌  7 members      –     2k     9k      –",
         "   quiet                    no lead                     opus                0 members      –",
         "   custom                   lead-c                      opus ●    4 other · 5 members"
       ],
@@ -12479,7 +12479,7 @@
     {
       "lines": [
         " ◆ alpha                    lead-a                      opus ◆ ◆ ✗          3 members     1k  ~2.0M      0   ~38%",
-        " ✗ delta-with-a-long-squad… lead-delta-with-a-long-name opus ✗ ◐ ● ● ● ○ ○  7 members      –     2k     9k      –",
+        " ✗ delta-with-a-long-squad… lead-delta-with-a-long-name opus ✗ ◐ ● ● ● ◌ ◌  7 members      –     2k     9k      –",
         "   quiet                    no lead                     opus                0 members      –",
         "   custom                   lead-c                      opus ●    4 other · 5 members"
       ],
@@ -12498,7 +12498,7 @@
     {
       "lines": [
         " ◆ alpha                    lead-a                      opus ◆ ◆ ✗          3 members      1m:1k      5m:2k      1h:3k     1h:50%",
-        " ✗ delta-with-a-long-squad… lead-delta-with-a-long-name opus ✗ ◐ ● ● ● ○ ○  7 members     5m:~4k      1h:5k     24h:6k    24h:25%",
+        " ✗ delta-with-a-long-squad… lead-delta-with-a-long-name opus ✗ ◐ ● ● ● ◌ ◌  7 members     5m:~4k      1h:5k     24h:6k    24h:25%",
         "   quiet                    no lead                     opus                0 members",
         "   custom                   lead-c                      opus ●    4 other · 5 members"
       ],
@@ -12517,7 +12517,7 @@
     {
       "lines": [
         " ◆ alpha                    lead-a                      opus ◆ ◆ ✗          3 members      1m:1k      5m:2k      1h:3k     1h:50%",
-        " ✗ delta-with-a-long-squad… lead-delta-with-a-long-name opus ✗ ◐ ● ● ● ○ ○  7 members     5m:~4k      1h:5k     24h:6k    24h:25%",
+        " ✗ delta-with-a-long-squad… lead-delta-with-a-long-name opus ✗ ◐ ● ● ● ◌ ◌  7 members     5m:~4k      1h:5k     24h:6k    24h:25%",
         "   quiet                    no lead                     opus                0 members",
         "   custom                   lead-c                      opus ●    4 other · 5 members"
       ],
@@ -12536,7 +12536,7 @@
     {
       "lines": [
         " ◆ alpha                    lead-a                      opus ◆ ◆ ✗          3 members",
-        " ✗ delta-with-a-long-squad… lead-delta-with-a-long-name opus ✗ ◐ ● ● ● ○ ○  7 members",
+        " ✗ delta-with-a-long-squad… lead-delta-with-a-long-name opus ✗ ◐ ● ● ● ◌ ◌  7 members",
         "   quiet                    no lead                     opus                0 members",
         "   custom                   lead-c                      opus ●    4 other · 5 members"
       ],
@@ -12555,7 +12555,7 @@
     {
       "lines": [
         " ◆ alpha                    lead-a                      opus ◆ ◆ ✗          3 members",
-        " ✗ delta-with-a-long-squad… lead-delta-with-a-long-name opus ✗ ◐ ● ● ● ○ ○  7 members",
+        " ✗ delta-with-a-long-squad… lead-delta-with-a-long-name opus ✗ ◐ ● ● ● ◌ ◌  7 members",
         "   quiet                    no lead                     opus                0 members",
         "   custom                   lead-c                      opus ●    4 other · 5 members"
       ],
@@ -12574,7 +12574,7 @@
     {
       "lines": [
         " ◆ alpha                    lead-a                      opus ◆ ◆ ✗          3 members     1k  ~2.0M      0   ~38%",
-        " ✗ delta-with-a-long-squad… lead-delta-with-a-long-name opus ✗ ◐ ● ● ● ○ ○  7 members      –     2k     9k      –",
+        " ✗ delta-with-a-long-squad… lead-delta-with-a-long-name opus ✗ ◐ ● ● ● ◌ ◌  7 members      –     2k     9k      –",
         "   quiet                    no lead                     opus                0 members      –",
         "   custom                   lead-c                      opus ●    4 other · 5 members"
       ],
@@ -12593,7 +12593,7 @@
     {
       "lines": [
         " ◆ alpha                    lead-a                      opus ◆ ◆ ✗          3 members     1k  ~2.0M      0   ~38%",
-        " ✗ delta-with-a-long-squad… lead-delta-with-a-long-name opus ✗ ◐ ● ● ● ○ ○  7 members      –     2k     9k      –",
+        " ✗ delta-with-a-long-squad… lead-delta-with-a-long-name opus ✗ ◐ ● ● ● ◌ ◌  7 members      –     2k     9k      –",
         "   quiet                    no lead                     opus                0 members      –",
         "   custom                   lead-c                      opus ●    4 other · 5 members"
       ],
@@ -12612,7 +12612,7 @@
     {
       "lines": [
         " ◆ alpha                 lead-a                opus ◆ ◆ ✗          3 members      1m:1k      5m:2k      1h:3k     1h:50%",
-        " ✗ delta-with-a-long-sq… lead-delta-with-a-lo… opus ✗ ◐ ● ● ● ○ ○  7 members     5m:~4k      1h:5k     24h:6k    24h:25%",
+        " ✗ delta-with-a-long-sq… lead-delta-with-a-lo… opus ✗ ◐ ● ● ● ◌ ◌  7 members     5m:~4k      1h:5k     24h:6k    24h:25%",
         "   quiet                 no lead               opus                0 members",
         "   custom                lead-c                opus ●    4 other · 5 members"
       ],
@@ -12631,7 +12631,7 @@
     {
       "lines": [
         " ◆ alpha                 lead-a                opus ◆ ◆ ✗          3 members      1m:1k      5m:2k      1h:3k     1h:50%",
-        " ✗ delta-with-a-long-sq… lead-delta-with-a-lo… opus ✗ ◐ ● ● ● ○ ○  7 members     5m:~4k      1h:5k     24h:6k    24h:25%",
+        " ✗ delta-with-a-long-sq… lead-delta-with-a-lo… opus ✗ ◐ ● ● ● ◌ ◌  7 members     5m:~4k      1h:5k     24h:6k    24h:25%",
         "   quiet                 no lead               opus                0 members",
         "   custom                lead-c                opus ●    4 other · 5 members"
       ],
@@ -12650,7 +12650,7 @@
     {
       "lines": [
         " ◆ alpha                    lead-a                      opus ◆ ◆ ✗          3 members",
-        " ✗ delta-with-a-long-squad… lead-delta-with-a-long-name opus ✗ ◐ ● ● ● ○ ○  7 members",
+        " ✗ delta-with-a-long-squad… lead-delta-with-a-long-name opus ✗ ◐ ● ● ● ◌ ◌  7 members",
         "   quiet                    no lead                     opus                0 members",
         "   custom                   lead-c                      opus ●    4 other · 5 members"
       ],
@@ -12669,7 +12669,7 @@
     {
       "lines": [
         " ◆ alpha                    lead-a                      opus ◆ ◆ ✗          3 members",
-        " ✗ delta-with-a-long-squad… lead-delta-with-a-long-name opus ✗ ◐ ● ● ● ○ ○  7 members",
+        " ✗ delta-with-a-long-squad… lead-delta-with-a-long-name opus ✗ ◐ ● ● ● ◌ ◌  7 members",
         "   quiet                    no lead                     opus                0 members",
         "   custom                   lead-c                      opus ●    4 other · 5 members"
       ],
@@ -12688,7 +12688,7 @@
     {
       "lines": [
         " ◆ alpha               lead-a              opus ◆ ◆ ✗          3 members     1k  ~2.0M      0   ~38%",
-        " ✗ delta-with-a-long-… lead-delta-with-a-… opus ✗ ◐ ● ● ● ○ ○  7 members      –     2k     9k      –",
+        " ✗ delta-with-a-long-… lead-delta-with-a-… opus ✗ ◐ ● ● ● ◌ ◌  7 members      –     2k     9k      –",
         "   quiet               no lead             opus                0 members      –",
         "   custom              lead-c              opus ●    4 other · 5 members"
       ],
@@ -12707,7 +12707,7 @@
     {
       "lines": [
         " ◆ alpha               lead-a              opus ◆ ◆ ✗          3 members     1k  ~2.0M      0   ~38%",
-        " ✗ delta-with-a-long-… lead-delta-with-a-… opus ✗ ◐ ● ● ● ○ ○  7 members      –     2k     9k      –",
+        " ✗ delta-with-a-long-… lead-delta-with-a-… opus ✗ ◐ ● ● ● ◌ ◌  7 members      –     2k     9k      –",
         "   quiet               no lead             opus                0 members      –",
         "   custom              lead-c              opus ●    4 other · 5 members"
       ],
@@ -12726,7 +12726,7 @@
     {
       "lines": [
         " ◆ alpha       lead-a      opus ◆ ◆ ✗          3 members      1m:1k      5m:2k      1h:3k     1h:50%",
-        " ✗ delta-with… lead-delta… opus ✗ ◐ ● ● ● ○ ○  7 members     5m:~4k      1h:5k     24h:6k    24h:25%",
+        " ✗ delta-with… lead-delta… opus ✗ ◐ ● ● ● ◌ ◌  7 members     5m:~4k      1h:5k     24h:6k    24h:25%",
         "   quiet       no lead     opus                0 members",
         "   custom      lead-c      opus ●    4 other · 5 members"
       ],
@@ -12745,7 +12745,7 @@
     {
       "lines": [
         " ◆ alpha       lead-a      opus ◆ ◆ ✗          3 members      1m:1k      5m:2k      1h:3k     1h:50%",
-        " ✗ delta-with… lead-delta… opus ✗ ◐ ● ● ● ○ ○  7 members     5m:~4k      1h:5k     24h:6k    24h:25%",
+        " ✗ delta-with… lead-delta… opus ✗ ◐ ● ● ● ◌ ◌  7 members     5m:~4k      1h:5k     24h:6k    24h:25%",
         "   quiet       no lead     opus                0 members",
         "   custom      lead-c      opus ●    4 other · 5 members"
       ],
@@ -12764,7 +12764,7 @@
     {
       "lines": [
         " ◆ alpha              lead-a               opus ◆ ◆ ✗          3 members",
-        " ✗ delta-with-a-long… lead-delta-with-a-l… opus ✗ ◐ ● ● ● ○ ○  7 members",
+        " ✗ delta-with-a-long… lead-delta-with-a-l… opus ✗ ◐ ● ● ● ◌ ◌  7 members",
         "   quiet              no lead              opus                0 members",
         "   custom             lead-c               opus ●    4 other · 5 members"
       ],
@@ -12783,7 +12783,7 @@
     {
       "lines": [
         " ◆ alpha              lead-a               opus ◆ ◆ ✗          3 members",
-        " ✗ delta-with-a-long… lead-delta-with-a-l… opus ✗ ◐ ● ● ● ○ ○  7 members",
+        " ✗ delta-with-a-long… lead-delta-with-a-l… opus ✗ ◐ ● ● ● ◌ ◌  7 members",
         "   quiet              no lead              opus                0 members",
         "   custom             lead-c               opus ●    4 other · 5 members"
       ],
@@ -12802,7 +12802,7 @@
     {
       "lines": [
         " ◆ alpha              lead-a               opus ◆ ◆ ✗          3 members  ~2.0M      0",
-        " ✗ delta-with-a-long… lead-delta-with-a-l… opus ✗ ◐ ● ● ● ○ ○  7 members     2k     9k",
+        " ✗ delta-with-a-long… lead-delta-with-a-l… opus ✗ ◐ ● ● ● ◌ ◌  7 members     2k     9k",
         "   quiet              no lead              opus                0 members      –",
         "   custom             lead-c               opus ●    4 other · 5 members"
       ],
@@ -12821,7 +12821,7 @@
     {
       "lines": [
         " ◆ alpha              lead-a               opus ◆ ◆ ✗          3 members  ~2.0M      0",
-        " ✗ delta-with-a-long… lead-delta-with-a-l… opus ✗ ◐ ● ● ● ○ ○  7 members     2k     9k",
+        " ✗ delta-with-a-long… lead-delta-with-a-l… opus ✗ ◐ ● ● ● ◌ ◌  7 members     2k     9k",
         "   quiet              no lead              opus                0 members      –",
         "   custom             lead-c               opus ●    4 other · 5 members"
       ],
@@ -12840,7 +12840,7 @@
     {
       "lines": [
         " ◆ alpha              lead-a               opus ◆ ◆ ✗          3 members      5m:2k      1h:3k",
-        " ✗ delta-with-a-long… lead-delta-with-a-l… opus ✗ ◐ ● ● ● ○ ○  7 members      1h:5k     24h:6k",
+        " ✗ delta-with-a-long… lead-delta-with-a-l… opus ✗ ◐ ● ● ● ◌ ◌  7 members      1h:5k     24h:6k",
         "   quiet              no lead              opus                0 members",
         "   custom             lead-c               opus ●    4 other · 5 members"
       ],
@@ -12859,7 +12859,7 @@
     {
       "lines": [
         " ◆ alpha              lead-a               opus ◆ ◆ ✗          3 members      5m:2k      1h:3k",
-        " ✗ delta-with-a-long… lead-delta-with-a-l… opus ✗ ◐ ● ● ● ○ ○  7 members      1h:5k     24h:6k",
+        " ✗ delta-with-a-long… lead-delta-with-a-l… opus ✗ ◐ ● ● ● ◌ ◌  7 members      1h:5k     24h:6k",
         "   quiet              no lead              opus                0 members",
         "   custom             lead-c               opus ●    4 other · 5 members"
       ],
@@ -12878,7 +12878,7 @@
     {
       "lines": [
         " ◆ alpha              lead-a               opus ◆ ◆ ✗          3 members",
-        " ✗ delta-with-a-long… lead-delta-with-a-l… opus ✗ ◐ ● ● ● ○ ○  7 members",
+        " ✗ delta-with-a-long… lead-delta-with-a-l… opus ✗ ◐ ● ● ● ◌ ◌  7 members",
         "   quiet              no lead              opus                0 members",
         "   custom             lead-c               opus ●    4 other · 5 members"
       ],
@@ -12897,7 +12897,7 @@
     {
       "lines": [
         " ◆ alpha              lead-a               opus ◆ ◆ ✗          3 members",
-        " ✗ delta-with-a-long… lead-delta-with-a-l… opus ✗ ◐ ● ● ● ○ ○  7 members",
+        " ✗ delta-with-a-long… lead-delta-with-a-l… opus ✗ ◐ ● ● ● ◌ ◌  7 members",
         "   quiet              no lead              opus                0 members",
         "   custom             lead-c               opus ●    4 other · 5 members"
       ],
@@ -12916,7 +12916,7 @@
     {
       "lines": [
         " ◆ alpha            lead-a           opus ◆ ◆ ✗          3 members  ~2.0M      0",
-        " ✗ delta-with-a-lo… lead-delta-with… opus ✗ ◐ ● ● ● ○ ○  7 members     2k     9k",
+        " ✗ delta-with-a-lo… lead-delta-with… opus ✗ ◐ ● ● ● ◌ ◌  7 members     2k     9k",
         "   quiet            no lead          opus                0 members      –",
         "   custom           lead-c           opus ●    4 other · 5 members"
       ],
@@ -12935,7 +12935,7 @@
     {
       "lines": [
         " ◆ alpha            lead-a           opus ◆ ◆ ✗          3 members  ~2.0M      0",
-        " ✗ delta-with-a-lo… lead-delta-with… opus ✗ ◐ ● ● ● ○ ○  7 members     2k     9k",
+        " ✗ delta-with-a-lo… lead-delta-with… opus ✗ ◐ ● ● ● ◌ ◌  7 members     2k     9k",
         "   quiet            no lead          opus                0 members      –",
         "   custom           lead-c           opus ●    4 other · 5 members"
       ],
@@ -12954,7 +12954,7 @@
     {
       "lines": [
         " ◆ alpha        lead-a       opus ◆ ◆ ✗          3 members      5m:2k      1h:3k",
-        " ✗ delta-with-… lead-delta-… opus ✗ ◐ ● ● ● ○ ○  7 members      1h:5k     24h:6k",
+        " ✗ delta-with-… lead-delta-… opus ✗ ◐ ● ● ● ◌ ◌  7 members      1h:5k     24h:6k",
         "   quiet        no lead      opus                0 members",
         "   custom       lead-c       opus ●    4 other · 5 members"
       ],
@@ -12973,7 +12973,7 @@
     {
       "lines": [
         " ◆ alpha        lead-a       opus ◆ ◆ ✗          3 members      5m:2k      1h:3k",
-        " ✗ delta-with-… lead-delta-… opus ✗ ◐ ● ● ● ○ ○  7 members      1h:5k     24h:6k",
+        " ✗ delta-with-… lead-delta-… opus ✗ ◐ ● ● ● ◌ ◌  7 members      1h:5k     24h:6k",
         "   quiet        no lead      opus                0 members",
         "   custom       lead-c       opus ●    4 other · 5 members"
       ],

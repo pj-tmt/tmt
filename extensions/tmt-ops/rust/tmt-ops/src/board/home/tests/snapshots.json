@@ -3,7 +3,7 @@
     "scenario": "quiet",
     "width": 160,
     "lines": [
-      "1 squads · 2 members   ◆ 0 waiting on you  ✗ 0 blocked  ◐ 0 review  ● 1 working  ○ 1 idle",
+      "1 squads · 2 members   ◆ 0 waiting on you  ✗ 0 blocked  ◐ 0 review  ● 1 working  ◌ 1 idle",
       "",
       "── ◆ needs you · 0 · nothing waits on you ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
       "",
@@ -14,7 +14,7 @@
       "→ all leads  A to write · @ to pick",
       "",
       "── squads · 1 ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
-      "   a lead-a ○  1 member",
+      "   a lead-a ◌  1 member",
       "",
       "",
       "",
@@ -34,7 +34,7 @@
     "scenario": "quiet",
     "width": 100,
     "lines": [
-      "1 squads  ◆ 0  ✗ 0  ◐ 0  ● 1  ○ 1",
+      "1 squads  ◆ 0  ✗ 0  ◐ 0  ● 1  ◌ 1",
       "",
       "── ◆ needs you · 0 · nothing waits on you ──────────────────────────────────────────────────────────",
       "",
@@ -45,7 +45,7 @@
       "→ all leads  A to write · @ to pick",
       "",
       "── squads · 1 ──────────────────────────────────────────────────────────────────────────────────────",
-      "   a lead-a ○  1 member",
+      "   a lead-a ◌  1 member",
       "",
       "",
       "",
@@ -65,7 +65,7 @@
     "scenario": "quiet",
     "width": 80,
     "lines": [
-      "1 squads  ◆ 0  ✗ 0  ◐ 0  ● 1  ○ 1",
+      "1 squads  ◆ 0  ✗ 0  ◐ 0  ● 1  ◌ 1",
       "",
       "── ◆ needs you · 0 · nothing waits on you ──────────────────────────────────────",
       "",
@@ -76,7 +76,7 @@
       "→ all leads  A to write · @ to pick",
       "",
       "── squads · 1 ──────────────────────────────────────────────────────────────────",
-      "   a lead-a ○  1 member",
+      "   a lead-a ◌  1 member",
       "",
       "",
       "",
@@ -96,7 +96,7 @@
     "scenario": "waiting",
     "width": 160,
     "lines": [
-      "1 squads · 2 members   ◆ 1 waiting on you  ✗ 1 blocked  ◐ 0 review  ● 1 working  ○ 0 idle",
+      "1 squads · 2 members   ◆ 1 waiting on you  ✗ 1 blocked  ◐ 0 review  ● 1 working  ◌ 0 idle",
       "",
       "",
       "── ◆ needs you · 1 ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
@@ -127,7 +127,7 @@
     "scenario": "waiting",
     "width": 100,
     "lines": [
-      "1 squads  ◆ 1  ✗ 1  ◐ 0  ● 1  ○ 0",
+      "1 squads  ◆ 1  ✗ 1  ◐ 0  ● 1  ◌ 0",
       "",
       "",
       "── ◆ needs you · 1 ─────────────────────────────────────────────────────────────────────────────────",
@@ -158,7 +158,7 @@
     "scenario": "waiting",
     "width": 80,
     "lines": [
-      "1 squads  ◆ 1  ✗ 1  ◐ 0  ● 1  ○ 0",
+      "1 squads  ◆ 1  ✗ 1  ◐ 0  ● 1  ◌ 0",
       "",
       "",
       "── ◆ needs you · 1 ─────────────────────────────────────────────────────────────",
@@ -189,7 +189,7 @@
     "scenario": "blocked",
     "width": 160,
     "lines": [
-      "1 squads · 2 members   ◆ 0 waiting on you  ✗ 1 blocked  ◐ 0 review  ● 1 working  ○ 0 idle",
+      "1 squads · 2 members   ◆ 0 waiting on you  ✗ 1 blocked  ◐ 0 review  ● 1 working  ◌ 0 idle",
       "",
       "── ◆ needs you · 0 · nothing waits on you ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
       "",
@@ -220,7 +220,7 @@
     "scenario": "blocked",
     "width": 100,
     "lines": [
-      "1 squads  ◆ 0  ✗ 1  ◐ 0  ● 1  ○ 0",
+      "1 squads  ◆ 0  ✗ 1  ◐ 0  ● 1  ◌ 0",
       "",
       "── ◆ needs you · 0 · nothing waits on you ──────────────────────────────────────────────────────────",
       "",
@@ -251,7 +251,7 @@
     "scenario": "blocked",
     "width": 80,
     "lines": [
-      "1 squads  ◆ 0  ✗ 1  ◐ 0  ● 1  ○ 0",
+      "1 squads  ◆ 0  ✗ 1  ◐ 0  ● 1  ◌ 0",
       "",
       "── ◆ needs you · 0 · nothing waits on you ──────────────────────────────────────",
       "",
@@ -282,7 +282,7 @@
     "scenario": "many-squads",
     "width": 160,
     "lines": [
-      "14 squads · 14 members   ◆ 0 waiting on you  ✗ 0 blocked  ◐ 0 review  ● 14 working  ○ 0 idle",
+      "14 squads · 14 members   ◆ 0 waiting on you  ✗ 0 blocked  ◐ 0 review  ● 14 working  ◌ 0 idle",
       "",
       "── ◆ needs you · 0 · nothing waits on you ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
       "",
@@ -313,7 +313,7 @@
     "scenario": "many-squads",
     "width": 100,
     "lines": [
-      "14 squads  ◆ 0  ✗ 0  ◐ 0  ● 14  ○ 0",
+      "14 squads  ◆ 0  ✗ 0  ◐ 0  ● 14  ◌ 0",
       "",
       "── ◆ needs you · 0 · nothing waits on you ──────────────────────────────────────────────────────────",
       "",
@@ -344,7 +344,7 @@
     "scenario": "many-squads",
     "width": 80,
     "lines": [
-      "14 squads  ◆ 0  ✗ 0  ◐ 0  ● 14  ○ 0",
+      "14 squads  ◆ 0  ✗ 0  ◐ 0  ● 14  ◌ 0",
       "",
       "── ◆ needs you · 0 · nothing waits on you ──────────────────────────────────────",
       "",

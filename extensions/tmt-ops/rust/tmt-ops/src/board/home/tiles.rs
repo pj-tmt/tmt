@@ -302,7 +302,7 @@ fn member_pieces(counts: &Counts, width: u16) -> Vec<Piece> {
         ('✗', counts.blocked, Role::Blocked),
         ('◐', counts.review, Role::Review),
         ('●', counts.working, Role::Working),
-        ('○', counts.idle, Role::Dim),
+        ('◌', counts.idle, Role::Dim),
     ] {
         let shown = count.min(remaining / 2);
         pieces.push((format!("{mark} ").repeat(shown), role));

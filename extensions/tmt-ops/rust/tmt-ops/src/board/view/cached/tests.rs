@@ -50,7 +50,7 @@ fn opening_paints_the_stored_rows_with_their_age_until_fresh_rows_replace_them()
     let screen = draw(&app, 60, 8).join("\n");
     assert!(screen.contains("product · cached 2m ago"), "{screen}");
     assert!(screen.contains("● alice  working  ship it"), "{screen}");
-    assert!(screen.contains("○ bob    idle"), "{screen}");
+    assert!(screen.contains("◌ bob    idle"), "{screen}");
 
     app.apply(snapshot(
         "product",
@@ -175,8 +175,8 @@ fn home_lines_show_squad_counts_and_who_needs_you() {
     assert_eq!(
         text,
         [
-            " infra    ◆ 1  ✗ 0  ● 1  ○ 1  lead ivy",
-            " product  ◆ 0  ✗ 1  ● 1  ○ 1  ",
+            " infra    ◆ 1  ✗ 0  ● 1  ◌ 1  lead ivy",
+            " product  ◆ 0  ✗ 1  ● 1  ◌ 1  ",
             "",
             " Needs you",
             " ◆ alice · infra",
