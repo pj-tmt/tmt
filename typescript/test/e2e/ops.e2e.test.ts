@@ -125,11 +125,18 @@ describe('squad on a private tmux server', { concurrent: false }, () => {
         const shell = fixture.createShellPane('pending-migration-board');
         fixture.tmux(['select-window', '-t', shell.pane]);
         fixture.tmux(['resize-window', '-t', shell.pane, '-x', String(width), '-y', '24']);
+        // tmux changes the pane's tty size a moment after the resize returns. A board
+        // started before that reads the old size, then clears and repaints the screen
+        // when the new one arrives, which a capture can land in the middle of.
+        const ttySize = fixture
+          .tmux(['display-message', '-p', '-t', shell.pane, '#{pane_height} #{pane_width}'])
+          .trim();
         fixture.tmux([
           'send-keys',
           '-t',
           shell.pane,
-          `${noColor ? 'NO_COLOR=1 ' : ''}tmt ops ui --squad product; echo MIGRATION_BOARD_EXIT=$?`,
+          `until [ "$(stty size)" = "${ttySize}" ]; do sleep 0.02; done; ` +
+            `${noColor ? 'NO_COLOR=1 ' : ''}tmt ops ui --squad product; echo MIGRATION_BOARD_EXIT=$?`,
           'Enter',
         ]);
         await fixture.waitForCapture(
