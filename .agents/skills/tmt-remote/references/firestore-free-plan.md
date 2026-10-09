@@ -79,3 +79,12 @@ the machine cannot observe them, and layer-1 traffic goes browser to Firestore. 
 recorded deployment therefore does not make sharing read enabled; a later readiness decision
 must supply the tier treatment and quota source. The deployed-artifact emulator fixture
 proves Rules admission only, not Firebase provisioning or free-plan capacity.
+
+## Provider deployment
+
+The library-only `deploy_firestore` adapter counts all live field configurations, including
+unrelated ones, before adding a new configuration. Adding an index to an existing configuration
+preserves its other indexes and TTL policy. Bounded inventory failure refuses allocation;
+provider quota refusals use the fixed quota code, and a lost mutation reply stays unknown.
+These checks do not observe the project's daily traffic quota or prove its plan tier. The
+adapter is not yet wired to a CLI command; real-project proof requires separate owner approval.

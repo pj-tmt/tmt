@@ -587,7 +587,7 @@ requests use a fresh envelope ID; original-operation lookup never adopts or exec
 | `remote.devices.list`         | `{cursor:null\|string,limit:integer}`                                                                            | Device page below; limit 1–50                                          |
 | `remote.settings.set`         | `{operationId,setting:"open",value:boolean}` or `{operationId,setting:"sessions-per-device",value:string\|null}` | Management outcome below                                               |
 | `remote.devices.rename`       | `{operationId,clientId,name}`                                                                                    | Management outcome; existing 1–64-byte nonblank/control-free name rule |
-| `remote.devices.talk`         | `{operationId,clientId,enabled:boolean}`                                                                           | Management outcome; changes only the talk scope                         |
+| `remote.devices.talk`         | `{operationId,clientId,enabled:boolean}`                                                                         | Management outcome; changes only the talk scope                        |
 | `remote.devices.revoke`       | `{operationId,clientId}`                                                                                         | Management outcome                                                     |
 | `remote.management.operation` | `{operationId}`                                                                                                  | Only the caller's original management outcome, with a live grant       |
 
@@ -1755,8 +1755,13 @@ the old binding and reports partial Rules. Plan tier and quota stay unknown: the
 cannot observe them, and layer-1 traffic goes from the browser to Firestore, so sharing stays
 unknown even after a complete recorded deployment. Enabling that projection needs a later
 readiness decision. A checked emulator artifact is byte-bound to the real deployment output;
-it proves Rules behavior, not provisioning or quota. Installed declaration discovery, the
-real provider adapter and CLI registration remain later prerequisites.
+it proves Rules behavior, not provisioning or quota. Installed declaration discovery and
+CLI registration remain later prerequisites. The real provider adapter is library-only and
+not reachable from the CLI; it uses a version-gated firebase-tools login in an owned bounded
+child, emits only fixed diagnostics and never automatically retries mutations. Rules switching
+requires a single-writer project because no atomic provider precondition exists: re-read before
+the final switch and exact read-back after it detect visible drift or report unknown without
+a binding; they cannot exclude an interleaving writer.
 
 [Start and pair](#provisioning-on-start-and-pair) automatically prepare the namespaces/bridge of
 already authorized local or deployed resources and publish the device admission projection. They
