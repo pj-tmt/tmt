@@ -117,10 +117,12 @@ impl Worker {
                         crate::status::now_ms(),
                     );
                     let sent = timing::measure(trace.as_ref(), "snapshot_publish", || {
-                        events.send(super::BoardEvent::Snapshot {
-                            cancellation: cancellation.clone(),
-                            snapshot: Box::new(snapshot),
-                        })
+                        events
+                            .send(super::BoardEvent::Snapshot {
+                                cancellation: cancellation.clone(),
+                                snapshot: Box::new(snapshot),
+                            })
+                            .map_err(|_| ())
                     })
                     .is_ok();
                     if sent
