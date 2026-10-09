@@ -8,40 +8,39 @@ import {
   $createTextNode,
   $getRoot,
   $isTextNode,
-  TextNode,
+  DecoratorNode,
   type LexicalNode,
   type NodeKey,
-  type EditorConfig,
-  type SerializedTextNode,
+  type SerializedLexicalNode,
   type Spread,
 } from 'lexical';
+import { createElement, type ReactNode } from 'react';
+import { MessageMentionChip } from './message-mention-chip.js';
 import { resolveMessageMentions } from '../message-recipient.js';
 import type { AgentDestination } from '../live-ask.js';
 import type { ComposerEdit, RecipientKey } from './message-composer-edit.js';
 
-type SerializedMention = Spread<{ recipient: RecipientKey; token: string }, SerializedTextNode>;
+type SerializedMention = Spread<{ recipient: RecipientKey; token: string }, SerializedLexicalNode>;
 
 /** Editing tokens only; the parent revalidates their UUID keys before every Send. */
-export class MessageMentionNode extends TextNode {
+export class MessageMentionNode extends DecoratorNode<ReactNode> {
   __recipient: RecipientKey;
   __token: string;
   static getType() {
     return 'message-mention';
   }
   static clone(node: MessageMentionNode) {
-    return new MessageMentionNode(node.__text, node.__recipient, node.__token, node.__key);
+    return new MessageMentionNode(node.__token, node.__recipient, node.__key);
   }
-  constructor(text: string, recipient: RecipientKey, token = text, key?: NodeKey) {
-    super(text, key);
+  constructor(token: string, recipient: RecipientKey, key?: NodeKey) {
+    super(key);
     this.__recipient = recipient;
     this.__token = token;
   }
   static importJSON(serialized: SerializedMention) {
-    return new MessageMentionNode(
-      serialized.text,
-      serialized.recipient,
-      serialized.token,
-    ).updateFromJSON(serialized);
+    return new MessageMentionNode(serialized.token, serialized.recipient).updateFromJSON(
+      serialized,
+    );
   }
   exportJSON(): SerializedMention {
     return {
@@ -51,13 +50,29 @@ export class MessageMentionNode extends TextNode {
       token: this.__token,
     };
   }
-  createDOM(config: EditorConfig) {
-    const node = super.createDOM(config);
-    node.classList.add('message-mention');
+  createDOM() {
+    const node = document.createElement('span');
+    node.className = 'message-mention-host';
     return node;
   }
-  isTextEntity() {
+  updateDOM() {
+    return false;
+  }
+  exportDOM() {
+    return { element: document.createTextNode(this.getTextContent()) };
+  }
+  isInline() {
     return true;
+  }
+  getTextContent() {
+    return this.__token;
+  }
+  decorate() {
+    return createElement(MessageMentionChip, {
+      nodeKey: this.getKey(),
+      token: this.__token,
+      recipient: this.__recipient,
+    });
   }
 }
 
@@ -96,8 +111,8 @@ export function $messageMentions(): NonNullable<ComposerEdit['mentions']> {
   let offset = 0;
   const mentions: NonNullable<ComposerEdit['mentions']> = [];
   function visit(node: LexicalNode) {
-    if ($isTextNode(node)) {
-      if (node instanceof MessageMentionNode && node.getTextContent() === node.__token)
+    if (node instanceof MessageMentionNode || $isTextNode(node)) {
+      if (node instanceof MessageMentionNode)
         mentions.push({
           key: node.__recipient,
           range: { start: offset, end: offset + node.getTextContentSize() },

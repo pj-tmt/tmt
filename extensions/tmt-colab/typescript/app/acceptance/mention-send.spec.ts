@@ -24,6 +24,12 @@ test('visible mentions fan out one recorded Chat turn to live and offline saved 
     const panel = page.getByTestId('chat-panel');
     const input = panel.getByRole('combobox', { name: 'Message', exact: true });
     await expect(input).toHaveText(`@${alpha.name} `, { useInnerText: true });
+    await input.getByRole('button', { name: /^Remove mention:/ }).press('Enter');
+    await expect(input.locator('.message-mention')).toHaveCount(0);
+    await expect(input).toHaveText(' ', { useInnerText: true });
+    expect(world.coreCalls().filter((call) => call.operation === 'dispatch.create')).toHaveLength(
+      0,
+    );
     await input.fill(
       `@${alpha.name} @${beta.name} @${alpha.name} @${offline.name} <script>Keep exact bytes.</script>`,
     );

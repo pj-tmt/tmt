@@ -113,26 +113,26 @@ export function AnnotationInput({
   }, [value, edit]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => onBusy?.(busy), [busy]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
-    if (initialized.current || directory.state !== 'ready') return;
+    if (initialized.current || directory.state === 'loading') return;
     initialized.current = true;
-    const matches = creationRecipient
-      ? directory.agents.filter(
-          (agent) =>
-            agent.machine === creationRecipient.machineId &&
-            agent.agent === creationRecipient.agentId,
-        )
-      : [];
+    const matches =
+      creationRecipient && directory.state === 'ready'
+        ? directory.agents.filter(
+            (agent) =>
+              agent.machine === creationRecipient.machineId &&
+              agent.agent === creationRecipient.agentId,
+          )
+        : [];
     setEdit((previous) => {
-      if (previous.value || previous.edited || matches.length !== 1)
+      if (previous.value || previous.edited || !creationRecipient)
         return { ...previous, edited: previous.edited ?? false };
-      const agent = matches[0],
-        token = `@${agent.agentName}`;
+      const token = `@${matches.length === 1 ? matches[0].agentName : text.messageCreator}`;
       return {
         value: `${token} `,
         edited: false,
         mentions: [
           {
-            key: { machine: agent.machine, agent: agent.agent },
+            key: { machine: creationRecipient.machineId, agent: creationRecipient.agentId },
             range: { start: 0, end: token.length },
           },
         ],

@@ -366,7 +366,7 @@ test('status copy preserves every ledger outcome and explicit trusted tracking a
   expect((await run(page, 'proof')).sends).toEqual([]);
 });
 
-test('mention tokens use the same neutral styling before and after explicit send; annotation keeps its composer instance', async ({
+test('editable mention chips send only their original text; annotation keeps its composer instance', async ({
   page,
 }) => {
   await annotate(page);
@@ -378,11 +378,10 @@ test('mention tokens use the same neutral styling before and after explicit send
   await input.press('End');
   await page.keyboard.type('Explain this. @someone');
   const token = input.locator('.message-mention');
-  await expect(token).toHaveText('@Agent 1');
-  const before = await token.evaluate((node) => {
-    const style = getComputedStyle(node);
-    return [style.backgroundColor, style.padding, style.border, style.borderRadius];
-  });
+  await expect(token.locator('.message-mention-name')).toHaveText('@Agent 1');
+  await expect(token.getByRole('button', { name: /^Remove mention:/ })).toBeVisible();
+  await expect(token).toHaveCSS('border-top-width', '1px');
+  await expect(token).toHaveCSS('border-radius', '0px');
   await input.press('Enter');
   // The double publishes the admitted Ask attribution separately, like the signed own stream.
   await run(page, 'windowReply');
@@ -393,12 +392,7 @@ test('mention tokens use the same neutral styling before and after explicit send
   const sent = thread.locator('.comment-body .message-mention');
   await expect(sent).toHaveCount(1);
   await expect(sent).toHaveText('@Agent 1');
-  expect(
-    await sent.evaluate((node) => {
-      const style = getComputedStyle(node);
-      return [style.backgroundColor, style.padding, style.border, style.borderRadius];
-    }),
-  ).toEqual(before);
+  await expect(sent.getByRole('button')).toHaveCount(0);
   expect((await run(page, 'proof')).sends).toHaveLength(1);
 });
 

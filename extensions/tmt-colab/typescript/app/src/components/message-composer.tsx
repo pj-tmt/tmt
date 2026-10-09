@@ -14,10 +14,13 @@ import {
   CLEAR_HISTORY_COMMAND,
   defineExtension,
   HISTORY_PUSH_TAG,
+  KEY_DOWN_COMMAND,
+  COMMAND_PRIORITY_HIGH,
 } from 'lexical';
 import { resolveMessageMentions } from '../message-recipient.js';
 import { Listbox } from './listbox.js';
 import type { MessageComposerProps } from './message-composer-edit.js';
+import { MessageMentionContext } from './message-mention-chip.js';
 import {
   $bindMessageMentions,
   $messageCaret,
@@ -46,9 +49,11 @@ const extension = defineExtension({
 /** One plaintext editing boundary; the parent owns draft, recipients, admission and effects. */
 export function MessageComposer(props: MessageComposerProps) {
   return (
-    <LexicalExtensionComposer extension={extension} contentEditable={null}>
-      <MessageField {...props} />
-    </LexicalExtensionComposer>
+    <MessageMentionContext value={{ candidates: props.candidates, disabled: props.disabled }}>
+      <LexicalExtensionComposer extension={extension} contentEditable={null}>
+        <MessageField {...props} />
+      </LexicalExtensionComposer>
+    </MessageMentionContext>
   );
 }
 
@@ -103,10 +108,12 @@ function MessageField(props: MessageComposerProps) {
     }
   }, [editor, props.edit.value, props.edit.mentions, props.resetKey, setOpen]);
   useEffect(() => {
-    const transform = editor.registerNodeTransform(MessageMentionNode, (node) => {
-      if (node.getTextContent() !== node.__token)
-        node.replace($createTextNode(node.getTextContent()));
-    });
+    const chipKeys = editor.registerCommand(
+      KEY_DOWN_COMMAND,
+      (event) =>
+        event.target instanceof HTMLElement && !!event.target.closest('.message-mention-chip'),
+      COMMAND_PRIORITY_HIGH,
+    );
     const bind = editor.registerNodeTransform(TextNode, () => {
       if (!editor.isComposing() && current.current.candidates)
         $bindMessageMentions(current.current.candidates);
@@ -135,6 +142,8 @@ function MessageField(props: MessageComposerProps) {
               mentions,
               edited: previous.edited,
             });
+          // The IME owns its transient selection; keep the open list's query/highlight until commit.
+          if (editor.isComposing()) return;
           setSuggestions((previous) => {
             const queryChanged =
               nextQuery?.start !== previous.query?.start ||
@@ -153,7 +162,7 @@ function MessageField(props: MessageComposerProps) {
       },
     );
     return () => {
-      transform();
+      chipKeys();
       bind();
       listener();
     };
@@ -207,6 +216,10 @@ function MessageField(props: MessageComposerProps) {
                   data-placeholder={props.placeholder}
                   onKeyDownCapture={(event) => {
                     const native = event.nativeEvent;
+                    // Chip actions keep their native keyboard activation; Enter here must not Send.
+                    if ((event.target as HTMLElement).closest('.message-mention')) {
+                      return;
+                    }
                     if (
                       !native.isTrusted ||
                       native.isComposing ||
