@@ -43,8 +43,8 @@ Read the repository guidance before planning work:
    documented in DEVELOPMENT;
    keep direct runtime-caller positive controls fenced rather than adding
    scenario skips or production guard overrides.
-   Rust executable-fixture changes follow DEVELOPMENT's
-   [three ETXTBSY cases](../../../DEVELOPMENT.md#rust-checks) and the narrowly owned
+   Rust executable-fixture changes follow the focused checks'
+   [three ETXTBSY cases](references/focused-checks.md#executable-fixtures-and-snapshots) and the narrowly owned
    publication boundary in ARCHITECTURE. Verify its exact dev edges with the
    native architecture test before each Rust push.
 5. Close the bounded review when relevant evidence supports the agreed behavior,

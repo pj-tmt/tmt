@@ -86,3 +86,51 @@ must suppress foreground collection too.
   Fixtures own their terminals and HOMEs; never use a real shell startup file. Run the CLI
   style and architecture guards with these checks.
 - Skill reminder hints: `cargo test --locked -p tmt-cli --bin tmt skill_reminder`.
+
+## Local MCP
+
+From `rust/`, run `cargo test --offline --locked -p tmt-adapters mcp::tests`
+and `cargo test --offline --locked -p tmt-cli --test mcp` with
+`CARGO_BUILD_JOBS=2`. These need no provider credentials or tmux; the
+[MCP contract](../../../../contracts/mcp-v1.md) owns the interface.
+
+## Executable fixtures and snapshots
+
+**ETXTBSY.** A fixture that writes an executable and runs it can fail with
+"Text file busy": another test thread's `fork` holds a copy of the write
+descriptor until the child's `exec`. Production code never retries it. Pick the
+rule by who writes and who runs:
+
+- The test writes a script and controls how it runs: run `/bin/sh <script>`.
+- The test writes a stand-in something else execs by path (a fake `tmt` or `tmux`
+  on `PATH`): publish it with the dev-only
+  `tmt-test-support::write_executable(path, bytes, mode)` (short-lived `sh`
+  writer, cleared environment, thirty-second bound, no retries; keep the 0700 or
+  0755 mode).
+- The product writes then execs (an installer and its verifier): wait out the
+  window with a bounded retry of only that error in the fixture.
+
+In `typescript/test`, publish every written executable or interpreted fixture
+through `test/support/executable-fixture.mjs` (`writeExecutable`); synthetic
+installers use its `--write FILE MODE` entry point. Never replace malformed
+fixture bytes, add ETXTBSY retries or extend deadlines. For publication and
+dependency changes also run `cargo test --locked -p tmt-test-support` and the
+architecture test, which checks the exact dev consumers of the support crate.
+
+**Snapshots.** `insta` snapshots live beside their tests (for example
+`rust/crates/tmt-cli-style/tests/snapshots/`). After an intended change run
+`INSTA_UPDATE=always cargo test -p <crate>`, delete leftover `*.snap.new` files and
+review the diff. CI never updates snapshots.
+
+## Architecture guard
+
+`rust/crates/tmt-cli/tests/architecture.rs` is a test-only import and dependency
+guard. One reviewed manifest table owns the fixed workspace package names and
+their manifest locations. The guard follows the actual Rust module tree, checks
+reviewed layer edges and shared declaration ownership, and keeps an exact
+dev-dependency ledger (crate, canonical name and target, with a reason per row);
+aliases are rejected and the invoke leaf is guarded for every dependency kind. It
+fails closed on unsupported module remapping or incomplete discovery, checks that
+CLI crates reach the terminal only through `tmt_cli_style::stream`, and walks each
+CLI's grammar against the style ([enforcement](../../../../design/cli-style.md#enforcement)).
+It is a syntactic guard and never replaces review of behavior or effects.

@@ -88,7 +88,9 @@ channels and the driver protocol. The owner map is in
   each call with its own deadline. Without `input`, a send is `Unsupported`, the request is
   kept and `--inbox` queues.
 - `rust/crates/tmt-driver-herdr` depends only on the protocol crate, `tmt-invoke`, `serde_json`
-  and `semver`, never on core or adapters, and has no `tmt-cli` edge. Its marker tokens match
+  and `semver`, never on core or adapters, and has no `tmt-cli` edge. The CLI
+  product still admits `tmt-driver-herdr` as an optional archive companion; Herdr
+  also has independent alpha archives. Its marker tokens match
   the former built-in host byte for byte (`src/fixtures/builtin-marker.json`); its `input`
   refuses CR/LF because a line break would submit before core's Enter.
 
@@ -101,12 +103,15 @@ channels and the driver protocol. The owner map is in
 - A runtime driver's hook path is declarative (`RuntimeDeclaration` plus `decode_hook`, no
   process); only `locations`, `resume` and `usage` run the driver. The client validates the
   `locations` answer and calls `within(home)` before admitting write targets; approval alone
-  writes no provider files.
+  writes no provider files. The external runtime protocol is defined, but core
+  launch, provider hooks and setup do not consume it.
 
 ## Agent drivers
 
-- One `DriverDescriptor` plus one adapter module per driver; `drivers::Registry` joins them
-  in descriptor order and a test requires one adapter module per descriptor. `locate`
+- One `DriverDescriptor` (name, executables, hook format and display hue) plus one
+  adapter module per driver; `drivers::Registry` joins them in descriptor order for
+  setup, detection, skill targets, launch, runtime registration and caller recognition.
+  A test requires one adapter module per descriptor. `locate`
   resolves everything against one captured `ProviderEnvironment`; Claude resolves a nonempty
   `CLAUDE_CONFIG_DIR` against the captured working directory, otherwise `~/.claude`, and
   empty counts as unset.
@@ -117,6 +122,11 @@ channels and the driver protocol. The owner map is in
   uncertain; only unsupported falls through automatically. The `session` interface kind is
   reserved, not shipped.
 
+- Pure declarations live in `tmt-core/src/driver/descriptor.rs` and
+  `tmt_core::driver::ALL`; adapter implementations live in `drivers/<name>.rs`.
+  Only these owners spell a driver's name; the architecture guard rejects exact
+  driver-name production literals elsewhere.
+
 ## Provider channels
 
 - `tmt run --channel` (`run_command/channel.rs`) is the only entry that enrolls.
@@ -125,7 +135,7 @@ channels and the driver protocol. The owner map is in
   binding authority and pane enrollment evidence allow; the launcher never recovers
   unconfirmed failed-start evidence to obtain the fallback.
 - The port (`tmt_adapters::runtime::channel`) stays free of provider and transport
-  dependencies. The driver persists pane attribution before the child starts and owns
+  dependencies; CLI channel policy has no provider-name branch. The driver persists pane attribution before the child starts and owns
   everything proving a cleanup is for exactly that launch; the CLI neither parses provider
   arguments nor inspects the lease. The launcher calls `foreground_started` once with the exact
   child incarnation, before admission, and retires the lease only when no child was spawned or
@@ -158,3 +168,9 @@ channels and the driver protocol. The owner map is in
   adapter-local with default features off. Codex owns folder-trust onboarding. Only
   `provider_hook_command::verified_caller` uses `Storage::context_by_binding`, after
   `ChannelObservation::verified_binding`.
+
+Each provider keeps record layout, locking and launch comparisons private; record
+and socket mutations prove generation and launch ownership before replacing enrollment.
+`tmt channel inspect|recover` publishes driver reports without owning record logic.
+`delivery::guarded_paste` and `delivery::pane_channel_evidence` are the only paste
+gates; absence of a record under a stored binding alone never permits paste.

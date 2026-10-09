@@ -147,33 +147,23 @@ symbol, description and style token.
 
 Office is frozen and lives outside core: see
 [`extensions/tmt-office/docs/architecture.md`](extensions/tmt-office/docs/architecture.md).
-Core keeps only the reserved `tmt office` facade (`tmt-cli/src/office_facade.rs`),
-retained extraction debt tracked by #355 and #328; the architecture guard lists the
-remaining `office_*` adapter modules and rejects any new one.
+Core keeps only the reserved `tmt office` facade (`tmt-cli/src/office_facade.rs`);
+the architecture guard rejects Office modules in core crates except that facade.
 
 `rust/crates/tmt-tui` is an internal, unpublished, application-neutral presentation
 leaf for TMT terminal UIs (markup admission, one Taffy geometry computation, Ratatui
-paint, reusable components). It has no Squad vocabulary, acquires no terminal, clock,
+paint, reusable components). It has no application vocabulary, acquires no terminal, clock,
 settings or provider data, and takes its tokens from `tmt-cli-style` roles. The guard
 permits only XML parsing, borrowed JSON, shared style, private Taffy and Ratatui, never
-core, adapters, CLI or extension behavior. Its fixed status slot takes caller text/age
-and frame indices, paints without layout, and stays static under NO_COLOR. Ops is its sole
-reviewed consumer; new consumers/dependencies go to tmt-lead. See the [`tmt-tui` skill](.agents/skills/tmt-tui/SKILL.md).
+core, adapters, CLI or extension behavior. Ops is its sole reviewed consumer;
+new consumers/dependencies go to tmt-lead. See the [`tmt-tui` skill](.agents/skills/tmt-tui/SKILL.md).
 
 `rust/crates/tmt-invoke` owns neutral executable discovery, bounded waited byte
 capture and the shared browser-opening policy, discovery and launch. It takes plain
 inputs and has no TMT dependencies; Colab and Remote own CLI interaction and presentation.
 
-`rust/crates/tmt-cli/tests/architecture.rs` is a test-only import and dependency
-guard. One reviewed manifest table owns the fixed workspace package names and
-their manifest locations. The guard follows the actual Rust module tree, checks
-reviewed layer edges and shared declaration ownership, and keeps an exact
-dev-dependency ledger (crate, canonical name and target, with a reason per row);
-aliases are rejected and the invoke leaf is guarded for every dependency kind. It
-fails closed on unsupported module remapping or incomplete discovery, checks that
-CLI crates reach the terminal only through `tmt_cli_style::stream`, and walks each
-CLI's grammar against the style ([enforcement](design/cli-style.md#enforcement)).
-It is a syntactic guard and never replaces review of behavior or effects.
+`rust/crates/tmt-cli/tests/architecture.rs` owns the syntactic module/dependency guard;
+[Development](DEVELOPMENT.md#architecture-guard) owns its checks. It supplements behavior review.
 `tmt-sys` is the single audited `unsafe` boundary: only `tmt-adapters` may depend
 on it and every other crate forbids unsafe code.
 
@@ -212,8 +202,7 @@ fields; incompatible changes need a new major. `extensions.uses` answers an exte
 receipts only (no network, storage or extension process); the extension checks it
 when the feature starts. Human-shaped operations remain their
 ordinary JSON commands, not duplicate API implementations. The
-[extension API contract](contracts/extension-api.md) owns operations, bounds,
-dispatch readiness and input safety, history, cache-write and per-turn consumption model attribution.
+[extension API contract](contracts/extension-api.md) owns the protocol and operation contracts.
 
 ### Local MCP (v1)
 
@@ -237,18 +226,19 @@ nothing. Verified former-product replacement withdraws the former extension's ho
 
 ### Core command surface
 
-The grammar owns primary names and accepted aliases (`ls`, `rm`, `mv`, `show`; long
-spellings are hidden aliases). Core names and aliases are reserved before external
-dispatch. The maintained surface is: local setup and guidance (`init`, `config`,
-`completion`, `learn`, `install`); identity and binding commands (`identity`, `ls`,
-`add`, `name`/`this`, `whoami`, `unbind`, `rm`, `mv`, `notes path`); the local
-extension interface (`api`, `mcp`); profile and exchange commands (`role`,
-`preamble`, `x`, `reply`, `result`, `inbox`, `answer`, `talk`/`send`,
-`check`/`read`); `focus`; managed native updates (`upgrade`/`update`, with hidden
-`__native-install` and `__native-refresh-skills`); and `extension` and the frozen
-`office` facade. Output is plain-table, JSON or both from one typed result;
-`identity show` without a name uses the shared verified-caller selector and never
-falls back to a working directory, active pane or sole identity.
+The grammar owns primary names and accepted aliases; core reserves them before
+external dispatch. The public surface groups into setup and guidance (`init`,
+`config`, `completion`, `help`, `learn`, `install`, `setup`); identities and
+bindings (`identity`, `ls`, `add`, `name`/`this`, `marked`, `whoami`, `unbind`,
+`rm`, `mv`, `notes path`); foreground launch and channels (`run`, `resume`,
+`channel`); profiles and exchange (`role`, `preamble`, `x`, `reply`, `result`,
+`inbox`, `answer`, `talk`/`send`, `check`/`read`); rooms and recovery (`room`,
+`workspace`); `focus`; local extension interfaces (`api`, `mcp`); native
+installation (`upgrade`/`update`, `uninstall`, `extension`, `driver`); and the
+frozen `office` facade. Hidden internal commands are not a public surface.
+Output uses one typed result for human and JSON projections; `identity show`
+without a name uses the shared verified-caller selector and never falls back to
+a working directory, active pane or sole identity.
 
 ## Domain and state ownership
 
@@ -278,8 +268,7 @@ falls back to a working directory, active pane or sole identity.
   Bounded callbacks exit zero; `tmt run` composes Claude/Codex Focus hooks with stable definitions. Persistent
   provider configuration changes only through consented `tmt setup`.
 - `tmt-core::endpoint::ProcessIncarnation` (PID plus core's own start token) is the
-  one value for comparing local processes. `tmt-sys` is the single `unsafe`
-  boundary.
+  one value for comparing local processes.
 - Concrete implementations: `storage::{identities,identity_metadata,identity_status,bindings}`
   and `tmux::{metadata,evidence,binding,caller,transport}`; `binding_command`
   performs caller/target preflight and composes them. Module rules:
@@ -355,69 +344,28 @@ fullwidth `！` in any text typed into a pane. Details are in the
 
 ### Agent drivers
 
-Each agent driver is one declarative `DriverDescriptor` (name, executables, hook
-format, display hue; pure data in `tmt-core/src/driver/descriptor.rs`, listed in
-`tmt_core::driver::ALL`) plus one adapter module in
-`tmt-adapters/src/drivers/<name>.rs` holding `locate` and the runtime.
-`drivers::Registry` joins them in descriptor order for setup, detection, skill
-targets, `run`, the runtime registry and caller recognition, and a test requires one
-adapter module per descriptor. Detection reads only the filesystem and never starts
-an agent. Only those two places spell a driver's name; the tmt-cli architecture test
-fails on a production string literal equal to one elsewhere.
+Each agent driver has one pure `DriverDescriptor` and one adapter module;
+`drivers::Registry` composes detection, setup, launch and caller recognition.
+Detection never starts an agent. Module rules and name ownership:
+[agent drivers](.agents/skills/tmt-core-runtime/references/hosts-drivers.md#agent-drivers).
 
 ### Provider channels
 
-An optional driver port hands talk payloads to a running agent without terminal
-paste. [`contracts/claude-channel-v1.md`](contracts/claude-channel-v1.md) and
-[`contracts/codex-channel-v1.md`](contracts/codex-channel-v1.md) own behavior,
-limits and shipped-versus-planned status; this is the ownership map.
-
-- `tmt run --channel` is the only entry that enrolls. The launcher picks one
-  `ChannelMode`; CLI policy has no provider-name branch, and drivers own preflight,
-  enrollment, the lease and recovery through the `tmt_adapters::runtime::channel`
-  port (`preflight`, `enroll`, `inspect`/`recover`, `enrolled_in_pane`, `send`).
-- Delivery stays in the existing routing: the driver's `send` is preferred and falls
-  back to paste only after `Unsupported` or `NotSent`. An enrollment applies only to
-  the exact launch that created it, an opted-in session is never `NotSent`, and a
-  completed write without a provider receipt is `Unacknowledged`, terminal and never
-  retried.
-- A paste never runs on "no record under this binding" alone: `delivery::guarded_paste`
-  and `delivery::pane_channel_evidence` are the only gates in front of the two paste
-  places, and they ask each driver, by the pane address its enrollments persisted,
-  whether an enrollment belongs to the pane.
-- Claude (`drivers::claude::channel`) and Codex (`drivers/codex/*`) keep their record
-  layout, lock and launch comparison private; every record or socket mutation proves
-  the caller's generation and launch owner, so a stale launcher or server never
-  replaces a newer enrollment. `tmt channel inspect|recover` renders what each driver
-  reports and holds no record logic. Module detail is in the
-  [hosts and drivers reference](.agents/skills/tmt-core-runtime/references/hosts-drivers.md#provider-channels).
+`tmt-adapters::runtime::channel` is the provider-neutral port; drivers own exact-launch
+enrollment, transport and recovery. Delivery prefers the channel and forbids paste
+on enrolled or uncertain evidence; no receipt means no replay. Module gates:
+[provider channels](.agents/skills/tmt-core-runtime/references/hosts-drivers.md#provider-channels).
+The [Claude](contracts/claude-channel-v1.md) and [Codex](contracts/codex-channel-v1.md)
+contracts own behavior and limits.
 
 ### Driver protocol
 
-Terminal hosts TMT does not build in run out of process as host drivers (#570), and
-coding agents will run as runtime drivers (#1083).
-[`contracts/driver-protocol-v1.md`](contracts/driver-protocol-v1.md) owns the wire
-format for both. `rust/crates/tmt-driver-protocol` holds wire types, bounded strict
-`decode`, `serve`/`serve_runtime` and conformance checks over `serde` and
-`serde_json` only; `rust/crates/tmt-host-grammar` (a dependency-free leaf) defines
-host name, pane-ID and target grammar once, and `tmt-core` may depend on it. The
-architecture guard allows exactly those edges. A runtime driver's hook path is
-declarative (`RuntimeDeclaration` plus `decode_hook`, no driver process), and only
-`locations`, `resume` and `usage` run the driver; runtime launch, hooks and setup
-consumers stay unwired until PR B2 of #1266.
-
-`tmt-adapters::driver_protocol` owns shared approval and bounded calls and
-`host::external` owns host composition. Drivers are approved only with explicit
-consent (`tmt driver install`, never product install or upgrade) into
-`<global>/drivers.json`, pinned by digest, with executable ownership and fingerprint
-checked before every call; a first-party driver follows its release only while it
-declares nothing beyond what the user approved. Core, not the driver, decides
-evidence: server identity is core's own process start token and a missing or changed
-driver is `Unavailable`, never proof of loss. `rust/crates/tmt-driver-herdr` is the
-first driver; its library depends only on the protocol crate, `tmt-invoke`,
-`serde_json` and `semver`. Its standalone alpha archives use the main release cut;
-the CLI retains its companion until #1084. Details are in the
-[hosts and drivers reference](.agents/skills/tmt-core-runtime/references/hosts-drivers.md#external-host-drivers).
+`tmt-driver-protocol` owns host/runtime wire types and `tmt-host-grammar` owns host
+syntax; [driver-protocol-v1](contracts/driver-protocol-v1.md) owns the wire contract.
+`tmt-adapters::driver_protocol` owns explicit approval and bounded calls, while
+`host::external` composes approved hosts. Core decides evidence; unavailable drivers
+never prove loss. External runtime launch/setup/hooks remain unwired. Details:
+[hosts and drivers](.agents/skills/tmt-core-runtime/references/hosts-drivers.md#driver-protocol-crates).
 
 ## Managed skills and native installation
 

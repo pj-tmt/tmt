@@ -109,9 +109,8 @@ executables resolve core lookups through `TMT_EXECUTABLE` (set when TMT invokes
 them) or an executable `tmt` on `PATH`.
 
 Contracts: [local process API](contracts/extension-api.md) for extensions and the
-[MCP contract](contracts/mcp-v1.md). Native MCP tests, from `rust/`:
-`CARGO_BUILD_JOBS=2 cargo test --offline --locked -p tmt-adapters mcp::tests` and
-`... -p tmt-cli --test mcp`; they need no provider credentials or tmux.
+[MCP contract](contracts/mcp-v1.md). Credential-free native MCP commands:
+[tmt-dev focused checks](.agents/skills/tmt-dev/references/focused-checks.md#local-mcp).
 
 ## Rust checks
 
@@ -138,31 +137,8 @@ tmt-cli` (no debug symbols, but debug assertions stay on). Every Cargo build sta
 in Docker contexts must copy all workspace member directories at their
 workspace-relative paths; `docker-workspace.test.ts` checks it.
 
-**ETXTBSY.** A fixture that writes an executable and runs it can fail with
-"Text file busy": another test thread's `fork` holds a copy of the write
-descriptor until the child's `exec`. Production code never retries it. Pick the
-rule by who writes and who runs:
-
-- The test writes a script and controls how it runs: run `/bin/sh <script>`.
-- The test writes a stand-in something else execs by path (a fake `tmt` or `tmux`
-  on `PATH`): publish it with the dev-only
-  `tmt-test-support::write_executable(path, bytes, mode)` (short-lived `sh`
-  writer, cleared environment, thirty-second bound, no retries; keep the 0700 or
-  0755 mode).
-- The product writes then execs (an installer and its verifier): wait out the
-  window with a bounded retry of only that error in the fixture.
-
-In `typescript/test`, publish every written executable or interpreted fixture
-through `test/support/executable-fixture.mjs` (`writeExecutable`); synthetic
-installers use its `--write FILE MODE` entry point. Never replace malformed
-fixture bytes, add ETXTBSY retries or extend deadlines. For publication and
-dependency changes also run `cargo test --locked -p tmt-test-support` and the
-architecture test, which checks the exact dev consumers of the support crate.
-
-**Snapshots.** `insta` snapshots live beside their tests (for example
-`rust/crates/tmt-cli-style/tests/snapshots/`). After an intended change run
-`INSTA_UPDATE=always cargo test -p <crate>`, delete leftover `*.snap.new` files and
-review the diff. CI never updates snapshots.
+Executable fixture publication and snapshot updates:
+[tmt-dev focused checks](.agents/skills/tmt-dev/references/focused-checks.md#executable-fixtures-and-snapshots).
 
 **CLI style and printed-command guards** ([enforcement](design/cli-style.md#enforcement))
 run in `cargo test`. When a migrated command leaves its list, run them directly:
@@ -173,7 +149,9 @@ presentation site's test-only `HintSpec` list (explicit command boundaries,
 representative operands, and a reason for any external-command skip); the guard
 parses without executing and fails on missing and stale samples.
 
-**Architecture guard.** Part of `cargo test`; a focused offline run:
+### Architecture guard
+
+Part of `cargo test`; a focused offline run:
 
 ```bash
 cargo test --offline --locked --manifest-path /absolute/checkout/rust/Cargo.toml --test architecture
