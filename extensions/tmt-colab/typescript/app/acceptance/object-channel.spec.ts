@@ -142,7 +142,21 @@ test('object channel: upload original recovers, commits and publishes through re
         epoch: string;
       };
       expect(connected.source).toBe('<p>Original upload source</p>');
-      expect(await call('config')).toMatchObject({ ok: { result: 'config' } });
+      // Configuration names the actual backend and its effective bounds, not a default or a guess.
+      const config = (await call('config')) as {
+        ok: {
+          result: string;
+          backend: { id: string; source: string; editable: boolean };
+          capabilities: Record<string, boolean>;
+          limits: Record<string, unknown>;
+        };
+      };
+      expect(config.ok).toMatchObject({
+        result: 'config',
+        backend: { id: 'local-fs', source: 'default', editable: false },
+        capabilities: { immutableCreate: true, chunkedRead: true, recoverByOriginalId: true },
+      });
+      expect(config.ok.limits).toEqual({ payloadBytes: 12 * 1024 * 1024, chunkBytes: 32 * 1024 });
       const original = (await call('capture')) as {
         transferId: string;
         bytes: number;
