@@ -274,7 +274,7 @@ exec /opt/tmt-tests/claude "$@"
       const wrapper = path.join(fixture.wrapperDir, 'claude_mini');
       writeExecutable(
         wrapper,
-        `#!/bin/sh\n${quote(process.execPath)} -e ${quote(record)} "$@"\nexec /opt/tmt-tests/claude ${quote(fixture.executables.cli.executable)} ${quote(scenario)} ${quote(report)}\n`,
+        `#!/bin/sh\n${quote(process.execPath)} -e ${quote(record)} -- "$@" || exit "$?"\nexec /opt/tmt-tests/claude ${quote(fixture.executables.cli.executable)} ${quote(scenario)} ${quote(report)}\n`,
         0o700
       );
       const home = path.join(fixture.root, 'preset-home');
@@ -387,7 +387,7 @@ exec /opt/tmt-tests/claude "$@"
         const named = path.join(fixture.wrapperDir, 'claude');
         writeExecutable(
           named,
-          `#!/bin/sh\n${quote(process.execPath)} -e ${quote(record)} "$@"\nexec /opt/tmt-tests/claude ${quote(fixture.executables.cli.executable)} ${quote(scenario)} ${quote(report)}\n`,
+          `#!/bin/sh\n${quote(process.execPath)} -e ${quote(record)} -- "$@" || exit "$?"\nexec /opt/tmt-tests/claude ${quote(fixture.executables.cli.executable)} ${quote(scenario)} ${quote(report)}\n`,
           0o700
         );
         await run('preset-cleared-resume', ['resume', 'Preset']);
