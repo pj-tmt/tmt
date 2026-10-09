@@ -58,6 +58,12 @@ owns record fields, limits, revision semantics and trust boundaries.
   has references. Checks: `test/attachment-{file,service,draft}.test.ts`, the
   attachment cases in `test/thread-records.test.ts`, `e2e/attachments.spec.ts` and the
   real-binary `acceptance/attachments.spec.ts`.
+- Page files (#1855): `document-files.ts` (`LiveDocumentFiles`, `PageBinding.files`) proves
+  with `AttachmentService.publication(stored, source)` then saves the typed change through
+  `Live.edit`; `files-panel.tsx` holds the writer panel and the shared `FilesList` rows (also
+  the read-only reader list via `ReaderSession.attachments`); `attachment-opener.ts` is the
+  shared trusted-click open hook. Checks: `test/document-files.test.ts`,
+  `e2e/files-panel.spec.ts` and the Files case of `acceptance/attachments.spec.ts`.
 - `components/conversation-window.tsx` owns one header, full-width history and bottom
   composer placement for Chat, anchored threads and new annotations. Window geometry
   remains caller-owned; this component owns scrolling for both surfaces.

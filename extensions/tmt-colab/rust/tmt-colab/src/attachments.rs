@@ -135,7 +135,7 @@ fn descriptor_in(
     }
     Ok(found)
 }
-fn creation_proof(view: &View, descriptor: &Descriptor) -> Result<()> {
+pub(crate) fn creation_proof(view: &View, descriptor: &Descriptor) -> Result<()> {
     // This projection came only from authenticated positive-sequence own
     // envelopes/checkpoints, with every later revocation prefix checked by fold.
     if !view.status_writers.contains(&descriptor.author_device) {

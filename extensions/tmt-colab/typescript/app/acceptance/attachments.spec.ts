@@ -1,8 +1,8 @@
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
-import { expect, test } from '@playwright/test';
-import { pairBrowser, startDoor } from './harness/browser.js';
-import { createPage, freePort, openChat, openPage } from './harness/ask.js';
+import { expect, test, type Page } from '@playwright/test';
+import { openReaderLink, pairBrowser, startDoor } from './harness/browser.js';
+import { createPage, freePort, openChat, openPage, run } from './harness/ask.js';
 import { disposeActiveWorlds, withWorld } from './harness/with-world.js';
 import { text } from '../src/strings.js';
 
@@ -90,5 +90,129 @@ test('files attached in Chat reach a second paired device, preview and download 
         expect(sha(fs.readFileSync((await saved.path())!))).toBe(sha(file.buffer));
       }
     }
+  });
+});
+
+async function openFiles(page: Page) {
+  const toggle = page.getByTestId('files-toggle');
+  const menu = page.getByRole('button', { name: 'More page actions' });
+  // A reloaded page needs a moment before either control exists.
+  await expect(toggle.or(menu)).toBeVisible({ timeout: 30_000 });
+  if (!(await toggle.isVisible())) await menu.click();
+  await toggle.click();
+  return page.getByTestId('files-panel');
+}
+
+test('files added to the page reach another device and a read-only link byte-identically, and removal follows', async () => {
+  await withWorld(async (world) => {
+    const door = await startDoor(world, await freePort());
+    const author = await pairBrowser(world, 'files-author');
+    const viewer = await pairBrowser(world, 'files-viewer');
+    const created = createPage(world, 'Page files', '<h1>Page files</h1>');
+    const colab = (args: string[]) =>
+      JSON.parse(run(world, world.binaries.colab, [...args, '--json'])) as Record<string, unknown>;
+    colab(['share', 'mode', created.pageId, 'link', '--yes']);
+    const added = colab(['share', 'link', 'add', created.pageId, '--yes']);
+    const readerPath = added.readerPath as string;
+    const first = await openPage(door, author, created);
+    const second = await openPage(door, viewer, created);
+    await expect(
+      first.frameLocator('iframe').getByRole('heading', { name: 'Page files', exact: true }),
+    ).toBeVisible();
+
+    const notes = { name: 'notes.txt', mimeType: 'text/plain', buffer: bytes(100 * 1024, 5) };
+    const clip = {
+      name: 'clip.mp4',
+      mimeType: 'video/mp4',
+      buffer: Buffer.concat([
+        Buffer.from([0, 0, 0, 0x18]),
+        Buffer.from('ftypmp42'),
+        bytes(200 * 1024, 11),
+      ]),
+    };
+    const picture = { name: 'dot.png', mimeType: 'image/png', buffer: PNG };
+    const all = [notes, clip, picture];
+
+    const panel = await openFiles(first);
+    await expect(panel.getByText(text.filesEmpty)).toBeVisible();
+    const chooser = first.waitForEvent('filechooser');
+    await panel.getByRole('button', { name: text.attachFiles }).click();
+    await (await chooser).setFiles(all);
+    await expect(panel.getByTestId('attachment-chip')).toHaveCount(3);
+    // Choosing stored and wrote nothing: the other device still shows no files.
+    await expect(second.getByTestId('files-toggle')).toHaveText(text.files);
+
+    await panel.getByRole('button', { name: text.filesAdd, exact: true }).click();
+    await expect(panel.getByTestId('file-row')).toHaveCount(3, { timeout: 30_000 });
+    await expect(first.getByTestId('files-toggle')).toHaveText(`${text.files} 3`);
+    await expect(second.getByTestId('files-toggle')).toHaveText(`${text.files} 3`, {
+      timeout: 30_000,
+    });
+
+    const check = async (page: Page, writer: boolean) => {
+      const rows = page
+        .getByTestId('files-panel')
+        .or(page.locator('dialog[data-panel=files]'))
+        .getByTestId('file-row');
+      const row = (name: string) => rows.filter({ hasText: name });
+      await expect(rows).toHaveCount(3, { timeout: 30_000 });
+      await expect(
+        row('clip.mp4').getByRole('button', { name: text.attachmentPreview }),
+      ).toHaveCount(0);
+      await row('dot.png').getByRole('button', { name: text.attachmentPreview }).click();
+      await expect(page.getByTestId('file-preview').locator('img')).toHaveAttribute(
+        'src',
+        /^data:image\/png;base64,/,
+      );
+      await expect(page.locator('video, audio, object, embed')).toHaveCount(0);
+      for (const file of all) {
+        const download = page.waitForEvent('download');
+        await row(file.name).getByRole('button', { name: text.attachmentDownload }).click();
+        const saved = await download;
+        expect(saved.suggestedFilename()).toBe(file.name);
+        expect(sha(fs.readFileSync((await saved.path())!))).toBe(sha(file.buffer));
+      }
+      await expect(page.getByRole('button', { name: text.attachRemove })).toHaveCount(
+        writer ? 3 : 0,
+      );
+    };
+
+    await openFiles(second);
+    await check(second, true);
+    await second.reload();
+    await openFiles(second);
+    await check(second, true);
+
+    const reader = await openReaderLink(world, door, readerPath, 'files-reader');
+    await expect(reader.page.getByTestId('files-toggle')).toHaveText(`${text.files} 3`, {
+      timeout: 30_000,
+    });
+    await reader.page.getByTestId('files-toggle').click();
+    await check(reader.page, false);
+    await expect(reader.page.getByRole('button', { name: text.attachFiles })).toHaveCount(0);
+
+    // Removing a file removes its row for every device, live.
+    await panel
+      .getByTestId('file-row')
+      .filter({ hasText: 'notes.txt' })
+      .getByRole('button', { name: text.attachRemove })
+      .click();
+    await expect(panel.getByTestId('file-row')).toHaveCount(2, { timeout: 30_000 });
+    await expect(second.getByTestId('files-toggle')).toHaveText(`${text.files} 2`, {
+      timeout: 30_000,
+    });
+    await expect(reader.page.getByTestId('files-toggle')).toHaveText(`${text.files} 2`, {
+      timeout: 30_000,
+    });
+
+    // Ending the link while a preview is shown disposes it: nothing of the read stays on screen.
+    // The earlier check left the preview shown.
+    await expect(reader.page.getByTestId('file-preview').locator('img')).toBeVisible();
+    colab(['share', 'link', 'reset', created.pageId, added.linkId as string, '--yes']);
+    await expect(reader.page.getByRole('heading', { name: 'Access ended', level: 2 })).toBeVisible({
+      timeout: 60_000,
+    });
+    await expect(reader.page.locator('img[src^="data:"]')).toHaveCount(0);
+    await expect(reader.page.getByTestId('file-row')).toHaveCount(0);
   });
 });

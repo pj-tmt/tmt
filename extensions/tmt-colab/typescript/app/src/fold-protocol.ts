@@ -174,6 +174,8 @@ export interface PrepareContentCommand {
   type: 'prepare-content';
   source: string;
   base: ContentSnapshot;
+  /** A typed change to `meta.attachments`, bound to `source`; absent keeps the list. */
+  attachments?: attachment.DocumentChange;
 }
 export type ContentPreparation =
   | { kind: 'noop'; projection: ContentSnapshot }

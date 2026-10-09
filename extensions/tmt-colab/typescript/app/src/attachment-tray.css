@@ -65,3 +65,59 @@
   max-width: 100%;
   max-height: 320px;
 }
+.files-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.files-empty {
+  margin: 0;
+  color: var(--c-muted);
+}
+.files-panel .files-list {
+  --tmt-ui-list-padding-inline: 0;
+  margin: 0;
+}
+/* The drawer is narrower than a page index: name over metadata, actions beside them. */
+.files-list .tmt-ui-list-row {
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas: 'title actions' 'meta actions';
+}
+.files-list .tmt-ui-list-title {
+  grid-area: title;
+  overflow: visible;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.files-list .tmt-ui-list-meta {
+  grid-area: meta;
+  grid-template-columns: auto auto;
+  justify-content: start;
+}
+.files-list .tmt-ui-list-actions {
+  grid-area: actions;
+}
+.files-list .tmt-ui-list-row[data-previewed] {
+  border-bottom: 0;
+}
+.files-list .file-preview {
+  padding: 0 0 10px;
+  border-bottom: 1px solid var(--c-rule);
+  list-style: none;
+}
+.files-list .file-preview img {
+  display: block;
+  max-width: 100%;
+  max-height: 320px;
+}
+.attach-labeled {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+}
+.attach-labeled svg {
+  width: 16px;
+  height: 16px;
+  flex: none;
+}

@@ -238,6 +238,7 @@ fn edit(source: &str) -> ContentEdit<'_> {
     ContentEdit {
         source,
         publisher_agent: None,
+        attachments: None,
     }
 }
 

@@ -416,8 +416,15 @@ fn prepare_content(
     let edit = ContentEdit {
         source: &wire.source,
         publisher_agent: wire.publisher_agent.as_deref(),
+        attachments: wire.attachments.as_ref(),
     };
-    let expected = edited_projection(&before, edit);
+    if let Some(change) = edit.attachments {
+        // The parent already checked this; the isolated child never trusts its caller's reading.
+        change
+            .validate(&tmt_colab_model::crypto::digest(wire.source.as_bytes()))
+            .map_err(|_| DecodeFault::InvalidInput)?;
+    }
+    let expected = edited_projection(&before, edit)?;
     checkpoint(Stage::Generation, CheckpointBoundary::Enter, 0);
     let mut updates = Vec::new();
     if expected != before {
@@ -445,6 +452,17 @@ fn prepare_content(
                         meta.insert(&mut tx, "publisherAgent", agent);
                     } else {
                         meta.remove(&mut tx, "publisherAgent");
+                    }
+                }
+                if before["meta"]["attachments"] != expected["meta"]["attachments"] {
+                    if let Some(list) = expected["meta"].get("attachments") {
+                        meta.insert(
+                            &mut tx,
+                            "attachments",
+                            Any::from_json(&list.to_string()).map_err(|_| DecodeFault::Rejected)?,
+                        );
+                    } else {
+                        meta.remove(&mut tx, "attachments");
                     }
                 }
             }

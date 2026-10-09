@@ -1,3 +1,5 @@
+import { disclosureScope } from './attachment-service.js';
+import { LiveDocumentFiles, type DocumentFiles } from './document-files.js';
 import { shortPageId } from './short-links.js';
 import { ThreadStore, commentForAsk, conversationForAsk } from './thread-store.js';
 import { readThreads, type DiscussionRef } from './thread-records.js';
@@ -6,7 +8,7 @@ import { statusNotificationForAsk } from './thread-status-notification.js';
 import { projectThreadPresentation } from './thread-status-presentation.js';
 import { ThreadStatusSeen } from './thread-status-view.js';
 import { LiveAsk, pageAsks } from './live-ask.js';
-import { requireValue } from '@tmt/colab-client';
+import { attachment, digest, requireValue, text as bytesOf } from '@tmt/colab-client';
 import type { Bootstrap, PageInfo } from './bootstrap.js';
 import type { Registration } from './registration.js';
 import type { PageBinding, PageSnapshot, PageView } from './transport.js';
@@ -46,6 +48,7 @@ export class Live implements PageBinding {
   ask?: LiveAsk;
   readonly discussion: ThreadStore;
   readonly status: ThreadStatusCoordinator;
+  readonly files: DocumentFiles;
   #remote: RemoteClient | null = null;
   #seen?: { deviceId: string; value: ThreadStatusSeen };
   #observation: AbortController | null = null;
@@ -91,6 +94,13 @@ export class Live implements PageBinding {
       connection: () => this.#current,
       publish: (records) => this.#writer.submitOwnRecords(records),
       available: () => !this.#closed && !this.#error && !this.#opening?.pending,
+      scope: () => (this.#error ? 'blocked' : disclosureScope(this.#connection)),
+    });
+    this.files = new LiveDocumentFiles({
+      service: this.discussion.attachments,
+      source: () => this.#admitted.source,
+      publish: (records) => this.#writer.submitOwnRecords(records),
+      edit: (source, base, change) => this.edit(source, base, change),
     });
     this.status = new ThreadStatusCoordinator({
       binding: this.discussion,
@@ -611,20 +621,30 @@ export class Live implements PageBinding {
   }
   /** Save the whole source through native publication. A lost reply is settled by exactly one
    * status request on the reopened connection; the save is never sent again. */
-  async edit(source: string, base: string) {
+  async edit(source: string, base: string, attachments?: attachment.DocumentChange) {
     if (this.#closed || this.#error) throw new Error('Page editing unavailable');
     const c = await this.#current;
     requireValue(base === this.#admitted.source);
+    // The list this save must produce, decided by the same rules native preparation applies.
+    const change = attachments === undefined ? undefined : attachment.documentChange(attachments);
+    const expected =
+      change && !attachment.emptyDocumentChange(change)
+        ? attachment.applyDocumentChange(
+            this.#admitted.attachments ?? [],
+            change,
+            hex(await digest(bytesOf(source))),
+          )
+        : undefined;
     const operationId = crypto.randomUUID();
     let result: SaveResult;
     try {
-      result = await c.save(operationId, base, source);
+      result = await c.save(operationId, base, source, ...(change ? [change] : []));
     } catch (error) {
       if (!(error instanceof Error) || error instanceof SaveTooLarge || c.active) throw error;
       result = await this.#settleLost(c, operationId);
     }
     settled(result);
-    await this.#shows(source);
+    await this.#shows(source, expected);
   }
   async #settleLost(lost: Connection, operationId: string): Promise<SaveResult> {
     try {
@@ -645,9 +665,13 @@ export class Live implements PageBinding {
     throw new Error('Page connection unavailable');
   }
   /** The admitted page shows the saved source, so the editor's base moves with it. */
-  async #shows(source: string) {
+  async #shows(source: string, attachments?: readonly attachment.AttachmentDescriptor[]) {
     const deadline = Date.now() + SAVE_REOPEN_MS;
-    while (this.#admitted.source !== source && !this.#closed && !this.#error) {
+    const shown = () =>
+      this.#admitted.source === source &&
+      (attachments === undefined ||
+        JSON.stringify(this.#admitted.attachments ?? []) === JSON.stringify(attachments));
+    while (!shown() && !this.#closed && !this.#error) {
       if (Date.now() >= deadline) return;
       await new Promise((resolve) => setTimeout(resolve, 25));
     }
