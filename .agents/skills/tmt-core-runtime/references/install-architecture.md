@@ -46,8 +46,10 @@ cutover. The owner runs the first rename-A upgrade and an immediate second
 unpinned upgrade from newly active A: the prior executable owns the first finish,
 so only the second executes the new pane converter. The first refresh runs after
 activation; its ConfigPaths move uses active-release admission and a silent
-report callback to retain the prior updater's JSON/empty-stderr contract. Install
-and setup never gain host effects. It selects the caller's
+report callback to retain the prior updater's JSON/empty-stderr contract. Managed
+refresh dispatch bypasses generic driver registration and observers so they cannot
+discover configuration before this protocol owner. Install and setup never gain
+host effects. It selects the caller's
 explicit server socket and existing stored bindings, captures exact old metadata
 and native server/pane incarnations, then compares the full binding record under
 the mutation transaction before tmux's exact-value command-queue fence. Changed
