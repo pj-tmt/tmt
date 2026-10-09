@@ -2,7 +2,7 @@ import { execFileSync, spawnSync, type SpawnSyncReturns } from 'node:child_proce
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { availableParallelism, cpus, loadavg, tmpdir } from 'node:os';
 import { performance, type EventLoopUtilization } from 'node:perf_hooks';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 import {
   createCutClient,
@@ -19,7 +19,9 @@ import { writeReleaseWorkspace } from '../support/release-workspace-fixture.js';
 // File-scoped wrappers also observe synchronous calls made by imported release tooling.
 // They delegate unchanged; no process-wide builtin patch or production observer is installed.
 const syncProcessObserver = vi.hoisted(() => ({
-  observe: undefined as (<T>(execute: () => T) => T) | undefined,
+  observe: undefined as
+    | (<T>(command: string, firstArg: string | null, execute: () => T) => T)
+    | undefined,
 }));
 vi.mock('node:child_process', async (importOriginal) => {
   const actual = await importOriginal<typeof import('node:child_process')>();
@@ -27,11 +29,19 @@ vi.mock('node:child_process', async (importOriginal) => {
     ...actual,
     spawnSync: (...args: Parameters<typeof actual.spawnSync>) =>
       syncProcessObserver.observe
-        ? syncProcessObserver.observe(() => actual.spawnSync(...args))
+        ? syncProcessObserver.observe(
+            args[0],
+            Array.isArray(args[1]) ? (args[1][0] ?? null) : null,
+            () => actual.spawnSync(...args)
+          )
         : actual.spawnSync(...args),
     execFileSync: (...args: Parameters<typeof actual.execFileSync>) =>
       syncProcessObserver.observe
-        ? syncProcessObserver.observe(() => actual.execFileSync(...args))
+        ? syncProcessObserver.observe(
+            args[0],
+            Array.isArray(args[1]) ? (args[1][0] ?? null) : null,
+            () => actual.execFileSync(...args)
+          )
         : actual.execFileSync(...args),
   };
 });
@@ -106,6 +116,7 @@ function releaseCutDiagnostics(
     signal: string | null;
     error: string | null;
   }[] = [];
+  const slowSyncCalls: { command: string; firstArg: string | null; elapsedMs: number }[] = [];
   let syncCallCount = 0;
   let syncElapsedMs = 0;
   let phase:
@@ -155,13 +166,20 @@ function releaseCutDiagnostics(
         phases.push(phaseReport(phase, startedMs, cpuUsage, eventLoopUtilization, linuxPressure));
       phase = { name, startedMs, cpuUsage, eventLoopUtilization, linuxPressure };
     },
-    synchronous<T>(execute: () => T): T {
+    synchronous<T>(command: string, firstArg: string | null, execute: () => T): T {
       const startedMs = now();
       try {
         return execute();
       } finally {
+        const elapsedMs = now() - startedMs;
         syncCallCount++;
-        syncElapsedMs += now() - startedMs;
+        syncElapsedMs += elapsedMs;
+        if (elapsedMs > 250)
+          slowSyncCalls.push({
+            command: basename(command).slice(0, 100),
+            firstArg: firstArg?.slice(0, 300) ?? null,
+            elapsedMs,
+          });
       }
     },
     git(args: string[], execute: () => SpawnSyncReturns<string>) {
@@ -208,6 +226,7 @@ function releaseCutDiagnostics(
         phases: [...phases, ...current],
         syncCallCount,
         syncElapsedMs,
+        slowSyncCalls: [...slowSyncCalls],
         gitCallCount: gitCalls.length,
         gitElapsedMs: gitCalls.reduce((total, call) => total + call.elapsedMs, 0),
         slowestGitCalls: [...gitCalls].sort((a, b) => b.elapsedMs - a.elapsedMs).slice(0, 12),
@@ -228,7 +247,8 @@ beforeEach(() => {
     // The public test API has no pool-size getter; IDs and the static config are not a live count.
     workerCount: null,
   });
-  syncProcessObserver.observe = (execute) => diagnostics.synchronous(execute);
+  syncProcessObserver.observe = (command, firstArg, execute) =>
+    diagnostics.synchronous(command, firstArg, execute);
 });
 afterEach(({ task }) => {
   syncProcessObserver.observe = undefined;
@@ -838,6 +858,7 @@ describe('release cut slow-case diagnostics', () => {
       ],
       syncCallCount: 0,
       syncElapsedMs: 0,
+      slowSyncCalls: [],
       gitCallCount: 0,
       gitElapsedMs: 0,
       slowestGitCalls: [],
@@ -952,8 +973,10 @@ describe('release cut slow-case diagnostics', () => {
     const trace = releaseCutDiagnostics(() => elapsedMs, context);
     const failure = new Error('exact child failure');
     let calls = 0;
-    syncProcessObserver.observe = (execute) =>
-      trace.synchronous(() => {
+    const observed: [string, string | null][] = [];
+    syncProcessObserver.observe = (command, firstArg, execute) =>
+      trace.synchronous(command, firstArg, () => {
+        observed.push([command, firstArg]);
         calls++;
         elapsedMs += calls * 10;
         if (calls === 1) return success as ReturnType<typeof execute>;
@@ -962,8 +985,8 @@ describe('release cut slow-case diagnostics', () => {
         throw failure;
       });
     // The fake observer returns/throws without executing these command callbacks.
-    expect(spawnSync('unused', [], { encoding: 'utf8' })).toBe(success);
-    expect(execFileSync('unused', [], { encoding: 'utf8' })).toBe('exact exec output');
+    expect(spawnSync('unused', ['spawn-first'], { encoding: 'utf8' })).toBe(success);
+    expect(execFileSync('unused', ['exec-first'], { encoding: 'utf8' })).toBe('exact exec output');
     expect(runPackedCommand('unused', [], { cwd: '/', env: {}, isolateProcessGroup: false })).toBe(
       'exact output'
     );
@@ -975,12 +998,56 @@ describe('release cut slow-case diagnostics', () => {
     }
     expect(caught).toBe(failure);
     expect(calls).toBe(4);
+    expect(observed).toEqual([
+      ['unused', 'spawn-first'],
+      ['unused', 'exec-first'],
+      ['unused', null],
+      ['unused', null],
+    ]);
     elapsedMs = 6_000;
     expect(trace.report()).toMatchObject({
       syncCallCount: 4,
       syncElapsedMs: 100,
       gitCallCount: 0,
       gitElapsedMs: 0,
+    });
+  });
+  it('records every synchronous call over 250ms with bounded identity only in a slow case', () => {
+    let elapsedMs = 0;
+    const trace = releaseCutDiagnostics(() => elapsedMs, context);
+    const failure = new Error('same failure');
+    expect(
+      trace.synchronous('/fixture/bin/git', 'status', () => {
+        elapsedMs += 250;
+        return success;
+      })
+    ).toBe(success);
+    expect(
+      trace.synchronous('/fixture/bin/node', 'x'.repeat(400), () => {
+        elapsedMs += 251;
+        return success;
+      })
+    ).toBe(success);
+    let caught: unknown;
+    try {
+      trace.synchronous('/fixture/bin/' + 'c'.repeat(120), null, () => {
+        elapsedMs += 300;
+        throw failure;
+      });
+    } catch (error) {
+      caught = error;
+    }
+    expect(caught).toBe(failure);
+    elapsedMs = 5_000;
+    expect(trace.report()).toBeNull();
+    elapsedMs = 5_001;
+    expect(trace.report()).toMatchObject({
+      syncCallCount: 3,
+      syncElapsedMs: 801,
+      slowSyncCalls: [
+        { command: 'node', firstArg: 'x'.repeat(300), elapsedMs: 251 },
+        { command: 'c'.repeat(100), firstArg: null, elapsedMs: 300 },
+      ],
     });
   });
   it('keeps only the slowest twelve bounded argv records while retaining complete totals', () => {
