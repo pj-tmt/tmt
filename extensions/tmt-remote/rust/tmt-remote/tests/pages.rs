@@ -244,9 +244,16 @@ fn static_pages_and_styles_are_exact_and_refusals_remain_generic() {
             .split("</ol>")
             .next()
             .unwrap();
-        assert_eq!(steps.matches("<code>").count(), commands.len());
         assert_eq!(
-            steps.matches("class=\"entry-command\"").count(),
+            steps
+                .matches("<code class=\"tmt-ui-command-text\">")
+                .count(),
+            commands.len()
+        );
+        assert_eq!(
+            steps
+                .matches("class=\"entry-command tmt-ui-command\"")
+                .count(),
             commands.len()
         );
         for closing in steps.split("</span").skip(1) {
@@ -258,13 +265,15 @@ fn static_pages_and_styles_are_exact_and_refusals_remain_generic() {
             );
         }
         assert_eq!(
-            steps.matches("class=\"tmt-ui-action entry-copy\"").count(),
+            steps.matches("class=\"tmt-ui-command-copy\"").count(),
             commands.len()
         );
         for command in commands {
             assert_eq!(
                 steps
-                    .matches(&format!("<code>tmt remote {command}</code>"))
+                    .matches(&format!(
+                        "<code class=\"tmt-ui-command-text\">tmt remote {command}</code>"
+                    ))
                     .count(),
                 1
             );

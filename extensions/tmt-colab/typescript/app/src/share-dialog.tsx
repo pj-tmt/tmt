@@ -1,3 +1,4 @@
+import { BearerArtifact } from './bearer-artifact.js';
 import { localTime } from './expiry.js';
 import { RetentionHint } from './retention-hint.js';
 import { useEffect, useRef, useState } from 'react';
@@ -257,27 +258,11 @@ export function ShareDialog({
                 with the seed has bearer access. Shared links open in a separate read-only view,
                 whatever their role. This dialog does not create a URL to open.
               </p>
-              <label>
-                Link ID
-                <input readOnly value={pending.artifact.linkId} />
-              </label>
-              <label>
-                Link seed
-                <input readOnly value={pending.artifact.seed} />
-              </label>
-              <button
-                onClick={() => {
-                  void navigator.clipboard
-                    .writeText(
-                      `Link ID: ${pending.artifact!.linkId}\nLink seed: ${pending.artifact!.seed}`,
-                    )
-                    .catch(() =>
-                      setError('Clipboard unavailable. Select and copy the displayed values.'),
-                    );
-                }}
-              >
-                Copy link ID and seed
-              </button>
+              <BearerArtifact
+                key={pending.artifact.linkId}
+                linkId={pending.artifact.linkId}
+                seed={pending.artifact.seed}
+              />
             </div>
           )}
           {view && !view.page.deleted && (

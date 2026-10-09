@@ -28,11 +28,11 @@ button {
   border-radius: 0;
   cursor: pointer;
 }
-button:not(.tmt-ui-action):not(.tmt-ui-toggle):hover,
+button:not(.tmt-ui-action):not(.tmt-ui-toggle):not(.tmt-ui-command-copy):hover,
 a:not(.tmt-ui-action):hover {
   color: var(--c-accent);
 }
-button:not(.tmt-ui-action):not(.tmt-ui-toggle)[aria-pressed='true'] {
+button:not(.tmt-ui-action):not(.tmt-ui-toggle):not(.tmt-ui-command-copy)[aria-pressed='true'] {
   border-color: var(--c-accent);
   background: var(--c-accent-soft);
 }
@@ -615,7 +615,7 @@ footer {
   flex-direction: column;
   margin: 12px 0;
 }
-.management-dialog input,
+.management-dialog input:not(.tmt-ui-command-text),
 .management-dialog select {
   width: 100%;
   padding: 8px;
@@ -624,10 +624,10 @@ footer {
   background: var(--c-sheet);
   border: 1px solid var(--c-text);
 }
-.management-dialog button {
+.management-dialog button:not(.tmt-ui-command-copy) {
   margin: 4px 4px 4px 0;
 }
-.management-dialog button:disabled {
+.management-dialog button:not(.tmt-ui-command-copy):disabled {
   opacity: 0.55;
   cursor: default;
 }
@@ -635,8 +635,7 @@ footer {
   margin: 16px 0;
 }
 .bearer {
-  border: 2px solid var(--c-accent);
-  padding: 16px;
+  min-width: 0;
 }
 
 .archived-page {
@@ -999,13 +998,8 @@ footer {
 .short-page-options li > a:focus-visible .short-page-title {
   text-decoration: underline;
 }
-.short-page-options code,
 .short-page-options [aria-disabled='true'] {
   color: var(--c-muted);
-}
-.short-page-options code {
-  overflow-wrap: anywhere;
-  font: 11px var(--f-mono);
 }
 
 .annotation-new {

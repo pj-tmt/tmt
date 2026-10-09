@@ -14,13 +14,13 @@ There is no root entry. `@tmt/browser-ui/static.css` exports checked
 `generated/static.css`; `@tmt/browser-ui/static` exports the frozen
 `browserUiClasses` and presentation types without React; `@tmt/browser-ui/react`
 exports `BrowserHeader`, `BrowserNotice`, `BrowserField`, `BrowserAction`, `BrowserIconAction`,
-`BrowserToggle`, `BrowserList`, `BrowserListRow` and their prop types. The optional peers are React 19.2.8 and
+`BrowserToggle`, `BrowserList`, `BrowserListRow`, `BrowserCommand` and their prop types. The optional peers are React 19.2.8 and
 lucide-react 1.52.0. Icons are caller-supplied; static serving requires neither.
 
 The browser color, surface and shared metric roles live in the `browser` group
 of `../tokens/tokens.json`. Legacy terminal/soft roles remain separately owned.
 Fonts and header metrics use the existing authoritative groups. One owner
-projects these values and the seven ordered CSS fragments:
+projects these values and the ordered CSS fragments:
 
 ```sh
 node design/browser-ui/scripts/generate-static-css.mjs --write
@@ -166,6 +166,15 @@ with `aria-hidden`. A sibling `iconActionTooltip` with `popover="manual"` and
 disabled reason association and disposable hover/focus/Escape/placement behavior;
 the fixture demonstrates that contract without React. Do not add a native `title`
 or describe the same label again through `aria-describedby`.
+
+Command uses `command`, `commandText`, `commandCopy`, `commandFeedback` and `code`
+static names. `BrowserCommand` accepts literal `text`, an optional host-owned
+`action`, and optional `feedback` announced once as status. The host supplies a
+native button with the copy class and retains clipboard/error/lifetime behavior.
+Read-only input hosts keep their own labels/refs with the same text class; long
+input values scroll internally, while React command text wraps. There is no
+clipboard helper, command parser or page-wide code reset in the leaf. See the
+[command contract](../gui-components.md#commands-and-inline-code).
 
 ## Fixtures
 

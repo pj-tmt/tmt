@@ -1008,7 +1008,7 @@ test('the native entry checks once and presents all seven evidenced states witho
       await commands.evaluateAll((nodes) =>
         nodes.every(
           (node) =>
-            node.nextElementSibling?.matches('button.entry-copy[data-variant="text"]') &&
+            node.nextElementSibling?.matches('button.tmt-ui-command-copy') &&
             node.nextElementSibling.textContent?.trim() === 'Copy',
         ),
       ),
@@ -1060,10 +1060,13 @@ test('the native entry checks once and presents all seven evidenced states witho
       ).toBe(true);
     } else await expect(page.locator('#pairing-note')).toBeHidden();
     expect(
-      await page.locator('#copy-feedback').evaluate((node) => {
-        const style = getComputedStyle(node);
-        return [style.marginTop, style.marginBottom];
-      }),
+      await page
+        .locator('.tmt-ui-command-feedback')
+        .first()
+        .evaluate((node) => {
+          const style = getComputedStyle(node);
+          return [style.marginTop, style.marginBottom];
+        }),
     ).toEqual(['0px', '0px']);
     await captureState(
       page,
@@ -1102,7 +1105,7 @@ test('the native entry checks once and presents all seven evidenced states witho
   await captureEntry('not-paired');
   await page.getByRole('button', { name: 'Copy tmt remote pair', exact: true }).click();
   expect(await page.evaluate(() => navigator.clipboard.readText())).toBe('tmt remote pair');
-  await expect(page.locator('#copy-feedback')).toHaveText('Copied.');
+  await expect(page.locator('.entry-steps:visible .tmt-ui-command-feedback')).toHaveText('Copied.');
   pair = spawn(BINARY, ['pair', '--json'], { env });
   const events = lines(pair);
   const offer = await events.next();
@@ -1260,7 +1263,7 @@ test('the native entry checks once and presents all seven evidenced states witho
     };
   });
   await page.getByRole('button', { name: 'Copy tmt remote status', exact: true }).click();
-  await expect(page.locator('#copy-feedback')).toHaveText(
+  await expect(page.locator('.entry-steps:visible .tmt-ui-command-feedback')).toHaveText(
     'Copy failed. Select the command and copy it manually.',
   );
   const changed = [...original.machinePublicKey];

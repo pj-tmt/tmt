@@ -47,7 +47,7 @@ test('a discussion reference reaches the selected inbox without turning posts or
       expect(requestCount(sandbox.database)).toBe(0);
       await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
       await board.getByRole('button', { name: 'Copy reference', exact: true }).click();
-      await expect(board.getByText('Reference copied.')).toBeVisible();
+      await expect(board.getByText('Copied.', { exact: true })).toBeVisible();
       const reference = await page.evaluate(() => navigator.clipboard.readText());
       expect(reference).toMatch(/^[0-9a-f-]{36}$/);
       expect((await office(['board', 'show', reference])).thread.body).toBe(

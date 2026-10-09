@@ -1,6 +1,7 @@
 import type { ComposerEdit } from './components/message-composer-edit.js';
 import {
   BrowserAction,
+  BrowserCommand,
   BrowserIconAction,
   BrowserList,
   BrowserListRow,
@@ -196,7 +197,10 @@ function TerminalFailure({ error }: { error: Error }) {
       {reference && (
         <p>
           <small className="failure-reference">
-            {text.failureCodeLabel} <code data-failure-reference>{reference}</code>
+            {text.failureCodeLabel}{' '}
+            <code className="tmt-ui-code" data-failure-reference>
+              {reference}
+            </code>
           </small>
         </p>
       )}
@@ -307,7 +311,7 @@ function ShortPageChoice() {
               <span aria-disabled="true">
                 Deleted page
                 <br />
-                <code>{page.id}</code>
+                <code className="tmt-ui-code">{page.id}</code>
               </span>
             ) : (
               <Link to="/pages/$pageId" params={{ pageId: page.id }}>
@@ -317,7 +321,7 @@ function ShortPageChoice() {
                     {page.archived ? ' · Archived' : ''}
                   </span>
                   <br />
-                  <code>{page.id}</code>
+                  <code className="tmt-ui-code">{page.id}</code>
                 </span>
                 <ArrowUpRight aria-hidden />
               </Link>
@@ -562,7 +566,16 @@ function Home() {
         </BrowserList>
       ) : (
         <p>
-          {archived ? 'No archived pages.' : space.pages.length ? 'No active pages.' : text.empty}
+          {archived ? (
+            'No archived pages.'
+          ) : space.pages.length ? (
+            'No active pages.'
+          ) : (
+            <>
+              {text.empty}
+              <code className="tmt-ui-code">tmt colab page create --title "Notes"</code>.
+            </>
+          )}
         </p>
       )}
     </section>
@@ -1266,10 +1279,10 @@ function Page() {
               ) : eviction ? (
                 <>
                   <p>{text.sessionEvicted(eviction.limit)}</p>
-                  <p>
-                    {text.sessionLimitCommand}{' '}
-                    <code>tmt remote settings sessions-per-device {eviction.limit + 1}</code>
-                  </p>
+                  <p>{text.sessionLimitCommand} </p>
+                  <BrowserCommand
+                    text={`tmt remote settings sessions-per-device ${eviction.limit + 1}`}
+                  />
                   {eviction.settingsUrl && (
                     <p>
                       <a href={eviction.settingsUrl}>{text.remoteSettings}</a>
@@ -1290,7 +1303,12 @@ function Page() {
                     )}
                 </>
               )}
-              {!recoveryRequired && reconnectFailed && <p>{text.reconnectFailed}</p>}
+              {!recoveryRequired && reconnectFailed && (
+                <p>
+                  {text.reconnectFailed}
+                  <code className="tmt-ui-code">tmt remote pair</code>.
+                </p>
+              )}
             </NoticeCard>
           )}
         </div>

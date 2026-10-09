@@ -1,3 +1,5 @@
+@import '../../../../../../design/browser-ui/generated/static.css';
+
 :root {
   font-family: ui-sans-serif, system-ui, sans-serif;
   color: #23372d;

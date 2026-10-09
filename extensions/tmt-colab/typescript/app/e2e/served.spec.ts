@@ -260,7 +260,7 @@ for (let run = 1; run <= 2; run++) {
       expect(privateHtml).toContain(
         '<h2 class="tmt-ui-notice-heading">Pair this browser first</h2>',
       );
-      expect(privateHtml).toContain('<code>tmt remote pair</code>');
+      expect(privateHtml).toContain('<code class="tmt-ui-command-text">tmt remote pair</code>');
       expect(privateHtml).toContain('<link rel="stylesheet" href="./assets/chrome.css">');
       expect(privateHtml).toContain('<main class="guidance-main">');
       expect(privatePage.headers.get('content-security-policy')).toContain("style-src 'self'");
@@ -276,7 +276,9 @@ for (let run = 1; run <= 2; run++) {
         'd',
         'M2.7 10.3a2.41 2.41 0 0 0 0 3.41l7.59 7.59a2.41 2.41 0 0 0 3.41 0l7.59-7.59a2.41 2.41 0 0 0 0-3.41l-7.59-7.59a2.41 2.41 0 0 0-3.41 0Z',
       );
-      await expect(page.locator('.guidance-command code')).toHaveText('tmt remote pair');
+      await expect(page.locator('.tmt-ui-command .tmt-ui-command-text')).toHaveText(
+        'tmt remote pair',
+      );
       expect(
         await page
           .locator('.guidance-card')

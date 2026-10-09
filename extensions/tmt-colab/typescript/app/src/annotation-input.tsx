@@ -324,7 +324,10 @@ export function AnnotationInput({
               <>
                 {' '}
                 <small className="failure-reference">
-                  {text.failureCodeLabel} <code data-failure-reference>{directory.code}</code>
+                  {text.failureCodeLabel}{' '}
+                  <code className="tmt-ui-code" data-failure-reference>
+                    {directory.code}
+                  </code>
                 </small>
               </>
             )}

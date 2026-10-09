@@ -227,6 +227,14 @@ export async function landingPage(): Promise<void> {
     },
     { once: true },
   );
+  const commandActions = [
+    ['missing', 'pair'],
+    ['different', 'pair'],
+    ['refused', 'devices'],
+    ['refused', 'pair'],
+    ['unconfirmed', 'status'],
+    ['unreadable', 'pair'],
+  ] as const;
   const render = (state: EntryState, validated = false): void => {
     const copy = {
       missing: ['○', 'Not paired', 'Pair this browser with your machine', ''],
@@ -274,7 +282,8 @@ export async function landingPage(): Promise<void> {
           ? 'waiting'
           : 'blocked';
     element('notice').dataset.state = state;
-    element('copy-feedback').textContent = '';
+    for (const [copyState, command] of commandActions)
+      element(`copy-feedback-${copyState}-${command}`).textContent = '';
     element('mark').textContent = copy[0]!;
     element('state-label').textContent = copy[1]!;
     element('heading').textContent = copy[2]!;
@@ -288,22 +297,15 @@ export async function landingPage(): Promise<void> {
     button.hidden = ['missing', 'different', 'unreadable'].includes(state);
     button.disabled = state === 'checking';
   };
-  for (const [state, command] of [
-    ['missing', 'pair'],
-    ['different', 'pair'],
-    ['refused', 'devices'],
-    ['refused', 'pair'],
-    ['unconfirmed', 'status'],
-    ['unreadable', 'pair'],
-  ]) {
+  for (const [state, command] of commandActions) {
     element(`copy-${state}-${command}`).addEventListener('click', async () => {
       const text = `tmt remote ${command}`;
       try {
         await navigator.clipboard.writeText(text);
-        if (pageAlive()) element('copy-feedback').textContent = 'Copied.';
+        if (pageAlive()) element(`copy-feedback-${state}-${command}`).textContent = 'Copied.';
       } catch {
         if (pageAlive())
-          element('copy-feedback').textContent =
+          element(`copy-feedback-${state}-${command}`).textContent =
             'Copy failed. Select the command and copy it manually.';
       }
     });

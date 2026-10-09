@@ -7,16 +7,16 @@ that a package or consumer migration has shipped.
 
 ## Consumers and delivery boundary
 
-| Consumer                                | Current rendering                                  | Adoption scope                                                                                                            |
-| --------------------------------------- | -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| Colab app and reader                    | React, app-owned components and styles             | Shared chrome, cards, controls, choice/action menus, conversation presentation, and overlay/composer mechanics.           |
-| Colab native guidance and recovery      | Rust HTML, embedded styles, a small recovery entry | The same token projection, header, notice and action styles, including when no app build is available.                    |
-| Remote pairing, landing and error pages | Rust-served static HTML/CSS and browser SDK        | Shared tokens, header, state card, fields and actions; no React runtime is required.                                      |
-| Remote settings and devices (#1769)     | Not implemented                                    | Use the same chrome and controls when the owning Remote feature lands; its authority model and store remain Remote-owned. |
-| Office                                  | Parked; independent browser implementation         | A future consumer, not a claim of current adoption or a reason to rewrite its frozen product.                             |
+| Consumer                                | Current rendering                                  | Adoption scope                                                                                                  |
+| --------------------------------------- | -------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| Colab app and reader                    | React, app-owned components and styles             | Shared chrome, cards, controls, choice/action menus, conversation presentation, and overlay/composer mechanics. |
+| Colab native guidance and recovery      | Rust HTML, embedded styles, a small recovery entry | The same token projection, header, notice and action styles, including when no app build is available.          |
+| Remote pairing, landing and error pages | Rust-served static HTML/CSS and browser SDK        | Shared tokens, header, state card, fields and actions; no React runtime is required.                            |
+| Remote settings and devices             | Static browser management page                     | Shared chrome, controls and inline command treatment; authority and store remain Remote-owned.                  |
+| Office                                  | Frozen; independent browser implementation         | Static command/reference and inline-code presentation only; no revival or other UI migration.                   |
 
-Colab and Remote are separate released products. A package PR is followed by
-separate consumer PRs, each with its owning lead's code review and UX review. An
+Colab and Remote are separate released products. Consumer adoption requires
+the owning lead's code review and UX review. An
 internal package is embedded into those products; it is not a separately published
 npm product. Completion of the normalization milestone requires actual consumer
 adoption and publication evidence, not only this guide or a package build.
@@ -90,6 +90,29 @@ Component CSS is namespaced. Product page layouts, author frames and retained
 scroll containers remain outside it. Changing imports must not impose a new global
 reset, fixed content height, scroll region, theme store or resource lifetime.
 Header safe-area offsets and the one window scrollbar remain observable gates.
+
+## Commands and inline code
+
+The command primitive is implemented in `browser-ui/src/command.css` and
+`command.tsx`. `BrowserCommand` renders literal, selectable text and accepts
+host-owned action and feedback slots. It never reads the clipboard or starts work.
+Copy success uses visible **Copied.** feedback; denial leaves the exact value
+available for manual selection. Hosts retain their async lifetime and permission rules.
+
+Static hosts use `tmt-ui-command` with `tmt-ui-command-text`, an optional native
+`tmt-ui-command-copy` button, and `tmt-ui-command-feedback` with `role="status"`.
+An existing read-only input may use the text class to preserve native selection;
+its value scrolls inside the input. The React text block wraps long values within
+the available width. Copy actions stay at the top end of the block. Both use a
+square, flat neutral surface and 1px edge. `tmt-ui-code` supplies the lighter
+inline treatment in running prose. The `browser.surface.command` and `code`
+tokens define both themes; the shared mono stack and command metrics define type
+and spacing. Products own surrounding layout, labels and copied bytes.
+
+Remote entry/error/settings, Colab trusted chrome and native guidance, and Office
+reference/guidance views use these classes. Office imports the checked static CSS
+asset directly; it adds no React or runtime dependency on the package. Author HTML,
+the handbook Cmd component and terminal/TUI presentation retain their own owners.
 
 ## Component inputs and lifecycle
 

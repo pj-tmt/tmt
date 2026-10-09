@@ -330,7 +330,7 @@ fn pages_follow_the_forwarded_owner_context_within_the_door_bounds() {
     assert!(private.contains("<title>Colab</title>"));
     assert!(private.contains("<h2 class=\"tmt-ui-notice-heading\">Pair this browser first</h2>"));
     assert!(private.contains("This colab space is private. Pair this browser with"));
-    assert!(private.contains("<code>tmt remote pair</code>"));
+    assert!(private.contains("<code class=\"tmt-ui-command-text\">tmt remote pair</code>"));
     assert!(private.contains("or open a share link."));
     assert!(private.contains("<main class=\"guidance-main\">"));
     assert!(!private.contains("./assets/reader.css"));
@@ -1862,7 +1862,7 @@ fn owner_static_assets_have_exact_bytes_types_and_no_filesystem_path_resolution(
     assert!(!guidance.contains(r#"<span class="tmt-ui-mark""#));
     assert!(guidance.contains("<svg class=\"guidance-mark lucide\""));
     assert!(guidance.contains("<h2 class=\"tmt-ui-notice-heading\">Pair this browser first</h2>"));
-    assert!(guidance.contains("<code>tmt remote pair</code>"));
+    assert!(guidance.contains("<code class=\"tmt-ui-command-text\">tmt remote pair</code>"));
     assert!(guidance.contains("<link rel=\"stylesheet\" href=\"./assets/chrome.css\">"));
     assert!(guidance.contains("<main class=\"guidance-main\">"));
     assert!(

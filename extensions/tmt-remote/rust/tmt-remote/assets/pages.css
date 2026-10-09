@@ -76,12 +76,6 @@ a:focus-visible {
   outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
   outline-offset: var(--tmt-ui-host-focus-offset);
 }
-code {
-  font-family: var(--tmt-ui-font-mono);
-  font-size: 0.9em;
-  white-space: normal;
-  overflow-wrap: anywhere;
-}
 form {
   margin-top: 28px;
 }
@@ -139,22 +133,6 @@ input {
 [data-tmt-page='landing'] {
   --tmt-ui-host-action-font: var(--tmt-ui-font-body);
   --tmt-ui-host-action-weight: 400;
-}
-.entry-command {
-  display: inline-flex;
-  align-items: baseline;
-  max-width: 100%;
-  gap: 4px;
-}
-.entry-command code {
-  min-width: 0;
-}
-.entry-copy {
-  flex-shrink: 0;
-  --tmt-ui-host-action-padding: 0 4px;
-  --tmt-ui-host-action-min-height: 0;
-  width: auto;
-  vertical-align: baseline;
 }
 .entry-details {
   margin-top: 24px;

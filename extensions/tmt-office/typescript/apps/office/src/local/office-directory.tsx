@@ -125,8 +125,8 @@ export function OfficeDirectory({
       <h2>Agents</h2>
       {population.identities.size === 0 && (
         <p>
-          Create an identity with <code>tmt identity create alice</code>. Build and assign an office
-          when you want one.
+          Create an identity with <code className="tmt-ui-code">tmt identity create alice</code>.
+          Build and assign an office when you want one.
         </p>
       )}
       {identities.map((profile) => {
