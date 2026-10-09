@@ -202,7 +202,14 @@ consume its bounded native-call deadline. `COLAB_RUST_TOOLCHAIN` (default `+1.97
 `COLAB_CHROMIUM_EXECUTABLE`, `COLAB_FIREFOX_EXECUTABLE` and `COLAB_WEBKIT_EXECUTABLE`
 select toolchain and binaries; launch failures never skip an engine.
 `test:browser --engines chromium` (no extra `--`) is a scoped diagnostic, not a
-three-engine pass. The advisory `Colab browser verification` workflow runs Chromium
+three-engine pass. The report retains source/toolchain/browser identity, frozen input
+hashes, lifecycle timings, last started/completed checks and failure stacks. Progress
+markers are synchronous test-only console messages; they do not replace assertions.
+Cleanup is bounded separately from crypto execution and its failure refuses the gate.
+For an explicitly approved Linux closure diagnostic, retain `DEBUG=pw:browser` stderr
+alongside the report and exact runner image; a later pass does not explain an older
+closure. Do not retry automatically or infer crash/OOM from a generic target error.
+The advisory `Colab browser verification` workflow runs Chromium
 on scoped PRs and all engines weekly or manual; `COLAB_HARNESS_ROOTS` and
 `COLAB_HARNESS_INPUTS` in `ci-scope.mjs` own its selection
 ([CI selection](../../../../ARCHITECTURE.md#ci-selection-and-worker-model)).
