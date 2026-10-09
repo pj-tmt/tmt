@@ -1,4 +1,15 @@
-//! Page prefixes over the current verified catalog. No alias state or authority.
+//! Mounted page destinations and prefixes over the verified catalog. No alias authority.
+/// Remote alone supplies this absolute same-origin mounted root on the private socket.
+/// No relative, foreign-origin or request-path-derived redirect is permitted.
+pub fn mounted_root(mount: Option<&str>) -> Option<&str> {
+    let mount = mount?;
+    let prefix = mount.strip_prefix("/r/")?.strip_suffix("/x/colab/")?;
+    (prefix.len() == 16
+        && prefix
+            .bytes()
+            .all(|b| matches!(b, b'a'..=b'z' | b'2'..=b'7')))
+    .then_some(mount)
+}
 pub const MIN_PREFIX: usize = 8;
 pub fn valid_prefix(prefix: &str) -> bool {
     (MIN_PREFIX..=36).contains(&prefix.len())

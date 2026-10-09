@@ -2385,6 +2385,8 @@ lookup per command (`tmt remote status --json`, then `tmt remote devices --json`
 runs; the same bounded calls as `serve`). `page create`, `ls`, `show` and the `share` commands
 print the **short owner link**, `<origin>/p/<shortId>`, while a door runs. Remote owns that
 root redirect into `<door>/x/colab/p/<shortId>`; it does not bypass pairing or grant admission.
+Colab resolves that alias to an absolute same-origin mounted-root path from Remote's
+`tmt-mount` header; missing or invalid mounted roots refuse, with no relative fallback.
 Without a door they print the mount-relative alias `x/colab/p/<shortId>` and the
 reason: the install line when Remote gave no answer; Remote's own message for an error envelope,
 with one shared wording for `REMOTE_SERVE_OUTDATED` (`The running Remote serve is older than
