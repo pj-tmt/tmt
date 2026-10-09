@@ -62,16 +62,40 @@ async function captureState(
   const controls = await page.locator('button.tmt-ui-action:disabled').evaluateAll((buttons) =>
     buttons.map((button) => {
       const style = getComputedStyle(button);
+      const form = button.closest('form');
+      const input = form?.querySelector('input');
+      const position =
+        Array.from(button.parentElement?.children ?? [])
+          .filter((child) => child.tagName === 'BUTTON')
+          .indexOf(button) + 1;
+      const owner = form?.id
+        ? `#${CSS.escape(form.id)}`
+        : input?.id
+          ? `form:has(#${CSS.escape(input.id)})`
+          : '';
       return {
-        color: style.color,
-        background: style.backgroundColor,
-        opacity: style.opacity,
-        shadow: style.boxShadow,
+        context: {
+          selector: button.id
+            ? `#${CSS.escape(button.id)}`
+            : `${owner} button:nth-of-type(${position})`.trim(),
+          label: button.textContent?.trim(),
+          disabled: button.matches(':disabled'),
+          disabledAttribute: button.getAttribute('disabled'),
+          ariaBusy: button.getAttribute('aria-busy'),
+          connected: button.isConnected,
+          refreshBusy: document.querySelector<HTMLButtonElement>('#refresh')?.disabled ?? null,
+        },
+        style: {
+          color: style.color,
+          background: style.backgroundColor,
+          opacity: style.opacity,
+          shadow: style.boxShadow,
+        },
       };
     }),
   );
   for (const control of controls)
-    expect(control).toEqual({
+    expect(control.style, `${state}: ${JSON.stringify(control)}`).toEqual({
       color: tokenRgb('color', 'disabled-text', theme),
       background: tokenRgb('surface', 'disabled', theme),
       opacity: '1',
