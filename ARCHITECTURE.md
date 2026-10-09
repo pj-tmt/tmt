@@ -50,8 +50,7 @@ ignored local outputs are outside the tracked-file map. The
 tracked-file guard. Handbook language exceptions belong to
 [AGENTS](AGENTS.md#repository-content-language) and the allowlist.
 
-Shared visual tokens have one owner, `design/tokens/tokens.json`, maintained by
-the design lead. Its Vite projection and Rust CLI theme tests consume that source; `design/browser-ui` projects browser roles, fonts and `header` metrics into checked static CSS.
+Shared visual tokens live in UX-owned `design/tokens/tokens.json`. Vite and Rust CLI theme tests consume them; `design/browser-ui` projects browser roles, fonts, header metrics and command styles into checked CSS, also imported by Office references/guidance.
 Colab app/reader use the leaf's React/static exports; Colab guidance and Remote pages embed its checked CSS plus product-owned host metrics and viewport styles at compile time, without a generator in Cargo or serving.
 Docker stages preserve those inputs and CI retains native checks. Remote's `pages.css` owns layout and host metrics; socket tests check exact shared-plus-host asset bytes.
 The private design-tokens component attributes token changes to Colab and Remote through `releaseConsumers`.

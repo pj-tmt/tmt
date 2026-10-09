@@ -56,7 +56,12 @@ async function fixture(mode = 'success') {
     'steps-unreadable',
     'pairing-note',
     'command-location',
-    'copy-feedback',
+    'copy-feedback-missing-pair',
+    'copy-feedback-different-pair',
+    'copy-feedback-refused-devices',
+    'copy-feedback-refused-pair',
+    'copy-feedback-unconfirmed-status',
+    'copy-feedback-unreadable-pair',
     'copy-missing-pair',
     'copy-different-pair',
     'copy-refused-devices',
@@ -478,7 +483,7 @@ for (const outcome of ['valid', 'refused', 'malformed', 'transport']) {
   });
 }
 
-test('inline Copy actions have command-specific names and no trailing action period', () => {
+test('Command block Copy actions have command-specific names and no trailing action period', () => {
   const html = readFileSync(
     new URL('../../../rust/tmt-remote/assets/landing.html', import.meta.url),
     'utf8',
@@ -497,7 +502,7 @@ test('inline Copy actions have command-specific names and no trailing action per
     assert.ok(action);
     assert.ok(action[1]!.includes(`aria-label="Copy tmt remote ${command}"`));
   }
-  assert.equal(html.match(/class="entry-command"/g)!.length, 6);
+  assert.equal(html.match(/class="entry-command tmt-ui-command"/g)!.length, 6);
   assert.ok(!/<\/span\s*>\s*\./.test(html));
-  assert.ok(html.includes('on it.'));
+  assert.ok(html.includes('run this on it:'));
 });

@@ -35,9 +35,14 @@ async function mount(): Promise<void> {
     if (active)
       app.render(
         <p role="alert">
-          {import.meta.env.MODE === 'offline'
-            ? 'Local Office could not initialize. Rerun tmt office start and reopen its URL.'
-            : 'Office could not initialize. Check the selected environment and Firebase configuration, then reload.'}
+          {import.meta.env.MODE === 'offline' ? (
+            <>
+              Local Office could not initialize. Rerun{' '}
+              <code className="tmt-ui-code">tmt office start</code> and reopen its URL.
+            </>
+          ) : (
+            'Office could not initialize. Check the selected environment and Firebase configuration, then reload.'
+          )}
         </p>
       );
     return;

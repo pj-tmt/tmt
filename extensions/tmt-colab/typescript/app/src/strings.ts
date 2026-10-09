@@ -13,6 +13,8 @@ function humanSize(bytes: number): string {
   return `${value.toFixed(1).replace(/\.0$/, '')} ${unit}`;
 }
 
+const reconnectCommand = 'tmt remote pair';
+
 export const text = {
   unknownPageTitle: 'Untitled page',
   originalAuthor: 'Original author',
@@ -162,8 +164,8 @@ export const text = {
   recoveryRequired: 'Reconnect to resume live updates.',
   reconnecting: 'Reconnecting…',
   reconnectToSend: 'Reconnect to send.',
-  reconnectFailed:
-    'Could not reconnect. Open this page from a paired browser, or pair with tmt remote pair.',
+  reconnectCommand,
+  reconnectFailed: `Could not reconnect. Open this page from a paired browser, or pair with ${reconnectCommand}.`,
   sessionEvicted: (limit: number) =>
     `This tab was disconnected when your paired device reached its limit of ${limit} Remote sessions.`,
   sessionLimitCommand: 'To allow another tab, run:',
@@ -330,8 +332,7 @@ export const text = {
   home: 'Space home',
   intro: 'A place for pages you share.',
   open: 'Open page',
-  empty:
-    'No pages in this space yet. Create one on your machine with tmt colab page create --title "Notes".',
+  empty: 'No pages in this space yet. Create one on your machine with ',
   private: 'Private',
   link: 'Link',
   public: 'Public',

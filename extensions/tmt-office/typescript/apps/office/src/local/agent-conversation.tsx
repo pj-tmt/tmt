@@ -382,9 +382,10 @@ function ConversationSession({
           ))}
         <details className="conversation-tip">
           <summary>How delivery works</summary>
-          Agents receive these messages through <code>tmt x listen --identity {target.id}</code>,
-          not terminal input. Sent does not mean read or completed. Unconfirmed sends stay in this
-          browser tab for safe retry.
+          Agents receive these messages through{' '}
+          <code className="tmt-ui-code">tmt x listen --identity {target.id}</code>, not terminal
+          input. Sent does not mean read or completed. Unconfirmed sends stay in this browser tab
+          for safe retry.
         </details>
       </form>
     </section>

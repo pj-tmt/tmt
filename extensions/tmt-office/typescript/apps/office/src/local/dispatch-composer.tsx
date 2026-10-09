@@ -85,13 +85,13 @@ export function DispatchComposer({ state, profiles, rooms, onDraftChange, roomId
               <li key={item.recipientId}>
                 <strong>{names.get(item.recipientId)}</strong> ·{' '}
                 {item.acceptance === 'queued' ? 'Queued' : 'Unavailable · not queued'}
-                <code>{item.requestId}</code>
+                <code className="tmt-ui-code">{item.requestId}</code>
               </li>
             ))}
           </ul>
           {noun === 'request' ? (
             <p>
-              Read replies with <code>tmt result &lt;request-id&gt;</code>.
+              Read replies with <code className="tmt-ui-code">tmt result &lt;request-id&gt;</code>.
             </p>
           ) : (
             <p>No reply is requested. Recipients acknowledge after reading.</p>

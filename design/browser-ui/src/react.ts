@@ -1,4 +1,6 @@
 export { BrowserHeader } from './header';
+export { BrowserCommand } from './command.js';
+export type { BrowserCommandProps } from './command.js';
 export type { BrowserHeaderProps } from './header';
 export { BrowserNotice } from './notice';
 export type { BrowserNoticeProps } from './notice';

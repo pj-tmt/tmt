@@ -1032,9 +1032,34 @@ test('the native entry checks once and presents all seven evidenced states witho
       await commands.evaluateAll((nodes) =>
         nodes.every(
           (node) =>
-            node.nextElementSibling?.matches('button.entry-copy[data-variant="text"]') &&
+            node.nextElementSibling?.matches('button.tmt-ui-command-copy') &&
             node.nextElementSibling.textContent?.trim() === 'Copy',
         ),
+      ),
+    ).toBe(true);
+    expect(
+      await commands.evaluateAll((nodes) =>
+        nodes.every((node) => {
+          const button = node.nextElementSibling!;
+          const text = node.getBoundingClientRect();
+          const action = button.getBoundingClientRect();
+          const block = node.parentElement!;
+          const css = getComputedStyle(block);
+          const verticalSpace =
+            parseFloat(css.paddingTop) +
+            parseFloat(css.paddingBottom) +
+            parseFloat(css.borderTopWidth) +
+            parseFloat(css.borderBottomWidth);
+          return (
+            Math.abs(text.top + text.height / 2 - action.top - action.height / 2) < 1 &&
+            css.paddingTop === css.paddingBottom &&
+            Math.abs(
+              block.getBoundingClientRect().height -
+                Math.max(text.height, action.height) -
+                verticalSpace,
+            ) < 1
+          );
+        }),
       ),
     ).toBe(true);
     for (const command of await commands.allTextContents()) {
@@ -1048,8 +1073,10 @@ test('the native entry checks once and presents all seven evidenced states witho
           const group = node.parentElement!;
           return (
             group.matches('.entry-command') &&
-            (group.nextSibling?.textContent?.trim() ?? '') ===
-              (group.closest('#steps-different') ? 'on it.' : '')
+            (group.nextSibling?.textContent?.trim() ?? '') === '' &&
+            (!group.closest('#steps-different') ||
+              group.previousSibling?.textContent?.trim() ===
+                'To use this machine too, run this on it:')
           );
         }),
       ),
@@ -1084,10 +1111,13 @@ test('the native entry checks once and presents all seven evidenced states witho
       ).toBe(true);
     } else await expect(page.locator('#pairing-note')).toBeHidden();
     expect(
-      await page.locator('#copy-feedback').evaluate((node) => {
-        const style = getComputedStyle(node);
-        return [style.marginTop, style.marginBottom];
-      }),
+      await page
+        .locator('.tmt-ui-command-feedback')
+        .first()
+        .evaluate((node) => {
+          const style = getComputedStyle(node);
+          return [style.marginTop, style.marginBottom];
+        }),
     ).toEqual(['0px', '0px']);
     await captureState(
       page,
@@ -1126,7 +1156,7 @@ test('the native entry checks once and presents all seven evidenced states witho
   await captureEntry('not-paired');
   await page.getByRole('button', { name: 'Copy tmt remote pair', exact: true }).click();
   expect(await page.evaluate(() => navigator.clipboard.readText())).toBe('tmt remote pair');
-  await expect(page.locator('#copy-feedback')).toHaveText('Copied.');
+  await expect(page.locator('.entry-steps:visible .tmt-ui-command-feedback')).toHaveText('Copied.');
   pair = spawn(BINARY, ['pair', '--json'], { env });
   const events = lines(pair);
   const offer = await events.next();
@@ -1284,7 +1314,7 @@ test('the native entry checks once and presents all seven evidenced states witho
     };
   });
   await page.getByRole('button', { name: 'Copy tmt remote status', exact: true }).click();
-  await expect(page.locator('#copy-feedback')).toHaveText(
+  await expect(page.locator('.entry-steps:visible .tmt-ui-command-feedback')).toHaveText(
     'Copy failed. Select the command and copy it manually.',
   );
   const changed = [...original.machinePublicKey];

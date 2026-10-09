@@ -117,13 +117,6 @@ main {
 .guidance-detail p:last-child {
   margin-bottom: 0;
 }
-.guidance-command code {
-  display: inline-block;
-  border: 1px solid var(--c-rule);
-  padding: 7px 10px;
-  background: var(--c-paper);
-  font: 13px var(--f-mono);
-}
 @media (max-width: 600px) {
   .tmt-ui-actions > .chip,
   .tmt-ui-actions > .status {

@@ -24,7 +24,7 @@ export function UpdateNotice() {
       <div className="update-notice" role="status" data-update-notice data-serve-older>
         <span>
           {text.serveOlder.lead(serve.installed, serve.running)} {text.serveOlder.restart}{' '}
-          <code>{text.serveOlder.command}</code> {text.serveOlder.tail}
+          <code className="tmt-ui-code">{text.serveOlder.command}</code> {text.serveOlder.tail}
         </span>
       </div>
     );

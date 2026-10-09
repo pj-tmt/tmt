@@ -1,4 +1,9 @@
 export const browserUiClasses = Object.freeze({
+  command: 'tmt-ui-command',
+  commandText: 'tmt-ui-command-text',
+  commandCopy: 'tmt-ui-command-copy',
+  commandFeedback: 'tmt-ui-command-feedback',
+  code: 'tmt-ui-code',
   header: 'tmt-ui-header',
   brand: 'tmt-ui-brand',
   mark: 'tmt-ui-mark',

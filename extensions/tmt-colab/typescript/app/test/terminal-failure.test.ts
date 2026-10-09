@@ -32,7 +32,8 @@ describe('terminal failure wording', () => {
   });
 
   it('shows a message that is already a sentence as is, without a reference', () => {
-    expect(terminalFailure(new Error(text.noWraps))).toEqual({ sentence: text.noWraps });
+    for (const sentence of [text.noWraps, text.reconnectFailed])
+      expect(terminalFailure(new Error(sentence))).toEqual({ sentence });
   });
 
   // A code added to the wire or Remote lists must get a wording decision here,

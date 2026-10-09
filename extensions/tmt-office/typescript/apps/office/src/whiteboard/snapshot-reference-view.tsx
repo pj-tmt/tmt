@@ -6,12 +6,20 @@ export function SnapshotReferenceView({ id }: { id: string }) {
   const { field, message, copy } = useCopyReference(reference);
   return (
     <div className="whiteboard-review-reference">
-      <label>
-        Local snapshot reference
-        <input ref={field} readOnly value={reference} />
-      </label>
-      <button onClick={() => void copy()}>Copy reference</button>
-      {message && <p role="status">{message}</p>}
+      <div className="tmt-ui-command">
+        <label>
+          Local snapshot reference
+          <input className="tmt-ui-command-text" ref={field} readOnly value={reference} />
+        </label>
+        <button className="tmt-ui-command-copy" type="button" onClick={() => void copy()}>
+          Copy reference
+        </button>
+        {message && (
+          <p className="tmt-ui-command-feedback" role="status">
+            {message}
+          </p>
+        )}
+      </div>
       <p>Read with TMT on this machine. Copying does not send a request.</p>
     </div>
   );

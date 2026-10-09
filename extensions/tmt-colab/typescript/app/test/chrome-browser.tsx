@@ -4,6 +4,7 @@ import { RouterProvider } from '@tanstack/react-router';
 import { createAppRouter } from '../src/router.js';
 import { ReaderApp, type ReaderState } from '../src/reader-app.js';
 import { MountedNotice } from '../src/mounted-app.js';
+import { text } from '../src/strings.js';
 import { localTransport, type PageSnapshot } from '../src/transport.js';
 
 let root: Root | undefined;
@@ -15,6 +16,8 @@ export type Screen =
   | 'empty'
   | 'page'
   | 'error'
+  | 'reconnect-error'
+  | 'reconnect-terminal'
   | 'not-found'
   | 'mounted-opening'
   | 'mounted-failed'
@@ -77,10 +80,33 @@ export async function mount(screen: Screen) {
           throw new Error('No writes in layout fixture');
         },
       },
-      spaceHome: async () => ({ title: 'Studio pages', pages }),
+      spaceHome: async () => {
+        if (screen === 'reconnect-error') throw new Error(text.reconnectFailed);
+        return { title: 'Studio pages', pages };
+      },
+      page: async (pageId, signal) => {
+        const snapshot = await transport.page(pageId, signal);
+        if (screen !== 'reconnect-terminal') return snapshot;
+        return {
+          ...snapshot,
+          binding: {
+            subscribe: (_, failed) => {
+              failed(new Error(text.reconnectFailed));
+              return () => {};
+            },
+            edit: async () => {
+              throw new Error('No edits in failure fixture');
+            },
+            export: async () => {
+              throw new Error('No exports in failure fixture');
+            },
+            close: () => {},
+          },
+        };
+      },
     });
     location.hash =
-      screen === 'page'
+      screen === 'page' || screen === 'reconnect-terminal'
         ? `/pages/${id}`
         : screen === 'error'
           ? '/blocked'

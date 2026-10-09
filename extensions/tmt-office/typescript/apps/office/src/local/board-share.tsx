@@ -35,21 +35,27 @@ export function BoardReferenceActions({
         >
           Ask agents
         </button>
-        <button type="button" onClick={() => void copy()}>
-          Copy reference
-        </button>
       </div>
-      <details ref={details} className="board-reference">
+      <details open ref={details} className="board-reference">
         <summary>Thread reference</summary>
-        <label>
-          Local thread reference
-          <input ref={field} readOnly value={thread.id} />
-        </label>
+        <div className="tmt-ui-command">
+          <label>
+            Local thread reference
+            <input className="tmt-ui-command-text" ref={field} readOnly value={thread.id} />
+          </label>
+          <button className="tmt-ui-command-copy" type="button" onClick={() => void copy()}>
+            Copy reference
+          </button>
+          {message && (
+            <p className="tmt-ui-command-feedback" role="status">
+              {message}
+            </p>
+          )}
+        </div>
         <p className="board-entry-meta">
           Live discussion, not a frozen snapshot. Copying sends nothing.
         </p>
       </details>
-      {message && <p role="status">{message}</p>}
     </section>
   );
 }

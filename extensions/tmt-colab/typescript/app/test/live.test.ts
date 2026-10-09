@@ -11,6 +11,7 @@ import {
 import type { PageView } from '../src/transport.js';
 import type { Registration } from '../src/registration.js';
 import { Live } from '../src/live.js';
+import { text } from '../src/strings.js';
 import { RecoveryRequiredError } from '../src/session-recovery.js';
 import {
   SaveNotApplied,
@@ -623,15 +624,14 @@ it('only a typed fresh-session refusal uses bounded reload after stopping Live, 
     {} as RemoteClient,
     { reconnect, recover },
   );
-  live.subscribe(
-    () => {},
-    () => {},
-  );
+  const failed = vi.fn();
+  live.subscribe(() => {}, failed);
   await live.snapshot();
   connection = connections.at(-1)!;
   ask = asks.instances.at(-1)!;
   signal = asks.signals.at(-1)!;
   expect(await live.reconnect()).toBe(false);
+  expect(failed).toHaveBeenLastCalledWith(new Error(text.reconnectFailed));
   expect(await live.reconnect()).toBe(false);
   expect(recover).toHaveBeenCalledOnce();
   expect(reconnect).toHaveBeenCalledOnce();

@@ -11,7 +11,7 @@ it('copies only a token-free local reference', async () => {
   render(<SnapshotReferenceView id={id} />);
   await user.click(screen.getByRole('button', { name: 'Copy reference' }));
   expect(await navigator.clipboard.readText()).toBe(reference);
-  expect(screen.getByRole('status').textContent).toBe('Reference copied.');
+  expect(screen.getByRole('status').textContent).toBe('Copied.');
 });
 
 it('selects the same reference for manual copying if clipboard access is denied', async () => {

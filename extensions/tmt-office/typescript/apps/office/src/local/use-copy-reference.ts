@@ -8,8 +8,7 @@ export function useCopyReference(reference: string, reveal?: () => void) {
     const target = field.current;
     try {
       await navigator.clipboard.writeText(reference);
-      if (target && field.current === target && target.value === reference)
-        setMessage('Reference copied.');
+      if (target && field.current === target && target.value === reference) setMessage('Copied.');
     } catch {
       if (target && field.current === target && target.value === reference) {
         reveal?.();

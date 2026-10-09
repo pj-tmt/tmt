@@ -129,6 +129,16 @@ var first = element("first");
 var rows = /* @__PURE__ */ new Map();
 var initialized = false;
 var page;
+/** Format fixed CLI hints as literal text, never interpret notice content as HTML. */
+function commandNotice(target, text) {
+	target.replaceChildren();
+	for (const part of text.split(/(tmt remote (?:pair|devices|settings))/g)) if (/^tmt remote (?:pair|devices|settings)$/.test(part)) {
+		const code = document.createElement("code");
+		code.className = "tmt-ui-code";
+		code.textContent = part;
+		target.append(code);
+	} else target.append(document.createTextNode(part));
+}
 function render() {
 	element("access").textContent = {
 		checking: "Checking current access…",
@@ -179,7 +189,7 @@ function render() {
 	more.disabled = page.busy;
 	first.hidden = page.onFirstPage;
 	first.disabled = page.busy;
-	element("outcome").textContent = `${page.outcome?.state && page.outcome.state !== "unknown" ? `${page.outcome.state}: ` : ""}${page.notice || "No change submitted."}`;
+	commandNotice(element("outcome"), `${page.outcome?.state && page.outcome.state !== "unknown" ? `${page.outcome.state}: ` : ""}${page.notice || "No change submitted."}`);
 	element("original").textContent = page.intent ? `Original operation ${page.intent.input.operationId}` : "";
 	if (page.devices) {
 		const current = new Set(page.devices.devices.map((device) => device.clientId));
@@ -345,7 +355,7 @@ try {
 	});
 	await run(() => page.refresh());
 } catch (error) {
-	element("access").textContent = error instanceof RefusalError ? "Current browser access refused. Use the local CLI." : "Current browser access unconfirmed. Pair locally with tmt remote pair, or use the local CLI.";
+	commandNotice(element("access"), error instanceof RefusalError ? "Current browser access refused. Use the local CLI." : "Current browser access unconfirmed. Pair locally with tmt remote pair, or use the local CLI.");
 	refresh.disabled = true;
 	element("access-notice").dataset.tone = "blocked";
 	element("controls-reason").textContent = "Current access is unavailable. Use the local CLI.";
