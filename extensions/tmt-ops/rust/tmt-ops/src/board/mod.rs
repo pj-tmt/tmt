@@ -103,6 +103,12 @@ pub(super) enum BoardEvent {
         cancellation: crate::runner::Cancellation,
         snapshot: Box<Snapshot>,
     },
+    /// The shown squad's deferred focus and reply-body reads.
+    Enriched {
+        cancellation: crate::runner::Cancellation,
+        squad: String,
+        enrichment: refresh::Enrichment,
+    },
     /// The tab's last stored display, always stale, offered before its fresh load.
     Cached {
         cancellation: crate::runner::Cancellation,
@@ -382,6 +388,16 @@ fn session<T: Into<ActionOutcome>>(
                 display,
             }) => {
                 if !cancellation.cancelled() && app.adopt_cached(*display) {
+                    dirty = true;
+                }
+                Effect::None
+            }
+            Ok(BoardEvent::Enriched {
+                cancellation,
+                squad,
+                enrichment,
+            }) => {
+                if !cancellation.cancelled() && app.apply_enriched(&squad, enrichment) {
                     dirty = true;
                 }
                 Effect::None

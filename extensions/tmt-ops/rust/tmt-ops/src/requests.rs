@@ -329,6 +329,14 @@ pub fn bodies(
     Ok(())
 }
 
+/// A retained reply among the shown ones still lacks its body.
+pub fn unread(replies: &[Value]) -> bool {
+    replies
+        .iter()
+        .take(BODIES)
+        .any(|reply| reply["status"] == "retained" && reply["response"].is_null())
+}
+
 /// A compact age: 45s, 12m, 3h or 2d.
 pub fn age(now_ms: u64, then_ms: u64) -> String {
     let seconds = now_ms.saturating_sub(then_ms) / 1000;
@@ -349,6 +357,19 @@ pub fn show_request(core: &Core, id: &str) -> Result<Value, SquadError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_publish_fills_known_bodies_without_reading_and_names_the_rest_unread() {
+        let reply = |id: &str| json!({"requestId": id, "status": "retained", "response": null});
+        let mut replies = vec![reply("seen"), reply("new")];
+        let mut cache = BTreeMap::from([("seen".to_owned(), "body".to_owned())]);
+        bodies(|_| Ok(Value::Null), &mut replies, &mut cache).unwrap();
+        assert_eq!(replies[0]["response"], "body");
+        assert!(replies[1]["response"].is_null());
+        assert!(unread(&replies));
+        replies[1]["response"] = json!("later");
+        assert!(!unread(&replies));
+    }
 
     fn item(id: &str, from: &str, to: &str, preview: &str, done: bool) -> Value {
         json!({
