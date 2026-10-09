@@ -3710,7 +3710,13 @@ fn serve_opens_the_space_home_only_when_told_or_allowed_and_says_so() {
         "{text}"
     );
     serving.stop(Signal::SIGTERM);
-    assert_eq!(pilot.opened(), vec![home.to_owned()]);
+    // The space home is the link that lands on the space, the same one a rerun prints.
+    let opened = pilot.opened();
+    assert_eq!(opened.len(), 1, "{opened:?}");
+    assert!(
+        opened[0].starts_with(&format!("{home}#space=")),
+        "{opened:?}"
+    );
 }
 #[test]
 fn serve_opens_the_single_page_and_the_setting_is_overridden_by_flags_only() {
@@ -5001,13 +5007,8 @@ fn a_second_start_reports_the_running_serve_and_starts_nothing() {
     let pilot = Pilot::new(None);
     let _stop = Detached(&pilot);
     let core = pilot.remote_core(Some(STOPPED), Serve::Hold);
-    assert!(
-        launcher(&pilot, &core, &["--no-open"])
-            .output()
-            .unwrap()
-            .status
-            .success()
-    );
+    let first = launcher(&pilot, &core, &["--no-open"]).output().unwrap();
+    assert!(first.status.success(), "{first:?}");
     let door = pilot.serve_pid().unwrap();
     // A person who reruns it gets the running page, not an error, and nothing starts. The door now
     // answers that it runs, as the one the first serve started would.
@@ -5020,6 +5021,14 @@ fn a_second_start_reports_the_running_serve_and_starts_nothing() {
     assert!(text.contains("tmt colab stop"), "{text}");
     assert!(!text.contains("background"), "{text}");
     assert!(human.stderr.is_empty(), "{}", stderr_of(&human));
+    // The same running Colab shows the same link on first start and on rerun.
+    let open_row = |text: &str| {
+        text.lines()
+            .find(|line| line.starts_with("open "))
+            .unwrap_or_else(|| panic!("no open row in {text}"))
+            .to_owned()
+    };
+    assert_eq!(open_row(&squashed(&stdout_of(&first))), open_row(&text));
     let opener = pilot.root.join("opened");
     pilot.opener(0);
     let opens = launcher(&pilot, &running, &["--open"]).output().unwrap();

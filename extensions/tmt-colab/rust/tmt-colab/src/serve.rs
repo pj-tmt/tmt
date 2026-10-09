@@ -190,13 +190,15 @@ fn present(
         writeln!(output, "{}", presentation.status)?;
     } else {
         let terminal = output.terminal();
-        if background {
-            tmt_cli_style::message::success(
-                &mut output,
-                terminal,
-                "Colab is running in the background",
-            )?;
-        }
+        tmt_cli_style::message::success(
+            &mut output,
+            terminal,
+            if background {
+                "Colab is running in the background"
+            } else {
+                "Colab is running in this terminal"
+            },
+        )?;
         let rows: Vec<(&str, String)> = presentation
             .rows
             .iter()
@@ -275,10 +277,7 @@ fn already_running(root: &Path, args: &clap::ArgMatches) -> Result<()> {
     let keyring = Keyring::read(&layout)?;
     let store = Store::read(&layout)?;
     let (pages, all_pages) = open_pages(&store, &keyring);
-    let path = match pages.as_deref() {
-        Some([only]) => crate::reach::Reach::path(&keyring.space_id, only),
-        _ => format!("x/colab/#space={}", keyring.space_id),
-    };
+    let path = crate::reach::Reach::landing(&keyring.space_id, pages.as_deref());
     let reach = crate::reach::Reach::gather().with_pages(all_pages.as_deref().unwrap_or(&[]));
     let mut shown = reach.text(&path);
     let mut warnings = Vec::new();
