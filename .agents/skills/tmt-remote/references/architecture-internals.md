@@ -16,10 +16,11 @@ Module owners (put a change in the existing owner; `canonical`, `crypto`, `wire`
 | `mount`, `pages`                       | Extension mounts (allowlisted extensions only), static landing/pairing/error pages and embedded stylesheet/SDK assets                                                                                                 |
 | `objects`                              | Object backend trait and `LocalFs`: the `objects.db` ledger and extension-private payload trees under the serve lease; the channel and config belong to `object_service`                                              |
 | `declaration`, `deploy_plan`, `rules`  | Strict backend declaration parse; digest-addressed `sharing` deploy plan; allow-listed Rules/indexes composition (bytes in, library only until #2164)                                                                 |
+| `deploy_command`, `deploy_record`      | Library-only plan/authorization/output over injected approved inputs and provider; private deployment identity/run file, atomic replacement under a separate writer lock; readers never take that lock                |
 | `firestore_budget`                     | Free-plan Firestore budget model and client guard; vectors in `tests/fixtures/firestore_budget`                                                                                                                       |
 | `firestore_limits`                     | Dated free-plan Firestore limits table and its `status --budget` projection, validator and human lines; golden in `tests/fixtures/firestore_budget/limits-member.json`                                                |
 | `readiness`                            | Layered Firestore readiness: one table of items, reasons and sentences; projection, validator and human lines over an injected evidence source                                                                        |
-| `deploy_run`                           | Authorized Firestore sharing deploy over an injected `DeployPort`: envelope digest, authorization, step order, record and binding rule (library until #2164 slice 2)                                                  |
+| `deploy_run`                           | Authorized Firestore sharing deploy over an injected `DeployPort`: envelope digest, authorization, step order, record and binding rule (library-only; CLI registration awaits reader/provider integration)            |
 | `object_service`                       | Lease-bound `ObjectService`: initial/demand single-flight Local setup, readiness, origins, admitted observation/upload; production Colab-only Local                                                                   |
 | `tmt-extension-objects` (leaf)         | Remote-owned protocol leaf, consumed only by `object_service`: canonical IDs/encodings, protocol bounds, strict JSON, typed frames and the Unix carrier; no backend, policy or Remote/Colab types, and grants nothing |
 
@@ -105,3 +106,21 @@ backend limits. Its tests are in-crate, so run it alone and keep it in the archi
 (cd rust && CARGO_BUILD_JOBS=2 cargo test --offline --locked -p tmt-extension-objects)
 (cd rust && CARGO_BUILD_JOBS=2 cargo test --offline --locked -p tmt-cli --test architecture)
 ```
+
+## Deployment record
+
+The library-only deployment owner defaults to a plan and saves one local draft identity,
+without a provider effect. Explicit digest authorization names the whole envelope; foreign
+Rules replacement needs its own digest. Sign-in providers are explicit inputs. Command
+registration, installed declaration discovery and the real provider adapter remain planned;
+record-derived readiness and the deployed-artifact emulator proof are the next slice.
+
+`deploy.json` and `deploy.lock` belong to Remote's private layout, separately from the
+serving lease and database. The writer retains the nonblocking lock for a plan/run, writes a
+create-new private staging file, syncs it, atomically renames it and syncs the directory.
+Readers never take `deploy.lock`: an opened snapshot is a complete old or new record, so a
+long deployment cannot block status. Malformed, oversized or unsafe state is refused, never
+reset. Save failure stops effects; a directory-sync failure after rename does not mean the
+visible publication rolled back. Staging cleanup only removes admitted deployment staging
+names under the writer lock. Existing status/stop, settings, store and machine-key owners
+keep the deployment identity and binding.

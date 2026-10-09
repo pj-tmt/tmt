@@ -1729,6 +1729,14 @@ Records carry fixed reason codes, never provider text, and Remote fixes the owne
   `_PROVIDER_REJECTED`, `_DATABASE_MISMATCH`, `_RULES_FOREIGN`, `_VERIFY_FAILED`.
 - Owner steps: `REMOTE_DEPLOY_OWNER_INITIALIZE_AUTH`, `_ENABLE_GOOGLE_SIGN_IN`.
 
+**Current implementation.** The deployment command owner is library-only, with approved
+extension inputs and the provider injected. It defaults to a plan with no provider effects;
+only an explicit digest authorization can run it. A private deployment record preserves the
+draft identity and saves run outcomes under a separate writer lock, publishing complete files
+by atomic rename. Readers never take that lock, so status need not wait for a deployment run.
+Installed declaration discovery, the real provider adapter and CLI registration, readiness
+from the record and the deployed-artifact emulator proof remain later prerequisites.
+
 [Start and pair](#provisioning-on-start-and-pair) automatically prepare the namespaces/bridge of
 already authorized local or deployed resources and publish the device admission projection. They
 do not authorize first deployment, new account resources or expanded provider permissions. Adding
