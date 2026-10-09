@@ -73,6 +73,50 @@ peer close and generation replacement release its source and join owned workers.
 Root-local library reads use the actual management keyring and require an established
 channel; no new plaintext HTTP route, upload command or second backend is introduced.
 
+### Attaching files in Chat and annotation conversations (#1854)
+
+The owner browser's shared composer can attach files to a Chat, annotation or reply
+message. Picking, pasting or dropping only adds an inert local chip: nothing is stored,
+sent or prepared, an Ask is never created and the message text is neither read nor
+replaced. The explicit Send is the first effect. A message still needs text; attachments
+are never part of an Ask payload, so a mentioned agent receives the text alone.
+
+Limits are the consumer limits above: 8 MiB per file, 16 per message, the backend
+`config` payload bound when lower, and filenames shortened to 255 UTF-8 bytes with
+control characters and path separators replaced. The stored media type is decided from
+the bytes, never the name or the browser's declared type: a PNG, JPEG or WebP whose header
+declares at most 16 million pixels is stored under its raster type, everything else
+(video bytes included) as `application/octet-stream`.
+
+On Send the browser allocates the message ID once, then for each chip seals the asset
+under that ID (message revision 1), freezes it with the page revision as its base,
+and runs `begin`, ordered `part`s and `commit`; progress is per chip and a failed Send
+leaves the text and the other chips as they are. `refused` outcomes (including a
+backend limit) never took effect and are retried only by an explicit action. A thrown
+request or an `unknown` answer once the first request has left makes the chip
+`unconfirmed`: Send is blocked until the user asks status of that same frozen original
+(a pending transfer continues, never replays) or removes it. A status answer of
+`expired`, `discarded` or `not-observed` attaches it again from the local bytes;
+`unavailable` says nothing about the original and leaves it unconfirmed. Removing, or leaving the
+composer unsent, releases stored originals best effort; the bytes are not kept in saved
+drafts.
+
+Only when every chip is committed does the Writer batch the verified publication records
+and the message record (with its descriptors) in one own publication, inside the
+discussion lock and after `verify` of each committed object. Publication requires the
+page revision to equal the base captured at seal time. If the page changed meanwhile,
+nothing is published, the affected chips show that the page changed and the next Send
+uploads them again from the retained local bytes under the same message ID, releasing
+the first original. Objects left unreferenced by a failed or abandoned Send stay in the
+backend until retention (tracked with #1856). A message that has attachments cannot be
+edited; deleting it removes its references.
+
+Each attachment row opens bytes only on a trusted click, through the admitted read of
+that exact message revision. A permitted raster previews from a `data:` URL after the
+header is parsed again; every other file is an explicit `application/octet-stream`
+download through the parent's blob-download lifecycle, revoked after hand-off and on
+unmount. No inline video, active content, relaxed CSP or renderer capability exists.
+
 ## Channel boundary
 
 Colab is an app on remote. The [remote channel contract](../../../contracts/remote-channel-v1.md#extension-channel-api)

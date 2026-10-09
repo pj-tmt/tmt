@@ -1,0 +1,67 @@
+.attachment-tray {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+}
+.attachment-chips {
+  flex: 1 0 100%;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.attachment-chip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 8px;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--c-rule);
+  font-size: 13px;
+}
+.attachment-name {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.attachment-size,
+.attachment-state {
+  color: var(--c-muted);
+  font-size: 12px;
+}
+.attachment-chip[data-state='refused'] .attachment-state,
+.attachment-chip[data-state='unknown'] .attachment-state,
+.attachment-chip[data-state='again'] .attachment-state {
+  color: var(--c-blocked);
+}
+.attachment-actions {
+  margin-inline-start: auto;
+  display: inline-flex;
+  gap: 4px;
+}
+.attachment-notice {
+  flex: 1 0 100%;
+  margin: 0;
+  color: var(--c-muted);
+  font-size: 12px;
+}
+.message-attachments {
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.message-attachment {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 8px;
+  padding: 4px 0;
+  font-size: 13px;
+}
+.attachment-preview {
+  flex: 1 0 100%;
+}
+.message-attachment img {
+  display: block;
+  max-width: 100%;
+  max-height: 320px;
+}

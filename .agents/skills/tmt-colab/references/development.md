@@ -65,7 +65,9 @@ Each is `(cd rust && cargo test --offline --locked -p tmt-colab <selector>)`:
   extension outcomes; they do not prove the production Remote backend route. Production
   activation and the three-binary routed proof remain separate acceptance gates. Browser
   attachment checks are `test/attachment-channel.test.ts`, `test/attachment-read.test.ts`
-  and `e2e/fold.spec.ts`; native reads require an already established channel.
+  and `e2e/fold.spec.ts`; native reads require an already established channel. The
+  composer and message surfaces are `test/attachment-{file,service,draft}.test.ts`,
+  `e2e/attachments.spec.ts` and `acceptance/attachments.spec.ts`.
 - Management subcommands precede operands: `tmt colab share link list <page>`,
   `tmt colab share mode <page> link --yes`.
 - Full management includes `share member add/remove/role`, `share history`,
