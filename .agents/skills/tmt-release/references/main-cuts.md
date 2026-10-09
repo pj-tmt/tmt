@@ -323,8 +323,13 @@ is the one PATH selects and reports that version, the installed shared skills ar
 `skills/*` (same names, same `SKILL.md`), and `tmt upgrade --channel alpha --json` reads the live
 metadata and reports the installation current (a newer alpha that appeared since passes with a
 note). An extension alpha is installed by the newest published CLI's `tmt extension install
-<extension>` into a separate prefix; `tmt extension list` must report the tag's version and no
-CLI link may appear. A Herdr driver alpha downloads its exact tag’s
+<extension>` into a separate prefix. The requested product at the tag's version, or a strictly higher
+well-formed alpha published meanwhile, passes; a higher alpha gets an explicit installed-version note.
+`tmt extension list` must match the selected installed version exactly, the Colab app proof uses it,
+and no CLI link may appear. In the higher-alpha case the old tag was not publicly installed: its own
+archive remains covered by the strict pre-publication archive/upgrade gates and post-publication
+checksum/digest/attestation checks. Other product/version and installation failures stay red.
+A Herdr driver alpha downloads its exact tag’s
 `dist-manifest.json` and matching standalone archive through public versioned URLs,
 checks the bounded manifest, digest and inventory, then uses the current public CLI’s
 supported `driver install <extracted-path> --yes --json` and `driver ls` surfaces

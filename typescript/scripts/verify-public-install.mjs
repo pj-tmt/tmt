@@ -8,7 +8,7 @@
 //              the installation is current (or that a newer alpha has appeared since).
 //   extension  the newest published CLI, installed the same way, runs `tmt extension install
 //              <extension>` against the published release; `tmt extension list` reports the
-//              tag's version and no CLI link appears.
+//              selected version (the tag's or a higher alpha) and no CLI link appears.
 // A failure is a result, never a rollback. Only data of the release is read from `--source`, a
 // checkout of the tag; none of its code runs here.
 //   node verify-public-install.mjs --product P --tag TAG --source DIR [--target T] [--result-file F]
@@ -386,6 +386,7 @@ export async function smokeRelease({
   }
 
   const extensionPrefix = path.join(root, 'extension prefix');
+  let extensionVersion = version;
   const extensionInstalled = await check(`${product} install`, async () => {
     const report = JSON.parse(
       tmt(
@@ -403,10 +404,18 @@ export async function smokeRelease({
         { timeoutMs: 300_000, acquire: true }
       )
     );
-    if (report.version !== version)
+    if (report.extension !== product)
+      throw new Error(`it installed ${report.extension}, not ${product}`);
+    if (
+      report.version !== version &&
+      !(isAlphaVersion(report.version) && compareVersions(report.version, version) > 0)
+    )
       throw new Error(`it installed ${report.version}, not ${version}`);
     inspect(path.join(extensionPrefix, 'bin', `tmt-${product}`));
-    return report.version;
+    extensionVersion = report.version;
+    return extensionVersion === version
+      ? extensionVersion
+      : `note: a newer alpha, ${extensionVersion}, was published meanwhile and is installed`;
   });
   if (!extensionInstalled) return finish();
   const listed = await check(`${product} list`, async () => {
@@ -414,8 +423,8 @@ export async function smokeRelease({
       tmt(['extension', 'list', '--json', '--prefix', extensionPrefix])
     );
     const listed = extensions.find(({ name }) => name === product);
-    if (listed?.version !== version)
-      throw new Error(`the list reports ${listed?.version}, not ${version}`);
+    if (listed?.version !== extensionVersion)
+      throw new Error(`the list reports ${listed?.version}, not ${extensionVersion}`);
     if (existsSync(path.join(extensionPrefix, 'bin', 'tmt'))) {
       throw new Error('an extension install must not create the CLI link');
     }
@@ -427,7 +436,7 @@ export async function smokeRelease({
       await verifyColab({
         executable,
         tmtExecutable: binary,
-        version,
+        version: extensionVersion,
         notices: readFileSync(
           path.join(path.dirname(executable), 'THIRD-PARTY-NOTICES.txt'),
           'utf8'

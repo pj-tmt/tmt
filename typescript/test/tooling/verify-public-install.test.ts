@@ -72,6 +72,7 @@ interface Fake {
     reports?: string;
     link?: boolean;
     product?: string;
+    installedProduct?: string;
     binary?: string;
     notices?: string;
   };
@@ -143,7 +144,7 @@ case "$*" in
     ln -s ../lib/tmt-colab/releases/fixture/tmt-colab "$prefix/bin/tmt-colab"`
         : ''
     }
-    printf '{"extension":"${extension.product ?? 'ops'}","installed":true,"changed":true,"version":"%s"}' '${extension.installs ?? '0.1.0-alpha.4'}' ;;
+    printf '{"extension":"${extension.installedProduct ?? extension.product ?? 'ops'}","installed":true,"changed":true,"version":"%s"}' '${extension.installs ?? '0.1.0-alpha.4'}' ;;
   "extension list --json --prefix "*)
     printf '{"extensions":[{"name":"office","installed":false},{"name":"${extension.product ?? 'ops'}","installed":true,"version":"%s"}]}' '${extension.reports ?? extension.installs ?? '0.1.0-alpha.4'}' ;;
   "driver "*) ${fake.driverExecutable ? `exec ${shellQuote(fake.driverExecutable)} "$@"` : 'exit 9'} ;;
@@ -171,6 +172,7 @@ function run(
     target?: string;
     architectures?: string[];
     colabVariant?: string;
+    verifyColab?: typeof verifyColabApp;
   } = {}
 ) {
   const root = path.join(base, `run-${(counter += 1)}`);
@@ -212,8 +214,13 @@ function run(
         });
       },
       githubToken: options.githubToken,
-      verifyColab: (input) =>
-        verifyColabApp({ ...input, args: ['--fixture-variant', options.colabVariant ?? 'valid'] }),
+      verifyColab:
+        options.verifyColab ??
+        ((input) =>
+          verifyColabApp({
+            ...input,
+            args: ['--fixture-variant', options.colabVariant ?? 'valid'],
+          })),
       ...(options.download ? { download: options.download } : {}),
       ...(options.systemPath ? { systemPath: options.systemPath } : {}),
       fetch: async (url: string) => {
@@ -657,6 +664,93 @@ describe('the public installer smoke of an extension release', () => {
     const linked = await smoke({ link: true });
     expect(linked.at(-1)).toMatchObject({ check: 'ops list', ok: false });
     expect(linked.at(-1)?.reason).toContain('must not create the CLI link');
+  });
+
+  it('records a higher same-product alpha and requires its exact installed version in the list', async () => {
+    const results = await smoke({ installs: '0.1.0-alpha.5' });
+    expect(results.map(({ check, ok }) => [check, ok])).toEqual([
+      ['public installer', true],
+      ['install', true],
+      ['PATH selects the installed tmt', true],
+      ['installed version', true],
+      ['ops install', true],
+      ['ops list', true],
+    ]);
+    expect(results.find(({ check }) => check === 'ops install')).toEqual({
+      check: 'ops install',
+      ok: true,
+      reason: 'note: a newer alpha, 0.1.0-alpha.5, was published meanwhile and is installed',
+    });
+    expect(results.at(-1)).toEqual({ check: 'ops list', ok: true, reason: '0.1.0-alpha.5' });
+    for (const reports of ['0.1.0-alpha.4', '0.1.0-alpha.6']) {
+      expect((await smoke({ installs: '0.1.0-alpha.5', reports })).at(-1)).toEqual({
+        check: 'ops list',
+        ok: false,
+        reason: `the list reports ${reports}, not 0.1.0-alpha.5`,
+      });
+    }
+  });
+
+  it.each(['0.1.0-alpha.3', '0.1.0', '0.2.0-beta.1', 'not-a-version', ''])(
+    'refuses an older, non-alpha or malformed installed extension version %s',
+    async (installs) => {
+      const results = await smoke({ installs });
+      expect(results.at(-1)).toEqual({
+        check: 'ops install',
+        ok: false,
+        reason: `it installed ${installs}, not 0.1.0-alpha.4`,
+      });
+      expect(results.some(({ check }) => check === 'ops list')).toBe(false);
+    }
+  );
+
+  it.each(['0.1.0-alpha.4', '0.1.0-alpha.5'])(
+    'refuses a different product even when its version %s would otherwise pass',
+    async (installs) => {
+      expect((await smoke({ installs, installedProduct: 'remote' })).at(-1)).toEqual({
+        check: 'ops install',
+        ok: false,
+        reason: 'it installed remote, not ops',
+      });
+    }
+  );
+
+  it('keeps the no-CLI-link and architecture checks for a newer extension', async () => {
+    expect((await smoke({ installs: '0.1.0-alpha.5', link: true })).at(-1)).toMatchObject({
+      check: 'ops list',
+      ok: false,
+      reason: 'an extension install must not create the CLI link',
+    });
+    const wrong = run(
+      { extension: { installs: '0.1.0-alpha.5' } },
+      { product: 'ops', tag, target: 'x86_64-apple-darwin', architectures: ['x86_64', 'arm64'] }
+    );
+    expect((await wrong.results).at(-1)).toMatchObject({ check: 'ops install', ok: false });
+    expect((await wrong.results).at(-1)?.reason).toContain('exactly x86_64');
+  });
+
+  it('proves the Colab app against the selected newer installed version', async () => {
+    const fixture = path.join(base, 'inert-colab-version-forwarding');
+    writeExecutable(fixture, '#!/bin/sh\nexit 1\n');
+    const versions: string[] = [];
+    const control = run(
+      { extension: { product: 'colab', installs: '0.1.0-alpha.2', binary: fixture } },
+      {
+        product: 'colab',
+        tag: 'tmt-colab-v0.1.0-alpha.1',
+        verifyColab: async (input) => {
+          versions.push(input.version);
+        },
+      }
+    );
+    const results = await control.results;
+    expect(failed(results)).toEqual([]);
+    expect(versions).toEqual(['0.1.0-alpha.2']);
+    expect(results.at(-1)).toEqual({
+      check: 'colab embedded app',
+      ok: true,
+      reason: 'relocated embedded app/assets and combined notices; socket cleaned up',
+    });
   });
 
   it('inspects both the installed CLI driver and extension bytes for an Intel target', async () => {
