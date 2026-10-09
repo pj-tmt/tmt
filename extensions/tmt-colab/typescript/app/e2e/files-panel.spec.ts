@@ -333,13 +333,16 @@ test('the Export panel lists every attachment with its outcome and saves an incl
   const list = panel.getByRole('region', { name: text.exportAttachments });
   await expect(list.getByRole('listitem')).toHaveCount(4);
   // An included file offers a download; every other outcome says why and offers none.
-  await expect(list.getByRole('button', { name: 'Download note.txt' })).toBeEnabled();
+  const row = (name: string) => list.getByRole('listitem').filter({ hasText: name });
+  await expect(
+    row('note.txt').getByRole('button', { name: text.attachmentDownload }),
+  ).toBeEnabled();
   await expect(list.getByRole('button')).toHaveCount(1);
   await expect(list).toContainText(text.exportAttachmentState.missing);
   await expect(list).toContainText(text.exportAttachmentState.denied);
   await expect(list).toContainText(text.exportAttachmentState['too-large']);
   const pending = page.waitForEvent('download');
-  await list.getByRole('button', { name: 'Download note.txt' }).click();
+  await row('note.txt').getByRole('button', { name: text.attachmentDownload }).click();
   const received = await pending;
   expect(received.suggestedFilename()).toBe('note.txt');
   expect(readFileSync((await received.path())!).toString()).toBe('exported note');

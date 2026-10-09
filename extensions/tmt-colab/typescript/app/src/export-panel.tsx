@@ -1,3 +1,4 @@
+import { BrowserAction, BrowserList, BrowserListRow } from '@tmt/browser-ui/react';
 import { browserUiClasses as ui } from '@tmt/browser-ui/static';
 import { Check } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
@@ -11,6 +12,7 @@ import {
 import type { PageBinding } from './transport.js';
 import { PageDrawer } from './page-drawer.js';
 import { text } from './strings.js';
+import './attachment-tray.css';
 
 /** Downloads stay in trusted chrome; no renderer message opens this panel. */
 export function ExportPanel({
@@ -104,26 +106,37 @@ export function ExportPanel({
       {attachments.length > 0 && (
         <section className="export-attachments" aria-label={text.exportAttachments}>
           <h3>{text.exportAttachments}</h3>
-          <ul>
+          <BrowserList label={text.exportAttachments} className="files-list">
             {attachments.map((item) => (
-              <li key={item.attachmentId}>
-                <span className="export-attachment-name">{item.filename}</span>{' '}
-                {item.file === undefined ? (
-                  <span>{text.exportAttachmentState[item.reason ?? 'missing']}</span>
-                ) : (
-                  <button
-                    disabled={blocked || state !== 'ready'}
-                    onClick={(event) => {
-                      if (event.isTrusted) download(item.file!);
-                    }}
-                  >
-                    {text.download} {item.filename}
-                    {requested.includes(item.file) && <Check aria-hidden />}
-                  </button>
-                )}
-              </li>
+              <BrowserListRow
+                key={item.attachmentId}
+                title={item.filename}
+                metadata={
+                  item.file === undefined
+                    ? text.exportAttachmentState[item.reason ?? 'missing']
+                    : text.attachmentSize(item.plaintextBytes)
+                }
+                state={null}
+                actions={
+                  item.file === undefined ? undefined : (
+                    <BrowserAction
+                      type="button"
+                      variant="text"
+                      label={
+                        requested.includes(item.file)
+                          ? text.exportAttachmentRequested
+                          : text.attachmentDownload
+                      }
+                      disabled={blocked || state !== 'ready'}
+                      onActivate={(event) => {
+                        if (event.isTrusted) download(item.file!);
+                      }}
+                    />
+                  )
+                }
+              />
             ))}
-          </ul>
+          </BrowserList>
         </section>
       )}
     </section>

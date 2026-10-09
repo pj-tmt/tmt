@@ -473,10 +473,28 @@ export async function mount(
           info('manifest.json', manifest),
         ],
         [
-          { attachmentId: id(40), filename: 'note.txt', state: 'included', file },
-          { attachmentId: id(41), filename: 'gone.bin', state: 'missing' },
-          { attachmentId: id(42), filename: 'revoked.bin', state: 'unavailable', reason: 'denied' },
-          { attachmentId: id(43), filename: 'huge.bin', state: 'unavailable', reason: 'too-large' },
+          {
+            attachmentId: id(40),
+            filename: 'note.txt',
+            plaintextBytes: 13,
+            state: 'included',
+            file,
+          },
+          { attachmentId: id(41), filename: 'gone.bin', plaintextBytes: 7, state: 'missing' },
+          {
+            attachmentId: id(42),
+            filename: 'revoked.bin',
+            plaintextBytes: 9,
+            state: 'unavailable',
+            reason: 'denied',
+          },
+          {
+            attachmentId: id(43),
+            filename: 'huge.bin',
+            plaintextBytes: 13,
+            state: 'unavailable',
+            reason: 'too-large',
+          },
         ],
       );
     },

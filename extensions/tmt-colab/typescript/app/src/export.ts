@@ -157,6 +157,7 @@ export async function prepareExport(input: ExportView): Promise<ExportBundle> {
     attachments.map(({ row }) => ({
       attachmentId: row.attachmentId,
       filename: row.filename,
+      plaintextBytes: Number(row.plaintextBytes),
       state: row.state,
       ...(row.reason === undefined ? {} : { reason: row.reason }),
       ...(row.file === undefined ? {} : { file: row.file }),
@@ -248,6 +249,7 @@ async function listAttachments(copied: readonly ExportAttachment[]) {
 export interface ListedAttachment {
   readonly attachmentId: string;
   readonly filename: string;
+  readonly plaintextBytes: number;
   readonly state: ExportAttachmentState;
   readonly reason?: ExportAttachmentReason;
   /** The published path of an included attachment. */
