@@ -884,6 +884,160 @@ fn last_transport_close_admits_reload_and_same_session_reattach_then_expires_wit
     assert_eq!(reason, "REMOTE_SESSION_ENDED");
 }
 
+/// Keep cap ordering independent of scheduler time and the 60-second grace.
+fn cap_door(limit: usize) -> (Harness, Arc<Mutex<Instant>>) {
+    let now = Arc::new(Mutex::new(Instant::now()));
+    let clock = Arc::clone(&now);
+    let h = Harness::with_clock(
+        FAST,
+        tmt_remote::limits::SESSION_IDLE,
+        Arc::new(move || *clock.lock().unwrap()),
+    );
+    tmt_remote::settings::set_sessions_per_device(&h.root, Some(limit)).unwrap();
+    (h, now)
+}
+fn cap_session(h: &Harness, client: &str, key: &SigningKey) -> (String, String, Arc<SessionState>) {
+    let opened = open_session(h, &Opening::new(h, client, key).wire());
+    let id = payload(&opened)["sessionId"].as_str().unwrap().to_owned();
+    let cookie = pair_of(&opened.cookie().unwrap());
+    let state = h.sessions.context(Some(&cookie)).unwrap().session;
+    (id, cookie, state)
+}
+fn cap_evicted(h: &Harness, client: &str, key: &SigningKey, id: &str, limit: usize) {
+    let reply = session_probe(h, client, key, id);
+    let value = payload(&reply);
+    assert_eq!(value["error"]["code"], "REMOTE_SESSION_EVICTED");
+    assert_eq!(value["error"]["limit"], limit);
+    assert!(value["error"].get("settingsUrl").is_none());
+    let wire: Value = serde_json::from_str(&reply.body).unwrap();
+    let text = |name: &str| wire[name].as_str().unwrap();
+    let bytes = canonical::base64url_decode(text("payload")).unwrap();
+    let signed = canonical::envelope(&Envelope {
+        kind: text("kind"),
+        id: text("id"),
+        correlation_id: wire["correlationId"].as_str(),
+        machine_id: text("machineId"),
+        window_id: text("windowId"),
+        client_id: text("clientId"),
+        session_id: text("sessionId"),
+        sequence: text("sequence"),
+        timestamp_ms: wire["timestampMs"].as_u64().unwrap(),
+        origin: text("origin"),
+        operation: text("operation"),
+        payload: &bytes,
+    })
+    .unwrap();
+    crypto::verify_signature(
+        &h.machine_public,
+        &signed,
+        &canonical::base64url_bytes(text("signature"), 64).unwrap(),
+    )
+    .unwrap();
+}
+fn cap_echo(transport: &mut TcpStream) {
+    transport.write_all(b"live").unwrap();
+    let mut echoed = [0; 4];
+    transport.read_exact(&mut echoed).unwrap();
+    assert_eq!(&echoed, b"live");
+}
+
+#[test]
+fn session_cap_entry_burst_preserves_older_attached_sessions() {
+    let (h, now) = cap_door(3);
+    let _colab = Colab::serve(&h);
+    let device = Device::browser(&h, 7);
+    let client = paired(&h, &device);
+    let mut attached = Vec::new();
+    for _ in 0..2 {
+        let (_, cookie, state) = cap_session(&h, &client, &device.key);
+        attached.push((state, tunnel_for(&h, &cookie, None)));
+        *now.lock().unwrap() += Duration::from_secs(1);
+    }
+    // Another device is outside this device's cap even if its session is older.
+    let other = Device::browser(&h, 8);
+    let other_client = paired(&h, &other);
+    let (_, _, other_state) = cap_session(&h, &other_client, &other.key);
+    let (mut previous, _, _) = cap_session(&h, &client, &device.key);
+    for _ in 0..5 {
+        *now.lock().unwrap() += Duration::from_secs(1);
+        let (next, _, _) = cap_session(&h, &client, &device.key);
+        cap_evicted(&h, &client, &device.key, &previous, 3);
+        for (state, transport) in &mut attached {
+            assert!(!state.ended());
+            assert!(state.has_transport());
+            cap_echo(transport);
+        }
+        assert!(!other_state.ended());
+        previous = next;
+    }
+}
+
+#[test]
+fn session_cap_prefers_recently_detached_over_older_attached() {
+    let (h, now) = cap_door(2);
+    let _colab = Colab::serve(&h);
+    let device = Device::browser(&h, 7);
+    let client = paired(&h, &device);
+    let (_, cookie, attached) = cap_session(&h, &client, &device.key);
+    let mut transport = tunnel_for(&h, &cookie, None);
+    *now.lock().unwrap() += Duration::from_secs(10);
+    let (id, cookie, state) = cap_session(&h, &client, &device.key);
+    let departing = tunnel_for(&h, &cookie, None);
+    drop(departing);
+    detached(&state);
+    let (_, _, replacement) = cap_session(&h, &client, &device.key);
+    cap_evicted(&h, &client, &device.key, &id, 2);
+    assert!(state.ended());
+    assert!(!replacement.ended());
+    assert!(!attached.ended());
+    cap_echo(&mut transport);
+}
+
+#[test]
+fn session_cap_lowered_limit_evicts_most_idle_transportless_sessions_first() {
+    let (h, now) = cap_door(4);
+    let _colab = Colab::serve(&h);
+    let device = Device::browser(&h, 7);
+    let client = paired(&h, &device);
+    let (_, cookie, attached) = cap_session(&h, &client, &device.key);
+    let mut transport = tunnel_for(&h, &cookie, None);
+    *now.lock().unwrap() += Duration::from_secs(1);
+    let (oldest, _, old_state) = cap_session(&h, &client, &device.key);
+    *now.lock().unwrap() += Duration::from_secs(1);
+    let (middle, _, middle_state) = cap_session(&h, &client, &device.key);
+    *now.lock().unwrap() += Duration::from_secs(1);
+    let (_, _, youngest) = cap_session(&h, &client, &device.key);
+    // The existing while loop must evict twice, retaining the youngest detached row.
+    tmt_remote::settings::set_sessions_per_device(&h.root, Some(3)).unwrap();
+    cap_session(&h, &client, &device.key);
+    cap_evicted(&h, &client, &device.key, &oldest, 3);
+    cap_evicted(&h, &client, &device.key, &middle, 3);
+    assert!(old_state.ended());
+    assert!(middle_state.ended());
+    assert!(!youngest.ended());
+    assert!(!attached.ended());
+    cap_echo(&mut transport);
+}
+
+#[test]
+fn session_cap_all_attached_still_evicts_the_most_idle() {
+    let (h, now) = cap_door(2);
+    let _colab = Colab::serve(&h);
+    let device = Device::browser(&h, 7);
+    let client = paired(&h, &device);
+    let (oldest, cookie, old_state) = cap_session(&h, &client, &device.key);
+    let mut old_transport = tunnel_for(&h, &cookie, None);
+    *now.lock().unwrap() += Duration::from_secs(1);
+    let (_, cookie, recent) = cap_session(&h, &client, &device.key);
+    let mut recent_transport = tunnel_for(&h, &cookie, None);
+    cap_session(&h, &client, &device.key);
+    cap_evicted(&h, &client, &device.key, &oldest, 2);
+    assert!(old_state.ended());
+    closes(&mut old_transport);
+    assert!(!recent.ended());
+    cap_echo(&mut recent_transport);
+}
+
 #[test]
 fn detached_sessions_count_against_cap_and_authority_loss_remains_immediate() {
     for action in ["evict", "revoke", "revision", "expiry", "stop", "end"] {

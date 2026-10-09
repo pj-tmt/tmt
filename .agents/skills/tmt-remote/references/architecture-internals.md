@@ -66,7 +66,8 @@ Rules that are easy to get wrong:
   survives session end; only stop/revoke/expiry/revision change cancels it. The journal/ack remain per device.
 - **Session cap.** `session.open` rereads `settings` on each open. Unset settings
   use the default cap of 8 sessions per device; `off` is unlimited. `session`
-  enforces an active cap by evicting that device's least recently used session.
+  evicts that device's most idle session without a live transport first; when all
+  are attached, it evicts the most idle attached session.
 - **Multi-session migration.** The `multi_session` store migration preserves grants
   and copies existing client/server sequence counters into session-ID-keyed rows.
 - **Embedded SDK asset.** The door embeds `assets/remote-v1.js` built from

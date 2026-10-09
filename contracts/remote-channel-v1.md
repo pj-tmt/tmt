@@ -237,6 +237,8 @@ Revocation, grant expiry/revision change and stop end all device sessions and to
 a live transport, including one that previously attached. Last-transport close starts fresh
 grace; traffic and authenticated requests count as activity. Reattaching within the grace
 resumes the same session. Detached sessions still count against the per-device cap until expiry.
+At the cap, an open evicts the device's most idle session without a live transport first,
+falling back to the most idle attached session.
 Maintenance runs even without new requests: the door's existing 100 ms event loop runs session maintenance at most once per
 `limits::SESSION_MAINTENANCE_INTERVAL` (one second). Request paths still check session expiry
 themselves. Explicit end, revoke, grant expiry/revision change, eviction and stop remain immediate.
