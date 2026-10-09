@@ -55,9 +55,17 @@
 `storage.root` resolver. It adds no Core state or action authority. The refresh
 worker publishes its event before root discovery, serialization and file I/O,
 then writes before deferred enrichment. Failed/partial views, failed publication
-and cancelled generations preserve the last good file. The current board does
-not load this cache: initial painting, stale labelling and action gating belong
-to the separate first-frame consumer (#2123).
+and cancelled generations preserve the last good file.
+
+The same worker offers each tab's stored display once per board, right after the
+squad inventory read supplies the room fence and before the tab's views load
+(`BoardEvent::Cached`). `App` keeps it only for the current tab while that tab has
+no fresh view (opening, or a switch with no visited view) and drops it on any
+result for the tab or on leaving it. `view::cached` paints it as inert text with
+the shared `tmt-tui` status slot (`<tab> · cached <age> ago`, spinner, steady
+`[busy]` under NO_COLOR). It is never a `View`: no row is selectable and
+`App::perform` refuses every live action with the loading notice until fresh data
+lands. A same-tab refresh keeps the cursor on the same member id when rows reorder.
 
 Writes require current migration paths and an existing owned `ops` directory.
 Legacy/deferred paths or a missing `ops` directory silently skip caching. The
@@ -79,8 +87,8 @@ HOME `@all` maps to `home.json`, `@leads` to `leads.json`, named squads to
 The envelope has `version`, `writtenAtMs`, `tabKey` and the full sorted squad/room
 map. Read-only load returns a miss on an old/future schema, unknown fields, wrong
 tab, any squad/room-map change, missing/corrupt/oversized content or unsafe paths.
-Age does not invalidate a display: every loaded value is stale and must never
-supply action authority, routing, sender identity or live observation evidence.
+Age does not invalidate a display: every loaded value is labelled stale and never
+supplies action authority, routing, sender identity or live observation evidence.
 
 A complete serialized snapshot is at most 1 MiB. An oversized candidate skips
 publication rather than truncating it; reads acquire at most the bound plus one

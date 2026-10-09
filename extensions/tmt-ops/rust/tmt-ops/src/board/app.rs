@@ -677,6 +677,9 @@ pub struct App {
     cache: BTreeMap<String, View>,
     /// Set from a squad switch until that squad's data arrives.
     pub loading_since: Option<Instant>,
+    /// The current tab's stored display, painted until its fresh view lands.
+    /// It is never a View, so no action resolves against it.
+    pub(super) disk: Option<super::snapshot_cache::Display>,
     /// The squad `view` belongs to.
     shown: Option<String>,
     last_click: Option<(usize, Instant)>,
@@ -1192,6 +1195,25 @@ impl App {
         self.view.is_some() && self.shown != self.current
     }
 
+    /// Keeps a stored display only for the tab still waiting on its first fresh view.
+    pub(super) fn adopt_cached(&mut self, display: super::snapshot_cache::Display) -> bool {
+        if self.current.as_deref() != Some(display.tab())
+            || (self.view.is_some() && !self.loading())
+        {
+            return false;
+        }
+        self.disk = Some(display);
+        true
+    }
+
+    /// The stored display on screen instead of a view, if any.
+    pub(super) fn cached_display(&self) -> Option<&super::snapshot_cache::Display> {
+        self.disk.as_ref().filter(|display| {
+            self.current.as_deref() == Some(display.tab())
+                && (self.view.is_none() || self.loading())
+        })
+    }
+
     pub(super) fn apply_home_leads(&mut self, read: super::home_leads::Read) {
         self.home_leads.replace(read);
         if std::mem::take(&mut self.home_start) {
@@ -1281,6 +1303,7 @@ impl App {
             }
             self.current = shown;
             self.loading_since = None;
+            self.disk = None;
             self.notice = None;
             self.error = Some(error.clone());
             self.project_usage(now);
@@ -1323,6 +1346,8 @@ impl App {
         }
         self.current = snapshot.squad;
         self.loading_since = None;
+        // Any result for this tab, fresh or failed, ends the stored display.
+        self.disk = None;
         match snapshot.view {
             Ok(mut view) => {
                 let now = Instant::now();
@@ -1416,6 +1441,11 @@ impl App {
                         Some(crate::staleness::Snapshot::for_preview(&view.document));
                 }
                 self.usage_document = None;
+                // A refresh can reorder rows; the cursor follows its member.
+                let anchor = (!changed)
+                    .then(|| self.row_target(self.selected))
+                    .flatten()
+                    .filter(|target| !matches!(target, RowTarget::Home(_)));
                 let previous = self.view.replace(view);
                 let previous_squad = std::mem::replace(&mut self.shown, self.current.clone());
                 // A result that arrived for it meanwhile is newer: keep that.
@@ -1428,6 +1458,9 @@ impl App {
                     self.shown_changed();
                 } else {
                     self.reconcile_folds();
+                    if let Some(anchor) = anchor {
+                        self.follow_member(&anchor);
+                    }
                 }
                 self.error = None;
             }
@@ -1659,6 +1692,7 @@ impl App {
             self.home_left = self.home_target.clone();
         }
         self.current = Some(next.clone());
+        self.disk = None;
         self.error = None;
         self.jobs_focus = false;
         self.menu = None;
@@ -2053,7 +2087,9 @@ impl App {
             self.reconcile_switcher(false);
             return Effect::None;
         }
-        if self.loading() && !matches!(action.verb, Verb::NextPane | Verb::Refresh | Verb::Notes) {
+        if (self.loading() || self.cached_display().is_some())
+            && !matches!(action.verb, Verb::NextPane | Verb::Refresh | Verb::Notes)
+        {
             let loading = self.current.clone().unwrap_or_default();
             return self.say(format!("Loading {loading}…"));
         }
@@ -2288,6 +2324,29 @@ impl App {
     }
 
     /// Stable occurrence used by composer placement, validation and feedback.
+    /// Selects the same row, else the same member elsewhere; otherwise the index stays.
+    fn follow_member(&mut self, anchor: &RowTarget) {
+        let member = |target: &RowTarget| match target {
+            RowTarget::Member { id, .. } | RowTarget::Lead { id, .. } => Some(id.clone()),
+            RowTarget::Home(_) => None,
+        };
+        let targets: Vec<_> = (0..self.rows().len())
+            .map(|index| self.row_target(index))
+            .collect();
+        let found = targets
+            .iter()
+            .position(|target| target.as_ref() == Some(anchor))
+            .or_else(|| {
+                let id = member(anchor)?;
+                targets
+                    .iter()
+                    .position(|target| target.as_ref().and_then(member).as_ref() == Some(&id))
+            });
+        if let Some(index) = found {
+            self.selected = index;
+        }
+    }
+
     pub(super) fn row_target(&self, index: usize) -> Option<RowTarget> {
         if self.view.as_ref()?.home.is_some() {
             return self

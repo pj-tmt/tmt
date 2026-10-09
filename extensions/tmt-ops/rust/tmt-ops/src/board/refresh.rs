@@ -103,9 +103,11 @@ impl Worker {
             let mut migration_notice = core.paths.board_notice();
             let mut history = super::rate::history::Cache::default();
             let mut places = super::cronboard::Places::new(crate::effects::tmux_socket());
-            // Root discovery and all cache work stay off the UI thread. Resolve
-            // lazily after a successful publication, without delaying its event.
-            let mut cache: Option<snapshot_cache::Store> = None;
+            // Root discovery and all cache work stay off the UI thread. The store
+            // resolves once, on the first read or after the first publication.
+            let cache = std::cell::RefCell::new(None);
+            // Each tab's stored display is offered once; later loads are fresh.
+            let mut offered = std::collections::BTreeSet::new();
             serve(
                 &pending,
                 |snapshot, rooms, generation| {
@@ -134,16 +136,11 @@ impl Worker {
                             if !core.paths.is_current() {
                                 return Ok(());
                             }
-                            if cache.is_none() {
-                                cache = crate::migration::data_root(
-                                    &core.cancellable(cancellation.clone()),
-                                )
-                                .ok()
-                                .and_then(|root| snapshot_cache::Store::new(&root));
-                            }
-                            let store = cache.as_ref().ok_or_else(|| {
-                                std::io::Error::other("snapshot root unavailable")
-                            })?;
+                            let store =
+                                snapshot_store(&cache, &core.cancellable(cancellation.clone()))
+                                    .ok_or_else(|| {
+                                        std::io::Error::other("snapshot root unavailable")
+                                    })?;
                             store.write(&display, || !cancellation.cancelled())?;
                             Ok::<_, std::io::Error>(())
                         });
@@ -170,8 +167,22 @@ impl Worker {
                         .as_ref()
                         .map(|trace| trace.load(wanted.as_deref(), generation));
                     let started = trace.as_ref().map(|_| Instant::now());
+                    let reader = core.cancellable(read_generation.cancellation(generation));
+                    let mut adopt = |tab: &str, rooms: &snapshot_cache::Rooms| {
+                        if !offered.insert(tab.to_owned()) {
+                            return;
+                        }
+                        let display = snapshot_store(&cache, &reader)
+                            .and_then(|store| store.load(tab, rooms));
+                        if let Some(display) = display {
+                            let _ = events.send(super::BoardEvent::Cached {
+                                cancellation: read_generation.cancellation(generation),
+                                display: Box::new(display),
+                            });
+                        }
+                    };
                     let mut loaded = load(
-                        &core.cancellable(read_generation.cancellation(generation)),
+                        &reader,
                         tmux,
                         caller.as_ref(),
                         wanted,
@@ -179,6 +190,7 @@ impl Worker {
                         opening,
                         &mut kept,
                         trace.as_ref(),
+                        &mut adopt,
                     );
                     if let (Some(trace), Some(started)) = (&mut trace, started) {
                         trace.completed(
@@ -715,7 +727,25 @@ fn serve(
     }
 }
 
-#[allow(clippy::too_many_arguments)] // Acquisition inputs plus optional diagnostics.
+/// Resolves the display store once per worker, off the UI thread. Legacy
+/// layouts and an unavailable root have no store.
+fn snapshot_store<'a>(
+    cache: &'a std::cell::RefCell<Option<snapshot_cache::Store>>,
+    core: &Core,
+) -> Option<std::cell::Ref<'a, snapshot_cache::Store>> {
+    if !core.paths.is_current() {
+        return None;
+    }
+    if cache.borrow().is_none() {
+        let store = crate::migration::data_root(core)
+            .ok()
+            .and_then(|root| snapshot_cache::Store::new(&root));
+        *cache.borrow_mut() = store;
+    }
+    std::cell::Ref::filter_map(cache.borrow(), Option::as_ref).ok()
+}
+
+#[allow(clippy::too_many_arguments)] // Acquisition inputs, the cache hook and diagnostics.
 fn load(
     core: &Core,
     tmux: bool,
@@ -725,6 +755,7 @@ fn load(
     opening: bool,
     kept: &mut Kept,
     trace: Option<&timing::Load>,
+    adopt: &mut dyn FnMut(&str, &snapshot_cache::Rooms),
 ) -> Loaded {
     let squads = match timing::measure(trace, "Squad::list", || Squad::list(core)) {
         Ok(squads) => squads,
@@ -742,7 +773,7 @@ fn load(
         }
     };
     let names: Vec<String> = squads.iter().map(|squad| squad.name.clone()).collect();
-    let rooms = squads
+    let rooms: snapshot_cache::Rooms = squads
         .iter()
         .map(|squad| (squad.name.clone(), squad.room_id.clone()))
         .collect();
@@ -803,6 +834,11 @@ fn load(
             squad: wanted,
         });
     };
+    // The stored display needs only the inventory fence; it never waits on the views.
+    let _ = timing::measure(trace, "snapshot_cache_read", || {
+        adopt(&key, &rooms);
+        Ok::<_, ()>(())
+    });
     let mut attention = BTreeMap::new();
     let mut deferred = None;
     let mut home_leads = None;
@@ -1778,6 +1814,7 @@ sys.exit(subprocess.run([str(root/'tmt')]+args,input=body).returncode)
                 false,
                 &mut kept,
                 None,
+                &mut |_, _| {},
             );
             let view = loaded
                 .snapshot
@@ -1998,6 +2035,30 @@ printf '%s\n' '{{}}'
                     fs::metadata(&path).unwrap().permissions().mode() & 0o777,
                     0o600
                 );
+                // The next board offers the stored display once, before any fresh view.
+                let (events, input) = mpsc::channel();
+                let worker = Worker::spawn(Core::at(fake.clone()), false, events, None);
+                worker.request(Some("product".into()), false, false);
+                let super::super::BoardEvent::Cached { display, .. } =
+                    input.recv_timeout(Duration::from_secs(30)).unwrap()
+                else {
+                    panic!("stored display first");
+                };
+                assert_eq!(display.tab(), "product");
+                assert_eq!(display.0["view"]["sections"][0]["rows"][0]["name"], "alice");
+                let fresh = |input: &mpsc::Receiver<super::super::BoardEvent>| {
+                    (0..4).any(
+                        |_| match input.recv_timeout(Duration::from_secs(30)).unwrap() {
+                            super::super::BoardEvent::Cached { .. } => panic!("offered twice"),
+                            super::super::BoardEvent::Snapshot { .. } => true,
+                            _ => false,
+                        },
+                    )
+                };
+                assert!(fresh(&input));
+                worker.request(Some("product".into()), true, false);
+                assert!(fresh(&input));
+                drop(worker);
             }
         }
         fs::remove_dir_all(root).unwrap();
