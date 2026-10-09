@@ -810,8 +810,9 @@ pub fn run(
     let (picks, squad) = selection(&core, &config, picks.as_deref(), squad.as_deref())?;
     composition::admit().map_err(|message| SquadError::new("SQUAD_LAYOUT_INVALID", message))?;
     let initial_theme = config.theme(squad.as_deref().unwrap_or(""))?.0;
-    // Acquisition starts before terminal entry and its background query, which can
-    // wait on the terminal; events queue until the session reads them.
+    // The worker's setup reads (caller identity, config location) overlap terminal
+    // entry and its background query. Loads build looks from that background, so the
+    // first request waits until `configure_background` has run.
     let (events, input) = mpsc::channel();
     let worker = refresh::Worker::spawn(
         core.clone(),
@@ -819,7 +820,6 @@ pub fn run(
         events.clone(),
         trace.clone(),
     );
-    worker.request(squad.clone(), false, false);
     let requested = initial_theme.base;
     let value = std::env::var("COLORFGBG").ok();
     let mut guard = terminal::Guard::enter(terminal::Crossterm).map_err(failed)?;
@@ -832,6 +832,7 @@ pub fn run(
     let (signal, query) =
         terminal::background::observe(value.as_deref(), eligible, || guard.query_background());
     crate::look::configure_background(signal);
+    worker.request(squad.clone(), false, false);
     let filter = query
         .as_ref()
         .map(|reply| terminal::background::ReplyFilter::seed(&reply.received, Instant::now()));

@@ -20,9 +20,10 @@
   `board::changes` also watches.
 - Providers: the board hands each load's members to one fetcher thread that runs due provider
   work off the paint path and again at the shortest `every`.
-- Startup: `board::run` spawns the worker and requests the first tab before terminal
-  entry and its background-colour query, so acquisition and the stored-display offer
-  overlap that wait; events queue until the session loop reads them.
+- Startup: `board::run` spawns the worker before terminal entry, so its setup reads
+  (`worker.caller`, `worker.Config::locate`) overlap the background-colour query. The
+  first tab is requested only after `look::configure_background`, because loads build
+  looks from that process-wide signal.
 - Squad enrichment: a squad tab publishes without its focus-policy read and reply-body
   reads. It applies the focus rows and bodies this worker already read (`Known`), so a
   reload never blinks them off. The first deferred job (`EnrichJob`) then makes one
