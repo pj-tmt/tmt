@@ -34,7 +34,10 @@ Rules that are easy to get wrong:
 - **Uncertainty keeps identity.** The `dispatching` audit row commits after the
   core call; recovery uses the adopted frozen intent and core's idempotent
   operation ID (`dispatch.show` before any `dispatch.create`) and never infers
-  "no effect" from a missing row. Reads never retry or send.
+  "no effect" from a missing row. Fixed read operations bypass journal adoption and capacity;
+  they retain signed admission, sequence and call budgets. Recovery observation settles only a
+  newly learned definitive original outcome; a full journal omits its notification, not settlement.
+  Stable polls never write ownership or entries, retry or send.
 - **Serve lease.** `Serving::retain_for_invocations` clears close-on-exec on the
   lock file so invocation children inherit it; closing never unlocks. A restart
   refuses while an orphaned child lives; unconfirmed cleanup disables writes until
