@@ -6,7 +6,7 @@
 //! from the signed membership, the plan's parameters, its own persisted counter for today
 //! and this table. It does not read Google's counter and the emulator cannot enforce one:
 //! tests assert this arithmetic against independent vectors. The dated table and the
-//! derivation are in `.agents/skills/tmt-remote/references/firestore-free-plan.md`.
+//! derivation are in the Remote reference guide's free-plan table.
 //!
 //! Quota numbers below were read on 2026-10-09 (pages last updated 2026-10-07 UTC) from
 //! <https://firebase.google.com/docs/firestore/quotas> and
