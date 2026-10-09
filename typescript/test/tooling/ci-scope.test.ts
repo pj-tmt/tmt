@@ -1311,6 +1311,7 @@ describe('CI diff and command integration', () => {
     'extensions/tmt-remote/rust/tmt-remote/tests/fixtures/rules/composed.rules',
     'extensions/tmt-remote/rust/tmt-remote/tests/fixtures/rules/hostile/path-literal.rules',
     'extensions/tmt-remote/rust/tmt-remote/src/rules.rs',
+    'extensions/tmt-remote/rust/tmt-remote/assets/remote-v1.js',
     '.github/workflows/ci.yml',
   ])('selects the Remote Firestore Rules emulator steps for %s', (file) => {
     expect(selectRemoteFirestore([file])).toBe(true);
@@ -1325,6 +1326,7 @@ describe('CI diff and command integration', () => {
     'extensions/tmt-remote/rust/tmt-remote/tests/fixtures/declarations/colab-firestore.json',
     'extensions/tmt-remote/rust/tmt-remote/tests/fixtures/rules-other/x.rules',
     'extensions/tmt-remote/rust/tmt-remote/src/deploy_plan.rs',
+    'extensions/tmt-remote/rust/tmt-remote/assets/settings-v1.js',
     'extensions/tmt-remote/rust/tmt-remote/tests/rules.rs',
     '.github/workflows/colab-browser.yml',
     'DEVELOPMENT.md',

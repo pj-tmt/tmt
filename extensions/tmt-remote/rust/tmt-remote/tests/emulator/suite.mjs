@@ -1,9 +1,11 @@
-// Firestore Rules conformance for the Rules Remote composes from extension fragments (#2163).
+// Firestore Rules conformance for the Rules Remote composes from extension fragments (#2163),
+// and the free-plan append guard of the shipped SDK bundle against the same emulator (#2180).
 // Run only under `firebase emulators:exec --only firestore` (see the tmt-remote skill); there
 // is no skip path: without the emulator the suite fails.
 import assert from "node:assert/strict";
 import { readFileSync, readdirSync } from "node:fs";
 import { test } from "node:test";
+import { budget } from "../../assets/remote-v1.js";
 
 const host = process.env.FIRESTORE_EMULATOR_HOST;
 assert.ok(host, "FIRESTORE_EMULATOR_HOST is unset: run under `firebase emulators:exec --only firestore`");
@@ -177,4 +179,54 @@ test('deployed artifact: member grants, expiry, isolation and create-only refusa
     'update'
   );
   assert.equal((await fetch(document, { method: 'DELETE', headers: u1 })).status, 403, 'delete');
+});
+
+// The guard judges every append before it is sent. The emulator does not enforce quotas, so this
+// proves the shipped client stops its own requests below the modeled daily allowance, not
+// Google's counter: 1000 members and one writer model 16 appends a day (warn 11, refuse 14).
+test("budget guard: refuses before the modeled limit and sends nothing more until the reset", async () => {
+  await loadRules(read("deployed.rules"));
+  await seedWorld();
+  const u1 = user("u1");
+  const model = budget.BudgetModel.create(1000, 1);
+  assert.deepEqual([model.dailyAppendLimit(), model.warnAt(), model.refuseAt()], [16, 11, 14]);
+  const now = Date.UTC(2026, 9, 9, 20, 0, 0);
+  const resetAt = Date.UTC(2026, 9, 10, 7, 0, 0);
+  const run = Date.now().toString(36);
+  let usage = budget.newUsage(now);
+  let sent = 0;
+  const append = async (id, at) => {
+    const decision = budget.decide(model, usage, at);
+    if (decision.decision === "refuse") return decision;
+    assert.equal(await create("x/colab/docs", `guard-${run}-${id}`, { body: id, expiresAt: future }, u1), 200, id);
+    sent += 1;
+    usage = budget.recordedUsage(usage, at);
+    return decision;
+  };
+  const stored = async () => {
+    const response = await fetch(`${documents}/x/colab/docs?pageSize=300`, { headers: OWNER });
+    assert.equal(response.status, 200);
+    const { documents: found = [] } = await response.json();
+    return found.map((d) => d.name.split("/").pop()).filter((name) => name.startsWith(`guard-${run}-`)).sort();
+  };
+
+  const verdicts = [];
+  for (let i = 0; i < model.refuseAt(); i += 1) verdicts.push((await append(`a${i}`, now)).decision);
+  assert.deepEqual(verdicts, [...Array(model.warnAt()).fill("allow"), ...Array(3).fill("warn")]);
+  assert.equal(sent, model.refuseAt());
+  assert.ok(model.refuseAt() < model.dailyAppendLimit(), "refuses below the modeled allowance");
+
+  const refused = await append("held", now);
+  assert.deepEqual(refused, { decision: "refuse", resetAtMs: resetAt, retryAfterMs: resetAt - now });
+  for (let i = 0; i < 5; i += 1) assert.equal((await append("held", now + i)).decision, "refuse");
+  const before = await stored();
+  assert.equal(before.length, model.refuseAt(), "the emulator saw exactly the allowed appends");
+  assert.ok(!before.includes(`guard-${run}-held`), "the refused update was never sent");
+  assert.equal(sent, model.refuseAt());
+
+  // The same update goes out unchanged once the Pacific day rolls over.
+  assert.equal((await append("held", resetAt)).decision, "allow");
+  const after = await stored();
+  assert.equal(after.length, model.refuseAt() + 1);
+  assert.ok(after.includes(`guard-${run}-held`));
 });
