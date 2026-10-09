@@ -158,7 +158,9 @@ hold`; pr-queue uses `preparing ready sent merged`; minimal has no fixed list.
   same. Do not change the user's vocabulary without asking.
 
 `presence` is observed by TMT, not reported by the member. `activity` is what
-the member reported about itself.
+the member reported about itself. `tmt ops ls` marks a row by presence (`●` active,
+`○` offline); the board's mark column shows the state the member reported, so a
+member row there never draws `○`.
 
 A request tagged `[<squad> · <member>]` from the user is an annotation: a note
 about that row for you to act on. Answer it with `tmt reply` as usual; the
@@ -401,7 +403,7 @@ send shows its error and does not show `✓ sent` or retry automatically.
 The built-in `all` board shows counts, needs-you members and a blocked subgroup,
 then grouped leads, cron and squads. Squads occupy one full-width column at every width, with one compact table row
 per squad. Member counts align within their table column rather than at the terminal edge. A row shows squad attention, lead/model and non-lead member marks in urgency
-order (◆ ✗ ◐ ● ○) and a member count. Each mark has a trailing space. Members
+order (◆ ✗ ◐ ● ◌) and a member count. Each mark has a trailing space. Members
 with unknown/custom states appear as `N other`. Sampled token windows and the lead's share follow the member count.
 Selection covers the whole row, including padding.
 
@@ -760,7 +762,11 @@ Agents change views only when requested.
 ## Squad member list
 
 Squad tabs default to one grouped list with the lead first, its `lead` tag, then
-`── members · N ──`. Each member has a mark/name/state/model/age line and its task line. Waiting members (`◆`) come first, with the oldest questions first; other
+`── members · N ──`. Each member has a mark/name/state/model/age line and its task line. The mark is the
+reported state: `◆` waits on you, `✗` blocked, `◐` review or testing, `●` working, `◌` idle.
+A row that reports no state shows the observed presence in its state cell (`online` or
+`offline`, muted); an offline member that still reports a state reads `<state> · offline`,
+and its name is dim. A bind or unbind shows on the next refresh. Waiting members (`◆`) come first, with the oldest questions first; other
 exchanges follow newest first, and members without exchanges sort by name.
 The lead stays first, and authored sections keep their positions. The lead's
 notes stay below the list; `n` hides or shows them.

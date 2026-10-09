@@ -61,6 +61,7 @@ fn heading(lead: &Lead, width: u16, now: u64) -> Value {
         "mark": format!(" {mark} "),
         "mark_role": role.name(),
         "name": fit(&escape(lead.name()), name_width),
+        "name_role": Role::Text.name(),
         "squad": squad,
         "age": format!("{age} "),
     })

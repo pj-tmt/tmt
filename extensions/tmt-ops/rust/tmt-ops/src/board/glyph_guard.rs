@@ -96,7 +96,7 @@ fn glyph_guard_rejects_unregistered_ambiguous_and_emoji_decorations_and_unspaced
     for good in [
         "── squads · 0 ──",
         "↑ move ↓ · next… –",
-        "◆ 0 ✗ 1 ◐ 2 ● 3 ○ 4",
+        "◆ 0 ✗ 1 ◐ 2 ● 3 ◌ 4",
         "2 other",
     ] {
         assert_eq!(glyph_error(good), None, "positive control {good:?}");

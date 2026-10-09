@@ -64,6 +64,10 @@ and covered-hit removal. Ask-lead, settings, pickers and cron overlays stay squa
   row waiting overrides newer replies for squad ordering; HOME retains its latest
   exchange semantics. Task/state/model/observed age feed the same scene key, and
   read-only detail joins the row stream through `row_detail`.
+  The mark column is reported state only (`◌` idle; `○` is the Core offline mark and no
+  member row draws it). Observed `presence` fills the state cell when no state is
+  reported, appends `· offline` to a reported one, and sets the bound `name_role` (dim
+  offline); HOME lead headings bind `Text`. The stored-display cache carries no presence.
 - Other named/custom views: `view::rows` prepares `row_paint::RowPaint` before replacing the immutable view's
   `Derived.grid`. Its key includes effective width, search and `Extra` (lead,
   clock-derived cron/request labels, sent feedback and input reservation). Failed

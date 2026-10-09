@@ -103,7 +103,7 @@ fn count_pieces(counts: &Counts, words: bool) -> Vec<Piece> {
         ("✗", counts.blocked, Role::Blocked, "blocked"),
         ("◐", counts.review, Role::Review, "review"),
         ("●", counts.working, Role::Working, "working"),
-        ("○", counts.idle, Role::Dim, "idle"),
+        ("◌", counts.idle, Role::Dim, "idle"),
     ]
     .into_iter()
     .flat_map(|(mark, count, role, label)| {

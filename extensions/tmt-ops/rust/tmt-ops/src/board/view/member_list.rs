@@ -34,7 +34,7 @@ const MARKUP: &str = r#"<tmt-view version="1">
 <tmt-row id="head" class="w-full h-1">
 <tmt-text id="left" bind="$.left" class="shrink-0"/>
 <tmt-text id="mark" bind="lead.mark" token-bind="lead.mark_role" class="shrink-0"/>
-<tmt-text id="name" bind="lead.name" token="text" class="shrink-0"/>
+<tmt-text id="name" bind="lead.name" token-bind="lead.name_role" class="shrink-0"/>
 <tmt-text id="tag" bind="lead.tag" token="dim" class="shrink-0"/>
 <tmt-text id="state" bind="lead.state" token-bind="lead.state_role" class="shrink-0"/>
 <tmt-text id="squad" bind="lead.squad" token="muted" class="shrink-0" hide-below="md"/>
@@ -88,6 +88,7 @@ fn schema() -> Schema {
                 ("mark", Schema::Scalar),
                 ("mark_role", Schema::Scalar),
                 ("name", Schema::Scalar),
+                ("name_role", Schema::Scalar),
                 ("squad", Schema::Scalar),
                 ("age", Schema::Scalar),
                 (
@@ -232,7 +233,7 @@ pub(in crate::board) fn build(key: &Key) -> Block {
                 (Some("mark"), _) => boxed(look.row_span(selected, look.role(role), true)),
                 (Some("name"), _) => boxed(look.row_span(
                     selected,
-                    look.role(Role::Text).add_modifier(Modifier::BOLD),
+                    look.role(role).add_modifier(Modifier::BOLD),
                     true,
                 )),
                 (
@@ -342,19 +343,29 @@ pub(in crate::board) fn render_squad(frame: &mut ratatui::Frame, app: &App, area
         };
         let index = rows.len();
         let waits = crate::attention::waits_on_you(row);
-        let state = if waits {
-            "waits on you"
+        let reported = row["state"].as_str().filter(|state| !state.is_empty());
+        // Observed presence is TMT's, not the member's: it names a row that reports no state
+        // and marks a reported one that is no longer online.
+        let offline = row["presence"].as_str() == Some("offline");
+        let (state, observed) = if waits {
+            ("waits on you".to_owned(), false)
         } else {
-            row["state"].as_str().unwrap_or("–")
+            match (reported, row["presence"].as_str()) {
+                (Some(state), Some("offline")) => (format!("{state} · offline"), false),
+                (Some(state), _) => (state.to_owned(), false),
+                (None, Some("active")) => ("online".to_owned(), true),
+                (None, Some("offline")) => ("offline".to_owned(), true),
+                (None, _) => ("–".to_owned(), false),
+            }
         };
         let (mark, role) = if waits {
             ("◆", Role::Waiting)
         } else {
-            match state {
-                "working" => ("●", Role::Working),
-                "blocked" => ("✗", Role::Blocked),
-                "review" | "testing" => ("◐", Role::Review),
-                "idle" => ("○", Role::Dim),
+            match reported {
+                Some("working") => ("●", Role::Working),
+                Some("blocked") => ("✗", Role::Blocked),
+                Some("review" | "testing") => ("◐", Role::Review),
+                Some("idle") => ("◌", Role::Dim),
                 _ => (" ", Role::Text),
             }
         };
@@ -428,8 +439,9 @@ pub(in crate::board) fn render_squad(frame: &mut ratatui::Frame, app: &App, area
         }
         rows.push(json!({"focus": focus, "id": id(index), "before": std::mem::take(&mut before), "separator": [],
             "mark": format!(" {mark} "), "mark_role": role.name(), "name": name, "tag": tag,
-            "state": if state_width == 0 { String::new() } else { format!("  {}", fit(&escape(state), state_width).trim_end()) },
-            "state_role": if waits { "waiting" } else { row["colors"]["state"].as_str().and_then(crate::look::role).unwrap_or(Role::Text).name() },
+            "state": if state_width == 0 { String::new() } else { format!("  {}", fit(&escape(&state), state_width).trim_end()) },
+            "state_role": if waits { "waiting" } else if observed { Role::Dim.name() } else { row["colors"]["state"].as_str().and_then(crate::look::role).unwrap_or(Role::Text).name() },
+            "name_role": if offline { Role::Dim.name() } else { Role::Text.name() },
             "squad": "", "model": if model.is_empty() { String::new() } else { format!("{model}  ") },
             "age": format!("{age} "), "after": after, "detail":app.detail_value(index,&visible)}));
     }
