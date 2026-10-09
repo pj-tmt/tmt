@@ -67,12 +67,8 @@ and never restart Docker Desktop.
 
   `pnpm test:e2e` already uses a per-run tag and removes it on exit.
 
-- **Prune the build cache about once a day of use.** It removes only cache older
-  than 24 hours; no other `docker ... prune` is part of this workflow:
-
-  ```sh
-  docker builder prune --filter until=24h -f
-  ```
+- **Do not schedule Docker build-cache pruning.** No `docker ... prune` is
+  part of this development workflow; follow the disk threshold above.
 
 - **Each worktree keeps its own `rust/target`.** Native selectors,
   `scripts/tmt-dev.sh` and the Docker fixtures read `rust/target/debug/...`, and a
@@ -245,13 +241,16 @@ Herdr, provider-contract, load and performance checks are in
 
 ## Docker E2E
 
-Run the full private tmux and caller lifecycle harness twice for lifecycle,
-transport, identity, talk or cleanup changes:
+For lifecycle, transport, identity, talk or cleanup changes, run one focused
+private tmux and caller lifecycle selection for the affected scenarios. Run it
+twice only when a lifecycle or transport change needs repeat evidence for leaks,
+cleanup ordering or non-idempotent teardown; record why.
 
 ```bash
-(cd typescript && corepack pnpm test:e2e)
-(cd typescript && corepack pnpm test:e2e)
+(cd typescript && TMT_E2E_FILES="affected.e2e.test.ts" corepack pnpm test:e2e)
 ```
+
+Replace the example with the affected plain file names, space-separated.
 
 Docker selection knobs and shard balancing: [E2E scenarios](.agents/skills/tmt-e2e/references/e2e-scenarios.md#selection-and-sharding).
 
@@ -352,16 +351,12 @@ Tracker rules:
 
 ## Review and evidence
 
-Before handoff, report the changed owner, run the smallest relevant focused tests,
-then the complete gates the issue requires:
-
-1. `pnpm check` and retained tooling tests;
-2. Rust fmt, clippy, locked tests, build and MSRV build;
-3. the complete native process suite with its missing-native negative and
-   selected-native positive controls;
-4. two complete Docker E2E runs for lifecycle or transport changes;
-5. available real-host smoke environments, the rest left to the required CI matrix;
-6. matching-host artifact and bootstrap proofs for release changes.
+Before opening a PR, run the relevant checks for the changed owners and report
+the reviewed revision, commands and results. Required CI is the full gate;
+local focused checks do not replace it. Use the owning references above for
+tooling, Rust, native process (including missing/selected-native controls),
+Docker, host smoke and matching-host archive/bootstrap proofs. Issue-specific
+qualification and admission requirements still apply.
 
 Never turn a filtered, skipped, cross-compiled or failed subprocess into a success
 claim. Preserve exact bytes and independent oracles, keep returned errors distinct
