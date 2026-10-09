@@ -49,7 +49,7 @@ Read the relevant files before changing behavior:
 
 - [`typescript/test/e2e/`](../../../typescript/test/e2e/): Vitest configuration, scenarios, harness, and mock-agent behavior.
 - [`typescript/scripts/run-e2e.mjs`](../../../typescript/scripts/run-e2e.mjs): Docker build/run wrapper and exit-code handling.
-- [`DEVELOPMENT.md#native-process-and-shared-tests`](../../../DEVELOPMENT.md#native-process-and-shared-tests):
+- [Native CLI selection](references/test-boundaries.md#native-cli-selection):
   shared executable/peer descriptors and container-path requirements. Reuse
   `typescript/test/support/cli-executable.mjs`; never add a hard-coded Node launcher or
   silent TS fallback. Prove selection reaches nested replies and real descendants

@@ -6,12 +6,12 @@ import { describe, expect, it } from 'vite-plus/test';
 // .agents/skills/tmt-core-runtime and the other area skills (ARCHITECTURE.md's owner
 // maps). Raise a budget only with an issue that explains what moved into the guide.
 const BUDGETS = {
-  'DEVELOPMENT.md': 600,
-  'ARCHITECTURE.md': 1250,
+  'DEVELOPMENT.md': 564,
+  'ARCHITECTURE.md': 1248,
 } as const;
 const BYTE_BUDGETS = {
-  'DEVELOPMENT.md': 23_000,
-  'ARCHITECTURE.md': 97_000,
+  'DEVELOPMENT.md': 21_096,
+  'ARCHITECTURE.md': 96_911,
 } as const;
 
 export function lineCount(text: string): number {
@@ -36,14 +36,22 @@ describe('shared guide budgets', () => {
   for (const [guide, budget] of Object.entries(BUDGETS)) {
     it(`keeps ${guide} within its ${budget}-line budget`, () => {
       const text = readFileSync(new URL(`../../../${guide}`, import.meta.url), 'utf8');
-      expect(withinBudget(text, budget)).toBe(true);
+      const lines = lineCount(text);
+      expect(
+        lines,
+        `${guide}: ${lines} lines vs cap ${budget} lines; move area detail to its owning skill reference (DEVELOPMENT.md area table; ARCHITECTURE.md#maintenance-contract)`
+      ).toBeLessThanOrEqual(budget);
     });
   }
 
   for (const [guide, budget] of Object.entries(BYTE_BUDGETS)) {
     it(`keeps ${guide} within its ${budget}-byte budget`, () => {
       const text = readFileSync(new URL(`../../../${guide}`, import.meta.url), 'utf8');
-      expect(withinByteBudget(text, budget)).toBe(true);
+      const bytes = Buffer.byteLength(text, 'utf8');
+      expect(
+        bytes,
+        `${guide}: ${bytes} B vs cap ${budget} B; move area detail to its owning skill reference (DEVELOPMENT.md area table; ARCHITECTURE.md#maintenance-contract)`
+      ).toBeLessThanOrEqual(budget);
     });
   }
 
@@ -62,7 +70,7 @@ describe('shared guide budgets', () => {
 
   it('rejects a guide one byte over its budget and accepts one at it', () => {
     for (const budget of Object.values(BYTE_BUDGETS)) {
-      const text = 'é'.repeat(budget / 2);
+      const text = 'é'.repeat(Math.floor(budget / 2)) + 'a'.repeat(budget % 2);
       expect(withinByteBudget(text, budget)).toBe(true);
       expect(withinByteBudget(`${text}a`, budget)).toBe(false);
     }
