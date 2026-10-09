@@ -282,6 +282,10 @@ test('missing and unreadable pairing send nothing', async () => {
         f.nodes.get('state-label')!.textContent,
         state === 'missing' ? 'Not paired' : 'Pairing unreadable',
       );
+      assert.equal(
+        f.nodes.get('notice')!.dataset.tone,
+        state === 'missing' ? 'waiting' : 'blocked',
+      );
       assert.deepEqual(f.counts(), { mounts: 0, admissions: 0 });
       assert.deepEqual(f.door.calls, []);
     } finally {
@@ -348,6 +352,11 @@ test('entry separates signed refusal from opaque, mismatched and unverifiable re
           : mode === 'signed-refusal'
             ? 'Not accepted'
             : "Can't reach Remote",
+      );
+      assert.equal(
+        f.nodes.get('notice')!.dataset.tone,
+        mode === 'other-machine' ? 'waiting' : 'blocked',
+        mode,
       );
       assert.deepEqual(f.counts(), {
         mounts: ['refused', 'stale'].includes(mode) ? 2 : 1,
