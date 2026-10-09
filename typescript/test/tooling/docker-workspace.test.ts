@@ -323,6 +323,45 @@ it('places the native caller fixture in the Docker E2E image', () => {
   );
 });
 
+it('sets disposable native fixture profiles before Cargo runs in the Docker E2E image', () => {
+  const dockerfile = readFileSync(path.join(root, 'typescript/test/e2e/Dockerfile'), 'utf8');
+  const setting = 'ENV CARGO_PROFILE_DEV_DEBUG=0 CARGO_INCREMENTAL=0';
+  const configured = (text: string) => {
+    const lines = instructions(text);
+    const nextStage = lines.findIndex((line, index) => index > 0 && /^FROM\s/i.test(line));
+    const native = lines.slice(0, nextStage);
+    const cargo = native.findIndex((line) => /^RUN\s.*\bcargo\b/.test(line));
+    const settings = native.filter((line) =>
+      /^(?:ENV|ARG)\s.*CARGO_(?:PROFILE_DEV_DEBUG|INCREMENTAL)/.test(line)
+    );
+    return (
+      / AS native-tests$/i.test(native[0]) &&
+      settings.length === 1 &&
+      settings[0] === setting &&
+      native.indexOf(setting) < cargo &&
+      lines
+        .slice(nextStage)
+        .every((line) => !/^(?:ENV|ARG)\s.*CARGO_(?:PROFILE_DEV_DEBUG|INCREMENTAL)/.test(line))
+    );
+  };
+  expect(configured(dockerfile)).toBe(true);
+  expect(configured(dockerfile.replace(`${setting}\n`, ''))).toBe(false);
+  expect(
+    configured(
+      dockerfile.replace(`${setting}\n`, '').replace(/^FROM node:/m, `${setting}\nFROM node:`)
+    )
+  ).toBe(false);
+  expect(
+    configured(
+      dockerfile.replace(`${setting}\n`, '').replace(/^(FROM node:.*)$/m, `$1\n${setting}`)
+    )
+  ).toBe(false);
+  expect(
+    configured(dockerfile.replace('CARGO_PROFILE_DEV_DEBUG=0', 'CARGO_PROFILE_DEV_DEBUG=1'))
+  ).toBe(false);
+  expect(configured(dockerfile.replace('CARGO_INCREMENTAL=0', 'CARGO_INCREMENTAL=1'))).toBe(false);
+});
+
 const trackedFiles: string[] = runPackedCommand('git', ['ls-files', '-z'], {
   cwd: root,
   env: process.env,

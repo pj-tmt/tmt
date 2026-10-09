@@ -1,11 +1,61 @@
 import { writeExecutable } from '../support/executable-fixture.mjs';
+import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vite-plus/test';
 import { createSandbox, runCli } from '../support/cli-process.js';
 
 describe('Docker wrapper executable forwarding', () => {
+  it('preserves a failed image build without running the container', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'tmt-e2e-build-failure-'));
+    try {
+      const log = path.join(root, 'docker.jsonl');
+      writeExecutable(
+        path.join(root, 'docker'),
+        `#!/usr/bin/env node
+const fs = require('node:fs');
+const args = process.argv.slice(2);
+fs.appendFileSync(process.env.TMT_RUNNER_LOG, JSON.stringify(args) + '\\n');
+process.exitCode = args[0] === 'build' ? 23 : 0;
+`,
+        0o755
+      );
+      const result = spawnSync(
+        process.execPath,
+        [fileURLToPath(new URL('../../scripts/run-e2e.mjs', import.meta.url))],
+        {
+          encoding: 'utf8',
+          timeout: 10_000,
+          env: {
+            ...process.env,
+            PATH: `${root}${path.delimiter}${process.env.PATH ?? ''}`,
+            TMT_RUNNER_LOG: log,
+            TMT_E2E_FILES: '',
+            TMT_E2E_ADAPTER_TESTS: '',
+            CARGO_BUILD_JOBS: '',
+          },
+        }
+      );
+      expect(result.error).toBeUndefined();
+      expect(result.status).toBe(23);
+      expect(result.signal).toBeNull();
+      expect(result.stdout).toBe('');
+      expect(result.stderr).toBe('');
+      const calls = fs
+        .readFileSync(log, 'utf8')
+        .trim()
+        .split('\n')
+        .map((line) => JSON.parse(line) as string[]);
+      expect(calls).toHaveLength(2);
+      expect(calls[0].slice(0, 2)).toEqual(['build', '--tag']);
+      expect(calls[1]).toEqual(['image', 'rm', '--force', calls[0][2]]);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it.each(['unset', 'selected', 'failed container'])(
     'preserves argv, isolation and image cleanup with %s settings',
     async (mode) => {

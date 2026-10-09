@@ -27,6 +27,7 @@ failure/cleanup observations; the basic badge case belongs to `pane-badge`.
 
 ## Harness rules
 
+- Hosted and local `pnpm test:e2e` images disable incremental compilation in `native-tests` and debug symbols for its dev/test fixtures; debug assertions remain enabled for those profiles, with fewer source details in backtraces.
 - `typescript/test/e2e/cli-assertions.ts` owns `expectJsonResult` (success envelope
   only); scenarios keep their exact payload assertions and independent SQL oracles.
   Do not build a permissive shared schema or import product types to manufacture
