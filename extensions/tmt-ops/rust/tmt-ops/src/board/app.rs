@@ -629,6 +629,7 @@ pub struct App {
     pub(super) jobs: RefCell<BTreeMap<String, super::cronboard::JobsPane>>,
     /// Where the jobs half was last drawn, for the pointer; empty when absent.
     pub(super) jobs_area: std::cell::Cell<ratatui::layout::Rect>,
+    pub(super) home_counters: RefCell<super::home::counters::Counters>,
     pub(super) meter: Option<super::meter::Meter>,
     meters: BTreeMap<String, super::meter::Meter>,
     usage_document: Option<Value>,
@@ -1080,6 +1081,93 @@ impl App {
         })
     }
 
+    pub(super) fn home_counter_keys(&self, squad: &str) -> [String; 3] {
+        let view = self.view.as_ref().expect("HOME counter has a view");
+        let rate = &view.home_rate[squad];
+        let lead = view
+            .home
+            .as_ref()
+            .unwrap()
+            .squads
+            .iter()
+            .find(|line| line.squad == squad)
+            .and_then(|line| line.lead.as_ref())
+            .and_then(|lead| lead["id"].as_str());
+        let owner = format!(
+            "lead:{:?}:{squad:?}:{:?}:{lead:?}:{:?}:{:?}",
+            view.me_id, rate.input.room, self.token_window, rate.settings
+        );
+        std::array::from_fn(|index| {
+            format!("{owner}:{}", rate.settings.windows[index].milliseconds())
+        })
+    }
+
+    pub(super) fn home_header_counter_keys(&self) -> [String; 3] {
+        let view = self.view.as_ref().expect("HOME header has a view");
+        let owners = self
+            .home_entries()
+            .into_iter()
+            .filter(|entry| entry.target.section == "squads")
+            .filter_map(|entry| view.home_rate.get(&entry.target.squad))
+            .filter(|rate| rate.settings.enabled)
+            .map(|rate| {
+                (
+                    &rate.input.room,
+                    rate.input.resumes.keys().collect::<Vec<_>>(),
+                    rate.settings,
+                )
+            })
+            .collect::<Vec<_>>();
+        let owner = format!("header:{:?}:{owners:?}:{:?}", view.me_id, self.token_window);
+        std::array::from_fn(|index| {
+            format!(
+                "{owner}:{}",
+                view.home.as_ref().unwrap().windows[index].milliseconds()
+            )
+        })
+    }
+
+    pub(super) fn home_digits(
+        &self,
+        squad: &str,
+        usage: &HomeUsage<'_>,
+        now: Instant,
+    ) -> [String; 3] {
+        let reduced = self.view.as_ref().unwrap().home_rate[squad]
+            .settings
+            .reduced_motion;
+        let keys = self.home_counter_keys(squad);
+        let mut counters = self.home_counters.borrow_mut();
+        let mut keys = keys.into_iter();
+        std::array::from_fn(|index| {
+            counters.digits(
+                keys.next().unwrap(),
+                usage.lead[index],
+                reduced || self.loading(),
+                now,
+            )
+        })
+    }
+
+    pub(super) fn home_header_digits(
+        &self,
+        usage: &HomeHeaderUsage<'_>,
+        now: Instant,
+    ) -> [String; 3] {
+        let reduced = self
+            .view
+            .as_ref()
+            .unwrap()
+            .home_rate
+            .values()
+            .any(|rate| rate.settings.enabled && rate.settings.reduced_motion);
+        let mut keys = self.home_header_counter_keys().into_iter();
+        let mut counters = self.home_counters.borrow_mut();
+        std::array::from_fn(|index| {
+            counters.digits(keys.next().unwrap(), usage.totals[index], reduced, now)
+        })
+    }
+
     /// The existing worker's one HOME receipt updates the same retained meters.
     pub(super) fn sample_home(
         &mut self,
@@ -1088,6 +1176,9 @@ impl App {
     ) -> bool {
         if self.loading() || self.current.as_deref() != Some(super::ALL) {
             return false;
+        }
+        if resumes.is_err() {
+            self.home_counters.get_mut().clear();
         }
         let Some(view) = self.view.as_mut().filter(|view| view.home.is_some()) else {
             return false;
@@ -1506,6 +1597,7 @@ impl App {
                 self.error = None;
             }
             Err(error) => {
+                self.home_counters.get_mut().clear();
                 if self.current.as_deref() == Some(super::ALL) {
                     for meter in self.meters.values_mut() {
                         meter.suspend(Instant::now());
@@ -1682,6 +1774,7 @@ impl App {
     /// Close the current tab's meter continuity and resume the target's cached
     /// meter, including the enabled HOME meters when its view is retained.
     fn handoff_meters(&mut self, next: &str, now: Instant) {
+        self.home_counters.get_mut().clear();
         if self.current.as_deref() == Some(super::ALL) {
             for meter in self.meters.values_mut() {
                 meter.suspend(now);
@@ -6242,6 +6335,79 @@ mod token_window_tests {
                 "{mismatch}"
             );
         }
+    }
+
+    #[test]
+    fn home_header_paints_stepped_digits_without_interpolating_evidence_or_status() {
+        let now = Instant::now();
+        let mut app = header(now);
+        app.view.as_mut().unwrap().document["sections"][0]["rows"][0]["pending"] =
+            json!("review this");
+        app.view.as_mut().unwrap().document["sections"][0]["rows"][0]["waitingOnYou"] =
+            json!([{"requestId":"q1"}]);
+        let document = app.view.as_ref().unwrap().document.clone();
+        let selection = app.selected;
+        let first = now + Duration::from_secs(10);
+        app.sample_home(Ok(&super::super::rate::tests::input(200).resumes), first);
+        let text = |app: &App, time| {
+            let usage = app.home_header_usage(time).unwrap();
+            app.home_header_digits(&usage, time);
+            super::super::home::usage_of(app, &usage, 160, app.look())
+                .unwrap()
+                .spans
+                .into_iter()
+                .map(|span| span.content.into_owned())
+                .collect::<String>()
+        };
+        app.home_counters.borrow_mut().begin();
+        assert!(text(&app, first).contains("1h ~150"));
+        app.home_counters.borrow_mut().finish(None, false);
+        let start = now + Duration::from_secs(20);
+        app.sample_home(Ok(&super::super::rate::tests::input(400).resumes), start);
+        let raw = app.home_header_usage(start).unwrap();
+        let totals = raw.totals;
+        let top = raw.top.unwrap().share;
+        let model = raw.models[0].share.fraction;
+        assert_eq!(totals.map(|reading| reading.unwrap().tokens), [450; 3]);
+        app.home_counters.borrow_mut().begin();
+        assert!(
+            text(&app, start).contains("1h ~150"),
+            "retarget starts from visible digits"
+        );
+        app.home_counters.borrow_mut().finish(None, false);
+        assert!(
+            app.home_counters
+                .borrow_mut()
+                .tick(start + Duration::from_millis(250))
+        );
+        assert!(text(&app, start + Duration::from_millis(250)).contains("1h ~390"));
+        assert!(
+            app.home_counters
+                .borrow_mut()
+                .tick(start + Duration::from_millis(600))
+        );
+        assert!(text(&app, start + Duration::from_millis(600)).contains("1h ~450"));
+        assert!(
+            app.home_counters
+                .borrow()
+                .wait(start + Duration::from_millis(600))
+                .is_none()
+        );
+        let settled = app.home_header_usage(start).unwrap();
+        assert_eq!(settled.totals, totals);
+        assert_eq!(settled.top.unwrap().share, top);
+        assert_eq!(settled.models[0].share.fraction, model);
+        assert_eq!(
+            app.view.as_ref().unwrap().document,
+            document,
+            "pending and request state are immutable"
+        );
+        assert_eq!(app.selected, selection);
+        app.go("product".into());
+        assert!(
+            app.home_counters.borrow().wait(start).is_none(),
+            "leaving HOME drops all animation wakeups"
+        );
     }
 
     #[test]

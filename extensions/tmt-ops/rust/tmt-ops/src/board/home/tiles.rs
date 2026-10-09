@@ -314,7 +314,12 @@ fn member_pieces(counts: &Counts, width: u16) -> Vec<Piece> {
 }
 
 /// One squad's row as role-tagged pieces whose widths add up to `width`.
-fn pieces(item: &TileItem<'_>, width: u16, columns: &Columns) -> Vec<Piece> {
+fn pieces(
+    item: &TileItem<'_>,
+    width: u16,
+    columns: &Columns,
+    digits: Option<&[String; 3]>,
+) -> Vec<Piece> {
     let (badge, role) = if item.squad.counts.waiting > 0 {
         (" ◆ ", Role::Waiting)
     } else if item.squad.counts.blocked > 0 {
@@ -340,7 +345,7 @@ fn pieces(item: &TileItem<'_>, width: u16, columns: &Columns) -> Vec<Piece> {
         .indices
         .iter()
         .map(|&index| {
-            let value = tokens(item, index);
+            let value = digits.map_or_else(|| tokens(item, index), |digits| digits[index].clone());
             if columns.mixed {
                 format!("{}:{value}", item.windows()[index].label())
             } else {
@@ -395,7 +400,7 @@ fn row_id(item: usize) -> String {
 }
 
 /// The rule and rows of one branch of the `md` switch.
-fn branch(items: &[TileItem<'_>], width: u16, wide: bool) -> Value {
+fn branch(items: &[TileItem<'_>], width: u16, wide: bool, digits: Option<&[[String; 3]]>) -> Value {
     let columns = Columns::new(items, width, wide);
     let legend = legend(items, width, wide);
     let title = format!(
@@ -412,7 +417,7 @@ fn branch(items: &[TileItem<'_>], width: u16, wide: bool) -> Value {
         "rows": items.iter().enumerate().map(|(at, item)| {
             json!({
                 "id": row_id(at),
-                "cells": pieces(item, width, &columns).into_iter().enumerate().map(|(at, (text, role))| {
+                "cells": pieces(item, width, &columns, digits.map(|digits| &digits[at])).into_iter().enumerate().map(|(at, (text, role))| {
                     json!({"id": format!("c{at}"), "text": text, "role": role.name()})
                 }).collect::<Vec<_>>(),
             })
@@ -485,12 +490,24 @@ pub(super) fn paint(
 }
 
 /// The section, painted again only when its key changed.
+#[cfg(test)]
 pub(super) fn paint_in(
     slot: &mut Kept<TilePaint>,
     items: &[TileItem<'_>],
     width: u16,
     look: Look,
     selected: Option<usize>,
+) -> TilePaint {
+    paint_display_in(slot, items, width, look, selected, None)
+}
+
+pub(super) fn paint_display_in(
+    slot: &mut Kept<TilePaint>,
+    items: &[TileItem<'_>],
+    width: u16,
+    look: Look,
+    selected: Option<usize>,
+    digits: Option<&[[String; 3]]>,
 ) -> TilePaint {
     if width == 0 {
         return TilePaint {
@@ -503,7 +520,7 @@ pub(super) fn paint_in(
         width,
         look,
         selected: selected.map(row_id),
-        data: json!({"wide": branch(items, width, true), "narrow": branch(items, width, false)}),
+        data: json!({"wide": branch(items, width, true, digits), "narrow": branch(items, width, false, digits)}),
     };
     slot.get(key, build).clone()
 }
@@ -552,3 +569,29 @@ fn build(key: &Key) -> TilePaint {
 
 #[cfg(test)]
 mod tests;
+
+/// Counter slots reuse the same table budget used by the admitted branch.
+pub(super) fn counter_slots(items: &[TileItem<'_>], width: u16) -> Vec<(usize, u16, u16, bool)> {
+    let columns = Columns::new(items, width, width >= tmt_cli_style::breakpoint::MD.cells);
+    let slots = columns.slots() as u16;
+    if slots == 0 {
+        return Vec::new();
+    }
+    let mut x = 3 + columns.name + columns.lead + columns.model + columns.members;
+    columns
+        .indices
+        .iter()
+        .enumerate()
+        .map(|(slot, &index)| {
+            let cell = columns.values / slots + u16::from((slot as u16) < columns.values % slots);
+            let result = (
+                index,
+                x.saturating_add(1),
+                cell.saturating_sub(1),
+                columns.mixed,
+            );
+            x += cell;
+            result
+        })
+        .collect()
+}

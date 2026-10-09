@@ -23,6 +23,91 @@ impl Animation {
     }
 }
 
+/// Disposable digits shared by the named meter and HOME presentation. Targets
+/// never replace raw Rate readings; initial HOME evidence settles rather than
+/// inventing a count from zero.
+#[derive(Debug, Default)]
+pub(super) struct Counter {
+    target: Option<u128>,
+    displayed: f64,
+    animation: Option<Animation>,
+}
+
+impl Counter {
+    pub(super) fn retarget(
+        &mut self,
+        target: Option<u128>,
+        immediate: bool,
+        animate_initial: bool,
+        now: Instant,
+    ) {
+        let Some(tokens) = target else {
+            self.target = None;
+            self.animation = None;
+            if !animate_initial {
+                self.displayed = 0.0;
+            }
+            return;
+        };
+        if immediate || (!animate_initial && self.target.is_none()) {
+            self.settle(Some(tokens));
+        } else if self.target != Some(tokens) {
+            let to = tokens as f64;
+            self.animation = (self.displayed != to).then_some(Animation {
+                from: self.displayed,
+                to,
+                start: now,
+                next: now + FRAME,
+            });
+        }
+        self.target = Some(tokens);
+    }
+
+    pub(super) fn settle(&mut self, target: Option<u128>) {
+        self.target = target;
+        self.displayed = target.unwrap_or(0) as f64;
+        self.animation = None;
+    }
+
+    pub(super) fn stop(&mut self) {
+        self.settle(self.target);
+    }
+
+    pub(super) fn tick(&mut self, now: Instant) {
+        if let Some(animation) = &mut self.animation
+            && now >= animation.next
+        {
+            self.displayed = animation.value(now);
+            let end = animation.start + DURATION;
+            if now >= end {
+                self.displayed = animation.to;
+                self.animation = None;
+            } else {
+                animation.next = (now + FRAME).min(end);
+            }
+        }
+    }
+
+    pub(super) fn wait(&self, now: Instant) -> Option<Duration> {
+        self.animation
+            .as_ref()
+            .map(|animation| animation.next.saturating_duration_since(now))
+    }
+
+    pub(super) fn digits(&self, partial: bool) -> String {
+        self.target.map_or_else(
+            || "–".into(),
+            |_| {
+                format!(
+                    "{}{}",
+                    if partial { "~" } else { "" },
+                    crate::source::tokens(self.displayed)
+                )
+            },
+        )
+    }
+}
+
 #[derive(Debug)]
 pub struct Meter {
     pub settings: TokenRate,
@@ -32,8 +117,7 @@ pub struct Meter {
     sampled: Instant,
     rate: Rate,
     reading: Option<Reading>,
-    displayed: f64,
-    animation: Option<Animation>,
+    counter: Counter,
     window: TokenWindow,
     trend: [Option<f64>; 8],
     trend_ms: u64,
@@ -49,8 +133,7 @@ impl Meter {
             sampled: now,
             rate: Rate::new(settings.windows[2]),
             reading: None,
-            displayed: 0.0,
-            animation: None,
+            counter: Counter::default(),
             window: settings.window,
             trend: [None; 8],
             trend_ms: 0,
@@ -65,7 +148,7 @@ impl Meter {
             self.milliseconds(now),
             self.settings.every.as_millis() as u64,
         );
-        self.animation = None;
+        self.counter.animation = None;
     }
 
     /// Re-entering a cached tab refreshes time/coverage without a fake receipt.
@@ -74,11 +157,12 @@ impl Meter {
         self.rate.failed(ms, self.settings.every.as_millis() as u64);
         self.window = window.available(self.settings.windows);
         self.reading = self.rate.reading(ms, self.window);
-        self.displayed = self
+        self.counter.displayed = self
             .reading
             .map(|reading| reading.tokens as f64)
             .unwrap_or(0.0);
-        self.animation = None;
+        self.counter.target = self.reading.map(|reading| reading.tokens);
+        self.counter.animation = None;
         self.trend = self.rate.trend(ms, self.window);
         self.trend_ms = ms;
     }
@@ -126,24 +210,12 @@ impl Meter {
         }
         self.sampled = now;
         let reading = self.rate.reading(ms, self.window);
-        if let Some(rate) = reading.map(|reading| reading.tokens as f64) {
-            if self.reading.map(|reading| reading.tokens as f64) != Some(rate) {
-                if self.settings.reduced_motion || self.displayed == rate {
-                    self.displayed = rate;
-                    self.animation = None;
-                } else {
-                    // Retarget from the value actually displayed, without a jump.
-                    self.animation = Some(Animation {
-                        from: self.displayed,
-                        to: rate,
-                        start: now,
-                        next: now + FRAME,
-                    });
-                }
-            }
-        } else {
-            self.animation = None;
-        }
+        self.counter.retarget(
+            reading.map(|reading| reading.tokens),
+            self.settings.reduced_motion,
+            true,
+            now,
+        );
         self.reading = reading;
         self.trend = self.rate.trend(ms, self.window);
         self.trend_ms = ms;
@@ -152,31 +224,18 @@ impl Meter {
     /// Only changed visible digits wake the normal renderer. No idle motion.
     pub fn tick(&mut self, now: Instant) -> bool {
         let before = self.digits();
-        if let Some(animation) = &mut self.animation
-            && now >= animation.next
-        {
-            self.displayed = animation.value(now);
-            let end = animation.start + DURATION;
-            if now >= end {
-                self.displayed = animation.to;
-                self.animation = None;
-            } else {
-                animation.next = (now + FRAME).min(end);
-            }
-        }
+        self.counter.tick(now);
         before != self.digits()
     }
 
     pub fn wait(&self, now: Instant) -> Option<Duration> {
-        self.animation
-            .as_ref()
-            .map(|animation| animation.next.saturating_duration_since(now))
+        self.counter.wait(now)
     }
 
     pub fn digits(&self) -> Option<String> {
         let reading = self.reading?;
         let number = crate::source::render_value(
-            &serde_json::json!(self.displayed),
+            &serde_json::json!(self.counter.displayed),
             crate::source::Format::Tokens,
             0,
         )?;
@@ -199,11 +258,12 @@ impl Meter {
     fn settle(&mut self, now: Instant) {
         let ms = self.milliseconds(now);
         self.reading = self.rate.reading(ms, self.window);
-        self.displayed = self
+        self.counter.displayed = self
             .reading
             .map(|reading| reading.tokens as f64)
             .unwrap_or(0.0);
-        self.animation = None;
+        self.counter.target = self.reading.map(|reading| reading.tokens);
+        self.counter.animation = None;
         self.trend = self.rate.trend(ms, self.window);
         self.trend_ms = ms;
     }

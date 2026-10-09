@@ -300,6 +300,7 @@ fn model(order: &[String], acquired: &Acquired, now: u64) -> Home {
 pub(super) mod tests;
 
 mod controller;
+pub(crate) mod counters;
 mod paint;
 pub(super) use controller::{ALL_LEADS, CRON, LEADS, Target};
 pub(super) use paint::{age_label, hints_of, render, summary_of, usage_of};
