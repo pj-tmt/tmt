@@ -62,7 +62,7 @@ function submitForeground(
 ) {
   const command = [
     'env',
-    `TMUX_TEAM_HOME=${fixture.globalDir}`,
+    `TMT_HOME=${fixture.globalDir}`,
     ...Object.entries(environment).map(([key, value]) => `${key}=${value}`),
     fixture.executables.cli.executable,
     ...args,
@@ -287,7 +287,7 @@ server.listen(${JSON.stringify(gate)}, () => {
       const command = [
         'env',
         `PATH=${directory}:${process.env.PATH}`,
-        `TMUX_TEAM_HOME=${fixture.globalDir}`,
+        `TMT_HOME=${fixture.globalDir}`,
         fixture.executables.cli.executable,
         'workspace-example',
         'ui',
