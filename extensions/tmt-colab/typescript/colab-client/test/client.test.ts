@@ -1,6 +1,7 @@
 import { readFileSync, readdirSync } from 'node:fs';
 import { describe, expect, it, vi } from 'vite-plus/test';
 import * as c from '../src/index.js';
+import { mixedMessage, mixedPolicy } from '../src/ed25519-probe.js';
 const fixture = JSON.parse(
   readFileSync(new URL('../../../contracts/vectors/model-v1.json', import.meta.url), 'utf8'),
 );
@@ -29,6 +30,104 @@ async function signer() {
   );
 }
 describe('colab browser values and immutable crypto', () => {
+  it('keeps every mixed-order probe answer identical to the frozen native-policy corpus', () => {
+    const corpus = readFileSync(
+      new URL('../../../contracts/vectors/ed25519-829.jsonl', import.meta.url),
+      'utf8',
+    )
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line))
+      .filter((row) => row.name.startsWith('mixed-'));
+    expect(
+      mixedPolicy.flatMap((group, a) =>
+        group.answers.map(([signature, nativePolicy], r) => ({
+          name: `mixed-A${a}-R${r}`,
+          public: group.publicKey,
+          signature,
+          message: mixedMessage,
+          nativePolicy,
+          verifyStrict: nativePolicy,
+        })),
+      ),
+    ).toEqual(corpus);
+  });
+  it('passes the real native capability probe including all mixed-order rows', async () => {
+    vi.stubGlobal('isSecureContext', true);
+    const verifying = vi.spyOn(crypto.subtle, 'verify');
+    try {
+      await expect(c.probeCapabilities()).resolves.toBeUndefined();
+      expect(
+        verifying.mock.calls.slice(1).map(([, , signature]) => Array.from(signature as Uint8Array)),
+      ).toEqual(
+        mixedPolicy.flatMap((group) =>
+          group.answers.map(([signature]) => Array.from(hex(signature))),
+        ),
+      );
+    } finally {
+      verifying.mockRestore();
+      vi.unstubAllGlobals();
+    }
+  });
+  it('fails the capability probe when native verification flips a mixed-order answer', async () => {
+    vi.stubGlobal('isSecureContext', true);
+    const nativeVerify = crypto.subtle.verify.bind(crypto.subtle);
+    try {
+      // Cover both an extra acceptance and a refused positive from the Linux divergence.
+      for (const [signature, expected] of [mixedPolicy[1].answers[3], mixedPolicy[1].answers[4]]) {
+        const verifying = vi
+          .spyOn(crypto.subtle, 'verify')
+          .mockImplementation(async (...args) =>
+            c.equal(args[2] as Uint8Array, hex(signature)) ? !expected : nativeVerify(...args),
+          );
+        try {
+          await expect(c.probeCapabilities()).rejects.toThrow();
+          expect(verifying).toHaveBeenCalled();
+        } finally {
+          verifying.mockRestore();
+        }
+      }
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+  it('matches native public_key admission at compressed-point boundaries', () => {
+    // Native oracle: tmt-colab-model/tests/conformance.rs browser_public_point_boundaries_match_native_admission.
+    // Mixed-order bytes come from the unchanged ed25519-829 mixed-A1-R4 positive.
+    for (const [name, encoded, nativeAccepted] of [
+      ['negative-zero', '0100000000000000000000000000000000000000000000000000000000000080', false],
+      ['y-one', '0100000000000000000000000000000000000000000000000000000000000000', false],
+      ['y-p-minus-one', 'ecffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f', false],
+      ['non-square', '0200000000000000000000000000000000000000000000000000000000000000', false],
+      ['small-order', 'c7176a703d4dd84fba3c0b760d10670f2a2053fa2c39ccc64ec7fd7792ac037a', false],
+      ['mixed-order', '9158312a9a8d6e3b34c891d6d61444f8b8211c5117ebad15bdb0bd68b07e0245', true],
+      ['normal', 'd75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a', true],
+    ] as const)
+      expect(c.validEdPoint(hex(encoded)), name).toBe(nativeAccepted);
+  });
+  it('rejects non-decompressible public keys and signature R before native import', async () => {
+    const publicKey = hex(fixture.public),
+      signature = hex(fixture.signature),
+      input = await c.signatureInput(hex(fixture.header), hex(fixture.ciphertext)),
+      off = new Uint8Array(32);
+    off[0] = 2;
+    const invalidR = new Uint8Array(signature);
+    invalidR.set(off);
+    const importing = vi.spyOn(crypto.subtle, 'importKey'),
+      verifying = vi.spyOn(crypto.subtle, 'verify');
+    try {
+      expect(await c.strictVerify(off, signature, input)).toBe(false);
+      expect(await c.strictVerify(publicKey, invalidR, input)).toBe(false);
+      expect(importing).not.toHaveBeenCalled();
+      expect(verifying).not.toHaveBeenCalled();
+      expect(await c.strictVerify(publicKey, signature, input)).toBe(true);
+      expect(importing).toHaveBeenCalledTimes(1);
+      expect(verifying).toHaveBeenCalledTimes(1);
+    } finally {
+      importing.mockRestore();
+      verifying.mockRestore();
+    }
+  });
   it('keeps browser runtime independent of Node, app and network/persistence APIs', () => {
     const src = new URL('../src/', import.meta.url);
     for (const name of readdirSync(src).filter((n) => n.endsWith('.ts'))) {

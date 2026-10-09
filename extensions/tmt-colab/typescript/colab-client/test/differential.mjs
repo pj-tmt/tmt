@@ -179,7 +179,9 @@ try {
           const progress = (state, id) =>
             console.debug('colab-conformance:' + JSON.stringify([state, id]));
           progress('started', 'capabilities');
+          const capabilityStart = performance.now();
           await c.probeCapabilities();
+          const capabilityMs = performance.now() - capabilityStart;
           progress('completed', 'capabilities');
           let attachmentCases = 0;
           for (const test of attachments.cases) {
@@ -345,7 +347,8 @@ try {
           assert(historyPages.size === 9 && [...historyPages.values()].every((n) => n === 64));
           progress('started', 'native-authority-and-certificate');
           let head = null;
-          for (const wire of nativeAuthority.statements)
+          for (const wire of nativeAuthority.statements) {
+            progress('started', 'native-statement:' + nativeAuthority.statements.indexOf(wire));
             head = (
               await c.statement.Envelope.fromJson(c.text(JSON.stringify(wire))).verifyNext(
                 authority.space,
@@ -353,13 +356,20 @@ try {
                 head,
               )
             ).head;
+            progress('completed', 'native-statement:' + nativeAuthority.statements.indexOf(wire));
+          }
           assert(head.revision === 2n);
           const chain = c.certificate.Chain.fromJson(c.text(JSON.stringify(authority.chain)));
+          progress('started', 'certificate-digest');
           assert(same(await chain.digest(), authority.chainDigest));
+          progress('completed', 'certificate-digest');
+          progress('started', 'certificate-valid-root');
           await chain.verify(genesis.head.hash, chain.certificate(), root);
+          progress('completed', 'certificate-valid-root');
           const off = new Uint8Array(32);
           off[0] = 2;
-          assert(c.validEdPoint(off));
+          assert(!c.validEdPoint(off));
+          progress('started', 'off-curve-strict-verify');
           assert(
             !(await c.strictVerify(
               off,
@@ -367,12 +377,15 @@ try {
               c.certificate.input(chain.certificate()),
             )),
           );
+          progress('completed', 'off-curve-strict-verify');
+          progress('started', 'off-curve-certificate');
           let issued = false;
           try {
             await chain.verify(genesis.head.hash, chain.certificate(), off);
             issued = true;
           } catch {}
           assert(!issued);
+          progress('completed', 'off-curve-certificate');
           progress('completed', 'native-authority-and-certificate');
           progress('started', 'independent-wrap-and-aliasing');
           const independent = c.wrap.Envelope.fromJson(c.text(JSON.stringify(authority.wrap)));
@@ -413,19 +426,25 @@ try {
           const rows = [];
           for (const v of corpus) {
             progress('started', 'ed25519:' + v.name);
+            const publicKey = hex(v.public),
+              signature = hex(v.signature),
+              message = hex(v.message),
+              rawProbed = c.validEdPoint(publicKey) && c.validEdPoint(signature.slice(0, 32));
             let raw = false;
-            try {
-              const key = await crypto.subtle.importKey('raw', hex(v.public), 'Ed25519', false, [
-                'verify',
-              ]);
-              raw = await crypto.subtle.verify('Ed25519', key, hex(v.signature), hex(v.message));
-            } catch {
-              /* Recorded as false; native positive controls and probe still must pass. */
-            }
+            if (rawProbed)
+              try {
+                const key = await crypto.subtle.importKey('raw', publicKey, 'Ed25519', false, [
+                  'verify',
+                ]);
+                raw = await crypto.subtle.verify('Ed25519', key, signature, message);
+              } catch {
+                /* Recorded as false; all native positive controls still must pass. */
+              }
             rows.push({
               name: v.name,
+              rawProbed,
               raw,
-              accepted: await c.strictVerify(hex(v.public), hex(v.signature), hex(v.message)),
+              accepted: await c.strictVerify(publicKey, signature, message),
             });
             progress('completed', 'ed25519:' + v.name);
           }
@@ -625,6 +644,7 @@ try {
           assert(!legacyAccepted, 'legacy management operation accepted');
           progress('completed', 'signin-and-management');
           return {
+            capabilityMs,
             rows,
             checks: true,
             attachmentCases,

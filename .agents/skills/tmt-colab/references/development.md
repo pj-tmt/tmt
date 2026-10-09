@@ -225,6 +225,12 @@ three-engine pass. The report retains source/toolchain/browser identity, frozen 
 hashes, lifecycle timings, last started/completed checks and failure stacks. Progress
 markers are synchronous test-only console messages; they do not replace assertions.
 Cleanup is bounded separately from crypto execution and its failure refuses the gate.
+The standalone `node test/raw-ed25519.mjs` diagnostic runs raw Ed25519 import/verify
+against the frozen authority certificate with its valid root and off-curve `02` key, in
+fresh contexts. `COLAB_RAW_ED25519_REPORT` selects its report path. It retains operation
+markers, input hashes and installed Linux libgcrypt identity; it is not the conformance
+report or a substitute for the three-engine gate.
+
 For an explicitly approved Linux closure diagnostic, retain `DEBUG=pw:browser` stderr
 alongside the report and exact runner image; a later pass does not explain an older
 closure. Do not retry automatically or infer crash/OOM from a generic target error.

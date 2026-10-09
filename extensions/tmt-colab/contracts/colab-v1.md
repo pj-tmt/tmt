@@ -264,15 +264,17 @@ The joint documented browser feature floor is Chromium 137, Firefox 130 and
 Safari 17. These are not tested minimum binaries. Probe generate/sign/strict
 verify, X25519 generate/derive and secure-context availability before use; fail
 closed with an update-browser explanation, with no weaker fallback.
+The probe also requires every frozen mixed-order signature known answer to match native policy.
 
 ### Strict signature admission
 
 Every enrollment, statement, certificate, object, intent, wrap and pairing
 signature MUST use one strict verifier. Browser admission requires A32/R32/S32,
 masked Edwards y < p for both A and R, rejection of all eight torsion encodings
-including sign-bit/negative-zero variants, and little-endian S < L, followed by
-native WebCrypto verification. Byte comparisons implement guards; curve
-operations stay native. Rust requires canonical recompressed non-weak public
+including sign-bit/negative-zero variants, public-point decompression for A and R,
+and little-endian S < L, followed by native WebCrypto verification. The bounded
+decompression guard uses only public 32-byte inputs and a fixed exponentiation chain;
+signing, verification and secret-key operations stay native. Rust requires canonical recompressed non-weak public
 keys and `verify_strict`, with no legacy, hazmat or batch path. Raw browser
 verification alone MUST NOT authorize anything. Valid mixed-order positives in
 the accepted corpus MUST NOT be categorically rejected.

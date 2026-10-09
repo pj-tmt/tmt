@@ -13,17 +13,72 @@ const reports = ['chromium', 'firefox', 'webkit'].map((engine) => ({
   engine,
   version: 'fixture',
   checks: true,
-  rows: corpus.map((v) => ({ name: v.name, accepted: v.nativePolicy, raw: v.nativePolicy })),
+  rows: corpus.map((v) => ({
+    name: v.name,
+    accepted: v.nativePolicy,
+    rawProbed: v.nativePolicy,
+    raw: v.nativePolicy,
+  })),
 }));
-function run(report: unknown, cases: unknown = corpus, engines?: string[]): number | null {
+function run(
+  report: unknown,
+  cases: unknown = corpus,
+  engines?: string[],
+  failure?: RegExp,
+): number | null {
   const script = `import {validateReport} from ${JSON.stringify(new URL('./gate.mjs', import.meta.url).href)};validateReport(${JSON.stringify(report)},${JSON.stringify(cases)},${JSON.stringify(engines)});`;
-  return spawnSync(process.execPath, ['--input-type=module', '-e', script], {
+  const result = spawnSync(process.execPath, ['--input-type=module', '-e', script], {
     timeout: 10000,
     encoding: 'utf8',
-  }).status;
+  });
+  if (failure) expect(result.stderr).toMatch(failure);
+  return result.status;
 }
 describe('differential report gate', () => {
   it('accepts complete controls and exact row correspondence', () => expect(run(reports)).toBe(0));
+  it('requires a rawProbed boolean for every row', () => {
+    for (const rawProbed of [undefined, null, 0, 'true'])
+      expect(
+        run(
+          reports.map((r) => ({
+            ...r,
+            rows: r.rows.map((row, i) => (i === 1 ? { ...row, rawProbed } : row)),
+          })),
+          corpus,
+          undefined,
+          /missing rawProbed boolean/,
+        ),
+      ).toBe(1);
+  });
+  it('requires every native positive to be raw-probed and accepted by WebCrypto', () => {
+    for (const control of corpus.filter((v) => v.nativePolicy))
+      for (const change of [{ rawProbed: false }, { raw: false }])
+        expect(
+          run(
+            reports.map((r) => ({
+              ...r,
+              rows: r.rows.map((row) => (row.name === control.name ? { ...row, ...change } : row)),
+            })),
+            corpus,
+            undefined,
+            /missing raw positive control/,
+          ),
+        ).toBe(1);
+  });
+  it('refuses admission or a raw result when the point guard prevented probing', () => {
+    for (const change of [{ accepted: true }, { raw: true }])
+      expect(
+        run(
+          reports.map((r) => ({
+            ...r,
+            rows: r.rows.map((row, i) => (i === 1 ? { ...row, ...change } : row)),
+          })),
+          corpus,
+          undefined,
+          /guard-rejected raw probe must refuse/,
+        ),
+      ).toBe(1);
+  });
   it('exits nonzero for missing, skipped, unavailable, duplicate or incomplete engines', () => {
     const mutations = [
       reports.slice(0, 2),
