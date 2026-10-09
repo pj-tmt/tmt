@@ -617,7 +617,7 @@ describe('native configuration process boundary', () => {
     });
   });
 
-  it('normalizes HOME before atomically moving the former default configuration', async () => {
+  it('normalizes HOME before refusing an unmanaged former-default move', async () => {
     await withSandbox(async (sandbox) => {
       sandbox.env.HOME = path.join(sandbox.root, 'missing') + '/../resolved-home';
       delete sandbox.env.XDG_CONFIG_HOME;
@@ -625,15 +625,16 @@ describe('native configuration process boundary', () => {
       const config = path.join(sandbox.root, 'resolved-home', '.config', 'tmt', 'config.json');
       fs.mkdirSync(path.dirname(former), { recursive: true });
       fs.writeFileSync(former, '{"ui":{"paneBadge":"on"},"opaque":"retained"}');
+      const before = fileSnapshot(sandbox.root);
       const shown = await runCli(sandbox, ['config', '--json']);
-      expect(shown.status).toBe(0);
-      expect(parseWholeStdout(shown)).toMatchObject({
-        paths: { global: config },
-        resolved: { ui: { paneBadge: 'on' } },
-      });
-      expect(fs.existsSync(path.dirname(former))).toBe(false);
-      expect(fs.readFileSync(config, 'utf8')).toBe('{"ui":{"paneBadge":"on"},"opaque":"retained"}');
-      expect(fs.existsSync(path.join(path.dirname(config), 'tmux-team.db'))).toBe(false);
+      expect(shown.status).not.toBe(0);
+      const diagnostic = shown.stdout + shown.stderr;
+      expect(diagnostic).toContain(path.dirname(former));
+      expect(diagnostic).toContain(path.dirname(config));
+      expect(diagnostic).toContain('TMT_HOME');
+      expect(diagnostic).not.toContain('missing/..');
+      expect(fileSnapshot(sandbox.root)).toEqual(before);
+      expect(fs.existsSync(path.dirname(config))).toBe(false);
       expect(fs.existsSync(path.join(sandbox.root, 'missing'))).toBe(false);
     });
   });
@@ -933,7 +934,7 @@ describe('native configuration process boundary', () => {
   });
 
   it.each(['new', 'legacy-empty', 'legacy-config', 'both-config', 'xdg-empty'])(
-    'cuts over the %s former default without creating a database or merging stores',
+    'refuses unmanaged cutover of the %s former default without creating state',
     async (scenario) => {
       await withSandbox(async (sandbox) => {
         delete sandbox.env.XDG_CONFIG_HOME;
@@ -953,23 +954,24 @@ describe('native configuration process boundary', () => {
         if (scenario === 'both-config') fs.writeFileSync(path.join(xdg, 'config.json'), '{}');
         const before = fileSnapshot(sandbox.root);
         const shown = await runCli(sandbox, ['config', '--json']);
-        expect(shown.status).toBe(0);
-        const former = scenario === 'both-config' ? xdg : legacy;
-        expect(parseWholeStdout(shown)).toMatchObject({
-          paths: { global: path.join(current, 'config.json') },
-        });
-        const prefix = path.relative(sandbox.root, former) + path.sep;
-        const replacement = path.relative(sandbox.root, current) + path.sep;
-        expect(fileSnapshot(sandbox.root)).toEqual(
-          Object.fromEntries(
-            Object.entries(before).map(([name, bytes]) => [
-              name.startsWith(prefix) ? replacement + name.slice(prefix.length) : name,
-              bytes,
-            ])
-          )
-        );
-        expect(fs.existsSync(former)).toBe(false);
-        expect(fs.existsSync(path.join(current, 'tmux-team.db'))).toBe(false);
+        if (scenario === 'new') {
+          expect(shown.status).toBe(0);
+          expect(shown.stderr).toBe('');
+          expect(parseWholeStdout(shown)).toMatchObject({
+            paths: { global: path.join(current, 'config.json') },
+          });
+        } else {
+          expect(shown.status).not.toBe(0);
+          const diagnostic = shown.stdout + shown.stderr;
+          expect(diagnostic).toContain(scenario === 'both-config' ? xdg : legacy);
+          expect(diagnostic).toContain(current);
+          expect(diagnostic).toContain('TMT_HOME');
+          expect(diagnostic).toContain('unmanaged executable');
+        }
+        expect(fileSnapshot(sandbox.root)).toEqual(before);
+        expect(fs.existsSync(current)).toBe(false);
+        if (scenario === 'legacy-empty' || scenario === 'legacy-config')
+          expect(fs.existsSync(path.dirname(current))).toBe(false);
       });
     }
   );

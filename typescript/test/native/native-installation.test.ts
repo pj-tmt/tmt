@@ -75,6 +75,38 @@ async function traceInstallationPhase<T>(
 
 describe('native installation process contract', () => {
   it(
+    'moves a former default only from the active managed release and reports once',
+    { timeout: 60_000 },
+    async () => {
+      await withReleaseSandbox(async (sandbox) => {
+        const version = (await runCli(sandbox, ['--version'])).stdout.trim();
+        const artifact = await createArtifact(sandbox, version);
+        const installed = await install(sandbox, artifact, installPrefix(sandbox));
+        const managed = { ...sandbox, cli: { executable: installed.executable, args: [] } };
+        const former = path.join(sandbox.xdgConfigHome, 'tmux-team');
+        mkdirSync(former, { recursive: true });
+        const settings = JSON.stringify({ theme: { base: 'mono' }, opaque: { keep: true } });
+        writeFileSync(path.join(former, 'config.json'), settings);
+        const moved = await runCli(managed, ['config', '--json']);
+        expect(moved.status).toBe(0);
+        expect(moved.stderr).toBe(
+          `tmt: moved Core data directory ${JSON.stringify(former)} to ${JSON.stringify(sandbox.globalDir)}\n`
+        );
+        expect(parseWholeStdout(moved)).toMatchObject({
+          paths: { global: path.join(sandbox.globalDir, 'config.json') },
+        });
+        expect(readFileSync(sandbox.globalConfig, 'utf8')).toBe(settings);
+        expect(existsSync(former)).toBe(false);
+        expect(existsSync(sandbox.database)).toBe(false);
+        const repeated = await runCli(managed, ['config', '--json']);
+        expect(repeated.status).toBe(0);
+        expect(repeated.stderr).toBe('');
+        expect(readFileSync(sandbox.globalConfig, 'utf8')).toBe(settings);
+      });
+    }
+  );
+
+  it(
     'versioned candidate handoff fences publication and retains provenance and same-version repair',
     { timeout: 60_000 },
     async () => {

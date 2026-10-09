@@ -124,12 +124,17 @@ configuration. The owner map is in
 
 - `ConfigPaths::discover` owns `TMT_HOME` (an exact explicit directory), the default
   `$XDG_CONFIG_HOME/tmt` or `~/.config/tmt`, and local `tmt.json`. The one-release
-  default-directory cutover checks the new directory once, then exclusively renames the
-  former directory only when the new one is absent. A concurrent destination wins; other
-  failures name both paths and refuse rather than initialize separate state. The DB,
-  WAL and SHM remain together, including open file descriptors; the internal
-  `tmux-team.db` basename stays until a separately authorized stopped-writer cutover.
-  Explicit homes and former local files are never renamed or read as aliases.
+  default-directory cutover checks the new directory once. Only the active managed
+  release, verified by the existing native-install receipt owner, may exclusively
+  rename the former default into it; other executables refuse with both paths
+  and `TMT_HOME` before creating anything. An exclusive rename finding an occupied destination and a remaining
+  former store refuses rather than silently splitting state. A completed concurrent
+  move succeeds only with the source absent and the current directory present.
+  An owned successful move reports both paths once on stderr; ordinary discovery and
+  concurrent completion stay quiet. The DB, WAL and SHM remain together, including
+  open file descriptors; `tmux-team.db` stays until a separately authorized
+  stopped-writer cutover. Explicit homes and former local files are never renamed
+  or read as aliases.
 
 - `config::document` keeps unknown JSON fields and validates known settings through
   `tmt-core::settings`; `json_document` keeps number compatibility and raw object order on targeted
