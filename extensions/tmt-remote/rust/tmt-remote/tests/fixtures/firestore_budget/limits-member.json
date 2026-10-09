@@ -1,7 +1,7 @@
 {
   "plan": "no-cost",
   "readOn": "2026-10-09",
-  "resetsAt": "around midnight Pacific",
+  "resetsAt": "pacific-midnight",
   "limits": {
     "readsPerDay": 50000,
     "writesPerDay": 20000,

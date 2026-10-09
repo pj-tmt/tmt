@@ -2821,10 +2821,7 @@ fn status_budget_is_opt_in_and_static() {
     assert!(with.starts_with(&human), "{with}");
     assert!(with.contains("Document reads"), "{with}");
     assert!(with.contains("50,000 per day"), "{with}");
-    assert!(
-        with.contains("only the Firebase console shows it"),
-        "{with}"
-    );
+    assert!(with.contains("check it in the Firebase console"), "{with}");
     // The optional projections are exclusive.
     for args in [
         ["status", "--budget", "--layers", "--json"],

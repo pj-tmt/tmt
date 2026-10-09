@@ -96,7 +96,7 @@ fn the_human_lines_name_each_limit_and_what_they_are_not() {
     assert_eq!(
         lines,
         [
-            "Firestore free-plan limits (read 2026-10-09; Google changes them, so recheck before relying on them):",
+            "Firestore free-plan limits as published on 2026-10-09 (Google may change them):",
             "  Document reads                      50,000 per day",
             "  Document writes                     20,000 per day",
             "  Document deletes                    20,000 per day",
@@ -107,8 +107,9 @@ fn the_human_lines_name_each_limit_and_what_they_are_not() {
             "  Single-field index configs          200",
             "  Document size                       1 MiB",
             "  Rules document lookups per request  10",
-            "The whole Firebase project shares these limits and the daily ones reset around midnight Pacific. Remote cannot see the project's real usage; only the Firebase console shows it.",
-            "A client warns at 70% and refuses at 90% of its own share before it reaches a limit.",
+            "These limits are shared by the whole Firebase project. Daily limits reset around midnight Pacific time.",
+            "Remote can't see your actual usage; check it in the Firebase console.",
+            "Each device warns at 70% and stops at 90% of its share of the daily limits.",
         ]
     );
     // Values come from the validated answer, so an older door's numbers are shown as read.
@@ -116,6 +117,6 @@ fn the_human_lines_name_each_limit_and_what_they_are_not() {
     older["readOn"] = json!("2026-09-01");
     older["limits"]["readsPerDay"] = json!(30000);
     let shown = human_lines(&older);
-    assert!(shown[0].contains("read 2026-09-01"), "{}", shown[0]);
+    assert!(shown[0].contains("published on 2026-09-01"), "{}", shown[0]);
     assert!(shown[1].ends_with("30,000 per day"), "{}", shown[1]);
 }

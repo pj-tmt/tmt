@@ -15,8 +15,9 @@ use serde_json::{Map, Value, json};
 pub const READ_ON: &str = "2026-10-09";
 /// The plan the limits belong to: Firebase's no-cost plan, no billing.
 pub const PLAN: &str = "no-cost";
-/// When the daily quotas reset, as the official page words it.
-pub const RESETS_AT: &str = "around midnight Pacific";
+/// When the daily quotas reset: a fixed Remote word, never provider text. The guard counts
+/// US Pacific calendar days, so the reset is midnight Pacific time.
+pub const RESETS_AT: &str = "pacific-midnight";
 
 const KIB: u64 = 1024;
 const MIB: u64 = KIB * KIB;
@@ -189,7 +190,7 @@ pub fn human_lines(value: &Value) -> Vec<String> {
         .max()
         .unwrap_or(0);
     let mut lines = vec![format!(
-        "Firestore free-plan limits (read {}; Google changes them, so recheck before relying on them):",
+        "Firestore free-plan limits as published on {} (Google may change them):",
         value["readOn"].as_str().unwrap_or_default()
     )];
     for limit in &LIMITS {
@@ -200,12 +201,13 @@ pub fn human_lines(value: &Value) -> Vec<String> {
             written(limit, shown)
         ));
     }
+    lines.push(
+        "These limits are shared by the whole Firebase project. Daily limits reset around midnight Pacific time."
+            .into(),
+    );
+    lines.push("Remote can't see your actual usage; check it in the Firebase console.".into());
     lines.push(format!(
-        "The whole Firebase project shares these limits and the daily ones reset {}. Remote cannot see the project's real usage; only the Firebase console shows it.",
-        value["resetsAt"].as_str().unwrap_or_default()
-    ));
-    lines.push(format!(
-        "A client warns at {}% and refuses at {}% of its own share before it reaches a limit.",
+        "Each device warns at {}% and stops at {}% of its share of the daily limits.",
         value["guard"]["warnPercent"], value["guard"]["refusePercent"]
     ));
     lines
