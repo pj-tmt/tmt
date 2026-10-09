@@ -66,8 +66,9 @@ Verify schema 46 against the independent native storage fixture and its change-c
 triggers. `usage-hooks.e2e.test.ts` verifies admitted hooks, unchanged context usage and
 compaction; foreground sampling scenarios hold a deterministic mock turn open, observe
 advancing public counters before Stop, prove no sample/Stop double count and assert cleanup
-and the original nonzero child status. Run affected lifecycle Docker scenarios twice in the
-infra heavy slot with isolated HOME/provider roots; never sample a real account. Old wrappers
+and the original nonzero child status. Run one focused selection of affected Docker scenarios in the
+infra heavy slot with isolated HOME/provider roots; run it twice only when a
+lifecycle or transport change needs repeat evidence. Never sample a real account. Old wrappers
 and hook-only launches stay Stop-only until relaunched, and `--no-usage` or the legacy opt-out
 must suppress foreground collection too.
 

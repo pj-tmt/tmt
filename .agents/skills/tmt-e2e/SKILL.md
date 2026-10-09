@@ -13,7 +13,9 @@ Use this skill for the repository's Docker E2E test foundation. Keep E2E tests s
 - Run deterministic mock agents inside tmux panes; never invoke a real AI agent, model, credential, or network service.
 - Never touch the host user's tmux server, host credentials, or unrelated processes. The container must be network-isolated.
 - Reuse the existing E2E harness and its cleanup hooks. Every scenario must leave its temporary tmux server, socket, panes, and files cleaned up, including on assertion failure.
-- For lifecycle or cleanup changes, run the Docker suite twice to catch leaked state and non-idempotent teardown.
+- Run one focused Docker E2E selection for the changed scenarios. Run twice only
+  when a lifecycle or transport change needs repeat evidence for leaks or
+  non-idempotent teardown; retain the reason in the PR.
 - Docker selects its built Rust CLI by default; mock replies inherit that selection.
   Verify the default path as well as fail-closed invalid selectors. Host test
   selection defaults to the repository-built native executable and must never

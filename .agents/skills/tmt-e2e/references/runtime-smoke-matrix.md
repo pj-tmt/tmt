@@ -27,7 +27,8 @@ arm64, Linux musl x64 and arm64.
 - Raw PR executables prove source-runtime behavior only, not archive inventory, notices,
   checksums or bootstrap.
 
-For Intel workflow or tooling edits run the focused fixtures before the full suite:
+For Intel workflow or tooling edits, select the relevant local checks below;
+required CI owns the full smoke gate:
 
 ```sh
 (cd typescript && corepack pnpm exec vp test run --config vitest.config.ts test/tooling/intel-verification.test.ts test/tooling/native-runtime-proof.test.ts test/tooling/verify-public-install.test.ts test/tooling/xcrun-warmup.test.ts test/tooling/release-workflow.test.ts test/tooling/ci-scope.test.ts)

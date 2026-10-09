@@ -6,11 +6,11 @@ import { describe, expect, it } from 'vite-plus/test';
 // .agents/skills/tmt-core-runtime and the other area skills (ARCHITECTURE.md's owner
 // maps). Raise a budget only with an issue that explains what moved into the guide.
 const BUDGETS = {
-  'DEVELOPMENT.md': 564,
+  'DEVELOPMENT.md': 558,
   'ARCHITECTURE.md': 1248,
 } as const;
 const BYTE_BUDGETS = {
-  'DEVELOPMENT.md': 21_096,
+  'DEVELOPMENT.md': 21_086,
   'ARCHITECTURE.md': 96_960,
 } as const;
 
