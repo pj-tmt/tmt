@@ -48,12 +48,11 @@ Start it in the background, so it outlives your task:
 tmt colab serve --background --json
 ```
 
-It prints one status line once ready; `tmt colab stop` ends it. Never keep a foreground
-process alive for it: an agent's process ends with its task, and Colab goes with it.
-`--foreground --json` is only for a supervisor that owns the process. A person runs
-`tmt colab serve`. Serve attaches to an existing Remote door or starts one; do not start a
-second. Stopping Colab stops only a door it started. `tmt remote status --json` inspects the
-door; `tmt remote devices --json` lists paired devices.
+It prints one status line when ready; `tmt colab stop` ends it. Never keep a foreground
+process alive for it: it ends with your task, and Colab with it. Use `--foreground --json`
+only for a supervisor that owns the process. Serve attaches to a running Remote door or starts
+one; do not start a second. Stopping Colab stops only a door it started.
+`tmt remote status --json` inspects the door.
 
 If pairing is needed, ask the user to run `tmt remote pair`, open its link in the
 browser they intend to use, compare the four words with the terminal and confirm

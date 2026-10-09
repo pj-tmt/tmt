@@ -2345,7 +2345,7 @@ nothing and succeeds: `Colab is already running` and the page link, opened under
 settings; `--json` modes keep the error `COLAB_ALREADY_SERVING`. The handoff lifecycle (exact self-exec worker, one
 startup deadline, no kill authority past the accept cutoff, no PID signals, the second-start
 rule) is written once in the
-[`tmt-extension-serve` crate docs](../../../rust/crates/tmt-extension-serve/src/lib.rs). Colab
+[extension-serve contract](../../../contracts/extension-serve-v1.md). Colab
 adds only its readiness record (the status rows and JSON line), the codes
 `COLAB_STARTUP_UNCONFIRMED`, `COLAB_STARTUP_CANCELLED`, `COLAB_ALREADY_SERVING` and
 `COLAB_READY_OUTPUT`, and a private bounded `colab/serve-error.json` for a failure after the
