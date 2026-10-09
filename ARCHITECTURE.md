@@ -412,39 +412,23 @@ Independent releases use `tmt-ops-v<version>`; module/drawing ownership and guar
   `tmt-invoke`. It never links a core crate or writes core state, tmux or provider
   directories itself. The architecture guard enforces no TMT crate depending on Ops
   and no Ops core dependency, for Cargo and source references. Its TMT dependencies
-  are only `tmt-tui`, `tmt-cli-style` and `tmt-invoke`. A new `tmt api` method
-  (for example cron's planned `dispatch.create` and `identityHooks`) changes the seam and goes to tmt-lead.
+  are `tmt-tui`, `tmt-cli-style` and `tmt-invoke`, plus `tmt-test-support` as a
+  dev-dependency. A new `tmt api` method changes the seam and goes to tmt-lead.
 - **Data ownership.** A squad is the core room `squad-<name>`; member fields are
   identity metadata `squad.<name>.<field>`, with no Ops membership store. Ops owns
   `<dataRoot>/ops` (`storage.root`), including private, bounded display snapshots in `cache/board` ([cache contract](.agents/skills/tmt-ops-dev/references/refresh-and-meter.md#display-snapshot-cache)), and disposable `$XDG_CACHE_HOME/tmt-ops` caches.
   `ops.toml` is the user's file: agents never write it; Ops uses its compare-and-set
-  writer; `migration` owns the locked, byte-preserving legacy cutover. Ops switches verified former boards before install cleanup; `board_switch` owns consented clock-holder verification separately from launch recovery, and no startup path runs it. New UIs defer automatic clock acquisition until cutover and retry through the existing clock worker. No Ops data goes into `config.json` or the core database.
-- **Checklist.** `checklist_command` exposes native grammar and scoped output over the existing
-  `checklist` caller/room admission, `model` revisions/tombstones and `store` versioned room-UUID JSON
-  under `<dataRoot>/ops/checklist`. Reads create no checklist files; locked admission precedes synced replacement outside a Core/file transaction.
-  Prepublication failure preserves bytes; uncertainty remains Unknown after readback. The board Checklist controller consumes the same typed service, retaining exact previews and uncertain outcomes without dispatch.
-- **Row detail and focus.** Shared detail ownership and Core-owned focus policy acquisition/admission live in the [Ops skill](.agents/skills/tmt-ops-dev/SKILL.md); the [board reference](.agents/skills/tmt-ops-dev/references/board.md) owns worker fences.
-- **Timing diagnostics.** `board::timing` owns opt-in sinks and painted milestones; the existing refresh worker/session own acquisition and draw. Stable fields and names: [refresh reference](.agents/skills/tmt-ops-dev/references/refresh-and-meter.md#load-timing-trace).
-- **Entry and public JSON.** The [Ops reference](.agents/skills/tmt-ops-dev/references/config-and-effects.md#cli-entry-and-public-json) owns CLI entry and display-document contracts.
-
-Contracts index: the [embedded lead skill](extensions/tmt-ops/skills/tmt-ops/SKILL.md)
-owns shapes, checked by `typescript/test/native/ops.test.ts`:
-
-- `ops sq ls --json`: with `--squad`, one document (`squad`, `sections`, row grid
-  `columns`/`lines`, `you`); without it always `{squads: [...], you}`, whatever the
-  squad count. Optional keys appear only when set: row `colors`; cell `token`; column
-  `valueOnly`, `overflow`, `max_lines`; `hidden_columns`; `partial`/`failures`;
-  `olderRequestsNotShown`; `squad.noteAnnotations`, `squad.notesStaleness`.
-- `ops sq config show` and `ops sq config set --json`: entries of key, value, source and
-  editable.
-- `ops sq checklist <action> --json`: admitted current/revision documents and optional authorized error current;
-  `ls` (hidden alias `list`) returns semantic action `list` with unfiltered/matched counts.
-- `ops sq cron ls|show|add|edit|pause|resume|reassign|rm --json`: job documents with the
-  exact message, schedule, owner and pause attribution; writes admit only the recorded
-  user or the squad's current lead.
-
-A change to row JSON updates the lead skill and runs the native row-shape test in the
-same PR.
+  writer. `migration` owns the locked, byte-preserving legacy cutover and `board_switch` the
+  consented switch of former boards ([config reference](.agents/skills/tmt-ops-dev/references/config-and-effects.md)); no startup path runs the switch. No Ops data goes into `config.json` or the core database.
+- **Checklist.** `checklist_command` exposes the native grammar over the existing `checklist`
+  caller/room admission and the versioned room-UUID JSON under `<dataRoot>/ops/checklist`.
+  Reads create no checklist files, a failed prepublication preserves bytes, and uncertainty stays
+  Unknown after readback; the board controller consumes the same typed service
+  ([data and state reference](.agents/skills/tmt-ops-dev/references/data-and-state.md#checklist-storage-and-service)).
+- **Row detail, focus, timing and entry.** Shared detail ownership and Core-owned focus policy live in the [Ops skill](.agents/skills/tmt-ops-dev/SKILL.md); the [board reference](.agents/skills/tmt-ops-dev/references/board.md) owns worker fences; the [refresh reference](.agents/skills/tmt-ops-dev/references/refresh-and-meter.md#load-timing-trace) owns timing fields; the [config reference](.agents/skills/tmt-ops-dev/references/config-and-effects.md#cli-entry-and-public-json) owns CLI entry and display-document contracts.
+- **Contracts.** The [embedded lead skill](extensions/tmt-ops/skills/tmt-ops/SKILL.md) owns the public JSON
+  shapes of `ops sq ls`, `config`, `checklist` and `cron`; `typescript/test/native/ops.test.ts` checks them.
+  A change to row JSON updates the lead skill and runs the native row-shape test in the same PR.
 
 ## Testing and evidence boundaries
 
