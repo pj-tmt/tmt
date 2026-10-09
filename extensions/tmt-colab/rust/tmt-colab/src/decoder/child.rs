@@ -3,7 +3,7 @@ use super::*;
 use std::io::{Read, Write};
 use yrs::{
     Any, Doc, GetString, Map, MapRef, Out, ReadTxn, Root, StateVector, Text, TextRef, Transact,
-    Update, updates::decoder::Decode,
+    TransactionMut, Update, updates::decoder::Decode,
 };
 
 pub(super) fn run() -> std::process::ExitCode {
@@ -630,6 +630,10 @@ fn baseline(input: &[u8]) -> Result<(), DecodeFault> {
     if wire.version != 1
         || wire.creation_recipient.as_ref().is_some_and(|v| !v.valid())
         || wire
+            .original_author
+            .as_deref()
+            .is_some_and(|v| !valid_publisher_agent(v))
+        || wire
             .publisher_agent
             .as_deref()
             .is_some_and(|v| !valid_publisher_agent(v))
@@ -648,30 +652,21 @@ fn baseline(input: &[u8]) -> Result<(), DecodeFault> {
             validate_view(&source, &wire.title, &digest)?;
             let source_text =
                 std::str::from_utf8(&source).map_err(|_| DecodeFault::InvalidInput)?;
+            let creation = BaselineMeta {
+                publisher_agent: wire.publisher_agent.as_deref(),
+                original_author: wire.original_author.as_deref(),
+                creation_recipient: wire.creation_recipient.as_ref(),
+                attachments: wire.attachments.as_ref(),
+            };
             let update = match chunk_bytes {
                 Some(size) if (1024..=UPDATE_BYTES - 1024).contains(&size) => {
                     let doc = Doc::new();
-                    chunks = chunked_baseline(
-                        &doc,
-                        source_text,
-                        &wire.title,
-                        wire.publisher_agent.as_deref(),
-                        wire.creation_recipient.as_ref(),
-                        wire.attachments.as_ref(),
-                        size,
-                    );
+                    chunks = chunked_baseline(&doc, source_text, &wire.title, &creation, size);
                     doc.transact()
                         .encode_state_as_update_v1(&StateVector::default())
                 }
                 Some(_) => return Err(DecodeFault::InvalidInput),
-                None => fresh_baseline(
-                    Doc::new(),
-                    source_text,
-                    &wire.title,
-                    wire.publisher_agent.as_deref(),
-                    wire.creation_recipient.as_ref(),
-                    wire.attachments.as_ref(),
-                ),
+                None => fresh_baseline(Doc::new(), source_text, &wire.title, &creation),
             };
             (update, Some(source), None)
         }
@@ -704,7 +699,9 @@ fn baseline(input: &[u8]) -> Result<(), DecodeFault> {
     validate_view(source_text.as_bytes(), &wire.title, &digest)?;
     if projection["meta"]["title"].as_str() != Some(wire.title.as_str())
         || (producing
-            && projection["meta"]["publisherAgent"].as_str() != wire.publisher_agent.as_deref())
+            && (projection["meta"]["publisherAgent"].as_str() != wire.publisher_agent.as_deref()
+                || projection["meta"]["originalAuthor"].as_str()
+                    != wire.original_author.as_deref()))
         || (producing
             && projection["meta"].get("creationRecipient")
                 != wire
@@ -765,9 +762,7 @@ fn chunked_baseline(
     doc: &Doc,
     source: &str,
     title: &str,
-    publisher_agent: Option<&str>,
-    creation_recipient: Option<&CreationRecipient>,
-    attachments: Option<&tmt_colab_model::attachment::DocumentAttachments>,
+    creation: &BaselineMeta,
     size: usize,
 ) -> Vec<Vec<u8>> {
     let html = doc.get_or_insert_text("html");
@@ -786,20 +781,7 @@ fn chunked_baseline(
         html.insert(&mut txn, end, piece);
         if first {
             meta.insert(&mut txn, "title", title);
-            if let Some(agent) = publisher_agent {
-                meta.insert(&mut txn, "publisherAgent", agent);
-            }
-            if let Some(recipient) = creation_recipient {
-                meta.insert(&mut txn, "creationRecipient", recipient_any(recipient));
-            }
-            if let Some(attachments) = attachments {
-                meta.insert(
-                    &mut txn,
-                    "attachments",
-                    Any::from_json(&serde_json::to_string(attachments).expect("typed attachments"))
-                        .expect("inert attachments"),
-                );
-            }
+            creation.insert(&meta, &mut txn);
         }
         updates.push(txn.encode_update_v1());
         rest = tail;
@@ -807,33 +789,41 @@ fn chunked_baseline(
     }
     updates
 }
-fn fresh_baseline(
-    doc: Doc,
-    source: &str,
-    title: &str,
-    publisher_agent: Option<&str>,
-    creation_recipient: Option<&CreationRecipient>,
-    attachments: Option<&tmt_colab_model::attachment::DocumentAttachments>,
-) -> Vec<u8> {
+/// The optional metadata a creation baseline carries beside its title.
+struct BaselineMeta<'a> {
+    publisher_agent: Option<&'a str>,
+    original_author: Option<&'a str>,
+    creation_recipient: Option<&'a CreationRecipient>,
+    attachments: Option<&'a tmt_colab_model::attachment::DocumentAttachments>,
+}
+impl BaselineMeta<'_> {
+    fn insert(&self, meta: &MapRef, txn: &mut TransactionMut) {
+        if let Some(agent) = self.publisher_agent {
+            meta.insert(txn, "publisherAgent", agent);
+        }
+        if let Some(author) = self.original_author {
+            meta.insert(txn, "originalAuthor", author);
+        }
+        if let Some(recipient) = self.creation_recipient {
+            meta.insert(txn, "creationRecipient", recipient_any(recipient));
+        }
+        if let Some(attachments) = self.attachments {
+            meta.insert(
+                txn,
+                "attachments",
+                Any::from_json(&serde_json::to_string(attachments).expect("typed attachments"))
+                    .expect("inert attachments"),
+            );
+        }
+    }
+}
+fn fresh_baseline(doc: Doc, source: &str, title: &str, creation: &BaselineMeta) -> Vec<u8> {
     let html = doc.get_or_insert_text("html");
     let meta = doc.get_or_insert_map("meta");
     let mut txn = doc.transact_mut();
     html.insert(&mut txn, 0, source);
     meta.insert(&mut txn, "title", title);
-    if let Some(agent) = publisher_agent {
-        meta.insert(&mut txn, "publisherAgent", agent);
-    }
-    if let Some(recipient) = creation_recipient {
-        meta.insert(&mut txn, "creationRecipient", recipient_any(recipient));
-    }
-    if let Some(attachments) = attachments {
-        meta.insert(
-            &mut txn,
-            "attachments",
-            Any::from_json(&serde_json::to_string(attachments).expect("typed attachments"))
-                .expect("inert attachments"),
-        );
-    }
+    creation.insert(&meta, &mut txn);
     txn.encode_state_as_update_v1(&StateVector::default())
 }
 fn recipient_any(recipient: &CreationRecipient) -> Any {
@@ -861,16 +851,19 @@ mod baseline_tests {
         for vector in vectors.as_array().unwrap() {
             let source = vector["source"].as_str().unwrap();
             let title = vector["title"].as_str().unwrap();
+            let recipient = vector
+                .get("creationRecipient")
+                .map(|v| serde_json::from_value::<CreationRecipient>(v.clone()).unwrap());
             let update = fresh_baseline(
                 Doc::with_client_id(1159),
                 source,
                 title,
-                vector["publisherAgent"].as_str(),
-                vector
-                    .get("creationRecipient")
-                    .map(|v| serde_json::from_value::<CreationRecipient>(v.clone()).unwrap())
-                    .as_ref(),
-                None,
+                &BaselineMeta {
+                    publisher_agent: vector["publisherAgent"].as_str(),
+                    original_author: vector["originalAuthor"].as_str(),
+                    creation_recipient: recipient.as_ref(),
+                    attachments: None,
+                },
             );
             let encoded = URL_SAFE_NO_PAD.encode(&update);
             let expected_commitment = if encoded == vector["update"] {

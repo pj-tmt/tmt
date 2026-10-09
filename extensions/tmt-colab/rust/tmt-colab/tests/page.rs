@@ -36,9 +36,18 @@ struct Fixture {
 }
 impl Fixture {
     fn new() -> Self {
-        Self::with_creation_recipient(None)
+        Self::with_metadata(None, None)
+    }
+    fn with_author(author: Option<&str>) -> Self {
+        Self::with_metadata(author, None)
     }
     fn with_creation_recipient(recipient: Option<&tmt_colab::decoder::CreationRecipient>) -> Self {
+        Self::with_metadata(None, recipient)
+    }
+    fn with_metadata(
+        author: Option<&str>,
+        recipient: Option<&tmt_colab::decoder::CreationRecipient>,
+    ) -> Self {
         static NEXT: AtomicUsize = AtomicUsize::new(0);
         let root = std::env::temp_dir().join(format!(
             "cp-{}-{}",
@@ -102,6 +111,10 @@ impl Fixture {
             .insert(&mut doc.transact_mut(), 0, "old 🐈\r\n");
         doc.get_or_insert_map("meta")
             .insert(&mut doc.transact_mut(), "title", "Exact title 🐈");
+        if let Some(author) = author {
+            doc.get_or_insert_map("meta")
+                .insert(&mut doc.transact_mut(), "originalAuthor", author);
+        }
         if let Some(recipient) = recipient {
             let fields = std::collections::HashMap::from([
                 (
@@ -1402,6 +1415,69 @@ fn a_page_takes_more_than_two_hundred_changes_when_its_device_combines() {
         )
         .unwrap();
     assert!(live <= 22, "{live} updates still stored");
+}
+
+#[test]
+fn original_author_survives_native_edits_compaction_reload_epoch_and_export() {
+    let mut f = Fixture::with_author(Some("original-author"));
+    for publisher in [Some("latest-agent"), None] {
+        let page::PublicationPreparation::Write(frozen) = page::prepare_publication(
+            &f.store,
+            &f.key,
+            PAGE,
+            tmt_colab::decoder::ContentEdit {
+                source: "updated",
+                publisher_agent: publisher,
+            },
+            None,
+            &mut f.decoder(),
+            NOW,
+        )
+        .unwrap() else {
+            panic!("the source or publisher changed, so a write is expected")
+        };
+        f.commit(&frozen, NOW).unwrap();
+        assert_eq!(f.read().original_author.as_deref(), Some("original-author"));
+        assert_eq!(f.read().publisher_agent.as_deref(), publisher);
+    }
+    assert!(compact_now(&mut f, 1).is_some());
+    let reopened = Store::read(&f.layout).unwrap();
+    assert_eq!(
+        page::read(&reopened, &f.key, PAGE, &mut f.decoder())
+            .unwrap()
+            .original_author
+            .as_deref(),
+        Some("original-author")
+    );
+    reopened.close().unwrap();
+    let mut engine = Engine::with_decoder_config(support::decoder_config(BINARY.into())).unwrap();
+    let revision = f
+        .store
+        .owner_head(&f.key.space_id, &f.key.owner_public())
+        .unwrap()
+        .unwrap()
+        .revision;
+    engine
+        .advance_epoch(
+            &mut f.store,
+            &f.key,
+            EpochAdvance {
+                operation_id: "40000000-0000-4000-8000-000000000099",
+                expected_revision: revision,
+                page: PAGE,
+            },
+            NOW,
+        )
+        .unwrap();
+    assert_eq!(f.read().original_author.as_deref(), Some("original-author"));
+    let bundle =
+        tmt_colab::export::Bundle::capture(&f.store, &f.key, PAGE, &mut f.decoder(), NOW).unwrap();
+    let exported = bundle.publish(&f.root).unwrap();
+    let manifest: Value =
+        serde_json::from_slice(&fs::read(exported.directory.join("manifest.json")).unwrap())
+            .unwrap();
+    assert_eq!(manifest["originalAuthor"], "original-author");
+    assert!(manifest.get("publisherAgent").is_none());
 }
 
 #[test]

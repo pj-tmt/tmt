@@ -6,12 +6,14 @@ import './colab-header.css';
 /** Colab supplies routing, disclosure and content to the shared presentation. */
 export function ColabHeader({
   title,
+  caption,
   actions,
   home,
   headerRef,
   menuOpen,
 }: {
   title: string;
+  caption?: string;
   actions?: ReactNode;
   home?: (brand: ReactNode) => ReactNode;
   headerRef?: Ref<HTMLElement>;
@@ -21,6 +23,8 @@ export function ColabHeader({
     <BrowserHeader
       productLabel={text.product}
       title={title}
+      caption={caption}
+      captionId={caption === undefined ? undefined : 'colab-header-caption'}
       brandLink={home}
       actions={actions ?? <></>}
       headerRef={headerRef}

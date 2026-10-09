@@ -99,6 +99,10 @@ struct Manifest<'a> {
     page_id: &'a str,
     title: &'a str,
     #[serde(skip_serializing_if = "Option::is_none")]
+    original_author: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    publisher_agent: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     creation_recipient: Option<&'a crate::decoder::CreationRecipient>,
     exported_at_ms: u64,
     membership_head: MembershipHead,
@@ -182,6 +186,8 @@ impl Bundle {
             space_id: &key.space_id,
             page_id: page,
             title: &view.title,
+            original_author: view.original_author.as_deref(),
+            publisher_agent: view.publisher_agent.as_deref(),
             creation_recipient: view.creation_recipient.as_ref(),
             exported_at_ms: now,
             membership_head: MembershipHead {

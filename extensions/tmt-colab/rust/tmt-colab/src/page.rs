@@ -99,6 +99,8 @@ pub struct Page {
     pub title: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub publisher_agent: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub original_author: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub creation_recipient: Option<crate::decoder::CreationRecipient>,
     pub epoch: String,
@@ -301,6 +303,7 @@ pub fn read(store: &Store, key: &Keyring, page: &str, decoder: &mut Decoder) -> 
         source: view.source,
         title: view.title,
         publisher_agent: view.publisher_agent,
+        original_author: view.original_author,
         creation_recipient: view.creation_recipient,
         epoch: s.epoch.to_string(),
         membership_head: Head::from(&s.authority.head),

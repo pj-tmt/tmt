@@ -15,6 +15,7 @@ import {
   X,
 } from 'lucide-react';
 import { ColabHeader } from './colab-header.js';
+import { PageAttribution } from './page-attribution.js';
 import { NoticeCard } from './notice-card.js';
 import { RetentionHint } from './retention-hint.js';
 import { useEffect, useRef, useState } from 'react';
@@ -550,6 +551,7 @@ function Page() {
   const [view, setView] = useState<PageView>({
     source: snapshot.source,
     title: snapshot.title,
+    originalAuthor: snapshot.originalAuthor,
     publisherAgent: snapshot.publisherAgent,
     ownData: snapshot.ownData ?? false,
     own: snapshot.own,
@@ -605,6 +607,7 @@ function Page() {
     setView({
       source: snapshot.source,
       title: snapshot.title,
+      originalAuthor: snapshot.originalAuthor,
       publisherAgent: snapshot.publisherAgent,
       ownData: snapshot.ownData ?? false,
       own: snapshot.own,
@@ -981,6 +984,7 @@ function Page() {
         headerRef={toolbar}
         menuOpen={menu}
         title={view.title || snapshot.title || text.unknownPageTitle}
+        caption={view.originalAuthor === undefined ? undefined : text.byAuthor(view.originalAuthor)}
         home={(brand) => (
           <Link to="/" aria-label={text.home}>
             {brand}
@@ -1138,7 +1142,13 @@ function Page() {
                   </span>
                   <span className="info-label">Page information</span>
                 </summary>
-                <p>{text.warning}</p>
+                <div className="page-information-panel">
+                  <PageAttribution
+                    originalAuthor={view.originalAuthor}
+                    publisherAgent={view.publisherAgent}
+                  />
+                  <p>{text.warning}</p>
+                </div>
               </details>
             </div>
           </>

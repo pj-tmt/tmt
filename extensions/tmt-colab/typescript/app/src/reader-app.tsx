@@ -1,6 +1,7 @@
 import { browserUiClasses as ui } from '@tmt/browser-ui/static';
 import { Circle, Info, LoaderCircle, X } from 'lucide-react';
 import { ColabHeader } from './colab-header.js';
+import { PageAttribution } from './page-attribution.js';
 import { NoticeCard } from './notice-card.js';
 import { useEffect, useRef, useState } from 'react';
 import { mountRenderer, type RenderState } from './renderer.js';
@@ -39,6 +40,11 @@ export function ReaderApp({ state }: { state: ReaderState }) {
     <>
       <ColabHeader
         headerRef={bar}
+        caption={
+          state.kind === 'ready' && state.view.originalAuthor !== undefined
+            ? text.byAuthor(state.view.originalAuthor)
+            : undefined
+        }
         title={
           state.kind === 'ready'
             ? title || text.unknownPageTitle
@@ -77,6 +83,12 @@ export function ReaderApp({ state }: { state: ReaderState }) {
                 <Info aria-hidden />
               </summary>
               <div className="reader-information-panel">
+                {state.kind === 'ready' && (
+                  <PageAttribution
+                    originalAuthor={state.view.originalAuthor}
+                    publisherAgent={state.view.publisherAgent}
+                  />
+                )}
                 <p>{text.readerNote}</p>
                 <p>{text.warning}</p>
               </div>

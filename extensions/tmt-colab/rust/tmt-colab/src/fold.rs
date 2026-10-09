@@ -126,6 +126,7 @@ pub(crate) struct View {
     pub source: String,
     pub title: String,
     pub publisher_agent: Option<String>,
+    pub original_author: Option<String>,
     pub creation_recipient: Option<crate::decoder::CreationRecipient>,
     /// The complete content metadata projection, including keys not surfaced by the CLI.
     pub meta: serde_json::Value,
@@ -606,6 +607,7 @@ impl Snapshot {
             )?)?;
             baseline = values::binary(&body.update, crate::decoder::BASELINE_UPDATE_BYTES)?;
             let view = BaselineInput {
+                original_author: None,
                 attachments: None,
                 source: body.source.as_bytes(),
                 title: &d.title,
@@ -843,6 +845,9 @@ impl MaterializationInput {
             other => Box::<dyn std::error::Error + Send + Sync>::from(other),
         })?;
         Ok(View {
+            original_author: folded.projection["meta"]["originalAuthor"]
+                .as_str()
+                .map(str::to_owned),
             creation_recipient: folded.projection["meta"]
                 .get("creationRecipient")
                 .map(|v| serde_json::from_value(v.clone()))

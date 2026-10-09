@@ -49,6 +49,7 @@ export interface Projection {
   source: string;
   title: string;
   publisherAgent?: string;
+  originalAuthor?: string;
 }
 export interface OwnUpdate {
   writer: string;
@@ -142,7 +143,7 @@ export interface FoldResult extends Projection {
 }
 export function validateProjection(value: unknown): asserts value is Projection {
   if (!value || typeof value !== 'object') throw new Error('Invalid decoder projection');
-  const { source, title, publisherAgent, creationRecipient } = value as Projection;
+  const { source, title, publisherAgent, originalAuthor, creationRecipient } = value as Projection;
   if (Object.hasOwn(value, 'attachments'))
     attachment.attachmentList((value as Projection).attachments, attachment.DOCUMENT_ATTACHMENTS);
   if (Object.hasOwn(value, 'creationRecipient')) validateCreationRecipient(creationRecipient);
@@ -154,6 +155,11 @@ export function validateProjection(value: unknown): asserts value is Projection 
         !publisherAgent ||
         text(publisherAgent).length > 128 ||
         /[\p{Cc}]/u.test(publisherAgent))) ||
+    (originalAuthor !== undefined &&
+      (typeof originalAuthor !== 'string' ||
+        !originalAuthor ||
+        text(originalAuthor).length > 128 ||
+        /[\p{Cc}]/u.test(originalAuthor))) ||
     text(source).length > SOURCE_BYTES ||
     text(title).length > UPDATE_BYTES
   )
@@ -193,6 +199,7 @@ export function sameContent(a: ContentSnapshot, b: ContentSnapshot): boolean {
     a.source === b.source &&
     a.title === b.title &&
     a.publisherAgent === b.publisherAgent &&
+    a.originalAuthor === b.originalAuthor &&
     Object.hasOwn(a, 'creationRecipient') === Object.hasOwn(b, 'creationRecipient') &&
     a.creationRecipient?.machineId === b.creationRecipient?.machineId &&
     a.creationRecipient?.agentId === b.creationRecipient?.agentId &&

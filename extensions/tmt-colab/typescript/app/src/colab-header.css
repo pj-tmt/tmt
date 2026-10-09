@@ -113,3 +113,20 @@ body {
     animation: none;
   }
 }
+.page-attribution {
+  margin: 0 0 12px;
+  font: 12px/1.4 var(--f-body);
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.page-attribution dt {
+  color: var(--c-muted);
+}
+.page-attribution dd {
+  margin: 0 0 8px;
+}
+.page-attribution-note {
+  color: var(--c-muted);
+  font: 12px/1.4 var(--f-body);
+  white-space: normal;
+}

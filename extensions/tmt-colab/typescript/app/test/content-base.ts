@@ -8,6 +8,7 @@ export function contentBase(result: FoldResult): ContentSnapshot {
     own: result.own,
     ...(Object.hasOwn(result, 'attachments') ? { attachments: result.attachments } : {}),
     ...(result.publisherAgent !== undefined ? { publisherAgent: result.publisherAgent } : {}),
+    ...(result.originalAuthor !== undefined ? { originalAuthor: result.originalAuthor } : {}),
     ...(Object.hasOwn(result, 'creationRecipient')
       ? { creationRecipient: result.creationRecipient }
       : {}),

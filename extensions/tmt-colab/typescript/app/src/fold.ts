@@ -61,6 +61,7 @@ export class Fold {
             'title',
             'own',
             ...(Object.hasOwn(value.projection, 'publisherAgent') ? ['publisherAgent'] : []),
+            ...(Object.hasOwn(value.projection, 'originalAuthor') ? ['originalAuthor'] : []),
             ...(Object.hasOwn(value.projection, 'creationRecipient') ? ['creationRecipient'] : []),
             ...(Object.hasOwn(value.projection, 'attachments') ? ['attachments'] : []),
           ]);
@@ -90,6 +91,7 @@ export class Fold {
           'title',
           'update',
           'own',
+          ...(Object.hasOwn(event.data as object, 'originalAuthor') ? ['originalAuthor'] : []),
           ...(Object.hasOwn(event.data as object, 'publisherAgent') ? ['publisherAgent'] : []),
           ...(Object.hasOwn(event.data as object, 'attachments') ? ['attachments'] : []),
           ...(Object.hasOwn(event.data as object, 'creationRecipient')
@@ -111,6 +113,7 @@ export class Fold {
               source: value.source,
               title: value.title,
               publisherAgent: value.publisherAgent,
+              originalAuthor: value.originalAuthor,
               creationRecipient: value.creationRecipient,
               attachments: value.attachments,
               own: value.own,
@@ -127,6 +130,7 @@ export class Fold {
         pending.resolve({
           source: value.source,
           title: value.title,
+          ...(value.originalAuthor === undefined ? {} : { originalAuthor: value.originalAuthor }),
           ...(Object.hasOwn(value, 'attachments') ? { attachments: value.attachments } : {}),
           ...(value.publisherAgent === undefined ? {} : { publisherAgent: value.publisherAgent }),
           ...(value.creationRecipient === undefined
@@ -150,6 +154,7 @@ export class Fold {
       'title',
       'own',
       ...(Object.hasOwn(base, 'publisherAgent') ? ['publisherAgent'] : []),
+      ...(Object.hasOwn(base, 'originalAuthor') ? ['originalAuthor'] : []),
       ...(Object.hasOwn(base, 'creationRecipient') ? ['creationRecipient'] : []),
       ...(Object.hasOwn(base, 'attachments') ? ['attachments'] : []),
     ]);

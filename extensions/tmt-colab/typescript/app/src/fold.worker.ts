@@ -99,6 +99,7 @@ function project(doc: Y.Doc, complete = true) {
       (key) =>
         key !== 'title' &&
         key !== 'publisherAgent' &&
+        key !== 'originalAuthor' &&
         key !== 'creationRecipient' &&
         key !== 'attachments',
     ) ||
@@ -108,6 +109,7 @@ function project(doc: Y.Doc, complete = true) {
   const projection = {
     source: html.toString(),
     title: (meta.get('title') ?? '') as string,
+    ...(meta.has('originalAuthor') ? { originalAuthor: meta.get('originalAuthor') as string } : {}),
     ...(meta.has('publisherAgent') ? { publisherAgent: meta.get('publisherAgent') as string } : {}),
     ...(meta.has('creationRecipient') ? { creationRecipient: meta.get('creationRecipient') } : {}),
     ...(meta.has('attachments') ? { attachments: meta.get('attachments') } : {}),

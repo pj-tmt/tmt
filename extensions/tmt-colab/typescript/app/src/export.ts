@@ -24,6 +24,8 @@ export interface ExportView {
   pageId: string;
   source: string;
   title: string;
+  originalAuthor?: string;
+  publisherAgent?: string;
   exportedAtMs: number;
   membershipHead: { revision: string; statementHash: string };
   epoch: string;
@@ -102,6 +104,8 @@ export async function prepareExport(input: ExportView): Promise<ExportBundle> {
       spaceId: view.spaceId,
       pageId: view.pageId,
       title: view.title,
+      ...(view.originalAuthor === undefined ? {} : { originalAuthor: view.originalAuthor }),
+      ...(view.publisherAgent === undefined ? {} : { publisherAgent: view.publisherAgent }),
       ...(view.creationRecipient === undefined
         ? {}
         : { creationRecipient: view.creationRecipient }),

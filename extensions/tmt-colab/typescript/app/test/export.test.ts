@@ -124,7 +124,7 @@ it('copies a committed view before hashing and exposes only immutable files', as
   expect(bundle.files.every(Object.isFrozen)).toBe(true);
 });
 
-it('exports empty source/title without renderer HTML or field additions', async () => {
+it('exports empty source/title without renderer HTML or unrelated fields', async () => {
   const value = input();
   delete value.creationRecipient;
   value.source = '';
@@ -147,6 +147,8 @@ it('exports empty source/title without renderer HTML or field additions', async 
     'spaceId',
     'pageId',
     'title',
+    'originalAuthor',
+    'publisherAgent',
     'exportedAtMs',
     'membershipHead',
     'epoch',
@@ -225,4 +227,24 @@ it('failed download handoff revokes the URL and removes its anchor', async () =>
   expect(b.anchor.remove).toHaveBeenCalledOnce();
   downloads.close();
   expect(b.revoke).toHaveBeenCalledOnce();
+});
+
+it('omits unknown creation and latest labels and freezes known labels before hashing', async () => {
+  const legacy = input();
+  delete legacy.originalAuthor;
+  delete legacy.publisherAgent;
+  const unknown = JSON.parse(
+    new TextDecoder().decode(await bytes((await prepareExport(legacy)).blob('manifest.json'))),
+  );
+  expect(unknown).not.toHaveProperty('originalAuthor');
+  expect(unknown).not.toHaveProperty('publisherAgent');
+  const known = input();
+  const pending = prepareExport(known);
+  known.originalAuthor = 'later mutation';
+  known.publisherAgent = 'later mutation';
+  const frozen = JSON.parse(
+    new TextDecoder().decode(await bytes((await pending).blob('manifest.json'))),
+  );
+  expect(frozen.originalAuthor).toBe(fixture.input.originalAuthor);
+  expect(frozen.publisherAgent).toBe(fixture.input.publisherAgent);
 });
