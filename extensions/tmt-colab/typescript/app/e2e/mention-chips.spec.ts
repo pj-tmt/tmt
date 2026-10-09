@@ -84,6 +84,8 @@ for (const width of [1440, 390])
             shadow: style.boxShadow,
             borderStyle: style.borderTopStyle,
             ordered: dot.right < remove.left,
+            markWidth: dot.width,
+            markHeight: dot.height,
             inside: rect.right <= innerWidth && remove.right <= rect.right,
           };
         });
@@ -92,6 +94,8 @@ for (const width of [1440, 390])
           radius: '0px',
           shadow: 'none',
           ordered: true,
+          markWidth: 8,
+          markHeight: 8,
           inside: true,
           borderStyle: state === 'not-found' ? 'dashed' : 'solid',
         });

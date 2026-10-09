@@ -54,8 +54,8 @@
   color: var(--tmt-ui-color-secondary);
 }
 .message-mention-dot {
-  width: 5px;
-  height: 5px;
+  width: 8px;
+  height: 8px;
   flex-shrink: 0;
   background: currentColor;
 }
