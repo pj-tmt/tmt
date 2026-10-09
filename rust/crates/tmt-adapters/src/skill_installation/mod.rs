@@ -197,17 +197,18 @@ fn publish_managed_target(
         backup: context.pending_backup.take(),
         legacy_backups: Vec::new(),
     };
-    if let Some(prior) = context
+    if let Some(index) = context
         .report
         .installed
-        .iter_mut()
-        .find(|item| item.target == target)
+        .iter()
+        .position(|item| item.target == target && item.agent.is_none())
     {
-        installed.changed |= prior.changed;
-        *prior = installed;
-    } else {
-        context.report.installed.push(installed);
+        // Retirement reports a target before provider selection. Transfer its
+        // publication evidence to this entry, retaining per-provider reports
+        // for providers that share a physical target.
+        installed.changed |= context.report.installed.remove(index).changed;
     }
+    context.report.installed.push(installed);
     Ok(())
 }
 

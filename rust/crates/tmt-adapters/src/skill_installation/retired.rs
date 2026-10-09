@@ -97,6 +97,7 @@ mod tests {
         let env = ProviderEnvironment::from_parts(home, &temp.path, Vec::new(), []);
         let report = install(&env, &global, None, None, false).unwrap();
         assert_eq!(report.installed.len(), 3); // selected main/inbox plus custom main
+        assert!(report.installed.iter().all(|item| item.changed));
         for root in [&shared, &custom] {
             assert!(!files::exists(&root.join(NAME)).unwrap());
             assert_eq!(
@@ -111,6 +112,31 @@ mod tests {
                 .all(|target| target.file_name().unwrap() != NAME)
         );
         assert!(targets.contains(&custom.join(MAIN)));
+    }
+
+    #[test]
+    fn replacing_a_shared_target_preserves_each_selected_provider_report() {
+        let temp = TestDirectory::new();
+        let global = temp.path.join("global");
+        let home = temp.path.join("home");
+        old_link(&global, &home.join(".agents/skills"));
+        let env = ProviderEnvironment::from_parts(home, &temp.path, Vec::new(), []);
+        let report = install(&env, &global, Some("all"), None, false).unwrap();
+        assert_eq!(
+            report
+                .installed
+                .iter()
+                .map(|item| item.agent.unwrap().name())
+                .collect::<Vec<_>>(),
+            vec![
+                "claude", "claude", "codex", "codex", "gemini", "gemini", "agy", "agy", "pi", "pi",
+                "opencode", "opencode"
+            ]
+        );
+        assert_eq!(
+            report.installed.iter().filter(|item| item.changed).count(),
+            8
+        );
     }
 
     #[test]
