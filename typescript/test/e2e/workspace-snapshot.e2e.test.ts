@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import net from 'node:net';
 import { createHash } from 'node:crypto';
 import Database from 'better-sqlite3';
 import { describe, expect, it } from 'vite-plus/test';
@@ -167,9 +168,33 @@ describe('event-driven workspace recovery snapshots', () => {
       const directory = path.join(fixture.root, 'extension-bin');
       fs.mkdirSync(directory);
       const ready = path.join(fixture.root, 'extension-ready');
+      const gate = path.join(fixture.socketRoot, 'extension-release.sock');
+      const done = path.join(fixture.root, 'extension-ended');
       writeExecutable(
         path.join(directory, 'tmt-workspace-example'),
-        `#!/bin/sh\nprintf '%s' "$$" > ${quote(`${ready}.tmp`)}\nmv ${quote(`${ready}.tmp`)} ${quote(ready)}\nread -r release\n`
+        `#!/usr/bin/env node
+const fs = require('node:fs');
+const net = require('node:net');
+const publish = (file, text) => {
+  fs.writeFileSync(file + '.tmp', text);
+  fs.renameSync(file + '.tmp', file);
+};
+const server = net.createServer((peer) => {
+  let request = '';
+  peer.on('data', (bytes) => { request += bytes.toString(); });
+  peer.once('end', () => {
+    if (request !== 'release') process.exit(97);
+    peer.end('released');
+    server.close(() => {
+      publish(${JSON.stringify(done)}, 'released');
+      process.exit(0);
+    });
+  });
+});
+server.listen(${JSON.stringify(gate)}, () => {
+  publish(${JSON.stringify(ready)}, String(process.pid));
+});
+`
       );
       const command = [
         'env',
@@ -197,6 +222,8 @@ describe('event-driven workspace recovery snapshots', () => {
           command,
         ])
         .trim();
+      // Keep the completed pane/marker so exclusion cannot pass by losing the pane.
+      fixture.tmux(['set-option', '-p', '-t', pane, 'remain-on-exit', 'on']);
       await fixture.waitFor(() => fs.existsSync(ready), 5000, 'external foreground ready');
       const owner = Number(fs.readFileSync(ready, 'utf8'));
       expect(readSnapshot(fixture).panes.find((value) => value.id === pane)?.command).toMatchObject(
@@ -209,9 +236,44 @@ describe('event-driven workspace recovery snapshots', () => {
       expect(
         readSnapshot(fixture).panes.find((value) => value.id === pane)?.command?.owner.pid
       ).toBe(owner);
-      fixture.tmux(['send-keys', '-t', pane, 'release', 'Enter']);
-      await fixture.waitFor(() => !fs.existsSync(`/proc/${owner}`), 5000, 'external owner ended');
+      // Acknowledged IPC proves the fake consumed its release. Every completion
+      // observation shares the original five-second exit budget.
+      const exitDeadline = Date.now() + 5000;
+      const remaining = () => Math.max(0, exitDeadline - Date.now());
+      const release = net.createConnection(gate);
+      let response = '';
+      let closed = false;
+      let failure: Error | undefined;
+      release.once('connect', () => release.end('release'));
+      release.on('data', (bytes) => {
+        response += bytes.toString();
+      });
+      release.once('error', (error) => {
+        failure = error;
+      });
+      release.once('close', () => {
+        closed = true;
+      });
+      try {
+        await fixture.waitFor(() => closed, remaining(), 'external release acknowledged');
+        if (failure) throw failure;
+        expect(response).toBe('released');
+        expect(await waitForFileContent(done, { timeoutMs: remaining() })).toBe('released');
+        await fixture.waitFor(
+          () => fixture.tmux(['display-message', '-p', '-t', pane, '#{pane_dead}']).trim() === '1',
+          remaining(),
+          'external pane completed'
+        );
+        await fixture.waitFor(
+          () => !fs.existsSync(`/proc/${owner}`),
+          remaining(),
+          'external owner ended'
+        );
+      } finally {
+        release.destroy();
+      }
       expect((await fixture.runJsonCli(['unbind'])).code).toBe(0);
+      expect(readSnapshot(fixture).panes.some((value) => value.id === pane)).toBe(true);
       expect(readSnapshot(fixture).panes.some((value) => value.command?.owner.pid === owner)).toBe(
         false
       );
