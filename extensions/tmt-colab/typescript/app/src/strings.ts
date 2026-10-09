@@ -51,7 +51,7 @@ export const text = {
   attachAgainPageChanged: 'The page changed. Send to upload it again.',
   attachAgainNotStored: 'No longer stored. Send to upload it again.',
   attachUnknown: 'Upload not confirmed.',
-  attachCheck: 'Check',
+  attachCheck: 'Check again',
   attachRetry: 'Try again',
   attachRemove: 'Remove',
   attachDismiss: 'Dismiss',
@@ -65,16 +65,17 @@ export const text = {
   },
   attachNotice: {
     empty: (name: string) => `${name} is empty.`,
-    'too-large': (name: string) => `${name} is larger than ${formatBytes(8 * 1024 * 1024)}.`,
+    'too-large': (name: string) =>
+      `${name} is larger than ${formatBytes(8 * 1024 * 1024)}, the limit per file.`,
     'too-many': (name: string) => `${name} was not added. A message holds up to 16 files.`,
     unreadable: (name: string) => `${name} could not be read.`,
   },
   attachBlocked: {
-    unknown: 'Check or remove the unconfirmed upload. Your message was not sent.',
-    refused: 'Remove or retry the refused file. Your message was not sent.',
-    failed: 'A file could not be attached. Your message was not sent.',
+    unknown: 'Your message was not sent. Check or remove the unconfirmed upload.',
+    refused: 'Your message was not sent. Remove the refused file or try again.',
+    failed: 'Your message was not sent. A file could not be attached.',
     stale:
-      'The page changed while attaching. Your message was not sent. Send again to upload the files again.',
+      'Your message was not sent. The page changed while attaching; send again to upload the files.',
   },
   messageAttachmentsLabel: 'Attached files',
   attachmentDownload: 'Download',
