@@ -43,6 +43,7 @@ export const text = {
   messageRecipientLimit: 'Mention up to 8 agents per message.',
   messageAgentsEmpty: 'No agents are available. This posts as a comment.',
   messageAskAgain: (name: string) => `Mention @${name} in a new message to ask again.`,
+  askAgain: 'Ask again',
   messageRecordedDeliveryFailed: 'Delivery failed. The recorded turn was kept.',
   messageRecordedUncertain:
     'The turn was recorded, but delivery is unavailable or uncertain. Check the thread before sending again.',
@@ -209,7 +210,7 @@ export const text = {
   askFinalUnavailable: 'The agent result is unavailable.',
   askScopeDenied: 'Your Remote permission does not allow this ask.',
   askInputInvalid: 'Remote rejected this message. Write a new message.',
-  askRateLimited: 'Remote is busy. Try a new message later.',
+  askRateLimited: 'Remote is busy. Try again later.',
   askIntentConflict: 'This operation already has a different message. Write a new message.',
   askRemoteClosed: 'Remote is closed. Reconnect before writing another message.',
   askSessionEnded: 'Your Remote session ended. Reconnect before writing another message.',

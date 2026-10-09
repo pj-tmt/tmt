@@ -163,6 +163,18 @@ export class LiveAsk implements AskBinding {
       requireValue(
         !this.#closed && c.active && (!(captured.context || statusContext) || origin !== undefined),
       );
+      if (captured.retryOf !== undefined) {
+        requireValue(captured.context?.message.writer === this.options.deviceId);
+        requireValue(origin !== undefined && origin.messageIds.length === 1);
+        await this.#store.checkRetry(
+          origin.thread,
+          origin.messageIds[0],
+          captured.destination.machine,
+          captured.destination.agent,
+          captured.retryOf,
+        );
+        requireValue(!this.#closed && c.active);
+      }
       this.#selection = {
         space: this.options.space,
         page: this.options.page,
@@ -195,14 +207,29 @@ export class LiveAsk implements AskBinding {
           try {
             try {
               await this.#admit();
+              if (captured.retryOf !== undefined) {
+                requireValue(captured.context?.message.writer === this.options.deviceId);
+                await this.options.commentContext?.(captured.context);
+              }
             } catch (error) {
               throw new UnadoptedAskError(error);
             }
-            state = { state: (await controller.send(preview)).state, adopted: true };
+            state = {
+              state: (await controller.send(preview, captured.retryOf)).state,
+              adopted: true,
+            };
             this.options.observe?.();
           } catch (error) {
-            if (error instanceof UnadoptedAskError) state = { state: 'failed', adopted: false };
-            else {
+            if (error instanceof UnadoptedAskError) {
+              if (captured.retryOf !== undefined && captured.context) {
+                await this.#store.releaseRetry({
+                  ...preview.view,
+                  thread: captured.context.thread.id,
+                  messageIds: [captured.context.message.id],
+                });
+              }
+              state = { state: 'failed', adopted: false };
+            } else {
               const view = (await this.#store.views()).find(
                 (value) => value.intent.operationId === preview.view.operationId,
               );
@@ -311,6 +338,7 @@ export async function pageAsks(
     machine: view.intent.machine,
     state: view.state,
     reason: view.reason,
+    requestId: view.requestId,
     canTrack: canPublish && view.writer === admission.registration.deviceId,
     ...(view.reply ? { reply: view.reply.body } : {}),
     resultUnavailable: ['RESULT_UNAVAILABLE', 'REPLY_TOO_LARGE'].includes(view.reason ?? ''),

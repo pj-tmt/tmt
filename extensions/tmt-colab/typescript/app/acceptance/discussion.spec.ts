@@ -565,7 +565,9 @@ test('composer records plain annotations and replies without a recipient, then s
     const compose = page.getByRole('dialog', { name: 'Annotate selection' });
     const input = compose.getByRole('combobox', { name: 'Message', exact: true });
     const plain = 'Plain annotation without a recipient.\nSecond line.';
-    await expect(compose.getByRole('status')).toContainText(text.messageAgentsUnavailable);
+    await expect(compose.locator('.annotation-status-row [role=status]')).toContainText(
+      text.messageAgentsUnavailable,
+    );
     await expect(input).toBeEnabled();
     await input.fill(plain);
     await expect(compose.getByRole('button', { name: 'Send', exact: true })).toBeEnabled();

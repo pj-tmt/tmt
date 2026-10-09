@@ -17,6 +17,7 @@ import type { ComposerEdit } from './components/message-composer-edit.js';
 import type { CreationRecipient } from './fold-protocol.js';
 import { messageRecipient } from './message-recipient.js';
 import { text } from './strings.js';
+import { AskAgainAction, type AskAgainInput } from './ask-again.js';
 import type { AskBinding, PageAsk } from './ask-panel.js';
 import type { ThreadBinding } from './thread-store.js';
 import { captureConversation } from './thread-store.js';
@@ -68,7 +69,13 @@ export function AnnotationInput({
   const statusId = useId();
   const initialized = useRef(initialEdit !== undefined || !!initialValue);
   const [failures, setFailures] = useState<
-    { agent: string; message: string; uncertain: boolean }[]
+    {
+      agent: string;
+      message: string;
+      uncertain: boolean;
+      recipient: { machine: string; agent: string };
+      input: AskAgainInput;
+    }[]
   >([]);
   const [resetKey, setResetKey] = useState(0);
   const [busy, setBusy] = useState(false);
@@ -201,22 +208,28 @@ export function AnnotationInput({
       files.committed();
       for (const destination of captured.destinations) {
         if (!binding) break;
+        const input: AskAgainInput = {
+          quote,
+          comment: captured.value,
+          title: captured.title,
+          url: captured.url,
+          context: { ...origin, conversation: captured.conversation },
+        };
+        const failure = {
+          agent: destination.agentName,
+          message: origin.message.id,
+          recipient: { machine: destination.machine, agent: destination.agent },
+          input,
+        };
         let attempt: Awaited<ReturnType<AskBinding['prepare']>>;
         try {
           attempt = await binding.prepare({
-            quote,
-            comment: captured.value,
-            title: captured.title,
-            url: captured.url,
+            ...input,
             destination,
-            context: { ...origin, conversation: captured.conversation },
           });
         } catch {
           // Failed preparation grants no authority to invent an Ask record or retry a sibling.
-          setFailures((previous) => [
-            ...previous,
-            { agent: destination.agentName, message: origin!.message.id, uncertain: false },
-          ]);
+          setFailures((previous) => [...previous, { ...failure, uncertain: false }]);
           continue;
         }
         try {
@@ -228,16 +241,12 @@ export function AnnotationInput({
             setFailures((previous) => [
               ...previous,
               {
-                agent: destination.agentName,
-                message: origin!.message.id,
+                ...failure,
                 uncertain: result.adopted !== false,
               },
             ]);
         } catch {
-          setFailures((previous) => [
-            ...previous,
-            { agent: destination.agentName, message: origin!.message.id, uncertain: true },
-          ]);
+          setFailures((previous) => [...previous, { ...failure, uncertain: true }]);
         }
       }
       clearDraft();
@@ -372,11 +381,29 @@ export function AnnotationInput({
           key={index}
         >
           <p>
-            @{failure.agent} · {failure.uncertain ? text.askUnconfirmed : text.askNotDelivered}
+            @{failure.agent} · {failure.uncertain ? text.askUnconfirmed : text.askNotDelivered}{' '}
+            {!failure.uncertain && (
+              <AskAgainAction
+                binding={binding}
+                blocked={blocked || busy || !!recorded}
+                input={failure.input}
+                recipient={failure.recipient}
+                retryOf={null}
+                settled={(outcome) => {
+                  setFailures((previous) =>
+                    outcome.adopted === true
+                      ? previous.filter((value) => value !== failure)
+                      : outcome.adopted === false
+                        ? previous
+                        : previous.map((value) =>
+                            value === failure ? { ...value, uncertain: true } : value,
+                          ),
+                  );
+                }}
+              />
+            )}
           </p>
-          <p className="ask-supporting">
-            {failure.uncertain ? text.askUncertain : text.messageAskAgain(failure.agent)}
-          </p>
+          {failure.uncertain && <p className="ask-supporting">{text.askUncertain}</p>}
         </div>
       ))}
       {error && <p role="alert">{error}</p>}

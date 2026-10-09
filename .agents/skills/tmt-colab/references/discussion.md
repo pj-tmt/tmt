@@ -47,6 +47,11 @@ owns record fields, limits, revision semantics and trust boundaries.
   the root-local `page-publish` route, with the certificate, sequence, ciphertext commit
   and unknown-outcome rules of source writes. `cli_threads.rs` adapts these operations to `threads`, `resolve` and `reopen`.
   Actor labels and clocks remain display assertions.
+- Recipient Ask again: `CommentExchange` supplies the original own comment and
+  preceding conversation to the shared `ask-again.tsx` action; `AnnotationInput`
+  retains only authoritative pre-adoption failures for its current send capture.
+  `AskPanel` groups own signed outcomes by recipient without hiding older records.
+  Eligibility, reload and pair-lock rules live in the [discussion contract](../../../../extensions/tmt-colab/contracts/colab-v1.md#inline-annotation-conversations-1587).
 - Attachments (#1854): `attachment-file.ts` owns bounds, filename shortening and the
   header-only PNG/JPEG/WebP parse; `attachment-service.ts` (`AttachmentService`, held by
   `ThreadStore.attachments`) owns seal, begin/part/commit, status resume, discard, the

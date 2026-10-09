@@ -128,7 +128,7 @@ test('verified refusal reasons use actionable copy without exposing a resend', a
   for (const [reason, copy] of [
     ['REMOTE_SCOPE_DENIED', 'Your Remote permission does not allow this ask.'],
     ['REMOTE_INPUT_INVALID', 'Remote rejected this message. Write a new message.'],
-    ['REMOTE_RATE_LIMITED', 'Remote is busy. Try a new message later.'],
+    ['REMOTE_RATE_LIMITED', 'Remote is busy. Try again later.'],
     [
       'REMOTE_INTENT_CONFLICT',
       'This operation already has a different message. Write a new message.',

@@ -50,6 +50,12 @@ modules in `extensions/tmt-colab/typescript/app/src` and `rust/tmt-colab/src/ask
   The same ID with other bytes is `INTENT_CONFLICT`. A stored draft never authorizes another effect. `state` and `reply`
   write immutable revisioned records, validated here, not in the Writer. All writes for one
   ask run under the Web Lock `ask-ledger:<space>:<page>:<device>:<id>` (`exclusive`).
+  Explicit recipient replacement uses the existing own ledger: `checkRetry` blocks on
+  any non-provably-unsent record for that thread/message/machine/agent, and `adopt`
+  repeats the check under a pair-scoped Web Lock. One durable IndexedDB pair marker
+  holds only the latest replacement UUID, written before adoption; an absent or
+  non-provably-unsent admitted record blocks stale tabs. Only authoritative
+  `adopted: false` releases it; storage errors fail closed. `ask-remote.ts` owns the predicate.
 - **`ask-attempt.ts` (`AskController`).** `prepare` captures synchronously against the
   current Remote context. `send` is the only Remote write: recheck context, sign, adopt
   (durable), record `dispatching`, recheck expiry and context again, then `remote.send`; a
@@ -81,6 +87,11 @@ modules in `extensions/tmt-colab/typescript/app/src` and `rust/tmt-colab/src/ask
   then submits it through the same `submit(update, 'own')` path as content, so sequence,
   Web Lock and exact-envelope staging are shared. The decoder state commits only after the
   append is admitted.
+- **`ask-again.tsx`.** One trusted action serves composer-local pre-adoption failures and
+  own signed refusals from `AskPanel`. It refreshes the exact UUID pair, captures the
+  original comment and calls `LiveAsk.prepare` with `retryOf`; `LiveAsk` checks the own
+  ledger and re-admits the comment again before Send. The [discussion contract](../../../../extensions/tmt-colab/contracts/colab-v1.md#inline-annotation-conversations-1587)
+  owns eligibility, capture/reload lifetime and one-action-per-recipient behavior.
 - **Native.** `ask.rs` decodes and verifies a `SignedAsk` (strict framing, canonical ID
   list, window of at most 24 hours, digest of the final bytes, operation and sender
   matching) and the decoder validates the `intents`, `messages` and `replies` roots with it.

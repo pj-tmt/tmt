@@ -153,7 +153,7 @@ export class AskController {
       },
     );
   }
-  send(preview: FrozenAsk): Promise<AskLedgerView> {
+  send(preview: FrozenAsk, retryOf?: string | null): Promise<AskLedgerView> {
     const id = preview.view.operationId;
     const previous = this.#sending.get(id);
     if (previous) {
@@ -183,7 +183,7 @@ export class AskController {
         );
         const signed = await preview.signed(key);
         adoptionPhase = 'pending';
-        const adoption = await store.adopt(signed, view);
+        const adoption = await store.adopt(signed, view, retryOf);
         adoptionPhase = 'complete';
         if (adoption === 'existing') return store.view(id);
         await store.state(id, 'dispatching');

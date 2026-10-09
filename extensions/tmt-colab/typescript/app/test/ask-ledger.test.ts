@@ -10,12 +10,21 @@ import {
   SessionEndedError,
   SessionEvictedError,
   ReadRefusedError,
+  provablyUnsent,
+  REMOTE_REFUSAL_CODES,
 } from '../src/ask-remote.js';
 import type { OwnState } from '../src/fold-protocol.js';
 import { destination, id, RemoteDouble, selection } from './ask-fixtures.js';
 const draft = new Map<string, unknown>();
+let storageFailure: 'read' | 'write' | 'delete' | undefined;
 vi.mock('../src/storage.js', () => ({
+  deleteRecord: async (key: string) => {
+    if (storageFailure === 'delete') throw new Error('Storage unavailable');
+    draft.delete(key);
+  },
   record: async (key: string, ...values: unknown[]) => {
+    if (storageFailure === (values.length ? 'write' : 'read'))
+      throw new Error('Storage unavailable');
     if (values.length) draft.set(key, structuredClone(values[0]));
     else return draft.get(key);
   },
@@ -39,6 +48,7 @@ const vector = JSON.parse(
 const hex = (s: string) => Uint8Array.from(s.match(/../g) ?? [], (v) => parseInt(v, 16));
 async function setup(onPublish?: (root: string) => void) {
   draft.clear();
+  storageFailure = undefined;
   const key = await crypto.subtle.importKey(
     'pkcs8',
     hex('302e020100300506032b657004220420' + vector.seed),
@@ -886,4 +896,219 @@ it('one aggregate failure per observer cycle clears after a same-request recover
     stop.abort();
     vi.useRealTimers();
   }
+});
+
+it('Ask again keeps the old refusal and original message, dispatching only its recipient with a fresh operation', async () => {
+  const f = await setup();
+  await f.controller.destinations();
+  const original = f.controller.prepare(destination());
+  const send = f.remote.send.bind(f.remote);
+  let first = true;
+  f.remote.send = async (input) => {
+    if (first) {
+      first = false;
+      f.remote.sends.push(input);
+      return { state: 'refused', operationId: input.operationId, reason: 'REMOTE_RATE_LIMITED' };
+    }
+    return send(input);
+  };
+  const refused = await f.controller.send(original);
+  const oldIntent = structuredClone(f.own[id(4)].intents[original.view.operationId]);
+  const oldState = structuredClone(f.own[id(4)].messages[`${original.view.operationId}:2`]);
+  const sibling = FrozenAsk.capture(selection(), { ...destination(), agent: id(9) });
+  await f.controller.send(sibling);
+  const retry = f.controller.prepare(destination());
+  const accepted = await f.controller.send(retry, refused.intent.operationId);
+  expect(accepted.intent).toMatchObject({
+    thread: refused.intent.thread,
+    messageIds: refused.intent.messageIds,
+    machine: refused.intent.machine,
+    agent: refused.intent.agent,
+  });
+  expect(accepted.intent.operationId).not.toBe(refused.intent.operationId);
+  expect(f.remote.sends.map((value) => value.agentId)).toEqual([id(6), id(9), id(6)]);
+  expect(f.own[id(4)].intents[original.view.operationId]).toEqual(oldIntent);
+  expect(f.own[id(4)].messages[`${original.view.operationId}:2`]).toEqual(oldState);
+  expect((await f.store.view(original.view.operationId)).state).toBe('refused');
+  const reloaded = new AskController({ ...f, selection });
+  const third = FrozenAsk.capture(selection(), destination());
+  await expect(reloaded.send(third, original.view.operationId)).rejects.toThrow();
+  expect(f.remote.sends).toHaveLength(3);
+  expect(f.own[id(4)].intents[third.view.operationId]).toBeUndefined();
+});
+
+it('the recipient lock checks the own store before adopting either of two fresh retry IDs', async () => {
+  const f = await setup();
+  const original = FrozenAsk.capture(selection(), destination());
+  await f.store.adopt(await original.signed(f.key), original.view);
+  await f.store.state(original.view.operationId, 'refused', null, 'REMOTE_CORE_UNAVAILABLE');
+  const secondStore = new AskRecordStore({
+    ...f.store.scope,
+    publicKey: hex(vector.publicKey),
+    readOwn: () => f.own,
+    publish: async (root, key, value) => {
+      f.own[id(4)][root][key] = structuredClone(value);
+    },
+  });
+  const second = new AskController({ store: secondStore, remote: f.remote, key: f.key, selection });
+  const one = FrozenAsk.capture(selection(), destination());
+  const two = FrozenAsk.capture(selection(), destination());
+  const results = await Promise.allSettled([
+    f.controller.send(one, original.view.operationId),
+    second.send(two, original.view.operationId),
+  ]);
+  expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
+  expect(results.filter((result) => result.status === 'rejected')).toHaveLength(1);
+  expect(f.remote.sends).toHaveLength(1);
+  expect(await f.store.views()).toHaveLength(2);
+});
+
+it('every reviewed terminal Send refusal qualifies; unknown, replied and request-bearing refusals do not', () => {
+  for (const reason of REMOTE_REFUSAL_CODES)
+    expect(provablyUnsent({ state: 'refused', requestId: null, reason, reply: null })).toBe(true);
+  for (const value of [
+    { state: 'uncertain', requestId: null, reason: 'REMOTE_STATE_UNAVAILABLE' },
+    { state: 'refused', requestId: null, reason: 'REMOTE_REFUSED' },
+    { state: 'refused', requestId: `req_${id(8)}`, reason: 'REMOTE_RATE_LIMITED' },
+    { state: 'refused', requestId: null, reason: 'REMOTE_RATE_LIMITED', reply: '' },
+    { state: 'refused', reason: 'REMOTE_RATE_LIMITED' },
+  ])
+    expect(provablyUnsent(value)).toBe(false);
+});
+
+for (const state of [
+  'dispatching',
+  'held',
+  'accepted',
+  'uncertain',
+  'failed',
+  'expired',
+  'cancelled',
+  'abandoned',
+] as const)
+  it(`an own ${state} attempt blocks Ask again before another adoption`, async () => {
+    const f = await setup();
+    const original = FrozenAsk.capture(selection(), destination());
+    await f.store.adopt(await original.signed(f.key), original.view);
+    await f.store.state(
+      original.view.operationId,
+      state,
+      state === 'accepted' ? `req_${id(8)}` : null,
+    );
+    const retry = FrozenAsk.capture(selection(), destination());
+    await expect(f.store.adopt(await retry.signed(f.key), retry.view, null)).rejects.toThrow();
+    expect(f.own[id(4)].intents[retry.view.operationId]).toBeUndefined();
+    expect(f.remote.sends).toHaveLength(0);
+  });
+
+it('retryOf must belong to the original message and exact recipient in the own store', async () => {
+  const f = await setup();
+  const original = FrozenAsk.capture(selection(), destination());
+  await f.store.adopt(await original.signed(f.key), original.view);
+  await f.store.state(original.view.operationId, 'refused', null, 'REMOTE_RATE_LIMITED');
+  for (const [input, target] of [
+    [{ ...selection(), thread: id(77) }, destination()],
+    [{ ...selection(), messageIds: [id(77)] }, destination()],
+    [selection(), { ...destination(), agent: id(77) }],
+    [selection(), { ...destination(), machine: id(77) }],
+  ] as const) {
+    const retry = FrozenAsk.capture(input, target);
+    await expect(
+      f.store.adopt(await retry.signed(f.key), retry.view, original.view.operationId),
+    ).rejects.toThrow();
+    expect(f.own[id(4)].intents[retry.view.operationId]).toBeUndefined();
+  }
+  expect(f.remote.sends).toHaveLength(0);
+});
+
+it('a durable pair marker blocks replacements from a delayed same-device tab projection', async () => {
+  const f = await setup();
+  const old = FrozenAsk.capture(selection(), destination());
+  await f.store.adopt(await old.signed(f.key), old.view);
+  await f.store.state(old.view.operationId, 'refused', null, 'REMOTE_RATE_LIMITED');
+  const tabs = [structuredClone(f.own), structuredClone(f.own)];
+  const controllers = tabs.map((own) => {
+    const store = new AskRecordStore({
+      space: selection().space,
+      page: id(1),
+      deviceId: id(4),
+      publicKey: hex(vector.publicKey),
+      readOwn: () => own,
+      // Each tab waits for its own append, as Writer.submitOwnRecords does; another
+      // tab's earlier broadcast can still be delayed before its verified fold.
+      publish: async (root, key, value) => {
+        f.own[id(4)][root][key] = structuredClone(value);
+        own[id(4)][root][key] = structuredClone(value);
+      },
+    });
+    return new AskController({ store, remote: f.remote, key: f.key, selection });
+  });
+  await Promise.all(controllers.map((controller) => controller.destinations()));
+  await Promise.allSettled(
+    controllers.map((controller) =>
+      controller.send(controller.prepare(destination()), old.view.operationId),
+    ),
+  );
+  expect(f.remote.sends).toHaveLength(1);
+});
+
+it('a missing admitted replacement blocks after reload; only its later typed refusal permits replacement', async () => {
+  const f = await setup();
+  const original = FrozenAsk.capture(selection(), destination());
+  await f.store.adopt(await original.signed(f.key), original.view);
+  await f.store.state(original.view.operationId, 'refused', null, 'REMOTE_RATE_LIMITED');
+  const interrupted = FrozenAsk.capture(selection(), destination());
+  const marker = `ask-recipient:${selection().space}:${id(1)}:${id(4)}:${selection().thread}:${selection().messageIds[0]}:${destination().machine}:${destination().agent}`;
+  draft.set(marker, interrupted.view.operationId);
+  const blocked = FrozenAsk.capture(selection(), destination());
+  await expect(
+    f.store.adopt(await blocked.signed(f.key), blocked.view, original.view.operationId),
+  ).rejects.toThrow();
+  expect(draft.get(marker)).toBe(interrupted.view.operationId);
+  await f.store.adopt(await interrupted.signed(f.key), interrupted.view);
+  await f.store.state(interrupted.view.operationId, 'refused', null, 'REMOTE_RATE_LIMITED');
+  const next = FrozenAsk.capture(selection(), destination());
+  await expect(
+    f.store.adopt(await next.signed(f.key), next.view, interrupted.view.operationId),
+  ).resolves.toBe('created');
+  expect(draft.get(marker)).toBe(next.view.operationId);
+  expect([...draft.keys()].filter((key) => key.startsWith('ask-recipient:'))).toEqual([marker]);
+});
+
+it('pair marker read, write and release errors fail closed; release never clears another operation', async () => {
+  for (const failure of ['read', 'write'] as const) {
+    const f = await setup();
+    const retry = FrozenAsk.capture(selection(), destination());
+    storageFailure = failure;
+    await expect(f.controller.send(retry, null)).rejects.toThrow('Storage unavailable');
+    expect(f.remote.sends).toHaveLength(0);
+    expect(f.own[id(4)].intents).toEqual({});
+  }
+  const f = await setup();
+  const retry = FrozenAsk.capture(selection(), destination());
+  const view = { ...retry.view, thread: selection().thread, messageIds: selection().messageIds };
+  const marker = `ask-recipient:${selection().space}:${id(1)}:${id(4)}:${selection().thread}:${selection().messageIds[0]}:${destination().machine}:${destination().agent}`;
+  draft.set(marker, retry.view.operationId);
+  await f.store.releaseRetry({ ...view, operationId: id(91) });
+  expect(draft.get(marker)).toBe(retry.view.operationId);
+  storageFailure = 'delete';
+  await expect(f.store.releaseRetry(view)).rejects.toThrow('Storage unavailable');
+  expect(draft.get(marker)).toBe(retry.view.operationId);
+  storageFailure = undefined;
+  await f.store.releaseRetry(view);
+  expect(draft.has(marker)).toBe(false);
+  expect(f.remote.sends).toHaveLength(0);
+});
+
+it('an older multi-message intent cannot select one original comment for replacement', async () => {
+  const f = await setup();
+  const old = FrozenAsk.capture({ ...selection(), messageIds: [id(3), id(7)] }, destination());
+  await f.store.adopt(await old.signed(f.key), old.view);
+  await f.store.state(old.view.operationId, 'refused', null, 'REMOTE_RATE_LIMITED');
+  const retry = FrozenAsk.capture(selection(), destination());
+  await expect(
+    f.store.adopt(await retry.signed(f.key), retry.view, old.view.operationId),
+  ).rejects.toThrow();
+  expect(f.remote.sends).toHaveLength(0);
+  expect(f.own[id(4)].intents[retry.view.operationId]).toBeUndefined();
 });

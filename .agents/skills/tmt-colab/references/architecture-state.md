@@ -95,6 +95,10 @@ The editor has no storage, ledger, notification or Remote capability. `LiveAsk` 
 whether Send adopted an operation. Only an authoritative failure before adoption
 starts can be shown locally without inventing a signed Ask row; missing read views
 after publication failure remain uncertain. Adopted outcomes come from the admitted stream.
+`ask-again.tsx` owns the shared trusted recipient action and in-tab activation fence;
+`AskRecordStore` owns the pair-locked durable UUID marker, block-check and adoption. Original
+comment association and fresh capture stay with `CommentExchange`/`LiveAsk`, not
+with the editor. The discussion contract owns exact eligibility and reload rules.
 
 `agent-directory.ts` (`useAgentDirectory`) gives each Ask binding one explicit
 `loading`, `failed` or `ready` state (empty `ready` is a real answer). Replacement

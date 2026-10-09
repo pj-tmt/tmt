@@ -36,6 +36,21 @@ export const REMOTE_REFUSAL_CODES = [
   'REMOTE_CORE_UNAVAILABLE',
 ] as const;
 export type RemoteRefusalCode = (typeof REMOTE_REFUSAL_CODES)[number];
+/** Only a verified terminal Send refusal proves that this attempt had no effect.
+ * Read refusals never change the ledger and therefore cannot satisfy this rule. */
+export function provablyUnsent(value: {
+  state: string;
+  requestId?: string | null;
+  reason?: string | null;
+  reply?: unknown;
+}): boolean {
+  return (
+    value.state === 'refused' &&
+    value.requestId === null &&
+    value.reply == null &&
+    REMOTE_REFUSAL_CODES.some((code) => code === value.reason)
+  );
+}
 export type SessionEndCode = 'REMOTE_SESSION_ENDED' | 'REMOTE_SEQUENCE_UNAVAILABLE';
 export function sessionEndedReason(reason: string | undefined): reason is SessionEndCode {
   return reason === 'REMOTE_SESSION_ENDED' || reason === 'REMOTE_SEQUENCE_UNAVAILABLE';

@@ -202,9 +202,9 @@ test('a preparation failure leaves the sibling delivered once and never retries 
   await input.press('Enter');
   await expect(page.getByTestId('recipient-failure')).toHaveCount(1);
   await expect(page.getByTestId('recipient-failure')).toContainText('@alpha · Not delivered');
-  await expect(page.getByTestId('recipient-failure')).toContainText(
-    'Mention @alpha in a new message to ask again.',
-  );
+  await expect(
+    page.getByTestId('recipient-failure').getByRole('button', { name: 'Ask again', exact: true }),
+  ).toBeVisible();
   await expect(page.getByTestId('ask-entry')).toHaveCount(1);
   const proof = await run(page, 'proof');
   expect(proof).toMatchObject({ writes: 1, preparations: 2, commits: 1 });
@@ -358,9 +358,9 @@ test('a pre-adoption Send failure has a local Not delivered label and no invente
   await input.fill('@alpha Explain.');
   await input.press('Enter');
   await expect(page.getByTestId('recipient-failure')).toContainText('@alpha · Not delivered');
-  await expect(page.getByTestId('recipient-failure')).toContainText(
-    'Mention @alpha in a new message to ask again.',
-  );
+  await expect(
+    page.getByTestId('recipient-failure').getByRole('button', { name: 'Ask again', exact: true }),
+  ).toBeVisible();
   await expect(page.getByTestId('ask-entry')).toHaveCount(0);
   expect(await run(page, 'proof')).toMatchObject({
     writes: 1,
