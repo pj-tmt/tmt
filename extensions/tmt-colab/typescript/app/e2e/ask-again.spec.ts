@@ -34,7 +34,10 @@ for (const surface of ['chat', 'thread'])
       const caret = await input.evaluate(() => document.getSelection()?.anchorOffset);
       await again.evaluate((node) => (node as HTMLButtonElement).click());
       expect((await run(page, 'proof')).sends).toEqual(before.sends);
-      await again.click();
+      await again.focus();
+      await expect(again).toBeFocused();
+      await expect(again).toHaveText('Ask again');
+      await again.press('Enter');
       await expect
         .poll(async () => (await run(page, 'proof')).sends.length)
         .toBe(before.sends.length + 1);

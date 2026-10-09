@@ -941,12 +941,23 @@ body:has(.page-header-actions) {
   max-width: 100%;
   margin-left: auto;
 }
+.conversation-turn-status {
+  margin-top: 4px;
+  color: var(--c-muted);
+  font-size: 12px;
+}
 .conversation-status {
   min-width: 0;
+  max-width: 100%;
   display: inline-flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 4px 8px;
+}
+@media (max-width: 600px) {
+  .conversation-status {
+    --tmt-ui-host-icon-action-size: 44px;
+  }
 }
 .conversation-status > [role='status'] {
   min-width: 0;

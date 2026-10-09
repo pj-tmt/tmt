@@ -1,5 +1,6 @@
 import type { CommentContext } from './thread-store.js';
-import { CircleAlert, Clock, Pause } from 'lucide-react';
+import { BrowserIconAction } from '@tmt/browser-ui/react';
+import { CircleAlert, Clock, Pause, RotateCw } from 'lucide-react';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { PreviewAttempt } from './ask-preview.js';
 import { ASK_OBSERVATION_MS, type LedgerState } from './ask-records.js';
@@ -226,15 +227,16 @@ export function AskPanel({
         )}
         {canRecheck && (
           <>
-            <button
-              className="ask-status-action"
+            <BrowserIconAction
+              type="button"
+              variant="text"
+              label={text.askRecheck}
+              icon={<RotateCw />}
               disabled={disabled}
-              onClick={(event) => {
+              onActivate={(event) => {
                 if (event.isTrusted && record.canTrack) void action(record, 'recheck');
               }}
-            >
-              {text.askRecheck}
-            </button>
+            />
             {record.state === 'uncertain' && (
               <button
                 className="ask-status-action"
@@ -340,11 +342,13 @@ export function AskPanel({
               index === 0 &&
               renderUser(
                 record,
-                <>
-                  {turns.map((turn) => (
-                    <span key={turn.record.operationId}>{turn.status}</span>
-                  ))}
-                </>,
+                turns.some((turn) => turn.status) ? (
+                  <>
+                    {turns.map((turn) =>
+                      turn.status ? <span key={turn.record.operationId}>{turn.status}</span> : null,
+                    )}
+                  </>
+                ) : undefined,
                 <>
                   {turns.map((turn) => (
                     <div key={turn.record.operationId}>{turn.delivery}</div>

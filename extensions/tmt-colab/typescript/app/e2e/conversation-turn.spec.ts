@@ -174,22 +174,45 @@ for (const width of [1440, 390]) {
             );
             computed[`${surface}-agent`] = await styles(agent);
             await expect(window.getByTestId('ask-state')).toHaveCount(0);
+            await expect(user.locator('.conversation-turn-status')).toHaveCount(0);
             await expect(window.getByRole('button', { name: text.askRecheck })).toHaveCount(0);
           } else {
             await expect(agent).toHaveCount(0);
             const status = user.getByTestId('ask-state');
             await expect(status).toHaveText(label);
             await expect(status.locator('svg.lucide')).toBeVisible();
-            await expect(user.locator('header').getByTestId('ask-state')).toHaveCount(1);
-            if (state === 'waiting' || state === 'uncertain') {
+            await expect(user.locator('header').getByTestId('ask-state')).toHaveCount(0);
+            const placement = await user.evaluate((node) => {
+              const main = node.querySelector('.conversation-main')!;
+              const byline = main.querySelector('header')!;
+              const body = main.querySelector('.conversation-body')!;
+              const status = main.querySelector('.conversation-turn-status')!;
+              const children = Array.from(main.children);
+              return {
+                order: [byline, body, status].map((child) => children.indexOf(child)),
+                body: body.getBoundingClientRect().toJSON(),
+                status: status.getBoundingClientRect().toJSON(),
+              };
+            });
+            expect(placement.order[0]).toBeLessThan(placement.order[1]);
+            expect(placement.order[1]).toBeLessThan(placement.order[2]);
+            expect(placement.status.top).toBeGreaterThanOrEqual(placement.body.bottom);
+            expect(placement.status.left).toBe(placement.body.left);
+            if (state === 'waiting' || state === 'held' || state === 'uncertain') {
               const group = user.locator('.conversation-status');
               const check = group.getByRole('button', { name: text.askRecheck });
               await expect(check).toBeEnabled();
               const s = (await status.boundingBox())!,
                 c = (await check.boundingBox())!;
-              expect(Math.abs(s.y - c.y)).toBeLessThan(3);
+              expect(Math.abs(s.y + s.height / 2 - c.y - c.height / 2)).toBeLessThan(1);
               const u = (await user.boundingBox())!;
               expect(c.x + c.width).toBeLessThanOrEqual(u.x + u.width);
+              await expect(check.locator('svg.lucide-rotate-cw')).toBeVisible();
+              await expect(check).toHaveText('');
+              if (width === 390) {
+                expect(c.width).toBeGreaterThanOrEqual(44);
+                expect(c.height).toBeGreaterThanOrEqual(44);
+              }
             }
             if (state === 'uncertain')
               await expect(user.locator('.ask-supporting')).toHaveText(text.askUncertain);
@@ -316,6 +339,33 @@ for (const width of [1440, 390])
       }
     });
 
+for (const surface of ['chat', 'thread'] as const)
+  test(`${surface}: Check again has hover/focus detail and trusted keyboard activation below the message`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 390, height: 900 });
+    await mount(page, surface, 'waiting');
+    const window = page.getByTestId(surface === 'chat' ? 'chat-panel' : 'comment-thread');
+    const check = window.getByRole('button', { name: text.askRecheck, exact: true });
+    const tooltip = window.locator('.conversation-status .tmt-ui-icon-action-tooltip');
+    await check.hover();
+    await expect(tooltip).toBeVisible();
+    await expect(tooltip).toHaveText(text.askRecheck);
+    await page.mouse.move(389, 899);
+    await expect(tooltip).toBeHidden();
+    await check.focus();
+    await check.press('Tab');
+    await page.keyboard.press('Shift+Tab');
+    await expect(check).toBeFocused();
+    await expect(tooltip).toBeVisible();
+    await expect(tooltip).toHaveText(text.askRecheck);
+    await check.press('Enter');
+    expect((await run(page, 'proof')).actions).toEqual([
+      'recheck:00000000-0000-4000-8000-000000000043',
+    ]);
+    expect((await run(page, 'proof')).sends).toEqual([]);
+  });
+
 test('status copy preserves every ledger outcome and explicit trusted tracking actions', async ({
   page,
 }) => {
@@ -396,7 +446,7 @@ test('editable mention chips send only their original text; annotation keeps its
   expect((await run(page, 'proof')).sends).toHaveLength(1);
 });
 
-test('a long agent label wraps the entire status group below the byline without clipping or truncating', async ({
+test('a long agent label wraps below the message without clipping or hiding Check again', async ({
   page,
 }) => {
   await page.setViewportSize({ width: 390, height: 900 });
@@ -407,20 +457,20 @@ test('a long agent label wraps the entire status group below the byline without 
   await expect(user.getByTestId('ask-state')).toHaveText(`Waiting for ${name}`);
   const geometry = await user.locator('.conversation-status').evaluate((node) => {
     const style = getComputedStyle(node);
-    const byline = node
-      .closest('header')!
-      .querySelector('.comment-byline')!
+    const body = node
+      .closest('.conversation-main')!
+      .querySelector('.conversation-body')!
       .getBoundingClientRect();
     return {
       width: node.clientWidth,
       scroll: node.scrollWidth,
       top: node.getBoundingClientRect().top,
-      bylineBottom: byline.bottom,
+      bodyBottom: body.bottom,
       overflow: style.textOverflow,
     };
   });
   expect(geometry.scroll).toBeLessThanOrEqual(geometry.width + 1);
-  expect(geometry.top).toBeGreaterThanOrEqual(geometry.bylineBottom);
+  expect(geometry.top).toBeGreaterThanOrEqual(geometry.bodyBottom);
   expect(geometry.overflow).not.toBe('ellipsis');
   await expect(user.getByRole('button', { name: text.askRecheck })).toBeInViewport();
   expect((await run(page, 'proof')).sends).toEqual([]);
