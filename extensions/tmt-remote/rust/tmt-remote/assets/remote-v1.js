@@ -1403,7 +1403,7 @@ async function landingPage() {
 				await observe();
 			} catch (error) {
 				if (!currentPage()) return;
-				if (!reused || !(error instanceof RefusalError) || error.code !== "REMOTE_SESSION_ENDED") throw error;
+				if (!reused || !(error instanceof RefusalError) || !["REMOTE_SESSION_ENDED", "REMOTE_SESSION_EVICTED"].includes(error.code)) throw error;
 				if (!await open()) return;
 				await observe();
 			}
@@ -1415,7 +1415,7 @@ async function landingPage() {
 			render("connected");
 		} catch (error) {
 			if (!currentPage()) return;
-			const verifiedRefusal = !opaque && error instanceof RefusalError && !(step.phase === "capabilities" && error.code === "REMOTE_SESSION_ENDED") && [
+			const verifiedRefusal = !opaque && error instanceof RefusalError && !(step.phase === "capabilities" && (error.code === "REMOTE_SESSION_ENDED" || reused && error.code === "REMOTE_SESSION_EVICTED")) && [
 				"REMOTE_CLOSED",
 				"REMOTE_SESSION_ENDED",
 				"REMOTE_SESSION_EVICTED",

@@ -106,8 +106,12 @@ async function fixture(mode = 'success') {
     if (operation === 'capabilities') {
       observations++;
       if (mode.startsWith('expired-') && observations === 2) {
-        if (mode !== 'expired-signed') return new Response('', { status: 404 });
-        door.error = { code: 'REMOTE_SESSION_ENDED', message: 'Idle session expired.' };
+        if (mode !== 'expired-signed' && mode !== 'expired-evicted')
+          return new Response('', { status: 404 });
+        door.error =
+          mode === 'expired-evicted'
+            ? { code: 'REMOTE_SESSION_EVICTED', message: 'Session evicted.', limit: 4 }
+            : { code: 'REMOTE_SESSION_ENDED', message: 'Idle session expired.' };
         try {
           return await door.fetch(url, init);
         } finally {
@@ -185,7 +189,13 @@ test('entry automatically checks once, then manual checks reuse the verified ses
   }
 });
 
-for (const mode of ['expired-404', 'expired-signed', 'expired-reopen-refused', 'expired-again']) {
+for (const mode of [
+  'expired-404',
+  'expired-signed',
+  'expired-evicted',
+  'expired-reopen-refused',
+  'expired-again',
+]) {
   test(`manual check reopens an expired reused session once: ${mode}`, async () => {
     const f = await fixture(mode);
     try {
@@ -193,7 +203,8 @@ for (const mode of ['expired-404', 'expired-signed', 'expired-reopen-refused', '
       assert.equal(f.nodes.get('heading')!.textContent, 'Connected');
       f.click();
       await vi.waitFor(() => assert.equal(f.button.disabled, false));
-      const connected = mode === 'expired-404' || mode === 'expired-signed';
+      const connected =
+        mode === 'expired-404' || mode === 'expired-signed' || mode === 'expired-evicted';
       assert.equal(
         f.nodes.get('state-label')!.textContent,
         connected ? 'Connected' : "Can't reach Remote",

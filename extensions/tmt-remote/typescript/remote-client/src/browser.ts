@@ -387,7 +387,11 @@ export async function landingPage(): Promise<void> {
         await observe();
       } catch (error) {
         if (!currentPage()) return;
-        if (!reused || !(error instanceof RefusalError) || error.code !== 'REMOTE_SESSION_ENDED')
+        if (
+          !reused ||
+          !(error instanceof RefusalError) ||
+          !['REMOTE_SESSION_ENDED', 'REMOTE_SESSION_EVICTED'].includes(error.code)
+        )
           throw error;
         // One reopen belongs to this explicit check; a fresh failure cannot loop.
         if (!(await open())) return;
@@ -404,7 +408,11 @@ export async function landingPage(): Promise<void> {
       const verifiedRefusal =
         !opaque &&
         error instanceof RefusalError &&
-        !(step.phase === 'capabilities' && error.code === 'REMOTE_SESSION_ENDED') &&
+        !(
+          step.phase === 'capabilities' &&
+          (error.code === 'REMOTE_SESSION_ENDED' ||
+            (reused && error.code === 'REMOTE_SESSION_EVICTED'))
+        ) &&
         [
           'REMOTE_CLOSED',
           'REMOTE_SESSION_ENDED',
