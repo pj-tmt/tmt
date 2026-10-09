@@ -637,6 +637,13 @@ footer {
 .bearer {
   min-width: 0;
 }
+.bearer-values {
+  display: grid;
+  gap: var(--tmt-ui-command-gap);
+}
+.management-dialog .tmt-ui-command label {
+  margin: 0;
+}
 
 .archived-page {
   overflow-wrap: anywhere;

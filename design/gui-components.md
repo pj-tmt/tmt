@@ -102,8 +102,8 @@ available for manual selection. Hosts retain their async lifetime and permission
 Static hosts use `tmt-ui-command` with `tmt-ui-command-text`, an optional native
 `tmt-ui-command-copy` button, and `tmt-ui-command-feedback` with `role="status"`.
 An existing read-only input may use the text class to preserve native selection;
-its value scrolls inside the input. The React text block wraps long values within
-the available width. Copy actions stay at the top end of the block. Both use a
+its value scrolls inside the input. Labels and values have separate gaps; input focus outlines stay inside the value field. The React text block wraps long values within
+the available width. Copy actions stay at the end of the text row, centred vertically. Both use a
 square, flat neutral surface and 1px edge. `tmt-ui-code` supplies the lighter
 inline treatment in running prose. The `browser.surface.command` and `code`
 tokens define both themes; the shared mono stack and command metrics define type

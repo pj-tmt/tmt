@@ -39,6 +39,31 @@ test('verified bearer values copy exactly and remain selectable on clipboard den
       .getByLabel('Link seed')
       .evaluate((node: HTMLInputElement) => [node.selectionStart, node.selectionEnd]),
   ).toEqual([0, seed.length]);
+  expect(
+    await block.evaluate((node) => {
+      const labels = [...node.querySelectorAll('label')];
+      return labels.every((label, index) => {
+        const input = label.querySelector('input')!;
+        const text = document.createRange();
+        text.selectNode(label.firstChild!);
+        const labelRect = text.getBoundingClientRect();
+        const value = input.getBoundingClientRect();
+        const previous = labels[index - 1]?.querySelector('input')?.getBoundingClientRect();
+        return (
+          value.top > labelRect.bottom + 2 && (!previous || labelRect.top > previous.bottom + 2)
+        );
+      });
+    }),
+  ).toBe(true);
+  expect(
+    await page.getByLabel('Link seed').evaluate((node) => {
+      const css = getComputedStyle(node);
+      return (
+        parseFloat(css.outlineWidth) > 0 &&
+        parseFloat(css.outlineOffset) + parseFloat(css.outlineWidth) <= 0
+      );
+    }),
+  ).toBe(true);
   for (const theme of ['light', 'dark']) {
     await page.evaluate((value) => (document.documentElement.dataset.theme = value), theme);
     for (const width of [1440, 390, 320]) {

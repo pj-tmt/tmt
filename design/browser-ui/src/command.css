@@ -2,7 +2,7 @@
   box-sizing: border-box;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  align-items: start;
+  align-items: center;
   gap: var(--tmt-ui-command-gap);
   max-width: 100%;
   min-width: 0;
@@ -30,17 +30,25 @@
   user-select: text;
 }
 .tmt-ui-command label {
+  display: grid;
+  gap: calc(var(--tmt-ui-command-gap) / 2);
   min-width: 0;
 }
 .tmt-ui-command label > .tmt-ui-command-text {
   width: 100%;
+}
+.tmt-ui-command input.tmt-ui-command-text {
+  padding: 2px 4px;
+}
+.tmt-ui-command input.tmt-ui-command-text:focus-visible {
+  outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
+  outline-offset: calc(-1 * var(--tmt-ui-focus-width));
 }
 .tmt-ui-command-text code {
   font: inherit;
 }
 .tmt-ui-command-copy {
   box-sizing: border-box;
-  align-self: start;
   padding: 4px 8px;
   min-height: 32px;
   max-width: 10rem;

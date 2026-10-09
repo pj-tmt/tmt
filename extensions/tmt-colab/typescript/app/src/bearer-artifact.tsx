@@ -6,7 +6,7 @@ export function BearerArtifact({ linkId, seed }: { linkId: string; seed: string 
   const [feedback, setFeedback] = useState('');
   return (
     <div className={c.command}>
-      <div>
+      <div className="bearer-values">
         <label>
           Link ID
           <input className={c.commandText} readOnly value={linkId} />

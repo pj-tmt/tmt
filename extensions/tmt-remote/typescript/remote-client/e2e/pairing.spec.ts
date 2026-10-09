@@ -1013,6 +1013,27 @@ test('the native entry checks once and presents all seven evidenced states witho
         ),
       ),
     ).toBe(true);
+    expect(
+      await commands.evaluateAll((nodes) =>
+        nodes.every((node) => {
+          const button = node.nextElementSibling!;
+          const text = node.getBoundingClientRect();
+          const action = button.getBoundingClientRect();
+          const block = node.parentElement!;
+          const css = getComputedStyle(block);
+          const verticalSpace =
+            parseFloat(css.paddingTop) +
+            parseFloat(css.paddingBottom) +
+            parseFloat(css.borderTopWidth) +
+            parseFloat(css.borderBottomWidth);
+          return (
+            Math.abs(text.top + text.height / 2 - action.top - action.height / 2) < 1 &&
+            css.paddingTop === css.paddingBottom &&
+            Math.abs(block.getBoundingClientRect().height - action.height - verticalSpace) < 1
+          );
+        }),
+      ),
+    ).toBe(true);
     for (const command of await commands.allTextContents()) {
       const action = page.getByRole('button', { name: `Copy ${command}`, exact: true });
       await expect(action).toHaveCount(1);
