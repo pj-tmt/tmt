@@ -165,7 +165,7 @@ pub fn plan_owned(global: &Path, roots: &[PathBuf]) -> io::Result<Vec<SkillTarge
 }
 
 /// Links the planned owned skills to their owners' current sources and
-/// records the new targets; an entry that appeared meanwhile is replaced.
+/// records the new targets; an entry that appeared meanwhile is preserved.
 pub fn publish_owned(global: &Path, planned: &[SkillTarget]) -> io::Result<Vec<PathBuf>> {
     let global = files::resolved(global)?;
     owned::link_recorded(

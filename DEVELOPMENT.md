@@ -262,7 +262,7 @@ owns syntax, released-path scope, edit feedback and cumulative merge-group enfor
 `skills/tmt/SKILL.md` and `skills/tmt-inbox/SKILL.md` are the canonical
 installed guidance, one versioned bundle; core install exposes only these. Edit the
 single canonical file; never add provider-specific copies. Verify exact embedded
-bytes, managed links, repeat no-op, named replacement and partial-failure warnings,
+bytes, managed links, repeat no-op, catalog replacement, API conflict/backup and partial warnings,
 lock ownership and no effects on SQLite or tmux. `test/native/legacy-extension-skills.test.ts`
 owns the legacy-bundle regressions, `skill_installation::owned_tests` the
 extension-owned skills, and every fixture uses the isolated HOME/config sandbox.

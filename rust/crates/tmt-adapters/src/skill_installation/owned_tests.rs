@@ -99,33 +99,25 @@ fn names_held_by_core_or_another_owner_are_refused_before_any_effect() {
 }
 
 #[test]
-fn an_existing_published_name_is_replaced_without_backup_or_following_links() {
-    for foreign_link in [false, true] {
+fn api_names_refuse_unmanaged_targets_and_force_preserves_a_backup() {
+    for name in ["personal", "tmt-colab"] {
         let (_directory, env, global, root) = fixture();
-        let target = root.join("tmt-colab");
-        let other = root.join("personal");
-        fs::create_dir_all(&other).unwrap();
-        fs::write(other.join("SKILL.md"), "personal").unwrap();
-        if foreign_link {
-            std::os::unix::fs::symlink(&other, &target).unwrap();
-        } else {
-            fs::create_dir(&target).unwrap();
-            fs::write(target.join("SKILL.md"), "old copy").unwrap();
-            std::os::unix::fs::symlink(&other, target.join("nested")).unwrap();
-        }
-        let report = install_owned(
-            &env,
-            &global,
-            "colab",
-            &[skill("tmt-colab", "release")],
-            false,
-        )
-        .unwrap();
-        assert!(report.published[0].changed);
-        assert!(report.published[0].backup.is_none());
-        assert_eq!(read_skill(&target), "release");
-        assert_eq!(read_skill(&other), "personal");
-        assert!(!root.parent().unwrap().join(".tmt-skill-backups").exists());
+        let target = root.join(name);
+        fs::create_dir_all(&target).unwrap();
+        fs::write(target.join("SKILL.md"), "user content").unwrap();
+        let refused = install_owned(&env, &global, "colab", &[skill(name, "api content")], false)
+            .unwrap_err();
+        assert!(
+            matches!(refusal(&refused.cause), Some(Refusal::Unmanaged(path)) if path == &target)
+        );
+        assert!(refused.report.published.is_empty());
+        assert_eq!(read_skill(&target), "user content");
+        assert!(!global.join("skill-owners.json").exists());
+        let forced =
+            install_owned(&env, &global, "colab", &[skill(name, "api content")], true).unwrap();
+        let backup = forced.published[0].backup.as_ref().unwrap();
+        assert_eq!(read_skill(backup), "user content");
+        assert_eq!(read_skill(&target), "api content");
     }
 }
 
@@ -179,24 +171,43 @@ fn office_links_published_before_owners_existed_are_adopted_without_force() {
 }
 
 #[test]
-fn publication_replaces_an_unclaimed_optional_core_link_without_force() {
+fn only_office_adopts_core_office_links_without_force() {
     let (_directory, env, global, root) = fixture();
     install(&env, &global, None, None, false).unwrap();
     install_office(&env, &global, false).unwrap();
     let office = root.join("tmt-office");
-    let old = fs::read_link(&office).unwrap();
-    let report = install_owned(
+    let core_link = fs::read_link(&office).unwrap();
+
+    let refused = install_owned(
         &env,
         &global,
         "squad",
-        &[skill("tmt-office", "release")],
+        &[skill("tmt-office", "squad's office")],
         false,
     )
+    .unwrap_err();
+    assert_eq!(
+        claimed(&refused.cause),
+        Some(("tmt-office".into(), "core".into()))
+    );
+    assert!(refused.report.published.is_empty());
+    assert_eq!(fs::read_link(&office).unwrap(), core_link);
+    assert!(!global.join("skill-owners.json").exists());
+
+    let forced = install_owned(
+        &env,
+        &global,
+        "squad",
+        &[skill("tmt-office", "squad's office")],
+        true,
+    )
     .unwrap();
-    assert!(report.published[0].changed);
-    assert!(report.published[0].backup.is_none());
-    assert_ne!(fs::read_link(&office).unwrap(), old);
-    assert_eq!(read_skill(&office), "release");
+    assert!(forced.published[0].changed);
+    assert!(
+        forced.published[0].backup.is_none(),
+        "a managed link is relinked"
+    );
+    assert_eq!(read_skill(&office), "squad's office");
     assert_eq!(owners(&global).unwrap()["tmt-office"], "squad");
 }
 
@@ -381,9 +392,13 @@ fn guided_setup_links_recorded_extension_skills_into_new_roots_once() {
             .collect::<Vec<_>>(),
         [new_root.join("tmt-ops")]
     );
-    // A directory appearing at the selected published name is replaced.
+    // A recorded API name does not authorize replacing a later user directory.
     fs::create_dir_all(new_root.join("tmt-ops")).unwrap();
-    fs::write(new_root.join("tmt-ops/SKILL.md"), "old copy").unwrap();
+    fs::write(new_root.join("tmt-ops/SKILL.md"), "user content").unwrap();
+    assert!(super::publish_owned(&global, &planned).unwrap().is_empty());
+    assert_eq!(read_skill(&new_root.join("tmt-ops")), "user content");
+    fs::remove_dir_all(new_root.join("tmt-ops")).unwrap();
+    let planned = super::plan_owned(&global, &roots).unwrap();
     let linked = super::publish_owned(&global, &planned).unwrap();
     assert_eq!(linked, [new_root.join("tmt-ops")]);
     assert_eq!(read_skill(&new_root.join("tmt-ops")), "v1");

@@ -13,7 +13,8 @@ publication and verification procedures are in the [tmt-release skill](../../tmt
   bytes and the earlier bundle layouts upgrades still verify; `Catalog::new` joins owner-held
   skills and never lets an owner shadow a core name. Skills install as one versioned bundle
   materialized by digest. Skill installation never opens configuration, SQLite or tmux.
-- Publication selects names from the bundled catalog or verified release tree and replaces
+- Core publication selects bundled catalog names; official release publication verifies its
+  installed product receipt before selecting names. These operations replace
   existing leaf entries at those names, without prompt, flag, backup or prior ownership/byte
   checks. Other names and symlink destinations are untouched. Immutable source validation and
   source-overlap guards remain; missing recorded targets stay missing during refresh.
@@ -23,7 +24,9 @@ publication and verification procedures are in the [tmt-release skill](../../tmt
   roots; `skill-owners.json`, separate from the target intents core refresh reads, records each
   name's owner, digest and targets. The first owner of a name keeps it until an explicit force.
   The same-user API cannot authenticate its caller, so install and remove refuse targets another
-  owner holds. Name claims are checked before publication;
+  owner holds. API publication refuses unmanaged targets; explicit force backs them up outside
+  discovery before replacement. API names/owners cannot authorize catalog replacement.
+  Name claims are checked before publication;
   removal deletes only links into the owner's store.
 - The Office skill sources under `extensions/tmt-office/skills/` are still embedded into the core
   bundle (extraction debt owned by #328, not a second source).

@@ -402,11 +402,14 @@ Native extension installation publishes its release skills after binary consent.
 `.`-prefixed segments, no trailing `/`), at most 64 files of 1 MiB each and
 16 skills per call. Core's `tmt` and `tmt-inbox` cannot be claimed; the
 first recorded owner of any other name keeps it unless `force: true` transfers
-the name claim. Publication replaces existing leaf entries at the selected skill
-names without a prompt, flag, backup or target ownership/content check; other
-names and symlink destinations remain untouched. Immutable sources are validated
-before publication. Errors are `SKILL_INVALID`, `SKILL_OWNED_ELSEWHERE`,
-`SKILL_CONFLICT` (invalid source or retired migration path), `API_CONSENT_REQUIRED`
+the name claim and backs up unmanaged target entries outside discovery in the
+sibling `.tmt-skill-backups` directory. API-supplied names refuse unmanaged targets
+with `SKILL_CONFLICT`, even if a name or owner resembles an official product.
+Only core bundled and verified official release skills replace catalog names
+without a prompt, flag, backup or target ownership/content check. Other names and
+symlink destinations remain untouched. Immutable sources are validated before
+publication. Errors are `SKILL_INVALID`, `SKILL_OWNED_ELSEWHERE`, `SKILL_CONFLICT`
+(unmanaged target, invalid source or retired migration path), `API_CONSENT_REQUIRED`
 and `SKILL_INSTALL_FAILED`. Repeating identical content at current links
 changes nothing. `skills.remove` removes only links that still point at the
 owner's content and reports anything else at a recorded target as `kept`. By default it

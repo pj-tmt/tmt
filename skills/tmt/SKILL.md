@@ -1002,8 +1002,8 @@ All targets link the same bundled content. No plugin or separate command wrapper
 Installation is non-interactive; `--json` is supported. With no detected provider,
 the shared target is installed and its result omits `agent`. This does not install
 an agent application. An existing `.agents` directory alone is not provider evidence.
-Claude's native skill can be invoked as `/tmt`. Publication replaces any existing
-entry named for a published skill in the selected roots, without a prompt, flag,
+Claude's native skill can be invoked as `/tmt`. Core bundled and verified official
+release publication replaces any existing entry at a catalog skill name in the selected roots, without a prompt, flag,
 backup or content check. Other names and symlink destinations are untouched.
 Plugin settings are never modified.
 Native `tmt upgrade` refreshes recorded managed skills. For a manual binary

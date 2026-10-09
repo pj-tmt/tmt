@@ -666,6 +666,38 @@ describe('public local extension API', () => {
     });
   });
 
+  it('refuses API skill replacement at user names unless force keeps a backup', async () => {
+    await withSandbox(async (sandbox) => {
+      // Even an official-looking name/owner cannot substitute for a verified release.
+      for (const name of ['personal', 'tmt-colab']) {
+        const target = path.join(sandbox.home, '.agents/skills', name);
+        mkdirSync(target, { recursive: true });
+        writeFileSync(path.join(target, 'SKILL.md'), 'user content');
+        const input = {
+          owner: 'colab',
+          consent: true,
+          skills: [{ name, files: [{ path: 'SKILL.md', content: 'API content' }] }],
+        };
+        const refused = await api(sandbox, 'skills.install', input);
+        expect(refused.status).toBe(1);
+        expect(refused.body.error.code).toBe('SKILL_CONFLICT');
+        expect(refused.body.error.message).toContain(target);
+        expect(lstatSync(target).isDirectory()).toBe(true);
+        expect(readFileSync(path.join(target, 'SKILL.md'), 'utf8')).toBe('user content');
+        const forced = await api(sandbox, 'skills.install', { ...input, force: true });
+        expect(forced.status).toBe(0);
+        const published = forced.body.published.find(
+          (item: { target: string }) => item.target === target
+        );
+        expect(published.backup).toBeTruthy();
+        expect(readFileSync(path.join(published.backup, 'SKILL.md'), 'utf8')).toBe('user content');
+        expect(lstatSync(target).isSymbolicLink()).toBe(true);
+        expect(readFileSync(path.join(target, 'SKILL.md'), 'utf8')).toBe('API content');
+      }
+      expect(existsSync(sandbox.database)).toBe(false);
+    });
+  });
+
   it('removes only the selected skills of an owner when skills.remove names them', async () => {
     await withSandbox(async (sandbox) => {
       const skill = (name: string, body: string) => ({

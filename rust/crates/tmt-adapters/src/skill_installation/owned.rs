@@ -42,7 +42,7 @@ pub enum Refusal {
     Invalid(String),
     /// Another owner, or core, holds this name.
     Claimed { name: String, owner: String },
-    /// A path outside the verified source or retired migration contract.
+    /// An unmanaged target, source or retired migration path.
     Unmanaged(PathBuf),
 }
 
@@ -56,11 +56,9 @@ impl fmt::Display for Refusal {
                     "Skill {name} belongs to {owner}; nothing was published."
                 )
             }
-            Self::Unmanaged(path) => write!(
-                output,
-                "Refusing unmanaged source or retired path: {}.",
-                path.display()
-            ),
+            Self::Unmanaged(path) => {
+                write!(output, "Refusing unmanaged skill path: {}.", path.display())
+            }
         }
     }
 }
@@ -605,7 +603,7 @@ pub fn migrate_former_owned(
     })
 }
 
-/// Refresh existing recorded targets at the published skill names. A removed target does not grant
+/// Refresh only recorded, still-owned targets. A removed target does not grant
 /// consent to recreate it, and provider discovery never expands this operation.
 pub fn refresh_owned(
     global: &Path,
@@ -633,8 +631,15 @@ pub fn refresh_owned(
                         return Err(corrupt());
                     }
                     files::safe_target(assets.root(), target)?;
-                    if files::exists(target)? {
-                        plan.push((skill, target.clone()));
+                    match prior(target, &assets)? {
+                        Prior::Absent => {}
+                        Prior::Owned {
+                            owner: holder,
+                            source,
+                        } if holder == owner => {
+                            plan.push((skill, target.clone(), source));
+                        }
+                        _ => return Err(refused(Refusal::Unmanaged(target.clone()))),
                     }
                 }
             }
@@ -649,9 +654,9 @@ pub fn refresh_owned(
                 sources.insert(skill.name.clone(), destination);
             }
             write_owners(&global, &owners)?;
-            for (skill, target) in plan {
+            for (skill, target, previous) in plan {
                 let destination = &sources[&skill.name];
-                let changed = !files::current_link(&target, destination);
+                let changed = &previous != destination;
                 if changed {
                     files::link(&target, destination)?;
                 }
@@ -672,10 +677,8 @@ pub fn refresh_owned(
     }
 }
 
-/// Publishes an owner's skills into every provider root that gets optional
-/// skills. Name claims are checked before publication; selected skill names
-/// replace existing entries without content inspection.
-/// `force` still permits transferring another extension's recorded name claim.
+/// Publish API-supplied skills. Unmanaged targets require explicit force and
+/// a recoverable backup; a caller-provided name is not a release catalog.
 pub fn install_owned(
     env: &ProviderEnvironment,
     global: &Path,
@@ -683,6 +686,43 @@ pub fn install_owned(
     skills: &[OwnedSkill],
     force: bool,
 ) -> Result<OwnedReport, OwnedFailure> {
+    install_owned_with_policy(env, global, owner, skills, Publication::Api { force })
+}
+
+/// Publish only the verified skills of an official managed product release.
+/// Arbitrary API names cannot enter the unchecked replacement path.
+pub fn install_release_skills(
+    env: &ProviderEnvironment,
+    global: &Path,
+    product: crate::native_install::Product,
+    executable: &Path,
+) -> Result<OwnedReport, OwnedFailure> {
+    let skills = crate::native_install::release_skills(product, executable).map_err(|cause| {
+        OwnedFailure {
+            cause,
+            report: OwnedReport::default(),
+        }
+    })?;
+    if skills.is_empty() {
+        return Ok(OwnedReport::default());
+    }
+    install_owned_with_policy(env, global, product.as_str(), &skills, Publication::Release)
+}
+
+#[derive(Clone, Copy)]
+enum Publication {
+    Api { force: bool },
+    Release,
+}
+
+fn install_owned_with_policy(
+    env: &ProviderEnvironment,
+    global: &Path,
+    owner: &str,
+    skills: &[OwnedSkill],
+    publication: Publication,
+) -> Result<OwnedReport, OwnedFailure> {
+    let force = matches!(publication, Publication::Api { force: true });
     let mut report = OwnedReport::default();
     let pending = (|| {
         validate(owner, skills).map_err(refused)?;
@@ -705,7 +745,37 @@ pub fn install_owned(
                 for (root, agent) in &roots {
                     let target = root.join(&skill.name);
                     files::safe_target(assets.root(), &target)?;
-                    plan.push((skill, target, *agent));
+                    let previous = if matches!(publication, Publication::Release) {
+                        None
+                    } else {
+                        let previous = prior(&target, &assets)?;
+                        match &previous {
+                            Prior::Owned { owner: other, .. } if other != owner && !force => {
+                                return Err(refused(Refusal::Claimed {
+                                    name: skill.name.clone(),
+                                    owner: other.clone(),
+                                }));
+                            }
+                            Prior::Core
+                                if !force
+                                    && !(owner == "office"
+                                        && Catalog::bundled()
+                                            .names(Group::Office)
+                                            .contains(skill.name.as_str())) =>
+                            {
+                                return Err(refused(Refusal::Claimed {
+                                    name: skill.name.clone(),
+                                    owner: "core".into(),
+                                }));
+                            }
+                            Prior::Unmanaged if !force => {
+                                return Err(refused(Refusal::Unmanaged(target)));
+                            }
+                            _ => {}
+                        }
+                        Some(previous)
+                    };
+                    plan.push((skill, target, *agent, previous));
                 }
             }
             let mut sources = BTreeMap::new();
@@ -722,7 +792,7 @@ pub fn install_owned(
                     });
                 entry.owner = owner.to_owned();
                 entry.digest = digest;
-                for (planned, target, _) in &plan {
+                for (planned, target, _, _) in &plan {
                     if planned.name == skill.name && !entry.targets.contains(target) {
                         entry.targets.push(target.clone());
                     }
@@ -731,9 +801,14 @@ pub fn install_owned(
             }
             // Record intent before links, so a crash leaves nothing unowned.
             write_owners(&global, &owners)?;
-            for (skill, target, agent) in plan {
+            for (skill, target, agent, previous) in plan {
                 let source = &sources[&skill.name];
                 let changed = !files::current_link(&target, source);
+                let backup = if matches!(previous, Some(Prior::Unmanaged)) {
+                    Some(files::backup(&target)?)
+                } else {
+                    None
+                };
                 if changed {
                     files::link(&target, source)?;
                 }
@@ -742,7 +817,7 @@ pub fn install_owned(
                     agent,
                     target,
                     changed,
-                    backup: None,
+                    backup,
                 });
             }
             Ok(())
@@ -965,7 +1040,7 @@ pub fn owned_by(
 
 /// Links recorded owned skills at new targets to each owner's current
 /// source, under the installation lock, and records those targets. A target
-/// already pointing at that source is skipped; other entries are replaced.
+/// that exists is skipped, never replaced: records can contain API-supplied names.
 pub(super) fn link_recorded<'a>(
     global: &Path,
     targets: impl IntoIterator<Item = (&'a str, &'a Path)>,
@@ -987,7 +1062,7 @@ pub(super) fn link_recorded<'a>(
             if skill_digest(name, &read_tree(&from)?) != entry.digest {
                 return Err(refused(Refusal::Unmanaged(from)));
             }
-            if files::current_link(target, &from) {
+            if files::exists(target)? {
                 continue;
             }
             files::link(target, &from)?;

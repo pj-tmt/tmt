@@ -131,8 +131,8 @@ Replacing package-manager or manual installations does not delete their files.
 Verify `command -v tmt` and the new absolute `tmt --help`. The one-shot default
 data-directory cutover is owned by Core configuration; explicit `TMT_HOME` stays exact.
 
-Publication replaces any existing entry named for a skill TMT publishes in the
-selected roots, with no prompt, flag, backup or prior ownership/content check.
+Core bundled and verified official release publication replaces any existing
+entry at a catalog skill name in selected roots, with no prompt, flag, backup or prior ownership/content check.
 Other names and symlink destinations remain untouched; immutable sources are
 validated before publication. A former Core skill target is retired only after
 its complete managed source digest and inventory verify and the replacement is

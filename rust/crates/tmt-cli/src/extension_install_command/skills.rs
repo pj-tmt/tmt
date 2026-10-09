@@ -63,7 +63,7 @@ pub(super) fn published_lines<'a>(
 
 fn publish(
     product: Product,
-    skills: &[OwnedSkill],
+    executable: &Path,
     document: &mut Value,
     human: &mut Human,
 ) -> Result<OwnedReport, Failure> {
@@ -71,16 +71,19 @@ fn publish(
         .map_err(|error| failure("EXTENSION_SKILLS_FAILED", error))?;
     let global = global_dir()?;
     let name = product.as_str();
-    skill_installation::install_owned(&env, &global, name, skills, false).map_err(|failure| {
-        document["skills"]["published"] = published_document(&failure.report);
-        let home = env::home_dir();
-        published_lines(&failure.report, home.as_deref()).for_each(|line| human.push_success(line));
-        Failure::new(
-            "EXTENSION_SKILLS_FAILED",
-            format!("{name} is installed, but its agent skills were not published: {failure}"),
-            1,
-        )
-    })
+    skill_installation::install_release_skills(&env, &global, product, executable).map_err(
+        |failure| {
+            document["skills"]["published"] = published_document(&failure.report);
+            let home = env::home_dir();
+            published_lines(&failure.report, home.as_deref())
+                .for_each(|line| human.push_success(line));
+            Failure::new(
+                "EXTENSION_SKILLS_FAILED",
+                format!("{name} is installed, but its agent skills were not published: {failure}"),
+                1,
+            )
+        },
+    )
 }
 
 /// Publish the activated release's skills without a second consent step.
@@ -144,7 +147,7 @@ fn settle_publication(
         .cloned()
         .collect();
     if !skills.is_empty() {
-        let report = publish(product, &skills, document, human)?;
+        let report = publish(product, executable, document, human)?;
         let home = env::home_dir();
         published_lines(&report, home.as_deref()).for_each(|line| human.push_success(line));
         document["skills"]["published"] = published_document(&report);
