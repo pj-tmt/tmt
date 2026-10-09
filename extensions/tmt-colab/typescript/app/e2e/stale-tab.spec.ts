@@ -89,7 +89,10 @@ test('a serve older than the installed release says to restart it, with no Reloa
     });
   });
   await page.goto(mount);
-  await expect(notice(page)).toHaveText(text.serveOlder('0.1.0-alpha.46', '0.1.0-alpha.57'));
+  await expect(notice(page)).toHaveText(
+    'Colab 0.1.0-alpha.57 is installed, but 0.1.0-alpha.46 is still running. Restart tmt colab serve to update.',
+  );
+  await expect(notice(page).locator('code')).toHaveText(text.serveOlder.command);
   await expect(notice(page)).toHaveAttribute('role', 'status');
   await expect(notice(page).getByRole('button')).toHaveCount(0);
   await expect(page.getByRole('heading', { name: text.error, level: 2 })).toBeVisible();

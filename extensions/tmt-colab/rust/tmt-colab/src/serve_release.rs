@@ -126,11 +126,11 @@ impl ServeRelease {
 /// The restart instruction, shared by the serve terminal and tests.
 pub fn restart_text(stale: &Stale) -> String {
     format!(
-        "Colab {} is running but {} is installed.",
-        stale.running, stale.installed
+        "Colab {} is installed, but {} is still running.",
+        stale.installed, stale.running
     )
 }
-pub const RESTART_HINT: &str = "Restart `tmt colab serve` to use the installed release.";
+pub const RESTART_HINT: &str = "Restart `tmt colab serve` to update.";
 
 #[cfg(test)]
 mod tests {

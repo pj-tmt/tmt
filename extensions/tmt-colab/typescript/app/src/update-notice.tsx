@@ -22,7 +22,10 @@ export function UpdateNotice() {
   if (serve?.installed)
     return (
       <div className="update-notice" role="status" data-update-notice data-serve-older>
-        <span>{text.serveOlder(serve.running, serve.installed)}</span>
+        <span>
+          {text.serveOlder.lead(serve.installed, serve.running)} {text.serveOlder.restart}{' '}
+          <code>{text.serveOlder.command}</code> {text.serveOlder.tail}
+        </span>
       </div>
     );
   return (

@@ -215,8 +215,14 @@ export const text = {
     `The connection dropped before the save was confirmed. Copy your changes, then reload to see whether they were saved. Reference: ${operationId}`,
   reload: 'Reload',
   updated: 'Colab has been updated.',
-  serveOlder: (running: string, installed: string) =>
-    `Colab ${installed} is installed, but this serve runs ${running}. Restart tmt colab serve to use it.`,
+  /** One sentence in three parts so the command can be shown as code. */
+  serveOlder: {
+    lead: (installed: string, running: string) =>
+      `Colab ${installed} is installed, but ${running} is still running.`,
+    restart: 'Restart',
+    command: 'tmt colab serve',
+    tail: 'to update.',
+  },
   pages: 'Pages',
   home: 'Space home',
   intro: 'A place for pages you share.',

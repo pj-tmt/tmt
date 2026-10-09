@@ -3102,13 +3102,14 @@ fn serve_in_an_installed_release_warns_once_when_a_newer_version_becomes_current
     );
     std::fs::remove_file(&current).unwrap();
     std::os::unix::fs::symlink("releases/new", &current).unwrap();
-    let warning = Serving::wait_for(&serving.err, "is installed");
+    let warning = Serving::wait_for(&serving.err, "is installed, but");
     assert!(
-        warning.contains("is running but 9.9.9-installed is installed")
-            && warning.contains("Restart `tmt colab serve`"),
+        warning.contains("Colab 9.9.9-installed is installed, but ")
+            && warning.contains(" is still running")
+            && warning.contains("Restart `tmt colab serve` to update"),
         "{warning}"
     );
-    assert_eq!(warning.matches("is installed").count(), 1, "{warning}");
+    assert_eq!(warning.matches("is installed, but").count(), 1, "{warning}");
     // Still serving; no restart, no change to the installed release it was told about.
     assert!(serving.running());
     assert!(exe.is_file());
