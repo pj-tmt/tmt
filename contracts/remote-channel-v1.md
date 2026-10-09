@@ -30,6 +30,12 @@ The four hard lines are: authenticated pairing; no arbitrary shell or command en
 into an enrolled pane; no automatic resend after an uncertain outcome. In addition, membership of an
 extension resource (for example a shared colab page) never implies machine or agent access.
 
+Three standing guarantees hold on every path. Unauthenticated protocol traffic gets one generic
+refusal and learns no inventory. Every effect rechecks the persisted grant inside its write
+transaction, so a revoke orders after an in-flight effect. The serve lease is inherited by
+invocation children, so a restart cannot overlap an orphaned effect. Uncertainty or a timeout never
+mints a new operation ID: recovery reads core by the same ID.
+
 ## Owners and layers
 
 The message layer owns signed envelopes, correlation, durable append/subscribe/ack semantics,

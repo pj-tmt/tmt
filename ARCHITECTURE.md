@@ -52,7 +52,7 @@ tracked-file guard. Handbook language exceptions belong to
 
 Shared visual tokens live in UX-owned `design/tokens/tokens.json`. Vite and Rust CLI theme tests consume them; `design/browser-ui` projects browser roles, fonts, header metrics and command styles into checked CSS, also imported by Office references/guidance.
 Colab app/reader use the leaf's React/static exports; Colab guidance and Remote pages embed its checked CSS plus product-owned host metrics and viewport styles at compile time, without a generator in Cargo or serving.
-Docker stages preserve those inputs and CI retains native checks. Remote's `pages.css` owns layout and host metrics; socket tests check exact shared-plus-host asset bytes.
+Docker stages preserve those inputs and CI retains native checks.
 The private design-tokens component attributes token changes to Colab and Remote through `releaseConsumers`.
 Release procedures belong to the
 [release skill](.agents/skills/tmt-release/SKILL.md), including the archive's
@@ -561,54 +561,32 @@ leaf neither discovers roots nor accesses core state or provider configuration.
 
 ## Remote extension pilot
 
-`extensions/tmt-remote` is a separate executable run as `tmt remote`. It reaches
-core only through the public process/JSON API (fixed `api`, `list --json`,
-`identity list --json` and `check <name> --json` subprocesses of the supplied
-absolute `TMT_EXECUTABLE`, run by `tmt-invoke`) and owns the private
-`<dataRoot>/remote/` subtree through the
-[shared extension state layout](#shared-extension-state-layout). Core never owns a
-listener or Remote state and only registers Remote as an installable product; its
-archive embeds its static browser pages, checked shared CSS plus host styles, SDK and wordlist with no
-companions or skills, and publication gates belong to the
-[release skill](.agents/skills/tmt-release/SKILL.md).
-Colab has no door of its own: Remote mounts its owner-only socket under
-`/r/<prefix>/x/colab/` and keeps Host/Origin, pairing, cookie and live-grant
-admission. Remote's root `/p/<id>` alias redirects to Colab's mounted `p/<id>` route;
-Colab owns short-ID resolution, while the door session cookie stays scoped to the mount space.
-[`contracts/remote-channel-v1.md`](contracts/remote-channel-v1.md) owns
-the wire, pairing, session, operations and extension channel API. Remote owns the
-static browser entry and pairing ceremony; human serve links name `/`, while protocol addresses
-retain their route prefix. Saved pairing is local evidence, not live authority: entry checks once
-through a signed Session and capabilities read; manual rechecks reuse it. No work or designation.
-Protocol refusals and mounted extension responses retain their own representation.
-[Remote settings administration](contracts/remote-channel-v1.md#remote-settings-browser-authority)
-separates local effect designation from paired trust; live-grant original-ID reads never reapply
-uncertain effects. Remote owns authority; shared components supply settings presentation; [Remote internals](.agents/skills/tmt-remote/references/door-and-discovery.md#management-implementation) own implementation details.
-The door serves the browser SDK `remote-v1.js` (built from `remote-client`), which
-gives mounted pages `reopenSession`, `operations(session)` and `certifyKey`; its README owns
-the caller-facing recovery rules. The
-[Remote skill](.agents/skills/tmt-remote/references/architecture-internals.md) owns module internals.
-Remote sessions are keyed by session ID; the effect journal and ack stay per device, bounded by dropping the oldest.
-Reads keep signed admission/replay fences without adoption. Mounted transports explicitly
-bind the session through a non-secret, cookie-device-checked `tmt-session` identifier
-stripped at the door. Last-close touches; every session without a live transport has the existing 60-second inactivity grace.
-Activity renews; reattach resumes. Detached sessions count against the cap until expiry; evict most idle transportless, else attached. End/expiry/eviction/authority loss use owned cleanup.
-Grant-owned held work survives session end; only stop, revoke or grant expiry/revision change cancels it. Uncertain dispatch retains recovery.
-Remote's lease-bound object service owns `objects` and the `rust/crates/tmt-extension-objects` wire leaf (IDs, bounds, strict JSON, frames, Unix carrier): serve attempts Local before readiness, reactivates on validated websocket demand, shares origins with mounts and joins after shutdown. Only Colab is Local (#1852); missing admission refuses before ledger effects, and failed setup forwards without an origin. `status --objects --json` observes live readiness without activation; `status --layers` projects Firestore readiness (`readiness`). See [Remote internals](.agents/skills/tmt-remote/references/architecture-internals.md) and [object-backends](.agents/skills/tmt-remote/references/object-backends.md). Library-only `declaration`, `deploy_plan`, `rules`, `firestore_budget` and `deploy_run` compose sharing plans/Rules, refuse excess quotas and bind after authorized read-back. `deploy_command` defaults to a plan over injected inputs/provider; `deploy_record` atomically saves under a writer lock readers never take. CLI, discovery, provider and readiness wiring remain planned (#2164).
+`extensions/tmt-remote` is a separate executable run as `tmt remote`. It reaches core only
+through the public process/JSON API (fixed `api`, `list --json`, `identity list --json` and
+`check <name> --json` subprocesses of the supplied absolute `TMT_EXECUTABLE`, run by
+`tmt-invoke`) and owns the private `<dataRoot>/remote/` subtree through the
+[shared extension state layout](#shared-extension-state-layout). Core never owns a listener or
+Remote state and only registers Remote as an installable product; its archive embeds the static
+browser pages, checked shared CSS plus host styles, SDK and wordlist, with no companions or
+skills. Publication gates belong to the [release skill](.agents/skills/tmt-release/SKILL.md).
 
-System-wide invariants:
+[`contracts/remote-channel-v1.md`](contracts/remote-channel-v1.md) owns the wire, pairing,
+sessions (reattach, caps, held work), operations, settings authority, mounts, serve lifecycle,
+discovery shapes, and the [hard lines and standing guarantees](contracts/remote-channel-v1.md#user-path)
+that open it. Remote owns authority; shared components supply presentation only. The door serves
+the browser SDK `remote-v1.js` (built from `remote-client`, whose README owns caller recovery
+rules) and mounts owner-installed extensions. [Colab](#colab-extension) is mounted at
+`/r/<prefix>/x/colab/` and otherwise reaches Remote only through the public CLI, that SDK and
+the extension object channel (`tmt-extension-objects`), never through Remote state files.
 
-- Unauthenticated protocol traffic gets one generic refusal and learns no inventory.
-- Every effect rechecks the persisted grant inside its write transaction; revocation orders after an in-flight effect.
-- Uncertainty or timeout never resends and never mints a new operation ID; recovery reads core by the same ID.
-- Enrolled panes are never pasted to; core's send-time guard decides, never terminal output.
-- The serve lease is inherited by invocation children, so restart cannot overlap an orphaned effect.
-
-Remote's binary-private `serve` owner runs one algorithm: human starts detach through an exact native
-worker/private bounded handoff; bare `serve --json` stays foreground. Lease/control/invocation owners
-govern lifetime and cleanup; uncertainty never authorizes successor signals or automatic restart.
-Optional machine status observes one root, without authority or a second acquisition. The
-[discovery contract](contracts/remote-channel-v1.md#local-cli-discovery) owns compatible shapes/errors; Colab never reads Remote state.
+Remote's lease-bound object service owns `objects` and the `rust/crates/tmt-extension-objects`
+wire leaf; [object-backends](.agents/skills/tmt-remote/references/object-backends.md) owns
+channels, backends and quotas. The Firestore deploy owners (`declaration`, `deploy_plan`,
+`rules`, `firestore_budget`, `deploy_run`, `deploy_command`, `deploy_record`) are library-only;
+no CLI path reaches them yet. [Remote internals](.agents/skills/tmt-remote/references/architecture-internals.md)
+own the module table and per-module guarantees;
+[door and discovery](.agents/skills/tmt-remote/references/door-and-discovery.md) owns serve
+lifecycle, status and management implementation.
 
 ## Colab extension
 
