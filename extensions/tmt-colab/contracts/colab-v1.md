@@ -117,6 +117,23 @@ header is parsed again; every other file is an explicit `application/octet-strea
 download through the parent's blob-download lifecycle, revoked after hand-off and on
 unmount. No inline video, active content, relaxed CSP or renderer capability exists.
 
+### Page files in the Files panel (#1855)
+
+The Files panel is a peer of Comments, Chat and Source, opened from a header action
+(`Files`, with the count when non-empty). A writer always has it; a read-only link shows it
+only when the page has files. Rows are the shared list rows with Preview, Download and, for
+writers, Remove; opening bytes follows the same trusted-click rule as message attachments,
+but through the admitted `document-current` read of the document's current content revision.
+
+Choosing files again only adds inert local chips. "Add to page" uploads each chip as a
+`content` asset bound to the digest of the source it is being written against, then
+publishes the `intents` proof records first and only then writes the references through the
+existing Save path as a typed `{set}` change (see Browser Save). A changed page never
+attaches: a stale base or source digest makes the chips upload again from the retained local
+bytes on the next "Add to page". Removing a file saves a typed `{remove}` change; its stored
+bytes stay unreferenced until retention (#1856). A page holds at most 128 files and one
+batch at most 16. The `tmt colab` command line has no attach entry yet.
+
 ## Channel boundary
 
 Colab is an app on remote. The [remote channel contract](../../../contracts/remote-channel-v1.md#extension-channel-api)
