@@ -76,3 +76,12 @@ original-receipt recovery and guarded first/next navigation.
 Use `TMT_REMOTE_CAPTURE_DIR` for light/dark 1440/390 settings captures; 320 fit is asserted.
 Captures include loading/read-only/disabled reasons, drafts/focus, outcome/recovery and self-change
 states at 1440/390 light/dark and 320 fit. The capture index records the served state and provenance.
+
+The Firestore section is read-only: it explicitly requests the signed settings projection,
+sharing status's recorded layer evidence and dated published limits. Unsupported layers use
+one not-available line, even when their other prerequisites are off or unknown. The page
+never displays reason codes, measured usage or an invented quota warning. Native Details
+contains the wrapping budget table and its date, Pacific reset and local guard thresholds.
+An optional observation failure clears stale evidence without overwriting management access,
+original outcome or drafts. Fixtures cover every prerequisite; capture labels distinguish
+injected tier/quota from private recorded evidence and never claim provider acceptance.

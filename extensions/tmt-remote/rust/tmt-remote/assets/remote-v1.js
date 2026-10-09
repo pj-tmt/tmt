@@ -721,196 +721,106 @@ function operations(session, options = {}) {
 	};
 }
 //#endregion
-//#region src/management.ts
-var UUID$1 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
-var decimal = (value) => typeof value === "string" && /^[1-9][0-9]{0,19}$/.test(value);
-function valid(condition) {
-	if (!condition) throw new Error("Invalid management response.");
+//#region src/firestore.ts
+var deploy = "tmt remote deploy firestore";
+var firestoreReasons = {
+	project: {
+		"not-configured": ["No Firebase project is set up.", true],
+		"access-lost": ["tmt can no longer reach the Firebase project.", true],
+		"not-checked": ["The Firebase project has not been checked.", false]
+	},
+	"sign-in": {
+		"provider-disabled": ["Sign-in is not enabled for the project.", true],
+		"permission-missing": ["This account isn't allowed to turn on sign-in for the project.", false],
+		"not-checked": ["Sign-in has not been checked.", false]
+	},
+	rules: {
+		"not-deployed": ["Firestore rules are not deployed.", true],
+		"out-of-date": ["Firestore rules are out of date.", true],
+		partial: ["Firestore rules are only partly deployed.", true],
+		"not-checked": ["Firestore rules have not been checked.", false]
+	},
+	"plan-tier": {
+		"paid-plan-required": ["This needs a paid Firebase plan.", false],
+		"not-checked": ["The Firebase plan has not been checked.", false]
+	},
+	quota: {
+		"headroom-low": ["Today's free Firebase quota is almost used up.", false],
+		exhausted: ["Today's free Firebase quota is used up.", false],
+		"not-checked": ["The free Firebase quota has not been checked.", false]
+	},
+	support: { "not-implemented": ["This isn't available in this release yet.", false] }
+};
+var firestoreSpecs = [
+	["sharing", [
+		"project",
+		"sign-in",
+		"rules",
+		"plan-tier",
+		"quota"
+	]],
+	["operations", ["plan-tier", "support"]],
+	["attachments", [
+		"support",
+		"project",
+		"rules",
+		"quota"
+	]]
+];
+function requireValid(condition) {
+	if (!condition) throw new Error("Invalid Firestore readiness response.");
 }
-function input(condition) {
-	if (!condition) throw new TypeError("Invalid management input.");
-}
-function object(value) {
-	valid(typeof value === "object" && value !== null && !Array.isArray(value));
+function object$1(value) {
+	requireValid(typeof value === "object" && value !== null && !Array.isArray(value));
 	return value;
 }
-function exact(value, keys) {
-	valid(Object.keys(value).length === keys.length && keys.every((key) => Object.hasOwn(value, key)));
+function keys(row, expected) {
+	requireValid(Object.keys(row).length === expected.length && expected.every((key) => Object.hasOwn(row, key)));
 }
-var integer = (value) => Number.isSafeInteger(value) && value >= 0;
-function settings(value) {
-	const row = object(value);
-	exact(row, [
-		"open",
-		"source",
-		"sessionsPerDevice",
-		"sessionsPerDeviceSource",
-		"warning"
-	]);
-	valid(typeof row.open === "boolean" && ["default", "settings.json"].includes(row.source));
-	valid(row.sessionsPerDevice === null || decimal(row.sessionsPerDevice));
-	valid(["default", "settings.json"].includes(row.sessionsPerDeviceSource));
-	valid(row.warning === null || row.warning === "settings.json could not be read; defaults apply");
-	return row;
-}
-function device(value, activity = false) {
-	const row = object(value);
-	exact(row, [
-		"clientId",
-		"name",
-		"kind",
-		"issuedAtMs",
-		"expiresAtMs",
-		"revision",
-		"revoked",
-		"talkEnabled",
-		...activity ? [
-			"thisBrowser",
-			"liveSessionCount",
-			"lastActivityAtMs"
-		] : []
-	]);
-	valid(typeof row.clientId === "string" && UUID$1.test(row.clientId));
-	valid(typeof row.name === "string" && new TextEncoder().encode(row.name).length <= 64 && row.name.trim().length > 0 && ![...row.name].some((char) => char.charCodeAt(0) < 32 || char.charCodeAt(0) === 127));
-	valid([
-		"browser",
-		"addon",
-		"cli"
-	].includes(row.kind) && integer(row.issuedAtMs));
-	valid(row.expiresAtMs === null || integer(row.expiresAtMs));
-	valid(integer(row.revision) && row.revision > 0 && typeof row.revoked === "boolean" && typeof row.talkEnabled === "boolean");
-	if (activity) valid(typeof row.thisBrowser === "boolean" && integer(row.liveSessionCount) && (row.lastActivityAtMs === null || integer(row.lastActivityAtMs)));
-	return row;
-}
-var refusalCodes = /* @__PURE__ */ new Set([
-	"REMOTE_SCOPE_DENIED",
-	"REMOTE_INPUT_INVALID",
-	"REMOTE_RATE_LIMITED",
-	"REMOTE_INTENT_CONFLICT",
-	"REMOTE_CLOSED",
-	"REMOTE_SESSION_ENDED",
-	"REMOTE_SESSION_EVICTED",
-	"REMOTE_INPUT_TOO_LARGE",
-	"REMOTE_STATE_UNAVAILABLE",
-	"REMOTE_MANAGEMENT_READ_ONLY",
-	"REMOTE_MANAGEMENT_UNAVAILABLE",
-	"REMOTE_DEVICE_REVOKED",
-	"REMOTE_DEVICE_NOT_FOUND",
-	"REMOTE_SETTINGS_UNAVAILABLE",
-	"REMOTE_MANAGEMENT_CAPACITY"
-]);
-function outcome(value, operationId) {
-	const row = object(value);
-	valid(row.operationId === operationId);
-	if (row.state === "committed") {
-		exact(row, [
-			"operationId",
+function parseFirestoreLayers(value) {
+	requireValid(Array.isArray(value));
+	if (!value.length) return [];
+	requireValid(value.length === firestoreSpecs.length);
+	for (const [index, [layer, items]] of firestoreSpecs.entries()) {
+		const row = object$1(value[index]);
+		keys(row, [
+			"layer",
 			"state",
-			"result",
-			"sessionEnded"
+			"prerequisites"
 		]);
-		valid(typeof row.sessionEnded === "boolean");
-		const result = object(row.result);
-		valid(Object.keys(result).length === 1);
-		if (Object.hasOwn(result, "settings")) settings(result.settings);
-		else device(result.device);
-	} else {
-		exact(row, [
-			"operationId",
-			"state",
-			"reason"
-		]);
-		if (row.state === "unknown") valid(row.reason === "effect_outcome_unconfirmed");
-		else valid(row.state === "refused" && typeof row.reason === "string" && refusalCodes.has(row.reason));
-	}
-	return row;
-}
-/** Constructing this helper opens nothing. Unknown mutations are never resent.
-* After Session loss, explicitly reopen once and read operation(originalId).
-* Failed fresh admission changes access status; it cannot establish mutation outcome.
-*/
-function management(session, options = {}) {
-	const call = verifiedSessionRequest(session, options);
-	async function mutate(operation, value) {
-		const { operationId } = value;
-		input(UUID$1.test(operationId));
-		try {
-			return await call(operation, operationId, value, (reply) => {
-				const parsed = outcome(reply, operationId);
-				if (parsed.state === "committed") {
-					if (operation === "remote.settings.set") valid("settings" in parsed.result);
-					else {
-						valid("device" in parsed.result && parsed.result.device.clientId === value.clientId);
-						if (operation === "remote.devices.rename") valid(parsed.result.device.name === value.name);
-						if (operation === "remote.devices.revoke") valid(parsed.result.device.revoked);
-						if (operation === "remote.devices.talk") valid(parsed.result.device.talkEnabled === value.enabled);
-					}
-				}
-				return parsed;
-			}, true);
-		} catch (error) {
-			if (error instanceof ClientError) throw new ClientError(error.code, error.message, operationId);
-			if (error instanceof RefusalError) return {
-				state: "refused",
-				operationId,
-				reason: error.code
-			};
-			throw error;
-		}
-	}
-	return {
-		settings: () => call("remote.settings.show", crypto.randomUUID(), {}, (value) => {
-			const row = object(value);
-			exact(row, [
-				"settings",
-				"capabilities",
-				"readOnlyReason"
+		requireValid(row.layer === layer && Array.isArray(row.prerequisites) && row.prerequisites.length === items.length);
+		const states = [];
+		for (const [i, item] of items.entries()) {
+			const entry = object$1(row.prerequisites[i]);
+			requireValid(entry.item === item && [
+				"enabled",
+				"not-enabled",
+				"unknown"
+			].includes(entry.state));
+			states.push(entry.state);
+			if (entry.state === "enabled") {
+				keys(entry, ["item", "state"]);
+				continue;
+			}
+			const reason = typeof entry.reason === "string" && Object.hasOwn(firestoreReasons[item], entry.reason) ? firestoreReasons[item][entry.reason] : void 0;
+			requireValid(reason && entry.state === "unknown" === (entry.reason === "not-checked"));
+			requireValid(entry.reason !== "paid-plan-required" || layer === "operations");
+			keys(entry, reason[1] ? [
+				"item",
+				"state",
+				"reason",
+				"next"
+			] : [
+				"item",
+				"state",
+				"reason"
 			]);
-			settings(row.settings);
-			const capabilities = object(row.capabilities);
-			exact(capabilities, ["settingsWrite", "devicesWrite"]);
-			valid(typeof capabilities.settingsWrite === "boolean" && typeof capabilities.devicesWrite === "boolean");
-			valid(row.readOnlyReason === null || row.readOnlyReason === "local_cli_required");
-			valid(capabilities.settingsWrite === capabilities.devicesWrite && capabilities.settingsWrite === (row.readOnlyReason === null));
-			return row;
-		}),
-		devices: (page) => {
-			input(Number.isInteger(page.limit) && page.limit >= 1 && page.limit <= 50 && (page.cursor === null || typeof page.cursor === "string" && /^[A-Za-z0-9_-]{98}$/.test(page.cursor)));
-			return call("remote.devices.list", crypto.randomUUID(), page, (value) => {
-				const row = object(value);
-				exact(row, ["devices", "nextCursor"]);
-				valid(Array.isArray(row.devices) && row.devices.length <= page.limit);
-				const ids = /* @__PURE__ */ new Set();
-				for (const entry of row.devices) {
-					const item = device(entry, true);
-					valid(!ids.has(item.clientId));
-					ids.add(item.clientId);
-				}
-				valid(row.nextCursor === null || typeof row.nextCursor === "string" && /^[A-Za-z0-9_-]{98}$/.test(row.nextCursor));
-				return row;
-			});
-		},
-		set: (change) => {
-			input(change.setting === "open" && typeof change.value === "boolean" || change.setting === "sessions-per-device" && (change.value === null || decimal(change.value)));
-			return mutate("remote.settings.set", { ...change });
-		},
-		rename: (change) => {
-			input(UUID$1.test(change.clientId) && typeof change.name === "string" && change.name.trim().length > 0 && new TextEncoder().encode(change.name).length <= 64 && ![...change.name].some((char) => char.charCodeAt(0) < 32 || char.charCodeAt(0) === 127));
-			return mutate("remote.devices.rename", { ...change });
-		},
-		talk: (change) => {
-			input(UUID$1.test(change.clientId) && typeof change.enabled === "boolean");
-			return mutate("remote.devices.talk", { ...change });
-		},
-		revoke: (change) => {
-			input(UUID$1.test(change.clientId));
-			return mutate("remote.devices.revoke", { ...change });
-		},
-		operation: (operationId) => {
-			input(UUID$1.test(operationId));
-			return call("remote.management.operation", crypto.randomUUID(), { operationId }, (value) => outcome(value, operationId));
+			requireValid(entry.next === (reason[1] ? deploy : void 0));
 		}
-	};
+		const aggregate = states.includes("not-enabled") ? "not-enabled" : states.includes("unknown") ? "unknown" : "enabled";
+		requireValid(row.state === aggregate);
+	}
+	return value;
 }
 //#endregion
 //#region src/budget.ts
@@ -931,6 +841,8 @@ var budget_exports = /* @__PURE__ */ __exportAll({
 	exhaustedIsCurrent: () => exhaustedIsCurrent,
 	newUsage: () => newUsage,
 	pacificDay: () => pacificDay,
+	parsePublishedLimits: () => parsePublishedLimits,
+	publishedLimitRows: () => publishedLimitRows,
 	recordedUsage: () => recordedUsage,
 	usageAt: () => usageAt
 });
@@ -1117,6 +1029,277 @@ function classifyProviderExhausted(attempt, nowMs) {
 /** Still a statement about today's quota. */
 function exhaustedIsCurrent(evidence, nowMs) {
 	return nowMs < evidence.resetAtMs;
+}
+var publishedLimitRows = [
+	[
+		"readsPerDay",
+		"Document reads",
+		"day",
+		false
+	],
+	[
+		"writesPerDay",
+		"Document writes",
+		"day",
+		false
+	],
+	[
+		"deletesPerDay",
+		"Document deletes",
+		"day",
+		false
+	],
+	[
+		"storedBytes",
+		"Stored data",
+		"",
+		true
+	],
+	[
+		"egressBytesPerMonth",
+		"Data sent out",
+		"month",
+		true
+	],
+	[
+		"databases",
+		"Free databases per project",
+		"",
+		false
+	],
+	[
+		"compositeIndexes",
+		"Composite indexes",
+		"",
+		false
+	],
+	[
+		"singleFieldIndexConfigs",
+		"Single-field index configs",
+		"",
+		false
+	],
+	[
+		"documentBytes",
+		"Document size",
+		"",
+		true
+	],
+	[
+		"rulesLookupsPerRequest",
+		"Rules document lookups per request",
+		"",
+		false
+	]
+];
+function parsePublishedLimits(value) {
+	const object = (v) => typeof v === "object" && v !== null && !Array.isArray(v);
+	const keys = (v, expected) => Object.keys(v).length === expected.length && expected.every((key) => Object.hasOwn(v, key));
+	if (!object(value) || !keys(value, [
+		"plan",
+		"readOn",
+		"resetsAt",
+		"limits",
+		"guard"
+	]) || value.plan !== "no-cost" || value.resetsAt !== "pacific-midnight" || typeof value.readOn !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value.readOn) || !object(value.limits) || !keys(value.limits, publishedLimitRows.map((row) => row[0])) || !Object.values(value.limits).every((n) => typeof n === "number" && Number.isSafeInteger(n) && n > 0) || !object(value.guard) || !keys(value.guard, ["warnPercent", "refusePercent"]) || !Number.isSafeInteger(value.guard.warnPercent) || !Number.isSafeInteger(value.guard.refusePercent) || !(value.guard.warnPercent > 0 && value.guard.warnPercent < value.guard.refusePercent && value.guard.refusePercent <= 100)) throw new Error("Invalid Firestore budget response.");
+	return value;
+}
+//#endregion
+//#region src/management.ts
+var UUID$1 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+var decimal = (value) => typeof value === "string" && /^[1-9][0-9]{0,19}$/.test(value);
+function valid(condition) {
+	if (!condition) throw new Error("Invalid management response.");
+}
+function input(condition) {
+	if (!condition) throw new TypeError("Invalid management input.");
+}
+function object(value) {
+	valid(typeof value === "object" && value !== null && !Array.isArray(value));
+	return value;
+}
+function exact(value, keys) {
+	valid(Object.keys(value).length === keys.length && keys.every((key) => Object.hasOwn(value, key)));
+}
+var integer = (value) => Number.isSafeInteger(value) && value >= 0;
+function settings(value) {
+	const row = object(value);
+	exact(row, [
+		"open",
+		"source",
+		"sessionsPerDevice",
+		"sessionsPerDeviceSource",
+		"warning"
+	]);
+	valid(typeof row.open === "boolean" && ["default", "settings.json"].includes(row.source));
+	valid(row.sessionsPerDevice === null || decimal(row.sessionsPerDevice));
+	valid(["default", "settings.json"].includes(row.sessionsPerDeviceSource));
+	valid(row.warning === null || row.warning === "settings.json could not be read; defaults apply");
+	return row;
+}
+function device(value, activity = false) {
+	const row = object(value);
+	exact(row, [
+		"clientId",
+		"name",
+		"kind",
+		"issuedAtMs",
+		"expiresAtMs",
+		"revision",
+		"revoked",
+		"talkEnabled",
+		...activity ? [
+			"thisBrowser",
+			"liveSessionCount",
+			"lastActivityAtMs"
+		] : []
+	]);
+	valid(typeof row.clientId === "string" && UUID$1.test(row.clientId));
+	valid(typeof row.name === "string" && new TextEncoder().encode(row.name).length <= 64 && row.name.trim().length > 0 && ![...row.name].some((char) => char.charCodeAt(0) < 32 || char.charCodeAt(0) === 127));
+	valid([
+		"browser",
+		"addon",
+		"cli"
+	].includes(row.kind) && integer(row.issuedAtMs));
+	valid(row.expiresAtMs === null || integer(row.expiresAtMs));
+	valid(integer(row.revision) && row.revision > 0 && typeof row.revoked === "boolean" && typeof row.talkEnabled === "boolean");
+	if (activity) valid(typeof row.thisBrowser === "boolean" && integer(row.liveSessionCount) && (row.lastActivityAtMs === null || integer(row.lastActivityAtMs)));
+	return row;
+}
+var refusalCodes = /* @__PURE__ */ new Set([
+	"REMOTE_SCOPE_DENIED",
+	"REMOTE_INPUT_INVALID",
+	"REMOTE_RATE_LIMITED",
+	"REMOTE_INTENT_CONFLICT",
+	"REMOTE_CLOSED",
+	"REMOTE_SESSION_ENDED",
+	"REMOTE_SESSION_EVICTED",
+	"REMOTE_INPUT_TOO_LARGE",
+	"REMOTE_STATE_UNAVAILABLE",
+	"REMOTE_MANAGEMENT_READ_ONLY",
+	"REMOTE_MANAGEMENT_UNAVAILABLE",
+	"REMOTE_DEVICE_REVOKED",
+	"REMOTE_DEVICE_NOT_FOUND",
+	"REMOTE_SETTINGS_UNAVAILABLE",
+	"REMOTE_MANAGEMENT_CAPACITY"
+]);
+function outcome(value, operationId) {
+	const row = object(value);
+	valid(row.operationId === operationId);
+	if (row.state === "committed") {
+		exact(row, [
+			"operationId",
+			"state",
+			"result",
+			"sessionEnded"
+		]);
+		valid(typeof row.sessionEnded === "boolean");
+		const result = object(row.result);
+		valid(Object.keys(result).length === 1);
+		if (Object.hasOwn(result, "settings")) settings(result.settings);
+		else device(result.device);
+	} else {
+		exact(row, [
+			"operationId",
+			"state",
+			"reason"
+		]);
+		if (row.state === "unknown") valid(row.reason === "effect_outcome_unconfirmed");
+		else valid(row.state === "refused" && typeof row.reason === "string" && refusalCodes.has(row.reason));
+	}
+	return row;
+}
+/** Constructing this helper opens nothing. Unknown mutations are never resent.
+* After Session loss, explicitly reopen once and read operation(originalId).
+* Failed fresh admission changes access status; it cannot establish mutation outcome.
+*/
+function management(session, options = {}) {
+	const call = verifiedSessionRequest(session, options);
+	async function mutate(operation, value) {
+		const { operationId } = value;
+		input(UUID$1.test(operationId));
+		try {
+			return await call(operation, operationId, value, (reply) => {
+				const parsed = outcome(reply, operationId);
+				if (parsed.state === "committed") {
+					if (operation === "remote.settings.set") valid("settings" in parsed.result);
+					else {
+						valid("device" in parsed.result && parsed.result.device.clientId === value.clientId);
+						if (operation === "remote.devices.rename") valid(parsed.result.device.name === value.name);
+						if (operation === "remote.devices.revoke") valid(parsed.result.device.revoked);
+						if (operation === "remote.devices.talk") valid(parsed.result.device.talkEnabled === value.enabled);
+					}
+				}
+				return parsed;
+			}, true);
+		} catch (error) {
+			if (error instanceof ClientError) throw new ClientError(error.code, error.message, operationId);
+			if (error instanceof RefusalError) return {
+				state: "refused",
+				operationId,
+				reason: error.code
+			};
+			throw error;
+		}
+	}
+	return {
+		settings: ((options) => call("remote.settings.show", crypto.randomUUID(), options ?? {}, (value) => {
+			const row = object(value);
+			exact(row, [
+				"settings",
+				"capabilities",
+				"readOnlyReason",
+				...options ? ["firestoreLayers", "firestoreBudget"] : []
+			]);
+			if (options) {
+				parseFirestoreLayers(row.firestoreLayers);
+				parsePublishedLimits(row.firestoreBudget);
+			}
+			settings(row.settings);
+			const capabilities = object(row.capabilities);
+			exact(capabilities, ["settingsWrite", "devicesWrite"]);
+			valid(typeof capabilities.settingsWrite === "boolean" && typeof capabilities.devicesWrite === "boolean");
+			valid(row.readOnlyReason === null || row.readOnlyReason === "local_cli_required");
+			valid(capabilities.settingsWrite === capabilities.devicesWrite && capabilities.settingsWrite === (row.readOnlyReason === null));
+			return row;
+		})),
+		devices: (page) => {
+			input(Number.isInteger(page.limit) && page.limit >= 1 && page.limit <= 50 && (page.cursor === null || typeof page.cursor === "string" && /^[A-Za-z0-9_-]{98}$/.test(page.cursor)));
+			return call("remote.devices.list", crypto.randomUUID(), page, (value) => {
+				const row = object(value);
+				exact(row, ["devices", "nextCursor"]);
+				valid(Array.isArray(row.devices) && row.devices.length <= page.limit);
+				const ids = /* @__PURE__ */ new Set();
+				for (const entry of row.devices) {
+					const item = device(entry, true);
+					valid(!ids.has(item.clientId));
+					ids.add(item.clientId);
+				}
+				valid(row.nextCursor === null || typeof row.nextCursor === "string" && /^[A-Za-z0-9_-]{98}$/.test(row.nextCursor));
+				return row;
+			});
+		},
+		set: (change) => {
+			input(change.setting === "open" && typeof change.value === "boolean" || change.setting === "sessions-per-device" && (change.value === null || decimal(change.value)));
+			return mutate("remote.settings.set", { ...change });
+		},
+		rename: (change) => {
+			input(UUID$1.test(change.clientId) && typeof change.name === "string" && change.name.trim().length > 0 && new TextEncoder().encode(change.name).length <= 64 && ![...change.name].some((char) => char.charCodeAt(0) < 32 || char.charCodeAt(0) === 127));
+			return mutate("remote.devices.rename", { ...change });
+		},
+		talk: (change) => {
+			input(UUID$1.test(change.clientId) && typeof change.enabled === "boolean");
+			return mutate("remote.devices.talk", { ...change });
+		},
+		revoke: (change) => {
+			input(UUID$1.test(change.clientId));
+			return mutate("remote.devices.revoke", { ...change });
+		},
+		operation: (operationId) => {
+			input(UUID$1.test(operationId));
+			return call("remote.management.operation", crypto.randomUUID(), { operationId }, (value) => outcome(value, operationId));
+		}
+	};
 }
 //#endregion
 //#region ../../rust/tmt-remote/assets/bip39-english.txt?raw

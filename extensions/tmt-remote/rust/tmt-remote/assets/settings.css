@@ -52,3 +52,43 @@
   font: 12px/1.5 var(--tmt-ui-font-mono);
   overflow-wrap: anywhere;
 }
+
+.settings-page .firestore-layer {
+  margin: 20px 0;
+}
+.settings-page .firestore-layer li {
+  margin: 16px 0;
+}
+.settings-page .firestore-layer p {
+  margin: 8px 0;
+}
+.settings-page #firestore-content code {
+  overflow-wrap: anywhere;
+}
+.settings-page .firestore-state[data-tone="working"] {
+  color: var(--tmt-ui-color-working);
+}
+.settings-page .firestore-state[data-tone="waiting"] {
+  color: var(--tmt-ui-color-waiting);
+}
+.settings-page .firestore-state[data-tone="review"] {
+  color: var(--tmt-ui-color-review);
+}
+.settings-page #firestore-budget summary:focus-visible {
+  outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
+  outline-offset: var(--tmt-ui-host-focus-offset);
+}
+.settings-page #firestore-budget table {
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: collapse;
+}
+.settings-page #firestore-budget th,
+.settings-page #firestore-budget td {
+  text-align: left;
+  font-weight: normal;
+  vertical-align: top;
+  overflow-wrap: anywhere;
+  padding: 8px 8px 8px 0;
+  border-bottom: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
+}

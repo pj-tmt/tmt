@@ -1,4 +1,5 @@
 import { management, reopenSession, RefusalError } from 'remote-browser-sdk';
+import { renderFirestore } from './firestore-page.js';
 import { ManagementPage, type PageIntent } from './management-page.js';
 
 function element<T extends HTMLElement>(id: string): T {
@@ -32,6 +33,7 @@ function commandNotice(target: HTMLElement, text: string): void {
 }
 
 function render(): void {
+  renderFirestore(element('firestore-content'), page.firestoreAccess, page.firestore);
   element('access').textContent = {
     checking: 'Checking current access…',
     live: 'Current browser access confirmed.',
@@ -248,10 +250,21 @@ async function run(action: () => Promise<void>): Promise<void> {
   }
   render();
 }
+/** Paint management first; only the optional section changes when its read completes. */
+async function refreshView(cursor?: string | null): Promise<void> {
+  await page.refresh(cursor);
+  render();
+  if (page.access === 'live')
+    void page
+      .observeFirestore()
+      .then(() =>
+        renderFirestore(element('firestore-content'), page.firestoreAccess, page.firestore),
+      );
+}
 async function change(intent: PageIntent): Promise<void> {
   await run(() => page.submit(intent));
   if (page.outcome?.state === 'committed' && !page.outcome.sessionEnded)
-    await run(() => page.refresh());
+    await run(() => refreshView());
 }
 element<HTMLFormElement>('opening-form').addEventListener('submit', (event) => {
   event.preventDefault();
@@ -279,7 +292,7 @@ element<HTMLFormElement>('limit-form').addEventListener('submit', (event) => {
   });
 });
 mode.addEventListener('change', render);
-refresh.addEventListener('click', () => void run(() => page.refresh()));
+refresh.addEventListener('click', () => void run(() => refreshView()));
 // Navigation never discards an unsent name. Keep only this bounded page's forms,
 // rather than accumulating drafts or cursor history across the whole inventory.
 function navigate(cursor: string | null): void {
@@ -293,7 +306,7 @@ function navigate(cursor: string | null): void {
       return;
     }
   }
-  void run(() => page.refresh(cursor));
+  void run(() => refreshView(cursor));
 }
 more.addEventListener('click', () => navigate(page.devices?.nextCursor ?? null));
 first.addEventListener('click', () => navigate(null));
@@ -302,7 +315,7 @@ recover.addEventListener(
   () =>
     void run(async () => {
       await page.recover();
-      if (page.access === 'live') await page.refresh();
+      if (page.access === 'live') await refreshView();
     }),
 );
 try {
@@ -311,7 +324,7 @@ try {
     session = await reopenSession(session);
     return management(session);
   });
-  await run(() => page.refresh());
+  await run(() => refreshView());
 } catch (error) {
   commandNotice(
     element('access'),

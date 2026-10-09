@@ -5,7 +5,7 @@ guard code is `src/firestore_budget.rs`; its vectors come from the independent s
 `tests/fixtures/firestore_budget/reference.py`. The semantics (thresholds, outcomes, error
 code) are in the [contract](../../../../contracts/remote-channel-v1.md#proposal-free-plan-budget-guard).
 This page holds the dated numbers: recheck them before relying on them, they change.
-`tmt remote status --budget` shows the Firestore rows of the table below from `firestore_limits.rs`; change both together when you recheck.
+`tmt remote status --budget` and the settings page show the Firestore rows of the table below from `firestore_limits.rs`; change both together when you recheck.
 
 ## Official limits (read 2026-10-09; pages last updated 2026-10-07 UTC)
 
@@ -89,3 +89,9 @@ provider quota refusals use the fixed quota code, and a lost mutation reply stay
 These checks do not observe the project's daily traffic quota or prove its plan tier. Plan-only CLI inventory checks live plus planned field configurations before effects.
 Installed Colab acceptance waits for its declaration command; real-project proof also requires
 separate owner approval.
+
+The settings page shows these published allowances under native Details, including the
+source-read date and 70/90 guard thresholds. They are not a measured usage percentage or
+quota-headroom source, so no threshold-crossing warning is inferred from this table. The
+SDK validates the dated member against the same checked limits fixture; received values
+and date, rather than a local fallback, are displayed.

@@ -453,7 +453,11 @@ impl Store {
 
 /// Called only after ordinary signed Session admission. Current browser kind/origin
 /// is checked even when the caller has all agent scopes.
-pub(crate) fn append(permit: &MessagePermit, devices: &crate::devices::Devices) -> Result<Vec<u8>> {
+pub(crate) fn append(
+    permit: &MessagePermit,
+    devices: &crate::devices::Devices,
+    firestore: &dyn crate::readiness::FirestoreEvidenceSource,
+) -> Result<Vec<u8>> {
     if permit.message.payload.len() > crate::limits::MANAGEMENT_INPUT_BYTES {
         return Err(invalid());
     }
@@ -464,16 +468,26 @@ pub(crate) fn append(permit: &MessagePermit, devices: &crate::devices::Devices) 
     let operation = envelope.operation;
     match operation {
         "remote.settings.show" => {
-            if permit.message.input != json!({}) {
+            let include_firestore = permit.message.input == json!({"firestore":true});
+            if !include_firestore && permit.message.input != json!({}) {
                 return Err(invalid());
             }
-            let value=permit.with_store(|store| {
+            // The lock-free bounded record snapshot must not nest inside live/Store locks.
+            let evidence = include_firestore.then(|| firestore.evidence()).flatten();
+            let mut value=permit.with_store(|store| {
                 let root=store.data_root.clone();
                 let tx=store.authorized(&permit.grant,now_ms()?)?;
                 let allowed=writable(&tx,&permit.grant)?;
                 let loaded=settings::read_or_default(&root);
                 Ok(json!({"settings":settings_json(&loaded),"capabilities":{"settingsWrite":allowed,"devicesWrite":allowed},"readOnlyReason":if allowed {None}else{Some("local_cli_required")}}))
             })?;
+            if include_firestore {
+                value["firestoreLayers"] =
+                    crate::readiness::project(evidence.as_ref(), &crate::readiness::LAYERS);
+                value["firestoreBudget"] = crate::firestore_limits::member();
+            }
+            // Revalidate after the snapshot and before disclosing the admitted view.
+            permit.revalidate()?;
             return permit.response(&value);
         }
         "remote.devices.list" => {

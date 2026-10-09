@@ -19,7 +19,7 @@ Module owners (put a change in the existing owner; `canonical`, `crypto`, `wire`
 | `deploy_command`, `deploy_record`                | Plan/authorization/output over captured inputs/provider; private deployment identity/run file, atomic replacement under its writer lock; lock-free per-request status evidence                                        |
 | `firestore_budget`                               | Free-plan Firestore budget model and client guard; vectors in `tests/fixtures/firestore_budget`                                                                                                                       |
 | `firestore_limits`                               | Dated free-plan Firestore limits table and its `status --budget` projection, validator and human lines; golden in `tests/fixtures/firestore_budget/limits-member.json`                                                |
-| `readiness`                                      | Layered Firestore readiness: one table of items, reasons and sentences; record projection, validator and human lines over an injected evidence source                                                                 |
+| `readiness`                                      | Layered Firestore readiness: one table of items, reasons and sentences; record projection, validator and human lines over the evidence source shared by status and opt-in signed settings                             |
 | `deploy_cli`, `deploy_discovery`, `deploy_tools` | CLI argv/composition; fixed public installed declaration replies; installed Firebase launcher/Node discovery (no receipt parser or mutable helper file)                                                               |
 | `deploy_firestore`                               | Real provider port; binary-embedded Node helper, version-gated firebase-tools login, bounded no-retry mutations and exact Rules read-back                                                                             |
 | `deploy_run`                                     | Authorized Firestore sharing deploy over an injected `DeployPort`: envelope digest, authorization, step order, record and binding rule (CLI composition in `deploy_cli`)                                              |
@@ -181,3 +181,9 @@ reset. Save failure stops effects; a directory-sync failure after rename does no
 visible publication rolled back. Staging cleanup only removes admitted deployment staging
 names under the writer lock. Existing status/stop, settings, store and machine-key owners
 keep the deployment identity and binding.
+
+The Firestore settings projection takes its record snapshot outside live/Store locks and
+revalidates the current browser grant before disclosure. Only the explicit opt-in read adds
+layer/budget members; ordinary settings and status shapes remain unchanged. Browser display
+uses strict typed projections, not another provider or readiness engine. Optional failure
+clears old evidence independently of management access and original-effect outcome ownership.

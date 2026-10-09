@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { test } from 'vite-plus/test';
 import { openSession } from '../src/device.js';
 import { management } from '../src/management.js';
@@ -237,4 +238,36 @@ test('sending toggle checks the target and returned scope bit without changing o
   const result = await client.talk({ operationId: id, clientId: door.clientId, enabled: false });
   assert.equal(result.state, 'committed');
   assert.equal(door.calls.length, 1);
+});
+
+test('Firestore is an explicit signed opt-in with strict extended shape and no extra session', async () => {
+  const { door, client } = await ready();
+  const ordinary = await client.settings();
+  assert.deepEqual(Object.keys(ordinary).sort(), ['capabilities', 'readOnlyReason', 'settings']);
+  const limits = JSON.parse(
+    readFileSync(
+      new URL(
+        '../../../rust/tmt-remote/tests/fixtures/firestore_budget/limits-member.json',
+        import.meta.url,
+      ),
+      'utf8',
+    ),
+  );
+  door.managementReply = () => ({ ...ordinary, firestoreLayers: [], firestoreBudget: limits });
+  const view = await client.settings({ firestore: true });
+  assert.deepEqual(view.firestoreBudget, limits);
+  assert.deepEqual(door.calls.at(-1)!.payload, { firestore: true });
+  assert.equal(door.opens, 1);
+  door.managementReply = () => ({
+    ...ordinary,
+    firestoreLayers: [],
+    firestoreBudget: { ...limits, secret: 'TOKEN_CANARY' },
+  });
+  await assert.rejects(
+    client.settings({ firestore: true }),
+    (error: unknown) =>
+      error instanceof ClientError &&
+      error.code === 'unverifiable_response' &&
+      !error.message.includes('TOKEN_CANARY'),
+  );
 });

@@ -5,6 +5,7 @@ export { management } from './management.js';
 export * as budget from './budget.js';
 export type {
   RemoteManagement,
+  FirestoreSettingsView,
   ManagementOutcome,
   RemoteSettings,
   DevicePage,
