@@ -41,11 +41,9 @@ fn prepare_with(
     let legacy = normalize(&home.join(".tmux-team"));
     // Preserve the former default selection only during this one-shot move.
     let former = if xdg.is_none()
-        && legacy.join("config.json").exists()
-        && !preferred.join("config.json").exists()
+        && ((legacy.join("config.json").exists() && !preferred.join("config.json").exists())
+            || (!preferred.exists() && legacy.exists()))
     {
-        legacy
-    } else if xdg.is_none() && !preferred.exists() && legacy.exists() {
         legacy
     } else {
         preferred
