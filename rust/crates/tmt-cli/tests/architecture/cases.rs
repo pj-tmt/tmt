@@ -1802,6 +1802,90 @@ fn squad_may_use_the_neutral_invoke_leaf_but_not_core_process_adapters() {
 }
 
 #[test]
+fn extension_serve_is_a_leaf_with_only_reviewed_executable_consumers() {
+    // Colab joins when it adopts the launcher.
+    for consumer in ["tmt-remote"] {
+        assert!(
+            policy::dependency_violations(&package(
+                consumer,
+                vec![dependency("tmt-extension-serve", "normal", None, None)]
+            ))
+            .is_empty()
+        );
+        assert_exact(
+            &[syntax(
+                consumer,
+                "serve.rs",
+                "use tmt_extension_serve::launch;",
+            )],
+            &[],
+        );
+    }
+    for allowed in ["nix", "serde_json", "signal-hook"] {
+        assert!(
+            policy::dependency_violations(&package(
+                "tmt-extension-serve",
+                vec![dependency(allowed, "normal", None, None)]
+            ))
+            .is_empty()
+        );
+    }
+    for forbidden in [
+        "tmt-core",
+        "tmt-adapters",
+        "tmt-cli",
+        "tmt-cli-style",
+        "tmt-remote",
+        "tmt-colab",
+        "tmt-extension-state",
+        "serde",
+        "rusqlite",
+    ] {
+        assert!(
+            !policy::dependency_violations(&package(
+                "tmt-extension-serve",
+                vec![dependency(forbidden, "normal", None, None)]
+            ))
+            .is_empty(),
+            "{forbidden}"
+        );
+    }
+    for consumer in [
+        "tmt-core",
+        "tmt-adapters",
+        "tmt-cli",
+        "tmt-colab-model",
+        "tmt-ops",
+    ] {
+        assert!(
+            !policy::dependency_violations(&package(
+                consumer,
+                vec![dependency("tmt-extension-serve", "normal", None, None)]
+            ))
+            .is_empty(),
+            "{consumer}"
+        );
+        assert!(
+            !policy::source_violations(&[syntax(
+                consumer,
+                "serve.rs",
+                "use tmt_extension_serve::launch;"
+            )])
+            .is_empty(),
+            "{consumer}"
+        );
+    }
+    assert!(
+        !policy::source_violations(&[syntax(
+            "tmt-extension-serve",
+            "lib.rs",
+            "use tmt_extension_state::Layout;"
+        )])
+        .is_empty()
+    );
+}
+
+#[test]
 fn extension_state_is_a_leaf_with_only_the_two_reviewed_executable_consumers() {
     for consumer in ["tmt-remote", "tmt-colab"] {
         assert!(

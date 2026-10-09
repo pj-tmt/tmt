@@ -62,6 +62,10 @@ const WORKSPACE_MANIFESTS: &[(&str, &str)] = &[
         "rust/crates/tmt-extension-state/Cargo.toml",
     ),
     (
+        "tmt-extension-serve",
+        "rust/crates/tmt-extension-serve/Cargo.toml",
+    ),
+    (
         "tmt-extension-objects",
         "rust/crates/tmt-extension-objects/Cargo.toml",
     ),

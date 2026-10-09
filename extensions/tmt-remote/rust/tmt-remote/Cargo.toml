@@ -32,6 +32,7 @@ nix = { workspace = true, features = ["socket"] }
 rusqlite.workspace = true
 tmt-invoke.workspace = true
 tmt-extension-state.workspace = true
+tmt-extension-serve.workspace = true
 tmt-extension-objects.workspace = true
 signal-hook.workspace = true
 tmt-cli-style.workspace = true

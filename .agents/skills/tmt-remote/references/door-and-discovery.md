@@ -15,15 +15,12 @@ the unchanged protocol descriptor. Direct invocation needs an absolute `TMT_EXEC
 searches for another core. Stop preserves pairings/grants and cancels pending pairing/held work;
 launcher departure after accepted handoff does not stop it. Limits are named in `src/limits.rs`.
 
-`main` owns CLI grammar/dispatch; binary-private `serve` owns mode selection, exact native self-exec,
-signals and one composition over existing core/state/Control/Approval/events/HTTP owners. The private
-UnixStream is transferred through native Stdio safely, restored to close-on-exec and closed before
-continued serving. Its bounded monitor ends/joins at acceptance or failure. Parent Ready -> Accept
--> Accepted handling uses successful Accept write as the no-kill cutoff; lost acknowledgment or
-output is unconfirmed, with status/stop guidance, never automatic retry. Pre-accept cleanup requires
-worker confirmation plus exit; forced kill and surviving inherited invocation leases remain uncertain.
-The startup deadline does not bound disk calls or cleanup joins; the launcher has separate bounded
-cleanup and reap, and never signals a successor or a reaped child.
+`main` owns CLI grammar/dispatch; binary-private `serve` owns mode selection and one composition
+over existing core/state/Control/Approval/events/HTTP owners. The exact native self-exec worker, the
+private handoff (Ready -> Accept -> Accepted, the no-kill cutoff, bounded cleanup and reap, lost
+acknowledgment) and the failure-record writer are the shared `tmt-extension-serve` leaf; its crate
+docs own those semantics for Remote and Colab, so read them there. Remote supplies the Ready shape
+and validation, its error codes and hints, the limits and the serve-error phase mapping.
 
 Only the background worker clears/writes fixed `remote/serve-error.json`, admitted under Serving.
 It is a bounded sanitized terminal failure record, not a log or health inventory. Duplicate starts

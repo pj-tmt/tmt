@@ -148,6 +148,23 @@ describe('CI area selection', () => {
     expect(ownerOf('rust/crates/tmt-extension-state-other/src/lib.rs')).toBe('cli');
   });
 
+  it('keeps the extension serve leaf selected by its consumers with full native verification', () => {
+    const paths = [
+      'rust/crates/tmt-extension-serve/Cargo.toml',
+      'rust/crates/tmt-extension-serve/src/lib.rs',
+      'rust/crates/tmt-extension-serve/tests/handoff.rs',
+    ];
+    for (const file of paths) expect(ownerOf(file)).toBe('tmt-remote');
+    for (const row of explainCiSelection(paths)) {
+      expect(row.owner).toBe('tmt-remote');
+      expect(row.rule).toBe('native-source');
+      expect(selectCiAreas([row.path])).toEqual(
+        selectCiAreas(['rust/crates/tmt-invoke/src/lib.rs'])
+      );
+    }
+    expect(ownerOf('rust/crates/tmt-extension-serve-other/src/lib.rs')).toBe('cli');
+  });
+
   it('keeps the extension objects leaf privately owned by Remote with full native verification', () => {
     const paths = [
       'rust/crates/tmt-extension-objects/Cargo.toml',
