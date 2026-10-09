@@ -1,22 +1,16 @@
-import { pageAction } from '../test/page-actions.js';
 import { expect, test, type Page } from '@playwright/test';
 import { createHash } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
 import { text } from '../src/strings.js';
 import { pairBrowser, startDoor } from './harness/browser.js';
 import { createPage, freePort, openPage, run } from './harness/ask.js';
+import { distinct, openSource, save } from './harness/page-source.js';
 import { disposeActiveWorlds, withWorld } from './harness/with-world.js';
 
 // #2032: the browser Save publishes the whole source through native preparation over the owner
 // socket, so a page and a save share one limit (2 MiB) and the CLI and the browser see the same
 // bytes. Every size here is incompressible, so it is the size on the wire.
 const LIMIT = 2 * 1024 * 1024;
-const distinct = (bytes: number, seed: string) => {
-  let out = '';
-  for (let i = 0; out.length < bytes; i++)
-    out += createHash('sha256').update(`${seed}:${i}`).digest('hex');
-  return `<p>${out.slice(0, bytes - 7)}</p>`;
-};
 /** The alert at the 390px look, light and dark, for the UX review. */
 async function capture(page: Page, name: string) {
   if (!process.env.COLAB_SAVE_CAPTURE_DIR) return;
@@ -31,20 +25,6 @@ async function capture(page: Page, name: string) {
   }
   await page.setViewportSize({ width: 1280, height: 720 });
 }
-const source = (page: Page) => page.getByRole('textbox', { name: 'Source', exact: true });
-async function openSource(page: Page) {
-  await (await pageAction(page, 'Source')).click({ timeout: 60_000 });
-  return source(page);
-}
-// A save is done when the editor leaves "Saving…": the reply arrives after the serve has combined
-// the new tail, so a CLI write that follows sees room for its own update.
-async function save(page: Page) {
-  await page.getByRole('button', { name: text.save, exact: true }).click();
-  await expect(page.getByRole('button', { name: text.saving, exact: true })).toHaveCount(0, {
-    timeout: 120_000,
-  });
-}
-
 test.afterEach(disposeActiveWorlds);
 
 // #1998: a single committed batch must not exhaust the live peer queue before it can ACK.
@@ -117,61 +97,6 @@ test('wide CLI and browser batches keep the original live socket and exact sourc
     sameSocket();
   });
 });
-test('a 1.5 MiB page takes a browser save, a CLI write and 80 small browser edits, byte for byte', async () => {
-  test.setTimeout(900_000);
-  await withWorld(async (world) => {
-    const door = await startDoor(world, await freePort());
-    const browser = await pairBrowser(world, 'save-author');
-    const colab = world.binaries.colab;
-    const read = (id: string) =>
-      JSON.parse(run(world, colab, ['page', 'read', id, '--json'])) as { source: string };
-    const big = 1.5 * 1024 * 1024;
-    const a = distinct(big, 'a');
-    const created = createPage(world, 'Save big', a);
-    const page = await openPage(door, browser, created);
-    const box = await openSource(page);
-    await expect(box).toHaveValue(a, { timeout: 60_000 });
-
-    // The browser saves a different 1.5 MiB; the CLI reads exactly those bytes.
-    const b = distinct(big, 'b');
-    await box.fill(b);
-    const started = Date.now();
-    await save(page);
-    await expect.poll(() => read(created.pageId).source === b, { timeout: 60_000 }).toBe(true);
-    console.log(`SAVE_UPLOAD browser 1.5 MiB save reached the CLI in ${Date.now() - started} ms`);
-    await expect(page.getByRole('alert')).toHaveCount(0);
-
-    // A CLI write of another 1.5 MiB reaches the open browser, which then saves on top of it.
-    const c = distinct(big, 'c');
-    run(world, colab, ['page', 'write', created.pageId, '--file', '-', '--json'], c);
-    await expect(box).toHaveValue(c, { timeout: 60_000 });
-    const d = c + '<p>browser after CLI</p>';
-    await box.fill(d);
-    await save(page);
-    await expect.poll(() => read(created.pageId).source === d, { timeout: 60_000 }).toBe(true);
-    await page.reload();
-    await expect(await openSource(page)).toHaveValue(d, { timeout: 60_000 });
-
-    // Many small edits whose changes total far more than one 256 KiB update.
-    const small = createPage(world, 'Save small', '<p>start</p>');
-    const sp = await openPage(door, browser, small);
-    const sbox = await openSource(sp);
-    let current = '<p>start</p>';
-    for (let i = 0; i < 80; i++) {
-      const next = current + `<i>${distinct(8 * 1024, `s${i}`)}</i>`;
-      await sbox.fill(next);
-      await save(sp);
-      await expect
-        .poll(() => read(small.pageId).source === next, { timeout: 30_000, message: `edit ${i}` })
-        .toBe(true);
-      await expect(sbox).toHaveValue(next);
-      current = next;
-    }
-    expect(current.length).toBeGreaterThan(640 * 1024);
-    await expect(sp.getByRole('alert')).toHaveCount(0);
-  });
-});
-
 test('a source over the page limit is refused with both sizes and changes nothing', async () => {
   test.setTimeout(300_000);
   await withWorld(async (world) => {
