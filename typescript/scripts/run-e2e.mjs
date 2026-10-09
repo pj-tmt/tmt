@@ -6,7 +6,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
-let image = `tmux-team-e2e:${process.pid}-${Date.now().toString(36)}`;
+const image = `tmux-team-e2e:${process.pid}-${Date.now().toString(36)}`;
 const dockerfile = path.join(repoRoot, 'typescript', 'test', 'e2e', 'Dockerfile');
 let activeChild;
 let interrupted = false;
@@ -55,8 +55,6 @@ const FILE_LIST = /^[A-Za-z0-9._-]+( [A-Za-z0-9._-]+)*$/;
 const ADAPTER_FLAG = /^[01]$/;
 /** Cargo's parallel job limit for the image's native builds: a positive count or `default`. */
 const CARGO_JOBS = /^(?:[1-9][0-9]*|default)$/;
-// Only the CI shard's explicit, successfully loaded image bypasses the local build.
-const PREPARED_IMAGE = /^tmux-team-e2e:ci-[1-9][0-9]*-docker-e2e-shard-[12]$/;
 
 async function main() {
   const files = process.env.TMT_E2E_FILES ?? '';
@@ -74,30 +72,17 @@ async function main() {
     console.error('CARGO_BUILD_JOBS must be a positive integer or default.');
     return 2;
   }
-  const prepared = process.env.TMT_E2E_PREPARED_IMAGE ?? '';
-  if (
-    prepared !== '' &&
-    (!PREPARED_IMAGE.test(prepared) ||
-      process.env.CI !== 'true' ||
-      process.env.GITHUB_ACTIONS !== 'true')
-  ) {
-    console.error('TMT_E2E_PREPARED_IMAGE requires the explicit GitHub CI shard image.');
-    return 2;
-  }
-  if (prepared !== '') image = prepared;
   try {
-    if (prepared === '') {
-      const buildStatus = await run('docker', [
-        'build',
-        '--tag',
-        image,
-        ...(cargoJobs === '' ? [] : ['--build-arg', `CARGO_BUILD_JOBS=${cargoJobs}`]),
-        '--file',
-        dockerfile,
-        repoRoot,
-      ]);
-      if (buildStatus !== 0) return interrupted ? 130 : buildStatus;
-    }
+    const buildStatus = await run('docker', [
+      'build',
+      '--tag',
+      image,
+      ...(cargoJobs === '' ? [] : ['--build-arg', `CARGO_BUILD_JOBS=${cargoJobs}`]),
+      '--file',
+      dockerfile,
+      repoRoot,
+    ]);
+    if (buildStatus !== 0) return interrupted ? 130 : buildStatus;
     if (interrupted) return 130;
     // Selectors name container-visible executables. Forward values as single
     // argv entries; never translate host paths or evaluate shell fragments.
