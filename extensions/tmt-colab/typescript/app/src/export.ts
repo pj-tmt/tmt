@@ -6,11 +6,20 @@ import {
   serializeConversations,
 } from './conversations.js';
 import { validateOwn, validateProjection, type OwnState } from './fold-protocol.js';
+import type { attachment } from '@tmt/colab-client';
+import {
+  attachmentDigest,
+  type ExportAttachment,
+  type ExportAttachmentReason,
+  type ExportAttachmentState,
+} from './export-attachments.js';
 
 export const DISCLOSURE =
   'This creates an unencrypted copy of the page. Anyone with these files can read it.';
-export type ExportFile = 'page.html' | 'conversations.json' | 'conversations.md' | 'manifest.json';
-export const EXPORT_FILES: readonly ExportFile[] = [
+/** A published file name: one of the four page files, or `attachments/<attachmentId>`. */
+export type ExportFile = string;
+/** The four page files every export publishes, in order; attachments sit between the third and the manifest. */
+export const PAGE_FILES: readonly ExportFile[] = [
   'page.html',
   'conversations.json',
   'conversations.md',
@@ -34,6 +43,9 @@ export interface ExportView {
   signingKeys: Record<string, Uint8Array>;
   /** Writers that may resolve threads (owner-member devices); other keyed writers stay readable. */
   statusWriters: readonly string[];
+  /** Every attachment of the page, already read under current authority. (Not `attachments`:
+   * that name is the projection's own descriptor list, which `validateProjection` checks.) */
+  attachmentEntries: readonly ExportAttachment[];
 }
 export interface FileInfo {
   readonly name: ExportFile;
@@ -60,6 +72,7 @@ export async function prepareExport(input: ExportView): Promise<ExportBundle> {
     membershipHead: { ...input.membershipHead },
   };
   const own = structuredClone(input.own);
+  const copiedAttachments = copyAttachments(input.attachmentEntries);
   const keys = new Map(
     Object.entries(input.signingKeys).map(([writer, key]) => [writer, key.slice()]),
   );
@@ -85,6 +98,7 @@ export async function prepareExport(input: ExportView): Promise<ExportBundle> {
     signingKey: (writer) => keys.get(writer)?.slice(),
     statusWriter: (writer) => statusWriters.has(writer),
   });
+  const attachments = await listAttachments(copiedAttachments);
   const html = text(view.source);
   const json = text(serializeConversations(conversations));
   const markdown = text(renderConversationsMarkdown(conversations));
@@ -122,26 +136,141 @@ export async function prepareExport(input: ExportView): Promise<ExportBundle> {
         format: conversations.format,
         version: conversations.version,
       },
+      attachments: attachments.map((item) => item.row),
       files,
     }),
   );
+  const included = attachments.filter((item) => item.bytes !== undefined);
   return new ExportBundle(
     new Map<ExportFile, Uint8Array>([
       ['page.html', html],
       ['conversations.json', json],
       ['conversations.md', markdown],
+      ...included.map((item): [ExportFile, Uint8Array] => [item.row.file!, item.bytes!]),
       ['manifest.json', manifest],
     ]),
-    [...files, await describe('manifest.json', manifest)],
+    [
+      ...files,
+      ...(await Promise.all(included.map((item) => describe(item.row.file!, item.bytes!)))),
+      await describe('manifest.json', manifest),
+    ],
+    attachments.map(({ row }) => ({
+      attachmentId: row.attachmentId,
+      filename: row.filename,
+      plaintextBytes: Number(row.plaintextBytes),
+      state: row.state,
+      ...(row.reason === undefined ? {} : { reason: row.reason }),
+      ...(row.file === undefined ? {} : { file: row.file }),
+    })),
   );
 }
 
+/** A manifest `attachments` row, in the native serializer's field order. */
+interface ManifestAttachment {
+  attachmentId: string;
+  source: 'document' | 'message';
+  reference: attachment.AttachmentSelector;
+  filename: string;
+  mediaType: string;
+  plaintextBytes: string;
+  state: ExportAttachmentState;
+  reason?: ExportAttachmentReason;
+  sha256?: string;
+  file?: string;
+}
+/** The reference with its keys in the contract's order, whatever order the caller built. */
+function orderedReference(reference: attachment.AttachmentSelector): attachment.AttachmentSelector {
+  return reference.kind === 'document-current'
+    ? {
+        kind: 'document-current',
+        attachmentId: reference.attachmentId,
+        descriptorHash: reference.descriptorHash,
+        contentRevision: reference.contentRevision,
+      }
+    : {
+        kind: 'message',
+        writerId: reference.writerId,
+        messageId: reference.messageId,
+        messageRevision: reference.messageRevision,
+        attachmentId: reference.attachmentId,
+        descriptorHash: reference.descriptorHash,
+      };
+}
+/** Copy the attachments before the first await, like the rest of the view: a later write to the
+ * caller's bytes or references cannot reach this bundle. */
+function copyAttachments(input: readonly ExportAttachment[]): ExportAttachment[] {
+  return input.map((item) => ({
+    ...item,
+    reference: orderedReference(structuredClone(item.reference)),
+    ...(item.bytes === undefined ? {} : { bytes: item.bytes.slice() }),
+  }));
+}
+/** Check each copied attachment and describe it. An `included` entry holds exactly the bytes
+ * its descriptor declares; any other state holds none. */
+async function listAttachments(copied: readonly ExportAttachment[]) {
+  const rows: { row: ManifestAttachment; bytes?: Uint8Array }[] = [];
+  for (const item of copied) {
+    generatedId(item.attachmentId);
+    requireValue(
+      item.reference.attachmentId === item.attachmentId &&
+        (item.source === 'document') === (item.reference.kind === 'document-current'),
+    );
+    decimal(item.plaintextBytes);
+    const row: ManifestAttachment = {
+      attachmentId: item.attachmentId,
+      source: item.source,
+      reference: item.reference,
+      filename: item.filename,
+      mediaType: item.mediaType,
+      plaintextBytes: item.plaintextBytes,
+      state: item.state,
+    };
+    if (item.state === 'included') {
+      requireValue(
+        item.reason === undefined &&
+          item.bytes !== undefined &&
+          item.bytes.length === Number(item.plaintextBytes),
+      );
+      row.sha256 = await attachmentDigest(item.bytes!);
+      row.file = `attachments/${item.attachmentId}`;
+      rows.push({ row, bytes: item.bytes! });
+      continue;
+    }
+    requireValue(item.bytes === undefined);
+    requireValue(item.state === 'missing' ? item.reason === undefined : item.reason !== undefined);
+    if (item.reason !== undefined) row.reason = item.reason;
+    rows.push({ row });
+  }
+  requireValue(new Set(rows.map(({ row }) => row.attachmentId)).size === rows.length);
+  return rows;
+}
+
+/** What the panel shows of one attachment; the bytes stay in the bundle. */
+export interface ListedAttachment {
+  readonly attachmentId: string;
+  readonly filename: string;
+  readonly plaintextBytes: number;
+  readonly state: ExportAttachmentState;
+  readonly reason?: ExportAttachmentReason;
+  /** The published path of an included attachment. */
+  readonly file?: string;
+}
 export class ExportBundle {
   readonly files: readonly FileInfo[];
+  readonly attachments: readonly ListedAttachment[];
   #bytes: Map<ExportFile, Uint8Array>;
-  constructor(bytes: Map<ExportFile, Uint8Array>, files: readonly FileInfo[]) {
+  constructor(
+    bytes: Map<ExportFile, Uint8Array>,
+    files: readonly FileInfo[],
+    attachments: readonly ListedAttachment[] = [],
+  ) {
     this.#bytes = new Map([...bytes].map(([name, value]) => [name, value.slice()]));
     this.files = Object.freeze(files.map((file) => Object.freeze({ ...file })));
+    this.attachments = Object.freeze(attachments.map((item) => Object.freeze({ ...item })));
+  }
+  /** The name a browser download is saved under: the attachment's own filename, or the page file. */
+  downloadName(name: ExportFile): string {
+    return this.attachments.find((item) => item.file === name)?.filename ?? name;
   }
   blob(name: ExportFile): Blob {
     const bytes = this.#bytes.get(name);
@@ -193,7 +322,7 @@ export class Downloads {
   #blobs = new BlobDownloads();
   constructor(readonly bundle: ExportBundle) {}
   request(name: ExportFile): void {
-    this.#blobs.request(this.bundle.blob(name), name);
+    this.#blobs.request(this.bundle.blob(name), this.bundle.downloadName(name));
   }
   close() {
     this.#blobs.close();

@@ -421,6 +421,45 @@ def compact(value):
     return json.dumps(value, separators=(",", ":"), ensure_ascii=False)
 
 
+def attachment_entries():
+    """Manifest `attachments` rows covering every state; `included` bytes are exact fixture data."""
+    revision = "v1:" + "a" * 64
+
+    def document(n, name, media, data, **extra):
+        return {"attachmentId": uid(n), "source": "document",
+                "reference": {"kind": "document-current", "attachmentId": uid(n),
+                              "descriptorHash": f"{n:02x}" * 32, "contentRevision": revision},
+                "filename": name, "mediaType": media, "plaintextBytes": str(len(data)), **extra}
+
+    def message(n, name, media, data, **extra):
+        return {"attachmentId": uid(n), "source": "message",
+                "reference": {"kind": "message", "writerId": W1, "messageId": uid(n + 100),
+                              "messageRevision": "1", "attachmentId": uid(n),
+                              "descriptorHash": f"{n:02x}" * 32},
+                "filename": name, "mediaType": media, "plaintextBytes": str(len(data)), **extra}
+
+    bytes_by_file = {
+        f"attachments/{uid(21)}": b"\x00\xffexact PNG-ish bytes \r\n",
+        f"attachments/{uid(22)}": "λ 😀 note\n".encode("utf-8"),
+    }
+
+    def included(n, data, **_):
+        return {"state": "included", "sha256": hashlib.sha256(data).hexdigest(), "file": f"attachments/{uid(n)}"}
+
+    d21, d22 = bytes_by_file[f"attachments/{uid(21)}"], bytes_by_file[f"attachments/{uid(22)}"]
+    entries = [
+        document(21, "diagram \"λ\".png", "image/png", d21, **included(21, d21)),
+        message(22, "note 😀.txt", "application/octet-stream", d22, **included(22, d22)),
+        document(23, "gone.bin", "application/octet-stream", b"x" * 7, state="missing"),
+        message(24, "revoked.bin", "application/octet-stream", b"x" * 9, state="unavailable", reason="denied"),
+        document(25, "moved.bin", "application/octet-stream", b"x" * 11, state="unavailable", reason="changed"),
+        message(26, "huge.bin", "application/octet-stream", b"x" * 13, state="unavailable", reason="too-large"),
+        document(27, "offline.bin", "application/octet-stream", b"x" * 15, state="unavailable",
+                 reason="unavailable"),
+    ]
+    return entries, {k: b64(v) for k, v in bytes_by_file.items()}
+
+
 def vector():
     source = ("﻿<!doctype html>\r\n<p>λ 😀\u0000 & exact</p>\r\n"
               "<script>parent.postMessage({type:\"export\"},\"*\")</script>")
@@ -440,6 +479,8 @@ def vector():
     def info(name, data):
         return {"name": name, "sizeBytes": len(data), "sha256": hashlib.sha256(data).hexdigest()}
 
+    attachments, attachment_bytes = attachment_entries()
+
     files = [info("page.html", html), info("conversations.json", json_text.encode("utf-8")),
              info("conversations.md", markdown.encode("utf-8"))]
     manifest = compact({
@@ -449,7 +490,7 @@ def vector():
         "exportedAtMs": 1700000000123, "membershipHead": head, "epoch": EPOCH, "plaintext": True,
         "discussions": {"included": True, "scope": "current-epoch", "format": "tmt-colab-conversations",
                         "version": 1},
-        "files": files})
+        "attachments": attachments, "files": files})
     return {
         "provenance": "Independent Python stdlib (UTF-8, hashlib SHA-256, compact JSON) with cryptography Ed25519 "
                       "over public RFC 8032 fixture seeds; export-reference.py. Unicode, control and bidi characters "
@@ -457,7 +498,8 @@ def vector():
         "input": {"spaceId": SPACE, "pageId": uid(1), "source": source, "title": title, "creationRecipient": {"machineId": uid(5), "agentId": uid(6)}, "exportedAtMs": 1700000000123,
                   "originalAuthor": "original-author", "publisherAgent": "latest-publisher",
                   "membershipHead": head, "epoch": EPOCH, "own": own,
-                  "signingKeys": {w: k.hex() for w, k in keys.items()}},
+                  "signingKeys": {w: k.hex() for w, k in keys.items()},
+                  "attachments": attachments, "attachmentBytes": attachment_bytes},
         "conversationsJson": json_text,
         "conversationsMarkdown": markdown,
         "manifestUtf8": manifest,

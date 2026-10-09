@@ -1472,8 +1472,15 @@ fn original_author_survives_native_edits_compaction_reload_epoch_and_export() {
         )
         .unwrap();
     assert_eq!(f.read().original_author.as_deref(), Some("original-author"));
-    let bundle =
-        tmt_colab::export::Bundle::capture(&f.store, &f.key, PAGE, &mut f.decoder(), NOW).unwrap();
+    let bundle = tmt_colab::export::Bundle::capture(
+        &f.store,
+        &f.key,
+        PAGE,
+        &mut f.decoder(),
+        NOW,
+        &tmt_colab::export::attachments::Unserved,
+    )
+    .unwrap();
     let exported = bundle.publish(&f.root).unwrap();
     let manifest: Value =
         serde_json::from_slice(&fs::read(exported.directory.join("manifest.json")).unwrap())
@@ -1579,9 +1586,15 @@ fn frozen_creation_preference_survives_compaction_epoch_reload_and_export() {
             .unwrap();
         f.write("after epoch");
         assert_eq!(f.read().creation_recipient.as_ref(), hint);
-        let bundle =
-            tmt_colab::export::Bundle::capture(&f.store, &f.key, PAGE, &mut f.decoder(), NOW)
-                .unwrap();
+        let bundle = tmt_colab::export::Bundle::capture(
+            &f.store,
+            &f.key,
+            PAGE,
+            &mut f.decoder(),
+            NOW,
+            &tmt_colab::export::attachments::Unserved,
+        )
+        .unwrap();
         let parent = f.root.join("exports");
         fs::create_dir(&parent).unwrap();
         let published = bundle.publish(&parent).unwrap();

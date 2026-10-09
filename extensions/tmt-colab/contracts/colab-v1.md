@@ -71,7 +71,9 @@ Historical paging owns one read-only cursor per peer, reuses the sync catchup co
 and current entitlement wraps, and never renews its first deadline. Cancel, expiry,
 peer close and generation replacement release its source and join owned workers.
 Root-local library reads use the actual management keyring and require an established
-channel; no new plaintext HTTP route, upload command or second backend is introduced.
+channel; no browser-reachable plaintext route, upload command or second backend is introduced.
+The only plaintext route is the owner-only `attachment-read` below, which answers the local
+CLI of this data root and no other caller.
 
 ### Attachment access across page lifecycle (#1856)
 
@@ -2997,8 +2999,9 @@ recovery/fold barriers and gzip parity remain unintegrated.
 
 ## Plaintext page export (#1309)
 
-Export v1 emits exactly `page.html`, `conversations.json`, `conversations.md` and
-`manifest.json` (see [Conversation export](#conversation-export-1574)). Native captures one
+Export v1 emits `page.html`, `conversations.json`, `conversations.md`, one
+`attachments/<attachmentId>` file for each attachment it could read, and `manifest.json` (see
+[Conversation export](#conversation-export-1574) and [Attachments in an export](#attachments-in-an-export-1867)). Native captures one
 owner-authenticated read snapshot through its isolated decoder; the mounted
 browser captures one admitted committed projection through its connection executor.
 HTML is the exact admitted UTF-8 source, including CR/LF, Unicode and NUL; export MUST NOT
@@ -3024,6 +3027,7 @@ The manifest is UTF-8 JSON with these fields:
 | `epoch`             | Current snapshot epoch as canonical positive decimal text                                                             |
 | `plaintext`         | `true`                                                                                                                |
 | `discussions`       | `{included:true, scope:"current-epoch", format:"tmt-colab-conversations", version:1}`                                 |
+| `attachments`       | Always present, possibly empty: one row per attachment, see below                                                     |
 | `files`             | `page.html`, `conversations.json`, `conversations.md` as `{name, sizeBytes, sha256}`; bytes and lowercase hex SHA-256 |
 
 Export copies the optional creation preference from the same captured admitted view
@@ -3032,8 +3036,7 @@ before asynchronous work; it does not acquire or infer a new recipient.
 The manifest MUST NOT list its own digest: that would be circular. The CLI result
 names the resolved full `pageId` and lists all four files with their byte sizes and SHA-256. Export contains no roots,
 wraps, bearer seeds, sessions or private keys. It is a readable copy, not an
-import/backup format; referenced assets, retained history and snapshots are not
-promised as portable files. Raw own records, earlier revisions and other epochs are
+import/backup format; retained history and snapshots are not promised as portable files. Raw own records, earlier revisions and other epochs are
 not exported.
 
 `tmt colab export <page> [--dir <destination>] [--json]` reads existing local
@@ -3084,6 +3087,58 @@ to browser-managed downloads. Parent-owned Blob URLs use attachment filenames
 bounded download handoff and all outstanding URLs on close/navigation or blocked
 binding cleanup. The renderer receives no export handler, URL or capability.
 Archived browser export is not supported; deleted pages remain denied.
+
+### Attachments in an export (#1867)
+
+`attachments` lists, in order, the page's document attachments in list order and then the
+live comments of the exported epoch (not deleted, written by the sender, of this page)
+ordered by writer, message ID and numeric revision, each with its attachments in list order.
+Each row has exactly these fields in this order: `attachmentId`, `source` (`document` or
+`message`), `reference` (the exact selector, with its keys in the order the
+[storage proposal](storage-v1-proposal.md) gives them: a document reference carries the page
+revision the export captured), `filename` and `mediaType` (display only, never a path),
+`plaintextBytes` (decimal text), `state`, then `reason`, `sha256` and `file` where they apply.
+
+Each file is read at export time under the authority in force then, by its own `reference`,
+so a page, sharing or epoch that moved leaves that row unavailable instead of reading another
+version. `state` is `included` with the plaintext `sha256` and `file: "attachments/<id>"`
+(names come from the ID, never the filename); `missing` when this page no longer holds the
+reference; or `unavailable` with `reason` `denied` (access ended), `changed` (the disclosure
+moved while it ran), `too-large` or `unavailable` (storage, the channel, no serve, or bytes
+that disagree with the descriptor). A row that is not `included` has no `sha256` and no `file`
+and nothing of the object is disclosed. One export includes at most 64 MiB of attachment
+bytes and spends at most 120 s reading: later rows are `too-large` and `unavailable`
+respectively, and are not requested.
+
+Native export asks the running serve for each file over the `attachment-read` route; the CLI
+never opens storage or a backend, so with no serve every row is `unavailable`. The mounted
+browser reads through its existing admitted read, then offers each included file as a download
+under its own filename beside the page files, and lists the other rows with their outcome.
+Both build the same rows and `manifest.json` bytes (`vectors/export-v1.json`); the file list
+published is the three page files, the included attachments in row order, then the manifest.
+Archived and deleted pages stay denied as above.
+
+### Attachment read command (#1867)
+
+`tmt colab attachment read <page> --reference <file> [--output <directory>] [--json]` writes one
+attachment into a new private UUID-named subdirectory of `--output` (default: the current
+directory), created the way export creates its directory: `attachment.bin` then
+`manifest.json` last, regular 0600 files in a 0700 directory, no symlinks, no replacement,
+only its own staging cleaned. `--reference` is the exact `reference` of an export manifest row
+(at most 2 KiB). The manifest is `{format:"tmt-colab-attachment-read", version:1, pageId,
+reference, file:{name,sizeBytes,sha256}}`; the result lists the directory, files, size and
+digest and never the bytes. Authority is the owner-only socket of this data root, not a
+caller-named agent or device: the serve checks the reference against the current page, access
+and epoch, reads the bytes through its established object channel and verifies them before
+answering. With no serve, or no established channel, it refuses as unavailable.
+
+The serve answers `POST /.tmt/colab/local/attachment-read` with body
+`{version:1, page, selector}` (strict fields; the selector as in `--reference`). A request
+carrying a Remote context or event header is denied. A success is the exact plaintext
+(`application/octet-stream`, at most 8 MiB) read within 15 s of the request; a refusal is the
+JSON error of the publish route with the page fault code (`COLAB_DENIED`, `COLAB_STALE_BASE`,
+`COLAB_STATE_MISSING`, `COLAB_UNAVAILABLE`, `COLAB_INPUT_INVALID`, `COLAB_SERVER_MISMATCH`). A
+read has no effect, so it is never retried and any doubt is unavailable.
 
 ### Browser page title hints (#1564)
 

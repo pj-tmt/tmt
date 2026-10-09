@@ -64,6 +64,16 @@ pub const PUBLISH_REPLY: Duration = ACQUISITION
     .saturating_add(PUBLISH_COMBINE)
     .saturating_add(RESPONSE);
 
+/// One root-local attachment read answers with at most one whole plaintext attachment.
+pub const ATTACHMENT_READ_BYTES: usize = tmt_colab_model::attachment::PLAINTEXT_BYTES;
+/// The serve's interval to write that reply to its local reader.
+pub const ATTACHMENT_RESPONSE: Duration = Duration::from_secs(5);
+/// Absolute wait for an attachment read reply, from the moment the client finished sending: the
+/// delay before the serve reads the request, its object-channel read bound and the reply.
+pub const ATTACHMENT_READ_REPLY: Duration = ACQUISITION
+    .saturating_add(OBJECT_REPLY)
+    .saturating_add(ATTACHMENT_RESPONSE);
+
 /// Per-page sync namespace inventory / cursor budget. Store writes are unaffected.
 pub const SYNC_NAMESPACES: usize = 256;
 /// Raw bytes per chunk; base64 and control fields fit in a 64 KiB frame.
