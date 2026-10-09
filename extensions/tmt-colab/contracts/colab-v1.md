@@ -1618,8 +1618,8 @@ Interactive JavaScript state is lost on each replacement. Paused preview and
 Send retain the captured source/quote/final bytes.
 
 After the bootstrap document loads, the parent sends exactly one source-init
-message containing `type:"colab.render.bind"`, `renderId`, `sourceDigest` and
-`source`, plus one MessagePort. The renderer accepts only these exact fields,
+message containing `type:"colab.render.bind"`, `renderId`, `sourceDigest`,
+`source` and `theme` (`"light"` or `"dark"`), plus one MessagePort. The renderer accepts only these exact fields,
 valid UUIDv4/digest metadata and source at most 2 MiB UTF-8, from
 `event.source === window.parent`; origin is not an admission predicate for this
 opaque channel. Direct top-level opening cannot initialize source. Invalid or
@@ -1630,12 +1630,30 @@ response policy and prepending a trusted acknowledgement before author source.
 Bootstrap load and initial source-document load are the only permitted loads;
 further document loads/navigation tear down the frame.
 
+The parent derives the effective theme from its explicit root `data-theme` choice,
+otherwise the current OS preference. Only user theme activation records a choice;
+without one, OS changes remain live. Before author code runs, the bootstrap projects
+the effective theme onto the renderer root as `data-theme="light"` or `"dark"`.
+After binding, the parent sends the current value again to cover initialization races,
+and sends subsequent changes over the existing port as exactly
+`{type:"colab.render.theme", renderId, theme}`. The renderer accepts only the current
+render ID and the two theme values. Theme changes update the same document without
+source replacement or loss of interactive state. Renderer release/teardown removes
+the parent theme subscription; author messages cannot choose the parent theme.
+
+Author CSS must use the explicit root `data-theme` selectors to follow Colab's choice;
+the bundled skill's starter includes them and matching `color-scheme` declarations.
+CSS keyed only on `prefers-color-scheme` continues to follow the OS. This cosmetic
+projection does not rewrite source, inject palettes, force author backgrounds or
+change the existing white canvas for unstyled pages. Author code may tamper with it;
+it grants no capability or truth about the page.
+
 The initial window handshake carries renderId and transfers a MessagePort;
 accept its reply only with `event.source === frame.contentWindow` and matching
 renderId. Highlight requests/results use that bound port; selections use the
 bound window channel. Port events do not have the window-source predicate. Close it on rerender/teardown and discard stale
 messages. Allow only bounded selection/rectangle/anchor-result inbound,
-known-thread view actions and narrow highlight/scroll outbound. No secrets, signing/send capabilities or bridge actions cross it.
+known-thread view actions and narrow highlight/scroll/theme outbound. No secrets, signing/send capabilities or bridge actions cross it.
 Interactive page scripts can intercept the port and forge a schema-valid quote;
 port possession does not prove selection truth. Frame data is untrusted text,
 never HTML in parent UI. A selection cannot silently
@@ -1662,7 +1680,7 @@ Legacy text-only messages supply no anchor. Alt+Enter can request the same view
 using exactly `type:"colab.render.annotate",renderId`; it cannot send. A trusted
 parent action captures the quote. Page-wide comments have null anchors.
 
-The bound MessagePort accepts only parent highlight messages with exactly
+The parent highlight request on the bound MessagePort contains exactly
 `type:"colab.render.highlight"`, `renderId`, `requestId` and `anchors`, whose entries
 are exactly `{id,selector}`. Comment bodies, reply text and discussion display labels
 MUST NOT enter the author-code frame; the parent reconstructs these narrow objects

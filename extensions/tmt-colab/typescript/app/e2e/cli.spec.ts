@@ -289,9 +289,15 @@ test('a direct mounted short URL redirects into the native owner page with worki
       await mkdir(directory, { recursive: true });
       for (const theme of ['light', 'dark']) {
         await page.setViewportSize({ width: 1440, height: 900 });
-        if ((await page.evaluate(() => document.documentElement.dataset.theme)) !== theme)
+        if (
+          (await page.evaluate(
+            () =>
+              document.documentElement.dataset.theme ??
+              (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'),
+          )) !== theme
+        )
           await page.getByRole('button', { name: 'Change color theme' }).click();
-        await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
+        await expect(page.locator('html')).toHaveCSS('color-scheme', theme);
         for (const width of [1440, 390]) {
           await page.setViewportSize({ width, height: 900 });
           expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);

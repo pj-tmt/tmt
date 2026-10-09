@@ -53,7 +53,14 @@ header; fallback pages instead scroll to the target internally. Neither layout
 nor anchor reports grant a publication capability. Quote capture/resolution and
 the existing selection channel remain cosmetic and keep working after resize.
 Author backgrounds and widths belong to the page; parent theme tokens style
-chrome. The sandbox attributes, source limits and CSP remain unchanged.
+chrome. `theme.ts` reads the parent's explicit root choice, otherwise the live OS
+preference; ThemeButton records a choice only on activation. `renderer.ts` subscribes
+for its mounted lifetime and projects the effective light/dark value through the
+bound init/port. The bootstrap sets root `data-theme` before author code and updates
+it without replacing the document. The [renderer contract](../../../../extensions/tmt-colab/contracts/colab-v1.md#renderer-and-live-anchors)
+owns the exact shapes and author CSS selector rule: the bundled starter follows
+Colab's choice, while media-only author CSS follows the OS. The unstyled white
+canvas, sandbox attributes, source limits and CSP remain unchanged.
 
 Source revisions replace only the author renderer, not parent chrome. `router.tsx`
 keeps the mounted annotation input and frozen quote/rectangle during loading;
@@ -131,6 +138,8 @@ one-row/menu layout, overlays that preserve page geometry, and focus/Escape.
 `e2e/live-update.spec.ts` covers annotation/thread/Chat draft survival, frozen-quote
 sends, highlight reprojection, window offsets and page-change resets at 1440/390.
 `e2e/renderer-scroll.spec.ts` covers owner and reader resizing, local anchors,
-viewport-growth fallback and malformed/stale/over-limit claims. Existing Ask,
+viewport-growth fallback and malformed/stale/over-limit claims. `e2e/theme.spec.ts`
+covers OS defaults, explicit choices, live updates, render bindings and cleanup
+without reload, plus the media-only CSS limit. Existing Ask,
 discussion, management and export scenarios verify the publication controls;
 run the [app/browser and real-binary acceptance gates](development.md).
