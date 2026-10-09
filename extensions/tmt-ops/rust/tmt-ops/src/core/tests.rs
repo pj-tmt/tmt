@@ -98,3 +98,27 @@ fn normal_supplied_and_path_core_still_return_configuration() {
         );
     }
 }
+
+#[test]
+fn local_cancellation_is_distinct_from_an_identical_public_error() {
+    let fixture = Fixture::new();
+    let selected = fixture.0.join("tmt");
+    crate::test_support::write_ready_executable(
+        &selected,
+        "#!/bin/sh\nprintf '%s' '{\"error\":{\"code\":\"SQUAD_CORE_UNAVAILABLE\",\"message\":\"The board load was superseded.\"}}'\nexit 1\n",
+    );
+    let core = Core::at(selected);
+    let real_error = core.json(&["config", "show"]).unwrap_err();
+    assert!(!real_error.was_cancelled());
+    let token = runner::Cancellation::default();
+    token.cancel();
+    let cancelled = core
+        .cancellable(token)
+        .json(&["config", "show"])
+        .unwrap_err();
+    assert!(cancelled.was_cancelled());
+    assert_eq!(cancelled.to_json(), real_error.to_json());
+    assert_eq!(cancelled.human(), real_error.human());
+    assert!(!SquadError::new(&cancelled.code, &cancelled.message).was_cancelled());
+    assert!(!SquadError::hinted("SQUAD_CORE_UNAVAILABLE", "failed", " ", "retry").was_cancelled());
+}

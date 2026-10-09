@@ -317,5 +317,6 @@ own these layers:
   starts and stops an independent cancellable, joined clock worker; refresh-off,
   repaint, tabs and usage generations do not own its lifetime. Foreground run
   handles interrupt/termination/hangup through that same shutdown owner, cancelling
-  owned core children before releasing the lease. A second foreground run or tick
+  owned core children before releasing the lease. Its own local process cancellation
+  is a clean stop; completed real failures remain errors. A second foreground run or tick
   refuses an unexpired holder; a board waits and can take over after expiry.
