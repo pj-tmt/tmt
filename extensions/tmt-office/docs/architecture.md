@@ -560,6 +560,8 @@ not World sprites or arbitrary SVG. Native policy and wire admission live in the
 corresponding `office_whiteboard` core/adapter modules and share literal vectors.
 Document persistence uses SQLite conditional saves and operation receipts in one
 transaction. `whiteboard/document-contract.ts` admits resource envelopes;
+`tmt-office-storage::office_world::ensure_world` is the shared lazy singleton owner
+for layout, board and whiteboard persistence inside each caller's transaction.
 `LocalRuntime.whiteboards` reuses session authentication, cancellation and timeout
 ownership without another fetch loop. It verifies target and operation receipts
 and preserves explicit conflicts. `whiteboard/editor-state.ts` owns the mounted
