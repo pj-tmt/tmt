@@ -19,6 +19,13 @@ pub fn open_link(link: &str, flag: Flag, setting: bool, json: bool) -> Outcome {
     )
 }
 
+/// A committed page opens for the owner, independently of the agent's output mode.
+/// Keep the shared flag, display, CI, opener discovery and launch policy; only the
+/// terminal/JSON interaction gates do not apply to this creation effect.
+pub fn open_created_link(link: &str, flag: Flag, setting: bool) -> Outcome {
+    tmt_invoke::open::open_link(link, flag, setting, false, true)
+}
+
 /// The `open` row value for a link, and the warning to print when the opener failed.
 pub fn describe(outcome: &Outcome, link: &str) -> (String, Option<String>) {
     match outcome {

@@ -2527,14 +2527,19 @@ retains that target across discovery/pinning; it creates no anonymous asset or A
 The long owner fragment route remains supported. Reader links retain their capability
 fragment and are never shortened into an owner alias.
 
-`serve` (once the door is ready, attached or started) and `page create` open the link in the
-default browser: the page when the space has exactly one, else the space home. Opening is
-skipped, printing the link only, with `--no-open`, `--json`, the setting `open` off, no
-terminal on stdout, `CI`, an SSH session without a display, Linux without `DISPLAY` or
-`WAYLAND_DISPLAY` (WSL excepted) or no opener on `PATH`; `--open` overrides everything except
-`--json`, `--no-open` and a missing opener. Openers: macOS `open`, Linux `xdg-open`, WSL
-`wslview` then `explorer.exe`. The row reads `opened in your browser: <link>` or just the link;
-a failing opener warns once and keeps the printed link. `serve --json` adds `opened`.
+`serve` (once the door is ready, attached or started) opens the page when the space
+has exactly one, else the space home. `page create` opens its committed page using
+the short link, including when an agent has no terminal or requests `--json`.
+Automatic opening is skipped with `--no-open`, the setting `open` off, `CI`, an SSH
+session without a display, Linux without `DISPLAY` or `WAYLAND_DISPLAY` (WSL
+excepted), or no opener on `PATH`. `serve` also skips without a terminal or with
+`--json`. The explicit `--open` flag overrides the setting and environment checks;
+`--no-open` and a missing opener still refuse, and `serve --json` still suppresses
+launch. Openers: macOS `open`, Linux `xdg-open`, WSL `wslview` then `explorer.exe`.
+The human row reads `opened in your browser: <short link>` or just the link; a
+failing opener warns once and keeps the printed link without undoing creation.
+`serve --json` and `page create --json` report `opened: true|false`; page creation
+still emits exactly one JSON document with the short-link fallback.
 
 `tmt colab settings [open on|off] [--json]` shows or sets the one setting, stored as
 `{"open":true|false}` in `<dataRoot>/colab/settings.json` (default on; unknown keys ignored; a

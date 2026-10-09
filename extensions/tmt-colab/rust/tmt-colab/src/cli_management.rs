@@ -742,12 +742,7 @@ pub fn create_page(root: &Path, args: &ArgMatches, source: String) -> Result<()>
         .ok_or_else(|| input("Missing created page path."))?
         .to_owned();
     let reach = crate::reach::Reach::from_creation(observation).with_pages(&ids);
-    if args.get_flag("json") {
-        reach.annotate(&mut result, &relative);
-        return output(&result, true);
-    }
-    let mut out = tmt_cli_style::stream::stdout(false);
-    let terminal = out.terminal();
+    result["opened"] = json!(false);
     // The page opens in the browser unless the setting, a flag or the environment says not to.
     let mut shown = reach.text(&relative);
     let mut warnings = Vec::new();
@@ -755,7 +750,8 @@ pub fn create_page(root: &Path, args: &ArgMatches, source: String) -> Result<()>
         // The page is committed: unreadable settings are the defaults, never a failed command.
         let settings = tmt_colab::settings::read_or_default(root);
         let outcome =
-            crate::open::open_link(&link, crate::open::flag(args), settings.open(), false);
+            crate::open::open_created_link(&link, crate::open::flag(args), settings.open());
+        result["opened"] = json!(matches!(outcome, crate::open::Outcome::Opened));
         let (text, failed) = crate::open::describe(&outcome, &link);
         shown = text;
         warnings.extend(failed);
@@ -763,6 +759,12 @@ pub fn create_page(root: &Path, args: &ArgMatches, source: String) -> Result<()>
             warnings.push(tmt_colab::settings::UNREADABLE.to_owned());
         }
     }
+    if args.get_flag("json") {
+        reach.annotate(&mut result, &relative);
+        return output(&result, true);
+    }
+    let mut out = tmt_cli_style::stream::stdout(false);
+    let terminal = out.terminal();
     let mut rows = vec![
         ("page", page_id),
         ("title", title.to_owned()),
