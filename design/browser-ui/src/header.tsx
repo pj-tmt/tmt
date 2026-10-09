@@ -11,6 +11,20 @@ export interface BrowserHeaderProps {
   headerRef?: Ref<HTMLElement>;
   disclosure?: { attribute: `data-${string}`; open: boolean };
 }
+
+/** Aperture paths and viewBox copied from site/src/home/assets/v9-0.svg. */
+function HeaderMark() {
+  return (
+    <svg className={c.mark} viewBox="0 0 200 200" aria-hidden="true" fill="currentColor">
+      {[0, 60, 120, 180, 240, 300].map((angle) => (
+        <g key={angle} transform={`rotate(${angle} 100 100)`}>
+          <path d="M100 18A82 82 0 0 1 164 49C143 45 117 55 110 77L92 75C85 50 87 31 100 18Z" />
+        </g>
+      ))}
+    </svg>
+  );
+}
+
 export function BrowserHeader({
   productLabel,
   title,
@@ -26,9 +40,7 @@ export function BrowserHeader({
     throw new Error('Caption requires an explicit association ID');
   const brand = (
     <>
-      <span className={c.mark} aria-hidden="true">
-        ▚
-      </span>
+      <HeaderMark />
       <span className={c.wordmark}>{productLabel}</span>
     </>
   );
