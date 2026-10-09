@@ -6,7 +6,6 @@ import {
   readlinkSync,
   realpathSync,
   symlinkSync,
-  unlinkSync,
   writeFileSync,
 } from 'node:fs';
 import path from 'node:path';
@@ -42,7 +41,7 @@ describe('native managed skill refresh', () => {
     });
   });
 
-  it('refreshes distinct old bytes, preserves conflicts, and reports a truthful retry', async () => {
+  it('refreshes bundled names over occupied entries and preserves missing recorded targets', async () => {
     await withSandbox(async (sandbox) => {
       const tripwire = await calibrateTmuxTripwire(sandbox);
       const baseline = readFileSync(tripwire);
@@ -76,27 +75,27 @@ describe('native managed skill refresh', () => {
       writeFileSync(sandbox.localConfig, '{ malformed local configuration');
 
       const result = await runCli(sandbox, ['__native-refresh-skills', '--json']);
-      expect(result.status).toBe(1);
+      expect(result.status, result.stdout).toBe(0);
       expect(result.stderr).toBe('');
-      expectError(result, 'SKILL_REFRESH_FAILED');
       expect(parseWholeStdout(result)).toMatchObject({
-        refreshed: [{ target: targets[1], changed: true }],
+        refreshed: targets.slice(0, 2).map((target) => ({ target, changed: true })),
         skipped: [targets[2]],
-        conflicts: [targets[0]],
+        conflicts: [],
       });
       expect(readFileSync(path.join(targets[1], 'SKILL.md'), 'utf8')).toBe(current.stdout);
       expect(readlinkSync(targets[1])).not.toBe(oldSource);
       expect(readFileSync(path.join(oldSource, 'SKILL.md'))).toEqual(old);
-      expect(readFileSync(targets[0], 'utf8')).toBe('user-owned content');
+      expect(readFileSync(path.join(targets[0], 'SKILL.md'), 'utf8')).toBe(current.stdout);
+      expect(readlinkSync(targets[0])).toBe(readlinkSync(targets[1]));
+      expect(existsSync(path.join(sandbox.cwd, '.tmt-skill-backups'))).toBe(false);
       expect(existsSync(targets[2])).toBe(false);
       expect(readFileSync(registry, 'utf8')).toBe(intents);
 
-      unlinkSync(targets[0]);
       const retry = await runCli(sandbox, ['__native-refresh-skills', '--json']);
       expect(retry.status).toBe(0);
       expect(parseWholeStdout(retry)).toEqual({
-        refreshed: [{ target: targets[1], changed: false }],
-        skipped: [targets[0], targets[2]],
+        refreshed: targets.slice(0, 2).map((target) => ({ target, changed: false })),
+        skipped: [targets[2]],
         conflicts: [],
       });
       const human = await runCli(sandbox, ['__native-refresh-skills']);

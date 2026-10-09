@@ -1,6 +1,6 @@
 //! Refresh existing managed links, never install new integrations from intent.
 
-use super::{assets::SkillAssets, files, managed_link, owned::owned_names, registry, retired};
+use super::{assets::SkillAssets, files, owned::owned_names, registry, retired};
 use std::{
     collections::BTreeSet,
     error::Error,
@@ -100,10 +100,6 @@ pub(super) fn refresh_with_publisher(
                     }
                     continue;
                 }
-                let Some(prior) = managed_link(&target, &assets)? else {
-                    report.conflicts.push(target);
-                    continue;
-                };
                 files::safe_target(assets.root(), &target)?;
                 let current_sources = match &sources {
                     Some(sources) => sources,
@@ -120,7 +116,7 @@ pub(super) fn refresh_with_publisher(
                         continue;
                     }
                 };
-                let changed = prior != *current;
+                let changed = !files::current_link(&target, current);
                 if changed {
                     publish(&target, current)?;
                 }

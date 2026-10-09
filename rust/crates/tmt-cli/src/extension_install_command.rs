@@ -328,16 +328,8 @@ fn run(request: ExtensionInstallRequest, mode: OutputMode) -> Result<Outcome, Fa
             };
             let mut human = human;
             if !repair || changed || skills {
-                settle_skills(
-                    product,
-                    &executable,
-                    &previous,
-                    skills,
-                    Some(mode),
-                    &mut document,
-                    &mut human,
-                )
-                .map_err(|error| notice.retain(error))?;
+                settle_skills(product, &executable, &previous, &mut document, &mut human)
+                    .map_err(|error| notice.retain(error))?;
             }
             notice.record(&mut document, &mut human);
             Ok(Some((document, human)))

@@ -6,15 +6,17 @@ use tmt_adapters::process::{CommandError, CommandOutput};
 fn root_human_output_keeps_one_restart_notice_for_success_and_partial_failure() {
     let rows = [
         json!({"product":"remote","status":"changed","version":"0.1.0-alpha.2","details":{"restartHint":"one restart notice"}}),
-        json!({"product":"remote","status":"failed","error":{"code":"EXTENSION_SKILLS_FAILED","message":"release active","suggestion":"one restart notice"}}),
+        json!({"product":"remote","status":"changed","version":"0.1.0-alpha.2","details":{"restartHint":"one restart notice","skills":{"status":"warning","published":[{"target":"/agent/tmt-remote"}],"warning":{"code":"EXTENSION_SKILLS_FAILED","message":"permission denied at /agent/tmt-remote"}}}}),
     ];
     for row in rows {
         let mut bytes = Vec::new();
         write_extension_product(&mut bytes, tmt_cli_style::Terminal::PLAIN, &row).unwrap();
         let text = String::from_utf8(bytes).unwrap();
         assert_eq!(text.matches("one restart notice").count(), 1);
-        if row["status"] == "failed" {
-            assert!(text.contains("EXTENSION_SKILLS_FAILED: release active"));
+        if row["details"]["skills"]["status"] == "warning" {
+            assert!(text.contains("remote: changed (0.1.0-alpha.2)"));
+            assert!(text.contains("Agent skills: 1 published"));
+            assert!(text.contains("permission denied at /agent/tmt-remote"));
         }
     }
     let mut bytes = Vec::new();
@@ -223,4 +225,27 @@ fn skills_summary_counts_only_missing_core_skills() {
         skills_summary(&missing),
         "Managed skills: 8 current/refreshed, 1 missing, 1 conflicts preserved."
     );
+}
+
+#[test]
+fn skill_failure_is_a_warning_with_partial_publication_and_the_cause() {
+    let partial = json!({"refreshed":[{"target":"/agent/tmt","changed":true}],"skipped":[],"conflicts":[],"error":{"code":"SKILL_REFRESH_FAILED","message":"permission denied at /agent/tmt-inbox"}});
+    let report = super::skill_outcome(Err((
+        Some(partial),
+        std::io::Error::new(
+            std::io::ErrorKind::PermissionDenied,
+            "child exited with status 1",
+        ),
+    )));
+    assert_eq!(report["status"], "warning");
+    assert_eq!(report["refreshed"][0]["target"], "/agent/tmt");
+    assert!(report.get("error").is_none());
+    assert!(
+        report["warning"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("/agent/tmt-inbox")
+    );
+    let report = super::skill_outcome(Ok(json!({"refreshed":[],"skipped":[],"conflicts":[]})));
+    assert_eq!(report["status"], "current");
 }

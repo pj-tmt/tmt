@@ -1,10 +1,8 @@
 import {
-  existsSync,
   lstatSync,
   mkdirSync,
   readFileSync,
   readlinkSync,
-  readdirSync,
   symlinkSync,
   unlinkSync,
   writeFileSync,
@@ -106,34 +104,34 @@ describe('legacy extension skill lifecycle (#957)', () => {
     });
   });
 
-  it('reports the precise backup command for a remaining user conflict', async () => {
+  it('replaces an occupied published legacy skill name without a flag or backup', async () => {
     await withSandbox(async (sandbox) => {
       const targets = oldLayout(sandbox, true);
       const target = targets[0];
       unlinkSync(target);
       mkdirSync(target);
       writeFileSync(path.join(target, 'SKILL.md'), 'user owned');
-      const conflict = await runCli(sandbox, ['__native-refresh-skills']);
-      expect(conflict.status).toBe(1);
-      expect(conflict.stdout).toContain('backup=$(mktemp -d');
-      expect(conflict.stdout).toContain('User-owned or modified skill preserved');
-      expect(conflict.stdout).toContain(target);
-      expect(readFileSync(path.join(target, 'SKILL.md'), 'utf8')).toBe('user owned');
-      const line = conflict.stdout.split('\n').find((line) => line.includes(target));
-      expect(line).toBeDefined();
-      const command = line!.split('back up this entry with: ')[1].split('; then repeat')[0];
-      const recovered = await runCli(
-        { ...sandbox, cli: { executable: '/bin/sh', args: ['-c', command] } },
-        []
-      );
-      expect(recovered.status, recovered.stderr).toBe(0);
-      expect(existsSync(target)).toBe(false);
-      const backupRoot = path.join(path.dirname(path.dirname(target)), '.tmt-skill-backups');
-      const [backup] = readdirSync(backupRoot);
-      expect(
-        readFileSync(path.join(backupRoot, backup, path.basename(target), 'SKILL.md'), 'utf8')
-      ).toBe('user owned');
-      expect((await runCli(sandbox, ['__native-refresh-skills', '--json'])).status).toBe(0);
+      const current = await runCli(sandbox, ['learn', '--skill', path.basename(target)]);
+      expect(current.status, current.stdout).toBe(0);
+      const refreshed = await runCli(sandbox, ['__native-refresh-skills', '--json']);
+      expect(refreshed.status, refreshed.stdout).toBe(0);
+      expect(parseWholeStdout(refreshed)).toMatchObject({
+        refreshed: expect.arrayContaining([{ target, changed: true }]),
+        conflicts: [],
+        skipped: [],
+      });
+      expect(lstatSync(target).isSymbolicLink()).toBe(true);
+      expect(readFileSync(path.join(target, 'SKILL.md'), 'utf8')).toBe(current.stdout);
+      expect(readlinkSync(target)).toContain('/skill-assets/');
+      expect(() =>
+        lstatSync(path.join(path.dirname(path.dirname(target)), '.tmt-skill-backups'))
+      ).toThrow();
+      const again = await runCli(sandbox, ['__native-refresh-skills', '--json']);
+      expect(again.status, again.stdout).toBe(0);
+      expect(parseWholeStdout(again)).toMatchObject({
+        refreshed: expect.arrayContaining([{ target, changed: false }]),
+        conflicts: [],
+      });
     });
   });
 

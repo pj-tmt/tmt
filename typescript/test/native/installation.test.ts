@@ -463,26 +463,19 @@ describe('native installation process contract', () => {
     });
   });
 
-  it('reports unmanaged conflicts and creates a recoverable JSON backup with force', async () => {
+  it('replaces an existing published name without a flag or backup', async () => {
     await withSandbox(async (sandbox) => {
       const { logPath, baseline } = await isolateExternalCommands(sandbox);
       const target = targetFor(sandbox, 'claude');
       mkdirSync(target, { recursive: true });
-      writeFileSync(path.join(target, 'user-owned.md'), 'keep this content');
-      const refused = await runCli(sandbox, ['install', 'claude', '--json']);
-      expect(refused.status).toBe(1);
-      expectError(refused, 'ERROR');
-      expect(readFileSync(path.join(target, 'user-owned.md'), 'utf8')).toBe('keep this content');
-
-      const forced = installDocument(
-        await runCli(sandbox, ['install', 'claude', '--force', '--json'])
-      );
-      const item = forced.installed[0];
-      expect(item).toMatchObject({ agent: 'claude', target, changed: true });
-      expect(item.backup).toEqual(expect.any(String));
-      const backup = item.backup as string;
-      expect(backup).toContain(path.join(sandbox.home, '.claude', '.tmt-skill-backups'));
-      expect(readFileSync(path.join(backup, 'user-owned.md'), 'utf8')).toBe('keep this content');
+      writeFileSync(path.join(target, 'old-copy.md'), 'old copy');
+      const report = installDocument(await runCli(sandbox, ['install', 'claude', '--json']));
+      expect(report.installed[0]).toMatchObject({
+        agent: 'claude',
+        target,
+        changed: true,
+      });
+      expect(existsSync(path.join(sandbox.home, '.claude', '.tmt-skill-backups'))).toBe(false);
       assertSkillLink(target, canonicalSkill());
       assertNoExternalEffects(sandbox, logPath, baseline);
     });

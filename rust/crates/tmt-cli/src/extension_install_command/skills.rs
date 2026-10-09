@@ -1,7 +1,7 @@
 //! Settlement of extension-owned skills after verified activation.
 
-use super::{Human, ask_declining, failure};
-use crate::{consent, invocation::OutputMode, output::Failure};
+use super::{Human, failure};
+use crate::output::Failure;
 use serde_json::{Value, json};
 use std::{
     env,
@@ -61,36 +61,38 @@ pub(super) fn published_lines<'a>(
     })
 }
 
-fn publish(product: Product, skills: &[OwnedSkill]) -> Result<OwnedReport, Failure> {
+fn publish(
+    product: Product,
+    executable: &Path,
+    document: &mut Value,
+    human: &mut Human,
+) -> Result<OwnedReport, Failure> {
     let env = ProviderEnvironment::capture()
         .map_err(|error| failure("EXTENSION_SKILLS_FAILED", error))?;
     let global = global_dir()?;
     let name = product.as_str();
-    skill_installation::install_owned(&env, &global, name, skills, false).map_err(|failure| {
-        Failure::new(
-            "EXTENSION_SKILLS_FAILED",
-            format!("{name} is installed, but its agent skills were not published: {failure}"),
-            1,
-        )
-    })
+    skill_installation::install_release_skills(&env, &global, product, executable).map_err(
+        |failure| {
+            document["skills"]["published"] = published_document(&failure.report);
+            let home = env::home_dir();
+            published_lines(&failure.report, home.as_deref())
+                .for_each(|line| human.push_success(line));
+            Failure::new(
+                "EXTENSION_SKILLS_FAILED",
+                format!("{name} is installed, but its agent skills were not published: {failure}"),
+                1,
+            )
+        },
+    )
 }
 
-/// After activation, the release's agent skills, under one owner named after
-/// the extension:
-/// - `--skills` publishes every skill in the release tree.
-/// - Skills the owner already holds from the tree are refreshed, and those the
-///   new release dropped are removed by name. Other skills the owner holds,
-///   such as playbooks, are never touched.
-/// - Otherwise a terminal install asks once; any other run names the skills
-///   and how to publish them.
-///
-/// Declining, or a refused publication, leaves the activated extension installed.
+/// Publish the activated release's skills without a second consent step.
+/// Skill failures are warnings; binary activation and replacement keep their
+/// own outcomes, and partial publication remains visible in the skill report.
 pub(super) fn settle_skills(
     product: Product,
     executable: &Path,
     previous: &[String],
-    requested: bool,
-    offer: Option<OutputMode>,
     document: &mut Value,
     human: &mut Human,
 ) -> Result<(), Failure> {
@@ -109,9 +111,30 @@ pub(super) fn settle_skills(
         ));
         return Ok(());
     }
+    if let Err(error) = settle_publication(product, executable, previous, document, human) {
+        document["skills"]["status"] = json!("warning");
+        document["skills"]["warning"] = error.document()["error"].clone();
+        human.push(format!("Warning: {}", error.message));
+    }
+    let installation = native_install::inspect_product(product, executable)
+        .map_err(|error| failure("EXTENSION_INSTALLATION_INVALID", error))?;
+    settle_replacement(product, &installation, document, human)
+}
+
+fn settle_publication(
+    product: Product,
+    executable: &Path,
+    previous: &[String],
+    document: &mut Value,
+    human: &mut Human,
+) -> Result<(), Failure> {
+    let name = product.as_str();
+    document["skills"] =
+        json!({"status": "current", "available": [], "published": [], "removed": []});
     let skills = native_install::release_skills(product, executable)
         .map_err(|error| failure("EXTENSION_INSTALLATION_INVALID", error))?;
     let current = skill_names(&skills);
+    document["skills"]["available"] = json!(current);
     let paths = ConfigPaths::discover()?;
     let global = &paths.global_dir;
     skill_installation::migrate_former_owned(global, product, &skills)
@@ -123,108 +146,26 @@ pub(super) fn settle_skills(
         .filter(|skill| owned.contains_key(*skill) && !current.contains(skill))
         .cloned()
         .collect();
-    let held = current.iter().any(|skill| owned.contains_key(skill));
-    let mut selected: Vec<OwnedSkill> = if requested {
-        skills
-    } else {
-        skills
-            .into_iter()
-            .filter(|skill| owned.contains_key(&skill.name))
-            .collect()
-    };
-    let mut expand_targets = requested;
-    if !requested && !held && dropped.is_empty() && !current.is_empty() {
-        let accepted = match offer {
-            Some(mode) if consent::interactive(mode, &tmt_cli_style::stream::stdout(mode.json)) => {
-                let env = ProviderEnvironment::capture()
-                    .map_err(|error| failure("EXTENSION_SKILLS_FAILED", error))?;
-                let roots = skill_installation::owned_roots(&env, global)
-                    .map_err(|error| failure("EXTENSION_SKILLS_FAILED", error))?;
-                // The install result first, then the question about skills.
-                let mut stdout = tmt_cli_style::stream::stdout(mode.json);
-                let terminal = stdout.terminal();
-                std::mem::replace(human, Human::plain(String::new()))
-                    .write(&mut stdout, terminal)
-                    .map_err(|error| {
-                        Failure::new("EXTENSION_IO_ERROR", "Could not write output.", 1)
-                            .caused_by(error)
-                    })?;
-                drop(stdout);
-                ask_declining(
-                    false,
-                    mode,
-                    &format!(
-                        "Publish its agent skills {} into {}",
-                        current.join(", "),
-                        roots
-                            .iter()
-                            .map(|root| root.display().to_string())
-                            .collect::<Vec<_>>()
-                            .join(", ")
-                    ),
-                    "Skipped the agent skills; the extension is installed.",
-                )?
-            }
-            _ => false,
-        };
-        if accepted {
-            expand_targets = true;
-            selected = native_install::release_skills(product, executable)
-                .map_err(|error| failure("EXTENSION_INSTALLATION_INVALID", error))?;
-        }
-    }
-    let mut published = Value::Array(Vec::new());
-    if !selected.is_empty() {
-        let report = if product.former().is_some() && !expand_targets {
-            skill_installation::refresh_owned(global, name, &selected)
-                .map_err(|error| failure("EXTENSION_SKILLS_FAILED", std::io::Error::other(error)))?
-        } else {
-            publish(product, &selected)?
-        };
+    if !skills.is_empty() {
+        let report = publish(product, executable, document, human)?;
         let home = env::home_dir();
         published_lines(&report, home.as_deref()).for_each(|line| human.push_success(line));
-        published = published_document(&report);
+        document["skills"]["published"] = published_document(&report);
     }
-    let mut removed = Vec::new();
     if !dropped.is_empty() {
-        let report = skill_installation::remove_owned(None, global, name, Some(&dropped))
-            .map_err(|failure| {
-                Failure::new(
-                    "EXTENSION_SKILLS_FAILED",
-                    format!(
-                        "{name} is installed, but its retired agent skills were not removed: {failure}"
-                    ),
-                    1,
-                )
-            })?;
+        let removal = skill_installation::remove_owned(None, global, name, Some(&dropped));
+        let report = match &removal {
+            Ok(report) => report,
+            Err(error) => &error.report,
+        };
         for target in &report.removed {
             human.push(format!("Removed retired agent skill {}", target.display()));
         }
-        removed = report.removed;
+        document["skills"]["removed"] = json!(report.removed);
+        removal
+            .map_err(|error| failure("EXTENSION_SKILLS_FAILED", std::io::Error::other(error)))?;
     }
-    let unpublished: Vec<&String> = current
-        .iter()
-        .filter(|skill| !selected.iter().any(|chosen| &chosen.name == *skill))
-        .collect();
-    if !unpublished.is_empty() {
-        human.push(format!(
-            "{} agent skill{} available ({}); publish with: tmt extension install {name} --skills",
-            unpublished.len(),
-            if unpublished.len() == 1 { "" } else { "s" },
-            unpublished
-                .iter()
-                .map(|skill| skill.as_str())
-                .collect::<Vec<_>>()
-                .join(", ")
-        ));
-    }
-    if !current.is_empty() || !removed.is_empty() {
-        document["skills"] =
-            json!({"available": current, "published": published, "removed": removed});
-    }
-    let installation = native_install::inspect_product(product, executable)
-        .map_err(|error| failure("EXTENSION_INSTALLATION_INVALID", error))?;
-    settle_replacement(product, &installation, &paths, document, human)
+    Ok(())
 }
 
 /// Installation receipts and hook consent have separate owners. Verify both
@@ -233,7 +174,6 @@ pub(super) fn settle_skills(
 fn settle_replacement(
     product: Product,
     installation: &native_install::ManagedInstallation,
-    paths: &ConfigPaths,
     document: &mut Value,
     human: &mut Human,
 ) -> Result<(), Failure> {
@@ -247,7 +187,8 @@ fn settle_replacement(
     {
         return Ok(());
     }
-    let disabled = extension_hooks::disable(paths, former.name).map_err(|error| {
+    let paths = ConfigPaths::discover()?;
+    let disabled = extension_hooks::disable(&paths, former.name).map_err(|error| {
         Failure::new(
             error.code(),
             format!(
@@ -322,15 +263,6 @@ pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] = &[
         "{} is installed, but former {} replacement cleanup failed: {error}.{} Inspect with: tmt extension ls",
         &[""],
         &[],
-    ),
-    crate::cli_style_tests::HintSpec::core(
-        "{} agent skill{} available ({}); publish with: tmt extension install {name} --skills",
-        &[""],
-        &[
-            ("{name}", "ops"),
-            ("{}", "ops"),
-            ("{SUGGESTED_EXTENSION}", "ops"),
-        ],
     ),
     crate::cli_style_tests::HintSpec::core(
         "Former {} installation retained; replace with: tmt extension upgrade {name} --unpin",

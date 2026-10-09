@@ -141,21 +141,12 @@ pub(super) fn upgrade_at(
         "skippedPinned": report.skipped_pinned,
         "executable": report.installation.executable});
     let mut human = human;
-    // A post-activation settlement failure can leave a verified former install
-    // beside the current release. Retry only that recovery on an unpinned no-op.
-    if report.installation.changed
-        || (!report.skipped_pinned
-            && matches!(
-                native_install::inspect_former_product(product, prefix),
-                Ok(Some(_))
-            ))
-    {
+    // Unpinned no-op upgrades also retry publication after a skills warning.
+    if !report.skipped_pinned {
         settle_skills(
             product,
             &report.installation.executable,
             &previous,
-            false,
-            None,
             &mut document,
             &mut human,
         )

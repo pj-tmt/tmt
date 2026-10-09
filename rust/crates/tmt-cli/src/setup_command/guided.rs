@@ -49,13 +49,6 @@ impl Plan {
             && self.owned.is_empty()
             && self.hook_changes().next().is_none()
     }
-
-    fn occupied(&self) -> impl Iterator<Item = &SkillTarget> {
-        self.core
-            .iter()
-            .map(|(_, skill)| skill)
-            .filter(|skill| skill.state == SkillState::Occupied)
-    }
 }
 
 fn gets_skills(detection: &Detection) -> bool {
@@ -154,9 +147,8 @@ fn present(output: &mut impl Write, terminal: Terminal, plan: &Plan) -> std::io:
     let mut changes = Table::new(&[Column::Fixed, Column::Detail, Column::Detail]);
     for (driver, skill) in plan.core_changes() {
         let note = match &skill.state {
-            // Named, so an outdated TMT skill is never replaced silently.
             SkillState::Foreign { source } => format!(
-                "{}; replaces an older TMT skill from {} (backed up first)",
+                "{}; replaces an older TMT skill from {}",
                 driver.name(),
                 home(source)
             ),
@@ -189,13 +181,6 @@ fn present(output: &mut impl Write, terminal: Terminal, plan: &Plan) -> std::io:
             ),
         ]);
     }
-    let mut kept = Table::new(&[Column::Detail, Column::Detail]);
-    for skill in plan.occupied() {
-        kept.row([
-            Cell::from(home(&skill.target)),
-            Cell::from("not TMT's; left as it is"),
-        ]);
-    }
     let change_count = plan.core_changes().count() + plan.owned.len() + plan.hook_changes().count();
     let mut sections = vec![Section {
         title: "agents",
@@ -209,15 +194,6 @@ fn present(output: &mut impl Write, terminal: Terminal, plan: &Plan) -> std::io:
             title: "changes",
             count: Some(change_count),
             rows: changes,
-            note: None,
-            hint: None,
-        });
-    }
-    if !kept.is_empty() {
-        sections.push(Section {
-            title: "keep",
-            count: Some(plan.occupied().count()),
-            rows: kept,
             note: None,
             hint: None,
         });
@@ -270,7 +246,7 @@ fn document(plan: &Plan, applied: bool, skipped: &[PathBuf]) -> serde_json::Valu
         }).collect::<Vec<_>>(),
         "agents": plan.detections.iter().map(|(driver, detection)| json!({"name": driver.name(), "state": state(detection)})).collect::<Vec<_>>(),
         "plan": changes,
-        "kept": plan.occupied().map(|skill| &skill.target).collect::<Vec<_>>(),
+        "kept": [],
         "applied": applied,
         "skipped": skipped,
     });
@@ -372,7 +348,7 @@ fn apply(
             message::success(&mut *output, terminal, &text).map_err(failure)
         }
     };
-    // Exactly the planned core targets: occupied ones stay as the plan said.
+    // Publication replaces existing entries at the planned core skill names.
     let planned: Vec<SkillTarget> = plan
         .core_changes()
         .map(|(_, skill)| skill.clone())
@@ -381,9 +357,6 @@ fn apply(
     if !planned.is_empty() {
         let published = skill_installation::publish_core(global, &planned).map_err(failure)?;
         done(format!("Installed {} skill(s)", published.linked.len()))?;
-        for backup in &published.backups {
-            done(format!("Backed up the replaced skill to {}", home(backup)))?;
-        }
         skipped = published.skipped;
     }
     if !plan.owned.is_empty() {

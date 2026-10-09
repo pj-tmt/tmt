@@ -142,10 +142,10 @@ describe('guided tmt setup', () => {
     });
   });
 
-  it('applies exactly the plan: keeps an occupied skill and replaces a foreign TMT one', async () => {
+  it('replaces planned published names without backups and leaves source destinations untouched', async () => {
     await withSandbox(async (sandbox) => {
       machine(sandbox);
-      // A user's own tmt skill for Claude: setup must leave it.
+      // A real directory at the published name is replaced.
       const occupied = path.join(sandbox.home, '.claude', 'skills', 'tmt');
       mkdirSync(occupied, { recursive: true });
       writeFileSync(path.join(occupied, 'SKILL.md'), '---\nname: tmt\n---\nmine\n');
@@ -159,36 +159,35 @@ describe('guided tmt setup', () => {
 
       const planned = await runCli(sandbox, ['setup']);
       expect(planned.stdout).toContain('replaces an older TMT skill from');
-      expect(planned.stdout).toContain('KEEP 1');
-      expect(planned.stdout).toContain("~/.claude/skills/tmt  not TMT's; left as it is");
+      expect(planned.stdout).toContain('~/.claude/skills/tmt');
 
       const applied = await runCli(sandbox, ['setup', '--yes', '--json']);
       expect(applied.status, applied.stdout + applied.stderr).toBe(0);
       expect(applied.stdout + applied.stderr).not.toContain('--force');
       const report = parseWholeStdout(applied);
-      expect(report).toMatchObject({ applied: true, kept: [occupied], skipped: [] });
+      expect(report).toMatchObject({ applied: true, kept: [], skipped: [] });
       const plan = report.plan as { kind: string; path: string; replaces?: string }[];
       expect(plan.find((item) => item.path === foreign)?.replaces).toBe(oldSource);
-      expect(plan.some((item) => item.path === occupied)).toBe(false);
-      // Every other change was applied, the occupant untouched.
-      expect(readFileSync(path.join(occupied, 'SKILL.md'), 'utf8')).toContain('mine');
-      expect(lstatSync(occupied).isDirectory()).toBe(true);
+      expect(plan.some((item) => item.path === occupied)).toBe(true);
+      // The real directory and foreign link both become current links.
+      expect(lstatSync(occupied).isSymbolicLink()).toBe(true);
+      expect(readFileSync(path.join(occupied, 'SKILL.md'), 'utf8')).not.toContain(
+        '---\nname: tmt\n---\nmine\n'
+      );
       expect(
         lstatSync(path.join(sandbox.home, '.claude', 'skills', 'tmt-inbox')).isSymbolicLink()
       ).toBe(true);
       expect(readFileSync(path.join(sandbox.home, '.claude', 'settings.json'), 'utf8')).toContain(
         '__hook claude'
       );
-      // The foreign link now points at this home's assets; the old link is kept as a backup.
+      // The foreign link changes without touching its destination or creating a backup.
       expect(readlinkSync(foreign)).toContain(path.join(sandbox.globalDir, 'skill-assets'));
-      const backups = readdirSync(path.join(sandbox.home, '.agents', '.tmt-skill-backups'));
-      expect(backups.filter((name) => name.startsWith('tmt.backup-'))).toHaveLength(1);
+      expect(existsSync(path.join(sandbox.home, '.agents', '.tmt-skill-backups'))).toBe(false);
       expect(readFileSync(path.join(oldSource, 'SKILL.md'), 'utf8')).toContain('old');
 
       const again = await runCli(sandbox, ['setup']);
       expect(again.status, again.stderr).toBe(0);
       expect(again.stdout).toContain('✓ Everything is set up');
-      expect(again.stdout).toContain('KEEP 1');
       expect(ran(sandbox)).toEqual([]);
     });
   });

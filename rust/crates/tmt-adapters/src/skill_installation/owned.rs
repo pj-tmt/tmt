@@ -42,7 +42,7 @@ pub enum Refusal {
     Invalid(String),
     /// Another owner, or core, holds this name.
     Claimed { name: String, owner: String },
-    /// A path neither core nor an owner published; `force` backs it up.
+    /// An unmanaged target, source or retired migration path.
     Unmanaged(PathBuf),
 }
 
@@ -56,11 +56,9 @@ impl fmt::Display for Refusal {
                     "Skill {name} belongs to {owner}; nothing was published."
                 )
             }
-            Self::Unmanaged(path) => write!(
-                output,
-                "Refusing to replace existing unmanaged path: {}; force backs it up and replaces it.",
-                path.display()
-            ),
+            Self::Unmanaged(path) => {
+                write!(output, "Refusing unmanaged skill path: {}.", path.display())
+            }
         }
     }
 }
@@ -339,44 +337,58 @@ fn corrupt() -> io::Error {
 
 fn read_owners(global: &Path) -> io::Result<Owners> {
     let path = registry_path(global);
-    if !files::exists(&path)? {
-        return Ok(Owners::default());
-    }
-    if !fs::symlink_metadata(&path)?.is_file() {
-        return Err(corrupt());
-    }
-    let bytes = bounded_file::read(&path, REGISTRY_BYTES).map_err(|_| corrupt())?;
-    let document: Value = serde_json::from_slice(&bytes).map_err(|_| corrupt())?;
-    if document["version"] != 1 || document.as_object().is_none_or(|object| object.len() != 2) {
-        return Err(corrupt());
-    }
-    let mut owners = Owners::default();
-    for (name, entry) in document["skills"].as_object().ok_or_else(corrupt)? {
-        let owner = entry["owner"].as_str().filter(|owner| valid_owner(owner));
-        let digest = entry["digest"].as_str().filter(|digest| digest.len() == 64);
-        let targets = entry["targets"].as_array().ok_or_else(corrupt)?;
-        let (Some(owner), Some(digest), true) = (owner, digest, valid_name(name)) else {
+    let read = || {
+        if !files::exists(&path)? {
+            return Ok(Owners::default());
+        }
+        if !fs::symlink_metadata(&path)?.is_file() {
             return Err(corrupt());
-        };
-        owners.skills.insert(
-            name.clone(),
-            OwnerRecord {
-                owner: owner.to_owned(),
-                digest: digest.to_owned(),
-                targets: targets
-                    .iter()
-                    .map(|target| {
-                        target
-                            .as_str()
-                            .map(PathBuf::from)
-                            .filter(|path| path.is_absolute())
-                            .ok_or_else(corrupt)
-                    })
-                    .collect::<io::Result<_>>()?,
-            },
-        );
-    }
-    Ok(owners)
+        }
+        let bytes = bounded_file::read(&path, REGISTRY_BYTES).map_err(|error| match error {
+            bounded_file::FileReadError::Io(error) => error,
+            bounded_file::FileReadError::TooLarge => corrupt(),
+        })?;
+        let document: Value = serde_json::from_slice(&bytes).map_err(|_| corrupt())?;
+        if document["version"] != 1 || document.as_object().is_none_or(|object| object.len() != 2) {
+            return Err(corrupt());
+        }
+        let mut owners = Owners::default();
+        for (name, entry) in document["skills"].as_object().ok_or_else(corrupt)? {
+            let owner = entry["owner"].as_str().filter(|owner| valid_owner(owner));
+            let digest = entry["digest"].as_str().filter(|digest| digest.len() == 64);
+            let targets = entry["targets"].as_array().ok_or_else(corrupt)?;
+            let (Some(owner), Some(digest), true) = (owner, digest, valid_name(name)) else {
+                return Err(corrupt());
+            };
+            owners.skills.insert(
+                name.clone(),
+                OwnerRecord {
+                    owner: owner.to_owned(),
+                    digest: digest.to_owned(),
+                    targets: targets
+                        .iter()
+                        .map(|target| {
+                            target
+                                .as_str()
+                                .map(PathBuf::from)
+                                .filter(|path| path.is_absolute())
+                                .ok_or_else(corrupt)
+                        })
+                        .collect::<io::Result<_>>()?,
+                },
+            );
+        }
+        Ok(owners)
+    };
+    read().map_err(|error: io::Error| {
+        io::Error::new(
+            error.kind(),
+            format!(
+                "Could not read skill owner registry {}: {error}",
+                path.display()
+            ),
+        )
+    })
 }
 
 fn write_owners(global: &Path, owners: &Owners) -> io::Result<()> {
@@ -528,38 +540,25 @@ pub fn migrate_former_owned(
                     owner: record.owner.clone(),
                 }));
             }
-            let expected = source(
-                &assets,
-                product.as_str(),
-                &skill_digest(&skill.name, &skill.files),
-                new_name,
-            );
             let mut targets = Vec::new();
             for old_target in &entry.targets {
+                if old_target.file_name() != Some(std::ffi::OsStr::new(name)) {
+                    return Err(corrupt());
+                }
                 let target = old_target.parent().ok_or_else(corrupt)?.join(new_name);
                 files::safe_target(assets.root(), old_target)?;
                 files::safe_target(assets.root(), &target)?;
-                match prior(old_target, &assets)? {
-                    Prior::Absent
-                        if target != *old_target
-                            && matches!(prior(&target, &assets)?,
-                        Prior::Owned { owner, source } if owner == product.as_str() && source == expected) =>
-                        {}
-                    Prior::Absent => continue,
-                    Prior::Owned { owner, source }
-                        if (owner == former.name && source == old_source)
-                            || (new_name == name
-                                && owner == product.as_str()
-                                && source == expected) => {}
-                    _ => return Err(refused(Refusal::Unmanaged(old_target.clone()))),
-                }
-                if target != *old_target {
-                    match prior(&target, &assets)? {
-                        Prior::Absent => {}
-                        Prior::Owned { owner, source }
-                            if owner == product.as_str() && source == expected => {}
-                        _ => return Err(refused(Refusal::Unmanaged(target))),
+                if files::exists(old_target)? {
+                    // Retiring a different former name still needs its owned
+                    // link; publication at the new name needs no target check.
+                    if new_name != name
+                        && !matches!(prior(old_target, &assets)?,
+                            Prior::Owned { owner, source } if owner == former.name && source == old_source)
+                    {
+                        return Err(refused(Refusal::Unmanaged(old_target.clone())));
                     }
+                } else if target == *old_target || !files::exists(&target)? {
+                    continue;
                 }
                 targets.push((old_target.clone(), target));
             }
@@ -628,6 +627,9 @@ pub fn refresh_owned(
                     }));
                 }
                 for target in &entry.targets {
+                    if target.file_name() != Some(std::ffi::OsStr::new(&skill.name)) {
+                        return Err(corrupt());
+                    }
                     files::safe_target(assets.root(), target)?;
                     match prior(target, &assets)? {
                         Prior::Absent => {}
@@ -675,9 +677,8 @@ pub fn refresh_owned(
     }
 }
 
-/// Publishes an owner's skills into every provider root that gets optional
-/// skills. Claims and unmanaged paths are checked for every target before any
-/// effect; `force` transfers a claim and backs up unmanaged paths.
+/// Publish API-supplied skills. Unmanaged targets require explicit force and
+/// a recoverable backup; a caller-provided name is not a release catalog.
 pub fn install_owned(
     env: &ProviderEnvironment,
     global: &Path,
@@ -685,13 +686,50 @@ pub fn install_owned(
     skills: &[OwnedSkill],
     force: bool,
 ) -> Result<OwnedReport, OwnedFailure> {
+    install_owned_with_policy(env, global, owner, skills, Publication::Api { force })
+}
+
+/// Publish only the verified skills of an official managed product release.
+/// Arbitrary API names cannot enter the unchecked replacement path.
+pub fn install_release_skills(
+    env: &ProviderEnvironment,
+    global: &Path,
+    product: crate::native_install::Product,
+    executable: &Path,
+) -> Result<OwnedReport, OwnedFailure> {
+    let skills = crate::native_install::release_skills(product, executable).map_err(|cause| {
+        OwnedFailure {
+            cause,
+            report: OwnedReport::default(),
+        }
+    })?;
+    if skills.is_empty() {
+        return Ok(OwnedReport::default());
+    }
+    install_owned_with_policy(env, global, product.as_str(), &skills, Publication::Release)
+}
+
+#[derive(Clone, Copy)]
+enum Publication {
+    Api { force: bool },
+    Release,
+}
+
+fn install_owned_with_policy(
+    env: &ProviderEnvironment,
+    global: &Path,
+    owner: &str,
+    skills: &[OwnedSkill],
+    publication: Publication,
+) -> Result<OwnedReport, OwnedFailure> {
+    let force = matches!(publication, Publication::Api { force: true });
     let mut report = OwnedReport::default();
     let pending = (|| {
         validate(owner, skills).map_err(refused)?;
         let global = files::resolved(global)?;
         let assets = SkillAssets::new(&global);
         files::with_lock(&global, || {
-            let roots = optional_roots(env, &global, &assets)?;
+            let roots = optional_roots(env, &global)?;
             let mut owners = read_owners(&global)?;
             let mut plan = Vec::new();
             for skill in skills {
@@ -707,34 +745,37 @@ pub fn install_owned(
                 for (root, agent) in &roots {
                     let target = root.join(&skill.name);
                     files::safe_target(assets.root(), &target)?;
-                    let prior = prior(&target, &assets)?;
-                    match &prior {
-                        Prior::Owned { owner: other, .. } if other != owner && !force => {
-                            return Err(refused(Refusal::Claimed {
-                                name: skill.name.clone(),
-                                owner: other.clone(),
-                            }));
+                    let previous = if matches!(publication, Publication::Release) {
+                        None
+                    } else {
+                        let previous = prior(&target, &assets)?;
+                        match &previous {
+                            Prior::Owned { owner: other, .. } if other != owner && !force => {
+                                return Err(refused(Refusal::Claimed {
+                                    name: skill.name.clone(),
+                                    owner: other.clone(),
+                                }));
+                            }
+                            Prior::Core
+                                if !force
+                                    && !(owner == "office"
+                                        && Catalog::bundled()
+                                            .names(Group::Office)
+                                            .contains(skill.name.as_str())) =>
+                            {
+                                return Err(refused(Refusal::Claimed {
+                                    name: skill.name.clone(),
+                                    owner: "core".into(),
+                                }));
+                            }
+                            Prior::Unmanaged if !force => {
+                                return Err(refused(Refusal::Unmanaged(target)));
+                            }
+                            _ => {}
                         }
-                        // Only Office adopts the Office links core published
-                        // before owners existed; anyone else needs force.
-                        Prior::Core
-                            if !force
-                                && !(owner == "office"
-                                    && Catalog::bundled()
-                                        .names(Group::Office)
-                                        .contains(skill.name.as_str())) =>
-                        {
-                            return Err(refused(Refusal::Claimed {
-                                name: skill.name.clone(),
-                                owner: "core".into(),
-                            }));
-                        }
-                        Prior::Unmanaged if !force => {
-                            return Err(refused(Refusal::Unmanaged(target)));
-                        }
-                        _ => {}
-                    }
-                    plan.push((skill, target, *agent, prior));
+                        Some(previous)
+                    };
+                    plan.push((skill, target, *agent, previous));
                 }
             }
             let mut sources = BTreeMap::new();
@@ -760,17 +801,13 @@ pub fn install_owned(
             }
             // Record intent before links, so a crash leaves nothing unowned.
             write_owners(&global, &owners)?;
-            for (skill, target, agent, prior) in plan {
+            for (skill, target, agent, previous) in plan {
                 let source = &sources[&skill.name];
-                let changed = match &prior {
-                    Prior::Owned {
-                        source: current, ..
-                    } => current != source,
-                    _ => true,
-                };
-                let backup = match prior {
-                    Prior::Unmanaged => Some(files::backup(&target)?),
-                    _ => None,
+                let changed = !files::current_link(&target, source);
+                let backup = if matches!(previous, Some(Prior::Unmanaged)) {
+                    Some(files::backup(&target)?)
+                } else {
+                    None
                 };
                 if changed {
                     files::link(&target, source)?;
@@ -976,8 +1013,7 @@ pub(super) fn owned_names(global: &Path) -> io::Result<std::collections::BTreeSe
 /// `install_owned` uses. Read-only: for consent before any effect.
 pub fn owned_roots(env: &ProviderEnvironment, global: &Path) -> io::Result<Vec<PathBuf>> {
     let global = files::resolved(global)?;
-    let assets = SkillAssets::new(&global);
-    Ok(optional_roots(env, &global, &assets)?.into_keys().collect())
+    Ok(optional_roots(env, &global)?.into_keys().collect())
 }
 
 /// The skills an owner holds and each one's recorded targets.
@@ -1004,7 +1040,7 @@ pub fn owned_by(
 
 /// Links recorded owned skills at new targets to each owner's current
 /// source, under the installation lock, and records those targets. A target
-/// that exists is skipped, never replaced.
+/// that exists is skipped, never replaced: records can contain API-supplied names.
 pub(super) fn link_recorded<'a>(
     global: &Path,
     targets: impl IntoIterator<Item = (&'a str, &'a Path)>,
@@ -1015,14 +1051,20 @@ pub(super) fn link_recorded<'a>(
         let mut owners = read_owners(global)?;
         let mut linked = Vec::new();
         for (name, target) in &targets {
+            if target.file_name() != Some(std::ffi::OsStr::new(name)) {
+                return Err(corrupt());
+            }
             let Some(entry) = owners.skills.get_mut(*name) else {
                 continue;
             };
+            files::safe_target(assets.root(), target)?;
+            let from = source(&assets, &entry.owner, &entry.digest, name);
+            if skill_digest(name, &read_tree(&from)?) != entry.digest {
+                return Err(refused(Refusal::Unmanaged(from)));
+            }
             if files::exists(target)? {
                 continue;
             }
-            files::safe_target(assets.root(), target)?;
-            let from = source(&assets, &entry.owner, &entry.digest, name);
             files::link(target, &from)?;
             entry.targets.push(target.to_path_buf());
             linked.push(target.to_path_buf());

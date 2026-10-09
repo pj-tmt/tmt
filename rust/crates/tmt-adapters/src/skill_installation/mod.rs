@@ -26,7 +26,8 @@ pub(crate) use owned::{
 };
 pub use owned::{
     OwnedFailure, OwnedReport, OwnedSkill, OwnedTarget, Refusal, install_owned,
-    migrate_former_owned, owned_by, owned_roots, owners, refresh_owned, refusal, remove_owned,
+    install_release_skills, migrate_former_owned, owned_by, owned_roots, owners, refresh_owned,
+    refusal, remove_owned,
 };
 #[cfg(test)]
 mod owned_tests;
@@ -161,10 +162,7 @@ fn managed_link(target: &Path, assets: &assets::SkillAssets) -> io::Result<Optio
 }
 
 struct PublicationContext<'a> {
-    assets: &'a assets::SkillAssets,
-    force: bool,
     report: &'a mut InstallReport,
-    pending_backup: &'a mut Option<PathBuf>,
 }
 
 fn publish_managed_target(
@@ -175,18 +173,8 @@ fn publish_managed_target(
     agent: Option<&'static DriverDefinition>,
     publish: &mut impl FnMut(&Path, &Path) -> io::Result<()>,
 ) -> io::Result<()> {
-    let prior = managed_link(target, context.assets)?;
-    let changed = prior.as_deref() != Some(source);
+    let changed = !files::current_link(target, source);
     if changed {
-        if prior.is_none() && files::exists(target)? {
-            if !context.force {
-                return Err(io::Error::other(format!(
-                    "Refusing to replace existing unmanaged path: {} (use --force)",
-                    target.display()
-                )));
-            }
-            *context.pending_backup = Some(files::backup(target)?);
-        }
         publish(target, source)?;
     }
     let mut installed = InstalledSkill {
@@ -194,7 +182,7 @@ fn publish_managed_target(
         agent,
         target: target.to_path_buf(),
         changed,
-        backup: context.pending_backup.take(),
+        backup: None,
         legacy_backups: Vec::new(),
     };
     if let Some(index) = context
@@ -241,7 +229,6 @@ pub fn install_office(
 fn optional_roots(
     env: &ProviderEnvironment,
     global: &Path,
-    assets: &assets::SkillAssets,
 ) -> io::Result<BTreeMap<PathBuf, Option<&'static DriverDefinition>>> {
     let mut roots = BTreeMap::<PathBuf, Option<&'static DriverDefinition>>::new();
     for (agent, main) in selected(env, None, None)? {
@@ -254,7 +241,7 @@ fn optional_roots(
         let Some(name) = registered.file_name().and_then(|name| name.to_str()) else {
             continue;
         };
-        if catalog::bundled(name).is_none() || managed_link(&registered, assets)?.is_none() {
+        if catalog::bundled(name).is_none() || !files::exists(&registered)? {
             continue;
         }
         let parent = registered.parent().expect("registered skill target parent");
@@ -266,11 +253,11 @@ fn optional_roots(
 fn install_office_with_publisher(
     env: &ProviderEnvironment,
     global: &Path,
-    force: bool,
+    _force: bool,
     mut publish: impl FnMut(&Path, &Path) -> io::Result<()>,
 ) -> Result<InstallReport, InstallFailure> {
     let mut report = InstallReport::default();
-    let mut pending_backup = None;
+    let pending_backup = None;
     let pending = (|| {
         let global = files::resolved(global)?;
         let assets = assets::SkillAssets::new(&global);
@@ -280,7 +267,7 @@ fn install_office_with_publisher(
             // Once an owner holds a name (Office adopted through the owner
             // door), core's bundle no longer publishes it.
             let owned = owned::owned_names(&global)?;
-            for (root, agent) in optional_roots(env, &global, &assets)? {
+            for (root, agent) in optional_roots(env, &global)? {
                 for name in catalog::Catalog::bundled().names(catalog::Group::Office) {
                     if !owned.contains(name) {
                         targets.entry(root.join(name)).or_insert(agent);
@@ -293,10 +280,7 @@ fn install_office_with_publisher(
             let sources = assets.materialize_bundle()?;
             registry::remember(&global, targets.keys().cloned())?;
             let mut context = PublicationContext {
-                assets: &assets,
-                force,
                 report: &mut report,
-                pending_backup: &mut pending_backup,
             };
             for (target, agent) in targets {
                 let skill = target
@@ -332,7 +316,7 @@ fn install_with_publisher(
     mut publish: impl FnMut(&Path, &Path) -> io::Result<()>,
 ) -> Result<InstallReport, InstallFailure> {
     let mut report = InstallReport::default();
-    let mut pending_backup = None;
+    let pending_backup = None;
     let pending = (|| {
         let targets = selected(env, provider, directory)?
             .into_iter()
@@ -376,10 +360,7 @@ fn install_with_publisher(
             let main_source = sources.get(catalog::MAIN).expect("main source");
             let inbox_source = sources.get(catalog::INBOX).expect("inbox source");
             let mut context = PublicationContext {
-                assets: &assets,
-                force,
                 report: &mut report,
-                pending_backup: &mut pending_backup,
             };
             // The former-name owner decides before ordinary publication. A
             // refused old source must not acquire a second main skill, even

@@ -49,10 +49,13 @@ fn a_link_into_another_tmt_home_is_foreign_and_anything_else_is_occupied() {
     let source = old_skill(&directory, "tmt", "tmt");
     symlink(&source, root.join("tmt")).unwrap();
     assert_eq!(state(&env, &global, "tmt"), SkillState::Foreign { source });
-    // Same layout, but the skill says it is something else: a user's.
+    // Classification does not read the prior skill bytes.
     let renamed = old_skill(&directory, "tmt-inbox", "my-inbox");
     symlink(&renamed, root.join("tmt-inbox")).unwrap();
-    assert_eq!(state(&env, &global, "tmt-inbox"), SkillState::Occupied);
+    assert_eq!(
+        state(&env, &global, "tmt-inbox"),
+        SkillState::Foreign { source: renamed }
+    );
     fs::remove_file(root.join("tmt-inbox")).unwrap();
     // A plain directory and a link elsewhere are the user's too.
     fs::create_dir(root.join("tmt-inbox")).unwrap();
@@ -76,7 +79,7 @@ fn a_dangling_link_into_another_tmt_home_is_still_foreign() {
 }
 
 #[test]
-fn publication_touches_only_planned_changes_and_skips_what_changed_since() {
+fn publication_replaces_planned_names_even_if_their_entries_changed() {
     let (directory, env, global, root) = fixture();
     let source = old_skill(&directory, "tmt", "tmt");
     symlink(&source, root.join("tmt")).unwrap();
@@ -86,16 +89,15 @@ fn publication_touches_only_planned_changes_and_skips_what_changed_since() {
     fs::create_dir(root.join("tmt-inbox")).unwrap();
     fs::write(root.join("tmt-inbox/SKILL.md"), "mine").unwrap();
     let published = publish_core(&global, &planned).unwrap();
-    assert_eq!(published.linked, [root.join("tmt")]);
-    assert_eq!(published.skipped, [root.join("tmt-inbox")]);
-    assert_eq!(published.backups.len(), 1);
-    assert_eq!(fs::read_link(&published.backups[0]).unwrap(), source);
+    assert_eq!(published.linked, [root.join("tmt"), root.join("tmt-inbox")]);
+    assert!(published.skipped.is_empty());
+    assert!(published.backups.is_empty());
     assert_eq!(
         fs::read_to_string(root.join("tmt-inbox/SKILL.md")).unwrap(),
-        "mine"
+        std::str::from_utf8(super::bundled_skill_named("tmt-inbox").unwrap()).unwrap()
     );
     assert_eq!(state(&env, &global, "tmt"), SkillState::Current);
-    // An occupied plan entry is never published.
+    // Already-current targets are skipped even when their plan reported occupied.
     let kept = SkillTarget {
         name: "tmt-inbox".into(),
         target: root.join("tmt-inbox"),

@@ -127,6 +127,18 @@ pub(super) fn backup(target: &Path) -> io::Result<PathBuf> {
 }
 
 pub(crate) fn atomic_write(destination: &Path, bytes: &[u8]) -> io::Result<()> {
+    write_atomic(destination, bytes).map_err(|error| {
+        io::Error::new(
+            error.kind(),
+            format!(
+                "Could not write skill file {}: {error}",
+                destination.display()
+            ),
+        )
+    })
+}
+
+fn write_atomic(destination: &Path, bytes: &[u8]) -> io::Result<()> {
     let parent = destination
         .parent()
         .ok_or_else(|| io::Error::other("Publication path has no parent."))?;
@@ -146,7 +158,26 @@ pub(crate) fn atomic_write(destination: &Path, bytes: &[u8]) -> io::Result<()> {
     finish_stage(&stage, pending)
 }
 
+/// Publication addresses a selected skill name, never a symlink's destination.
+/// The caller selects names from its bundle/release, so neighboring entries are
+/// outside this operation. Comparing a link needs no prior content inspection.
+pub(super) fn current_link(destination: &Path, source: &Path) -> bool {
+    fs::read_link(destination).is_ok_and(|prior| prior == source)
+}
+
 pub(super) fn link(destination: &Path, source: &Path) -> io::Result<()> {
+    replace_link(destination, source).map_err(|error| {
+        io::Error::new(
+            error.kind(),
+            format!(
+                "Could not publish skill at {}: {error}",
+                destination.display()
+            ),
+        )
+    })
+}
+
+fn replace_link(destination: &Path, source: &Path) -> io::Result<()> {
     let parent = destination
         .parent()
         .ok_or_else(|| io::Error::other("Skill target has no parent."))?;
@@ -156,7 +187,14 @@ pub(super) fn link(destination: &Path, source: &Path) -> io::Result<()> {
     }
     let stage = parent.join(format!(".tmt-install-{}", Uuid::new_v4()));
     std::os::unix::fs::symlink(source, &stage)?;
-    let pending = fs::rename(&stage, destination);
+    let pending = (|| {
+        // Stage the new link before removing a directory. symlink_metadata and
+        // remove_dir_all do not follow a foreign symlink or links inside it.
+        if fs::symlink_metadata(destination)?.is_dir() {
+            fs::remove_dir_all(destination)?;
+        }
+        fs::rename(&stage, destination)
+    })();
     finish_stage(&stage, pending)
 }
 

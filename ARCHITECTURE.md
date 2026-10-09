@@ -374,11 +374,19 @@ Managed agent guidance is a filesystem concern separate from application state.
 embedded and materialized by digest under `skill_installation`, and the
 architecture test fails on a skill-name list anywhere else. Core install exposes
 only `tmt` and `tmt-inbox`. Skill installation never opens configuration,
-SQLite or tmux and never silently replaces an unmanaged path: a real directory,
-mismatched name, outside link or modified source is preserved as a conflict.
+SQLite or tmux. Core bundled and verified official release publication replaces
+any existing leaf at a catalog skill name in selected roots, without prompt, flag, backup or prior target
+ownership/content checks. Other names and symlink destinations remain untouched;
+immutable source validation and overlap guards remain. Missing recorded targets
+stay missing during refresh.
 Extension-owned skills arrive as bytes through `skills.install`/`skills.remove`
 (explicit consent), are stored per owner and linked into the same roots; the first
 owner of a name keeps it until an explicit force and core names are reserved.
+API-supplied names refuse unmanaged targets; explicit force backs them up before
+replacement. An API name or owner alone cannot authorize catalog replacement.
+Native release skills publish after binary consent. Skill failures after successful
+binary activation are warnings with path/cause and partial publication; human and
+JSON summaries retain each product's activation and skills outcome.
 
 Native executable installation is a different owner under `tmt-adapters::native_install`.
 The fixed `Product` policy owns package identity, inventory, namespace, links and optional
