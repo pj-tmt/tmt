@@ -7,11 +7,11 @@ import { describe, expect, it } from 'vite-plus/test';
 // maps). Raise a budget only with an issue that explains what moved into the guide.
 const BUDGETS = {
   'DEVELOPMENT.md': 559,
-  'ARCHITECTURE.md': 1248,
+  'ARCHITECTURE.md': 723,
 } as const;
 const BYTE_BUDGETS = {
   'DEVELOPMENT.md': 21_096,
-  'ARCHITECTURE.md': 96_960,
+  'ARCHITECTURE.md': 55_699,
 } as const;
 
 export function lineCount(text: string): number {

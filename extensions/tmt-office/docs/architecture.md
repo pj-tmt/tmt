@@ -150,6 +150,11 @@ explicit reload or disposal. A 16 MiB accumulated Yjs-update budget checkpoints
 the current projection before the next edit, clears older history and reports it
 in the HUD. This is an update-byte budget, not a measured JavaScript heap limit.
 `use-world-editor` owns the saved revision, migration fence and write queue.
+Same-runtime refresh retains the mounted workspace and drafts, reports read
+failure in place, and fences late reads from replaced runtimes. Refreshed saved
+snapshots are adopted only when clean and idle, without rolling back a confirmed
+revision or clearing selective undo history. The world port distinguishes a
+confirmed revision rejection from an unconfirmed write.
 Topology, occupancy, furniture and resource attachments share this selective Undo/Redo;
 undo results auto-apply, but the history itself is not persisted.
 Completed gestures and property changes auto-apply through a 300 ms coalescing queue.
@@ -197,7 +202,10 @@ retain offline and unavailable members independently of finite online previews.
 anchors and ordered placements once per world change. It caches at most six
 avatar slots per occupied area, wholly on that area's floor and clear of floor
 furniture. Tiny or crowded areas can have fewer or no visual slots without
-hiding roster members. Actor slots and additive meeting authoring share the sparse
+hiding roster members. Derived slots prefer clear views using `world-geometry`'s
+wall projection and paint depth, then fall back to safe floor in crowded areas.
+This geometry-cached preference changes neither saved positions nor membership.
+Actor slots and additive meeting authoring share the sparse
 `world-map/free-floor` rectangle intersection/subtraction helpers. Sparse ownership
 queries use `world-map/floor-index` in both map projection and object discovery;
 no second object-area relationship is stored. Visible chunks coalesce
@@ -302,11 +310,15 @@ slot. `MeetingCreationForm` retains the canonical room receipt if attachment fai
 the same form links a selected existing area without replacing furniture or
 retargeting any resource. Clearing an area binding never deletes an identity or
 canonical room. Yjs still owns only the layout change, not canonical-room creation.
-New installations receive the native furnished v8 platform preset described in
-[root architecture](../../../ARCHITECTURE.md#typescript-workspace-boundary). Existing-world
-conversion uses the explicit module-upgrade preview described in root architecture;
-retained layouts keep object editing and explicit area removal to repair rejected inputs.
-A new preset never replaces saved content.
+`tmt-office-model::codec::office_world::starter` supplies a furnished v8 platform
+Lobby and four unassigned offices only when neither a saved world layout nor
+retained blocks exist. Stable placement IDs and bundled resource bindings remain
+read-only until explicit Save; the revision-zero source fingerprint fences that
+Save. Saved layouts never reseed. Existing-world conversion uses the explicit
+module-upgrade preview, separately from this initializer. Retained layouts keep
+object editing and explicit area removal to repair rejected inputs, but no floor
+painting, zoning or manual door authoring. A new preset never replaces saved
+content or creates wall-mounted lights, windows or decorations.
 Material variants share geometry, picking and placement admission; textures do
 not define topology or executable extension behavior.
 `office-scene` paints the controlled world with shared floor/wall materials,
@@ -323,6 +335,11 @@ partial numeric input. Full wall-face visual acceptance remains in progress.
 Web destinations use the
 existing extension binding and guarded review path, as defined in
 [extension v1](../contracts/extension-v1.md#web-destinations).
+Native validity uses the workspace-pinned `url` parser for syntax and credential
+checks; its dependency permission covers parsing, not HTTP clients. Browser
+admission uses its platform parser and shared literal vectors. The inert binding
+opens only a destination review; only its explicit no-opener anchor navigates.
+Storage and rendering never fetch links, and artwork is independent of the action.
 
 `scene-application` and `scene-frames` retain renderer initialization, resize,
 teardown and invalidation-only scheduling; hidden views do not render.
@@ -341,6 +358,9 @@ not each boundary/portal split. At equal ground depth, front faces paint after
 side bodies to retain their terminal posts. Overlapping atlas crops are recolored
 once per source pixel. The same geometry
 owns culling extents and wall/mount paint depth; artwork does not define topology.
+Long wall faces retain their bounds and material phase; repeated seam/crown detail
+is generated only across the viewport. Camera movement never creates artificial
+wall ends or tessellates offscreen detail along an otherwise visible wall run.
 V6 mechanical edges use `platform-art`'s explicitly reviewed source frames and
 silhouette clips, decoded once into nearest-neighbor textures. `scene-platform`
 repeats straight sections and fixed-scale lights/brackets over the same derived
@@ -364,6 +384,29 @@ not animation or per-star scene nodes.
 Floor furniture retains its stored compositing order. In v4 its stack paints
 after the owning rear face and before foreground cutaways; footprint-bottom
 sorting must not cover desks with their rugs.
+
+Bridge decking uses a fixed metal-panel scale rather than the room floor's wood
+repeat. `platform-projection` expands short empty bands to a 24-unit connector
+span while preserving room interiors and the Lobby origin; longer routed
+circulation is not shortened. Bounds, thresholds, ghosts, picking and dragging
+share its invertible transform, without changing stored topology. V7 meeting
+islands retain their separate fixed-slot wing transform. V8 uses one fixed lattice
+for every use and empty slot; the Lobby spans two cells on each axis, including
+the intervening floor bands. Adding/removing neighbors cannot shift scene
+coordinates. Meeting use changes the violet lamp inset and pixel nameplate icon,
+never platform geometry or selection color.
+
+Blue-green support bases paint beneath bridge decks, room floors and brass trim.
+Rails center on each edge; decking excludes authored side seams. Alloy tones,
+rivets and service grilles are baked into one load-time texture. Threshold sprites
+cover both axes of real openings, with static layered warm light over the dock.
+Outboard blue-green girders use long panels and platform-end attachment shoes,
+not repeated rail-like saddles. `bridge-pulse` owns one 20 Hz clock: a five-second
+cycle changes only visible threshold halo scale/opacity, not lamp sprites. It
+invalidates the frame scheduler without geometry rebuilds or blur filters. Hidden
+tabs, reduced motion, no visible lights and disposal stop it. A visible lit scene
+has this cosmetic activity; camera/input retain demand-driven frames.
+
 Source frames are defined in `architecture-art`, not inferred from sheet cells.
 No user URL or executable artwork is admitted by these rendering owners. This
 architecture slice is under visual verification; it does not imply that the
@@ -410,9 +453,9 @@ history. Props drag directly after a screen-space movement threshold; floor and
 background drags pan. Ordinary wheel/two-finger scrolling and Shift/middle drag pan. Browser
 control-wheel pinch zooms around the gesture anchor; camera limits remain shared
 with the zoom buttons. Object library cards reuse the admitted indexed-art renderer
-and mount previews only while the library is open. Legacy pixel basics are collapsed
-after the current art collections; catalog search retains access and existing prop
-digests remain valid. Selected furniture exposes Delete, guarded Delete/Backspace
+and mount previews only while the library is open. The retired `Legacy pixel basics` pack is excluded
+from authoring and search; its immutable resolver remains available for saved
+placements. Opening the library never migrates, deletes or replaces world objects. Selected furniture exposes Delete, guarded Delete/Backspace
 shortcuts, and corner-drag rotation for artwork with distinct directional views.
 Reviewed static furniture has immutable directional successors selected by
 `props/furniture-upgrades`; a completed turn writes the successor reference with
@@ -450,7 +493,10 @@ Modular room plaques anchor to the projected rear wall header; actor/floor ancho
 remain unchanged. The shared nameplate painter keeps text legible across zoom levels.
 Area and exact-instance agent selection is painted on the platform, below all upright
 props, actors and nameplates; object outlines and rotation handles retain their separate
-foreground layer. Area accents follow usage: teal personal offices, purple meeting
+foreground layer. Drag feedback uses `world-object-placement::placementProblem`
+against the geometry index. Invalid drops are red and never enter history or the
+save queue; native admission remains authoritative and ordinary floor layering
+remains allowed. Area accents follow usage: teal personal offices, purple meeting
 spaces and warm gold lobbies. An agent's room context does not select its floor.
 Background conversation refresh preserves the feed/composer geometry: its existing
 header refresh control reports busy state without inserting a transient toolbar row.
@@ -523,6 +569,10 @@ lifecycle, and `drawing.ts` owns the admitted scene painter. Pen previews append
 and paint incremental segments, not full-scene state on every pointer event.
 The editor is shared by a direct local route and a lazy-mounted spatial panel;
 snapshot capture and request delivery retain separate state owners.
+`tmt-office-model::office_whiteboard::document::empty_document` describes a virtual
+blank for any admitted unsaved document ID. Storage reads do not materialize it;
+explicit conditional Save alone creates content. The Lobby has no special storage
+branch, and snapshot capture requires a persisted document.
 [Whiteboard v1](../contracts/whiteboard-v1.md) owns
 document fields, work budgets, resource behavior and the immutable reference contract.
 Native `office_whiteboard::snapshot` now owns capture metadata and exact saved-revision
@@ -552,9 +602,11 @@ now composes explicit UUID recipients over the native request service, with one
 transaction for inbox writes and its immutable operation receipt. `LocalRuntime.dispatch`
 admits input and checks returned operation/audience over shared auth and cancellation.
 For a new single-recipient request, native dispatch separately claims one
-advisory pane wake and checks the active binding and tmux endpoint immediately
-before sending a request-ID and explicit-recipient-UUID `x show --incoming`
-instruction. The inbox receipt remains authoritative; an absent, failed or
+advisory pane wake through the shared `tmt-adapters::delivery` owner. Core routing
+and runtime/host drivers verify recorded session state and endpoint evidence;
+an Ended shell stays queued, while a verified replacement can recover through
+the existing session CAS. The wake carries only a request-ID and explicit-recipient-UUID
+`x show --incoming` instruction. The inbox receipt remains authoritative; an absent, failed or
 uncertain wake does not change acceptance or trigger an automatic retry.
 Announcements and roster sends remain inbox-only.
 `local/dispatch-composer-state` owns frozen message/identity intent and explicit
@@ -721,6 +773,12 @@ placement values, so instances share only identical art. The adapter's
 `office_prop/quality` module inspects already-admitted packs for advisory authoring
 issues; CLI validate appends these warnings without changing companion admission
 or installation semantics. Visual review remains necessary.
+
+Reviewed modular source art is encoded offline into immutable v2 prop packs;
+native and browser registries admit the same exact contract bytes. The optional
+`extensions/tmt-office/scripts/art` authoring tool is no runtime decoder or
+validator. Its source-hashed crop manifest and derivative policy stay with the
+visual package.
 
 Local pixel authoring uses the same native pack admission and
 catalog CAS through `local_service::props`. Its paged list carries metadata only;
@@ -947,6 +1005,15 @@ Restoring discards tmt activity after the backup, because the whole tmt database
 returns to the moment the backup was taken.
 
 ## Frontend stack
+
+The `@tmt/office` SPA and `@tmt/office-service` trusted pairing service are
+parent-relative members of the `typescript` pnpm workspace under
+`extensions/tmt-office/typescript` and share its lockfile. They resolve only declared dependencies, never
+root-hoisted tooling packages; browser specs reach the tooling SQLite oracle
+through `typescript/test/support`. Build the SPA before the embedded native
+companion and then verify installed-browser behavior. Ordinary CLI builds remain
+independent. Shared runner/formatter/lint ownership stays in the
+[root workspace boundary](../../../ARCHITECTURE.md#typescript-workspace-boundary).
 
 - React + Vite SPA with TanStack Router; no Next.js, SSR or TanStack Start.
 - Jotai owns shared cross-view presentation state; component-local forms and

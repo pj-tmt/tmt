@@ -78,8 +78,53 @@ configuration. The owner map is in
   Talk renders `<tmt-reply from="…">` with the resolved originator's display name or `unknown`:
   XML-escaped presentation, not authentication.
 
+## Room and dispatch composition
+
+- `tmt-core::room::RoomRepository` is the shared CLI/HTTP roster boundary.
+  `ActiveRoomReader` supports active selection, including inside a caller-owned
+  storage read transaction. Canonical UUIDs are authoritative; exact labels must
+  resolve uniquely. Historical UUID lookup retains retired rooms but never
+  authorizes new work. Membership mutations and revision-checked retirement use
+  the same `storage::room` IMMEDIATE writer, never unlocked read-modify-write.
+  `tmt-adapters::room` owns the CLI/HTTP wire projection; `ls --room` filters
+  existing presence rather than acquiring another presence owner.
+- `RequestRecords` rechecks effective recipient membership inside request
+  preparation, for pane and inbox routes, before cadence or attention writes.
+  CLI preflight alone is no atomic fence. Direct `talk --room` names one recipient,
+  not a fan-out. Presence, self-reported status and roster membership remain
+  distinct; room commands require no Office installation or tmux probe when an
+  identity is explicitly selected.
+- Core `dispatch` composes values and normalized audience; its adapter owns strict
+  JSON and intent digests. `storage::dispatch` borrows `TransactionRequests` so
+  `RequestService::enqueue` retains all request SQL/state and one transaction
+  commits the operation with every accepted/failed recipient attempt. There is
+  no nested transaction or second request store. Full-roster dispatch checks
+  revision and exact effective UUID audience after immutable replay lookup;
+  direct mode checks only the targeted member. The tagged mode and room UUID are
+  immutable intent, never permission to expand a retry's audience.
+- Known CLI sender provenance uses the existing identity resolver and participates
+  in intent hashing and request attention; HTTP refuses caller-selected senders.
+  Unknown-sender digests and historical ledger names stay unchanged. `RequestKind`
+  and the request service own announcements' no-response and settlement policy.
+  Core `operation` supplies operation UUIDs for dispatch retries and board mutations.
+- Each canonical attempt retains its original optional room UUID through details,
+  incoming results and attention. Room-scoped listeners filter the watermark and
+  both incoming queries using participant/room indexes before pagination. Later
+  roster changes cannot hide delivered work; room retirement never cascades into
+  request retention, receipts or spatial/resource content. Transports do not infer
+  historical membership. Public composition shapes belong to the
+  [extension API](../../../../contracts/extension-api.md#dispatch-readiness-and-input-safety).
+
 ## Request history
 
+- `request::history` owns owner-visible keyset history over canonical attempts,
+  not chat storage; its service composes existing retention and attention final
+  states. Storage reuses attempt/response decoders. Lists acquire bounded UTF-8
+  preview bytes, preserving embedded NUL without loading complete message bodies.
+  HTTP inspection retains the bearer/Origin admission of its existing transport;
+  operation lookup and dispatch replay share one immutable ledger decoder, and a
+  lookup cannot resubmit. Browser transports own scope checks, not request caches
+  or another completion policy.
 - Schema 47 indexes the originator results view by submission-time keyset. Results use an
   observation snapshot without housekeeping; storage reuses the canonical attempt/response
   row decoders rather than introducing another request store.
