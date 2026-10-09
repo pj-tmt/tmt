@@ -35,9 +35,9 @@
   right: 0;
   min-width: 160px;
   overflow-y: auto;
-  border: 2px solid var(--c-text);
+  border: var(--tmt-ui-rule-width) solid var(--tmt-ui-color-edge);
   background: var(--c-sheet);
-  box-shadow: 4px 4px 0 var(--c-text);
+  box-shadow: none;
 }
 .tmt-action-menu .tmt-action-menu-item {
   display: block;

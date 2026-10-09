@@ -36,7 +36,10 @@ labels supply hover and keyboard-focus tooltips. Counts come from the existing p
 `ActionMenu` retains its row trigger for conversation actions and accepts an icon for
 headers; keyboard navigation skips disabled entries, Escape returns focus, and selection
 returns focus before opening a portal. Open header menus sit above the update row and
-selection controls. Explicit theme choices are radio menu items.
+selection controls. Local choice/action menus, native actions, Ask previews, reader
+information panels and management dialogs use the shared one-pixel edge roles
+without shadows; keyboard focus keeps its visible outline.
+Explicit theme choices are radio menu items.
 The display-only `local · <backendName>` environment slot (`local` when absent;
 truncated labels retain their full tooltip) and
 one sharing/live-state chip remain outside menus. At 390px, brand/title occupies the

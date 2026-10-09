@@ -31,12 +31,12 @@ body {
   width: min(360px, calc(100vw - 24px));
   max-height: calc(100dvh - var(--reader-bar-size) - 24px);
   overflow: auto;
-  border: 1px solid var(--c-text);
+  border: var(--tmt-ui-rule-width) solid var(--tmt-ui-color-edge);
   padding: 16px;
   background: var(--c-sheet);
   color: var(--c-text);
   font: 12px/1.5 var(--f-body);
-  box-shadow: 4px 4px 0 var(--c-text);
+  box-shadow: none;
 }
 .reader-information-panel p {
   margin: 0 0 12px;
