@@ -14,13 +14,13 @@ There is no root entry. `@tmt/browser-ui/static.css` exports checked
 `generated/static.css`; `@tmt/browser-ui/static` exports the frozen
 `browserUiClasses` and presentation types without React; `@tmt/browser-ui/react`
 exports `BrowserHeader`, `BrowserNotice`, `BrowserField`, `BrowserAction`, `BrowserIconAction`,
-`BrowserToggle` and their prop types. The optional peers are React 19.2.8 and
+`BrowserToggle`, `BrowserList`, `BrowserListRow` and their prop types. The optional peers are React 19.2.8 and
 lucide-react 1.52.0. Icons are caller-supplied; static serving requires neither.
 
 The browser color, surface and shared metric roles live in the `browser` group
 of `../tokens/tokens.json`. Legacy terminal/soft roles remain separately owned.
 Fonts and header metrics use the existing authoritative groups. One owner
-projects these values and the six ordered CSS fragments:
+projects these values and the seven ordered CSS fragments:
 
 ```sh
 node design/browser-ui/scripts/generate-static-css.mjs --write
@@ -46,7 +46,7 @@ z-index, body offset, scrolling and full attribution disclosure remain host-owne
 | --------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
 | `header-action-gap`                                                                     | Colab 6px                                                                                               |
 | `focus-offset`                                                                          | Colab 3px; Remote 4px                                                                                   |
-| `toggle-focus-offset`, `toggle-padding`                                                 | Colab 2px and 7px 8px 0                                                                                 |
+| `toggle-focus-offset`                                                                   | Colab 2px                                                                                               |
 | `notice-mark-size`                                                                      | Colab 18px; Remote 30px                                                                                 |
 | `eyebrow-line-height`                                                                   | Host's existing line height                                                                             |
 | `notice-heading-size`, `notice-heading-weight`, `notice-heading-tracking`               | Colab clamp(26px, 4vw, 36px), 700, -0.03em; Remote clamp(28px, 4vw, 36px), 650, -0.025em; settings 25px |
@@ -120,8 +120,22 @@ field label spacing retains its existing host metrics.
 
 Toggle is controlled: fixed label, `aria-pressed`, independent visible checked
 indicator and original activation event. It never changes its own pressed value.
-Disabled styling cannot inherit hover/selected styling. Static hosts perform the
+The leaf owns the symmetric 8px toggle inset through `toggle-gap`; hosts only
+supply the focus offset. Disabled styling cannot inherit hover/selected styling. Static hosts perform the
 same native semantics and ID associations themselves; CSS owns no effects.
+
+List uses a named native `ul`; each ListRow is a native `li` with title, updated
+metadata, state and optional trailing actions slots. The host owns title links,
+metadata formatting, visible state words and menu behavior. Row padding is 10px
+vertically and 14px horizontally, from the leaf's list padding tokens. One 1px
+rule separates rows. At the header's compact threshold, metadata moves beneath
+the title while actions remain at the end. Row insets and action geometry stay
+constant across widths. Titles precede actions in DOM and keyboard order.
+
+Colab supplies links for active titles and plain text for archived titles, with
+an actions disclosure in both cases. Unknown or out-of-range update times use
+`Update time unknown` without a fabricated date or `time` element. The host
+retains window scrolling; the list does not establish a scroll container.
 
 IconAction accepts Action's props plus a decorative `icon` node and optional
 controlled `pressed`. The nonempty `label` is the button's `aria-label` and
@@ -157,7 +171,7 @@ or describe the same label again through `aria-describedby`.
 
 From `typescript/`, serve the development fixtures with
 `pnpm --filter @tmt/browser-ui --fail-if-no-match exec vp dev --host 127.0.0.1`.
-`/test/fixtures/static.html` shows Field/native/contenteditable and icon states
+`/test/fixtures/static.html` shows Field/native/contenteditable, toggle and icon states
 using checked CSS and a small fixture-only static host. The hover/focus examples
 are labeled CSS demonstrations; all icons also support actual hover/keyboard focus.
 `/test/fixtures/react.html` runs observable editor/action/tooltip lifecycle assertions

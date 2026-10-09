@@ -1,0 +1,83 @@
+.tmt-ui-list {
+  --tmt-ui-list-padding-block: 10px;
+  --tmt-ui-list-padding-inline: 14px;
+  margin: var(--tmt-ui-header-gap) 0 0;
+  padding: 0;
+  list-style: none;
+  color: var(--tmt-ui-color-text);
+  background: var(--tmt-ui-surface-sheet);
+  border-top: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
+  font-family: var(--tmt-ui-font-body);
+}
+.tmt-ui-list-row {
+  box-sizing: border-box;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  column-gap: var(--tmt-ui-header-gap);
+  min-height: calc(
+    var(--tmt-ui-header-icon-size) + var(--tmt-ui-toggle-gap) * 2 +
+      var(--tmt-ui-list-padding-block) * 2 + var(--tmt-ui-rule-width)
+  );
+  padding: var(--tmt-ui-list-padding-block) var(--tmt-ui-list-padding-inline);
+  border-bottom: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
+  border-radius: var(--tmt-ui-radius);
+  box-shadow: none;
+}
+.tmt-ui-list-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--tmt-ui-header-wordmark-size);
+  line-height: var(--tmt-ui-header-wordmark-line-height);
+}
+.tmt-ui-list-title > a {
+  color: var(--tmt-ui-color-text);
+}
+.tmt-ui-list-row .tmt-ui-list-title > a:hover {
+  color: var(--tmt-ui-color-text);
+  text-decoration: underline;
+}
+.tmt-ui-list-title > a:focus-visible {
+  outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
+  outline-offset: calc(var(--tmt-ui-focus-width) * -1);
+}
+.tmt-ui-list-meta {
+  display: grid;
+  grid-template-columns:
+    calc(var(--tmt-ui-header-wordmark-size) * 12)
+    calc(var(--tmt-ui-header-wordmark-size) * 5);
+  align-items: baseline;
+  gap: var(--tmt-ui-header-gap);
+  color: var(--tmt-ui-color-secondary);
+  font-size: var(--tmt-ui-caption-size);
+  line-height: var(--tmt-ui-caption-line-height);
+}
+.tmt-ui-list-updated,
+.tmt-ui-list-state {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.tmt-ui-list-actions {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+}
+@media (max-width: __compact-max-width__) {
+  .tmt-ui-list-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas: 'title actions' 'meta actions';
+  }
+  .tmt-ui-list-title {
+    grid-area: title;
+  }
+  .tmt-ui-list-meta {
+    grid-area: meta;
+    grid-template-columns: auto auto;
+    justify-content: start;
+  }
+  .tmt-ui-list-actions {
+    grid-area: actions;
+  }
+}

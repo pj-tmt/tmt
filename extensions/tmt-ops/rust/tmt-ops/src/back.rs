@@ -161,6 +161,37 @@ mod tests {
     }
 
     #[test]
+    fn replacement_preserves_back_path_schema_and_existing_directory_mode() {
+        let root = scratch("replace-regression");
+        let directory = root.join("back");
+        fs::create_dir_all(&directory).unwrap();
+        fs::set_permissions(&directory, fs::Permissions::from_mode(0o750)).unwrap();
+        let stack = Stack::new(&directory, "/socket", "client");
+        stack.push("%1").unwrap();
+        stack.push("%2").unwrap();
+        assert_eq!(
+            stack.path,
+            directory.join(format!("{:016x}.json", fnv64(b"/socket\0client")))
+        );
+        assert_eq!(
+            fs::metadata(&stack.path).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+        assert_eq!(
+            fs::metadata(&directory).unwrap().permissions().mode() & 0o777,
+            0o750
+        );
+        let document: Value = serde_json::from_slice(&fs::read(&stack.path).unwrap()).unwrap();
+        assert_eq!(
+            document,
+            json!({"socket":"/socket", "client":"client", "from":["%1", "%2"]})
+        );
+        assert_eq!(stack.pop().unwrap(), Some("%2".into()));
+        assert_eq!(fs::read_dir(&directory).unwrap().count(), 1);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn corrupt_or_foreign_files_read_as_empty_and_are_replaced() {
         let directory = scratch("corrupt");
         let stack = Stack::new(&directory, "/s", "c");

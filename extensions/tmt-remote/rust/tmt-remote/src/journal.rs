@@ -138,6 +138,72 @@ pub(crate) fn prune(tx: &Transaction<'_>, client: &str, now: u64) -> Result<(), 
     // Expired ownership remains a bounded ID fence; expiry never authorizes re-adoption.
     Ok(())
 }
+/// Drop the oldest entries so one more fits. A notification entry is delivery metadata, not
+/// the once-only fence (the ownership records are), so a full stream never refuses work:
+/// a cursor behind the new floor takes the existing `REMOTE_CURSOR_EXPIRED` recovery path.
+pub(crate) fn make_room_for_entry(tx: &Transaction<'_>, client: &str) -> Result<(), RemoteError> {
+    let entries: i64 = tx
+        .query_row(
+            "SELECT COUNT(*) FROM entries WHERE client_id=?1",
+            [client],
+            |r| r.get(0),
+        )
+        .map_err(database)?;
+    if entries < ENTRIES {
+        return Ok(());
+    }
+    let last_dropped: i64 = tx
+        .query_row(
+            "SELECT position FROM entries WHERE client_id=?1 ORDER BY position LIMIT 1 OFFSET ?2",
+            params![client, entries - ENTRIES],
+            |r| r.get(0),
+        )
+        .map_err(database)?;
+    tx.execute(
+        "UPDATE streams SET floor=MAX(floor,?2) WHERE client_id=?1",
+        params![client, last_dropped],
+    )
+    .map_err(database)?;
+    tx.execute("DELETE FROM entries WHERE client_id=?1 AND position<=(SELECT floor FROM streams WHERE client_id=?1)",[client]).map_err(database)?;
+    Ok(())
+}
+/// Drop ownership records that can no longer matter so one more fits: rows left by reads
+/// (only `dispatch.create` is an owned operation), finished records past the recovery
+/// horizon and, over the limit, the oldest finished ones. Held, dispatching and uncertain
+/// records are live work and never dropped. A send under a dropped ID is a new adoption that
+/// asks core for that operation ID before it creates anything, so dropping cannot resend.
+fn make_room_for_operation(
+    tx: &Transaction<'_>,
+    client: &str,
+    now: u64,
+) -> Result<(), RemoteError> {
+    const FINISHED: &str = "phase IN ('accepted','cancelled','refused')";
+    tx.execute(
+        "DELETE FROM operations WHERE client_id=?1 AND operation<>'dispatch.create'",
+        [client],
+    )
+    .map_err(database)?;
+    tx.execute(
+        &format!("DELETE FROM operations WHERE client_id=?1 AND {FINISHED} AND updated_ms<=?2"),
+        params![client, now.saturating_sub(RECOVERY) as i64],
+    )
+    .map_err(database)?;
+    let operations: i64 = tx
+        .query_row(
+            "SELECT COUNT(*) FROM operations WHERE client_id=?1",
+            [client],
+            |r| r.get(0),
+        )
+        .map_err(database)?;
+    if operations >= OPERATIONS {
+        tx.execute(
+            &format!("DELETE FROM operations WHERE id IN (SELECT id FROM operations WHERE client_id=?1 AND {FINISHED} ORDER BY updated_ms,id LIMIT ?2)"),
+            params![client, operations - OPERATIONS + 1],
+        )
+        .map_err(database)?;
+    }
+    Ok(())
+}
 fn authority(tx: &Transaction<'_>, grant: &Grant, now: u64) -> Result<(), RemoteError> {
     let current = tx
         .query_row(
@@ -303,13 +369,8 @@ impl Store {
         }
         let mut stream = stream(&tx, &grant.client_id)?;
         prune(&tx, &grant.client_id, now)?;
-        let entries: i64 = tx
-            .query_row(
-                "SELECT COUNT(*) FROM entries WHERE client_id=?1",
-                [&grant.client_id],
-                |r| r.get(0),
-            )
-            .map_err(database)?;
+        make_room_for_entry(&tx, &grant.client_id)?;
+        make_room_for_operation(&tx, &grant.client_id, now)?;
         let (operations,bytes):(i64,i64)=tx.query_row("SELECT COUNT(*),COALESCE(SUM(length(frozen)),0) FROM operations WHERE client_id=?1",[&grant.client_id],|r|Ok((r.get(0)?,r.get(1)?))).map_err(database)?;
         let total: i64 = tx
             .query_row(
@@ -319,7 +380,6 @@ impl Store {
             )
             .map_err(database)?;
         if total.saturating_add(frozen.map_or(0, |b| b.len() as i64)) > 4 * FROZEN_BYTES
-            || entries >= ENTRIES
             || operations >= OPERATIONS
             || bytes.saturating_add(frozen.map_or(0, |b| b.len() as i64)) > FROZEN_BYTES
         {

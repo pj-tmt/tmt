@@ -48,6 +48,52 @@
   targets and prunes expansion/cache entries when their rows disappear.
 - Priorities: full loads outrank selection jobs (detail notebook or row reply) and usage-only reads.
 
+## Display snapshot cache
+
+`board::snapshot_cache` owns the disposable last fresh base display per tab at
+`<dataRoot>/ops/cache/board/<filename>`; the root comes from the existing public
+`storage.root` resolver. It adds no Core state or action authority. The refresh
+worker publishes its event before root discovery, serialization and file I/O,
+then writes before deferred enrichment. Failed/partial views, failed publication
+and cancelled generations preserve the last good file. The current board does
+not load this cache: initial painting, stale labelling and action gating belong
+to the separate first-frame consumer (#2123).
+
+Writes require current migration paths and an existing owned `ops` directory.
+Legacy/deferred paths or a missing `ops` directory silently skip caching. The
+cache creates only its `cache/board` children; atomic publication cannot recreate
+missing parents or change the migration cutover decision.
+
+Version 1 explicitly projects tab order/pinning, squad-key/room-UUID inventory,
+waiting/blocked tab counts, section titles/order and basic member/lead headings
+(name, squad, state, task, and a boolean decision mark). HOME
+instead retains summary/squad/member counts and needs-you/blocked rows with names,
+squad labels and optional age source/time. It omits grid/configuration, arbitrary
+fields/providers, presence/role, model/usage history, focus, action bindings/targets, identity
+UUIDs, panes/ttys, requests/receipts/bodies/previews, annotations, notes, checklists
+and deferred exchanges/cron. Fresh acquisition supplies omitted details.
+
+HOME `@all` maps to `home.json`, `@leads` to `leads.json`, named squads to
+`squad-<name>.json`, and user `@tab:<name>` keys to `tab-<name>.json`. The existing
+1–24-byte name grammar and reserved user-tab names bound disjoint path components.
+The envelope has `version`, `writtenAtMs`, `tabKey` and the full sorted squad/room
+map. Read-only load returns a miss on an old/future schema, unknown fields, wrong
+tab, any squad/room-map change, missing/corrupt/oversized content or unsafe paths.
+Age does not invalidate a display: every loaded value is stale and must never
+supply action authority, routing, sender identity or live observation evidence.
+
+A complete serialized snapshot is at most 1 MiB. An oversized candidate skips
+publication rather than truncating it; reads acquire at most the bound plus one
+byte. Cache directories are 0700 and files 0600, with owned real-path admission;
+the trusted root and existing Ops directory permissions are preserved. Existing
+unsafe cache paths are skipped without repair. Publication reuses `cache::replace`
+with exclusive process/sequence temporary names in the destination directory,
+then rename: the last successful rename wins and readers see complete files.
+Failures clean only that attempt's temporary. All cache failures are silent to
+the user and cannot change the board's result. This is disposable storage, not a
+crash-durable transaction or a lock/merge store. Back/provider/staleness cache
+paths, document shapes and existing-directory modes retain their own behavior.
+
 ## Load timing trace
 
 `TMT_OPS_TIMING_TRACE` enables board-only diagnostic JSON Lines. Unset, empty or
@@ -73,6 +119,7 @@ means existing attention, history, cron or HOME exchanges remain scheduled.
 | `stage`       | `startup.Config::load`: initial config in `board::run`                                                                 |
 | `stage`       | `Squad::list`, `Config::load`, `load`: `board::refresh::load` acquisition and total                                    |
 | `stage`       | `observe::observe`, `observation.document`, `focus::enrich`, `requests::bodies`, `squad_view`: named squad acquisition |
+| `stage`       | `snapshot_publish`: fresh event send; `snapshot_cache`: subsequent best-effort root/serialization/write                |
 | `stage`       | `all_view`: complete HOME base acquisition/projection                                                                  |
 | `first_frame` | `draw`: first successful terminal draw, including a loading screen                                                     |
 | `fresh_board` | `draw`: first successful draw after an accepted current-tab snapshot                                                   |

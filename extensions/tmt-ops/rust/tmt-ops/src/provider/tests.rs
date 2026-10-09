@@ -646,3 +646,44 @@ fn github_pr_never_schedules_a_missing_or_empty_link() {
     let members = [member("missing", &[]), member("empty", &[("pr_link", "")])];
     assert!(due(&read, &members, &Cache::at(None), 1_000).is_empty());
 }
+
+#[test]
+fn replacement_preserves_provider_path_argv_values_and_existing_directory_mode() {
+    use std::os::unix::fs::PermissionsExt;
+    let root = scratch("replace-regression");
+    std::fs::create_dir_all(&root).unwrap();
+    std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o750)).unwrap();
+    let path = root.join("p.json");
+    let mut cache = Cache::at(Some(path.clone()));
+    let providers = gh();
+    let member = member("R", &[("pr_link", "https://example.com/pull/1")]);
+    let job = due(&providers, &[member], &cache, 1000).remove(0);
+    for value in ["OPEN", "MERGED"] {
+        cache.record(
+            &job,
+            &Outcome::Value {
+                value: value.into(),
+                color: Some("working".into()),
+                pr_state: None,
+            },
+            1000,
+        );
+        cache.save().unwrap();
+    }
+    let reloaded = Cache::at(Some(path.clone()));
+    assert_eq!(reloaded.entry("pr_state", "R").unwrap()["value"], "MERGED");
+    assert_eq!(
+        reloaded.entry("pr_state", "R").unwrap()["argv"],
+        json!(job.argv)
+    );
+    assert_eq!(
+        std::fs::metadata(path).unwrap().permissions().mode() & 0o777,
+        0o600
+    );
+    assert_eq!(
+        std::fs::metadata(&root).unwrap().permissions().mode() & 0o777,
+        0o750
+    );
+    assert_eq!(std::fs::read_dir(&root).unwrap().count(), 1);
+    std::fs::remove_dir_all(root).unwrap();
+}

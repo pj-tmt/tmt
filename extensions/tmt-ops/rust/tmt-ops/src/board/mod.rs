@@ -23,6 +23,7 @@ mod refresh;
 mod row_detail;
 mod scroll;
 mod settings;
+mod snapshot_cache;
 mod status_update;
 pub(crate) use crate::tabs;
 mod terminal;

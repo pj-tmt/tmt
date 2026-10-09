@@ -436,6 +436,7 @@ test('trusted sharing confirms narrowing, retries frozen bytes and exposes a new
     } else await route.fulfill({ json: result });
   });
   await page.goto(mount);
+  await page.locator('.pages li summary').click();
   await page.getByRole('button', { name: 'Manage page' }).click();
   const dialog = page.getByRole('dialog');
   const audience = dialog.getByRole('combobox', { name: /^Audience/ });
@@ -625,6 +626,7 @@ test('trusted home manages retention, archive and verified or awaiting deletion'
   });
   await page.goto(mount);
   const row = (id: string) => page.locator('.pages li').filter({ hasText: id });
+  await row(pageId).locator('summary').click();
   await row(pageId).getByRole('button', { name: 'Manage page' }).click();
   const dialog = page.getByRole('dialog');
   await expect(dialog).toContainText('expiry starts after the next edit');
@@ -659,8 +661,9 @@ test('trusted home manages retention, archive and verified or awaiting deletion'
     'true',
   );
   await expect(row(pageId)).toContainText('Archived');
-  await expect(row(pageId).locator('.archived-page .retention-hint')).toHaveText('kept forever');
+  await expect(row(pageId).locator('.retention-hint')).toHaveText('kept forever');
   await expect(row(pageId).getByRole('link')).toHaveCount(0);
+  await row(pageId).locator('summary').click();
   await row(pageId).getByRole('button', { name: 'Manage page' }).click();
   await expect(dialog.getByRole('button', { name: 'Archive page', exact: true })).toBeDisabled();
   for (const theme of ['light', 'dark']) {
@@ -697,6 +700,7 @@ test('trusted home manages retention, archive and verified or awaiting deletion'
     'aria-pressed',
     'false',
   );
+  await row(other).locator('summary').click();
   await row(other).getByRole('button', { name: 'Manage page' }).click();
   await dialog.getByRole('button', { name: 'Delete page', exact: true }).click();
   await dialog.getByRole('button', { name: 'Confirm delete page' }).click();
@@ -720,7 +724,7 @@ test('trusted home manages retention, archive and verified or awaiting deletion'
 
 test.describe('relative retention evidence', () => {
   test.use({ timezoneId: 'Asia/Tokyo' });
-  test('home and management keep retention inside the card with local-date hover', async ({
+  test('home actions and management keep retention with local-date hover', async ({
     page,
   }, testInfo) => {
     let now = Date.UTC(2026, 9, 4, 12, 34, 56, 789);
@@ -755,6 +759,7 @@ test.describe('relative retention evidence', () => {
     await page.goto(mount);
     const row = page.locator('.pages li').filter({ hasText: pageId });
     const hint = row.locator('.retention-hint');
+    await row.locator('summary').click();
     await expect(hint).toHaveText('expires in 6 days');
     await expect(hint).toHaveAttribute('title', 'Sat 10-10 21:34');
     await expect(hint.locator('.retention-mark .lucide-clock')).toHaveClass(/lucide-clock/);
@@ -770,6 +775,8 @@ test.describe('relative retention evidence', () => {
         await page.evaluate((theme) => {
           document.documentElement.dataset.theme = theme;
         }, theme);
+        if (!(await row.locator('details').evaluate((node) => (node as HTMLDetailsElement).open)))
+          await row.locator('summary').click();
         await page.screenshot({
           path: testInfo.outputPath(`expiry-home-${width}-${theme}.png`),
           fullPage: true,
@@ -796,6 +803,7 @@ test.describe('relative retention evidence', () => {
     now = expires + 2 * 86400000;
     await page.clock.setFixedTime(now);
     await page.reload();
+    await row.locator('summary').click();
     await expect(hint).toHaveText('expired 2 days ago');
     await expect(row.getByRole('link')).toBeVisible();
     await row.getByRole('button', { name: 'Manage page' }).click();
@@ -806,6 +814,7 @@ test.describe('relative retention evidence', () => {
     now = expires - 10 * 86400000;
     await page.clock.setFixedTime(now);
     await page.reload();
+    await row.locator('summary').click();
     await expect(hint).toHaveText('expires in 10 days');
     await expect(hint.locator('.retention-mark .lucide-clock')).toHaveCount(0);
     await expect(hint).toHaveCSS(
