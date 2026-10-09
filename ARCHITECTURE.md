@@ -1104,7 +1104,7 @@ plan in its issue and reflect the delivered boundary here. A green formatter or
 checkmark is not architecture evidence.
 
 This file keeps owner maps, dependency direction and cross-cutting invariants, within
-the line budget `typescript/test/tooling/guide-budget.test.ts` enforces. Module-level
+the line and byte budgets `typescript/test/tooling/guide-budget.test.ts` enforces. Module-level
 rules belong in the owning area skill (`.agents/skills/tmt-core-runtime` for core); a
 line that only explains one module's code goes there, not here.
 
