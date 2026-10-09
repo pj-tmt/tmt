@@ -63,3 +63,8 @@ terminal group to be included by later captures. Ended, background, reused or
 uncertain owners are excluded. Failed exec clears only its exact marker through a
 server-side comparison and refreshes the failed dispatch's snapshot. Literal argv
 is data, never a shell command. Help/completion do not install markers.
+Linux cross-pane foreground evidence reads only the exact owner's bounded
+`/proc/<pid>/stat` tty and process-group fields, agreeing with the selected pane's
+native tty device. It does not require the observing command to own that terminal.
+Darwin uses the existing selected-process BSD information boundary for the same
+tty and foreground-group agreement when the direct terminal query is unavailable.

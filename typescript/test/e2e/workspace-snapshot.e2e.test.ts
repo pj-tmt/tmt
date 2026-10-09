@@ -110,8 +110,7 @@ describe('event-driven workspace recovery snapshots', () => {
         readSnapshot(fixture).panes.find((pane) => pane.id === fixture.pane)!.identity
       ).toBeNull();
       expect((await fixture.runJsonCli(['identity', 'show', 'Snapshot Seat'])).json).toMatchObject({
-        id: bound.json!.id,
-        lifetime: 'saved',
+        identity: { id: bound.json!.id, lifetime: 'saved' },
       });
     });
   });
