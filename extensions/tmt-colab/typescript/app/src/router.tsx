@@ -187,13 +187,25 @@ function SelectionAnnotation({
 }
 const managementChanged = 'Management changed. Reopen the page to load its latest state.';
 
+/** Style the command in the same complete sentence used by live errors. */
+function ReconnectFailure() {
+  const [before, after] = text.reconnectFailed.split(text.reconnectCommand);
+  return (
+    <>
+      {before}
+      <code className="tmt-ui-code">{text.reconnectCommand}</code>
+      {after}
+    </>
+  );
+}
+
 /** A terminal refusal as a sentence; its raw code stays as a small reference. */
 function TerminalFailure({ error }: { error: Error }) {
   if (error.message === managementChanged) return <p>{managementChanged}</p>;
   const { sentence, reference } = terminalFailure(error);
   return (
     <>
-      <p>{sentence}</p>
+      <p>{sentence === text.reconnectFailed ? <ReconnectFailure /> : sentence}</p>
       {reference && (
         <p>
           <small className="failure-reference">
@@ -224,7 +236,17 @@ const root = createRootRouteWithContext<{ transport: PageTransport }>()({
             </Link>
           }
         >
-          <p>{error instanceof Error ? error.message : text.blocked}</p>
+          <p>
+            {error instanceof Error ? (
+              error.message === text.reconnectFailed ? (
+                <ReconnectFailure />
+              ) : (
+                error.message
+              )
+            ) : (
+              text.blocked
+            )}
+          </p>
         </NoticeCard>
       </main>
     </>
@@ -1305,8 +1327,7 @@ function Page() {
               )}
               {!recoveryRequired && reconnectFailed && (
                 <p>
-                  {text.reconnectFailed}
-                  <code className="tmt-ui-code">tmt remote pair</code>.
+                  <ReconnectFailure />
                 </p>
               )}
             </NoticeCard>

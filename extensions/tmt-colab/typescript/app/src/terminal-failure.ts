@@ -44,7 +44,7 @@ const SENTENCES: Record<FailureCause, string> = {
 };
 
 /** Messages that are already a sentence for the reader: shown as is, no reference. */
-const SENTENCE_MESSAGES: readonly string[] = [text.noWraps];
+const SENTENCE_MESSAGES: readonly string[] = [text.noWraps, text.reconnectFailed];
 
 /** The sentence a reader sees for a terminal failure, plus the raw token to keep as a reference. */
 export function terminalFailure(error: Error): { sentence: string; reference?: string } {

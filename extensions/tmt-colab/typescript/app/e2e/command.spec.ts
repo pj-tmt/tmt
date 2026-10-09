@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { text } from '../src/strings.js';
 import { mkdir } from 'node:fs/promises';
 
 test('verified bearer values copy exactly and remain selectable on clipboard denial', async ({
@@ -107,3 +108,30 @@ test('long literal commands wrap within a narrow page and copy every byte', asyn
   const block = page.locator('.tmt-ui-command');
   expect(await block.evaluate((node) => node.scrollWidth <= node.clientWidth)).toBe(true);
 });
+
+for (const screen of ['reconnect-error', 'reconnect-terminal'] as const) {
+  test(`${screen} card keeps the complete reconnect command sentence`, async ({ page }) => {
+    await page.goto('/');
+    await page.evaluate(async (screen) => {
+      const fixtureUrl = '/test/chrome-browser.tsx';
+      await (await import(fixtureUrl)).mount(screen);
+    }, screen);
+    const card = page.locator('#chrome-fixture .tmt-ui-notice');
+    await expect(card).toBeVisible();
+    await expect(card.locator('p')).toHaveText(text.reconnectFailed);
+    await expect(card.locator('code.tmt-ui-code')).toHaveText('tmt remote pair');
+    await expect(card.locator('[data-failure-reference]')).toHaveCount(0);
+    const directory = process.env.TMT_COMMAND_CAPTURE_DIR;
+    if (directory) {
+      await mkdir(directory, { recursive: true });
+      for (const theme of ['light', 'dark']) {
+        await page.evaluate((value) => (document.documentElement.dataset.theme = value), theme);
+        for (const width of [1440, 390]) {
+          await page.setViewportSize({ width, height: 900 });
+          expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);
+          await page.screenshot({ path: `${directory}/colab-${screen}-${width}-${theme}.png` });
+        }
+      }
+    }
+  });
+}

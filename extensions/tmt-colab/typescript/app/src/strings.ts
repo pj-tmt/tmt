@@ -13,6 +13,8 @@ function humanSize(bytes: number): string {
   return `${value.toFixed(1).replace(/\.0$/, '')} ${unit}`;
 }
 
+const reconnectCommand = 'tmt remote pair';
+
 export const text = {
   unknownPageTitle: 'Untitled page',
   originalAuthor: 'Original author',
@@ -161,7 +163,8 @@ export const text = {
   recoveryRequired: 'Reconnect to resume live updates.',
   reconnecting: 'Reconnecting…',
   reconnectToSend: 'Reconnect to send.',
-  reconnectFailed: 'Could not reconnect. Open this page from a paired browser, or pair with ',
+  reconnectCommand,
+  reconnectFailed: `Could not reconnect. Open this page from a paired browser, or pair with ${reconnectCommand}.`,
   sessionEvicted: (limit: number) =>
     `This tab was disconnected when your paired device reached its limit of ${limit} Remote sessions.`,
   sessionLimitCommand: 'To allow another tab, run:',
