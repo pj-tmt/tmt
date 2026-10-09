@@ -5,6 +5,9 @@ import { readFile, readdir, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { fileURLToPath } from 'node:url';
 import { parseEngines, validateReport } from './gate.mjs';
+import { engineDiagnostics } from './diagnostics.mjs';
+import { createHash } from 'node:crypto';
+import { createRequire } from 'node:module';
 const engines = parseEngines(process.argv.slice(2));
 const root = new URL('../', import.meta.url),
   vectors = new URL('../../contracts/vectors/', root);
@@ -89,11 +92,57 @@ const server = createServer((req, res) => {
 await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
 const origin = `http://127.0.0.1:${server.address().port}`;
 const results = [];
+const rustToolchain = process.env.COLAB_RUST_TOOLCHAIN ?? '+1.97.0';
+const source = spawnSync('git', ['rev-parse', 'HEAD'], {
+  cwd: fileURLToPath(root),
+  encoding: 'utf8',
+  timeout: 10000,
+});
+const rust = spawnSync('rustc', [rustToolchain, '--version'], {
+  encoding: 'utf8',
+  timeout: 10000,
+});
+const inputs = {};
+for (const name of [
+  'ed25519-829.jsonl',
+  'model-v1.json',
+  'authority-v1.json',
+  'owner-member-v1.json',
+  'attachment-v1.json',
+])
+  inputs[name] = createHash('sha256')
+    .update(await readFile(new URL(name, vectors)))
+    .digest('hex');
+const metadata = {
+  source: source.status === 0 ? source.stdout.trim() : 'unavailable',
+  harnessSha256: createHash('sha256')
+    .update(await readFile(fileURLToPath(import.meta.url)))
+    .digest('hex'),
+  node: process.version,
+  playwright: createRequire(import.meta.url)('playwright/package.json').version,
+  rustToolchain,
+  rustc: rust.status === 0 ? rust.stdout.trim() : 'unavailable',
+  platform: process.platform,
+  arch: process.arch,
+  runnerImage: process.env.ImageVersion ?? null,
+  runnerOS: process.env.ImageOS ?? null,
+  runId: process.env.GITHUB_RUN_ID ?? null,
+  runAttempt: process.env.GITHUB_RUN_ATTEMPT ?? null,
+  inputs,
+};
 try {
   for (const name of engines) {
     const engine = { chromium, firefox, webkit }[name];
     let browser;
+    const diagnostics = engineDiagnostics();
+    const entry = {
+      engine: name,
+      executable: process.env[`COLAB_${name.toUpperCase()}_EXECUTABLE`] ?? engine.executablePath(),
+      diagnostics: diagnostics.evidence,
+    };
+    results.push(entry);
     try {
+      diagnostics.event('launch-started');
       // Optional local binary paths are explicit; absence/launch failures never become skips.
       browser = await engine.launch({
         headless: true,
@@ -102,9 +151,13 @@ try {
           ? { executablePath: process.env[`COLAB_${name.toUpperCase()}_EXECUTABLE`] }
           : {}),
       });
+      entry.version = browser.version();
+      diagnostics.browser(browser);
       const page = await browser.newPage();
+      diagnostics.page(page);
       await page.goto(origin);
       await page.waitForFunction(() => window.client);
+      diagnostics.event('client-ready');
       const result = await page.evaluate(
         async ({
           engine,
@@ -122,10 +175,16 @@ try {
           const assert = (ok, message = 'Browser conformance check failed') => {
             if (!ok) throw new Error(message);
           };
+          // Synchronous markers add no awaited binding or change to crypto await ordering.
+          const progress = (state, id) =>
+            console.debug('colab-conformance:' + JSON.stringify([state, id]));
+          progress('started', 'capabilities');
           await c.probeCapabilities();
+          progress('completed', 'capabilities');
           let attachmentCases = 0;
           for (const test of attachments.cases) {
             if (test.operation === 'document' || test.operation === 'comment') continue;
+            progress('started', 'attachment:' + test.name);
             let accepted = false;
             try {
               const a = c.attachment;
@@ -174,14 +233,18 @@ try {
             }
             assert(accepted === test.admit, `Attachment vector: ${test.name}`);
             attachmentCases++;
+            progress('completed', 'attachment:' + test.name);
           }
+          progress('started', 'authority-genesis');
           const root = hex(authority.public);
           assert((await c.deriveSpaceId(root)) === authority.space);
           const genesis = await c.statement.Envelope.fromJson(
             c.text(JSON.stringify(authority.statement)),
           ).verifyNext(authority.space, root, null);
           assert(same(genesis.head.hash, authority.statementHash));
+          progress('completed', 'authority-genesis');
           for (const test of ownerCases) {
+            progress('started', 'owner-member:' + test.name);
             const wire = test.envelope;
             assert(
               await c.strictVerify(
@@ -197,8 +260,10 @@ try {
               accepted = true;
             } catch {}
             assert(accepted === test.accepted);
+            progress('completed', 'owner-member:' + test.name);
           }
           for (const test of authority.historyCases) {
+            progress('started', 'history:' + test.name);
             let accepted = false;
             try {
               await c.statement.Envelope.fromJson(c.text(JSON.stringify(test.envelope))).verifyNext(
@@ -209,7 +274,9 @@ try {
               accepted = true;
             } catch {}
             assert(accepted === test.accepted);
+            progress('completed', 'history:' + test.name);
           }
+          progress('started', 'history-owner-and-forward-wrap');
           let wrongHistoryOwner = false;
           try {
             await c.statement.Envelope.fromJson(
@@ -252,6 +319,7 @@ try {
               join.wrapLists[0].length === 512 &&
               join.wrapLists[1].length === 64,
           );
+          progress('completed', 'history-owner-and-forward-wrap');
           let priorPage = '',
             priorEpoch = 0n;
           const historyPages = new Map();
@@ -270,9 +338,12 @@ try {
                   h.recipientId === '00000000-0000-4000-8000-000000000051',
               );
               historyPages.set(h.page, (historyPages.get(h.page) ?? 0) + 1);
+              progress('started', 'history-wrap:' + h.page + ':' + h.epoch);
               assert(same(await w.open(h, historyRecipient, root), authority.epochKey));
+              progress('completed', 'history-wrap:' + h.page + ':' + h.epoch);
             }
           assert(historyPages.size === 9 && [...historyPages.values()].every((n) => n === 64));
+          progress('started', 'native-authority-and-certificate');
           let head = null;
           for (const wire of nativeAuthority.statements)
             head = (
@@ -302,6 +373,8 @@ try {
             issued = true;
           } catch {}
           assert(!issued);
+          progress('completed', 'native-authority-and-certificate');
+          progress('started', 'independent-wrap-and-aliasing');
           const independent = c.wrap.Envelope.fromJson(c.text(JSON.stringify(authority.wrap)));
           const x = await crypto.subtle.importKey(
             'pkcs8',
@@ -336,8 +409,10 @@ try {
           } catch {}
           assert(!wrong);
 
+          progress('completed', 'independent-wrap-and-aliasing');
           const rows = [];
           for (const v of corpus) {
+            progress('started', 'ed25519:' + v.name);
             let raw = false;
             try {
               const key = await crypto.subtle.importKey('raw', hex(v.public), 'Ed25519', false, [
@@ -352,7 +427,9 @@ try {
               raw,
               accepted: await c.strictVerify(hex(v.public), hex(v.signature), hex(v.message)),
             });
+            progress('completed', 'ed25519:' + v.name);
           }
+          progress('started', 'native-envelope-and-root-handle');
           const h = hex(fixture.header),
             decoded = c.decodeHeader(h);
           const env = c.Envelope.fromJson(
@@ -401,6 +478,7 @@ try {
               fixture.plaintext,
             ),
           );
+          progress('completed', 'native-envelope-and-root-handle');
           const frozenSeals = [];
           const entropy = Object.getOwnPropertyDescriptor(crypto, 'getRandomValues');
           // Harness-only entropy control; no caller-selected ID API is added.
@@ -414,6 +492,7 @@ try {
               },
             });
             for (const root of [hex(fixture.master), rootHandle]) {
+              progress('started', 'frozen-seal:' + frozenSeals.length);
               const sealed = await c.Envelope.seal(
                 decoded.context,
                 root,
@@ -448,12 +527,14 @@ try {
                   'frozen root-path hash differs',
                 );
               }
+              progress('completed', 'frozen-seal:' + frozenSeals.length);
               frozenSeals.push(sealed);
             }
           } finally {
             if (entropy) Object.defineProperty(crypto, 'getRandomValues', entropy);
             else delete crypto.getRandomValues;
           }
+          progress('started', 'fresh-seals-and-aliasing');
           const master = hex(fixture.master),
             pt = hex(fixture.plaintext);
           const pending = c.Envelope.seal(decoded.context, master, privateKey, pt);
@@ -476,6 +557,8 @@ try {
           sig.fill(0);
           msg.fill(0);
           assert(await verification);
+          progress('completed', 'fresh-seals-and-aliasing');
+          progress('started', 'recipient-nonextractability-and-low-order');
           const recipient = await c.RecipientKey.generate();
           assert(!recipient.handle().extractable);
           let exported = false;
@@ -502,6 +585,8 @@ try {
             low = true;
           } catch {}
           assert(!low);
+          progress('completed', 'recipient-nonextractability-and-low-order');
+          progress('started', 'signin-and-management');
           const signin = {
             codeId: c.decodeText(c.fields(hex(fixture.signin), 8)[2]),
             space: original.space,
@@ -538,6 +623,7 @@ try {
             legacyAccepted = true;
           } catch {}
           assert(!legacyAccepted, 'legacy management operation accepted');
+          progress('completed', 'signin-and-management');
           return {
             rows,
             checks: true,
@@ -561,19 +647,28 @@ try {
           attachments,
         },
       );
-      results.push({ engine: name, version: browser.version(), ...result });
+      diagnostics.event('evaluation-completed');
+      Object.assign(entry, result);
     } catch (error) {
-      results.push({ engine: name, error: String(error) });
+      diagnostics.failure(error);
+      entry.error = String(error);
     } finally {
-      if (browser) await browser.close();
+      if (browser) {
+        try {
+          await diagnostics.close(browser);
+        } catch (error) {
+          entry.error ??= String(error); // Cleanup failures cannot satisfy the normal report gate.
+        }
+      }
     }
   }
 } finally {
+  server.closeAllConnections();
   await new Promise((resolve) => server.close(resolve));
 }
 const destination =
   process.env.COLAB_REPORT ?? fileURLToPath(new URL('differential-results.json', root));
-await writeFile(destination, JSON.stringify({ engines, results }, null, 2) + '\n');
+await writeFile(destination, JSON.stringify({ metadata, engines, results }, null, 2) + '\n');
 validateReport(results, corpus, engines);
 const expectedAttachmentCases = attachments.cases.filter(
   (c) => c.operation !== 'document' && c.operation !== 'comment',
