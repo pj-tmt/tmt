@@ -39,8 +39,14 @@ retires or repairs durable state. External hosts without a capture port skip.
 Global `workspace.snapshotEnabled` defaults to true. Set it with
 `tmt config set --global workspace.snapshotEnabled false` to disable capture.
 Global `workspace.snapshotIntervalMs` is an integer from 0 through 2147483647,
-default 60000. It is reserved for the separate command-refresh implementation;
-this store/event layer does not consume it, and zero does not disable events.
+default 60000. After finite communication and inspection commands flush their
+output, an advisory refresh reads the previous snapshot timestamp once under the
+publication lock. Only an older snapshot (strictly beyond the interval), or a
+missing one, requests bounded capture. A backwards clock keeps the prior snapshot.
+Zero disables command refresh while preserving event capture. Fresh snapshots
+need no host or storage reads; due captures retain native caller verification.
+Listen, provider hooks, API/MCP and launch/binding event owners do not use this
+command path. Optional refresh errors preserve output and exit status.
 `config rm` retains its local-only contract. Unknown configuration keys survive
 writes.
 

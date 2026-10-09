@@ -144,6 +144,16 @@ pub fn hook_capture_allowed(remaining_ms: u64, capture_ms: u64, reserve_ms: u64)
     remaining_ms > capture_ms.saturating_add(reserve_ms)
 }
 
+/// Zero selects event capture only. A backwards clock never ages a snapshot.
+pub fn command_refresh_due(previous_ms: Option<u64>, now_ms: u64, interval_ms: u64) -> bool {
+    interval_ms != 0
+        && previous_ms.is_none_or(|previous| {
+            now_ms
+                .checked_sub(previous)
+                .is_some_and(|age| age > interval_ms)
+        })
+}
+
 impl WorkspaceSnapshot {
     /// Check recovery structure without asserting any live identity authority.
     pub fn is_consistent(&self) -> bool {
@@ -207,6 +217,16 @@ mod tests {
         host::HostKind,
         identity::{Identity as Stored, Lifetime},
     };
+
+    #[test]
+    fn command_refresh_uses_strict_interval_and_preserves_event_only_policy() {
+        assert!(command_refresh_due(None, 1, 60_000));
+        assert!(!command_refresh_due(None, 1, 0));
+        assert!(!command_refresh_due(Some(10), 60_010, 60_000));
+        assert!(command_refresh_due(Some(10), 60_011, 60_000));
+        assert!(!command_refresh_due(Some(10), 9, 1));
+        assert!(!command_refresh_due(Some(10), u64::MAX, 0));
+    }
 
     #[test]
     fn annotation_requires_marker_binding_server_and_native_pane_agreement() {

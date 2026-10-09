@@ -80,13 +80,21 @@ pub struct ConfigFiles {
 impl ConfigFiles {
     /// Global advisory policy; a project override cannot enable capture.
     pub fn workspace_snapshot_enabled(&self) -> Result<bool, ConfigError> {
+        self.workspace_snapshot_policy().map(|(enabled, _)| enabled)
+    }
+
+    /// Read the global capture and command-refresh policy together.
+    pub fn workspace_snapshot_policy(&self) -> Result<(bool, u64), ConfigError> {
         let document = document::read(&self.paths.global_config, Scope::Global)?;
-        Ok(ResolvedSettings::from_layers(
+        let settings = ResolvedSettings::from_layers(
             document::project(&document, &self.paths.global_config, Scope::Global)?,
             Vec::new(),
         )
-        .settings
-        .workspace_snapshot_enabled)
+        .settings;
+        Ok((
+            settings.workspace_snapshot_enabled,
+            settings.workspace_snapshot_interval_ms,
+        ))
     }
 
     /// Global advisory policy, independent of the hook worker's project cwd.

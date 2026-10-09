@@ -56,6 +56,7 @@ mod skill_reminder;
 mod talk_command;
 mod target;
 mod uninstall_command;
+mod workspace_command;
 mod workspace_hook;
 
 #[cfg(test)]
@@ -109,6 +110,7 @@ fn execute(parsed: invocation::Parsed) -> io::Result<u8> {
     let inspect_drift = skill_reminder::eligible_for_drift(&parsed);
     let driver_hint = skill_reminder::eligible_for_driver_hint(&parsed);
     let mode = parsed.mode;
+    let refresh_workspace = workspace_command::eligible(&parsed.invocation);
     // This process may observe lifecycle changes for enabled extension hooks;
     // delivery runs after the command's own effects and output.
     tmt_adapters::extension_hooks::allow_capture();
@@ -130,6 +132,9 @@ fn execute(parsed: invocation::Parsed) -> io::Result<u8> {
         // Flush the user's result before any optional native/provider I/O.
         let _ = tmt_cli_style::stream::stdout(mode.json).flush();
         caller_session_command::observe();
+    }
+    if refresh_workspace {
+        workspace_command::refresh(&mut tmt_cli_style::stream::stdout(mode.json));
     }
     // A Herdr pane without its driver: whatever the result, say how to
     // approve one. It replaces the passive drift line.
