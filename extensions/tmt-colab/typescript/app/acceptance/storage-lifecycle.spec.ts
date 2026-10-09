@@ -1,6 +1,7 @@
 // Product acceptance of the local attachment lifecycle (#1857) on the three shipped binaries.
 // Each case states what it adds to the matrix in references/acceptance.md; the backend contract
 // and the native lifecycle policy are cited there, not repeated.
+import { pageAction } from '../test/page-actions.js';
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -148,10 +149,8 @@ test('annotation attachments: PNG, JPEG and WebP preview, video is download-only
 });
 
 async function openFiles(page: Page) {
-  const toggle = page.getByTestId('files-toggle');
-  const menu = page.getByRole('button', { name: 'More page actions' });
-  await expect(toggle.or(menu)).toBeVisible({ timeout: 30_000 });
-  if (!(await toggle.isVisible())) await menu.click();
+  const toggle = await pageAction(page, 'Files');
+  await expect(toggle).toBeVisible({ timeout: 30_000 });
   await toggle.click();
   return page.getByTestId('files-panel').or(page.locator('dialog[data-panel=files]'));
 }
@@ -211,7 +210,7 @@ test('principals: owner, a second paired device and a read-only link read; a rev
     await expect(rowsOf(second)).toHaveCount(1, { timeout: 30_000 });
     expect(await downloaded(second, rowsOf(second).first(), note.name)).toBe(sha(note.buffer));
     const reader = await openReaderLink(world, door, link.readerPath as string, 'life-reader');
-    await reader.page.getByTestId('files-toggle').click();
+    await (await pageAction(reader.page, 'Files')).click();
     await expect(rowsOf(reader.page)).toHaveCount(1, { timeout: 30_000 });
     await expect(reader.page.getByRole('button', { name: text.attachRemove })).toHaveCount(0);
     expect(await downloaded(reader.page, rowsOf(reader.page).first(), note.name)).toBe(
@@ -229,7 +228,7 @@ test('principals: owner, a second paired device and a read-only link read; a rev
       timeout: 30_000,
     });
     await expect(second.getByTestId('file-row')).toHaveCount(0);
-    await expect(second.getByTestId('files-toggle')).toHaveCount(0);
+    await expect(await pageAction(second, 'Files')).toHaveCount(0);
 
     // Removing the link ends the reader.
     colab(['share', 'link', 'remove', created.pageId, link.linkId as string, '--yes']);
