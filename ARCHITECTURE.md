@@ -1241,12 +1241,7 @@ core discovery or storage access.
   controls admit discussion or sends. The bootstrap installs bounded DOM resolution before
   author HTML and passes no application capability. Parent highlight messages carry only
   anchor IDs and quote selectors; discussion bodies and display labels never enter author code.
-  Colab's root choice, otherwise the live OS preference, is the one effective-theme source.
-  The bootstrap projects its light/dark value as root `data-theme` before author code and
-  updates it through the same render-bound cosmetic port without replacing the document.
-  Author CSS uses explicit theme selectors to follow that choice; media-only CSS still follows
-  the OS. No palette/source rewrite or unstyled-canvas change occurs; teardown removes the subscription.
-  This contains author code; page self-navigation can still leak a request.
+  This contains author code; page self-navigation can still leak a request. The parent projects the effective light/dark theme as root `data-theme` over the render-bound cosmetic port; details in [page-chrome](.agents/skills/tmt-colab/references/page-chrome.md).
 - **Attachments.** Colab implements [descriptor/manifest/reference grammar and internal read/publication capture](extensions/tmt-colab/contracts/attachment-v1.md) with existing crypto, authenticated cuts and fold metadata.
   The mount-owned object adapter joins generation-scoped callbacks, original uploads, committed reads and detached history; root-local reads require an established channel.
   Remote owns backend/quota/origin; Colab owns crypto/admission. Remote declares Colab Local; #1856 snapshot/retained persistence remains planned in the [storage proposal](extensions/tmt-colab/contracts/storage-v1-proposal.md).
