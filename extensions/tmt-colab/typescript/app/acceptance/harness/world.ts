@@ -18,7 +18,26 @@ function listening(socket: string): Promise<boolean> {
     client.once('error', () => resolve(false));
   });
 }
+/** `work`, or a rejection when it has not finished within `ms`; the work itself is not cancelled. */
+function bounded<T>(work: Promise<T> | T, ms: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`did not finish within ${ms} ms`)), ms);
+    Promise.resolve(work).then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error) => {
+        clearTimeout(timer);
+        reject(error);
+      },
+    );
+  });
+}
 const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
+
+/** The longest one registered closer (a browser, a page) may take during dispose(). */
+const CLOSER_BOUND_MS = 10_000;
 
 export interface Binaries {
   tmt: string;
@@ -83,9 +102,11 @@ export class AcceptanceWorld {
   private sessionId = '';
   private hostPane = '';
   private disposed = false;
+  private readonly closerBoundMs: number;
 
-  constructor(binaries = resolveBinaries()) {
+  constructor(binaries = resolveBinaries(), options: { closerBoundMs?: number } = {}) {
     this.binaries = binaries;
+    this.closerBoundMs = options.closerBoundMs ?? CLOSER_BOUND_MS;
     for (const directory of [
       this.home,
       this.dataRoot,
@@ -186,7 +207,21 @@ export class AcceptanceWorld {
     }
   }
 
+  /**
+   * A test that times out is abandoned, not cancelled: its scenario keeps running while the
+   * world is torn down. Once dispose() has begun, nothing may add a child or a closer that no
+   * one will stop, so the abandoned scenario fails on its own instead of leaking.
+   */
+  private live(what: string): void {
+    if (this.disposed) throw new Error(`The acceptance world is disposed; cannot ${what}.`);
+  }
+
   tmux(args: string[]): string {
+    this.live('run tmux');
+    return this.tmuxUnguarded(args);
+  }
+
+  private tmuxUnguarded(args: string[]): string {
     return execFileSync(path.join(this.wrapperDirectory, 'tmux'), args, {
       env: this.env(),
       encoding: 'utf8',
@@ -199,6 +234,7 @@ export class AcceptanceWorld {
   /** Run the real tmt as a caller in `pane` (default: the host pane). */
   tmt(args: string[], options: { pane?: string; stdin?: string; timeoutMs?: number } = {}) {
     return new Promise<CliResult>((resolve, reject) => {
+      this.live('run tmt');
       const child = spawn(this.binaries.tmt, args, {
         cwd: this.workspace,
         env: this.env(options.pane ?? this.hostPane),
@@ -288,6 +324,7 @@ export class AcceptanceWorld {
 
   /** Spawn a long-lived real child (serve, pair) tracked for dispose(). */
   spawn(label: string, executable: string, args: string[], pane?: string): OwnedProcess {
+    this.live(`spawn ${label}`);
     const owned = new OwnedProcess(label, executable, args, {
       cwd: this.workspace,
       env: this.env(pane),
@@ -299,6 +336,7 @@ export class AcceptanceWorld {
 
   /** Register cleanup that must run before the process checks (browsers, pages). */
   onDispose(close: () => Promise<void>): void {
+    this.live('register a closer');
     this.closers.push(close);
   }
 
@@ -356,12 +394,13 @@ export class AcceptanceWorld {
         leaks.push(`${what}: ${error instanceof Error ? error.message : String(error)}`);
       }
     };
-    for (const close of this.closers.reverse()) await attempt('closer', close);
+    for (const close of this.closers.reverse())
+      await attempt('closer', () => bounded(close(), this.closerBoundMs));
     for (const owned of this.processes) await attempt(owned.label, () => owned.stop());
     if (this.serverPid) {
       await attempt('tmux server', async () => {
         try {
-          this.tmux(['kill-server']);
+          this.tmuxUnguarded(['kill-server']);
         } catch {
           // The server may already be gone; absence is checked below.
         }

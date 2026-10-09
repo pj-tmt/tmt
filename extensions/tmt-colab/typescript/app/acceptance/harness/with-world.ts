@@ -28,11 +28,14 @@ export async function withWorld<T>(scenario: (world: AcceptanceWorld) => Promise
 
 /**
  * Register as `test.afterEach`: a test that times out never reaches the
- * cleanup in `withWorld`, so its servers, tmux server and browsers are stopped here.
+ * cleanup in `withWorld`, so its servers, tmux server and browsers are stopped here, and what
+ * they leave is reported: a timed-out test must not leak silently.
  */
 export async function disposeActiveWorlds(): Promise<void> {
+  const leaks: string[] = [];
   for (const world of active) {
-    await world.dispose();
     active.delete(world);
+    for (const leak of await world.dispose()) leaks.push(`${world.root}: ${leak}`);
   }
+  if (leaks.length > 0) throw new Error(`Acceptance world leaked:\n${leaks.join('\n')}`);
 }
