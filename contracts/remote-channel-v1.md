@@ -1671,6 +1671,31 @@ do not authorize first deployment, new account resources or expanded provider pe
 an enabled extension with undeployed requirements leaves that cloud extension unavailable until
 an authorized deploy; local availability and existing operation authority are unchanged.
 
+### Proposal: free-plan budget guard
+
+Layer 1 must run on the provider's no-cost plan, and the provider's quotas are project-wide: no client
+reads them and Rules cannot. A client therefore guards its own modeled share, not the provider's counter. For one
+shared page with `members` listeners and `writers` of them appending, one append costs the project `writeLookups +
+(members - 1) * (1 + readLookups)` reads (the writer's Rules lookups, then for every other listener the delivered
+document and its lookups again), where the lookups are fixed constants of the guard; the page's daily append
+allowance is the daily reads pool divided by that, capped by the writes pool, and a writer's share is the allowance
+divided by `writers`. Below 70% of the share an append is allowed, from 70% the client is warned, from 90% the append
+is refused; both are named constants in one table. The allowance also gives the minimum average interval at which an
+extension must flush coalesced updates. A client counts its own appends per US Pacific calendar day, because
+provider quotas reset at the next Pacific midnight. A page whose modeled share is too small for the guard to allow even one
+append is one the free plan cannot host: it is refused when the model is built, never as a recoverable pause that would
+end at the next reset and begin again. The model covers one page and its appends only: the quota pool is project-wide, so
+several active pages, attachment chunks and deletes are outside the guard, and the provider's `resource-exhausted` answer
+below is the backstop for their sum. The quota numbers and their sources live in the Remote implementation guide with
+their dates, not in this contract.
+
+A refusal by the guard is made before any effect: it is the error `REMOTE_BUDGET_EXHAUSTED` with `resetAtMs` and
+`retryAfterMs`, nothing was sent, and the same sealed update or original ID can be sent unchanged after the reset.
+Remote queues nothing. A provider `resource-exhausted` answer to a request that may have changed state is an
+unknown outcome, never `REMOTE_BUDGET_EXHAUSTED`: the caller reads back the original ID and does not resend. The same
+answer to a request that cannot have changed anything is a refusal with the reset time. Either answer is recorded as
+`exhausted` evidence for the layer readiness view, and that evidence says nothing after the next reset.
+
 ### Proposal: cloud conformance
 
 Before cloud implementation acceptance, independent HPKE and application byte vectors plus
