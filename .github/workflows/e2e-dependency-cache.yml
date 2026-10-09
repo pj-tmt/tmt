@@ -37,5 +37,6 @@ jobs:
           context: .
           file: typescript/test/e2e/Dockerfile
           target: ci-dependencies
+          build-args: TMT_CI_DEPENDENCIES=1
           cache-from: type=gha,version=2,scope=tmt-e2e-dependencies
           cache-to: type=gha,version=2,scope=tmt-e2e-dependencies,mode=min

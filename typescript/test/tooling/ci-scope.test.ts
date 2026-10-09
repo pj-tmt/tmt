@@ -2287,7 +2287,8 @@ describe('required CI gate', () => {
         !shard.includes('continue-on-error:') &&
         !shard.includes('if: always()') &&
         shard.includes('load: true') &&
-        shard.includes('build-args: TMT_NATIVE_BASE=ci-native-base') &&
+        shard.includes('TMT_NATIVE_BASE=ci-native-base') &&
+        shard.includes('            TMT_CI_DEPENDENCIES=1') &&
         shard.includes(
           'TMT_E2E_PREPARED_IMAGE: tmux-team-e2e:ci-${{ github.run_id }}-${{ github.job }}'
         ) &&
@@ -2296,6 +2297,7 @@ describe('required CI gate', () => {
         seed?.includes("if: github.event_name == 'push' && github.ref == 'refs/heads/main'") ===
           true &&
         seed.includes('target: ci-dependencies') &&
+        seed.includes('build-args: TMT_CI_DEPENDENCIES=1') &&
         seed.includes('cache-to: type=gha,version=2,scope=tmt-e2e-dependencies,mode=min') &&
         !seed.includes('pnpm test:e2e') &&
         owner.includes('group: e2e-dependency-cache-${{ github.ref }}') &&
@@ -2314,6 +2316,8 @@ describe('required CI gate', () => {
       );
     };
     expect(admitted(ci, writer)).toBe(true);
+    expect(admitted(ci.replace('            TMT_CI_DEPENDENCIES=1', ''), writer)).toBe(false);
+    expect(admitted(ci, writer.replace('build-args: TMT_CI_DEPENDENCIES=1', ''))).toBe(false);
     expect(
       admitted(
         ci.replace(

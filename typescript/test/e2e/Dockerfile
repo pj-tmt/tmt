@@ -1,22 +1,27 @@
-# Local builds use the original Rust base and never acquire the CI planner.
+# Local builds keep CI planner/cooks inert, including with the classic builder.
 ARG TMT_NATIVE_BASE=rust:1.97.0-bookworm@sha256:8fa55b2f3ddf97471ab6a767bfa3f37e6bad0986ba823e75fea57e2a2a5c3073
 FROM rust:1.97.0-bookworm@sha256:8fa55b2f3ddf97471ab6a767bfa3f37e6bad0986ba823e75fea57e2a2a5c3073 AS ci-chef
-RUN curl --fail --location https://github.com/LukeMathWalker/cargo-chef/releases/download/v0.1.77/cargo-chef-x86_64-unknown-linux-musl.tar.xz --output /tmp/chef.tar.xz \
+ARG TMT_CI_DEPENDENCIES=0
+RUN if [ "$TMT_CI_DEPENDENCIES" != 1 ]; then exit 0; fi \
+    && curl --fail --location https://github.com/LukeMathWalker/cargo-chef/releases/download/v0.1.77/cargo-chef-x86_64-unknown-linux-musl.tar.xz --output /tmp/chef.tar.xz \
     && echo 'a3733ab416c3ffddd37914cd13919ca05fee1a1cf654f3016dcfe7f399d89cd1  /tmp/chef.tar.xz' | sha256sum --check - \
     && tar -xJf /tmp/chef.tar.xz --strip-components=1 -C /usr/local/bin cargo-chef-x86_64-unknown-linux-musl/cargo-chef \
     && rm /tmp/chef.tar.xz \
     && cargo chef --version
 
 FROM ci-chef AS ci-planner
+ARG TMT_CI_DEPENDENCIES=0
 WORKDIR /native/rust
 COPY rust/ /native/rust/
 COPY extensions/tmt-office/rust/ /native/extensions/tmt-office/rust/
 COPY extensions/tmt-ops/rust/ /native/extensions/tmt-ops/rust/
 COPY extensions/tmt-remote/rust/ /native/extensions/tmt-remote/rust/
 COPY extensions/tmt-colab/rust/ /native/extensions/tmt-colab/rust/
-RUN cargo chef prepare --recipe-path /recipe.json
+RUN if [ "$TMT_CI_DEPENDENCIES" != 1 ]; then printf '{}\n' > /recipe.json; exit 0; fi \
+    && cargo chef prepare --recipe-path /recipe.json
 
 FROM ci-chef AS ci-cook
+ARG TMT_CI_DEPENDENCIES=0
 WORKDIR /native/rust
 COPY --from=ci-planner /recipe.json /recipe.json
 ARG TMT_NATIVE_PROFILE=dev
@@ -25,7 +30,9 @@ ENV CARGO_PROFILE_DEV_DEBUG=0 CARGO_INCREMENTAL=0
 # Keep dependency variants separate, like the real commands below. Chef removes
 # compiled workspace libraries, but v0.1.77 leaves dummy test executables.
 # Remove only those adapter executables before copying current source.
-RUN cargo chef cook --locked --recipe-path /recipe.json --examples -p tmt-adapters \
+RUN mkdir -p target/debug/deps /usr/local/cargo/registry \
+    && if [ "$TMT_CI_DEPENDENCIES" != 1 ]; then exit 0; fi \
+    && cargo chef cook --locked --recipe-path /recipe.json --examples -p tmt-adapters \
     && cargo chef cook --locked --recipe-path /recipe.json --profile "$TMT_NATIVE_PROFILE" -p tmt-cli \
     && cargo chef cook --locked --recipe-path /recipe.json --profile "$TMT_NATIVE_PROFILE" -p tmt-ops \
     && cargo chef cook --locked --recipe-path /recipe.json --profile "$TMT_NATIVE_PROFILE" -p tmt-remote \

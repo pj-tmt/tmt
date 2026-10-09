@@ -388,12 +388,12 @@ it('isolates the checksum-pinned CI dependency recipe from real source and local
     const native = stages.find((part) => part.startsWith('${TMT_NATIVE_BASE} AS native-tests\n'));
     return (
       source.startsWith(
-        `# Local builds use the original Rust base and never acquire the CI planner.\nARG TMT_NATIVE_BASE=${base}\n`
+        `# Local builds keep CI planner/cooks inert, including with the classic builder.\nARG TMT_NATIVE_BASE=${base}\n`
       ) &&
       source.includes(`FROM ${base} AS ci-chef\n`) &&
       source.includes('/v0.1.77/cargo-chef-x86_64-unknown-linux-musl.tar.xz') &&
       source.includes(`echo '${checksum}  /tmp/chef.tar.xz' | sha256sum --check -`) &&
-      planner?.includes('RUN cargo chef prepare --recipe-path /recipe.json') === true &&
+      planner?.includes('&& cargo chef prepare --recipe-path /recipe.json') === true &&
       !planner.includes('COPY . /native/') &&
       crates.every((crate) =>
         copiedAt(planner, crate.manifest, '/native/rust').includes(`/native/${crate.manifest}`)
@@ -487,6 +487,99 @@ it('exports only linked Cargo target and registry layers and reuses the pinned n
   ).toBe(false);
 });
 
+it.each([undefined, '0', '1'])(
+  'keeps every classic-builder CI RUN inert unless explicitly enabled (%s)',
+  (enabled) => {
+    const directory = mkdtempSync(path.join(os.tmpdir(), 'tmt-chef-opt-in-'));
+    try {
+      const log = path.join(directory, 'calls');
+      const recipe = path.join(directory, 'recipe.json');
+      const registry = path.join(directory, 'registry');
+      const tool = path.join(directory, 'tool');
+      writeExecutable(
+        tool,
+        `#!/usr/bin/env node
+const fs = require('node:fs');
+const path = require('node:path');
+const name = path.basename(process.argv[1]);
+const args = process.argv.slice(2);
+fs.appendFileSync(process.env.CHEF_CALL_LOG, JSON.stringify([name, ...args]) + '\\n');
+if (name === 'cargo' && args[1] === 'prepare')
+  fs.writeFileSync(args[args.indexOf('--recipe-path') + 1], '{"fixture":true}\\n');
+`,
+        0o755
+      );
+      for (const command of ['curl', 'sha256sum', 'tar', 'cargo', 'rm', 'find'])
+        symlinkSync(tool, path.join(directory, command));
+      const text = readFileSync(path.join(root, 'typescript/test/e2e/Dockerfile'), 'utf8');
+      const env: NodeJS.ProcessEnv = {
+        ...process.env,
+        PATH: `${directory}${path.delimiter}${process.env.PATH ?? ''}`,
+        CHEF_CALL_LOG: log,
+        TMT_NATIVE_PROFILE: 'dev',
+      };
+      if (enabled === undefined) delete env.TMT_CI_DEPENDENCIES;
+      else env.TMT_CI_DEPENDENCIES = enabled;
+      for (const name of ['ci-chef', 'ci-planner', 'ci-cook']) {
+        const stage = text
+          .split(/^FROM /m)
+          .find((part) => part.split('\n')[0].endsWith(` AS ${name}`))!;
+        expect(stage).toContain('ARG TMT_CI_DEPENDENCIES=0');
+        const command = instructions(stage)
+          .find((line) => line.startsWith('RUN '))!
+          .slice(4)
+          .replaceAll('/tmp/chef.tar.xz', path.join(directory, 'chef.tar.xz'))
+          .replaceAll('/recipe.json', recipe)
+          .replaceAll('/usr/local/cargo/registry', registry);
+        const result = spawnSync('/bin/sh', ['-c', command], {
+          cwd: directory,
+          env,
+          encoding: 'utf8',
+          timeout: 10_000,
+        });
+        expect(result.error).toBeUndefined();
+        expect(result.status, result.stderr).toBe(0);
+      }
+      expect(lstatSync(registry).isDirectory()).toBe(true);
+      expect(lstatSync(path.join(directory, 'target/debug/deps')).isDirectory()).toBe(true);
+      if (enabled !== '1') {
+        expect(readdirSync(directory)).not.toContain('calls');
+        expect(readFileSync(recipe, 'utf8')).toBe('{}\n');
+      } else {
+        expect(readFileSync(recipe, 'utf8')).toBe('{"fixture":true}\n');
+        const calls: string[][] = readFileSync(log, 'utf8')
+          .trim()
+          .split('\n')
+          .map((line) => JSON.parse(line));
+        expect(calls.map(([name]) => name)).toEqual([
+          'curl',
+          'sha256sum',
+          'tar',
+          'rm',
+          'cargo',
+          'cargo',
+          'cargo',
+          'cargo',
+          'cargo',
+          'cargo',
+          'cargo',
+          'find',
+        ]);
+        const cookPrefix = ['cargo', 'chef', 'cook', '--locked', '--recipe-path', recipe];
+        expect(calls.filter(([name, , action]) => name === 'cargo' && action === 'cook')).toEqual([
+          [...cookPrefix, '--examples', '-p', 'tmt-adapters'],
+          [...cookPrefix, '--profile', 'dev', '-p', 'tmt-cli'],
+          [...cookPrefix, '--profile', 'dev', '-p', 'tmt-ops'],
+          [...cookPrefix, '--profile', 'dev', '-p', 'tmt-remote'],
+          [...cookPrefix, '--profile', 'test', '--tests', '-p', 'tmt-adapters'],
+        ]);
+      }
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  }
+);
+
 it('removes only extensionless executable adapter dummies from the dependency layer', () => {
   const directory = mkdtempSync(path.join(os.tmpdir(), 'tmt-chef-dummies-'));
   try {
@@ -556,7 +649,7 @@ process.exitCode = require('node:crypto').createHash('sha256').update(fs.readFil
     }
     const text = readFileSync(path.join(root, 'typescript/test/e2e/Dockerfile'), 'utf8');
     const command = instructions(text)
-      .find((line) => line.startsWith('RUN curl '))!
+      .find((line) => line.startsWith('RUN if ') && line.includes('&& curl '))!
       .slice(4)
       .replaceAll('/tmp/chef.tar.xz', artifact);
     const result = spawnSync('/bin/sh', ['-c', command], {
@@ -564,6 +657,7 @@ process.exitCode = require('node:crypto').createHash('sha256').update(fs.readFil
         ...process.env,
         PATH: `${directory}${path.delimiter}${process.env.PATH ?? ''}`,
         CHEF_CALL_LOG: log,
+        TMT_CI_DEPENDENCIES: '1',
       },
       encoding: 'utf8',
       timeout: 10_000,
