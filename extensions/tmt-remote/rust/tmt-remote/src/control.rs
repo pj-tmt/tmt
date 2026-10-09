@@ -5,6 +5,7 @@ use crate::{
     canonical,
     devices::{Devices, device_json},
     error::RemoteError,
+    firestore_limits,
     object_service::ObjectReadiness,
     pairing::{End, Pairing, PairingEvent},
     readiness::{self, FirestoreEvidenceSource, NotConfigured},
@@ -263,6 +264,10 @@ fn session(
             "running":true, "origin":door.door.origin, "path":door.door.prefix,
             "firestoreLayers":readiness::project(door.views.layers.evidence().as_ref(), &readiness::LAYERS),
         }))),
+        Some("status") if request == json!({"op":"status","budget":true}) => Some(Ok(json!({
+            "running":true, "origin":door.door.origin, "path":door.door.prefix,
+            "firestoreBudget":firestore_limits::member(),
+        }))),
         Some("status") if request == json!({"op":"status","machine":true}) => Some(Ok(json!({
             "running":true, "origin":door.door.origin, "path":door.door.prefix,
             "machineId":pairing.machine_id(),
@@ -496,6 +501,8 @@ pub enum StatusProjection {
     Objects,
     /// Layered Firestore readiness.
     Layers,
+    /// The dated free-plan Firestore limits.
+    Budget,
 }
 /// Bounded read-only discovery. The live address comes from this run, never
 /// from remembered state. Malformed or silent peers cannot become stopped status.
@@ -536,6 +543,9 @@ pub fn status_projection(
         StatusProjection::Layers => {
             request(remote_directory, &json!({"op":"status","layers":true}))
         }
+        StatusProjection::Budget => {
+            request(remote_directory, &json!({"op":"status","budget":true}))
+        }
     };
     let Some(answer) = response? else {
         return Ok(None);
@@ -556,6 +566,7 @@ pub fn status_projection(
         StatusProjection::Layers => {
             readiness::validate(&answer["firestoreLayers"], &readiness::LAYERS)
         }
+        StatusProjection::Budget => firestore_limits::validate(&answer["firestoreBudget"]),
     };
     if answer.as_object().is_none_or(|fields| {
         fields.len()

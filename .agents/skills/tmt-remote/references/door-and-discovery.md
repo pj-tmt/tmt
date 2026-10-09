@@ -66,7 +66,8 @@ The existing canonical UUIDv4 validator and origin/prefix rules validate that pr
 live status keeps exactly three keys, and both projections keep the same two-key stopped result.
 `status --objects --json` is a separate optional four-key running projection of Local channel
 state, from a read-only view of the same service slots. It never triggers setup; stopped output
-is unchanged. Door readiness is independent of channel readiness. Both optional projections
+is unchanged. Door readiness is independent of channel readiness. `status --budget` adds the static,
+dated Firestore free-plan limits table (no storage, no provider call). The optional projections
 preserve unsupported peer errors. No HTTP descriptor or second status acquisition supplies a replacement hint; the
 [owning contract](../../../../contracts/remote-channel-v1.md#local-cli-discovery) defines its
 best-effort observation and use-time authority limits.

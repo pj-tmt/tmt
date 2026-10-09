@@ -5,6 +5,7 @@ guard code is `src/firestore_budget.rs`; its vectors come from the independent s
 `tests/fixtures/firestore_budget/reference.py`. The semantics (thresholds, outcomes, error
 code) are in the [contract](../../../../contracts/remote-channel-v1.md#proposal-free-plan-budget-guard).
 This page holds the dated numbers: recheck them before relying on them, they change.
+`tmt remote status --budget` shows the Firestore rows of the table below from `firestore_limits.rs`; change both together when you recheck.
 
 ## Official limits (read 2026-10-09; pages last updated 2026-10-07 UTC)
 

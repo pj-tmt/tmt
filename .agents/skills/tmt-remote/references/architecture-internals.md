@@ -1,7 +1,7 @@
 # Remote architecture internals
 
 Module owners (put a change in the existing owner; `canonical`, `crypto`, `wire`,
-`transport`, `declaration`, `deploy_plan`, `rules`, `firestore_budget`, `readiness` and `deploy_run` have no I/O, clock, storage or `CoreClient` access):
+`transport`, `declaration`, `deploy_plan`, `rules`, `firestore_budget`, `firestore_limits`, `readiness` and `deploy_run` have no I/O, clock, storage or `CoreClient` access):
 
 | Module                                 | Owns                                                                                                                                                                                                                  |
 | -------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -17,6 +17,7 @@ Module owners (put a change in the existing owner; `canonical`, `crypto`, `wire`
 | `objects`                              | Object backend trait and `LocalFs`: the `objects.db` ledger and extension-private payload trees under the serve lease; the channel and config belong to `object_service`                                              |
 | `declaration`, `deploy_plan`, `rules`  | Strict backend declaration parse; digest-addressed `sharing` deploy plan; allow-listed Rules/indexes composition (bytes in, library only until #2164)                                                                 |
 | `firestore_budget`                     | Free-plan Firestore budget model and client guard; vectors in `tests/fixtures/firestore_budget`                                                                                                                       |
+| `firestore_limits`                     | Dated free-plan Firestore limits table and its `status --budget` projection, validator and human lines; golden in `tests/fixtures/firestore_budget/limits-member.json`                                                |
 | `readiness`                            | Layered Firestore readiness: one table of items, reasons and sentences; projection, validator and human lines over an injected evidence source                                                                        |
 | `deploy_run`                           | Authorized Firestore sharing deploy over an injected `DeployPort`: envelope digest, authorization, step order, record and binding rule (library until #2164 slice 2)                                                  |
 | `object_service`                       | Lease-bound `ObjectService`: initial/demand single-flight Local setup, readiness, origins, admitted observation/upload; production Colab-only Local                                                                   |
