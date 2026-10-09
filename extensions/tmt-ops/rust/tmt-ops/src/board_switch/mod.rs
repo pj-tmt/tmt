@@ -22,7 +22,7 @@ use std::{
     thread,
     time::{Duration, Instant},
 };
-use tmt_cli_style::{CommandSpec, Example, Interaction, Mode, OutputModes};
+use tmt_cli_style::{CommandSpec, Example, Interaction, OutputModes};
 
 const SPEC: &CommandSpec = &CommandSpec {
     name: "migration",
@@ -708,24 +708,6 @@ fn switch(core: &Core, prefix: &Path, socket: Option<&str>) -> Result<Value, Squ
     }
 }
 
-fn offer_inventory(boards: &[Value]) -> Vec<Value> {
-    let mut result = Vec::new();
-    for board in boards {
-        let identity = if board["pending"] == true {
-            json!({"pending":true})
-        } else if board["leaseSinceMs"].is_i64() {
-            // Losing process evidence does not create a new lease incarnation.
-            json!({"pid":board["pid"],"pane":board["pane"],"leaseSinceMs":board["leaseSinceMs"]})
-        } else {
-            json!({"pid":board["pid"],"start":board["start"],"pane":board["pane"]})
-        };
-        if !result.contains(&identity) {
-            result.push(identity);
-        }
-    }
-    result
-}
-
 fn holder_recovery(holder: Option<&Value>) -> String {
     match holder {
         Some(holder) => format!(
@@ -734,80 +716,6 @@ fn holder_recovery(holder: Option<&Value>) -> String {
         ),
         None => "Migration is still deferred by a legacy writer; finish that operation, then run the recovery command below.".into(),
     }
-}
-
-/// One pre-dispatch offer. Protocol/help/completion paths never reach here.
-pub(crate) fn offer(interaction: Interaction) -> Result<(), SquadError> {
-    if std::env::var_os("TMT_OPS_SWITCH_READY").is_some() {
-        return Ok(());
-    }
-    let Some(prefix) = installed_prefix() else {
-        return Ok(());
-    };
-    let core = Core::discover()?;
-    let socket = effects::tmux_socket();
-    let root = migration::data_root(&core)?;
-    let mut boards = Vec::new();
-    if let Some(socket) = &socket {
-        let found = discover(&root, &prefix, socket)?;
-        boards.extend(found.boards);
-        if let Some(holder) = found.blocked_holder {
-            boards.push(holder);
-        }
-        if record::exists(&root) {
-            boards.extend(record::Record::open(&root, &prefix, socket)?.boards.clone());
-        }
-    } else {
-        if let Some(holder) = migration::legacy_clock_holder(&root).map_err(fail)? {
-            boards
-                .push(json!({"pid":holder.pid,"pane":holder.pane,"leaseSinceMs":holder.since_ms}));
-        }
-        if record::exists(&root) {
-            boards.push(json!({"pending":true}));
-        }
-    }
-    let boards = offer_inventory(&boards);
-    if boards.is_empty() {
-        return Ok(());
-    }
-    let prefix = verify_prefix(&core, None)?;
-    let scope = socket.as_deref().unwrap_or("");
-    if !record::remember_offer(
-        &root,
-        &prefix,
-        scope,
-        &boards,
-        interaction.prompt() == Mode::Interactive,
-    )? {
-        return Ok(());
-    }
-    let hint = command(&prefix, socket.as_deref());
-    if interaction.prompt() != Mode::Interactive {
-        write_notice(&hint)?;
-        return Ok(());
-    }
-    if consent::ask(
-        Consent::Ask,
-        "Former Squad boards can be switched to Ops in their existing panes.",
-        "Switch now?",
-    )
-    .is_err()
-    {
-        return Ok(());
-    }
-    let result = attempt(&core, &prefix, socket.as_deref());
-    if result["complete"] == true || result["switched"].as_u64().unwrap_or(0) > 0 {
-        write_notice(&format!("switched {} boards to Ops", result["switched"]))?;
-    }
-    if result["complete"] == false
-        && let Some(reason) = result["reason"].as_str()
-    {
-        write_notice(reason)?;
-    }
-    if let Some(command) = result["command"].as_str() {
-        write_notice(command)?;
-    }
-    Ok(())
 }
 
 /// A successful first loaded draw acknowledges the private launch marker.
@@ -821,24 +729,4 @@ pub(crate) fn acknowledge(file: &mut fs::File) -> std::io::Result<()> {
     file.set_len(0)?;
     file.write_all(std::process::id().to_string().as_bytes())?;
     file.sync_all()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn holder_offer_survives_lost_process_evidence_but_not_a_new_lease() {
-        let live = json!({"pid":42,"pane":"%4","start":"original","leaseSinceMs":100});
-        let missing = json!({"pid":42,"pane":"%4","leaseSinceMs":100});
-        assert_eq!(
-            offer_inventory(&[live]),
-            offer_inventory(std::slice::from_ref(&missing))
-        );
-        let new_incarnation = json!({"pid":42,"pane":"%4","leaseSinceMs":200});
-        assert_ne!(
-            offer_inventory(&[missing]),
-            offer_inventory(&[new_incarnation])
-        );
-    }
 }
