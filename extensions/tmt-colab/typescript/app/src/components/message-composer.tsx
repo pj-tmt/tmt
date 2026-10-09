@@ -57,7 +57,6 @@ function MessageField(props: MessageComposerProps) {
   const controlId = useId();
   const current = useRef(props);
   current.current = props;
-  const navigated = useRef(false);
   const [{ query, open }, setSuggestions] = useState<{
     query?: ReturnType<typeof mentionQuery>;
     open: boolean;
@@ -148,7 +147,6 @@ function MessageField(props: MessageComposerProps) {
               : queryChanged || changed
                 ? nextQuery !== undefined
                 : previous.open;
-            if (queryChanged) navigated.current = false;
             return queryChanged || open !== previous.open ? { query: nextQuery, open } : previous;
           });
         });
@@ -217,9 +215,11 @@ function MessageField(props: MessageComposerProps) {
                       props.disabled
                     )
                       return;
-                    if (query && ['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key))
-                      navigated.current = true;
-                    if (event.key === 'Enter' && !event.shiftKey && !navigated.current) {
+                    if (trigger['aria-expanded'] === true) {
+                      trigger.onKeyDown?.(event);
+                      if (event.defaultPrevented) return;
+                    }
+                    if (event.key === 'Enter' && !event.shiftKey) {
                       let next = props.edit;
                       editor.update(
                         () => {
@@ -249,14 +249,7 @@ function MessageField(props: MessageComposerProps) {
                         return;
                       }
                     }
-                    if (query || open) trigger.onKeyDown?.(event);
-                    if (event.key === 'Enter' || event.key === 'Escape') navigated.current = false;
-                    if (event.defaultPrevented) return;
-                    if (event.key === 'Enter' && !event.shiftKey && props.onSubmit) {
-                      event.preventDefault();
-                      event.stopPropagation();
-                      props.onSubmit(native, props.edit);
-                    } else if (event.key === 'Escape' && props.onCancel) {
+                    if (event.key === 'Escape' && props.onCancel) {
                       event.preventDefault();
                       event.stopPropagation();
                       props.onCancel(native);

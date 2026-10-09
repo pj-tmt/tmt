@@ -1773,7 +1773,13 @@ admitted reply is an arrival; edits to existing replies, cloned publications and
 size changes are not arrivals. Size changes retain following, and reaching the
 bottom after resizing also clears pending state, including when every message fits.
 Its placement is cosmetic; the captured quote
-selector owns the thread anchor. Enter sends, Shift+Enter inserts a newline, and Esc closes the input (an unsent draft is kept). There
+selector owns the thread anchor. With the mention list closed, Enter sends,
+Shift+Enter inserts a newline, and Esc closes the input (an unsent draft is kept).
+While the list is open, its first available option is highlighted; Up/Down wrap,
+Home/End jump, and Enter or Tab inserts the highlighted agent without sending.
+Esc closes only the list and keeps the text. Typing filters the options; no match
+closes the list. Clicking an option is equivalent to Enter. IME composition does
+not navigate, choose or send. There
 is no confirmation screen or automatic send. The popover closes with its ×, with Escape from anywhere
 inside it, with a press outside it, and with a selection cleared by a page click while
 no nonblank message is typed; none of these interrupts a send in flight. Typed text is kept

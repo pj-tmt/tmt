@@ -79,6 +79,10 @@ export function Listbox<Value extends string>({
   const listId = `${id}-list`;
 
   useEffect(() => {
+    if (!open) setActiveValue(null);
+  }, [open]);
+
+  useEffect(() => {
     if (!open) return;
     const closeOutside = (event: PointerEvent) => {
       if (
@@ -170,7 +174,8 @@ export function Listbox<Value extends string>({
   }
 
   function move(step: -1 | 1) {
-    for (let index = focusIndex + step; index >= 0 && index < options.length; index += step) {
+    for (let offset = 1; offset <= options.length; offset++) {
+      const index = (focusIndex + step * offset + options.length) % options.length;
       if (!options[index].disabled) {
         setActiveValue(options[index].value);
         return;
@@ -190,13 +195,12 @@ export function Listbox<Value extends string>({
       inputTrigger &&
       ((!open && (!['ArrowDown', 'ArrowUp'].includes(event.key) || firstIndex < 0)) ||
         event.key === ' ' ||
-        event.shiftKey ||
         event.nativeEvent.isComposing)
     )
       return;
     if (
       inputTrigger &&
-      ['ArrowDown', 'ArrowUp', 'Home', 'End', 'Enter', 'Escape'].includes(event.key)
+      ['ArrowDown', 'ArrowUp', 'Home', 'End', 'Enter', 'Tab', 'Escape'].includes(event.key)
     )
       event.stopPropagation();
     switch (event.key) {
@@ -226,7 +230,10 @@ export function Listbox<Value extends string>({
         }
         break;
       case 'Tab':
-        setOpen(false);
+        if (inputTrigger && open && focusIndex >= 0) {
+          event.preventDefault();
+          choose(options[focusIndex]);
+        } else setOpen(false);
         break;
     }
   }

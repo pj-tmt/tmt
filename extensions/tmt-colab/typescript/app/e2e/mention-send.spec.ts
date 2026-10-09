@@ -11,6 +11,7 @@ const agents = [
   { ...destination(), agentName: 'alpha' },
   { ...destination(), agent: id(9), agentName: 'beta', presence: 'offline' as const },
 ];
+
 async function mount(
   page: Page,
   options: {
@@ -47,8 +48,12 @@ for (const ending of [' ', ',', 'Enter']) {
   test(`typed exact name binds on ${ending} and dispatches once`, async ({ page }) => {
     const input = await mount(page);
     await input.pressSequentially('@alpha');
-    if (ending === 'Enter') await input.press('Enter');
-    else {
+    if (ending === 'Enter') {
+      await input.press('Enter');
+      await expect(input).toHaveText('@alpha ', { useInnerText: true });
+      expect(await run(page, 'proof')).toMatchObject({ writes: 0, preparations: 0, sends: [] });
+      await input.press('Enter');
+    } else {
       await input.pressSequentially(`${ending}Explain.`);
       await page.getByRole('button', { name: 'Send', exact: true }).click();
     }
@@ -88,6 +93,8 @@ test('unknown name stays text with a comment hint and Enter is allowed', async (
 test('ambiguous name opens its list without binding or publishing', async ({ page }) => {
   const input = await mount(page, { agents: [agents[0], { ...agents[1], agentName: 'alpha' }] });
   await input.pressSequentially('@alpha');
+  await input.press('Escape');
+  await expect(input).toHaveText('@alpha', { useInnerText: true });
   await input.press('Enter');
   await expect(input).toHaveAttribute('aria-expanded', 'true');
   await expect(page.getByRole('option')).toHaveCount(2);
@@ -420,4 +427,109 @@ test('a new Chat Send clears local failures from the prior message', async ({ pa
   await expect(page.getByTestId('recipient-failure')).toHaveCount(0);
   expect(await run(page, 'proof')).toMatchObject({ writes: 2, preparations: 2, commits: 2 });
   expect((await run(page, 'proof')).sends).toHaveLength(1);
+});
+
+for (const surface of ['annotation', 'reply', 'chat']) {
+  for (const key of ['Enter', 'Tab']) {
+    test(`${surface}: @ then Down and ${key} chooses the second agent without sending`, async ({
+      page,
+    }) => {
+      const input = await mount(page, { surface });
+      await input.pressSequentially('@');
+      const choices = page.getByRole('option');
+      await expect(choices).toHaveCount(2);
+      await expect(choices.first()).toHaveAttribute('data-active', 'true');
+      await input.press('ArrowDown');
+      await expect(choices.nth(1)).toHaveAttribute('data-active', 'true');
+      await input.press(key);
+      await expect(input).toHaveText('@beta ', { useInnerText: true });
+      await expect(input).toHaveAttribute('aria-expanded', 'false');
+      await expect(input).toBeFocused();
+      expect(await run(page, 'proof')).toMatchObject({
+        writes: 0,
+        preparations: 0,
+        commits: 0,
+        sends: [],
+      });
+      await input.press('Enter');
+      await expect.poll(async () => (await run(page, 'proof')).sends.length).toBe(1);
+      const proof = await run(page, 'proof');
+      expect(proof).toMatchObject({ writes: 1, preparations: 1, commits: 1 });
+      expect(proof.sends[0].agentId).toBe(agents[1].agent);
+    });
+  }
+}
+
+test('mention arrows wrap, Home/End jump, and reopening highlights the first choice', async ({
+  page,
+}) => {
+  const input = await mount(page);
+  await input.pressSequentially('@');
+  const choices = page.getByRole('option');
+  await expect(choices.first()).toHaveAttribute('data-active', 'true');
+  await input.press('ArrowUp');
+  await expect(choices.last()).toHaveAttribute('data-active', 'true');
+  await input.press('ArrowDown');
+  await expect(choices.first()).toHaveAttribute('data-active', 'true');
+  await input.press('End');
+  await expect(choices.last()).toHaveAttribute('data-active', 'true');
+  await input.press('Home');
+  await expect(choices.first()).toHaveAttribute('data-active', 'true');
+  await input.press('End');
+  await input.press('Escape');
+  await expect(input).toHaveText('@', { useInnerText: true });
+  await expect(input).toHaveAttribute('aria-expanded', 'false');
+  await input.pressSequentially('a');
+  await expect(choices.first()).toHaveAttribute('data-active', 'true');
+  expect(await run(page, 'proof')).toMatchObject({ writes: 0, preparations: 0, sends: [] });
+});
+
+test('Escape keeps mention text and the next Enter sends with the list closed', async ({
+  page,
+}) => {
+  const input = await mount(page);
+  await input.pressSequentially('Keep @alpha');
+  await expect(input).toHaveAttribute('aria-expanded', 'true');
+  await input.press('Escape');
+  await expect(input).toHaveAttribute('aria-expanded', 'false');
+  await expect(input).toHaveText('Keep @alpha', { useInnerText: true });
+  await expect(input).toBeFocused();
+  expect(await run(page, 'proof')).toMatchObject({ writes: 0, preparations: 0, sends: [] });
+  await input.press('Enter');
+  await expect.poll(async () => (await run(page, 'proof')).sends.length).toBe(1);
+});
+
+test('typing filters the mention list and a no-match Enter remains a comment send', async ({
+  page,
+}) => {
+  const input = await mount(page);
+  await input.pressSequentially('@');
+  await expect(page.getByRole('option')).toHaveCount(2);
+  await input.pressSequentially('be');
+  await expect(page.getByRole('option')).toHaveCount(1);
+  await expect(page.getByRole('option')).toContainText('@beta');
+  await input.pressSequentially('zzzz');
+  await expect(input).toHaveAttribute('aria-expanded', 'false');
+  await expect(input).toHaveText('@bezzzz', { useInnerText: true });
+  expect(await run(page, 'proof')).toMatchObject({ writes: 0, preparations: 0, sends: [] });
+  await input.press('Enter');
+  await expect
+    .poll(() => run(page, 'proof'))
+    .toMatchObject({ writes: 1, preparations: 0, sends: [] });
+});
+
+test('an open ambiguous-name list accepts the highlighted UUID without sending', async ({
+  page,
+}) => {
+  const input = await mount(page, { agents: [agents[0], { ...agents[1], agentName: 'alpha' }] });
+  await input.pressSequentially('@alpha');
+  await expect(page.getByRole('option')).toHaveCount(2);
+  await input.press('ArrowDown');
+  await input.press('Enter');
+  await expect(input).toHaveText('@alpha ', { useInnerText: true });
+  await expect(input).toHaveAttribute('aria-expanded', 'false');
+  expect(await run(page, 'proof')).toMatchObject({ writes: 0, preparations: 0, sends: [] });
+  await input.press('Enter');
+  await expect.poll(async () => (await run(page, 'proof')).sends.length).toBe(1);
+  expect((await run(page, 'proof')).sends[0].agentId).toBe(agents[1].agent);
 });
