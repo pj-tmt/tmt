@@ -454,3 +454,138 @@ fn the_control_socket_answers_layers_and_leaves_every_other_projection_alone() {
             .len()
     );
 }
+
+#[test]
+fn recorded_prerequisites_never_guess_unfinished_steps_or_tier_and_quota() {
+    use tmt_remote::deploy_run::{
+        DeployBinding, DeployFault, DeployOwnerAction, DeployRecord, Run, RunState, StepRecord,
+        StepState,
+    };
+    let mut record = DeployRecord::new("3f2b8c1e-5d4a-4e7b-9c1d-2a6f8e0b4c11");
+    assert_eq!(tmt_remote::readiness::from_record(&record), None);
+    record.run = Some(Run {
+        plan_digest: "a".repeat(64),
+        account: "owner@example.test".into(),
+        authorized_at_ms: 1,
+        state: RunState::Partial,
+        rules_attempted: false,
+        steps: [
+            "database",
+            "sign-in:anonymous",
+            "sign-in:google.com",
+            "rules",
+            "verify",
+        ]
+        .into_iter()
+        .map(|id| StepRecord {
+            id: id.into(),
+            state: StepState::Done,
+        })
+        .collect(),
+    });
+    let unfinished = [
+        StepState::Pending,
+        StepState::Unknown,
+        StepState::Building,
+        StepState::Failed(DeployFault::PermissionDenied),
+        StepState::OwnerAction(DeployOwnerAction::InitializeAuth),
+    ];
+    for id in ["database", "sign-in:anonymous", "sign-in:google.com"] {
+        for state in &unfinished {
+            let mut candidate = record.clone();
+            candidate
+                .run
+                .as_mut()
+                .unwrap()
+                .steps
+                .iter_mut()
+                .find(|s| s.id == id)
+                .unwrap()
+                .state = state.clone();
+            let evidence = tmt_remote::readiness::from_record(&candidate).unwrap();
+            assert_eq!(
+                if id == "database" {
+                    evidence.project
+                } else {
+                    evidence.sign_in
+                },
+                Observed::Unknown,
+                "{id}: {state:?}"
+            );
+            assert_eq!(evidence.rules, Observed::Unknown);
+            assert_eq!(evidence.tier, FirestoreTier::Unknown);
+            assert_eq!(evidence.quota, Observed::Unknown);
+        }
+    }
+    for accepted in [StepState::Done, StepState::Adopted] {
+        for step in &mut record.run.as_mut().unwrap().steps {
+            step.state = accepted.clone();
+        }
+        let evidence = tmt_remote::readiness::from_record(&record).unwrap();
+        assert_eq!(evidence.project, Observed::Enabled);
+        assert_eq!(evidence.sign_in, Observed::Enabled);
+    }
+    let mut unrecognized = record.clone();
+    unrecognized.run.as_mut().unwrap().steps[1].id = "sign-in:unapproved".into();
+    assert_eq!(
+        tmt_remote::readiness::from_record(&unrecognized)
+            .unwrap()
+            .sign_in,
+        Observed::Unknown
+    );
+    unrecognized
+        .run
+        .as_mut()
+        .unwrap()
+        .steps
+        .retain(|s| !s.id.starts_with("sign-in:"));
+    assert_eq!(
+        tmt_remote::readiness::from_record(&unrecognized)
+            .unwrap()
+            .sign_in,
+        Observed::Unknown
+    );
+    for missing in ["database", "rules", "verify"] {
+        let mut malformed = record.clone();
+        malformed
+            .run
+            .as_mut()
+            .unwrap()
+            .steps
+            .retain(|s| s.id != missing);
+        malformed.binding = Some(DeployBinding {
+            plan_digest: "a".repeat(64),
+            project: "demo-remote-1".into(),
+            completed_at_ms: 1,
+        });
+        assert_eq!(
+            tmt_remote::readiness::from_record(&malformed),
+            Some(FirestoreEvidence::unknown()),
+            "missing {missing}"
+        );
+    }
+    record.binding = Some(DeployBinding {
+        plan_digest: "b".repeat(64),
+        project: "demo-remote-1".into(),
+        completed_at_ms: 0,
+    });
+    record.run.as_mut().unwrap().steps[0].state = StepState::Unknown;
+    let before_rules = tmt_remote::readiness::from_record(&record).unwrap();
+    assert_eq!(before_rules.project, Observed::Enabled);
+    assert_eq!(before_rules.rules, Observed::Enabled);
+    record.run.as_mut().unwrap().rules_attempted = true;
+    let partial = tmt_remote::readiness::from_record(&record).unwrap();
+    assert_eq!(record.usable_binding(), None);
+    assert_eq!(partial.project, Observed::Unknown);
+    assert_eq!(partial.rules, Observed::Off(R::Partial));
+    assert_eq!(projected(partial)[0]["state"], "not-enabled");
+    let run = record.run.as_mut().unwrap();
+    run.state = RunState::Complete;
+    run.steps[0].state = StepState::Done;
+    record.binding.as_mut().unwrap().plan_digest = run.plan_digest.clone();
+    let complete = tmt_remote::readiness::from_record(&record).unwrap();
+    assert_eq!(complete.rules, Observed::Enabled);
+    assert_eq!(projected(complete)[0]["state"], "unknown");
+    assert_eq!(complete.tier, FirestoreTier::Unknown);
+    assert_eq!(complete.quota, Observed::Unknown);
+}

@@ -16,10 +16,10 @@ Module owners (put a change in the existing owner; `canonical`, `crypto`, `wire`
 | `mount`, `pages`                       | Extension mounts (allowlisted extensions only), static landing/pairing/error pages and embedded stylesheet/SDK assets                                                                                                 |
 | `objects`                              | Object backend trait and `LocalFs`: the `objects.db` ledger and extension-private payload trees under the serve lease; the channel and config belong to `object_service`                                              |
 | `declaration`, `deploy_plan`, `rules`  | Strict backend declaration parse; digest-addressed `sharing` deploy plan; allow-listed Rules/indexes composition (bytes in, library only until #2164)                                                                 |
-| `deploy_command`, `deploy_record`      | Library-only plan/authorization/output over injected approved inputs and provider; private deployment identity/run file, atomic replacement under a separate writer lock; readers never take that lock                |
+| `deploy_command`, `deploy_record`      | Library-only plan/authorization/output over injected inputs/provider; private deployment identity/run file, atomic replacement under its writer lock; lock-free per-request status evidence                           |
 | `firestore_budget`                     | Free-plan Firestore budget model and client guard; vectors in `tests/fixtures/firestore_budget`                                                                                                                       |
 | `firestore_limits`                     | Dated free-plan Firestore limits table and its `status --budget` projection, validator and human lines; golden in `tests/fixtures/firestore_budget/limits-member.json`                                                |
-| `readiness`                            | Layered Firestore readiness: one table of items, reasons and sentences; projection, validator and human lines over an injected evidence source                                                                        |
+| `readiness`                            | Layered Firestore readiness: one table of items, reasons and sentences; record projection, validator and human lines over an injected evidence source                                                                 |
 | `deploy_run`                           | Authorized Firestore sharing deploy over an injected `DeployPort`: envelope digest, authorization, step order, record and binding rule (library-only; CLI registration awaits reader/provider integration)            |
 | `object_service`                       | Lease-bound `ObjectService`: initial/demand single-flight Local setup, readiness, origins, admitted observation/upload; production Colab-only Local                                                                   |
 | `tmt-extension-objects` (leaf)         | Remote-owned protocol leaf, consumed only by `object_service`: canonical IDs/encodings, protocol bounds, strict JSON, typed frames and the Unix carrier; no backend, policy or Remote/Colab types, and grants nothing |
@@ -113,7 +113,23 @@ The library-only deployment owner defaults to a plan and saves one local draft i
 without a provider effect. Explicit digest authorization names the whole envelope; foreign
 Rules replacement needs its own digest. Sign-in providers are explicit inputs. Command
 registration, installed declaration discovery and the real provider adapter remain planned;
-record-derived readiness and the deployed-artifact emulator proof are the next slice.
+running `status --layers` now reads recorded deployment evidence without a provider call.
+`DeployRecordEvidence` takes one bounded lock-free snapshot per request; missing/draft is
+empty, damaged state is unknown and never repaired. The pure `readiness::from_record`
+projection recognizes finished database/sign-in steps and usable verified bindings. A failed
+run before Rules preserves its old binding; an incomplete Rules attempt reports partial
+Rules and withdraws it. This describes recorded outcomes, not live provider currentness.
+
+Plan tier and quota remain unknown because the machine cannot observe either, and layer-1
+traffic goes browser to Firestore. Sharing therefore stays unknown after a complete recorded
+run. A later Core readiness decision must define tier treatment for layers requiring no paid
+plan and a quota evidence source before sharing can read enabled.
+
+The native `emulator_artifact_is_the_exact_verified_deployment_output` test runs the existing
+algorithm through the fake provider and real record store, binding its captured Rules bytes
+and independent marker/body digest to `tests/fixtures/rules/deployed.rules`. The emulator
+loads that exact artifact for member admission, expiry, isolation and create-only refusal;
+it does not prove project/database/Auth provisioning, login, billing or quotas.
 
 `deploy.json` and `deploy.lock` belong to Remote's private layout, separately from the
 serving lease and database. The writer retains the nonblocking lock for a plan/run, writes a

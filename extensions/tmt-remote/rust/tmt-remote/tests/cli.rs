@@ -2862,3 +2862,80 @@ fn status_stop_and_serve_diagnostics_preserve_the_deploy_record_while_its_writer
     drop(writer);
     drop(DeployRecordStore::open(&layout).unwrap());
 }
+
+#[test]
+fn running_layer_status_reads_atomic_deploy_snapshots_without_the_writer_lock() {
+    use tmt_remote::{
+        deploy_record::DeployRecordStore,
+        deploy_run::{DeployBinding, DeployRecord, Run, RunState, StepRecord, StepState},
+        state::Layout,
+    };
+    let mut pilot = Pilot::new();
+    let layout = Layout::open(&pilot.root.join("state")).unwrap();
+    let mut writer = DeployRecordStore::open(&layout).unwrap();
+    let mut record = DeployRecord::new("3f2b8c1e-5d4a-4e7b-9c1d-2a6f8e0b4c11");
+    writer.persist(&record).unwrap();
+    start_door(&mut pilot, &[], false);
+    assert_eq!(
+        status_answer(&pilot, &["status", "--layers", "--json"])["firestoreLayers"],
+        serde_json::json!([])
+    );
+    record.binding = Some(DeployBinding {
+        plan_digest: "a".repeat(64),
+        project: "demo-remote-1".into(),
+        completed_at_ms: 1,
+    });
+    record.run = Some(Run {
+        plan_digest: "a".repeat(64),
+        account: "secret-owner@example.test".into(),
+        authorized_at_ms: 1,
+        state: RunState::Complete,
+        rules_attempted: true,
+        steps: ["database", "sign-in:anonymous", "rules", "verify"]
+            .into_iter()
+            .map(|id| StepRecord {
+                id: id.into(),
+                state: StepState::Done,
+            })
+            .collect(),
+    });
+    writer.persist(&record).unwrap();
+    let path = layout.directory.join("deploy.json");
+    let snapshot = fs::read(&path).unwrap();
+    let layers = status_answer(&pilot, &["status", "--layers", "--json"]);
+    let sharing = &layers["firestoreLayers"][0];
+    assert_eq!(sharing["state"], "unknown");
+    for index in 0..3 {
+        assert_eq!(sharing["prerequisites"][index]["state"], "enabled");
+    }
+    for index in 3..5 {
+        assert_eq!(sharing["prerequisites"][index]["state"], "unknown");
+    }
+    assert!(!layers.to_string().contains("secret-owner"));
+    assert!(!layers.to_string().contains("demo-remote-1"));
+    assert_eq!(
+        member_keys(&status_answer(&pilot, &["status", "--json"])),
+        ["running", "origin", "path"]
+    );
+    assert_eq!(fs::read(&path).unwrap(), snapshot);
+    // Same running process, new atomic publication, no cached allow.
+    record.run.as_mut().unwrap().state = RunState::Partial;
+    record.run.as_mut().unwrap().steps.last_mut().unwrap().state = StepState::Unknown;
+    writer.persist(&record).unwrap();
+    let snapshot = fs::read(&path).unwrap();
+    let partial = status_answer(&pilot, &["status", "--layers", "--json"]);
+    assert_eq!(partial["firestoreLayers"][0]["state"], "not-enabled");
+    assert_eq!(
+        partial["firestoreLayers"][0]["prerequisites"][2]["reason"],
+        "partial"
+    );
+    assert_eq!(fs::read(&path).unwrap(), snapshot);
+    assert_eq!(stop_json(&pilot)["stopped"], true);
+    assert_eq!(
+        member_keys(&status_answer(&pilot, &["status", "--layers", "--json"])),
+        ["running", "lastPort"]
+    );
+    assert_eq!(fs::read(&path).unwrap(), snapshot);
+    drop(writer);
+    drop(DeployRecordStore::open(&layout).unwrap());
+}

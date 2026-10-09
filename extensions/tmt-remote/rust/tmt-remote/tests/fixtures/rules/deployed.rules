@@ -1,0 +1,30 @@
+// tmt-remote deployment 3f2b8c1e-5d4a-4e7b-9c1d-2a6f8e0b4c11 rules b54540e2b5bc95e5ff2acb43de5e4ab7ed1ac8fab3263f6bd4f142ae8e030450
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /x/colab {
+      match /docs/{docId} {
+        allow get, list: if request.auth != null && exists(/databases/$(database)/documents/x/colab/members/$(request.auth.uid)) && resource.data.expiresAt > request.time;
+        allow create: if request.auth != null && exists(/databases/$(database)/documents/x/colab/members/$(request.auth.uid)) && request.resource.data.keys().hasOnly(['body', 'expiresAt']) && request.resource.data.expiresAt is timestamp;
+      }
+      match /members/{uid} {
+        allow read: if request.auth != null && request.auth.uid == uid;
+      }
+      match /heads/{pageId} {
+        allow create: if request.auth != null && getAfter(/databases/$(database)/documents/x/colab/heads/$(pageId)).data.seq == request.resource.data.seq && request.time < request.time + duration.value(30, 'd');
+      }
+      match /open/{rest=**} {
+        allow read: if request.auth.uid in ['u1', 'u2'] || resource.data.public == true;
+      }
+    }
+    match /x/notes {
+      match /notes/{id} {
+        allow read: if request.auth != null;
+        allow create: if request.auth != null && request.resource.data.keys().hasOnly(['body']);
+      }
+    }
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

@@ -790,7 +790,9 @@ fn foreground_with(
             Arc::clone(stop),
             control::StatusViews {
                 objects: readiness,
-                layers: Arc::new(tmt_remote::readiness::NotConfigured),
+                layers: Arc::new(tmt_remote::deploy_record::DeployRecordEvidence::new(
+                    &layout,
+                )),
             },
         )?;
         let mut mounts = Mounts::with_extensions(

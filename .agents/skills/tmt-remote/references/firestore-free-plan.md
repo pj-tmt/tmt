@@ -65,3 +65,14 @@ Remote owns the table and arithmetic (Rust here, the same vectors in the browser
 the extension's transport calls it before each append and persists the client's own count per
 Pacific day. The Firestore emulator does not enforce quotas, so tests assert the guard against
 the vectors and the Rules path, never Google's counter.
+
+## Recorded readiness
+
+Running `tmt remote status --layers` reads the private deployment record once without the
+writer lock or a provider call. It reports recorded project/sign-in/Rules outcomes; a partial
+Rules attempt withdraws the old usable binding. Missing/draft records have no evidence,
+while damaged records report unknown and are never reset. Tier and quota remain unknown:
+the machine cannot observe them, and layer-1 traffic goes browser to Firestore. A complete
+recorded deployment therefore does not make sharing read enabled; a later readiness decision
+must supply the tier treatment and quota source. The deployed-artifact emulator fixture
+proves Rules admission only, not Firebase provisioning or free-plan capacity.
