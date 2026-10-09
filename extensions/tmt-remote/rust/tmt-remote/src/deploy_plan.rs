@@ -361,7 +361,7 @@ fn check_overlap(extensions: &[Planned]) -> Result<(), (String, usize)> {
     Ok(())
 }
 
-fn sha256_hex(bytes: &[u8]) -> String {
+pub(crate) fn sha256_hex(bytes: &[u8]) -> String {
     use std::fmt::Write;
     Sha256::digest(bytes)
         .iter()

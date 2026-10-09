@@ -10,6 +10,7 @@ pub mod core;
 pub mod crypto;
 pub mod declaration;
 pub mod deploy_plan;
+pub mod deploy_run;
 pub mod devices;
 pub mod error;
 pub mod firestore_budget;

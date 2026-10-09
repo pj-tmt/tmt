@@ -1690,6 +1690,26 @@ Never overwrite or delete unrelated account resources; deletion/data loss requir
 authorization in that concrete plan. Preserve an existing deployment on failed upgrade or report
 its actual partial availability; never claim provider rollback restored data.
 
+**Firestore sharing layer (layer 1).** This layer deploys without the admission/token service. Its
+plan adds the owner's database `(default)` (edition `standard`, one location), the sign-in providers
+the layer needs, the declared indexes and the composed Rules to the extension plan, and the owner
+authorizes the digest of that whole envelope (account, project, deployment ID and every item above); a
+digest prefix of at least 12 hex characters names it. Steps run in a fixed order and the Rules
+release runs last because it is the single step that switches what the project serves; a final
+read-back step passes only when Rules and indexes match what was applied. Each step is observed
+first and applied only when absent, so an exact-plan retry skips what exists and never repeats an
+effect; a provider answer lost after a possible effect is recorded `unknown` and resolved by the next
+observation, never reported as failed. An existing equivalent object is adopted and kept; nothing is
+ever deleted. Replacing Rules that Remote does not own is the one hard gate: the authorization must
+also name the digest of the replaced release, and a release that changed after the plan is refused.
+The deployed Rules begin with a Remote marker line naming the deployment and the digest of the
+composed body, so ownership of a live release is read from its bytes. A console step only the owner
+can do (for example creating a sign-in provider that needs an OAuth client) ends the run as partial
+with a fixed instruction code, and the retry continues after the owner acts. The binding is written
+in the same save that completes the last step. From the moment the Rules call may have been made
+until the run completes no binding is usable; a failure before that call leaves the earlier binding
+valid. Records carry fixed reason codes, never provider text.
+
 [Start and pair](#provisioning-on-start-and-pair) automatically prepare the namespaces/bridge of
 already authorized local or deployed resources and publish the device admission projection. They
 do not authorize first deployment, new account resources or expanded provider permissions. Adding
