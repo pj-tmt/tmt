@@ -74,7 +74,7 @@ them; completion suppresses repeated notices. Only old clock evidence is checked
 
 Legacy state locks remain held during copy and cutover; a busy legacy writer defers instead of blocking startup. A live old clock defers the
 whole migration: that invocation continues using legacy config/state and names its
-holder PID/pane once; command startup offers the board switch for observed former boards or unfinished switch work, not for the legacy config name alone.
+holder PID/pane once. No command startup scans panes or processes for former boards.
 A newly started UI stays clock-less while deferred, retrying migration on its existing
 one-second interruptible clock-worker cadence. It acquires an Ops clock only after
 cutover and config reload; foreground cron commands retain explicit legacy behavior.
@@ -91,14 +91,12 @@ config that reappears; it is never read or merged.
 
 `tmt ops migration switch --yes` owns board discovery, stopping, cutover and
 same-pane relaunch. The installer calls the same operation before deleting former
-Squad. Command startup offers one interactive consent question for the current
-installation/socket and board-incarnation set. Decline or an unsuccessful accepted
-offer is remembered; a new former-board incarnation permits another question.
-Non-interactive runs print the recovery command once without consuming interactive
-consent. Explicit migration switch remains an intentional retry. `--socket` targets
-an explicit tmux socket when caller context is unavailable; `--prefix` must match
-the current receipt-verified Ops installation. Other servers are never scanned.
-Help/version, completion and hook protocols do not offer or execute the switch.
+Squad. Nothing at command or board startup runs it: a `ps` plus one `lsof` per
+foreground pane process made `ops ui` wait seconds before its first frame on a
+board with many panes (#2342). A deferred migration shows its pending notice, and the
+user or the installer runs the switch. `--socket` targets an explicit tmux socket when
+caller context is unavailable; `--prefix` must match the current receipt-verified Ops
+installation. Other servers are never scanned.
 
 Ordinary eligible boards are same-user foreground processes in panes on that
 socket whose kernel executable path is under the verified prefix's
@@ -146,13 +144,6 @@ submission is retained and reported rather than blindly resubmitted. Readiness
 markers and the record are removed after completion. Failures retain partial
 progress, the recovery command and former install evidence when still available;
 they never roll back cutover or bypass configuration CAS fences.
-`<dataRoot>/.ops-board-switch-offer-v1.json` stores offer memory separately:
-private no-follow 0600 state under the same lock, bounded to 1 MiB, 32
-installation/socket/interaction scopes and 33 incarnation identities per scope.
-Holder identities use the original lease acquisition, so lost process evidence
-does not offer the same holder again. It contains no launch authority,
-lease-renewal timestamps or settings. Subsets of
-an offered cohort stay quiet; another socket does not erase a remembered decline.
 
 ## Team preset
 

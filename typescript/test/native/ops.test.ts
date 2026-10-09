@@ -4287,31 +4287,18 @@ function quoteSwitchArgument(value: string) {
   return `'${value.replaceAll("'", "'\\''")}'`;
 }
 
-async function runSwitchOffer(
-  fixture: SwitchFixture,
-  pane: string,
-  name: string,
-  answer?: 'y' | 'n'
-) {
+/** An ordinary Ops command in a pane of the fixture's tmux server; it must never ask to switch boards. */
+async function runOrdinaryCommand(fixture: SwitchFixture, pane: string, name: string) {
   const { sandbox, tmux } = fixture;
-  const done = path.join(sandbox.root, `offer-${name}.done`);
-  const capture = () => tmux(['capture-pane', '-p', '-S', '-', '-t', pane]);
-  const before = capture().split('Switch now?').length - 1;
+  const done = path.join(sandbox.root, `ordinary-${name}.done`);
   const line = `${quoteSwitchArgument(sandbox.cli.executable)} ops squad ls; printf '%s\\n' "$?" > ${quoteSwitchArgument(done)}`;
   tmux(['send-keys', '-t', pane, '-l', line]);
   tmux(['send-keys', '-t', pane, 'Enter']);
-  if (answer) {
-    await vi.waitFor(() => expect(capture().split('Switch now?').length - 1).toBe(before + 1), {
-      timeout: 10_000,
-      interval: 25,
-    });
-    tmux(['send-keys', '-t', pane, answer, 'Enter']);
-  }
   await vi.waitFor(() => expect(existsSync(done)).toBe(true), { timeout: 20_000, interval: 25 });
   expect(readFileSync(done, 'utf8').trim()).toBe('0');
-  const screen = capture();
+  const screen = tmux(['capture-pane', '-p', '-S', '-', '-t', pane]);
   expect(screen).toContain('product');
-  expect(screen.split('Switch now?').length - 1).toBe(before + (answer ? 1 : 0));
+  expect(screen).not.toContain('Switch now?');
   return screen;
 }
 
@@ -4516,34 +4503,12 @@ describe('verified former-board switching', () => {
       const pane = fixture.tmux(['new-window', '-d', '-P', '-F', '#{pane_id}', 'exec /bin/sh']);
       const offer = path.join(fixture.dataRoot, '.ops-board-switch-offer-v1.json');
       const before = existsSync(offer) ? readFileSync(offer) : undefined;
-      await runSwitchOffer(fixture, pane, 'no-boards');
+      await runOrdinaryCommand(fixture, pane, 'no-boards');
       if (before) expect(readFileSync(offer)).toEqual(before);
       else expect(existsSync(offer)).toBe(false);
       expect(readFileSync(path.join(fixture.sandbox.globalDir, 'ops.toml'))).toEqual(
         fixture.oldConfig
       );
-    });
-  }, 60_000);
-
-  it('remembers a decline until a new former-board incarnation appears', async () => {
-    await withBoardSwitch(async (fixture) => {
-      const first = await fixture.old('declined-first', 'product', true);
-      const pane = fixture.tmux(['new-window', '-d', '-P', '-F', '#{pane_id}', 'exec /bin/sh']);
-      // A piped command's hint must not consume the first interactive choice.
-      const hinted = await runCli(fixture.sandbox, ['ops', 'squad', 'ls']);
-      expect(hinted.status).toBe(0);
-      expect(hinted.stderr).toContain('tmt ops migration switch --yes');
-      await runSwitchOffer(fixture, pane, 'first-decline', 'n');
-      await runSwitchOffer(fixture, pane, 'same-decline');
-      const second = await fixture.old('declined-second', 'product');
-      await runSwitchOffer(fixture, pane, 'new-decline', 'n');
-      await runSwitchOffer(fixture, pane, 'same-new-decline');
-      for (const former of [first, second]) {
-        expect(existsSync(former.proof.replace(/\.json$/, '.stopped'))).toBe(false);
-      }
-      expect(
-        statSync(path.join(fixture.dataRoot, '.ops-board-switch-offer-v1.json')).mode & 0o777
-      ).toBe(0o600);
     });
   }, 60_000);
 
@@ -4588,7 +4553,7 @@ describe('verified former-board switching', () => {
             record,
             JSON.stringify({
               version: 1,
-              prefix,
+              prefix: realpathSync(prefix),
               socket,
               boards: [
                 {
@@ -4611,9 +4576,11 @@ describe('verified former-board switching', () => {
           );
           renameSync(original, executable);
         }
-        const pane = tmux(['new-window', '-d', '-P', '-F', '#{pane_id}', 'exec /bin/sh']);
-        const screen = await runSwitchOffer(fixture, pane, 'verified-yes', 'y');
-        expect(screen).toContain('switched 1 boards to Ops');
+        const switched = await runCli(sandbox, ['ops', 'migration', 'switch', '--yes', '--json'], {
+          deadlineMs: 30_000,
+        });
+        expect(switched.status, switched.stdout + switched.stderr).toBe(0);
+        expect(parseWholeStdout(switched)).toEqual({ complete: true, switched: 1 });
         expect(existsSync(former.proof.replace(/\.json$/, '.stopped'))).toBe(true);
         expect(liveOps(sandbox, prefix, tmux, former.pane).pid).not.toBe(former.pid);
         expect(readFileSync(path.join(sandbox.globalDir, 'ops.toml'))).toEqual(oldConfig);
@@ -4648,11 +4615,18 @@ describe('verified former-board switching', () => {
         if (failure === 'wrong pane') lease.pane = pane;
         else lease.sinceMs = 0;
         writeFileSync(leasePath, JSON.stringify(lease));
-        const screen = await runSwitchOffer(fixture, pane, 'unverified-yes', 'y');
-        expect(screen).toContain(`Cannot verify old clock PID ${former.pid} in pane ${lease.pane}`);
-        expect(screen).toContain('Exit its former board');
-        const again = await runSwitchOffer(fixture, pane, 'unverified-again');
-        expect(again.split('Exit its former board')).toHaveLength(2);
+        const refused = await runCli(
+          fixture.sandbox,
+          ['ops', 'migration', 'switch', '--yes', '--json'],
+          { deadlineMs: 30_000 }
+        );
+        expect(refused.status).toBe(1);
+        const report = JSON.parse(refused.stdout);
+        expect(report).toMatchObject({ complete: false, switched: 0 });
+        expect(report.reason).toContain(
+          `Cannot verify old clock PID ${former.pid} in pane ${lease.pane}`
+        );
+        expect(report.reason).toContain('Exit its former board');
         expect(existsSync(former.proof.replace(/\.json$/, '.stopped'))).toBe(false);
         expect(fixture.tmux(['display-message', '-p', '-t', former.pane, '#{pane_pid}'])).toBe(
           String(former.pid)
@@ -4723,8 +4697,6 @@ describe('verified former-board switching', () => {
       const newPane = tmux(['new-window', '-d', '-P', '-F', '#{pane_id}', 'exec /bin/sh']);
       tmux(['send-keys', '-t', newPane, '-l', `'${sandbox.cli.executable}' ops ui --tabs product`]);
       tmux(['send-keys', '-t', newPane, 'Enter']);
-      // Decline the single interactive switch offer, then keep this new UI live.
-      tmux(['send-keys', '-t', newPane, 'n', 'Enter']);
       await vi.waitFor(
         () =>
           expect(tmux(['capture-pane', '-p', '-t', newPane])).toContain('Ops migration pending'),
@@ -4766,15 +4738,16 @@ describe('verified former-board switching', () => {
     });
   }, 60_000);
 
-  it('retains evidence without tmux and prints one non-interactive recovery command', async () => {
+  it('retains evidence without tmux and prints one recovery command from the explicit switch', async () => {
     await withBoardSwitch(async ({ sandbox, prefix, socket, old }) => {
       const former = await old('former', undefined, true);
       delete sandbox.env.TMUX;
       const ordinary = await runCli(sandbox, ['ops', 'squad', 'ls', '--json']);
       expect(ordinary.status, ordinary.stdout + ordinary.stderr).toBe(0);
+      // An ordinary command neither scans for former boards nor prints a recovery command.
       expect(
         ordinary.stderr.split('\n').filter((line) => line.startsWith('tmt ops migration switch'))
-      ).toHaveLength(1);
+      ).toHaveLength(0);
       const result = await runCli(sandbox, ['ops', 'migration', 'switch', '--yes', '--json']);
       expect(result.status).toBe(1);
       const report = JSON.parse(result.stdout);
@@ -4816,33 +4789,15 @@ describe('verified former-board switching', () => {
     });
   }, 60_000);
 
-  it('offers one interactive switch before an ordinary Ops command', async () => {
-    await withBoardSwitch(async ({ sandbox, prefix, tmux, old }) => {
-      const former = await old('former', 'product', true);
-      const promptPane = tmux(['new-window', '-d', '-P', '-F', '#{pane_id}', 'exec /bin/sh']);
-      tmux(['send-keys', '-t', promptPane, '-l', `'${sandbox.cli.executable}' ops squad ls`]);
-      tmux(['send-keys', '-t', promptPane, 'Enter']);
-      await vi.waitFor(
-        () => expect(tmux(['capture-pane', '-p', '-t', promptPane])).toContain('Switch now?'),
-        { timeout: 5000, interval: 50 }
+  it('never scans or asks before an ordinary Ops command', async () => {
+    await withBoardSwitch(async (fixture) => {
+      const former = await fixture.old('former', 'product', true);
+      const pane = fixture.tmux(['new-window', '-d', '-P', '-F', '#{pane_id}', 'exec /bin/sh']);
+      await runOrdinaryCommand(fixture, pane, 'ordinary');
+      expect(existsSync(former.proof.replace(/\.json$/, '.stopped'))).toBe(false);
+      expect(existsSync(path.join(fixture.dataRoot, '.ops-board-switch-offer-v1.json'))).toBe(
+        false
       );
-      tmux(['send-keys', '-t', promptPane, 'y', 'Enter']);
-      await vi.waitFor(
-        () =>
-          expect(tmux(['capture-pane', '-p', '-t', promptPane])).toContain(
-            'switched 1 boards to Ops'
-          ),
-        { timeout: 15_000, interval: 50 }
-      );
-      const output = tmux(['capture-pane', '-p', '-S', '-', '-t', promptPane]);
-      expect(output.split('Switch now?')).toHaveLength(2);
-      await vi.waitFor(
-        () =>
-          expect(tmux(['capture-pane', '-p', '-S', '-', '-t', promptPane])).toContain('product'),
-        { timeout: 5000, interval: 50 }
-      );
-      expect(existsSync(former.proof.replace(/\.json$/, '.stopped'))).toBe(true);
-      expect(liveOps(sandbox, prefix, tmux, former.pane).pid).not.toBe(former.pid);
     });
   }, 60_000);
   it('retains private stopped progress through a cutover failure and resumes once repaired', async () => {
@@ -4893,7 +4848,7 @@ describe('verified former-board switching', () => {
       expect(statSync(file).mode & 0o777).toBe(0o600);
       const ordinary = await runCli(sandbox, ['ops', 'squad', 'ls', '--json']);
       expect(ordinary.status).toBe(0);
-      expect(ordinary.stderr.trim()).toBe(report.command);
+      expect(ordinary.stderr).toBe('');
       const resumed = await runCli(sandbox, [
         'ops',
         'migration',
@@ -4909,4 +4864,134 @@ describe('verified former-board switching', () => {
       expect(settled.stderr).toBe('');
     });
   }, 60_000);
+});
+
+// #2342: a large board (72 panes, 30 members) paints at once and switches tabs without
+// waiting. Measured on a release build: placeholder 0.5 ms, first frame 111 ms, fresh
+// board 235 ms, a tab switch repaints in 10 ms. The budgets are ten times that, so only
+// blocking work placed ahead of a frame fails, not a loaded CI machine.
+describe('large board responsiveness', () => {
+  const budgetMs = {
+    placeholderStart: 100,
+    firstFrame: 1500,
+    freshBoard: 10_000,
+    tabSwitch: 10_000,
+  };
+
+  it('paints a placeholder before any command and switches tabs off the input thread', async () => {
+    await withSandbox(async (sandbox) => {
+      installSquad(sandbox);
+      const found = spawnSync('/usr/bin/which', ['tmux'], { encoding: 'utf8' });
+      if (found.status !== 0) throw new Error('Build/install tmux for the isolated board tests');
+      const tmuxExecutable = found.stdout.trim();
+      const socket = path.join(sandbox.root, 'board.sock');
+      sandbox.env.PATH = [path.dirname(tmuxExecutable), sandbox.env.PATH].join(path.delimiter);
+      sandbox.env.TERM = 'xterm-256color';
+      sandbox.env.NO_COLOR = '1';
+      const tmux = (args: string[]) => {
+        const result = spawnSync(tmuxExecutable, ['-S', socket, ...args], {
+          env: sandbox.env,
+          encoding: 'utf8',
+          timeout: 5000,
+        });
+        if (result.status !== 0) throw new Error(`Private tmux failed: ${result.stderr}`);
+        return result.stdout.trimEnd();
+      };
+      expect((await runCli(sandbox, ['identity', 'create', 'Ben', '--json'])).status).toBe(0);
+      expect((await squad(sandbox, ['init', 'product', '--me', 'Ben'])).status).toBe(0);
+      for (let index = 0; index < 30; index += 1) {
+        const name = `member-${index}`;
+        expect((await runCli(sandbox, ['identity', 'create', name, '--json'])).status).toBe(0);
+        expect((await squad(sandbox, ['add', name])).status).toBe(0);
+      }
+      tmux([
+        '-f',
+        '/dev/null',
+        'new-session',
+        '-d',
+        '-s',
+        'large',
+        '-x',
+        '120',
+        '-y',
+        '40',
+        '/bin/sh',
+      ]);
+      const server = Number(tmux(['display-message', '-p', '#{pid}']));
+      try {
+        for (let index = 0; index < 71; index += 1) tmux(['new-window', '-d', '/bin/sh']);
+        expect(tmux(['list-panes', '-a', '-F', '#{pane_id}']).split('\n')).toHaveLength(72);
+        sandbox.env.TMUX = `${socket},${tmux(['display-message', '-p', '#{pid}'])},0`;
+        const pane = tmux(['new-window', '-d', '-P', '-F', '#{pane_id}', 'exec /bin/sh']);
+        const trace = path.join(sandbox.root, 'large.trace.jsonl');
+        const records = () =>
+          existsSync(trace)
+            ? readFileSync(trace, 'utf8')
+                .split('\n')
+                .filter(Boolean)
+                .map((line) => JSON.parse(line) as Record<string, unknown>)
+            : [];
+        const quoted = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
+        tmux([
+          'send-keys',
+          '-t',
+          pane,
+          '-l',
+          `TMT_OPS_TIMING_TRACE=${quoted(trace)} ${quoted(sandbox.cli.executable)} ops ui --squad product`,
+        ]);
+        tmux(['send-keys', '-t', pane, 'Enter']);
+        await vi.waitFor(
+          () => expect(records().some((r) => r.event === 'fresh_board')).toBe(true),
+          {
+            timeout: 30_000,
+            interval: 50,
+          }
+        );
+        const first = records();
+        const stage = (name: string) => first.find((r) => r.stage === name);
+        // The screen is ours and painted before the config read or any other command.
+        const placeholder = stage('startup.placeholder')!;
+        expect(first[0]).toBe(placeholder);
+        expect(
+          ((placeholder.elapsed_us as number) - (placeholder.duration_us as number)) / 1000
+        ).toBeLessThan(budgetMs.placeholderStart);
+        const milestone = (event: string) =>
+          (first.find((r) => r.event === event)!.elapsed_us as number) / 1000;
+        expect(milestone('first_frame')).toBeLessThan(budgetMs.firstFrame);
+        expect(milestone('fresh_board')).toBeLessThan(budgetMs.freshBoard);
+        // Stepping to the next tab repaints at once and loads off the input thread.
+        const loads = first.filter((r) => r.stage === 'load').length;
+        const before = tmux(['capture-pane', '-p', '-t', pane]);
+        const pressed = Date.now();
+        tmux(['send-keys', '-t', pane, 'Right']);
+        await vi.waitFor(
+          () => {
+            expect(tmux(['capture-pane', '-p', '-t', pane])).not.toBe(before);
+            expect(records().filter((r) => r.stage === 'load').length).toBeGreaterThan(loads);
+          },
+          { timeout: budgetMs.tabSwitch, interval: 10 }
+        );
+        expect(Date.now() - pressed).toBeLessThan(budgetMs.tabSwitch);
+        // The board ends on q and its pane shell returns; only then does the server go.
+        tmux(['send-keys', '-t', pane, 'q']);
+        await vi.waitFor(
+          () =>
+            expect(tmux(['display-message', '-p', '-t', pane, '#{pane_current_command}'])).not.toBe(
+              'tmt-ops'
+            ),
+          { timeout: 10_000, interval: 25 }
+        );
+      } finally {
+        // kill-server acknowledges before its panes' HUP handlers finish: wait for the server itself.
+        spawnSync(tmuxExecutable, ['-S', socket, 'kill-server'], {
+          env: sandbox.env,
+          timeout: 5000,
+        });
+        await vi.waitFor(() => expect(() => process.kill(server, 0)).toThrow(), {
+          timeout: 10_000,
+          interval: 25,
+        });
+      }
+    });
+  }, 120_000);
 });

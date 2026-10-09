@@ -20,10 +20,22 @@
   `board::changes` also watches.
 - Providers: the board hands each load's members to one fetcher thread that runs due provider
   work off the paint path and again at the shortest `every`.
-- Startup: `board::run` spawns the worker before terminal entry, so its setup reads
-  (`worker.caller`, `worker.Config::locate`) overlap the background-colour query. The
-  first tab is requested only after `look::configure_background`, because loads build
-  looks from that process-wide signal.
+- Startup: `board::run` enters the terminal and paints a placeholder (`startup.placeholder`)
+  before it runs any command. It then spawns the worker, so its setup reads
+  (`worker.caller`, `worker.Config::locate`) overlap the config read and the
+  background-colour query. The first tab is requested only after
+  `look::configure_background`, because loads build looks from that process-wide signal.
+  The query is bounded terminal I/O; the config read is one Core call. A startup error
+  drops the terminal guard, which restores the screen before the error is reported.
+- Input and render thread: `board::session` holds `runner::forbid_commands()`, so a
+  command started on it panics in debug builds and tests. Keys, clicks and frames never
+  wait on a command or a lock. A user action (send, jump, open, copy, tab order, cron
+  control) and the config read behind a picker go to the single `board::lane` thread as
+  a `Job`; the board shows `Sending…`-style progress at once and applies the returned
+  `Acted`, `Opened` or `TokenWindowSaved` event. Jobs run in order, and a composer
+  refuses a new send while one is in flight so no text is lost. Picker and overlay
+  saves are bounded local file writes through the compare-and-set config writer and stay
+  on the session thread; they start no command.
 - Squad enrichment: a squad tab publishes without its focus-policy read and reply-body
   reads. It applies the focus rows and bodies this worker already read (`Known`), so a
   reload never blinks them off. The first deferred job (`EnrichJob`) then makes one
@@ -136,6 +148,7 @@ means existing enrichment, attention, history, cron or HOME exchanges remain sch
 
 | Event          | Stage names / boundary                                                                                            |
 | -------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `stage`        | `startup.placeholder`: the placeholder frame, drawn before any command                                            |
 | `stage`        | `startup.Config::load`: initial config in `board::run`                                                            |
 | `stage`        | `worker.caller`, `worker.Config::locate`: refresh-worker setup, overlapping terminal entry                        |
 | `stage`        | `Squad::list`, `Config::load`, `load`: `board::refresh::load` acquisition and total                               |

@@ -11,6 +11,34 @@ use std::{
 };
 use tmt_invoke::{Cleanup, FailureKind, LaunchOptions, ProcessGroup, Request};
 
+thread_local! {
+    static NO_COMMANDS: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Marks the calling thread as one that must never wait on a command. The board
+/// session loop holds it: a key, a click or a frame hands any command to a
+/// worker. Debug builds and tests panic if this thread starts one.
+pub struct NoCommands(());
+
+pub fn forbid_commands() -> NoCommands {
+    NO_COMMANDS.set(true);
+    NoCommands(())
+}
+
+impl Drop for NoCommands {
+    fn drop(&mut self) {
+        NO_COMMANDS.set(false);
+    }
+}
+
+/// Called by every function here that starts a process.
+pub fn assert_commands_allowed(what: &str) {
+    debug_assert!(
+        !NO_COMMANDS.get(),
+        "{what} would start a command on the board's input/render thread"
+    );
+}
+
 #[derive(Debug)]
 pub struct Finished {
     pub success: bool,
@@ -58,6 +86,7 @@ pub fn run_cancellable(
     max_output_bytes: usize,
     cancellation: Option<&Cancellation>,
 ) -> Result<Finished, RunError> {
+    assert_commands_allowed("run");
     check_cancelled(cancellation)?;
     let output = tmt_invoke::invoke(
         Request {
@@ -91,6 +120,7 @@ pub fn run_inherited(
         sys::signal::{Signal, killpg},
         unistd::{getpgrp, getpid},
     };
+    assert_commands_allowed("run_inherited");
     let owner = getpid();
     if getpgrp() != owner {
         return Err(RunError::Spawn);
