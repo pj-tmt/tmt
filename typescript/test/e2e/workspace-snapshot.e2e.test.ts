@@ -10,6 +10,7 @@ import { waitForFileContent } from './wait-for-file.js';
 
 type Snapshot = {
   version: number;
+  capturedAtMs: number;
   server: { socket: string; process: { pid: number; start: string } };
   sessions: Array<{
     id: string;
@@ -18,6 +19,7 @@ type Snapshot = {
   }>;
   windows: Array<{
     id: string;
+    name: string;
     layout: string;
     visibleLayout: string;
     width: number;
@@ -26,6 +28,7 @@ type Snapshot = {
   }>;
   panes: Array<{
     id: string;
+    window: string;
     cwd: string;
     identity: null | {
       id: string;
@@ -446,6 +449,73 @@ server.listen(${JSON.stringify(gate)}, () => {
       expect((await fixture.runJsonCli(['whoami'], { pane })).json).toMatchObject({
         id: bound.json!.id,
       });
+    });
+  });
+});
+
+describe('rate-gated workspace command refresh', () => {
+  it('captures a manual layout edit only after the configured interval, with zero retaining event-only mode', async () => {
+    await withE2EFixture(async (fixture) => {
+      expect((await fixture.runCli(['name', 'Refresh Seat', '-s'])).code).toBe(0);
+      const shell = fixture.createShellPane('refresh-command-shell').pane;
+      const latest = snapshotPath(fixture);
+      const initial = readSnapshot(fixture);
+      const originalWindow = initial.panes.find((pane) => pane.id === fixture.pane)!.window;
+      fixture.tmux(['rename-window', '-t', originalWindow, 'manual-edit']);
+      // Controlled timestamp avoids waiting for a real clock interval.
+      initial.capturedAtMs = Date.now() + 60_000;
+      fs.writeFileSync(latest, JSON.stringify(initial), { mode: 0o600 });
+      const fresh = fs.readFileSync(latest, 'utf8');
+      let sequence = 0;
+      const inspect = async () => {
+        const status = path.join(fixture.root, `refresh-status-${sequence++}`);
+        submitForeground(fixture, shell, ['identity', 'list', '--json'], status);
+        expect(
+          await waitForFileContent(status, { description: 'inspection command settled' })
+        ).toBe('0');
+      };
+      await inspect();
+      expect(fs.readFileSync(latest, 'utf8')).toBe(fresh);
+      initial.capturedAtMs = 1;
+      fs.writeFileSync(latest, JSON.stringify(initial), { mode: 0o600 });
+      await inspect();
+      const updated = readSnapshot(fixture);
+      expect(updated.capturedAtMs).toBeGreaterThan(1);
+      expect(updated.windows.find((window) => window.id === originalWindow)!.name).toBe(
+        'manual-edit'
+      );
+      expect(updated.panes.find((pane) => pane.id === fixture.pane)!.identity!.name).toBe(
+        'Refresh Seat'
+      );
+      expect(
+        (await fixture.runCli(['config', 'set', '--global', 'workspace.snapshotIntervalMs', '0']))
+          .code
+      ).toBe(0);
+      updated.capturedAtMs = 1;
+      fs.writeFileSync(latest, JSON.stringify(updated), { mode: 0o600 });
+      const eventOnly = fs.readFileSync(latest, 'utf8');
+      fixture.tmux(['rename-window', '-t', originalWindow, 'event-only-edit']);
+      await inspect();
+      expect(fs.readFileSync(latest, 'utf8')).toBe(eventOnly);
+      expect((await fixture.runCli(['unbind'])).code).toBe(0);
+      expect(
+        readSnapshot(fixture).windows.find((window) => window.id === originalWindow)!.name
+      ).toBe('event-only-edit');
+    });
+  });
+
+  it('does not trust inherited pane coordinates from a process outside its native ancestry', async () => {
+    await withE2EFixture(async (fixture) => {
+      expect((await fixture.runCli(['name', 'Ancestor Seat', '-s'])).code).toBe(0);
+      const latest = snapshotPath(fixture);
+      const prior = readSnapshot(fixture);
+      prior.capturedAtMs = 1;
+      fs.writeFileSync(latest, JSON.stringify(prior), { mode: 0o600 });
+      const bytes = fs.readFileSync(latest, 'utf8');
+      const result = await fixture.runJsonCli(['identity', 'list']);
+      expect(result.code).toBe(0);
+      expect(result.stderr).toBe('');
+      expect(fs.readFileSync(latest, 'utf8')).toBe(bytes);
     });
   });
 });

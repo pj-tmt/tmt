@@ -316,3 +316,99 @@ fn failure_and_unknown_version_preserve_previous_bytes_without_foreign_cleanup()
     assert!(publish_event(&paths, socket, || panic!("unsupported store")).is_err());
     assert_eq!(fs::read(&latest).unwrap(), b"{\"version\":2}");
 }
+
+#[test]
+fn command_interval_skips_capture_until_due_and_failed_refresh_preserves_bytes() {
+    let directory = crate::test_support::TestDirectory::new();
+    let paths = paths(&directory.path);
+    let snapshot = sample();
+    let socket = &snapshot.server.socket;
+    assert!(publish_event(&paths, socket, || Ok(snapshot.clone())).unwrap());
+    let latest = paths.workspace_directory(socket).join("latest.json");
+    let old = fs::read(&latest).unwrap();
+    assert!(!publish_refresh(&paths, socket, 60_001, || panic!("fresh timestamp")).unwrap());
+    assert!(
+        publish_refresh(&paths, socket, 60_002, || Err(io::Error::other(
+            "capture refused"
+        )))
+        .is_err()
+    );
+    assert_eq!(fs::read(&latest).unwrap(), old);
+    assert!(
+        publish_refresh(&paths, socket, 60_002, || {
+            let mut updated = snapshot.clone();
+            updated.captured_at_ms = 60_002;
+            Ok(updated)
+        })
+        .unwrap()
+    );
+    assert!(!publish_refresh(&paths, socket, 60_003, || panic!("updated timestamp")).unwrap());
+    ConfigFiles {
+        paths: paths.clone(),
+    }
+    .set(
+        tmt_core::settings::Setting::WorkspaceSnapshotIntervalMs(2),
+        tmt_core::settings::Scope::Global,
+    )
+    .unwrap();
+    assert!(publish_refresh(&paths, socket, 60_005, || Ok(snapshot.clone())).unwrap());
+    ConfigFiles {
+        paths: paths.clone(),
+    }
+    .set(
+        tmt_core::settings::Setting::WorkspaceSnapshotIntervalMs(0),
+        tmt_core::settings::Scope::Global,
+    )
+    .unwrap();
+    assert!(!publish_refresh(&paths, socket, u64::MAX, || panic!("event only")).unwrap());
+    assert!(publish_event(&paths, socket, || Ok(snapshot.clone())).unwrap());
+}
+
+#[test]
+fn command_contender_skips_and_observes_the_committed_timestamp_next_time() {
+    use std::sync::mpsc;
+    let directory = crate::test_support::TestDirectory::new();
+    let paths = paths(&directory.path);
+    let socket = sample().server.socket;
+    let (entered, ready) = mpsc::channel();
+    let (release, gate) = mpsc::channel();
+    std::thread::scope(|scope| {
+        let paths = &paths;
+        let socket = &socket;
+        let writer = scope.spawn(move || {
+            publish_refresh(paths, socket, 100_000, || {
+                entered.send(()).unwrap();
+                gate.recv_timeout(Duration::from_secs(5)).unwrap();
+                let mut snapshot = sample();
+                snapshot.captured_at_ms = 100_000;
+                Ok(snapshot)
+            })
+        });
+        ready.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(!publish_refresh(paths, socket, 100_000, || panic!("contender capture")).unwrap());
+        release.send(()).unwrap();
+        assert!(writer.join().unwrap().unwrap());
+    });
+    assert!(
+        !publish_refresh(&paths, &socket, 100_000, || panic!(
+            "committed fresh timestamp"
+        ))
+        .unwrap()
+    );
+}
+
+#[test]
+fn command_without_selected_tmux_pane_creates_no_snapshot_or_database() {
+    let directory = crate::test_support::TestDirectory::new();
+    let paths = paths(&directory.path);
+    let caller = CallerEnvironment {
+        tmux: Some("/tmp/example/socket,10,0".into()),
+        pane: None,
+        process_id: 20,
+        driver_env: Default::default(),
+    };
+    let host = Host::for_caller(&caller);
+    assert!(!refresh_command(&paths, &host, &caller, Instant::now() + CAPTURE_BUDGET).unwrap());
+    assert!(!paths.global_dir.exists());
+    assert!(!paths.database.exists());
+}

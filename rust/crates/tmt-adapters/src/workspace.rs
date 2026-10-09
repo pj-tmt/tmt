@@ -61,6 +61,38 @@ pub fn publish_event(
     {
         return Ok(false);
     }
+    publish(paths, socket, |_| true, capture)
+}
+
+/// One previous-document read gates optional capture under the publication lock.
+fn publish_refresh(
+    paths: &ConfigPaths,
+    socket: &str,
+    now_ms: u64,
+    capture: impl FnOnce() -> io::Result<WorkspaceSnapshot>,
+) -> io::Result<bool> {
+    let (enabled, interval_ms) = ConfigFiles {
+        paths: paths.clone(),
+    }
+    .workspace_snapshot_policy()
+    .map_err(io::Error::other)?;
+    if !enabled || interval_ms == 0 {
+        return Ok(false);
+    }
+    publish(
+        paths,
+        socket,
+        |previous| tmt_core::workspace::command_refresh_due(previous, now_ms, interval_ms),
+        capture,
+    )
+}
+
+fn publish(
+    paths: &ConfigPaths,
+    socket: &str,
+    due: impl FnOnce(Option<u64>) -> bool,
+    capture: impl FnOnce() -> io::Result<WorkspaceSnapshot>,
+) -> io::Result<bool> {
     fs::create_dir_all(&paths.global_dir)?;
     private_directory(&paths.global_dir.join("workspace"))?;
     let directory = paths.workspace_directory(socket);
@@ -71,13 +103,17 @@ pub fn publish_event(
         Err(error) => return Err(error),
     };
     let destination = directory.join("latest.json");
-    match crate::bounded_file::read_no_follow(&destination, MAX_BYTES) {
-        Ok(bytes) => {
-            decode(&bytes)?;
-        }
+    let previous_ms = match crate::bounded_file::read_no_follow(&destination, MAX_BYTES) {
+        Ok(bytes) => Some(decode(&bytes)?.captured_at_ms),
         Err(crate::bounded_file::FileReadError::Io(error))
-            if error.kind() == io::ErrorKind::NotFound => {}
+            if error.kind() == io::ErrorKind::NotFound =>
+        {
+            None
+        }
         Err(error) => return Err(io::Error::other(error)),
+    };
+    if !due(previous_ms) {
+        return Ok(false);
     }
     let snapshot = capture()?;
     if snapshot.server.socket != socket {
@@ -104,26 +140,59 @@ pub fn capture_event<R: CommandRunner + Clone>(
         },
     };
     publish_event(paths, socket, || {
-        if Instant::now() >= deadline {
-            return Err(io::Error::new(
-                io::ErrorKind::TimedOut,
-                "Workspace budget exhausted.",
-            ));
-        }
-        let mut capture = host
-            .workspace_capture(socket, server, caller, deadline)
-            .map_err(io::Error::other)?
-            .ok_or_else(|| io::Error::other("Workspace capture unsupported."))?;
-        annotate(paths, &mut capture)?;
-        if Instant::now() >= deadline {
-            return Err(io::Error::new(
-                io::ErrorKind::TimedOut,
-                "Workspace budget exhausted.",
-            ));
-        }
-        capture.snapshot.captured_at_ms = crate::request_runtime::wall_time_ms();
-        Ok(capture.snapshot)
+        capture_snapshot(paths, host, socket, server, caller, deadline)
     })
+}
+
+/// Candidate coordinates are cheap; a due capture still verifies native ancestry.
+pub fn refresh_command<R: CommandRunner + Clone>(
+    paths: &ConfigPaths,
+    host: &Host<R>,
+    caller: &CallerEnvironment,
+    deadline: Instant,
+) -> io::Result<bool> {
+    let Some((_, _, Some(socket))) = caller
+        .pane_locators()
+        .into_iter()
+        .find(|(kind, _, _)| *kind == tmt_core::host::HostKind::Tmux)
+    else {
+        return Ok(false);
+    };
+    publish_refresh(
+        paths,
+        socket,
+        crate::request_runtime::wall_time_ms(),
+        || capture_snapshot(paths, host, socket, None, Some(caller), deadline),
+    )
+}
+
+fn capture_snapshot<R: CommandRunner + Clone>(
+    paths: &ConfigPaths,
+    host: &Host<R>,
+    socket: &str,
+    server: Option<&ServerEvidence>,
+    caller: Option<&CallerEnvironment>,
+    deadline: Instant,
+) -> io::Result<WorkspaceSnapshot> {
+    if Instant::now() >= deadline {
+        return Err(io::Error::new(
+            io::ErrorKind::TimedOut,
+            "Workspace budget exhausted.",
+        ));
+    }
+    let mut capture = host
+        .workspace_capture(socket, server, caller, deadline)
+        .map_err(io::Error::other)?
+        .ok_or_else(|| io::Error::other("Workspace capture unsupported."))?;
+    annotate(paths, &mut capture)?;
+    if Instant::now() >= deadline {
+        return Err(io::Error::new(
+            io::ErrorKind::TimedOut,
+            "Workspace budget exhausted.",
+        ));
+    }
+    capture.snapshot.captured_at_ms = crate::request_runtime::wall_time_ms();
+    Ok(capture.snapshot)
 }
 
 /// Event-only convenience. It never changes the trigger's output or result.
