@@ -38,7 +38,8 @@ var ManagementPage = class {
 			else this.notice = settings.settings.warning ?? "";
 		} catch (error) {
 			this.access = accessRefused(error) ? "lost" : "unconfirmed";
-			this.notice = "Current access could not be confirmed. Use the local CLI.";
+			if (this.outcome) this.describeOutcome();
+			else this.notice = "Current access could not be confirmed. Use the local CLI.";
 		} finally {
 			this.busy = false;
 		}
