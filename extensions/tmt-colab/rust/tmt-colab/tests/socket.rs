@@ -2727,11 +2727,12 @@ fn receive_batch(
     server: &Running,
     peer: &mut WebSocket<UnixStream>,
     count: usize,
+    cursor: &mut Option<Value>,
 ) -> Vec<(Value, Vec<u8>)> {
     let mut entries = Vec::new();
     let mut previous: Option<(String, u64, [u8; 32])> = None;
     let mut credits = 0;
-    let mut credited = |peer: &mut WebSocket<UnixStream>| {
+    let mut credited = |peer: &mut WebSocket<UnixStream>, cursor: &Option<Value>| {
         let frame = receive(peer);
         credits += 1;
         if credits == limits::SEND_QUEUE_FRAMES {
@@ -2746,14 +2747,17 @@ fn receive_batch(
             );
             peer.get_ref().set_read_timeout(timeout).unwrap();
             for _ in 0..credits {
-                send(peer, server.frame("ack", json!({"cursors":[]})));
+                send(
+                    peer,
+                    server.frame("ack", json!({"cursors":cursor.iter().collect::<Vec<_>>()})),
+                );
             }
             credits = 0;
         }
         frame
     };
     for _ in 0..count {
-        let broadcast = credited(peer);
+        let broadcast = credited(peer, cursor);
         assert_eq!(broadcast["type"], "broadcast", "{broadcast}");
         assert_eq!(broadcast["space"], server.space);
         assert_eq!(broadcast["page"], PAGE);
@@ -2764,7 +2768,7 @@ fn receive_batch(
             let mut bytes = Vec::new();
             let mut count = None;
             for index in 0..limits::OBJECT_BYTES.div_ceil(limits::CHUNK_BYTES) {
-                let chunk = credited(peer);
+                let chunk = credited(peer, cursor);
                 assert_eq!(chunk["type"], "chunk", "{chunk}");
                 for field in ["space", "page", "epoch", "envelopeHash"] {
                     assert_eq!(chunk[field], broadcast[field]);
@@ -2824,11 +2828,17 @@ fn receive_batch(
             envelope.signature(),
         )
         .unwrap();
+        *cursor = Some(
+            json!({"streamId":c.author_device,"namespace":c.namespace,"seq":c.stream_seq,"envelopeHash":values::encode_binary(&hash)}),
+        );
         previous = Some((c.author_device.clone(), seq, hash));
         entries.push((broadcast, bytes));
     }
     for _ in 0..credits {
-        send(peer, server.frame("ack", json!({"cursors":[]})));
+        send(
+            peer,
+            server.frame("ack", json!({"cursors":cursor.iter().collect::<Vec<_>>()})),
+        );
     }
     entries
 }
@@ -2964,7 +2974,8 @@ fn root_local_page_publish_broadcasts_each_entry_in_order_and_replays_without_fa
         .map(|entry| entry.bytes.len().div_ceil(limits::CHUNK_BYTES))
         .sum::<usize>();
     assert!(chunked > 0);
-    let received = receive_batch(&server, &mut peer, entries);
+    let mut cursor = None;
+    let received = receive_batch(&server, &mut peer, entries, &mut cursor);
     for ((broadcast, bytes), entry) in received.iter().zip(&verified) {
         assert_eq!(bytes, &entry.bytes);
         assert_eq!(
@@ -3240,7 +3251,15 @@ fn a_publish_that_starts_after_its_combine_window_commits_but_never_combines() {
 fn a_batch_wider_than_the_send_queue_delivers_in_order_without_replacing_the_live_peer() {
     use tmt_colab::{decoder::Decoder, page, publication::Outcome};
     let (server, layout, key, mut peer) = publish_fixture();
-    let source = "wide 🐈\r\n".repeat(150_000);
+    let initial = prepare_write(&layout, &key, "<h1>Before batch</h1>");
+    assert_eq!(initial.job().manifest.entries.len(), 1);
+    page::ipc::publish(&layout, &key, &initial)
+        .unwrap()
+        .unwrap();
+    let mut cursor = None;
+    receive_batch(&server, &mut peer, 1, &mut cursor);
+    assert_eq!(cursor.as_ref().unwrap()["seq"], "1");
+    let source = distinct(1_572_864, "1998-cli");
     let frozen = prepare_write(&layout, &key, &source);
     let entries = frozen.job().manifest.entries.len();
     // The old per-entry queue overflowed before this healthy peer could drain it.
@@ -3250,7 +3269,30 @@ fn a_batch_wider_than_the_send_queue_delivers_in_order_without_replacing_the_liv
         .unwrap()
         .record;
     assert!(matches!(record.outcome, Outcome::Committed { .. }));
-    let received = receive_batch(&server, &mut peer, entries);
+    assert_eq!(entries, 8, "seq1 then eight updates checkpoints at9");
+    assert_eq!(
+        server
+            .oracle()
+            .query_row(
+                "SELECT max(seq) FROM checkpoints WHERE page=?",
+                [PAGE],
+                |r| r.get::<_, String>(0)
+            )
+            .unwrap(),
+        "00000000000000000009"
+    );
+    assert_eq!(
+        server
+            .oracle()
+            .query_row(
+                "SELECT count(*) FROM receipts WHERE page=? AND seq=? AND payload IS NOT NULL",
+                [PAGE, "00000000000000000001"],
+                |r| r.get::<_, i64>(0)
+            )
+            .unwrap(),
+        0
+    );
+    let received = receive_batch(&server, &mut peer, entries, &mut cursor);
     let verified = frozen
         .job()
         .verify_packet(frozen.packet(), &author_key(&frozen))
@@ -3721,6 +3763,8 @@ fn a_one_and_a_half_mib_browser_save_uploads_in_chunks_and_every_peer_follows() 
             .set_read_timeout(Some(Duration::from_secs(60)))
             .unwrap();
     }
+    let mut first_cursor = None;
+    let mut second_cursor = None;
     let source = distinct(1_572_864, "a");
     let started = std::time::Instant::now();
     let (result, before) = server.save(&mut first, SAVE_ONE, "", &source);
@@ -3734,8 +3778,9 @@ fn a_one_and_a_half_mib_browser_save_uploads_in_chunks_and_every_peer_follows() 
     // Both healthy peers drain concurrently; leaving one unread during the other's
     // deliberate credit probes would exercise the separate stalled-write deadline.
     std::thread::scope(|scope| {
-        let other = scope.spawn(|| receive_batch(&server, &mut second, entries));
-        let delivered = receive_batch(&server, &mut first, entries);
+        let other =
+            scope.spawn(|| receive_batch(&server, &mut second, entries, &mut second_cursor));
+        let delivered = receive_batch(&server, &mut first, entries, &mut first_cursor);
         assert_eq!(other.join().unwrap(), delivered);
     });
     assert!(native_source(&layout, &key) == source);
@@ -3749,8 +3794,9 @@ fn a_one_and_a_half_mib_browser_save_uploads_in_chunks_and_every_peer_follows() 
     // Both healthy peers drain concurrently; leaving one unread during the other's
     // deliberate credit probes would exercise the separate stalled-write deadline.
     std::thread::scope(|scope| {
-        let other = scope.spawn(|| receive_batch(&server, &mut second, entries));
-        let delivered = receive_batch(&server, &mut first, entries);
+        let other =
+            scope.spawn(|| receive_batch(&server, &mut second, entries, &mut second_cursor));
+        let delivered = receive_batch(&server, &mut first, entries, &mut first_cursor);
         assert_eq!(other.join().unwrap(), delivered);
     });
     assert!(native_source(&layout, &key) == next);

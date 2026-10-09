@@ -1998,10 +1998,13 @@ wrong types, noncanonical values and unsupported operations reject.
 `cursors` has at most 256 strict objects `{streamId, namespace, seq, envelopeHash}`,
 unique by stream/namespace. Sequence zero is an explicit bootstrap sentinel and
 requires zero32 hash; an omitted namespace also bootstraps. A nonzero cursor must
-match an exact retained update or checkpoint in that namespace. Unknown, wrong-
-namespace, hash-substituted and pruned cursors return `RESYNC_REQUIRED`; a retained
-receipt alone is insufficient after its payload is pruned. A client restarts with
-zero/omitted cursors to receive the latest paired prefix checkpoint and retained tail.
+match an exact retained update or checkpoint identity in that namespace. ACK validates
+that identity even after its payload is pruned: partial chunks report the last admitted
+position while consuming the existing frame credit, without granting read authority.
+Hello/subscribe catchup additionally requires the matching payload; a retained receipt
+alone cannot resume catchup after pruning. Unknown, wrong-namespace and hash-substituted
+cursors return `RESYNC_REQUIRED`. A client restarts with zero/omitted cursors to receive
+the latest paired prefix checkpoint and retained tail.
 If compaction invalidates a cursor during catchup, catchup stops with
 `RESYNC_REQUIRED` instead of silently skipping data. Store preserves the durable
 receipt ledger, so pruning never permits accepting a sequence again.

@@ -414,7 +414,19 @@ impl Store {
     ) -> StoreResult<()> {
         let tx = self.connection.unchecked_transaction()?;
         current(&tx, scope)?;
-        resolve_cursor(&tx, scope, namespace, cursor)
+        resolve_cursor(&tx, scope, namespace, cursor, true)
+    }
+    /// ACK grants frame credit, not bootstrap authority. Compaction may prune
+    /// admitted bytes, but their exact receipt/checkpoint identity remains.
+    pub fn resolve_ack_cursor(
+        &self,
+        scope: StreamScope<'_>,
+        namespace: Namespace,
+        cursor: NamespaceCursor,
+    ) -> StoreResult<()> {
+        let tx = self.connection.unchecked_transaction()?;
+        current(&tx, scope)?;
+        resolve_cursor(&tx, scope, namespace, cursor, false)
     }
     /// One object per page, with SQL-side payload length admission before copying.
     /// Bootstrap uses the latest paired prefix checkpoint, then its full namespace tail.
@@ -444,7 +456,7 @@ impl Store {
     ) -> StoreResult<Option<ReadObject>> {
         let tx = self.connection.unchecked_transaction()?;
         read_epoch(&tx, scope, historical)?;
-        resolve_cursor(&tx, scope, namespace, cursor)?;
+        resolve_cursor(&tx, scope, namespace, cursor, true)?;
         let initial: Option<(String, Vec<u8>, Option<i64>)> = if cursor.seq == 0 {
             tx.query_row("SELECT c.seq,c.hash,length(c.payload) FROM checkpoints c
                 WHERE c.page=?1 AND c.epoch=?2 AND c.stream=?3 AND c.namespace=?4 AND c.payload IS NOT NULL
@@ -632,6 +644,7 @@ fn resolve_cursor(
     scope: StreamScope<'_>,
     namespace: Namespace,
     cursor: NamespaceCursor,
+    require_payload: bool,
 ) -> StoreResult<()> {
     bounded_id(scope.page)?;
     bounded_id(scope.stream)?;
@@ -643,9 +656,9 @@ fn resolve_cursor(
         };
     }
     let found: bool = c.query_row(
-        "SELECT EXISTS(SELECT 1 FROM receipts WHERE page=?1 AND epoch=?2 AND stream=?3 AND namespace=?4 AND seq=?5 AND hash=?6 AND payload IS NOT NULL
-         UNION ALL SELECT 1 FROM checkpoints WHERE page=?1 AND epoch=?2 AND stream=?3 AND namespace=?4 AND seq=?5 AND hash=?6 AND payload IS NOT NULL)",
-        params![scope.page, scope.epoch.to_string(), scope.stream, namespace.name(), sequence(cursor.seq), cursor.hash.as_slice()], |r| r.get(0))?;
+        "SELECT EXISTS(SELECT 1 FROM receipts WHERE page=?1 AND epoch=?2 AND stream=?3 AND namespace=?4 AND seq=?5 AND hash=?6 AND (NOT ?7 OR payload IS NOT NULL)
+         UNION ALL SELECT 1 FROM checkpoints WHERE page=?1 AND epoch=?2 AND stream=?3 AND namespace=?4 AND seq=?5 AND hash=?6 AND (NOT ?7 OR payload IS NOT NULL))",
+        params![scope.page, scope.epoch.to_string(), scope.stream, namespace.name(), sequence(cursor.seq), cursor.hash.as_slice(), require_payload], |r| r.get(0))?;
     if found {
         Ok(())
     } else {

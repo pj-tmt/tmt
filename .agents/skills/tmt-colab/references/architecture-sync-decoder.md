@@ -18,6 +18,9 @@ and `limits.rs`; do not restate them.
 - Overflow, an unknown or pruned cursor and any abnormal close end in `RESYNC_REQUIRED`:
   clients reconstruct from a fresh verified catchup. Bytes already written cannot be
   recalled, so a stalled write drops the stream instead of flushing ciphertext.
+- ACK resolves exact scoped receipt/checkpoint identities even after compaction prunes their
+  payloads, releasing only the existing frame credit. Catchup cursors still require payloads;
+  a known identity alone cannot resume a pruned tail.
 - Catchup pins the retained owner head (`Store::owner_head`), pages membership statements,
   then scoped baseline, wraps and the latest paired checkpoints before the merged
   namespace tails. The final page and the live subscription commit under the server lock

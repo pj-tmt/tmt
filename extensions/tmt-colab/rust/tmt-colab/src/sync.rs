@@ -718,8 +718,21 @@ impl<A: Admission> State<A> {
                 if subscribing && !cursors.as_slice().is_empty() {
                     self.start_catchup(id, &scope, &principal, &cursors, 0)?;
                 } else {
+                    // Nonempty subscribe cursors resume through start_catchup above.
+                    // ACK only releases frame credit: its exact identity survives compaction.
                     for c in cursors.as_slice() {
-                        self.resolve(&scope, c)?;
+                        self.store.resolve_ack_cursor(
+                            StreamScope {
+                                page: &scope.page,
+                                epoch: values::decimal(&scope.epoch, false)?,
+                                stream: &c.stream_id,
+                            },
+                            namespace(&c.namespace)?,
+                            store::NamespaceCursor {
+                                seq: values::decimal(&c.seq, true)?,
+                                hash: wire::hash(&c.envelope_hash)?,
+                            },
+                        )?;
                     }
                     if !subscribing {
                         let peer = self.peers.get_mut(&id).ok_or(Code::Denied)?;

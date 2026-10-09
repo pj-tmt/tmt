@@ -1101,3 +1101,70 @@ fn native_publication_scoped_count_charges_pruned_receipts_and_other_epoch() {
         99999
     );
 }
+
+#[test]
+fn ack_identity_survives_checkpoint_nine_while_catchup_requires_payload() {
+    use tmt_colab::store::NamespaceCursor;
+    let fixture = Fixture::new();
+    let mut store = Store::open(&fixture.layout()).unwrap();
+    store.create_page("page").unwrap();
+    for seq in 1..=9 {
+        store.append(&envelope(seq, Namespace::Content)).unwrap();
+    }
+    store
+        .checkpoint(&Envelope {
+            hash: [10; 32],
+            previous: [9; 32],
+            bytes: b"checkpoint-nine",
+            ..envelope(9, Namespace::Content)
+        })
+        .unwrap();
+    let old = NamespaceCursor {
+        seq: 1,
+        hash: [1; 32],
+    };
+    store
+        .resolve_ack_cursor(scope(), Namespace::Content, old)
+        .unwrap();
+    assert!(matches!(
+        store.resolve_cursor(scope(), Namespace::Content, old),
+        Err(Fault::ResyncRequired)
+    ));
+    for (namespace, cursor) in [
+        (
+            Namespace::Content,
+            NamespaceCursor {
+                seq: 10,
+                hash: [10; 32],
+            },
+        ),
+        (
+            Namespace::Content,
+            NamespaceCursor {
+                seq: 1,
+                hash: [2; 32],
+            },
+        ),
+        (Namespace::Own, old),
+    ] {
+        assert!(matches!(
+            store.resolve_ack_cursor(scope(), namespace, cursor),
+            Err(Fault::ResyncRequired)
+        ));
+    }
+    store
+        .resolve_ack_cursor(
+            scope(),
+            Namespace::Content,
+            NamespaceCursor {
+                seq: 9,
+                hash: [10; 32],
+            },
+        )
+        .unwrap();
+    store.advance_epoch("page", 1).unwrap();
+    assert!(matches!(
+        store.resolve_ack_cursor(scope(), Namespace::Content, old),
+        Err(Fault::StaleEpoch)
+    ));
+}
