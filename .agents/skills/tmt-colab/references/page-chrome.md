@@ -143,7 +143,8 @@ Close/Escape restores focus, and media listeners/dialogs clean up on close or
 unmount. Chat initializes on first opening; closed Source, Comments and Chat panels retain drafts and admitted history;
 closing never dispatches, abandons or retries. Export closes its preparation and
 revokes download Blob URLs. Manage also portals outside the menu and initially
-focuses its heading while metadata loads; Tab reaches its enabled controls, and
+focuses its non-interactive heading without an outline while metadata loads;
+Tab reaches its enabled controls with visible focus outlines, and
 Close/Escape restores the trigger's focus. Safety details
 remain available from About this page, reader Page information and blocked views; visibility never
 substitutes for writer admission.

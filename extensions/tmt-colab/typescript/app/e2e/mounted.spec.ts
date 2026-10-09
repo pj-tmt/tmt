@@ -633,6 +633,7 @@ test('trusted home manages retention, archive and verified or awaiting deletion'
   const dialog = page.getByRole('dialog');
   await expect(dialog).toContainText('expiry starts after the next edit');
   await expect(dialog.getByRole('heading', { level: 2 })).toBeFocused();
+  await expect(dialog.getByRole('heading', { level: 2 })).toHaveCSS('outline-style', 'none');
   await expect(dialog).not.toBeFocused();
   await page.keyboard.press('Tab');
   const close = dialog.getByRole('button', { name: 'Close', exact: true });
