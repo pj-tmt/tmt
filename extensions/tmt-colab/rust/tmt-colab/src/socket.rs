@@ -12,6 +12,7 @@ use crate::{
     limits, management,
     object_channel::ChannelOwner,
     registration::{self, OwnerAdmission, Registration},
+    serve_release::ServeRelease,
     store::Store,
     sync::{Progress, Server},
 };
@@ -112,6 +113,8 @@ struct Browser {
     app: Option<Arc<App>>,
     /// How a root-local stop request is answered and acted on.
     control: Control,
+    /// Whether this serve is older than the installed release; absent for a bare socket.
+    release: Option<Arc<ServeRelease>>,
 }
 struct Worker {
     socket: UnixStream,
@@ -172,6 +175,7 @@ impl MountSocket {
                 space_id: space_id.to_owned(),
                 app: None,
                 control: Control::new(),
+                release: None,
             },
             tunnels,
             registration: None,
@@ -182,6 +186,10 @@ impl MountSocket {
     /// Record how the Remote door is held (one of `control::DOORS`) for a stop request to report.
     pub fn with_door(mut self, door: &'static str) -> Self {
         self.browser.control.door = door;
+        self
+    }
+    pub fn with_release(mut self, release: Arc<ServeRelease>) -> Self {
+        self.browser.release = Some(release);
         self
     }
     /// The executable refreshes live public Remote discovery for each handshake;
@@ -509,6 +517,29 @@ fn serve(
         };
         let (status, body) = match result {
             Ok(bytes) => (200, bytes),
+            Err(code) => (
+                code.status(),
+                serde_json::to_vec(&serde_json::json!({"code":code.text()})).expect("error JSON"),
+            ),
+        };
+        let _ = response_as(&mut socket, status, &body, "application/json");
+        return;
+    }
+    if request.method == "GET" && request.path == "/api/serve-release" && !request.upgrade {
+        // Admission is the same device context as `/api/session`; the body is read-only.
+        let (status, body) = match Registration::session(request.context.as_deref()) {
+            Ok(_) => {
+                let stale = browser.release.as_ref().and_then(|release| release.stale());
+                let running = browser.release.as_ref().map(|release| release.version());
+                (
+                    200,
+                    serde_json::to_vec(&match stale {
+                        Some(stale) => serde_json::json!({"running": stale.running, "installed": stale.installed}),
+                        None => serde_json::json!({"running": running}),
+                    })
+                    .expect("release JSON"),
+                )
+            }
             Err(code) => (
                 code.status(),
                 serde_json::to_vec(&serde_json::json!({"code":code.text()})).expect("error JSON"),
@@ -1215,6 +1246,7 @@ fn acquire(socket: &mut UnixStream) -> std::result::Result<Request, u16> {
         registration::PATH
             | EVENTS
             | "/api/session"
+            | "/api/serve-release"
             | "/api/pages"
             | management::PATH
             | management::LOCAL_PATH

@@ -150,18 +150,18 @@ export class ExportBundle {
   }
 }
 
-/** Parent-only lifecycle. A request is not evidence of a saved file. */
-export class Downloads {
+/** Parent-only blob download lifecycle: one URL per request, revoked after hand-off and
+ * on close. A request is not evidence of a saved file. */
+export class BlobDownloads {
   #urls = new Map<string, ReturnType<typeof setTimeout>>();
   #closed = false;
-  constructor(readonly bundle: ExportBundle) {}
-  request(name: ExportFile): void {
+  request(blob: Blob, filename: string): void {
     requireValue(!this.#closed);
-    const url = URL.createObjectURL(this.bundle.blob(name));
+    const url = URL.createObjectURL(blob);
     const anchor = document.createElement('a');
     try {
       anchor.href = url;
-      anchor.download = name;
+      anchor.download = filename;
       anchor.hidden = true;
       document.body.append(anchor);
       anchor.click();
@@ -185,5 +185,17 @@ export class Downloads {
   close() {
     this.#closed = true;
     for (const url of this.#urls.keys()) this.#revoke(url);
+  }
+}
+
+/** The export bundle's files through the shared download lifecycle. */
+export class Downloads {
+  #blobs = new BlobDownloads();
+  constructor(readonly bundle: ExportBundle) {}
+  request(name: ExportFile): void {
+    this.#blobs.request(this.bundle.blob(name), name);
+  }
+  close() {
+    this.#blobs.close();
   }
 }

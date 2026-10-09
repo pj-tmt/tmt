@@ -74,3 +74,62 @@ for (const [name, served] of [
     await expect.poll(() => server.reads()).toBe(1);
     await expect(notice(page)).toHaveCount(0);
   });
+
+test('a serve older than the installed release says to restart it, with no Reload and no navigation', async ({
+  page,
+  context,
+}, testInfo) => {
+  const server = await serve(context, () => OLD);
+  let asked = 0;
+  await context.route('**/api/serve-release', (route) => {
+    asked++;
+    return route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({ running: '0.1.0-alpha.46', installed: '0.1.0-alpha.57' }),
+    });
+  });
+  await page.goto(mount);
+  await expect(notice(page)).toHaveText(
+    'Colab 0.1.0-alpha.57 is installed, but 0.1.0-alpha.46 is still running. Restart tmt colab serve to update.',
+  );
+  await expect(notice(page).locator('code')).toHaveText(text.serveOlder.command);
+  await expect(notice(page)).toHaveAttribute('role', 'status');
+  await expect(notice(page).getByRole('button')).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: text.error, level: 2 })).toBeVisible();
+  await page.waitForTimeout(500);
+  expect(server.navigations()).toBe(1);
+  expect(asked).toBe(1);
+  for (const theme of ['light', 'dark']) {
+    await page.evaluate((value) => (document.documentElement.dataset.theme = value), theme);
+    for (const width of [1440, 390]) {
+      await page.setViewportSize({ width, height: 844 });
+      await expect(notice(page)).toBeVisible();
+      await page.screenshot({ path: testInfo.outputPath(`serve-older-${theme}-${width}.png`) });
+    }
+  }
+});
+
+for (const [name, reply] of [
+  ['the same release', { status: 200, body: { running: '0.1.0-alpha.57' } }],
+  ['an older serve without the route', { status: 404, body: {} }],
+  [
+    'an unknown field',
+    { status: 200, body: { running: '0.1.0-alpha.46', installed: '0.1.0-alpha.57', extra: 1 } },
+  ],
+  ['a malformed version', { status: 200, body: { running: 'x y', installed: '1' } }],
+] as const)
+  test(`no serve-older notice for ${name}`, async ({ page, context }) => {
+    const server = await serve(context, () => OLD);
+    await context.route('**/api/serve-release', (route) =>
+      route.fulfill({
+        status: reply.status,
+        contentType: 'application/json',
+        body: JSON.stringify(reply.body),
+      }),
+    );
+    await page.goto(mount);
+    await expect(page.getByRole('heading', { name: text.error, level: 2 })).toBeVisible();
+    await expect.poll(() => server.reads()).toBe(1);
+    await page.waitForTimeout(300);
+    await expect(notice(page)).toHaveCount(0);
+  });

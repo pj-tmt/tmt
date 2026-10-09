@@ -1,5 +1,11 @@
 import { expect, it } from 'vite-plus/test';
-import { createBuildWatch, entryOf, isNewerBuild } from '../src/app-build.js';
+import {
+  createBuildWatch,
+  entryOf,
+  isNewerBuild,
+  parseServeRelease,
+  type ServeRelease,
+} from '../src/app-build.js';
 
 const base = new URL('https://door.example/r/abc/x/colab/');
 const page = (src: string) =>
@@ -71,4 +77,86 @@ it('reads the served build at most once a minute and retries after an offline bl
   w.state.served = '/a/index-YYYYYYYY.js';
   expect(await w.instance.check()).toBe(true);
   expect(w.state.reads).toBe(2);
+});
+
+it('reads only a strict serve release', () => {
+  expect(parseServeRelease({ running: '0.1.0-alpha.46' })).toEqual({ running: '0.1.0-alpha.46' });
+  expect(parseServeRelease({ running: '0.1.0-alpha.46', installed: '0.1.0-alpha.57+b1' })).toEqual({
+    running: '0.1.0-alpha.46',
+    installed: '0.1.0-alpha.57+b1',
+  });
+  for (const bad of [
+    null,
+    [],
+    'x',
+    {},
+    { running: 1 },
+    { running: '' },
+    { running: 'a b' },
+    { running: 'a\nb' },
+    { running: '9'.repeat(65) },
+    { running: '1', installed: undefined },
+    { running: '1', installed: 2 },
+    { running: '1', extra: true },
+  ])
+    expect(parseServeRelease(bad)).toBeNull();
+});
+
+function releaseWatch(
+  release: () => Promise<ServeRelease | null>,
+  served = '/a/index-XXXXXXXX.js',
+) {
+  const state = { now: 0, release, reads: 0 };
+  const instance = createBuildWatch({
+    loaded: () => '/a/index-XXXXXXXX.js',
+    served: async () => served,
+    release: () => {
+      state.reads++;
+      return state.release();
+    },
+    now: () => state.now,
+  });
+  let notified = 0;
+  instance.subscribe(() => notified++);
+  return { state, instance, notified: () => notified };
+}
+
+it('reports a serve older than the installed release once and stops asking', async () => {
+  const w = releaseWatch(async () => ({ running: '46', installed: '57' }));
+  expect(await w.instance.check()).toBe(false);
+  expect(w.instance.serveOlder()).toEqual({ running: '46', installed: '57' });
+  expect(w.notified()).toBe(1);
+  w.state.now = 120_000;
+  await w.instance.check();
+  expect(w.state.reads).toBe(1);
+});
+
+it.each([
+  ['the same release', async () => ({ running: '57' })],
+  ['equal versions', async () => ({ running: '57', installed: '57' })],
+  ['no route', async () => null],
+  [
+    'an unreachable route',
+    async () => {
+      throw new Error('offline');
+    },
+  ],
+])('is not older for %s, and asks again after a minute', async (_name, read) => {
+  const w = releaseWatch(read);
+  await w.instance.check();
+  expect(w.instance.serveOlder()).toBeNull();
+  expect(w.notified()).toBe(0);
+  await w.instance.check();
+  expect(w.state.reads).toBe(1);
+  w.state.now = 61_000;
+  w.state.release = async () => ({ running: '46', installed: '57' });
+  await w.instance.check();
+  expect(w.instance.serveOlder()).toEqual({ running: '46', installed: '57' });
+});
+
+it('reports a stale tab and an older serve independently of a failing read', async () => {
+  const w = releaseWatch(async () => ({ running: '46', installed: '57' }), '/a/index-YYYYYYYY.js');
+  expect(await w.instance.check()).toBe(true);
+  expect(w.instance.serveOlder()).not.toBeNull();
+  expect(w.notified()).toBe(1);
 });

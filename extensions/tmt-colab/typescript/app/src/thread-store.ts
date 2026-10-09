@@ -1,5 +1,10 @@
 import type { PageAsk } from './ask-panel.js';
 import { requireValue } from '@tmt/colab-client';
+import {
+  AttachmentService,
+  type AttachmentBinding,
+  type StoredAttachment,
+} from './attachment-service.js';
 import type { Connection } from './connection.js';
 import type { JsonValue, OwnRecord, OwnState } from './fold-protocol.js';
 import {
@@ -23,6 +28,13 @@ import {
   type ThreadNotificationRecord,
 } from './thread-status.js';
 
+/** Committed originals for one message. The caller allocates `messageId` before sealing
+ * because every descriptor binds it; the message is published only with their records. */
+export interface MessageAttachments {
+  messageId: string;
+  stored: readonly StoredAttachment[];
+}
+
 export type StatusChange = { changed: false } | { changed: true; status: ThreadStatusView };
 
 export interface CommentContext {
@@ -37,9 +49,20 @@ export interface CommentContext {
 }
 export interface ThreadBinding {
   readonly deviceId: string;
-  create(body: string, anchor: QuoteSelector | null): Promise<CommentContext>;
-  createChat(body: string): Promise<CommentContext>;
-  reply(thread: DiscussionRef, body: string, expectedRevision?: string): Promise<CommentContext>;
+  /** Absent where this binding cannot upload or open attachments. */
+  readonly attachments?: AttachmentBinding;
+  create(
+    body: string,
+    anchor: QuoteSelector | null,
+    attach?: MessageAttachments,
+  ): Promise<CommentContext>;
+  createChat(body: string, attach?: MessageAttachments): Promise<CommentContext>;
+  reply(
+    thread: DiscussionRef,
+    body: string,
+    expectedRevision?: string,
+    attach?: MessageAttachments,
+  ): Promise<CommentContext>;
   edit(message: DiscussionRef, revision: string, body: string): Promise<void>;
   deleteComment(message: DiscussionRef, revision: string): Promise<void>;
   setStatus(
@@ -72,7 +95,10 @@ export interface ThreadStoreOptions extends DiscussionScope {
 /** Discussion records never leave Colab. The existing own envelope authenticates
  * each record, while current connection admission gates every publication. */
 export class ThreadStore implements ThreadBinding {
-  constructor(private options: ThreadStoreOptions) {}
+  readonly attachments: AttachmentService;
+  constructor(private options: ThreadStoreOptions) {
+    this.attachments = new AttachmentService(options);
+  }
   get deviceId() {
     return this.options.deviceId();
   }
@@ -128,6 +154,7 @@ export class ThreadStore implements ThreadBinding {
       | Omit<ThreadStatusRecord, 'at'>
       | Omit<ThreadNotificationRecord, 'at'>
     )[],
+    prefix: readonly OwnRecord[] = [],
   ) {
     requireValue(this.options.available());
     const at = String(Date.now());
@@ -138,7 +165,7 @@ export class ThreadStore implements ThreadBinding {
       validateDiscussionRecord(root, key, value);
       return { root, key, value: structuredClone(value) as unknown as JsonValue };
     });
-    await this.options.publish(entries);
+    await this.options.publish([...prefix, ...entries]);
     return values;
   }
   async #exclusive(action: (connection: Connection) => Promise<void>) {
@@ -150,43 +177,73 @@ export class ThreadStore implements ThreadBinding {
       },
     );
   }
-  async create(body: string, anchor: QuoteSelector | null) {
+  async create(body: string, anchor: QuoteSelector | null, attach?: MessageAttachments) {
     const threadId = crypto.randomUUID();
     requireValue(threadId !== this.deviceId);
-    return this.#create(body, anchor, threadId);
+    return this.#create(body, anchor, threadId, attach);
   }
-  async createChat(body: string) {
-    return this.#create(body, null, this.deviceId);
+  async createChat(body: string, attach?: MessageAttachments) {
+    return this.#create(body, null, this.deviceId, attach);
   }
-  async #create(body: string, anchor: QuoteSelector | null, threadId: string) {
+  /** The message record's attachment list and the verified publication records for it.
+   * Preparation runs under the discussion lock, so the batch is checked against the
+   * same admission it is written with. */
+  async #attached(attach: MessageAttachments | undefined) {
+    if (!attach?.stored.length) return { records: [] as OwnRecord[], list: {} };
+    const descriptors = attach.stored.map(({ original }) => original.descriptor);
+    requireValue(
+      descriptors.every(
+        (d) =>
+          d.source.kind === 'message' &&
+          d.source.messageId === attach.messageId &&
+          d.source.writerId === this.deviceId &&
+          d.source.messageRevision === '1',
+      ),
+    );
+    return {
+      records: await this.attachments.publication(attach.stored),
+      list: { attachments: descriptors },
+    };
+  }
+  async #create(
+    body: string,
+    anchor: QuoteSelector | null,
+    threadId: string,
+    attach?: MessageAttachments,
+  ) {
     const captured = structuredClone(anchor),
-      messageId = crypto.randomUUID();
+      messageId = attach?.messageId ?? crypto.randomUUID();
     await this.#exclusive(async (c) => {
+      const attached = await this.#attached(attach);
       requireValue(
         !this.#views(c).some(
           (thread) => thread.ref.writer === this.deviceId && thread.threadId === threadId,
         ),
       );
-      await this.#write([
-        {
-          ...this.#scope(),
-          kind: 'thread',
-          threadId,
-          revision: '1',
-          anchor: captured,
-          resolved: false,
-          deleted: false,
-        },
-        {
-          ...this.#scope(),
-          kind: 'comment',
-          messageId,
-          revision: '1',
-          thread: { writer: this.deviceId, id: threadId },
-          body,
-          deleted: false,
-        },
-      ]);
+      await this.#write(
+        [
+          {
+            ...this.#scope(),
+            kind: 'thread',
+            threadId,
+            revision: '1',
+            anchor: captured,
+            resolved: false,
+            deleted: false,
+          },
+          {
+            ...this.#scope(),
+            kind: 'comment',
+            messageId,
+            revision: '1',
+            thread: { writer: this.deviceId, id: threadId },
+            body,
+            ...attached.list,
+            deleted: false,
+          },
+        ],
+        attached.records,
+      );
     });
     return {
       thread: { writer: this.deviceId, id: threadId },
@@ -195,24 +252,34 @@ export class ThreadStore implements ThreadBinding {
       messageRevision: '1',
     };
   }
-  async reply(thread: DiscussionRef, body: string, expectedRevision?: string) {
+  async reply(
+    thread: DiscussionRef,
+    body: string,
+    expectedRevision?: string,
+    attach?: MessageAttachments,
+  ) {
     const ref = structuredClone(thread),
-      messageId = crypto.randomUUID();
+      messageId = attach?.messageId ?? crypto.randomUUID();
     let revision = '';
     await this.#exclusive(async (c) => {
       revision = this.#thread(c, ref).revision;
       requireValue(expectedRevision === undefined || revision === expectedRevision);
-      await this.#write([
-        {
-          ...this.#scope(),
-          kind: 'comment',
-          messageId,
-          revision: '1',
-          thread: ref,
-          body,
-          deleted: false,
-        },
-      ]);
+      const attached = await this.#attached(attach);
+      await this.#write(
+        [
+          {
+            ...this.#scope(),
+            kind: 'comment',
+            messageId,
+            revision: '1',
+            thread: ref,
+            body,
+            ...attached.list,
+            deleted: false,
+          },
+        ],
+        attached.records,
+      );
     });
     return {
       thread: ref,
@@ -232,7 +299,10 @@ export class ThreadStore implements ThreadBinding {
     await this.#exclusive(async (c) => {
       const previous = this.#comment(c, ref);
       requireValue(previous.revision === revision);
-      const { ref: _ref, ...record } = previous;
+      const { ref: _ref, attachments, ...record } = previous;
+      // A descriptor binds its message revision, so an edit never carries one forward;
+      // deletion drops the references and the bytes stay unreachable.
+      requireValue(deleted || !attachments?.length);
       await this.#write([{ ...record, revision: String(BigInt(revision) + 1n), body, deleted }]);
     });
   }

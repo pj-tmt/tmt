@@ -6,6 +6,13 @@ function formatBytes(bytes: number): string {
   return `${value.toFixed(2).replace(/\.?0+$/, '')} ${unit} (${bytes.toLocaleString('en-US')} bytes)`;
 }
 
+/** One short size a person reads: 18 bytes, 2.4 KB, 8 MB. */
+function humanSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} ${bytes === 1 ? 'byte' : 'bytes'}`;
+  const [value, unit] = bytes >= 1024 * 1024 ? [bytes / (1024 * 1024), 'MB'] : [bytes / 1024, 'KB'];
+  return `${value.toFixed(1).replace(/\.0$/, '')} ${unit}`;
+}
+
 export const text = {
   unknownPageTitle: 'Untitled page',
   originalAuthor: 'Original author',
@@ -43,6 +50,48 @@ export const text = {
   messageAnother: 'Write another message',
   messageOpenRecorded: 'Open recorded thread',
   draftsNotSaved: 'Drafts are not saved on this device.',
+  attachFiles: 'Attach files',
+  attachFilesHint: 'Files upload when you send. Nothing is sent until then.',
+  attachListLabel: 'Attachments to send',
+  attachReady: 'Uploads on send',
+  attachUploading: (percent: number) => `Uploading ${percent}%`,
+  attachStored: 'Uploaded',
+  attachAgainPageChanged: 'The page changed. Send to upload it again.',
+  attachAgainNotStored: 'No longer stored. Send to upload it again.',
+  attachUnknown: 'Upload not confirmed.',
+  attachCheck: 'Check again',
+  attachRetry: 'Try again',
+  attachRemove: 'Remove',
+  attachDismiss: 'Dismiss',
+  attachRefused: {
+    'too-large': 'Too large to store.',
+    unavailable: 'Storage is unavailable.',
+    denied: 'Not allowed on this page.',
+    capacity: 'Storage is full.',
+    invalid: 'Could not be stored.',
+    conflict: 'Could not be stored.',
+  },
+  attachNotice: {
+    empty: (name: string) => `${name} is empty.`,
+    'too-large': (name: string) =>
+      `${name} is larger than ${humanSize(8 * 1024 * 1024)}, the limit per file.`,
+    'too-many': (name: string) => `${name} was not added. A message holds up to 16 files.`,
+    unreadable: (name: string) => `${name} could not be read.`,
+  },
+  attachBlocked: {
+    unknown: 'Your message was not sent. Check or remove the unconfirmed upload.',
+    refused: 'Your message was not sent. Remove the refused file or try again.',
+    failed: 'Your message was not sent. A file could not be attached.',
+    stale:
+      'Your message was not sent. The page changed while attaching; send again to upload the files.',
+  },
+  messageAttachmentsLabel: 'Attached files',
+  attachmentDownload: 'Download',
+  attachmentPreview: 'Preview',
+  attachmentHidePreview: 'Hide preview',
+  attachmentOpening: 'Opening…',
+  attachmentUnavailable: 'This file is unavailable.',
+  attachmentSize: humanSize,
   savedDrafts: 'Saved drafts',
   savedDraftQuote: 'Select this quote again to continue.',
   savedDraftThreadGone: 'The thread for this draft is no longer available.',
@@ -227,6 +276,14 @@ export const text = {
     `The connection dropped before the save was confirmed. Copy your changes, then reload to see whether they were saved. Reference: ${operationId}`,
   reload: 'Reload',
   updated: 'Colab has been updated.',
+  /** One sentence in three parts so the command can be shown as code. */
+  serveOlder: {
+    lead: (installed: string, running: string) =>
+      `Colab ${installed} is installed, but ${running} is still running.`,
+    restart: 'Restart',
+    command: 'tmt colab serve',
+    tail: 'to update.',
+  },
   pages: 'Pages',
   shared: 'Shared',
   archived: 'Archived',

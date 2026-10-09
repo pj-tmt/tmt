@@ -59,9 +59,42 @@ async function servedEntry(): Promise<string | null> {
   return response.ok ? entryOf(await response.text(), root) : null;
 }
 
+/** The serve's own release and, when it differs, the one now installed beside it. */
+export interface ServeRelease {
+  running: string;
+  installed?: string;
+}
+const RELEASE_VERSION = /^[0-9A-Za-z.+-]{1,64}$/;
+
+/** Strict read of `/api/serve-release`; anything else says nothing. */
+export function parseServeRelease(value: unknown): ServeRelease | null {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return null;
+  const keys = Object.keys(value);
+  const { running, installed } = value as Record<string, unknown>;
+  const known = keys.every((key) => key === 'running' || key === 'installed');
+  const plain = (v: unknown): v is string => typeof v === 'string' && RELEASE_VERSION.test(v);
+  if (!known || !plain(running) || (keys.includes('installed') && !plain(installed))) return null;
+  return keys.includes('installed') ? { running, installed: installed as string } : { running };
+}
+
+/** The serve's release, or null when the route is absent (an older serve) or unreadable. */
+async function serveRelease(): Promise<ServeRelease | null> {
+  const root = new URL(location.href);
+  root.hash = '';
+  root.search = '';
+  const response = await fetch(new URL('api/serve-release', root), {
+    cache: 'no-store',
+    credentials: 'same-origin',
+    signal: AbortSignal.timeout(5000),
+  });
+  return response.ok ? parseServeRelease(await response.json()) : null;
+}
+
 export interface BuildSources {
   loaded(): string | null;
   served(): Promise<string | null>;
+  /** Absent in tests that only cover the bundle comparison. */
+  release?(): Promise<ServeRelease | null>;
   now(): number;
 }
 
@@ -74,30 +107,34 @@ export function createBuildWatch(
   sources: BuildSources = {
     loaded: loadedEntry,
     served: servedEntry,
+    release: serveRelease,
     now: () => performance.now(),
   },
 ) {
   let stale = false;
+  let older: ServeRelease | null = null;
   let checking = false;
   let last = -Infinity;
   const listeners = new Set<() => void>();
   return {
     stale: () => stale,
+    /** The serve is older than the installed release; reloading cannot fix this. */
+    serveOlder: () => older,
     subscribe(listener: () => void) {
       listeners.add(listener);
       return () => void listeners.delete(listener);
     },
     async check(): Promise<boolean> {
-      if (stale || checking || sources.now() - last < CHECK_INTERVAL_MS) return stale;
+      if (stale || older || checking || sources.now() - last < CHECK_INTERVAL_MS) return stale;
       checking = true;
       last = sources.now();
       try {
         const loaded = sources.loaded();
-        const served = loaded ? await sources.served() : null;
-        if (loaded && served && isNewerBuild(loaded, served)) {
-          stale = true;
-          listeners.forEach((listener) => listener());
-        }
+        const served = loaded ? await sources.served().catch(() => null) : null;
+        const release = (await sources.release?.().catch(() => null)) ?? null;
+        stale = !!loaded && !!served && isNewerBuild(loaded, served);
+        if (release?.installed && release.installed !== release.running) older = release;
+        if (stale || older) listeners.forEach((listener) => listener());
       } catch {
         // An unreachable server is not an upgrade.
       } finally {
@@ -112,4 +149,8 @@ export const buildWatch = createBuildWatch();
 
 export function useStaleBuild(watch = buildWatch): boolean {
   return useSyncExternalStore(watch.subscribe, watch.stale);
+}
+
+export function useServeOlder(watch = buildWatch): ServeRelease | null {
+  return useSyncExternalStore(watch.subscribe, watch.serveOlder);
 }

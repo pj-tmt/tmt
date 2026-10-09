@@ -3,6 +3,8 @@ import { afterEach, expect, it, vi } from 'vite-plus/test';
 import type { Connection } from '../src/connection.js';
 import type { JsonValue, OwnRecord, OwnState } from '../src/fold-protocol.js';
 import { relativeTime } from '../src/display-time.js';
+import { attachment, strictJson, text as bytesOf } from '@tmt/colab-client';
+import corpus from '../../../contracts/vectors/attachment-v1.json';
 import { ThreadStore, commentForAsk } from '../src/thread-store.js';
 import {
   discussionKey,
@@ -497,4 +499,90 @@ it('designated Chat and deleted threads cannot acquire new status actions', asyn
   const page = await f.store.create('Page comment', null);
   await f.store.updateThread(page.thread, '1', { deleted: true });
   await expect(f.store.setStatus(page.thread, null, true)).rejects.toThrow();
+});
+
+function storedAttachment(messageId: string, writer = a) {
+  const vector = corpus.cases.find((c) => c.name === 'message-asset')!;
+  const base = strictJson(bytesOf(vector.input), 2048) as Record<string, unknown>;
+  const descriptor = attachment.attachmentDescriptor({
+    ...base,
+    space: fixture.scope.spaceId,
+    page: fixture.scope.pageId,
+    epoch: fixture.scope.epoch,
+    authorDevice: writer,
+    source: { kind: 'message', writerId: writer, messageId, messageRevision: '1' },
+  });
+  return { original: { descriptor }, filename: descriptor.filename, size: 1 } as never;
+}
+const proof = (id: string): OwnRecord => ({ root: 'intents', key: id, value: { proof: id } });
+
+it('publishes attachment references with their publication records in the message batch, under the preallocated id', async () => {
+  const f = storeFixture();
+  const messageId = '44444444-4444-4444-8444-444444444444';
+  const stored = storedAttachment(messageId);
+  const publication = vi
+    .spyOn(f.store.attachments, 'publication')
+    .mockResolvedValue([proof('intent-1')]);
+  const context = await f.store.create('With a file', fixture.thread.anchor, {
+    messageId,
+    stored: [stored],
+  });
+  expect(publication).toHaveBeenCalledWith([stored]);
+  expect(context.message.id).toBe(messageId);
+  expect(f.batches).toHaveLength(1);
+  // The proof leads the batch, so a reader never sees a reference without its proof.
+  expect(f.batches[0].map((r) => r.root)).toEqual(['intents', 'threads', 'messages']);
+  const comment = f.batches[0][2].value as unknown as CommentRecord;
+  expect(comment.messageId).toBe(messageId);
+  expect(comment.attachments).toHaveLength(1);
+  expect(comment.attachments![0].source).toMatchObject({ kind: 'message', messageId });
+});
+
+it('refuses a reference bound to another message or writer and publishes nothing', async () => {
+  const f = storeFixture();
+  const publication = vi.spyOn(f.store.attachments, 'publication').mockResolvedValue([]);
+  const bound = '44444444-4444-4444-8444-444444444444';
+  await expect(
+    f.store.createChat('Text', {
+      messageId: '55555555-5555-4555-8555-555555555555',
+      stored: [storedAttachment(bound)],
+    }),
+  ).rejects.toThrow();
+  await expect(
+    f.store.createChat('Text', { messageId: bound, stored: [storedAttachment(bound, b)] }),
+  ).rejects.toThrow();
+  expect(publication).not.toHaveBeenCalled();
+  expect(f.batches).toEqual([]);
+});
+
+it('a failed publication check writes no message and a failed write writes no orphan reference', async () => {
+  const f = storeFixture();
+  const messageId = '44444444-4444-4444-8444-444444444444';
+  const publication = vi.spyOn(f.store.attachments, 'publication');
+  publication.mockRejectedValueOnce(new Error('Not verified'));
+  await expect(
+    f.store.createChat('Text', { messageId, stored: [storedAttachment(messageId)] }),
+  ).rejects.toThrow('Not verified');
+  expect(f.batches).toEqual([]);
+  publication.mockResolvedValue([proof('intent-2')]);
+  f.fail(true);
+  await expect(
+    f.store.createChat('Text', { messageId, stored: [storedAttachment(messageId)] }),
+  ).rejects.toThrow();
+  expect(f.own).toEqual({});
+});
+
+it('never carries a reference into an edit, and deletion drops the references', async () => {
+  const f = storeFixture();
+  const messageId = '44444444-4444-4444-8444-444444444444';
+  vi.spyOn(f.store.attachments, 'publication').mockResolvedValue([proof('intent-3')]);
+  const context = await f.store.createChat('With a file', {
+    messageId,
+    stored: [storedAttachment(messageId)],
+  });
+  await expect(f.store.edit(context.message, '1', 'Changed')).rejects.toThrow();
+  await f.store.deleteComment(context.message, '1');
+  const deleted = f.own[a].messages[`${messageId}:2`] as unknown as CommentRecord;
+  expect(deleted.deleted).toBe(true);
+  expect(deleted.attachments).toBeUndefined();
 });

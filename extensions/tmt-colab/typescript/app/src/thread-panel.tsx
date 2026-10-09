@@ -6,6 +6,7 @@ import type { ComposerEdit } from './components/message-composer-edit.js';
 import { conversationAsks } from './thread-store.js';
 import { ConversationWindow, conversationRecordKey } from './components/conversation-window.js';
 import { MessageText } from './components/message-text.js';
+import { MessageAttachments } from './message-attachments.js';
 import { ConversationTurn } from './components/conversation-turn.js';
 import { useEffect, useState, type ReactNode } from 'react';
 import { AskPanel, type AskBinding, type PageAsk } from './ask-panel.js';
@@ -125,7 +126,7 @@ export function DiscussionComment({
     [error, setError] = useState(false);
   const owned = binding?.deviceId === comment.ref.writer;
   const menu = [
-    ...(owned && allowEdit
+    ...(owned && allowEdit && !comment.attachments?.length
       ? [{ key: 'edit', label: text.commentEdit, disabled: busy || blocked }]
       : []),
     ...(owned
@@ -227,9 +228,12 @@ export function DiscussionComment({
               </div>
             </form>
           ) : (
-            <p className="comment-body">
-              <MessageText value={comment.body} names={mentionedNames} />
-            </p>
+            <>
+              <p className="comment-body">
+                <MessageText value={comment.body} names={mentionedNames} />
+              </p>
+              <MessageAttachments comment={comment} binding={binding?.attachments} />
+            </>
           )}
         </>
       )}
