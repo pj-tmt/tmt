@@ -576,8 +576,8 @@ discovery shapes, and the [hard lines and standing guarantees](contracts/remote-
 that open it. Remote owns authority; shared components supply presentation only. The door serves
 the browser SDK `remote-v1.js` (built from `remote-client`, whose README owns caller recovery
 rules) and mounts owner-installed extensions. [Colab](#colab-extension) is mounted at
-`/r/<prefix>/x/colab/` and otherwise reaches Remote only through the public CLI and that SDK,
-never through Remote state files.
+`/r/<prefix>/x/colab/` and otherwise reaches Remote only through the public CLI, that SDK and
+the extension object channel (`tmt-extension-objects`), never through Remote state files.
 
 Remote's lease-bound object service owns `objects` and the `rust/crates/tmt-extension-objects`
 wire leaf; [object-backends](.agents/skills/tmt-remote/references/object-backends.md) owns
