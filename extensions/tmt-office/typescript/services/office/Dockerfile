@@ -31,7 +31,7 @@ RUN pnpm office:install && test ! -e node_modules/better-sqlite3 && test ! -e /n
 RUN cd /workspace/extensions/tmt-office/typescript/services/office/functions && pnpm install --ignore-workspace --lockfile-dir "$PWD/../../../../../../typescript" --frozen-lockfile
 # Combined native/browser acceptance uses root-owned process/archive helpers.
 # sqlite3 supplies the independent hook oracle; no native Node addon is built.
-RUN pnpm --filter tmux-team install --frozen-lockfile --ignore-scripts
+RUN pnpm --filter tmt install --frozen-lockfile --ignore-scripts
 ENV PLAYWRIGHT_BROWSERS_PATH=/opt/playwright-browsers
 USER root
 RUN pnpm --filter @tmt/office exec playwright install --with-deps chromium

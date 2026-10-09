@@ -129,7 +129,7 @@ describe('signature-limited native install wiring (#1806)', () => {
         '"$GITHUB_WORKSPACE/scripts/install-native-verification-dependencies.sh"'
       );
       expect(step).toMatch(
-        /\n          else\n            pnpm (?:--filter tmux-team --fail-if-no-match )?install --frozen-lockfile --ignore-scripts\n          fi/
+        /\n          else\n            pnpm (?:--filter tmt --fail-if-no-match )?install --frozen-lockfile --ignore-scripts\n          fi/
       );
       expect(step).not.toContain('continue-on-error');
     }
