@@ -7,6 +7,7 @@ import path from 'node:path';
 import { expect, test, type Page } from '@playwright/test';
 import { openReaderLink, pairBrowser, startDoor } from './harness/browser.js';
 import { createPage, freePort, openChat, openPage, run } from './harness/ask.js';
+import { captureResponsive } from './harness/captures.js';
 import { until } from './harness/process.js';
 import { disposeActiveWorlds, withWorld } from './harness/with-world.js';
 import { text } from '../src/strings.js';
@@ -86,6 +87,7 @@ test('files attached in Chat reach a second paired device, preview and download 
         /^data:image\/png;base64,/,
       );
       await expect(there.locator('video, audio, object, embed')).toHaveCount(0);
+      if (!reloaded) await captureResponsive(second, 'chat-attachments');
 
       for (const file of [notes, clip, picture]) {
         const download = second.waitForEvent('download');

@@ -16,6 +16,7 @@ import {
   run,
   selectInRenderer,
 } from './harness/ask.js';
+import { captureResponsive } from './harness/captures.js';
 import { disposeActiveWorlds, withWorld } from './harness/with-world.js';
 import { text } from '../src/strings.js';
 
@@ -24,26 +25,22 @@ test.afterEach(disposeActiveWorlds);
 const sha = (value: Buffer) => createHash('sha256').update(value).digest('hex');
 const bytes = (size: number, seed: number) =>
   Buffer.from(Uint8Array.from({ length: size }, (_, i) => (i * 131 + seed) & 0xff));
-/** Header-only rasters: the parent classifies by header; these are never decoded as pictures. */
-const PNG = Buffer.from(
-  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/q842iQAAAABJRU5ErkJggg==',
-  'base64',
-);
-const JPEG = Buffer.concat([
-  Buffer.from([
-    0xff, 0xd8, 0xff, 0xe0, 0x00, 0x04, 0x4a, 0x46, 0xff, 0xc0, 0x00, 0x11, 8, 0, 1, 0, 1,
-  ]),
-  Buffer.alloc(10),
-  bytes(2000, 3),
-]);
-const WEBP = Buffer.concat([
-  Buffer.from('RIFF'),
-  Buffer.alloc(4),
-  Buffer.from('WEBPVP8L'),
-  Buffer.alloc(4),
-  Buffer.from([0x2f, 0, 0, 0, 0, 0, 0, 0, 0]),
-  bytes(2000, 5),
-]);
+/** A real picture of the given type, drawn and encoded by the browser under test. */
+async function raster(page: Page, type: 'image/png' | 'image/jpeg' | 'image/webp') {
+  const encoded = await page.evaluate((mime) => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 96;
+    canvas.height = 64;
+    const context = canvas.getContext('2d')!;
+    const gradient = context.createLinearGradient(0, 0, 96, 64);
+    gradient.addColorStop(0, '#2b6cb0');
+    gradient.addColorStop(1, '#d69e2e');
+    context.fillStyle = gradient;
+    context.fillRect(0, 0, 96, 64);
+    return canvas.toDataURL(mime, 0.9).split(',')[1]!;
+  }, type);
+  return Buffer.from(encoded, 'base64');
+}
 const CLIP = Buffer.concat([
   Buffer.from([0, 0, 0, 0x18]),
   Buffer.from('ftypmp42'),
@@ -85,9 +82,9 @@ test('annotation attachments: PNG, JPEG and WebP preview, video is download-only
     expect(before).toContain("script-src 'self'; style-src 'self'");
 
     const files = [
-      { name: 'dot.png', mimeType: 'image/png', buffer: PNG },
-      { name: 'dot.jpg', mimeType: 'image/jpeg', buffer: JPEG },
-      { name: 'dot.webp', mimeType: 'image/webp', buffer: WEBP },
+      { name: 'dot.png', mimeType: 'image/png', buffer: await raster(first, 'image/png') },
+      { name: 'dot.jpg', mimeType: 'image/jpeg', buffer: await raster(first, 'image/jpeg') },
+      { name: 'dot.webp', mimeType: 'image/webp', buffer: await raster(first, 'image/webp') },
       { name: 'clip.mp4', mimeType: 'video/mp4', buffer: CLIP },
     ];
     await selectInRenderer(first, '#quote');
@@ -118,6 +115,10 @@ test('annotation attachments: PNG, JPEG and WebP preview, video is download-only
           'src',
           new RegExp(`^data:${file.mimeType};base64,`),
         );
+        // The browser decodes the preview: it is a real picture, not just a well-formed URL.
+        await expect
+          .poll(() => row.locator('img').evaluate((img: HTMLImageElement) => img.naturalWidth))
+          .toBeGreaterThan(0);
       }
       const download = second.waitForEvent('download');
       await row.getByRole('button', { name: text.attachmentDownload }).click();
@@ -125,6 +126,7 @@ test('annotation attachments: PNG, JPEG and WebP preview, video is download-only
       expect(saved.suggestedFilename()).toBe(file.name);
       expect(sha(fs.readFileSync((await saved.path())!))).toBe(sha(file.buffer));
     }
+    await captureResponsive(second, 'thread-attachments');
     // Nothing embeds active content or video, and attachments left the policy as it was.
     await expect(second.locator('video, audio, object, embed, iframe[src^="blob:"]')).toHaveCount(
       0,
@@ -181,6 +183,22 @@ test('principals: owner, a second paired device and a read-only link read; a rev
     await (await chooser).setFiles([note]);
     await panel.getByRole('button', { name: text.filesAdd, exact: true }).click();
     await expect(panel.getByTestId('file-row')).toHaveCount(1, { timeout: 30_000 });
+
+    await expect(panel.getByText(text.filesAdding)).toHaveCount(0, { timeout: 30_000 });
+    await captureResponsive(first, 'files');
+    await first.getByRole('button', { name: 'Export page', exact: true }).click();
+    await expect(
+      first
+        .getByRole('region', { name: 'Export page' })
+        .getByRole('listitem')
+        .filter({ hasText: note.name }),
+    ).toHaveCount(1, { timeout: 30_000 });
+    await captureResponsive(first, 'export');
+    await first
+      .getByRole('region', { name: 'Export page' })
+      .getByRole('button', { name: 'Close export' })
+      .click();
+    await openFiles(first);
 
     // Owner, second paired device and the read-only link all read the same bytes.
     const rowsOf = (page: Page) =>
