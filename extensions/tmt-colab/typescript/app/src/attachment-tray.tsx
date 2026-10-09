@@ -31,7 +31,16 @@ function stateText(chip: Chip, page: boolean): string {
 
 /** Files only join the draft here. Choosing one never sends, prepares an Ask, or touches the
  * message text; the parent's explicit Send uploads and publishes them with the message. */
-export function AttachButton({ draft, disabled }: { draft: AttachmentDraft; disabled: boolean }) {
+export function AttachButton({
+  draft,
+  disabled,
+  labeled = false,
+}: {
+  draft: AttachmentDraft;
+  disabled: boolean;
+  /** Icon plus the visible words, where the panel has no other cue (the Files panel). */
+  labeled?: boolean;
+}) {
   const input = useRef<HTMLInputElement>(null);
   return (
     <>
@@ -48,16 +57,31 @@ export function AttachButton({ draft, disabled }: { draft: AttachmentDraft; disa
           if (files.length) void draft.add(files);
         }}
       />
-      <BrowserIconAction
-        type="button"
-        variant="text"
-        label={text.attachFiles}
-        icon={<Paperclip />}
-        disabled={disabled}
-        onActivate={(event) => {
-          if (event.isTrusted) input.current?.click();
-        }}
-      />
+      {labeled ? (
+        <span className="attach-labeled">
+          <Paperclip aria-hidden />
+          <BrowserAction
+            type="button"
+            variant="text"
+            label={text.attachFiles}
+            disabled={disabled}
+            onActivate={(event) => {
+              if (event.isTrusted) input.current?.click();
+            }}
+          />
+        </span>
+      ) : (
+        <BrowserIconAction
+          type="button"
+          variant="text"
+          label={text.attachFiles}
+          icon={<Paperclip />}
+          disabled={disabled}
+          onActivate={(event) => {
+            if (event.isTrusted) input.current?.click();
+          }}
+        />
+      )}
     </>
   );
 }

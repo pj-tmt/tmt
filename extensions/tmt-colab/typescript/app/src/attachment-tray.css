@@ -110,3 +110,14 @@
   max-width: 100%;
   max-height: 320px;
 }
+.attach-labeled {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+}
+.attach-labeled svg {
+  width: 16px;
+  height: 16px;
+  flex: none;
+}

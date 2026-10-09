@@ -90,7 +90,7 @@ export const text = {
   filesListLabel: 'Page files',
   filesAdd: 'Add to page',
   filesAdding: 'Adding…',
-  filesReady: 'Uploads when added',
+  filesReady: 'Ready to add',
   filesAgainPageChanged: 'The page changed. Add to upload it again.',
   filesAgainNotStored: 'No longer stored. Add to upload it again.',
   filesTooMany: (name: string) => `${name} was not added. Add up to 16 files at a time.`,

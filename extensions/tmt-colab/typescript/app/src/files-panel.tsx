@@ -192,7 +192,7 @@ export function FilesPanel({
       )}
       <AttachmentChips draft={draft} disabled={!attachable} page />
       <div className="annotation-status-row">
-        <AttachButton draft={draft} disabled={!attachable} />
+        <AttachButton draft={draft} disabled={!attachable} labeled />
         <p role="status" className="annotation-hint">
           {error}
         </p>
