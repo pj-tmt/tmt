@@ -116,15 +116,21 @@ export async function installFormerSquad(sandbox: Sandbox, prefix: string): Prom
   for (const name of ['tmt-squad', 'tmt-sq']) {
     symlinkSync('../lib/tmt-squad/current/tmt-squad', path.join(prefix, 'bin', name));
   }
-  warmExecutable(path.join(prefix, 'bin/tmt-squad'));
+  warmExecutable(sandbox, path.join(prefix, 'bin/tmt-squad'));
 }
 
 /**
  * Run a freshly written extension once, outside any product deadline. Core
  * probes a hook-consenting extension within a second, but a debug binary's
- * first start can take longer under load while the system verifies new files.
+ * first start can take longer under load while the system verifies new files. It runs
+ * under the sandbox environment, the one the probe will use, never the caller's.
  */
-export function warmExecutable(executable: string): void {
-  const warmed = spawnSync(executable, ['--help'], { stdio: 'ignore', timeout: 30_000 });
+export function warmExecutable(sandbox: Sandbox, executable: string): void {
+  const warmed = spawnSync(executable, ['--help'], {
+    env: sandbox.env,
+    cwd: sandbox.root,
+    stdio: 'ignore',
+    timeout: 30_000,
+  });
   expect(warmed.error, `${executable} did not start`).toBeUndefined();
 }

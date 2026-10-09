@@ -110,7 +110,7 @@ describe('former Squad hook consent during Ops replacement', () => {
           let ops: unknown;
           if (independentOps) {
             await install(sandbox, candidate, prefix, ['--product', 'ops']);
-            warmExecutable(path.join(prefix, 'bin/tmt-ops'));
+            warmExecutable(sandbox, path.join(prefix, 'bin/tmt-ops'));
             ops = await enableHooks(sandbox, 'ops');
           }
           const result = await runCli(
