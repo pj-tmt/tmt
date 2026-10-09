@@ -140,7 +140,17 @@ input {
   --tmt-ui-host-action-font: var(--tmt-ui-font-body);
   --tmt-ui-host-action-weight: 400;
 }
+.entry-command {
+  display: inline-flex;
+  align-items: baseline;
+  max-width: 100%;
+  gap: 4px;
+}
+.entry-command code {
+  min-width: 0;
+}
 .entry-copy {
+  flex-shrink: 0;
   --tmt-ui-host-action-padding: 0 4px;
   --tmt-ui-host-action-min-height: 0;
   width: auto;

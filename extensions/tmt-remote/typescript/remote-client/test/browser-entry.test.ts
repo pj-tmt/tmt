@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { test, vi } from 'vite-plus/test';
 import { landingPage, pairingPage } from '../src/browser.js';
 import { Door, paired } from './door.js';
@@ -467,3 +468,27 @@ for (const outcome of ['valid', 'refused', 'malformed', 'transport']) {
     }
   });
 }
+
+test('inline Copy actions have command-specific names and no trailing action period', () => {
+  const html = readFileSync(
+    new URL('../../../rust/tmt-remote/assets/landing.html', import.meta.url),
+    'utf8',
+  );
+  for (const [state, command] of [
+    ['missing', 'pair'],
+    ['different', 'pair'],
+    ['refused', 'devices'],
+    ['refused', 'pair'],
+    ['unconfirmed', 'status'],
+    ['unreadable', 'pair'],
+  ]) {
+    const action = html.match(
+      new RegExp(`<button\\s+id="copy-${state}-${command}"([\\s\\S]*?)>\\s*Copy\\s*</button\\s*>`),
+    );
+    assert.ok(action);
+    assert.ok(action[1]!.includes(`aria-label="Copy tmt remote ${command}"`));
+  }
+  assert.equal(html.match(/class="entry-command"/g)!.length, 6);
+  assert.ok(!/<\/span\s*>\s*\./.test(html));
+  assert.ok(html.includes('on it.'));
+});

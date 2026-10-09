@@ -1004,6 +1004,23 @@ test('the native entry checks once and presents all seven evidenced states witho
         ),
       ),
     ).toBe(true);
+    for (const command of await commands.allTextContents()) {
+      const action = page.getByRole('button', { name: `Copy ${command}`, exact: true });
+      await expect(action).toHaveCount(1);
+      await expect(action).toHaveText('Copy');
+    }
+    expect(
+      await commands.evaluateAll((nodes) =>
+        nodes.every((node) => {
+          const group = node.parentElement!;
+          return (
+            group.matches('.entry-command') &&
+            (group.nextSibling?.textContent?.trim() ?? '') ===
+              (group.closest('#steps-different') ? 'on it.' : '')
+          );
+        }),
+      ),
+    ).toBe(true);
     expect(
       await page.locator('.tmt-ui-action:visible').evaluateAll((nodes) =>
         nodes.every((node) => {
@@ -1074,7 +1091,7 @@ test('the native entry checks once and presents all seven evidenced states witho
   await expect(page.locator('#state-label')).toHaveText('Not paired');
   expect(counts()).toEqual({ mounts: 0, admissions: 0, observations: 0 });
   await captureEntry('not-paired');
-  await page.locator('#copy-missing-pair').click();
+  await page.getByRole('button', { name: 'Copy tmt remote pair', exact: true }).click();
   expect(await page.evaluate(() => navigator.clipboard.readText())).toBe('tmt remote pair');
   await expect(page.locator('#copy-feedback')).toHaveText('Copied.');
   pair = spawn(BINARY, ['pair', '--json'], { env });
@@ -1233,7 +1250,7 @@ test('the native entry checks once and presents all seven evidenced states witho
       throw new Error('fixture denied');
     };
   });
-  await page.locator('#copy-unconfirmed-status').click();
+  await page.getByRole('button', { name: 'Copy tmt remote status', exact: true }).click();
   await expect(page.locator('#copy-feedback')).toHaveText(
     'Copy failed. Select the command and copy it manually.',
   );
