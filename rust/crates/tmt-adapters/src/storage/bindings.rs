@@ -394,45 +394,72 @@ impl Storage {
         path: &std::path::Path,
         socket: &str,
     ) -> Result<Vec<tmt_core::workspace::StoredIdentity>, StorageError> {
-        let mut connection =
-            Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
-                .map_err(|error| classify(error, "Open workspace projection"))?;
-        connection
-            .busy_timeout(std::time::Duration::ZERO)
-            .map_err(|error| classify(error, "Bound workspace projection"))?;
-        let transaction = connection
-            .transaction()
-            .map_err(|error| classify(error, "Begin workspace projection"))?;
-        super::migrations::require_current(&transaction)?;
-        let records = {
-            let mut statement = transaction.prepare(&format!(
-                "SELECT {IDENTITY_COLUMNS}, {BINDING_COLUMNS}, p.preferred_harness, p.remembered_harness, p.runtime_mode, p.provider_session_id, p.driver_state_version, p.driver_state, p.stale_at_ms, p.resume_pending_at_ms, p.channel \
-                 FROM identities i JOIN bindings b ON b.identity_id = i.id \
-                 LEFT JOIN identity_session_preferences p ON p.identity_id = i.id \
-                 WHERE i.retired_at_ms IS NULL AND b.socket_path = ? LIMIT 1025"
-            )).map_err(|error| classify(error, "Prepare workspace projection"))?;
-            statement
-                .query_map([socket], |row| {
-                    Ok(tmt_core::workspace::StoredIdentity {
-                        entry: entry_row(row)?,
-                        preferences: session::decode_preferences(row, 23)?,
-                    })
-                })
-                .and_then(|rows| rows.collect::<Result<Vec<_>, _>>())
-                .map_err(|error| classify(error, "Read workspace projection"))?
-        };
-        if records.len() > tmt_core::workspace::MAX_PANES {
+        workspace_projection(path, "b.socket_path = ?", &[socket])
+    }
+
+    /// Resolve exact snapshot UUIDs, including saved identities now unbound.
+    /// A missing database is handled by the caller; this never creates one.
+    pub fn workspace_plan_identities(
+        path: &std::path::Path,
+        ids: &[&str],
+    ) -> Result<Vec<tmt_core::workspace::StoredIdentity>, StorageError> {
+        if ids.len() > tmt_core::workspace::MAX_PANES {
             return Err(classify(
                 rusqlite::Error::InvalidQuery,
                 "Workspace identity limit",
             ));
         }
-        transaction
-            .commit()
-            .map_err(|error| classify(error, "Finish workspace projection"))?;
-        connection
-            .close()
-            .map_err(|(_, error)| classify(error, "Close workspace projection"))?;
-        Ok(records)
+        if ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let placeholders = vec!["?"; ids.len()].join(",");
+        workspace_projection(path, &format!("i.id IN ({placeholders})"), ids)
     }
+}
+
+fn workspace_projection(
+    path: &std::path::Path,
+    predicate: &str,
+    values: &[&str],
+) -> Result<Vec<tmt_core::workspace::StoredIdentity>, StorageError> {
+    let mut connection =
+        Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
+            .map_err(|error| classify(error, "Open workspace projection"))?;
+    connection
+        .busy_timeout(std::time::Duration::ZERO)
+        .map_err(|error| classify(error, "Bound workspace projection"))?;
+    let transaction = connection
+        .transaction()
+        .map_err(|error| classify(error, "Begin workspace projection"))?;
+    super::migrations::require_current(&transaction)?;
+    let records = {
+        let mut statement = transaction.prepare(&format!(
+                "SELECT {IDENTITY_COLUMNS}, {BINDING_COLUMNS}, p.preferred_harness, p.remembered_harness, p.runtime_mode, p.provider_session_id, p.driver_state_version, p.driver_state, p.stale_at_ms, p.resume_pending_at_ms, p.channel \
+                 FROM identities i LEFT JOIN bindings b ON b.identity_id = i.id \
+                 LEFT JOIN identity_session_preferences p ON p.identity_id = i.id \
+                 WHERE i.retired_at_ms IS NULL AND {predicate} LIMIT 1025"
+            )).map_err(|error| classify(error, "Prepare workspace projection"))?;
+        statement
+            .query_map(rusqlite::params_from_iter(values), |row| {
+                Ok(tmt_core::workspace::StoredIdentity {
+                    entry: entry_row(row)?,
+                    preferences: session::decode_preferences(row, 23)?,
+                })
+            })
+            .and_then(|rows| rows.collect::<Result<Vec<_>, _>>())
+            .map_err(|error| classify(error, "Read workspace projection"))?
+    };
+    if records.len() > tmt_core::workspace::MAX_PANES {
+        return Err(classify(
+            rusqlite::Error::InvalidQuery,
+            "Workspace identity limit",
+        ));
+    }
+    transaction
+        .commit()
+        .map_err(|error| classify(error, "Finish workspace projection"))?;
+    connection
+        .close()
+        .map_err(|(_, error)| classify(error, "Close workspace projection"))?;
+    Ok(records)
 }

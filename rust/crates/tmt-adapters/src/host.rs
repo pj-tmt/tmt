@@ -476,6 +476,19 @@ impl<R: CommandRunner> Host<R> {
         }
     }
 
+    /// Recovery preview reads only current names, on the explicitly selected socket.
+    /// Unsupported hosts leave observation unknown rather than guessing absence.
+    pub fn workspace_session_names(
+        &self,
+        socket: &str,
+        deadline: Instant,
+    ) -> Result<Option<Vec<String>>, HostError> {
+        match self.primary {
+            HostKind::Tmux => Ok(Some(self.tmux.workspace_session_names(socket, deadline)?)),
+            HostKind::External(_) => Ok(None),
+        }
+    }
+
     /// Recovery capture is optional; external drivers have no workspace port yet.
     pub fn workspace_capture(
         &self,

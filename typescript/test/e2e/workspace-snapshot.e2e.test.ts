@@ -7,6 +7,7 @@ import { describe, expect, it } from 'vite-plus/test';
 import { withE2EFixture, type E2EFixture } from './harness.js';
 import { writeExecutable } from '../support/executable-fixture.mjs';
 import { waitForFileContent } from './wait-for-file.js';
+import { installTmuxTrace } from './tmux-trace.js';
 
 type Snapshot = {
   version: number;
@@ -73,6 +74,89 @@ function submitForeground(
 }
 
 describe('event-driven workspace recovery snapshots', () => {
+  it('previews current durable resume state without changing layout, snapshot or identity data', async () => {
+    await withE2EFixture(async (fixture) => {
+      const bound = await fixture.runJsonCli<{ id: string }>(['name', 'Preview Old Name', '-s']);
+      expect(bound.code, bound.stderr).toBe(0);
+      const original = JSON.parse(fs.readFileSync(snapshotPath(fixture), 'utf8')) as Snapshot;
+      const synthetic = {
+        ...original,
+        sessions: [
+          ...original.sessions,
+          { id: '$999999', name: 'Preview Missing Session', windows: original.sessions[0].windows },
+        ],
+      };
+      expect(
+        (await fixture.runJsonCli(['rename', 'Preview Old Name', 'Preview Current Name'])).code
+      ).toBe(0);
+      // The recovery input intentionally predates the current name/preferences.
+      fs.writeFileSync(snapshotPath(fixture), JSON.stringify(synthetic));
+      const database = new Database(path.join(fixture.globalDir, 'tmux-team.db'));
+      try {
+        database
+          .prepare(`INSERT INTO identity_session_preferences
+          (identity_id, preferred_harness, remembered_harness, runtime_mode, provider_session_id, resume_pending_at_ms, channel)
+          VALUES (?, 'codex', 'codex', 'independent', 'current-conversation', 2, 1)
+          ON CONFLICT(identity_id) DO UPDATE SET preferred_harness='codex', remembered_harness='codex', runtime_mode='independent',
+          provider_session_id='current-conversation', resume_pending_at_ms=2, channel=1`)
+          .run(bound.json!.id);
+        const before = database
+          .prepare('SELECT * FROM identity_session_preferences WHERE identity_id=?')
+          .get(bound.json!.id);
+        const bytes = fs.readFileSync(snapshotPath(fixture));
+        const topology = () =>
+          fixture.tmux([
+            'list-panes',
+            '-a',
+            '-F',
+            '#{session_id}:#{window_id}:#{window_layout}:#{pane_id}:#{pane_pid}:#{pane_current_path}',
+          ]);
+        const beforeTopology = topology();
+        const trace = installTmuxTrace(fixture);
+        trace.clear();
+        const result = await fixture.runJsonCli<{
+          snapshot: Snapshot;
+          sessions: Array<{ session: string; action: string }>;
+          panes: Array<{
+            pane: string;
+            action: string;
+            identity: { id: string; name: string };
+            resume: { session: string; resumePendingAtMs: number };
+          }>;
+        }>(['workspace', 'show', '--socket', fixture.socketPath], { outsideTmux: true });
+        expect(result.code, result.stderr).toBe(0);
+        expect(result.json!.snapshot).toEqual(synthetic);
+        expect(result.json!.sessions).toEqual([
+          ...original.sessions.map((session) => ({ session: session.id, action: 'skip_existing' })),
+          { session: '$999999', action: 'create' },
+        ]);
+        expect(result.json!.panes.find((pane) => pane.pane === fixture.pane)).toMatchObject({
+          action: 'resumable',
+          identity: { id: bound.json!.id, name: 'Preview Current Name', channel: true },
+          resume: { session: 'current-conversation', resumePendingAtMs: 2 },
+        });
+        expect(trace.commands()).toEqual(['list-sessions']);
+        expect(fs.readFileSync(snapshotPath(fixture))).toEqual(bytes);
+        expect(topology()).toBe(beforeTopology);
+        expect(
+          database
+            .prepare('SELECT * FROM identity_session_preferences WHERE identity_id=?')
+            .get(bound.json!.id)
+        ).toEqual(before);
+        database
+          .prepare('UPDATE identity_session_preferences SET stale_at_ms=3 WHERE identity_id=?')
+          .run(bound.json!.id);
+        const human = await fixture.runCli(['workspace', 'show', '--socket', fixture.socketPath]);
+        expect(human.code, human.stderr).toBe(0);
+        expect(human.stdout).toContain('stale remembered session');
+        expect(human.stdout).not.toContain('--retry');
+        expect(fs.readFileSync(snapshotPath(fixture))).toEqual(bytes);
+      } finally {
+        database.close();
+      }
+    });
+  });
+
   it('captures linked layouts and exact identities, then reflects committed unbind', async () => {
     await withE2EFixture(async (fixture) => {
       fixture.tmux(['new-session', '-d', '-s', 'linked']);

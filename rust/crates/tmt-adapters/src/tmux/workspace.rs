@@ -47,6 +47,36 @@ impl<R: CommandRunner> Tmux<R> {
         Ok(tty.to_owned())
     }
 
+    /// Read names only, on an explicitly selected socket, without starting a server.
+    pub fn workspace_session_names(
+        &self,
+        socket: &str,
+        deadline: Instant,
+    ) -> Result<Vec<String>, TmuxError> {
+        let output = self.run(
+            "tmux",
+            vec![
+                "-S".into(),
+                socket.into(),
+                "list-sessions".into(),
+                "-F".into(),
+                "#{session_name}".into(),
+            ],
+            deadline,
+            MAX_BYTES,
+            TmuxFailure::Evidence,
+        )?;
+        let names: Vec<String> = output.lines().map(str::to_owned).collect();
+        if names.len() > MAX_PANES
+            || names
+                .iter()
+                .any(|name| name.is_empty() || name.contains(['\0', '\u{fffd}']))
+        {
+            return Err(invalid());
+        }
+        Ok(names)
+    }
+
     pub fn workspace_capture(
         &self,
         socket: &str,
