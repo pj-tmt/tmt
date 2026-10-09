@@ -1,10 +1,13 @@
-import { readFileSync, readdirSync } from 'node:fs';
+import { readFileSync, readdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { expect, it } from 'vite-plus/test';
 import ts from 'typescript';
 import { readCargoWorkspace } from '../../scripts/cargo-workspace.mjs';
 import { imports } from '../support/source-imports.js';
+import { writeExecutable } from '../support/executable-fixture.mjs';
 
 const { runPackedCommand } = await import(
   new URL('../../scripts/packed-command.mjs', import.meta.url).href
@@ -328,8 +331,9 @@ it('sets disposable native fixture profiles before Cargo runs in the Docker E2E 
   const setting = 'ENV CARGO_PROFILE_DEV_DEBUG=0 CARGO_INCREMENTAL=0';
   const configured = (text: string) => {
     const lines = instructions(text);
-    const nextStage = lines.findIndex((line, index) => index > 0 && /^FROM\s/i.test(line));
-    const native = lines.slice(0, nextStage);
+    const first = lines.findIndex((line) => / AS native-tests$/i.test(line));
+    const nextStage = lines.findIndex((line, index) => index > first && /^FROM\s/i.test(line));
+    const native = lines.slice(first, nextStage);
     const cargo = native.findIndex((line) => /^RUN\s.*\bcargo\b/.test(line));
     const settings = native.filter((line) =>
       /^(?:ENV|ARG)\s.*CARGO_(?:PROFILE_DEV_DEBUG|INCREMENTAL)/.test(line)
@@ -345,21 +349,119 @@ it('sets disposable native fixture profiles before Cargo runs in the Docker E2E 
     );
   };
   expect(configured(dockerfile)).toBe(true);
-  expect(configured(dockerfile.replace(`${setting}\n`, ''))).toBe(false);
+  expect(configured(dockerfile.replaceAll(`${setting}\n`, ''))).toBe(false);
   expect(
     configured(
-      dockerfile.replace(`${setting}\n`, '').replace(/^FROM node:/m, `${setting}\nFROM node:`)
+      dockerfile.replaceAll(`${setting}\n`, '').replace(/^FROM node:/m, `${setting}\nFROM node:`)
     )
   ).toBe(false);
   expect(
     configured(
-      dockerfile.replace(`${setting}\n`, '').replace(/^(FROM node:.*)$/m, `$1\n${setting}`)
+      dockerfile.replaceAll(`${setting}\n`, '').replace(/^(FROM node:.*)$/m, `$1\n${setting}`)
     )
   ).toBe(false);
   expect(
-    configured(dockerfile.replace('CARGO_PROFILE_DEV_DEBUG=0', 'CARGO_PROFILE_DEV_DEBUG=1'))
+    configured(dockerfile.replaceAll('CARGO_PROFILE_DEV_DEBUG=0', 'CARGO_PROFILE_DEV_DEBUG=1'))
   ).toBe(false);
-  expect(configured(dockerfile.replace('CARGO_INCREMENTAL=0', 'CARGO_INCREMENTAL=1'))).toBe(false);
+  expect(configured(dockerfile.replaceAll('CARGO_INCREMENTAL=0', 'CARGO_INCREMENTAL=1'))).toBe(
+    false
+  );
+});
+
+it('isolates the checksum-pinned CI dependency recipe from real source and local builds', () => {
+  const text = readFileSync(path.join(root, 'typescript/test/e2e/Dockerfile'), 'utf8');
+  const base =
+    'rust:1.97.0-bookworm@sha256:8fa55b2f3ddf97471ab6a767bfa3f37e6bad0986ba823e75fea57e2a2a5c3073';
+  const checksum = 'a3733ab416c3ffddd37914cd13919ca05fee1a1cf654f3016dcfe7f399d89cd1';
+  const admitted = (source: string) => {
+    const stages = source.split(/^FROM /m);
+    const dependencies = stages.find((part) => part.startsWith('ci-chef AS ci-dependencies\n'));
+    const planner = stages.find((part) => part.startsWith('ci-chef AS ci-planner\n'));
+    const native = stages.find((part) => part.startsWith('${TMT_NATIVE_BASE} AS native-tests\n'));
+    return (
+      source.startsWith(
+        `# Local builds use the original Rust base and never acquire the CI planner.\nARG TMT_NATIVE_BASE=${base}\n`
+      ) &&
+      source.includes(`FROM ${base} AS ci-chef\n`) &&
+      source.includes('/v0.1.77/cargo-chef-x86_64-unknown-linux-musl.tar.xz') &&
+      source.includes(`echo '${checksum}  /tmp/chef.tar.xz' | sha256sum --check -`) &&
+      planner?.includes('RUN cargo chef prepare --recipe-path /recipe.json') === true &&
+      dependencies?.match(/^COPY .*$/gm)?.join('\n') ===
+        'COPY --from=ci-planner /recipe.json /recipe.json' &&
+      dependencies.includes('ENV CARGO_PROFILE_DEV_DEBUG=0 CARGO_INCREMENTAL=0') &&
+      [
+        '--examples -p tmt-adapters',
+        '-p tmt-cli',
+        '-p tmt-ops',
+        '-p tmt-remote',
+        '--profile test --tests -p tmt-adapters',
+      ].every((selection) => dependencies.includes(selection)) &&
+      native?.includes('COPY rust/ ./') === true &&
+      native.includes(
+        'RUN cargo build --locked --example tmux-probe --example runtime-caller-fixture --example claude-hook-fixture --example codex-channel-fixture'
+      ) &&
+      native.includes('cargo test --locked --no-run -p tmt-adapters')
+    );
+  };
+  expect(admitted(text)).toBe(true);
+  expect(
+    admitted(text.replace(`ARG TMT_NATIVE_BASE=${base}`, 'ARG TMT_NATIVE_BASE=ci-dependencies'))
+  ).toBe(false);
+  expect(
+    admitted(text.replace('COPY --from=ci-planner /recipe.json /recipe.json', 'COPY . /native/'))
+  ).toBe(false);
+  expect(admitted(text.replace(' | sha256sum --check -', ''))).toBe(false);
+  expect(admitted(text.replace(checksum, '0'.repeat(64)))).toBe(false);
+  expect(admitted(text.replace('--profile test --tests -p tmt-adapters', '--workspace'))).toBe(
+    false
+  );
+  // The recipe includes Cargo.lock; a changed lock cannot reuse an old cook input.
+  const planner = text.split(' AS ci-planner\n')[1].split('\nFROM ')[0];
+  expect(planner).toContain('COPY . /native/');
+  expect(readFileSync(path.join(root, '.dockerignore'), 'utf8')).not.toMatch(
+    /^rust\/Cargo\.lock$/m
+  );
+});
+
+it('refuses mismatched planner bytes before extraction or execution', () => {
+  const directory = mkdtempSync(path.join(os.tmpdir(), 'tmt-chef-checksum-'));
+  try {
+    const artifact = path.join(directory, 'chef.tar.xz');
+    const log = path.join(directory, 'calls');
+    for (const command of ['curl', 'sha256sum', 'tar', 'cargo', 'rm']) {
+      const behavior =
+        command === 'curl'
+          ? "fs.writeFileSync(process.argv[process.argv.indexOf('--output') + 1], 'incorrect planner bytes');"
+          : command === 'sha256sum'
+            ? `const [expected, file] = fs.readFileSync(0, 'utf8').trim().split(/  /);
+process.exitCode = require('node:crypto').createHash('sha256').update(fs.readFileSync(file)).digest('hex') === expected ? 0 : 1;`
+            : '';
+      writeExecutable(
+        path.join(directory, command),
+        `#!/usr/bin/env node\nconst fs = require('node:fs');\nfs.appendFileSync(process.env.CHEF_CALL_LOG, ${JSON.stringify(command)} + '\\n');\n${behavior}\n`,
+        0o755
+      );
+    }
+    const text = readFileSync(path.join(root, 'typescript/test/e2e/Dockerfile'), 'utf8');
+    const command = instructions(text)
+      .find((line) => line.startsWith('RUN curl '))!
+      .slice(4)
+      .replaceAll('/tmp/chef.tar.xz', artifact);
+    const result = spawnSync('/bin/sh', ['-c', command], {
+      env: {
+        ...process.env,
+        PATH: `${directory}${path.delimiter}${process.env.PATH ?? ''}`,
+        CHEF_CALL_LOG: log,
+      },
+      encoding: 'utf8',
+      timeout: 10_000,
+    });
+    expect(result.error).toBeUndefined();
+    expect(result.status).toBe(1);
+    expect(readFileSync(log, 'utf8').trim().split('\n')).toEqual(['curl', 'sha256sum']);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
 });
 
 const trackedFiles: string[] = runPackedCommand('git', ['ls-files', '-z'], {

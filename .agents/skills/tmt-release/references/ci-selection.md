@@ -84,6 +84,8 @@ native reader needs CSS; Office product execution remains disabled.
 
 ## Cache ownership
 
+Docker E2E shards restore only the `tmt-e2e-dependencies` BuildKit API-v2 scope; `e2e-dependency-cache.yml` serializes main-only dependency seeds on manifest, lock, toolchain and recipe changes, without widening ordinary main CI selection. The exported dependency target excludes current workspace source and runtime layers; misses build cold, and local `pnpm test:e2e` keeps its independent build path.
+
 Rust dependency caches use the pinned `Swatinem/rust-cache` action with one
 main-only writer per key: workspace tests for shared dev dependencies, process
 contracts for their existing dev/release builds under `native-process-rust`, MSRV

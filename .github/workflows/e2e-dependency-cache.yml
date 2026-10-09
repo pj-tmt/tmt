@@ -1,0 +1,123 @@
+name: Docker E2E dependency cache
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '**/Cargo.toml'
+      - rust/Cargo.lock
+      - rust/rust-toolchain.toml
+      - '**/.cargo/config.toml'
+      - typescript/test/e2e/Dockerfile
+      - .dockerignore
+      - .github/workflows/e2e-dependency-cache.yml
+  # Draft qualification only; remove this event and job before landing (#2248).
+  pull_request:
+    paths:
+      - typescript/test/e2e/Dockerfile
+      - .github/workflows/e2e-dependency-cache.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: e2e-dependency-cache-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  seed:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3.11.1
+        with:
+          version: v0.29.1
+      - name: Seed only native E2E dependencies
+        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
+        with:
+          context: .
+          file: typescript/test/e2e/Dockerfile
+          target: ci-dependencies
+          cache-from: type=gha,version=2,scope=tmt-e2e-dependencies
+          cache-to: type=gha,version=2,scope=tmt-e2e-dependencies,mode=min
+
+  qualification:
+    if: github.event_name == 'pull_request' && github.head_ref == 'infra-1/2248-docker-dependency-cache'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3.11.1
+        with:
+          version: v0.29.1
+      - name: Measure cold and dependency-only warm native builds
+        shell: bash
+        run: |
+          set -euo pipefail
+          evidence="$RUNNER_TEMP/e2e-cache-qualification"
+          cache="$RUNNER_TEMP/e2e-dependency-export"
+          mkdir "$evidence"
+          git rev-parse HEAD | tee "$evidence/tested-head.txt"
+          sha256sum rust/Cargo.lock typescript/test/e2e/Dockerfile | tee "$evidence/source.sha256"
+          # No Actions-cache export. Each fresh builder isolates compiled source.
+          trap 'docker buildx rm qual-baseline qual-cold qual-warm >/dev/null 2>&1 || true' EXIT
+          for builder in qual-baseline qual-cold qual-warm; do
+            docker buildx create --driver docker-container --name "$builder"
+          done
+          native() {
+            local phase=$1 builder=$2
+            shift 2
+            local started=$SECONDS
+            docker buildx build --builder "$builder" --progress plain \
+              --file typescript/test/e2e/Dockerfile --target native-tests "$@" . \
+              2>&1 | tee "$evidence/$phase.log"
+            local status=${PIPESTATUS[0]}
+            echo "Native qualification $phase wall: $((SECONDS - started)) s." | tee -a "$evidence/wall.txt"
+            return "$status"
+          }
+          native baseline-cold qual-baseline
+          native candidate-cold qual-cold --build-arg TMT_NATIVE_BASE=ci-dependencies
+          docker buildx build --builder qual-cold --progress plain \
+            --file typescript/test/e2e/Dockerfile --target ci-dependencies \
+            --cache-to "type=local,dest=$cache,mode=min" . \
+            2>&1 | tee "$evidence/dependency-export.log"
+          python3 - "$cache" <<'PY' | tee "$evidence/cache-size.json"
+          import hashlib, json, pathlib, sys
+          root = pathlib.Path(sys.argv[1])
+          blobs = list((root / 'blobs' / 'sha256').iterdir())
+          print(json.dumps({'compressedBlobBytes': sum(p.stat().st_size for p in blobs),
+                            'blobCount': len(blobs),
+                            'indexSHA256': hashlib.sha256((root / 'index.json').read_bytes()).hexdigest()}))
+          PY
+          # Only source bytes change: the dependency recipe must still hit.
+          printf '\n// #2248 dependency-cache qualification no-op.\n' >> rust/crates/tmt-core/src/lib.rs
+          git diff -- rust/crates/tmt-core/src/lib.rs | tee "$evidence/no-op.patch"
+          native warm-source-changed qual-warm --build-arg TMT_NATIVE_BASE=ci-dependencies \
+            --cache-from "type=local,src=$cache"
+          native warm-unchanged qual-warm --build-arg TMT_NATIVE_BASE=ci-dependencies \
+            --cache-from "type=local,src=$cache"
+          printf '\ncompile_error!("#2248 expected compile refusal");\n' >> rust/crates/tmt-cli/src/main.rs
+          set +e
+          native compile-error qual-warm --build-arg TMT_NATIVE_BASE=ci-dependencies \
+            --cache-from "type=local,src=$cache"
+          status=$?
+          set -e
+          test "$status" -ne 0
+          grep -F '#2248 expected compile refusal' "$evidence/compile-error.log"
+          echo "Real compile-error status: $status; no container run was requested." | tee "$evidence/compile-error-status.txt"
+          sha256sum "$evidence"/* | tee "$RUNNER_TEMP/e2e-cache-qualification.sha256"
+      - name: Retain qualification logs only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-cache-qualification
+          path: |
+            ${{ runner.temp }}/e2e-cache-qualification
+            ${{ runner.temp }}/e2e-cache-qualification.sha256
+          retention-days: 7
