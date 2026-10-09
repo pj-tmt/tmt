@@ -16,6 +16,10 @@ function humanSize(bytes: number): string {
 const reconnectCommand = 'tmt remote pair';
 
 export const text = {
+  browserUnsupported: 'Unsupported browser',
+  browserUpdate: 'Update your browser',
+  browserUpdateBody:
+    'This browser cannot safely verify Colab signatures. Update it or open Colab in another supported browser.',
   unknownPageTitle: 'Untitled page',
   originalAuthor: 'Original author',
   byAuthor: (name: string) => `By ${name}`,

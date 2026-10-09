@@ -5,6 +5,8 @@ import { parseReaderFragment } from './reader-link.js';
 import { accessEnded, ReaderSession } from './reader.js';
 import '@tmt/browser-ui/static.css';
 import './reader-style.css';
+import { probeCapabilities } from '@tmt/colab-client';
+import { UnsupportedBrowserNotice } from './notice-card.js';
 
 /** Public entry for a read-only link. The fragment holds the seed: it leaves the address bar
  * before anything else runs and is never stored, logged or sent to the server. */
@@ -19,6 +21,12 @@ const show = (state: ReaderState) => {
   render();
 };
 async function start() {
+  try {
+    await probeCapabilities();
+  } catch {
+    root.render(<UnsupportedBrowserNotice />);
+    return;
+  }
   show({ kind: 'opening' });
   if (!/^\/r\/[a-z0-9]+\/x\/colab\/read$/.test(location.pathname) || location.search) {
     return show({ kind: 'invalid' });
