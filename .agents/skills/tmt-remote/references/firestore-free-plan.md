@@ -64,7 +64,10 @@ never returns stays until storage fills; Blaze TTL is optional and never require
 Remote owns the table and arithmetic (Rust here, the same vectors in the browser SDK);
 the extension's transport calls it before each append and persists the client's own count per
 Pacific day. The Firestore emulator does not enforce quotas, so tests assert the guard against
-the vectors and the Rules path, never Google's counter.
+the vectors and the Rules path, never Google's counter. The emulator suite also drives the
+shipped SDK bundle's guard through real appends: it refuses below the modeled allowance, the
+emulator stores exactly the allowed appends, and the refused update is sent unchanged after the
+Pacific reset.
 
 ## Recorded readiness
 

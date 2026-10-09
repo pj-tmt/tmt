@@ -498,10 +498,11 @@ const REMOTE_FIRESTORE_ROOTS = [
 
 const REMOTE_FIRESTORE_INPUTS = new Set([
   '.github/workflows/ci.yml',
+  'extensions/tmt-remote/rust/tmt-remote/assets/remote-v1.js',
   'extensions/tmt-remote/rust/tmt-remote/src/rules.rs',
 ]);
 
-/** The suite, its fixtures, the composer or the pinned CI step changed. Empty diffs select nothing. */
+/** The suite, its fixtures, the composer, the SDK bundle its guard test imports or the pinned CI step changed. Empty diffs select nothing. */
 export function selectRemoteFirestore(paths) {
   return paths.some(
     (path) =>
