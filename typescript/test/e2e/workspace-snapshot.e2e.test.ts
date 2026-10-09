@@ -234,7 +234,9 @@ server.listen(${JSON.stringify(gate)}, () => {
       // Dispatch writes only an advisory marker. Snapshot IO waits for the next
       // eligible event, which independently verifies native owner evidence.
       expect(fs.readFileSync(snapshotPath(fixture))).toEqual(previousSnapshot);
-      expect((await fixture.runJsonCli(['name', 'Snapshot Trigger'])).code).toBe(0);
+      // Repeating this exact binding is an admitted native event; selecting a
+      // different identity would be a real binding conflict.
+      expect((await fixture.runJsonCli(['name', 'Before Dispatch'])).code).toBe(0);
       expect(readSnapshot(fixture).panes.find((value) => value.id === pane)?.command).toMatchObject(
         {
           argv: ['tmt', 'workspace-example', 'ui', '--tabs=agents,requests', 'literal $(data)'],

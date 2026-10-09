@@ -221,8 +221,7 @@ describe('scoped identity operations in a large tmux session', { concurrent: fal
         // binding/routing evidence still selects only its requested panes.
         const topologyReads = addListInvocations.filter(
           (args) =>
-            args.includes('#{window_visible_layout}') &&
-            args.includes('@tmux-team.workspace-command')
+            args.includes('#{window_visible_layout}') && args.includes('@tmt.workspace-command')
         );
         expect(topologyReads).toHaveLength(1);
         expect(topologyReads[0]).toContain(' -a ');
