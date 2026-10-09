@@ -28,6 +28,7 @@ mod checklist;
 mod cron;
 mod frame_timing;
 mod help;
+mod layout_shift;
 mod menu;
 mod meter;
 mod parity;

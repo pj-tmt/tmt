@@ -20,20 +20,26 @@ fn prepare(
     extras: Vec<Extra>,
 ) -> Result<derived::Grid, String> {
     let available = usize::from(area.width).saturating_sub(2);
-    // Unsized columns start from their widest value on the board.
+    // Unsized columns start from the widest value the tab has shown: a column
+    // grows when a longer value arrives and never shrinks while the tab stays
+    // open at this width, so a refresh in flight cannot move it.
     let natural = |index: usize| {
-        let field = &rows.columns[index].field;
-        app.items()
+        let column = &rows.columns[index];
+        let loaded = app
+            .items()
             .into_iter()
             .filter_map(|item| match item {
-                Item::Row(_, row) => crate::markup::value(row, field),
+                Item::Row(_, row) => crate::markup::value(row, &column.field),
                 Item::Section(_) | Item::Rule(_) => None,
             })
             // Content demand is unwrapped; measured width is a capped upper bound.
             .map(|value| tmt_cli_style::table::escape(value).width())
-            .chain([rows.columns[index].title.width()])
+            .chain([column.title.width()])
             .max()
-            .unwrap_or(0)
+            .unwrap_or(0);
+        app.stable
+            .borrow_mut()
+            .width(&format!("column:{}", column.field), loaded)
     };
     // Two cells for the row mark.
     let layout = crate::markup::Grid::compile(rows, natural, available)
@@ -48,27 +54,35 @@ fn prepare(
             Item::Section(_) | Item::Rule(_) => None,
         })
         .collect();
-    let widest = |label: &dyn Fn(&Option<String>, &Extra) -> Option<String>| {
-        ages.iter()
+    // The reserve is the widest label the tab has shown, so a row that stops
+    // being stale does not hand its room back to the columns.
+    let widest = |name: &str, label: &dyn Fn(&Option<String>, &Extra) -> Option<String>| {
+        let loaded = ages
+            .iter()
             .zip(&extras)
             .filter_map(|(age, extra)| label(age, extra))
             .map(|label| label.width() + GAP)
             .max()
+            .unwrap_or(0);
+        Some(app.stable.borrow_mut().width(name, loaded)).filter(|reserve| *reserve > 0)
     };
     let with_next = |age: &Option<String>, extra: &Extra| {
         row_end(age.clone(), extra.next.clone()).into_iter().next()
     };
     let age_only = |age: &Option<String>, _: &Extra| age.clone();
     let shown = layout.columns.iter().flatten().count();
-    let layout = [widest(&with_next), widest(&age_only)]
-        .into_iter()
-        .flatten()
-        .find_map(|reserve| {
-            crate::markup::Grid::compile(rows, natural, available.saturating_sub(reserve))
-                .ok()
-                .filter(|reserved| reserved.columns.iter().flatten().count() == shown)
-        })
-        .unwrap_or(layout);
+    let layout = [
+        widest("row-end:next", &with_next),
+        widest("row-end:age", &age_only),
+    ]
+    .into_iter()
+    .flatten()
+    .find_map(|reserve| {
+        crate::markup::Grid::compile(rows, natural, available.saturating_sub(reserve))
+            .ok()
+            .filter(|reserved| reserved.columns.iter().flatten().count() == shown)
+    })
+    .unwrap_or(layout);
     let cells = crate::markup::row_values(rows, tab, app.rows())
         .map_err(|error| format!("Row values: {error}"))?;
     // Visibility is per occurrence: a surviving track may still cut this row's
