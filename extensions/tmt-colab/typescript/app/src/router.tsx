@@ -1,9 +1,14 @@
 import type { ComposerEdit } from './components/message-composer-edit.js';
-import { BrowserAction, BrowserIconAction, BrowserToggle } from '@tmt/browser-ui/react';
+import {
+  BrowserAction,
+  BrowserIconAction,
+  BrowserList,
+  BrowserListRow,
+  BrowserToggle,
+} from '@tmt/browser-ui/react';
 import { browserUiClasses as ui } from '@tmt/browser-ui/static';
 import { validPagePrefix } from './short-links.js';
 import {
-  FileText,
   ArrowUpRight,
   Circle,
   Diamond,
@@ -32,7 +37,8 @@ import {
   useRouter,
   useRouterState,
 } from '@tanstack/react-router';
-import type { PageView, PageTransport } from './transport.js';
+import type { PageSummary, PageView, PageTransport } from './transport.js';
+import { orderPages, pageTitle, pageUpdate } from './page-index.js';
 import { AnnotationInput } from './annotation-input.js';
 import { ThreadPanel, ThreadWindow } from './thread-panel.js';
 import { presentationOf } from './thread-status-presentation.js';
@@ -446,11 +452,60 @@ function ManageButton({
     </>
   );
 }
+function PageListActions({ page }: { page: PageSummary }) {
+  const menu = useRef<HTMLDetailsElement>(null);
+  const [open, setOpen] = useState(false);
+  useEffect(() => {
+    const element = menu.current;
+    if (!open || !element) return;
+    const outside = (event: PointerEvent) => {
+      // The management dialog is this disclosure's portal; keep its return target visible.
+      if (event.target instanceof Element && event.target.closest('.management-dialog')) return;
+      if (event.target instanceof Node && !element.contains(event.target)) element.open = false;
+    };
+    document.addEventListener('pointerdown', outside);
+    return () => document.removeEventListener('pointerdown', outside);
+  }, [open]);
+  return (
+    <details
+      ref={menu}
+      className="page-row-menu"
+      onToggle={(event) => setOpen(event.currentTarget.open)}
+      onKeyDown={(event) => {
+        if (event.target instanceof Element && event.target.closest('.management-dialog')) return;
+        if (event.key === 'Escape' && menu.current?.open) {
+          menu.current.open = false;
+          menu.current.querySelector('summary')?.focus();
+          event.stopPropagation();
+        }
+      }}
+      onBlur={(event) => {
+        if (
+          event.relatedTarget instanceof Element &&
+          event.relatedTarget.closest('.management-dialog')
+        )
+          return;
+        if (!event.currentTarget.contains(event.relatedTarget)) event.currentTarget.open = false;
+      }}
+    >
+      <summary aria-label={text.pageActionsFor(pageTitle(page))}>{text.pageActions}</summary>
+      <div className="page-row-menu-body">
+        <p>{text.askDetails}</p>
+        <p className="management-id">Page ID: {page.id}</p>
+        <RetentionHint page={page} />
+        <ManageButton pageId={page.id} title={page.title} />
+      </div>
+    </details>
+  );
+}
+
 function Home() {
   const space = home.useLoaderData();
   const { transport } = root.useRouteContext();
   const [archived, setArchived] = useState(false);
-  const pages = space.pages.filter((p) => Boolean(p.archived) === archived);
+  const pages = orderPages(space.pages.filter((p) => Boolean(p.archived) === archived));
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => setNow(Date.now()), [space.pages, archived]);
   useEffect(() => {
     document.title =
       space.title === text.product ? text.product : `${space.title} · ${text.product}`;
@@ -463,49 +518,51 @@ function Home() {
       {transport.management && (
         <BrowserToggle
           pressed={archived}
-          label="Show archived"
+          label={text.showArchived}
           onActivate={(event) => {
             if (event.isTrusted) setArchived(!archived);
           }}
         />
       )}
       {pages.length ? (
-        <ul className="pages">
-          {pages.map((p) => (
-            <li key={p.id} data-page-id={p.id} className="page-card">
-              {p.archived ? (
-                <div className="archived-page">
-                  <FileText className="page-mark" aria-hidden />
-                  <h2>{p.title.trim() || text.unknownPageTitle}</h2>
-                  <span className="page-id">{p.id.slice(0, 8)}</span>
-                  <span className="chip">Archived · writes frozen</span>
-                  {transport.management && <RetentionHint page={p} />}
-                </div>
-              ) : (
-                <Link className="page-card-link" to="/pages/$pageId" params={{ pageId: p.id }}>
-                  <FileText className="page-mark" aria-hidden />
-                  <h2>{p.title.trim() || text.unknownPageTitle}</h2>
-                  <span className="page-id">{p.id.slice(0, 8)}</span>
-                  <span className="chip">{text[p.sharing]}</span>
-                  {transport.management && <RetentionHint page={p} />}
-                  <span className="open">
-                    {text.open}
-                    <ArrowUpRight aria-hidden />
-                  </span>
-                </Link>
-              )}
-              {transport.management && (
-                <div className="page-card-actions">
-                  <details>
-                    <summary>Details</summary>
-                    <p className="management-id">Page ID: {p.id}</p>
-                  </details>
-                  <ManageButton pageId={p.id} title={p.title} />
-                </div>
-              )}
-            </li>
-          ))}
-        </ul>
+        <BrowserList label={text.pages} className="pages">
+          {pages.map((p) => {
+            const title = pageTitle(p);
+            const updated = pageUpdate(p.lastUpdateAtMs, now);
+            return (
+              <BrowserListRow
+                key={p.id}
+                data-page-id={p.id}
+                title={
+                  p.archived ? (
+                    <span title={title}>{title}</span>
+                  ) : (
+                    <Link to="/pages/$pageId" params={{ pageId: p.id }} title={title}>
+                      {title}
+                    </Link>
+                  )
+                }
+                metadata={
+                  updated.dateTime ? (
+                    <time
+                      dateTime={updated.dateTime}
+                      title={updated.absolute}
+                      aria-label={`${text.lastUpdated}: ${updated.label}`}
+                    >
+                      {updated.label}
+                    </time>
+                  ) : (
+                    updated.label
+                  )
+                }
+                state={
+                  p.archived ? text.archived : p.sharing === 'private' ? text.private : text.shared
+                }
+                actions={transport.management ? <PageListActions page={p} /> : undefined}
+              />
+            );
+          })}
+        </BrowserList>
       ) : (
         <p>
           {archived ? 'No archived pages.' : space.pages.length ? 'No active pages.' : text.empty}

@@ -214,14 +214,16 @@ for (const width of [1440, 390, 320])
             await expect(card.locator('.tmt-ui-notice-eyebrow')).not.toBeEmpty();
           }
           if (screen === 'pages') {
-            const card = page.locator('.page-card:visible').first();
-            await expect(card.locator('h2')).toHaveText('Release notes');
-            await expect(card.locator('.page-id')).toHaveText('a19c0460');
+            const card = page.locator('.pages > li:visible').first();
+            await expect(card.locator('.tmt-ui-list-title')).toHaveText('Release notes');
+            await expect(card.locator('summary')).toHaveText('Actions');
+            await card.locator('summary').click();
+            await expect(card.locator('.management-id')).toContainText('a19c0460');
             await expect(card.getByRole('button', { name: 'Manage page' })).toBeVisible();
-            await expect(card.locator('summary')).toHaveText('Details');
-            await expect(page.locator('.page-card:visible').nth(1).locator('h2')).toHaveText(
-              'Untitled page',
-            );
+            await card.locator('summary').click();
+            await expect(
+              page.locator('.pages > li:visible').nth(1).locator('.tmt-ui-list-title'),
+            ).toHaveText('Untitled page');
           }
           for (const icon of await page.locator('svg.lucide:visible').all()) {
             await expect(icon).toHaveCSS('stroke-linecap', 'square');

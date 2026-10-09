@@ -1,7 +1,7 @@
 # Page chrome (#1586)
 
 `colab-header.tsx` and `notice-card.tsx` adapt Colab content to the private
-`@tmt/browser-ui/react` Header/Notice exports. Router chrome uses the shared Action/Toggle
+`@tmt/browser-ui/react` Header/Notice exports. Router chrome uses the shared Action/Toggle/List
 and static classes; Theme and page overflow/close use `BrowserIconAction`.
 The overflow trigger supplies controlled disclosure state and its menu ID; the
 host owns menu dismissal and focus return. Original trusted activation events remain Colab-owned. App and reader
@@ -29,9 +29,15 @@ visible. Neither Cargo nor installed serving runs Node or fetches external asset
 `router.tsx` retains the active Source, Comments, Chat, Agents or Export overlay. At narrow
 widths the page actions move into an overflow menu. The existing display-only
 `local · <name>` label and sharing metadata move inside that menu on mobile.
-Page-list cards show their name (or `Untitled page`), a short mono ID and the
-shared expiry hint; Details and Manage stay inside the card. Full IDs remain in
-Details. Neither titles nor retention hints grant access.
+The page index uses leaf List/Row presentation with newest-update-first ordering,
+then displayed title and page ID for ties. Active titles are links; archived titles
+remain plain text with their actions menu. Tab order is title then actions for
+active rows. Each row shows a relative update time with an absolute local date
+in its tooltip, and Private, Shared or Archived. Missing and out-of-range times
+show `Update time unknown` without a date or `time` element. On compact screens,
+metadata sits beneath the title. The Actions disclosure contains Details, full
+page ID, the shared expiry hint and Manage page. The index uses window scrolling;
+only the header stays fixed. Neither titles nor retention hints grant access.
 
 The browser window scrolls the author page. `renderer.ts` initially sizes the
 opaque iframe to the remaining viewport, disables its scrollbar, then uses the
