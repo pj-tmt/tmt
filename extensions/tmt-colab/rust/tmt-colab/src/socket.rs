@@ -10,6 +10,7 @@ use crate::{
     control::{self, Control, StopReply},
     keyring::{Layout, StateFault},
     limits, management,
+    object_channel::ChannelOwner,
     registration::{self, OwnerAdmission, Registration},
     serve_release::ServeRelease,
     store::Store,
@@ -104,6 +105,7 @@ pub struct MountSocket {
     tunnels: Tunnels,
     registration: Option<Arc<Mutex<Registration>>>,
     sync: Option<Server<OwnerAdmission>>,
+    objects: Arc<ChannelOwner>,
 }
 #[derive(Clone)]
 struct Browser {
@@ -119,6 +121,23 @@ struct Worker {
     handle: JoinHandle<()>,
 }
 impl MountSocket {
+    /// Native root-local admitted read through this serve's established object
+    /// channel. It never activates storage, opens a backend or serves plaintext
+    /// over a route. Owner/reader browser requests use the sync peer instead.
+    pub fn read_attachment(
+        &self,
+        page: &str,
+        selector: &tmt_colab_model::attachment::AttachmentSelector,
+        deadline: Instant,
+    ) -> Result<Vec<u8>> {
+        let source = self
+            .registration
+            .as_ref()
+            .and_then(|service| service.lock().ok()?.save_source())
+            .ok_or(crate::page::Fault::Unavailable)?;
+        self.objects
+            .read_root_local(page, selector, source, deadline)
+    }
     /// Bind under the held serve lock. An existing socket owned by this user is
     /// a stale leftover of an earlier serve and is replaced; anything else
     /// refuses.
@@ -161,6 +180,7 @@ impl MountSocket {
             tunnels,
             registration: None,
             sync: None,
+            objects: Arc::new(ChannelOwner::new(Arc::new(|| None))),
         })
     }
     /// Record how the Remote door is held (one of `control::DOORS`) for a stop request to report.
@@ -170,6 +190,15 @@ impl MountSocket {
     }
     pub fn with_release(mut self, release: Arc<ServeRelease>) -> Self {
         self.browser.release = Some(release);
+        self
+    }
+    /// The executable refreshes live public Remote discovery for each handshake;
+    /// this socket owns strict parsing, generation replacement and teardown.
+    pub fn with_object_discovery(
+        mut self,
+        discover: impl Fn() -> Option<(String, String)> + Send + Sync + 'static,
+    ) -> Self {
+        self.objects = Arc::new(ChannelOwner::new(Arc::new(discover)));
         self
     }
     pub fn with_app(mut self, app: Option<App>) -> Self {
@@ -235,6 +264,7 @@ impl MountSocket {
                     let registration = self.registration.clone();
                     let sync = self.sync.clone();
                     let active = Arc::clone(&active);
+                    let objects = Arc::clone(&self.objects);
                     let handle =
                         thread::Builder::new()
                             .name("colab-socket".into())
@@ -244,9 +274,12 @@ impl MountSocket {
                                     &browser,
                                     &live,
                                     tunnels,
-                                    registration.as_ref(),
-                                    sync.as_ref(),
-                                    &active,
+                                    MountedServices {
+                                        registration: registration.as_ref(),
+                                        sync: sync.as_ref(),
+                                        active: &active,
+                                        objects: &objects,
+                                    },
                                 )
                             })?;
                     workers.push(Worker {
@@ -262,6 +295,9 @@ impl MountSocket {
         for worker in &workers {
             let _ = worker.socket.shutdown(std::net::Shutdown::Both);
         }
+        // End object correlations before joining peers that may be waiting for
+        // a backend result. Their retained clients cannot prolong shutdown.
+        self.objects.close();
         let mut panicked = false;
         for worker in workers {
             panicked |= worker.handle.join().is_err();
@@ -289,23 +325,35 @@ struct Request {
     /// The owner device's name, when remote forwarded an owner context.
     owner: Option<String>,
     context: Option<String>,
+    origin: Option<String>,
     body: Vec<u8>,
     event: Option<String>,
     prefetched: Vec<u8>,
+    head: Vec<u8>,
     upgrade: bool,
     key: Option<String>,
     version: Option<String>,
     protocols: Vec<String>,
+}
+struct MountedServices<'a> {
+    registration: Option<&'a Arc<Mutex<Registration>>>,
+    sync: Option<&'a Server<OwnerAdmission>>,
+    active: &'a ActiveTunnels,
+    objects: &'a ChannelOwner,
 }
 fn serve(
     mut socket: UnixStream,
     browser: &Browser,
     live: &AtomicUsize,
     tunnels: Tunnels,
-    registration: Option<&Arc<Mutex<Registration>>>,
-    sync: Option<&Server<OwnerAdmission>>,
-    active: &ActiveTunnels,
+    services: MountedServices<'_>,
 ) {
+    let MountedServices {
+        registration,
+        sync,
+        active,
+        objects,
+    } = services;
     let request = match acquire(&mut socket) {
         Ok(request) => request,
         Err(status) => {
@@ -313,6 +361,17 @@ fn serve(
             return;
         }
     };
+    if request.path == "/.tmt/remote/object-channel-v1" {
+        // The neutral owner validates the exact raw head, including all fields
+        // and any pipelined bytes, before writing its only handshake response.
+        let _ = objects.accept(
+            socket,
+            &request.head,
+            &request.prefetched,
+            request.received + limits::ACQUISITION,
+        );
+        return;
+    }
     if request.path == EVENTS {
         let result =
             if request.method != "POST" || request.upgrade || request.event.as_deref() != Some("1")
@@ -507,6 +566,7 @@ fn serve(
                 return;
             }
         };
+        let reader = token.is_some();
         if request.owner.is_none() && token.is_none() {
             let _ = response(&mut socket, 403, b"DENIED", false);
             return;
@@ -585,6 +645,16 @@ fn serve(
             let _ = response(&mut socket, 503, b"CAPACITY", false);
             return;
         }
+        let mut object_peer = None;
+        let _ = server.update_admission(|admission| {
+            object_peer = objects.peer(
+                request.origin.as_deref(),
+                device.clone(),
+                request.context.clone(),
+                reader,
+                admission.clone(),
+            );
+        });
         drive(
             socket,
             &key,
@@ -592,6 +662,7 @@ fn serve(
             server,
             device.clone(),
             request.prefetched,
+            object_peer,
         );
         let _ = server.update_admission(|a| {
             if let Ok(mut s) = a.0.lock() {
@@ -911,6 +982,7 @@ fn drive(
     server: &Server<OwnerAdmission>,
     device: String,
     prefetched: Vec<u8>,
+    objects: Option<crate::object_channel::PeerObjects>,
 ) {
     let accept = tungstenite::handshake::derive_accept_key(key.as_bytes());
     let head = format!(
@@ -935,6 +1007,7 @@ fn drive(
     let Ok(mut connection) = server.connect(transport, device) else {
         return;
     };
+    connection.attach_objects(objects);
     loop {
         if received.lock().map_or(true, |last| last.elapsed() >= idle) {
             break;
@@ -1096,9 +1169,11 @@ fn acquire(socket: &mut UnixStream) -> std::result::Result<Request, u16> {
         method: parsed.method.ok_or(400u16)?.to_owned(),
         owner: None,
         context: None,
+        origin: None,
         body: Vec::new(),
         event: None,
         prefetched: Vec::new(),
+        head: bytes[..end].to_vec(),
         upgrade: false,
         key: None,
         version: None,
@@ -1128,6 +1203,7 @@ fn acquire(socket: &mut UnixStream) -> std::result::Result<Request, u16> {
             }
             "tmt-device-event" => request.event = Some(value.to_owned()),
             CONTEXT_HEADER => request.context = Some(value.to_owned()),
+            "tmt-origin" => request.origin = Some(value.to_owned()),
             "content-length" => {
                 if value.is_empty()
                     || !value.bytes().all(|b| b.is_ascii_digit())

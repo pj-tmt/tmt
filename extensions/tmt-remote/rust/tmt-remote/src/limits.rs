@@ -100,3 +100,18 @@ pub const OBJECT_LEDGER_BASE_BYTES: u64 = 256 * 1024;
 pub const SERVE_STARTUP: Duration = Duration::from_secs(35);
 /// Maximum complete private handoff frame and fixed local diagnostic record.
 pub const SERVE_RECORD_BYTES: usize = 4096;
+
+// Backend declarations and deploy plans (contract: Backends and deploy, "extension backend
+// declarations"). The first three are the contract's own numbers.
+/// Largest backend declaration, as UTF-8 JSON.
+pub const DECLARATION_BYTES: usize = 64 * 1024;
+pub const DECLARATION_RESOURCES: usize = 64;
+pub const DECLARATION_INDEXES: usize = 64;
+/// Longest namespace path of a declared resource, in segments.
+pub const DECLARATION_PATH_SEGMENTS: usize = 8;
+/// Longest single path segment, name or field of a declaration, in bytes.
+pub const DECLARATION_IDENTIFIER_BYTES: usize = 64;
+/// Largest admission artifact (a Rules or Worker fragment) a plan accepts.
+pub const DECLARATION_ARTIFACT_BYTES: usize = 64 * 1024;
+/// Enabled extensions one deploy plan composes.
+pub const PLAN_EXTENSIONS: usize = 16;

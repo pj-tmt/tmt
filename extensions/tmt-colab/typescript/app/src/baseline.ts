@@ -31,18 +31,19 @@ export async function openBaseline(
   a: Admission,
   descriptor: string,
   object: BaselineObject,
+  epoch = a.epoch,
 ): Promise<BaselineInput> {
   const d = payload.decodeBaseline(binary(descriptor, 8 * 1024));
-  const key = a.baseline(d);
+  const key = a.baseline(d, epoch),
+    root = a.readRoot(epoch);
   exactKeys(object, ['envelopeHash', 'envelope']);
   const env = Envelope.fromJson(binary(object.envelope, MAX_ENVELOPE_JSON));
   const h = decodeHeader(env.header()).context;
   requireValue(
-    a.root !== null &&
-      a.head !== null &&
+    a.head !== null &&
       h.space === a.space &&
       h.page === a.page &&
-      h.epoch === a.epoch &&
+      h.epoch === epoch &&
       h.kind === 'html' &&
       h.namespace === 'content' &&
       h.authorDevice === a.head.ownerMember.id &&
@@ -52,7 +53,7 @@ export async function openBaseline(
       object.envelopeHash === d.objectEnvelopeHash &&
       equal(await env.hash(), binary(d.objectEnvelopeHash, 32, 32)),
   );
-  const plain = await env.open(h, a.root, key);
+  const plain = await env.open(h, root, key);
   try {
     // Bound JSON before parsing; the model's non-update ceiling is 16 MiB.
     const body = strictJson(plain, MAX_PLAINTEXT, true);

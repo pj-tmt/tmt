@@ -84,7 +84,11 @@ owns record fields, limits, revision semantics and trust boundaries.
   Enter; no drawer opens automatically. Known margin markers reopen that exact
   thread using the current renderer's admitted cosmetic position. The page owner
   keeps drafts and bound mention UUIDs by thread across collapse and explicit Comments
-  access. Resolve/Reopen is the parent's `onStatusChange` seam over
+  access. `draft-store.ts` persists them per device behind that map (encrypted record per
+  space/device/page, `DraftSession` coalescing, page restore on mount); `saved-drafts.tsx`
+  lists selection drafts and replies to vanished threads under Comments. Restore only fills
+  composers; the Ask ledger is untouched. Failed storage shows `Drafts are not saved on this
+device.` once per failure and keeps the in-tab draft. Resolve/Reopen is the parent's `onStatusChange` seam over
   `ThreadStatusCoordinator`, not a thread edit: the window receives the thread's
   `ThreadPresentation.status` and awaits one status change (shown only when
   the local device has owner-member provenance, `Admission.ownerDevice`, the

@@ -260,6 +260,8 @@ impl Store {
         if input.client_id != grant.client_id
             || input.kind != "request"
             || admission::scope(input.operation).is_none()
+            || admission::RemoteOperation::parse(input.operation)
+                .is_some_and(|operation| operation.class() != admission::OperationClass::Effect)
             || (input.operation == "dispatch.create") != frozen.is_some()
             || resources.len() > 256
             || resources.iter().any(|id| !canonical::is_core_id(id))

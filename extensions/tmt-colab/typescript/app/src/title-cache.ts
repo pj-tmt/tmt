@@ -1,12 +1,8 @@
-import { binary, decodeText, encodeBinary, exactKeys, requireValue, text } from '@tmt/colab-client';
+import { decodeText, requireValue, text } from '@tmt/colab-client';
 import { UPDATE_BYTES } from './fold-protocol.js';
 import { titleKey } from './keyring.js';
+import { open, seal, type Sealed } from './local-seal.js';
 import { record } from './storage.js';
-
-interface StoredTitle {
-  nonce: string;
-  ciphertext: string;
-}
 
 /** Optional display hints only. Plaintext exists in parent memory, never IndexedDB. */
 export class TitleCache {
@@ -22,20 +18,11 @@ export class TitleCache {
   }
   async read(page: string): Promise<string | undefined> {
     try {
-      const stored = await record<StoredTitle>(this.#record(page));
+      const stored = await record<Sealed>(this.#record(page));
       if (stored === undefined) return undefined;
-      exactKeys(stored, ['nonce', 'ciphertext']);
-      const plaintext = await crypto.subtle.decrypt(
-        {
-          name: 'AES-GCM',
-          iv: binary(stored.nonce, 12, 12),
-          additionalData: text(JSON.stringify(this.#scope(page))),
-        },
-        await titleKey(this.device),
-        binary(stored.ciphertext, UPDATE_BYTES + 16),
+      return decodeText(
+        await open(await titleKey(this.device), this.#scope(page), stored, UPDATE_BYTES),
       );
-      requireValue(plaintext.byteLength <= UPDATE_BYTES);
-      return decodeText(new Uint8Array(plaintext));
     } catch {
       // Corrupt, unavailable or wrong-scope hints must never block page access.
       return undefined;
@@ -47,17 +34,9 @@ export class TitleCache {
       if (signal?.aborted) return;
       const plaintext = text(title);
       requireValue(plaintext.length <= UPDATE_BYTES);
-      const nonce = crypto.getRandomValues(new Uint8Array(12));
-      const ciphertext = await crypto.subtle.encrypt(
-        { name: 'AES-GCM', iv: nonce, additionalData: text(JSON.stringify(this.#scope(page))) },
-        await titleKey(this.device),
-        plaintext,
-      );
+      const sealed = await seal(await titleKey(this.device), this.#scope(page), plaintext);
       if (signal?.aborted) return;
-      await record(this.#record(page), {
-        nonce: encodeBinary(nonce),
-        ciphertext: encodeBinary(new Uint8Array(ciphertext)),
-      });
+      await record(this.#record(page), sealed);
     } catch {
       // Persistence is best-effort presentation, never a page/management mutation.
     }

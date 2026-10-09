@@ -147,3 +147,110 @@ fn attachment_reference_revision_and_namespace_match_independent_shared_position
         assert_eq!(hex, corpus["namespace"].as_str().unwrap());
     }
 }
+
+#[test]
+fn sealed_historical_receipts_use_the_owner_bound_before_later_revocation() {
+    use std::os::unix::fs::OpenOptionsExt;
+    let corpus: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../../contracts/vectors/authority-v1.json"
+    ))
+    .unwrap();
+    struct SealedHistoryDirectory(std::path::PathBuf);
+    impl Drop for SealedHistoryDirectory {
+        fn drop(&mut self) {
+            let result = std::fs::remove_dir_all(&self.0);
+            if !std::thread::panicking() {
+                result.unwrap();
+            }
+        }
+    }
+    let root = SealedHistoryDirectory(
+        std::env::temp_dir().join(format!("tmt-colab-sealed-history-{}", std::process::id())),
+    );
+    std::fs::create_dir(&root.0).unwrap();
+    let layout = crate::keyring::Layout::open(&root.0).unwrap();
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(root.0.join("colab/owner.key"))
+        .unwrap();
+    let seed = corpus["seed"]
+        .as_str()
+        .unwrap()
+        .as_bytes()
+        .chunks_exact(2)
+        .map(|pair| u8::from_str_radix(std::str::from_utf8(pair).unwrap(), 16).unwrap())
+        .collect::<Vec<_>>();
+    file.write_all(&seed).unwrap();
+    drop(file);
+    let key = Keyring::read(&layout).unwrap();
+    let page = corpus["page"].as_str().unwrap();
+    for case in corpus["sealedHistoryCases"].as_array().unwrap() {
+        let log = case["log"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| statement::Envelope::from_json(&serde_json::to_vec(v).unwrap()).unwrap())
+            .collect::<Vec<_>>();
+        let (states, payloads) = verify_log(&log, &key, page).unwrap();
+        let mut snapshot = Snapshot {
+            authority: states.last().unwrap().clone(),
+            epoch: 1,
+            cuts: Vec::new(),
+            secret: corpus["epochKey"]
+                .as_str()
+                .unwrap()
+                .as_bytes()
+                .chunks_exact(2)
+                .map(|pair| u8::from_str_radix(std::str::from_utf8(pair).unwrap(), 16).unwrap())
+                .collect::<Vec<_>>()
+                .try_into()
+                .unwrap(),
+            devices: vec![Device {
+                revoked: true,
+                chain: serde_json::to_vec(&case["chain"]).unwrap(),
+            }],
+            states,
+            payloads,
+            baseline: None,
+            objects: Vec::new(),
+        };
+        let stored = crate::store::owner::epoch::StoredObject {
+            seq: values::decimal(case["seq"].as_str().unwrap(), false).unwrap(),
+            hash: values::binary(case["envelopeHash"].as_str().unwrap(), 32)
+                .unwrap()
+                .try_into()
+                .unwrap(),
+            previous: [0; 32],
+            checkpoint: case["kind"].as_str().unwrap() == "checkpoint",
+            bytes: serde_json::to_vec(&case["receipt"]).unwrap(),
+        };
+        let cut = Cut {
+            page: page.into(),
+            epoch: 1,
+            stream: page.into(),
+            namespace: "own".into(),
+            checkpoint_seq: 0,
+            checkpoint_hash: None,
+            tail_seq: stored.seq,
+            tail_hash: stored.hash,
+        };
+        let opened = {
+            snapshot.cuts.push(cut);
+            snapshot.open_object(&key, page, 0, &stored)
+        };
+        assert_eq!(
+            opened.is_ok(),
+            case["admitted"].as_bool().unwrap(),
+            "{}",
+            case["name"]
+        );
+        if let Ok(opened) = opened {
+            assert_eq!(
+                opened.plaintext,
+                values::binary(case["plaintext"].as_str().unwrap(), 128).unwrap()
+            );
+        }
+    }
+}

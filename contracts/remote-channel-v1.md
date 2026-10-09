@@ -273,7 +273,7 @@ send is retried.
 
 ## Durable log: append, subscribe and ack
 
-Each paired client sees one machine-owned ordered stream of its admitted-request receipts and
+Each paired client sees one machine-owned ordered stream of its admitted effect receipts and
 correlated state notifications. Another client's IDs/cursors disclose nothing. The log is a remote
 delivery journal over core resources, not a second conversation database or core attention queue.
 Remote retains bounded held/uncertain payloads and immutable operation/request references; core
@@ -281,7 +281,8 @@ alone owns conversation history and retained finals. Final notifications can ref
 request; `result` retrieves its current retained body through the public API. No permanent
 final-body copy or new retention lease is created in remote.
 
-`append(requestEnvelope)` authenticates/adopts the logical request and stores its ID, client
+`append(requestEnvelope)` authenticates every request. Effectful requests adopt the logical intent
+and store its ID, client
 ownership and frozen payload/digest atomically before returning acceptance. Under a hold-mode grant
 this appends a held record and signed `held` response only; it does not call core. Receipts
 distinguish journal acceptance, core acceptance, wake outcome and agent final. Failure before
@@ -306,9 +307,16 @@ cursor is the position after that entry, and envelope is a machine-signed respon
 correlated to the adopted request. Subscribers receive metadata and state, not duplicate client
 payloads. The signed batch payload binds their exact bytes/order. Set nextCursor to the last
 returned entry cursor, or to the input cursor on timeout; initially an empty stream returns its
-beginning cursor. Live read responses are not copied into the journal; append only a signed metadata
-notification `{requestEnvelopeId,operation,state:"observed"}` correlated to that read ID, and
-deliver the full signed read result directly. Response entries contain state/receipt references
+beginning cursor. The fixed observational operations (`capabilities`, `agents.list`, `identities.status`,
+`check`, `requests.show`, `result`, `dispatch.show`, `operation.show`, `remote.settings.show`,
+`remote.devices.list`, `remote.management.operation`) return live signed results without adopting
+the read ID, observed-read metadata or new ownership rows. `operation.show` is recovery observation:
+stable or still-unresolved originals are pure reads; a definitive outcome learned for an unresolved
+caller-owned original settles that original once, with its notification attributed to the observing
+session. It never sends. At journal-entry capacity the original still settles, omitting only that
+notification. A lost read reply requires a new signed
+request, not journal recovery. Signature, freshness, session, scope, sequence and call-budget
+fences still apply. Response entries contain effect state/receipt references
 rather than full final bodies. Release frozen payloads after confirmed core acceptance/cancellation;
 keep only intent digests, ownership and immutable core references, without duplicate permanent
 prompt history. After the initial beginning cursor is issued, a timeout has empty entries and an
@@ -323,7 +331,8 @@ retention renewal. Controls and their responses do not create entries requiring 
 avoiding ack loops. No implicit acknowledgment on subscribe/read. Enforce ack at or before the last
 successfully subscribed position; a client cannot skip unseen entries. Bound retained journal
 entries to 24 hours and 1000 entries/client; acked prefixes may be compacted earlier; refuse new
-adoption if unacknowledged capacity is exhausted. Expired journal metadata can require fresh
+effect adoption if unacknowledged capacity is exhausted; journal capacity never refuses a read.
+Expired journal metadata can require fresh
 own-state recovery; it does not alter core prompt/final retention. Separate bounded
 operation/request ownership records survive journal eviction for 30 days after their last state
 change. Limit these to 1000 operations/client and refuse new adoption at capacity; never evict an
@@ -1585,26 +1594,36 @@ and 64 KiB of UTF-8 JSON. Remote reads only installed, owner-approved artifacts,
 executes a declaration-carried command.
 
 Each resource is `{name,kind,path,limits,ttlField,indexes}`. Name uses the extension-name grammar
-and is unique in the declaration; kind is `log`, `checkpoint`, `blob` or `awareness`. Path is a
-relative namespace path: no absolute path, empty/dot segment, escape or wildcard outside that extension's root. Limits specify
-positive JSON integers `maxObjectBytes`, `maxNamespaceBytes` and `maxEntries`, bounded by Remote's
-advertised backend limits. TtlField is null or a declared expiry field; indexes contain at most 64
-`{field,direction}` entries, where direction is `asc` or `desc` and field is declared by the
-resource. Awareness is ephemeral, with no stored objects, TTL field or indexes. Page membership,
+and is unique in the declaration; kind is `log`, `checkpoint`, `blob` or `awareness`. Path is 1 to 8
+`/`-separated segments of lowercase ASCII letters, digits, `-` or `_` (at most 64 bytes each), resolved under
+`x/<extension>/`: no absolute path, empty/dot segment, escape or wildcard, and no first segment equal to an
+operation route name (`append`, `subscribe`, `ack`, `pair`) or the mount segment `x`. Two resources of a plan never
+have equal or nested paths. Limits specify positive JSON integers `maxObjectBytes`, `maxNamespaceBytes` and
+`maxEntries` (each below 2^53, `maxObjectBytes` not above `maxNamespaceBytes`), bounded by Remote's advertised
+backend limits. TtlField is null or a field name (a letter, then letters or digits, at most 64 bytes); indexes
+contain at most 64 distinct `{field,direction}` entries, where direction is `asc` or `desc` and field uses the same
+name grammar. The fields a kind stores belong to its Rules and indexes, not to the declaration. Awareness is ephemeral, with no stored objects, TTL field or indexes. Page membership,
 epoch/writer checks and expiry policy remain extension-owned; declarations cannot redefine grants,
 signed operations or the machine journal.
 
 Admission is `{artifact,digest,entryPoint}`: an installed relative artifact path, its lowercase
-SHA-256 hex digest and its namespace entry point; `local` names the extension's existing admission
+SHA-256 hex digest (checked against the artifact's bytes, at most 64 KiB) and its namespace entry point; `local` names the extension's existing admission
 hook. Remote composes each artifact only with namespace-scoped resource/context capabilities;
 operation credentials, projections and response publication are unavailable to fragments. Reject
 cross-root reads/writes, reserved operation routes, catch-all grants, arbitrary IAM roles,
 overlapping resources or a composition that cannot enforce this boundary. The same
 [principal and relay rules](#extension-channel-api) apply; a fragment cannot confer owner-device
 context. Unsupported resource kinds, admission requirements, quotas or provider limits fail the
-whole plan before provisioning. Routes/assets may be mounted only through the declared namespace,
+whole plan before provisioning; a target without a physical expiry (TTL) policy instead records a non-null `ttlField` as
+`not-provisioned`, with expiry left to Rules, and does not fail the plan. On Firestore a resource path names a collection: an odd number of segments, at most 7, since `x/<extension>` is a document. Routes/assets may be mounted only through the declared namespace,
 never an extension-selected public operation URL. Extensions requiring changes submit a new
 declaration, not a second backend/sign-in/deploy owner.
+
+The composed plan is deterministic JSON (extensions and resources sorted by name) addressed by its SHA-256 digest,
+which also covers each declaration's own digest, the target backend and whether physical TTL is provisioned. Its
+`profile` is `sharing`: extension resources and admission fragments without an operation root. A later layer-2 profile
+is an additive variant and never changes the bytes or digest of a sharing plan. An enabled extension with no
+declaration for the target is listed as unavailable there and does not fail the rest of the plan.
 
 ### Proposal: authorized deploy
 

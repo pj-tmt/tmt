@@ -4,6 +4,8 @@ import * as c from '@tmt/colab-client';
 import * as Y from 'yjs';
 import { Admission } from '../src/admission.js';
 import { Objects } from '../src/objects.js';
+import { attachmentHistory } from '../src/attachment-history.js';
+import { AttachmentObjectChannel, FrozenAttachmentUpload } from '../src/attachment-channel.js';
 import {
   AdmittedAttachmentRead,
   prepareAttachmentPublication,
@@ -406,6 +408,86 @@ it('fences publication and reads exact authenticated document/Chat/annotation re
   f.close();
   await expect(read.disclose(f.backend, 'private')).rejects.toThrow();
 });
+
+it('the object adapter verifies complete committed ciphertext before preparing publication', async () => {
+  const f = await fixture(),
+    base = await f.objects.revision(),
+    deadline = f.deadline();
+  const original = await FrozenAttachmentUpload.capture(
+    f.d,
+    base,
+    '11111111-1111-4111-8111-111111111111',
+    f.raw,
+  );
+  const methods: string[] = [];
+  let damaged = false;
+  const channel = new AttachmentObjectChannel(async (request) => {
+    methods.push(request.method);
+    switch (request.method) {
+      case 'begin':
+        return { ok: { result: 'pending', nextIndex: 0, received: 0 } };
+      case 'part':
+        expect(c.binary(request.bytes, 32_768)).toEqual(f.raw);
+        return { ok: { result: 'progress', nextIndex: 1, received: f.raw.length } };
+      case 'commit':
+        return {
+          ok: {
+            result: 'committed',
+            opaqueKey: f.d.objectId,
+            payloadSha256: f.d.payloadSha256,
+            payloadBytes: f.raw.length,
+          },
+        };
+      case 'verify':
+        expect(request).toMatchObject({
+          transferId: original.transferId,
+          descriptor: original.descriptor,
+          base,
+        });
+        return {
+          ok: {
+            result: 'read',
+            offset: request.offset,
+            totalBytes: f.raw.length,
+            bytes: c.encodeBinary(
+              damaged
+                ? new Uint8Array(request.count)
+                : f.raw.slice(request.offset, request.offset + request.count),
+            ),
+          },
+        };
+      default:
+        throw new Error('Unexpected request; no retry or publication call allowed');
+    }
+  });
+  await channel.begin(original, deadline);
+  await channel.part(original, 0, deadline);
+  await channel.commit(original, deadline);
+  const record = await prepareAttachmentPublication(
+    f.owner,
+    f.d,
+    base,
+    channel.verifier(original),
+    deadline,
+    'private',
+  );
+  expect(record).toMatchObject({ root: 'intents', key: f.d.attachmentId });
+  expect(await f.objects.revision()).toBe(base);
+  expect(methods).toEqual(['begin', 'part', 'commit', 'verify']);
+  damaged = true;
+  await expect(
+    prepareAttachmentPublication(
+      f.owner,
+      f.d,
+      base,
+      channel.verifier(original),
+      deadline,
+      'private',
+    ),
+  ).rejects.toThrow();
+  expect(methods).toEqual(['begin', 'part', 'commit', 'verify', 'verify']);
+  expect(await f.objects.revision()).toBe(base);
+});
 it('keeps archive reads, rejects archive publication, deletion and head-change races', async () => {
   const f = await fixture();
   await f.publish();
@@ -524,4 +606,124 @@ it('admits expired original attachment/comment creators while refusing an expire
   vi.spyOn(Date, 'now').mockReturnValue(10000);
   expect(() => f.a.validateRead('private')).toThrow();
   await expect(read.disclose(f.backend, 'private')).rejects.toThrow();
+});
+
+it('historical ciphertext uses a detached actual Worker and never substitutes or mutates the live projection', async () => {
+  const f = await fixture();
+  await f.publish();
+  const revision = (f.a.head!.revision + 1n).toString();
+  await f.appendStatement('epoch.advance', {
+    pageId: v.page,
+    epoch: '2',
+    cuts: [],
+    wraps: [],
+    baseline: {
+      pageId: v.page,
+      epoch: '2',
+      sourceDigest: c.encodeBinary(new Uint8Array(32)),
+      baselineCommitment: c.encodeBinary(new Uint8Array(32)),
+      title: 'Live',
+      objectEnvelopeHash: c.encodeBinary(new Uint8Array(32)),
+      membershipRevision: revision,
+    },
+  });
+  const a = new Admission(v.space, v.page, '2', bytes(v.public), f.a.registration);
+  await a.membership(
+    {
+      revision,
+      statementHash: c.encodeBinary(f.a.head!.hash),
+      ownerKey: c.encodeBinary(bytes(v.public)),
+      statements: records.get(`log:${v.space}`),
+      more: false,
+    },
+    true,
+  );
+  await a.chains([{ deviceId: f.creator, chain: f.creatorChain }]);
+  await a.wraps([encoded(v.wrap)]);
+  const liveObjects = new Objects(a);
+  const live = {
+    admission: a,
+    objects: liveObjects,
+    projection: { source: 'Live source', title: 'Live title' },
+    revision: await liveObjects.revision(),
+  };
+  const originalKey = a.readRoot('1'),
+    head = a.head;
+  const frame = (fields: Record<string, unknown>) =>
+    JSON.stringify({
+      version: 1,
+      type: 'catchup',
+      space: v.space,
+      page: v.page,
+      epoch: '1',
+      streams: [],
+      more: true,
+      ...fields,
+    });
+  const raw = [
+    frame({
+      baseline: null,
+      membershipHead: {
+        revision,
+        statementHash: c.encodeBinary(a.head!.hash),
+        ownerKey: c.encodeBinary(bytes(v.public)),
+        statements: [],
+        more: false,
+      },
+    }),
+    ...f.sealed.map((entry) =>
+      frame({
+        streams: [
+          {
+            streamId: f.creator,
+            namespace: c.decodeHeader(
+              c.Envelope.fromJson(c.binary(entry.envelope, c.MAX_ENVELOPE_JSON)).header(),
+            ).context.namespace,
+            checkpoint: null,
+            tail: [entry],
+          },
+        ],
+      }),
+    ),
+    frame({ more: false }),
+  ];
+  let released = false;
+  const source = {
+    async *frames(epoch: string, _deadline: number) {
+      expect(epoch).toBe('1');
+      try {
+        for (const value of raw) yield value;
+      } finally {
+        released = true;
+      }
+    },
+  };
+  const run = await worker();
+  const detached = {
+    onmessage: null as unknown as (event: { data: unknown }) => void,
+    onerror: null,
+    terminate: vi.fn(),
+    postMessage: async (job: { id: number; command: FoldCommand }) => {
+      const result = await run(job.command);
+      detached.onmessage({ data: { ...result, id: job.id } });
+    },
+  };
+  const historical = await attachmentHistory(
+    async () => live,
+    source,
+    '1',
+    'private',
+    f.deadline(),
+    detached as unknown as Worker,
+  );
+  expect(historical.projection.source).toBe('Source');
+  expect(historical.projection.attachments).toEqual([f.d]);
+  expect(
+    historical.projection.own![f.creator].messages['00000000-0000-4000-8000-000000000095:1'],
+  ).toMatchObject({ body: 'Plain historical comment' });
+  expect(live.projection).toEqual({ source: 'Live source', title: 'Live title' });
+  expect(a.head).toEqual(head);
+  expect(a.readRoot('1')).toBe(originalKey);
+  expect(released).toBe(true);
+  expect(detached.terminate).toHaveBeenCalledOnce();
 });

@@ -15,6 +15,7 @@ mod ipc;
 pub mod keyring;
 pub mod limits;
 pub mod management;
+mod object_channel;
 pub mod page;
 pub mod publication;
 pub mod readers;

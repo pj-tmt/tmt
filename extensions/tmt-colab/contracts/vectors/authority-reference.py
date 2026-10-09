@@ -124,6 +124,57 @@ def history_vectors(a):
     join_payload = json.dumps(dict(memberId=member,role="viewer",signKey=b64(public(Ed25519PrivateKey.from_private_bytes(bytes([7])*32))),encKey=b64(public(recipient)),pages=pages),separators=(",", ":")).encode()
     return dict(historyCases=cases,historyWrongOwner=wrong_owner,forwardWrap=forward(pages[0],63),historyJoin=dict(currentEpoch="64",membershipRevision="2",recipientSeed=recipient_seed.hex(),memberAdd=signed("member.add",join_payload),wrapLists=[wraps[:512],wraps[512:]]))
 
+def sealed_history_vectors(a):
+    # Independent signed owner log and encrypted receipt for the sealed-epoch rule.
+    owner = Ed25519PrivateKey.from_private_bytes(bytes.fromhex(a["seed"]))
+    secret = bytes.fromhex(a["epochKey"])
+    member = management_vectors(a)
+    management_seed = expand(mac(b"", bytes.fromhex(a["seed"])), lp(b"tmt-colab-management-signing-seed-v1", a["space"].encode()), 32)
+    manager = Ed25519PrivateKey.from_private_bytes(management_seed)
+    initial_payload = json.dumps(dict(memberId=member["memberId"],role="editor",signKey=b64(bytes.fromhex(member["signingPublic"])),encKey=b64(bytes.fromhex(member["encryptionPublic"])),pages=[]),separators=(",", ":")).encode()
+    initial_input = lp(b"tmt-colab-membership-v1",b"1",a["space"].encode(),b"1",bytes(32),b"member.add",digest(initial_payload))
+    initial_signature = owner.sign(initial_input)
+    initial = dict(statement=b64(initial_input),payload=b64(initial_payload),signature=b64(initial_signature))
+    initial_hash = digest(lp(b"tmt-colab-membership-hash-v1",initial_input,initial_signature))
+    cert = lp(b"tmt-colab-device-cert-v1",b"1",a["space"].encode(),b"member",member["memberId"].encode(),a["page"].encode(),bytes.fromhex(a["public"]),bytes.fromhex(member["encryptionPublic"]),b"1",b"0",b"100")
+    chain = dict(version=1,issuerStatement=b64(initial_hash),deviceCertificate=b64(cert),issuerSignature=b64(manager.sign(cert)))
+    def receipt(seq, kind="update"):
+        header = lp(b"tmt-colab-object-v1", b"1", b"aes256gcm-hkdfsha256-ed25519-v1", a["space"].encode(), a["page"].encode(), b"1", kind.encode(), b"own", b"01"*32, a["page"].encode(), b"1", str(seq).encode(), bytes(32))
+        key = expand(mac(b"", secret), lp(b"tmt-colab-object-key-v1", header), 32)
+        nonce = bytes(12)
+        ciphertext = AESGCM(key).encrypt(nonce, b"sealed history", header)
+        signature = owner.sign(lp(b"tmt-colab-signature-v1", header, nonce, digest(ciphertext)))
+        value = dict(header=b64(header),nonce=b64(nonce),ciphertext=b64(ciphertext),signature=b64(signature))
+        return value, digest(lp(b"tmt-colab-envelope-hash-v1",header,nonce,ciphertext,signature))
+    cases = []
+    for name, sealed, seq, admitted, bad_hash, kind, bad_checkpoint in [
+        ("sealed",True,1,True,False,"update",False),
+        ("unsealed-uncut",False,1,False,False,"update",False),
+        ("beyond-seal",True,2,False,False,"update",False),
+        ("wrong-seal-tail-hash",True,1,False,True,"update",False),
+        ("sealed-checkpoint",True,1,True,False,"checkpoint",False),
+        ("wrong-seal-checkpoint-hash",True,1,False,False,"checkpoint",True),
+    ]:
+        _, bound_hash = receipt(1, kind)
+        # A checkpoint shares the tail sequence, not the tail envelope hash.
+        _, tail_hash = receipt(1)
+        log = [initial]
+        previous = initial_hash
+        def append(operation, value):
+            nonlocal previous
+            raw = json.dumps(value,separators=(",", ":")).encode()
+            framed = lp(b"tmt-colab-membership-v1", b"1", a["space"].encode(),str(len(log)+1).encode(),previous,operation.encode(),digest(raw))
+            sig = owner.sign(framed)
+            log.append(dict(statement=b64(framed),payload=b64(raw),signature=b64(sig)))
+            previous = digest(lp(b"tmt-colab-membership-hash-v1",framed,sig))
+        if sealed:
+            cut = lp(b"tmt-colab-stream-cut-v1",b"1",a["page"].encode(),b"own",(bytes([9])*32 if bad_checkpoint else bound_hash) if kind == "checkpoint" else b"",b"1" if kind == "checkpoint" else b"0",b"1",bytes([9])*32 if bad_hash else tail_hash)
+            append("epoch.advance",dict(pageId=a["page"],epoch="2",cuts=[dict(pageId=a["page"],epoch="1",namespace="own",cut=b64(cut))],baseline=dict(pageId=a["page"],epoch="2",sourceDigest=b64(bytes(32)),baselineCommitment=b64(bytes(32)),title="",objectEnvelopeHash=b64(bytes(32)),membershipRevision="2"),wraps=[]))
+        append("device.revoke",dict(deviceId=a["page"],cuts=[]))
+        value, value_hash = receipt(seq, kind)
+        cases.append(dict(name=name,admitted=admitted,log=log,chain=chain,kind=kind,receipt=value,envelopeHash=b64(value_hash),seq=str(seq),plaintext=b64(b"sealed history")))
+    return cases
+
 def management_vectors(a):
     import uuid
     seed = bytes.fromhex(a["seed"])
@@ -150,6 +201,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
     authority = generate()
     authority.update(history_vectors(authority))
+    authority["sealedHistoryCases"] = sealed_history_vectors(authority)
     for destination, value in [(DEST, authority), (DEST.with_name("owner-member-v1.json"), owner_member_vectors(authority)), (DEST.with_name("management-key-v1.json"), management_vectors(authority))]:
         frozen = json.dumps(value, indent=2) + "\n"
         if args.write:

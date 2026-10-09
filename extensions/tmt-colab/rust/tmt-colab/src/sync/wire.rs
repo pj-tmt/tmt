@@ -58,6 +58,7 @@ frames! {
     Chunk { object_id: String, envelope_hash: String, index: usize, count: usize, bytes: String },
     Save { operation_id: String, base_sha256: String, source_sha256: String, source: Payload },
     SaveStatus { operation_id: String },
+    Object { request_id: String, request: Box<crate::object_channel::ObjectRequest> },
     Ack { cursors: List<SyncCursor, 256> },
     Awareness { device: String, data: String },
 }

@@ -158,7 +158,15 @@ def generate():
         head_hash=bytes([7])*32
         token='v1:'+sha(lp(b'tmt-colab-page-revision-v1',space.encode(),page.encode(),b'7',head_hash,b'1',wire(cuts).encode())).hex()
         revisions.append(dict(name=name,space=space,page=page,epoch='1',writer=author,revision='7',headHash=b64(head_hash),entries=entries,cuts=cuts,token=token))
-    return dict(version=1, secret=b64(secret),publicKey=b64(public),plaintext=b64(plain),namespace=sha(lp(b'tmt-colab-attachment-namespace-v1',space.encode(),page.encode())).hex(),referenceRevisions=revisions,cases=cases)
+    # Runtime policy answers remain Colab-owned, opaque to Remote/the wire leaf.
+    # No labels, creator or full descriptor enter the persisted Remote binding.
+    channel_policies=[]
+    for name,desc in [('document',d),('message',message)]:
+        upload=dict(version=1,space=desc['space'],page=desc['page'],epoch=desc['epoch'],target=desc['source'],attachmentId=desc['attachmentId'],descriptorHash=sha(descriptor_input(desc)).hex(),objectId=desc['objectId'],envelopeHash=desc['envelopeHash'],payloadSha256=desc['payloadSha256'],payloadBytes=desc['payloadBytes'],plaintextBytes=desc['plaintextBytes'])
+        reference=dict(kind='document-current',attachmentId=desc['attachmentId'],descriptorHash=upload['descriptorHash'],contentRevision=revisions[0]['token']) if name=='document' else dict(kind='message',writerId=desc['source']['writerId'],messageId=desc['source']['messageId'],messageRevision=desc['source']['messageRevision'],attachmentId=desc['attachmentId'],descriptorHash=upload['descriptorHash'])
+        read=dict(version=1,space=desc['space'],page=desc['page'],epoch='2',reference=reference)
+        channel_policies.append(dict(name=name,upload=wire(upload),reference=reference,peerEpoch='2',read=wire(read)))
+    return dict(version=1, secret=b64(secret),publicKey=b64(public),plaintext=b64(plain),namespace=sha(lp(b'tmt-colab-attachment-namespace-v1',space.encode(),page.encode())).hex(),referenceRevisions=revisions,channelPolicies=channel_policies,cases=cases)
 
 if __name__ == '__main__':
     parser=argparse.ArgumentParser(); parser.add_argument('--write',action='store_true'); args=parser.parse_args()

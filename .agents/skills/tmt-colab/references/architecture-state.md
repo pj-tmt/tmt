@@ -24,8 +24,18 @@ positive-sequence own creation proof and recheck current authority after committ
 I/O. Fold has separate writable and archive-capable read capture; frozen epochs remain
 read-only. Native Session reads use registration/readers' actual context and eligible
 addressed wraps or owner-signed public keys; browser history keys are opaque addressed-wrap
-handles. The internal committed verifier is DI, with production channel/peer-generation
-composition and activation still planned in the final #1853 slice. Snapshot/retained-reference
+handles. `object_channel.rs` owns the raw handshake on the existing MountSocket,
+fresh public Remote discovery and replacement/join of each neutral Bus generation.
+Its `admission` module captures the actual peer, current native context, exact
+request and reference/target; `peer` serializes bounded original-ID calls without
+retries. Reader tickets take precedence over a paired cookie and never upload.
+`history` reuses sync's retained ciphertext pager under current history entitlement,
+without opening another socket or changing the live fold. Browser `Connection`
+requests run outside its Worker executor; historical fetch uses a detached Worker.
+Complete committed reads check every range and raw digest before Colab asset crypto.
+Root-local `MountSocket::read_attachment` requires an established channel and never
+activates storage or opens a backend. Production Remote declares Colab Local;
+its routed lifecycle gate uses the three shipped binaries. Snapshot/retained-reference
 persistence is #1856, not a new Store/schema here. Historical `chains`/`readAuthor`
 ignore original-creator current expiry, matching native folds; issuedAt, issuer/signature,
 membership and revocation cuts still apply. Fresh `author()` and the actual caller
@@ -159,7 +169,8 @@ the same bundle name has a different hash. The row sits directly under the fixed
 the page moves down instead of being covered. An offline read, an unreadable page, or a page of
 another kind (pairing guidance, the reader) never counts. There is no polling and no
 automatic reload: Reload is the reader's action, and unsent in-tab drafts follow the existing
-rules (memory only, so a reload discards them).
+rules (device-stored per page, so a reload restores them when storage works; see
+`draft-store.ts`).
 The same check also reads `GET api/serve-release` (`serve_release.rs`, contract): when the serve is
 older than the release installed beside it, the row says to restart `tmt colab serve` (naming both
 versions, no Reload, `data-colab-update='serve'` for its two-line height) and the serve prints one
@@ -171,8 +182,8 @@ Concurrent clicks share one in-flight attempt. Network failure returns to the wa
 notice and editable draft without another automatic reopen. Eviction, authority,
 admission and page faults remain terminal. Only a typed fresh `SessionEndedError`
 permits the existing guarded `recoverSession`/reload fallback, whose successful
-reload resets local-only drafts. The card makes no draft-persistence promise for
-that fallback. The guarded fallback marker still spans its reload: only its
+reload restores device-stored drafts only when storage worked. The card makes no
+draft-persistence promise for that fallback. The guarded fallback marker still spans its reload: only its
 explicitly started network failure clears the failed marker. Automatic guidance
 keeps its marker until authenticated boot clears it.
 The Remote restart and retained-draft cases in `acceptance/ask.spec.ts` verify

@@ -44,16 +44,19 @@ export async function deviceKeys(deviceId: string): Promise<DeviceKeys> {
   });
 }
 
-/** Browser-local title encryption only; this key is never certified or exported. */
-export async function titleKey(deviceId: string): Promise<CryptoKey> {
-  return navigator.locks.request(`colab-title-key:${deviceId}`, async () => {
-    let key = await record<CryptoKey>(`title-key:${deviceId}`);
+/** Browser-local encryption keys; never certified, exported or shared across purposes. */
+export type LocalKeyPurpose = 'title' | 'draft';
+
+/** `title` keeps its original record and lock names so existing hints keep decrypting. */
+async function localKey(purpose: LocalKeyPurpose, deviceId: string): Promise<CryptoKey> {
+  return navigator.locks.request(`colab-${purpose}-key:${deviceId}`, async () => {
+    let key = await record<CryptoKey>(`${purpose}-key:${deviceId}`);
     if (key === undefined) {
       key = await crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, false, [
         'encrypt',
         'decrypt',
       ]);
-      await record(`title-key:${deviceId}`, key);
+      await record(`${purpose}-key:${deviceId}`, key);
     }
     if (
       !(key instanceof CryptoKey) ||
@@ -64,7 +67,11 @@ export async function titleKey(deviceId: string): Promise<CryptoKey> {
       !key.usages.includes('encrypt') ||
       !key.usages.includes('decrypt')
     )
-      throw new Error('Title cache key unavailable');
+      throw new Error(`Local ${purpose} key unavailable`);
     return key;
   });
 }
+/** Browser-local title encryption only. */
+export const titleKey = (deviceId: string) => localKey('title', deviceId);
+/** Browser-local unsent-draft encryption only. */
+export const draftKey = (deviceId: string) => localKey('draft', deviceId);

@@ -91,3 +91,26 @@ it('refuses oversized, aborted and unusable-key cache writes without replacing g
   expect(await cache.read('page')).toBeUndefined();
   expect(stored.get('title-key:device')).toEqual({ algorithm: { name: 'AES-GCM' } });
 });
+
+it('keeps reading a title record written before the shared seal helper existed', async () => {
+  // Built with raw WebCrypto, the original record name and the original AAD, not the helpers.
+  const key = await titleKey('device');
+  const nonce = crypto.getRandomValues(new Uint8Array(12));
+  const ciphertext = new Uint8Array(
+    await crypto.subtle.encrypt(
+      {
+        name: 'AES-GCM',
+        iv: nonce,
+        additionalData: new TextEncoder().encode(
+          JSON.stringify(['tmt-colab-title-cache-v1', 'space', 'device', 'page']),
+        ),
+      },
+      key,
+      new TextEncoder().encode('Legacy title'),
+    ),
+  );
+  expect([...stored.keys()]).toContain('title-key:device');
+  const b64 = (bytes: Uint8Array) => Buffer.from(bytes).toString('base64url');
+  stored.set('title:space:device:page', { nonce: b64(nonce), ciphertext: b64(ciphertext) });
+  expect(await new TitleCache('space', 'device').read('page')).toBe('Legacy title');
+});

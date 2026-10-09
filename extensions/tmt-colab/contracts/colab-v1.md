@@ -39,8 +39,39 @@ renderer owners remain authoritative; no new core object API or reader credentia
 is introduced.
 
 The [attachment byte grammar](attachment-v1.md) defines #1853's descriptor,
-manifest and bounded metadata/comment projection slice. It reuses asset envelopes;
-runtime reference/history admission and object-channel activation remain separate.
+manifest, bounded metadata/comment projection and runtime reference/history admission.
+The mount-owned adapter consumes the neutral object channel; Remote declares Colab
+Local. Its routed lifecycle gate uses the three shipped binaries.
+
+### Internal attachment channel consumer
+
+After sync hello, an `object` frame carries the current sync scope, a generated
+`requestId` and one strict request: `config`, `begin`, `status`, `part`, `commit`,
+`discard`, `verify`, `read`, `history`, `historynext` or `historycancel`. Responses
+are correlated `object-result` frames in that same scope, containing only `ok` or
+`error`. Eight outstanding requests are allowed per peer; queue failure is a bare
+unavailable response and never a retry. Missing channels do not activate storage.
+An immutable absolute deadline includes queueing, callbacks, I/O and final delivery.
+No late data is disclosed; a possibly effected mutation answers unknown. A sent
+callback timeout ends its generation rather than leaving outstanding authority.
+A request timeout or unexpected frame also ends that shared generation for every
+peer: correlations are never abandoned. Pending browser calls settle as storage
+unavailable; recovery is the next validated page upgrade after Remote's cool-down,
+not replay or polling. A request send serializes peers while the bounded frame is
+written (at most 32,768 raw chunk bytes, a 65,536-byte frame and the contract's 1 s
+write bound clipped to the original deadline); lock scheduling is not preempted.
+
+Colab derives namespace, opaque key and minimal policy from the exact authenticated
+target/reference; browser metadata cannot select Remote authority. Begin/status
+retain the original transfer ID, descriptor and base. Parts are at most 32,768 raw
+bytes. `verify` is an OwnerSession-only bounded prepublication read of that frozen
+target; commit receipts alone do not authorize publication. Complete raw reads
+verify length/digest, then existing Colab asset crypto and current reference fences.
+Historical paging owns one read-only cursor per peer, reuses the sync catchup codec
+and current entitlement wraps, and never renews its first deadline. Cancel, expiry,
+peer close and generation replacement release its source and join owned workers.
+Root-local library reads use the actual management keyring and require an established
+channel; no new plaintext HTTP route, upload command or second backend is introduced.
 
 ## Channel boundary
 
@@ -356,8 +387,13 @@ Both namespaces are committed when affected. The
 checkpoint hash is either hash32 or zero-length `none` paired with checkpoint
 sequence `0`. Require checkpointSeq <= tailHeadSeq; an empty tail uses seq `0`
 and hash zero32. A nonempty tail must resolve through its exact chain. Reduction
-cuts MUST cover every affected stream; unseen offline updates beyond the cut
-are rejected and reported to their writer.
+cuts MUST cover every affected stream in the reduced epoch; unseen offline updates
+beyond the cut are rejected and reported to their writer. For a retained older epoch,
+a later reduction may omit a cut only when an earlier verified owner-signed
+`epoch.advance` sealed that exact page/epoch/namespace/stream. Its seal cut remains
+the binding sequence, checkpoint and tail-hash bound. An unsealed, uncut stream
+still refuses; current caller entitlement and disclosure fences remain unchanged.
+`page.share` carries no cuts: a rotating share uses the separate `epoch.advance`.
 
 A certificate chain is bounded, versioned material, not arbitrary recursive
 certificates. It contains exactly `{version:1, issuerStatement, deviceCertificate,
@@ -1626,8 +1662,8 @@ Its placement is cosmetic; the captured quote
 selector owns the thread anchor. Enter sends, Shift+Enter inserts a newline, and Esc closes the input (an unsent draft is kept). There
 is no confirmation screen or automatic send. The popover closes with its ×, with Escape from anywhere
 inside it, with a press outside it, and with a selection cleared by a page click while
-no nonblank message is typed; none of these interrupts a send in flight. Typed text is kept in memory
-for the page together with bound mention UUIDs and restored, with a "Draft kept"
+no nonblank message is typed; none of these interrupts a send in flight. Typed text is kept
+for the page (see Draft retention) together with bound mention UUIDs and restored, with a "Draft kept"
 note, when the same selection is annotated again or its known thread is reopened.
 After a thread exists, an outside page press collapses it even with a typed draft;
 Close never resolves or sends. Existing writer-owned Resolve collapses only after
@@ -1691,6 +1727,28 @@ the window to its anchor and expands that thread inside the overlay; a margin ma
 reopens the same thread in its anchored window. Page-owned per-thread drafts also
 survive switching to the explicit Comments details view. Agent replies join verified Ask records to comment IDs and
 remain attributed to their agent. Overlay geometry does not reflow page content.
+
+#### Draft retention (#1924)
+
+An unsent, deliberately edited, nonblank message (annotation, thread reply or Chat) is
+also saved on the device so a reload or hot-module reload restores it. The saved form is
+one record per space, device and page, AES-GCM encrypted with a device-local key that is
+separate from the title-hint key and bound to that scope as authenticated data; it holds
+the exact plaintext, the intact mention bindings and the draft's target (a thread
+reference, the frozen quote selector, or Chat), at most 32 drafts per page with the oldest
+dropped first and each message within the comment limit. Restoring only fills the
+composer. It never opens a window, prepares, sends, signs, revokes or reopens a
+Session, and nothing in it is authority: recipients are revalidated against the current
+directory as for an in-tab draft. A draft returns only to the exact space, device, page
+and target; a record that fails decryption, scope, version or shape checks is ignored
+and replaced by the next write. A selection draft is listed under Comments as Saved drafts
+with its quote and text until that quote is selected again or the draft is discarded; a
+reply whose thread no longer exists is listed the same way. Nothing is deleted,
+re-anchored or sent automatically. The send ledger keeps the original operation for any
+adopted send, so a reload shows ledger state and never becomes a fresh send. When the
+device cannot store drafts (unavailable, blocked, full), the draft stays in the tab and a
+single line says `Drafts are not saved on this device.`; success is claimed only after
+the storage transaction completed. Source-editor text is outside this record.
 
 ### Page Chat (#1645)
 

@@ -1167,13 +1167,13 @@ The door serves the browser SDK `remote-v1.js` (built from `remote-client`), whi
 gives mounted pages `reopenSession`, `operations(session)` and `certifyKey`; its README owns
 the caller-facing recovery rules. The
 [Remote skill](.agents/skills/tmt-remote/references/architecture-internals.md) owns module internals.
-Remote sessions are independently keyed by session ID; the durable journal and ack stay
-per device. Mounted transports explicitly
+Remote sessions are keyed by session ID; the effect journal and ack stay per device.
+Reads keep signed admission/replay fences without adoption. Mounted transports explicitly
 bind the session through a non-secret, cookie-device-checked `tmt-session` identifier
 stripped at the door. Last-close touches; every session without a live transport has the existing 60-second inactivity grace.
 Activity renews it; reattach resumes that session. Detached sessions count against the cap until expiry. Idle expiry, explicit end, eviction and authority loss reuse session-owned cleanup.
 Grant-owned held work survives session end; only stop, revoke or grant expiry/revision change cancels it. Uncertain dispatch retains recovery.
-The `objects` backend and the `rust/crates/tmt-extension-objects` wire leaf (identifiers, bounds, strict JSON, frames and Unix carrier) belong to Remote's lease-bound object service: serve attempts each Local declaration before door readiness, reactivates on validated websocket demand, shares its origin registry with mounts and joins it after door shutdown. Only Colab declares Local (#1852); missing adapter admission refuses operations before ledger effects, and setup failure forwards without an origin; optional `status --objects --json` observes live channel readiness without activation: see the [Remote internals](.agents/skills/tmt-remote/references/architecture-internals.md) and [object-backends](.agents/skills/tmt-remote/references/object-backends.md) references.
+The `objects` backend and the `rust/crates/tmt-extension-objects` wire leaf (identifiers, bounds, strict JSON, frames and Unix carrier) belong to Remote's lease-bound object service: serve attempts each Local declaration before door readiness, reactivates on validated websocket demand, shares its origin registry with mounts and joins it after door shutdown. Only Colab declares Local (#1852); missing adapter admission refuses operations before ledger effects, and setup failure forwards without an origin; optional `status --objects --json` observes live channel readiness without activation: see the [Remote internals](.agents/skills/tmt-remote/references/architecture-internals.md) and [object-backends](.agents/skills/tmt-remote/references/object-backends.md) references. Backend declarations (`declaration`, `deploy_plan`) are pure library code, unreachable until the deploy command (#2164): they turn owner-approved bytes into a digest-addressed `sharing` plan.
 
 System-wide invariants:
 
@@ -1207,7 +1207,7 @@ core discovery or storage access.
   page-ID prefixes for links and CLI operands from its verified catalog, with browser ambiguity handled by parent chrome.
   The server stores ciphertext and never decodes Yjs.
 - **Dependency direction.** `tmt-colab` depends on `tmt-colab-model` (pure codecs and fixed
-  crypto), the `tmt-extension-state` leaf, `tmt-invoke` and `tmt-cli-style`; the browser
+  crypto), `tmt-extension-state`, `tmt-extension-objects` and `tmt-invoke`/`tmt-cli-style`; the browser
   depends on Remote's served SDK (`/sdk/remote-v1.js`). Never `tmt-core`, `tmt-adapters`,
   `tmt-remote` or Office; core is reached through `$TMT_EXECUTABLE api` and the fixed,
   bounded `identity show --json` command at CLI page create/write. Its optional caller
@@ -1243,8 +1243,8 @@ core discovery or storage access.
   anchor IDs and quote selectors; discussion bodies and display labels never enter author code.
   This contains author code; page self-navigation can still leak a request.
 - **Attachments.** Colab implements [descriptor/manifest/reference grammar and internal read/publication capture](extensions/tmt-colab/contracts/attachment-v1.md) with existing crypto, authenticated cuts and fold metadata.
-  Channel consumers/activation and snapshot/retained persistence remain planned in the [storage proposal](extensions/tmt-colab/contracts/storage-v1-proposal.md).
-  Remote owns generic backend/channel/quota/origin; Colab owns crypto/history/admission. No core object API or new reader credential is introduced; archive/history/native acceptance remains required.
+  The mount-owned object adapter joins generation-scoped callbacks, original uploads, committed reads and detached history; root-local reads require an established channel.
+  Remote owns backend/quota/origin; Colab owns crypto/admission. Remote declares Colab Local; #1856 snapshot/retained persistence remains planned in the [storage proposal](extensions/tmt-colab/contracts/storage-v1-proposal.md).
 - **Plaintext invariant.** Page source, discussion reads and export are root-local: only the isolated decoder
   child decodes Yjs, no route serves plaintext, and the browser Worker is resource
   containment, not a security sandbox. Private causal preparation returns deltas; pure [publication codecs](extensions/tmt-colab/contracts/colab-v1.md#content-publication-1908-1928-1934) validate sealed intent. The native library prepares a frozen signed packet and chain from one authenticated snapshot, then atomically retains content (or, as `kind:"own"`, a status action) with its scoped terminal outcome in the existing Store; `tmt colab page write` and `threads resolve|reopen` publish through it (offline or the local `page-publish` route), and the browser Save does over the owner sync socket (colab-v1 Browser Save), signed by the root-local writer.

@@ -350,6 +350,53 @@ fn capture_read(
     admitted.recheck(store, key)?;
     Ok(admitted)
 }
+/// Before object allocation, bind an upload to the actual mounted writer and
+/// the authenticated target base. This admits no receipt or publication: the
+/// complete committed envelope still has to be verified by the consumer.
+pub(crate) fn check_upload_target(
+    source: &mut crate::page::save::Source,
+    principal: &str,
+    descriptor: &Descriptor,
+    base: &str,
+    deadline: Instant,
+) -> Result<()> {
+    descriptor.validate()?;
+    remaining(deadline)?;
+    if descriptor.author_device != principal || descriptor.space != source.keyring.space_id {
+        return Err(page::Fault::Denied.into());
+    }
+    let snapshot = Snapshot::capture(&source.store, &source.keyring, &descriptor.page)?;
+    if descriptor.epoch != snapshot.epoch.to_string()
+        || descriptor.membership_revision != snapshot.authority.head.revision.to_string()
+        || revision(&source.keyring, &descriptor.page, &snapshot)? != base
+    {
+        return Err(page::Fault::StaleBase.into());
+    }
+    snapshot.asset_author(&source.keyring, descriptor)?;
+    // Decoding is outside the Registration/sync locks. Subsequent callbacks
+    // recheck this exact base, so they need not decode the same target again.
+    match &descriptor.source {
+        Source::Document { source_digest } => {
+            let view = snapshot.materialize_until(
+                &source.keyring,
+                &descriptor.page,
+                &mut source.decoder,
+                deadline,
+            )?;
+            if *source_digest != hex(&crypto::digest(view.source.as_bytes())) {
+                return Err(page::Fault::StaleBase.into());
+            }
+        }
+        Source::Message { writer_id, .. } if writer_id == principal => {}
+        _ => return Err(page::Fault::Denied.into()),
+    }
+    remaining(deadline)?;
+    if page::revision(&source.store, &source.keyring, &descriptor.page)? != base {
+        return Err(page::Fault::StaleBase.into());
+    }
+    Ok(())
+}
+
 /// Prepare a creation proof only after the exact committed bytes pass crypto
 /// and the captured target/base still matches. The existing publication owner
 /// signs/fences the result; no second writer or automatic publication is added.

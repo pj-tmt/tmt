@@ -978,3 +978,261 @@ fn authority_loss_cancels_held_work_even_after_its_session_ended() {
         assert_eq!(core.sends(), 0);
     }
 }
+
+// The same signed fixture runs before and after removing read settlement.
+#[test]
+fn operation_show_preserves_existing_wire_projections() {
+    for phase in [
+        "accepted",
+        "held",
+        "uncertain",
+        "cancelled",
+        "refused",
+        "absent",
+    ] {
+        let owner = OwnerDoor::new();
+        let core = Core::new();
+        let id = uuid_v4().unwrap();
+        let recipient = uuid_v4().unwrap();
+        let request = "req_11111111-1111-4111-8111-111111111111";
+        let expected = match phase {
+            "accepted" => json!({"state":phase,"operationId":id,"requestId":request}),
+            "absent" => {
+                json!({"error":{"code":"REMOTE_STATE_UNAVAILABLE","message":"Remote request refused."}})
+            }
+            _ => json!({"state":phase,"operationId":id}),
+        };
+        if phase != "absent" {
+            let connection =
+                rusqlite::Connection::open(owner._serving.layout().directory.join("remote.db"))
+                    .unwrap();
+            let frozen = input(&id, &recipient, "frozen").to_string().into_bytes();
+            connection.execute("INSERT INTO operations(id,client_id,operation,digest,frozen,phase,receipt,updated_ms,references_json) VALUES (?1,?2,'dispatch.create',zeroblob(32),?3,?4,?5,?6,?7)", rusqlite::params![id,owner.grant.client_id,frozen,phase,expected.to_string(),tmt_remote::pairing::now_ms().unwrap() as i64,json!([recipient]).to_string()]).unwrap();
+        }
+        let session = owner.open();
+        let query = owner.wire(
+            &session,
+            "1",
+            "operation.show",
+            json!({"operationId":id}).to_string().as_bytes(),
+        );
+        let before = journal_snapshot(&owner);
+        assert_eq!(
+            append(&owner, core.operations(), &query),
+            expected,
+            "{phase}"
+        );
+        if phase != "absent" {
+            assert_eq!(journal_snapshot(&owner), before, "{phase}");
+            let second = owner.wire(
+                &session,
+                "2",
+                "operation.show",
+                json!({"operationId":id}).to_string().as_bytes(),
+            );
+            assert_eq!(append(&owner, core.operations(), &second), expected);
+            assert_eq!(journal_snapshot(&owner), before, "second {phase} poll");
+        }
+        assert_eq!(core.sends(), 0);
+    }
+}
+
+// Compare exact stored values rather than SQLite file bytes: sequence and call
+// budget writes are intentional, while journal and original ownership are not.
+fn journal_snapshot(owner: &OwnerDoor) -> Vec<Vec<String>> {
+    let connection =
+        rusqlite::Connection::open(owner._serving.layout().directory.join("remote.db")).unwrap();
+    ["entries", "streams", "operations", "audit"]
+        .iter()
+        .map(|table| {
+            let mut query = connection
+                .prepare(&format!("SELECT * FROM {table} ORDER BY rowid"))
+                .unwrap();
+            let columns = query.column_count();
+            query
+                .query_map([], |row| {
+                    Ok((0..columns)
+                        .map(|column| format!("{:?}", row.get_ref(column).unwrap()))
+                        .collect::<Vec<_>>()
+                        .join("|"))
+                })
+                .unwrap()
+                .collect::<Result<Vec<_>, _>>()
+                .unwrap()
+        })
+        .collect()
+}
+#[test]
+fn saturated_device_keeps_live_reads_without_changing_its_journal() {
+    let owner = OwnerDoor::new();
+    let core = Core::new();
+    let agent = uuid_v4().unwrap();
+    fs::write(
+        core.root.join("agents"),
+        json!({"identities":[{"id":agent,"name":"Allowed","presence":"active"}]}).to_string(),
+    )
+    .unwrap();
+    fs::write(
+        core.root.join("identities"),
+        json!({"identities":[{"id":agent,"name":"Allowed","canonicalName":"allowed","lifetime":"saved"}]}).to_string(),
+    )
+    .unwrap();
+    fs::write(
+        core.root.join("final"),
+        json!({"status":"retained","response":"exact final"}).to_string(),
+    )
+    .unwrap();
+    let now = tmt_remote::pairing::now_ms().unwrap();
+    let connection =
+        rusqlite::Connection::open(owner._serving.layout().directory.join("remote.db")).unwrap();
+    connection.execute("INSERT INTO streams(client_id,incarnation,key,tip,last_ms) VALUES (?1,?2,zeroblob(32),1000,?3)", rusqlite::params![owner.grant.client_id,uuid_v4().unwrap(),now as i64]).unwrap();
+    connection.execute("WITH RECURSIVE n(x) AS (VALUES(1) UNION ALL SELECT x+1 FROM n WHERE x<1000) INSERT INTO operations(id,client_id,operation,digest,phase,receipt,updated_ms,references_json) SELECT printf('00000000-0000-4000-8000-%012x',x),?1,'dispatch.create',zeroblob(32),'held','{}',?2,'[]' FROM n", rusqlite::params![owner.grant.client_id,now as i64]).unwrap();
+    connection.execute("WITH RECURSIVE n(x) AS (VALUES(1) UNION ALL SELECT x+1 FROM n WHERE x<1000) INSERT INTO entries(client_id,position,envelope,at_ms) SELECT ?1,x,CAST('{}' AS BLOB),?2 FROM n", rusqlite::params![owner.grant.client_id,now as i64]).unwrap();
+    let original = "00000000-0000-4000-8000-000000000001";
+    let request = format!("req_{}", uuid_v4().unwrap());
+    let session = owner.open();
+    let operations = core.operations();
+    let before = journal_snapshot(&owner);
+    let inputs = [
+        ("agents.list", json!({})),
+        ("capabilities", json!({})),
+        (
+            "identities.status",
+            json!({"version":1,"operation":"identities.status","input":{"identityIds":[agent]}}),
+        ),
+        ("check", json!({"agentId":agent,"lines":5})),
+        (
+            "requests.show",
+            json!({"version":1,"operation":"requests.show","input":{"requestId":request}}),
+        ),
+        ("result", json!({"requestId":request})),
+        (
+            "dispatch.show",
+            json!({"version":1,"operation":"dispatch.show","input":{"operationId":original}}),
+        ),
+        ("operation.show", json!({"operationId":original})),
+    ];
+    for (index, (operation, input)) in inputs.iter().enumerate() {
+        let query = owner.wire(
+            &session,
+            &(index + 1).to_string(),
+            operation,
+            input.to_string().as_bytes(),
+        );
+        let result = append(&owner, Arc::clone(&operations), &query);
+        assert!(result.get("error").is_none(), "{operation}: {result}");
+        if *operation == "agents.list" {
+            assert_eq!(result["identities"][0]["id"], agent);
+        }
+        assert_eq!(
+            journal_snapshot(&owner),
+            before,
+            "{operation} changed the journal"
+        );
+    }
+    let query = owner.wire(&session, "9", "agents.list", b"{}");
+    append(&owner, Arc::clone(&operations), &query);
+    let calls = core.calls().len();
+    assert_eq!(
+        append(&owner, Arc::clone(&operations), &query)["error"]["code"],
+        "REMOTE_REPLAY"
+    );
+    assert_eq!(core.calls().len(), calls);
+    assert_eq!(journal_snapshot(&owner), before);
+    let fresh = owner.wire(&session, "10", "agents.list", b"{}");
+    assert_eq!(
+        append(&owner, Arc::clone(&operations), &fresh)["identities"][0]["id"],
+        agent
+    );
+    // A read envelope ID colliding with an owned ID does not inspect that row.
+    let mut collision = owner.wire(&session, "11", "agents.list", b"{}");
+    collision["id"] = json!(original);
+    owner.resign(&mut collision);
+    assert_eq!(
+        append(&owner, Arc::clone(&operations), &collision)["identities"][0]["id"],
+        agent
+    );
+    assert_eq!(journal_snapshot(&owner), before);
+    let recovery = "00000000-0000-4000-8000-000000000002";
+    let frozen = input(recovery, &agent, "original recovery")
+        .to_string()
+        .into_bytes();
+    connection
+        .execute(
+            "UPDATE operations SET phase='uncertain',frozen=?2,references_json=?3 WHERE id=?1",
+            rusqlite::params![recovery, frozen, json!([agent]).to_string()],
+        )
+        .unwrap();
+    let request = "req_11111111-1111-4111-8111-111111111111";
+    fs::write(core.root.join("receipt"), json!({"operationId":recovery,"items":[{"recipientId":agent,"requestId":request,"acceptance":"queued"}]}).to_string()).unwrap();
+    let before_recovery = journal_snapshot(&owner);
+    let query = owner.wire(
+        &session,
+        "12",
+        "operation.show",
+        json!({"operationId":recovery}).to_string().as_bytes(),
+    );
+    let accepted = json!({"state":"accepted","operationId":recovery,"requestId":request});
+    assert_eq!(append(&owner, Arc::clone(&operations), &query), accepted);
+    let after_recovery = journal_snapshot(&owner);
+    assert_eq!(
+        after_recovery[..2],
+        before_recovery[..2],
+        "full journal cannot gain a notification"
+    );
+    let owned = owner
+        .store
+        .lock()
+        .unwrap()
+        .owned(&owner.grant, recovery, now)
+        .unwrap();
+    assert_eq!(owned.phase, "accepted");
+    assert!(owned.frozen.is_none());
+    assert_eq!(after_recovery[2].len(), 1000, "read ID must not be adopted");
+    let second = owner.wire(
+        &session,
+        "13",
+        "operation.show",
+        json!({"operationId":recovery}).to_string().as_bytes(),
+    );
+    assert_eq!(append(&owner, Arc::clone(&operations), &second), accepted);
+    assert_eq!(
+        journal_snapshot(&owner),
+        after_recovery,
+        "settled poll must not write"
+    );
+    let effect = wire(
+        &owner,
+        &session,
+        14,
+        &uuid_v4().unwrap(),
+        &agent,
+        "capacity refusal",
+    );
+    assert_eq!(
+        append(&owner, operations, &effect)["error"]["code"],
+        "REMOTE_STATE_UNAVAILABLE"
+    );
+    assert_eq!(core.sends(), 0);
+    assert_eq!(journal_snapshot(&owner)[..3], after_recovery[..3]);
+    assert_eq!(before[0].len(), 1000);
+    assert_eq!(before[2].len(), 1000);
+}
+#[test]
+fn classified_read_cannot_be_adopted_into_the_journal() {
+    let owner = OwnerDoor::new();
+    let session = owner.open();
+    let query = owner.wire(&session, "1", "agents.list", b"{}");
+    let before = journal_snapshot(&owner);
+    assert_eq!(
+        owner
+            .admit(&query)
+            .ok()
+            .unwrap()
+            .adopt(None, &[])
+            .unwrap_err()
+            .code,
+        "REMOTE_STATE_UNAVAILABLE"
+    );
+    assert_eq!(journal_snapshot(&owner), before);
+}

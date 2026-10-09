@@ -17,7 +17,8 @@ use std::{
     time::{Duration, Instant},
 };
 
-const ROUTES: [&str; 4] = ["/append", "/subscribe", "/ack", "/pair"];
+/// The operation routes under the route prefix; backend declarations may not shadow them.
+pub const ROUTES: [&str; 4] = ["/append", "/subscribe", "/ack", "/pair"];
 
 pub struct Routes {
     prefix: String,

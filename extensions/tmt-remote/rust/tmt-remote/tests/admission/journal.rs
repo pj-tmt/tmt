@@ -79,12 +79,12 @@ fn signed_catchup_retry_checkpoint_and_compaction_keep_separate_ownership() {
         json!({"cursor":null,"limit":50,"waitMs":1}),
     );
     assert_eq!(beginning["reason"], "timeout");
-    let (wire, owned) = adopted(&owner, &session, 2, "capabilities", None);
+    let (wire, owned) = adopted(&owner, &session, 2, "dispatch.create", Some(b"{}"));
     let mut retry = wire.clone();
     retry["sequence"] = json!("3");
     owner.resign(&mut retry);
     assert_eq!(
-        adopt_wire(&owner, &retry, None).unwrap().receipt,
+        adopt_wire(&owner, &retry, Some(b"{}")).unwrap().receipt,
         owned.receipt
     );
     let page = subscribe(&owner, &session, 4, beginning["nextCursor"].clone(), 1);
@@ -120,12 +120,12 @@ fn signed_catchup_retry_checkpoint_and_compaction_keep_separate_ownership() {
 fn exact_changed_intent_and_another_client_refuse_without_an_entry() {
     let mut owner = OwnerDoor::new();
     let session = owner.open();
-    let (wire, _) = adopted(&owner, &session, 1, "capabilities", None);
-    let mut changed = owner.wire(&session, "2", "capabilities", b"{ }");
+    let (wire, _) = adopted(&owner, &session, 1, "dispatch.create", Some(b"{}"));
+    let mut changed = owner.wire(&session, "2", "dispatch.create", b"{ }");
     changed["id"] = wire["id"].clone();
     owner.resign(&mut changed);
     assert_eq!(
-        adopt_wire(&owner, &changed, None).unwrap_err().code,
+        adopt_wire(&owner, &changed, Some(b"{}")).unwrap_err().code,
         "REMOTE_INTENT_CONFLICT"
     );
     owner.key = SigningKey::from_bytes(&[48; 32]);
@@ -138,11 +138,13 @@ fn exact_changed_intent_and_another_client_refuse_without_an_entry() {
         .insert_grant(&owner.grant)
         .unwrap();
     let other_session = owner.open();
-    let mut collision = owner.wire(&other_session, "1", "capabilities", b"{}");
+    let mut collision = owner.wire(&other_session, "1", "dispatch.create", b"{}");
     collision["id"] = wire["id"].clone();
     owner.resign(&mut collision);
     assert_eq!(
-        adopt_wire(&owner, &collision, None).unwrap_err().code,
+        adopt_wire(&owner, &collision, Some(b"{}"))
+            .unwrap_err()
+            .code,
         "REMOTE_INTENT_CONFLICT"
     );
     let page = subscribe(&owner, &other_session, 2, Value::Null, 50);
@@ -165,7 +167,7 @@ fn strict_controls_cross_machine_cursors_and_expiry_refuse() {
             "REMOTE_INPUT_INVALID"
         );
     }
-    let (wire, owned) = adopted(&owner, &session, 4, "capabilities", None);
+    let (wire, owned) = adopted(&owner, &session, 4, "dispatch.create", Some(b"{}"));
     let page = subscribe(&owner, &session, 5, Value::Null, 50);
     let cursor = page["nextCursor"].as_str().unwrap();
     let other = OwnerDoor::new();
@@ -298,11 +300,14 @@ fn authenticated_rate_refusal_is_signed_and_does_not_deadlock() {
 fn another_store_can_revoke_after_signed_admission_before_adoption() {
     let owner = OwnerDoor::new();
     let session = owner.open();
-    let wire = owner.wire(&session, "1", "capabilities", b"{}");
+    let wire = owner.wire(&session, "1", "dispatch.create", b"{}");
     let permit = owner.admit(&wire).ok().unwrap();
     let mut other = Store::open(&owner._serving).unwrap();
     other.revoke(&owner.grant.client_id).unwrap();
-    assert_eq!(permit.adopt(None, &[]).unwrap_err().code, "REMOTE_CLOSED");
+    assert_eq!(
+        permit.adopt(Some(b"{}"), &[]).unwrap_err().code,
+        "REMOTE_CLOSED"
+    );
 }
 
 #[test]
@@ -310,7 +315,7 @@ fn concurrent_sessions_share_one_device_journal_and_idempotent_ack() {
     let owner = OwnerDoor::new();
     let first = owner.open();
     let second = owner.open();
-    adopted(&owner, &first, 1, "capabilities", None);
+    adopted(&owner, &first, 1, "dispatch.create", Some(b"{}"));
     let page = subscribe(&owner, &second, 1, Value::Null, 50);
     assert_eq!(page["entries"].as_array().unwrap().len(), 1);
     let cursor = page["nextCursor"].clone();

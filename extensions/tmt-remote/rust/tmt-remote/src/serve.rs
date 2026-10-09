@@ -745,7 +745,7 @@ fn foreground_with(
             machine.id.clone(),
             window_id.clone(),
             door.origin.clone(),
-            format!("{}/x/", machine.route_prefix),
+            format!("{}/{}/", machine.route_prefix, mount::MOUNT_SEGMENT),
             machine_key,
             Arc::clone(&store),
             session::IDLE,

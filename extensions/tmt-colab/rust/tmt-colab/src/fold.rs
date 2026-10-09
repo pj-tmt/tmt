@@ -392,17 +392,41 @@ impl Snapshot {
                 _ => None,
             };
             if let Some(cuts) = affected {
+                let matches = |p: &&payload::Cut| {
+                    p.page_id == page
+                        && p.epoch == c.epoch
+                        && p.namespace == c.namespace
+                        && values::binary(&p.cut, 1024)
+                            .and_then(|bytes| {
+                                Ok(stream_cut::decode(&bytes)?.stream_id == c.author_device)
+                            })
+                            .unwrap_or(false)
+                };
+                // A later reduction need not repeat an already sealed epoch's
+                // cut. Only an earlier verified owner epoch.advance can supply
+                // that exact bound; unsealed/uncut history still refuses.
                 let bound = cuts
                     .iter()
-                    .find(|p| {
-                        p.page_id == page
-                            && p.epoch == c.epoch
-                            && p.namespace == c.namespace
-                            && values::binary(&p.cut, 1024)
-                                .and_then(|bytes| {
-                                    Ok(stream_cut::decode(&bytes)?.stream_id == c.author_device)
-                                })
-                                .unwrap_or(false)
+                    .find(matches)
+                    .or_else(|| {
+                        self.payloads[..index]
+                            .iter()
+                            .enumerate()
+                            .find_map(|(seal_index, p)| {
+                                if seal_index < usize::try_from(revision).ok()? {
+                                    return None;
+                                }
+                                match p {
+                                    Payload::EpochAdvance(seal)
+                                        if seal.page_id == page
+                                            && values::decimal(&seal.epoch, false).ok()
+                                                == self.epoch.checked_add(1) =>
+                                    {
+                                        seal.cuts.as_slice().iter().find(matches)
+                                    }
+                                    _ => None,
+                                }
+                            })
                     })
                     .ok_or(OwnerFault::Invalid)?;
                 let bytes = values::binary(&bound.cut, 1024)?;
@@ -411,6 +435,9 @@ impl Snapshot {
                     || (stored.checkpoint
                         && (stored.seq != values::decimal(committed.checkpoint_seq, true)?
                             || committed.checkpoint_hash != Some(&stored.hash)))
+                    || (!stored.checkpoint
+                        && stored.seq == values::decimal(committed.tail_head_seq, true)?
+                        && stored.hash != *committed.tail_head_hash)
                 {
                     return Err(OwnerFault::Invalid.into());
                 }

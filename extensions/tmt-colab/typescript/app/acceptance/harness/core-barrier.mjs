@@ -14,6 +14,7 @@ if (!realCore || !directory) {
   process.exit(2);
 }
 const argv = process.argv.slice(2);
+const started = performance.now();
 const input = fs.readFileSync(0);
 let operation = null;
 let operationId = null;
@@ -66,6 +67,12 @@ const exit = await new Promise((resolve, reject) => {
   child.once('error', reject);
   child.once('close', (code, signal) => resolve({ code, signal }));
 });
+if (argv.join(' ') === 'remote status --json') {
+  fs.appendFileSync(
+    path.join(directory, 'discovery.jsonl'),
+    `${JSON.stringify({ elapsedMs: performance.now() - started, ...exit })}\n`,
+  );
+}
 if (gated) {
   // The core already acted; hold only the response so a crash here proves
   // recovery without a second wake.
