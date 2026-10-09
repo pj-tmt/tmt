@@ -2925,10 +2925,12 @@ with the normal scoped position/envelope fields and `chains:[{deviceId,chain}]`;
 identifies the local author and is repeated to permit certificate renewal. The browser
 admits chains on its serialized executor before envelope authentication and Worker
 application. Larger envelopes use the existing reference and lazy chunk transfer, with the
-chain retained on the completed broadcast. Each entry takes one send-queue slot and each
-chunked entry one more; a batch that needs more than `SEND_QUEUE_FRAMES` ends subscribed
-peers with the existing slow-peer `RESYNC_REQUIRED` close, and they catch up through
-normal resync. Exact replay and rejected outcomes broadcast nothing. Queue failure does not
+chain retained on the completed broadcast. One bounded, immutable committed batch occupies
+one send-queue slot per peer, with an independent lazy cursor over its entries and chunks.
+Only one existing wire frame is emitted per poll; the unchanged `SEND_QUEUE_FRAMES`
+unacknowledged-frame credits still pause delivery until ACK, and authority is rechecked
+before every disclosure. Separate queued deliveries that overflow the queue and stalled
+writes still end in `RESYNC_REQUIRED`. Exact replay and rejected outcomes broadcast nothing. Queue failure does not
 undo a durable outcome. The service never receives or decodes plaintext source.
 
 ### Content publication (#1908, #1928, #1934)

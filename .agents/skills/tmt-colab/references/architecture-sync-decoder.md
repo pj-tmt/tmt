@@ -108,8 +108,9 @@ and `limits.rs`; do not restate them.
   other later doubt is resolved
   by one read-only `publication_status` in `main.rs::publish_write`, else
   `COLAB_OUTCOME_UNKNOWN` with the original operation ID. `Server::publish` prepares one
-  broadcast per entry before the transaction and fans out only for a new committed
-  outcome, then combines the own tail (`Trigger::until` = request read time plus `PUBLISH_COMBINE`; a later combine publishes
+  broadcast per entry before the transaction and fans out one immutable, bounded batch only for a new committed
+  outcome. Each peer lazily drains its batch in one queue slot through the existing frame credits and
+  per-poll authority check, without eagerly materializing chunk frames. The server then combines the own tail (`Trigger::until` = request read time plus `PUBLISH_COMBINE`; a later combine publishes
   nothing, so the page does not move after the reply the client waits for, and the reply
   carries the revision read under the sync lock). The write signs with a purpose-separated local device certified by the
   management member; it is not a Remote registration.
