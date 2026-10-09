@@ -1,6 +1,8 @@
 //! Backend declarations and the deploy plan (#2161). Fixtures are real files; the golden
 //! plan bytes and digests come from `fixtures/declarations/plan-reference.py`, not from
 //! the code under test. Each refusal changes one condition of a valid control.
+//! The Colab-named fixtures are illustrative stand-ins, not Colab's declaration: their
+//! limits and paths are not Colab's numbers.
 use serde_json::{Value, json};
 use std::{fs, path::PathBuf};
 use tmt_remote::{
