@@ -72,6 +72,8 @@ enum Stage {
     Proven,
     /// Neither: the original may still have to be uploaded.
     Fresh,
+    /// A re-seal whose old attachment left the list meanwhile: there is nothing to replace.
+    Gone,
 }
 
 impl ChannelOwner {
@@ -96,18 +98,8 @@ impl ChannelOwner {
             source: &source,
             deadline,
         };
-        match run(&live, &mut slot, expected, &source, publisher, deadline) {
-            Ok(attached) => {
-                slot.finish(now()?)?;
-                Ok(attached)
-            }
-            Err(failure) => {
-                if failure.dispose {
-                    let _ = slot.dispose();
-                }
-                Err(failure.error)
-            }
-        }
+        let result = run(&live, &mut slot, expected, &source, publisher, deadline);
+        settle(slot, result)
     }
     /// Discard the original of a slot past the backend's staging expiry, then dispose it. The
     /// discard is best effort and bounded by `deadline`: an original the backend already expired
@@ -287,6 +279,22 @@ fn committed(published: &page::Published) -> Result<()> {
         Publication::Unknown { .. } => Err(page::Fault::Unavailable.into()),
     }
 }
+/// What becomes of a slot after a run: a finished one keeps its answer, a failure that nothing can
+/// resume disposes it, and any other failure keeps it for an explicit resume.
+pub(super) fn settle(mut slot: StagingSlot, result: Step<Attached>) -> Result<Attached> {
+    match result {
+        Ok(attached) => {
+            slot.finish(now()?)?;
+            Ok(attached)
+        }
+        Err(failure) => {
+            if failure.dispose {
+                let _ = slot.dispose();
+            }
+            Err(failure.error)
+        }
+    }
+}
 pub(super) fn run(
     objects: &dyn Objects,
     slot: &mut StagingSlot,
@@ -350,9 +358,14 @@ pub(super) fn run(
             AttachFailure::keep(error)
         }
     };
-    match stage(source, &page_id, &descriptor, deadline).map_err(AttachFailure::keep)? {
+    let replaces = slot.record.replaces.as_deref();
+    match stage(source, &page_id, &descriptor, replaces, deadline).map_err(AttachFailure::keep)? {
         Stage::Listed => {}
-        Stage::Proven => save(source, publisher, &descriptor, deadline).map_err(moved)?,
+        Stage::Gone => {
+            objects.discard(&frozen);
+            return Err(AttachFailure::dispose(page::Fault::Missing));
+        }
+        Stage::Proven => save(source, publisher, &descriptor, replaces, deadline).map_err(moved)?,
         Stage::Fresh => {
             if !base_holds(source, &frozen).map_err(AttachFailure::keep)? {
                 return Err(moved(page::Fault::StaleBase.into()));
@@ -370,12 +383,12 @@ pub(super) fn run(
                 return Err(failure);
             }
             prove(objects, source, publisher, &frozen, deadline).map_err(moved)?;
-            save(source, publisher, &descriptor, deadline).map_err(moved)?;
+            save(source, publisher, &descriptor, replaces, deadline).map_err(moved)?;
         }
     }
     answer(source, &page_id, descriptor).map_err(AttachFailure::keep)
 }
-fn is(error: &Error, fault: page::Fault) -> bool {
+pub(super) fn is(error: &Error, fault: page::Fault) -> bool {
     error.downcast_ref::<page::Fault>() == Some(&fault)
 }
 /// Whether the page is still at the base the original was sealed against.
@@ -402,21 +415,22 @@ fn stage(
     source: &page::save::SourceOpener,
     page_id: &str,
     descriptor: &Descriptor,
+    replaces: Option<&str>,
     deadline: Instant,
 ) -> Result<Stage> {
     let mut view = source()?;
     let snapshot = page::snapshot(&view.store, &view.keyring, page_id, true)?;
     let folded = snapshot.materialize_until(&view.keyring, page_id, &mut view.decoder, deadline)?;
-    let listed = folded
+    let list = folded
         .meta
         .get("attachments")
-        .and_then(serde_json::Value::as_array)
-        .is_some_and(|list| {
-            list.iter()
-                .any(|item| item["attachmentId"] == descriptor.attachment_id.as_str())
-        });
-    Ok(if listed {
+        .and_then(serde_json::Value::as_array);
+    let has =
+        |id: &str| list.is_some_and(|list| list.iter().any(|item| item["attachmentId"] == id));
+    Ok(if has(&descriptor.attachment_id) {
         Stage::Listed
+    } else if replaces.is_some_and(|old| !has(old)) {
+        Stage::Gone
     } else if attachments::creation_proof(&folded, descriptor).is_ok() {
         Stage::Proven
     } else {
@@ -513,12 +527,14 @@ fn prove(
     )?;
     committed(&publisher.publish(&view.keyring, &publication)?)
 }
-/// Add the descriptor to the document's attachment list, bound to the source it was sealed
-/// against: a page that changed since refuses as a stale base and is never re-authored.
+/// Add the descriptor to the document's attachment list, or swap it for the attachment it
+/// re-seals in the same write, bound to the source it was sealed against: a page that changed
+/// since refuses as a stale base and is never re-authored.
 fn save(
     source: &page::save::SourceOpener,
     publisher: &dyn Publish,
     descriptor: &Descriptor,
+    replaces: Option<&str>,
     deadline: Instant,
 ) -> Result<()> {
     let Source::Document { source_digest } = &descriptor.source else {
@@ -540,8 +556,10 @@ fn save(
         &mut view.decoder,
     )?;
     drop(view);
-    let change: DocumentChange =
-        serde_json::from_value(serde_json::json!({ "set": [descriptor] }))?;
+    let change: DocumentChange = serde_json::from_value(match replaces {
+        Some(old) => serde_json::json!({ "set": [descriptor], "remove": [old] }),
+        None => serde_json::json!({ "set": [descriptor] }),
+    })?;
     let prepared = page::save::prepare(
         source,
         &page::save::Save {
@@ -635,6 +653,9 @@ pub(in crate::object_channel) mod tests {
         }
         pub(in crate::object_channel) fn refuse_begin_with(&self, code: ErrorCode) {
             *self.refuse_begin.lock().unwrap() = Some(code);
+        }
+        pub(in crate::object_channel) fn accept_begin(&self) {
+            *self.refuse_begin.lock().unwrap() = None;
         }
         pub(in crate::object_channel) fn transfer_state(
             &self,

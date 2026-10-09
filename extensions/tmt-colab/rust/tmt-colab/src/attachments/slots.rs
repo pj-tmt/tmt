@@ -51,6 +51,10 @@ pub struct Record {
     /// When the attach finished; the file and ciphertext are gone, the answer remains.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub done_ms: Option<u64>,
+    /// The attachment this one re-seals under the page's current epoch (#2293). Its list entry
+    /// is swapped for the new one in the same write, never added beside it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub replaces: Option<String>,
 }
 /// The frozen upload: once recorded, the same ciphertext, descriptor, base and transfer ID are
 /// used by every retry, so a lost reply can never turn into a second object.
@@ -225,6 +229,40 @@ impl StagingSlots {
         media_type: &str,
         now_ms: u64,
     ) -> Result<StagingSlot> {
+        self.open_slot(page, filename, media_type, None, now_ms)
+    }
+    /// A slot for the re-seal of attachment `old` of `page`.
+    pub fn create_replacing(
+        &self,
+        page: &str,
+        filename: &str,
+        media_type: &str,
+        old: &str,
+        now_ms: u64,
+    ) -> Result<StagingSlot> {
+        self.open_slot(page, filename, media_type, Some(old), now_ms)
+    }
+    /// The unfinished slot that is re-sealing `old` of `page`, if an earlier pass left one.
+    pub fn replacing(&self, page: &str, old: &str) -> Result<Option<String>> {
+        for id in self.ids()? {
+            if let Ok(slot) = self.load(&id)
+                && slot.record.done_ms.is_none()
+                && slot.record.page == page
+                && slot.record.replaces.as_deref() == Some(old)
+            {
+                return Ok(Some(id));
+            }
+        }
+        Ok(None)
+    }
+    fn open_slot(
+        &self,
+        page: &str,
+        filename: &str,
+        media_type: &str,
+        replaces: Option<&str>,
+        now_ms: u64,
+    ) -> Result<StagingSlot> {
         // Finished slots hold only a small record, so only unfinished ones count against the cap.
         let active = self
             .ids()?
@@ -250,6 +288,7 @@ impl StagingSlots {
             created_ms: now_ms,
             sealed: None,
             done_ms: None,
+            replaces: replaces.map(str::to_owned),
         };
         let slot = StagingSlot {
             id,
@@ -347,6 +386,10 @@ impl StagingSlot {
     /// Where the caller streams the plaintext copy: a file the serve will open itself.
     pub fn source_path(&self) -> PathBuf {
         self.directory.join(SOURCE)
+    }
+    /// Put the plaintext of a re-seal where a caller's copy would go: the serve writes it itself.
+    pub fn stage_source(&self, plaintext: &[u8]) -> Result<()> {
+        replace_file(&self.directory, SOURCE, plaintext)
     }
     fn write_record(&self) -> Result<()> {
         let bytes = serde_json::to_vec(&self.record)?;

@@ -21,6 +21,9 @@ use tmt_colab_model::{
 use tmt_extension_objects::Operation;
 use tmt_extension_objects::{BeginInput, ErrorCode};
 
+#[path = "attach/rekey.rs"]
+mod rekey;
+
 fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }

@@ -23,6 +23,7 @@ mod binding;
 mod client;
 mod history;
 mod peer;
+pub(crate) mod rekey;
 pub(crate) use client::CommittedReader;
 pub(crate) use peer::{ObjectRequest, PeerObjects};
 #[cfg(test)]
