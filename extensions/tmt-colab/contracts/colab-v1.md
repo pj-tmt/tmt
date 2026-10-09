@@ -1650,14 +1650,19 @@ absent own history is never recreated automatically.
 The Annotate control beside a selection opens one plain trusted-parent input in a
 small anchored window at that span. On the first committed turn, the same input
 continues below the thread's user turns, agent state and admitted replies; Comments
-and Chat do not open automatically. The header and composer stay stationary, only
-messages scroll, and new turns/replies scroll that area to the new content. The
-window fits its header, quote, turns and composer without reserved history height,
+and Chat do not open automatically. The header and composer stay stationary; only
+messages scroll. The window fits its header, quote, turns and composer without
+reserved history height,
 growing away from its selection edge up to the available viewport height. Only
 history scrolls beyond that cap; the field and Send stay visible independently of
-document bounds. First open, new
-comment IDs and changed associated replies scroll into view; unrelated live
-publications preserve a reader's position in history.
+document bounds. The shared conversation history opens at the bottom and follows
+new record identities while the reader is within 24px of the bottom. Above that
+threshold, arrivals preserve the reading position and show a "New messages" text
+action at the history's bottom edge. Activating it or manually returning to the
+bottom clears it. This device's own new turns always follow latest. A delayed
+admitted reply is an arrival; edits to existing replies, cloned publications and
+size changes are not arrivals. Size changes retain following, and reaching the
+bottom after resizing also clears pending state, including when every message fits.
 Its placement is cosmetic; the captured quote
 selector owns the thread anchor. Enter sends, Shift+Enter inserts a newline, and Esc closes the input (an unsent draft is kept). There
 is no confirmation screen or automatic send. The popover closes with its ×, with Escape from anywhere
@@ -1754,8 +1759,17 @@ the storage transaction completed. Source-editor text is outside this record.
 
 The header Chat action replaces the standalone Ask action. Chat opens a fixed right
 parent overlay (a full-screen mobile sheet) without resizing or reflowing the page.
-Messages scroll inside it; one shared plaintext message input remains at the bottom. Closing retains
-the draft and admitted history. Enter explicitly captures, freezes, signs and sends;
+Messages scroll inside it; one shared plaintext message input remains at the bottom.
+Chat uses the same shared history owner and scroll policy as inline annotation
+conversations: it opens at the bottom and follows new record identities within
+24px of the bottom. Above that threshold, arrivals preserve the reading position
+and show "New messages" at the history's bottom edge; activating the action or
+manually returning to the bottom clears it. This device's own new turns always
+follow latest. A delayed admitted reply is an arrival; edits to existing replies,
+cloned publications and size changes are not arrivals. Size changes retain
+following, and reaching the bottom after resizing clears pending state, including
+when every message fits. Closing retains the draft and admitted history. Enter
+explicitly captures, freezes, signs and sends;
 there is no confirmation screen or automatic send. Composed text remains in the
 conversation; frozen transport bytes stay in the Ask record. The pane states that the conversation is visible to
 everyone with page access.
