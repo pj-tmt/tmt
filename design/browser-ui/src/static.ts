@@ -30,6 +30,13 @@ export const browserUiClasses = Object.freeze({
   iconActionTooltipLabel: 'tmt-ui-icon-action-tooltip-label',
   toggle: 'tmt-ui-toggle',
   toggleIndicator: 'tmt-ui-toggle-indicator',
+  list: 'tmt-ui-list',
+  listRow: 'tmt-ui-list-row',
+  listTitle: 'tmt-ui-list-title',
+  listMeta: 'tmt-ui-list-meta',
+  listUpdated: 'tmt-ui-list-updated',
+  listState: 'tmt-ui-list-state',
+  listActions: 'tmt-ui-list-actions',
 } as const);
 
 export type BrowserNoticeTone = 'waiting' | 'blocked' | 'working' | 'review' | 'muted';

@@ -2211,7 +2211,7 @@ test('accepted fold titles persist as encrypted display hints for home, dialog a
   await wire(context, undefined, undefined, undefined, title);
   await page.goto(mount);
   const row = () => page.locator(`[data-page-id="${v.page}"]`);
-  await expect(row().getByRole('heading')).toHaveText('Untitled page');
+  await expect(row().locator('.tmt-ui-list-title')).toHaveText('Untitled page');
   await expect(row().getByText(`Page ID: ${v.page}`, { exact: true })).toBeHidden();
   await row().locator('a').click();
   await expect(page.getByRole('heading', { name: title, exact: true })).toBeVisible();
@@ -2224,10 +2224,10 @@ test('accepted fold titles persist as encrypted display hints for home, dialog a
   await expect(dialog.getByText(`Page ID: ${v.page}`, { exact: true })).toBeVisible();
   await dialog.getByRole('button', { name: 'Close', exact: true }).click();
   await page.getByRole('link', { name: 'Space home', exact: true }).click();
-  await expect(row().getByRole('heading')).toHaveText(title);
+  await expect(row().locator('.tmt-ui-list-title')).toHaveText(title);
   await expect(page).toHaveTitle('Colab');
   await page.reload();
-  await expect(row().getByRole('heading')).toHaveText(title);
+  await expect(row().locator('.tmt-ui-list-title')).toHaveText(title);
   await expect(page.locator('.home img')).toHaveCount(0);
   const persisted = await page.evaluate(
     async ({ space, device, pageId }) => {
@@ -2257,9 +2257,9 @@ test('accepted fold titles persist as encrypted display hints for home, dialog a
     { space: v.space, device: v.device, pageId: v.page },
   );
   await page.reload();
-  await expect(row().getByRole('heading')).toHaveText('Untitled page');
+  await expect(row().locator('.tmt-ui-list-title')).toHaveText('Untitled page');
   await row().locator('a').click();
   await expect(page.getByRole('heading', { name: title, exact: true })).toBeVisible();
   await page.getByRole('link', { name: 'Space home', exact: true }).click();
-  await expect(row().getByRole('heading')).toHaveText(title);
+  await expect(row().locator('.tmt-ui-list-title')).toHaveText(title);
 });

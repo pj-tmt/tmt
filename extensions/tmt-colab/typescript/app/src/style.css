@@ -77,67 +77,43 @@ footer {
   margin: 8px 0 36px;
   font-size: 16px;
 }
-.pages {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-  gap: 20px;
-  padding: 0;
+/* The leaf owns list rows; Colab owns the trusted row disclosure. */
+.page-row-menu {
+  position: relative;
+  color: var(--tmt-ui-color-text);
+  font-size: var(--tmt-ui-header-action-size);
+  line-height: var(--tmt-ui-header-action-line-height);
+}
+.page-row-menu > summary {
+  display: flex;
+  align-items: center;
+  min-height: var(--tmt-ui-host-icon-action-size);
+  padding: 0 var(--tmt-ui-toggle-gap);
+  cursor: pointer;
   list-style: none;
 }
-.page-card {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  background: var(--c-sheet);
-  border: 2px solid var(--c-text);
-  box-shadow: 5px 5px 0 var(--c-text);
-  padding: 24px;
+.page-row-menu > summary::-webkit-details-marker {
+  display: none;
 }
-.page-card:has(.page-card-link:hover) {
-  border-color: var(--c-accent);
+.page-row-menu > summary:hover {
+  text-decoration: underline;
 }
-.page-card-link,
-.archived-page {
-  display: flex;
-  flex: 1;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 12px;
+.page-row-menu-body {
+  position: absolute;
+  z-index: 20;
+  top: 100%;
+  right: 0;
+  width: min(
+    calc(var(--tmt-ui-header-wordmark-size) * 20),
+    calc(100vw - var(--tmt-ui-list-padding-inline) * 2)
+  );
+  padding: var(--tmt-ui-list-padding-block) var(--tmt-ui-list-padding-inline);
+  background: var(--tmt-ui-surface-sheet);
+  color: var(--tmt-ui-color-text);
+  border: var(--tmt-ui-rule-width) solid var(--tmt-ui-color-edge);
 }
-.page-id {
-  color: var(--c-muted);
-  font: 11px/1.5 var(--f-mono);
-}
-.page-card-actions {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
-  margin-top: 20px;
-  padding-top: 12px;
-  border-top: 1px solid var(--c-rule);
-  font-size: 12px;
-}
-.page-card-actions details {
-  min-width: 0;
-}
-.page-card-actions summary {
-  cursor: pointer;
-}
-.page-card-actions {
-  --tmt-ui-host-action-padding: 0;
-}
-.page-mark {
-  color: var(--c-muted);
-  width: 24px;
-  height: 24px;
-}
-.pages h2 {
-  color: var(--c-text);
-  font-size: 18px;
-  font-weight: 600;
-  margin: 0;
-  overflow-wrap: anywhere;
+.page-row-menu-body p {
+  margin: 0 0 var(--tmt-ui-toggle-gap);
 }
 .chip {
   font: 11px var(--f-mono);
@@ -157,13 +133,6 @@ footer {
 .retention-mark {
   color: var(--c-waiting);
   margin-right: 6px;
-}
-.open {
-  color: var(--c-accent);
-  font-size: 12px;
-  display: flex;
-  width: 100%;
-  justify-content: space-between;
 }
 .page-main {
   min-height: 0;
