@@ -92,6 +92,30 @@ fn migrate<R: CommandRunner>(
 }
 
 #[cfg(test)]
+pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] = &[
+    crate::cli_style_tests::HintSpec::core(
+        "Pane option cutover unavailable: {error}; rebind each affected pane with tmt this <name>",
+        &[""],
+        &[],
+    ),
+    crate::cli_style_tests::HintSpec::core(
+        "Pane option cutover unavailable: {error}; rebind affected panes with tmt this <name>",
+        &[""],
+        &[],
+    ),
+    crate::cli_style_tests::HintSpec::core(
+        "No verified selected tmux server for option cutover; rebind affected panes with tmt this <name>",
+        &[""],
+        &[],
+    ),
+    crate::cli_style_tests::HintSpec::core(
+        "Pane option cutover left {} unchanged; run tmt this {} in that pane",
+        &[" in that pane"],
+        &[],
+    ),
+];
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use tmt_adapters::process::{CommandError, CommandOutput, CommandRequest};

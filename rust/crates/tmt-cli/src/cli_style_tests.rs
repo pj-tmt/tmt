@@ -338,6 +338,10 @@ fn hint_samples() -> Vec<(&'static str, &'static [HintSpec])> {
             "native_upgrade_command/extensions.rs",
             crate::native_upgrade_command::EXTENSIONS_HINTS,
         ),
+        (
+            "native_upgrade_command/rename.rs",
+            crate::native_upgrade_command::RENAME_HINTS,
+        ),
         ("parser.rs", crate::parser::PRINTED_HINTS),
         (
             "reply_notice_command.rs",

@@ -487,3 +487,6 @@ pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] = &[
 
 #[cfg(test)]
 pub(crate) use extensions::PRINTED_HINTS as EXTENSIONS_HINTS;
+
+#[cfg(test)]
+pub(crate) use rename::PRINTED_HINTS as RENAME_HINTS;

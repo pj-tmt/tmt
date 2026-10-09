@@ -413,7 +413,7 @@ export async function verifyNativeRuntime({
       JSON.parse(fs.readFileSync(path.join(globalRoot, 'skill-installations.json'))),
       {
         version: 1,
-        targets: [inboxTargetPath, targetPath],
+        targets: [targetPath, inboxTargetPath],
       }
     );
     assert.deepEqual(json(['install', '--dir', customRoot]), {
@@ -425,8 +425,8 @@ export async function verifyNativeRuntime({
     });
     assert.deepEqual(json(['__native-refresh-skills']), {
       refreshed: [
-        { target: inboxTargetPath, changed: false },
         { target: targetPath, changed: false },
+        { target: inboxTargetPath, changed: false },
       ],
       skipped: [],
       conflicts: [],
