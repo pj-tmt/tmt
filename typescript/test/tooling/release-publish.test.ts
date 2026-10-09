@@ -522,6 +522,7 @@ describe('verifyPublication', () => {
   it('shares seven waits across release and asset lookups and retains the last missing output', () => {
     let releaseReads = 0;
     let assetReads = 0;
+    let time = 0;
     const last: Outcome = {
       ok: false,
       output: `no attestations found for tag ${TAG} (sha1:${'b'.repeat(40)})`,
@@ -540,18 +541,21 @@ describe('verifyPublication', () => {
     const waits: number[] = [];
     const writer = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
     try {
-      // The zero-cost injected clock isolates the shared count bound from the wall cap.
       const results = verifyPublication({
         api,
         product: 'cli',
         tag: TAG,
         directory: '/work/published',
-        sleep: (ms) => waits.push(ms),
-        clock: () => 0,
+        sleep: (ms) => {
+          waits.push(ms);
+          time += ms;
+        },
+        clock: () => time,
       });
       expect(releaseReads).toBe(5);
       expect(assetReads).toBe(4);
       expect(waits).toEqual(Array(7).fill(15_000));
+      expect(time).toBe(105_000);
       expect(failures(results)).toEqual({
         assets: `gh release verify-asset failed for release-publication.json: ${last.output}`,
       });
@@ -598,11 +602,12 @@ describe('verifyPublication', () => {
         },
         clock: () => time,
       });
-      expect(reads).toBe(2);
-      expect(time).toBe(115_000);
-      expect(waits).toEqual([15_000]);
+      expect(reads).toBe(3);
+      expect(time).toBe(230_000);
+      expect(waits).toEqual([15_000, 15_000]);
       expect(lines).toEqual([
         `Release ${TAG} attestation attempt 1/8 failed: ${first.output}\nRetrying in 15000 ms.\n`,
+        `Release ${TAG} attestation attempt 2/8 failed: ${last.output}\nRetrying in 15000 ms.\n`,
       ]);
       expect(failures(results)).toEqual({
         attestation: `gh release verify failed: ${last.output}`,
@@ -616,13 +621,14 @@ describe('verifyPublication', () => {
     }
   });
 
-  it('reserves a whole 120-second lookup before admitting another fast retry', () => {
+  it('admits all seven retries when each wait and fast lookup advance the clock', () => {
     let time = 0;
     let reads = 0;
     const waits: number[] = [];
     const { api } = fakeApi({
       verifyRelease: () => {
         reads += 1;
+        time += 1;
         return { ok: false, output: `no attestations found for tag ${TAG}` };
       },
     });
@@ -639,9 +645,9 @@ describe('verifyPublication', () => {
         },
         clock: () => time,
       });
-      expect(reads).toBe(5);
-      expect(waits).toEqual(Array(4).fill(15_000));
-      expect(time).toBe(60_000);
+      expect(reads).toBe(8);
+      expect(waits).toEqual(Array(7).fill(15_000));
+      expect(time).toBe(105_008);
       expect(failures(results).attestation).toBe(
         `gh release verify failed: no attestations found for tag ${TAG}`
       );

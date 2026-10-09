@@ -42,7 +42,7 @@ const COMPONENTS = fileURLToPath(new URL('../../.github/components.json', import
 const VERIFY_ATTEMPTS = 8;
 const VERIFY_WAIT_MS = 15_000;
 const VERIFY_LOOKUP_MS = 120_000;
-const VERIFY_EXTRA_MS = 180_000;
+const VERIFY_EXTRA_MS = 300_000;
 
 /**
  * Why this draft may not be published now, or an empty string. The workflow publishes only after

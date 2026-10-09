@@ -306,7 +306,7 @@ CLI latest names the highest published CLI version, an extension release never i
 the release commit, it carries `release-publication.json`, and GitHub's attestation verifies
 (`gh release verify`, and `gh release verify-asset` for every asset downloaded from the
 published release). Only the exact missing-attestation lookup for the requested tag is retried: release
-and asset lookups share at most seven 15-second waits and a 180-second extra-time allowance, reserving
+and asset lookups share at most seven 15-second waits and a 300-second extra-time allowance, reserving
 the full existing lookup bound before each retry. Earlier errors and admitted delays go to stderr;
 other verification failures fail immediately. Immutable/latest reads retain their own bounded waits.
 A failed check opens an issue and fails the run; nothing is
