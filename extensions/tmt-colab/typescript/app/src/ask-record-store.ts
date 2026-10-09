@@ -1,7 +1,8 @@
 import { generatedId, requireValue, spaceId } from '@tmt/colab-client';
 import type { SignedAsk } from './ask-intent.js';
 import type { OwnState, JsonValue } from './fold-protocol.js';
-import { record } from './storage.js';
+import { deleteRecord, record } from './storage.js';
+import { provablyUnsent } from './ask-remote.js';
 import {
   canTransition,
   readAskRecords,
@@ -72,6 +73,57 @@ export class AskRecordStore {
     if (!found) throw new Error('ASK_NOT_FOUND');
     return found;
   }
+  #pairKey(thread: string, messageId: string, machine: string, agent: string) {
+    [thread, messageId, machine, agent].forEach(generatedId);
+    return `ask-recipient:${this.scope.space}:${this.scope.page}:${this.scope.deviceId}:${thread}:${messageId}:${machine}:${agent}`;
+  }
+  /** Called only for an authoritative adopted:false outcome, never an absent read. */
+  async releaseRetry(view: {
+    thread: string;
+    messageIds: readonly string[];
+    machine: string;
+    agent: string;
+    operationId: string;
+  }) {
+    requireValue(view.messageIds.length === 1);
+    generatedId(view.operationId);
+    const key = this.#pairKey(view.thread, view.messageIds[0], view.machine, view.agent);
+    await navigator.locks.request(key, async () => {
+      if ((await record<string>(key)) === view.operationId) await deleteRecord(key);
+    });
+  }
+  async checkRetry(
+    thread: string,
+    messageId: string,
+    machine: string,
+    agent: string,
+    retryOf: string | null,
+  ): Promise<void> {
+    const related = (await this.views()).filter(
+      (view) =>
+        view.intent.thread === thread &&
+        view.intent.messageIds.includes(messageId) &&
+        view.intent.machine === machine &&
+        view.intent.agent === agent,
+    );
+    requireValue(related.every(provablyUnsent));
+    const pending = await record<string>(this.#pairKey(thread, messageId, machine, agent));
+    if (pending !== undefined) {
+      generatedId(pending);
+      // Absence in this tab's admitted view cannot prove that another tab was unsent.
+      requireValue(
+        related.some((view) => view.intent.operationId === pending && provablyUnsent(view)),
+      );
+    }
+    if (retryOf !== null) {
+      generatedId(retryOf);
+      requireValue(
+        related.some(
+          (view) => view.intent.operationId === retryOf && view.intent.messageIds.length === 1,
+        ),
+      );
+    }
+  }
   async #write(value: AskRecord) {
     validateRecord(value);
     const { root, key } = recordKey(value);
@@ -87,7 +139,37 @@ export class AskRecordStore {
   async adopt(
     signed: SignedAsk,
     labels: { agentName: string; deviceName: string },
+    retryOf?: string | null,
   ): Promise<'created' | 'existing'> {
+    if (retryOf !== undefined) {
+      const intent = await verifyAsk(signed, this.#publicKey);
+      requireValue(
+        intent.messageIds.length === 1 &&
+          intent.space === this.scope.space &&
+          intent.page === this.scope.page &&
+          intent.senderDevice === this.scope.deviceId,
+      );
+      const pairKey = this.#pairKey(
+        intent.thread,
+        intent.messageIds[0],
+        intent.machine,
+        intent.agent,
+      );
+      // The single shared UUID fences tabs whose admitted views still lag.
+      // Storage read/write errors reject before any adoption or Remote effect.
+      return navigator.locks.request(pairKey, async () => {
+        requireValue(retryOf !== intent.operationId);
+        await this.checkRetry(
+          intent.thread,
+          intent.messageIds[0],
+          intent.machine,
+          intent.agent,
+          retryOf,
+        );
+        await record(pairKey, intent.operationId);
+        return this.adopt(signed, labels);
+      });
+    }
     const value: AskRecord = {
       version: 1,
       kind: 'ask',

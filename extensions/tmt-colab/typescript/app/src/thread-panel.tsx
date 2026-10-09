@@ -3,7 +3,7 @@ import { Check, CircleCheck, CircleDot, LoaderCircle, RotateCcw, X } from 'lucid
 import { BrowserAction, BrowserIconAction } from '@tmt/browser-ui/react';
 import { MessageComposer } from './components/message-composer.js';
 import type { ComposerEdit } from './components/message-composer-edit.js';
-import { conversationAsks } from './thread-store.js';
+import { captureConversation, conversationAsks } from './thread-store.js';
 import { ConversationWindow, conversationRecordKey } from './components/conversation-window.js';
 import { MessageText } from './components/message-text.js';
 import { MessageAttachments } from './message-attachments.js';
@@ -250,6 +250,7 @@ export function CommentExchange({
   asks,
   blocked,
   allowEdit = true,
+  title,
 }: {
   comment: CommentView;
   thread: ThreadView;
@@ -258,6 +259,7 @@ export function CommentExchange({
   asks: readonly PageAsk[];
   blocked: boolean;
   allowEdit?: boolean;
+  title: string;
 }) {
   const records = conversationAsks(thread, asks, true).filter((record) =>
     record.messageIds?.includes(comment.messageId),
@@ -280,6 +282,29 @@ export function CommentExchange({
       binding={ask}
       blocked={blocked}
       renderUser={(_record, status, delivery) => user(status, delivery)}
+      retryInput={
+        !thread.deleted && !comment.deleted && binding?.deviceId === comment.ref.writer
+          ? {
+              quote: thread.anchor?.exact ?? '',
+              comment: comment.body,
+              title,
+              url: location.href,
+              context: {
+                thread: thread.ref,
+                message: comment.ref,
+                threadRevision: thread.revision,
+                messageRevision: comment.revision,
+                conversation: captureConversation(
+                  {
+                    ...thread,
+                    comments: thread.comments.slice(0, thread.comments.indexOf(comment)),
+                  },
+                  asks,
+                ),
+              },
+            }
+          : undefined
+      }
     />
   ) : (
     user()
@@ -501,6 +526,7 @@ export function ThreadWindow({
           ask={ask}
           asks={asks}
           blocked={blocked || busy}
+          title={title}
         />
       ))}
       {binding && thread && !thread.deleted && owned && (

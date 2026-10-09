@@ -135,6 +135,7 @@ export function ChatPanel({
               asks={asks}
               blocked={blocked}
               allowEdit={false}
+              title={title}
             />
           ))}
         </section>

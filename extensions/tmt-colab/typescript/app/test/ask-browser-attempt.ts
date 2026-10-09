@@ -17,6 +17,7 @@ export async function fixtureAttempt(
     mode?: RemoteDouble['mode'];
     operationId?: string;
     issuedAt?: number;
+    retryOf?: string | null;
   } = {},
 ) {
   const captured = structuredClone(input);
@@ -86,7 +87,7 @@ export async function fixtureAttempt(
     send() {
       if (pending) return pending;
       state = { state: 'preparing' };
-      pending = controller.send(preview).then((view) => {
+      pending = controller.send(preview, options.retryOf).then((view) => {
         state = { state: view.state };
         return state;
       });

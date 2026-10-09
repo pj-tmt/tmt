@@ -3,7 +3,8 @@ import { CircleAlert, Clock, Pause } from 'lucide-react';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { PreviewAttempt } from './ask-preview.js';
 import { ASK_OBSERVATION_MS, type LedgerState } from './ask-records.js';
-import { ReadRefusedError, REMOTE_REFUSAL_CODES } from './ask-remote.js';
+import { ReadRefusedError, REMOTE_REFUSAL_CODES, provablyUnsent } from './ask-remote.js';
+import { AskAgainAction, type AskAgainInput } from './ask-again.js';
 import type { RemoteAgent } from './ask-remote.js';
 import type { AskDestination } from './ask-intent.js';
 import type { AgentDirectoryObservation } from './live-ask.js';
@@ -24,6 +25,9 @@ export interface AskBinding {
     url: string;
     destination: AskDestination;
     context?: CommentContext;
+    /** Absent for Send; null for a trusted local pre-adoption failure; otherwise
+     * the own refused operation. The store rechecks the recipient before adoption. */
+    retryOf?: string | null;
   }): Promise<PreviewAttempt>;
   recheck(operationId: string): Promise<void>;
   abandon(operationId: string): Promise<void>;
@@ -43,6 +47,7 @@ export interface PageAsk {
   state: LedgerState;
   canTrack: boolean;
   reason?: string | null;
+  requestId?: string | null;
   reply?: string;
   resultUnavailable?: boolean;
 }
@@ -67,12 +72,14 @@ export function AskPanel({
   blocked,
   inline = false,
   renderUser,
+  retryInput,
 }: {
   records: readonly PageAsk[];
   binding?: AskBinding;
   blocked: boolean;
   inline?: boolean;
   renderUser?(record: PageAsk, status: ReactNode, delivery: ReactNode): ReactNode;
+  retryInput?: AskAgainInput;
 }) {
   const [now, setNow] = useState(0);
   useEffect(() => {
@@ -180,6 +187,19 @@ export function AskPanel({
       record.reply === undefined &&
       !record.resultUnavailable;
     const disabled = !binding || blocked || !record.canTrack || pending.has(record.operationId);
+    const recipientRecords = records.filter(
+      (value) =>
+        value.writer === record.writer &&
+        value.machine === record.machine &&
+        value.agent === record.agent,
+    );
+    const canAskAgain =
+      !!retryInput &&
+      record.messageIds?.length === 1 &&
+      retryInput.context.message.writer === record.writer &&
+      record.canTrack &&
+      recipientRecords.every(provablyUnsent) &&
+      recipientRecords.at(-1) === record;
     const status = record.reply === undefined && (
       <span className="conversation-status" aria-label={`Ask ${agent}`}>
         <span role="status" data-testid="ask-state" data-state={record.state}>
@@ -191,6 +211,19 @@ export function AskPanel({
             {deliveryState.label}
           </span>
         </span>
+        {canAskAgain && (
+          <AskAgainAction
+            key={recipientRecords
+              .map((value) => value.operationId)
+              .sort()
+              .join(':')}
+            binding={binding}
+            blocked={disabled}
+            input={retryInput!}
+            recipient={record}
+            retryOf={record.operationId}
+          />
+        )}
         {canRecheck && (
           <>
             <button
@@ -248,7 +281,8 @@ export function AskPanel({
         )}
         {record.reply === undefined &&
           record.state === 'refused' &&
-          REMOTE_REFUSAL_CODES.some((code) => code === record.reason) && (
+          REMOTE_REFUSAL_CODES.some((code) => code === record.reason) &&
+          (!retryInput || record.messageIds?.length !== 1) && (
             <p className="ask-supporting">{text.messageAskAgain(agent)}</p>
           )}
         {record.state === 'uncertain' &&

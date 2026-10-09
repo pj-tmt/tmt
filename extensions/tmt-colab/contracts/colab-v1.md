@@ -1502,8 +1502,8 @@ Remote governs hold approval and rechecks its own grant at release. Local v1
 does not supply a Colab page-policy hook at later approval. Browser observation
 never dispatches or approves. Timeout, interrupted output or reopened
 `dispatching` becomes uncertain. Recovery uses only `operation.show` with the
-original ID; absence remains uncertain. No same-ID retry or replacement operation
-is offered in v1. Explicit abandon records `MAY_HAVE_BEEN_DELIVERED`; it neither
+original ID; absence remains uncertain and permits no same-ID retry or replacement
+operation. Explicit abandon records `MAY_HAVE_BEEN_DELIVERED`; it neither
 proves absence nor cancels recipient work.
 
 ### Own-stream Ask records
@@ -1817,15 +1817,39 @@ Try again. A plain comment remains available under content-write admission while
 directory discovery loads or fails.
 
 Each Ask freezes and signs the exact composed text with the real thread and message
-IDs. Local preparation failure or a typed pre-effect refusal shows "Not delivered"
-under that recipient and "Mention @name in a new message to ask again." No recipient
-retry is offered. An adopted operation keeps its ledger and existing Re-check/Abandon
-rules; uncertainty never authorizes a new attempt on the recorded comment.
+IDs. A trusted "Ask again" action can prepare one new operation for one unsent
+recipient on the original comment, without another comment, upload or sibling Send.
+It refreshes the directory and matches the original machine/agent UUID pair; names
+never reroute it. Local preparation rejection or explicit `adopted: false` retains
+the original capture only in that composer's memory, cleared by a new Send or close;
+it does not survive reload. Missing adoption evidence or a thrown Send is uncertain.
+A signed refusal is eligible only in the asking device's own stream, with state
+`refused`, no reply, null request ID and a reviewed `REMOTE_REFUSAL_CODES` reason.
+Every own Ask on the same thread/message/recipient must remain provably unsent;
+accepted, held, dispatching, uncertain, failed, expired, cancelled, abandoned or
+unknown-refusal records block another operation. Re-check/Abandon remain the existing
+recovery choices for uncertainty, never permission to Ask again.
+Preparation uses `retryOf` absent for ordinary Send, null for a trusted local failure,
+or the old operation UUID for a signed refusal. The fresh signed intent keeps the
+same thread, sole message ID and machine/agent UUIDs, with a new operation ID. A
+signed-refusal action captures the current original comment and only preceding
+conversation; a local action re-admits its earlier captured references/revisions.
+A pair-scoped Web Lock encloses the block-check, a durable marker write and adoption.
+The existing IndexedDB record store holds only the latest replacement operation UUID
+under the space/page/own-device/thread/message/machine/agent key. A marker whose own
+admitted record is absent or not a typed pre-effect refusal blocks even a stale tab.
+Read/write errors fail closed. Release is allowed only on authoritative `adopted: false`;
+a later admitted typed refusal permits the next explicit replacement. There is no
+history or plaintext in the marker. Existing per-operation locks and immutable record
+rules still apply. The shared action fences trusted events, double activation, blocked/unmounted/replaced bindings and stale
+context. All old outcomes remain unchanged; the new outcome is its own row and
+there is at most one action per recipient group. Reload may restore a signed-refusal
+action only if the entire own group still satisfies the predicate; it never sends.
 Prior user comments and verified agent replies are included as quoted data, in the existing
 projection order, with their captured references/revisions rechecked before signing.
 Display timestamps never determine record ordering or authority. Deleted/stale
 context and byte overflow refuse; no context is silently truncated. A failure after
-comment publication retains that comment and shows the outcome; it never resends.
+comment publication retains that comment and shows the outcome; it never automatically resends.
 The input and conversation show the composed text; no surface offers an on-demand
 view of the transport message. Frozen bytes, including the quote and captured
 context, remain in the existing Ask record. Held approval stays inline; approval

@@ -9,6 +9,9 @@ import { ReadRefusedError, SessionEndedError, SessionEvictedError } from '../src
 import { destination, id, pageLink, RemoteDouble } from './ask-fixtures.js';
 const records = new Map<string, unknown>();
 vi.mock('../src/storage.js', () => ({
+  deleteRecord: async (key: string) => {
+    records.delete(key);
+  },
   record: async (key: string, ...values: unknown[]) => {
     if (values.length) records.set(key, structuredClone(values[0]));
     else return records.get(key);
@@ -459,4 +462,71 @@ it('page admission refuses status before Remote reads and never uses writer auth
   expect(directory).not.toHaveBeenCalled();
   expect(f.sessionEnded).not.toHaveBeenCalled();
   expect(f.remote.sends).toEqual([]);
+});
+
+it('Ask again re-admits the original own comment and typed refusal before freezing a fresh operation', async () => {
+  let current = true;
+  const context: CommentContext = {
+    thread: { writer: id(4), id: id(2) },
+    message: { writer: id(4), id: id(3) },
+    threadRevision: '1',
+    messageRevision: '1',
+  };
+  const f = await fixture(() => {
+    if (!current) throw new Error('Stale original comment');
+    return {
+      thread: id(2),
+      messageIds: [id(3)],
+      quote: 'Original quote',
+      comment: 'Original body',
+    };
+  });
+  f.input.destination = (await f.ask.destinations())[0];
+  const send = f.remote.send.bind(f.remote);
+  let first = true;
+  f.remote.send = async (input) => {
+    if (first) {
+      first = false;
+      f.remote.sends.push(input);
+      return { state: 'refused', operationId: input.operationId, reason: 'REMOTE_RATE_LIMITED' };
+    }
+    return send(input);
+  };
+  const original = await f.ask.prepare({ ...f.input, context });
+  await original.send();
+  const retry = await f.ask.prepare({
+    ...f.input,
+    context,
+    retryOf: original.preview.view.operationId,
+  });
+  expect(retry.preview.view.operationId).not.toBe(original.preview.view.operationId);
+  expect(await retry.send()).toEqual({ state: 'accepted', adopted: true });
+  const rows = Object.values(f.own[id(4)].intents) as { signed: unknown }[];
+  expect(rows.map((row) => decodeAsk(row.signed).messageIds)).toEqual([[id(3)], [id(3)]]);
+  expect(f.remote.sends).toHaveLength(2);
+  await expect(
+    f.ask.prepare({ ...f.input, context, retryOf: original.preview.view.operationId }),
+  ).rejects.toThrow();
+  f.ask.close();
+});
+
+it('a local retry sends no effect when the original comment changes while its destination is read', async () => {
+  let current = true;
+  const context: CommentContext = {
+    thread: { writer: id(4), id: id(2) },
+    message: { writer: id(4), id: id(3) },
+    threadRevision: '1',
+    messageRevision: '1',
+  };
+  const f = await fixture(() => {
+    if (!current) throw new Error('Stale original comment');
+    return { thread: id(2), messageIds: [id(3)], quote: '', comment: 'Original body' };
+  });
+  f.input.destination = (await f.ask.destinations())[0];
+  const retry = await f.ask.prepare({ ...f.input, context, retryOf: null });
+  current = false;
+  expect(await retry.send()).toEqual({ state: 'failed', adopted: false });
+  expect(f.remote.sends).toHaveLength(0);
+  expect(f.own).toEqual({});
+  f.ask.close();
 });
