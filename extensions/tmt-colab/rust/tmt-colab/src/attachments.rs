@@ -7,7 +7,10 @@ use crate::{
     page,
     store::Store,
 };
+pub mod attach_ipc;
 pub mod ipc;
+pub(crate) mod seal;
+pub mod slots;
 use serde_json::Value;
 use std::time::Instant;
 use tmt_colab_model::{

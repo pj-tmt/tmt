@@ -74,6 +74,13 @@ pub const ATTACHMENT_READ_REPLY: Duration = ACQUISITION
     .saturating_add(OBJECT_REPLY)
     .saturating_add(ATTACHMENT_RESPONSE);
 
+/// One native attach seals, uploads at most one whole payload, reads it back and publishes twice,
+/// all inside the serve; the caller waits this budget plus the interval to write the reply.
+pub const ATTACH_BUDGET: Duration = Duration::from_secs(300);
+pub const ATTACHMENT_ATTACH_REPLY: Duration = ACQUISITION
+    .saturating_add(ATTACH_BUDGET)
+    .saturating_add(ATTACHMENT_RESPONSE);
+
 /// Per-page sync namespace inventory / cursor budget. Store writes are unaffected.
 pub const SYNC_NAMESPACES: usize = 256;
 /// Raw bytes per chunk; base64 and control fields fit in a 64 KiB frame.

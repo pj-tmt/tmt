@@ -254,13 +254,14 @@ impl Keyring {
         seed.fill(0);
         Ok(key)
     }
+    /// Seal one object (a content update or an attachment) as the local writer.
     pub(crate) fn seal_content(
         &self,
         context: &tmt_colab_model::object::Context,
         secret: &[u8; 32],
-        update: &[u8],
+        plaintext: &[u8],
     ) -> tmt_colab_model::Result<tmt_colab_model::object::Envelope> {
-        tmt_colab_model::object::seal(context, secret, &self.local_signer()?, update)
+        tmt_colab_model::object::seal(context, secret, &self.local_signer()?, plaintext)
     }
     /// Sign one admitted content manifest with the existing local writer, without exporting keys.
     pub(crate) fn sign_content_publication(

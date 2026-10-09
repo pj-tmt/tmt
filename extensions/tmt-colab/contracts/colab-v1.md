@@ -3175,6 +3175,48 @@ JSON error of the publish route with the page fault code (`COLAB_DENIED`, `COLAB
 `COLAB_STATE_MISSING`, `COLAB_UNAVAILABLE`, `COLAB_INPUT_INVALID`, `COLAB_SERVER_MISMATCH`). A
 read has no effect, so it is never retried and any doubt is unavailable.
 
+### Native attach command (#2291)
+
+`tmt colab attachment attach <page> <file> [--type <media-type>] [--json]` adds one file to a
+page's document attachments, authored by this data root's local writer; `attach <page> --resume
+<slot>` finishes an earlier attempt. Document attachments only: a message attachment needs a native
+message author, which does not exist yet. It needs the running serve, an established object channel
+and a page the local writer may edit now; an archived or deleted page refuses `COLAB_PAGE_INACTIVE`
+and a revoked writer `COLAB_DENIED`, before anything is staged. The file is a regular file of the
+caller opened without following a link, at most 8 MiB, checked before and while it streams. Its name
+is the label and `--type` (default from the extension, else `application/octet-stream`) an inert
+media-type label.
+
+**Slot.** `POST /.tmt/colab/local/attachment-stage` with `{version:1,page,filename,mediaType}`
+opens a slot: a random 32-hex ID and a private 0700 directory under the serve's root, answered as
+`{slot,path}`; no route accepts a path. The CLI prints the slot to stderr, copies the file into
+`path` (create-new, 0600, bounded while streaming) and reports its SHA-256 to
+`POST /.tmt/colab/local/attachment-attach` with `{version:1,page,slot,sha256?}`. The serve re-hashes
+the copy, seals it under the page's current epoch as the local writer (the descriptor and object of
+a browser upload), and writes the ciphertext, descriptor, base and a fresh transfer ID to the slot
+before the first request leaves, removing the plaintext. Both routes deny a Remote context or event
+header.
+
+**Upload and publication.** The serve's native owner admits `LocalExtension` only, for the upload
+methods of that one frozen original and the verify reads of its committed bytes: the creator is the
+local writer, the source a document and the page writable at the captured base (a discard needs a
+writable page, not the base). It asks `status` first, begins only an unobserved transfer, resumes at
+`nextIndex`, reads the committed ciphertext back and authenticates it, publishes the creation proof
+and then the `meta.attachments` change bound to the sealed source digest, each through the single
+writer. Progress is read from the page and the backend, never remembered, so a retry never uploads
+or publishes twice. A page that changed after sealing refuses `COLAB_STALE_BASE` and keeps the
+original; the next attach opens a new slot and never re-authors silently.
+
+**Recovery.** A reply lost after the serve started is retried only by explicit `--resume <slot>`,
+never by a new slot for the same file. One attach runs per slot at a time; a finished slot keeps its
+descriptor, with no file or ciphertext, for 10 minutes so the retry returns the same attachment.
+Slots that never recorded a transfer go after 10 minutes and started ones after 25 hours, after the
+original is discarded. At most 16 unfinished slots exist.
+
+Success is `{pageId,slot,attachment:{attachmentId,descriptorHash,filename,mediaType,plaintextBytes,
+reference}}`; `reference` is the exact selector `attachment read` takes. A refusal is the JSON error
+of the publish route with the page fault code.
+
 ### Browser page title hints (#1564)
 
 The paired owner browser uses accepted Live folds as its only title source. Home

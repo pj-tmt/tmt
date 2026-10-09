@@ -113,6 +113,24 @@ pub struct Descriptor {
     pub filename: String,
     pub media_type: String,
 }
+/// The two display labels of an attachment, which grant nothing. A type is an inert label,
+/// never a preview or content-sniffing permission.
+pub fn validate_labels(filename: &str, media_type: &str) -> Result<()> {
+    require(
+        !filename.is_empty() && filename.len() <= 255 && !filename.chars().any(char::is_control),
+    )?;
+    require(!media_type.is_empty() && media_type.len() <= 128)?;
+    let parts: Vec<_> = media_type.split('/').collect();
+    require(
+        parts.len() == 2
+            && parts.iter().all(|part| {
+                !part.is_empty()
+                    && part.bytes().all(|b| {
+                        b.is_ascii_lowercase() || b.is_ascii_digit() || b"!#$&^_.+-".contains(&b)
+                    })
+            }),
+    )
+}
 impl Descriptor {
     pub fn from_json(raw: &[u8]) -> Result<Self> {
         require(raw.len() <= DESCRIPTOR_BYTES)?;
@@ -138,25 +156,7 @@ impl Descriptor {
         require(values::binary(&self.signature, 64)?.len() == 64)?;
         require(values::decimal(&self.payload_bytes, false)? <= PAYLOAD_BYTES as u64)?;
         require(values::decimal(&self.plaintext_bytes, true)? <= PLAINTEXT_BYTES as u64)?;
-        require(
-            !self.filename.is_empty()
-                && self.filename.len() <= 255
-                && !self.filename.chars().any(char::is_control),
-        )?;
-        // A type is an inert label, never a preview or content-sniffing permission.
-        require(!self.media_type.is_empty() && self.media_type.len() <= 128)?;
-        let parts: Vec<_> = self.media_type.split('/').collect();
-        require(
-            parts.len() == 2
-                && parts.iter().all(|part| {
-                    !part.is_empty()
-                        && part.bytes().all(|b| {
-                            b.is_ascii_lowercase()
-                                || b.is_ascii_digit()
-                                || b"!#$&^_.+-".contains(&b)
-                        })
-                }),
-        )?;
+        validate_labels(&self.filename, &self.media_type)?;
         require(serde_json::to_vec(self).map_err(|_| Invalid)?.len() <= DESCRIPTOR_BYTES)
     }
     pub fn to_json(&self) -> Result<Vec<u8>> {

@@ -1,5 +1,7 @@
 //! Real neutral-carrier tests; test CallbackOwner ports are NOT Colab authority
 //! or the final Remote-backend routed acceptance proof.
+#[path = "tests/attach.rs"]
+mod attach;
 #[path = "tests/upload.rs"]
 mod upload;
 use super::*;

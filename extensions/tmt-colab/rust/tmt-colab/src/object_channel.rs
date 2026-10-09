@@ -18,6 +18,7 @@ use tmt_extension_objects::{
 };
 
 pub(crate) mod admission;
+pub(crate) mod attach;
 mod binding;
 mod client;
 mod history;

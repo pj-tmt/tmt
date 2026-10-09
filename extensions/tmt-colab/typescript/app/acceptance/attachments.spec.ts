@@ -1,4 +1,5 @@
 import { pageAction } from '../test/page-actions.js';
+import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -92,6 +93,199 @@ test('files attached in Chat reach a second paired device, preview and download 
         expect(saved.suggestedFilename()).toBe(file.name);
         expect(sha(fs.readFileSync((await saved.path())!))).toBe(sha(file.buffer));
       }
+    }
+  });
+});
+
+test('native attach lists a file for every device, reads back byte-equal, and refuses what it must', async () => {
+  await withWorld(async (world) => {
+    const door = await startDoor(world, await freePort());
+    const author = await pairBrowser(world, 'native-author');
+    const viewer = await pairBrowser(world, 'native-viewer');
+    const created = createPage(world, 'Native attach', '<h1>Native attach</h1>');
+    const first = await openPage(door, author, created);
+    const second = await openPage(door, viewer, created);
+    const colab = (args: string[]) =>
+      JSON.parse(run(world, world.binaries.colab, [...args, '--json'])) as Record<string, any>;
+    const refused = (args: string[], code: RegExp) =>
+      expect(() => run(world, world.binaries.colab, [...args, '--json'])).toThrow(code);
+    // Every slot of the serve: its name and the files it still holds.
+    const slots = () => {
+      const found = fs
+        .readdirSync(world.dataRoot, { recursive: true, encoding: 'utf8' })
+        .filter((entry) => entry.endsWith('attach-slots'));
+      expect(found).toHaveLength(1);
+      const directory = path.join(world.dataRoot, found[0]!);
+      return Object.fromEntries(
+        fs.readdirSync(directory).map((name) => [name, fs.readdirSync(path.join(directory, name))]),
+      );
+    };
+    // A finished slot keeps only its small answer: no plaintext, no ciphertext.
+    const onlyAnswers = () => Object.values(slots()).every((files) => files.join() === 'slot.json');
+    const input = fs.mkdtempSync(path.join(os.tmpdir(), 'colab-native-attach-'));
+    const out = fs.mkdtempSync(path.join(os.tmpdir(), 'colab-native-read-'));
+    try {
+      await expect(
+        first.frameLocator('iframe').getByRole('heading', { name: 'Native attach', exact: true }),
+      ).toBeVisible();
+      const notes = bytes(40 * 1024, 21);
+      fs.writeFileSync(path.join(input, 'notes.txt'), notes);
+      fs.writeFileSync(path.join(input, 'dot.png'), PNG);
+
+      // The serve seals, uploads and lists the file; the reply carries the exact reference.
+      const added = colab(['attachment', 'attach', created.pageId, path.join(input, 'notes.txt')]);
+      expect(added.attachment).toMatchObject({
+        filename: 'notes.txt',
+        mediaType: 'text/plain',
+        plaintextBytes: notes.length,
+      });
+      expect(Object.keys(slots())).toHaveLength(1);
+      expect(onlyAnswers()).toBe(true);
+
+      // Every device lists it and downloads the same bytes, live and without a reload.
+      await openFiles(first);
+      await expect(first.getByTestId('files-toggle')).toHaveText(`${text.files} 1`, {
+        timeout: 30_000,
+      });
+      await expect(second.getByTestId('files-toggle')).toHaveText(`${text.files} 1`, {
+        timeout: 30_000,
+      });
+      const rowsOn = (page: Page) =>
+        page
+          .getByTestId('files-panel')
+          .or(page.locator('dialog[data-panel=files]'))
+          .getByTestId('file-row');
+      await openFiles(second);
+      await expect(rowsOn(second)).toHaveCount(1, { timeout: 30_000 });
+      const pending = second.waitForEvent('download');
+      await rowsOn(second).first().getByRole('button', { name: text.attachmentDownload }).click();
+      const saved = await pending;
+      expect(saved.suggestedFilename()).toBe('notes.txt');
+      expect(sha(fs.readFileSync((await saved.path())!))).toBe(sha(notes));
+
+      // The reference it printed reads the same bytes back through the serve.
+      const reference = path.join(input, 'reference.json');
+      fs.writeFileSync(reference, JSON.stringify(added.attachment.reference));
+      const read = colab([
+        'attachment',
+        'read',
+        created.pageId,
+        '--reference',
+        reference,
+        '--output',
+        out,
+      ]);
+      expect(sha(fs.readFileSync(path.join(read.directory as string, 'attachment.bin')))).toBe(
+        sha(notes),
+      );
+
+      // A picture takes its type from the extension and previews like a browser upload.
+      colab(['attachment', 'attach', created.pageId, path.join(input, 'dot.png')]);
+      await expect(rowsOn(second)).toHaveCount(2, { timeout: 30_000 });
+      await expect(
+        rowsOn(second)
+          .filter({ hasText: 'dot.png' })
+          .getByRole('button', { name: text.attachmentPreview }),
+      ).toHaveCount(1);
+
+      // A reply lost after the serve started: the CLI dies once the file is sealed and uploading,
+      // the serve finishes on its own, and the explicit resume of that slot returns the same
+      // attachment without a second upload.
+      fs.writeFileSync(path.join(input, 'large.bin'), bytes(8 * 1024 * 1024, 3));
+      const before = new Set(Object.keys(slots()));
+      const child = spawn(
+        world.binaries.colab,
+        ['attachment', 'attach', created.pageId, path.join(input, 'large.bin'), '--json'],
+        { env: world.env(), stdio: ['ignore', 'pipe', 'pipe'] },
+      );
+      let announced = '';
+      let printed = '';
+      child.stderr.on('data', (chunk) => (announced += chunk));
+      child.stdout.on('data', (chunk) => (printed += chunk));
+      const slotOf = () => /slot ([0-9a-f]{32})/.exec(announced)?.[1];
+      await expect
+        .poll(() => slotOf() ?? `no slot yet; stderr=${announced} stdout=${printed}`, {
+          timeout: 30_000,
+        })
+        .toMatch(/^[0-9a-f]{32}$/);
+      const slot = slotOf()!;
+      expect(before.has(slot)).toBe(false);
+      await expect
+        .poll(() => (slots()[slot] ?? []).includes('object'), { timeout: 30_000 })
+        .toBe(true);
+      child.kill('SIGKILL');
+      await expect(second.getByTestId('files-toggle')).toHaveText(`${text.files} 3`, {
+        timeout: 120_000,
+      });
+      const resumed = colab(['attachment', 'attach', created.pageId, '--resume', slot]);
+      expect(resumed.attachment).toMatchObject({
+        filename: 'large.bin',
+        plaintextBytes: 8 * 1024 * 1024,
+      });
+      expect(resumed.slot).toBe(slot);
+      // The same attachment again, not a second one, and it reads back byte for byte.
+      await expect(rowsOn(second)).toHaveCount(3);
+      fs.writeFileSync(reference, JSON.stringify(resumed.attachment.reference));
+      const large = colab([
+        'attachment',
+        'read',
+        created.pageId,
+        '--reference',
+        reference,
+        '--output',
+        out,
+      ]);
+      expect(sha(fs.readFileSync(path.join(large.directory as string, 'attachment.bin')))).toBe(
+        sha(bytes(8 * 1024 * 1024, 3)),
+      );
+      expect(onlyAnswers()).toBe(true);
+
+      // Refusals stage nothing and add no attachment.
+      const staged = Object.keys(slots()).length;
+      fs.symlinkSync(path.join(input, 'notes.txt'), path.join(input, 'link.txt'));
+      fs.writeFileSync(path.join(input, 'big.bin'), Buffer.alloc(8 * 1024 * 1024 + 1));
+      refused(
+        ['attachment', 'attach', created.pageId, path.join(input, 'absent.txt')],
+        /COLAB_INPUT_INVALID/,
+      );
+      refused(
+        ['attachment', 'attach', created.pageId, path.join(input, 'link.txt')],
+        /COLAB_INPUT_INVALID/,
+      );
+      refused(['attachment', 'attach', created.pageId, input], /COLAB_INPUT_INVALID/);
+      refused(
+        ['attachment', 'attach', created.pageId, path.join(input, 'big.bin')],
+        /COLAB_CAPACITY/,
+      );
+      refused(
+        [
+          'attachment',
+          'attach',
+          '20000000-0000-4000-8000-0000000000aa',
+          path.join(input, 'notes.txt'),
+        ],
+        /COLAB_PAGE_NOT_FOUND/,
+      );
+      refused(
+        ['attachment', 'attach', created.pageId, '--resume', 'f'.repeat(32)],
+        /COLAB_STATE_MISSING/,
+      );
+      // A slot belongs to its page: another page cannot resume it.
+      const other = createPage(world, 'Other page', '<h1>Other page</h1>');
+      refused(['attachment', 'attach', other.pageId, '--resume', slot], /COLAB_STATE_MISSING/);
+      expect(Object.keys(slots())).toHaveLength(staged);
+      await expect(rowsOn(second)).toHaveCount(3);
+
+      // An archived page refuses before anything is staged.
+      run(world, world.binaries.colab, ['archive', created.pageId]);
+      refused(
+        ['attachment', 'attach', created.pageId, path.join(input, 'notes.txt')],
+        /COLAB_PAGE_INACTIVE/,
+      );
+      expect(Object.keys(slots())).toHaveLength(staged);
+    } finally {
+      fs.rmSync(input, { recursive: true, force: true });
+      fs.rmSync(out, { recursive: true, force: true });
     }
   });
 });

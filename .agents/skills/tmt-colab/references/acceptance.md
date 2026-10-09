@@ -81,6 +81,14 @@ and checks revoke plus world cleanup. The fixture never enters the production ap
 Discovery attachments record child-process spans and first-demand success under Remote's
 250 ms setup budget; they do not qualify Darwin first-exec or preempt OS delays.
 
+`attachments.spec.ts` drives Chat and document attachments through the browser, export and
+`attachment read` byte parity, and native attach (#2291): `tmt colab attachment attach` lists a
+file for a second paired device without a reload, downloads and reads back byte-equal, and the CLI
+killed after the serve sealed an 8 MiB file leaves the serve to finish while `--resume <slot>`
+returns the same attachment, once. Its refusals (missing, link, directory, oversized file, unknown
+page or slot, another page's slot, archived page) stage nothing; a finished slot holds only
+`slot.json`.
+
 `agent-status.spec.ts` reads the real admitted directory through the Agents drawer,
 checks its served asset hashes and CSP, and injects a labelled context-read refusal
 without sending or reopening. By default it compares every served asset with the app's

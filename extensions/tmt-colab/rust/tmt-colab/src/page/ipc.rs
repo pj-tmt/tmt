@@ -102,6 +102,18 @@ fn refusal(code: u16, response: &[u8]) -> Option<Box<dyn std::error::Error + Sen
         Err(_) => None,
     }
 }
+/// The exact request body that publishes one frozen publication through the serve's writer,
+/// whether it is posted to the socket or handed to the serve's own writer in process.
+pub(crate) fn local_write_body(key: &Keyring, frozen: &FrozenPublication) -> Result<Vec<u8>> {
+    Ok(LocalWrite {
+        version: crate::publication::LOCAL_WRITE_VERSION,
+        action: WriteAction::Write,
+        signed_job: frozen.job().clone(),
+        packet: values::encode_binary(frozen.packet()),
+        chain: values::encode_binary(frozen.chain()),
+    }
+    .to_json(&key.local_writer()?.1)?)
+}
 /// Posts one frozen publication. `Ok(Some)` is the answered publish (committed or rejected);
 /// `Err` is a refusal the server reported before any effect. `Ok(None)` is doubt after the
 /// request may have been sent: the caller resolves it by original-operation status, never by a
@@ -112,14 +124,7 @@ pub fn publish(
     frozen: &FrozenPublication,
 ) -> Result<Option<Published>> {
     let original = frozen.job().key()?;
-    let body = LocalWrite {
-        version: crate::publication::LOCAL_WRITE_VERSION,
-        action: WriteAction::Write,
-        signed_job: frozen.job().clone(),
-        packet: values::encode_binary(frozen.packet()),
-        chain: values::encode_binary(frozen.chain()),
-    }
-    .to_json(&key.local_writer()?.1)?;
+    let body = local_write_body(key, frozen)?;
     // Nothing was sent: the server acts only on a complete body, so this is a plain refusal.
     // Either that, or the server refused the request before reading it all.
     let socket = match crate::ipc::send(layout, PATH, &body) {

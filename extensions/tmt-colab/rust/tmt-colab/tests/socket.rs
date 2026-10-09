@@ -2902,6 +2902,102 @@ fn root_local_attachment_read_is_refused_for_remote_callers_and_never_opens_stor
     assert_eq!(fs::read(layout.directory.join("space.db")).unwrap(), before);
 }
 #[test]
+fn root_local_attach_routes_are_refused_for_remote_callers_and_stage_nothing() {
+    use tmt_colab::attachments::attach_ipc;
+    let (server, layout, _key, _peer) = publish_fixture();
+    let slots = layout.directory.join("attach-slots");
+    let stage = format!(
+        r#"{{"version":1,"page":"{PAGE}","filename":"notes.txt","mediaType":"text/plain"}}"#
+    );
+    let attach = format!(
+        r#"{{"version":1,"page":"{PAGE}","slot":"{}","sha256":"{}"}}"#,
+        "a".repeat(32),
+        "b".repeat(64)
+    );
+    let before = fs::read(layout.directory.join("space.db")).unwrap();
+    for (path, body) in [
+        (attach_ipc::STAGE_PATH, &stage),
+        (attach_ipc::ATTACH_PATH, &attach),
+    ] {
+        // A Remote caller or a browser event never reaches either route.
+        for header in [
+            format!("{}\r\n", owner(DEVICE)),
+            "tmt-device-event: 1\r\n".into(),
+        ] {
+            let denied = server.event(path, &header, body);
+            assert!(
+                denied.contains("403") && denied.contains("COLAB_DENIED"),
+                "{path}: {denied}"
+            );
+        }
+        let wrong_method = server.request_with_timeout(
+            &format!("GET {path} HTTP/1.1\r\n\r\n"),
+            support::DECODER_DEADLINE,
+        );
+        assert!(
+            wrong_method.contains("COLAB_INPUT_INVALID"),
+            "{wrong_method}"
+        );
+        // Each malformed part is refused on its own.
+        for malformed in [
+            "{}".to_owned(),
+            body.replace(r#""version":1"#, r#""version":1,"path":"/etc""#),
+            body.replace(PAGE, "not-a-page"),
+        ] {
+            let refused = server.event(path, "", &malformed);
+            assert!(
+                refused.contains("400") && refused.contains("COLAB_INPUT_INVALID"),
+                "{path}: {refused}"
+            );
+        }
+    }
+    for malformed in [
+        stage.replace("notes.txt", ""),
+        stage.replace("text/plain", "TEXT/plain"),
+    ] {
+        let refused = server.event(attach_ipc::STAGE_PATH, "", &malformed);
+        assert!(
+            refused.contains("400") && refused.contains("COLAB_INPUT_INVALID"),
+            "{refused}"
+        );
+    }
+    let short = attach.replace(&"b".repeat(64), "short");
+    assert!(
+        server
+            .event(attach_ipc::ATTACH_PATH, "", &short)
+            .contains("COLAB_INPUT_INVALID")
+    );
+    // Every refusal above stages nothing.
+    assert_eq!(fs::read_dir(&slots).unwrap().count(), 0);
+    // A valid stage opens one private slot named by a random ID, and answers where to stream.
+    let staged = attach_ipc::stage(&layout, PAGE, "notes.txt", "text/plain").unwrap();
+    assert_eq!(staged.slot.len(), 32);
+    let directory = slots.join(&staged.slot);
+    assert_eq!(staged.path, directory.join("source").to_string_lossy());
+    assert_eq!(
+        fs::metadata(&directory).unwrap().permissions().mode() & 0o777,
+        0o700
+    );
+    assert_eq!(fs::read_dir(&slots).unwrap().count(), 1);
+    // No object channel is established here, so an attach is unavailable and keeps its slot; a
+    // slot that does not exist, or belongs to another page, is missing.
+    let code = |error: Box<dyn std::error::Error + Send + Sync>| {
+        error
+            .downcast_ref::<tmt_colab::page::ipc::WriteError>()
+            .map(|failure| failure.code())
+    };
+    assert_eq!(
+        code(attach_ipc::attach(&layout, PAGE, &staged.slot, Some([7; 32])).unwrap_err()),
+        Some("COLAB_UNAVAILABLE")
+    );
+    assert_eq!(
+        code(attach_ipc::attach(&layout, PAGE, &"c".repeat(32), Some([7; 32])).unwrap_err()),
+        Some("COLAB_STATE_MISSING")
+    );
+    assert_eq!(fs::read_dir(&slots).unwrap().count(), 1);
+    assert_eq!(fs::read(layout.directory.join("space.db")).unwrap(), before);
+}
+#[test]
 fn root_local_page_publish_broadcasts_each_entry_in_order_and_replays_without_fanout() {
     use tmt_colab::{
         decoder::Decoder,
