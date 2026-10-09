@@ -10,6 +10,7 @@ mod metadata;
 pub mod rename;
 mod transport;
 mod workspace;
+mod workspace_restore;
 pub use binding::{BindingSession, PaneCosmetics, PaneRefresh};
 pub use focus::{ClientView, FocusError, Invoker};
 

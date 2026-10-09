@@ -57,6 +57,7 @@ pub struct WorkspaceLayoutWindow<'a> {
     pub root: WorkspaceLayoutCell,
     pub panes: Vec<&'a WorkspacePane>,
     pub zoomed: bool,
+    pub border_status: &'static str,
     pub splits: Vec<WorkspaceLayoutSplit>,
 }
 
@@ -257,6 +258,38 @@ pub fn prepare_layout(
             {
                 return Err(Topology);
             }
+            // Physical pane geometry omits the top/bottom status row. Recover
+            // only the window-local option needed to preserve recorded sizes.
+            let border_status = ["off", "top", "bottom"]
+                .into_iter()
+                .find(|status| {
+                    panes.iter().all(|pane| {
+                        let tree = if zoomed && pane.id == window.active_pane {
+                            &visible
+                        } else {
+                            &root
+                        };
+                        let Some(cell) = leaf_cell(
+                            tree,
+                            pane.id
+                                .strip_prefix('%')
+                                .and_then(|id| id.parse().ok())
+                                .unwrap_or(u32::MAX),
+                        ) else {
+                            return false;
+                        };
+                        let top = *status == "top" && cell.top == 0;
+                        let bottom = *status == "bottom"
+                            && u32::from(cell.top) + u32::from(cell.height)
+                                == u32::from(tree.height);
+                        pane.left == u64::from(cell.left)
+                            && pane.width == u64::from(cell.width)
+                            && pane.top == u64::from(cell.top) + u64::from(top)
+                            && pane.height.checked_add(u64::from(top || bottom))
+                                == Some(u64::from(cell.height))
+                    })
+                })
+                .ok_or(WorkspaceLayoutError::Geometry)?;
             let mut splits = Vec::with_capacity(panes.len().saturating_sub(1));
             append_splits(&root, &mut splits)?;
             Ok(WorkspaceLayoutWindow {
@@ -264,6 +297,7 @@ pub fn prepare_layout(
                 root,
                 panes,
                 zoomed,
+                border_status,
                 splits,
             })
         })
@@ -489,3 +523,13 @@ fn first_leaf(cell: &WorkspaceLayoutCell) -> Option<u32> {
 
 #[cfg(test)]
 mod tests;
+
+fn leaf_cell(cell: &WorkspaceLayoutCell, id: u32) -> Option<&WorkspaceLayoutCell> {
+    match &cell.kind {
+        WorkspaceLayoutKind::Pane(found) if *found == id => Some(cell),
+        WorkspaceLayoutKind::Pane(_) => None,
+        WorkspaceLayoutKind::Split(_, children) => {
+            children.iter().find_map(|child| leaf_cell(child, id))
+        }
+    }
+}

@@ -195,6 +195,9 @@ fn texts(matches: &ArgMatches, id: &str) -> Vec<String> {
 fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
     Ok(match path {
         ["api"] => Invocation::Api,
+        ["workspace", "restore"] => Invocation::WorkspaceRestore {
+            socket: text(m, "socket"),
+        },
         ["workspace", "show"] => Invocation::WorkspaceShow {
             socket: text(m, "socket"),
         },

@@ -58,6 +58,7 @@ mod target;
 mod uninstall_command;
 mod workspace_command;
 mod workspace_hook;
+mod workspace_restore_command;
 mod workspace_show_command;
 
 #[cfg(test)]
@@ -107,6 +108,9 @@ fn execute(parsed: invocation::Parsed) -> io::Result<u8> {
     // Recovery inspection never participates in optional learning/delivery effects.
     if let Invocation::WorkspaceShow { socket } = &parsed.invocation {
         return workspace_show_command::execute(socket.as_deref(), parsed.mode);
+    }
+    if let Invocation::WorkspaceRestore { socket } = &parsed.invocation {
+        return workspace_restore_command::execute(socket.as_deref(), parsed.mode);
     }
     // The updater's frozen skill-refresh protocol owns its own path admission
     // and output. Driver registration would discover configuration first and
@@ -216,6 +220,9 @@ fn dispatch(parsed: invocation::Parsed) -> io::Result<u8> {
         }
         Invocation::Config(request) => {
             return config_command::execute(request, parsed.mode);
+        }
+        Invocation::WorkspaceRestore { socket } => {
+            return workspace_restore_command::execute(socket.as_deref(), parsed.mode);
         }
         Invocation::WorkspaceShow { socket } => {
             return workspace_show_command::execute(socket.as_deref(), parsed.mode);

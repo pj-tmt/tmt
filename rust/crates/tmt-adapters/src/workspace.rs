@@ -1,6 +1,7 @@
 //! Private, advisory workspace publication. No scheduler or authority store.
 
 pub mod plan;
+pub mod restore;
 #[cfg(test)]
 mod tests;
 mod wire;

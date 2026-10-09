@@ -63,6 +63,8 @@ fn session_with_a_new_window_uses_it_as_seed_without_disposable_panes() {
     let mut new_pane = saved.panes[0].clone();
     new_pane.id = "%9".into();
     new_pane.window = "@2".into();
+    new_pane.left = 0;
+    new_pane.width = 80;
     saved.panes.push(new_pane);
     let mut linked = saved.sessions[0].clone();
     linked.id = "$2".into();
@@ -376,4 +378,32 @@ fn bounds_recursion_before_any_effect_or_unbounded_allocation() {
         parse_layout(&"a".repeat(MAX_LAYOUT_BYTES + 1)),
         Err(WorkspaceLayoutError::Limit)
     );
+}
+
+#[test]
+fn physical_geometry_restores_window_local_border_status_and_refuses_mismatch() {
+    for status in ["off", "top", "bottom"] {
+        let mut saved = snapshot();
+        for pane in &mut saved.panes {
+            if status == "top" {
+                pane.top += 1;
+            }
+            if status != "off" {
+                pane.height -= 1;
+            }
+        }
+        assert_eq!(prepare_layout(&saved).unwrap()[0].border_status, status);
+        let mut overflowing = saved.clone();
+        overflowing.panes[0].height = u64::MAX;
+        assert!(matches!(
+            prepare_layout(&overflowing),
+            Err(WorkspaceLayoutError::Geometry)
+        ));
+
+        saved.panes[0].left += 1;
+        assert!(matches!(
+            prepare_layout(&saved),
+            Err(WorkspaceLayoutError::Geometry)
+        ));
+    }
 }

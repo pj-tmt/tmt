@@ -35,6 +35,9 @@ pub enum Invocation {
         skill: Option<String>,
     },
     Init,
+    WorkspaceRestore {
+        socket: Option<String>,
+    },
     WorkspaceShow {
         socket: Option<String>,
     },

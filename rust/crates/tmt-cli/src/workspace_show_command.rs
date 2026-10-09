@@ -12,34 +12,9 @@ use tmt_adapters::{
 };
 
 pub fn execute(socket: Option<&str>, mode: OutputMode) -> io::Result<u8> {
-    let outcome = (|| {
+    let outcome: Result<_, Failure> = (|| {
         let caller = CallerEnvironment::current();
-        let socket = socket
-            .map(str::to_owned)
-            .or_else(|| {
-                caller
-                    .selected_server_socket()
-                    .ok()
-                    .flatten()
-                    .map(str::to_owned)
-            })
-            .ok_or_else(|| {
-                Failure::new(
-                    "WORKSPACE_SELECTION_REQUIRED",
-                    "Select the original tmux socket with --socket PATH.",
-                    1,
-                )
-            })?;
-        if socket.is_empty()
-            || !std::path::Path::new(&socket).is_absolute()
-            || socket.contains('\0')
-        {
-            return Err(Failure::new(
-                "USAGE_ERROR",
-                "--socket requires an absolute tmux socket path.",
-                1,
-            ));
-        }
+        let socket = selected_socket(socket, &caller)?;
         let paths = ConfigPaths::discover().map_err(Failure::from)?;
         let input = plan::read(
             &paths,
@@ -153,4 +128,34 @@ fn pane_description(action: tmt_core::workspace::plan::WorkspacePaneAction) -> &
         WorkspacePaneAction::Resumable => "resume remembered session",
         WorkspacePaneAction::StaleRequiresRetry => "stale remembered session",
     }
+}
+
+pub(crate) fn selected_socket(
+    socket: Option<&str>,
+    caller: &CallerEnvironment,
+) -> Result<String, Failure> {
+    let socket = socket
+        .map(str::to_owned)
+        .or_else(|| {
+            caller
+                .selected_server_socket()
+                .ok()
+                .flatten()
+                .map(str::to_owned)
+        })
+        .ok_or_else(|| {
+            Failure::new(
+                "WORKSPACE_SELECTION_REQUIRED",
+                "Select the original tmux socket with --socket PATH.",
+                1,
+            )
+        })?;
+    if socket.is_empty() || !std::path::Path::new(&socket).is_absolute() || socket.contains('\0') {
+        return Err(Failure::new(
+            "USAGE_ERROR",
+            "--socket requires an absolute tmux socket path.",
+            1,
+        ));
+    }
+    Ok(socket)
 }

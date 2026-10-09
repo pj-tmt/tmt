@@ -31,3 +31,33 @@ fn learn_selects_exact_bundled_guidance_without_breaking_the_core_flag() {
         "USAGE_ERROR"
     );
 }
+
+#[test]
+fn workspace_restore_requires_explicit_layout_only_and_has_no_revival_flags() {
+    assert_eq!(
+        parsed(&[
+            "workspace",
+            "restore",
+            "--layout-only",
+            "--socket",
+            "/tmp/exact"
+        ])
+        .invocation,
+        Invocation::WorkspaceRestore {
+            socket: Some("/tmp/exact".into())
+        }
+    );
+    assert_eq!(
+        parsed(&["workspace", "restore", "--layout-only"]).invocation,
+        Invocation::WorkspaceRestore { socket: None }
+    );
+    for args in [
+        vec!["workspace", "restore"],
+        vec!["workspace", "show", "--layout-only"],
+        vec!["workspace", "restore", "--layout-only", "--retry"],
+        vec!["workspace", "restore", "--layout-only", "--force"],
+        vec!["workspace", "restore", "--layout-only", "--channel"],
+    ] {
+        assert_eq!(parse_error(&args).code, "USAGE_ERROR");
+    }
+}
