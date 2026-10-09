@@ -53,6 +53,7 @@ impl<'a, R: CommandRunner> BindingSession<'a, R> {
 }
 
 mod actions;
+mod border;
 
 impl<R: CommandRunner> BindingEndpoint for BindingSession<'_, R> {
     type Error = TmuxError;
@@ -168,7 +169,7 @@ impl<R: CommandRunner> Tmux<R> {
         if Instant::now() >= deadline {
             return Ok(PaneRefresh::Failed);
         }
-        let result = (|| {
+        let result: Result<PaneRefresh, TmuxError> = (|| {
             let panes = [binding.pane_id.clone()];
             let options = OperationOptions {
                 deadline: Some(deadline),
@@ -232,8 +233,9 @@ impl<R: CommandRunner> Tmux<R> {
             if let Some(name) = badge {
                 args.push(badge_label(name, binding.session.state));
             }
-            self.execute(args, options, TmuxFailure::Command)
-                .map(|_| PaneRefresh::Updated)
+            self.execute(args, options, TmuxFailure::Command)?;
+            self.update_badge_border(binding, badge.is_some(), options)?;
+            Ok(PaneRefresh::Updated)
         })();
         match result {
             Err(error) if error.cleanup_failed() => Err(error),

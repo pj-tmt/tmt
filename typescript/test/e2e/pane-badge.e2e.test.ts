@@ -7,6 +7,11 @@ import { withE2EFixture, type E2EFixture } from './harness.js';
 import { durableIdentity, durableState } from './identity-state-oracle.js';
 
 const BADGE_OPTION = '@tmux-team.badge';
+const BORDER_OWNER = '@tmux-team.border';
+
+function localOption(fixture: E2EFixture, option: string, pane = fixture.pane): string {
+  return fixture.tmux(['show-options', '-p', '-qv', '-t', pane, option]);
+}
 const USER_FORMAT = '#[align=left]#{window_index}.#{pane_index}#[align=right]repo/branch';
 const BADGE_FRAGMENT = '#{?@tmux-team.badge, [#{@tmux-team.badge}],}';
 const NARROW_BADGE_FRAGMENT =
@@ -20,6 +25,7 @@ function badge(fixture: E2EFixture): string {
 
 function appearance(fixture: E2EFixture) {
   return {
+    globalFormat: fixture.tmux(['show-options', '-gw', '-v', 'pane-border-format']),
     title: fixture.tmux(['display-message', '-p', '-t', fixture.pane, '#{pane_title}']),
     position: fixture.tmux(['show-options', '-w', '-v', '-t', fixture.pane, 'pane-border-status']),
     format: fixture.tmux(['show-options', '-w', '-v', '-t', fixture.pane, 'pane-border-format']),
@@ -35,6 +41,144 @@ function configureUserAppearance(fixture: E2EFixture): void {
 }
 
 describe('non-invasive pane badge presentation', { concurrent: false }, () => {
+  it('prefixes only the bound pane, preserves shared formats, and renames without stacking', async () => {
+    await withE2EFixture(async (fixture) => {
+      configureUserAppearance(fixture);
+      const peer = fixture
+        .tmux(['split-window', '-d', '-t', fixture.pane, '-P', '-F', '#{pane_id}', 'sleep 300'])
+        .trim();
+      const before = appearance(fixture);
+      expect(localOption(fixture, 'pane-border-format')).toBe('');
+      expectJsonResult(await fixture.runJsonCli(['name', 'alice']));
+      const installed = `${BADGE_FRAGMENT}${USER_FORMAT}\n`;
+      expect(localOption(fixture, 'pane-border-format')).toBe(installed);
+      expect(localOption(fixture, BORDER_OWNER)).toBe(installed);
+      expect(localOption(fixture, 'pane-border-format', peer)).toBe('');
+      expect(localOption(fixture, BORDER_OWNER, peer)).toBe('');
+      expect(appearance(fixture)).toEqual(before);
+      const rendered = () =>
+        fixture.tmux(['display-message', '-p', '-t', fixture.pane, '#{E:pane-border-format}']);
+      expect(rendered()).toContain('[alice (tmt)]');
+      expect(rendered()).toContain('repo/branch');
+      expectJsonResult(await fixture.runJsonCli(['this', 'alice']));
+      expectJsonResult(await fixture.runJsonCli(['identity', 'rename', 'alice', 'bob']));
+      expect(badge(fixture)).toBe('bob (tmt)');
+      expect(rendered()).toContain('[bob (tmt)]');
+      expect(localOption(fixture, 'pane-border-format')).toBe(installed);
+      expectJsonResult(await fixture.runJsonCli(['unbind']));
+      expect(localOption(fixture, 'pane-border-format')).toBe('');
+      expect(localOption(fixture, BORDER_OWNER)).toBe('');
+      expect(appearance(fixture)).toEqual(before);
+    });
+  });
+
+  it('preserves a local user override, including an explicitly empty one', async () => {
+    for (const value of ['', 'user-local #{pane_index}']) {
+      await withE2EFixture(async (fixture) => {
+        configureUserAppearance(fixture);
+        fixture.tmux(['set-option', '-p', '-t', fixture.pane, 'pane-border-format', value]);
+        const before = appearance(fixture);
+        expectJsonResult(await fixture.runJsonCli(['name', 'alice']));
+        expect(localOption(fixture, 'pane-border-format')).toBe(`${value}\n`);
+        expect(localOption(fixture, BORDER_OWNER)).toBe('');
+        expectJsonResult(await fixture.runJsonCli(['unbind']));
+        expect(localOption(fixture, 'pane-border-format')).toBe(`${value}\n`);
+        expect(appearance(fixture)).toEqual(before);
+      });
+    }
+  });
+
+  it('does not duplicate an inherited badge reference or claim a user theme', async () => {
+    await withE2EFixture(async (fixture) => {
+      configureUserAppearance(fixture);
+      const integrated = `user-left ${BADGE_FRAGMENT} user-right`;
+      fixture.tmux(['set-option', '-w', '-t', fixture.pane, 'pane-border-format', integrated]);
+      const before = appearance(fixture);
+      expectJsonResult(await fixture.runJsonCli(['name', 'alice']));
+      expect(localOption(fixture, 'pane-border-format')).toBe('');
+      expect(localOption(fixture, BORDER_OWNER)).toBe('');
+      expectJsonResult(await fixture.runJsonCli(['unbind']));
+      expect(appearance(fixture)).toEqual(before);
+    });
+  });
+
+  it('clears its exact override on off, but retains a later user edit on cleanup', async () => {
+    await withE2EFixture(async (fixture) => {
+      configureUserAppearance(fixture);
+      const before = appearance(fixture);
+      expectJsonResult(await fixture.runJsonCli(['name', 'alice']));
+      expect(localOption(fixture, BORDER_OWNER)).not.toBe('');
+      expectJsonResult(
+        await fixture.runJsonCli(['config', 'set', 'ui.paneBadge', 'off', '--global'])
+      );
+      expectJsonResult(await fixture.runJsonCli(['this', 'alice']));
+      expect(localOption(fixture, 'pane-border-format')).toBe('');
+      expect(localOption(fixture, BORDER_OWNER)).toBe('');
+      expectJsonResult(
+        await fixture.runJsonCli(['config', 'set', 'ui.paneBadge', 'on', '--global'])
+      );
+      expectJsonResult(await fixture.runJsonCli(['this', 'alice']));
+      fixture.tmux([
+        'set-option',
+        '-p',
+        '-t',
+        fixture.pane,
+        'pane-border-format',
+        'user edited after bind',
+      ]);
+      expectJsonResult(await fixture.runJsonCli(['unbind']));
+      expect(localOption(fixture, 'pane-border-format')).toBe('user edited after bind\n');
+      expect(badge(fixture)).toBe('');
+      expect(appearance(fixture)).toEqual(before);
+    });
+  });
+
+  it('keeps the committed binding successful when border publication is denied', async () => {
+    await withE2EFixture(async (fixture) => {
+      configureUserAppearance(fixture);
+      const before = appearance(fixture);
+      const wrapper = path.join(fixture.wrapperDir, 'tmux');
+      const denied = path.join(fixture.root, 'border-denied.log');
+      writeExecutable(
+        wrapper,
+        fs
+          .readFileSync(wrapper, 'utf8')
+          .replace(
+            'metadata_write=0\n',
+            `for argument in "$@"; do\n  if [ "$argument" = "pane-border-format" ]; then\n    for command in "$@"; do\n      if [ "$command" = "set-option" ]; then printf 'denied\\n' >> '${denied}'; exit 1; fi\n    done\n  fi\ndone\nmetadata_write=0\n`
+          ),
+        0o755
+      );
+      expectJsonResult(await fixture.runJsonCli(['name', 'alice']));
+      expect(durableState(fixture).bindings).toHaveLength(1);
+      expect(badge(fixture)).toBe('alice (tmt)');
+      expect(localOption(fixture, 'pane-border-format')).toBe('');
+      expect(localOption(fixture, BORDER_OWNER)).toBe('');
+      expectJsonResult(await fixture.runJsonCli(['unbind']));
+      expect(durableState(fixture).bindings).toHaveLength(0);
+      expect(fs.readFileSync(denied, 'utf8')).toBe('denied\n');
+      expect(appearance(fixture)).toEqual(before);
+    });
+  });
+
+  it('prints one enable-command hint when window borders are off without enabling them', async () => {
+    await withE2EFixture(async (fixture) => {
+      configureUserAppearance(fixture);
+      fixture.tmux(['set-option', '-w', '-t', fixture.pane, 'pane-border-status', 'off']);
+      const before = appearance(fixture);
+      const result = await fixture.runJsonCli(['name', 'alice']);
+      expect(result.code).toBe(0);
+      expect(result.json).toMatchObject({ name: 'alice' });
+      expect(result.stderr.trim().split('\n')).toHaveLength(1);
+      expect(result.stderr).toContain('hint: pane borders are off; enable them with tmux');
+      expect(result.stderr).toContain(`set-option -w -t ${fixture.pane} pane-border-status top`);
+      expect(badge(fixture)).toBe('alice (tmt)');
+      expect(localOption(fixture, 'pane-border-format')).toBe(`${BADGE_FRAGMENT}${USER_FORMAT}\n`);
+      expect(appearance(fixture)).toEqual(before);
+      expectJsonResult(await fixture.runJsonCli(['unbind']));
+      expect(appearance(fixture)).toEqual(before);
+    });
+  });
   it('updates recorded run state without changing the theme and clears on the next transition when off', async () => {
     await withE2EFixture(async (fixture) => {
       const pane = fixture.createShellPane('badge-run').pane;
@@ -132,7 +276,7 @@ describe('non-invasive pane badge presentation', { concurrent: false }, () => {
   it('publishes only an opted-in label and applies config changes on the next binding', async () => {
     await withE2EFixture(async (fixture) => {
       configureUserAppearance(fixture);
-      // The user, not TMT, chooses where to insert the fragment in their theme.
+      // An existing user fragment takes precedence over automatic composition.
       const integrated = USER_FORMAT.replace('#[align=right]', `${BADGE_FRAGMENT}#[align=right]`);
       fixture.tmux(['set-option', '-w', '-t', fixture.pane, 'pane-border-format', integrated]);
       fixture.tmux(['new-session', '-d', '-s', 'independent', 'sleep 300']);

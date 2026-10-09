@@ -863,7 +863,7 @@ for behavior and limits; module rules: [storage and requests reference](.agents/
 deadlines, process-group cleanup, reaping); `process::interactive` owns direct
 terminal children without taking the shared process group. `tmux` uses explicit
 socket/server evidence, bounded budgets and no ambient host fallback; a failed paste
-or Enter is uncertain and never retried as unsent.
+or Enter is uncertain and never retried as unsent; [pane cosmetics](.agents/skills/tmt-core-runtime/references/hosts-drivers.md) own only pane-local badge overrides.
 
 The CLI and the `delivery` and `pane_badge` adapters reach a terminal only through
 `tmt-adapters::host::Host`; extensions never do (they read `tmt ls --json` and

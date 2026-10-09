@@ -932,15 +932,23 @@ Badge writes are bounded and best-effort; a display failure is not a reason to
 retry a successful identity mutation. Binding commands validate loaded settings
 before mutation.
 
-The label is invisible until the user inserts
-`#{?@tmux-team.badge, [#{@tmux-team.badge}],}` into their own
-`pane-border-format`, for example after the left pane number and before the
-right-aligned repository/branch. Preserve their complete existing format,
-title, border position, colors, and narrow-pane policy. Do not replace a theme
-or enable presentation without authorization. Display labels neutralize `#`
-and control characters and cap names at 48 Unicode code points; identity names
-are unchanged. Previously overwritten titles/layouts require restoration from
-the user's saved theme; do not guess or overwrite them as a migration.
+On a badge refresh, TMT prefixes the conditional fragment
+`#{?@tmux-team.badge, [#{@tmux-team.badge}],}` to the pane's inherited
+`pane-border-format`, using a pane-local override only. The inherited content,
+title, colors and border position stay unchanged; no global, session or window
+option or `~/.tmux.conf` is written. A user-owned pane override or a format already
+referencing the badge is preserved. The pane-local `@tmux-team.border` records the
+exact installed format. Unbind or the next refresh with `off` removes only an
+unchanged TMT-owned override; later user edits remain intact.
+
+The label is visible when the window already has pane borders enabled. If
+`pane-border-status` is `off`, TMT prints one stderr hint per invocation with a
+command to enable it, and leaves it off. This hint may accompany successful JSON
+output. An optional custom theme may insert the fragment elsewhere or choose its
+own narrow-pane policy. Display labels neutralize `#` and control characters and
+cap names at 48 Unicode code points; identity names are unchanged. Previously
+overwritten titles/layouts require restoration from the user's saved theme; do
+not guess or overwrite them as a migration.
 
 For a badge hidden below 80 columns:
 `#{?#{&&:#{@tmux-team.badge},#{e|>=:#{pane_width},80}}, [#{@tmux-team.badge}],}`.

@@ -524,6 +524,7 @@ exit ${'$'}status
       `${shellQuote(process.execPath)} ${shellQuote(mockAgentPath)}`,
     ]);
     this.serverStarted = true;
+    this.tmux(['set-option', '-gw', 'pane-border-status', 'top']);
     this.socketPath = this.tmux(['display-message', '-p', '#{socket_path}']).trim();
     this.serverPid = Number(this.tmux(['display-message', '-p', '#{pid}']).trim());
     this.pane = this.tmux(['display-message', '-p', '-t', 'e2e:0.0', '#{pane_id}']).trim();
