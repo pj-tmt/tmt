@@ -31,11 +31,16 @@ async function changeWhileTyping(
   addition: string,
   surface: string,
 ) {
-  const value = await input.innerText();
+  const value = await messageText(input);
   const caret = value.length - 1;
   await input.focus();
   await input.evaluate((node, caret) => {
-    const walker = node.ownerDocument.createTreeWalker(node, NodeFilter.SHOW_TEXT);
+    const walker = node.ownerDocument.createTreeWalker(node, NodeFilter.SHOW_TEXT, {
+      acceptNode: (text) =>
+        text.parentElement?.closest('.tmt-ui-icon-action-tooltip,.message-mention-machine')
+          ? NodeFilter.FILTER_REJECT
+          : NodeFilter.FILTER_ACCEPT,
+    });
     let remaining = caret;
     for (let text = walker.nextNode(); text; text = walker.nextNode()) {
       if (remaining <= text.textContent!.length) {
@@ -70,13 +75,17 @@ async function changeWhileTyping(
         const before = node.ownerDocument.createRange();
         before.selectNodeContents(node);
         before.setEnd(selection.focusNode!, selection.focusOffset);
-        return before.toString().length;
+        const message = before.cloneContents();
+        message
+          .querySelectorAll('.tmt-ui-icon-action-tooltip,.message-mention-machine')
+          .forEach((node) => node.remove());
+        return message.textContent!.length;
       }),
     ).toBe(caret);
     // Unicode fixture text exercises the caret path used by IME-produced text.
     await page.keyboard.insertText(addition);
     const expected = value.slice(0, caret) + addition + value.slice(caret);
-    await expect(input).toHaveText(expected, { useInnerText: true });
+    await expect.poll(() => messageText(input)).toBe(expected);
     const width = page.viewportSize()!.width;
     const theme = await page.evaluate(() => document.documentElement.dataset.theme);
     await page.screenshot({ path: `${captureDir}/${surface}-${width}-${theme}-loading.png` });
@@ -89,7 +98,11 @@ async function changeWhileTyping(
         const before = node.ownerDocument.createRange();
         before.selectNodeContents(node);
         before.setEnd(selection.focusNode!, selection.focusOffset);
-        return before.toString().length;
+        const message = before.cloneContents();
+        message
+          .querySelectorAll('.tmt-ui-icon-action-tooltip,.message-mention-machine')
+          .forEach((node) => node.remove());
+        return message.textContent!.length;
       }),
     ).toBe(caret + addition.length);
     return expected;
@@ -97,6 +110,20 @@ async function changeWhileTyping(
     release();
     await page.unroute('**/renderer.html');
   }
+}
+/** Rendered editor plaintext: inline chip layout and tooltip labels are not message bytes. */
+async function messageText(input: Locator) {
+  return input.evaluate((node) =>
+    [...node.querySelectorAll(':scope > p')]
+      .map((paragraph) => {
+        const message = paragraph.cloneNode(true) as Element;
+        message
+          .querySelectorAll('.tmt-ui-icon-action-tooltip,.message-mention-machine')
+          .forEach((node) => node.remove());
+        return message.textContent ?? '';
+      })
+      .join('\n'),
+  );
 }
 async function select(page: Page) {
   await page
@@ -173,7 +200,7 @@ for (const width of [1440, 390]) {
       await input.evaluate((node) => Object.assign(window, { retainedComposer: node }));
       await page.screenshot({ path: `${captureDir}/annotation-${width}-${theme}-before.png` });
       const continuedDraft = await changeWhileTyping(page, revised, input, '新', 'annotation');
-      await expect(input).toHaveText(continuedDraft, { useInnerText: true });
+      await expect.poll(() => messageText(input)).toBe(continuedDraft);
       expect(
         await input.evaluate(
           (node) => (window as unknown as { retainedComposer: Element }).retainedComposer === node,
@@ -215,7 +242,7 @@ for (const width of [1440, 390]) {
       await reply.fill(threadDraft);
       const threadScroll = await page.evaluate(() => window.scrollY);
       const continuedThreadDraft = await changeWhileTyping(page, source, reply, '文', 'thread');
-      await expect(reply).toHaveText(continuedThreadDraft, { useInnerText: true });
+      await expect.poll(() => messageText(reply)).toBe(continuedThreadDraft);
       await expect(thread).toHaveAttribute('data-anchor', 'attached');
       await expect(thread.getByText(text.commentQuoteChanged)).toHaveCount(0);
       await expect(
@@ -229,13 +256,13 @@ for (const width of [1440, 390]) {
       await chat.fill(chatDraft);
       const chatScroll = await page.evaluate(() => window.scrollY);
       const continuedChatDraft = await changeWhileTyping(page, revised, chat, '續', 'chat');
-      await expect(chat).toHaveText(continuedChatDraft, { useInnerText: true });
+      await expect.poll(() => messageText(chat)).toBe(continuedChatDraft);
       expect(Math.abs((await page.evaluate(() => window.scrollY)) - chatScroll)).toBeLessThan(2);
       await page.screenshot({ path: `${captureDir}/chat-${width}-${theme}-updated.png` });
       await page.getByRole('button', { name: 'Close Chat', exact: true }).click();
       await panel(page, 'comments');
       await page.getByTestId('annotation-row').filter({ hasText: 'Exact selected text' }).click();
-      await expect(reply).toHaveText(continuedThreadDraft, { useInnerText: true });
+      await expect.poll(() => messageText(reply)).toBe(continuedThreadDraft);
       await expect(thread).toHaveAttribute('data-anchor', 'detached');
       await expect(thread.getByText(text.commentQuoteChanged)).toBeVisible();
       await page.screenshot({ path: `${captureDir}/thread-${width}-${theme}-updated.png` });
