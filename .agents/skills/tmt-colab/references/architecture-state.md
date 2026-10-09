@@ -169,7 +169,8 @@ the same bundle name has a different hash. The row sits directly under the fixed
 the page moves down instead of being covered. An offline read, an unreadable page, or a page of
 another kind (pairing guidance, the reader) never counts. There is no polling and no
 automatic reload: Reload is the reader's action, and unsent in-tab drafts follow the existing
-rules (memory only, so a reload discards them).
+rules (device-stored per page, so a reload restores them when storage works; see
+`draft-store.ts`).
 A recovery press does not dismiss it or take focus from an active composer. Mobile
 Chat closes its modal drawer to reach Reconnect; its DOM selection is retained only
 for that recovery and restored when the same connected composer regains focus.
@@ -177,8 +178,8 @@ Concurrent clicks share one in-flight attempt. Network failure returns to the wa
 notice and editable draft without another automatic reopen. Eviction, authority,
 admission and page faults remain terminal. Only a typed fresh `SessionEndedError`
 permits the existing guarded `recoverSession`/reload fallback, whose successful
-reload resets local-only drafts. The card makes no draft-persistence promise for
-that fallback. The guarded fallback marker still spans its reload: only its
+reload restores device-stored drafts only when storage worked. The card makes no
+draft-persistence promise for that fallback. The guarded fallback marker still spans its reload: only its
 explicitly started network failure clears the failed marker. Automatic guidance
 keeps its marker until authenticated boot clears it.
 The Remote restart and retained-draft cases in `acceptance/ask.spec.ts` verify

@@ -5,6 +5,7 @@ import { text } from './strings.js';
 import { useEffect, useRef } from 'react';
 import { AnnotationInput } from './annotation-input.js';
 import { AskPanel, type AskBinding, type PageAsk } from './ask-panel.js';
+import type { ComposerEdit } from './components/message-composer-edit.js';
 import type { CreationRecipient } from './fold-protocol.js';
 import { CommentExchange } from './thread-panel.js';
 import { isChatThread, type ThreadView } from './thread-records.js';
@@ -21,6 +22,9 @@ export function ChatPanel({
   blocked,
   recoveryRequired = false,
   observationUnavailable,
+  initialEdit,
+  onDraft,
+  unsaved = false,
   close,
 }: {
   threads: readonly ThreadView[];
@@ -32,6 +36,11 @@ export function ChatPanel({
   blocked: boolean;
   recoveryRequired?: boolean;
   observationUnavailable?: boolean;
+  /** A draft kept for this composer; read once when it mounts. */
+  initialEdit?: ComposerEdit;
+  onDraft?(edit: ComposerEdit): void;
+  /** Device storage failed, so the draft lives in this tab only. */
+  unsaved?: boolean;
   close(): void;
 }) {
   const history = useRef<HTMLDivElement>(null);
@@ -63,11 +72,18 @@ export function ChatPanel({
       historyRef={history}
       historyClassName="chat-messages"
       notice={
-        observationUnavailable && (
-          <p role="status" className="annotation-hint">
-            {text.askObservationUnavailable}
-          </p>
-        )
+        <>
+          {observationUnavailable && (
+            <p role="status" className="annotation-hint">
+              {text.askObservationUnavailable}
+            </p>
+          )}
+          {unsaved && (
+            <p role="status" className="annotation-hint">
+              {text.draftsNotSaved}
+            </p>
+          )}
+        </>
       }
       composer={
         <AnnotationInput
@@ -79,6 +95,8 @@ export function ChatPanel({
           asks={asks}
           title={title}
           creationRecipient={creationRecipient}
+          initialEdit={initialEdit}
+          onDraft={(_value, edit) => onDraft?.(edit)}
           blocked={blocked || !!own?.deleted}
           recoveryRequired={recoveryRequired && !own?.deleted}
           cancel={close}

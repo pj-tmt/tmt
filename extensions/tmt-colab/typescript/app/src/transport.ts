@@ -15,6 +15,7 @@ export interface PageView extends Projection {
   readonly askUnavailable?: boolean;
 }
 import type { PageId } from './bootstrap.js';
+import type { DraftStore } from './draft-store.js';
 import type { ExpiryInfo } from './expiry.js';
 export interface PageSummary extends Partial<ExpiryInfo> {
   readonly id: string;
@@ -55,6 +56,8 @@ export interface SpaceHome {
 export interface PageTransport {
   /** Display-only name from the mounted session device context. */
   readonly backendName?: string;
+  /** Device-local unsent-draft persistence; absent means drafts stay in memory. */
+  readonly drafts?: DraftStore;
   readonly management?: ManagementPort;
   spaceHome(): Promise<SpaceHome>;
   page(id: string, signal?: AbortSignal): Promise<PageSnapshot>;

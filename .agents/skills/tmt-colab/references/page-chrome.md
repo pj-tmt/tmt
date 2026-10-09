@@ -44,7 +44,8 @@ chrome. The sandbox attributes, source limits and CSP remain unchanged.
 
 Source revisions replace only the author renderer, not parent chrome. `router.tsx`
 keeps the mounted annotation input and frozen quote/rectangle during loading;
-page-ID changes reset page-local selection, panels and unsent drafts. Existing
+page-ID changes reset page-local selection, panels and in-memory drafts; saved drafts
+return with their own page. Existing
 thread highlights are projected again when the new render is ready. `renderer.ts`
 checks the frozen composer quote through the same bounded cosmetic resolver: the
 reserved empty anchor ID resolves without painting a highlight or creating a

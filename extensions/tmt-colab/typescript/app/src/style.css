@@ -1158,3 +1158,28 @@ footer {
   margin-inline-start: auto;
   flex: none;
 }
+.saved-drafts {
+  margin: 10px 14px;
+}
+.saved-drafts h3 {
+  margin: 0 0 6px;
+  font-size: 13px;
+}
+.saved-drafts ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.saved-drafts li {
+  margin: 0 0 12px;
+}
+.saved-drafts blockquote {
+  margin: 0 0 4px;
+  color: var(--c-muted);
+  overflow-wrap: anywhere;
+}
+.saved-draft-text {
+  margin: 0 0 4px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
