@@ -117,6 +117,24 @@ docker() {
     expect(result.calls).toBe('');
   });
 
+  it('recognizes quoted and unquoted resolver URLs without accepting a different hostname', () => {
+    const proof = readFileSync(
+      path.join(root, '.github/workflows/docker-mirror-qualification.yml'),
+      'utf8'
+    );
+    const mirror = new RegExp(proof.match(/grep -E '([^']+)' evidence\/buildkit\.log/)![1]);
+    const hub = new RegExp(proof.match(/if grep -E '([^']+)' evidence\/buildkit\.log/)![1]);
+    for (const quote of ['', '"']) {
+      const line = `request.method=GET url=${quote}https://mirror.gcr.io/v2/library/node/manifests/sha256:abc`;
+      expect(mirror.test(line)).toBe(true);
+      expect(hub.test(line)).toBe(false);
+      const fallback = line.replace('mirror.gcr.io', 'registry-1.docker.io');
+      expect(hub.test(fallback)).toBe(true);
+      expect(mirror.test(fallback)).toBe(false);
+      expect(mirror.test(line.replace('mirror.gcr.io', 'mirrorXgcrXio'))).toBe(false);
+    }
+  });
+
   it('wires both daemon consumers and both independent container builders', () => {
     const ci = readFileSync(path.join(root, '.github/workflows/ci.yml'), 'utf8');
     const seed = readFileSync(
@@ -126,6 +144,9 @@ docker() {
     expect(ci.match(/uses: \.\/\.github\/actions\/setup-docker-mirror/g)).toHaveLength(2);
     expect(seed).toContain('uses: ./.github/actions/setup-docker-mirror');
     for (const source of [ci, seed]) {
+      expect(source).toContain(
+        'driver-opts: image=mirror.gcr.io/moby/buildkit:buildx-stable-1@sha256:cec9f139f45e93c5c69c60f8b07cfad9f43f4ef6b6a6cd917527fea5ff2e3dea'
+      );
       expect(source).toContain('[registry."docker.io"]');
       expect(source).toContain('mirrors = ["mirror.gcr.io"]');
       expect(source).toContain('continue-on-error: true');
