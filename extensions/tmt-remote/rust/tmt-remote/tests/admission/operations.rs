@@ -1473,3 +1473,31 @@ fn only_live_work_refuses_a_send_and_changes_nothing() {
         "the refusal rolled back"
     );
 }
+
+#[test]
+fn a_send_under_a_dropped_id_asks_core_first_and_never_resends() {
+    let owner = OwnerDoor::new();
+    let core = Core::new();
+    let operations = core.operations();
+    let session = owner.open();
+    let id = uuid_v4().unwrap();
+    let recipient = uuid_v4().unwrap();
+    let first = wire(&owner, &session, 1, &id, &recipient, "delivered once");
+    let accepted = append(&owner, Arc::clone(&operations), &first);
+    assert_eq!(accepted["state"], "accepted");
+    assert_eq!(core.sends(), 1);
+    // The finished record is dropped (as eviction does), then the same intent is sent again.
+    raw(&owner)
+        .execute("DELETE FROM operations WHERE id=?1", [&id])
+        .unwrap();
+    let again = wire(&owner, &session, 2, &id, &recipient, "delivered once");
+    assert_eq!(append(&owner, operations, &again), accepted);
+    assert_eq!(core.sends(), 1, "core's receipt answered; nothing was sent");
+    assert!(
+        core.calls()
+            .iter()
+            .filter(|call| call["operation"] == "dispatch.show")
+            .count()
+            >= 1
+    );
+}

@@ -282,3 +282,58 @@ fn audit_age_and_count_retention_roll_back_with_failed_adoption() {
     let metadata:String=f.store.connection.query_row("SELECT client_id||envelope_id||operation||COALESCE(operation_id,'')||resources_json||decision||code FROM audit ORDER BY position DESC LIMIT 1",[],|r|r.get(0)).unwrap();
     assert!(!metadata.contains("private prompt"));
 }
+
+#[test]
+fn a_finished_record_keeps_its_recovery_horizon_from_its_last_state_change() {
+    let mut f = Fixture::new();
+    let message = f.message();
+    let first = f.adopt(&message, f.now).unwrap();
+    // Settled 29 days after adoption: that is its last state change.
+    let accepted = json!({"state":"accepted","operationId":first.id,"requestId":"req_11111111-1111-4111-8111-111111111111"});
+    f.store
+        .settle(
+            &f.grant,
+            &first.id,
+            &accepted,
+            Some(b"{}"),
+            f.now + 29 * DAY,
+        )
+        .unwrap();
+    // An unrelated adoption just past 30 days after the first adoption must not drop it.
+    let at = f.now + RECOVERY + 1;
+    let next = f.message();
+    f.adopt(&next, at).unwrap();
+    f.store.owned(&f.grant, &first.id, at).unwrap();
+    // Past 30 days after the settlement it is finished work beyond the horizon and goes.
+    let at = f.now + 29 * DAY + RECOVERY + 1;
+    let last = f.message();
+    f.adopt(&last, at).unwrap();
+    assert_eq!(
+        f.store.owned(&f.grant, &first.id, at).unwrap_err().code,
+        "REMOTE_STATE_UNAVAILABLE"
+    );
+}
+#[test]
+fn eviction_moves_the_floor_so_older_cursors_expire_and_the_floor_cursor_stays_valid() {
+    let mut f = Fixture::new();
+    f.store.connection.execute("INSERT INTO streams(client_id,incarnation,key,tip,last_ms) VALUES (?1,?2,zeroblob(32),1000,?3)", params![f.grant.client_id, uuid_v4().unwrap(), f.now as i64]).unwrap();
+    f.store.connection.execute("WITH RECURSIVE n(x) AS (VALUES(1) UNION ALL SELECT x+1 FROM n WHERE x<1000) INSERT INTO entries(client_id,position,envelope,at_ms) SELECT ?1,x,CAST('{}' AS BLOB),?2 FROM n", params![f.grant.client_id, f.now as i64]).unwrap();
+    let message = f.message();
+    f.adopt(&message, f.now).unwrap();
+    assert_eq!(count(&f.store, "entries"), 1000);
+    let tx = f.store.connection.transaction().unwrap();
+    let stream = stream(&tx, &f.grant.client_id).unwrap();
+    assert_eq!(stream.floor, 1);
+    let below = cursor(&tx, &f.grant.client_id, &stream, 0, f.now).unwrap();
+    let at_floor = cursor(&tx, &f.grant.client_id, &stream, 1, f.now).unwrap();
+    drop(tx);
+    assert_eq!(
+        f.store
+            .page(&f.grant, Some(&below), 50, f.now)
+            .unwrap_err()
+            .code,
+        "REMOTE_CURSOR_EXPIRED"
+    );
+    let page = f.store.page(&f.grant, Some(&at_floor), 50, f.now).unwrap();
+    assert_eq!(page["entries"].as_array().unwrap().len(), 50);
+}

@@ -633,8 +633,8 @@ impl Store {
             },
         )?;
         tx.execute(
-            "UPDATE operations SET phase=?2,receipt=?3,references_json=?4,frozen=CASE WHEN ?2 IN ('accepted','cancelled','refused') THEN NULL ELSE frozen END WHERE id=?1",
-            params![id, phase, payload.to_string(),serde_json::to_string(&resources).map_err(database)?],
+            "UPDATE operations SET phase=?2,receipt=?3,references_json=?4,updated_ms=?5,frozen=CASE WHEN ?2 IN ('accepted','cancelled','refused') THEN NULL ELSE frozen END WHERE id=?1",
+            params![id, phase, payload.to_string(),serde_json::to_string(&resources).map_err(database)?,now as i64],
         )
         .map_err(database)?;
         if let Some(metadata) = metadata {
