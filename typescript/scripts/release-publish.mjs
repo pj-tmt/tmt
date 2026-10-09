@@ -20,6 +20,7 @@
 import { spawnSync } from 'node:child_process';
 import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
+import { performance } from 'node:perf_hooks';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import {
@@ -40,6 +41,8 @@ const COMPONENTS = fileURLToPath(new URL('../../.github/components.json', import
 /** GitHub makes the attestation and the immutable state shortly after publication, not atomically. */
 const VERIFY_ATTEMPTS = 8;
 const VERIFY_WAIT_MS = 15_000;
+const VERIFY_LOOKUP_MS = 120_000;
+const VERIFY_EXTRA_MS = 300_000;
 
 /**
  * Why this draft may not be published now, or an empty string. The workflow publishes only after
@@ -194,9 +197,44 @@ export function verifyPublication({
   directory,
   attempts = VERIFY_ATTEMPTS,
   sleep = () => {},
+  clock = () => performance.now(),
 }) {
   const wait = () => sleep(VERIFY_WAIT_MS);
   const retry = { attempts, wait };
+  let remainingAttestationWaits = VERIFY_ATTEMPTS - 1;
+  let extraAttestationMs = 0;
+  const missing = `no attestations found for tag ${tag}`;
+  const missingWithCommit = `${missing} (sha1:`;
+  const missingAttestation = ({ output }) =>
+    output === missing ||
+    (output.startsWith(missingWithCommit) &&
+      /^[a-f0-9]{40}\)$/.test(output.slice(missingWithCommit.length)));
+
+  // Missing lookups share one retry budget; reserve the whole existing lookup bound before
+  // waiting. First reads and immutable/latest convergence keep their existing semantics.
+  function settleAttestation(read, label) {
+    let result = read();
+    for (
+      let count = 1;
+      !result.ok &&
+      missingAttestation(result) &&
+      count < attempts &&
+      remainingAttestationWaits > 0 &&
+      extraAttestationMs + VERIFY_WAIT_MS + VERIFY_LOOKUP_MS <= VERIFY_EXTRA_MS;
+      count += 1
+    ) {
+      const started = clock();
+      process.stderr.write(
+        `${label} attestation attempt ${count}/${attempts} failed: ${result.output}\nRetrying in ${VERIFY_WAIT_MS} ms.\n`
+      );
+      remainingAttestationWaits -= 1;
+      wait();
+      result = read();
+      extraAttestationMs += clock() - started;
+    }
+    return result;
+  }
+
   const release = settle(() => {
     const current = api.getRelease(tag);
     return { ok: current?.immutable === true, current };
@@ -227,7 +265,7 @@ export function verifyPublication({
     tag,
   });
 
-  const attestation = settle(() => api.verifyRelease(tag), retry);
+  const attestation = settleAttestation(() => api.verifyRelease(tag), `Release ${tag}`);
   results.push(
     attestation.ok
       ? pass('attestation', 'gh release verify passed')
@@ -242,8 +280,11 @@ export function verifyPublication({
   const names = (release.assets ?? []).map(({ name }) => name);
   const failed = [];
   for (const name of names) {
-    // Once the release attestation verifies, it covers every asset: one try each.
-    const outcome = api.verifyAsset(tag, path.join(directory, name));
+    // The asset lookup can still be missing after the release lookup succeeds.
+    const outcome = settleAttestation(
+      () => api.verifyAsset(tag, path.join(directory, name)),
+      `Asset ${name}`
+    );
     if (!outcome.ok) failed.push(`${name}: ${outcome.output}`);
   }
   results.push(
@@ -366,7 +407,7 @@ export function renderVerifySummary({ tag, results }) {
 
 /** `gh` for one repository: the draft API of `release-draft-assets.mjs` plus what publishing needs. */
 export function ghPublishApi({ repository, env = process.env, spawn = spawnSync }) {
-  const run = (args, timeout = 120_000) => {
+  const run = (args, timeout = VERIFY_LOOKUP_MS) => {
     const result = spawn('gh', args, {
       env,
       encoding: 'utf8',

@@ -822,6 +822,29 @@
           "tests": ["typescript/test/tooling/release-workflow.test.ts"]
         }
       ]
+    },
+    "2241": {
+      "release": {
+        "workflow": "native-release-bundle.yml",
+        "job": "published",
+        "step": "name:Check immutability, flags, tag and attestation of the published release"
+      },
+      "preMerge": [
+        {
+          "workflow": "ci.yml",
+          "job": "unit-tests",
+          "selection": {
+            "kind": "ci-scope",
+            "output": "native_scope",
+            "value": "full"
+          },
+          "coverage": "policy",
+          "tests": [
+            "typescript/test/tooling/release-publish.test.ts",
+            "typescript/test/tooling/release-publish-script.test.ts"
+          ]
+        }
+      ]
     }
   }
 }

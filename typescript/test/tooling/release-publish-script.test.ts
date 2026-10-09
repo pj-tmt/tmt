@@ -57,6 +57,7 @@ if (command === 'api') {
   if (state.attestationFails) fail('attestation not found');
 } else if (command === 'release' && sub === 'verify-asset') {
   if ((state.badAssets ?? []).includes(path.basename(args[3]))) fail('does not contain subject');
+  if ((state.missingAssets ?? []).includes(path.basename(args[3]))) fail('no attestations found for tag ' + args[2] + ' (sha1:' + state.tagCommit + ')');
 } else {
   fail('unexpected gh call: ' + args.join(' '));
 }
@@ -83,6 +84,7 @@ interface Scenario {
   downloadFails?: boolean;
   attestationFails?: boolean;
   badAssets?: string[];
+  missingAssets?: string[];
   openIssues?: { number: number; title: string }[];
   issueFails?: boolean;
 }
@@ -312,6 +314,18 @@ describe('release-publish.mjs verify', () => {
     expect(body).toContain('dist-manifest.json: does not contain subject');
     expect(body).toContain('Run: https://github.com/wkh237/tmt/actions/runs/42');
     expect(body).toContain('Nothing was rolled back');
+  });
+
+  it('keeps a missing asset lookup a hard failure at the configured attempt bound', () => {
+    const fake = scenario({ missingAssets: ['tmt-cli-x.tar.gz'] });
+    const result = fake.run(verify(fake.directory));
+    expect(result.status).toBe(1);
+    expect(result.summary).toContain(
+      `- FAILED \`assets\`: gh release verify-asset failed for tmt-cli-x.tar.gz: no attestations found for tag ${TAG} (sha1:${SHA})`
+    );
+    expect(result.stderr).not.toContain('Retrying in');
+    expect(result.stderr).toContain('Opened issue #77.');
+    expect(fake.calls().filter(([, sub]) => sub === 'verify-asset')).toHaveLength(3);
   });
 
   it('checks every published asset with gh release verify-asset', () => {
