@@ -83,6 +83,13 @@ impl Running {
         Self::start_with_app(tunnels, None)
     }
     fn start_with_app(tunnels: Tunnels, app: Option<tmt_colab::assets::App>) -> Self {
+        Self::start_with(tunnels, app, None)
+    }
+    fn start_with(
+        tunnels: Tunnels,
+        app: Option<tmt_colab::assets::App>,
+        release: Option<Arc<tmt_colab::serve_release::ServeRelease>>,
+    ) -> Self {
         // Short absolute root: Unix socket paths are limited to about 100 bytes.
         let root = PathBuf::from(format!(
             "/tmp/tmt-1039-colab-{}-{}",
@@ -125,6 +132,10 @@ impl Running {
             .with_registration(&layout, Arc::clone(&registration))
             .unwrap()
             .with_app(app);
+        let socket = match release {
+            Some(release) => socket.with_release(release),
+            None => socket,
+        };
         let path = socket.path.clone();
         assert_eq!(
             fs::metadata(&path).unwrap().permissions().mode() & 0o777,
@@ -3798,4 +3809,78 @@ fn a_save_reads_the_clock_after_its_snapshot_so_a_later_certificate_cannot_deny_
     });
     assert!(prepared.is_ok(), "{:?}", prepared.err());
     assert_eq!(calls.get(), 1, "the clock is read exactly once");
+}
+
+/// An installed layout `<root>/lib/tmt-colab/releases/<id>/tmt-colab` with a receipt per release.
+fn install_layout(root: &std::path::Path, active: &str) -> PathBuf {
+    let lib = root.join("lib/tmt-colab");
+    for (id, version) in [("old", "0.0.0-running"), ("new", "9.9.9-installed")] {
+        let dir = lib.join("releases").join(id);
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("tmt-colab"), b"binary").unwrap();
+        fs::write(
+            dir.join("receipt.json"),
+            json!({"version": version}).to_string(),
+        )
+        .unwrap();
+    }
+    std::os::unix::fs::symlink(format!("releases/{active}"), lib.join("current")).unwrap();
+    lib.join("releases/old/tmt-colab")
+}
+
+#[test]
+fn serve_release_route_names_both_versions_only_when_the_install_moved() {
+    for (active, stale) in [("old", false), ("new", true)] {
+        let scratch = PathBuf::from(format!(
+            "/tmp/tmt-2218-release-{}-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::Relaxed)
+        ));
+        fs::create_dir_all(&scratch).unwrap();
+        let exe = install_layout(&scratch, active);
+        let running = tmt_colab::serve_release::Running::at(&exe, "0.0.0-running").unwrap();
+        let release = Arc::new(tmt_colab::serve_release::ServeRelease::new(Some(running)));
+        let server = Running::start_with(Tunnels::PRODUCT, None, Some(release));
+        // Same admission as `/api/session`: no context and a non-owner are refused.
+        let denied = server.request(&Running::get("/api/serve-release", ""));
+        assert!(denied.starts_with("HTTP/1.1 403"), "{denied}");
+        let mut nonowner: Value = serde_json::from_str(&context(DEVICE)).unwrap();
+        nonowner["owner"] = false.into();
+        let denied = server.request(&Running::get(
+            "/api/serve-release",
+            &format!("tmt-device-context: {nonowner}\r\n"),
+        ));
+        assert!(denied.starts_with("HTTP/1.1 403"), "{denied}");
+        let reply = server.request(&Running::get(
+            "/api/serve-release",
+            &format!("{}\r\n", owner(DEVICE)),
+        ));
+        let (head, body) = reply.split_once("\r\n\r\n").unwrap();
+        assert!(
+            head.starts_with("HTTP/1.1 200") && head.contains("Content-Type: application/json")
+        );
+        let body: Value = serde_json::from_str(body).unwrap();
+        if stale {
+            assert_eq!(
+                body,
+                json!({"running":"0.0.0-running","installed":"9.9.9-installed"})
+            );
+        } else {
+            assert_eq!(body, json!({"running":"0.0.0-running"}));
+        }
+        // Reading it neither moves the install nor changes the served pages.
+        assert!(
+            scratch
+                .join("lib/tmt-colab/releases/old/tmt-colab")
+                .is_file()
+        );
+        // A POST is not a read.
+        let post = server.request(&format!(
+            "POST /api/serve-release HTTP/1.1\r\nHost: x\r\n{}\r\nContent-Length: 0\r\n\r\n",
+            owner(DEVICE)
+        ));
+        assert!(!post.starts_with("HTTP/1.1 200"), "{post}");
+        drop(server);
+        let _ = fs::remove_dir_all(&scratch);
+    }
 }

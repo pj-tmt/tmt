@@ -18,3 +18,7 @@
   background: var(--tmt-ui-surface-sheet);
   border-bottom: 1px solid var(--tmt-ui-color-edge);
 }
+.update-notice[data-serve-older] {
+  white-space: normal;
+  line-height: 1.35;
+}

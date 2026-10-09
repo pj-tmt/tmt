@@ -1937,15 +1937,25 @@ no credential. Pages returns exactly `{spaceId, ownerKey, revision, pages, pageI
 the existing retained deleted-page IDs solely to prevent historical prefixes rebinding;
 no title/content of deleted pages is exposed. Its non-deleted IDs exactly match `pages`.
 Browser discovery caps the complete serialized metadata response at 512 KiB.
-`pages` is sorted by page ID, at most 1,000 entries, each exactly
-`{pageId, epoch, sharing, history, archived, retentionDays, lastUpdateAtMs,
+
+A serve running from an installed release (`<lib>/tmt-colab/releases/<id>/tmt-colab`)
+compares itself with `<lib>/tmt-colab/current` (`serve_release.rs`). When another release
+with a different `receipt.json` `version` is active, `GET /api/serve-release` (same admission
+as session) returns exactly `{running, installed}`; otherwise exactly `{running}`. Versions
+are at most 64 characters of `[0-9A-Za-z.+-]`. The check reads only the install layout (one
+bounded receipt read, cached for a minute), and any doubt, a development binary or a reinstall
+of the same version is "not stale". The serve also prints one stderr warning (never in
+`--json`): `Colab <installed> is installed, but <running> is still running.` and
+`Restart \`tmt colab serve\` to update.`; the tab row says the same. Nothing restarts,
+signals or changes state; a serve that predates this route cannot report itself.
+`pages`is sorted by page ID, at most 1,000 entries, each exactly`{pageId, epoch, sharing, history, archived, retentionDays, lastUpdateAtMs,
 expiresAtMs, warnings}`. These time/expiry hints use the same verified projection
 as `ls/show`, defined in [Local management CLI](#local-management-cli-1307).
 Local creation/epoch records own
 existence; sharing/history/archive/delete derive from verified owner statements.
 Absent sharing/history mean private/shared. Deleted pages are excluded. Titles
-are encrypted content and never returned here. `revision:"0"` means no owner log
-has been initialized yet. State faults return 503 JSON `{code:"UNAVAILABLE"}`.
+are encrypted content and never returned here. `revision:"0"`means no owner log
+has been initialized yet. State faults return 503 JSON`{code:"UNAVAILABLE"}`.
 
 Catchup is server-driven. Strict hello additionally requires decimal
 `membershipRevision` (`"0"` means no verified log). Its first page carries
