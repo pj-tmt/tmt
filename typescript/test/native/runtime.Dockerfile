@@ -4,7 +4,7 @@ RUN apk add --no-cache binutils
 WORKDIR /verification
 COPY typescript/scripts/native-runtime-proof.mjs typescript/scripts/verify-native-runtime.mjs typescript/scripts/packed-command.mjs typescript/scripts/
 COPY typescript/test/support/performance-contract.mjs typescript/test/support/performance-contract.mjs
-COPY skills/tmux-team/SKILL.md skills/tmux-team/SKILL.md
+COPY skills/tmt/SKILL.md skills/tmt/SKILL.md
 COPY skills/tmt-inbox/SKILL.md skills/tmt-inbox/SKILL.md
 COPY extensions/tmt-office/skills/tmt-office/SKILL.md extensions/tmt-office/skills/tmt-office/SKILL.md
 ENTRYPOINT ["node", "typescript/scripts/verify-native-runtime.mjs"]

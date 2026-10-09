@@ -1,6 +1,6 @@
 ---
 source: site/src/chapters/settings.mdx
-sourceRevision: 1a22fb69dcc4464d224c1b7f42b3fc5a8fcaf197
+sourceRevision: 3a8ea875c93d702882147e770416b5ea8bc6e23c
 title: 設定與疑難排解
 ---
 
@@ -38,7 +38,7 @@ $ tmt config rm pasteEnterDelayMs                 # 移除目前資料夾的覆�
 | `defaults.pollInterval`            | `1`      | `talk` 等待時，每次檢查的間隔秒數                                                                                        | 編輯 `config.json`         |
 | `defaults.captureLines`            | `100`    | `tmt check` 顯示的行數                                                                                                   | 編輯 `config.json`         |
 
-「兩種範圍」是指目前的資料夾，或加上 `--global` 套用到所有資料夾。全域檔案是 tmt 設定目錄 `~/.config/tmux-team/` 裡的 `config.json`；目錄名稱保留了 tmt 原本的名稱。資料夾的覆寫值則放在執行 tmt 時所在資料夾的 `tmux-team.json`。`tmt config show` 會印出兩個路徑。tmt 會保留它不認得的欄位，`config show` 則顯示實際使用的值與來源。
+「兩種範圍」是指目前的資料夾，或加上 `--global` 套用到所有資料夾。全域檔案是 tmt 設定目錄 `~/.config/tmt/` 裡的 `config.json`。資料夾的覆寫值則放在執行 tmt 時所在資料夾的 `tmt.json`。`tmt config show` 會印出兩個路徑。tmt 會保留它不認得的欄位，`config show` 則顯示實際使用的值與來源。
 
 數值只填數字，不加單位、正負號或小數。變更 `exchange.retentionDays` 只會套用到新請求。
 
@@ -74,16 +74,14 @@ $ tmt completion zsh             # 以同樣方式檢查 zsh
 
 [窗格徽章](/drivers/tmux#the-pane-badge)頁面說明了基本用法。另外還有幾點：
 
-- **在窄窗格裡隱藏。** 用下面的格式檢查窗格寬度。依你的主題調整 80 這個值；它不會自動適應寬度。
+- **在窄窗格裡隱藏。** 自己放置徽章，並像下面的格式一樣檢查窗格寬度。依你的主題調整 80 這個值；它不會自動適應寬度。
 - **只能儲存一份樣式。** tmux 只保留一份儲存的預設樣式，所以不要把徽章包進另一個 `push-default` 區段。放在區段外，並在後面恢復主題原本的樣式。
-- **變更逐一套用到窗格。** 切換設定不會立刻重寫任何窗格。tmt 下次處理窗格時才會更新：命名、啟動或結束程式、執行 hook。`tmt unbind` 會清除徽章。
+- **變更逐一套用到窗格。** 切換設定不會立刻重寫任何窗格。tmt 下次處理窗格時才會更新：命名、啟動或結束程式、執行 hook。`tmt unbind` 會清除徽章和 tmt 加上的邊框格式。
 - **名稱會縮短。** 超過 48 個字元的名稱會截斷並加上 `…`，`#` 會顯示為 `＃`。儲存的名稱不會改變。
 
 <Code>{`
-#{?#{&&:#{@tmux-team.badge},#{e|>=:#{pane_width},80}}, [#{@tmux-team.badge}],}
+#{?#{&&:#{@tmt.badge},#{e|>=:#{pane_width},80}}, [#{@tmt.badge}],}
 `}</Code>
-
-如果舊版 tmt 取代過你的窗格標題或邊框格式，請從自己的 tmux 設定恢復。tmt 無法重建它覆寫過的主題。
 
 <Mdx.h3 id="troubleshooting">疑難排解</Mdx.h3>
 
@@ -105,10 +103,9 @@ esac
 <Cmd>{`
 $ command -v tmt
 $ tmt --version
-$ command -v tmux-team      # 舊的 npm 安裝可能蓋過新版
 `}</Cmd>
 
-用舊安裝的套件管理工具移除它（`npm uninstall -g tmux-team` 或 `pnpm remove -g tmux-team`），並使用你有權寫入的 prefix，不要用 `sudo`。
+請使用你有權寫入的 prefix，不要用 `sudo`。
 
 <Mdx.h4 id="skills-conflict-with-files-tmt-didn-t-write">Skill 與不是由 tmt 寫入的檔案衝突</Mdx.h4>
 

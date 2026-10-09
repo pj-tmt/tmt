@@ -448,6 +448,6 @@ All additions are additive; no existing field, code, exit status or default outp
 
 ## Isolation
 
-Tests and manual runs use a disposable `TMUX_TEAM_HOME`, a private tmux socket and
+Tests and manual runs use a disposable `TMT_HOME`, a private tmux socket and
 the existing Claude login. No global Claude, MCP or settings file is edited, and
 TMT never copies credentials.

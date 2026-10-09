@@ -823,7 +823,7 @@ Admitted compaction context reminds saved identities through global `notes.compa
 
 ### Settings and configuration
 
-`tmt-adapters::config::ConfigPaths` is the sole application path owner;
+`tmt-adapters::config::ConfigPaths` is the sole application path and one-shot default-directory cutover owner;
 `config::document` preserves unknown JSON fields and validates known settings
 through `tmt-core::settings`; `init` creates the local file exclusively and never
 opens SQLite or tmux. Global `theme.base` writes reuse the CLI style base registry; the global `theme` object is presentation, interpreted only by
@@ -948,7 +948,7 @@ Managed agent guidance is a filesystem concern separate from application state.
 `tmt_core::skill_catalog` is the one list of bundled skill names; the bundle is
 embedded and materialized by digest under `skill_installation`, and the
 architecture test fails on a skill-name list anywhere else. Core install exposes
-only `tmux-team` and `tmt-inbox`. Skill installation never opens configuration,
+only `tmt` and `tmt-inbox`. Skill installation never opens configuration,
 SQLite or tmux and never silently replaces an unmanaged path: a real directory,
 mismatched name, outside link or modified source is preserved as a conflict.
 Extension-owned skills arrive as bytes through `skills.install`/`skills.remove`

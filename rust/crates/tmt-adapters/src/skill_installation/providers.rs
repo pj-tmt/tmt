@@ -160,27 +160,27 @@ mod tests {
         let expected = [
             (
                 &crate::drivers::claude::DRIVER,
-                home.join(".claude/skills/tmux-team"),
+                home.join(".claude/skills/tmt"),
             ),
             (
                 &crate::drivers::codex::DRIVER,
-                home.join(".agents/skills/tmux-team"),
+                home.join(".agents/skills/tmt"),
             ),
             (
                 &crate::drivers::gemini::DRIVER,
-                home.join(".agents/skills/tmux-team"),
+                home.join(".agents/skills/tmt"),
             ),
             (
                 &crate::drivers::agy::DRIVER,
-                home.join(".gemini/config/skills/tmux-team"),
+                home.join(".gemini/config/skills/tmt"),
             ),
             (
                 &crate::drivers::pi::DRIVER,
-                home.join(".pi/agent/skills/tmux-team"),
+                home.join(".pi/agent/skills/tmt"),
             ),
             (
                 &crate::drivers::opencode::DRIVER,
-                home.join(".agents/skills/tmux-team"),
+                home.join(".agents/skills/tmt"),
             ),
         ];
         for (provider, target) in expected {
@@ -188,11 +188,11 @@ mod tests {
         }
         assert_eq!(
             environment.universal_target(),
-            home.join(".agents/skills/tmux-team")
+            home.join(".agents/skills/tmt")
         );
         assert_eq!(
             environment.custom_target("custom skills"),
-            directory.path.join("cwd/custom skills/tmux-team")
+            directory.path.join("cwd/custom skills/tmt")
         );
     }
 
@@ -247,14 +247,14 @@ mod tests {
         let home = directory.path.join("home");
         let cwd = directory.path.join("cwd");
         for (configured, expected) in [
-            (PathBuf::from("~"), home.join("skills/tmux-team")),
+            (PathBuf::from("~"), home.join("skills/tmt")),
             (
                 PathBuf::from("~/custom-pi"),
-                home.join("custom-pi/skills/tmux-team"),
+                home.join("custom-pi/skills/tmt"),
             ),
             (
                 PathBuf::from("relative-pi"),
-                cwd.join("relative-pi/skills/tmux-team"),
+                cwd.join("relative-pi/skills/tmt"),
             ),
         ] {
             let environment = ProviderEnvironment::from_parts(
@@ -267,7 +267,7 @@ mod tests {
         }
         assert_eq!(
             base.target(&crate::drivers::pi::DRIVER),
-            home.join(".pi/agent/skills/tmux-team")
+            home.join(".pi/agent/skills/tmt")
         );
     }
 
@@ -305,7 +305,10 @@ mod tests {
         );
         assert_eq!(
             shared.legacy_targets(&crate::drivers::codex::DRIVER),
-            vec![home.join(".codex/skills/tmux-team")]
+            vec![
+                home.join(".agents/skills/tmux-team"),
+                home.join(".codex/skills/tmux-team")
+            ]
         );
     }
 
@@ -360,7 +363,7 @@ mod tests {
         assert_eq!(pi.detect(), vec![&crate::drivers::pi::DRIVER]);
         assert_eq!(
             pi.target(&crate::drivers::pi::DRIVER),
-            pi_root.join("skills/tmux-team")
+            pi_root.join("skills/tmt")
         );
 
         let opencode_root = directory.path.join("opencode-override");

@@ -8,16 +8,15 @@ import { withE2EFixture, type E2EFixture } from './harness.js';
 import { durableIdentity, durableState } from './identity-state-oracle.js';
 import { waitForFileContent } from './wait-for-file.js';
 
-const BADGE_OPTION = '@tmux-team.badge';
-const BORDER_OWNER = '@tmux-team.border';
+const BADGE_OPTION = '@tmt.badge';
+const BORDER_OWNER = '@tmt.border';
 
 function localOption(fixture: E2EFixture, option: string, pane = fixture.pane): string {
   return fixture.tmux(['show-options', '-p', '-qv', '-t', pane, option]);
 }
 const USER_FORMAT = '#[align=left]#{window_index}.#{pane_index}#[align=right]repo/branch';
-const BADGE_FRAGMENT = '#{?@tmux-team.badge, [#{@tmux-team.badge}],}';
-const NARROW_BADGE_FRAGMENT =
-  '#{?#{&&:#{@tmux-team.badge},#{e|>=:#{pane_width},80}}, [#{@tmux-team.badge}],}';
+const BADGE_FRAGMENT = '#{?@tmt.badge, [#{@tmt.badge}],}';
+const NARROW_BADGE_FRAGMENT = '#{?#{&&:#{@tmt.badge},#{e|>=:#{pane_width},80}}, [#{@tmt.badge}],}';
 
 function badge(fixture: E2EFixture): string {
   // The minimal Docker image has no UTF-8 locale. Request UTF-8 output so tmux
@@ -211,7 +210,7 @@ describe('non-invasive pane badge presentation', { concurrent: false }, () => {
       const launch = (input: string, output: string, listen: boolean) => {
         const command = [
           'env',
-          `TMUX_TEAM_HOME=${fixture.globalDir}`,
+          `TMT_HOME=${fixture.globalDir}`,
           '/opt/tmt-tests/claude',
           fixture.executables.cli.executable,
           input,
@@ -508,7 +507,7 @@ describe('non-invasive pane badge presentation', { concurrent: false }, () => {
           .readFileSync(wrapper, 'utf8')
           .replace(
             '#!/bin/sh\n',
-            `#!/bin/sh\nfor argument in "$@"; do\n  if [ "$argument" = "@tmux-team.badge" ]; then printf 'denied\\n' >> '${denied}'; exit 1; fi\ndone\n`
+            `#!/bin/sh\nfor argument in "$@"; do\n  if [ "$argument" = "@tmt.badge" ]; then printf 'denied\\n' >> '${denied}'; exit 1; fi\ndone\n`
           ),
         0o755
       );

@@ -209,7 +209,7 @@ describe('retired legacy registry commands', { concurrent: false }, () => {
         '-p',
         '-t',
         fixture.pane,
-        '@tmux-team.agent',
+        '@tmt.agent',
         JSON.stringify(sharedMetadata),
       ]);
 

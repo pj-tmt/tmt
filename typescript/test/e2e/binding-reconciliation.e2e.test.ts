@@ -155,7 +155,7 @@ describe('binding publication, reconciliation and presentation', { concurrent: f
       const serverId = JSON.parse(metadata).globalIdentity.serverId;
       await withE2EFixture(
         async (second) => {
-          second.tmux(['set-option', '-s', '@tmux-team.server-id', serverId]);
+          second.tmux(['set-option', '-s', '@tmt.server-id', serverId]);
           expect(second.pane).toBe(first.pane);
           const result = await second.runJsonCli<{ error: { code: string } }>(['name', 'Bob']);
           expect(result.code).toBe(1);
@@ -184,12 +184,7 @@ describe('binding publication, reconciliation and presentation', { concurrent: f
       const original = fixture.paneMetadata();
       const serverId = JSON.parse(original).globalIdentity.serverId;
       const before = durableState(fixture);
-      fixture.tmux([
-        'set-option',
-        '-s',
-        '@tmux-team.server-id',
-        '123e4567-e89b-42d3-a456-426614174111',
-      ]);
+      fixture.tmux(['set-option', '-s', '@tmt.server-id', '123e4567-e89b-42d3-a456-426614174111']);
       const rows = expectJsonResult(
         withoutAddress(await fixture.runJsonCli<Listing>(['ls']))
       ).identities;
@@ -214,7 +209,7 @@ describe('binding publication, reconciliation and presentation', { concurrent: f
       expect(removed.json?.error.code).toBe('RECONCILIATION_FAILED');
       expect(durableState(fixture)).toEqual(before);
       expect(fixture.paneMetadata()).toBe(original);
-      fixture.tmux(['set-option', '-s', '@tmux-team.server-id', serverId]);
+      fixture.tmux(['set-option', '-s', '@tmt.server-id', serverId]);
       const mismatched = JSON.parse(original);
       mismatched.globalIdentity.bindingId = 'different-binding';
       fixture.tmux([
@@ -222,7 +217,7 @@ describe('binding publication, reconciliation and presentation', { concurrent: f
         '-p',
         '-t',
         fixture.pane,
-        '@tmux-team.agent',
+        '@tmt.agent',
         JSON.stringify(mismatched),
       ]);
       const scoped = expectJsonResult(

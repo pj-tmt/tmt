@@ -48,7 +48,7 @@ export function compactReceipt(
   attemptId: string,
   endpoint: ResponseEndpoint = RESPONSE_SERVER
 ): string {
-  const parts = [Buffer.from('tmux-team/reply-receipt/v2\0', 'utf8')];
+  const parts = [Buffer.from('tmt/reply-receipt/v2\0', 'utf8')];
   appendString(parts, requestId);
   appendString(parts, attemptId);
   appendString(parts, endpoint.serverId);

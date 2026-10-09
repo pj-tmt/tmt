@@ -79,7 +79,15 @@ export function proveSourceBootstrap({
   fs.mkdirSync(root);
   const prefix = path.join(root, 'source prefix with spaces');
   const state = path.join(root, 'source state');
-  const env = { HOME: root, TMUX_TEAM_HOME: state, TMPDIR: root, PATH: '', LANG: 'C' };
+  // Harness only: remove when the prior release is post-rename.
+  const env = {
+    HOME: root,
+    TMT_HOME: state,
+    TMUX_TEAM_HOME: state,
+    TMPDIR: root,
+    PATH: '',
+    LANG: 'C',
+  };
   const options = { cwd: root, env };
   const installed = path.join(prefix, 'bin/tmt');
   const pointer = path.join(prefix, 'lib/tmux-team/current');

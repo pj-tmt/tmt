@@ -1,6 +1,6 @@
 ---
 source: site/src/chapters/drv-tmux.mdx
-sourceRevision: db04c606ab4d2a6b32414ee0211452088a2f7511
+sourceRevision: 6e8614862be6c81df634f159d1ad945529069ce9
 title: tmux：agent 运行的地方
 ---
 
@@ -26,8 +26,8 @@ import { Badge, BadgeBorders, DriverCard } from "../../components/samples";
     [
       "显示",
       <>
-        在你自己的 <code>pane-border-format</code> 中显示可选的{" "}
-        <Badge name="name" state="running" /> 徽标。不会修改标题、布局或主题。
+        在绑定窗格的边框上显示 <Badge name="name" state="running" /> 徽标。不会修改标题、
+        布局、主题或 tmux 的全局设置。
       </>,
     ],
     [
@@ -45,17 +45,17 @@ import { Badge, BadgeBorders, DriverCard } from "../../components/samples";
 
 <Mdx.h3 id="the-pane-badge">窗格徽标</Mdx.h3>
 
-每个已命名的窗格都会获得一个小标签，你可以将它放在自己的窗格边框中。它默认开启：
+每个已命名的窗格都会在边框上显示一个小标签。它默认开启：
 
 <BadgeBorders />
 
 <Cmd>{`$ tmt config set ui.paneBadge off --global   # 关闭`}</Cmd>
 
-然后在自己的 `pane-border-format` 中，将以下片段添加到你想显示它的位置：
+tmt 只在绑定的窗格上显示标签：它把该窗格自己的 `pane-border-format` 设为你当前的格式并在前面加上徽标，从不修改你的全局、会话或窗口选项，也不修改 `~/.tmux.conf`。运行 `tmt unbind` 或关闭徽标时，会移除 tmt 添加的部分。你自己设置的窗格格式保持不变；如果你的格式已经包含徽标，tmt 不会再添加。如果该窗口隐藏了窗格边框，tmt 会输出显示边框的命令，而不会替你修改。要自己决定徽标的位置，将以下片段添加到你的 `pane-border-format`：
 
-<Code>{`#{?@tmux-team.badge, [#{@tmux-team.badge}],}`}</Code>
+<Code>{`#{?@tmt.badge, [#{@tmt.badge}],}`}</Code>
 
-该选项保留了 tmt 的旧名称 tmux-team，以便现有配置继续可用。tmt 只通过一个窗格选项提供标签，不会修改窗格标题、边框格式、布局或主题；徽标的位置由你决定。圆点显示的是记录下来的会话状态，不表示 agent 是否忙碌。
+圆点显示的是记录下来的会话状态，不表示 agent 是否忙碌。
 
 <Mdx.h3 id="when-tmux-says-no">tmux 拒绝访问时</Mdx.h3>
 

@@ -120,7 +120,7 @@ native_manifest=$(mktemp)
 MACOSX_DEPLOYMENT_TARGET=11.0 scripts/build-native-artifact.sh aarch64-apple-darwin > "$native_manifest"
 node typescript/scripts/verify-native-artifact.mjs --manifest "$native_manifest" \
   --archive target/distrib/tmt-cli-aarch64-apple-darwin.tar.gz --target aarch64-apple-darwin \
-  --skill skills/tmux-team/SKILL.md --notices rust/target/native-notices/THIRD-PARTY-NOTICES.txt --license LICENSE
+  --skill skills/tmt/SKILL.md --notices rust/target/native-notices/THIRD-PARTY-NOTICES.txt --license LICENSE
 ```
 
 The verifier bounds inputs (64 MiB compressed, 128 MiB expanded), enforces the product
@@ -225,7 +225,7 @@ cargo +1.97.0 test --locked --manifest-path rust/Cargo.toml -p tmt-adapters --li
   native_install::upgrade::artifact_tests::cargo_dist_upgrade_refreshes_real_artifacts_and_preserves_conflicts \
   -- --exact --ignored --nocapture
 node typescript/scripts/verify-native-installation.mjs --previous-archive "$previous_archive" --previous-manifest "$previous_manifest" \
-  --archive "$next_archive" --manifest "$next_manifest" --target aarch64-apple-darwin --skill skills/tmux-team/SKILL.md
+  --archive "$next_archive" --manifest "$next_manifest" --target aarch64-apple-darwin --skill skills/tmt/SKILL.md
 ```
 
 Require exactly one selected passing test. Identical embedded skill text prints a skipped
@@ -268,8 +268,7 @@ rust/target/debug/tmt __native-install --archive target/distrib/tmt-cli-aarch64-
 ```
 
 `--pin`/`--unpin` change pin state, omission preserves it, and neither authorizes a downgrade.
-Receipts written by v5.0.0-alpha.2 through alpha.6 record `wkh237/tmux-team`, which reading
-still accepts.
+Receipt provenance accepts `pj-tmt/tmt` and the former organization name `wkh237/tmt`.
 
 ### Remote and Colab installer registration
 
@@ -374,7 +373,7 @@ manifest, not a hand-kept version table, owns the facts:
 node typescript/scripts/generate-native-bootstrap.mjs --manifest /abs/dist-manifest.json --archive-dir /abs/artifacts > /abs/artifacts/tmt-installer.sh
 sh -n /abs/artifacts/tmt-installer.sh
 node typescript/scripts/verify-native-bootstrap.mjs --manifest /abs/dist-manifest.json \
-  --archive /abs/artifacts/tmt-cli-aarch64-apple-darwin.tar.gz --target aarch64-apple-darwin --skill skills/tmux-team/SKILL.md
+  --archive /abs/artifacts/tmt-cli-aarch64-apple-darwin.tar.gz --target aarch64-apple-darwin --skill skills/tmt/SKILL.md
 ```
 
 The verifier needs real matching-host artifacts and replaces only curl acquisition; it is not

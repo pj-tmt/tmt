@@ -143,7 +143,7 @@ fn a_colored_first_column_keeps_its_gap_before_text_ending_in_m() {
         ])
         .row([
             Cell::styled("skill", Token::Dim),
-            "~/.agents/skills/tmux-team".into(),
+            "~/.agents/skills/tmt".into(),
         ]);
     let colored = render(
         &table,
@@ -156,7 +156,7 @@ fn a_colored_first_column_keeps_its_gap_before_text_ending_in_m() {
     let plain: String = anstream::adapter::strip_str(&colored).to_string();
     assert_eq!(
         plain,
-        "  command  ~/.local/bin/tmt\n  skill    ~/.agents/skills/tmux-team\n"
+        "  command  ~/.local/bin/tmt\n  skill    ~/.agents/skills/tmt\n"
     );
     assert_eq!(
         without_trailing_padding("\u{1b}[2mskill  \u{1b}[0m  ~/tmux-team  "),

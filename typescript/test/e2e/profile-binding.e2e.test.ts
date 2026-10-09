@@ -45,7 +45,7 @@ describe('profile ownership across binding transitions', { concurrent: false }, 
         '-p',
         '-t',
         fixture.pane,
-        '@tmux-team.agent',
+        '@tmt.agent',
         JSON.stringify(paneMetadata),
       ]);
       expect(
@@ -150,7 +150,7 @@ describe('profile ownership across binding transitions', { concurrent: false }, 
         '-p',
         '-t',
         fixture.pane,
-        '@tmux-team.agent',
+        '@tmt.agent',
         JSON.stringify(metadata),
       ]);
       const rejected = await fixture.runJsonCli(['role', 'clear']);

@@ -638,7 +638,7 @@ describe('public local extension API', () => {
       const core = await api(sandbox, 'skills.install', {
         owner: 'squad',
         consent: true,
-        skills: [skill('tmux-team', 'x')],
+        skills: [skill('tmt', 'x')],
       });
       expect(core.body.error.code).toBe('SKILL_OWNED_ELSEWHERE');
       const taken = await api(sandbox, 'skills.install', {

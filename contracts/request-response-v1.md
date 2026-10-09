@@ -338,7 +338,7 @@ native emission format.
 Native talk uses the shared codec to emit exactly 25 ASCII characters: `v2_` plus
 canonical unpadded base64url of the first 16 SHA-256 digest bytes. The preimage
 for an unbound direct-pane request starts with ASCII
-`tmux-team/reply-receipt/v2` and NUL, followed in order by
+`tmt/reply-receipt/v2` and NUL, followed in order by
 request ID, attempt ID, server ID, socket path, server PID, server start time,
 pane ID and pane PID. Each string is exact UTF-8 prefixed with its unsigned
 64-bit big-endian byte length; PIDs are unsigned 64-bit big-endian integers.

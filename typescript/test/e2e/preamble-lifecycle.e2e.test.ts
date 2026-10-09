@@ -295,7 +295,7 @@ describe('durable identity preambles', { concurrent: false }, () => {
         '-p',
         '-t',
         legacyPane.pane,
-        '@tmux-team.agent',
+        '@tmt.agent',
         JSON.stringify({
           version: 1,
           globalIdentity: { name: 'Peer', canonicalName: 'peer' },

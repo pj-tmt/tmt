@@ -9,11 +9,11 @@ fn learn_selects_exact_bundled_guidance_without_breaking_the_core_flag() {
     assert_eq!(
         parsed(&["learn", "--skill"]).invocation,
         Invocation::Learn {
-            skill: Some("tmux-team".into())
+            skill: Some("tmt".into())
         }
     );
     for name in [
-        "tmux-team",
+        "tmt",
         "tmt-inbox",
         "tmt-office",
         "tmt-prop-create",

@@ -20,7 +20,7 @@ pub struct BundledName {
 }
 
 /// Core's main skill: the one a driver's skill target names.
-pub const MAIN: &str = "tmux-team";
+pub const MAIN: &str = "tmt";
 /// Core's focused inbox skill, published beside the main one.
 pub const INBOX: &str = "tmt-inbox";
 

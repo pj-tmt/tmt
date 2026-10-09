@@ -380,7 +380,7 @@ describe('native durable identity process boundary', () => {
         ...sandbox,
         cli: {
           executable: '/usr/bin/env',
-          args: [`TMUX_TEAM_HOME=${override}`, sandbox.cli.executable, ...sandbox.cli.args],
+          args: [`TMT_HOME=${override}`, sandbox.cli.executable, ...sandbox.cli.args],
         },
       };
       const nested = path.join(sandbox.cwd, 'override', 'child');

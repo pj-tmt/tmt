@@ -134,7 +134,7 @@ A tab you've opened before shows at once and refreshes in the background. One yo
 Shift+← and Shift+→ move the current tab, and dragging a tab onto another's place moves it there. The board writes the new order to your config and changes nothing else in the file:
 
 <Code>{`
-# ~/.config/tmux-team/ops.toml
+# ~/.config/tmt/ops.toml
 [tabs]
 order = ["all", "leads", "product"]
 hide  = ["quiet"]                      # still reachable with s, or tmt ops ui --squad quiet
@@ -270,7 +270,7 @@ The named **team** view puts the rows beside the selected member's detail and th
 You can change the panes and their arrangement; add your own **sections**, each a titled list with a filter and a sort; and choose the **columns**, the **states** with their colors and order, and how links open. You also set what every key or click does. A binding is an event (a key like `o`, or `click`, `double-click`) and one line: `jump`, `jump lead`, `back`, `talk`, `reply`, `annotate lead`, `open {pr_link}`, `copy {name}: {task}`, or `run <program> {field}…`, where `{field}` is filled from the row. A section can have its own bindings.
 
 <Code>{`
-# ~/.config/tmux-team/ops.toml  (the directory keeps tmt's former name)
+# ~/.config/tmt/ops.toml
 [squad.product]
 layout = "crew"                        # start from a preset
 
@@ -280,7 +280,7 @@ O = "open {issue_link}" # your own key: open the row's issue
 
 <More summary="A fuller example: split panes, a custom section, columns, states and more bindings">
 <Code>{`
-# ~/.config/tmux-team/ops.toml  (the directory keeps tmt's former name)
+# ~/.config/tmt/ops.toml
 me = "ben"                             # written by tmt ops sq me ben, with ben's ID beside it
 
 [squad.product]
@@ -397,7 +397,7 @@ Four themes come built in. **tmt** is soft truecolor for dark terminals. **tmt-l
 }
 `}</Code>
 
-The theme lives in `~/.config/tmux-team/config.json`. `base` is `tmt`, `tmt-light`, `terminal` or `mono`, and any token can be overridden with a hex value or a color name; `tmt config show` names a key it can't use. It colors the command line once you set a `base`, and always colors the board. `auto` isn't allowed here, because it belongs to the board.
+The theme lives in `~/.config/tmt/config.json`. `base` is `tmt`, `tmt-light`, `terminal` or `mono`, and any token can be overridden with a hex value or a color name; `tmt config show` names a key it can't use. It colors the command line once you set a `base`, and always colors the board. `auto` isn't allowed here, because it belongs to the board.
 
 ### Theming the board
 

@@ -1,6 +1,6 @@
 ---
 source: site/src/chapters/drv-tmux.mdx
-sourceRevision: db04c606ab4d2a6b32414ee0211452088a2f7511
+sourceRevision: 6e8614862be6c81df634f159d1ad945529069ce9
 title: tmux：agent の実行場所
 ---
 
@@ -31,8 +31,8 @@ import { Badge, BadgeBorders, DriverCard } from "../../components/samples";
     [
       "表示",
       <>
-        任意で有効にできる <Badge name="name" state="running" /> バッジを、自分の{" "}
-        <code>pane-border-format</code> に表示できます。タイトル、レイアウト、テーマは変えません。
+        バインドしたペインの枠に <Badge name="name" state="running" />{" "}
+        バッジを表示します。タイトル、 レイアウト、テーマ、tmux のグローバル設定は変えません。
       </>,
     ],
     [
@@ -51,17 +51,17 @@ import { Badge, BadgeBorders, DriverCard } from "../../components/samples";
 
 <Mdx.h3 id="the-pane-badge">ペインのバッジ</Mdx.h3>
 
-名前の付いた各ペインに小さなラベルが付き、自分のペインの枠に配置できます。既定で有効です。
+名前の付いた各ペインの枠に小さなラベルが表示されます。既定で有効です。
 
 <BadgeBorders />
 
 <Cmd>{`$ tmt config set ui.paneBadge off --global   # オフにする`}</Cmd>
 
-次の断片を、自分の `pane-border-format` の表示したい位置に追加します。
+tmt はバインドしたペインにだけラベルを表示します。そのペイン自身の `pane-border-format` を、現在の書式の先頭にバッジを加えたものに設定し、グローバル・セッション・ウィンドウのオプションや `~/.tmux.conf` には触れません。`tmt unbind` またはバッジをオフにすると、tmt が加えた分を取り除きます。自分で設定したペインの書式はそのまま残し、書式にすでにバッジがあれば何も加えません。そのウィンドウでペインの枠が非表示の場合は、変更せずに表示するためのコマンドを示します。バッジを自分で配置するには、次の断片を `pane-border-format` に追加します。
 
-<Code>{`#{?@tmux-team.badge, [#{@tmux-team.badge}],}`}</Code>
+<Code>{`#{?@tmt.badge, [#{@tmt.badge}],}`}</Code>
 
-既存の設定を使い続けられるように、オプションには tmt の旧名である tmux-team を残しています。tmt はペインのオプションにラベルを公開するだけです。ペインのタイトル、枠の書式、レイアウト、テーマは変えません。バッジの位置は自分で決めます。点は記録されたセッションの状態を示し、agent が作業中かどうかを示すものではありません。
+点は記録されたセッションの状態を示し、agent が作業中かどうかを示すものではありません。
 
 <Mdx.h3 id="when-tmux-says-no">tmux にアクセスできない場合</Mdx.h3>
 

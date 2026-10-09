@@ -166,7 +166,7 @@ it.each([
       const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
       const command = [
         'env',
-        `TMUX_TEAM_HOME=${fixture.globalDir}`,
+        `TMT_HOME=${fixture.globalDir}`,
         `PATH=${fixture.wrapperDir}:${process.env.PATH ?? ''}`,
         provider === 'claude' ? '/opt/tmt-tests/claude' : '/opt/tmt-tests/hook-runtime/codex',
         fixture.executables.cli.executable,

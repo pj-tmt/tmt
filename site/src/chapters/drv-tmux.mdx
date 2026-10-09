@@ -19,8 +19,8 @@ import { Badge, BadgeBorders, DriverCard } from "../components/samples";
     [
       "Shows",
       <>
-        The optional <Badge name="name" state="running" /> badge in your own{" "}
-        <code>pane-border-format</code>. Titles, layout and theme are never changed.
+        A <Badge name="name" state="running" /> badge on the bound pane's border. Titles, layout,
+        theme and your global tmux settings are never changed.
       </>,
     ],
     [
@@ -39,17 +39,17 @@ Before typing into a pane, tmt checks that the pane still belongs to the name yo
 
 ### The pane badge
 
-Each named pane gets a small label you can place in your own pane border. It is on by default:
+Each named pane shows a small label in its border. It is on by default:
 
 <BadgeBorders />
 
 <Cmd>{`$ tmt config set ui.paneBadge off --global   # turn it off`}</Cmd>
 
-Then add this fragment where you want it in your own `pane-border-format`:
+tmt shows the label on the bound pane only: it sets that pane's own `pane-border-format` to your current format with the badge in front, and never touches your global, session or window options or your `~/.tmux.conf`. `tmt unbind` or turning the badge off removes what tmt added. A pane format you set yourself is left alone, and if your format already places the badge, tmt adds nothing. If pane borders are hidden in that window, tmt prints the command that shows them instead of changing it. To place the badge yourself, add this fragment to your `pane-border-format`:
 
-<Code>{`#{?@tmux-team.badge, [#{@tmux-team.badge}],}`}</Code>
+<Code>{`#{?@tmt.badge, [#{@tmt.badge}],}`}</Code>
 
-The option keeps tmt's former name, tmux-team, so existing configs keep working. tmt only publishes the label in a pane option. It never changes your pane titles, your border format, your layout or your theme; you decide where the badge goes. The dot shows the recorded session state, not whether the agent is busy.
+The dot shows the recorded session state, not whether the agent is busy.
 
 ### When tmux says no
 

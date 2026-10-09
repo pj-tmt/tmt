@@ -146,6 +146,8 @@ export async function smokeRelease({
   const binary = path.join(prefix, 'bin', 'tmt');
   const env = {
     HOME: home,
+    // Harness only: remove when the prior release is post-rename.
+    TMT_HOME: state,
     TMUX_TEAM_HOME: state,
     TMPDIR: tmp,
     PATH: [path.join(prefix, 'bin'), ...systemPath].join(path.delimiter),

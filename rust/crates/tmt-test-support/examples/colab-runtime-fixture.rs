@@ -58,9 +58,8 @@ fn main() -> io::Result<()> {
     if env::var_os("TMT_COLAB_APP_DIR").is_some() || env::var_os("GITHUB_TOKEN").is_some() {
         return Err(io::Error::other("ambient runtime overrides"));
     }
-    let state = PathBuf::from(
-        env::var_os("TMUX_TEAM_HOME").ok_or_else(|| io::Error::other("missing state"))?,
-    );
+    let state =
+        PathBuf::from(env::var_os("TMT_HOME").ok_or_else(|| io::Error::other("missing state"))?);
     env::var_os("TMT_EXECUTABLE").ok_or_else(|| io::Error::other("missing core selector"))?;
     let directory = state.join("colab");
     fs::create_dir_all(&directory)?;

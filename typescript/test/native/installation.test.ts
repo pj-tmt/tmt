@@ -11,6 +11,7 @@ import {
 } from 'node:fs';
 import { writeExecutable } from '../support/executable-fixture.mjs';
 import path from 'node:path';
+import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vite-plus/test';
 import { calibrateTmuxTripwire } from './tmux-tripwire.js';
@@ -38,7 +39,7 @@ const PROVIDERS = ['claude', 'codex', 'gemini', 'agy', 'pi', 'opencode'] as cons
 
 function canonicalSkill(): Buffer {
   return readFileSync(
-    path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../skills/tmux-team/SKILL.md')
+    path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../skills/tmt/SKILL.md')
   );
 }
 
@@ -81,7 +82,7 @@ function inboxTarget(target: string): string {
 
 function expectedInstalled(target: string, changed: boolean, agent?: string): InstallItem[] {
   return [
-    { ...(agent ? { agent } : {}), skill: 'tmux-team', target, changed },
+    { ...(agent ? { agent } : {}), skill: 'tmt', target, changed },
     {
       ...(agent ? { agent } : {}),
       skill: 'tmt-inbox',
@@ -98,15 +99,15 @@ function physicalFilePath(filePath: string): string {
 function targetFor(sandbox: Sandbox, provider: (typeof PROVIDERS)[number]): string {
   switch (provider) {
     case 'claude':
-      return path.join(sandbox.home, '.claude', 'skills', 'tmux-team');
+      return path.join(sandbox.home, '.claude', 'skills', 'tmt');
     case 'agy':
-      return path.join(sandbox.home, '.gemini', 'config', 'skills', 'tmux-team');
+      return path.join(sandbox.home, '.gemini', 'config', 'skills', 'tmt');
     case 'pi':
-      return path.join(sandbox.home, '.pi', 'agent', 'skills', 'tmux-team');
+      return path.join(sandbox.home, '.pi', 'agent', 'skills', 'tmt');
     case 'codex':
     case 'gemini':
     case 'opencode':
-      return path.join(sandbox.home, '.agents', 'skills', 'tmux-team');
+      return path.join(sandbox.home, '.agents', 'skills', 'tmt');
   }
 }
 
@@ -139,7 +140,81 @@ function installDocument(result: Awaited<ReturnType<typeof runCli>>): InstallDoc
   return parseWholeStdout(result) as unknown as InstallDocument;
 }
 
+// A complete former two-skill generation in the installer's framed digest
+// order. The arbitrary bytes model a prior release, not current authored text.
+function formerManagedSkill(sandbox: Sandbox, root: string): { target: string; source: string } {
+  const parts = [Buffer.from('# Former Core guidance\n'), Buffer.from('# Former inbox guidance\n')];
+  const digest = createHash('sha256');
+  for (const bytes of parts) {
+    const length = Buffer.alloc(8);
+    length.writeBigUInt64BE(BigInt(bytes.length));
+    digest.update(length).update(bytes);
+  }
+  const generation = path.join(sandbox.globalDir, 'skill-assets', digest.digest('hex'));
+  mkdirSync(root, { recursive: true });
+  for (const [index, name] of ['tmux-team', 'tmt-inbox'].entries()) {
+    const source = path.join(generation, name);
+    mkdirSync(source, { recursive: true });
+    writeFileSync(path.join(source, 'SKILL.md'), parts[index]);
+    symlinkSync(source, path.join(root, name));
+  }
+  writeFileSync(
+    path.join(sandbox.globalDir, 'skill-installations.json'),
+    JSON.stringify({
+      version: 1,
+      targets: [path.join(root, 'tmt-inbox'), path.join(root, 'tmux-team')],
+    })
+  );
+  return { target: path.join(root, 'tmux-team'), source: path.join(generation, 'tmux-team') };
+}
+
 describe('native installation process contract', () => {
+  it.each(['install', 'upgrade refresh'] as const)(
+    '%s replaces only the digest-tracked former skill and preserves a modified copy',
+    async (operation) => {
+      for (const modified of [false, true]) {
+        await withSandbox(async (sandbox) => {
+          const root = path.join(realpathSync(sandbox.home), 'recorded custom skills');
+          const old = formerManagedSkill(sandbox, root);
+          const oldLink = readlinkSync(old.target);
+          if (modified)
+            writeFileSync(path.join(old.source, 'SKILL.md'), '# User edited guidance\n');
+          const oldBytes = readFileSync(path.join(old.source, 'SKILL.md'));
+          const { logPath, baseline } = await isolateExternalCommands(sandbox);
+          // This is the exact child operation invoked by upgrade after activation;
+          // it exercises the candidate executable without a release/network probe.
+          const args =
+            operation === 'install'
+              ? ['install', '--dir', root, '--force', '--json']
+              : ['__native-refresh-skills', '--json'];
+          const result = await runCli(sandbox, args);
+          expect(result.status, result.stdout + result.stderr).toBe(modified ? 1 : 0);
+          if (modified) {
+            expect(readlinkSync(old.target)).toBe(oldLink);
+            expect(readFileSync(path.join(old.source, 'SKILL.md'))).toEqual(oldBytes);
+            expect(existsSync(path.join(root, 'tmt'))).toBe(false);
+            if (operation === 'upgrade refresh') {
+              expect(parseWholeStdout(result).conflicts).toContain(old.target);
+            }
+          } else {
+            expect(existsSync(old.target)).toBe(false);
+            assertSkillLink(path.join(root, 'tmt'), canonicalSkill());
+            assertSkillLink(path.join(root, 'tmt-inbox'), inboxSkill());
+            const registry = JSON.parse(
+              readFileSync(path.join(sandbox.globalDir, 'skill-installations.json'), 'utf8')
+            );
+            expect(registry.targets).toEqual([
+              path.join(root, 'tmt'),
+              path.join(root, 'tmt-inbox'),
+            ]);
+            expect(readFileSync(path.join(old.source, 'SKILL.md'))).toEqual(oldBytes);
+          }
+          assertNoExternalEffects(sandbox, logPath, baseline);
+        });
+      }
+    }
+  );
+
   it('runs a moved native binary from a path with spaces and prints exact canonical guidance', async () => {
     await withSandbox(async (sandbox) => {
       const movedDirectory = path.join(sandbox.root, "native build's files");
@@ -204,7 +279,7 @@ describe('native installation process contract', () => {
 
       const customRoot = path.join(sandbox.cwd, 'moved custom skills');
       mkdirSync(customRoot);
-      const target = path.join(realpathSync(customRoot), 'tmux-team');
+      const target = path.join(realpathSync(customRoot), 'tmt');
       const installed = installDocument(
         await runCli(moved, ['install', '--dir', 'moved custom skills', '--json'])
       );
@@ -217,7 +292,7 @@ describe('native installation process contract', () => {
         JSON.parse(readFileSync(path.join(sandbox.globalDir, 'skill-installations.json'), 'utf8'))
       ).toEqual({
         version: 1,
-        targets: [inboxTarget(target), target],
+        targets: [target, inboxTarget(target)],
       });
       assertNoExternalEffects(sandbox, logPath, baseline);
     });
@@ -258,7 +333,7 @@ describe('native installation process contract', () => {
       expect(ancestorResult.status).toBe(1);
       expectError(ancestorResult, 'ERROR');
       expect(readFileSync(ancestor, 'utf8')).toBe('{}\n');
-      expect(existsSync(path.join(nested, 'tmux-team.json'))).toBe(false);
+      expect(existsSync(path.join(nested, 'tmt.json'))).toBe(false);
 
       // Re-select the ordinary local path and replace it with a dangling link.
       // create_new must reject the link itself, without following or deleting it.
@@ -351,7 +426,7 @@ describe('native installation process contract', () => {
       const expected = canonicalSkill();
       const { logPath, baseline } = await isolateExternalCommands(sandbox);
       writeFileSync(sandbox.localConfig, '{ malformed local config');
-      const target = path.join(sandbox.home, '.agents', 'skills', 'tmux-team');
+      const target = path.join(sandbox.home, '.agents', 'skills', 'tmt');
       const first = installDocument(await runCli(sandbox, ['install', '--json']));
       expect(first).toEqual({ installed: expectedInstalled(target, true) });
       assertSkillLink(target, expected);
@@ -370,7 +445,7 @@ describe('native installation process contract', () => {
       mkdirSync(customRoot);
       writeFileSync(path.join(customRoot, 'unrelated.txt'), 'keep this sibling');
       writeFileSync(sandbox.localConfig, '{ malformed local config');
-      const target = path.join(realpathSync(customRoot), 'tmux-team');
+      const target = path.join(realpathSync(customRoot), 'tmt');
       const first = installDocument(
         await runCli(sandbox, ['install', '--dir', 'custom skills', '--json'])
       );

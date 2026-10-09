@@ -9,7 +9,7 @@ use std::{
 };
 
 pub fn state_dir(root: &Path) -> PathBuf {
-    root.join("xdg-config/tmux-team")
+    root.join("xdg-config/tmt")
 }
 
 pub fn command(root: &Path, args: &[&str]) -> Command {

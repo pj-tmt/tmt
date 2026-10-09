@@ -354,7 +354,7 @@ jobs:
           if [ "$TARGET" = x86_64-apple-darwin ]; then
             "$GITHUB_WORKSPACE/scripts/install-native-verification-dependencies.sh" --trusted-cli
           else
-            pnpm --filter tmux-team --fail-if-no-match install --frozen-lockfile --ignore-scripts
+            pnpm --filter tmt --fail-if-no-match install --frozen-lockfile --ignore-scripts
           fi
       - name: Install pinned Rust for version-only resolution
         run: rustup toolchain install 1.97.0 --profile minimal
@@ -391,14 +391,14 @@ jobs:
             node "$GITHUB_WORKSPACE/typescript/scripts/verify-native-artifact.mjs" \
               --manifest target/distrib/dist-manifest.json \
               --archive "target/distrib/tmt-cli-$TARGET.tar.gz" --target "$TARGET" \
-              --skill skills/tmux-team/SKILL.md --license LICENSE \
+              --skill skills/tmt/SKILL.md --license LICENSE \
               --notices "target/distrib/$TARGET-notices.txt" --source-root "$PWD" \
               --schema-snapshot "$RUNNER_TEMP/release-version-state.json" \
               --schema-evidence "target/distrib/$TARGET-application-schema.json"
             node typescript/scripts/verify-native-bootstrap.mjs \
               --manifest target/distrib/dist-manifest.json \
               --archive "target/distrib/tmt-cli-$TARGET.tar.gz" --target "$TARGET" \
-              --skill skills/tmux-team/SKILL.md
+              --skill skills/tmt/SKILL.md
             node typescript/scripts/generate-native-bootstrap.mjs --manifest target/distrib/dist-manifest.json --archive-dir target/distrib > "$RUNNER_TEMP/installer.sh"
             cmp "$RUNNER_TEMP/installer.sh" target/distrib/tmt-installer.sh
             cmp target/distrib/tmt-installer.sh target/distrib/install.sh

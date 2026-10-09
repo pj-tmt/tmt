@@ -1,6 +1,6 @@
 ---
 source: site/src/chapters/squad.mdx
-sourceRevision: f4a28d1fb4b1a7aecfda4543ed244641429f72d5
+sourceRevision: c6c57d60af2632f207899e39508b51168bf61097
 title: Ops：lead、成员和一个看板
 ---
 
@@ -132,7 +132,7 @@ reduced_motion = false
 Shift+← 和 Shift+→ 移动当前标签页，也可以将一个标签页拖到另一个的位置。看板会将新顺序写入配置，不修改文件中的其他内容：
 
 <Code>{`
-# ~/.config/tmux-team/ops.toml
+# ~/.config/tmt/ops.toml
 [tabs]
 order = ["all", "leads", "product"]
 hide  = ["quiet"]                      # still reachable with s, or tmt ops ui --squad quiet
@@ -268,7 +268,7 @@ detail 窗格在成员字段下方只读显示所选成员自己的笔记本，�
 你可以修改窗格及其排列方式；添加自己的**分区**，每个分区都是带标题、筛选条件和排序的列表；选择**列**、**状态**及其颜色和顺序，以及链接的打开方式。你也可以设置每个按键或点击的行为。绑定由事件（例如按键 `o`，或 `click`、`double-click`）和一行操作组成：`jump`、`jump lead`、`back`、`talk`、`reply`、`annotate lead`、`open {pr_link}`、`copy {name}: {task}`，或 `run <program> {field}…`，其中 `{field}` 从该行取值。分区可以有自己的绑定。
 
 <Code>{`
-# ~/.config/tmux-team/ops.toml  (the directory keeps tmt's former name)
+# ~/.config/tmt/ops.toml
 [squad.product]
 layout = "crew"                        # start from a preset
 
@@ -278,7 +278,7 @@ O = "open {issue_link}" # your own key: open the row's issue
 
 <More summary="完整示例：拆分窗格、自定义分区、列、状态和更多绑定">
 <Code>{`
-# ~/.config/tmux-team/ops.toml  (the directory keeps tmt's former name)
+# ~/.config/tmt/ops.toml
 me = "ben"                             # written by tmt ops sq me ben, with ben's ID beside it
 
 [squad.product]
@@ -395,7 +395,7 @@ ignore_case = true          # optional; off by default
 }
 `}</Code>
 
-主题位于 `~/.config/tmux-team/config.json`。`base` 可为 `tmt`、`tmt-light`、`terminal` 或 `mono`，任意 token 都可以用十六进制值或颜色名称覆盖；遇到不可用的键时，`tmt config show` 会指出它。设置 `base` 后主题会影响命令行颜色，也始终用于看板。这里不允许使用 `auto`，因为它只属于看板。
+主题位于 `~/.config/tmt/config.json`。`base` 可为 `tmt`、`tmt-light`、`terminal` 或 `mono`，任意 token 都可以用十六进制值或颜色名称覆盖；遇到不可用的键时，`tmt config show` 会指出它。设置 `base` 后主题会影响命令行颜色，也始终用于看板。这里不允许使用 `auto`，因为它只属于看板。
 
 <Mdx.h3 id="theming-the-board">设置看板主题</Mdx.h3>
 

@@ -5,13 +5,7 @@ import type { Sandbox } from './cli-process.js';
 
 // Layout published by the five-skill core bundle on 2026-09-30. These literal
 // names and framed bytes are independent of the current product catalog.
-const legacyNames = [
-  'tmux-team',
-  'tmt-inbox',
-  'tmt-office',
-  'tmt-prop-create',
-  'tmt-avatar-create',
-];
+const legacyNames = ['tmt', 'tmt-inbox', 'tmt-office', 'tmt-prop-create', 'tmt-avatar-create'];
 export const officeNames = legacyNames.slice(2);
 const providerRoots = [
   '.agents/skills',

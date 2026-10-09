@@ -22,7 +22,7 @@ function markedPane(fixture: E2EFixture): string {
 }
 
 function badge(fixture: E2EFixture, pane: string): string {
-  return fixture.tmux(['show-options', '-p', '-qv', '-t', pane, '@tmux-team.badge']).trim();
+  return fixture.tmux(['show-options', '-p', '-qv', '-t', pane, '@tmt.badge']).trim();
 }
 
 describe('explicit marked-pane binding', { concurrent: false }, () => {

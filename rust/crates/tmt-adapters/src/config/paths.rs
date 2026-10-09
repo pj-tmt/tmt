@@ -77,18 +77,20 @@ impl ConfigPaths {
         let cwd = env::current_dir().map_err(|error| ConfigError::internal(error.to_string()))?;
         let home = env::home_dir()
             .ok_or_else(|| ConfigError::internal("Cannot determine the home directory"))?;
-        Ok(Self::resolve(
-            &cwd,
+        let explicit = env::var_os("TMT_HOME")
+            .filter(|value| !value.is_empty())
+            .map(PathBuf::from);
+        let xdg = env::var_os("XDG_CONFIG_HOME")
+            .filter(|value| !value.is_empty())
+            .map(PathBuf::from);
+        let paths = Self::resolve(&cwd, &home, explicit.as_deref(), xdg.as_deref());
+        super::rename::prepare(
+            &paths.global_dir,
             &home,
-            env::var_os("TMUX_TEAM_HOME")
-                .filter(|value| !value.is_empty())
-                .map(PathBuf::from)
-                .as_deref(),
-            env::var_os("XDG_CONFIG_HOME")
-                .filter(|value| !value.is_empty())
-                .map(PathBuf::from)
-                .as_deref(),
-        ))
+            explicit.as_deref(),
+            xdg.as_deref(),
+        )?;
+        Ok(paths)
     }
 
     /// Inputs are invocation-owned; tests need not mutate process-wide variables.
@@ -96,27 +98,15 @@ impl ConfigPaths {
         let global_dir = if let Some(explicit) = explicit {
             explicit.to_path_buf()
         } else if let Some(xdg) = xdg {
-            normalize(&xdg.join("tmux-team"))
+            normalize(&xdg.join("tmt"))
         } else {
-            let preferred = normalize(&home.join(".config/tmux-team"));
-            let legacy = normalize(&home.join(".tmux-team"));
-            if preferred.exists() {
-                if legacy.join("config.json").exists() && !preferred.join("config.json").exists() {
-                    legacy
-                } else {
-                    preferred
-                }
-            } else if legacy.exists() {
-                legacy
-            } else {
-                preferred
-            }
+            normalize(&home.join(".config/tmt"))
         };
         let local_config = cwd
             .ancestors()
-            .map(|directory| directory.join("tmux-team.json"))
+            .map(|directory| directory.join("tmt.json"))
             .find(|candidate| candidate.exists())
-            .unwrap_or_else(|| cwd.join("tmux-team.json"));
+            .unwrap_or_else(|| cwd.join("tmt.json"));
         Self {
             global_config: normalize(&global_dir.join("config.json")),
             database: normalize(&global_dir.join("tmux-team.db")),

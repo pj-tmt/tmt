@@ -506,11 +506,11 @@ fn tmux_exit(stderr: &str) -> CommandError {
 }
 
 fn refused_server_id_set() -> CommandError {
-    tmux_exit("already set: @tmux-team.server-id\n")
+    tmux_exit("already set: @tmt.server-id\n")
 }
 
 fn unset_server_id() -> CommandError {
-    tmux_exit("invalid option: @tmux-team.server-id\n")
+    tmux_exit("invalid option: @tmt.server-id\n")
 }
 
 #[test]

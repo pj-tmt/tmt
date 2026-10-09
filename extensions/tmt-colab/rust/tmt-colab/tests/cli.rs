@@ -144,7 +144,7 @@ exec {core} "$@"
             .env("XDG_STATE_HOME", self.root.join("state"))
             .env("XDG_CACHE_HOME", self.root.join("cache"))
             .env("TMPDIR", &self.root)
-            .env("TMUX_TEAM_HOME", self.root.join("selected"))
+            .env("TMT_HOME", self.root.join("selected"))
             .env("TMT_EXECUTABLE", self.root.join("core"))
             .env("TMT_COLAB_TEST_ROOT", &self.root)
             .env("TMT_COLAB_TEST_REPLY", &self.response)

@@ -8,6 +8,7 @@ mod owned;
 mod providers;
 mod refresh;
 mod registry;
+mod retired;
 mod setup_plan;
 pub use setup_plan::{
     CorePublication, SkillState, SkillTarget, plan_core, plan_owned, publish_core, publish_owned,
@@ -51,7 +52,7 @@ pub fn bundled_skill_named(name: &str) -> Option<&'static [u8]> {
 
 use crate::drivers::{DriverDefinition, Registry};
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     error::Error,
     fmt, fs, io,
     path::{Path, PathBuf},
@@ -149,7 +150,14 @@ fn managed_link(target: &Path, assets: &assets::SkillAssets) -> io::Result<Optio
             .join(fs::read_link(target)?),
     );
     let source = files::resolved(&source)?;
-    Ok((source.file_name() == target.file_name() && assets.owns(&source)).then_some(source))
+    let owned = assets.owns(&source)
+        || assets.root().parent().is_some_and(|global| {
+            crate::config::relocated_skill_source(global, &source)
+                .is_some_and(|moved| assets.owns(&moved))
+        });
+    // Retain the actual link coordinate so a moved source is republished even
+    // when its new digest already equals the current bundle.
+    Ok((source.file_name() == target.file_name() && owned).then_some(source))
 }
 
 struct PublicationContext<'a> {
@@ -331,7 +339,27 @@ fn install_with_publisher(
             files::safe_target(assets.root(), target)?;
         }
         files::with_lock(&global, || {
-            registry::read(&global)?;
+            let mut roots: BTreeSet<PathBuf> = registry::read(&global)?
+                .iter()
+                .filter_map(|target| target.parent().map(Path::to_path_buf))
+                .collect();
+            roots.extend(
+                targets
+                    .iter()
+                    .filter_map(|(_, target, _)| target.parent().map(Path::to_path_buf)),
+            );
+            for (agent, _, _) in &targets {
+                if let Some(agent) = agent {
+                    roots.extend(
+                        env.legacy_targets(agent)
+                            .into_iter()
+                            .filter(|target| {
+                                target.file_name().is_some_and(|name| name == retired::NAME)
+                            })
+                            .filter_map(|target| target.parent().map(Path::to_path_buf)),
+                    );
+                }
+            }
             let sources = assets.materialize_bundle()?;
             let main_source = sources.get(catalog::MAIN).expect("main source");
             let inbox_source = sources.get(catalog::INBOX).expect("inbox source");
@@ -348,12 +376,17 @@ fn install_with_publisher(
                     &mut context,
                     &target,
                     source,
-                    if inbox { "tmt-inbox" } else { "tmux-team" },
+                    if inbox { catalog::INBOX } else { catalog::MAIN },
                     agent,
                     &mut publish,
                 )?;
                 if !inbox && let Some(agent) = agent {
                     for legacy in env.legacy_targets(agent) {
+                        // Former core-name targets use digest-fenced retirement;
+                        // --force must not turn edited guidance into a disposable copy.
+                        if legacy.file_name().is_some_and(|name| name == retired::NAME) {
+                            continue;
+                        }
                         if !files::exists(&legacy)?
                             || files::entry_location(&legacy)? == files::entry_location(&target)?
                         {
@@ -374,6 +407,38 @@ fn install_with_publisher(
                         }
                     }
                 }
+            }
+            let mut conflicts = Vec::new();
+            for root in roots {
+                match retired::replace(&global, &root, &assets, main_source, &mut publish)? {
+                    retired::Replacement::Missing => {}
+                    retired::Replacement::Conflict(path) => {
+                        conflicts.push(path.display().to_string());
+                    }
+                    retired::Replacement::Replaced { target, changed } => {
+                        if !context
+                            .report
+                            .installed
+                            .iter()
+                            .any(|item| item.target == target)
+                        {
+                            context.report.installed.push(InstalledSkill {
+                                name: catalog::MAIN,
+                                agent: None,
+                                target,
+                                changed,
+                                backup: None,
+                                legacy_backups: Vec::new(),
+                            });
+                        }
+                    }
+                }
+            }
+            if !conflicts.is_empty() {
+                return Err(io::Error::other(format!(
+                    "Unmanaged or modified former skill targets were preserved: {}",
+                    conflicts.join(", ")
+                )));
             }
             Ok(())
         })

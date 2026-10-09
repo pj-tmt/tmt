@@ -105,7 +105,7 @@ mod tests {
         ];
         validate(Product::Ops, valid).unwrap();
         validate(Product::Office, []).unwrap();
-        assert!(validate(Product::Cli, ["skills/tmux-team/SKILL.md"]).is_err());
+        assert!(validate(Product::Cli, ["skills/tmt/SKILL.md"]).is_err());
         for bad in [
             vec!["skills/tmt-ops/SKILL.md", "notes.txt"],
             vec!["skills/tmt-ops/SKILL.md", "skills/tmt-ops//x.md"],

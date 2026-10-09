@@ -122,6 +122,15 @@ configuration. The owner map is in
 
 ## Configuration and theme
 
+- `ConfigPaths::discover` owns `TMT_HOME` (an exact explicit directory), the default
+  `$XDG_CONFIG_HOME/tmt` or `~/.config/tmt`, and local `tmt.json`. The one-release
+  default-directory cutover checks the new directory once, then exclusively renames the
+  former directory only when the new one is absent. A concurrent destination wins; other
+  failures name both paths and refuse rather than initialize separate state. The DB,
+  WAL and SHM remain together, including open file descriptors; the internal
+  `tmux-team.db` basename stays until a separately authorized stopped-writer cutover.
+  Explicit homes and former local files are never renamed or read as aliases.
+
 - `config::document` keeps unknown JSON fields and validates known settings through
   `tmt-core::settings`; `json_document` keeps number compatibility and raw object order on targeted
   edits. `init` creates the local file as `{}\n` exclusively and refuses existing paths. The three

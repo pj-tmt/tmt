@@ -335,7 +335,7 @@ mod tests {
                 channel: crate::invocation::ChannelMode::Default,
             },
             Invocation::Learn {
-                skill: Some("tmux-team".into()),
+                skill: Some("tmt".into()),
             },
             Invocation::Learn { skill: None },
             Invocation::Install {

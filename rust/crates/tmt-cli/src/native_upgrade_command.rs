@@ -1,6 +1,7 @@
 //! Native update composition; the new executable owns skill refresh and extensions.
 
 mod extensions;
+mod rename;
 
 use crate::{invocation::OutputMode, output::Failure};
 use serde_json::{Value, json};
@@ -134,7 +135,19 @@ fn finish(
     } else {
         Vec::new()
     };
-    publish_products(Some(report), skills, failure, extensions, mode)
+    let rename_hints = if failure.is_none() && !report.skipped_pinned {
+        rename::hints()
+    } else {
+        Vec::new()
+    };
+    publish_products_with_hints(
+        Some(report),
+        skills,
+        failure,
+        extensions,
+        &rename_hints,
+        mode,
+    )
 }
 
 fn refresh(
@@ -203,6 +216,17 @@ fn publish_products(
     extensions: Vec<Value>,
     mode: OutputMode,
 ) -> io::Result<u8> {
+    publish_products_with_hints(report, skills, failure, extensions, &[], mode)
+}
+
+fn publish_products_with_hints(
+    report: Option<&UpgradeReport>,
+    skills: Option<Value>,
+    failure: Option<Failure>,
+    extensions: Vec<Value>,
+    rename_hints: &[String],
+    mode: OutputMode,
+) -> io::Result<u8> {
     let failure = failure.map(|mut failure| {
         if let Some(report) = report {
             if let Some(version) = &report.state.pinned_version {
@@ -231,6 +255,9 @@ fn publish_products(
     let products = product_rows(report, failure.as_ref(), extensions);
     let extension_failed = products.iter().skip(1).any(|p| p["status"] == "failed");
     document["products"] = json!(products);
+    if !rename_hints.is_empty() {
+        document["paneRenameHints"] = json!(rename_hints);
+    }
     let mut stdout = tmt_cli_style::stream::stdout(mode.json);
     let terminal = stdout.terminal();
     if mode.json {
@@ -276,6 +303,9 @@ fn publish_products(
         }
         for product in products.iter().skip(1) {
             write_extension_product(&mut stdout, terminal, product)?;
+        }
+        for hint in rename_hints {
+            tmt_cli_style::message::hint(&mut stdout, terminal, hint)?;
         }
         if let Some(warning) = warning {
             drop(stdout);

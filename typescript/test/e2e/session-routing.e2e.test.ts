@@ -327,7 +327,7 @@ describe('session-aware durable routing', { concurrent: false }, () => {
       const launch = (file: string, output: string, listen: boolean) => {
         const args = [
           'env',
-          `TMUX_TEAM_HOME=${fixture.globalDir}`,
+          `TMT_HOME=${fixture.globalDir}`,
           '/opt/tmt-tests/hook-runtime/codex',
           fixture.executables.cli.executable,
           file,

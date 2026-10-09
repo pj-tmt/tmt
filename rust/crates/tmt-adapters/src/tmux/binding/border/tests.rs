@@ -66,7 +66,7 @@ fn inherited_format_is_preserved_and_ownership_follows_successful_pane_only_writ
 
 #[test]
 fn user_local_empty_or_nonempty_and_existing_badge_formats_are_not_written() {
-    for local in ["\n", "user content\n", "#{?@tmux-team.badge,label,}\n"] {
+    for local in ["\n", "user content\n", "#{?@tmt.badge,label,}\n"] {
         let tmux = Tmux::new(ScriptedRunner::new([Ok(local), Ok("bottom\n")]));
         tmux.update_badge_border(&binding(), true, true, OperationOptions::default())
             .unwrap();
@@ -80,7 +80,7 @@ fn user_local_empty_or_nonempty_and_existing_badge_formats_are_not_written() {
     }
     let tmux = Tmux::new(ScriptedRunner::new([
         Ok(""),
-        Ok("before #{@tmux-team.badge} after\n"),
+        Ok("before #{@tmt.badge} after\n"),
         Ok("top\n"),
     ]));
     tmux.update_badge_border(&binding(), true, true, OperationOptions::default())
@@ -111,10 +111,10 @@ fn cleanup_is_server_fenced_and_refuses_missing_or_foreign_ownership() {
         .unwrap();
     let calls = tmux.runner.calls.borrow();
     assert_eq!(calls[1].args[2..6], ["if-shell", "-F", "-t", "%9"]);
-    assert!(calls[1].args[6].contains("#{==:#{pane-border-format},#{@tmux-team.border}}"));
+    assert!(calls[1].args[6].contains("#{==:#{pane-border-format},#{@tmt.border}}"));
     assert_eq!(
         calls[1].args[7],
-        "set-option -p -u -t %9 pane-border-format ; set-option -p -u -t %9 @tmux-team.border"
+        "set-option -p -u -t %9 pane-border-format ; set-option -p -u -t %9 @tmt.border"
     );
 }
 

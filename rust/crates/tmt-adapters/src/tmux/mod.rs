@@ -7,6 +7,7 @@ mod evidence;
 mod focus;
 mod input;
 mod metadata;
+pub mod rename;
 mod transport;
 mod workspace;
 pub use binding::{BindingSession, PaneCosmetics, PaneRefresh};
@@ -43,8 +44,8 @@ fn valid_pane_id(value: &str) -> bool {
 
 const OPERATION_TIMEOUT: Duration = Duration::from_secs(1);
 const OPERATION_MAX_OUTPUT: usize = 1024 * 1024;
-const SERVER_ID_OPTION: &str = "@tmux-team.server-id";
-const AGENT_METADATA_OPTION: &str = "@tmux-team.agent";
+const SERVER_ID_OPTION: &str = "@tmt.server-id";
+const AGENT_METADATA_OPTION: &str = "@tmt.agent";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TmuxFailure {

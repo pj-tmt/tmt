@@ -46,12 +46,9 @@ fn state(env: &ProviderEnvironment, global: &Path, name: &str) -> SkillState {
 #[test]
 fn a_link_into_another_tmt_home_is_foreign_and_anything_else_is_occupied() {
     let (directory, env, global, root) = fixture();
-    let source = old_skill(&directory, "tmux-team", "tmux-team");
-    symlink(&source, root.join("tmux-team")).unwrap();
-    assert_eq!(
-        state(&env, &global, "tmux-team"),
-        SkillState::Foreign { source }
-    );
+    let source = old_skill(&directory, "tmt", "tmt");
+    symlink(&source, root.join("tmt")).unwrap();
+    assert_eq!(state(&env, &global, "tmt"), SkillState::Foreign { source });
     // Same layout, but the skill says it is something else: a user's.
     let renamed = old_skill(&directory, "tmt-inbox", "my-inbox");
     symlink(&renamed, root.join("tmt-inbox")).unwrap();
@@ -70,12 +67,10 @@ fn a_link_into_another_tmt_home_is_foreign_and_anything_else_is_occupied() {
 #[test]
 fn a_dangling_link_into_another_tmt_home_is_still_foreign() {
     let (directory, env, global, root) = fixture();
-    let gone = directory
-        .path
-        .join("old-home/skill-assets/abc123/tmux-team");
-    symlink(&gone, root.join("tmux-team")).unwrap();
+    let gone = directory.path.join("old-home/skill-assets/abc123/tmt");
+    symlink(&gone, root.join("tmt")).unwrap();
     assert_eq!(
-        state(&env, &global, "tmux-team"),
+        state(&env, &global, "tmt"),
         SkillState::Foreign { source: gone }
     );
 }
@@ -83,15 +78,15 @@ fn a_dangling_link_into_another_tmt_home_is_still_foreign() {
 #[test]
 fn publication_touches_only_planned_changes_and_skips_what_changed_since() {
     let (directory, env, global, root) = fixture();
-    let source = old_skill(&directory, "tmux-team", "tmux-team");
-    symlink(&source, root.join("tmux-team")).unwrap();
+    let source = old_skill(&directory, "tmt", "tmt");
+    symlink(&source, root.join("tmt")).unwrap();
     let claude = Registry::builtin().find("claude").unwrap();
     let planned: Vec<SkillTarget> = plan_core(&env, &global, claude).unwrap();
     // After planning, someone puts their own skill where one was missing.
     fs::create_dir(root.join("tmt-inbox")).unwrap();
     fs::write(root.join("tmt-inbox/SKILL.md"), "mine").unwrap();
     let published = publish_core(&global, &planned).unwrap();
-    assert_eq!(published.linked, [root.join("tmux-team")]);
+    assert_eq!(published.linked, [root.join("tmt")]);
     assert_eq!(published.skipped, [root.join("tmt-inbox")]);
     assert_eq!(published.backups.len(), 1);
     assert_eq!(fs::read_link(&published.backups[0]).unwrap(), source);
@@ -99,7 +94,7 @@ fn publication_touches_only_planned_changes_and_skips_what_changed_since() {
         fs::read_to_string(root.join("tmt-inbox/SKILL.md")).unwrap(),
         "mine"
     );
-    assert_eq!(state(&env, &global, "tmux-team"), SkillState::Current);
+    assert_eq!(state(&env, &global, "tmt"), SkillState::Current);
     // An occupied plan entry is never published.
     let kept = SkillTarget {
         name: "tmt-inbox".into(),

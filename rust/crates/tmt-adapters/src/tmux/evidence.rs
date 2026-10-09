@@ -17,7 +17,7 @@ const MAX_FILTER_BYTES: usize = 32 * 1024;
 
 pub(super) fn server_format() -> String {
     [
-        "#{@tmux-team.server-id}",
+        "#{@tmt.server-id}",
         "#{socket_path}",
         "#{pid}",
         "#{start_time}",
@@ -35,7 +35,7 @@ pub(super) fn endpoint_format() -> String {
             "#{pane_current_command}",
             "#{pane_pid}",
             "#{session_attached}",
-            "#{@tmux-team.agent}",
+            "#{@tmt.agent}",
         ]
         .join(SEPARATOR),
     ]

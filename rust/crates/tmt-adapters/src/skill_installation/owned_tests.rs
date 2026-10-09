@@ -68,12 +68,8 @@ fn an_owner_publishes_repeats_as_a_no_op_and_updates_to_new_content() {
 #[test]
 fn names_held_by_core_or_another_owner_are_refused_before_any_effect() {
     let (_directory, env, global, root) = fixture();
-    let core =
-        install_owned(&env, &global, "squad", &[skill("tmux-team", "x")], false).unwrap_err();
-    assert_eq!(
-        claimed(&core.cause),
-        Some(("tmux-team".into(), "core".into()))
-    );
+    let core = install_owned(&env, &global, "squad", &[skill("tmt", "x")], false).unwrap_err();
+    assert_eq!(claimed(&core.cause), Some(("tmt".into(), "core".into())));
     assert!(!global.join("skill-owners.json").exists());
 
     install_owned(&env, &global, "squad", &[skill("tmt-ops", "mine")], false).unwrap();
@@ -154,11 +150,7 @@ fn office_links_published_before_owners_existed_are_adopted_without_force() {
     assert_eq!(read_skill(&office), "office from its release");
     assert_eq!(owners(&global).unwrap()["tmt-prop-create"], "office");
     // Core's own skills are untouched and core refresh sees no extension names.
-    assert!(
-        fs::symlink_metadata(root.join("tmux-team"))
-            .unwrap()
-            .is_symlink()
-    );
+    assert!(fs::symlink_metadata(root.join("tmt")).unwrap().is_symlink());
     let refreshed = refresh(&global).unwrap();
     assert!(refreshed.conflicts.is_empty());
     assert_eq!(
@@ -537,4 +529,37 @@ fn ops_migration_recovers_after_the_renamed_link_was_published_and_old_link_remo
         [root.join("tmt-ops")]
     );
     assert!(!owners(&global).unwrap().contains_key("tmt-squad"));
+}
+
+#[test]
+fn default_directory_cutover_republishes_only_full_digest_verified_owned_sources() {
+    for modified in [false, true] {
+        let (directory, env, _, root) = fixture();
+        let former = directory.path.join(".config/tmux-team");
+        fs::create_dir_all(&former).unwrap();
+        let former = fs::canonicalize(former).unwrap();
+        let current = former.parent().unwrap().join("tmt");
+        let offered = skill("fixture-owner", "owned source");
+        install_owned(&env, &former, "fixture", &[offered.clone()], false).unwrap();
+        let target = root.join(&offered.name);
+        let old = fs::read_link(&target).unwrap();
+        fs::rename(&former, &current).unwrap();
+        let moved = current.join(old.strip_prefix(&former).unwrap());
+        if modified {
+            fs::write(moved.join("SKILL.md"), b"user edit").unwrap();
+        }
+        let result = super::refresh_owned(&current, "fixture", &[offered]);
+        if modified {
+            assert!(result.is_err());
+            assert_eq!(fs::read_link(&target).unwrap(), old);
+            assert_eq!(fs::read(moved.join("SKILL.md")).unwrap(), b"user edit");
+        } else {
+            let result = result.unwrap();
+            assert_eq!(result.published.len(), 1);
+            assert!(result.published[0].changed);
+            assert_eq!(fs::read_link(&target).unwrap(), moved);
+            assert_eq!(read_skill(&target), "owned source");
+        }
+        assert!(!former.exists());
+    }
 }

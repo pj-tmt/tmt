@@ -1,4 +1,4 @@
-//! Shared native-domain contracts for tmux-team.
+//! Shared native-domain contracts for TMT.
 
 pub mod binding;
 pub mod content_digest;

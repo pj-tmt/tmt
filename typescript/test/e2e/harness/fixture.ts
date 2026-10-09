@@ -143,7 +143,7 @@ if [ "${'$'}tmux_command" = "set-option" ]; then
   for arg in "${'$'}@"; do
     if [ "${'$'}arg" = "-u" ]; then unset_metadata=1; fi
     if [ "${'$'}arg" = "-p" ]; then pane_metadata=1; fi
-    if [ "${'$'}arg" = "@tmux-team.agent" ]; then metadata_write=1; fi
+    if [ "${'$'}arg" = "@tmt.agent" ]; then metadata_write=1; fi
   done
   if [ "${'$'}unset_metadata" = "1" ] && [ "${'$'}pane_metadata" = "1" ] && [ "${'$'}metadata_write" = "1" ]; then
     metadata_clear=1
@@ -239,7 +239,7 @@ exit ${'$'}status
         PATH: `${this.wrapperDir}${path.delimiter}${process.env.PATH ?? ''}`,
         TMT_E2E_SOCKET: this.socket,
         TMUX_TMPDIR: this.socketRoot,
-        TMUX_TEAM_HOME: this.globalDir,
+        TMT_HOME: this.globalDir,
         TMT_MOCK_MODE: options.mode ?? 'respond',
         TMT_MOCK_DELAY_MS: String(options.delayMs ?? 0),
         TMT_MOCK_LOG: this.logPath,
@@ -567,7 +567,7 @@ exit ${'$'}status
 
   paneMetadata(pane = this.pane): string {
     try {
-      return this.tmux(['show-options', '-p', '-t', pane, '-v', '@tmux-team.agent']).trim();
+      return this.tmux(['show-options', '-p', '-t', pane, '-v', '@tmt.agent']).trim();
     } catch {
       return '';
     }

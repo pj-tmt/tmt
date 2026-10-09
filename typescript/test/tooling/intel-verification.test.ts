@@ -233,8 +233,8 @@ describe('Intel workflow coverage', () => {
               ? [
                   '--skill',
                   current === 'true'
-                    ? path.join(root, 'release-source/skills/tmux-team/SKILL.md')
-                    : 'skills/tmux-team/SKILL.md',
+                    ? path.join(root, 'release-source/skills/tmt/SKILL.md')
+                    : 'skills/tmt/SKILL.md',
                 ]
               : []),
             ...(current === 'true' ? ['--source-root', path.join(root, 'release-source')] : []),

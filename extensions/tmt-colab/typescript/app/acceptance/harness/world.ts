@@ -111,7 +111,7 @@ export class AcceptanceWorld {
       XDG_CACHE_HOME: path.join(this.home, 'cache'),
       TMPDIR: this.root,
       LANG: 'C.UTF-8',
-      TMUX_TEAM_HOME: this.dataRoot,
+      TMT_HOME: this.dataRoot,
       TMUX_TMPDIR: this.root,
       TMT_EXECUTABLE: path.join(this.root, 'core'),
       TMT_ACCEPTANCE_REAL_TMT: this.binaries.tmt,

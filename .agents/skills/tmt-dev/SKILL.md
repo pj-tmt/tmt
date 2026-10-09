@@ -1,9 +1,9 @@
 ---
 name: tmt-dev
-description: Implement, review, or maintain tmux-team repository changes with the project's issue, architecture, verification, and review gates.
+description: Implement, review, or maintain TMT repository changes with the project's issue, architecture, verification, and review gates.
 ---
 
-# tmux-team development
+# TMT development
 
 Use this skill for repository implementation and review work. It is a development
 workflow, not end-user documentation for the `tmt` CLI.

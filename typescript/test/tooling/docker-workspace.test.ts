@@ -808,9 +808,7 @@ function missingBrowserManifest(text: string): string[] {
   const input = 'design/browser-ui/package.json';
   let prefix = '';
   for (const line of instructions(text)) {
-    if (
-      /^RUN .*pnpm --filter tmux-team install|^RUN scripts\/build-native-artifact\.sh/.test(line)
-    ) {
+    if (/^RUN .*pnpm --filter tmt install|^RUN scripts\/build-native-artifact\.sh/.test(line)) {
       const stage = dockerStages(prefix).at(-1)!;
       const workspace = copyLocations(stage.copies, 'typescript/pnpm-workspace.yaml');
       expect(workspace.length, 'workspace input for filtered root install').toBeGreaterThan(0);
@@ -826,9 +824,7 @@ function missingBrowserManifest(text: string): string[] {
 }
 
 it('copies the new workspace manifest before filtered root installs and artifact preparation', () => {
-  const files = dockerfiles.filter((file) =>
-    /pnpm --filter tmux-team install/.test(readSource(file))
-  );
+  const files = dockerfiles.filter((file) => /pnpm --filter tmt install/.test(readSource(file)));
   expect(files.sort()).toEqual([
     'extensions/tmt-office/typescript/services/office/Dockerfile',
     'typescript/test/e2e/Dockerfile',
@@ -853,7 +849,7 @@ WORKDIR /workspace
 COPY typescript/pnpm-workspace.yaml typescript/
 `;
   const copy = 'COPY design/browser-ui/package.json design/browser-ui/package.json\n';
-  const install = 'RUN cd typescript && pnpm --filter tmux-team install --frozen-lockfile\n';
+  const install = 'RUN cd typescript && pnpm --filter tmt install --frozen-lockfile\n';
   expect(missingBrowserManifest(prefix + copy + install)).toEqual([]);
   expect(missingBrowserManifest(prefix + install + copy)).toEqual([
     'base: /workspace/design/browser-ui/package.json',

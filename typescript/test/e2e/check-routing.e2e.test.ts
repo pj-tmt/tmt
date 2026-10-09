@@ -217,7 +217,7 @@ describe('current-server diagnostic routing', { concurrent: false }, () => {
         await withE2EFixture(
           async (second) => {
             expect(second.pane).toBe(first.pane);
-            if (copyUuid) second.tmux(['set-option', '-s', '@tmux-team.server-id', serverId]);
+            if (copyUuid) second.tmux(['set-option', '-s', '@tmt.server-id', serverId]);
             expect(await second.runJsonCli(['list', 'Foreign'])).toMatchObject({
               code: 0,
               json: { identity: { name: 'Foreign' }, presence: 'active' },

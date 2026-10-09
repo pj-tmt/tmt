@@ -794,7 +794,7 @@ function main(argv, environment) {
       sha: { type: 'string' },
       'candidate-directory': { type: 'string' },
       'source-root': { type: 'string' },
-      skill: { type: 'string', default: 'skills/tmux-team/SKILL.md' },
+      skill: { type: 'string', default: 'skills/tmt/SKILL.md' },
     },
   });
   const required = (names) => {

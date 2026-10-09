@@ -247,10 +247,50 @@ impl std::error::Error for ActionError {
     }
 }
 
+/// One-release option-cutover proof; the host facade keeps native tmux details
+/// out of launch and upgrade command owners.
+pub use crate::tmux::rename::OptionRename;
+
 pub struct Host<R = UnixCommandRunner> {
     primary: HostKind,
     tmux: Tmux<R>,
     external: external::Drivers<R>,
+}
+
+impl<R: CommandRunner> Host<R> {
+    /// One-release upgrade operation on the captured binding's selected host.
+    /// External hosts have no retired tmux options and are never probed here.
+    pub fn prepare_option_rename(
+        &self,
+        entry: &BindingEntry,
+        deadline: Instant,
+    ) -> Result<Option<OptionRename>, HostError> {
+        if self.primary != HostKind::Tmux
+            || entry
+                .binding
+                .as_ref()
+                .is_none_or(|binding| binding.server.host != HostKind::Tmux)
+        {
+            return Err(HostError::Unavailable("option cutover is tmux-only".into()));
+        }
+        self.tmux
+            .prepare_option_rename(entry, deadline)
+            .map_err(Into::into)
+    }
+
+    /// Caller holds the full-record storage fence while committing this proof.
+    pub fn commit_option_rename(
+        &self,
+        proof: &OptionRename,
+        deadline: Instant,
+    ) -> Result<bool, HostError> {
+        if self.primary != HostKind::Tmux {
+            return Ok(false);
+        }
+        self.tmux
+            .commit_option_rename(proof, deadline)
+            .map_err(Into::into)
+    }
 }
 
 impl Host {

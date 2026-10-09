@@ -151,11 +151,11 @@ jobs:
           set -o pipefail
           set --
           tooling=.
-          skill=skills/tmux-team/SKILL.md
+          skill=skills/tmt/SKILL.md
           if [ "$CURRENT_TOOLING" = true ]; then
             tooling="$GITHUB_WORKSPACE"
             set -- --source-root "$GITHUB_WORKSPACE/release-source"
-            skill="$GITHUB_WORKSPACE/release-source/skills/tmux-team/SKILL.md"
+            skill="$GITHUB_WORKSPACE/release-source/skills/tmt/SKILL.md"
           fi
           node "$tooling/typescript/scripts/release-upgrade.mjs" prove --product "$PRODUCT" --tag "$RELEASE_TAG" \
             --target "$TARGET" --directory "$RUNNER_TEMP/upgrade" --skill "$skill" "$@" \

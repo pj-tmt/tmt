@@ -12,8 +12,8 @@ fn failed_publication_reports_prior_success_and_recoverable_backup_then_releases
     let global = root.path.join("global");
     fs::create_dir(&home).unwrap();
     let env = ProviderEnvironment::from_parts(home.clone(), root.path.clone(), Vec::new(), []);
-    let first = home.join(".claude/skills/tmux-team");
-    let second = home.join(".agents/skills/tmux-team");
+    let first = home.join(".claude/skills/tmt");
+    let second = home.join(".agents/skills/tmt");
     fs::create_dir_all(&second).unwrap();
     fs::write(second.join("user.md"), b"irreplaceable user content").unwrap();
     let mut publications = 0;

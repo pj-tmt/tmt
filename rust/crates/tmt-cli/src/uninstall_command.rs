@@ -346,9 +346,7 @@ fn remove(
 /// directory named like TMT's.
 fn purge(data: &Path) -> io::Result<()> {
     let metadata = fs::symlink_metadata(data)?;
-    let named = data
-        .file_name()
-        .is_some_and(|name| name == "tmux-team" || name == ".tmux-team");
+    let named = data.file_name().is_some_and(|name| name == "tmt");
     if !metadata.is_dir() || !named {
         return Err(io::Error::other(format!(
             "{} is not TMT's data directory; it was not deleted.",
@@ -461,7 +459,7 @@ mod presentation_tests {
                     )
                 })
                 .collect(),
-            data: "/data/tmux-team".into(),
+            data: "/data/tmt".into(),
             data_exists: false,
             purge: false,
         }

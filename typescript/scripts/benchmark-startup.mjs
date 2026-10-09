@@ -27,7 +27,7 @@ try {
     PATH: `${bin}:${process.env.PATH ?? ''}`,
     HOME: home,
     LC_ALL: 'C',
-    TMUX_TEAM_HOME: path.join(home, 'global'),
+    TMT_HOME: path.join(home, 'global'),
     TMT_BENCH_FORBIDDEN: forbidden,
     TMT_BENCH_METRICS: path.join(root, 'metrics'),
     TMT_BENCH_STDERR: path.join(root, 'stderr'),
@@ -70,7 +70,7 @@ try {
   };
   for (let index = 0; index < 7; index += 1) {
     measure('help', ['--help'], assertBenchmarkHelp);
-    env.TMUX_TEAM_HOME = path.join(home, `fresh-${index}`);
+    env.TMT_HOME = path.join(home, `fresh-${index}`);
     let createdIdentity;
     measure('fresh-storage-create', ['--json', 'identity', 'create', 'Bench'], (stdout) => {
       const result = JSON.parse(stdout);

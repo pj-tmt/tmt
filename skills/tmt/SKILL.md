@@ -1,9 +1,9 @@
 ---
-name: tmux-team
+name: tmt
 description: 'Coordinate local agents with TMT: send `tmt talk` through a host pane (tmux, or Herdr after `tmt driver install herdr`) or local inbox, wait or detach, read `tmt result`, and answer with receipt-bound `tmt reply`.'
 ---
 
-# tmux-team
+# TMT
 
 Use `tmt` for local agent communication across supported hosts and runtimes.
 The native CLI needs no Node/npm/pnpm or Rust toolchain. A live host pane is needed
@@ -918,7 +918,7 @@ from submission, so metadata can outlive the original request horizon. Reads
 never acknowledge a result. Cleanup is not file shrinkage or secure erasure;
 wall-clock rollback can delay logical expiry while data remains stored.
 
-A cosmetic pane-local `@tmux-team.badge` label is on by default;
+A cosmetic pane-local `@tmt.badge` label is on by default;
 `tmt config set ui.paneBadge off --global` turns it off. Recorded Running displays
 `● alice (tmt)` with a green dot, Ended displays a dim `○ alice (tmt)`, and
 Unknown displays plain `alice (tmt)`. This is recorded session state, not work
@@ -933,11 +933,11 @@ retry a successful identity mutation. Binding commands validate loaded settings
 before mutation.
 
 On a badge refresh, TMT prefixes the conditional fragment
-`#{?@tmux-team.badge, [#{@tmux-team.badge}],}` to the pane's inherited
+`#{?@tmt.badge, [#{@tmt.badge}],}` to the pane's inherited
 `pane-border-format`, using a pane-local override only. The inherited content,
 title, colors and border position stay unchanged; no global, session or window
 option or `~/.tmux.conf` is written. A user-owned pane override or a format already
-referencing the badge is preserved. The pane-local `@tmux-team.border` records the
+referencing the badge is preserved. The pane-local `@tmt.border` records the
 exact installed format. Unbind or the next refresh with `off` removes only an
 unchanged TMT-owned override; later user edits remain intact. The override snapshots
 the inherited format when installed. After a theme reload, unbind and bind again
@@ -954,7 +954,7 @@ overwritten titles/layouts require restoration from the user's saved theme; do
 not guess or overwrite them as a migration.
 
 For a badge hidden below 80 columns:
-`#{?#{&&:#{@tmux-team.badge},#{e|>=:#{pane_width},80}}, [#{@tmux-team.badge}],}`.
+`#{?#{&&:#{@tmt.badge},#{e|>=:#{pane_width},80}}, [#{@tmt.badge}],}`.
 The width threshold is theme-specific, not automatic fitting. Generated session
 styles restore surrounding attributes with `push-default`/`default`/`pop-default`.
 Do not place this inside another `push-default` span: tmux has no nested saved
@@ -997,18 +997,18 @@ Claude uses `<CLAUDE_CONFIG_DIR>/skills` (otherwise `~/.claude/skills`); Codex, 
 `~/.agents/skills`. Antigravity CLI (`agy`) uses
 `~/.gemini/config/skills`; Pi uses `~/.pi/agent/skills`
 (or `<PI_CODING_AGENT_DIR>/skills` when configured). Each selected root receives
-sibling `tmux-team` and `tmt-inbox` skills.
+sibling `tmt` and `tmt-inbox` skills.
 All targets link the same bundled content. No plugin or separate command wrapper is needed.
 Installation is non-interactive; `--json` is supported. With no detected provider,
 the shared target is installed and its result omits `agent`. This does not install
 an agent application. An existing `.agents` directory alone is not provider evidence.
-Claude's native skill can be invoked as `/tmux-team`. Inspect conflicts before
+Claude's native skill can be invoked as `/tmt`. Inspect conflicts before
 using `--force`, which creates recoverable skill backups outside the discovery root.
 Plugin settings are never modified.
 Native `tmt upgrade` refreshes recorded managed skills. For a manual binary
 replacement, run `tmt install` again. Reload or restart the agent afterwards.
 For an existing conversation, run `tmt learn --skill` and read its complete output
-before using remembered commands. Pi can load `/skill:tmux-team`; OpenCode uses
+before using remembered commands. Pi can load `/skill:tmt`; OpenCode uses
 its `skill` tool. Installation does not bypass provider permissions or guarantee
 that a running conversation has refreshed its instructions.
 
@@ -1022,7 +1022,7 @@ shows the guide. Both are text-only. Install default integrations with
 tmt install --dir ./my-skills
 ```
 
-This links sibling `./my-skills/tmux-team` and `./my-skills/tmt-inbox`; do not
+This links sibling `./my-skills/tmt` and `./my-skills/tmt-inbox`; do not
 also specify a provider. Choose a
 folder your provider actually discovers and reload its skills if needed.
 Managed links follow bundled updates at the same package path. Re-run the same
@@ -1039,9 +1039,10 @@ Native release installers use a versioned `tmt-installer.sh` URL supplied by the
 release. Use the repository README or an actual published release; never invent a URL or
 use npm `upgrade` as a native migration. The shell bootstrap defaults to
 `~/.local/bin/tmt`, supports `--prefix`, `--pin` and `--no-skill`, and otherwise
-runs the new absolute command's skill installer. It does not migrate/delete data
-or uninstall npm/pnpm. Check both `tmt` and `tmux-team` PATH selection; stop old
-writers before switching and never share upgraded state with TypeScript.
+runs the new absolute command's skill installer. Verify `command -v tmt` and
+the new absolute `tmt --help`; never share native state with the retired
+TypeScript runtime. Default Core data moves once as one directory; explicit
+`TMT_HOME` stays exact. No package-manager installation is uninstalled.
 If the selected installation is uncertain, check `tmt --help`; never fall back
 to TypeScript against native state or delete data as a migration workaround.
 Inspect skill-link conflicts before using `tmt install --force` for an intended
@@ -1058,7 +1059,7 @@ The selected Rust executable embeds this exact skill plus the focused
 `tmt-inbox` skill; viewing and installation
 work after moving the binary, without Node or a checkout. Native installs link
 an immutable digest-addressed source under TMT's global directory
-(`skill-assets/<sha256>/{tmux-team,tmt-inbox}`). Re-run the intended `install` command after
+(`skill-assets/<sha256>/{tmt,tmt-inbox}`). Re-run the intended `install` command after
 replacing a manual binary to refresh valid managed links. An edited current
 bundled source blocks installation even with force; inspect it before repair.
 Links to modified older sources are unmanaged conflicts: force can back up the

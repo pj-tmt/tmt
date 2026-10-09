@@ -779,7 +779,7 @@ describe('fetchUpgrade and proveStaged', () => {
       product: 'cli',
       tag: 'v5.0.0-alpha.9',
       target: 'x86_64-unknown-linux-musl',
-      skill: 'release-source/skills/tmux-team/SKILL.md',
+      skill: 'release-source/skills/tmt/SKILL.md',
       sourceRoot: '/candidate-source',
     });
     expect(result.previous).toBe('v5.0.0-alpha.8');
@@ -797,7 +797,7 @@ describe('fetchUpgrade and proveStaged', () => {
       path.join(directory, target, 'previous', 'dist-manifest.json')
     );
     expect(value(args, '--target')).toBe(target);
-    expect(value(args, '--skill')).toBe('release-source/skills/tmux-team/SKILL.md');
+    expect(value(args, '--skill')).toBe('release-source/skills/tmt/SKILL.md');
     expect(value(args, '--source-root')).toBe('/candidate-source');
   });
 

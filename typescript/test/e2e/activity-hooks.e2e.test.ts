@@ -45,7 +45,7 @@ it.each(['claude', 'codex'] as const)(
         const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
         const command = [
           'env',
-          `TMUX_TEAM_HOME=${fixture.globalDir}`,
+          `TMT_HOME=${fixture.globalDir}`,
           provider === 'claude' ? '/opt/tmt-tests/claude' : '/opt/tmt-tests/hook-runtime/codex',
           fixture.executables.cli.executable,
           scenario,
@@ -136,7 +136,7 @@ it('a failed synchronous activity write is never deferred past hook return', asy
       const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
       const command = [
         'env',
-        `TMUX_TEAM_HOME=${fixture.globalDir}`,
+        `TMT_HOME=${fixture.globalDir}`,
         '/opt/tmt-tests/claude',
         fixture.executables.cli.executable,
         scenario,

@@ -42,7 +42,7 @@ WORKDIR /verification
 COPY typescript/package.json typescript/pnpm-lock.yaml typescript/pnpm-workspace.yaml typescript/
 COPY design/browser-ui/package.json design/browser-ui/package.json
 COPY extensions/tmt-office/typescript/apps/office/package.json extensions/tmt-office/typescript/apps/office/package.json
-RUN cd typescript && pnpm --filter tmux-team install --frozen-lockfile --ignore-scripts
+RUN cd typescript && pnpm --filter tmt install --frozen-lockfile --ignore-scripts
 COPY .github/components.json .github/components.json
 COPY typescript/test/e2e/shard-weights.json typescript/test/e2e/shard-weights.json
 COPY typescript/scripts/ci-scope.mjs typescript/scripts/native-release-policy.mjs typescript/scripts/e2e-shards.mjs typescript/scripts/
@@ -53,8 +53,8 @@ COPY typescript/scripts/native-application-schema.mjs typescript/scripts/
 COPY typescript/test/support/performance-contract.mjs typescript/test/support/performance-contract.mjs
 COPY typescript/scripts/native-bootstrap.mjs typescript/scripts/generate-native-bootstrap.mjs typescript/scripts/verify-native-bootstrap.mjs typescript/scripts/
 COPY scripts/native-bootstrap.sh scripts/native-bootstrap.sh
-COPY skills/tmux-team/SKILL.md expected-skill.md
-COPY skills/tmux-team/SKILL.md skills/tmux-team/SKILL.md
+COPY skills/tmt/SKILL.md expected-skill.md
+COPY skills/tmt/SKILL.md skills/tmt/SKILL.md
 COPY skills/tmt-inbox/SKILL.md skills/tmt-inbox/SKILL.md
 COPY extensions/tmt-office/skills/tmt-office/SKILL.md extensions/tmt-office/skills/tmt-office/SKILL.md
 # Squad archives are compared byte for byte with these sources (--skills).

@@ -56,7 +56,15 @@ export async function verifyDriverUpgrade(values) {
         const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'tmt driver upgrade ')));
         try {
           const state = path.join(root, 'state');
-          const env = { HOME: root, TMUX_TEAM_HOME: state, PATH: '', LANG: 'C', TMPDIR: root };
+          // Harness only: remove when the prior release is post-rename.
+          const env = {
+            HOME: root,
+            TMT_HOME: state,
+            TMUX_TEAM_HOME: state,
+            PATH: '',
+            LANG: 'C',
+            TMPDIR: root,
+          };
           const run = (args, expectedStatus = 0) =>
             JSON.parse(
               runPackedCommand(path.join(cliRoot, 'tmt'), [...args, '--json'], {

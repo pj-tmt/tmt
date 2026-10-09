@@ -169,14 +169,7 @@ async function exerciseBoundMockPane(
     unrelated: 'preserve grouped-session evidence',
     nested: { source: 'e2e', enabled: true },
   };
-  fixture.tmux([
-    'set-option',
-    '-p',
-    '-t',
-    pane.pane,
-    '@tmux-team.agent',
-    JSON.stringify(opaqueMetadata),
-  ]);
+  fixture.tmux(['set-option', '-p', '-t', pane.pane, '@tmt.agent', JSON.stringify(opaqueMetadata)]);
   const peerMetadataBeforeConflict = fixture.paneMetadata(peer.pane);
 
   const added = await fixture.runJsonCli<BindingResult>(['add', pane.pane, identityName]);

@@ -190,7 +190,7 @@ describe('scoped identity operations in a large tmux session', { concurrent: fal
           '-p',
           '-t',
           fixture.pane,
-          '@tmux-team.agent',
+          '@tmt.agent',
           JSON.stringify(opaqueMetadata),
         ]);
 

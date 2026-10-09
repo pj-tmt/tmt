@@ -16,7 +16,7 @@ target/distrib
 !.env.example
 *.key
 *.pem
-tmux-team.json
+tmt.json
 .firebaserc
 .firebase
 .firebase-local

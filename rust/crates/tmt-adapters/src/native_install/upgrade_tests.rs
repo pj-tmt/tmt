@@ -158,7 +158,7 @@ fn forged_remote_provenance_is_not_accepted_as_owned_receipt_metadata() {
 
 #[test]
 fn legacy_receipts_upgrade_from_the_current_repository_without_rewriting_history() {
-    for repository in ["wkh237/tmt", "wkh237/tmux-team"] {
+    for repository in ["wkh237/tmt"] {
         let (_directory, layout, old) = published_layout();
         let release = layout.root.join("releases").join(old.id.to_string());
         let receipt_path = release.join("receipt.json");

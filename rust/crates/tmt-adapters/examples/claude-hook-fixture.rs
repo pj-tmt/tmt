@@ -83,7 +83,7 @@ fn main() {
         let badge = Command::new("tmux")
             .args(["-u", "show-options", "-p", "-qv", "-t"])
             .arg(std::env::var("TMUX_PANE").unwrap())
-            .arg("@tmux-team.badge")
+            .arg("@tmt.badge")
             .output()
             .expect("read fixture pane badge");
         let mut result = json!({"code":output.status.code(),

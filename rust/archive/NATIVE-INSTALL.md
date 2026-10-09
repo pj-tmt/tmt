@@ -27,8 +27,8 @@ there. This example keeps all its state in a temporary directory:
 ```sh
 tmt_preview_root=$(mktemp -d)
 ./tmt --version
-TMUX_TEAM_HOME="$tmt_preview_root" ./tmt learn --skill
-TMUX_TEAM_HOME="$tmt_preview_root" ./tmt install --dir "$tmt_preview_root/skills" --json
+TMT_HOME="$tmt_preview_root" ./tmt learn --skill
+TMT_HOME="$tmt_preview_root" ./tmt install --dir "$tmt_preview_root/skills" --json
 ```
 
 Installing skills never installs agent applications. For normal use, run the

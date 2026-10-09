@@ -3,6 +3,7 @@
 
 mod document;
 mod paths;
+mod rename;
 
 #[cfg(test)]
 mod initialization_tests;
@@ -12,6 +13,7 @@ mod theme_tests;
 pub use document::ThemeProblem;
 pub use paths::ConfigPaths;
 pub(crate) use paths::normalize;
+pub(crate) use rename::relocated_skill_source;
 use std::{fmt, path::Path};
 pub use tmt_core::settings::Scope;
 use tmt_core::settings::{LocalClear, ResolvedSettings, Setting};

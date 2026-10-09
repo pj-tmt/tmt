@@ -17,7 +17,7 @@ describe('native passive skill guidance', () => {
       })) {
         fixture.tmux(['set-environment', '-g', key, value]);
       }
-      const stale = path.join(home, '.claude', 'skills', 'tmux-team');
+      const stale = path.join(home, '.claude', 'skills', 'tmt');
       fs.mkdirSync(stale, { recursive: true });
       const staleFile = path.join(stale, 'SKILL.md');
       fs.writeFileSync(staleFile, 'user-maintained stale guidance');
@@ -53,7 +53,7 @@ describe('native passive skill guidance', () => {
           expect(output).toContain('SETTINGS\n');
         }
         expect(fs.readFileSync(staleFile, 'utf8')).toBe('user-maintained stale guidance');
-        expect(fs.existsSync(path.join(fixture.globalDir, 'tmux-team.db'))).toBe(false);
+        expect(fs.existsSync(path.join(fixture.globalDir, 'tmt.db'))).toBe(false);
       }
     });
   }, 15_000);

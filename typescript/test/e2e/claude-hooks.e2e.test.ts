@@ -52,7 +52,7 @@ describe(
           );
           const command = [
             'env',
-            `TMUX_TEAM_HOME=${fixture.globalDir}`,
+            `TMT_HOME=${fixture.globalDir}`,
             '/opt/tmt-tests/claude',
             fixture.executables.cli.executable,
             scenario,

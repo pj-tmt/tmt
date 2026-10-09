@@ -29,7 +29,7 @@ $ tmt config rm pasteEnterDelayMs                 # drop this folder's override
 | `defaults.pollInterval`            | `1`      | seconds between checks while `talk` waits                                                                                                       | edit `config.json`       |
 | `defaults.captureLines`            | `100`    | lines `tmt check` shows                                                                                                                         | edit `config.json`       |
 
-"Either way" means the folder you're in, or every folder with `--global`. The global file is `config.json` in tmt's configuration directory, `~/.config/tmux-team/`, which keeps tmt's former name. A folder's overrides live in `tmux-team.json` in the folder you run tmt from. `tmt config show` prints both paths. tmt keeps fields it doesn't know, and `config show` shows the value it actually uses and where it came from.
+"Either way" means the folder you're in, or every folder with `--global`. The global file is `config.json` in tmt's configuration directory, `~/.config/tmt/`. A folder's overrides live in `tmt.json` in the folder you run tmt from. `tmt config show` prints both paths. tmt keeps fields it doesn't know, and `config show` shows the value it actually uses and where it came from.
 
 Numbers are written as plain digits: no units, signs or decimals. A change to `exchange.retentionDays` applies to new requests only.
 
@@ -65,16 +65,14 @@ Names complete from your saved and temporary identities, saved ones first, witho
 
 The [pane badge](/drivers/tmux#the-pane-badge) page has the basics. Beyond them:
 
-- **Hide it on narrow panes.** Test the pane's width in the format below. Change 80 to suit your theme; it isn't an automatic fit.
+- **Hide it on narrow panes.** Place the badge yourself and test the pane's width, as in the format below. Change 80 to suit your theme; it isn't an automatic fit.
 - **One saved style only.** tmux keeps a single saved default, so don't wrap the badge in another `push-default`. Put it outside such a span and restore your theme's styles after it.
-- **Changes arrive pane by pane.** Switching the setting doesn't rewrite any pane. A pane updates the next time tmt touches it: a new name, a launch or exit, a hook. `tmt unbind` clears its badge.
+- **Changes arrive pane by pane.** Switching the setting doesn't rewrite any pane. A pane updates the next time tmt touches it: a new name, a launch or exit, a hook. `tmt unbind` clears its badge and the border tmt added.
 - **Names are shortened.** After 48 characters a name is cut with `…`, and `#` shows as `＃`. The stored name doesn't change.
 
 <Code>{`
-#{?#{&&:#{@tmux-team.badge},#{e|>=:#{pane_width},80}}, [#{@tmux-team.badge}],}
+#{?#{&&:#{@tmt.badge},#{e|>=:#{pane_width},80}}, [#{@tmt.badge}],}
 `}</Code>
-
-If an older tmt replaced your pane title or border format, restore it from your own tmux configuration. tmt can't rebuild a theme it overwrote.
 
 ### Troubleshooting
 
@@ -94,10 +92,9 @@ Then check which command your shell picks:
 <Cmd>{`
 $ command -v tmt
 $ tmt --version
-$ command -v tmux-team      # an old npm install can shadow the new one
 `}</Cmd>
 
-Remove an old install with its own manager (`npm uninstall -g tmux-team` or `pnpm remove -g tmux-team`), and use a user-owned prefix rather than `sudo`.
+Use a user-owned prefix rather than `sudo`.
 
 #### Skills conflict with files tmt didn't write
 

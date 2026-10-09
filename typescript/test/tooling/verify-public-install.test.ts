@@ -40,7 +40,7 @@ const { assertMacOsArchitecture, nativeHostTarget } = (await import(
   ) => void;
 };
 
-const SKILL = '# The tmux-team skill\n';
+const SKILL = '# The tmt skill\n';
 const INBOX = '# The inbox skill\n';
 
 interface Fake {
@@ -81,7 +81,7 @@ interface Fake {
 /** The text of an installer that creates a fake `tmt` in the prefix, as the real one does. */
 function installerText(fake: Fake = {}): string {
   const version = fake.version ?? '5.0.0-alpha.12';
-  const skills = fake.skills ?? { 'tmux-team': SKILL, 'tmt-inbox': INBOX };
+  const skills = fake.skills ?? { tmt: SKILL, 'tmt-inbox': INBOX };
   const upgrade = {
     executable: '@EXE@',
     version,
@@ -128,7 +128,7 @@ case "$*" in
     ${fake.upgradeCause ? `if [ "$count" -lt ${fake.upgradeFailures ?? 10} ]; then printf '%s' '${JSON.stringify({ error: { code: fake.upgradeCode ?? 'NATIVE_UPGRADE_FAILED', message: 'Native upgrade failed', cause: fake.upgradeCause } })}'; ${fake.upgradeStderr ? `echo '${fake.upgradeStderr}' >&2;` : ''} exit 1; fi` : ''}
     ${fake.upgradeAfterStderr ? `echo '${fake.upgradeAfterStderr}' >&2; exit 1` : ''}
     ${!fake.upgradeCause && fake.upgradeStderr ? `printf '%s' '${fake.upgradeStdout ?? ''}'; echo '${fake.upgradeStderr}' >&2; exit 1` : `printf '%s' '${JSON.stringify(upgrade)}' | sed "s#@EXE@#$exe#"`} ;;
-  api) printf '{"dataRoot":"%s"}' "$TMUX_TEAM_HOME" ;;
+  api) printf '{"dataRoot":"%s"}' "$TMT_HOME" ;;
   "extension install ${extension.product ?? 'ops'} "*)
     ${requireToken}
     count=$(cat "$HOME/extension-count" 2>/dev/null || echo 0); echo $((count + 1)) > "$HOME/extension-count"
@@ -178,9 +178,7 @@ function run(
   const root = path.join(base, `run-${(counter += 1)}`);
   mkdirSync(root);
   const source = path.join(root, 'source');
-  for (const [name, text] of Object.entries(
-    options.source ?? { 'tmux-team': SKILL, 'tmt-inbox': INBOX }
-  )) {
+  for (const [name, text] of Object.entries(options.source ?? { tmt: SKILL, 'tmt-inbox': INBOX })) {
     mkdirSync(path.join(source, 'skills', name), { recursive: true });
     writeFileSync(path.join(source, 'skills', name, 'SKILL.md'), text);
   }
@@ -279,9 +277,7 @@ describe('the public installer smoke of a CLI release', () => {
       ['tmt upgrade', true],
     ]);
     expect(results.at(-1)?.reason).toBe('5.0.0-alpha.12 is current');
-    expect(results.find(({ check }) => check === 'managed skills')?.reason).toBe(
-      'tmt-inbox, tmux-team'
-    );
+    expect(results.find(({ check }) => check === 'managed skills')?.reason).toBe('tmt, tmt-inbox');
     expect(attempt.fetched).toEqual([installerUrl('wkh237/tmt')]);
     expect(installerUrl('wkh237/tmt')).toBe(
       'https://github.com/wkh237/tmt/releases/latest/download/install.sh'
@@ -324,7 +320,7 @@ describe('the public installer smoke of a CLI release', () => {
           'utf8'
         );
         expect(environment).toContain(`HOME=${path.join(attempt.root, 'work', 'home')}`);
-        expect(environment).toContain(`TMUX_TEAM_HOME=${path.join(attempt.root, 'work', 'state')}`);
+        expect(environment).toContain(`TMT_HOME=${path.join(attempt.root, 'work', 'state')}`);
         expect(environment).toContain('CI=true');
         expect(environment).not.toMatch(/TOKEN|secret-token/);
         expect(environment).not.toContain(`HOME=${os.homedir()}`);
@@ -444,14 +440,11 @@ describe('the public installer smoke of a CLI release', () => {
   });
 
   it('compares the installed skills with the tag’s by name and by SKILL.md', async () => {
-    const missing = await run({ skills: { 'tmux-team': SKILL } }).results;
+    const missing = await run({ skills: { tmt: SKILL } }).results;
     expect(missing.at(-1)).toMatchObject({ check: 'managed skills', ok: false });
-    expect(missing.at(-1)?.reason).toBe(
-      'installed skills are tmux-team, the release has tmt-inbox, tmux-team'
-    );
-    const different = await run({ skills: { 'tmux-team': '# other\n', 'tmt-inbox': INBOX } })
-      .results;
-    expect(different.at(-1)?.reason).toBe('tmux-team/SKILL.md differs from v5.0.0-alpha.12');
+    expect(missing.at(-1)?.reason).toBe('installed skills are tmt, the release has tmt, tmt-inbox');
+    const different = await run({ skills: { tmt: '# other\n', 'tmt-inbox': INBOX } }).results;
+    expect(different.at(-1)?.reason).toBe('tmt/SKILL.md differs from v5.0.0-alpha.12');
   });
 
   const diagnostic = (epoch = '1893456002') =>
@@ -528,7 +521,7 @@ describe('failed command diagnostics', () => {
     (limited) => {
       const root = path.join(base, `diagnostic-cli-${limited}`);
       const source = path.join(root, 'source');
-      for (const [name, text] of Object.entries({ 'tmux-team': SKILL, 'tmt-inbox': INBOX })) {
+      for (const [name, text] of Object.entries({ tmt: SKILL, 'tmt-inbox': INBOX })) {
         mkdirSync(path.join(source, 'skills', name), { recursive: true });
         writeFileSync(path.join(source, 'skills', name, 'SKILL.md'), text);
       }

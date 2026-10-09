@@ -1,6 +1,6 @@
 ---
 source: site/src/chapters/squad.mdx
-sourceRevision: f4a28d1fb4b1a7aecfda4543ed244641429f72d5
+sourceRevision: c6c57d60af2632f207899e39508b51168bf61097
 title: チームを1つの board で見る
 ---
 
@@ -140,7 +140,7 @@ board の先頭行には、squad ごとのタブと2つの組み込みタブが�
 Shift+← と Shift+→ で現在のタブを移動できます。別のタブの位置へドラッグしても移動します。board は新しい順序だけを設定に書き込み、ファイルのほかの部分は変えません。
 
 <Code>{`
-# ~/.config/tmux-team/ops.toml
+# ~/.config/tmt/ops.toml
 [tabs]
 order = ["all", "leads", "product"]
 hide  = ["quiet"]                      # still reachable with s, or tmt ops ui --squad quiet
@@ -276,7 +276,7 @@ board の表示は固定ではありません。レイアウトのプリセッ�
 ペインと配置を変えたり、見出し、フィルター、並べ替えを持つ独自の **section** を追加したりできます。**列**、色と順序を含む**状態**、リンクの開き方も選べます。キーやクリックの動作も指定できます。割り当ては `o` のようなキーや `click`、`double-click` というイベントと、`jump`、`jump lead`、`back`、`talk`、`reply`、`annotate lead`、`open {pr_link}`、`copy {name}: {task}`、`run <program> {field}…` のような1行の操作です。`{field}` はその行の値で埋めます。section ごとにも割り当てを設定できます。
 
 <Code>{`
-# ~/.config/tmux-team/ops.toml  (the directory keeps tmt's former name)
+# ~/.config/tmt/ops.toml
 [squad.product]
 layout = "crew"                        # start from a preset
 
@@ -286,7 +286,7 @@ O = "open {issue_link}" # your own key: open the row's issue
 
 <More summary="詳しい例：分割ペイン、独自の section、列、状態、追加のキー割り当て">
 <Code>{`
-# ~/.config/tmux-team/ops.toml  (the directory keeps tmt's former name)
+# ~/.config/tmt/ops.toml
 me = "ben"                             # written by tmt ops sq me ben, with ben's ID beside it
 
 [squad.product]
@@ -403,7 +403,7 @@ ignore_case = true          # optional; off by default
 }
 `}</Code>
 
-テーマは `~/.config/tmux-team/config.json` にあります。`base` は `tmt`、`tmt-light`、`terminal`、`mono` のいずれかで、各 token は16進数の値や色名で上書きできます。使えないキーは `tmt config show` が示します。`base` を設定するとコマンドラインに色が付き、board には常に適用されます。`auto` は board 専用なので、ここでは指定できません。
+テーマは `~/.config/tmt/config.json` にあります。`base` は `tmt`、`tmt-light`、`terminal`、`mono` のいずれかで、各 token は16進数の値や色名で上書きできます。使えないキーは `tmt config show` が示します。`base` を設定するとコマンドラインに色が付き、board には常に適用されます。`auto` は board 専用なので、ここでは指定できません。
 
 <Mdx.h3 id="theming-the-board">board のテーマ</Mdx.h3>
 

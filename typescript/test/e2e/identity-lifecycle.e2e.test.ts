@@ -593,7 +593,7 @@ describe('global identity lifecycle', { concurrent: false }, () => {
         '-p',
         '-t',
         oldPane.pane,
-        '@tmux-team.agent',
+        '@tmt.agent',
         JSON.stringify({
           version: 1,
           globalIdentity: { name: 'LegacyOnly', canonicalName: 'legacyonly' },
@@ -604,7 +604,7 @@ describe('global identity lifecycle', { concurrent: false }, () => {
         '-p',
         '-t',
         collidingOldPane.pane,
-        '@tmux-team.agent',
+        '@tmt.agent',
         JSON.stringify({
           version: 1,
           globalIdentity: { name: 'LEGACYONLY', canonicalName: 'legacyonly' },
@@ -615,7 +615,7 @@ describe('global identity lifecycle', { concurrent: false }, () => {
         '-p',
         '-t',
         malformedPane.pane,
-        '@tmux-team.agent',
+        '@tmt.agent',
         JSON.stringify({ version: 1, globalIdentity: { name: 42, canonicalName: 'malformed' } }),
       ]);
 
@@ -742,7 +742,7 @@ describe('global identity lifecycle', { concurrent: false }, () => {
         '-p',
         '-t',
         affectedPane.pane,
-        '@tmux-team.agent',
+        '@tmt.agent',
         JSON.stringify(affectedMetadataObject),
       ]);
       const healthyMetadata = fixture.paneMetadata(fixture.pane);

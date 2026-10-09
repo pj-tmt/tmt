@@ -66,7 +66,7 @@ it('maps independent Codex then shared exact-thread hooks without using the serv
       const command = [
         'env',
         `HOME=${home}`,
-        `TMUX_TEAM_HOME=${fixture.globalDir}`,
+        `TMT_HOME=${fixture.globalDir}`,
         '/opt/tmt-tests/hook-runtime/codex',
         fixture.executables.cli.executable,
         scenario,
@@ -93,9 +93,7 @@ it('maps independent Codex then shared exact-thread hooks without using the serv
       ).toBe(true);
       const identity = JSON.parse(results[0].stdout);
       const badge = () =>
-        fixture
-          .tmux(['-u', 'show-options', '-p', '-qv', '-t', targetPane, '@tmux-team.badge'])
-          .trim();
+        fixture.tmux(['-u', 'show-options', '-p', '-qv', '-t', targetPane, '@tmt.badge']).trim();
       expect(results[0].badge).toBe('Codex Reader (tmt)');
       expect(results[1].badge).toBe(
         '#[push-default]#[fg=green]●#[default]#[pop-default] Codex Reader (tmt)'
@@ -165,7 +163,7 @@ it('maps independent Codex then shared exact-thread hooks without using the serv
         const sharedCommand = [
           'env',
           `HOME=${home}`,
-          `TMUX_TEAM_HOME=${fixture.globalDir}`,
+          `TMT_HOME=${fixture.globalDir}`,
           '/opt/tmt-tests/hook-runtime/codex',
           'app-server',
           fixture.executables.cli.executable,
@@ -305,7 +303,7 @@ it.each([
         const command = [
           'env',
           `HOME=${home}`,
-          `TMUX_TEAM_HOME=${fixture.globalDir}`,
+          `TMT_HOME=${fixture.globalDir}`,
           executable,
           fixture.executables.cli.executable,
           scenario,
@@ -443,7 +441,7 @@ it.each([false, true])(
         const command = [
           'env',
           `HOME=${home}`,
-          `TMUX_TEAM_HOME=${fixture.globalDir}`,
+          `TMT_HOME=${fixture.globalDir}`,
           fixture.executables.cli.executable,
           ...fixture.executables.cli.args,
           'run',
@@ -596,7 +594,7 @@ it('requires the hook runtime to exit and be reaped after publishing its report'
       const command = [
         'env',
         `HOME=${path.join(fixture.root, 'home')}`,
-        `TMUX_TEAM_HOME=${fixture.globalDir}`,
+        `TMT_HOME=${fixture.globalDir}`,
         '/opt/tmt-tests/hook-runtime/codex',
         fixture.executables.cli.executable,
         scenario,

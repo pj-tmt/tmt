@@ -49,7 +49,7 @@ describe('native managed skill refresh', () => {
       const current = await runCli(sandbox, ['learn', '--skill']);
       expect(current.status).toBe(0);
       const old = Buffer.from(
-        '---\nname: tmux-team\ndescription: Old fixture guidance.\n---\nOld version instructions.\n'
+        '---\nname: tmt\ndescription: Old fixture guidance.\n---\nOld version instructions.\n'
       );
       expect(current.stdout).not.toBe(old.toString());
       mkdirSync(sandbox.globalDir, { recursive: true });
@@ -58,12 +58,12 @@ describe('native managed skill refresh', () => {
         global,
         'skill-assets',
         createHash('sha256').update(old).digest('hex'),
-        'tmux-team'
+        'tmt'
       );
       mkdirSync(oldSource, { recursive: true });
       writeFileSync(path.join(oldSource, 'SKILL.md'), old);
       const targets = ['a-conflict', 'b-custom skills', 'c-deleted'].map((name) =>
-        path.join(sandbox.cwd, name, 'tmux-team')
+        path.join(sandbox.cwd, name, 'tmt')
       );
       for (const target of targets.slice(0, 2))
         mkdirSync(path.dirname(target), { recursive: true });

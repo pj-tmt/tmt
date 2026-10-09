@@ -46,6 +46,8 @@ fn run(executable: &Path, args: &[OsString], task: &Path) -> Result<CommandOutpu
     let mut command = vec![
         OsString::from("-i"),
         assignment("HOME", task),
+        assignment("TMT_HOME", task),
+        // Harness only: remove when the prior release is post-rename (#2302).
         assignment("TMUX_TEAM_HOME", task),
         OsString::from("PATH="),
         OsString::from("LANG=C"),
@@ -118,7 +120,7 @@ fn injected_release(
 }
 
 fn skill_target(root: &Path) -> PathBuf {
-    root.join("tmux-team")
+    root.join("tmt")
 }
 
 fn report_contains(report: &Value, key: &str, path: &Path) -> bool {
