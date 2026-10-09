@@ -2839,3 +2839,26 @@ fn status_budget_is_opt_in_and_static() {
             .contains("not running")
     );
 }
+
+#[test]
+fn status_stop_and_serve_diagnostics_preserve_the_deploy_record_while_its_writer_is_locked() {
+    use tmt_remote::{deploy_record::DeployRecordStore, deploy_run::DeployRecord, state::Layout};
+    let mut pilot = Pilot::new();
+    let layout = Layout::open(&pilot.root.join("state")).unwrap();
+    let mut writer = DeployRecordStore::open(&layout).unwrap();
+    writer
+        .persist(&DeployRecord::new("3f2b8c1e-5d4a-4e7b-9c1d-2a6f8e0b4c11"))
+        .unwrap();
+    let path = layout.directory.join("deploy.json");
+    let before = fs::read(&path).unwrap();
+    assert_eq!(status_json(&pilot)["running"], false);
+    assert_eq!(stop_json(&pilot)["running"], false);
+    start_door(&mut pilot, &["--background", "--port", "0"], false);
+    assert_eq!(status_json(&pilot)["running"], true);
+    assert_eq!(fs::read(&path).unwrap(), before);
+    assert_eq!(stop_json(&pilot)["stopped"], true);
+    assert_eq!(status_json(&pilot)["running"], false);
+    assert_eq!(fs::read(&path).unwrap(), before);
+    drop(writer);
+    drop(DeployRecordStore::open(&layout).unwrap());
+}

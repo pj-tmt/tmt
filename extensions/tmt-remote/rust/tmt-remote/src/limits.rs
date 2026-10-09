@@ -122,3 +122,6 @@ pub const RULES_FRAGMENT_TOKENS: usize = 16_384;
 pub const RULES_FRAGMENT_DEPTH: usize = 8;
 /// Nesting of one condition (parentheses, arguments, lists, ternaries).
 pub const RULES_FRAGMENT_NESTING: usize = 32;
+
+/// Maximum private deployment record and abandoned staging-file size.
+pub const DEPLOY_RECORD_BYTES: usize = 1024 * 1024;

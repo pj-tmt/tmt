@@ -1,0 +1,124 @@
+Firestore sharing plan
+Account: owner@example.test
+Project: demo-remote-1
+Deployment: 3f2b8c1e-5d4a-4e7b-9c1d-2a6f8e0b4c11
+Database: (default) (standard), asia-east1
+Sign-in: anonymous, google.com
+Rules: d84fe141967e7e8601d4990de08339d5d37c949270ad8621ba2107e8fe019014 (replaces none)
+Index configs: 3
+Roles: none created
+Physical TTL: not provisioned
+Plan digest: ab962f17ab18d2410a7a98ac05437ce80b2e9030a47b75f610e8d08c5ac163e0
+Extensions and resources:
+{
+  "version": 1,
+  "profile": "sharing",
+  "backend": "firestore",
+  "capabilities": {
+    "physicalTtl": false
+  },
+  "extensions": [
+    {
+      "name": "colab",
+      "declarationDigest": "514e860548d9f62187bfd240113d4915b838fd3473a9f54c7c8ba9fa724982ed",
+      "admission": {
+        "artifactDigest": "f055b672317c370949655803a7c3e1f9463db29f561ca11a3b2baeebc32c9edd",
+        "entryPoint": "colabAdmitted"
+      },
+      "resources": [
+        {
+          "name": "page-blob",
+          "kind": "blob",
+          "path": "x/colab/attachments/default/blobs",
+          "limits": {
+            "maxObjectBytes": 12582912,
+            "maxNamespaceBytes": 67108864,
+            "maxEntries": 256
+          },
+          "ttlField": null,
+          "ttl": "none",
+          "indexes": []
+        },
+        {
+          "name": "page-checkpoint",
+          "kind": "checkpoint",
+          "path": "x/colab/checkpoints",
+          "limits": {
+            "maxObjectBytes": 4194304,
+            "maxNamespaceBytes": 33554432,
+            "maxEntries": 64
+          },
+          "ttlField": "expiresAt",
+          "ttl": "not-provisioned",
+          "indexes": [
+            {
+              "field": "epoch",
+              "direction": "desc"
+            }
+          ]
+        },
+        {
+          "name": "page-log",
+          "kind": "log",
+          "path": "x/colab/log",
+          "limits": {
+            "maxObjectBytes": 262144,
+            "maxNamespaceBytes": 16777216,
+            "maxEntries": 1024
+          },
+          "ttlField": "expiresAt",
+          "ttl": "not-provisioned",
+          "indexes": [
+            {
+              "field": "expiresAt",
+              "direction": "asc"
+            },
+            {
+              "field": "sequence",
+              "direction": "asc"
+            }
+          ]
+        },
+        {
+          "name": "presence",
+          "kind": "awareness",
+          "path": "x/colab/presence",
+          "limits": {
+            "maxObjectBytes": 4096,
+            "maxNamespaceBytes": 65536,
+            "maxEntries": 64
+          },
+          "ttlField": null,
+          "ttl": "none",
+          "indexes": []
+        }
+      ]
+    },
+    {
+      "name": "notes",
+      "declarationDigest": "7fd3251ea3ac4023bd35aec540e8ca20aa72ceaf2cc7492d6027d3220fb0d716",
+      "admission": {
+        "artifactDigest": "abbe87356770ded6e0176d1bc4fe32f855a22c61d6404505901bc1a8fbb78d5f",
+        "entryPoint": "notesAdmitted"
+      },
+      "resources": [
+        {
+          "name": "note-log",
+          "kind": "log",
+          "path": "x/notes/log",
+          "limits": {
+            "maxObjectBytes": 65536,
+            "maxNamespaceBytes": 1048576,
+            "maxEntries": 512
+          },
+          "ttlField": null,
+          "ttl": "none",
+          "indexes": []
+        }
+      ]
+    }
+  ],
+  "unavailable": []
+}
+Not authorized; nothing changed in your Firebase project.
+Authorize this exact plan with --authorize <plan-digest-prefix>.

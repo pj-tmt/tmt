@@ -1720,6 +1720,14 @@ with a fixed instruction code, and the retry continues after the owner acts. The
 in the same save that completes the last step. From the moment the Rules call may have been made
 until the run completes no binding is usable; a failure before that call leaves the earlier binding
 valid; running a finished plan again is a fresh check that keeps the binding until a Rules call is made.
+**Current implementation.** The deployment command owner is library-only, with approved
+extension inputs and the provider injected. It defaults to a plan with no provider effects;
+only an explicit digest authorization can run it. A private deployment record preserves the
+draft identity and saves run outcomes under a separate writer lock, publishing complete files
+by atomic rename. Readers never take that lock, so status need not wait for a deployment run.
+Installed declaration discovery, the real provider adapter and CLI registration, readiness
+from the record and the deployed-artifact emulator proof remain later prerequisites.
+
 Records carry fixed reason codes, never provider text, and Remote fixes the owner-step instruction text:
 
 - Refusals before any effect: `REMOTE_DEPLOY_PROJECT_INVALID`, `_LOCATION_INVALID`,

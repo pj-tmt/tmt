@@ -8,7 +8,7 @@ use std::{fs::File, ops::Deref, path::Path};
 use tmt_extension_state::Error as StateError;
 
 /// Private file names; anything else is refused.
-const FILES: [&str; 8] = [
+const FILES: [&str; 10] = [
     "machine.key",
     "key.lock",
     "serve.lock",
@@ -17,6 +17,8 @@ const FILES: [&str; 8] = [
     "settings.json",
     "settings.lock",
     "serve-error.json",
+    "deploy.json",
+    "deploy.lock",
 ];
 
 fn unsafe_directory() -> RemoteError {
