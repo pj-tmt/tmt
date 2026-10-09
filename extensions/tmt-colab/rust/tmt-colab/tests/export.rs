@@ -15,7 +15,7 @@ use std::{
 };
 use tmt_colab::{
     decoder::Decoder,
-    export::{Bundle, DISCLOSURE, Fault},
+    export::{Bundle, DISCLOSURE, Fault, attachments::Unserved},
     keyring::{Keyring, Layout},
     store::{
         Envelope, Namespace, Store, StreamScope,
@@ -126,6 +126,7 @@ impl Fixture {
             PAGE,
             &mut Decoder::with_config(support::decoder_config(BINARY.into())).unwrap(),
             1234,
+            &Unserved,
         )
     }
     fn db(&self) -> Connection {
@@ -260,6 +261,7 @@ fn exact_authenticated_bytes_survive_export_reopen_and_baseline_rotation() {
             PAGE,
             &mut Decoder::with_config(support::decoder_config(BINARY.into())).unwrap(),
             1234,
+            &Unserved,
         )
         .unwrap()
         .publish(&f.root)
@@ -408,7 +410,8 @@ fn inactive_and_unknown_pages_are_denied_without_changing_state() {
             &f.key,
             "10000000-0000-4000-8000-000000000099",
             &mut Decoder::with_config(support::decoder_config(BINARY.into())).unwrap(),
-            1
+            1,
+            &Unserved,
         )
         .is_err()
     );
@@ -529,7 +532,8 @@ fn missing_legacy_and_unsafe_state_are_never_initialized_or_migrated() {
             &f.key,
             PAGE,
             &mut Decoder::with_config(support::decoder_config(BINARY.into())).unwrap(),
-            1
+            1,
+            &Unserved,
         )
         .is_err()
     );

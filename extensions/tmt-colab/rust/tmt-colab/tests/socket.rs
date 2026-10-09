@@ -2722,6 +2722,64 @@ fn author_key(frozen: &tmt_colab::page::FrozenPublication) -> [u8; 32] {
 }
 
 #[test]
+fn root_local_attachment_read_is_refused_for_remote_callers_and_never_opens_storage() {
+    use tmt_colab::attachments;
+    let (server, layout, _key, _peer) = publish_fixture();
+    let hash = "b".repeat(64);
+    let selector = format!(
+        r#"{{"kind":"document-current","attachmentId":"{OTHER}","descriptorHash":"{hash}","contentRevision":"v1:{}"}}"#,
+        "a".repeat(64)
+    );
+    let body = format!(r#"{{"version":1,"page":"{PAGE}","selector":{selector}}}"#);
+    let before = fs::read(layout.directory.join("space.db")).unwrap();
+    for header in [
+        format!("{}\r\n", owner(DEVICE)),
+        "tmt-device-event: 1\r\n".into(),
+    ] {
+        let denied = server.event(attachments::ipc::PATH, &header, &body);
+        assert!(
+            denied.contains("403") && denied.contains("COLAB_DENIED"),
+            "{denied}"
+        );
+    }
+    let wrong_method = server.request_with_timeout(
+        &format!("GET {} HTTP/1.1\r\n\r\n", attachments::ipc::PATH),
+        support::DECODER_DEADLINE,
+    );
+    assert!(
+        wrong_method.contains("COLAB_INPUT_INVALID"),
+        "{wrong_method}"
+    );
+    for malformed in [
+        "{}".to_owned(),
+        body.replace(r#""version":1"#, r#""version":1,"agent":"x""#),
+        body.replace(&hash, "short"),
+    ] {
+        let refused = server.event(attachments::ipc::PATH, "", &malformed);
+        assert!(
+            refused.contains("400") && refused.contains("COLAB_INPUT_INVALID"),
+            "{refused}"
+        );
+    }
+    // A well-formed request on a serve with no established object channel is unavailable: the
+    // route neither opens a backend nor falls back to anything else.
+    let unavailable = server.event(attachments::ipc::PATH, "", &body);
+    assert!(
+        unavailable.contains("503") && unavailable.contains("COLAB_UNAVAILABLE"),
+        "{unavailable}"
+    );
+    let selector =
+        tmt_colab_model::attachment::AttachmentSelector::from_json(selector.as_bytes()).unwrap();
+    let error = attachments::ipc::read(&layout, PAGE, &selector).unwrap_err();
+    assert_eq!(
+        error
+            .downcast_ref::<tmt_colab::page::ipc::WriteError>()
+            .map(|failure| failure.code()),
+        Some("COLAB_UNAVAILABLE")
+    );
+    assert_eq!(fs::read(layout.directory.join("space.db")).unwrap(), before);
+}
+#[test]
 fn root_local_page_publish_broadcasts_each_entry_in_order_and_replays_without_fanout() {
     use tmt_colab::{
         decoder::Decoder,

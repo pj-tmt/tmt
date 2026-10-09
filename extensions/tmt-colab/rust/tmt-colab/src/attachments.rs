@@ -7,6 +7,7 @@ use crate::{
     page,
     store::Store,
 };
+pub mod ipc;
 use serde_json::Value;
 use std::time::Instant;
 use tmt_colab_model::{
@@ -67,7 +68,7 @@ pub fn namespace(space: &str, page: &str) -> Result<[u8; 32]> {
         page.as_bytes(),
     ])?))
 }
-fn revision(key: &Keyring, page: &str, snapshot: &Snapshot) -> Result<String> {
+pub(crate) fn revision(key: &Keyring, page: &str, snapshot: &Snapshot) -> Result<String> {
     page::token(
         &key.space_id,
         page,

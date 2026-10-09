@@ -1,3 +1,4 @@
+mod cli_attachments;
 mod cli_grammar;
 mod cli_management;
 mod cli_threads;
@@ -232,6 +233,7 @@ fn grammar() -> Command {
             )
             .subcommand(tmt_cli_style::command(&SPACES))
             .subcommand(cli_threads::command())
+            .subcommand(cli_attachments::command())
             .subcommand(
                 tmt_cli_style::command(&PAGE)
                     .subcommand_required(true)
@@ -305,6 +307,9 @@ fn run(matches: &clap::ArgMatches) -> Result<()> {
         }
         if command == "threads" {
             return cli_threads::run(&root, args);
+        }
+        if command == "attachment" {
+            return cli_attachments::run(&root, args);
         }
         let json_output = args.get_flag("json");
         if command == "spaces" {
@@ -549,7 +554,14 @@ fn export(root: &std::path::Path, args: &clap::ArgMatches) -> Result<()> {
         .duration_since(std::time::UNIX_EPOCH)?
         .as_millis()
         .try_into()?;
-    let bundle = Bundle::capture(&store, &keyring, &page_id, &mut decoder, now);
+    let bundle = Bundle::capture(
+        &store,
+        &keyring,
+        &page_id,
+        &mut decoder,
+        now,
+        &tmt_colab::export::attachments::Serve(&layout),
+    );
     let closed = store.close();
     let bundle = bundle?;
     closed?;
@@ -588,7 +600,7 @@ fn export(root: &std::path::Path, args: &clap::ArgMatches) -> Result<()> {
                     published
                         .files
                         .iter()
-                        .map(|file| file.name)
+                        .map(|file| file.name.as_str())
                         .collect::<Vec<_>>()
                         .join(", "),
                 ),

@@ -16,7 +16,7 @@ use std::{
 use tmt_colab::page::PublicationPreparation;
 use tmt_colab::{
     decoder::{ContentEdit, Decoder},
-    export::Bundle,
+    export::{Bundle, attachments::Unserved},
     keyring::{Keyring, Layout},
     store::{
         Envelope, Namespace, Store, StreamScope,
@@ -226,7 +226,7 @@ fn a_tail_past_the_old_caps_reads_back_byte_exact_through_the_library_readers() 
         read.source.len(),
         source.len()
     );
-    let bundle = Bundle::capture(&f.store, &f.key, PAGE, &mut decoder, 1234).unwrap();
+    let bundle = Bundle::capture(&f.store, &f.key, PAGE, &mut decoder, 1234, &Unserved).unwrap();
     let published = bundle.publish(&f.root).unwrap();
     assert!(
         fs::read(published.directory.join("page.html")).unwrap() == source.as_bytes(),
