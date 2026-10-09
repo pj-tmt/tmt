@@ -7,6 +7,7 @@ import {
   unlinkSync,
   writeFileSync,
 } from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { expect } from 'vite-plus/test';
 import { parseWholeStdout, runCli, withSandbox, type Sandbox } from './cli-process.js';
@@ -115,4 +116,15 @@ export async function installFormerSquad(sandbox: Sandbox, prefix: string): Prom
   for (const name of ['tmt-squad', 'tmt-sq']) {
     symlinkSync('../lib/tmt-squad/current/tmt-squad', path.join(prefix, 'bin', name));
   }
+  warmExecutable(path.join(prefix, 'bin/tmt-squad'));
+}
+
+/**
+ * Run a freshly written extension once, outside any product deadline. Core
+ * probes a hook-consenting extension within a second, but a debug binary's
+ * first start can take longer under load while the system verifies new files.
+ */
+export function warmExecutable(executable: string): void {
+  const warmed = spawnSync(executable, ['--help'], { stdio: 'ignore', timeout: 30_000 });
+  expect(warmed.error, `${executable} did not start`).toBeUndefined();
 }
