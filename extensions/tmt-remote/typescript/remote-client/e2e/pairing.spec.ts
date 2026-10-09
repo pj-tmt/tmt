@@ -1029,7 +1029,11 @@ test('the native entry checks once and presents all seven evidenced states witho
           return (
             Math.abs(text.top + text.height / 2 - action.top - action.height / 2) < 1 &&
             css.paddingTop === css.paddingBottom &&
-            Math.abs(block.getBoundingClientRect().height - action.height - verticalSpace) < 1
+            Math.abs(
+              block.getBoundingClientRect().height -
+                Math.max(text.height, action.height) -
+                verticalSpace,
+            ) < 1
           );
         }),
       ),
