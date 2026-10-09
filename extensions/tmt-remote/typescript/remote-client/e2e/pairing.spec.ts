@@ -2166,7 +2166,7 @@ async function captureFirestore(
   if (!directory) return;
   await mkdir(directory, { recursive: true });
   const path = join(directory, `firestore-${state}-${width}-${theme}.png`);
-  await page.locator('#firestore-title').scrollIntoViewIfNeeded();
+  await page.evaluate(() => scrollTo(0, 0));
   await page.screenshot({ path, fullPage: true });
   await appendFile(
     join(directory, 'index.jsonl'),
