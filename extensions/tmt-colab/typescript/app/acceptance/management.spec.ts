@@ -29,7 +29,7 @@ test('native sharing and lifecycle verification preserve Ask, page recovery and 
     const second = createPage(world, 'Remaining page', '<p>Still readable.</p>');
     const page = await openPage(door, device, first);
     await composeChat(page, recipient, 'Do not send this draft');
-    // Narrow page actions must open outside the overflow menu and return focus there.
+    // Narrow page actions must open outside the header menu and return focus there.
     await page.getByRole('button', { name: 'Close Chat', exact: true }).click();
     await page.setViewportSize({ width: 390, height: 844 });
     await page.getByRole('button', { name: 'More', exact: true }).click();
@@ -154,6 +154,7 @@ test('native sharing and lifecycle verification preserve Ask, page recovery and 
     await page.getByRole('button', { name: 'Show archived', exact: true }).click();
     const row = page.locator('ul.pages li').filter({ hasText: first.pageId });
     await expect(row).toContainText('Archived');
+    await row.locator('summary').click();
     await row.getByRole('button', { name: 'Manage page' }).click();
     dialog = page.getByRole('dialog');
     await expect(dialog.getByRole('button', { name: 'Archive page', exact: true })).toBeDisabled();
@@ -163,11 +164,9 @@ test('native sharing and lifecycle verification preserve Ask, page recovery and 
     await expect(dialog.getByRole('status')).toContainText('Deletion verified');
     await dialog.getByRole('button', { name: 'Close', exact: true }).click();
     await page.getByRole('button', { name: 'Show archived', exact: true }).click();
-    await page
-      .locator('ul.pages li')
-      .filter({ hasText: second.pageId })
-      .getByRole('button', { name: 'Manage page' })
-      .click();
+    const remaining = page.locator('ul.pages li').filter({ hasText: second.pageId });
+    await remaining.locator('summary').click();
+    await remaining.getByRole('button', { name: 'Manage page' }).click();
     dialog = page.getByRole('dialog');
     await expect(dialog.getByRole('button', { name: 'Delete page', exact: true })).toBeVisible();
     await dialog.getByRole('button', { name: 'Delete page', exact: true }).click();

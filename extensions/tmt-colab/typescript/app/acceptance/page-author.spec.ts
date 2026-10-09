@@ -52,7 +52,7 @@ test('original author survives later publishing and owner reload and reads to a 
     await expect(caption).toHaveText(`By ${creator.name}`);
     await page.reload();
     await expect(caption).toHaveText(`By ${creator.name}`);
-    await page.locator('.page-information summary').click();
+    await (await pageAction(page, 'About this page')).click();
     await expect(page.locator('.page-attribution')).toContainText(
       `Latest publisher${publisher.name}`,
     );
@@ -69,6 +69,7 @@ test('original author survives later publishing and owner reload and reads to a 
       }
     }
     await page.setViewportSize({ width: 1440, height: 844 });
+    await page.getByRole('button', { name: 'Close About this page', exact: true }).click();
     await (await pageAction(page, 'Export page')).click();
     const pending = page.waitForEvent('download');
     await page.getByRole('button', { name: /Download manifest.json/ }).click();
