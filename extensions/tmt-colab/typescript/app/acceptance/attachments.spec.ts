@@ -7,6 +7,7 @@ import path from 'node:path';
 import { expect, test, type Page } from '@playwright/test';
 import { openReaderLink, pairBrowser, startDoor } from './harness/browser.js';
 import { createPage, freePort, openChat, openPage, run } from './harness/ask.js';
+import { until } from './harness/process.js';
 import { disposeActiveWorlds, withWorld } from './harness/with-world.js';
 import { text } from '../src/strings.js';
 
@@ -604,6 +605,80 @@ test('export and attachment read return the same bytes as the browser, and say w
       expect(() => read('chat.bin')).toThrow(/COLAB_UNAVAILABLE/);
     } finally {
       fs.rmSync(out, { recursive: true, force: true });
+    }
+  });
+});
+
+test('a native attachment is re-sealed under the new epoch after the page rotates and every device still reads the same bytes', async () => {
+  test.setTimeout(240_000);
+  await withWorld(async (world) => {
+    const door = await startDoor(world, await freePort());
+    const author = await pairBrowser(world, 'rekey-author');
+    const viewer = await pairBrowser(world, 'rekey-viewer');
+    const created = createPage(world, 'Rekey', '<h1>Rekey</h1>');
+    const first = await openPage(door, author, created);
+    const second = await openPage(door, viewer, created);
+    const colab = (args: string[]) =>
+      JSON.parse(run(world, world.binaries.colab, [...args, '--json'])) as Record<string, any>;
+    // Every slot record of the serve; a finished re-seal names the attachment it replaced.
+    const records = () => {
+      const found = fs
+        .readdirSync(world.dataRoot, { recursive: true, encoding: 'utf8' })
+        .filter((entry) => entry.endsWith('attach-slots'));
+      expect(found).toHaveLength(1);
+      const directory = path.join(world.dataRoot, found[0]!);
+      return fs
+        .readdirSync(directory)
+        .map((name) =>
+          JSON.parse(fs.readFileSync(path.join(directory, name, 'slot.json'), 'utf8')),
+        ) as { replaces?: string; doneMs?: number; sealed?: { descriptor: { epoch: string } } }[];
+    };
+    const input = fs.mkdtempSync(path.join(os.tmpdir(), 'colab-rekey-'));
+    try {
+      await expect(
+        first.frameLocator('iframe').getByRole('heading', { name: 'Rekey', exact: true }),
+      ).toBeVisible();
+      const notes = bytes(40 * 1024, 33);
+      fs.writeFileSync(path.join(input, 'notes.txt'), notes);
+      const added = colab(['attachment', 'attach', created.pageId, path.join(input, 'notes.txt')]);
+      await openFiles(second);
+      const rows = second
+        .getByTestId('files-panel')
+        .or(second.locator('dialog[data-panel=files]'))
+        .getByTestId('file-row');
+      await expect(rows).toHaveCount(1, { timeout: 30_000 });
+      const before = records().filter((record) => record.sealed)[0]!.sealed!.descriptor.epoch;
+
+      // Widening keeps the epoch; the narrowing after it rotates it and commits first.
+      for (const mode of ['link', 'private']) {
+        colab(['share', 'mode', created.pageId, mode, '--yes']);
+      }
+
+      // The serve re-seals the file under the new epoch and swaps it in one write.
+      await until(
+        () => records().some((record) => record.replaces && record.doneMs),
+        'the re-seal finished',
+        90_000,
+      );
+      const swapped = records().find((record) => record.replaces && record.doneMs)!;
+      expect(swapped.replaces).toBe(added.attachment.attachmentId);
+      expect(swapped.sealed!.descriptor.epoch).not.toBe(before);
+      // The rotation ended the viewer's session; opening the page again lists exactly one file,
+      // the re-sealed one.
+      await second.reload();
+      await openFiles(second);
+      await expect(rows).toHaveCount(1, { timeout: 30_000 });
+      const download = second.waitForEvent('download', { timeout: 30_000 });
+      await rows.first().getByRole('button', { name: text.attachmentDownload }).click();
+      const saved = await download;
+      expect(saved.suggestedFilename()).toBe('notes.txt');
+      expect(sha(fs.readFileSync((await saved.path())!))).toBe(sha(notes));
+      // Nothing waits any more: no further re-seal slot appears.
+      const finished = records().filter((record) => record.replaces).length;
+      await new Promise((resolve) => setTimeout(resolve, 3_000));
+      expect(records().filter((record) => record.replaces)).toHaveLength(finished);
+    } finally {
+      fs.rmSync(input, { recursive: true, force: true });
     }
   });
 });

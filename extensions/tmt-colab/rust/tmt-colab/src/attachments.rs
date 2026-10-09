@@ -9,6 +9,7 @@ use crate::{
 };
 pub mod attach_ipc;
 pub mod ipc;
+pub(crate) mod rekey;
 pub(crate) mod seal;
 pub mod slots;
 use serde_json::Value;

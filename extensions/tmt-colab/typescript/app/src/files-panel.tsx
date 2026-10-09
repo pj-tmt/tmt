@@ -20,9 +20,12 @@ export function FilesList({
   binding,
   remove,
   disabled = false,
+  epoch,
 }: {
   descriptors: readonly attachment.AttachmentDescriptor[];
   binding?: AttachmentBinding;
+  /** The page's current epoch; a file sealed under an earlier one says it is being secured. */
+  epoch?: string;
   remove?(attachmentId: string): Promise<void>;
   disabled?: boolean;
 }) {
@@ -68,6 +71,8 @@ export function FilesList({
                   <span role="alert">{text.filesRemoveFailed}</span>
                 ) : removing === d.attachmentId ? (
                   text.filesRemoving
+                ) : epoch !== undefined && d.epoch !== epoch ? (
+                  text.filesResealing
                 ) : null
               }
               actions={
@@ -186,6 +191,7 @@ export function FilesPanel({
           binding={files.attachments}
           remove={(id) => files.remove([id])}
           disabled={disabled || adding}
+          epoch={files.epoch}
         />
       ) : (
         !staged.chips.length && <p className="files-empty">{text.filesEmpty}</p>

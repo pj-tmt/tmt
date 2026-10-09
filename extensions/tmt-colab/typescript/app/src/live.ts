@@ -99,6 +99,7 @@ export class Live implements PageBinding {
     });
     this.files = new LiveDocumentFiles({
       service: this.discussion.attachments,
+      epoch: () => this.page.epoch,
       source: () => this.#admitted.source,
       publish: (records) => this.#writer.submitOwnRecords(records),
       edit: (source, base, change) => this.edit(source, base, change),

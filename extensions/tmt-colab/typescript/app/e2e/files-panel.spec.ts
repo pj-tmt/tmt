@@ -88,6 +88,22 @@ test('Files is a peer panel: empty for a writer, then rows with a count after Ad
   expect(await actions(page)).toContain('attach:open:notes.txt:document');
 });
 
+test('a file sealed under an earlier epoch says it is being secured and stays available', async ({
+  page,
+}) => {
+  await mount(page);
+  const panel = await openFiles(page);
+  await attach(panel, page, [note('notes.txt')]);
+  await add(panel).click();
+  const row = panel.getByTestId('file-row');
+  await expect(row).toHaveCount(1);
+  await expect(row).not.toContainText(text.filesResealing);
+  // The page's epoch advances: the file stays listed and downloadable, and says so.
+  await page.evaluate(async (path) => (await import(path)).rotateEpoch(), fixture);
+  await expect(row).toHaveCount(1);
+  await expect(row).toContainText(text.filesResealing);
+  await expect(row.getByRole('button', { name: text.attachmentDownload })).toBeEnabled();
+});
 test('removing a file drops its row and the count; the last removal restores the empty state', async ({
   page,
 }) => {
@@ -313,6 +329,22 @@ for (const width of [1440, 390])
       await (await pageAction(page, 'Files')).click();
       await expect(page.getByTestId('file-row')).toHaveCount(3);
       await shot('reader');
+    });
+
+for (const width of [1440, 390])
+  for (const scheme of ['light', 'dark'] as const)
+    test(`captures the re-sealing file state at ${width} ${scheme}`, async ({ page }) => {
+      test.skip(!captures, 'Set COLAB_1855_CAPTURE_DIR to write UX review captures.');
+      await page.emulateMedia({ colorScheme: scheme });
+      await page.setViewportSize({ width, height: 900 });
+      await mount(page);
+      const panel = await openFiles(page);
+      await attach(panel, page, [note('notes.txt'), note('plan.txt')]);
+      await add(panel).click();
+      await expect(panel.getByTestId('file-row')).toHaveCount(2);
+      await page.evaluate(async (path) => (await import(path)).rotateEpoch(), fixture);
+      await expect(panel.getByText(text.filesResealing)).toHaveCount(2);
+      await page.screenshot({ path: `${captures}/2293-resealing-${width}-${scheme}.png` });
     });
 
 test('the Export panel lists every attachment with its outcome and saves an included one under its own name', async ({

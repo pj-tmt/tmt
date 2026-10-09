@@ -36,6 +36,7 @@ let current: PageView;
 let seen: ThreadStatusSeen | undefined;
 let seenOpens = 0;
 let scope = 'epoch-1';
+let pageEpoch = '1';
 let openGate: (() => void) | undefined;
 let ownerDevice = true;
 let hooks: { seed(): void; agentResolves(): void } | undefined;
@@ -148,6 +149,7 @@ export async function mount(
   let staleOnce = true;
   let lostOnce = true;
   scope = 'epoch-1';
+  pageEpoch = '1';
   const attachments: AttachmentBinding | undefined = options.attachments
     ? {
         scope: () => scope,
@@ -163,6 +165,7 @@ export async function mount(
             transferId: crypto.randomUUID(),
             descriptor: {
               attachmentId: crypto.randomUUID(),
+              epoch: pageEpoch,
               filename: input.filename,
               mediaType: input.mediaType,
               plaintextBytes: String(input.bytes.length),
@@ -210,6 +213,9 @@ export async function mount(
   let lostSave = true;
   const files: DocumentFiles | undefined = attachments && {
     attachments,
+    get epoch() {
+      return pageEpoch;
+    },
     target: () => ({ kind: 'document', source: current.source }),
     async add(list) {
       const names = list.map((s: StoredAttachment) => s.filename);
@@ -537,6 +543,11 @@ export function nonOwnerDevice() {
 /** The page's epoch or admission head moved (a revoke or an epoch advance). */
 export function advanceDisclosure() {
   scope = `${scope}+`;
+  emit();
+}
+/** The page's epoch advanced: files sealed under the old one wait to be re-sealed. */
+export function rotateEpoch() {
+  pageEpoch = String(Number(pageEpoch) + 1);
   emit();
 }
 /** Lets a read of a file whose name contains `slow` finish. */

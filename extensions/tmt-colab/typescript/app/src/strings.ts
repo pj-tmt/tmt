@@ -99,6 +99,7 @@ export const text = {
   filesTooMany: (name: string) => `${name} was not added. Add up to 16 files at a time.`,
   filesFull: 'A page holds up to 128 files. Remove one to add more.',
   filesRemoving: 'Removing…',
+  filesResealing: 'Securing after a key change. Still available.',
   filesRemoveFailed: 'Could not remove this file.',
   filesBlocked: {
     unknown: 'Files were not added. Check or remove the unconfirmed upload.',
