@@ -3204,8 +3204,10 @@ writable page, not the base). It asks `status` first, begins only an unobserved 
 `nextIndex`, reads the committed ciphertext back and authenticates it, publishes the creation proof
 and then the `meta.attachments` change bound to the sealed source digest, each through the single
 writer. Progress is read from the page and the backend, never remembered, so a retry never uploads
-or publishes twice. A page that changed after sealing refuses `COLAB_STALE_BASE` and keeps the
-original; the next attach opens a new slot and never re-authors silently.
+or publishes twice. A page edited after sealing, at any step before the list is
+published, is a terminal `COLAB_STALE_BASE`: the serve discards the uploaded original, disposes the
+slot and lists nothing. `--resume` of that slot is refused; the next attach opens a new slot and
+never re-authors silently.
 
 **Recovery.** A reply lost after the serve started is retried only by explicit `--resume <slot>`,
 never by a new slot for the same file. One attach runs per slot at a time; a finished slot keeps its

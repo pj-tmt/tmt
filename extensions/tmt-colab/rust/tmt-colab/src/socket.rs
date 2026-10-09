@@ -993,6 +993,9 @@ fn apply_event(
 /// Sync first, then Registration, matching upgrade/event and per-turn admission.
 /// The callback commits owner effects before pending subscriptions are rechecked.
 /// Reserved local routes derive authority from the socket, never forwarded headers.
+fn local_denied(request: &Request) -> bool {
+    request.context.is_some() || request.event.is_some()
+}
 /// Open a staging slot for a page that can take an attachment now. StagingSlots no one is going to
 /// finish are swept first, and the original of an aged started slot is discarded before it goes.
 fn attach_stage(
@@ -1073,9 +1076,6 @@ impl crate::object_channel::attach::Publish for ServePublish<'_> {
         self.0
             .publish(&body, registration::now_ms()?, Instant::now())
     }
-}
-fn local_denied(request: &Request) -> bool {
-    request.context.is_some() || request.event.is_some()
 }
 fn apply_management(
     request: &Request,

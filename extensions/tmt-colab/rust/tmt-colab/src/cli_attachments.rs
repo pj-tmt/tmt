@@ -6,7 +6,7 @@ use serde_json::json;
 use sha2::{Digest, Sha256};
 use std::{
     io::{Read, Write},
-    os::unix::fs::{MetadataExt, OpenOptionsExt},
+    os::unix::fs::OpenOptionsExt,
     path::{Path, PathBuf},
 };
 use tmt_cli_style::{CommandSpec, Example, OutputModes};
@@ -76,7 +76,7 @@ pub fn command() -> Command {
                 },
             ],
             outputs: OutputModes::HumanAndJson,
-            details: "Needs the running serve, an editable page and an established object channel (open the page once in a browser through tmt remote). The file is copied into a private staging slot the serve names; the serve seals it with this device's writer key, uploads it through the object channel, and lists it on the page. The type defaults from the file extension and is only a label. Files over 8 MiB are refused. If the reply is lost the command prints the slot; rerun with --resume SLOT, which asks the backend before sending anything and never uploads twice. A page that changed since the file was sealed refuses as a stale base and is never re-authored; run attach again for a new slot. --json prints the exact `reference` that `attachment read` takes.",
+            details: "Needs the running serve, an editable page and an established object channel (open the page once in a browser through tmt remote). The file is copied into a private staging slot the serve names; the serve seals it with this device's writer key, uploads it through the object channel, and lists it on the page. The type defaults from the file extension and is only a label. Files over 8 MiB are refused. If the reply is lost the command prints the slot; rerun with --resume SLOT, which asks the backend before sending anything and never uploads twice. A page edited after the file was sealed refuses as a stale base: the uploaded original is discarded and the slot is disposed, nothing is listed, and --resume cannot reuse it; run attach again for a new slot. --json prints the exact `reference` that `attachment read` takes.",
         })
         .arg(crate::cli_grammar::page())
         .arg(
@@ -316,7 +316,7 @@ fn labels(file: &Path, kind: Option<&String>) -> Result<(String, String)> {
     })?;
     Ok((name, kind))
 }
-/// The file to attach, opened without following a link: only a regular file of this user within
+/// The file to attach, opened without following a link: only a regular file within
 /// the size limit. Checked before any slot exists, and again as the bytes stream.
 fn open_source(from: &Path) -> Result<std::fs::File> {
     let source = std::fs::OpenOptions::new()
@@ -325,7 +325,7 @@ fn open_source(from: &Path) -> Result<std::fs::File> {
         .open(from)
         .map_err(|_| not_attachable())?;
     let metadata = source.metadata()?;
-    if !metadata.is_file() || metadata.uid() != nix::unistd::Uid::effective().as_raw() {
+    if !metadata.is_file() {
         return Err(not_attachable());
     }
     if metadata.len() > tmt_colab_model::attachment::PLAINTEXT_BYTES as u64 {

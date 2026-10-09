@@ -1,20 +1,25 @@
 //! The narrow native-write admission of an attach (#2291), decided against a real owner store: only
 //! the root-local writer's own document upload, at its captured base, on a writable page.
+use super::super::attach::{self as flow, AttachFailure, Objects, Publish, Step, tests as fake};
 use super::*;
 use crate::{
-    attachments::{self, slots::Frozen},
+    attachments::{
+        self, CommittedObjectVerifier,
+        slots::{Frozen, StagingSlot, StagingSlots},
+    },
     fold::Snapshot,
     page,
     readers::test_support::{Fixture, PAGE},
     store::owner::Device,
     transitions::OwnerAction,
 };
+use std::sync::Mutex;
 use tmt_colab_model::{
     attachment::{Descriptor, Source},
     crypto, values,
 };
-use tmt_extension_objects::BeginInput;
 use tmt_extension_objects::Operation;
+use tmt_extension_objects::{BeginInput, ErrorCode};
 
 fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|byte| format!("{byte:02x}")).collect()
@@ -369,4 +374,306 @@ fn a_revoked_writer_device_admits_nothing() {
         world.decide(&owner, Context::LocalExtension, begin),
         Decision::Deny
     );
+}
+
+/// The attach flow against a real owner store with the object channel replaced by an in-memory
+/// backend: each stage can be reached, interrupted and then met by a page that moved.
+struct Committed(Vec<u8>);
+impl CommittedObjectVerifier for Committed {
+    fn read_committed(&self, _: &[u8; 32], _: &[u8; 32], _: Instant) -> crate::Result<Vec<u8>> {
+        Ok(self.0.clone())
+    }
+}
+struct FakeObjects {
+    backend: fake::Backend,
+    ciphertext: Mutex<Vec<u8>>,
+    before_upload: Mutex<Option<Box<dyn FnOnce() + Send>>>,
+    unreadable: AtomicBool,
+    discards: AtomicUsize,
+}
+impl FakeObjects {
+    fn new() -> Self {
+        Self {
+            backend: fake::Backend::new(fake::Transfer::Unobserved),
+            ciphertext: Mutex::new(Vec::new()),
+            before_upload: Mutex::new(None),
+            unreadable: AtomicBool::new(false),
+            discards: AtomicUsize::new(0),
+        }
+    }
+}
+impl Objects for FakeObjects {
+    fn upload(&self, frozen: &Frozen, ciphertext: &[u8]) -> Step<()> {
+        if let Some(hook) = self.before_upload.lock().unwrap().take() {
+            hook();
+        }
+        *self.ciphertext.lock().unwrap() = ciphertext.to_vec();
+        let upload = binding::FrozenUpload::metadata(
+            frozen.descriptor.clone(),
+            frozen.base.clone(),
+            &frozen.transfer_id,
+        )
+        .unwrap();
+        flow::upload(&self.backend, &upload, ciphertext)
+    }
+    fn committed(&self, _: &Frozen) -> crate::Result<Box<dyn CommittedObjectVerifier + '_>> {
+        if self.unreadable.load(Ordering::SeqCst) {
+            return Err(page::Fault::Unavailable.into());
+        }
+        Ok(Box::new(Committed(self.ciphertext.lock().unwrap().clone())))
+    }
+    fn discard(&self, _: &Frozen) {
+        self.discards.fetch_add(1, Ordering::SeqCst);
+    }
+}
+/// The serve's single writer, driven in process like the socket does, and counted.
+struct Writer {
+    server: Arc<crate::sync::Server<crate::registration::OwnerAdmission>>,
+    published: Arc<AtomicUsize>,
+    fail_from: AtomicUsize,
+}
+impl Publish for Writer {
+    fn publish(
+        &self,
+        key: &crate::keyring::Keyring,
+        frozen: &page::FrozenPublication,
+    ) -> crate::Result<page::Published> {
+        if self.published.load(Ordering::SeqCst) + 1 >= self.fail_from.load(Ordering::SeqCst) {
+            return Err(page::Fault::Unavailable.into());
+        }
+        let body = page::ipc::local_write_body(key, frozen)?;
+        let published = self.server.publish(
+            &body,
+            crate::registration::now_ms().unwrap(),
+            Instant::now(),
+        )?;
+        self.published.fetch_add(1, Ordering::SeqCst);
+        Ok(published)
+    }
+}
+/// A different source for the page, published like any other write.
+fn edit_page(
+    source: &page::save::SourceOpener,
+    server: &crate::sync::Server<crate::registration::OwnerAdmission>,
+    published: &AtomicUsize,
+) {
+    let mut view = source().unwrap();
+    let current = page::read(&view.store, &view.keyring, PAGE, &mut view.decoder).unwrap();
+    drop(view);
+    let prepared = page::save::prepare(
+        source,
+        &page::save::Save {
+            page: PAGE.into(),
+            operation_id: page::fresh_id().unwrap(),
+            base_sha256: crypto::digest(current.source.as_bytes()),
+            source: format!("{}<p>edited</p>", current.source),
+            attachments: None,
+        },
+        &|| Ok(crate::registration::now_ms().unwrap()),
+    )
+    .unwrap();
+    let page::save::Prepared::Write(frozen) = prepared else {
+        panic!("an edit changes the page")
+    };
+    let view = source().unwrap();
+    let body = page::ipc::local_write_body(&view.keyring, &frozen).unwrap();
+    server
+        .publish(
+            &body,
+            crate::registration::now_ms().unwrap(),
+            Instant::now(),
+        )
+        .unwrap();
+    published.fetch_add(1, Ordering::SeqCst);
+}
+struct Flow {
+    world: World,
+    slots: StagingSlots,
+    objects: FakeObjects,
+    writer: Writer,
+}
+impl Flow {
+    fn new() -> Self {
+        let world = World::new();
+        let layout = crate::keyring::Layout::existing(&world.state.root)
+            .unwrap()
+            .unwrap();
+        let writer = Writer {
+            server: Arc::new(crate::sync::Server::new(
+                crate::store::Store::open(&layout).unwrap(),
+                crate::registration::OwnerAdmission(world.state.service.clone()),
+            )),
+            published: Arc::new(AtomicUsize::new(0)),
+            fail_from: AtomicUsize::new(usize::MAX),
+        };
+        Self {
+            slots: StagingSlots::open(&layout).unwrap(),
+            world,
+            objects: FakeObjects::new(),
+            writer,
+        }
+    }
+    const FILE: &'static [u8] = b"native attach bytes";
+    /// A slot with the file staged, as the CLI leaves it.
+    fn staged(&self) -> (StagingSlot, [u8; 32]) {
+        let slot = self
+            .slots
+            .create(PAGE, "a.txt", "text/plain", 1000)
+            .unwrap();
+        std::fs::write(slot.source_path(), Self::FILE).unwrap();
+        (slot, crypto::digest(Self::FILE))
+    }
+    fn run(&self, slot: &mut StagingSlot, expected: Option<[u8; 32]>) -> Step<flow::Attached> {
+        flow::run(
+            &self.objects,
+            slot,
+            expected,
+            &self.world.source,
+            &self.writer,
+            Instant::now() + Duration::from_secs(20),
+        )
+    }
+    /// A different source for the page, published like any other write: the page moves.
+    fn edit(&self) {
+        edit_page(
+            &self.world.source,
+            &self.writer.server,
+            &self.writer.published,
+        );
+    }
+    fn code(failure: &AttachFailure) -> Option<&'static str> {
+        failure
+            .error
+            .downcast_ref::<page::Fault>()
+            .map(page::Fault::code)
+    }
+    fn published(&self) -> usize {
+        self.writer.published.load(Ordering::SeqCst)
+    }
+    fn begins(&self) -> usize {
+        self.objects.backend.counts.lock().unwrap().begin
+    }
+}
+
+#[test]
+fn a_whole_attach_uploads_once_publishes_the_proof_then_the_list_and_a_retry_changes_nothing() {
+    let flow = Flow::new();
+    let (mut slot, expected) = flow.staged();
+    let attached = flow.run(&mut slot, Some(expected)).unwrap();
+    assert_eq!(attached.descriptor.filename, "a.txt");
+    assert_eq!(
+        (flow.begins(), flow.published()),
+        (1, 2),
+        "one begin; proof, then list"
+    );
+    assert_eq!(flow.objects.discards.load(Ordering::SeqCst), 0);
+    // A crash before the slot was marked finished: the page already lists it, so nothing repeats.
+    let again = flow.run(&mut slot, None).unwrap();
+    assert_eq!(
+        again.descriptor.attachment_id,
+        attached.descriptor.attachment_id
+    );
+    assert_eq!((flow.begins(), flow.published()), (1, 2));
+    // The finished slot answers the same attachment from its record alone.
+    slot.finish(2000).unwrap();
+    let mut done = flow.slots.load(slot.id()).unwrap();
+    let answered = flow.run(&mut done, None).unwrap();
+    assert_eq!(
+        answered.descriptor.attachment_id,
+        attached.descriptor.attachment_id
+    );
+    assert_eq!((flow.begins(), flow.published()), (1, 2));
+}
+#[test]
+fn a_page_edited_after_sealing_and_before_upload_is_stale_terminal_and_never_publishes() {
+    let flow = Flow::new();
+    let (mut slot, expected) = flow.staged();
+    // The first attempt sealed, began and sent its part, then lost the reply.
+    flow.objects.backend.lose_reply_at(3);
+    let first = flow.run(&mut slot, Some(expected)).unwrap_err();
+    assert_eq!(Flow::code(&first), Some("COLAB_UNAVAILABLE"));
+    assert!(!first.dispose);
+    let mut slot = flow.slots.load(slot.id()).unwrap();
+    assert!(slot.record.sealed.is_some());
+    flow.edit();
+    let stale = flow.run(&mut slot, None).unwrap_err();
+    assert_eq!(Flow::code(&stale), Some("COLAB_STALE_BASE"));
+    assert!(
+        stale.dispose,
+        "no resume can make the frozen base current again"
+    );
+    assert_eq!(flow.objects.discards.load(Ordering::SeqCst), 1);
+    assert_eq!(
+        (flow.begins(), flow.published()),
+        (1, 1),
+        "one begin; only the edit published"
+    );
+}
+#[test]
+fn a_page_edited_after_commit_and_before_the_proof_is_stale_terminal_and_never_publishes() {
+    let flow = Flow::new();
+    let (mut slot, expected) = flow.staged();
+    flow.objects.unreadable.store(true, Ordering::SeqCst);
+    let first = flow.run(&mut slot, Some(expected)).unwrap_err();
+    assert_eq!(Flow::code(&first), Some("COLAB_UNAVAILABLE"));
+    assert!(!first.dispose);
+    assert!(matches!(
+        &*flow.objects.backend.transfer_state(),
+        fake::Transfer::Committed
+    ));
+    let mut slot = flow.slots.load(slot.id()).unwrap();
+    flow.edit();
+    flow.objects.unreadable.store(false, Ordering::SeqCst);
+    let stale = flow.run(&mut slot, None).unwrap_err();
+    assert_eq!(Flow::code(&stale), Some("COLAB_STALE_BASE"));
+    assert!(stale.dispose);
+    assert_eq!((flow.begins(), flow.published()), (1, 1));
+}
+#[test]
+fn a_page_edited_after_the_proof_and_before_the_list_is_stale_terminal_and_lists_nothing() {
+    let flow = Flow::new();
+    let (mut slot, expected) = flow.staged();
+    // The proof publishes; the list change is the second publication and fails to reach the writer.
+    flow.writer.fail_from.store(2, Ordering::SeqCst);
+    let first = flow.run(&mut slot, Some(expected)).unwrap_err();
+    assert_eq!(Flow::code(&first), Some("COLAB_UNAVAILABLE"));
+    assert!(!first.dispose);
+    assert_eq!(flow.published(), 1, "the proof");
+    let mut slot = flow.slots.load(slot.id()).unwrap();
+    flow.writer.fail_from.store(usize::MAX, Ordering::SeqCst);
+    flow.edit();
+    assert_eq!(flow.published(), 2);
+    let stale = flow.run(&mut slot, None).unwrap_err();
+    assert_eq!(Flow::code(&stale), Some("COLAB_STALE_BASE"));
+    assert!(stale.dispose);
+    assert_eq!(
+        (flow.begins(), flow.published()),
+        (1, 2),
+        "no list publication"
+    );
+}
+#[test]
+fn a_denied_upload_is_a_stale_base_only_when_the_page_moved() {
+    // The base holds: the backend's refusal stays a denial, and the slot stays.
+    let flow = Flow::new();
+    let (mut slot, expected) = flow.staged();
+    flow.objects.backend.refuse_begin_with(ErrorCode::Denied);
+    let denied = flow.run(&mut slot, Some(expected)).unwrap_err();
+    assert_eq!(Flow::code(&denied), Some("COLAB_DENIED"));
+    assert!(!denied.dispose);
+    // The page moves between the base check and the first call, which is what the refusal then
+    // means: a stale base, terminal, with the original discarded.
+    let flow = Flow::new();
+    let (mut slot, expected) = flow.staged();
+    flow.objects.backend.refuse_begin_with(ErrorCode::Denied);
+    let source = Arc::clone(&flow.world.source);
+    let server = Arc::clone(&flow.writer.server);
+    let published = Arc::clone(&flow.writer.published);
+    *flow.objects.before_upload.lock().unwrap() =
+        Some(Box::new(move || edit_page(&source, &server, &published)));
+    let stale = flow.run(&mut slot, Some(expected)).unwrap_err();
+    assert_eq!(Flow::code(&stale), Some("COLAB_STALE_BASE"));
+    assert!(stale.dispose);
+    assert_eq!(flow.objects.discards.load(Ordering::SeqCst), 1);
+    assert_eq!(flow.published(), 1, "only the edit");
 }

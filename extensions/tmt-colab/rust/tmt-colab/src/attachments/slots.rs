@@ -89,8 +89,12 @@ pub struct StagingSlot {
     directory: PathBuf,
     pub record: Record,
 }
-/// A slot past its age, left for the caller to discard its original and dispose.
-pub struct Aged(pub StagingSlot);
+/// A slot past its age, left for the caller to discard its original and dispose. It holds the
+/// slot's claim, so no attach can start on it before the caller is done.
+pub struct Aged<'a> {
+    pub slot: StagingSlot,
+    _claim: Claim<'a>,
+}
 
 fn private_directory(path: &Path) -> Result<()> {
     let metadata = fs::symlink_metadata(path)?;
@@ -170,6 +174,21 @@ impl StagingSlots {
             }
         }
         Ok(ids)
+    }
+    /// Claim a slot only if no attach is on it.
+    fn try_claim(&self, id: &str) -> Option<Claim<'_>> {
+        let mut busy = self
+            .busy
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if busy.contains(id) {
+            return None;
+        }
+        busy.insert(id.to_owned());
+        Some(Claim {
+            slots: self,
+            id: id.to_owned(),
+        })
     }
     /// Take the one running attach of a slot. A retry that arrives while the first is still working
     /// waits for it (within `deadline`) and then finds the slot finished, instead of racing it.
@@ -272,18 +291,14 @@ impl StagingSlots {
     /// no readable record at all: a crashed create), and return the started slots past
     /// [`STARTED_AGE_MS`]. Their originals must be discarded by the caller before disposal; a
     /// recent started slot is never touched, because it is what restart recovery resumes.
-    pub fn sweep(&self, now_ms: u64) -> Result<Vec<Aged>> {
+    pub fn sweep(&self, now_ms: u64) -> Result<Vec<Aged<'_>>> {
         let mut aged = Vec::new();
         for id in self.ids()? {
-            // An attach is working on this slot right now.
-            if self
-                .busy
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner())
-                .contains(&id)
-            {
+            // A slot an attach is working on is left alone, and the claim taken here keeps it so
+            // until the decision, and any disposal, is done.
+            let Some(claim) = self.try_claim(&id) else {
                 continue;
-            }
+            };
             match self.load(&id) {
                 Ok(slot) => match &slot.record.sealed {
                     _ if slot
@@ -298,7 +313,10 @@ impl StagingSlots {
                         slot.dispose()?
                     }
                     Some(_) if now_ms.saturating_sub(slot.record.created_ms) >= STARTED_AGE_MS => {
-                        aged.push(Aged(slot))
+                        aged.push(Aged {
+                            slot,
+                            _claim: claim,
+                        })
                     }
                     _ => {}
                 },
@@ -560,14 +578,14 @@ mod tests {
         }
         assert!(slots.load(&started_id).is_ok() && slots.load(&old_id).is_ok());
         let aged = slots.sweep(1_000 + STARTED_AGE_MS).unwrap();
-        let mut names: Vec<_> = aged.iter().map(|a| a.0.id().to_owned()).collect();
+        let mut names: Vec<_> = aged.iter().map(|a| a.slot.id().to_owned()).collect();
         names.sort();
         let mut expected = vec![started_id.clone(), old_id.clone()];
         expected.sort();
         assert_eq!(names, expected);
         // Offering a slot for discard does not dispose it: the caller discards first.
         assert!(slots.load(&started_id).is_ok());
-        for Aged(slot) in aged {
+        for Aged { slot, .. } in aged {
             slot.dispose().unwrap();
         }
         assert!(slots.load(&started_id).is_err() && slots.load(&old_id).is_err());

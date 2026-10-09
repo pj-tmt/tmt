@@ -15,7 +15,7 @@ use super::{
 use crate::{
     Result,
     attachments::{
-        self, PublicationIntent, seal,
+        self, CommittedObjectVerifier, PublicationIntent, seal,
         slots::{Aged, Frozen, StagingSlot},
     },
     keyring::Keyring,
@@ -35,6 +35,7 @@ pub(crate) trait Publish {
     fn publish(&self, key: &Keyring, frozen: &page::FrozenPublication) -> Result<page::Published>;
 }
 /// What an attach produced: the descriptor now listed on the page, and the page revision after.
+#[derive(Debug)]
 pub(crate) struct Attached {
     pub descriptor: Descriptor,
     pub revision: String,
@@ -42,9 +43,9 @@ pub(crate) struct Attached {
 /// A refusal and whether the slot it came from is finished. A slot is kept only while it still
 /// holds an original that a later explicit resume can use.
 #[derive(Debug)]
-struct AttachFailure {
-    error: Error,
-    dispose: bool,
+pub(super) struct AttachFailure {
+    pub(super) error: Error,
+    pub(super) dispose: bool,
 }
 impl AttachFailure {
     fn keep(error: impl Into<Error>) -> Self {
@@ -60,8 +61,8 @@ impl AttachFailure {
         }
     }
 }
-type Error = Box<dyn std::error::Error + Send + Sync>;
-type Step<T> = std::result::Result<T, AttachFailure>;
+pub(super) type Error = Box<dyn std::error::Error + Send + Sync>;
+pub(super) type Step<T> = std::result::Result<T, AttachFailure>;
 
 /// Where an attempt stands on the page.
 enum Stage {
@@ -90,7 +91,12 @@ impl ChannelOwner {
         let Some(client) = self.client() else {
             return Err(page::Fault::Unavailable.into());
         };
-        match run(&client, &mut slot, expected, &source, publisher, deadline) {
+        let live = Live {
+            client: &client,
+            source: &source,
+            deadline,
+        };
+        match run(&live, &mut slot, expected, &source, publisher, deadline) {
             Ok(attached) => {
                 slot.finish(now()?)?;
                 Ok(attached)
@@ -108,11 +114,11 @@ impl ChannelOwner {
     /// needs none, and once the budget is spent the slot goes without one.
     pub(crate) fn dispose_aged(
         &self,
-        aged: Aged,
+        aged: Aged<'_>,
         source: &page::save::SourceOpener,
         deadline: Instant,
     ) {
-        let Aged(slot) = aged;
+        let Aged { slot, .. } = aged;
         if Instant::now() < deadline
             && let (Some(client), Some(frozen)) = (self.client(), slot.record.sealed.clone())
             && let Ok(upload) = FrozenUpload::metadata(
@@ -135,7 +141,7 @@ fn original_of(upload: &FrozenUpload) -> BeginInput {
 }
 /// How a call reaches the backend: through the object channel, admitted by the narrow native
 /// owner. A seam so the upload protocol can be exercised without a bus.
-trait Transport {
+pub(super) trait Transport {
     fn call(&self, call: Call) -> Result<Outcome>;
 }
 struct UploadChannel<'a> {
@@ -188,6 +194,79 @@ impl Transport for UploadChannel<'_> {
             .map_err(|_| page::Fault::Unavailable.into())
     }
 }
+/// The object channel as the attach flow needs it: the upload protocol, the authenticated read-back
+/// of the committed bytes, and a best-effort discard. A seam, so every stage of the flow, including
+/// a page that moved under it, can be exercised without a bus.
+pub(super) trait Objects {
+    fn upload(&self, frozen: &Frozen, ciphertext: &[u8]) -> Step<()>;
+    fn committed(&self, frozen: &Frozen) -> Result<Box<dyn CommittedObjectVerifier + '_>>;
+    fn discard(&self, frozen: &Frozen);
+}
+/// The serve's established channel, with every call admitted by the narrow native owner.
+struct Live<'a> {
+    client: &'a Client,
+    source: &'a page::save::SourceOpener,
+    deadline: Instant,
+}
+impl Objects for Live<'_> {
+    fn upload(&self, frozen: &Frozen, ciphertext: &[u8]) -> Step<()> {
+        let frozen_upload = FrozenUpload::metadata(
+            frozen.descriptor.clone(),
+            frozen.base.clone(),
+            &frozen.transfer_id,
+        )
+        .map_err(AttachFailure::keep)?;
+        let channel = UploadChannel::new(
+            self.client,
+            self.source,
+            frozen,
+            &frozen_upload,
+            self.deadline,
+        );
+        upload(&channel, &frozen_upload, ciphertext)
+    }
+    fn committed(&self, frozen: &Frozen) -> Result<Box<dyn CommittedObjectVerifier + '_>> {
+        let upload = FrozenUpload::metadata(
+            frozen.descriptor.clone(),
+            frozen.base.clone(),
+            &frozen.transfer_id,
+        )?;
+        let original = original_of(&upload);
+        Ok(Box::new(CommittedReader {
+            client: self.client.clone(),
+            origin: Origin::LocalExtension,
+            owner: Arc::new(RootWriteAdmission {
+                client: self.client.clone(),
+                source: Arc::clone(self.source),
+                descriptor: frozen.descriptor.clone(),
+                base: frozen.base.clone(),
+                original: original.clone(),
+                input: None,
+                deadline: self.deadline,
+            }),
+            namespace: *original.namespace.as_bytes(),
+            key: *original.opaque_key.as_bytes(),
+            policy: original.policy.clone(),
+            digest: *original.payload_sha256.as_bytes(),
+            bytes: original.payload_bytes,
+        }))
+    }
+    fn discard(&self, frozen: &Frozen) {
+        // A short budget of its own: the caller is already refusing, and an original the backend
+        // has expired or never saw needs no discard.
+        let deadline = self
+            .deadline
+            .min(Instant::now() + std::time::Duration::from_secs(1));
+        if let Ok(upload) = FrozenUpload::metadata(
+            frozen.descriptor.clone(),
+            frozen.base.clone(),
+            &frozen.transfer_id,
+        ) {
+            let channel = UploadChannel::new(self.client, self.source, frozen, &upload, deadline);
+            let _ = channel.call(upload.discard());
+        }
+    }
+}
 /// What a backend refusal means to the caller. `unknown` says a mutation may have taken effect.
 fn refusal(code: ErrorCode) -> Error {
     match code {
@@ -208,8 +287,8 @@ fn committed(published: &page::Published) -> Result<()> {
         Publication::Unknown { .. } => Err(page::Fault::Unavailable.into()),
     }
 }
-fn run(
-    client: &Client,
+pub(super) fn run(
+    objects: &dyn Objects,
     slot: &mut StagingSlot,
     expected: Option<[u8; 32]>,
     source: &page::save::SourceOpener,
@@ -261,28 +340,49 @@ fn run(
     }
     let frozen = slot.record.sealed.clone().expect("sealed above");
     let descriptor = frozen.descriptor.clone();
+    // Past this point a page that moved is terminal: no resume can make the frozen base current
+    // again, so the original is discarded (best effort) and the slot disposed.
+    let moved = |error: Error| {
+        if is(&error, page::Fault::StaleBase) {
+            objects.discard(&frozen);
+            AttachFailure::dispose(page::Fault::StaleBase)
+        } else {
+            AttachFailure::keep(error)
+        }
+    };
     match stage(source, &page_id, &descriptor, deadline).map_err(AttachFailure::keep)? {
         Stage::Listed => {}
-        Stage::Proven => {
-            save(source, publisher, &descriptor, deadline).map_err(AttachFailure::keep)?
-        }
+        Stage::Proven => save(source, publisher, &descriptor, deadline).map_err(moved)?,
         Stage::Fresh => {
+            if !base_holds(source, &frozen).map_err(AttachFailure::keep)? {
+                return Err(moved(page::Fault::StaleBase.into()));
+            }
             let ciphertext = slot
                 .read_object(limits::OBJECT_BYTES as u64)
                 .map_err(AttachFailure::keep)?;
-            let frozen_upload = FrozenUpload::metadata(
-                frozen.descriptor.clone(),
-                frozen.base.clone(),
-                &frozen.transfer_id,
-            )
-            .map_err(AttachFailure::keep)?;
-            let channel = UploadChannel::new(client, source, &frozen, &frozen_upload, deadline);
-            upload(&channel, &frozen_upload, &ciphertext)?;
-            prove(client, source, publisher, &frozen, deadline).map_err(AttachFailure::keep)?;
-            save(source, publisher, &descriptor, deadline).map_err(AttachFailure::keep)?;
+            if let Err(failure) = objects.upload(&frozen, &ciphertext) {
+                // A refusal that follows the page moving is a stale base, not a permission.
+                if is(&failure.error, page::Fault::Denied)
+                    && !base_holds(source, &frozen).unwrap_or(true)
+                {
+                    return Err(moved(page::Fault::StaleBase.into()));
+                }
+                return Err(failure);
+            }
+            prove(objects, source, publisher, &frozen, deadline).map_err(moved)?;
+            save(source, publisher, &descriptor, deadline).map_err(moved)?;
         }
     }
     answer(source, &page_id, descriptor).map_err(AttachFailure::keep)
+}
+fn is(error: &Error, fault: page::Fault) -> bool {
+    error.downcast_ref::<page::Fault>() == Some(&fault)
+}
+/// Whether the page is still at the base the original was sealed against.
+fn base_holds(source: &page::save::SourceOpener, frozen: &Frozen) -> Result<bool> {
+    let view = source()?;
+    let snapshot = page::snapshot(&view.store, &view.keyring, &frozen.descriptor.page, true)?;
+    Ok(attachments::current_base(&view.keyring, &frozen.descriptor, &snapshot)? == frozen.base)
 }
 /// The attachment as the page has it now: its descriptor and the revision a reference names.
 fn answer(
@@ -325,7 +425,11 @@ fn stage(
 }
 /// Upload the frozen original, or finish what an earlier attempt started. A doubtful answer keeps
 /// the slot: the next explicit resume asks the backend before sending anything.
-fn upload(transport: &dyn Transport, upload: &FrozenUpload, ciphertext: &[u8]) -> Step<()> {
+pub(super) fn upload(
+    transport: &dyn Transport,
+    upload: &FrozenUpload,
+    ciphertext: &[u8],
+) -> Step<()> {
     let original = original_of(upload);
     if ciphertext.len() as u64 != original.payload_bytes
         || crypto::digest(ciphertext) != *original.payload_sha256.as_bytes()
@@ -387,36 +491,13 @@ fn upload(transport: &dyn Transport, upload: &FrozenUpload, ciphertext: &[u8]) -
 }
 /// Publish the creation proof after reading the committed bytes back and authenticating them.
 fn prove(
-    client: &Client,
+    objects: &dyn Objects,
     source: &page::save::SourceOpener,
     publisher: &dyn Publish,
     frozen: &Frozen,
     deadline: Instant,
 ) -> Result<()> {
-    let upload = FrozenUpload::metadata(
-        frozen.descriptor.clone(),
-        frozen.base.clone(),
-        &frozen.transfer_id,
-    )?;
-    let original = original_of(&upload);
-    let reader = CommittedReader {
-        client: client.clone(),
-        origin: Origin::LocalExtension,
-        owner: Arc::new(RootWriteAdmission {
-            client: client.clone(),
-            source: Arc::clone(source),
-            descriptor: frozen.descriptor.clone(),
-            base: frozen.base.clone(),
-            original: original.clone(),
-            input: None,
-            deadline,
-        }),
-        namespace: *original.namespace.as_bytes(),
-        key: *original.opaque_key.as_bytes(),
-        policy: original.policy.clone(),
-        digest: *original.payload_sha256.as_bytes(),
-        bytes: original.payload_bytes,
-    };
+    let reader = objects.committed(frozen)?;
     let mut view = source()?;
     let publication = attachments::prepare_publication(
         &view.store,
@@ -425,7 +506,7 @@ fn prove(
             descriptor: &frozen.descriptor,
             base: &frozen.base,
         },
-        &reader,
+        &*reader,
         &mut view.decoder,
         deadline,
         now()?,
@@ -486,17 +567,17 @@ fn now() -> Result<u64> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(in crate::object_channel) mod tests {
     use super::*;
     use std::sync::Mutex;
     use tmt_extension_objects::Limit;
 
     const TRANSFER: &str = "20000000-0000-4000-8000-000000000094";
-    fn bytes(length: usize) -> Vec<u8> {
+    pub(in crate::object_channel) fn bytes(length: usize) -> Vec<u8> {
         (0..length).map(|i| (i * 131 + 7) as u8).collect()
     }
     /// A frozen upload of `ciphertext`, as a slot would hold it.
-    fn frozen(ciphertext: &[u8]) -> FrozenUpload {
+    pub(in crate::object_channel) fn frozen(ciphertext: &[u8]) -> FrozenUpload {
         let descriptor: Descriptor = serde_json::from_value(serde_json::json!({
             "version": 1,
             "attachmentId": "20000000-0000-4000-8000-000000000092",
@@ -521,13 +602,13 @@ mod tests {
     }
 
     #[derive(Default)]
-    struct Counts {
-        status: usize,
-        begin: usize,
-        parts: Vec<u32>,
-        commit: usize,
+    pub(in crate::object_channel) struct Counts {
+        pub(in crate::object_channel) status: usize,
+        pub(in crate::object_channel) begin: usize,
+        pub(in crate::object_channel) parts: Vec<u32>,
+        pub(in crate::object_channel) commit: usize,
     }
-    enum Transfer {
+    pub(in crate::object_channel) enum Transfer {
         Unobserved,
         Pending(Vec<Vec<u8>>),
         Committed,
@@ -535,24 +616,32 @@ mod tests {
     }
     /// An in-memory backend that survives the "restart" of the caller, and can lose the reply of
     /// the Nth call after applying it, or refuse with a code.
-    struct Backend {
+    pub(in crate::object_channel) struct Backend {
         transfer: Mutex<Transfer>,
-        counts: Mutex<Counts>,
-        calls: Mutex<usize>,
-        lose_reply_at: Mutex<Option<usize>>,
-        refuse_begin: Option<ErrorCode>,
+        pub(in crate::object_channel) counts: Mutex<Counts>,
+        pub(in crate::object_channel) calls: Mutex<usize>,
+        pub(in crate::object_channel) lose_reply_at: Mutex<Option<usize>>,
+        refuse_begin: Mutex<Option<ErrorCode>>,
     }
     impl Backend {
-        fn new(transfer: Transfer) -> Self {
+        pub(in crate::object_channel) fn new(transfer: Transfer) -> Self {
             Self {
                 transfer: Mutex::new(transfer),
                 counts: Mutex::new(Counts::default()),
                 calls: Mutex::new(0),
                 lose_reply_at: Mutex::new(None),
-                refuse_begin: None,
+                refuse_begin: Mutex::new(None),
             }
         }
-        fn lose_reply_at(&self, call: usize) {
+        pub(in crate::object_channel) fn refuse_begin_with(&self, code: ErrorCode) {
+            *self.refuse_begin.lock().unwrap() = Some(code);
+        }
+        pub(in crate::object_channel) fn transfer_state(
+            &self,
+        ) -> std::sync::MutexGuard<'_, Transfer> {
+            self.transfer.lock().unwrap()
+        }
+        pub(in crate::object_channel) fn lose_reply_at(&self, call: usize) {
             *self.lose_reply_at.lock().unwrap() = Some(call);
         }
     }
@@ -584,7 +673,7 @@ mod tests {
                     }
                 }
                 Call::Begin(_) => {
-                    if let Some(code) = self.refuse_begin {
+                    if let Some(code) = *self.refuse_begin.lock().unwrap() {
                         return Ok(Outcome::Failure(code));
                     }
                     counts.begin += 1;
@@ -716,8 +805,8 @@ mod tests {
             (ErrorCode::Invalid, "COLAB_INPUT_INVALID"),
             (ErrorCode::Unavailable, "COLAB_UNAVAILABLE"),
         ] {
-            let mut backend = Backend::new(Transfer::Unobserved);
-            backend.refuse_begin = Some(refused);
+            let backend = Backend::new(Transfer::Unobserved);
+            backend.refuse_begin_with(refused);
             let failure = upload(&backend, &frozen(&ciphertext), &ciphertext).unwrap_err();
             assert_eq!(code(&failure), Some(expected));
             assert!(!failure.dispose);
