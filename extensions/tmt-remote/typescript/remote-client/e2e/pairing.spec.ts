@@ -1024,8 +1024,10 @@ test('the native entry checks once and presents all seven evidenced states witho
           const group = node.parentElement!;
           return (
             group.matches('.entry-command') &&
-            (group.nextSibling?.textContent?.trim() ?? '') ===
-              (group.closest('#steps-different') ? 'on it.' : '')
+            (group.nextSibling?.textContent?.trim() ?? '') === '' &&
+            (!group.closest('#steps-different') ||
+              group.previousSibling?.textContent?.trim() ===
+                'To use this machine too, run this on it:')
           );
         }),
       ),
