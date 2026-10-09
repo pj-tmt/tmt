@@ -243,7 +243,9 @@ impl Registration {
         &self,
         context: Option<&str>,
         prefix: &str,
+        mount: &str,
     ) -> std::result::Result<String, Code> {
+        let mount = crate::short_links::mounted_root(Some(mount)).ok_or(Code::Invalid)?;
         let catalog = self.page_catalog(context)?;
         let pages: Vec<String> = catalog["pageIds"]
             .as_array()
@@ -267,7 +269,7 @@ impl Registration {
             _ => format!("/short/{prefix}"),
         };
         Ok(format!(
-            "../#space={}&path={}",
+            "{mount}#space={}&path={}",
             self.keyring.space_id,
             path.replace('/', "%2F")
         ))

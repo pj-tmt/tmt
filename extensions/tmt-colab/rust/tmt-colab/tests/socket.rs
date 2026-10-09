@@ -213,12 +213,14 @@ fn closed(socket: &mut UnixStream) -> bool {
 #[test]
 fn mounted_short_links_resolve_without_remote_and_preserve_ambiguous_past_links() {
     let server = Running::start(Tunnels::PRODUCT);
-    let admitted = format!("{}\r\n", owner(DEVICE));
+    let mount = "/r/abcdefghijklmnop/x/colab/";
+    let mount_header = format!("tmt-mount: {mount}\r\n");
+    let admitted = format!("{}\r\n{mount_header}", owner(DEVICE));
     let get = |path: &str| server.request(&Running::get(path, &admitted));
     let original = get("/p/00000000");
     assert!(original.starts_with("HTTP/1.1 302"), "{original}");
     assert!(original.contains(&format!(
-        "Location: ../#space={}&path=%2Fpages%2F{PAGE}\r\n",
+        "Location: {mount}#space={}&path=%2Fpages%2F{PAGE}\r\n",
         server.space
     )));
     assert!(original.contains("Cache-Control: no-store"));
@@ -236,7 +238,7 @@ fn mounted_short_links_resolve_without_remote_and_preserve_ambiguous_past_links(
     let historical = get("/p/00000000");
     assert!(
         historical.contains(&format!(
-            "Location: ../#space={}&path=%2Fshort%2F00000000\r\n",
+            "Location: {mount}#space={}&path=%2Fshort%2F00000000\r\n",
             server.space
         )),
         "{historical}"
@@ -244,8 +246,8 @@ fn mounted_short_links_resolve_without_remote_and_preserve_ambiguous_past_links(
     assert!(!historical.contains(&format!("%2Fpages%2F{other}")));
     assert!(get("/p/00000000-0").contains(&format!("path=%2Fpages%2F{PAGE}")));
     assert!(get("/p/99999999").contains("path=%2Fshort%2F99999999"));
-    let anonymous = server.request(&Running::get("/p/00000000", ""));
-    assert!(anonymous.contains("Location: ../#path=%2Fshort%2F00000000"));
+    let anonymous = server.request(&Running::get("/p/00000000", &mount_header));
+    assert!(anonymous.contains(&format!("Location: {mount}#path=%2Fshort%2F00000000")));
     assert!(!anonymous.contains(&server.space));
     assert!(!anonymous.contains(PAGE));
     for path in [
@@ -263,6 +265,85 @@ fn mounted_short_links_resolve_without_remote_and_preserve_ambiguous_past_links(
             ))
             .starts_with("HTTP/1.1 404")
     );
+}
+
+#[test]
+fn page_alias_redirects_use_remote_mount_for_mounted_and_root_forwarded_entries() {
+    let server = Running::start(Tunnels::PRODUCT);
+    for mount in [
+        "/r/abcdefghijklmnop/x/colab/",
+        "/r/234567abcdefghij/x/colab/",
+    ] {
+        // Remote forwards both entry forms as the same extension-relative /p/ path.
+        // The external request path is never the base for the returned Location.
+        let mounted_entry = format!("{mount}p/00000000");
+        for entry in [mounted_entry.as_str(), "/p/00000000"] {
+            let forwarded = entry
+                .strip_prefix(mount)
+                .map(|p| format!("/{p}"))
+                .unwrap_or_else(|| entry.to_owned());
+            for admitted in [false, true] {
+                let context = if admitted {
+                    format!("{}\r\n", owner(DEVICE))
+                } else {
+                    String::new()
+                };
+                let reply = server.request(&Running::get(
+                    &forwarded,
+                    &format!("{context}tmt-mount: {mount}\r\n"),
+                ));
+                assert!(reply.starts_with("HTTP/1.1 302"), "{entry}: {reply}");
+                let fragment = if admitted {
+                    format!("space={}&path=%2Fpages%2F{PAGE}", server.space)
+                } else {
+                    "path=%2Fshort%2F00000000".to_owned()
+                };
+                assert!(
+                    reply.contains(&format!("Location: {mount}#{fragment}\r\n")),
+                    "{entry}: {reply}"
+                );
+                assert!(!reply.contains("Location: ../"));
+                if !admitted {
+                    assert!(!reply.contains(&server.space));
+                    assert!(!reply.contains(PAGE));
+                }
+            }
+        }
+    }
+    for headers in [
+        "".to_owned(),
+        "tmt-mount: /r/abcdefghijklmnop/x/colab/\r\ntmt-mount: /r/abcdefghijklmnop/x/colab/\r\n"
+            .to_owned(),
+    ]
+    .into_iter()
+    .chain(
+        [
+            "",
+            "../",
+            "//evil.test/r/abcdefghijklmnop/x/colab/",
+            "https://evil.test/r/abcdefghijklmnop/x/colab/",
+            "/r/abcdefghijklmnop/x/remote/",
+            "/r/abcdefghijklmnop/x/colab",
+            "/r/abcdefghijklmno/x/colab/",
+            "/r/abcdefghijklmnopq/x/colab/",
+            "/r/ABCDEFGHIJKLMNOP/x/colab/",
+            "/r/abcdefghijklmn01/x/colab/",
+            "/r/abcdefghijklmnop/x/colab/?next=/",
+            "/r/abcdefghijklmnop/x/colab/#fragment",
+            "/r/abcdefghijklmnop/x/colab/../",
+            "/r/abcdefghijklmnop/x/colab/%2e%2e/",
+            "/r/abcdefghijklmnop/x/colab/ extra",
+        ]
+        .into_iter()
+        .map(|mount| format!("tmt-mount: {mount}\r\n")),
+    ) {
+        for context in [String::new(), format!("{}\r\n", owner(DEVICE))] {
+            let reply =
+                server.request(&Running::get("/p/00000000", &format!("{context}{headers}")));
+            assert!(reply.starts_with("HTTP/1.1 400"), "{headers:?}: {reply}");
+            assert!(!reply.contains("Location:"), "{reply}");
+        }
+    }
 }
 
 #[test]
@@ -2527,7 +2608,8 @@ fn management_page_policy_lifecycle_keeps_archived_reads_and_closes_deleted_peer
     let pages: Value = serde_json::from_str(page_list.split_once("\r\n\r\n").unwrap().1).unwrap();
     assert_eq!(pages["pages"], json!([]));
     assert_eq!(pages["pageIds"], json!([{"pageId":PAGE,"deleted":true}]));
-    let alias = server.request(&Running::get(&format!("/p/{PAGE}"), &header));
+    let alias_header = format!("{header}tmt-mount: /r/abcdefghijklmnop/x/colab/\r\n");
+    let alias = server.request(&Running::get(&format!("/p/{PAGE}"), &alias_header));
     assert!(
         alias.contains(&format!("path=%2Fshort%2F{PAGE}")),
         "{alias}"
@@ -2538,7 +2620,7 @@ fn management_page_policy_lifecycle_keeps_archived_reads_and_closes_deleted_peer
         .oracle()
         .execute("INSERT INTO pages(page,epoch) VALUES (?, '1')", [later])
         .unwrap();
-    let historical = server.request(&Running::get("/p/00000000", &header));
+    let historical = server.request(&Running::get("/p/00000000", &alias_header));
     assert!(
         historical.contains("path=%2Fshort%2F00000000"),
         "{historical}"

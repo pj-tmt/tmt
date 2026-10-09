@@ -331,6 +331,7 @@ struct Request {
     owner: Option<String>,
     context: Option<String>,
     origin: Option<String>,
+    mount: Option<String>,
     body: Vec<u8>,
     event: Option<String>,
     prefetched: Vec<u8>,
@@ -769,9 +770,13 @@ fn serve(
             let _ = response(&mut socket, 404, b"NOT FOUND", false);
             return;
         }
+        let Some(mount) = crate::short_links::mounted_root(request.mount.as_deref()) else {
+            let _ = response(&mut socket, 400, b"INVALID", false);
+            return;
+        };
         // Recovery must keep the requested alias without revealing private inventory.
         let result = if request.owner.is_none() {
-            Ok(format!("../#path=%2Fshort%2F{prefix}"))
+            Ok(format!("{mount}#path=%2Fshort%2F{prefix}"))
         } else {
             registration
                 .ok_or(registration::Code::Unavailable)
@@ -779,7 +784,7 @@ fn serve(
                     service
                         .lock()
                         .map_err(|_| registration::Code::Unavailable)?
-                        .page_alias(request.context.as_deref(), prefix)
+                        .page_alias(request.context.as_deref(), prefix, mount)
                 })
         };
         match result {
@@ -1364,6 +1369,7 @@ fn acquire(socket: &mut UnixStream) -> std::result::Result<Request, u16> {
         owner: None,
         context: None,
         origin: None,
+        mount: None,
         body: Vec::new(),
         event: None,
         prefetched: Vec::new(),
@@ -1398,6 +1404,7 @@ fn acquire(socket: &mut UnixStream) -> std::result::Result<Request, u16> {
             "tmt-device-event" => request.event = Some(value.to_owned()),
             CONTEXT_HEADER => request.context = Some(value.to_owned()),
             "tmt-origin" => request.origin = Some(value.to_owned()),
+            "tmt-mount" => request.mount = Some(value.to_owned()),
             "content-length" => {
                 if value.is_empty()
                     || !value.bytes().all(|b| b.is_ascii_digit())
