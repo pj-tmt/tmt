@@ -136,7 +136,7 @@ export function AgentStatusPanel({
       </dl>
       {failure?.code && (
         <p className="agent-status-code">
-          <code>{failure.code}</code>
+          <code className="tmt-ui-code">{failure.code}</code>
         </p>
       )}
       <button
