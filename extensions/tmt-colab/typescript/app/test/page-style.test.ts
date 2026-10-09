@@ -30,7 +30,12 @@ it('ships a compact content-only starter with exact browser token roles and both
   expect(skill).toContain('Colab already shows the brand, page title and actions.');
   expect(skill).toContain('Do not add a site header,');
   expect(skill).toContain('any sticky or fixed bar.');
-  expect(skill).toContain('Do not assume the parent theme reaches the page.');
+  expect(skill).toContain(
+    "Use the starter's explicit\ndata-theme selectors to follow Colab's choice.",
+  );
+  expect(skill).toContain(
+    'Author CSS keyed only on\nprefers-color-scheme keeps following the operating system.',
+  );
 
   const declarations = (selector: string) => {
     const block = starter.slice(starter.indexOf(selector) + selector.length).split('}')[0];

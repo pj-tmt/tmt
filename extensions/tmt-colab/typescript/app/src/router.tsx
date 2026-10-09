@@ -23,7 +23,7 @@ import { ColabHeader } from './colab-header.js';
 import { PageAttribution } from './page-attribution.js';
 import { NoticeCard } from './notice-card.js';
 import { RetentionHint } from './retention-hint.js';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { createPortal } from 'react-dom';
 import {
   createHashHistory,
@@ -48,6 +48,7 @@ import { ShareDialog } from './share-dialog.js';
 import { mountRenderer, MAX_RENDER_SOURCE_BYTES } from './renderer.js';
 import type { RenderState, SelectionRect } from './renderer.js';
 import { text } from './strings.js';
+import { getTheme, subscribeTheme } from './theme.js';
 import { terminalFailure } from './terminal-failure.js';
 import { buildWatch } from './app-build.js';
 import { SessionEvictedError } from './ask-remote.js';
@@ -359,14 +360,7 @@ export function AppHeader({
   );
 }
 function ThemeButton({ menuLabel = false }: { menuLabel?: boolean }) {
-  const [dark, setDark] = useState(() =>
-    document.documentElement.dataset.theme
-      ? document.documentElement.dataset.theme === 'dark'
-      : matchMedia('(prefers-color-scheme: dark)').matches,
-  );
-  useEffect(() => {
-    document.documentElement.dataset.theme = dark ? 'dark' : 'light';
-  }, [dark]);
+  const dark = useSyncExternalStore(subscribeTheme, getTheme) === 'dark';
   return (
     <span className="theme">
       <BrowserIconAction
@@ -374,7 +368,9 @@ function ThemeButton({ menuLabel = false }: { menuLabel?: boolean }) {
         variant="text"
         label={text.theme}
         icon={dark ? <Moon /> : <Sun />}
-        onActivate={() => setDark(!dark)}
+        onActivate={() => {
+          document.documentElement.dataset.theme = getTheme() === 'dark' ? 'light' : 'dark';
+        }}
       />
       {menuLabel && <span className="theme-label">Theme: {dark ? 'dark' : 'light'}</span>}
     </span>

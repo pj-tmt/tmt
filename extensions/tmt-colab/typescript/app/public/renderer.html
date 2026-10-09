@@ -9,7 +9,9 @@
       // Cosmetic quote capture/resolution only. Author code may tamper with this
       // renderer; nothing here authenticates text or grants an app capability.
       (() => {
-        function install(renderId, port) {
+        function install(renderId, port, theme) {
+          // Presentation only: author code can tamper with this projection.
+          document.documentElement.dataset.theme = theme;
           const utf8 = new TextEncoder();
           const excluded = 'head,script,style,template,noscript,[hidden],[data-colab-highlight]';
           const validQuote = (v) =>
@@ -328,6 +330,18 @@
               typeof v === 'object' &&
               !Array.isArray(v) &&
               Object.keys(v).length === 3 &&
+              v.type === 'colab.render.theme' &&
+              v.renderId === renderId &&
+              (v.theme === 'light' || v.theme === 'dark')
+            ) {
+              document.documentElement.dataset.theme = v.theme;
+              return;
+            }
+            if (
+              v &&
+              typeof v === 'object' &&
+              !Array.isArray(v) &&
+              Object.keys(v).length === 3 &&
               v.type === 'colab.render.layout' &&
               v.renderId === renderId &&
               v.mode === 'frame'
@@ -461,8 +475,9 @@
           const value = event.data;
           if (!value || typeof value !== 'object' || Array.isArray(value)) return;
           if (
-            Object.keys(value).length !== 4 ||
+            Object.keys(value).length !== 5 ||
             value.type !== 'colab.render.bind' ||
+            (value.theme !== 'light' && value.theme !== 'dark') ||
             typeof value.renderId !== 'string' ||
             typeof value.sourceDigest !== 'string' ||
             !/^[0-9a-f]{64}$/.test(value.sourceDigest) ||
@@ -478,7 +493,7 @@
           window.removeEventListener('message', bind);
           const port = event.ports[0];
           // The temporary callback transfers no authority; it runs before author HTML.
-          window.__colabRenderStart = () => install(value.renderId, port);
+          window.__colabRenderStart = () => install(value.renderId, port, value.theme);
           const acknowledgement =
             '<script>window.__colabRenderStart();delete window.__colabRenderStart;<\/script>';
           document.open();
