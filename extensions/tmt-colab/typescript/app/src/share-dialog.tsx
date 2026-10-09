@@ -54,6 +54,7 @@ export function ShareDialog({
   committed(): void;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
+  const heading = useRef<HTMLHeadingElement>(null);
   const submitting = useRef(false);
   const lifetime = useRef<AbortController | null>(null);
   const [forever, setForever] = useState(false);
@@ -82,6 +83,7 @@ export function ShareDialog({
     const trigger = document.activeElement;
     const element = dialog.current;
     element?.showModal();
+    heading.current?.focus({ preventScroll: true });
     return () => {
       element?.close();
       if (trigger instanceof HTMLElement && trigger.isConnected && trigger.getClientRects().length)
@@ -197,7 +199,9 @@ export function ShareDialog({
       }}
     >
       <div className="dialog-bar">
-        <h2 id="management-title">{title}</h2>
+        <h2 ref={heading} id="management-title" tabIndex={-1}>
+          {title}
+        </h2>
         <button disabled={!canClose} onClick={close}>
           Close
         </button>
