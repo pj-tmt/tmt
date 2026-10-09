@@ -161,6 +161,7 @@ fn report_contains(report: &Value, key: &str, path: &Path) -> bool {
     })
 }
 
+// Throwaway #2403 qualification: this path selects the pre-merge real-archive rehearsal.
 #[test]
 #[ignore = "requires TMT_UPGRADE_* paths and real versioned matching-host binaries"]
 fn cargo_dist_upgrade_refreshes_real_artifacts_and_preserves_conflicts() {
