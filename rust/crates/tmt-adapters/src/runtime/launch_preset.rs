@@ -450,15 +450,20 @@ mod tests {
 
     #[test]
     fn drivers_compose_only_selected_settings_in_their_own_resume_grammar() {
-        let registry = RuntimeRegistry::first_party();
+        let mut registry = RuntimeRegistry::first_party();
         for harness in ["claude", "codex"] {
+            let mut remembered = session(harness, "old");
+            if harness == "codex" {
+                remembered.mode = RuntimeMode::new("shared").unwrap();
+            }
+            let tmt_core::driver::ActionResult::Completed(mut command) =
+                registry.resume(&remembered)
+            else {
+                panic!("driver must generate an exact resume command");
+            };
             let lifecycle = registry
                 .lifecycle(&HarnessId::new(harness).unwrap())
                 .unwrap();
-            let mut command = RuntimeCommand {
-                executable: harness.into(),
-                args: vec!["--model".into(), "old".into()],
-            };
             assert!(lifecycle.resume_settings(
                 &mut command,
                 &LaunchSettings {
@@ -467,9 +472,23 @@ mod tests {
                 }
             ));
             let expected = if harness == "claude" {
-                vec!["--model", "selected", "--effort", "high"]
+                vec![
+                    "--resume",
+                    remembered.provider_session.as_str(),
+                    "--model",
+                    "selected",
+                    "--effort",
+                    "high",
+                ]
             } else {
-                vec!["-m", "selected", "-c", "model_reasoning_effort=\"high\""]
+                vec![
+                    "resume",
+                    "-m",
+                    "selected",
+                    "-c",
+                    "model_reasoning_effort=\"high\"",
+                    remembered.provider_session.as_str(),
+                ]
             };
             assert_eq!(
                 command.args,

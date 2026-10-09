@@ -403,6 +403,7 @@ impl crate::runtime::lifecycle::RuntimeLifecycle for CodexLifecycle {
         }
         // Driver resume already supplies the observed model. Replace it only
         // when the caller or preset has selected a model explicitly.
+        let mut options = Vec::new();
         if let Some(model) = &settings.model {
             if let Some(index) = command
                 .args
@@ -411,14 +412,17 @@ impl crate::runtime::lifecycle::RuntimeLifecycle for CodexLifecycle {
             {
                 command.args.drain(index..index + 2);
             }
-            command.args.extend(["-m".into(), model.into()]);
+            options.extend(["-m".into(), model.into()]);
         }
         if let Some(effort) = &settings.effort {
-            command.args.extend([
+            options.extend([
                 "-c".into(),
                 format!("model_reasoning_effort=\"{effort}\"").into(),
             ]);
         }
+        // Exact channel admission accepts options between `resume` and the
+        // selected session; the embedded-mode suffix must stay after it.
+        command.args.splice(1..1, options);
         true
     }
 
@@ -763,6 +767,112 @@ impl crate::runtime::lifecycle::LifecycleObservation for CodexObservation {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn replayed_settings_preserve_exact_resume_channel_admission_and_attachment() {
+        use crate::runtime::{RuntimeRegistry, launch_preset::LaunchSettings};
+        use tmt_core::{
+            binding::session::{DriverState, HarnessId, RememberedSession, RuntimeMode},
+            driver::ActionResult,
+        };
+
+        let mut registry = RuntimeRegistry::first_party();
+        let session = ProviderSessionId::new("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa").unwrap();
+        for mode in [MODE_SHARED, MODE_EMBEDDED] {
+            for observed in [None, Some("observed")] {
+                for (model, effort) in [
+                    (None, None),
+                    (Some("selected"), None),
+                    (None, Some("high")),
+                    (Some("selected"), Some("high")),
+                ] {
+                    let remembered = RememberedSession {
+                        harness: HarnessId::new(NAME).unwrap(),
+                        mode: RuntimeMode::new(mode).unwrap(),
+                        provider_session: session.clone(),
+                        state: observed.map(|model| {
+                            DriverState::new(1, &json!({"model":model}).to_string()).unwrap()
+                        }),
+                        stale_at_ms: None,
+                        resume_pending_at_ms: None,
+                    };
+                    let ActionResult::Completed(mut command) = registry.resume(&remembered) else {
+                        panic!("driver must generate exact resume");
+                    };
+                    let lifecycle = registry.lifecycle(&remembered.harness).unwrap();
+                    assert!(lifecycle.resume_settings(
+                        &mut command,
+                        &LaunchSettings {
+                            model: model.map(str::to_owned),
+                            effort: effort.map(str::to_owned),
+                        }
+                    ));
+                    let mut expected = vec![std::ffi::OsString::from("resume")];
+                    if let Some(model) = model {
+                        expected.extend(["-m".into(), model.into()]);
+                    }
+                    if let Some(effort) = effort {
+                        expected.extend([
+                            "-c".into(),
+                            format!("model_reasoning_effort=\"{effort}\"").into(),
+                        ]);
+                    }
+                    if model.is_none()
+                        && let Some(observed) = observed
+                    {
+                        expected.extend(["-m".into(), observed.into()]);
+                    }
+                    expected.push(session.as_str().into());
+                    if mode == MODE_EMBEDDED {
+                        expected.push("--no-daemon".into());
+                    }
+                    assert_eq!(command.args, expected);
+                    let options = attachment::LaunchOptions::for_launch(
+                        &command,
+                        std::path::Path::new("/task"),
+                        Some(&session),
+                    )
+                    .expect("replayed settings must remain admissible to exact channel resume");
+                    let params = options.thread_resume_params(&session);
+                    assert_eq!(params["threadId"], session.as_str());
+                    assert_eq!(
+                        params.get("model").and_then(|v| v.as_str()),
+                        model.or(observed)
+                    );
+                    let attached = options
+                        .foreground(&command, "ws://127.0.0.1:1234", &session)
+                        .unwrap();
+                    assert_eq!(attached.args.last().unwrap(), session.as_str());
+                    assert!(!attached.args.iter().any(|arg| arg == "--no-daemon"));
+                    if let Some(effort) = effort {
+                        let config = format!("model_reasoning_effort=\"{effort}\"");
+                        assert!(
+                            options
+                                .server_arguments()
+                                .windows(2)
+                                .any(|pair| { pair[0] == "-c" && pair[1] == config.as_str() })
+                        );
+                        assert!(
+                            attached
+                                .args
+                                .windows(2)
+                                .any(|pair| { pair[0] == "-c" && pair[1] == config.as_str() })
+                        );
+                    }
+                    let before = command.clone();
+                    assert!(!lifecycle.resume_settings(
+                        &mut command,
+                        &LaunchSettings {
+                            model: None,
+                            effort: Some("--invalid".into())
+                        }
+                    ));
+                    assert_eq!(command, before);
+                }
+            }
+        }
+    }
+
     fn start(source: &str, session: &str) -> CodexObservation {
         decode_hook(
             json!({"hook_event_name":"SessionStart", "source":source, "session_id":session})
