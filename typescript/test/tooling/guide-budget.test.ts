@@ -11,7 +11,7 @@ const BUDGETS = {
 } as const;
 const BYTE_BUDGETS = {
   'DEVELOPMENT.md': 21_096,
-  'ARCHITECTURE.md': 96_911,
+  'ARCHITECTURE.md': 96_960,
 } as const;
 
 export function lineCount(text: string): number {
