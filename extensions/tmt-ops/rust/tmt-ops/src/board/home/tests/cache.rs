@@ -223,8 +223,8 @@ fn the_header_usage_and_key_line_follow_their_inputs() {
     let view = app.view.as_ref().unwrap();
     let mut usage = super::interaction::header_usage();
     for width in [160, 140, 100, 99, 80] {
-        let held = paint::usage_of(view, &usage, width, app.look());
-        let again = paint::usage_of(view, &usage, width, app.look());
+        let held = paint::usage_of(&app, &usage, width, app.look());
+        let again = paint::usage_of(&app, &usage, width, app.look());
         assert_eq!(held, paint::usage(&usage, width, app.look()), "{width}");
         assert_eq!(again, held, "{width}");
         for cron in [false, true] {
@@ -236,11 +236,11 @@ fn the_header_usage_and_key_line_follow_their_inputs() {
         }
     }
     let before = builds(&app);
-    paint::usage_of(view, &usage, 80, app.look());
+    paint::usage_of(&app, &usage, 80, app.look());
     paint::hints_of(view, 80, true, true, false);
     assert_eq!(builds(&app), before, "the held strips paint nothing");
     usage.unreported += 1;
-    paint::usage_of(view, &usage, 160, app.look());
+    paint::usage_of(&app, &usage, 160, app.look());
     assert_eq!(builds(&app), before + 1, "new usage data repaints the line");
 }
 

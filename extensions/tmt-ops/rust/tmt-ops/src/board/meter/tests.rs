@@ -103,15 +103,18 @@ fn cubic_frames_settle_exactly_and_retarget_from_displayed_digits() {
     assert!(!meter.tick(start + Duration::from_millis(249)));
     assert!(meter.tick(start + Duration::from_millis(250)));
     let expected = 150.0 * (1.0 - (1.0 - 250.0_f64 / 600.0).powi(3));
-    assert!((meter.displayed - expected).abs() < 1e-10);
-    let displayed = meter.displayed;
+    assert!((meter.counter.displayed - expected).abs() < 1e-10);
+    let displayed = meter.counter.displayed;
     meter.sample(Ok(&input(300)), start + Duration::from_millis(300));
-    assert_eq!(meter.animation.as_ref().unwrap().from, displayed);
-    assert_eq!(meter.displayed, displayed, "retarget has no jump");
+    assert_eq!(meter.counter.animation.as_ref().unwrap().from, displayed);
+    assert_eq!(meter.counter.displayed, displayed, "retarget has no jump");
     let end = start + Duration::from_millis(900);
     meter.tick(end);
-    assert_eq!(meter.displayed, meter.reading.unwrap().tokens as f64);
-    assert!(meter.animation.is_none());
+    assert_eq!(
+        meter.counter.displayed,
+        meter.reading.unwrap().tokens as f64
+    );
+    assert!(meter.counter.animation.is_none());
     assert!(meter.wait(end).is_none());
     assert!(
         !meter.tick(end + Duration::from_secs(100)),
@@ -143,7 +146,7 @@ fn windows_switch_totals_without_animation() {
     meter.sample(Ok(&input(200)), now + Duration::from_secs(10));
     meter.select(TokenWindow::FIVE_MINUTES, now + Duration::from_secs(10));
     assert_eq!(meter.digits().as_deref(), Some("~150"));
-    assert!(meter.animation.is_none());
+    assert!(meter.counter.animation.is_none());
     assert_eq!(meter.label().as_deref(), Some("5m"));
     meter.select(TokenWindow::HOUR, now + Duration::from_secs(10));
     assert_eq!(meter.digits().as_deref(), Some("~150"));
@@ -231,7 +234,7 @@ fn history_opens_immediately_and_home_live_extension_matches_named_totals() {
     named.origin_ms = 22_500;
     named.seed(&input, &seeds, now, true);
     assert_eq!(named.digits().as_deref(), Some("~30"));
-    assert!(named.animation.is_none());
+    assert!(named.counter.animation.is_none());
     let template = input.joined(&std::collections::BTreeMap::new());
     let mut home = Meter::new(TokenRate::default(), &template, now);
     home.origin_ms = 22_500;

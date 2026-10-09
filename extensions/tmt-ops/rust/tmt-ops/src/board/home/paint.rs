@@ -28,17 +28,40 @@ pub(crate) fn summary_of(view: &View, width: u16, look: Look) -> Line<'static> {
 }
 
 pub(crate) fn usage_of(
-    view: &View,
+    app: &App,
     usage: &HomeHeaderUsage<'_>,
     width: u16,
     look: Look,
 ) -> Option<Line<'static>> {
-    super::bar::usage_in(
+    let view = app.view.as_ref().unwrap();
+    let mut digits = app.home_header_digits(usage, std::time::Instant::now());
+    let keys = app.home_header_counter_keys();
+    let slots = super::bar::usage_slots(usage, width);
+    for &(index, _, cell) in &slots {
+        digits[index] = app
+            .home_counters
+            .borrow_mut()
+            .admitted_digits(&keys[index], cell);
+    }
+    let line = super::bar::usage_in(
         &mut view.derived.borrow_mut().home.usage,
         usage,
         width,
         look,
-    )
+        Some(&digits),
+    );
+    if line.is_some() && !view.history_pending {
+        for (index, x, cell) in slots {
+            app.home_counters.borrow_mut().visible(
+                &keys[index],
+                Rect::new(x, 0, cell, 1),
+                String::new(),
+                tmt_cli_style::grid::Align::Right,
+                false,
+            );
+        }
+    }
+    line
 }
 
 pub(crate) fn hints_of(
@@ -127,6 +150,7 @@ pub(super) fn render_at(frame: &mut Frame, app: &App, area: Rect, now: u64) {
     let mut input_range = None;
     let mut input_area = area;
     let mut selected_range = 0..0;
+    let mut counter_regions = Vec::new();
     let receipt_now = std::time::Instant::now();
     let mut section = "";
     if !entries
@@ -325,7 +349,24 @@ pub(super) fn render_at(frame: &mut Frame, app: &App, area: Rect, now: u64) {
                 .selected
                 .checked_sub(index)
                 .filter(|local| *local < items.len());
-            let painted = tiles::paint_in(&mut scenes.squads, &items, area.width, look, selected);
+            let digits = items
+                .iter()
+                .map(|item| {
+                    item.usage.as_ref().map_or_else(
+                        || std::array::from_fn(|_| "–".into()),
+                        |usage| app.home_digits(&item.squad.squad, usage, receipt_now),
+                    )
+                })
+                .collect::<Vec<_>>();
+            let slots = tiles::counter_slots(&items, area.width);
+            let painted = tiles::paint_display_in(
+                &mut scenes.squads,
+                &items,
+                area.width,
+                look,
+                selected,
+                Some(&digits),
+            );
             lines.extend(painted.head);
             let start = lines.len();
             let selected_region =
@@ -357,6 +398,20 @@ pub(super) fn render_at(frame: &mut Frame, app: &App, area: Rect, now: u64) {
                     0
                 };
                 let range = start + region.lines.start + shift..start + region.lines.end + shift;
+                if items[region.item].usage.is_some() {
+                    let keys = app.home_counter_keys(&items[region.item].squad.squad);
+                    for &(window, x, width, mixed) in &slots {
+                        let prefix = if mixed {
+                            format!(
+                                "{}:",
+                                items[region.item].usage.as_ref().unwrap().windows[window].label()
+                            )
+                        } else {
+                            String::new()
+                        };
+                        counter_regions.push((keys[window].clone(), range.start, x, width, prefix));
+                    }
+                }
                 starts.push(range.start);
                 if index + region.item == app.selected {
                     selected_range = range.start..range.end + inserted;
@@ -405,6 +460,17 @@ pub(super) fn render_at(frame: &mut Frame, app: &App, area: Rect, now: u64) {
                     target: crate::board::app::HitTarget::Row(row),
                 });
             }
+        }
+    }
+    for (key, line, x, width, prefix) in counter_regions {
+        if (offset..offset + shown).contains(&line) {
+            app.home_counters.borrow_mut().visible(
+                &key,
+                Rect::new(area.x + x, area.y + (line - offset) as u16, width, 1),
+                prefix,
+                tmt_cli_style::grid::Align::Right,
+                true,
+            );
         }
     }
     *app.row_starts.borrow_mut() = starts;

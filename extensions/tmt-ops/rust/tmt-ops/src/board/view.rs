@@ -40,14 +40,25 @@ pub fn fit(text: &str, width: usize) -> String {
 }
 
 pub fn render(frame: &mut Frame, app: &App) {
+    app.home_counters.borrow_mut().begin();
     let home_usage = (!app.loading())
         .then(|| app.home_header_usage(std::time::Instant::now()))
         .flatten()
         .zip(app.view.as_ref())
-        .and_then(|(usage, view)| {
-            super::home::usage_of(view, &usage, frame.area().width, app.look())
+        .and_then(|(usage, _view)| {
+            super::home::usage_of(app, &usage, frame.area().width, app.look())
         });
     render_frame(frame, app, home_usage);
+    app.home_counters.borrow_mut().finish(
+        app.input_band.get(),
+        app.help
+            || app.settings.is_some()
+            || app.menu.is_some()
+            || app.switcher.is_some()
+            || app.cron_list.is_some()
+            || app.view_picker.is_some()
+            || app.theme_picker.is_some(),
+    );
 }
 
 /// Frame geometry consumes an already formatted header, independent of acquisition.
@@ -111,6 +122,7 @@ pub(in crate::board) fn render_frame(
             ratatui::text::Line::styled("Updating usage…", look.role(tmt_cli_style::Role::Muted)),
         );
     } else if let Some(line) = home_usage {
+        app.home_counters.borrow_mut().place_header(meter_status);
         strip::paint_left(frame.buffer_mut(), meter_status, line);
     }
     match app.cached_display() {

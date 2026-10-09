@@ -198,18 +198,39 @@ fn percent(share: &UsageShare) -> String {
     )
 }
 
+/// Accepted evidence owns the numeric budget, independently of animation.
+fn usage_number(usage: &HomeHeaderUsage<'_>, index: usize) -> String {
+    usage.totals[index].map_or_else(
+        || "–".into(),
+        |reading| {
+            let number = crate::source::tokens(reading.tokens as f64);
+            format!("{}{number}", if reading.partial { "~" } else { "" })
+        },
+    )
+}
+
 /// One step of the usage line. `wide` is the `lg` step: it adds the first window,
 /// the models and the members without data. The member name shrinks until the
 /// step fits `width`; that is a fit, not a step.
-fn usage_pieces(usage: &HomeHeaderUsage<'_>, width: u16, wide: bool) -> Vec<Piece> {
+fn usage_pieces(
+    usage: &HomeHeaderUsage<'_>,
+    width: u16,
+    wide: bool,
+    digits: Option<&[String; 3]>,
+) -> Vec<Piece> {
     let width = usize::from(width);
     let windows = (usize::from(!wide)..3)
         .map(|index| {
-            let number = usage.totals[index].map_or_else(
-                || "–".into(),
-                |reading| {
-                    let number = crate::source::tokens(reading.tokens as f64);
-                    format!("{}{number}", if reading.partial { "~" } else { "" })
+            let accepted = usage_number(usage, index);
+            let number = digits.map_or_else(
+                || accepted.clone(),
+                |digits| {
+                    let budget = accepted.width();
+                    if digits[index].width() > budget {
+                        accepted.clone()
+                    } else {
+                        format!("{:>budget$}", digits[index])
+                    }
                 },
             );
             format!("{} {number}", usage.windows[index].label())
@@ -296,7 +317,7 @@ fn usage_pieces(usage: &HomeHeaderUsage<'_>, width: u16, wide: bool) -> Vec<Piec
 /// without data. `None` when the switch selects nothing or nothing was observed.
 #[cfg(test)]
 pub(crate) fn usage(usage: &HomeHeaderUsage<'_>, width: u16, look: Look) -> Option<Line<'static>> {
-    usage_in(&mut Kept::default(), usage, width, look)
+    usage_in(&mut Kept::default(), usage, width, look, None)
 }
 
 /// The usage line, painted again only when its key changed.
@@ -305,6 +326,7 @@ pub(super) fn usage_in(
     usage: &HomeHeaderUsage<'_>,
     width: u16,
     look: Look,
+    digits: Option<&[String; 3]>,
 ) -> Option<Line<'static>> {
     static TEMPLATE: OnceLock<Template<()>> = OnceLock::new();
     const FILE: &str = "squad.home.usage.xml";
@@ -324,8 +346,8 @@ pub(super) fn usage_in(
         look,
         selected: None,
         data: data(&[
-            ("wide", usage_pieces(usage, width, true)),
-            ("medium", usage_pieces(usage, width, false)),
+            ("wide", usage_pieces(usage, width, true, digits)),
+            ("medium", usage_pieces(usage, width, false, digits)),
         ]),
     };
     slot.get(key, |key| lines(paint(key, FILE, template)))
@@ -405,4 +427,21 @@ pub(super) fn hints_in(
             .unwrap_or_default()
     })
     .clone()
+}
+
+/// Numeric cells of the admitted header branch, before viewport placement.
+pub(super) fn usage_slots(usage: &HomeHeaderUsage<'_>, width: u16) -> Vec<(usize, u16, u16)> {
+    if width < tmt_cli_style::breakpoint::MD.cells {
+        return Vec::new();
+    }
+    let mut x: u16 = "tok ".len() as u16;
+    (usize::from(width < tmt_cli_style::breakpoint::LG.cells)..3)
+        .map(|index| {
+            x += usage.windows[index].label().len() as u16 + 1;
+            let length = usage_number(usage, index).width() as u16;
+            let result = (index, x, length.min(width.saturating_sub(x)));
+            x += length + " · ".width() as u16;
+            result
+        })
+        .collect()
 }
