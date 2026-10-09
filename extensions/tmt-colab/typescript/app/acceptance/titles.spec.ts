@@ -15,8 +15,8 @@ test('native page titles become durable browser-local labels after their first v
     const page = await openColab(door, browser);
     await page.setViewportSize({ width: 1440, height: 900 });
     const row = () => page.locator(`[data-page-id="${created.pageId}"]`);
-    await expect(row().getByRole('heading')).toHaveText('Untitled page');
-    await row().locator('a').click();
+    await expect(row().getByRole('link')).toHaveText('Untitled page');
+    await row().getByRole('link').click();
     await expect(page.getByRole('heading', { name: title, exact: true })).toBeVisible();
     await expect(page).toHaveTitle(`${title} · Colab`);
     await (await pageAction(page, 'Manage page')).click();
@@ -37,10 +37,10 @@ test('native page titles become durable browser-local labels after their first v
     await page.setViewportSize({ width: 1440, height: 900 });
     await dialog.getByRole('button', { name: 'Close', exact: true }).click();
     await page.getByRole('link', { name: 'Space home', exact: true }).click();
-    await expect(row().getByRole('heading')).toHaveText(title);
+    await expect(row().getByRole('link')).toHaveText(title);
     await expect(page).toHaveTitle('Colab');
     await page.reload();
-    await expect(row().getByRole('heading')).toHaveText(title);
+    await expect(row().getByRole('link')).toHaveText(title);
     for (const theme of ['light', 'dark']) {
       await page.evaluate((theme) => {
         document.documentElement.dataset.theme = theme;
@@ -51,12 +51,12 @@ test('native page titles become durable browser-local labels after their first v
         expect(await row().evaluate((node) => node.scrollWidth <= node.clientWidth)).toBe(true);
       }
     }
-    await row().getByText('Details', { exact: true }).click();
+    await row().locator('summary').click();
     await expect(row().getByText(`Page ID: ${created.pageId}`, { exact: true })).toBeVisible();
     const other = await pairBrowser(world, 'other-title-browser');
     const otherPage = await openColab(door, other);
     await expect(
-      otherPage.locator(`[data-page-id="${created.pageId}"]`).getByRole('heading'),
+      otherPage.locator(`[data-page-id="${created.pageId}"]`).getByRole('link'),
     ).toHaveText('Untitled page');
     expect(world.coreCalls().filter((call) => call.operation === 'dispatch.create')).toHaveLength(
       0,
