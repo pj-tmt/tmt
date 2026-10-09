@@ -182,8 +182,9 @@ Tabs share the paired device key in IndexedDB and one HttpOnly door cookie. Each
 serialized request lane. The cookie authenticates device context; it does not select a
 tab's signed request lane. Sessions default to a limit of 8. The owner may set `tmt remote
 settings sessions-per-device <n>|off`; changes apply at the next open. Unset means 8;
-`off` means unlimited. With a limit, opening evicts the device's least recently used
-session and closes its transports with `REMOTE_SESSION_EVICTED`. `RefusalError.limit`
+`off` means unlimited. With a limit, opening evicts the device's most idle session
+without a live transport first, falling back to the most idle attached session.
+Eviction closes its transports with `REMOTE_SESSION_EVICTED`. `RefusalError.limit`
 exposes the active cap; send/operation refused states also carry `limit`. Colab can
 explain that more than that number of tabs were open and show `tmt remote settings
 sessions-per-device <n>` to raise it. Eviction is distinct from silent reopen after

@@ -157,7 +157,7 @@ impl DoorSessions {
                     .by_session
                     .values()
                     .filter(|s| s.client_id == control.grant.client_id)
-                    .max_by_key(|s| s.state.idle())
+                    .max_by_key(|s| (!s.state.has_transport(), s.state.idle()))
                     .map(|s| s.id.clone())?;
                 self.remove(&mut live, &oldest, "REMOTE_SESSION_EVICTED", limit)
                     .ok()?;
