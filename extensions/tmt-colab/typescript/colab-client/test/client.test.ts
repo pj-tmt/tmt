@@ -29,6 +29,43 @@ async function signer() {
   );
 }
 describe('colab browser values and immutable crypto', () => {
+  it('matches native public_key admission at compressed-point boundaries', () => {
+    // Native oracle: tmt-colab-model/tests/conformance.rs browser_public_point_boundaries_match_native_admission.
+    // Mixed-order bytes come from the unchanged ed25519-829 mixed-A1-R4 positive.
+    for (const [name, encoded, nativeAccepted] of [
+      ['negative-zero', '0100000000000000000000000000000000000000000000000000000000000080', false],
+      ['y-one', '0100000000000000000000000000000000000000000000000000000000000000', false],
+      ['y-p-minus-one', 'ecffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f', false],
+      ['non-square', '0200000000000000000000000000000000000000000000000000000000000000', false],
+      ['small-order', 'c7176a703d4dd84fba3c0b760d10670f2a2053fa2c39ccc64ec7fd7792ac037a', false],
+      ['mixed-order', '9158312a9a8d6e3b34c891d6d61444f8b8211c5117ebad15bdb0bd68b07e0245', true],
+      ['normal', 'd75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a', true],
+    ] as const)
+      expect(c.validEdPoint(hex(encoded)), name).toBe(nativeAccepted);
+  });
+  it('rejects non-decompressible public keys and signature R before native import', async () => {
+    const publicKey = hex(fixture.public),
+      signature = hex(fixture.signature),
+      input = await c.signatureInput(hex(fixture.header), hex(fixture.ciphertext)),
+      off = new Uint8Array(32);
+    off[0] = 2;
+    const invalidR = new Uint8Array(signature);
+    invalidR.set(off);
+    const importing = vi.spyOn(crypto.subtle, 'importKey'),
+      verifying = vi.spyOn(crypto.subtle, 'verify');
+    try {
+      expect(await c.strictVerify(off, signature, input)).toBe(false);
+      expect(await c.strictVerify(publicKey, invalidR, input)).toBe(false);
+      expect(importing).not.toHaveBeenCalled();
+      expect(verifying).not.toHaveBeenCalled();
+      expect(await c.strictVerify(publicKey, signature, input)).toBe(true);
+      expect(importing).toHaveBeenCalledTimes(1);
+      expect(verifying).toHaveBeenCalledTimes(1);
+    } finally {
+      importing.mockRestore();
+      verifying.mockRestore();
+    }
+  });
   it('keeps browser runtime independent of Node, app and network/persistence APIs', () => {
     const src = new URL('../src/', import.meta.url);
     for (const name of readdirSync(src).filter((n) => n.endsWith('.ts'))) {
