@@ -1,6 +1,6 @@
 ---
 source: site/src/chapters/settings.mdx
-sourceRevision: 3a8ea875c93d702882147e770416b5ea8bc6e23c
+sourceRevision: 187d39ce0c29258aeb7f0b987c067b5bd40332ba
 title: 設定與疑難排解
 ---
 
@@ -109,7 +109,11 @@ $ tmt --version
 
 <Mdx.h4 id="skills-conflict-with-files-tmt-didn-t-write">Skill 與不是由 tmt 寫入的檔案衝突</Mdx.h4>
 
-先查看目標檔案。`tmt install claude --force` 會先在 skill 資料夾外建立備份，印出備份位置，再取代它。變更 skill 或 setup 後，重新啟動 agent 的 session，讓它讀取新內容。
+tmt 自己的 skill（包括官方 extension 的）一律優先：安裝或升級時，tmt skill 名稱上原有的東西會直接被取代，不會詢問，也不會備份。你自己的 skill 請用別的名稱；其他名稱和 symlink 指向的資料夾，tmt 都不會動。
+
+第三方 extension 的 skill 不會取代不是 tmt 寫的資料夾。只有在你同意強制取代時，tmt 才會先把舊資料夾移到 skill 資料夾旁的 `.tmt-skill-backups`。
+
+`tmt install claude --force` 只會把已停用的 `~/.claude/commands/team.md` 移到備份。升級時如果某個 skill 失敗，升級仍會完成，並印出路徑和原因。變更 skill 或 setup 後，重新啟動 agent 的 session，讓它讀取新內容。
 
 <Mdx.h4 id="a-sandboxed-agent-can-t-reach-tmt-s-data-or-tmux">
   沙箱裡的 agent 無法存取 tmt 資料或 tmux
