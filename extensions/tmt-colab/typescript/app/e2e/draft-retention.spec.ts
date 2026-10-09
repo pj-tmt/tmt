@@ -1,3 +1,4 @@
+import { pageAction } from '../test/page-actions.js';
 import { expect, test, type Page } from '@playwright/test';
 import { text } from '../src/strings.js';
 import { annotationInput } from '../acceptance/harness/ask.js';
@@ -12,7 +13,7 @@ async function mount(page: Page, drafts: Mode) {
     fixture,
     drafts,
   });
-  await expect(page.locator('#ask-page-fixture .status')).toContainText('Live preview');
+  await expect(page.locator('#ask-page-fixture .status')).toContainText('Live');
 }
 async function call(page: Page, method: string, argument?: unknown) {
   return page.evaluate(
@@ -35,9 +36,7 @@ async function select(page: Page) {
 }
 async function panel(page: Page, name: 'chat' | 'comments') {
   const host = page.locator('#ask-page-fixture');
-  const toggle = host.getByTestId(`${name}-toggle`);
-  if (!(await toggle.isVisible()))
-    await host.getByRole('button', { name: 'More page actions' }).click();
+  const toggle = await pageAction(host, name === 'chat' ? 'Chat' : 'Comments');
   await toggle.click();
 }
 /** The fixture store has accepted a draft once sessionStorage holds it: the durable signal. */

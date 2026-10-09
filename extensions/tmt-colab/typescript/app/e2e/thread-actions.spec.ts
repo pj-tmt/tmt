@@ -248,35 +248,27 @@ for (const width of [1440, 390])
         }
         return button;
       };
-      if (width === 390) {
-        const more = await focus('More page actions');
-        await capture('focus-more');
-        await more.click();
-        await expect(more).toHaveAttribute('aria-expanded', 'true');
-        if (!before)
-          await expect(more.locator('..').locator('.tmt-ui-icon-action-tooltip')).toBeHidden();
-        await capture('menu');
-        // The expanded trigger owns no tooltip listener: one Escape closes the host menu.
-        await page.keyboard.press('Escape');
-        await expect(more).toHaveAttribute('aria-expanded', 'false');
-        await expect(more).toBeFocused();
-        await more.click();
-        await focus('Close page actions');
-        await capture('focus-close');
-        await page.keyboard.press('Escape');
-        if (!before) {
-          await expect(more).toHaveAttribute('aria-expanded', 'true');
-          await page.keyboard.press('Escape');
-        }
-        await expect(more).toHaveAttribute('aria-expanded', 'false');
-        await more.click();
-      }
-      const themeButton = await focus('Change color theme');
+      const more = await focus('More');
+      await capture('focus-more');
+      await more.press('ArrowDown');
+      await expect(more).toHaveAttribute('aria-expanded', 'true');
+      await expect(more.locator('..').locator('.tmt-ui-icon-action-tooltip')).toBeHidden();
+      await capture('menu');
+      await page.keyboard.press('Escape');
+      await expect(more).toHaveAttribute('aria-expanded', 'false');
+      await expect(more).toBeFocused();
+      await more.press('Enter');
+      const themeOption = page.getByRole('menuitemradio', {
+        name: `Theme: ${theme === 'dark' ? 'Light' : 'Dark'}`,
+        exact: true,
+      });
+      await themeOption.focus();
       await capture('focus-theme');
-      await themeButton.click();
+      await themeOption.press('Enter');
       await expect(page.locator('html')).toHaveAttribute(
         'data-theme',
         theme === 'dark' ? 'light' : 'dark',
       );
+      await expect(more).toBeFocused();
     });
   }

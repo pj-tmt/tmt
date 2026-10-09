@@ -1,3 +1,4 @@
+import { pageAction } from '../test/page-actions.js';
 import { expect, test, type Locator, type Page, type Route } from '@playwright/test';
 import { text } from '../src/strings.js';
 import { mkdirSync, writeFileSync } from 'node:fs';
@@ -29,12 +30,8 @@ async function edit(found: Locator, body: string) {
   await expect(comment.locator('.comment-body')).toHaveText(body);
 }
 async function comments(page: Page) {
-  const toggle = page.getByTestId('comments-toggle');
-  if ((await toggle.getAttribute('aria-expanded')) === 'false') {
-    if (!(await toggle.isVisible()))
-      await page.getByRole('button', { name: 'More page actions', exact: true }).click();
-    await toggle.click();
-  }
+  if (!(await page.locator('.page-drawer[data-panel=comments][open]').isVisible()))
+    await (await pageAction(page, 'Comments')).click();
 }
 
 test.afterEach(disposeActiveWorlds);
@@ -226,10 +223,7 @@ test('paired writers retain anchored annotation conversations, direct exact send
             );
           }),
         ).toBe(true);
-        await expect(first.getByTestId('comments-toggle')).toHaveAttribute(
-          'aria-expanded',
-          'false',
-        );
+        await expect(first.locator('.page-drawer[data-panel=comments][open]')).toHaveCount(0);
         await first.screenshot({ path: `${captureDir}/1587-native-${width}-${theme}-popover.png` });
         await prefilled.fill('@');
         await expect(first.getByRole('listbox')).toBeVisible();
@@ -287,7 +281,7 @@ test('paired writers retain anchored annotation conversations, direct exact send
         agent.pane,
       );
       await expect(first.locator('iframe')).not.toHaveAttribute('data-render-id', renderId!);
-      await expect(first.locator('.tmt-ui-header .status')).toContainText('Live preview');
+      await expect(first.locator('.tmt-ui-header .status')).toContainText('Live');
     };
     await replaceSource(
       html.replace('An &amp; <em>🌍 exact quote</em> for review.', 'The source was updated.'),
@@ -466,7 +460,7 @@ test('paired writers retain anchored annotation conversations, direct exact send
     await first.setViewportSize({ width: 1440, height: 900 });
     await comments(first);
     await first.locator(`[data-testid=annotation-row][data-thread-id="${threadId}"]`).click();
-    await first.getByRole('button', { name: 'Source', exact: true }).click();
+    await (await pageAction(first, 'Source')).click();
     const inserted = '<p style="height:300px">Inserted above.</p>' + html;
     const source = first.getByRole('textbox', { name: 'Source', exact: true });
     await source.fill(inserted);

@@ -1,3 +1,4 @@
+import { pageAction } from '../test/page-actions.js';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { expect, test, type Locator, type Page } from '@playwright/test';
 import { captureDirectory } from './captures.js';
@@ -17,14 +18,12 @@ async function mount(page: Page, surface: 'thread' | 'chat', state = 'waiting') 
   await run(page, 'mount');
   await run(page, 'conversation', { surface, state });
   const host = page.locator('#ask-page-fixture');
-  await expect(host.locator('.status')).toContainText('Live preview');
+  await expect(host.locator('.status')).toContainText('Live');
   if (surface === 'thread') {
     await page.frameLocator('#ask-page-fixture iframe').locator('[data-colab-thread]').click();
     await expect(page.getByTestId('comment-thread')).toHaveAttribute('data-layout', 'anchored');
   } else {
-    const toggle = host.getByTestId('chat-toggle');
-    if (!(await toggle.isVisible()))
-      await host.getByRole('button', { name: 'More page actions' }).click();
+    const toggle = await pageAction(host, 'Chat');
     await toggle.click();
   }
 }
@@ -556,7 +555,7 @@ for (const width of [1440, 390])
         `<p id="selected" style="margin:0;font:14px/1.5 sans-serif">${longQuote}</p>`,
       );
       await expect(frame).not.toHaveAttribute('data-render-id', render!);
-      await expect(page.locator('#ask-page-fixture .status')).toContainText('Live preview');
+      await expect(page.locator('#ask-page-fixture .status')).toContainText('Live');
       await page
         .frameLocator('#ask-page-fixture iframe')
         .locator('#selected')
@@ -617,7 +616,7 @@ for (const width of [1440, 390])
       }, theme);
       await page.goto('/');
       await run(page, 'mount');
-      await expect(page.locator('#ask-page-fixture .status')).toContainText('Live preview');
+      await expect(page.locator('#ask-page-fixture .status')).toContainText('Live');
       const frame = page.locator('#ask-page-fixture iframe');
       const render = await frame.getAttribute('data-render-id');
       await run(
@@ -626,7 +625,7 @@ for (const width of [1440, 390])
         '<div style="height:600px"></div><p id="selected">Exact selected text</p>',
       );
       await expect(frame).not.toHaveAttribute('data-render-id', render!);
-      await expect(page.locator('#ask-page-fixture .status')).toContainText('Live preview');
+      await expect(page.locator('#ask-page-fixture .status')).toContainText('Live');
       const selected = page.frameLocator('#ask-page-fixture iframe').locator('#selected');
       await selected.evaluate((node) => {
         const range = node.ownerDocument.createRange();

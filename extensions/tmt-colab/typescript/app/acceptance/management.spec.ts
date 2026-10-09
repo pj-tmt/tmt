@@ -1,3 +1,4 @@
+import { pageAction } from '../test/page-actions.js';
 import { generateKeyPairSync, randomUUID } from 'node:crypto';
 import { expect, test, type Locator, type Page } from '@playwright/test';
 import { pairBrowser, startDoor } from './harness/browser.js';
@@ -6,7 +7,7 @@ import { disposeActiveWorlds, withWorld } from './harness/with-world.js';
 
 /** Every mutation below traverses paired Remote admission and the real Colab engine. */
 async function manage(page: Page) {
-  await page.getByRole('button', { name: 'Manage page', exact: true }).click();
+  await (await pageAction(page, 'Manage page')).click();
   const dialog = page.getByRole('dialog');
   await expect(dialog.getByRole('combobox', { name: /^Audience/ })).toBeVisible();
   return dialog;
@@ -28,17 +29,17 @@ test('native sharing and lifecycle verification preserve Ask, page recovery and 
     const second = createPage(world, 'Remaining page', '<p>Still readable.</p>');
     const page = await openPage(door, device, first);
     await composeChat(page, recipient, 'Do not send this draft');
-    // Narrow page actions must open outside the overflow menu and return focus there.
+    // Narrow page actions must open outside the header menu and return focus there.
     await page.getByRole('button', { name: 'Close Chat', exact: true }).click();
     await page.setViewportSize({ width: 390, height: 844 });
-    await page.getByRole('button', { name: 'More page actions' }).click();
+    await page.getByRole('button', { name: 'More', exact: true }).click();
     let dialog = await manage(page);
-    await expect(page.getByRole('button', { name: 'More page actions' })).toHaveAttribute(
+    await expect(page.getByRole('button', { name: 'More', exact: true })).toHaveAttribute(
       'aria-expanded',
       'false',
     );
     await dialog.getByRole('button', { name: 'Close', exact: true }).click();
-    await expect(page.getByRole('button', { name: 'More page actions' })).toBeFocused();
+    await expect(page.getByRole('button', { name: 'More', exact: true })).toBeFocused();
     await page.setViewportSize({ width: 1280, height: 900 });
     dialog = await manage(page);
     const initialCatalog = JSON.parse(run(world, world.binaries.colab, ['ls', '--json']));
@@ -137,7 +138,7 @@ test('native sharing and lifecycle verification preserve Ask, page recovery and 
     await dialog.getByRole('button', { name: 'Close', exact: true }).click();
     await expect(page.locator('iframe')).toBeVisible();
     await page.reload();
-    await expect(page.getByTestId('chat-toggle')).toBeVisible();
+    await expect(page.getByRole('button', { name: /^Discussion \(/ })).toBeVisible();
     expect(recipient.received()).toHaveLength(0);
     expect(world.coreCalls().filter((call) => call.operation === 'dispatch.create')).toHaveLength(
       0,
@@ -153,6 +154,7 @@ test('native sharing and lifecycle verification preserve Ask, page recovery and 
     await page.getByRole('button', { name: 'Show archived', exact: true }).click();
     const row = page.locator('ul.pages li').filter({ hasText: first.pageId });
     await expect(row).toContainText('Archived');
+    await row.locator('summary').click();
     await row.getByRole('button', { name: 'Manage page' }).click();
     dialog = page.getByRole('dialog');
     await expect(dialog.getByRole('button', { name: 'Archive page', exact: true })).toBeDisabled();
@@ -162,11 +164,9 @@ test('native sharing and lifecycle verification preserve Ask, page recovery and 
     await expect(dialog.getByRole('status')).toContainText('Deletion verified');
     await dialog.getByRole('button', { name: 'Close', exact: true }).click();
     await page.getByRole('button', { name: 'Show archived', exact: true }).click();
-    await page
-      .locator('ul.pages li')
-      .filter({ hasText: second.pageId })
-      .getByRole('button', { name: 'Manage page' })
-      .click();
+    const remaining = page.locator('ul.pages li').filter({ hasText: second.pageId });
+    await remaining.locator('summary').click();
+    await remaining.getByRole('button', { name: 'Manage page' }).click();
     dialog = page.getByRole('dialog');
     await expect(dialog.getByRole('button', { name: 'Delete page', exact: true })).toBeVisible();
     await dialog.getByRole('button', { name: 'Delete page', exact: true }).click();

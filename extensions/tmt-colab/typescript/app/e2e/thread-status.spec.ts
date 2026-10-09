@@ -1,3 +1,4 @@
+import { pageAction } from '../test/page-actions.js';
 import { expect, test, type Page } from '@playwright/test';
 
 const fixture = '/test/ask-page-browser.tsx';
@@ -11,15 +12,13 @@ async function run(page: Page, method: string, argument?: string) {
 async function open(page: Page) {
   await page.goto('/');
   await run(page, 'mount');
-  await expect(page.locator('#ask-page-fixture .status')).toContainText('Live preview');
+  await expect(page.locator('#ask-page-fixture .status')).toContainText('Live');
   await run(page, 'seedThread');
   const host = page.locator('#ask-page-fixture');
-  const toggle = host.getByTestId('comments-toggle');
-  if (!(await toggle.isVisible()))
-    await host.getByRole('button', { name: 'More page actions' }).click();
+  const toggle = await pageAction(host, 'Comments');
   await toggle.click();
   return {
-    toggle,
+    toggle: host.getByRole('button', { name: /^Discussion \(/ }),
     markers: page.frameLocator('#ask-page-fixture iframe').locator('[data-colab-thread]'),
     row: page.getByTestId('annotation-row'),
     status: page.getByTestId('thread-row-status'),
@@ -53,13 +52,13 @@ test('an agent resolution stays unseen until the person opens the thread', async
   const { toggle, markers, row, status } = await open(page);
   await run(page, 'agentResolves');
   await expect(markers).toHaveCount(0);
-  await expect(toggle).toContainText('New');
+  await expect(toggle).toHaveAccessibleName(/New/);
   await expect(status).toHaveText('Resolved by Atlas · New');
   // Rendering and the open panel never acknowledge it.
   expect(await run(page, 'seenProof')).toBe(0);
   await row.click();
   await expect(status).toHaveText('Resolved by Atlas');
-  await expect(toggle).not.toContainText('New');
+  await expect(toggle).not.toHaveAccessibleName(/New/);
   expect(await run(page, 'seenProof')).toBe(1);
   await expect(page.getByTestId('comment-thread')).toHaveAttribute('data-anchor', 'resolved');
 });

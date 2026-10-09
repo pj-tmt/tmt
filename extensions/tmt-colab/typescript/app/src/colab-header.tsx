@@ -3,21 +3,21 @@ import { BrowserHeader } from '@tmt/browser-ui/react';
 import { text } from './strings.js';
 import './colab-header.css';
 
-/** Colab supplies routing, disclosure and content to the shared presentation. */
+/** Colab supplies routing and content to the shared presentation. */
 export function ColabHeader({
   title,
   caption,
   actions,
   home,
   headerRef,
-  menuOpen,
+  status,
 }: {
   title: string;
   caption?: string;
   actions?: ReactNode;
   home?: (brand: ReactNode) => ReactNode;
   headerRef?: Ref<HTMLElement>;
-  menuOpen?: boolean;
+  status?: ReactNode;
 }) {
   return (
     <BrowserHeader
@@ -27,10 +27,8 @@ export function ColabHeader({
       captionId={caption === undefined ? undefined : 'colab-header-caption'}
       brandLink={home}
       actions={actions ?? <></>}
+      status={status}
       headerRef={headerRef}
-      disclosure={
-        menuOpen === undefined ? undefined : { attribute: 'data-menu-open', open: menuOpen }
-      }
     />
   );
 }

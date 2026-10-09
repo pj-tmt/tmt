@@ -1,11 +1,14 @@
-import { useEffect, useRef, useState } from 'react';
-import type { ReactNode } from 'react';
+import { useEffect, useImperativeHandle, useRef, useState } from 'react';
+import type { KeyboardEventHandler, ReactNode, Ref } from 'react';
 import type { BrowserActionProps } from './action.js';
 import { placeIconActionTooltip } from './icon-action-tooltip.js';
 import { browserUiClasses as c } from './static.js';
 
 export type BrowserIconActionProps = BrowserActionProps & {
   icon: ReactNode;
+  buttonRef?: Ref<HTMLButtonElement>;
+  hasPopup?: 'menu' | 'dialog';
+  onKeyDown?: KeyboardEventHandler<HTMLButtonElement>;
 } & (
     | { pressed?: boolean; expanded?: never; controls?: never }
     | { pressed?: never; expanded: boolean; controls?: string }
@@ -25,6 +28,9 @@ export function BrowserIconAction({
   busy = false,
   busyMark,
   onActivate,
+  buttonRef,
+  hasPopup,
+  onKeyDown,
 }: BrowserIconActionProps) {
   const button = useRef<HTMLButtonElement>(null);
   const tooltip = useRef<HTMLSpanElement>(null);
@@ -32,6 +38,7 @@ export function BrowserIconAction({
   const [focused, setFocused] = useState(false);
   const [dismissed, setDismissed] = useState(false);
   const open = (hovered || focused) && !dismissed && !expanded;
+  useImperativeHandle(buttonRef, () => button.current!, []);
   useEffect(() => {
     const node = tooltip.current;
     const anchor = button.current;
@@ -75,6 +82,7 @@ export function BrowserIconAction({
           data-variant={variant}
           disabled={disabled || busy}
           aria-label={label}
+          aria-haspopup={hasPopup}
           aria-pressed={pressed}
           aria-expanded={expanded}
           aria-controls={controls}
@@ -87,6 +95,7 @@ export function BrowserIconAction({
             }
           }}
           onBlur={() => setFocused(false)}
+          onKeyDown={onKeyDown}
           onClick={(event) => {
             if (!disabled && !busy) onActivate(event);
           }}

@@ -12,6 +12,7 @@ vi.mock('react', async (importOriginal) => ({
   ...(await importOriginal<typeof import('react')>()),
   useRef: () => hooks.refs.shift(),
   useState: () => hooks.states.shift(),
+  useImperativeHandle: vi.fn(),
   useEffect: (effect: () => (() => void) | undefined) => {
     hooks.effect = effect;
   },

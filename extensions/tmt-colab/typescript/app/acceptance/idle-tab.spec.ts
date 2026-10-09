@@ -23,14 +23,14 @@ test.describe('idle tab keeps its sync tunnel (#2170)', () => {
         sockets.opened++;
         socket.on('close', () => sockets.closed++);
       });
-      await expect(page.locator('.status.live .status-label')).toHaveText('Live preview');
+      await expect(page.locator('.status.live .status-label')).toHaveText('Live');
       // The tab was already connected before the listener existed: count only changes from here.
       await page.reload();
-      await expect(page.locator('.status.live .status-label')).toHaveText('Live preview');
+      await expect(page.locator('.status.live .status-label')).toHaveText('Live');
       const opened = sockets.opened;
       expect(opened).toBeGreaterThanOrEqual(1);
       await page.waitForTimeout(150_000);
-      await expect(page.locator('.status.live .status-label')).toHaveText('Live preview');
+      await expect(page.locator('.status.live .status-label')).toHaveText('Live');
       expect(sockets.closed).toBe(0);
       expect(sockets.opened).toBe(opened);
     });

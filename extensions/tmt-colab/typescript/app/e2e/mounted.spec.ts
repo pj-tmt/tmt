@@ -255,6 +255,7 @@ test('verified metadata with no wraps keeps the page blocked and opens no render
   await expect(page.getByRole('alert')).toContainText('no verified page key');
   await expect(page.locator('iframe')).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Source', exact: true })).toHaveCount(0);
+  await expect(page.locator('.page-header-actions')).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Export page' })).toHaveCount(0);
 });
 

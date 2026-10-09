@@ -1,3 +1,4 @@
+import { pageAction } from '../test/page-actions.js';
 import { expect, test, type Page } from '@playwright/test';
 import { text } from '../src/strings.js';
 import { annotationInput } from '../acceptance/harness/ask.js';
@@ -14,7 +15,7 @@ async function mount(page: Page) {
   await page.evaluate(async ({ fixture }) => (await import(fixture)).mount({ attachments: true }), {
     fixture,
   });
-  await expect(page.locator('#ask-page-fixture .status')).toContainText('Live preview');
+  await expect(page.locator('#ask-page-fixture .status')).toContainText('Live');
 }
 const actions = async (page: Page): Promise<string[]> =>
   page.evaluate(async (path) => (await import(path)).proof().actions, fixture);
@@ -22,9 +23,7 @@ const threads = async (page: Page) =>
   page.evaluate(async (path) => (await import(path)).discussionProof(), fixture);
 async function openChat(page: Page) {
   const host = page.locator('#ask-page-fixture');
-  const toggle = host.getByTestId('chat-toggle');
-  if (!(await toggle.isVisible()))
-    await host.getByRole('button', { name: 'More page actions' }).click();
+  const toggle = await pageAction(host, 'Chat');
   await toggle.click();
   const panel = page.getByTestId('chat-panel');
   return { panel, input: await annotationInput(panel, 'Agent 1') };

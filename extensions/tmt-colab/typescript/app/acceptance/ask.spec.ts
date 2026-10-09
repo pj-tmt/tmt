@@ -52,7 +52,7 @@ function restartRecovery(page: Page) {
         .toBe(true);
       if (await control.isVisible()) await control.click();
       await expect.poll(() => registered, { timeout: 60_000 }).toBe(true);
-      await expect(page.locator('.status.live .status-label')).toHaveText('Live preview');
+      await expect(page.locator('.status.live .status-label')).toHaveText('Live');
       await expect(page.getByRole('heading', { name: 'Preview stopped', exact: true })).toHaveCount(
         0,
       );
@@ -278,9 +278,7 @@ test.describe('Ask agent real-binary acceptance (#1110)', () => {
             await s.askerPage.getByRole('button', { name: 'Close Chat', exact: true }).click();
           await reconnect.click();
           await expect(reconnect).toHaveCount(0);
-          await expect(s.askerPage.locator('.status.live .status-label')).toHaveText(
-            'Live preview',
-          );
+          await expect(s.askerPage.locator('.status.live .status-label')).toHaveText('Live');
           await expect(
             s.askerPage.frameLocator('iframe').getByRole('heading', { name: 'Ask acceptance' }),
           ).toBeVisible();
@@ -500,8 +498,8 @@ test.describe('Ask agent real-binary acceptance (#1110)', () => {
       // The scenario's tab is A. Tab B is a second tab of the same paired browser.
       const tabA = s.askerPage;
       const tabB = await openPage(s.door, s.asker, s.page);
-      await expect(tabA.getByTestId('chat-toggle')).toBeVisible();
-      await expect(tabB.getByTestId('chat-toggle')).toBeVisible();
+      await expect(tabA.getByRole('button', { name: /^Discussion \(/ })).toBeVisible();
+      await expect(tabB.getByRole('button', { name: /^Discussion \(/ })).toBeVisible();
       const draft = await composeChat(tabB, s.recipient, 'Sent from the second tab');
       const ask = await sendChat(tabB, draft);
       await expect(askEntry(tabB, ask.operationId)).toHaveAttribute(
@@ -514,7 +512,7 @@ test.describe('Ask agent real-binary acceptance (#1110)', () => {
       await expect(askEntry(tabA, ask.operationId).getByTestId('ask-reply')).toHaveText(
         replyBody(draft.delivered()),
       );
-      await expect(tabB.getByTestId('chat-toggle')).toBeVisible();
+      await expect(tabB.getByRole('button', { name: /^Discussion \(/ })).toBeVisible();
       // Both live tabs see the same signed Ask record; opening either tab never resends.
       expect(s.recipient.received()).toHaveLength(1);
       expect(dispatches(world)).toHaveLength(1);

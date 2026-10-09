@@ -1,3 +1,4 @@
+import { pageAction } from '../test/page-actions.js';
 import { mkdirSync } from 'node:fs';
 import { expect, test, type Locator, type Page } from '@playwright/test';
 import { text } from '../src/strings.js';
@@ -20,7 +21,7 @@ async function change(page: Page, html: string) {
   const before = await frame.getAttribute('data-render-id');
   await run(page, 'change', html);
   await expect(frame).not.toHaveAttribute('data-render-id', before!);
-  await expect(page.locator('#ask-page-fixture .status')).toContainText('Live preview');
+  await expect(page.locator('#ask-page-fixture .status')).toContainText('Live');
   await expect.poll(async () => (await frame.boundingBox())?.height ?? 0).toBeGreaterThan(3200);
 }
 async function changeWhileTyping(
@@ -113,9 +114,7 @@ async function select(page: Page) {
 }
 async function panel(page: Page, name: 'chat' | 'comments') {
   const host = page.locator('#ask-page-fixture');
-  const toggle = host.getByTestId(`${name}-toggle`);
-  if (!(await toggle.isVisible()))
-    await host.getByRole('button', { name: 'More page actions' }).click();
+  const toggle = await pageAction(host, name === 'chat' ? 'Chat' : 'Comments');
   await toggle.click();
 }
 
@@ -124,7 +123,7 @@ test('clearing an annotation immediately before Escape does not restore the remo
 }) => {
   await page.goto('/');
   await run(page, 'mount');
-  await expect(page.locator('#ask-page-fixture .status')).toContainText('Live preview');
+  await expect(page.locator('#ask-page-fixture .status')).toContainText('Live');
   await change(page, source);
   await page.evaluate(() => window.scrollTo(0, 1100));
   await select(page);
@@ -154,7 +153,7 @@ for (const width of [1440, 390]) {
       await page.setViewportSize({ width, height: 900 });
       await page.goto('/');
       await run(page, 'mount');
-      await expect(page.locator('#ask-page-fixture .status')).toContainText('Live preview');
+      await expect(page.locator('#ask-page-fixture .status')).toContainText('Live');
       await change(page, source);
       await page.evaluate((theme) => {
         document.documentElement.dataset.theme = theme;
@@ -258,7 +257,7 @@ for (const width of [1440, 390]) {
       await expect(page.frameLocator('#ask-page-fixture iframe').locator('#selected')).toHaveText(
         'Exact selected text',
       );
-      await expect(page.locator('#ask-page-fixture .status')).toContainText('Live preview');
+      await expect(page.locator('#ask-page-fixture .status')).toContainText('Live');
       await expect
         .poll(
           async () => (await page.locator('#ask-page-fixture iframe').boundingBox())?.height ?? 0,
@@ -302,7 +301,7 @@ for (const width of [1440, 390]) {
       await page.setViewportSize({ width, height: 900 });
       await page.goto('/');
       await run(page, 'mount');
-      await expect(page.locator('#ask-page-fixture .status')).toContainText('Live preview');
+      await expect(page.locator('#ask-page-fixture .status')).toContainText('Live');
       await change(page, source);
       await page.evaluate((theme) => {
         document.documentElement.dataset.theme = theme;

@@ -1,3 +1,4 @@
+import { pageAction } from '../test/page-actions.js';
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
 
@@ -16,7 +17,7 @@ async function mount(page: Page, long: boolean) {
     const path = '/test/page-layout-browser.tsx';
     (await import(path)).mount(html);
   }, source(long));
-  await expect(page.locator('.tmt-ui-header:visible .status')).toContainText('Live preview');
+  await expect(page.locator('.tmt-ui-header:visible .status')).toContainText('Live');
   await expect(page.frameLocator('iframe').locator('h1')).toBeVisible();
 }
 for (const width of [1440, 390])
@@ -39,24 +40,27 @@ for (const width of [1440, 390])
       expect(rect?.x).toBe(0);
       const contentWidth = await page.evaluate(() => document.documentElement.clientWidth);
       expect(rect?.width).toBe(contentWidth);
-      expect(rect?.y).toBe(width < 480 ? 48 : 56);
-      expect(rect?.height).toBeGreaterThanOrEqual(width < 480 ? 852 : 844);
+      expect(rect?.y).toBe(width < 480 ? 82 : 56);
+      expect(rect?.height).toBeGreaterThanOrEqual(width < 480 ? 818 : 844);
       await expect(frame).toHaveAttribute('scrolling', 'no');
       await expect(frame).toHaveAttribute('data-scroll-mode', 'window');
       expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);
       await expect(bar).toHaveCSS('flex-wrap', 'nowrap');
       await page.screenshot({ path: `/tmp/1586-${width}-${theme}-short.png` });
-      if (width === 390) {
-        await expect(
-          page.getByRole('heading', { name: 'Release notes', exact: true }),
-        ).toBeVisible();
-        await page.getByRole('button', { name: 'More page actions' }).click();
-        await expect(page.locator('.page-menu-meta')).toContainText('local · Studio Mac');
-        await expect(page.locator('.page-menu-meta')).toContainText('Private');
-        await expect(page.locator('.page-secondary .theme-label')).toHaveText(`Theme: ${theme}`);
-        await page.screenshot({ path: `/tmp/1586-${width}-${theme}-menu.png` });
-        await page.keyboard.press('Escape');
-      }
+      await expect(page.getByRole('heading', { name: 'Release notes', exact: true })).toBeVisible();
+      await expect(bar.locator('.page-backend')).toHaveText('local · Studio Mac');
+      await expect(bar.locator('.page-backend')).toHaveAttribute('title', 'local · Studio Mac');
+      await expect(bar.locator('.page-sharing')).toHaveText('Private · Live');
+      expect(
+        await bar.locator('.page-sharing').evaluate((node) => node.scrollWidth <= node.clientWidth),
+      ).toBe(true);
+      await expect(bar.locator('.page-header-actions button')).toHaveCount(5);
+      await page.getByRole('button', { name: 'More', exact: true }).click();
+      await expect(
+        page.getByRole('menuitemradio', { name: 'Theme: System', exact: true }),
+      ).toHaveAttribute('aria-checked', 'true');
+      await page.screenshot({ path: `/tmp/1586-${width}-${theme}-menu.png` });
+      await page.keyboard.press('Escape');
       await mount(page, true);
       await expect.poll(async () => (await frame.boundingBox())?.height ?? 0).toBeGreaterThan(1500);
       await expect
@@ -83,11 +87,7 @@ for (const width of [1440, 390])
       await page.screenshot({ path: `/tmp/1586-${width}-${theme}-long-scrolled.png` });
       const beforePanel = await frame.boundingBox(),
         scrollBeforePanel = await page.evaluate(() => window.scrollY);
-      await expect(
-        page.locator('.tmt-ui-header:visible .tmt-ui-actions > .page-backend'),
-      ).toHaveText('local · Studio Mac');
-      if (width === 390) await page.getByRole('button', { name: 'More page actions' }).click();
-      await page.getByTestId('comments-toggle').click();
+      await (await pageAction(page, 'Comments')).click();
       const comments = page.locator('.page-drawer[data-panel=comments]');
       await expect(comments).toBeVisible();
       expect((await frame.boundingBox())?.width).toBe(beforePanel?.width);
@@ -100,60 +100,136 @@ for (const width of [1440, 390])
       await page.screenshot({ path: `/tmp/1586-${width}-${theme}-comments.png` });
       await comments.getByRole('button', { name: 'Close Comments', exact: true }).click();
       await expect(comments).not.toBeVisible();
-      if (width === 390) {
-        await expect(page.getByRole('button', { name: 'More page actions' })).toBeFocused();
-        await page.getByRole('button', { name: 'More page actions' }).click();
-      } else await expect(page.getByTestId('comments-toggle')).toBeFocused();
-      await page.getByTestId('chat-toggle').click();
+      await expect(page.getByRole('button', { name: /^Discussion \(/ })).toBeFocused();
+      await (await pageAction(page, 'Chat')).click();
       const asks = page.locator('.page-drawer[data-panel=chat]');
       await expect(asks.getByTestId('chat-panel')).toBeVisible();
       await asks.getByRole('button', { name: 'Close Chat', exact: true }).focus();
       await page.keyboard.press('Escape');
       await expect(asks).not.toBeVisible();
-      if (width === 390) {
-        await page.getByRole('button', { name: 'More page actions' }).click();
-      }
-      await page.getByRole('button', { name: 'Source', exact: true }).click();
+      await (await pageAction(page, 'Source')).click();
       const editor = page.locator('.page-drawer[data-panel=source]');
       await expect(editor.getByLabel('Source', { exact: true })).toHaveValue(source(true));
       await expect(frame).toHaveAttribute('sandbox', 'allow-scripts');
       await editor.getByRole('button', { name: 'Close Source', exact: true }).focus();
       await page.keyboard.press('Escape');
       await expect(editor).not.toBeVisible();
-      if (width === 390)
-        await expect(page.getByRole('button', { name: 'More page actions' })).toBeFocused();
+      await expect(page.getByRole('button', { name: 'Source and export' })).toBeFocused();
       expect((await frame.boundingBox())?.width).toBe(
         await page.evaluate(() => document.documentElement.clientWidth),
       );
     });
   }
 
-test('narrow desktop menu switches floating panels and keeps information readable', async ({
-  page,
-}) => {
+test('narrow desktop menus switch floating panels and keep About readable', async ({ page }) => {
   await page.setViewportSize({ width: 900, height: 900 });
   await mount(page, true);
   const frame = page.locator('iframe');
   await expect.poll(async () => (await frame.boundingBox())?.height ?? 0).toBeGreaterThan(1500);
   const before = await frame.boundingBox();
-  await page.getByRole('button', { name: 'More page actions' }).click();
-  await page.getByRole('button', { name: 'Source', exact: true }).click();
+  await (await pageAction(page, 'Source')).click();
   await expect(page.locator('.page-drawer[data-panel=source]')).toBeVisible();
-  await page.getByRole('button', { name: 'More page actions' }).click();
-  await page.getByTestId('comments-toggle').click();
+  await (await pageAction(page, 'Comments')).click();
   await expect(page.locator('.page-drawer[data-panel=comments]')).toBeVisible();
   await expect(page.locator('.page-drawer[data-panel=source]')).not.toBeVisible();
-  await page.getByRole('button', { name: 'More page actions' }).click();
-  await page.getByText('Page information', { exact: true }).click();
-  const information = page.locator('.page-information-panel');
+  await (await pageAction(page, 'About this page')).click();
+  const information = page.locator('.page-drawer[data-panel=about]');
   await expect(information).toBeVisible();
   const box = (await information.boundingBox())!;
   expect(box.x).toBeGreaterThanOrEqual(0);
   expect(box.x + box.width).toBeLessThanOrEqual(900);
-  await page.getByRole('button', { name: 'Close page actions' }).click();
-  await expect(page.getByRole('button', { name: 'More page actions' })).toHaveAttribute(
+  await page.getByRole('button', { name: 'Close About this page' }).click();
+  await expect(page.getByRole('button', { name: 'More', exact: true })).toHaveAttribute(
     'aria-expanded',
     'false',
   );
   expect((await frame.boundingBox())?.width).toBe(before?.width);
 });
+
+for (const width of [1440, 390])
+  test(`header tooltips, menu keys and System theme preserve the page at ${width}px`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await page.emulateMedia({ colorScheme: 'light' });
+    await page.goto('/');
+    await page.evaluate(async () => {
+      const path = '/test/ask-page-browser.tsx';
+      await (await import(path)).mount({ attachments: true });
+    });
+    await expect(page.frameLocator('#ask-page-fixture iframe').locator('#selected')).toBeVisible();
+    const actions = page.getByRole('navigation', { name: 'Page actions' });
+    const names = [
+      /^Discussion \(0\)$/,
+      /^Agents$/,
+      /^Files \(0\)$/,
+      /^Source and export$/,
+      /^More$/,
+    ];
+    for (const name of names) {
+      const button = actions.getByRole('button', { name });
+      await expect(button).toBeInViewport();
+      await button.hover();
+      const tooltip = button.locator('..').locator('.tmt-ui-icon-action-tooltip');
+      await expect(tooltip).toBeVisible();
+      await expect(tooltip).toHaveText(name);
+      await page.mouse.move(0, 899);
+      await button.focus();
+      await page.keyboard.press('Tab');
+      await page.keyboard.press('Shift+Tab');
+      await expect(button).toBeFocused();
+      await expect(tooltip).toBeVisible();
+      await page.keyboard.press('Escape');
+      await expect(tooltip).toBeHidden();
+      await expect(button).toBeFocused();
+    }
+    const discussion = actions.getByRole('button', { name: /^Discussion \(/ });
+    await discussion.evaluate((node: HTMLButtonElement) => node.click());
+    await expect(actions.getByRole('menu')).toHaveCount(0);
+    await discussion.press('ArrowDown');
+    const chat = actions.getByRole('menuitem', { name: 'Chat', exact: true });
+    const comments = actions.getByRole('menuitem', { name: 'Comments 0', exact: true });
+    await expect(chat).toBeFocused();
+    await page.keyboard.press('ArrowUp');
+    await expect(comments).toBeFocused();
+    await page.keyboard.press('ArrowDown');
+    await expect(chat).toBeFocused();
+    await page.keyboard.press('End');
+    await expect(comments).toBeFocused();
+    await page.keyboard.press('Home');
+    await expect(chat).toBeFocused();
+    await page.keyboard.press('Escape');
+    await expect(discussion).toBeFocused();
+    await discussion.press('Space');
+    await chat.press('Enter');
+    const drawer = page.locator('.page-drawer[data-panel=chat][open]');
+    await expect(drawer).toBeVisible();
+    const close = drawer.getByRole('button', { name: 'Close Chat', exact: true });
+    await close.focus();
+    const closeTooltip = close.locator('..').locator('.tmt-ui-icon-action-tooltip');
+    await expect(closeTooltip).toBeVisible();
+    // First Escape dismisses the focused close tooltip; second closes the dialog.
+    await page.keyboard.press('Escape');
+    await expect(closeTooltip).toBeHidden();
+    await expect(drawer).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(drawer).toHaveCount(0);
+    await expect(discussion).toBeFocused();
+    const frame = page.locator('#ask-page-fixture iframe');
+    const render = await frame.getAttribute('data-render-id');
+    await (await pageAction(page, 'Theme: Dark')).click();
+    await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+    await (await pageAction(page, 'Theme: System')).click();
+    await expect(page.locator('html')).not.toHaveAttribute('data-theme');
+    await expect(page.locator('html')).toHaveCSS('color-scheme', 'light');
+    await page.emulateMedia({ colorScheme: 'dark' });
+    await expect(page.locator('html')).toHaveCSS('color-scheme', 'dark');
+    await expect(frame).toHaveAttribute('data-render-id', render!);
+    await (await pageAction(page, 'Theme: System')).focus();
+    await expect(
+      actions.getByRole('menuitemradio', { name: 'Theme: System', exact: true }),
+    ).toHaveAttribute('aria-checked', 'true');
+    await page.keyboard.press('Tab');
+    await expect(actions.getByRole('menu')).toHaveCount(0);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);
+  });

@@ -1,3 +1,4 @@
+import { pageAction } from '../test/page-actions.js';
 import { expect, test, type Page } from '@playwright/test';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -18,7 +19,7 @@ const FILES = ['page.html', 'conversations.json', 'conversations.md', 'manifest.
 
 /** Every file the parent's Export panel offers, downloaded through the real browser. */
 async function browserExport(page: Page): Promise<Record<string, Buffer>> {
-  await page.getByRole('button', { name: 'Export page', exact: true }).click();
+  await (await pageAction(page, 'Export page')).click();
   const panel = page.getByRole('region', { name: 'Export page' });
   await expect(panel.getByRole('button', { name: 'Download page.html' })).toBeEnabled();
   const files: Record<string, Buffer> = {};
@@ -61,7 +62,7 @@ test('browser and CLI export the same two-writer discussion and Ask conversation
     await expect(t1.getByTestId('ask-reply')).toBeVisible();
     const operationId = (await t1.getByTestId('ask-entry').getAttribute('data-operation-id'))!;
     const messageId = (await t1.getByTestId('comment-entry').getAttribute('data-message-id'))!;
-    await second.getByTestId('comments-toggle').click();
+    await (await pageAction(second, 'Comments')).click();
     await second.getByTestId('annotation-row').click();
     const t2 = second.getByTestId('comment-thread').first();
     await expect(t2).toHaveAttribute('data-anchor', 'attached');

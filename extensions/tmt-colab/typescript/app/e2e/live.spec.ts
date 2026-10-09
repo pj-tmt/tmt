@@ -1,3 +1,4 @@
+import { pageAction } from '../test/page-actions.js';
 import { readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import {
@@ -999,7 +1000,7 @@ test('authenticated tail past write limits opens and renders exact source', asyn
   await expect(page.frameLocator('iframe').locator('body')).toHaveText(
     'Live fixture' + source.slice(heading.length),
   );
-  await page.getByRole('button', { name: 'Source', exact: true }).click();
+  await (await pageAction(page, 'Source')).click();
   await expect(page.getByRole('textbox')).toHaveValue(source);
 });
 
@@ -1190,7 +1191,7 @@ result:async()=>({state:'replied',requestId:'${requestId}',message:${JSON.string
     getSelection()!.removeAllRanges();
     getSelection()!.addRange(range);
   });
-  await page.getByTestId('chat-toggle').click();
+  await (await pageAction(page, 'Chat')).click();
   const input = page.getByTestId('chat-panel').getByRole('combobox', { name: 'Message' });
   await input.fill('@');
   await page.getByRole('option').click();
@@ -1208,7 +1209,7 @@ result:async()=>({state:'replied',requestId:'${requestId}',message:${JSON.string
   await f.settled();
   expect(f.entries.map((row) => row.seq)).toEqual(['1', '2', '3', '4', '5', '6']);
   await page.reload();
-  await page.getByTestId('chat-toggle').click();
+  await (await pageAction(page, 'Chat')).click();
   await expect(page.getByTestId('ask-reply')).toHaveText(reply);
   await expect(page.getByTestId('ask-entry')).toHaveAttribute('data-operation-id', operationId!);
   await expect(heading).toHaveText('Live fixture');
@@ -1233,7 +1234,7 @@ result:async()=>({state:'replied',requestId:'${requestId}',message:${JSON.string
   expect(sends).toBe(1);
   expect(f.entries).toHaveLength(6);
   await expect(page.getByRole('heading', { name: 'Connection lost', exact: true })).toBeVisible();
-  await expect(page.locator('.status')).toHaveText('Connection lost');
+  await expect(page.locator('.status')).toHaveText('Private · Connection lost');
   await expect(page.locator('.tmt-ui-notice')).toHaveAttribute('data-tone', 'waiting');
   await expect(page.locator('.tmt-ui-notice-mark')).toContainText('Disconnected');
   await expect(page.getByText('This preview accepts pages up to 2 MiB of HTML.')).toHaveCount(0);
@@ -1272,7 +1273,7 @@ result:async()=>({state:'replied',requestId:'${requestId}',message:${JSON.string
   await capture('recovery-card');
   await capture('recovery-focus', true);
   await page.setViewportSize({ width: 1440, height: 900 });
-  await page.getByTestId('chat-toggle').click();
+  await (await pageAction(page, 'Chat')).click();
   await expect(input).toHaveText(draft);
   await expect(page.getByTestId('ask-reply')).toHaveText(reply);
   await page.getByRole('button', { name: 'Close Chat', exact: true }).click();
@@ -1292,7 +1293,7 @@ result:async()=>({state:'replied',requestId:'${requestId}',message:${JSON.string
   await expect(reconnect).toBeEnabled();
   await expect(page.locator('.tmt-ui-notice')).toHaveAttribute('data-tone', 'waiting');
   await page.setViewportSize({ width: 1440, height: 900 });
-  await page.getByTestId('chat-toggle').click();
+  await (await pageAction(page, 'Chat')).click();
   await expect(input).toHaveText(draft);
   await expect(page.getByTestId('ask-entry')).toHaveAttribute('data-operation-id', operationId!);
   await expect(page.getByTestId('ask-reply')).toHaveText(reply);
@@ -1516,9 +1517,7 @@ for (const width of [1440, 390])
         await expect(heading).toBeVisible();
         async function openChat() {
           if (await page.locator('.page-drawer[data-panel=chat][open]').isVisible()) return;
-          const toggle = page.getByTestId('chat-toggle');
-          if (!(await toggle.isVisible()))
-            await page.getByRole('button', { name: 'More page actions' }).click();
+          const toggle = await pageAction(page, 'Chat');
           await toggle.click();
         }
         if (surface === 'Chat') await openChat();
@@ -1616,7 +1615,7 @@ for (const width of [1440, 390])
         await expect.poll(() => f.opens).toBe(admittedOpens + 2);
         f.release();
         await expect(reconnect).toHaveCount(0);
-        await expect(page.locator('.status.live .status-label')).toHaveText('Live preview');
+        await expect(page.locator('.status.live .status-label')).toHaveText('Live');
         await expect(heading).toBeVisible();
         if (surface === 'Chat') await openChat();
         await input.focus();
@@ -1711,10 +1710,8 @@ test('an upgraded server shows the update row under the header without covering 
     const mainBox = (await page.locator('main').boundingBox())!;
     expect(mainBox.y).toBeGreaterThanOrEqual(rowBox.y + rowBox.height - 1);
     // Chat open: the composer's actions stay reachable, not under the row.
-    const toggle = page.getByTestId('chat-toggle');
+    const toggle = await pageAction(page, 'Chat');
     if (!(await page.locator('.page-drawer[data-panel=chat][open]').isVisible())) {
-      if (!(await toggle.isVisible()))
-        await page.getByRole('button', { name: 'More page actions' }).click();
       await toggle.click();
     }
     const panel = page.getByTestId('chat-panel');
@@ -1764,7 +1761,7 @@ test('same-device tabs stay connected and exchange source edits without reopenin
     await expect(
       tab.frameLocator('iframe').getByRole('heading', { name: 'Live fixture' }),
     ).toBeVisible();
-    await tab.getByRole('button', { name: 'Source', exact: true }).click();
+    await (await pageAction(tab, 'Source')).click();
   }
   await expect.poll(() => f.connections).toBe(2);
   expect(await reopens(page)).toBe(1);
@@ -1806,7 +1803,7 @@ test('chunked epoch baseline stays live in two tabs through an edit and reload',
     await expect(
       tab.frameLocator('iframe').getByRole('heading', { name: 'Reset baseline' }),
     ).toBeVisible();
-    await tab.getByRole('button', { name: 'Source', exact: true }).click();
+    await (await pageAction(tab, 'Source')).click();
     await expect(tab.getByRole('textbox')).toHaveValue(source);
   }
   const next = source.replace('Reset baseline', 'New epoch edit');
@@ -1836,6 +1833,7 @@ for (const invalid of ['commitment', 'source', 'descriptor', 'oldEpoch'] as cons
     await page.locator(`[data-page-id="${v.page}"] a`).click();
     await expect(page.getByRole('alert')).toBeVisible();
     await expect(page.locator('iframe')).toHaveCount(0);
+    await expect(page.locator('.page-header-actions')).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Export page' })).toHaveCount(0);
     await expect
       .poll(() =>
@@ -1858,7 +1856,7 @@ test('paired checkpoints precede an authenticated interleaved tail, preserve edi
   await expect(page.getByRole('heading', { name: 'Checkpoint', exact: true })).toBeVisible();
   await expect(page.getByTestId('comments-panel')).toContainText('No comments yet.');
   await expect(page.getByTestId('comment-entry')).toHaveCount(0);
-  await page.getByRole('button', { name: 'Source', exact: true }).click();
+  await (await pageAction(page, 'Source')).click();
   await expect(page.getByRole('textbox')).toHaveValue('<p>after tail</p>' + 'x'.repeat(300_000));
   await page.getByRole('textbox').fill('<h1>After compacted reload</h1>');
   await page.getByRole('button', { name: 'Save source' }).click();
@@ -1879,7 +1877,7 @@ test('paired checkpoints precede an authenticated interleaved tail, preserve edi
   expect(f.statusChecks).toBe(1);
   expect(f.entries.at(-1)!.seq).toBe('10');
   await page.reload();
-  await page.getByRole('button', { name: 'Source', exact: true }).click();
+  await (await pageAction(page, 'Source')).click();
   await expect(page.getByRole('textbox')).toHaveValue('<h1>Lost reply settled</h1>');
   await page.getByRole('textbox').fill('<h1>After compacted reload</h1>');
   await page.getByRole('button', { name: 'Save source' }).click();
@@ -2045,14 +2043,14 @@ test('parent export downloads exact frozen baseline files, ignores drafts and re
   await expect(
     page.frameLocator('iframe').getByRole('heading', { name: 'Exact export' }),
   ).toBeVisible();
-  const exportButton = page.getByRole('button', { name: 'Export page', exact: true });
+  const exportButton = await pageAction(page, 'Export page');
   await exportButton.evaluate((button: HTMLButtonElement) => button.click());
   await expect(page.getByRole('region', { name: 'Export page' })).toHaveCount(0);
   expect(requested).toBe(0);
-  await page.getByRole('button', { name: 'Source', exact: true }).click();
+  await (await pageAction(page, 'Source')).click();
   await page.getByRole('textbox').fill('<p>Unsaved draft</p>');
   const before = Date.now();
-  await exportButton.click();
+  await (await pageAction(page, 'Export page')).click();
   const panel = page.getByRole('region', { name: 'Export page' });
   await expect(panel).toContainText(
     'This creates an unencrypted copy of the page. Anyone with these files can read it.',
@@ -2063,7 +2061,7 @@ test('parent export downloads exact frozen baseline files, ignores drafts and re
     .evaluate((button: HTMLButtonElement) => button.click());
   expect(requested).toBe(0);
   await page.screenshot({ path: capturePath('export-light.png'), fullPage: true });
-  await page.getByRole('button', { name: 'Change color theme' }).click();
+  await (await pageAction(page, 'Theme: Dark')).click();
   await page.screenshot({ path: capturePath('export-dark.png'), fullPage: true });
   await page.setViewportSize({ width: 390, height: 844 });
   await page.screenshot({ path: capturePath('export-mobile.png'), fullPage: true });
@@ -2138,11 +2136,11 @@ test('parent export downloads exact frozen baseline files, ignores drafts and re
   await download('page.html');
   await panel.getByRole('button', { name: 'Close export' }).click();
   await expect.poll(urlCount).toBe(0);
-  await page.getByRole('button', { name: 'Source', exact: true }).click();
+  await (await pageAction(page, 'Source')).click();
   await expect(page.getByRole('textbox', { name: 'Source', exact: true })).toHaveValue(
     '<p>Unsaved draft</p>',
   );
-  await exportButton.click();
+  await (await pageAction(page, 'Export page')).click();
   await expect(panel.getByRole('button', { name: 'Download page.html' })).toBeEnabled();
   await download('page.html');
   await page.getByRole('link', { name: 'Space home' }).click();
@@ -2167,7 +2165,7 @@ test('failed export preparation requests no files and closing clears pending pre
       return Promise.reject(new Error('Hash failed'));
     };
   });
-  await page.getByRole('button', { name: 'Export page', exact: true }).click();
+  await (await pageAction(page, 'Export page')).click();
   const panel = page.getByRole('region', { name: 'Export page' });
   await expect(panel.getByRole('status')).toContainText('Could not prepare');
   await expect(panel.getByRole('button', { name: 'Download page.html' })).toBeDisabled();
@@ -2183,7 +2181,7 @@ test('failed export preparation requests no files and closing clears pending pre
       return original(...args);
     };
   });
-  await page.getByRole('button', { name: 'Export page', exact: true }).click();
+  await (await pageAction(page, 'Export page')).click();
   await expect(panel.getByRole('status')).toContainText('Preparing an exact copy');
   await expect
     .poll(() =>
@@ -2198,7 +2196,7 @@ test('failed export preparation requests no files and closing clears pending pre
   );
   await expect(panel).toHaveCount(0);
   expect(downloads).toBe(0);
-  await page.getByRole('button', { name: 'Export page', exact: true }).click();
+  await (await pageAction(page, 'Export page')).click();
   await expect(panel.getByRole('button', { name: 'Download page.html' })).toBeEnabled();
   await panel.getByRole('button', { name: 'Close export' }).click();
   await page.getByRole('link', { name: 'Space home' }).click();
@@ -2217,7 +2215,7 @@ test('accepted fold titles persist as encrypted display hints for home, dialog a
   await row().locator('a').click();
   await expect(page.getByRole('heading', { name: title, exact: true })).toBeVisible();
   await expect(page).toHaveTitle(`${title} · Colab`);
-  await page.getByRole('button', { name: 'Manage page', exact: true }).click();
+  await (await pageAction(page, 'Manage page')).click();
   const dialog = page.getByRole('dialog');
   await expect(dialog.getByRole('heading', { name: title, exact: true })).toBeVisible();
   await expect(dialog.getByText(`Page ID: ${v.page}`, { exact: true })).toBeHidden();

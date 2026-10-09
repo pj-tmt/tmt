@@ -1,3 +1,4 @@
+import { pageAction } from '../test/page-actions.js';
 import { expect, test } from '@playwright/test';
 import { pairBrowser, startDoor } from './harness/browser.js';
 import { createPage, freePort, openPage, run } from './harness/ask.js';
@@ -32,7 +33,7 @@ test('260 CLI changes with a browser edit in the middle read back exact in the C
     for (let i = 0; i < 100; i++) append(i);
     // The browser edits in the middle of the run, on top of the CLI's changes.
     await page.reload();
-    await page.getByRole('button', { name: 'Source', exact: true }).click();
+    await (await pageAction(page, 'Source')).click();
     const box = page.getByRole('textbox', { name: 'Source', exact: true });
     expect((await box.inputValue()) === source).toBe(true);
     source += '<p>from the browser</p>';
@@ -49,7 +50,7 @@ test('260 CLI changes with a browser edit in the middle read back exact in the C
     expect(read(created.pageId).source === source).toBe(true);
 
     await page.reload();
-    await page.getByRole('button', { name: 'Source', exact: true }).click();
+    await (await pageAction(page, 'Source')).click();
     expect(
       (await page.getByRole('textbox', { name: 'Source', exact: true }).inputValue()) === source,
     ).toBe(true);

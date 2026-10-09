@@ -1,4 +1,15 @@
 export type Theme = 'light' | 'dark';
+export type ThemeChoice = Theme | 'system';
+
+export function getThemeChoice(): ThemeChoice {
+  const choice = document.documentElement.dataset.theme;
+  return choice === 'light' || choice === 'dark' ? choice : 'system';
+}
+
+export function setThemeChoice(choice: ThemeChoice): void {
+  if (choice === 'system') delete document.documentElement.dataset.theme;
+  else document.documentElement.dataset.theme = choice;
+}
 
 /** The root stores only an explicit choice; otherwise the OS remains the default. */
 export function getTheme(): Theme {

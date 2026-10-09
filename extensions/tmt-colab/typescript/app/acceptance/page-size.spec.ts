@@ -1,3 +1,4 @@
+import { pageAction } from '../test/page-actions.js';
 import { expect, test } from '@playwright/test';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -27,7 +28,7 @@ test('native compaction keeps 260 CLI appends after browser edits readable every
       };
 
     // Two browser whole-source saves, 60 KiB then 100 KiB.
-    await page.getByRole('button', { name: 'Source', exact: true }).click();
+    await (await pageAction(page, 'Source')).click();
     for (const [kb, tag] of [
       [60, 'a'],
       [100, 'b'],
@@ -76,7 +77,7 @@ test('native compaction keeps 260 CLI appends after browser edits readable every
     );
     // The browser reopens the compacted page and shows the exact source.
     await page.reload();
-    await page.getByRole('button', { name: 'Source', exact: true }).click();
+    await (await pageAction(page, 'Source')).click();
     expect(await page.getByRole('textbox', { name: 'Source', exact: true }).inputValue()).toBe(
       source,
     );

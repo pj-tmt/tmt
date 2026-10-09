@@ -1,3 +1,4 @@
+import { pageAction } from '../../test/page-actions.js';
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -110,10 +111,8 @@ export interface ComposedChat {
 }
 export async function openChat(page: Page) {
   if (await page.locator('.page-drawer[data-panel=chat][open]').isVisible()) return;
-  const toggle = page.getByTestId('chat-toggle');
+  const toggle = await pageAction(page, 'Chat');
   await expect(toggle).toBeAttached();
-  if (!(await toggle.isVisible()))
-    await page.getByRole('button', { name: 'More page actions' }).click();
   await toggle.click();
   await expect(page.getByTestId('chat-panel')).toBeVisible();
 }

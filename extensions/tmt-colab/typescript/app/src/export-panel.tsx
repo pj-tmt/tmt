@@ -141,6 +141,15 @@ export function ExportPanel({
       )}
     </section>
   );
+  const presentation = drawer ? (
+    <PageDrawer open={open} title={text.export} kind="export" close={() => setOpen(false)}>
+      {open && content}
+    </PageDrawer>
+  ) : (
+    open && content
+  );
+  // A controlled host owns the trigger and its layout; standalone callers keep their control.
+  if (opened !== undefined) return presentation;
   return (
     <div className="export-control">
       <button
@@ -155,13 +164,7 @@ export function ExportPanel({
       >
         {text.export}
       </button>
-      {drawer ? (
-        <PageDrawer open={open} title={text.export} kind="export" close={() => setOpen(false)}>
-          {open && content}
-        </PageDrawer>
-      ) : (
-        open && content
-      )}
+      {presentation}
     </div>
   );
 }

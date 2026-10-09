@@ -1,3 +1,4 @@
+import { pageAction } from '../test/page-actions.js';
 import { expect, test } from '@playwright/test';
 import { openColab, pairBrowser, startDoor } from './harness/browser.js';
 import { createPage, freePort } from './harness/ask.js';
@@ -18,7 +19,7 @@ test('native page titles become durable browser-local labels after their first v
     await row().locator('a').click();
     await expect(page.getByRole('heading', { name: title, exact: true })).toBeVisible();
     await expect(page).toHaveTitle(`${title} · Colab`);
-    await page.getByRole('button', { name: 'Manage page', exact: true }).click();
+    await (await pageAction(page, 'Manage page')).click();
     const dialog = page.getByRole('dialog');
     await expect(dialog.getByRole('heading', { name: title, exact: true })).toBeVisible();
     await expect(dialog.getByText('Active', { exact: true })).toBeVisible();
