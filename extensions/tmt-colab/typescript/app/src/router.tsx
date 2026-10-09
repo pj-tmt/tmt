@@ -49,6 +49,8 @@ import { ExportPanel } from './export-panel.js';
 import { PageDrawer } from './page-drawer.js';
 import { AgentStatusPanel } from './agent-status-panel.js';
 import { ChatPanel } from './chat-panel.js';
+import { DraftSession } from './draft-store.js';
+import { CHAT_DRAFT, SavedDrafts, savedDrafts } from './saved-drafts.js';
 import { isChatThread } from './thread-records.js';
 import { SaveOutcomeUnknown, saveMessage } from './save.js';
 import { SaveNotice, type SaveProblem } from './save-notice.js';
@@ -688,6 +690,18 @@ function Page() {
   const popover = useRef<HTMLElement>(null);
   // An unsent draft lives in memory for this page only: never stored, never sent to the frame.
   const drafts = useRef(new Map<string, ComposerEdit>());
+  // Device-local persistence behind `drafts`: it restores text only and never sends or opens.
+  const session = useRef<DraftSession | undefined>(undefined);
+  const [draftsReady, setDraftsReady] = useState(!transport.drafts);
+  const [draftsUnsaved, setDraftsUnsaved] = useState(false);
+  const [, setDraftKeys] = useState(0);
+  function keepDraft(key: string, edit: ComposerEdit | null) {
+    const had = drafts.current.has(key);
+    if (edit) drafts.current.set(key, edit);
+    else drafts.current.delete(key);
+    session.current?.set(key, edit);
+    if (had !== !!edit) setDraftKeys((n) => n + 1);
+  }
   const annotationDraft = useRef<ComposerEdit>({ value: '' });
   const annotationBusy = useRef(false);
   const statusBusy = useRef(false);
@@ -709,6 +723,37 @@ function Page() {
     setPanel(null);
     setChatOpened(false);
   }, [snapshot.id]);
+  useEffect(() => {
+    const store = transport.drafts;
+    setDraftsUnsaved(false);
+    if (!store) {
+      setDraftsReady(true);
+      return;
+    }
+    setDraftsReady(false);
+    const current = new DraftSession(store, snapshot.id, setDraftsUnsaved);
+    session.current = current;
+    let live = true;
+    void current.load().then((saved) => {
+      if (!live) return;
+      // Text typed before the read finished is newer than anything stored.
+      for (const [key, edit] of saved ?? [])
+        if (!drafts.current.has(key)) drafts.current.set(key, edit);
+      setDraftKeys((n) => n + 1);
+      setDraftsReady(true);
+    });
+    const leave = () => void current.flush();
+    const hide = () => document.visibilityState === 'hidden' && leave();
+    window.addEventListener('pagehide', leave);
+    document.addEventListener('visibilitychange', hide);
+    return () => {
+      live = false;
+      window.removeEventListener('pagehide', leave);
+      document.removeEventListener('visibilitychange', hide);
+      session.current = undefined;
+      void current.close();
+    };
+  }, [snapshot.id, transport.drafts]);
   function annotate() {
     if (
       annotationBusy.current ||
@@ -750,8 +795,7 @@ function Page() {
     // A send in flight is not interrupted by the ×, Escape, an outside press or a cleared selection.
     if (!annotation || annotationBusy.current || statusBusy.current) return;
     const key = annotationKey(annotation);
-    if (typed() || annotationDraft.current.edited) drafts.current.set(key, annotationDraft.current);
-    else drafts.current.delete(key);
+    keepDraft(key, typed() || annotationDraft.current.edited ? annotationDraft.current : null);
     annotationDraft.current = { value: '' };
     setAnnotation(undefined);
     setRectangle(currentRectangle.current);
@@ -795,7 +839,7 @@ function Page() {
     renderer.current?.scrollAnchor(id);
   }
   function continueAnnotation(ref: DiscussionRef) {
-    drafts.current.delete(JSON.stringify(annotationRef.current?.selector));
+    keepDraft(JSON.stringify(annotationRef.current?.selector), null);
     setAnnotation((previous) =>
       previous ? { ...previous, thread: ref, restored: undefined } : previous,
     );
@@ -1234,6 +1278,7 @@ function Page() {
                       {annotation.restored !== undefined && (
                         <p className="annotation-hint">Draft kept</p>
                       )}
+                      {draftsUnsaved && <p className="annotation-hint">{text.draftsNotSaved}</p>}
                       {annotationThread && <p className="annotation-reply-label">Reply</p>}
                       <AnnotationInput
                         creationRecipient={view.creationRecipient}
@@ -1251,7 +1296,7 @@ function Page() {
                         onDraft={(_value, edit) => {
                           if (annotationRef.current?.key !== annotation.key) return;
                           annotationDraft.current = edit;
-                          drafts.current.set(annotationKey(annotation), edit);
+                          keepDraft(annotationKey(annotation), edit);
                         }}
                         onBusy={(busy) => {
                           if (annotationRef.current?.key !== annotation.key) return;
@@ -1307,10 +1352,19 @@ function Page() {
         kind="comments"
         close={() => setPanel(null)}
       >
+        <SavedDrafts
+          drafts={savedDrafts(drafts.current, view.threads)}
+          discard={(key) => keepDraft(key, null)}
+        />
+        {draftsUnsaved && (
+          <p role="status" className="annotation-hint saved-drafts-notice">
+            {text.draftsNotSaved}
+          </p>
+        )}
         <ThreadPanel
           creationRecipient={view.creationRecipient}
           hideHeader
-          key={`discussion:${snapshot.id}`}
+          key={`discussion:${snapshot.id}:${draftsReady}`}
           threads={(view.threads ?? []).filter((thread) => !isChatThread(thread))}
           resolved={resolved}
           anchorsChecked={anchorsChecked}
@@ -1334,9 +1388,7 @@ function Page() {
             setChangingStatus(busy);
           }}
           draft={(ref) => drafts.current.get(`${ref.writer}:${ref.id}`)}
-          onDraft={(ref, edit) => {
-            drafts.current.set(`${ref.writer}:${ref.id}`, edit);
-          }}
+          onDraft={(ref, edit) => keepDraft(`${ref.writer}:${ref.id}`, edit)}
           blocked={discussionBlocked}
         />
       </PageDrawer>
@@ -1363,7 +1415,10 @@ function Page() {
         {chatOpened && (
           <ChatPanel
             creationRecipient={view.creationRecipient}
-            key={`chat:${snapshot.id}`}
+            key={`chat:${snapshot.id}:${draftsReady}`}
+            initialEdit={drafts.current.get(CHAT_DRAFT)}
+            onDraft={(edit) => keepDraft(CHAT_DRAFT, edit)}
+            unsaved={draftsUnsaved}
             observationUnavailable={view.askUnavailable}
             threads={view.threads ?? []}
             asks={view.asks ?? []}

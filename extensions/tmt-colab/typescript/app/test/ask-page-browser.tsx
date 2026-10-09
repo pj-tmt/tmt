@@ -7,6 +7,8 @@ import type { ThreadBinding } from '../src/thread-store.js';
 import type { QuoteSelector, ThreadView } from '../src/thread-records.js';
 import type { PageView, PageBinding } from '../src/transport.js';
 import { createAppRouter } from '../src/router.js';
+import type { DraftStore } from '../src/draft-store.js';
+import type { ComposerEdit } from '../src/components/message-composer-edit.js';
 import { fixtureAttempt } from './ask-browser-attempt.js';
 import { ThreadStatusCoordinator } from '../src/thread-status-coordinator.js';
 import { projectThreadPresentation } from '../src/thread-status-presentation.js';
@@ -42,7 +44,30 @@ let finishDirectory: (() => void) | undefined;
 export function finishMentionDirectory() {
   finishDirectory?.();
 }
-export async function mount(options: { creator?: boolean; checking?: boolean } = {}) {
+/** Reload-surviving stand-in for the encrypted device store (its crypto has unit tests). */
+function sessionDrafts(mode: 'session' | 'failing'): DraftStore {
+  const name = (page: string) => `colab-fixture-drafts:${page}`;
+  const read = (page: string) =>
+    new Map<string, ComposerEdit>(JSON.parse(sessionStorage.getItem(name(page)) ?? '[]'));
+  return {
+    async load(page) {
+      return read(page);
+    },
+    async apply(page, changes) {
+      if (mode === 'failing') return false;
+      const drafts = read(page);
+      for (const [key, edit] of changes) {
+        drafts.delete(key);
+        if (edit) drafts.set(key, edit);
+      }
+      sessionStorage.setItem(name(page), JSON.stringify([...drafts]));
+      return true;
+    },
+  };
+}
+export async function mount(
+  options: { creator?: boolean; checking?: boolean; drafts?: 'session' | 'failing' } = {},
+) {
   root?.unmount();
   document.getElementById('ask-page-fixture')?.remove();
   document.getElementById('root')?.setAttribute('hidden', '');
@@ -289,6 +314,7 @@ export async function mount(options: { creator?: boolean; checking?: boolean } =
   root.render(
     <RouterProvider
       router={createAppRouter({
+        drafts: options.drafts ? sessionDrafts(options.drafts) : undefined,
         async spaceHome() {
           return { title: 'Fixture space', pages: [] };
         },

@@ -15,6 +15,7 @@ import { requireValue } from '@tmt/colab-client';
 import { verifyRegistration } from './registration.js';
 import { clearRecovery, recoverSession } from './session-recovery.js';
 import { text } from './strings.js';
+import { LocalDraftStore } from './draft-store.js';
 import { TitleCache } from './title-cache.js';
 
 export async function mountedTransport(signal?: AbortSignal): Promise<{
@@ -66,6 +67,7 @@ export async function mountedTransport(signal?: AbortSignal): Promise<{
   }
   current = await attach(registration);
   const titles = new TitleCache(bootstrap.space, registration.deviceId);
+  const drafts = new LocalDraftStore(bootstrap.space, registration.deviceId);
   let managementClient = new ManagementClient(mount, current.registration);
   const views = new WeakMap<ManagementView, ManagementClient>();
   const requests = new WeakMap<Pending, ManagementClient>();
@@ -164,6 +166,7 @@ export async function mountedTransport(signal?: AbortSignal): Promise<{
       get backendName() {
         return current.registration.deviceName;
       },
+      drafts,
       management,
       async spaceHome() {
         const client = managementClient;

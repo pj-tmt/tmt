@@ -1626,8 +1626,8 @@ Its placement is cosmetic; the captured quote
 selector owns the thread anchor. Enter sends, Shift+Enter inserts a newline, and Esc closes the input (an unsent draft is kept). There
 is no confirmation screen or automatic send. The popover closes with its ×, with Escape from anywhere
 inside it, with a press outside it, and with a selection cleared by a page click while
-no nonblank message is typed; none of these interrupts a send in flight. Typed text is kept in memory
-for the page together with bound mention UUIDs and restored, with a "Draft kept"
+no nonblank message is typed; none of these interrupts a send in flight. Typed text is kept
+for the page (see Draft retention) together with bound mention UUIDs and restored, with a "Draft kept"
 note, when the same selection is annotated again or its known thread is reopened.
 After a thread exists, an outside page press collapses it even with a typed draft;
 Close never resolves or sends. Existing writer-owned Resolve collapses only after
@@ -1691,6 +1691,28 @@ the window to its anchor and expands that thread inside the overlay; a margin ma
 reopens the same thread in its anchored window. Page-owned per-thread drafts also
 survive switching to the explicit Comments details view. Agent replies join verified Ask records to comment IDs and
 remain attributed to their agent. Overlay geometry does not reflow page content.
+
+#### Draft retention (#1924)
+
+An unsent, deliberately edited, nonblank message (annotation, thread reply or Chat) is
+also saved on the device so a reload or hot-module reload restores it. The saved form is
+one record per space, device and page, AES-GCM encrypted with a device-local key that is
+separate from the title-hint key and bound to that scope as authenticated data; it holds
+the exact plaintext, the intact mention bindings and the draft's target (a thread
+reference, the frozen quote selector, or Chat), at most 32 drafts per page with the oldest
+dropped first and each message within the comment limit. Restoring only fills the
+composer. It never opens a window, prepares, sends, signs, revokes or reopens a
+Session, and nothing in it is authority: recipients are revalidated against the current
+directory as for an in-tab draft. A draft returns only to the exact space, device, page
+and target; a record that fails decryption, scope, version or shape checks is ignored
+and replaced by the next write. A selection draft is listed under Comments as Saved drafts
+with its quote and text until that quote is selected again or the draft is discarded; a
+reply whose thread no longer exists is listed the same way. Nothing is deleted,
+re-anchored or sent automatically. The send ledger keeps the original operation for any
+adopted send, so a reload shows ledger state and never becomes a fresh send. When the
+device cannot store drafts (unavailable, blocked, full), the draft stays in the tab and a
+single line says `Drafts are not saved on this device.`; success is claimed only after
+the storage transaction completed. Source-editor text is outside this record.
 
 ### Page Chat (#1645)
 
