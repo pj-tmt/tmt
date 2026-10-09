@@ -127,12 +127,14 @@ Colab already shows the brand, page title and actions. Do not add a site header,
 top navigation, product mark or wordmark, or any sticky or fixed bar. Begin with
 the page's content so the user sees one Colab header.
 
-The starter has light and dark palettes. Colab sets data-theme="light" or
-data-theme="dark" on the author html element before page scripts run and updates
-it when the theme changes, without reloading the page. Use the starter's explicit
-data-theme selectors to follow Colab's choice. Author CSS keyed only on
-prefers-color-scheme keeps following the operating system. With no Colab choice,
-the theme follows the OS; outside Colab, the starter defaults to prefers-color-scheme.
+Colab sets root data-theme="light" or "dark" before scripts run and on live theme
+changes, overwriting any author-pinned <html data-theme>. Pinning that attribute
+cannot keep a fixed look. Use the starter's explicit data-theme selectors to
+follow Colab. CSS keyed only on prefers-color-scheme follows the OS.
+
+For a fixed look, use one unconditional :root palette and color-scheme; remove
+the starter's data-theme and prefers-color-scheme overrides. Author CSS owns
+colours and backgrounds. Outside Colab, the starter follows the OS.
 
 <!-- BEGIN generated page style -->
 

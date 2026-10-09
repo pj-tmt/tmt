@@ -1534,6 +1534,42 @@ fn attachment_read_refuses_without_a_serve_or_a_valid_reference_and_creates_noth
     );
 }
 #[test]
+fn attachment_attach_help_keeps_requirements_resume_and_changed_page_on_separate_lines() {
+    let pilot = Pilot::new(None);
+    let output = pilot
+        .command()
+        .args(["attachment", "attach", "--help"])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "{output:?}");
+    assert!(output.stderr.is_empty());
+    let help = String::from_utf8(output.stdout).unwrap();
+    let details = help
+        .split_once("Details:\n")
+        .unwrap()
+        .1
+        .split_once("\nExamples:\n")
+        .unwrap()
+        .0;
+    assert_eq!(
+        details,
+        concat!(
+            "  Requires a running serve, an editable page and an established object channel.\n",
+            "  Pair the browser with tmt remote pair, then open the page once to establish the channel.\n",
+            "  The serve copies the file into a private slot, seals it with this device's writer key, uploads it and lists it on the page.\n",
+            "  The type defaults from the file extension and is only a label. Files over 8 MiB are refused.\n",
+            "  If the reply is lost, rerun with --resume SLOT using the printed slot. It checks the backend before sending and never uploads twice.\n",
+            "  If the page changed after the file was sealed, the uploaded original and slot are discarded. Nothing is listed; run attach again for a new slot.\n",
+            "  --json prints the exact reference that attachment read takes.\n",
+        )
+    );
+    assert!(!help.contains("stale base") && !help.contains("through tmt remote"));
+    assert!(
+        !pilot.root.join("selected").exists() && !pilot.root.join("calls").exists(),
+        "help invoked core or created application state"
+    );
+}
+#[test]
 fn attachment_attach_refuses_what_it_cannot_send_and_creates_nothing_without_a_serve() {
     let pilot = Pilot::new(None);
     let file = pilot.root.join("source.html");

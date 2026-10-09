@@ -76,7 +76,9 @@ for its mounted lifetime and projects the effective light/dark value through the
 bound init/port. The bootstrap sets root `data-theme` before author code and updates
 it without replacing the document. The [renderer contract](../../../../extensions/tmt-colab/contracts/colab-v1.md#renderer-and-live-anchors)
 owns the exact shapes and author CSS selector rule: the bundled starter follows
-Colab's choice, while media-only author CSS follows the OS. The unstyled white
+Colab's choice, while media-only author CSS follows the OS. Fixed-look pages use
+unconditional CSS palettes, not a pinned root theme attribute; the bundled skill
+shows that authoring rule. The unstyled white
 canvas, sandbox attributes, source limits and CSP remain unchanged.
 
 Source revisions replace only the author renderer, not parent chrome. `router.tsx`

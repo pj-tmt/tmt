@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { mkdirSync } from 'node:fs';
 const fixture = '/test/ask-again-browser.tsx';
 async function run(page: Page, method: string, argument?: unknown) {
   return page.evaluate(
@@ -36,7 +37,8 @@ for (const surface of ['chat', 'thread'])
       expect((await run(page, 'proof')).sends).toEqual(before.sends);
       await again.focus();
       await expect(again).toBeFocused();
-      await expect(again).toHaveText('Ask again');
+      await expect(again).toHaveAccessibleName('Ask again');
+      await expect(again.locator('svg.lucide-send')).toBeVisible();
       await again.press('Enter');
       await expect
         .poll(async () => (await run(page, 'proof')).sends.length)
@@ -238,3 +240,59 @@ test('a newly refused replacement arriving before older rows leaves one enabled 
     4,
   );
 });
+
+for (const width of [1440, 390])
+  for (const theme of ['light', 'dark'] as const)
+    test(`recipient actions ${width} ${theme}: distinct retry and observation controls fit`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await page.emulateMedia({ colorScheme: theme });
+      await mount(page, 'chat', 'refused');
+      const again = page.getByRole('button', { name: 'Ask again', exact: true });
+      const check = page.getByRole('button', { name: 'Check again', exact: true });
+      await expect(again).toBeVisible();
+      await expect(check).toBeVisible();
+      await expect(again.locator('svg.lucide-send')).toBeVisible();
+      await expect(check.locator('svg.lucide-rotate-cw')).toBeVisible();
+      const boxes = await Promise.all([again.boundingBox(), check.boundingBox()]);
+      for (const box of boxes) {
+        expect(box).not.toBeNull();
+        expect(box!.x).toBeGreaterThanOrEqual(0);
+        expect(box!.x + box!.width).toBeLessThanOrEqual(width);
+        if (width === 390) {
+          expect(box!.width).toBeGreaterThanOrEqual(44);
+          expect(box!.height).toBeGreaterThanOrEqual(44);
+        }
+      }
+      const [a, b] = boxes;
+      expect(
+        a!.x + a!.width <= b!.x ||
+          b!.x + b!.width <= a!.x ||
+          a!.y + a!.height <= b!.y ||
+          b!.y + b!.height <= a!.y,
+      ).toBe(true);
+      const before = await run(page, 'proof');
+      for (const [button, label] of [
+        [again, 'Ask again'],
+        [check, 'Check again'],
+      ] as const) {
+        await button.hover();
+        await expect(page.locator('.tmt-ui-icon-action-tooltip:popover-open')).toHaveText(label);
+        await page.mouse.move(width - 1, 899);
+        await button.focus();
+        await expect(page.locator('.tmt-ui-icon-action-tooltip:popover-open')).toHaveText(label);
+        await button.press('Escape');
+        await expect(page.locator('.tmt-ui-icon-action-tooltip:popover-open')).toHaveCount(0);
+      }
+      await check.press('Enter');
+      expect((await run(page, 'proof')).sends).toEqual(before.sends);
+      expect((await run(page, 'proof')).writes).toBe(before.writes);
+      await page.getByRole('combobox', { name: 'Message', exact: true }).focus();
+      const captures = process.env.COLAB_AGAIN_CAPTURE_DIR;
+      if (captures) {
+        mkdirSync(captures, { recursive: true });
+        await page.mouse.move(width - 1, 899);
+        await page.screenshot({ path: `${captures}/actions-${width}-${theme}.png` });
+      }
+    });

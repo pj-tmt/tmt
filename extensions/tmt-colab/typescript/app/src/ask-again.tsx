@@ -1,3 +1,5 @@
+import { BrowserIconAction } from '@tmt/browser-ui/react';
+import { Send } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import type { AskBinding } from './ask-panel.js';
 import type { CommentContext } from './thread-store.js';
@@ -97,17 +99,17 @@ export function AskAgainAction({
       {uncertain ? (
         <span role="status">{text.askUnconfirmed}</span>
       ) : (
-        <button
+        <BrowserIconAction
           type="button"
-          className="ask-status-action"
-          aria-busy={busy || undefined}
-          disabled={!binding || blocked || busy}
-          onClick={(event) => {
+          variant="text"
+          label={text.askAgain}
+          icon={<Send />}
+          busy={busy}
+          disabled={!binding || blocked}
+          onActivate={(event) => {
             if (event.isTrusted) void send();
           }}
-        >
-          {text.askAgain}
-        </button>
+        />
       )}
       {error && <span role="alert">{text.askActionFailed}</span>}
     </span>
