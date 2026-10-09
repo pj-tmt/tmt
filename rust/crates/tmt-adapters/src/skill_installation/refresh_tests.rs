@@ -14,7 +14,7 @@ fn fixture() -> (TestDirectory, PathBuf) {
 
 fn old_source(global: &Path, bytes: &[u8]) -> PathBuf {
     let root = files::resolved(global).unwrap().join("skill-assets");
-    let source = root.join(sha256(bytes)).join("tmux-team");
+    let source = root.join(sha256(bytes)).join("tmt");
     fs::create_dir_all(&source).unwrap();
     fs::write(source.join("SKILL.md"), bytes).unwrap();
     source
@@ -30,7 +30,7 @@ fn old_bundle(global: &Path, core: &[u8], inbox: &[u8]) -> (PathBuf, PathBuf) {
         .unwrap()
         .join("skill-assets")
         .join(sha256(&framed));
-    let main = version.join("tmux-team");
+    let main = version.join("tmt");
     let inbox_source = version.join("tmt-inbox");
     fs::create_dir_all(&main).unwrap();
     fs::create_dir(&inbox_source).unwrap();
@@ -54,7 +54,7 @@ fn old_office_bundle(
         .unwrap()
         .join("skill-assets")
         .join(sha256(&framed));
-    let main = version.join("tmux-team");
+    let main = version.join("tmt");
     let inbox_source = version.join("tmt-inbox");
     let office_source = version.join("tmt-office");
     for source in [&main, &inbox_source, &office_source] {
@@ -77,9 +77,9 @@ fn remember(global: &Path, targets: impl IntoIterator<Item = PathBuf>) {
 
 fn target_paths(root: &Path) -> [PathBuf; 3] {
     [
-        root.join("home/.claude/skills/tmux-team"),
-        root.join("home/.agents/skills/tmux-team"),
-        root.join("workspace/custom/tmux-team"),
+        root.join("home/.claude/skills/tmt"),
+        root.join("home/.agents/skills/tmt"),
+        root.join("workspace/custom/tmt"),
     ]
 }
 
@@ -94,7 +94,7 @@ fn refreshes_both_targets_from_a_genuine_old_two_skill_bundle() {
     let old_core = b"prior refresh core bytes\n";
     let old_inbox = b"prior refresh inbox bytes\n";
     let (main_source, inbox_source) = old_bundle(&global, old_core, old_inbox);
-    let main_target = directory.path.join("home/.agents/skills/tmux-team");
+    let main_target = directory.path.join("home/.agents/skills/tmt");
     let inbox_target = directory.path.join("home/.agents/skills/tmt-inbox");
     managed_target(&main_target, &main_source);
     managed_target(&inbox_target, &inbox_source);
@@ -135,12 +135,7 @@ fn refreshes_an_existing_optional_office_skill_without_creating_missing_siblings
         fs::read(fs::read_link(&office_target).unwrap().join("SKILL.md")).unwrap(),
         super::bundled_skill_named("tmt-office").unwrap()
     );
-    assert!(
-        !directory
-            .path
-            .join("home/.agents/skills/tmux-team")
-            .exists()
-    );
+    assert!(!directory.path.join("home/.agents/skills/tmt").exists());
     assert!(
         !directory
             .path
@@ -162,7 +157,7 @@ fn refreshes_old_owned_source_and_repeat_is_an_exact_byte_noop() {
     let (directory, global) = fixture();
     let old = b"old canonical skill\n";
     let source = old_source(&global, old);
-    let target = directory.path.join("home/.claude/skills/tmux-team");
+    let target = directory.path.join("home/.claude/skills/tmt");
     managed_target(&target, &source);
     remember(&global, [target.clone()]);
     let manifest_before = fs::read(global.join("skill-installations.json")).unwrap();
@@ -255,10 +250,7 @@ fn missing_or_empty_registry_does_not_create_filesystem_state() {
 #[test]
 fn missing_recorded_target_is_skipped_without_resurrection() {
     let (_directory, global) = fixture();
-    let target = global
-        .parent()
-        .unwrap()
-        .join("deleted/.agents/skills/tmux-team");
+    let target = global.parent().unwrap().join("deleted/.agents/skills/tmt");
     remember(&global, [target.clone()]);
 
     let report = refresh(&global).unwrap();
@@ -275,12 +267,12 @@ fn conflicts_are_preserved_while_independent_targets_refresh() {
     let old = b"old canonical skill\n";
     let modified_source = old_source(&global, old);
     fs::write(modified_source.join("SKILL.md"), b"user-modified source\n").unwrap();
-    let modified_target = directory.path.join("home/.claude/skills/tmux-team");
+    let modified_target = directory.path.join("home/.claude/skills/tmt");
     managed_target(&modified_target, &modified_source);
-    let unmanaged_target = directory.path.join("home/.agents/skills/tmux-team");
+    let unmanaged_target = directory.path.join("home/.agents/skills/tmt");
     fs::create_dir_all(unmanaged_target.parent().unwrap()).unwrap();
     fs::write(&unmanaged_target, b"user-owned target\n").unwrap();
-    let good_target = directory.path.join("workspace/custom/tmux-team");
+    let good_target = directory.path.join("workspace/custom/tmt");
     let good_source = old_source(&global, b"another old skill\n");
     managed_target(&good_target, &good_source);
     remember(
@@ -320,7 +312,7 @@ fn duplicate_registry_intents_publish_once() {
     let (directory, global) = fixture();
     let old = b"old canonical skill\n";
     let source = old_source(&global, old);
-    let target = directory.path.join("home/.claude/skills/tmux-team");
+    let target = directory.path.join("home/.claude/skills/tmt");
     managed_target(&target, &source);
     let manifest = global.join("skill-installations.json");
     fs::create_dir_all(&global).unwrap();
@@ -383,7 +375,7 @@ fn invalid_or_symlink_registry_is_rejected_without_mutation() {
 #[test]
 fn held_lock_rejects_refresh_without_materializing_assets() {
     let (directory, global) = fixture();
-    let target = directory.path.join("home/.claude/skills/tmux-team");
+    let target = directory.path.join("home/.claude/skills/tmt");
     remember(&global, [target.clone()]);
     let lock = files::lock(&global).unwrap();
 
@@ -402,8 +394,8 @@ fn later_publication_failure_preserves_prior_bytes_and_retry_reuses_owner() {
     let (directory, global) = fixture();
     let old = b"old canonical skill\n";
     let source = old_source(&global, old);
-    let first = directory.path.join("home/.claude/skills/first/tmux-team");
-    let second = directory.path.join("home/.agents/skills/second/tmux-team");
+    let first = directory.path.join("home/.claude/skills/first/tmt");
+    let second = directory.path.join("home/.agents/skills/second/tmt");
     managed_target(&first, &source);
     managed_target(&second, &source);
     remember(&global, [first.clone(), second.clone()]);
@@ -456,11 +448,11 @@ fn alias_intents_share_one_observed_target_without_rewriting_the_registry() {
     let (directory, global) = fixture();
     let source = old_source(&global, b"old alias fixture\n");
     let parent = directory.path.join("actual-skills");
-    let target = parent.join("tmux-team");
+    let target = parent.join("tmt");
     managed_target(&target, &source);
     let alias = directory.path.join("alias-skills");
     std::os::unix::fs::symlink(&parent, &alias).unwrap();
-    remember(&global, [target.clone(), alias.join("tmux-team")]);
+    remember(&global, [target.clone(), alias.join("tmt")]);
     let registry_before = fs::read(global.join("skill-installations.json")).unwrap();
     let mut publications = 0;
     let report = super::refresh::refresh_with_publisher(&global, |target, source| {

@@ -1,6 +1,6 @@
 ---
 source: site/src/chapters/settings.mdx
-sourceRevision: 1a22fb69dcc4464d224c1b7f42b3fc5a8fcaf197
+sourceRevision: 3a8ea875c93d702882147e770416b5ea8bc6e23c
 title: 設定と困ったときの対処
 ---
 
@@ -38,7 +38,7 @@ $ tmt config rm pasteEnterDelayMs                 # このフォルダーの上�
 | `defaults.pollInterval`            | `1`      | `talk` の待機中に確認する間隔の秒数です                                                                                                                     | `config.json` を編集     |
 | `defaults.captureLines`            | `100`    | `tmt check` が表示する行数です                                                                                                                              | `config.json` を編集     |
 
-「どちらも可」は、現在のフォルダーに設定するか、`--global` ですべてのフォルダーに設定できるという意味です。グローバル設定は、tmt の旧名を残した設定ディレクトリ `~/.config/tmux-team/` の `config.json` にあります。フォルダーごとの上書きは、tmt を実行するフォルダーの `tmux-team.json` に保存されます。`tmt config show` は両方のパスを表示します。tmt は未知のフィールドを保ち、`config show` は実際に使う値とその取得元を示します。
+「どちらも可」は、現在のフォルダーに設定するか、`--global` ですべてのフォルダーに設定できるという意味です。グローバル設定は、tmt の設定ディレクトリ `~/.config/tmt/` の `config.json` にあります。フォルダーごとの上書きは、tmt を実行するフォルダーの `tmt.json` に保存されます。`tmt config show` は両方のパスを表示します。tmt は未知のフィールドを保ち、`config show` は実際に使う値とその取得元を示します。
 
 数値は数字だけで書き、単位、符号、小数は使いません。`exchange.retentionDays` の変更は、新しいリクエストだけに適用されます。
 
@@ -74,16 +74,14 @@ $ tmt completion zsh             # zsh でも同じように確認
 
 基本は[ペインのバッジ](/drivers/tmux#the-pane-badge)で説明しています。追加で、次の点を調整できます。
 
-- **狭いペインでは隠します。** 下の書式でペインの幅を確認できます。80はテーマに合わせて変えてください。自動調整ではありません。
+- **狭いペインでは隠します。** バッジを自分で配置し、下の書式のようにペインの幅を確認します。80はテーマに合わせて変えてください。自動調整ではありません。
 - **保存できるスタイルは1つです。** tmux が保存する既定スタイルは1つだけなので、バッジを別の `push-default` で囲まないでください。その範囲の外に置き、後でテーマのスタイルを復元します。
-- **変更はペインごとに反映されます。** 設定を切り替えても、すぐにはペインを書き換えません。名前の設定、起動や終了、hook など、次に tmt がそのペインを扱うときに更新します。`tmt unbind` はバッジを消します。
+- **変更はペインごとに反映されます。** 設定を切り替えても、すぐにはペインを書き換えません。名前の設定、起動や終了、hook など、次に tmt がそのペインを扱うときに更新します。`tmt unbind` はバッジと tmt が加えた枠の書式を消します。
 - **長い名前は短縮します。** 48文字を超える名前は `…` で省略し、`#` は `＃` で表示します。保存されている名前は変わりません。
 
 <Code>{`
-#{?#{&&:#{@tmux-team.badge},#{e|>=:#{pane_width},80}}, [#{@tmux-team.badge}],}
+#{?#{&&:#{@tmt.badge},#{e|>=:#{pane_width},80}}, [#{@tmt.badge}],}
 `}</Code>
-
-古い tmt がペインのタイトルや枠の書式を置き換えてしまった場合は、自分の tmux 設定から復元してください。tmt は上書きしたテーマを再構築できません。
 
 <Mdx.h3 id="troubleshooting">困ったときの対処</Mdx.h3>
 
@@ -105,10 +103,9 @@ esac
 <Cmd>{`
 $ command -v tmt
 $ tmt --version
-$ command -v tmux-team      # 古い npm 版が新しい版より先に選ばれる場合があります
 `}</Cmd>
 
-古いインストールは元の管理ツール（`npm uninstall -g tmux-team` または `pnpm remove -g tmux-team`）で削除します。`sudo` ではなく、自分が所有するインストール先を使ってください。
+`sudo` ではなく、自分が所有するインストール先を使ってください。
 
 <Mdx.h4 id="skills-conflict-with-files-tmt-didn-t-write">
   skill が tmt 以外の作ったファイルと競合する

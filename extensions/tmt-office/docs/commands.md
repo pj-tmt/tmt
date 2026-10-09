@@ -505,5 +505,5 @@ show a short human-readable summary. Office displays the approved stored final,
 not cropped terminal output. A completed local response with withheld export is
 shown as withheld, not failed execution or an invitation to rerun the task.
 
-Installed `skills/tmux-team/SKILL.md` and public help must match executable
+Installed `skills/tmt/SKILL.md` and public help must match executable
 commands. Proposed syntax is not installed-agent guidance.

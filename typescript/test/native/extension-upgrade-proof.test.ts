@@ -221,7 +221,7 @@ describe('CLI installation proof', () => {
         '--target',
         nativeTarget(),
         '--skill',
-        path.join(repositoryRoot, '..', 'skills', 'tmux-team', 'SKILL.md'),
+        path.join(repositoryRoot, '..', 'skills', 'tmt', 'SKILL.md'),
       ]);
       expect(result.status).not.toBe(0);
       expect(result.stderr).toContain('A release archive must carry every companion executable');

@@ -158,51 +158,49 @@ fn forged_remote_provenance_is_not_accepted_as_owned_receipt_metadata() {
 
 #[test]
 fn legacy_receipts_upgrade_from_the_current_repository_without_rewriting_history() {
-    for repository in ["wkh237/tmt", "wkh237/tmux-team"] {
-        let (_directory, layout, old) = published_layout();
-        let release = layout.root.join("releases").join(old.id.to_string());
-        let receipt_path = release.join("receipt.json");
-        let mut legacy: serde_json::Value =
-            serde_json::from_slice(&fs::read(&receipt_path).unwrap()).unwrap();
-        // Existing installs retain provenance from before the transfer or rename.
-        legacy["source"] = serde_json::json!({
-            "kind": "github-release", "repository": repository,
-            "release_id": 41, "manifest_sha256": "b".repeat(64),
-        });
-        fs::write(&receipt_path, serde_json::to_vec(&legacy).unwrap()).unwrap();
-        let report = upgrade_with(
-            UpgradeRequest {
-                executable: &release.join("tmt"),
-                channel: None,
-                exact: None,
-                unpin: false,
-            },
-            || Ok(()),
-            release_download(),
+    let (_directory, layout, old) = published_layout();
+    let release = layout.root.join("releases").join(old.id.to_string());
+    let receipt_path = release.join("receipt.json");
+    let mut legacy: serde_json::Value =
+        serde_json::from_slice(&fs::read(&receipt_path).unwrap()).unwrap();
+    // Existing installs retain provenance from before the transfer.
+    legacy["source"] = serde_json::json!({
+        "kind": "github-release", "repository": "wkh237/tmt",
+        "release_id": 41, "manifest_sha256": "b".repeat(64),
+    });
+    fs::write(&receipt_path, serde_json::to_vec(&legacy).unwrap()).unwrap();
+    let report = upgrade_with(
+        UpgradeRequest {
+            executable: &release.join("tmt"),
+            channel: None,
+            exact: None,
+            unpin: false,
+        },
+        || Ok(()),
+        release_download(),
+    )
+    .unwrap();
+    assert!(report.installation.changed);
+    assert_eq!(report.state.version.to_string(), "1.2.4");
+    let current = layout.current().unwrap().unwrap();
+    let written: serde_json::Value = serde_json::from_slice(
+        &fs::read(
+            layout
+                .root
+                .join("releases")
+                .join(current.id.to_string())
+                .join("receipt.json"),
         )
-        .unwrap();
-        assert!(report.installation.changed);
-        assert_eq!(report.state.version.to_string(), "1.2.4");
-        let current = layout.current().unwrap().unwrap();
-        let written: serde_json::Value = serde_json::from_slice(
-            &fs::read(
-                layout
-                    .root
-                    .join("releases")
-                    .join(current.id.to_string())
-                    .join("receipt.json"),
-            )
-            .unwrap(),
-        )
-        .unwrap();
-        assert_eq!(written["source"]["repository"], "pj-tmt/tmt");
-        assert_eq!(written["source"]["release_id"], 42);
-        // The superseded receipt is left as it was, and still reads.
-        assert_eq!(
-            serde_json::from_slice::<serde_json::Value>(&fs::read(&receipt_path).unwrap()).unwrap(),
-            legacy
-        );
-    }
+        .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(written["source"]["repository"], "pj-tmt/tmt");
+    assert_eq!(written["source"]["release_id"], 42);
+    // The superseded receipt is left as it was, and still reads.
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(&fs::read(&receipt_path).unwrap()).unwrap(),
+        legacy
+    );
 }
 
 #[test]

@@ -66,7 +66,7 @@ mod tests {
         assert!(inspect_local_drift(&env, &global).unwrap().is_empty());
         // Deliberately corrupt intents: passive inspection must not read them.
         fs::write(global.join("skill-installations.json"), b"invalid").unwrap();
-        let shared = home.join(".agents/skills/tmux-team");
+        let shared = home.join(".agents/skills/tmt");
         fs::remove_file(&shared).unwrap();
         std::os::unix::fs::symlink(home.join("missing"), &shared).unwrap();
         let legacy = home.join(".claude/commands/team.md");

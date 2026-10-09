@@ -193,7 +193,7 @@
           "name:Execute final archive and bootstrap with the matching target process",
           "name:Recheck version-only source after this stage"
         ],
-        "sha256": "84d210d20d1afa8930c3ac3c9aaf32e5f7c31d18c0d52f883bc491aae6878cb5",
+        "sha256": "c752f4d2f84347b3426fad3f943d713490d286bffc3320b891737f2bec3ca2d8",
         "preMerge": [
           {
             "workflow": "ci.yml",
@@ -324,7 +324,7 @@
           "name:Recheck version-only source after runtime proof and adapter acceptance",
           "name:Keep the log of a failed proof"
         ],
-        "sha256": "7781676fc13d136952d90e327d6b8cb13468bb13455f976dbdc82a19db2b54f8",
+        "sha256": "0367bde2c500814d525fdef4e38b684550329966866b985c3d5b915280dcdac6",
         "preMerge": [
           {
             "workflow": "ci.yml",

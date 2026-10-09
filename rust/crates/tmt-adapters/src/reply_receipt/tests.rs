@@ -39,13 +39,13 @@ fn compact_matches_independent_node_crypto_golden_and_binds_every_field() {
     // Independent Node crypto SHA-256 over the specified byte preimage, not
     // an expected value derived from the Rust production helper.
     let base = encode_short_receipt("request-α", "attempt-1", &endpoint());
-    assert_eq!(base, "v2_eO65v2RuWainfXCY5QqO-Q");
+    assert_eq!(base, "v2_UrBhy1oeIPSUGg7Uo9o2Tw");
     assert_eq!(base.len(), 25);
     assert_eq!(
         decode_reply_receipt(&base, "unrelated"),
         Ok(ResponseProof::Compact([
-            0x78, 0xee, 0xb9, 0xbf, 0x64, 0x6e, 0x59, 0xa8, 0xa7, 0x7d, 0x70, 0x98, 0xe5, 0x0a,
-            0x8e, 0xf9,
+            0x52, 0xb0, 0x61, 0xcb, 0x5a, 0x1e, 0x20, 0xf4, 0x94, 0x1a, 0x0e, 0xd4, 0xa3, 0xda,
+            0x36, 0x4f,
         ]))
     ); // Request matching is transactional, not a decoder lookup.
     assert_ne!(

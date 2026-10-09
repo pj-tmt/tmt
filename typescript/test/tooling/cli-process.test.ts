@@ -210,7 +210,7 @@ it('owns the default tmux socket directory and removes it with the sandbox', asy
   const pollutedKeys = [
     'TMUX',
     'TMUX_PANE',
-    'TMUX_TEAM_HOME',
+    'TMT_HOME',
     'TMT_DRIVER_CALL',
     'NO_COLOR',
     'FORCE_COLOR',

@@ -9,7 +9,7 @@ Use this skill for the repository's Docker E2E test foundation. Keep E2E tests s
 
 ## Required test boundary
 
-- Exercise the real `tmt`/`tmux-team` CLI and a real tmux server.
+- Exercise the real `tmt` CLI and a real tmux server.
 - Run deterministic mock agents inside tmux panes; never invoke a real AI agent, model, credential, or network service.
 - Never touch the host user's tmux server, host credentials, or unrelated processes. The container must be network-isolated.
 - Reuse the existing E2E harness and its cleanup hooks. Every scenario must leave its temporary tmux server, socket, panes, and files cleaned up, including on assertion failure.

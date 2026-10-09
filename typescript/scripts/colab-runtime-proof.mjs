@@ -230,7 +230,7 @@ export async function verifyColabApp({
     }
     const env = {
       HOME: home,
-      TMUX_TEAM_HOME: state,
+      TMT_HOME: state,
       TMPDIR: root,
       PATH: emptyPath,
       LANG: 'C',

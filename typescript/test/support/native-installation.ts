@@ -53,16 +53,16 @@ export async function install(
   fixture: ArtifactFixture,
   prefix: string,
   flags: readonly string[] = [],
-  tmuxTeamHome?: string
+  tmtHome?: string
 ): Promise<InstallResult> {
   const selected =
-    tmuxTeamHome === undefined
+    tmtHome === undefined
       ? sandbox
       : {
           ...sandbox,
           cli: {
             executable: '/usr/bin/env',
-            args: [`TMUX_TEAM_HOME=${tmuxTeamHome}`, sandbox.cli.executable, ...sandbox.cli.args],
+            args: [`TMT_HOME=${tmtHome}`, sandbox.cli.executable, ...sandbox.cli.args],
           },
         };
   const result = await runCli(

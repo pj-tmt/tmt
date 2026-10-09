@@ -368,7 +368,7 @@ fn option(id: &'static str) -> Arg {
         "stdin" => flag("Read complete input through EOF"),
         "skill" => Arg::new(id)
             .long(id)
-            .help("Print an exact bundled skill (default: tmux-team)")
+            .help("Print an exact bundled skill (default: tmt)")
             .num_args(0..=1)
             .default_missing_value(tmt_core::skill_catalog::MAIN)
             .value_parser(

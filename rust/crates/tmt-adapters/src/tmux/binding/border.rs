@@ -5,8 +5,8 @@ use std::{io::Write, sync::Once};
 use tmt_core::binding::Binding;
 
 const FORMAT: &str = "pane-border-format";
-const OWNER: &str = "@tmux-team.border";
-const BADGE: &str = "#{?@tmux-team.badge, [#{@tmux-team.badge}],}";
+const OWNER: &str = "@tmt.border";
+const BADGE: &str = "#{?@tmt.badge, [#{@tmt.badge}],}";
 static BORDER_HINT: Once = Once::new();
 
 impl<R: CommandRunner> Tmux<R> {
@@ -33,8 +33,7 @@ impl<R: CommandRunner> Tmux<R> {
                 "-F".into(),
                 "-t".into(),
                 binding.pane_id.clone(),
-                "#{&&:#{@tmux-team.border},#{==:#{pane-border-format},#{@tmux-team.border}}}"
-                    .into(),
+                "#{&&:#{@tmt.border},#{==:#{pane-border-format},#{@tmt.border}}}".into(),
                 format!(
                     "set-option -p -u -t {} {FORMAT} ; set-option -p -u -t {} {OWNER}",
                     binding.pane_id, binding.pane_id
@@ -53,7 +52,7 @@ impl<R: CommandRunner> Tmux<R> {
             let inherited = self
                 .border_option(binding, "-pA", FORMAT, options)?
                 .ok_or_else(|| TmuxError::evidence("Missing effective pane border format"))?;
-            if !inherited.contains("@tmux-team.badge") {
+            if !inherited.contains("@tmt.badge") {
                 let format = format!("{BADGE}{inherited}");
                 // -o refuses a local user override created since the read.
                 // Publish ownership only after a successful format write. If

@@ -279,7 +279,7 @@ fn an_invalid_skills_tree_rejects_the_whole_release_before_publication() {
     }
     // The CLI never carries skills, even when cargo-dist would declare them.
     let mut cli = valid_entries(root);
-    cli.extend(skill_entries(root, &[("skills/tmux-team/SKILL.md", SKILL)]));
+    cli.extend(skill_entries(root, &[("skills/tmt/SKILL.md", SKILL)]));
     let files = FILES.into_iter().chain(["skills"]).collect::<Vec<_>>();
     let fixture = product_fixture_at(cli, "tmt-cli", &files, "1.2.3");
     let prefix = fixture.directory.path.join("prefix");

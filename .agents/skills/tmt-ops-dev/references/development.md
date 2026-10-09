@@ -68,7 +68,7 @@ cron_service` and the native `ops.test.ts` cron cases cover actor permission, lo
   controls against disposable roots (`cron_service::test_support::Fixture`); `view::tests::cron`
   covers the split squad tab, focus transfer, scoped keys and forms; `home::tests::cron` the home
   cursor. Capture the home line, `c` list, split tab, expanded job and forms at 160/100/80 in
-  `tmt`, `tmt-light` and `NO_COLOR` with a private HOME, `TMUX_TEAM_HOME` and tmux socket.
+  `tmt`, `tmt-light` and `NO_COLOR` with a private HOME, `TMT_HOME` and tmux socket.
 - Row paint: `cargo test --locked -p tmt-ops board::view` covers painted cells and hits. A
   scene change keeps the frozen parity capture and compares the old and new renderers on
   literal buffers, styles and hits (themes, depths, widths, selection, stale, waiting, cron labels,
@@ -109,7 +109,7 @@ cron_service` and the native `ops.test.ts` cron cases cover actor permission, lo
 - Settings editor changes: cover live preview, focus and age-evidence restoration on cancel,
   invalid input, read-only command entries and stale-file refusal (native edits verify shared
   staleness after reload, including the disabled no-publication path); capture normal and
-  narrow states from isolated HOME/`TMUX_TEAM_HOME` and a private tmux socket. The
+  narrow states from isolated HOME/`TMT_HOME` and a private tmux socket. The
   [settings editing reference](config-and-effects.md#settings-inspection-and-editing) owns the preview and writer
   contracts.
 - Board picker regressions cover shared query/list focus, identity retention on refresh,
@@ -124,7 +124,7 @@ cron_service` and the native `ops.test.ts` cron cases cover actor permission, lo
   changed row derivations. Verify summary animation coordinates, sampled member
   cells and disabled buffer/ANSI equality through the normal renderer.
 - UI changes: verify real private-tmux captures in `tmt`, `tmt-light` and `NO_COLOR`,
-  at top and end of scroll, with isolated HOME, `TMUX_TEAM_HOME` and XDG cache, and
+  at top and end of scroll, with isolated HOME, `TMT_HOME` and XDG cache, and
   the help modal at 160/100/80 columns. Meter CPU measurements (matched 60-second
   idle off/on/reduced-motion; budget below 0.5 percentage point of one core) are
   local evidence, never a CI threshold.

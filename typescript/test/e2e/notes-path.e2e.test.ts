@@ -46,7 +46,7 @@ describe('saved identity notes through verified tmux callers', { concurrent: fal
         '-p',
         '-t',
         fixture.pane,
-        '@tmux-team.agent',
+        '@tmt.agent',
         JSON.stringify(metadata),
       ]);
       expect(await fixture.runJsonCli(['notes', 'path'])).toMatchObject({
@@ -92,7 +92,7 @@ it.each(['claude', 'codex'] as const)(
           provider === 'claude' ? '/opt/tmt-tests/claude' : '/opt/tmt-tests/hook-runtime/codex';
         const command = [
           'env',
-          `TMUX_TEAM_HOME=${fixture.globalDir}`,
+          `TMT_HOME=${fixture.globalDir}`,
           runtime,
           fixture.executables.cli.executable,
           scenario,

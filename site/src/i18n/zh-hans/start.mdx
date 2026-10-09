@@ -1,6 +1,6 @@
 ---
 source: site/src/chapters/start.mdx
-sourceRevision: 4755caaba1c2fef857d8c058efef7a3a159f8c49
+sourceRevision: 261b7e67cca60556b4d87e8b5f962c13578c56d8
 title: tmt 使用手册
 ---
 
@@ -39,7 +39,7 @@ import { BandHead, Showcase } from "../../home/Showcase";
 
 <Cmd>{`$ curl -fsSL https://github.com/pj-tmt/tmt/releases/latest/download/install.sh | sh`}</Cmd>
 
-安装程序将 `tmt` 放到 `~/.local/bin`。在终端中运行时，它还会继续执行 `tmt setup`：查找你的 agent，列出将修改的所有文件（各 agent 的技能，以及已安装 agent 的会话钩子），然后询问一次。之后随时可以运行 `tmt setup`，它只会补充缺少的配置。如果找不到 `tmt`，将 `~/.local/bin` 加入 PATH 一次即可。tmt 采用全新安装，不迁移旧数据。如果之前使用的是 `tmux-team` npm 包，请先运行 `npm uninstall -g tmux-team` 将其卸载。
+安装程序将 `tmt` 放到 `~/.local/bin`。在终端中运行时，它还会继续执行 `tmt setup`：查找你的 agent，列出将修改的所有文件（各 agent 的技能，以及已安装 agent 的会话钩子），然后询问一次。之后随时可以运行 `tmt setup`，它只会补充缺少的配置。如果找不到 `tmt`，将 `~/.local/bin` 加入 PATH 一次即可。
 
 <Mdx.h3 id="built-in-drivers">内置 driver</Mdx.h3>
 

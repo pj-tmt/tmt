@@ -149,7 +149,7 @@ it.each(['claude', 'codex'] as const)(
         const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
         const command = [
           'env',
-          `TMUX_TEAM_HOME=${fixture.globalDir}`,
+          `TMT_HOME=${fixture.globalDir}`,
           provider === 'claude' ? '/opt/tmt-tests/claude' : '/opt/tmt-tests/hook-runtime/codex',
           fixture.executables.cli.executable,
           scenario,

@@ -173,7 +173,15 @@ export async function verifyExtensionUpgrade(values, runCommand = runPackedComma
     try {
       const prefix = path.join(root, 'prefix with spaces');
       const state = path.join(root, 'separate application state');
-      const env = { HOME: root, TMUX_TEAM_HOME: state, PATH: '', LANG: 'C', TMPDIR: root };
+      // Harness only: remove when the prior release is post-rename.
+      const env = {
+        HOME: root,
+        TMT_HOME: state,
+        TMUX_TEAM_HOME: state,
+        PATH: '',
+        LANG: 'C',
+        TMPDIR: root,
+      };
       const driver = path.join(driverSource, 'tmt');
       assertMacOsArchitecture(driver, target, { cwd: root, env });
       const runWith = (executable, args, expectedStatus = 0) =>

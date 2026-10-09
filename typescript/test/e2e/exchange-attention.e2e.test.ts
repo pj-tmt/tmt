@@ -21,7 +21,7 @@ function malformedConfig(fixture: E2EFixture): { global: string; local: string }
   const global = '{ malformed exchange config';
   const local = '{ malformed local exchange config';
   fs.writeFileSync(path.join(fixture.globalDir, 'config.json'), global);
-  fs.writeFileSync(path.join(fixture.workspace, 'tmux-team.json'), local);
+  fs.writeFileSync(path.join(fixture.workspace, 'tmt.json'), local);
   return { global, local };
 }
 
@@ -172,11 +172,11 @@ describe('Exchange attention through the real Docker/tmux fixture', { concurrent
           expect(fs.readFileSync(path.join(fixture.globalDir, 'config.json'), 'utf8')).toBe(
             configs.global
           );
-          expect(fs.readFileSync(path.join(fixture.workspace, 'tmux-team.json'), 'utf8')).toBe(
+          expect(fs.readFileSync(path.join(fixture.workspace, 'tmt.json'), 'utf8')).toBe(
             configs.local
           );
           fs.writeFileSync(path.join(fixture.globalDir, 'config.json'), '{}');
-          fs.writeFileSync(path.join(fixture.workspace, 'tmux-team.json'), '{}');
+          fs.writeFileSync(path.join(fixture.workspace, 'tmt.json'), '{}');
           expect(expectJsonResult(await fixture.runJsonCli(['name', name]))).toEqual({
             bound: true,
             id: created.identity.id,
@@ -202,7 +202,7 @@ describe('Exchange attention through the real Docker/tmux fixture', { concurrent
         expect(fs.readFileSync(path.join(fixture.globalDir, 'config.json'), 'utf8')).toBe(
           configs.global
         );
-        expect(fs.readFileSync(path.join(fixture.workspace, 'tmux-team.json'), 'utf8')).toBe(
+        expect(fs.readFileSync(path.join(fixture.workspace, 'tmt.json'), 'utf8')).toBe(
           configs.local
         );
       },

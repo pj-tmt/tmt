@@ -356,7 +356,7 @@ describe('saved identity notes path', () => {
         ...sandbox,
         cli: {
           executable: '/usr/bin/env',
-          args: ['TMUX_TEAM_HOME=relative-state', sandbox.cli.executable, ...sandbox.cli.args],
+          args: ['TMT_HOME=relative-state', sandbox.cli.executable, ...sandbox.cli.args],
         },
       };
       const identity = await createIdentity(selected, 'Relative');

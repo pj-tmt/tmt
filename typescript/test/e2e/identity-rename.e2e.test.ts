@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vite-plus/test';
 import { expectJsonResult } from './cli-assertions.js';
 import { withE2EFixture, type E2EFixture } from './harness.js';
 
-const BADGE_OPTION = '@tmux-team.badge';
+const BADGE_OPTION = '@tmt.badge';
 const SESSION = '7c41e9d2-77aa-4c3d-9f10-3b2a1c0d9e8f';
 
 interface PublicIdentity {

@@ -1,7 +1,7 @@
 #!/bin/bash
 # Only the first dependency installs in the two fresh release-proof checkouts.
 set -eu
-CLI_PACKAGE='tmux-team'
+CLI_PACKAGE='tmt'
 RETRY_NOTE='pnpm install retry after Node async-hook abort (#1806)'
 
 case $#:$* in

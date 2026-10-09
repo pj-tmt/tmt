@@ -60,7 +60,7 @@ fn lock_is_exclusive_and_releases_after_guard_drop() {
 #[test]
 fn backup_preserves_regular_directory_and_broken_symlink_entries() {
     let root = TestDirectory::new();
-    let target = root.path.join("skills/tmux-team");
+    let target = root.path.join("skills/tmt");
     fs::create_dir_all(&target).unwrap();
     fs::write(target.join("user.md"), b"user").unwrap();
     let backup = files::backup(&target).unwrap();

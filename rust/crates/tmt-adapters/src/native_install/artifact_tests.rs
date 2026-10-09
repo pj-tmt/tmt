@@ -1013,7 +1013,7 @@ fn record_release_source(executable: &std::path::Path, repository: &str) {
 }
 
 #[test]
-fn every_product_reads_receipts_recorded_under_the_pre_rename_repository() {
+fn every_product_reads_former_organization_receipts_and_refuses_the_retired_name() {
     let cli = fixture(valid_entries("tmux-team-1.2.3-aarch64-apple-darwin"));
     let office = office_fixture();
     let prefix = cli.directory.path.join("prefix");
@@ -1028,11 +1028,12 @@ fn every_product_reads_receipts_recorded_under_the_pre_rename_repository() {
         ),
     ];
     for (product, report) in &installed {
-        // Receipts from v5.0.0-alpha.2..alpha.6 and Office 0.1.0-alpha.1..alpha.3.
-        record_release_source(&report.executable, "wkh237/tmux-team");
+        // The organization transfer remains independent of the retired product name.
+        record_release_source(&report.executable, "wkh237/tmt");
         super::inspect_product(*product, &report.executable).unwrap();
         for foreign in [
-            "attacker/tmux-team",
+            "wkh237/tmux-team",
+            "attacker/tmt",
             "wkh237/tmux-team-fork",
             "WKH237/TMUX-TEAM",
             "",
@@ -1050,12 +1051,12 @@ fn every_product_reads_receipts_recorded_under_the_pre_rename_repository() {
 }
 
 #[test]
-fn installing_over_an_alpha_6_receipt_under_the_pre_rename_repository_succeeds() {
+fn installing_over_a_former_organization_receipt_succeeds() {
     // The one-line installer runs `__native-install` over the existing prefix.
     let old = fixture(valid_entries("tmux-team-1.2.3-aarch64-apple-darwin"));
     let prefix = old.directory.path.join("prefix");
     let installed = install_fixture(&old, &prefix, super::Product::Cli).unwrap();
-    record_release_source(&installed.executable, "wkh237/tmux-team");
+    record_release_source(&installed.executable, "wkh237/tmt");
     let next = product_fixture_at(
         valid_entries("tmux-team-1.2.4-aarch64-apple-darwin"),
         "tmt-cli",

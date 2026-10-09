@@ -251,7 +251,7 @@ fn without_trailing_padding(line: &str) -> String {
     while let Some(start) = end.rfind('\u{1b}') {
         let code = &end[start..];
         // Only a whole SGR sequence, `ESC [ digits;… m`, is a reset: text that
-        // merely ends in `m` (such as `tmux-team`) keeps its padding.
+        // merely ends in `m` (such as `custom`) keeps its padding.
         let sgr = code
             .strip_prefix("\u{1b}[")
             .and_then(|rest| rest.strip_suffix('m'))

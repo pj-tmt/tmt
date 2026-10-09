@@ -753,7 +753,7 @@ describe('Codex native channel product routing', { concurrent: false }, () => {
                   input: JSON.stringify({ version: 1, operation, input }),
                   encoding: 'utf8',
                   timeout: 5000,
-                  env: { PATH: process.env.PATH, HOME: f.root, TMUX_TEAM_HOME: f.globalDir },
+                  env: { PATH: process.env.PATH, HOME: f.root, TMT_HOME: f.globalDir },
                 })
               );
             const policy = {
@@ -1119,7 +1119,7 @@ describe('Codex native channel product routing', { concurrent: false }, () => {
       );
       expect(fs.existsSync(file)).toBe(true);
       process.kill(record.foreground.process!.pid, 0);
-      f.tmux(['set-option', '-p', '-u', '-t', worker.pane, '@tmux-team.agent']);
+      f.tmux(['set-option', '-p', '-u', '-t', worker.pane, '@tmt.agent']);
       await f.runJsonCli(['ls'], { pane: worker.pane });
       expect(
         sql(f, (db) => db.prepare('SELECT id FROM bindings WHERE id = ?').get(record.bindingId))
@@ -1291,7 +1291,7 @@ describe('Codex native channel product routing', { concurrent: false }, () => {
         'named paste control'
       );
       await quit(plain);
-      f.tmux(['set-option', '-p', '-u', '-t', plain.pane, '@tmux-team.agent']);
+      f.tmux(['set-option', '-p', '-u', '-t', plain.pane, '@tmt.agent']);
       await f.runJsonCli(['ls'], { pane: plain.pane });
       const raw = await f.runJsonCli([
         'talk',
@@ -1384,7 +1384,7 @@ describe('Codex native channel product routing', { concurrent: false }, () => {
         10000,
         'owned processes ended'
       );
-      f.tmux(['set-option', '-p', '-u', '-t', old.pane, '@tmux-team.agent']);
+      f.tmux(['set-option', '-p', '-u', '-t', old.pane, '@tmt.agent']);
       await f.runJsonCli(['ls'], { pane: old.pane });
       expect(
         sql(f, (db) => db.prepare('SELECT id FROM bindings WHERE id=?').get(record.bindingId))

@@ -72,7 +72,14 @@ pub(crate) fn parse_document(bytes: &[u8]) -> Option<Value> {
 }
 
 pub fn execute(managed: bool, mode: OutputMode) -> io::Result<u8> {
-    let (report, failure) = match ConfigPaths::discover() {
+    // Published updaters require exactly one JSON document and empty stderr.
+    // A successful directory cutover cannot add a diagnostic to this protocol.
+    let paths = if managed {
+        ConfigPaths::discover_with_move_report(|_, _| {})
+    } else {
+        ConfigPaths::discover()
+    };
+    let (report, failure) = match paths {
         Err(error) => (RefreshReport::default(), Some(Failure::from(error))),
         Ok(paths) => match if managed {
             std::env::current_exe().and_then(|executable| {

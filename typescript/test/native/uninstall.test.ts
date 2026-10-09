@@ -93,9 +93,7 @@ describe('tmt uninstall on a disposable HOME and prefix', () => {
       expect(readFileSync(claudeSettings, 'utf8')).toContain('__hook claude');
       expect(existsSync(codexHooks)).toBe(true);
       expect(existsSync(record)).toBe(true);
-      expect(lstatSync(path.join(sandbox.home, '.claude/skills/tmux-team')).isSymbolicLink()).toBe(
-        true
-      );
+      expect(lstatSync(path.join(sandbox.home, '.claude/skills/tmt')).isSymbolicLink()).toBe(true);
 
       const installedSettings = readFileSync(claudeSettings, 'utf8');
       const legacy = path.join(path.dirname(claudeSettings), 'settings.tmt-backup-legacy.json');

@@ -1,6 +1,6 @@
 ---
 source: site/src/chapters/start.mdx
-sourceRevision: 4755caaba1c2fef857d8c058efef7a3a159f8c49
+sourceRevision: 261b7e67cca60556b4d87e8b5f962c13578c56d8
 title: すべての agent に共通の通信経路
 ---
 
@@ -41,7 +41,7 @@ import { BandHead, Showcase } from "../../home/Showcase";
 
 <Cmd>{`$ curl -fsSL https://github.com/pj-tmt/tmt/releases/latest/download/install.sh | sh`}</Cmd>
 
-インストーラーは `tmt` を `~/.local/bin` に配置します。ターミナルで実行すると、そのまま `tmt setup` に進みます。agent を検出し、変更するファイルをすべて表示してから、一度だけ確認します。対象は各 agent の skill と、このマシンにインストールされている agent の session hook です。後からいつでも `tmt setup` を実行できます。その場合は、まだ設定されていない項目だけが表示されます。`tmt` が見つからない場合は、`~/.local/bin` を PATH に一度追加してください。tmt は新規インストールで、古いデータは移行しません。`tmux-team` npm パッケージから切り替える場合は、先に `npm uninstall -g tmux-team` で削除してください。
+インストーラーは `tmt` を `~/.local/bin` に配置します。ターミナルで実行すると、そのまま `tmt setup` に進みます。agent を検出し、変更するファイルをすべて表示してから、一度だけ確認します。対象は各 agent の skill と、このマシンにインストールされている agent の session hook です。後からいつでも `tmt setup` を実行できます。その場合は、まだ設定されていない項目だけが表示されます。`tmt` が見つからない場合は、`~/.local/bin` を PATH に一度追加してください。
 
 <Mdx.h3 id="built-in-drivers">組み込みの driver</Mdx.h3>
 

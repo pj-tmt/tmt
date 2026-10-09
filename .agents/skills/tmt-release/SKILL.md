@@ -1,9 +1,9 @@
 ---
 name: tmt-release
-description: Maintain and promote tmux-team release lines, versions, and prerelease readiness without assuming publish authorization.
+description: Maintain and promote TMT release lines, versions, and prerelease readiness without assuming publish authorization.
 ---
 
-# tmux-team release management
+# TMT release management
 
 Use this skill for release-line maintenance, version synchronization, CI selection,
 native archives, installer/upgrade proofs, prerelease readiness or release tracking.

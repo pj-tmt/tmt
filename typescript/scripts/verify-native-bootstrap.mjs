@@ -40,7 +40,7 @@ try {
   const env = {
     HOME: root,
     TMPDIR: root,
-    TMUX_TEAM_HOME: state,
+    TMT_HOME: state,
     LANG: 'C',
     PATH: [old, tools].join(path.delimiter),
     TMT_FIXTURE_VERSION: metadata.version,
@@ -71,7 +71,7 @@ try {
       'utf8'
     )
   );
-  const installedSkill = path.join(root, '.agents/skills/tmux-team/SKILL.md');
+  const installedSkill = path.join(root, '.agents/skills/tmt/SKILL.md');
   const installedInboxSkill = path.join(root, '.agents/skills/tmt-inbox/SKILL.md');
   const installedOfficeSkill = path.join(root, '.agents/skills/tmt-office/SKILL.md');
   assert.equal(fs.readFileSync(installedSkill, 'utf8'), fs.readFileSync(values.skill, 'utf8'));
@@ -84,10 +84,7 @@ try {
     JSON.parse(fs.readFileSync(path.join(state, 'skill-installations.json'), 'utf8')),
     {
       version: 1,
-      targets: [
-        path.join(root, '.agents/skills/tmt-inbox'),
-        path.join(root, '.agents/skills/tmux-team'),
-      ],
+      targets: [path.join(root, '.agents/skills/tmt'), path.join(root, '.agents/skills/tmt-inbox')],
     }
   );
   assert(!fs.existsSync(path.join(state, 'tmux-team.db')), 'Skill setup must not open SQLite');

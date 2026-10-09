@@ -50,7 +50,7 @@ channels and the driver protocol. The owner map is in
 - Cosmetics: tmux badge and marker refresh (names sanitized before markup); `pane_badge` is
   bounded post-commit presentation, never routing evidence. A badge refresh prefixes the
   inherited border format on that pane only, unless a user-local override or existing badge
-  reference already supplies it. `@tmux-team.border` stores the exact installed format;
+  reference already supplies it. `@tmt.border` stores the exact installed format;
   cleanup compares it on the server before unsetting only that unchanged pane override.
   Creation uses set-only-if-unset, and publishes ownership after successful format writing;
   failed ownership publication conservatively leaves the format unowned. No shared option or

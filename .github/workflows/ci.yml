@@ -126,7 +126,7 @@ jobs:
         uses: ./.github/actions/setup-tooling
       - name: Install dependencies
         working-directory: typescript
-        run: pnpm --filter tmux-team install --frozen-lockfile
+        run: pnpm --filter tmt install --frozen-lockfile
       - name: Build the Rust TOML helper for cut and source-gate fixtures
         env:
           RUSTUP_TOOLCHAIN: 1.97.0
@@ -608,7 +608,7 @@ jobs:
           packages: zsh binutils
       - name: Install dependencies
         working-directory: typescript
-        run: pnpm --filter tmux-team install --frozen-lockfile
+        run: pnpm --filter tmt install --frozen-lockfile
       - name: Install locked browser presentation guard inputs
         working-directory: typescript
         run: pnpm --filter @tmt/browser-ui install --frozen-lockfile --ignore-scripts
@@ -681,7 +681,7 @@ jobs:
         uses: ./.github/actions/setup-tooling
       - name: Install dependencies
         working-directory: typescript
-        run: pnpm --filter tmux-team install --frozen-lockfile
+        run: pnpm --filter tmt install --frozen-lockfile
       - name: Set up Docker dependency-cache builder
         uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3.11.1
         with:
@@ -899,7 +899,7 @@ jobs:
             --executable "$GITHUB_WORKSPACE/runtime/tmt" \
             --target '${{ matrix.target }}' \
             --version "$(cat runtime/version.txt)" \
-            --skill skills/tmux-team/SKILL.md
+            --skill skills/tmt/SKILL.md
           echo "Verified native runtime in $((SECONDS - started)) s." | tee -a "$GITHUB_STEP_SUMMARY"
           VERIFY
       - name: Build the verification-only Alpine environment
@@ -914,7 +914,7 @@ jobs:
             --executable /runtime/tmt \
             --target '${{ matrix.target }}' \
             --version "$(cat runtime/version.txt)" \
-            --skill /verification/skills/tmux-team/SKILL.md
+            --skill /verification/skills/tmt/SKILL.md
 
   packed-native-install-macos:
     name: Packed install (${{ matrix.label }})

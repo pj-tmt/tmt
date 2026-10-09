@@ -87,9 +87,9 @@ pub fn compiled_application_schema(source_sha: &str) -> io::Result<serde_json::V
     record.validate("cli", source_sha)?;
     serde_json::to_value(record).map_err(io::Error::other)
 }
-/// Names recorded before the organization transfer (#1021) and rename (#334).
+/// The former organization name retained in historical receipt provenance.
 /// Read-only compatibility: lookups and new receipts use the current repository.
-const LEGACY_REPOSITORIES: [&str; 2] = ["wkh237/tmt", "wkh237/tmux-team"];
+const LEGACY_REPOSITORIES: [&str; 1] = ["wkh237/tmt"];
 
 /// Accept only this repository's current and historical receipt provenance.
 fn official_repository(recorded: &serde_json::Value) -> bool {

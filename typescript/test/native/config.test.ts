@@ -105,9 +105,7 @@ describe('native configuration process boundary', () => {
         expect(fileSnapshot(sandbox.root)).toEqual(before);
       }
       expect((await runCli(sandbox, ['config', 'rm', '--json'])).status).toBe(0);
-      expect(fs.readFileSync(sandbox.globalConfig, 'utf8')).toBe(
-        before['xdg/tmux-team/config.json']
-      );
+      expect(fs.readFileSync(sandbox.globalConfig, 'utf8')).toBe(before['xdg/tmt/config.json']);
       expect(JSON.parse(fs.readFileSync(sandbox.localConfig, 'utf8'))).toEqual({
         theme: { base: 'tmt' },
       });
@@ -608,7 +606,7 @@ describe('native configuration process boundary', () => {
       sandbox.env.XDG_CONFIG_HOME = path.join(sandbox.root, 'missing') + '/../resolved';
       const shown = await runCli(sandbox, ['config', '--json']);
       expect(shown.status).toBe(0);
-      const config = path.join(sandbox.root, 'resolved', 'tmux-team', 'config.json');
+      const config = path.join(sandbox.root, 'resolved', 'tmt', 'config.json');
       expect(parseWholeStdout(shown)).toMatchObject({ paths: { global: config } });
       expect(
         (await runCli(sandbox, ['config', 'set', 'ui.paneBadge', 'on', '--global', '--json']))
@@ -619,21 +617,24 @@ describe('native configuration process boundary', () => {
     });
   });
 
-  it('normalizes HOME before selecting an existing legacy configuration', async () => {
+  it('normalizes HOME before refusing an unmanaged former-default move', async () => {
     await withSandbox(async (sandbox) => {
       sandbox.env.HOME = path.join(sandbox.root, 'missing') + '/../resolved-home';
       delete sandbox.env.XDG_CONFIG_HOME;
-      const config = path.join(sandbox.root, 'resolved-home', '.tmux-team', 'config.json');
-      fs.mkdirSync(path.dirname(config), { recursive: true });
-      fs.writeFileSync(config, '{"ui":{"paneBadge":"on"}}');
+      const former = path.join(sandbox.root, 'resolved-home', '.tmux-team', 'config.json');
+      const config = path.join(sandbox.root, 'resolved-home', '.config', 'tmt', 'config.json');
+      fs.mkdirSync(path.dirname(former), { recursive: true });
+      fs.writeFileSync(former, '{"ui":{"paneBadge":"on"},"opaque":"retained"}');
       const before = fileSnapshot(sandbox.root);
       const shown = await runCli(sandbox, ['config', '--json']);
-      expect(shown.status).toBe(0);
-      expect(parseWholeStdout(shown)).toMatchObject({
-        paths: { global: config },
-        resolved: { ui: { paneBadge: 'on' } },
-      });
+      expect(shown.status).not.toBe(0);
+      const diagnostic = shown.stdout + shown.stderr;
+      expect(diagnostic).toContain(path.dirname(former));
+      expect(diagnostic).toContain(path.dirname(config));
+      expect(diagnostic).toContain('TMT_HOME');
+      expect(diagnostic).not.toContain('missing/..');
       expect(fileSnapshot(sandbox.root)).toEqual(before);
+      expect(fs.existsSync(path.dirname(config))).toBe(false);
       expect(fs.existsSync(path.join(sandbox.root, 'missing'))).toBe(false);
     });
   });
@@ -933,12 +934,13 @@ describe('native configuration process boundary', () => {
   });
 
   it.each(['new', 'legacy-empty', 'legacy-config', 'both-config', 'xdg-empty'])(
-    'preserves %s global directory selection without creating state',
+    'refuses unmanaged cutover of the %s former default without creating state',
     async (scenario) => {
       await withSandbox(async (sandbox) => {
         delete sandbox.env.XDG_CONFIG_HOME;
         const xdg = path.join(sandbox.home, '.config', 'tmux-team');
         const legacy = path.join(sandbox.home, '.tmux-team');
+        const current = path.join(sandbox.home, '.config', 'tmt');
         if (scenario !== 'new') fs.mkdirSync(legacy, { recursive: true });
         if (
           scenario === 'legacy-config' ||
@@ -952,12 +954,24 @@ describe('native configuration process boundary', () => {
         if (scenario === 'both-config') fs.writeFileSync(path.join(xdg, 'config.json'), '{}');
         const before = fileSnapshot(sandbox.root);
         const shown = await runCli(sandbox, ['config', '--json']);
-        expect(shown.status).toBe(0);
-        const expected = scenario === 'new' || scenario === 'both-config' ? xdg : legacy;
-        expect(parseWholeStdout(shown)).toMatchObject({
-          paths: { global: path.join(expected, 'config.json') },
-        });
+        if (scenario === 'new') {
+          expect(shown.status).toBe(0);
+          expect(shown.stderr).toBe('');
+          expect(parseWholeStdout(shown)).toMatchObject({
+            paths: { global: path.join(current, 'config.json') },
+          });
+        } else {
+          expect(shown.status).not.toBe(0);
+          const diagnostic = shown.stdout + shown.stderr;
+          expect(diagnostic).toContain(scenario === 'both-config' ? xdg : legacy);
+          expect(diagnostic).toContain(current);
+          expect(diagnostic).toContain('TMT_HOME');
+          expect(diagnostic).toContain('unmanaged executable');
+        }
         expect(fileSnapshot(sandbox.root)).toEqual(before);
+        expect(fs.existsSync(current)).toBe(false);
+        if (scenario === 'legacy-empty' || scenario === 'legacy-config')
+          expect(fs.existsSync(path.dirname(current))).toBe(false);
       });
     }
   );
@@ -965,14 +979,14 @@ describe('native configuration process boundary', () => {
   it('honors the explicit directory override within the isolated process group', async () => {
     await withSandbox(async (sandbox) => {
       const override = path.join(sandbox.root, "custom root's files");
-      // The common launcher intentionally removes ambient TMUX_TEAM_HOME.
+      // The common launcher intentionally removes ambient TMT_HOME.
       // env introduces this explicit fixture-only value inside its bounded child
       // group; no shell expansion or production environment bypass is added.
       const selected = {
         ...sandbox,
         cli: {
           executable: '/usr/bin/env',
-          args: [`TMUX_TEAM_HOME=${override}`, sandbox.cli.executable, ...sandbox.cli.args],
+          args: [`TMT_HOME=${override}`, sandbox.cli.executable, ...sandbox.cli.args],
         },
       };
       const result = await runCli(selected, [

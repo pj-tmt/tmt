@@ -16,7 +16,7 @@ describe('frozen Exchange retention through the public CLI', { concurrent: false
     await withE2EFixture(
       async (fixture) => {
         const globalFile = path.join(fixture.globalDir, 'config.json');
-        const localFile = path.join(fixture.workspace, 'tmux-team.json');
+        const localFile = path.join(fixture.workspace, 'tmt.json');
         const defaults = await fixture.runJsonCli(['config', 'show'], { withoutTmux: true });
         expect(defaults).toMatchObject({
           code: 0,

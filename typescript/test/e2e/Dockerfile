@@ -98,7 +98,7 @@ WORKDIR /workspace
 COPY typescript/package.json typescript/pnpm-lock.yaml typescript/pnpm-workspace.yaml typescript/
 COPY design/browser-ui/package.json design/browser-ui/package.json
 COPY extensions/tmt-office/typescript/apps/office/package.json extensions/tmt-office/typescript/apps/office/package.json
-RUN cd typescript && pnpm --filter tmux-team install --frozen-lockfile \
+RUN cd typescript && pnpm --filter tmt install --frozen-lockfile \
   && test ! -e ../extensions/tmt-office/typescript/apps/office/node_modules/react
 COPY . .
 COPY --from=native-tests /native-artifacts/tmux-probe /opt/tmt-tests/tmux-probe

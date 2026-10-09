@@ -200,7 +200,7 @@ fn squad_reads_a_receipt_recorded_under_the_pre_rename_repository() {
     let squad = squad_fixture("1.2.3", b"squad 1.2.3\n");
     let prefix = squad.directory.path.join("prefix");
     let report = install(&squad, &prefix, PinAction::Preserve, || Ok(())).unwrap();
-    record_release_source(&report.executable, "wkh237/tmux-team");
+    record_release_source(&report.executable, "wkh237/tmt");
     inspect_product(Product::Ops, &report.executable).unwrap();
     record_release_source(&report.executable, "attacker/other");
     assert!(inspect_product(Product::Ops, &report.executable).is_err());

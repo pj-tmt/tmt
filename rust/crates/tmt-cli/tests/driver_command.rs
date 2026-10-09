@@ -64,7 +64,7 @@ impl Fixture {
             .env_clear()
             .envs(env.iter().copied())
             .env("HOME", self.root.join("home"))
-            .env("TMUX_TEAM_HOME", self.root.join("state"))
+            .env("TMT_HOME", self.root.join("state"))
             .env("XDG_CONFIG_HOME", self.root.join("xdg"))
             .env("TMUX_TMPDIR", self.root.join("tmux"))
             .env("PATH", "/usr/bin:/bin:/usr/sbin:/sbin")

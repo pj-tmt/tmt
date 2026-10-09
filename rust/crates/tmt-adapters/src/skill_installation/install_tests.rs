@@ -56,7 +56,7 @@ fn neutral_install_is_exact_repeat_noop_and_records_one_target() {
     assert_eq!(first.installed.len(), 2);
     assert_eq!(first.installed[0].agent, None);
     assert!(first.installed[0].changed);
-    let universal = home.join(".agents/skills/tmux-team");
+    let universal = home.join(".agents/skills/tmt");
     let inbox = home.join(".agents/skills/tmt-inbox");
     let source = assert_link(&universal);
     assert_eq!(fs::read(source.join("SKILL.md")).unwrap(), bundled_skill());
@@ -86,7 +86,7 @@ fn custom_install_uses_exact_target_and_does_not_invent_provider() {
     assert_eq!(report.installed.len(), 2);
     assert_eq!(report.installed[0].agent, None);
     assert!(report.installed[0].changed);
-    let custom = directory.path.join("cwd/custom skills/tmux-team");
+    let custom = directory.path.join("cwd/custom skills/tmt");
     assert_eq!(report.installed[0].target, custom);
     let source = assert_link(&custom);
     assert_eq!(fs::read(source.join("SKILL.md")).unwrap(), bundled_skill());
@@ -98,9 +98,9 @@ fn office_install_adds_optional_guidance_to_detected_and_managed_custom_roots() 
     let (directory, environment, global, home) = fixture();
     let custom_root = PathBuf::from("custom skills");
     install(&environment, &global, None, Some(&custom_root), false).unwrap();
-    let custom_core = directory.path.join("cwd/custom skills/tmux-team");
+    let custom_core = directory.path.join("cwd/custom skills/tmt");
     assert!(!office_target(&custom_core).exists());
-    assert!(!home.join(".agents/skills/tmux-team").exists());
+    assert!(!home.join(".agents/skills/tmt").exists());
 
     let first = install_office(&environment, &global, false).unwrap();
     let office_targets = first
@@ -189,7 +189,7 @@ fn office_install_adds_optional_guidance_to_detected_and_managed_custom_roots() 
         }
     }
     assert!(custom_core.exists());
-    assert!(!home.join(".agents/skills/tmux-team").exists());
+    assert!(!home.join(".agents/skills/tmt").exists());
 
     let second = install_office(&environment, &global, false).unwrap();
     assert_eq!(second.installed.len(), 6);
@@ -294,10 +294,10 @@ fn all_install_deduplicates_shared_targets_but_reports_stable_provider_order() {
         .collect::<BTreeSet<_>>();
     assert_eq!(registry["targets"].as_array().unwrap().len(), 8);
     let expected = [
-        home.join(".claude/skills/tmux-team"),
-        home.join(".agents/skills/tmux-team"),
-        home.join(".gemini/config/skills/tmux-team"),
-        home.join(".pi/agent/skills/tmux-team"),
+        home.join(".claude/skills/tmt"),
+        home.join(".agents/skills/tmt"),
+        home.join(".gemini/config/skills/tmt"),
+        home.join(".pi/agent/skills/tmt"),
         home.join(".claude/skills/tmt-inbox"),
         home.join(".agents/skills/tmt-inbox"),
         home.join(".gemini/config/skills/tmt-inbox"),
@@ -312,7 +312,7 @@ fn all_install_deduplicates_shared_targets_but_reports_stable_provider_order() {
 fn unmanaged_file_directory_broken_and_wrong_links_refuse_without_force() {
     for kind in 0..4 {
         let (_directory, environment, global, home) = fixture();
-        let target = home.join(".claude/skills/tmux-team");
+        let target = home.join(".claude/skills/tmt");
         fs::create_dir_all(target.parent().unwrap()).unwrap();
         match kind {
             0 => fs::write(&target, b"user file").unwrap(),
@@ -359,7 +359,7 @@ fn unmanaged_file_directory_broken_and_wrong_links_refuse_without_force() {
 #[test]
 fn force_preserves_unmanaged_directory_and_broken_link_outside_discovery() {
     let (_directory, environment, global, home) = fixture();
-    let target = home.join(".claude/skills/tmux-team");
+    let target = home.join(".claude/skills/tmt");
     fs::create_dir_all(&target).unwrap();
     fs::write(target.join("user.md"), b"user-owned").unwrap();
     let report = install(&environment, &global, Some("claude"), None, true).unwrap();
@@ -412,7 +412,7 @@ fn claude_legacy_is_warned_then_force_backed_up_without_touching_content() {
 fn overlap_guards_run_before_materialization_or_target_backup() {
     let (_directory, environment, global, home) = fixture();
     let source_root = global.join("skill-assets");
-    let target = home.join(".claude/skills/tmux-team");
+    let target = home.join(".claude/skills/tmt");
     fs::create_dir_all(&target).unwrap();
     fs::write(target.join("user.md"), b"preserve").unwrap();
     let exact_root = source_root.clone();
@@ -437,7 +437,7 @@ fn invalid_or_oversized_registry_is_preserved_and_prevents_materialization() {
         assert_failure_preserves(&failure, "Invalid or oversized skill installation manifest");
         assert_eq!(fs::read(&manifest).unwrap(), bytes);
         assert!(global.join("skill-install.lock").exists());
-        assert!(!home.join(".claude/skills/tmux-team").exists());
+        assert!(!home.join(".claude/skills/tmt").exists());
         assert!(!global.join("skill-assets").exists());
     }
 }
@@ -445,7 +445,7 @@ fn invalid_or_oversized_registry_is_preserved_and_prevents_materialization() {
 #[test]
 fn installer_error_releases_lock_for_a_following_success() {
     let (_directory, environment, global, home) = fixture();
-    let target = home.join(".claude/skills/tmux-team");
+    let target = home.join(".claude/skills/tmt");
     fs::create_dir_all(target.parent().unwrap()).unwrap();
     fs::write(&target, b"user-owned").unwrap();
     let failure = install(&environment, &global, Some("claude"), None, false).unwrap_err();
@@ -477,7 +477,7 @@ fn old_bundle(global: &Path, core: &[u8], inbox: &[u8]) -> (PathBuf, PathBuf) {
         .unwrap()
         .join("skill-assets")
         .join(bundle_digest(core, inbox));
-    let main = version.join("tmux-team");
+    let main = version.join("tmt");
     let inbox_source = version.join("tmt-inbox");
     fs::create_dir_all(&main).unwrap();
     fs::create_dir(&inbox_source).unwrap();
@@ -492,7 +492,7 @@ fn valid_old_two_skill_bundle_upgrades_both_targets_without_backup() {
     let old_core = b"old core skill bytes\n";
     let old_inbox = b"old inbox skill bytes\n";
     let (old_main, old_inbox_source) = old_bundle(&global, old_core, old_inbox);
-    let target = home.join(".claude/skills/tmux-team");
+    let target = home.join(".claude/skills/tmt");
     let inbox_target = home.join(".claude/skills/tmt-inbox");
     fs::create_dir_all(target.parent().unwrap()).unwrap();
     std::os::unix::fs::symlink(&old_main, &target).unwrap();
@@ -523,7 +523,7 @@ fn tampered_old_two_skill_bundle_is_unmanaged_and_preserved() {
     let old_inbox = b"old inbox skill bytes\n";
     let (old_main, old_inbox_source) = old_bundle(&global, old_core, old_inbox);
     fs::write(old_inbox_source.join("SKILL.md"), b"tampered inbox\n").unwrap();
-    let target = home.join(".claude/skills/tmux-team");
+    let target = home.join(".claude/skills/tmt");
     let inbox_target = home.join(".claude/skills/tmt-inbox");
     fs::create_dir_all(target.parent().unwrap()).unwrap();
     std::os::unix::fs::symlink(&old_main, &target).unwrap();
@@ -547,10 +547,10 @@ fn valid_old_digest_source_refreshes_to_current_source_without_backup() {
     let asset_root = super::files::resolved(&global)
         .unwrap()
         .join("skill-assets");
-    let old_source = asset_root.join(digest(old)).join("tmux-team");
+    let old_source = asset_root.join(digest(old)).join("tmt");
     fs::create_dir_all(&old_source).unwrap();
     fs::write(old_source.join("SKILL.md"), old).unwrap();
-    let target = home.join(".claude/skills/tmux-team");
+    let target = home.join(".claude/skills/tmt");
     fs::create_dir_all(target.parent().unwrap()).unwrap();
     std::os::unix::fs::symlink(&old_source, &target).unwrap();
 
@@ -572,10 +572,10 @@ fn modified_old_digest_source_is_unmanaged_and_refuses_replacement() {
         .unwrap()
         .join("skill-assets")
         .join(digest(original))
-        .join("tmux-team");
+        .join("tmt");
     fs::create_dir_all(&old_source).unwrap();
     fs::write(old_source.join("SKILL.md"), modified).unwrap();
-    let target = home.join(".claude/skills/tmux-team");
+    let target = home.join(".claude/skills/tmt");
     fs::create_dir_all(target.parent().unwrap()).unwrap();
     std::os::unix::fs::symlink(&old_source, &target).unwrap();
 
@@ -594,7 +594,7 @@ fn modified_old_digest_source_is_unmanaged_and_refuses_replacement() {
 fn modified_current_asset_blocks_force_before_target_backup() {
     let (_directory, env, global, home) = fixture();
     install(&env, &global, Some("claude"), None, false).unwrap();
-    let target = home.join(".claude/skills/tmux-team");
+    let target = home.join(".claude/skills/tmt");
     let source = assert_link(&target);
     fs::write(source.join("SKILL.md"), b"user-edited current source").unwrap();
     let failure = install(&env, &global, Some("claude"), None, true).unwrap_err();

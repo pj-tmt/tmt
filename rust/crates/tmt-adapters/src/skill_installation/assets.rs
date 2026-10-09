@@ -76,15 +76,20 @@ fn inventory(version: &Path) -> io::Result<Vec<String>> {
 /// The source bytes of the first `count` bundled skills, in digest order,
 /// when the version directory holds exactly those skills.
 fn layout_bytes(version: &Path, count: usize) -> io::Result<Vec<Vec<u8>>> {
+    named_layout_bytes(version, count, MAIN)
+}
+
+fn named_layout_bytes(version: &Path, count: usize, main: &str) -> io::Result<Vec<Vec<u8>>> {
     let layout = &BUNDLED[..count];
-    let mut expected: Vec<&str> = layout.iter().map(|skill| skill.name).collect();
+    let name = |skill: &catalog::BundledSkill| if skill.name == MAIN { main } else { skill.name };
+    let mut expected: Vec<&str> = layout.iter().map(name).collect();
     expected.sort_unstable();
     if inventory(version)? != expected {
         return Err(invalid(version));
     }
     layout
         .iter()
-        .map(|skill| source_bytes(&version.join(skill.name)))
+        .map(|skill| source_bytes(&version.join(name(skill))))
         .collect()
 }
 
@@ -164,6 +169,11 @@ impl SkillAssets {
             .filter(|count| contains(*count))
             .any(|count| {
                 layout_bytes(version, count).is_ok_and(|bytes| framed_digest(&bytes) == expected)
+                    // The one-release main-name cutover keeps sibling names.
+                    // Their old generations still require the full framed proof.
+                    || (source_name != MAIN
+                        && named_layout_bytes(version, count, super::retired::NAME)
+                            .is_ok_and(|bytes| framed_digest(&bytes) == expected))
             })
         {
             return true;
@@ -171,6 +181,37 @@ impl SkillAssets {
         source_name == MAIN
             && inventory(version).is_ok_and(|names| names == [MAIN])
             && source_bytes(&version.join(MAIN)).is_ok_and(|bytes| digest(&bytes) == expected)
+    }
+
+    /// One-shot retirement proof for the former core name. A real generation
+    /// must retain its exact inventory and framed digest; dangling generations
+    /// do not authorize deletion of the old target.
+    pub(super) fn owns_retired(&self, source: &Path) -> bool {
+        let Some(version) = source.parent() else {
+            return false;
+        };
+        if source
+            .file_name()
+            .is_none_or(|name| name != super::retired::NAME)
+            || version.parent() != Some(self.root.as_path())
+        {
+            return false;
+        }
+        let Some(expected) = version.file_name().and_then(|name| name.to_str()) else {
+            return false;
+        };
+        if expected.len() != 64 || !expected.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+            return false;
+        }
+        [BUNDLED.len()]
+            .into_iter()
+            .chain(PRIOR_LAYOUTS)
+            .any(|count| {
+                named_layout_bytes(version, count, super::retired::NAME)
+                    .is_ok_and(|bytes| framed_digest(&bytes) == expected)
+            })
+            || (inventory(version).is_ok_and(|names| names == [super::retired::NAME])
+                && source_bytes(source).is_ok_and(|bytes| digest(&bytes) == expected))
     }
 
     /// Called while the installer lock is held. Existing sources are never

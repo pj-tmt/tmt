@@ -129,7 +129,7 @@ describe('signature-limited native install wiring (#1806)', () => {
         '"$GITHUB_WORKSPACE/scripts/install-native-verification-dependencies.sh"'
       );
       expect(step).toMatch(
-        /\n          else\n            pnpm (?:--filter tmux-team --fail-if-no-match )?install --frozen-lockfile --ignore-scripts\n          fi/
+        /\n          else\n            pnpm (?:--filter tmt --fail-if-no-match )?install --frozen-lockfile --ignore-scripts\n          fi/
       );
       expect(step).not.toContain('continue-on-error');
     }
@@ -215,7 +215,7 @@ describe('compiled CLI schema preparation order', () => {
   });
   const trustedInstallName = 'name: Install trusted CLI verification dependencies';
   const trustedInstallCommand =
-    'pnpm --filter tmux-team --fail-if-no-match install --frozen-lockfile --ignore-scripts';
+    'pnpm --filter tmt --fail-if-no-match install --frozen-lockfile --ignore-scripts';
   function requireTrustedCliPreparation(source: string) {
     const { verify } = blocks(source);
     const steps = verify.split(/\n      - /).slice(1);
@@ -323,7 +323,7 @@ describe('compiled CLI schema preparation order', () => {
             'working-directory: release-source/typescript',
           ],
           condition: ["inputs.product == 'cli'", "inputs.product == 'colab'"],
-          filter: ['--filter tmux-team', '--filter @tmt/colab-app'],
+          filter: ['--filter tmt', '--filter @tmt/colab-app'],
           frozen: ['--frozen-lockfile', '--no-frozen-lockfile'],
           scripts: ['--ignore-scripts', '--enable-scripts'],
         }[mutation]!;
@@ -1015,7 +1015,7 @@ describe('release upgrade proof (native-release-upgrade.yml)', () => {
       "if: ${{ !cancelled() && needs.fetch.result == 'success' }}"
     );
     expect(prove).toContain('release-upgrade.mjs" prove --product "$PRODUCT" --tag "$RELEASE_TAG"');
-    expect(prove).toContain('skill=skills/tmux-team/SKILL.md');
+    expect(prove).toContain('skill=skills/tmt/SKILL.md');
     expect(prove).toContain('--skill "$skill"');
     // The macOS toolchain lookup is warmed before the archives run.
     expect(prove.indexOf('warm-xcrun')).toBeGreaterThan(0);
@@ -1643,7 +1643,7 @@ describe('held release rerun workflow boundary', () => {
     expect(prove).toContain('ref: ${{ github.sha }}');
     expect(prove).toContain('path: release-source');
     expect(prove).toContain('set -- --source-root "$GITHUB_WORKSPACE/release-source"');
-    expect(prove).toContain('skill="$GITHUB_WORKSPACE/release-source/skills/tmux-team/SKILL.md"');
+    expect(prove).toContain('skill="$GITHUB_WORKSPACE/release-source/skills/tmt/SKILL.md"');
     expect(prove).not.toMatch(/GH_TOKEN|github\.token|secrets\./);
   });
 });

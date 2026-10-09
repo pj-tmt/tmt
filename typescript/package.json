@@ -1,7 +1,7 @@
 {
-  "name": "tmux-team",
+  "name": "tmt",
   "version": "5.0.0-dev",
-  "description": "Private developer tooling for tmux-team",
+  "description": "Private developer tooling for TMT",
   "private": true,
   "type": "module",
   "scripts": {

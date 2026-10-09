@@ -1,6 +1,6 @@
 ---
 source: site/src/chapters/start.mdx
-sourceRevision: 4755caaba1c2fef857d8c058efef7a3a159f8c49
+sourceRevision: 261b7e67cca60556b4d87e8b5f962c13578c56d8
 title: 給所有 agent 的一條通道
 ---
 
@@ -41,7 +41,7 @@ import { BandHead, Showcase } from "../../home/Showcase";
 
 <Cmd>{`$ curl -fsSL https://github.com/pj-tmt/tmt/releases/latest/download/install.sh | sh`}</Cmd>
 
-安裝程式會把 `tmt` 放進 `~/.local/bin`；在終端機裡，它接著會執行 `tmt setup`：找出你的 agent，列出它將變更的每個檔案（每個 agent 的 skill，以及這台機器上已安裝者的 session hook），並只詢問一次。之後隨時可以再執行 `tmt setup`，它只會提供尚缺的項目。如果找不到 `tmt`，請把 `~/.local/bin` 加進 PATH（只需做一次）。tmt 是全新安裝，不會遷移舊資料：如果你是從 `tmux-team` npm 套件轉過來，請先執行 `npm uninstall -g tmux-team` 移除它。
+安裝程式會把 `tmt` 放進 `~/.local/bin`；在終端機裡，它接著會執行 `tmt setup`：找出你的 agent，列出它將變更的每個檔案（每個 agent 的 skill，以及這台機器上已安裝者的 session hook），並只詢問一次。之後隨時可以再執行 `tmt setup`，它只會提供尚缺的項目。如果找不到 `tmt`，請把 `~/.local/bin` 加進 PATH（只需做一次）。
 
 <Mdx.h3 id="built-in-drivers">內建的 driver</Mdx.h3>
 

@@ -340,7 +340,7 @@ export class RemoteOwner {
       CODEX_HOME: path.join(home, 'codex'),
       TMPDIR: this.directory,
       LANG: 'C.UTF-8',
-      TMUX_TEAM_HOME: fixture.globalDir,
+      TMT_HOME: fixture.globalDir,
       TMUX_TMPDIR: fixture.socketRoot,
       TMT_E2E_SOCKET: fixture.socket,
       TMUX: `${fixture.socketPath},${fixture.serverPid},${fixture.paneSessionId()}`,

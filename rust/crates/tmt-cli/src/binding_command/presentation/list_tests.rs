@@ -108,7 +108,7 @@ fn agents() -> Vec<ListedRow> {
             "opus-tmt-peer-2",
             Lifetime::Saved,
             Some((
-                pane("%12", "2.1.283", "/Users/ada/dev/tmux-team"),
+                pane("%12", "2.1.283", "/Users/ada/dev/tmt-local"),
                 binding(RuntimeState::Running, Some(CLAUDE)),
             )),
             Some(remembered("claude", CLAUDE, false)),
@@ -117,7 +117,7 @@ fn agents() -> Vec<ListedRow> {
             "astra",
             Lifetime::Saved,
             Some((
-                pane("%7", "codex", "/Users/ada/dev/tmux-team"),
+                pane("%7", "codex", "/Users/ada/dev/tmt-local"),
                 binding(RuntimeState::Running, Some(CODEX)),
             )),
             Some(remembered("codex", CODEX, false)),

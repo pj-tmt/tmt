@@ -26,7 +26,7 @@ const fn skill(entry: &'static BundledName, bytes: &'static [u8]) -> BundledSkil
 pub(super) static BUNDLED: [BundledSkill; 5] = [
     skill(
         &names::BUNDLED[0],
-        include_bytes!("../../../../../skills/tmux-team/SKILL.md"),
+        include_bytes!("../../../../../skills/tmt/SKILL.md"),
     ),
     skill(
         &names::BUNDLED[1],

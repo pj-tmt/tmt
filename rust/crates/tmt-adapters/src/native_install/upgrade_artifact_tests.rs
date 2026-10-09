@@ -46,6 +46,8 @@ fn run(executable: &Path, args: &[OsString], task: &Path) -> Result<CommandOutpu
     let mut command = vec![
         OsString::from("-i"),
         assignment("HOME", task),
+        assignment("TMT_HOME", task),
+        // Harness only: remove when the prior release is post-rename (#2302).
         assignment("TMUX_TEAM_HOME", task),
         OsString::from("PATH="),
         OsString::from("LANG=C"),
@@ -117,8 +119,35 @@ fn injected_release(
     }
 }
 
-fn skill_target(root: &Path) -> PathBuf {
-    root.join("tmux-team")
+// The prior release chooses its own historical directory. Do not infer that
+// name from the candidate catalog or a version threshold.
+fn skill_name(bytes: &[u8]) -> Option<&str> {
+    let text = std::str::from_utf8(bytes).ok()?;
+    let (header, _) = text.strip_prefix("---\n")?.split_once("\n---\n")?;
+    let name = header
+        .lines()
+        .find_map(|line| line.strip_prefix("name: "))?;
+    matches!(name, "tmux-team" | "tmt").then_some(name)
+}
+
+fn skill_target(root: &Path, skill: &[u8]) -> PathBuf {
+    root.join(skill_name(skill).expect("real CLI skill must have a known main-skill name"))
+}
+
+#[test]
+fn upgrade_fixture_targets_follow_each_executable_skill_name() {
+    let root = Path::new("/private/skills");
+    for name in ["tmux-team", "tmt"] {
+        let skill = format!("---\nname: {name}\ndescription: fixture\n---\nbody\n");
+        assert_eq!(skill_target(root, skill.as_bytes()), root.join(name));
+    }
+    for unknown in [
+        "---\nname: other\n---\nbody\n",
+        "body\nname: tmt\n",
+        "---\ndescription: fixture\n---\nname: tmt\n",
+    ] {
+        assert_eq!(skill_name(unknown.as_bytes()), None);
+    }
 }
 
 fn report_contains(report: &Value, key: &str, path: &Path) -> bool {
@@ -198,7 +227,7 @@ fn cargo_dist_upgrade_refreshes_real_artifacts_and_preserves_conflicts() {
         &task,
     )
     .unwrap();
-    let first_target = skill_target(&first_root);
+    let first_target = skill_target(&first_root, &old_skill);
     assert_eq!(fs::read(first_target.join("SKILL.md")).unwrap(), old_skill);
 
     let second_root = task.join("second-skills");
@@ -212,7 +241,7 @@ fn cargo_dist_upgrade_refreshes_real_artifacts_and_preserves_conflicts() {
         &task,
     )
     .unwrap();
-    let second_target = skill_target(&second_root);
+    let second_target = skill_target(&second_root, &old_skill);
     let old_source = fs::read_link(&second_target).unwrap();
     fs::remove_file(&second_target).unwrap();
     fs::create_dir_all(second_target.parent().unwrap()).unwrap();
@@ -277,6 +306,9 @@ fn cargo_dist_upgrade_refreshes_real_artifacts_and_preserves_conflicts() {
     )
     .unwrap()
     .stdout;
+    assert_eq!(skill_name(&new_skill), Some(tmt_core::skill_catalog::MAIN));
+    let refreshed_first = skill_target(&first_root, &new_skill);
+    let refreshed_second = skill_target(&second_root, &new_skill);
     let skill_text_changed = new_skill != old_skill;
     assert_eq!(fs::read(first_target.join("SKILL.md")).unwrap(), old_skill);
 
@@ -298,15 +330,25 @@ fn cargo_dist_upgrade_refreshes_real_artifacts_and_preserves_conflicts() {
     assert!(report_contains(
         &refresh_document,
         "refreshed",
-        &first_target
+        &refreshed_first
     ));
     assert!(report_contains(
         &refresh_document,
         "conflicts",
         &second_target
     ));
-    assert_eq!(fs::read(first_target.join("SKILL.md")).unwrap(), new_skill);
+    assert_eq!(
+        fs::read(refreshed_first.join("SKILL.md")).unwrap(),
+        new_skill
+    );
     assert_eq!(fs::read(second_target.join("SKILL.md")).unwrap(), conflict);
+    if first_target != refreshed_first {
+        assert!(!first_target.exists());
+        assert!(
+            !refreshed_second.exists(),
+            "conflict must not publish a duplicate"
+        );
+    }
 
     let old_still_runs = run(&old_executable, &command_args(&["--version"]), &task)
         .unwrap()
@@ -326,14 +368,27 @@ fn cargo_dist_upgrade_refreshes_real_artifacts_and_preserves_conflicts() {
     .unwrap();
     let retry_document: Value = serde_json::from_slice(&retry.stdout).unwrap();
     assert!(retry_document["error"].is_null());
-    assert!(report_contains(&retry_document, "refreshed", &first_target));
     assert!(report_contains(
         &retry_document,
         "refreshed",
-        &second_target
+        &refreshed_first
     ));
-    assert_eq!(fs::read(first_target.join("SKILL.md")).unwrap(), new_skill);
-    assert_eq!(fs::read(second_target.join("SKILL.md")).unwrap(), new_skill);
+    assert!(report_contains(
+        &retry_document,
+        "refreshed",
+        &refreshed_second
+    ));
+    assert_eq!(
+        fs::read(refreshed_first.join("SKILL.md")).unwrap(),
+        new_skill
+    );
+    assert_eq!(
+        fs::read(refreshed_second.join("SKILL.md")).unwrap(),
+        new_skill
+    );
+    if second_target != refreshed_second {
+        assert!(!second_target.exists());
+    }
     if skill_text_changed {
         println!("skill-content transition: passed (old and candidate text differ)");
     } else {

@@ -1,6 +1,6 @@
 ---
 source: site/src/chapters/squad.mdx
-sourceRevision: f4a28d1fb4b1a7aecfda4543ed244641429f72d5
+sourceRevision: c6c57d60af2632f207899e39508b51168bf61097
 title: Ops：lead、成員與一個 board
 ---
 
@@ -135,7 +135,7 @@ board 第一行是頁籤：每個 squad 各有一個，另外有兩個內建頁�
 Shift+← 與 Shift+→ 可以移動目前頁籤；把頁籤拖到另一個頁籤的位置，也會移到那裡。board 會把新的順序寫入設定，不會變更檔案中的其他內容：
 
 <Code>{`
-# ~/.config/tmux-team/ops.toml
+# ~/.config/tmt/ops.toml
 [tabs]
 order = ["all", "leads", "product"]
 hide  = ["quiet"]                      # still reachable with s, or tmt ops ui --squad quiet
@@ -271,7 +271,7 @@ board 上的內容都能調整。先選版面預設樣式，再從 squad 的設�
 你可以改窗格與配置；加入自己的**區段**，每個都是有標題、篩選與排序的清單；也可以選擇**欄位**、**狀態**的顏色與順序，以及如何開啟連結。每個按鍵或點擊要做什麼，也由你設定。一個按鍵設定包含事件（例如 `o` 按鍵，或 `click`、`double-click`）與一行動作：`jump`、`jump lead`、`back`、`talk`、`reply`、`annotate lead`、`open {pr_link}`、`copy {name}: {task}`，或 `run <program> {field}…`；其中 `{field}` 會用該列的值填入。區段也可以有自己的按鍵設定。
 
 <Code>{`
-# ~/.config/tmux-team/ops.toml  (the directory keeps tmt's former name)
+# ~/.config/tmt/ops.toml
 [squad.product]
 layout = "crew"                        # start from a preset
 
@@ -281,7 +281,7 @@ O = "open {issue_link}" # your own key: open the row's issue
 
 <More summary="完整一些的範例：分割窗格、自訂區段、欄位、狀態與更多按鍵設定">
 <Code>{`
-# ~/.config/tmux-team/ops.toml  (the directory keeps tmt's former name)
+# ~/.config/tmt/ops.toml
 me = "ben"                             # written by tmt ops sq me ben, with ben's ID beside it
 
 [squad.product]
@@ -398,7 +398,7 @@ ignore_case = true          # optional; off by default
 }
 `}</Code>
 
-主題放在 `~/.config/tmux-team/config.json`。`base` 可以是 `tmt`、`tmt-light`、`terminal` 或 `mono`，任何 token 都能用十六進位值或顏色名稱覆寫；`tmt config show` 會指出無法使用的設定。設定 `base` 後，它會為指令列上色，也一律為 board 上色。這裡不接受 `auto`，因為它只屬於 board。
+主題放在 `~/.config/tmt/config.json`。`base` 可以是 `tmt`、`tmt-light`、`terminal` 或 `mono`，任何 token 都能用十六進位值或顏色名稱覆寫；`tmt config show` 會指出無法使用的設定。設定 `base` 後，它會為指令列上色，也一律為 board 上色。這裡不接受 `auto`，因為它只屬於 board。
 
 <Mdx.h3 id="theming-the-board">設定 board 主題</Mdx.h3>
 

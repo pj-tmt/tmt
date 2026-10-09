@@ -120,7 +120,7 @@ native_manifest=$(mktemp)
 MACOSX_DEPLOYMENT_TARGET=11.0 scripts/build-native-artifact.sh aarch64-apple-darwin > "$native_manifest"
 node typescript/scripts/verify-native-artifact.mjs --manifest "$native_manifest" \
   --archive target/distrib/tmt-cli-aarch64-apple-darwin.tar.gz --target aarch64-apple-darwin \
-  --skill skills/tmux-team/SKILL.md --notices rust/target/native-notices/THIRD-PARTY-NOTICES.txt --license LICENSE
+  --skill skills/tmt/SKILL.md --notices rust/target/native-notices/THIRD-PARTY-NOTICES.txt --license LICENSE
 ```
 
 The verifier bounds inputs (64 MiB compressed, 128 MiB expanded), enforces the product
@@ -197,6 +197,15 @@ not application-state selectors; verify pin policy, old executable preservation,
 partial command-link finalization and unchanged data. The internal installer is
 not permission to replace a user or package-manager installation.
 
+For the one-release Core name cutover (#2270), the owner runs two back-to-back
+unpinned `tmt upgrade` commands: the first activates rename A (the first release
+that carries the tmt names) and refreshes managed skills with the new executable;
+the second, from newly active A, converts verified pane options. The prior
+executable owns the first finish and cannot run the new pane converter. Do not
+release rename B (the later release that drops the former names) until this
+second step completes; no install/setup or skill-refresh pane effects are added.
+Remove this paragraph once rename B has shipped.
+
 `tmt upgrade [--channel stable|alpha] [--to <version> | --unpin] [--json]` and `tmt update`
 share one grammar. Use task-owned managed prefixes; an unmanaged checkout binary fails before
 networking. Production has no test endpoint or TLS bypass: API fixtures inject only the
@@ -225,7 +234,7 @@ cargo +1.97.0 test --locked --manifest-path rust/Cargo.toml -p tmt-adapters --li
   native_install::upgrade::artifact_tests::cargo_dist_upgrade_refreshes_real_artifacts_and_preserves_conflicts \
   -- --exact --ignored --nocapture
 node typescript/scripts/verify-native-installation.mjs --previous-archive "$previous_archive" --previous-manifest "$previous_manifest" \
-  --archive "$next_archive" --manifest "$next_manifest" --target aarch64-apple-darwin --skill skills/tmux-team/SKILL.md
+  --archive "$next_archive" --manifest "$next_manifest" --target aarch64-apple-darwin --skill skills/tmt/SKILL.md
 ```
 
 Require exactly one selected passing test. Identical embedded skill text prints a skipped
@@ -239,6 +248,7 @@ published tag) does this on four hosts through the shared proof stages in
 `verify-native-extension-upgrade.mjs` and `verify-native-driver-upgrade.mjs`. A product with
 neither own nor predecessor published history has nothing to upgrade from and says so; a commit
 that predates the scripts fails the proof with that message and is proven by hand.
+Retries of pre-rename tags use the tag's own tooling; current tooling expects `skills/tmt/SKILL.md` in the release source.
 Asset acquisition by immutable GitHub id allows three attempts with 1/2 s backoff and the unchanged
 300 s per-call bound, logging earlier failures; staged-byte verification and local file errors are never retried.
 Only x64-Apple verification dependency installs allow one extra attempt after the exact Node async-hook abort,
@@ -268,8 +278,7 @@ rust/target/debug/tmt __native-install --archive target/distrib/tmt-cli-aarch64-
 ```
 
 `--pin`/`--unpin` change pin state, omission preserves it, and neither authorizes a downgrade.
-Receipts written by v5.0.0-alpha.2 through alpha.6 record `wkh237/tmux-team`, which reading
-still accepts.
+Receipt provenance accepts `pj-tmt/tmt` and the former organization name `wkh237/tmt`.
 
 ### Remote and Colab installer registration
 
@@ -374,7 +383,7 @@ manifest, not a hand-kept version table, owns the facts:
 node typescript/scripts/generate-native-bootstrap.mjs --manifest /abs/dist-manifest.json --archive-dir /abs/artifacts > /abs/artifacts/tmt-installer.sh
 sh -n /abs/artifacts/tmt-installer.sh
 node typescript/scripts/verify-native-bootstrap.mjs --manifest /abs/dist-manifest.json \
-  --archive /abs/artifacts/tmt-cli-aarch64-apple-darwin.tar.gz --target aarch64-apple-darwin --skill skills/tmux-team/SKILL.md
+  --archive /abs/artifacts/tmt-cli-aarch64-apple-darwin.tar.gz --target aarch64-apple-darwin --skill skills/tmt/SKILL.md
 ```
 
 The verifier needs real matching-host artifacts and replaces only curl acquisition; it is not

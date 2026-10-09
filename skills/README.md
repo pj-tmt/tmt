@@ -3,7 +3,7 @@
 Install the native alpha using the [README](../README.md) command, then run
 `tmt install`. Use the installer asset from a published release. No plugin, marketplace
 or separate slash-command package is required. The native executable embeds the
-canonical [tmux-team skill](tmux-team/SKILL.md), focused
+canonical [tmt skill](tmt/SKILL.md), focused
 [tmt-inbox skill](tmt-inbox/SKILL.md), optional
 [tmt-office skill](../extensions/tmt-office/skills/tmt-office/SKILL.md), and optional
 [tmt-prop-create skill](../extensions/tmt-office/skills/tmt-prop-create/SKILL.md) and
@@ -36,10 +36,10 @@ tmt install all      # Install for every supported provider
 | Antigravity CLI (`agy`)    | `~/.gemini/config/skills/` |
 | Pi                         | `~/.pi/agent/skills/`      |
 
-Each root receives sibling `tmux-team/SKILL.md` and `tmt-inbox/SKILL.md` links.
+Each root receives sibling `tmt/SKILL.md` and `tmt-inbox/SKILL.md` links.
 
 Installation is non-interactive and accepts `--json`. If no provider is detected,
-the shared `~/.agents/skills/{tmux-team,tmt-inbox}` targets are installed without
+the shared `~/.agents/skills/{tmt,tmt-inbox}` targets are installed without
 claiming a provider was found; each JSON item has `skill`, `target` and `changed`,
 but no `agent`.
 This does not install the agent applications themselves. Explicit selectors work
@@ -62,16 +62,16 @@ selection.
 The legacy TypeScript `tmt upgrade` follows npm `latest` and cannot update a
 native installation. Use the original manager for package-manager installations.
 
-Load `tmux-team` in your agent before pane collaboration and `tmt-inbox` for an
+Load `tmt` in your agent before pane collaboration and `tmt-inbox` for an
 authorized bounded inbox-processing session. Claude Code's canonical skill
-can be invoked as `/tmux-team`; the CLI remains `tmt`. Installing files does not
+can be invoked as `/tmt`; the CLI remains `tmt`. Installing files does not
 guarantee an already-running agent has reloaded them. Use its skill discovery
 or restart the session when necessary. The [Claude skill documentation](https://code.claude.com/docs/en/skills)
 describes its native personal skill location and invocation.
 
-Pi exposes `/skill:tmux-team`; OpenCode loads `tmux-team` through its `skill`
+Pi exposes `/skill:tmt`; OpenCode loads `tmt` through its `skill`
 tool. Antigravity discovers skill metadata when starting a conversation; ask it
-to load `tmux-team` or explicitly read `tmt learn --skill`. Provider permissions
+to load `tmt` or explicitly read `tmt learn --skill`. Provider permissions
 or disabled skill discovery can still prevent loading. Installing a link is not
 proof that a running session has loaded its content.
 
@@ -94,7 +94,7 @@ tmt install --dir './project skills'
 `learn --skill tmt-office`, `learn --skill tmt-prop-create`, and
 `learn --skill tmt-avatar-create` select the other
 exact embedded sources. Plain `learn` is a short guide.
-Custom installation creates sibling `./project skills/tmux-team` and
+Custom installation creates sibling `./project skills/tmt` and
 `./project skills/tmt-inbox` links relative to the current directory. Choose a
 folder your provider discovers, and do not combine `--dir`
 with a provider or `all`. Custom installs do not migrate default paths or touch
@@ -135,12 +135,15 @@ Update the native CLI using a published release's installer asset, run
 ask the agent to run `tmt learn --skill`, read the complete output, and use it
 instead of remembered instructions from an older version.
 
-Replacing npm, pnpm, Homebrew or manual installations does not migrate or delete
-their application data or files. Stop old writers before switching and verify
-`command -v tmt`, `command -v tmux-team`, and the new absolute `tmt --help`.
+Replacing package-manager or manual installations does not delete their files.
+Verify `command -v tmt` and the new absolute `tmt --help`. The one-shot default
+data-directory cutover is owned by Core configuration; explicit `TMT_HOME` stays exact.
 
 Existing unmanaged targets are preserved by default. Inspect a conflict before
 using `tmt install <provider> --force`; replacement creates a recoverable backup.
+A former Core skill target is retired only after its complete managed source
+digest and inventory verify and the replacement is published. Modified or
+unmanaged former targets remain conflicts even with `--force`.
 Skill target backups are stored in a sibling `.tmt-skill-backups` directory
 outside the skills root so agents do not discover them as duplicate skills.
 The installer reports backup paths. Do not delete the source package or your
@@ -151,11 +154,6 @@ updated. `tmt install claude` preserves an existing entry and warns; after the
 native skill is installed successfully, `tmt install claude --force` can move
 that old entry to a recoverable backup. Other commands are untouched. Local
 drift checks also report retired command entries, including broken links.
-
-Previously installed Claude marketplace plugins are managed by Claude, not by
-TMT. Remove or disable the old `tmux-team` plugin through Claude's plugin manager
-after checking the native skill works, to avoid duplicate guidance. TMT does not
-edit plugin settings, delete cached plugins, or uninstall them automatically.
 
 ## Verify
 

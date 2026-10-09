@@ -1,6 +1,6 @@
 //! Refresh existing managed links, never install new integrations from intent.
 
-use super::{assets::SkillAssets, files, managed_link, owned::owned_names, registry};
+use super::{assets::SkillAssets, files, managed_link, owned::owned_names, registry, retired};
 use std::{
     collections::BTreeSet,
     error::Error,
@@ -74,6 +74,30 @@ pub(super) fn refresh_with_publisher(
                     .is_some_and(|name| owned.contains(name));
                 if held || !files::exists(&target)? {
                     report.skipped.push(target);
+                    continue;
+                }
+                if target.file_name().is_some_and(|name| name == retired::NAME) {
+                    let current_sources = match &sources {
+                        Some(sources) => sources,
+                        None => sources.insert(assets.materialize_bundle()?),
+                    };
+                    match retired::replace(
+                        &global,
+                        target.parent().expect("registered target parent"),
+                        &assets,
+                        current_sources
+                            .get(super::catalog::MAIN)
+                            .expect("main source"),
+                        &mut publish,
+                    )? {
+                        retired::Replacement::Missing => report.skipped.push(target),
+                        retired::Replacement::Conflict(path) => report.conflicts.push(path),
+                        retired::Replacement::Replaced { target, changed } => {
+                            if !report.refreshed.iter().any(|item| item.target == target) {
+                                report.refreshed.push(RefreshedSkill { target, changed });
+                            }
+                        }
+                    }
                     continue;
                 }
                 let Some(prior) = managed_link(&target, &assets)? else {

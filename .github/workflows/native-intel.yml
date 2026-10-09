@@ -57,7 +57,7 @@ jobs:
           version=$(cargo metadata --manifest-path rust/Cargo.toml --locked --no-deps --format-version 1 | node -pe 'JSON.parse(require("fs").readFileSync(0,"utf8")).packages.find(p => p.name === "tmt-cli").version')
           node typescript/scripts/verify-native-runtime.mjs \
             --executable "$GITHUB_WORKSPACE/rust/target/$TARGET/release/tmt" \
-            --target "$TARGET" --version "$version" --skill skills/tmux-team/SKILL.md
+            --target "$TARGET" --version "$version" --skill skills/tmt/SKILL.md
       - name: Resolve the latest published CLI alpha
         id: latest
         env:

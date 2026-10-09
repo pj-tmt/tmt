@@ -100,7 +100,7 @@ describe('guided tmt setup', () => {
         'claude',
         'codex',
       ]);
-      for (const skill of ['.claude/skills/tmux-team', '.agents/skills/tmt-inbox']) {
+      for (const skill of ['.claude/skills/tmt', '.agents/skills/tmt-inbox']) {
         expect(lstatSync(path.join(sandbox.home, skill)).isSymbolicLink()).toBe(true);
       }
       // Present agents get hooks; the user's own hook stays.
@@ -145,22 +145,22 @@ describe('guided tmt setup', () => {
   it('applies exactly the plan: keeps an occupied skill and replaces a foreign TMT one', async () => {
     await withSandbox(async (sandbox) => {
       machine(sandbox);
-      // A user's own tmux-team skill for Claude: setup must leave it.
-      const occupied = path.join(sandbox.home, '.claude', 'skills', 'tmux-team');
+      // A user's own tmt skill for Claude: setup must leave it.
+      const occupied = path.join(sandbox.home, '.claude', 'skills', 'tmt');
       mkdirSync(occupied, { recursive: true });
-      writeFileSync(path.join(occupied, 'SKILL.md'), '---\nname: tmux-team\n---\nmine\n');
+      writeFileSync(path.join(occupied, 'SKILL.md'), '---\nname: tmt\n---\nmine\n');
       // Codex's skill links into an earlier TMT home's assets.
-      const oldSource = path.join(sandbox.root, 'old-home', 'skill-assets', 'abc123', 'tmux-team');
+      const oldSource = path.join(sandbox.root, 'old-home', 'skill-assets', 'abc123', 'tmt');
       mkdirSync(oldSource, { recursive: true });
-      writeFileSync(path.join(oldSource, 'SKILL.md'), '---\nname: tmux-team\n---\nold\n');
-      const foreign = path.join(sandbox.home, '.agents', 'skills', 'tmux-team');
+      writeFileSync(path.join(oldSource, 'SKILL.md'), '---\nname: tmt\n---\nold\n');
+      const foreign = path.join(sandbox.home, '.agents', 'skills', 'tmt');
       mkdirSync(path.dirname(foreign), { recursive: true });
       symlinkSync(oldSource, foreign);
 
       const planned = await runCli(sandbox, ['setup']);
       expect(planned.stdout).toContain('replaces an older TMT skill from');
       expect(planned.stdout).toContain('KEEP 1');
-      expect(planned.stdout).toContain("~/.claude/skills/tmux-team  not TMT's; left as it is");
+      expect(planned.stdout).toContain("~/.claude/skills/tmt  not TMT's; left as it is");
 
       const applied = await runCli(sandbox, ['setup', '--yes', '--json']);
       expect(applied.status, applied.stdout + applied.stderr).toBe(0);
@@ -182,7 +182,7 @@ describe('guided tmt setup', () => {
       // The foreign link now points at this home's assets; the old link is kept as a backup.
       expect(readlinkSync(foreign)).toContain(path.join(sandbox.globalDir, 'skill-assets'));
       const backups = readdirSync(path.join(sandbox.home, '.agents', '.tmt-skill-backups'));
-      expect(backups.filter((name) => name.startsWith('tmux-team.backup-'))).toHaveLength(1);
+      expect(backups.filter((name) => name.startsWith('tmt.backup-'))).toHaveLength(1);
       expect(readFileSync(path.join(oldSource, 'SKILL.md'), 'utf8')).toContain('old');
 
       const again = await runCli(sandbox, ['setup']);

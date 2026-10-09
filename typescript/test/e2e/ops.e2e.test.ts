@@ -229,7 +229,7 @@ describe('squad on a private tmux server', { concurrent: false }, () => {
         fs.mkdirSync(home);
         fixture.tmux(['set-environment', '-g', 'HOME', home]);
         fixture.tmux(['set-environment', '-g', 'XDG_CACHE_HOME', path.join(home, 'cache')]);
-        fixture.tmux(['set-environment', '-g', 'TMUX_TEAM_HOME', fixture.globalDir]);
+        fixture.tmux(['set-environment', '-g', 'TMT_HOME', fixture.globalDir]);
         expectJsonResult(await fixture.runJsonCli(['identity', 'create', 'Ben']));
         const peer = await fixture.createMockPane('clock-owner');
         expectJsonResult(await fixture.runJsonCli(['add', '--save', peer.pane, 'worker']));
@@ -329,7 +329,7 @@ describe('squad on a private tmux server', { concurrent: false }, () => {
       fs.mkdirSync(home);
       fixture.tmux(['set-environment', '-g', 'HOME', home]);
       fixture.tmux(['set-environment', '-g', 'XDG_CACHE_HOME', path.join(home, 'cache')]);
-      fixture.tmux(['set-environment', '-g', 'TMUX_TEAM_HOME', fixture.globalDir]);
+      fixture.tmux(['set-environment', '-g', 'TMT_HOME', fixture.globalDir]);
       expectJsonResult(await fixture.runJsonCli(['identity', 'create', 'Ben']));
       const ownerPane = fixture.createShellPane('cron-owner');
       const leadPane = fixture.createShellPane('cron-lead');

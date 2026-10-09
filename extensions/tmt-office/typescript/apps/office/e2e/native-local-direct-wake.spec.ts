@@ -108,7 +108,7 @@ test('a direct Office request wakes only the verified recipient once while inbox
           const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
           const command = [
             'env',
-            `TMUX_TEAM_HOME=${fixture.globalDir}`,
+            `TMT_HOME=${fixture.globalDir}`,
             fixture.executables.cli.executable,
             'run',
             '-s',

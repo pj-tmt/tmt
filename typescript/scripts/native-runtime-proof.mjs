@@ -329,7 +329,7 @@ export async function verifyNativeRuntime({
       });
       try {
         await waitForOfficeReady(child);
-        const receiptPath = path.join(xdg, 'tmux-team', 'office', 'runtime', 'service-v1.json');
+        const receiptPath = path.join(xdg, 'tmt', 'office', 'runtime', 'service-v1.json');
         const receipt = JSON.parse(fs.readFileSync(receiptPath, 'utf8'));
         assert.equal(receipt.runningVersion, version, 'Office service version mismatch');
         assert.equal(
@@ -360,7 +360,7 @@ export async function verifyNativeRuntime({
     assert.equal(typeof inboxSkill, 'string', 'CLI runtime proof requires the inbox skill');
     assert.equal(typeof officeSkill, 'string', 'CLI runtime proof requires the Office skill');
     const json = (args) => JSON.parse(run([...args, '--json']));
-    const globalRoot = path.join(xdg, 'tmux-team');
+    const globalRoot = path.join(xdg, 'tmt');
     assert.equal(run(['--version']).trim(), version, `${subject} version mismatch`);
     assertBenchmarkHelp(run(['--help']));
     assert.equal(run(['learn', '--skill']), skill, `${subject} embedded skill mismatch`);
@@ -373,11 +373,11 @@ export async function verifyNativeRuntime({
     const customRoot = path.join(cwd, 'custom skills');
     fs.mkdirSync(customRoot);
     const targetRoot = fs.realpathSync(customRoot);
-    const targetPath = path.join(targetRoot, 'tmux-team');
+    const targetPath = path.join(targetRoot, 'tmt');
     const inboxTargetPath = path.join(targetRoot, 'tmt-inbox');
     const officeTargetPath = path.join(targetRoot, 'tmt-office');
     const installed = [
-      { skill: 'tmux-team', target: targetPath, content: skill },
+      { skill: 'tmt', target: targetPath, content: skill },
       { skill: 'tmt-inbox', target: inboxTargetPath, content: inboxSkill },
     ];
     assert.deepEqual(json(['install', '--dir', customRoot]), {
@@ -413,7 +413,7 @@ export async function verifyNativeRuntime({
       JSON.parse(fs.readFileSync(path.join(globalRoot, 'skill-installations.json'))),
       {
         version: 1,
-        targets: [inboxTargetPath, targetPath],
+        targets: [targetPath, inboxTargetPath],
       }
     );
     assert.deepEqual(json(['install', '--dir', customRoot]), {
@@ -425,8 +425,8 @@ export async function verifyNativeRuntime({
     });
     assert.deepEqual(json(['__native-refresh-skills']), {
       refreshed: [
-        { target: inboxTargetPath, changed: false },
         { target: targetPath, changed: false },
+        { target: inboxTargetPath, changed: false },
       ],
       skipped: [],
       conflicts: [],

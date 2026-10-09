@@ -40,7 +40,7 @@ in `contracts/`.
   the observed server before reconciliation; matching unchanged stale records
   still reconcile. Mutating marker operations retain their own coordination
   transactions.
-- The pane marker (`@tmux-team.agent`) proves ownership by identity, binding, server and
+- The pane marker (`@tmt.agent`) proves ownership by identity, binding, server and
   pane-process IDs alone; its name may lag the stored name and readers resolve by ID.
   `binding::rename_identity` renames inside the immediate binding transaction; the post-commit
   refresh rewrites the marker only while it is still this binding's. Read paths (`ls`, `talk`)

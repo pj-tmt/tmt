@@ -189,7 +189,7 @@ describe(
           '-p',
           '-t',
           fixture.pane,
-          '@tmux-team.agent',
+          '@tmt.agent',
           JSON.stringify(opaque),
         ]);
         const published = expectJsonResult(

@@ -289,8 +289,18 @@ fn prior(target: &Path, assets: &SkillAssets) -> io::Result<Prior> {
                 .expect("skill target parent")
                 .join(fs::read_link(target)?),
         );
+        // The one-release default-directory cutover can leave an absolute
+        // managed link dangling. Only a present, fully verified moved tree may
+        // prove the prior link; an owner claim alone is not relocation evidence.
+        let holder = owned_source(assets, &source).or_else(|| {
+            let moved = crate::config::relocated_skill_source(assets.root().parent()?, &source)?;
+            moved
+                .is_dir()
+                .then(|| owned_source(assets, &moved))
+                .flatten()
+        });
         if source.file_name() == target.file_name()
-            && let Some((owner, _)) = owned_source(assets, &source)
+            && let Some((owner, _)) = holder
         {
             return Ok(Prior::Owned {
                 owner,

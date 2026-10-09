@@ -665,7 +665,7 @@ describe('Claude channel delivery', { concurrent: false }, () => {
                   input: JSON.stringify({ version: 1, operation, input }),
                   encoding: 'utf8',
                   timeout: 5000,
-                  env: { PATH: process.env.PATH, HOME: home, TMUX_TEAM_HOME: fixture.globalDir },
+                  env: { PATH: process.env.PATH, HOME: home, TMT_HOME: fixture.globalDir },
                 }
               )
             );
@@ -888,7 +888,7 @@ describe('Claude channel delivery', { concurrent: false }, () => {
               env: {
                 PATH: process.env.PATH,
                 HOME: path.join(fixture.root, `home-${name}`),
-                TMUX_TEAM_HOME: fixture.globalDir,
+                TMT_HOME: fixture.globalDir,
               },
             }
           )
@@ -1009,7 +1009,7 @@ describe('Claude channel delivery', { concurrent: false }, () => {
                   input: JSON.stringify({ version: 1, operation, input }),
                   encoding: 'utf8',
                   timeout: 5000,
-                  env: { PATH: process.env.PATH, HOME: home, TMUX_TEAM_HOME: fixture.globalDir },
+                  env: { PATH: process.env.PATH, HOME: home, TMT_HOME: fixture.globalDir },
                 }
               )
             );
@@ -1234,7 +1234,7 @@ describe('Claude channel delivery', { concurrent: false }, () => {
                 }),
                 encoding: 'utf8',
                 timeout: 5000,
-                env: { PATH: process.env.PATH, HOME: home, TMUX_TEAM_HOME: fixture.globalDir },
+                env: { PATH: process.env.PATH, HOME: home, TMT_HOME: fixture.globalDir },
               }
             )
           );
@@ -1646,7 +1646,7 @@ exec ${[fixture.executables.peer.executable, ...fixture.executables.peer.args].m
             ).count
         );
       const trace = installTmuxTrace(fixture);
-      fixture.tmux(['set-option', '-p', '-u', '-t', worker.pane, '@tmux-team.agent']);
+      fixture.tmux(['set-option', '-p', '-u', '-t', worker.pane, '@tmt.agent']);
       // Observation of a pane that lost its marker deletes its binding, and with it
       // the only database link from the pane to its enrollment. Commands that
       // reconcile come first, as they do in practice; the evidence that keeps the
@@ -1671,7 +1671,7 @@ exec ${[fixture.executables.peer.executable, ...fixture.executables.peer.args].m
       expect(terminalWrites(trace, worker.pane)).toEqual([]);
 
       // A session that never opted in keeps the baseline: the pane takes the paste.
-      fixture.tmux(['set-option', '-p', '-u', '-t', plain.pane, '@tmux-team.agent']);
+      fixture.tmux(['set-option', '-p', '-u', '-t', plain.pane, '@tmt.agent']);
       const pasted = await talk(fixture, plain.pane, 'bare paste', ['--detach']);
       expect(pasted.code, pasted.stderr || pasted.stdout).toBe(0);
       await fixture.waitFor(
@@ -1703,7 +1703,7 @@ exec ${[fixture.executables.peer.executable, ...fixture.executables.peer.args].m
       const trace = installTmuxTrace(fixture);
       // The marker is lost and observation deletes the binding; the user then names
       // the pane again, which makes a new binding with no record under its own ID.
-      fixture.tmux(['set-option', '-p', '-u', '-t', worker.pane, '@tmux-team.agent']);
+      fixture.tmux(['set-option', '-p', '-u', '-t', worker.pane, '@tmt.agent']);
       await fixture.runJsonCli(['ls'], { pane: worker.pane });
       const renamed = await fixture.runJsonCli(['name', 'Rebound'], { pane: worker.pane });
       expect(renamed.code, renamed.stderr || renamed.stdout).toBe(0);
@@ -1745,7 +1745,7 @@ exec ${[fixture.executables.peer.executable, ...fixture.executables.peer.args].m
           .map((line) => Number(line.trim().split(/\s+/)[0]));
       expect(oldServers(), 'the launch has a running channel server').toHaveLength(1);
       expect(fs.existsSync(oldSocket), 'and its socket').toBe(true);
-      fixture.tmux(['set-option', '-p', '-u', '-t', crashed.pane, '@tmux-team.agent']);
+      fixture.tmux(['set-option', '-p', '-u', '-t', crashed.pane, '@tmt.agent']);
       await fixture.runJsonCli(['ls'], { pane: crashed.pane });
       // No process gets to withdraw its enrollment: the record and the socket stay
       // behind, and the server is killed with the rest.
@@ -1809,7 +1809,7 @@ exec ${[fixture.executables.peer.executable, ...fixture.executables.peer.args].m
       const trace = installTmuxTrace(fixture);
       // The pane lost its marker and observation deleted its binding, so nothing but
       // the enrollment record and the live foreground can protect it.
-      fixture.tmux(['set-option', '-p', '-u', '-t', orphan.pane, '@tmux-team.agent']);
+      fixture.tmux(['set-option', '-p', '-u', '-t', orphan.pane, '@tmt.agent']);
       await fixture.runJsonCli(['ls'], { pane: orphan.pane });
       // Only the launcher dies: the foreground it spawned keeps running, reparented
       // (or stopped, once the shell takes the terminal back), with its server.
@@ -1855,7 +1855,7 @@ exec ${[fixture.executables.peer.executable, ...fixture.executables.peer.args].m
       const { file, record } = enrollment(fixture);
       const claude = Number(named(window, 'started')[0].pid);
       const socket = path.join(channelDirectory(fixture), `${record.bindingId}.sock`);
-      fixture.tmux(['set-option', '-p', '-u', '-t', window.pane, '@tmux-team.agent']);
+      fixture.tmux(['set-option', '-p', '-u', '-t', window.pane, '@tmt.agent']);
       await fixture.runJsonCli(['ls'], { pane: window.pane });
       for (const pid of [record.launchOwner.pid, claude, ...serversOf(record.bindingId)]) {
         process.kill(pid, 'SIGKILL');
@@ -1901,7 +1901,7 @@ exec ${[fixture.executables.peer.executable, ...fixture.executables.peer.args].m
       // Once that session has ended and the pane lost its marker, observation deletes
       // the binding and the pane is a raw target, which `talk` checks itself.
       expect(await quit(plain)).toBe('0');
-      fixture.tmux(['set-option', '-p', '-u', '-t', window.pane, '@tmux-team.agent']);
+      fixture.tmux(['set-option', '-p', '-u', '-t', window.pane, '@tmt.agent']);
       await fixture.runJsonCli(['ls'], { pane: window.pane });
       await refused(window.pane, 'into the unknown by pane');
       expect(named(plain, 'paste')).toEqual([]);
@@ -2033,7 +2033,7 @@ exec ${[fixture.executables.peer.executable, ...fixture.executables.peer.args].m
       // With the session ended and the marker lost, observation deletes the binding:
       // the pane is a raw target and `talk` runs the same check itself.
       expect(await quit(plain)).toBe('0');
-      fixture.tmux(['set-option', '-p', '-u', '-t', plain.pane, '@tmux-team.agent']);
+      fixture.tmux(['set-option', '-p', '-u', '-t', plain.pane, '@tmt.agent']);
       await fixture.runJsonCli(['ls'], { pane: plain.pane });
       skipped(
         await talk(fixture, plain.pane, '# by pane', ['--detach', '--no-preamble']),

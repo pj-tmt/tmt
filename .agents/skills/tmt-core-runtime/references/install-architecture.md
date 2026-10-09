@@ -29,6 +29,41 @@ publication and verification procedures are in the [tmt-release skill](../../tmt
 
 ## Native installation
 
+The one-release Core-name cutover is owned by `skill_installation::retired` and
+`native_upgrade_command::rename`. Install and the upgrade skill-refresh child
+replace the former main skill only after checking the entire digest-tracked
+source inventory; edited or unmanaged entries remain conflicts even with force.
+Former-name conflicts refuse ordinary main skill publication, avoiding a newly
+published duplicate in that root.
+Publication and new target registration precede exact old-link revalidation and
+removal. Recorded custom roots participate; missing integrations stay missing.
+After the default directory moves, a dangling absolute source coordinate may be
+republished only from a present, fully digest-verified relocated generation,
+including owner-held skills. This is installer recovery, never a runtime path alias.
+
+Only the CLI upgrade's successful, unpinned finish attempts the pane-option
+cutover. The owner runs the first rename-A upgrade and an immediate second
+unpinned upgrade from newly active A: the prior executable owns the first finish,
+so only the second executes the new pane converter. The first refresh runs after
+activation; its ConfigPaths move uses active-release admission and a silent
+report callback to retain the prior updater's JSON/empty-stderr contract. Managed
+refresh dispatch bypasses generic driver registration and observers so they cannot
+discover configuration before this protocol owner. Install and setup never gain
+host effects. It selects the caller's
+explicit server socket and existing stored bindings, captures exact old metadata
+and native server/pane incarnations, then compares the full binding record under
+the mutation transaction before tmux's exact-value command-queue fence. Changed
+rows, occupied new keys, unknown evidence and edited pane formats remain intact.
+Only an unchanged owned pane border prefix is rewritten; inherited formats and
+other host presentation are untouched. The former server key remains recovery
+evidence for unverifiable panes; ordinary adapters read only the new keys.
+Storage opening has its own 3-second budget; each selected pane gets a fresh
+3-second deadline within an overall 3-minute native-effect cap. A failed pane
+keeps its metadata and cannot consume a later pane's allocation. One summary
+reports converted and unchanged counts; panes without retired markers are unchanged
+without a rebind hint. Partial failure is a human hint or optional `paneRenameHints` JSON array, never
+upgrade failure, retirement, re-launch or automatic rebind.
+
 - `native_install::Product` is fixed policy with no filesystem or network effect: identity,
   inventory, namespace and links for the CLI and the official extensions (Ops with the sole `tmt-ops`
   link, Remote, Colab, Office). Archive data never adds a product. Every product uses one
@@ -49,7 +84,7 @@ publication and verification procedures are in the [tmt-release skill](../../tmt
   invocation-owned prefix; receipt, current and links written atomically under the installer
   lock; old owned releases kept until ownership and integrity permit cleanup), `receipt`,
   `release`, `managed`, `upgrade`, `repair`, `skills_tree`, `active_companion`. A receipt's
-  repository must be `pj-tmt/tmt` or the read-only historical `wkh237/tmt` or `wkh237/tmux-team`;
+  repository must be `pj-tmt/tmt` or the read-only historical `wkh237/tmt`;
   new receipts use `pj-tmt/tmt`. `Product::accepts_prerelease_flag` mirrors
   `native-release-policy.mjs`.
 - Receipts anchor to the installation prefix and current executable, not `ConfigPaths.global_dir`.

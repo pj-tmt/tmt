@@ -399,7 +399,7 @@ skill directories, so send `consent: true` only after asking the user, as
 `{name, files: [{path, content}]}` with UTF-8 `content`, a top-level
 `SKILL.md`, canonical `/`-separated relative paths (no empty or
 `.`-prefixed segments, no trailing `/`), at most 64 files of 1 MiB each and
-16 skills per call. Core's `tmux-team` and `tmt-inbox` cannot be claimed; the
+16 skills per call. Core's `tmt` and `tmt-inbox` cannot be claimed; the
 first owner of any other name keeps it. Office links core published before
 owners existed belong to core too, and only owner `office` takes them over
 without force. `force: true` transfers a name and backs up an unmanaged path

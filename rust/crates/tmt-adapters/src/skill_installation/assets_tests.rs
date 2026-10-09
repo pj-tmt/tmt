@@ -9,7 +9,7 @@ fn materialized_source_is_exact_and_repeated_install_preserves_it() {
     let source = assets.materialize().unwrap();
     assert_eq!(
         fs::read(source.join("SKILL.md")).unwrap(),
-        bundled_skill_named("tmux-team").unwrap()
+        bundled_skill_named("tmt").unwrap()
     );
     assert_eq!(
         fs::read(source.parent().unwrap().join("tmt-inbox/SKILL.md")).unwrap(),
@@ -79,7 +79,7 @@ fn external_source_and_symlinked_skill_file_never_establish_managed_ownership() 
     fs::create_dir(&external).unwrap();
     fs::write(
         external.join("SKILL.md"),
-        bundled_skill_named("tmux-team").unwrap(),
+        bundled_skill_named("tmt").unwrap(),
     )
     .unwrap();
     assert!(!assets.owns(&external));
@@ -89,7 +89,7 @@ fn external_source_and_symlinked_skill_file_never_establish_managed_ownership() 
     assert!(assets.materialize().is_err());
     assert_eq!(
         fs::read(external.join("SKILL.md")).unwrap(),
-        bundled_skill_named("tmux-team").unwrap()
+        bundled_skill_named("tmt").unwrap()
     );
 }
 
@@ -105,8 +105,8 @@ fn symlinked_digest_directory_is_not_a_managed_source() {
     assert!(!assets.owns(&source));
     assert!(assets.materialize().is_err());
     assert_eq!(
-        fs::read(outside.join("tmux-team/SKILL.md")).unwrap(),
-        bundled_skill_named("tmux-team").unwrap()
+        fs::read(outside.join("tmt/SKILL.md")).unwrap(),
+        bundled_skill_named("tmt").unwrap()
     );
     assert_eq!(fs::read_link(version).unwrap(), outside);
 }
@@ -143,7 +143,7 @@ fn dangling_generations_require_known_names_inside_the_canonical_store() {
     let root = TestDirectory::new();
     let assets = SkillAssets::new(&root.path);
     let version = assets.root().join("a".repeat(64));
-    let source = version.join("tmux-team");
+    let source = version.join("tmt");
     assert!(assets.owns(&source));
     assert!(!assets.owns(&version.join("unknown-user-skill")));
     let target = root.path.join("skills/tmt-inbox");

@@ -105,7 +105,7 @@ fn concurrent_initialization_has_one_winner_and_no_partial_state() {
 #[test]
 fn failure_cleanup_removes_only_the_owned_partial_file_and_preserves_replacements() {
     let directory = TestDirectory::new();
-    let path = directory.path.join("tmux-team.json");
+    let path = directory.path.join("tmt.json");
     let owned = fs::File::create_new(&path).unwrap();
     let error = super::finish_initialization_failure(
         &path,

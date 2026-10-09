@@ -198,7 +198,7 @@ tests stay beside their owner in `rust/crates/*`.
 
 **Isolation.** Fixtures clear the parent environment. HOME, XDG config/data/state/
 cache, `CODEX_HOME`, temporary files and the tmux socket directory stay under the
-fixture's owned root, and state uses the canonical XDG `tmux-team` directory. They
+fixture's owned root, and state uses the canonical XDG `tmt` directory. They
 inherit no caller/provider markers, recursion flags or color settings.
 `tmt-cli/tests/support` owns this for Rust process tests. Native TypeScript
 `runCli` also isolates CLI ancestry through
@@ -281,7 +281,7 @@ owns syntax, released-path scope, edit feedback and cumulative merge-group enfor
 
 ## Installed guidance source ownership
 
-`skills/tmux-team/SKILL.md` and `skills/tmt-inbox/SKILL.md` are the canonical
+`skills/tmt/SKILL.md` and `skills/tmt-inbox/SKILL.md` are the canonical
 installed guidance, one versioned bundle; core install exposes only these. Edit the
 single canonical file; never add provider-specific copies. Verify exact embedded
 bytes, managed links, repeat no-op, backup/conflict and partial-failure behavior,

@@ -234,11 +234,7 @@ impl<R: CommandRunner> Tmux<R> {
             if badge.is_none() {
                 args.push("-u".into());
             }
-            args.extend([
-                "-t".into(),
-                binding.pane_id.clone(),
-                "@tmux-team.badge".into(),
-            ]);
+            args.extend(["-t".into(), binding.pane_id.clone(), "@tmt.badge".into()]);
             if let Some(name) = badge {
                 args.push(badge_label(name, binding.session.state));
             }

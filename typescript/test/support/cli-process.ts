@@ -156,7 +156,7 @@ export function createSandbox(executableEnv: NodeJS.ProcessEnv = process.env): S
     mkdirSync(tmuxTmpdir);
     mkdirSync(tmpdir);
 
-    const globalDir = path.join(xdgConfigHome, 'tmux-team');
+    const globalDir = path.join(xdgConfigHome, 'tmt');
     const env: NodeJS.ProcessEnv = {
       HOME: home,
       XDG_CONFIG_HOME: xdgConfigHome,
@@ -193,7 +193,7 @@ export function createSandbox(executableEnv: NodeJS.ProcessEnv = process.env): S
       globalDir,
       globalConfig: path.join(globalDir, 'config.json'),
       database: path.join(globalDir, 'tmux-team.db'),
-      localConfig: path.join(cwd, 'tmux-team.json'),
+      localConfig: path.join(cwd, 'tmt.json'),
       env,
     };
   } catch (error) {

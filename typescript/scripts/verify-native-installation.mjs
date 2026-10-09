@@ -72,7 +72,15 @@ await withNativeArtifact(values.archive, current, async (source) => {
     try {
       const prefix = path.join(root, 'prefix with spaces');
       const state = path.join(root, 'separate application state');
-      const env = { HOME: root, TMUX_TEAM_HOME: state, PATH: '', LANG: 'C', TMPDIR: root };
+      // Harness only: remove when the prior release is post-rename.
+      const env = {
+        HOME: root,
+        TMT_HOME: state,
+        TMUX_TEAM_HOME: state,
+        PATH: '',
+        LANG: 'C',
+        TMPDIR: root,
+      };
       const options = { cwd: root, env };
       const installer = path.join(source, 'tmt');
       assertMacOsArchitecture(installer, values.target, options);

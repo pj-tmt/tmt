@@ -252,10 +252,7 @@ describe('CI area selection', () => {
       );
     };
     expect(admitsGuardInputs(unit)).toBe(true);
-    const withoutInstall = unit.replace(
-      install,
-      'pnpm --filter tmux-team install --frozen-lockfile'
-    );
+    const withoutInstall = unit.replace(install, 'pnpm --filter tmt install --frozen-lockfile');
     expect(admitsGuardInputs(withoutInstall)).toBe(false);
     const installStep =
       '      - name: Install locked browser presentation guard inputs\n' +
@@ -356,7 +353,7 @@ describe('CI area selection', () => {
     'rust/crates/tmt-cli/src/office_facade.rs',
     'rust/crates/tmt-cli/src/api_command.rs',
     'rust/crates/tmt-cli/src/extension_install_command.rs',
-    'skills/tmux-team/SKILL.md',
+    'skills/tmt/SKILL.md',
     'typescript/package.json',
     'typescript/pnpm-lock.yaml',
     'typescript/pnpm-workspace.yaml',

@@ -95,7 +95,7 @@ describe('native installation process contract', () => {
         const officeSkillTarget = path.join(sandbox.home, '.agents', 'skills', 'tmt-office');
         const propSkillTarget = path.join(sandbox.home, '.agents', 'skills', 'tmt-prop-create');
         const avatarSkillTarget = path.join(sandbox.home, '.agents', 'skills', 'tmt-avatar-create');
-        expect(existsSync(path.join(sandbox.home, '.agents', 'skills', 'tmux-team'))).toBe(false);
+        expect(existsSync(path.join(sandbox.home, '.agents', 'skills', 'tmt'))).toBe(false);
         expect(existsSync(path.join(sandbox.home, '.agents', 'skills', 'tmt-inbox'))).toBe(false);
         const status = await office(['status']);
         expect(status.status, status.stdout + status.stderr).toBe(0);

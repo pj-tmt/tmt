@@ -420,7 +420,7 @@ pub(in crate::grammar) fn learn() -> Command {
             "learn",
             "Read agent guidance",
             [
-                "Read the tmux-team guidance" => "tmt learn",
+                "Read the tmt guidance" => "tmt learn",
                 "Print a bundled skill" => "tmt learn --skill tmt-inbox",
             ]
         )),

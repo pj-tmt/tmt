@@ -108,7 +108,7 @@ async function runScenario(fixture: E2EFixture, provider: Provider, historyBasel
   const command = [
     'env',
     `HOME=${home}`,
-    `TMUX_TEAM_HOME=${fixture.globalDir}`,
+    `TMT_HOME=${fixture.globalDir}`,
     provider.runtime,
     fixture.executables.cli.executable,
     scenario,
@@ -317,7 +317,7 @@ for (const provider of providers) {
       const command = [
         'env',
         `HOME=${home}`,
-        `TMUX_TEAM_HOME=${fixture.globalDir}`,
+        `TMT_HOME=${fixture.globalDir}`,
         fixture.executables.cli.executable,
         ...fixture.executables.cli.args,
         'run',
@@ -413,7 +413,7 @@ for (const provider of providers) {
               input: JSON.stringify(request),
               encoding: 'utf8',
               timeout: 5000,
-              env: { PATH: process.env.PATH, HOME: home, TMUX_TEAM_HOME: fixture.globalDir },
+              env: { PATH: process.env.PATH, HOME: home, TMT_HOME: fixture.globalDir },
             }
           )
         );

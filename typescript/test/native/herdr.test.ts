@@ -60,7 +60,7 @@ async function startHerdr(sandbox: Sandbox): Promise<Herdr> {
   }
   // Panes inherit the server's environment, so commands in a pane and
   // outside use the same sandbox and resolve the same server by its socket.
-  for (const key of ['TMUX', 'TMUX_PANE', 'TMUX_TEAM_HOME', 'HERDR_ENV', 'HERDR_PANE_ID']) {
+  for (const key of ['TMUX', 'TMUX_PANE', 'TMT_HOME', 'HERDR_ENV', 'HERDR_PANE_ID']) {
     delete sandbox.env[key];
   }
   sandbox.env.PATH = `${path.dirname(HERDR!)}${path.delimiter}${sandbox.env.PATH}`;
