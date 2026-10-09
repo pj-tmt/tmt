@@ -232,6 +232,8 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
         ],
         "tmt-invoke" => &["subprocess", "nix"],
         "tmt-extension-state" => &["nix"],
+        // The shared background-startup handoff: process and signal plumbing and JSON records only.
+        "tmt-extension-serve" => &["nix", "serde_json", "signal-hook"],
         // Wire primitives (canonical encodings, protocol bounds, strict JSON admission, typed frames)
         // and the Unix channel carrier, whose `httparse` and `nix` are reviewed for `cfg(unix)` alone.
         "tmt-extension-objects" => &["base64", "serde", "serde_json", "httparse", "nix"],
@@ -304,6 +306,8 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
             // Remote's own state database under <dataRoot>/remote/ (#1039).
             "rusqlite",
             "tmt-extension-state",
+            // The shared background-startup handoff (#2383).
+            "tmt-extension-serve",
             // Wire frames and the Unix channel carrier; only the object service uses them.
             "tmt-extension-objects",
         ],
@@ -841,6 +845,8 @@ pub fn source_violations(sources: &[Source]) -> Vec<String> {
                 && root != "tmt_invoke"
                 && !(root == "tmt_extension_state"
                     && ["tmt-remote", "tmt-colab"].contains(&source.package.as_str()))
+                && !(root == "tmt_extension_serve"
+                    && ["tmt-remote", "tmt-colab"].contains(&source.package.as_str()))
                 && !(root == "tmt_extension_objects"
                     && ["tmt-remote", "tmt-colab"].contains(&source.package.as_str()))
                 && !(source.package == "tmt-ops" && root == "tmt_tui")
@@ -874,6 +880,24 @@ pub fn source_violations(sources: &[Source]) -> Vec<String> {
             {
                 violations.push(format!(
                     "{location}: unreviewed extension state consumer {}",
+                    source.package
+                ));
+            }
+            if source.package == "tmt-extension-serve"
+                && root.starts_with("tmt_")
+                && root != "tmt_extension_serve"
+            {
+                violations.push(format!(
+                    "{location}: extension serve leaf cannot reach {}",
+                    path.join("::")
+                ));
+            }
+            if root == "tmt_extension_serve"
+                && !["tmt-extension-serve", "tmt-remote", "tmt-colab"]
+                    .contains(&source.package.as_str())
+            {
+                violations.push(format!(
+                    "{location}: unreviewed extension serve consumer {}",
                     source.package
                 ));
             }

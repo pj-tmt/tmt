@@ -3,11 +3,18 @@
 use super::*;
 use std::{
     fs,
+    io::Read,
     net::TcpStream,
-    os::unix::{fs::PermissionsExt, net::UnixListener},
+    os::unix::{
+        fs::PermissionsExt,
+        net::{UnixListener, UnixStream},
+    },
     path::PathBuf,
     sync::atomic::AtomicUsize,
+    thread::{self, JoinHandle},
+    time::Duration,
 };
+use tmt_extension_serve::wire::{ACCEPT, READY, read_frame};
 use tmt_remote::mount::NoSessions;
 
 #[path = "../../tests/support/executable_fixture.rs"]
@@ -103,7 +110,8 @@ impl ServeObjectRun {
         let flag = Arc::clone(&stop);
         let core = CoreClient::at(fixture.core.clone()).unwrap();
         let thread = thread::spawn(move || {
-            let mut handoff = Handoff::new(worker, Arc::clone(&flag))?;
+            let mut handoff =
+                Handoff::new(&handshake(), worker, Arc::clone(&flag)).map_err(from_startup)?;
             let result =
                 foreground_with(core, extensions, Some(0), true, &flag, Some(&mut handoff));
             handoff.finish();
@@ -122,7 +130,7 @@ impl ServeObjectRun {
         self.ready_before(Instant::now() + STARTUP, check)
     }
     fn ready_before(&mut self, deadline: Instant, check: impl FnOnce()) -> Ready {
-        let (tag, value) = read_frame(&mut self.parent, deadline, &self.stop)
+        let (tag, value) = read_frame(&mut self.parent, deadline, &self.stop, FRAME_BYTES)
             .expect("serve did not report readiness");
         assert_eq!(tag, READY);
         let ready = Ready::validate(value).unwrap();

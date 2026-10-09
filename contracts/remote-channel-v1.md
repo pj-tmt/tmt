@@ -444,11 +444,10 @@ Default scopes are `agents.read`, `status.read`, `check.read`, `talk` and `resul
 may remove scopes at pairing. Future core capabilities do not silently become remotely callable;
 a new scope needs a revision of this contract.
 
-`tmt remote serve` with human output starts a detached owner-device door. Explicit
-`--background` also detaches, including with `--json`; `--foreground` keeps direct terminal
-ownership. The mode flags are mutually exclusive. Bare `serve --json` remains foreground for
-existing supervisors. Foreground runs until Ctrl-C, SIGTERM or `tmt remote stop`; accepted
-background serving has no idle or hard deadline and ends through the existing stop owner.
+`tmt remote serve` with human output starts a detached owner-device door; the modes, handoff and
+stop semantics are the shared lifecycle in
+[extension-serve-v1](extension-serve-v1.md). Foreground runs until Ctrl-C,
+SIGTERM or `tmt remote stop`; accepted background serving has no idle or hard deadline.
 Without `--port`, serve reuses its last successfully bound
 IPv4-loopback port; on first use it selects an unused port. If the remembered port is busy, serve
 refuses with `REMOTE_PORT_BUSY`, names the port, tells the owner to stop the process using it to
@@ -457,33 +456,19 @@ an `error:` line and a separate `hint:` line; `--json` joins them as `error.mess
 `--port 0` explicitly selects a random unused port; an explicit nonzero busy port refuses without
 fallback. The actual bound port is remembered for the next run, including after an explicit
 selection. Human startup output puts the full door URL on its own line with no trailing punctuation.
-Background startup uses only an exact native self-exec worker and a private Unix socket pair.
-The launcher performs no core discovery or state initialization. The worker starts its own session,
-uses the same foreground composition, and restores close-on-exec on its private endpoint before
-invocations. Private Ready follows lease/listener/control/event admission; HTTP serving starts only
-following Accept. The launcher's successful one-byte Accept write is its no-kill cutoff. Cancellation
-observed earlier wins; a signal racing that write may lose to acceptance. The worker consumes a
-buffered Accept before later EOF, preserves actual shutdown signals, attempts Accepted once and
-closes the startup endpoint. Lost acknowledgment or publication after Accept is startup unconfirmed,
-not proof the door closed. Inspect `status` and use `stop`; never automatically start again. Partial
-readiness output is never followed by a second JSON error record.
-
-Private records are typed and byte-bounded by `limits::SERVE_RECORD_BYTES`, with one absolute
-`limits::SERVE_STARTUP` admission deadline. Before acceptance, EOF/cancellation/deadline requests
-existing invocation and serving cleanup. The launcher may additionally wait `limits::STOP_WAIT`
-and bounded final reap; the startup deadline is not a total command-duration or filesystem-I/O
-promise. Cleanup needs the exact owned unreaped worker's confirmation and exit. Forced termination,
-crash or inherited invocation lease uncertainty cannot prove every descendant ended. No PID/status
-rediscovery supplies kill authority, and no signal occurs after reap or acceptance.
-
-The background worker admits and clears one private `remote/serve-error.json` only after acquiring
-Serving, before runtime publication. It records at most `limits::SERVE_RECORD_BYTES` of fixed
-sanitized version/phase/code/message on ordinary failure, closes the file before releasing Serving,
-and never appends or retries. Duplicate starts cannot clear it. Foreground preserves terminal
-errors and need not create it. Missing, empty or unwritable diagnostics do not prove a healthy exit.
-`status`/`stop` remain authoritative; run `serve --foreground` for terminal troubleshooting. Launcher
-departure after handoff preserves held work; actual stop/restart cancels pending holds through
-Approval. Frozen dispatching/unknown operation IDs remain recoverable and are never resent.
+Remote's side of the shared handoff: the launcher performs no core discovery or state
+initialization, and Ready follows lease, listener, control and event admission with HTTP serving
+starting only after Accept. The bounds are `limits::SERVE_STARTUP` (one absolute admission deadline),
+`limits::SERVE_RECORD_BYTES` (one private record) and `limits::STOP_WAIT` (the launcher's cleanup
+wait). The background worker admits and clears one private `remote/serve-error.json` only after
+acquiring Serving, before runtime publication, and records fixed sanitized
+version/phase/code/message on ordinary failure; it closes the file before releasing Serving. Duplicate
+starts cannot clear it. Foreground preserves terminal errors and need not
+create it. `status`/`stop` remain authoritative; run `serve --foreground` for terminal
+troubleshooting. Launcher departure after handoff preserves held work; actual stop/restart cancels
+pending holds through Approval. Frozen dispatching/unknown operation IDs remain recoverable and are
+never resent. Lost output after Accept reports `REMOTE_READY_OUTPUT`; inspect `status` and use
+`stop` before starting again.
 
 Remote schema 6 replaces each existing 32-hex-character prefix once with 16 lowercase RFC 4648
 base32 characters (`a-z2-7`, 80 random bits), then keeps it stable. Old links and cookie paths

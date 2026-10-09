@@ -580,7 +580,8 @@ channels, backends and quotas. The Firestore deploy owners (`declaration`, `depl
 `rules`, `firestore_budget`, `deploy_run`, `deploy_command`, `deploy_record`) feed the deploy CLI. [Remote internals](.agents/skills/tmt-remote/references/architecture-internals.md)
 own the module table and per-module guarantees;
 [door and discovery](.agents/skills/tmt-remote/references/door-and-discovery.md) owns serve
-lifecycle, status and management implementation.
+lifecycle, status and management implementation; the background start it shares with Colab
+is [extension-serve-v1](contracts/extension-serve-v1.md).
 
 ## Colab extension
 

@@ -90,10 +90,10 @@ Rules that are easy to get wrong:
 library-only and shared with Colab:
 
 ```bash
-(cd rust && CARGO_BUILD_JOBS=2 cargo test --offline --locked -p tmt-extension-state)
+(cd rust && CARGO_BUILD_JOBS=2 cargo test --offline --locked -p tmt-extension-state -p tmt-extension-serve)
 (cd rust && CARGO_BUILD_JOBS=2 cargo test --offline --locked -p tmt-remote --test state)
 (cd rust && CARGO_BUILD_JOBS=2 cargo test --offline --locked -p tmt-colab --test state)
-(cd rust && CARGO_BUILD_JOBS=2 cargo clippy --offline --locked -p tmt-extension-state -p tmt-remote -p tmt-colab --all-targets -- -D warnings)
+(cd rust && CARGO_BUILD_JOBS=2 cargo clippy --offline --locked -p tmt-extension-state -p tmt-extension-serve -p tmt-remote -p tmt-colab --all-targets -- -D warnings)
 (cd rust && CARGO_BUILD_JOBS=2 cargo test --offline --locked -p tmt-cli --test architecture)
 ```
 
