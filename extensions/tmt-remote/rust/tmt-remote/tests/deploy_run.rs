@@ -924,3 +924,121 @@ fn a_binding_is_never_saved_before_the_last_step_and_the_record_round_trips() {
     let json = serde_json::to_string(&sink.saved[2]).unwrap();
     assert!(json.contains(r#""state":"pending""#), "{json}");
 }
+
+#[path = "support/deploy_fixture.rs"]
+mod deploy_fixture_root;
+
+#[test]
+fn emulator_artifact_is_the_exact_verified_deployment_output() {
+    use tmt_remote::{
+        deploy_record::{DeployRecordEvidence, DeployRecordStore},
+        readiness::{FirestoreEvidenceSource, Observed},
+    };
+    let colab = read("rules", "colab.rules");
+    let notes = read("rules", "notes.rules");
+    let declaration = |name: &str, artifact: &[u8]| {
+        let mut value: serde_json::Value =
+            serde_json::from_slice(&read("rules", &format!("{name}.json"))).unwrap();
+        value["admission"]["digest"] = serde_json::json!(sha256(artifact));
+        serde_json::to_vec(&value).unwrap()
+    };
+    let colab_decl = declaration("colab", &colab);
+    let notes_decl = declaration("notes", &notes);
+    let extensions = compose(
+        Target {
+            backend: CloudBackend::Firestore,
+            physical_ttl: false,
+        },
+        &[
+            Enabled {
+                name: "colab",
+                supplied: Some(Supplied {
+                    declaration: &colab_decl,
+                    artifact: &colab,
+                }),
+            },
+            Enabled {
+                name: "notes",
+                supplied: Some(Supplied {
+                    declaration: &notes_decl,
+                    artifact: &notes,
+                }),
+            },
+        ],
+    )
+    .unwrap();
+    let composed = tmt_remote::rules::compose(
+        &extensions,
+        &[
+            tmt_remote::rules::Fragment {
+                extension: "colab",
+                source: &colab,
+            },
+            tmt_remote::rules::Fragment {
+                extension: "notes",
+                source: &notes,
+            },
+        ],
+    )
+    .unwrap();
+    assert_eq!(composed.rules.as_bytes(), read("rules", "composed.rules"));
+    let plan = prepare(
+        &extensions,
+        &DeployInput {
+            account: ACCOUNT,
+            project: PROJECT,
+            deployment_id: deploy_fixture_root::ID,
+            location: LOCATION,
+            sign_in: &BOTH,
+            rules_body: composed.rules.as_bytes(),
+            live_rules: None,
+        },
+    )
+    .unwrap();
+    let root = deploy_fixture_root::Root::new();
+    let layout = root.layout();
+    let mut sink = DeployRecordStore::open(&layout).unwrap();
+    let mut fake = Fake::new(ACCOUNT);
+    let record = run(
+        &plan,
+        &authorized(&plan),
+        DeployRecord::new(deploy_fixture_root::ID),
+        &mut fake,
+        &mut sink,
+        1_000,
+    )
+    .unwrap();
+    assert_eq!(record.run.as_ref().unwrap().state, RunState::Complete);
+    assert!(record.usable_binding().is_some());
+    let captured = fake.rules.as_deref().unwrap();
+    assert_eq!(captured, plan.deployed_rules());
+    assert_eq!(
+        captured,
+        read("rules", "deployed.rules"),
+        "native deployment output must bind the emulator artifact"
+    );
+    let (marker, body) = std::str::from_utf8(captured)
+        .unwrap()
+        .split_once('\n')
+        .unwrap();
+    assert_eq!(
+        marker,
+        format!(
+            "// tmt-remote deployment {} rules {}",
+            deploy_fixture_root::ID,
+            sha256(body.as_bytes())
+        )
+    );
+    assert_eq!(body, composed.rules);
+    assert_eq!(
+        tmt_remote::deploy_record::read(&layout).unwrap(),
+        Some(record)
+    );
+    assert!(root.remote().join("deploy.json").exists());
+    let evidence = DeployRecordEvidence::new(&layout).evidence().unwrap();
+    assert_eq!(
+        (evidence.project, evidence.sign_in, evidence.rules),
+        (Observed::Enabled, Observed::Enabled, Observed::Enabled)
+    );
+    assert_eq!(evidence.quota, Observed::Unknown);
+}

@@ -7,8 +7,9 @@ use std::{
     os::unix::fs::{PermissionsExt, symlink},
 };
 use tmt_remote::{
-    deploy_record::{self, DeployRecordStore},
+    deploy_record::{self, DeployRecordEvidence, DeployRecordStore},
     deploy_run::DeployRecord,
+    readiness::{FirestoreEvidence, FirestoreEvidenceSource},
     settings,
     state::{Layout, MachineKey},
     store::Store,
@@ -17,10 +18,13 @@ use tmt_remote::{
 fn writer_excludes_a_successor_but_readers_and_existing_layout_never_take_its_lock() {
     let root = Root::new();
     let layout = root.layout();
+    let source = DeployRecordEvidence::new(&layout);
+    assert_eq!(source.evidence(), None);
     let mut writer = DeployRecordStore::open(&layout).unwrap();
     assert!(matches!(DeployRecordStore::open(&layout),Err(e) if e.code=="REMOTE_DEPLOY_BUSY"));
     let original = DeployRecord::new(ID);
     writer.persist(&original).unwrap();
+    assert_eq!(source.evidence(), None);
     let snapshot = fs::read(root.remote().join("deploy.json")).unwrap();
     assert_eq!(deploy_record::read(&layout).unwrap().unwrap(), original);
     let reopened = Layout::open(&root.0).unwrap();
@@ -103,6 +107,10 @@ fn unsafe_oversized_malformed_or_future_record_is_never_reset_or_replaced() {
         fs::write(&path, &bytes).unwrap();
         fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
         assert!(deploy_record::read(&layout).is_err());
+        assert_eq!(
+            DeployRecordEvidence::new(&layout).evidence(),
+            Some(FirestoreEvidence::unknown())
+        );
         assert!(DeployRecordStore::open(&layout).is_err());
         assert_eq!(fs::read(&path).unwrap(), bytes);
     }
@@ -115,11 +123,19 @@ fn unsafe_oversized_malformed_or_future_record_is_never_reset_or_replaced() {
     let bytes = fs::read(&path).unwrap();
     fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).unwrap();
     assert!(deploy_record::read(&layout).is_err());
+    assert_eq!(
+        DeployRecordEvidence::new(&layout).evidence(),
+        Some(FirestoreEvidence::unknown())
+    );
     fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
     let foreign = root.remote().join("foreign-record");
     fs::rename(&path, &foreign).unwrap();
     symlink(&foreign, &path).unwrap();
     assert!(deploy_record::read(&layout).is_err());
+    assert_eq!(
+        DeployRecordEvidence::new(&layout).evidence(),
+        Some(FirestoreEvidence::unknown())
+    );
     assert!(DeployRecordStore::open(&layout).is_err());
     assert_eq!(fs::read(&foreign).unwrap(), bytes);
 }

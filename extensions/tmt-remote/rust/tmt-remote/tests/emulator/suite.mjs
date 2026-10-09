@@ -131,3 +131,50 @@ test("composed rules: create-only grants do not widen to update or delete", asyn
   assert.equal(await create("x/colab/heads", "p1", { seq: 1 }, u1), 200, "getAfter macro");
   assert.equal(await create("x/colab/heads", "p2", { seq: 1 }), 403, "anonymous");
 });
+
+// Native emulator_artifact_is_the_exact_verified_deployment_output binds this checked file
+// to the bytes captured from an authorized run, including its deployment marker.
+test('deployed artifact: member grants, expiry, isolation and create-only refusal', async () => {
+  await loadRules(read('deployed.rules'));
+  await seedWorld();
+  const u1 = user('u1');
+  assert.equal(await get('x/colab/docs/1', u1), 200);
+  assert.equal(await get('x/colab/docs/1', user('u2')), 403);
+  assert.equal(await get('x/colab/docs/2', u1), 403, 'expired');
+  for (const path of [
+    'secret/s',
+    'm/machine/inbox/1',
+    'x/other/docs/1',
+    'x/notes/docs/1',
+    'x/colab/notes/n1',
+  ]) {
+    assert.equal(await get(path, u1), 403, `outside grant ${path}`);
+  }
+  assert.equal(await get('x/notes/notes/n1', user('u2')), 200);
+  assert.equal(
+    await create('x/colab/docs', 'deployed-member', { body: 'new', expiresAt: future }, u1),
+    200
+  );
+  assert.equal(
+    await create(
+      'x/colab/docs',
+      'deployed-outsider',
+      { body: 'new', expiresAt: future },
+      user('u2')
+    ),
+    403
+  );
+  const document = `${documents}/x/colab/docs/deployed-member`;
+  assert.equal(
+    (
+      await fetch(`${document}?updateMask.fieldPaths=body`, {
+        method: 'PATCH',
+        headers: u1,
+        body: body({ body: 'changed' }),
+      })
+    ).status,
+    403,
+    'update'
+  );
+  assert.equal((await fetch(document, { method: 'DELETE', headers: u1 })).status, 403, 'delete');
+});

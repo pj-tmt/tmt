@@ -1734,8 +1734,14 @@ extension inputs and the provider injected. It defaults to a plan with no provid
 only an explicit digest authorization can run it. A private deployment record preserves the
 draft identity and saves run outcomes under a separate writer lock, publishing complete files
 by atomic rename. Readers never take that lock, so status need not wait for a deployment run.
-Installed declaration discovery, the real provider adapter and CLI registration, readiness
-from the record and the deployed-artifact emulator proof remain later prerequisites.
+Running `status --layers` reads recorded project, sign-in and verified Rules outcomes without
+provider I/O; damaged records report unknown evidence. An incomplete Rules attempt withdraws
+the old binding and reports partial Rules. Plan tier and quota stay unknown: the machine
+cannot observe them, and layer-1 traffic goes from the browser to Firestore, so sharing stays
+unknown even after a complete recorded deployment. Enabling that projection needs a later
+readiness decision. A checked emulator artifact is byte-bound to the real deployment output;
+it proves Rules behavior, not provisioning or quota. Installed declaration discovery, the
+real provider adapter and CLI registration remain later prerequisites.
 
 [Start and pair](#provisioning-on-start-and-pair) automatically prepare the namespaces/bridge of
 already authorized local or deployed resources and publish the device admission projection. They

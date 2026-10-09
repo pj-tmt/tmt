@@ -5,6 +5,7 @@ use crate::{
     deploy_run::{DeployRecord, DeploySink, DeploySinkError, RunState, StepState},
     error::RemoteError,
     limits,
+    readiness::{self, FirestoreEvidence, FirestoreEvidenceSource},
     state::Layout,
     store::uuid_v4,
     wire,
@@ -111,6 +112,28 @@ pub fn read(layout: &Layout) -> Result<Option<DeployRecord>, RemoteError> {
         return Err(invalid());
     }
     Ok(Some(document.record))
+}
+
+/// One bounded, lock-free snapshot per status request. No provider calls or repair;
+/// atomic publication allows this reader to coexist with a long-running deployment.
+pub struct DeployRecordEvidence {
+    layout: Layout,
+}
+impl DeployRecordEvidence {
+    pub fn new(layout: &Layout) -> Self {
+        Self {
+            layout: layout.clone(),
+        }
+    }
+}
+impl FirestoreEvidenceSource for DeployRecordEvidence {
+    fn evidence(&self) -> Option<FirestoreEvidence> {
+        match read(&self.layout) {
+            Ok(Some(record)) => readiness::from_record(&record),
+            Ok(None) => None,
+            Err(_) => Some(FirestoreEvidence::unknown()),
+        }
+    }
 }
 
 /// One writer for the whole plan/run. Drop releases only the writer lock, not identity.

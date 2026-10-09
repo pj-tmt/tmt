@@ -4,6 +4,7 @@
 //! never asks Google; before a Firestore deployment exists there is no evidence, so the list
 //! is empty. One table owns every item, reason, sentence and next command; the validator
 //! accepts only what the table derives, and no provider text, secret or path can appear.
+use crate::deploy_run::{DeployRecord, RunState, StepState};
 use serde_json::{Value, json};
 
 /// A prerequisite of a layer.
@@ -45,8 +46,8 @@ pub enum FirestoreReason {
     /// No evidence: the only reason of an `unknown` prerequisite.
     NotChecked,
 }
-/// The only command a prerequisite can point to. It belongs to the deploy ticket (#2164): no
-/// source can produce evidence before that command exists.
+/// The planned command a prerequisite can point to; registration and the real provider
+/// remain separate from the library deployment owner and its recorded evidence.
 const DEPLOY: &str = "tmt remote deploy firestore";
 
 struct Row {
@@ -267,11 +268,68 @@ pub struct FirestoreEvidence {
     pub quota: Observed,
     pub tier: FirestoreTier,
 }
+impl FirestoreEvidence {
+    /// A damaged or unreadable record is not evidence of an unconfigured deployment.
+    pub fn unknown() -> Self {
+        Self {
+            project: Observed::Unknown,
+            sign_in: Observed::Unknown,
+            rules: Observed::Unknown,
+            quota: Observed::Unknown,
+            tier: FirestoreTier::Unknown,
+        }
+    }
+}
+
+/// Recorded outcomes only, never a live provider check. A draft has no evidence. Tier and
+/// quota are absent from the record: browser-to-Firestore traffic cannot be observed here.
+pub fn from_record(record: &DeployRecord) -> Option<FirestoreEvidence> {
+    let run = record.run.as_ref()?;
+    let finished = |state: &StepState| matches!(state, StepState::Done | StepState::Adopted);
+    let mut evidence = FirestoreEvidence::unknown();
+    let sign_in: Vec<_> = run
+        .steps
+        .iter()
+        .filter(|s| s.id.starts_with("sign-in:"))
+        .collect();
+    // The private reader validates the record schema; prerequisites still need their
+    // recognized identities. Missing/unknown rows must not turn a binding into an allow.
+    if ["database", "rules", "verify"]
+        .iter()
+        .any(|id| run.steps.iter().filter(|s| s.id == *id).count() != 1)
+        || sign_in.is_empty()
+        || sign_in
+            .iter()
+            .any(|s| !matches!(s.id.as_str(), "sign-in:anonymous" | "sign-in:google.com"))
+    {
+        return Some(evidence);
+    }
+    if record.usable_binding().is_some()
+        || run
+            .steps
+            .iter()
+            .any(|s| s.id == "database" && finished(&s.state))
+    {
+        evidence.project = Observed::Enabled;
+    }
+    if sign_in.iter().all(|s| finished(&s.state)) {
+        evidence.sign_in = Observed::Enabled;
+    }
+    evidence.rules = if run.rules_attempted && run.state != RunState::Complete {
+        Observed::Off(FirestoreReason::Partial)
+    } else if record.usable_binding().is_some() {
+        Observed::Enabled
+    } else {
+        Observed::Unknown
+    };
+    Some(evidence)
+}
+
 /// Where evidence comes from. `None` means no Firestore deployment exists.
 pub trait FirestoreEvidenceSource: Send + Sync {
     fn evidence(&self) -> Option<FirestoreEvidence>;
 }
-/// The production source until the deploy command records a deployment (#2164).
+/// An empty source for a door with no deployment evidence.
 pub struct NotConfigured;
 impl FirestoreEvidenceSource for NotConfigured {
     fn evidence(&self) -> Option<FirestoreEvidence> {
