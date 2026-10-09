@@ -25,9 +25,9 @@ pub enum DeploySetupError {
 impl fmt::Display for DeploySetupError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
-            Self::UnsupportedTool => "Install or pin firebase-tools 15.29.0 with Node; this Remote release supports only that version and package layout.",
-            Self::LoginRequired => "Run firebase login with your own account, then prepare the plan again.",
-            Self::Unavailable => "Firebase setup could not be confirmed. No credentials or provider diagnostics are displayed.",
+            Self::UnsupportedTool => "This Remote release needs firebase-tools 15.29.0. Install it with: npm install -g firebase-tools@15.29.0",
+            Self::LoginRequired => "Firebase is not signed in. Run firebase login with your own account, then try again.",
+            Self::Unavailable => "Firebase setup could not be confirmed. Check that firebase projects:list works in this terminal, then try again.",
         })
     }
 }

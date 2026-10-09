@@ -25,7 +25,11 @@ fn incompatible_package_is_refused_before_loading_auth_or_any_provider_effect() 
     let error = DeployFirestore::at(node(), package, &stop).err().unwrap();
     assert_eq!(error, DeploySetupError::UnsupportedTool);
     assert!(error.to_string().contains("15.29.0"));
-    assert!(error.to_string().contains("Install or pin"));
+    assert!(
+        error
+            .to_string()
+            .contains("Install it with: npm install -g firebase-tools@15.29.0")
+    );
     assert!(!root.0.join("firebase-tools/auth-loaded").exists());
     assert!(!root.0.join("firebase-tools/calls.jsonl").exists());
 }
