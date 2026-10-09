@@ -21,9 +21,21 @@ use tmt_core::{
 };
 
 const REFUSED: &str = "tmt-workspace-effect-refused";
-const SEP: &str = "\u{1f}";
+const SEP: &str = super::evidence::SEPARATOR;
 const BOOTSTRAP_COMMAND: [&str; 2] = ["/bin/sh", "-i"];
-const CREATED: &str = "#{socket_path}\u{1f}#{pid}\u{1f}#{start_time}\u{1f}#{session_id}\u{1f}#{window_id}\u{1f}#{pane_id}\u{1f}#{pane_pid}\u{1f}#{window_index}";
+fn created_format() -> String {
+    [
+        "#{socket_path}",
+        "#{pid}",
+        "#{start_time}",
+        "#{session_id}",
+        "#{window_id}",
+        "#{pane_id}",
+        "#{pane_pid}",
+        "#{window_index}",
+    ]
+    .join(SEP)
+}
 
 struct Fence {
     server: ProcessIncarnation,
@@ -62,10 +74,26 @@ impl<R: CommandRunner> Tmux<R> {
             Err(_) => return Err(invalid()),
             Ok(_) => false,
         };
+        let mut restore = Restore {
+            tmux: self,
+            socket,
+            deadline,
+            fence: None,
+            windows: HashMap::new(),
+            panes: HashMap::new(),
+            outcome: LayoutRestore::default(),
+        };
         let (names, starting) = if absent {
             (Vec::new(), true)
         } else {
-            match self.workspace_session_names(socket, deadline) {
+            match restore
+                .run(vec![
+                    "list-sessions".into(),
+                    "-F".into(),
+                    "#{session_name}".into(),
+                ])
+                .and_then(|output| super::workspace::session_names(&output))
+            {
                 Ok(names) => (names, false),
                 Err(error)
                     if error.exited()
@@ -96,15 +124,6 @@ impl<R: CommandRunner> Tmux<R> {
                 }
             }
         }
-        let mut restore = Restore {
-            tmux: self,
-            socket,
-            deadline,
-            fence: None,
-            windows: HashMap::new(),
-            panes: HashMap::new(),
-            outcome: LayoutRestore::default(),
-        };
         if !starting {
             restore.fence = Some(restore.observe_server()?);
         }
@@ -168,7 +187,8 @@ impl<R: CommandRunner> Tmux<R> {
 
 impl<R: CommandRunner> Restore<'_, R> {
     fn run(&self, args: Vec<String>) -> Result<String, TmuxError> {
-        let mut selected = vec!["-S".into(), self.socket.into()];
+        // Explicit UTF-8 preserves literal cwd/name bytes even outside tmux in a C locale.
+        let mut selected = vec!["-u".into(), "-S".into(), self.socket.into()];
         selected.extend(args);
         self.tmux.run(
             "tmux",
@@ -183,7 +203,7 @@ impl<R: CommandRunner> Restore<'_, R> {
         let output = self.run(vec![
             "display-message".into(),
             "-p".into(),
-            "#{socket_path}\u{1f}#{pid}\u{1f}#{start_time}".into(),
+            ["#{socket_path}", "#{pid}", "#{start_time}"].join(SEP),
         ])?;
         let fields: Vec<_> = output.trim_end_matches('\n').split(SEP).collect();
         if fields.len() != 3 || fields[0] != self.socket {
@@ -297,7 +317,7 @@ impl<R: CommandRunner> Restore<'_, R> {
             "-d".into(),
             "-P".into(),
             "-F".into(),
-            CREATED.into(),
+            created_format(),
             "-s".into(),
             saved.name.clone(),
             "-n".into(),
@@ -387,7 +407,7 @@ impl<R: CommandRunner> Restore<'_, R> {
                         "-d".into(),
                         "-P".into(),
                         "-F".into(),
-                        CREATED.into(),
+                        created_format(),
                         "-t".into(),
                         format!("{}:{}", created.session, link.index),
                         "-n".into(),
@@ -502,7 +522,7 @@ impl<R: CommandRunner> Restore<'_, R> {
                     "-d".into(),
                     "-P".into(),
                     "-F".into(),
-                    CREATED.into(),
+                    created_format(),
                     match split.axis {
                         WorkspaceSplitAxis::Horizontal => "-h",
                         WorkspaceSplitAxis::Vertical => "-v",
@@ -598,7 +618,14 @@ impl<R: CommandRunner> Restore<'_, R> {
                 "-p".into(),
                 "-t".into(),
                 created.pane.clone(),
-                "#{pane_id}\u{1f}#{pane_pid}\u{1f}#{pane_current_command}\u{1f}#{pane_tty}\u{1f}#{pane_start_command}".into(),
+                [
+                    "#{pane_id}",
+                    "#{pane_pid}",
+                    "#{pane_current_command}",
+                    "#{pane_tty}",
+                    "#{pane_start_command}",
+                ]
+                .join(SEP),
             ],
         )?;
         let fields: Vec<_> = output.trim_end_matches('\n').split(SEP).collect();

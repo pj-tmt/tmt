@@ -695,7 +695,7 @@ if (${JSON.stringify(fault)} === 'link' && branch?.startsWith('"link-window"')) 
 const result = spawnSync(${JSON.stringify(inner)}, args, { encoding: 'utf8', timeout: 5000 });
 let output = result.stdout || '';
 if (${JSON.stringify(fault)} === 'pid' && branch?.includes('pane_current_command')) {
-  const fields = output.split('\\x1f'); fields[1] = '2147483647'; output = fields.join('\\x1f');
+  const fields = output.split('__TMT_FIELD_4f1c__'); fields[1] = '2147483647'; output = fields.join('__TMT_FIELD_4f1c__');
 }
 process.stdout.write(output);
 process.stderr.write(result.stderr || '');
@@ -718,9 +718,9 @@ describe('layout-only workspace restore', () => {
           '-t',
           'e2e:4',
           '-n',
-          "Literal ##(unused) '$name;",
+          "Literal ##(unused) '$name\\;",
           '-c',
-          special.replaceAll('#', '##'),
+          special.replaceAll('#', '##').replace(/;$/, '\\;'),
           '/bin/sh',
           '-i',
         ]);
@@ -793,7 +793,7 @@ describe('layout-only workspace restore', () => {
         expect(fs.existsSync(fixture.socketPath)).toBe(serverExit === 'crash');
         const result = await fixture.runJsonCli<LayoutRestore>(
           ['workspace', 'restore', '--layout-only', '--socket', fixture.socketPath],
-          { outsideTmux: true }
+          { outsideTmux: true, locale: 'C' }
         );
         expect(result.code, result.stderr + result.stdout).toBe(0);
         expect(result.json!.status).toBe('completed');
@@ -897,7 +897,7 @@ describe('layout-only workspace restore', () => {
         ]);
         const again = await fixture.runJsonCli<LayoutRestore>(
           ['workspace', 'restore', '--layout-only', '--socket', fixture.socketPath],
-          { outsideTmux: true }
+          { outsideTmux: true, locale: 'C' }
         );
         expect(again.code, again.stdout).toBe(0);
         expect(again.json!.sessions.every((session) => session.action === 'skip_existing')).toBe(
@@ -934,7 +934,7 @@ describe('layout-only workspace restore', () => {
       ]);
       const result = await fixture.runJsonCli<LayoutRestore>(
         ['workspace', 'restore', '--layout-only', '--socket', fixture.socketPath],
-        { outsideTmux: true }
+        { outsideTmux: true, locale: 'C' }
       );
       expect(result.code, result.stdout).toBe(0);
       expect(result.json!.sessions.map((session) => session.action)).toEqual([
@@ -997,7 +997,7 @@ describe('layout-only workspace restore', () => {
         const trace = injectRestoreObservation(fixture, fault);
         const result = await fixture.runJsonCli<LayoutRestore>(
           ['workspace', 'restore', '--layout-only', '--socket', fixture.socketPath],
-          { outsideTmux: true }
+          { outsideTmux: true, locale: 'C' }
         );
         expect(result.code).toBe(1);
         expect(result.json!.status).toBe('partial');
@@ -1024,7 +1024,7 @@ describe('layout-only workspace restore', () => {
         ).toBe(original);
         const again = await fixture.runJsonCli<LayoutRestore>(
           ['workspace', 'restore', '--layout-only', '--socket', fixture.socketPath],
-          { outsideTmux: true }
+          { outsideTmux: true, locale: 'C' }
         );
         expect(again.code, again.stdout).toBe(0);
         expect(again.json!.sessions.every((session) => session.action === 'skip_existing')).toBe(

@@ -66,15 +66,7 @@ impl<R: CommandRunner> Tmux<R> {
             MAX_BYTES,
             TmuxFailure::Evidence,
         )?;
-        let names: Vec<String> = output.lines().map(str::to_owned).collect();
-        if names.len() > MAX_PANES
-            || names
-                .iter()
-                .any(|name| name.is_empty() || name.contains(['\0', '\u{fffd}']))
-        {
-            return Err(invalid());
-        }
-        Ok(names)
+        session_names(&output)
     }
 
     pub fn workspace_capture(
@@ -241,6 +233,18 @@ fn flag(value: &str) -> Result<bool, TmuxError> {
         "1" => Ok(true),
         _ => Err(invalid()),
     }
+}
+
+pub(super) fn session_names(output: &str) -> Result<Vec<String>, TmuxError> {
+    let names: Vec<String> = output.lines().map(str::to_owned).collect();
+    if names.len() > MAX_PANES
+        || names
+            .iter()
+            .any(|name| name.is_empty() || name.contains(['\0', '\u{fffd}']))
+    {
+        return Err(invalid());
+    }
+    Ok(names)
 }
 
 fn parse(output: &str, socket: &str) -> Result<(WorkspaceCapture, Commands), TmuxError> {

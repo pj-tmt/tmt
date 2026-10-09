@@ -151,11 +151,11 @@ fn native_server_replacement_refuses_before_effect_and_tmux_false_guard_is_obser
     );
     let calls = tmux.runner.scripted.calls.borrow();
     assert_eq!(
-        &calls[0].args[..6],
-        ["-S", "/tmp/selected", "if-shell", "-F", "-t", "%7"]
+        &calls[0].args[..7],
+        ["-u", "-S", "/tmp/selected", "if-shell", "-F", "-t", "%7"]
     );
-    assert!(calls[0].args[6].contains("#{pid},10"));
-    assert!(calls[0].args[6].contains("#{start_time},22"));
+    assert!(calls[0].args[7].contains("#{pid},10"));
+    assert!(calls[0].args[7].contains("#{start_time},22"));
 }
 
 #[test]
@@ -250,13 +250,20 @@ fn bootstrap_pid_or_process_mismatch_removes_nothing() {
     assert!(owner.remove_bootstrap(&created).is_err());
     assert_eq!(tmux.runner.scripted.calls.borrow().len(), 1);
     assert_eq!(
-        tmux.runner.scripted.calls.borrow()[0].args[7],
+        tmux.runner.scripted.calls.borrow()[0].args[8],
         command(&[
             "display-message".into(),
             "-p".into(),
             "-t".into(),
             "%4".into(),
-            "#{pane_id}\u{1f}#{pane_pid}\u{1f}#{pane_current_command}\u{1f}#{pane_tty}\u{1f}#{pane_start_command}".into()
+            [
+                "#{pane_id}",
+                "#{pane_pid}",
+                "#{pane_current_command}",
+                "#{pane_tty}",
+                "#{pane_start_command}"
+            ]
+            .join(SEP)
         ])
     );
 }
@@ -333,4 +340,41 @@ fn bootstrap_with_a_different_start_command_is_retained_before_terminal_or_kill_
     );
     assert!(owner.remove_bootstrap(&created).is_err());
     assert_eq!(tmux.runner.scripted.calls.borrow().len(), 1);
+}
+
+#[test]
+fn commandless_user_window_guard_has_one_literal_final_cwd_word() {
+    let tmux = Tmux::new(Runner::default());
+    let owner = restore(&tmux);
+    tmux.runner.scripted.push_output(Vec::new(), Vec::new());
+    owner
+        .guard(
+            None,
+            &[],
+            vec![
+                "new-window".into(),
+                "-d".into(),
+                "-t".into(),
+                "$2:0".into(),
+                "-n".into(),
+                "literal;$name".into(),
+                "-c".into(),
+                "/tmp/'$cwd\n;".into(),
+            ],
+        )
+        .unwrap();
+    let calls = tmux.runner.scripted.calls.borrow();
+    assert_eq!(
+        &calls[0].args[..5],
+        ["-u", "-S", "/tmp/selected", "if-shell", "-F"]
+    );
+    assert_eq!(
+        calls[0].args[6],
+        r#""\156\145\167\055\167\151\156\144\157\167" "\055\144" "\055\164" "\044\062\072\060" "\055\156" "\154\151\164\145\162\141\154\073\044\156\141\155\145" "\055\143" "\057\164\155\160\057\047\044\143\167\144\012\073""#
+    );
+    assert_eq!(
+        calls[0].args[7],
+        "display-message -p tmt-workspace-effect-refused"
+    );
+    assert!(SEP.bytes().all(|byte| byte.is_ascii_graphic()));
 }
