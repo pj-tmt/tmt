@@ -53,6 +53,17 @@ entry states, keyboard activation, storage/transport/pin errors, refusal, token 
 1440/390 light/dark captures plus a 320-pixel fit check. The SDK fixture covers complete stored-record guards
 and page replacement; actual browser/terminal fixtures remain the user-flow evidence owner.
 
+## Public short entries
+
+Remote forwards the allowlisted `/colab`, `/colab/`, `/p/<id>` and `/read/<id>` entries
+in place to Colab's public mount socket, with the Remote-computed `tmt-mount` header.
+It owns no Colab shell, catalog, capability or CSP; no cookie/session lookup occurs.
+The [contract](../../../../contracts/remote-channel-v1.md#transport-binding-loopback-http)
+owns grammar, admission and reply policy. Real-door tests pin exact extension paths,
+header isolation, generic unavailable refusals and unchanged SDK mapping. Browser seam
+fixtures assert no Remote redirect, unchanged short URLs on reload and fragment secrecy;
+Colab's integrated app-routing acceptance remains Colab-owned.
+
 ## Settings page
 
 `/settings` uses the same embedded shared CSS, Header/Notice/Field/Action classes and

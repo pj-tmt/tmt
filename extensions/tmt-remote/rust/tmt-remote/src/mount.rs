@@ -65,6 +65,35 @@ pub static EXTENSIONS: [Extension; 1] = [Extension {
     tunnel_idle: Duration::from_secs(120),
     objects: ObjectDeclaration::Local,
 }];
+/// Root public entries are Remote-owned, not extension-declared registrations.
+struct PublicEntrySet {
+    extension: &'static str,
+    homes: &'static [&'static str],
+    ids: &'static [&'static str],
+}
+const PUBLIC_ENTRIES: &[PublicEntrySet] = &[PublicEntrySet {
+    extension: "colab",
+    homes: &["/colab", "/colab/"],
+    ids: &["/p/", "/read/"],
+}];
+fn public_entry(path: &str) -> Option<(&'static str, &str)> {
+    for entries in PUBLIC_ENTRIES {
+        if entries.homes.contains(&path) {
+            return Some((entries.extension, "/"));
+        }
+        for prefix in entries.ids {
+            if let Some(id) = path.strip_prefix(prefix)
+                && (4..=64).contains(&id.len())
+                && id
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-'))
+            {
+                return Some((entries.extension, path));
+            }
+        }
+    }
+    None
+}
 /// Seconds a client should wait before retrying a refused upgrade.
 pub const RETRY_AFTER_SECONDS: u32 = 5;
 /// Socket file name inside `<dataRoot>/<extension>/`.
@@ -431,7 +460,65 @@ impl Mounts {
     pub fn extension_of(&self, path: &str) -> Option<(&'static str, String)> {
         self.extension(path)
             .map(|(_, extension, _)| (extension.name, self.mount(extension)))
+            .or_else(|| {
+                self.public_extension(path)
+                    .map(|(extension, _)| (extension.name, self.mount(extension)))
+            })
     }
+    /// Recognized entry families, including malformed IDs which receive page refusals.
+    pub fn short_route(path: &str) -> bool {
+        let path = path.split('?').next().unwrap_or(path);
+        PUBLIC_ENTRIES.iter().any(|entries| {
+            entries.homes.contains(&path)
+                || entries
+                    .ids
+                    .iter()
+                    .any(|prefix| path == prefix.trim_end_matches('/') || path.starts_with(prefix))
+        })
+    }
+    pub(crate) fn valid_short_route(path: &str) -> bool {
+        public_entry(path).is_some()
+    }
+    fn public_extension<'a>(&self, path: &'a str) -> Option<(&'static Extension, &'a str)> {
+        let (name, rest) = public_entry(path)?;
+        self.extensions
+            .iter()
+            .find(|extension| extension.name == name)
+            .map(|extension| (extension, rest))
+    }
+    /// Public entries deliberately never resolve a cookie or session. They share only
+    /// mount framing/forwarding and reply bounds, not mounted-request authority.
+    pub(crate) fn handle_short(&self, request: Request, client: &mut TcpStream) -> Option<Reply> {
+        if header(&request.headers, "sec-fetch-site") == Some("cross-site") {
+            return Some(Reply::empty(403));
+        }
+        let Some((extension, rest)) = self.public_extension(&request.path) else {
+            return Some(Reply::empty(404));
+        };
+        let Some(socket) = self.socket(extension) else {
+            return Some(Reply::empty(404));
+        };
+        let deadline = Instant::now() + limits::MOUNT_RESPONSE;
+        let Ok(mut stream) = connect_event(&socket, deadline) else {
+            return Some(Reply::empty(503));
+        };
+        let forwarded = self.forward(&request, rest, extension, None, false, None);
+        if send(&mut stream, forwarded.as_bytes(), deadline).is_err() {
+            return Some(Reply::empty(502));
+        }
+        let Ok(reply) = read_head(&mut stream, deadline) else {
+            return Some(Reply::empty(502));
+        };
+        relay_http(
+            client,
+            &mut stream,
+            reply,
+            extension.reply_bytes,
+            deadline,
+            true,
+        )
+    }
+
     fn mount(&self, extension: &Extension) -> String {
         format!("{}{}/", self.base, extension.name)
     }
@@ -591,7 +678,7 @@ impl Mounts {
         let Ok(ReplyHead {
             status,
             headers,
-            rest: mut body,
+            rest: body,
         }) = read_head(&mut stream, deadline)
         else {
             return Some(Reply::empty(502));
@@ -628,42 +715,20 @@ impl Mounts {
             }
             return None;
         }
-        if !(200..=599).contains(&status) {
-            return Some(Reply::empty(502));
-        }
-        let length = match header(&headers, "content-length") {
-            Some(value) if value.bytes().all(|b| b.is_ascii_digit()) && !value.is_empty() => {
-                value.parse::<usize>().ok()
-            }
-            None if matches!(status, 204 | 304) => Some(0),
-            _ => None,
-        };
-        let Some(length) = length.filter(|n| *n <= extension.reply_bytes && body.len() <= *n)
-        else {
-            return Some(Reply::empty(502));
-        };
-        // Stream the body so each worker holds one chunk, not a whole reply.
-        // A reply that fails after its head is sent ends with a short body.
-        let headers: Vec<_> = headers
-            .into_iter()
-            .filter(|(name, value)| name != "set-cookie" && referrer_kept(name, value))
-            .collect();
-        let head = http::head(status, &headers, Some(length));
-        let _ = (|| -> io::Result<()> {
-            write_all(client, head.as_bytes(), deadline)?;
-            write_all(client, &body, deadline)?;
-            let mut sent = body.len();
-            while sent < length {
-                body.clear();
-                read_some(&mut stream, &mut body, deadline)?;
-                body.truncate(length - sent);
-                write_all(client, &body, deadline)?;
-                sent += body.len();
-            }
-            client.shutdown(Shutdown::Write)
-        })();
-        None
+        relay_http(
+            client,
+            &mut stream,
+            ReplyHead {
+                status,
+                headers,
+                rest: body,
+            },
+            extension.reply_bytes,
+            deadline,
+            false,
+        )
     }
+
     /// Remote's only event channel uses the same admitted owner-only socket and
     /// HTTP framing as mounts. Browser headers cannot acquire this marker.
     /// A 2xx head acknowledges; errors and malformed replies are retryable.
@@ -733,6 +798,60 @@ impl Mounts {
         text.push_str(&format!("content-length: {}\r\n\r\n", request.body.len()));
         text
     }
+}
+/// Shared bounded non-upgrade relay. Public entries cannot cache run-specific mounts;
+/// ordinary mounted replies retain their existing cache policy.
+fn relay_http(
+    client: &mut TcpStream,
+    stream: &mut UnixStream,
+    reply: ReplyHead,
+    reply_bytes: usize,
+    deadline: Instant,
+    no_store: bool,
+) -> Option<Reply> {
+    let ReplyHead {
+        status,
+        headers,
+        rest: mut body,
+    } = reply;
+    if !(200..=599).contains(&status) {
+        return Some(Reply::empty(502));
+    }
+    let length = match header(&headers, "content-length") {
+        Some(value) if value.bytes().all(|b| b.is_ascii_digit()) && !value.is_empty() => {
+            value.parse::<usize>().ok()
+        }
+        None if matches!(status, 204 | 304) => Some(0),
+        _ => None,
+    };
+    let Some(length) = length.filter(|n| *n <= reply_bytes && body.len() <= *n) else {
+        return Some(Reply::empty(502));
+    };
+    // Stream the body so each worker holds one chunk, not a whole reply.
+    // A reply that fails after its head is sent ends with a short body.
+    let headers: Vec<_> = headers
+        .into_iter()
+        .filter(|(name, value)| {
+            name != "set-cookie"
+                && (!no_store || name != "cache-control")
+                && referrer_kept(name, value)
+        })
+        .collect();
+    let head = http::head(status, &headers, Some(length));
+    let _ = (|| -> io::Result<()> {
+        write_all(client, head.as_bytes(), deadline)?;
+        write_all(client, &body, deadline)?;
+        let mut sent = body.len();
+        while sent < length {
+            body.clear();
+            read_some(stream, &mut body, deadline)?;
+            body.truncate(length - sent);
+            write_all(client, &body, deadline)?;
+            sent += body.len();
+        }
+        client.shutdown(Shutdown::Write)
+    })();
+    None
 }
 fn header<'a>(headers: &'a [(String, String)], name: &str) -> Option<&'a str> {
     headers

@@ -1,4 +1,4 @@
-//! Static landing and pairing pages, the Colab short alias, page refusals and
+//! Static landing and pairing pages, public extension entries, page refusals and
 //! their stylesheet, outside the route prefix. `/sdk/mount` tells a page this
 //! run's identity and which mounted extension its path belongs to. None of these
 //! routes carries authority.
@@ -59,12 +59,12 @@ impl Pages {
             || path == "/settings"
             || path == "/pair"
             || path.starts_with("/pair/")
-            || short_page_route(path)
+            || Mounts::short_route(path)
             || path.starts_with("/sdk/")
     }
     pub fn admit(&self, head: &Head<'_>) -> Result<usize, Reply> {
         if head.upgrade {
-            return Err(if short_page_route(head.path) {
+            return Err(if Mounts::short_route(head.path) {
                 page_refusal(head.path, 404)
             } else {
                 Reply::empty(404)
@@ -84,14 +84,14 @@ impl Pages {
                         | "/sdk/settings-v1.js"
                         | "/sdk/settings.css"
                 ) || path.starts_with("/pair/")
-                    || short_page_route(path) =>
+                    || Mounts::short_route(path) =>
             {
                 // Navigation omits Origin; a cross-origin load is refused.
                 if head.origin.is_some_and(|o| o != self.origin) {
                     return Err(page_refusal(path, 403));
                 }
                 if path.starts_with("/pair/")
-                    || (short_page_route(path) && short_page_id(path).is_none())
+                    || (Mounts::short_route(path) && !Mounts::valid_short_route(path))
                 {
                     return Err(page_refusal(path, 404));
                 }
@@ -106,20 +106,11 @@ impl Pages {
                 }
                 Ok(MOUNT_BODY_BYTES)
             }
-            (_, path) if short_page_route(path) => Err(page_refusal(path, 404)),
+            (_, path) if Mounts::short_route(path) => Err(page_refusal(path, 404)),
             _ => Err(Reply::empty(404)),
         }
     }
     pub fn handle(&self, request: &Request, mounts: &Mounts) -> Reply {
-        if let Some(id) = short_page_id(&request.path) {
-            // `address` is the origin followed by this run's route prefix.
-            let prefix = &self.address[self.origin.len()..];
-            let mut reply = Reply::empty(302);
-            reply
-                .headers
-                .push(("location".into(), format!("{prefix}/x/colab/p/{id}")));
-            return reply;
-        }
         match request.path.as_str() {
             "/sdk/remote-v1.js" => {
                 // The path names the SDK interface version, not a build, so it
@@ -174,17 +165,6 @@ impl Pages {
         reply
     }
 }
-fn short_page_route(path: &str) -> bool {
-    path == "/p" || path.starts_with("/p/")
-}
-fn short_page_id(path: &str) -> Option<&str> {
-    let id = path.strip_prefix("/p/")?;
-    ((4..=64).contains(&id.len())
-        && id
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-')))
-    .then_some(id)
-}
 fn asset(content_type: &str, body: &str, policy: Option<&str>) -> Reply {
     let mut reply = Reply::empty(200);
     reply.headers = vec![("content-type".into(), content_type.into())];
@@ -198,12 +178,12 @@ fn asset(content_type: &str, body: &str, policy: Option<&str>) -> Reply {
 }
 
 /// Only browser page routes receive HTML. SDK and protocol refusals stay JSON.
-fn page_refusal(path: &str, status: u16) -> Reply {
+pub(crate) fn page_refusal(path: &str, status: u16) -> Reply {
     if path != "/"
         && path != "/settings"
         && path != "/pair"
         && !path.starts_with("/pair/")
-        && !short_page_route(path)
+        && !Mounts::short_route(path)
     {
         return Reply::empty(status);
     }

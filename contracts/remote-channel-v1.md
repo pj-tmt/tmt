@@ -1175,7 +1175,7 @@ admission, framing and connection/body limits; the extension owns its responses,
 policy and headers. All mounted extensions share one browser origin and therefore one browser trust
 domain; mounting is limited to owner-installed extensions, and untrusted content renders only in
 sandboxed opaque-origin frames. There is no mount space at the door root: `/x/` answers 404 without
-a redirect; the explicit Colab short alias below is the only root redirect into the mount space.
+a redirect; only the explicit public short entries below forward at the door root.
 Page URLs contain the prefix, so a mounted reply keeps
 the door's `Referrer-Policy: no-referrer` unless it narrows it to `same-origin`; any other policy is
 dropped. The door is loopback-only; other machines reach it only through cloud backends. Upgraded
@@ -1856,13 +1856,24 @@ envelopes. No unauthenticated GET inventory.
 | `POST /ack`       | One signed ack control; no core attention mutation.                                                    |
 | `POST /pair`      | Enrollment fields/proofs for an already machine-opened local offer; no client-created offer.           |
 
-`GET /p/<id>` at the door root accepts exactly 4–64 ASCII characters from `[0-9A-Za-z_-]`
-and returns `302` with the same-origin `Location: /r/<prefix>/x/colab/p/<id>`,
-`Cache-Control: no-store` and `Referrer-Policy: no-referrer`. It permits navigation without Origin
-or the door's exact Origin; a cross-origin Origin receives the generic HTML 403. Other alias
-shapes or methods receive the generic HTML 404 after door framing admission. The alias reads no
-cookie, sets no cookie and grants no authority; the session cookie remains scoped to
-`Path=/r/<prefix>/x/`. Colab owns short-ID resolution inside its mount.
+The Remote-owned short-entry table forwards exactly `GET /colab`, `GET /colab/`,
+`GET /p/<id>` and `GET /read/<id>` in place to Colab's public mount entry, without a
+Remote redirect. IDs contain exactly 4–64 ASCII `[0-9A-Za-z_-]` characters; query,
+`tmt-session`, extra segments and upgrades refuse. Thread targets and reader capabilities
+stay in browser fragments, never server paths. Navigation permits absent Origin or the
+exact door Origin; cross-origin Origin and cross-site fetch metadata receive generic HTML 403.
+Shared Host/framing admission and mount reply/deadline bounds remain unchanged.
+
+Short entries never resolve a cookie/session, forward device context or trigger object setup.
+Only the existing forwarded-header allowlist reaches Colab, with Remote-computed Host and
+`tmt-mount`. The response is whatever Colab's public entry returns: Remote adds no catalog or
+page lookup, strips `Set-Cookie`, rejects `101`, forces `Cache-Control: no-store` and retains
+its existing Referrer-Policy rule. No unauthenticated GET inventory is added. Unmounted,
+unsafe, missing or unavailable Colab sockets give the generic refusal page with the existing
+mount status, independent of ID existence. The cookie remains scoped to `Path=/r/<prefix>/x/`;
+ordinary mounted APIs/assets/WebSockets and anonymous admission are unchanged. Adding a route
+or extension to the static Remote-owned table requires a contract change; extensions cannot
+register root entries. Colab owns short-ID resolution and the browser's eventual app URL.
 
 Browser assets live at the door root, disjoint from the route prefix, under the same Host, path and
 framing rules. `GET /pair` serves the pairing page with `default-src 'none'; script-src 'self';
@@ -1879,7 +1890,8 @@ fallbacks without network fonts. Protocol refusals below `/r/` remain JSON. `GET
 `text/javascript; charset=utf-8` with `nosniff`; the path names the SDK interface version, not a
 build, so it is not cached across upgrades. `POST /sdk/mount` takes exactly `{path}` from a page on
 the door's own origin and answers `{machineId, windowId, address, extension, mount}`: this run's
-identity and the mounted extension that contains `path` in the door's own mount mapping, or null. It
+identity and the mounted extension that contains `path`, including a valid enabled public short
+entry in the same Remote-owned table, or null. It
 scopes honest use, such as which extension a page certifies keys for, and is not a security
 boundary: mounted extensions share one browser trust domain and only owner-installed extensions
 mount. None of these routes reads the door cookie or grants authority.

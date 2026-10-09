@@ -596,7 +596,7 @@ core discovery or storage access.
   listens only on the owner-only socket `<dataRoot>/colab/door.sock`. Remote mounts it at
   `/r/<prefix>/x/colab/`, owns Host/Origin, cookies, pairing and grants, forwards the
   verified device as `tmt-device-context`, and never forwards the reserved `/.tmt/` subtree
-  from a browser. Remote's root short-link redirect enters Colab's admitted mount; Colab resolves
+  from a browser. Remote forwards public short entries without device context; Colab resolves
   page-ID prefixes for links and CLI operands from its verified catalog, with browser ambiguity handled by parent chrome.
   The server stores ciphertext and never decodes Yjs.
 - **Dependency direction.** `tmt-colab` depends on `tmt-colab-model` (pure codecs and fixed

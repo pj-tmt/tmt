@@ -26,6 +26,7 @@ use tmt_remote::{
         Admitted, DeviceContext, EXTENSIONS, Extension, Mounts, NoSessions, ObjectDeclaration,
         Sessions,
     },
+    pages::Pages,
     routes::Routes,
     site::Site,
     state::Layout,
@@ -208,7 +209,12 @@ impl Mounted {
                 sessions,
                 extensions,
             )),
-            pages: None,
+            pages: Some(Pages::new(
+                &origin,
+                "fixture-machine".into(),
+                "fixture-window".into(),
+                &prefix,
+            )),
         });
         let stop = Arc::new(AtomicBool::new(false));
         let mounts = Arc::clone(&site.mounts);
@@ -656,6 +662,7 @@ fn unsafe_or_missing_sockets_are_not_mounted() {
 #[test]
 fn malformed_extension_replies_are_bad_gateway() {
     for reply in [
+        b"HTTP/1.1 200 OK\r\nCache-Control: public\r\nCache-Control: private\r\nContent-Length: 1\r\n\r\nx",
         b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n0\r\n\r\n".as_slice(),
         b"HTTP/1.1 200 OK\r\n\r\nunframed",
         b"HTTP/1.1 100 Continue\r\nContent-Length: 0\r\n\r\n",
@@ -1028,4 +1035,288 @@ fn mounted_replies_keep_only_a_referrer_policy_that_hides_the_prefix() {
             .collect();
         assert_eq!(policies, [sent], "{policy:?}");
     }
+}
+
+struct NoPublicSessionLookup;
+impl Sessions for NoPublicSessionLookup {
+    fn context(&self, _: Option<&str>) -> Option<Admitted> {
+        panic!("public entry consulted the session resolver");
+    }
+}
+#[derive(Default)]
+struct PublicEntrySessionCalls(AtomicUsize);
+impl Sessions for PublicEntrySessionCalls {
+    fn context(&self, _: Option<&str>) -> Option<Admitted> {
+        self.0.fetch_add(1, Ordering::Relaxed);
+        None
+    }
+}
+#[test]
+fn short_public_entries_forward_exact_paths_without_authority_or_redirect() {
+    let sessions = Arc::new(PublicEntrySessionCalls::default());
+    let door = Mounted::new(Arc::clone(&sessions) as Arc<dyn Sessions>);
+    let extension = door.extension(replying(PAGE));
+    for (path, target) in [
+        ("/colab", "/"),
+        ("/colab/", "/"),
+        ("/p/aB_0", "/p/aB_0"),
+        ("/read/Z9_-", "/read/Z9_-"),
+    ] {
+        let reply = door.send(door.get(path, &format!("Cookie: {OWNER}\r\nTMT-Device-Context: forged\r\nTMT-Origin: forged\r\nTMT-Mount: /evil/\r\nTMT-Device-Event: 1\r\nAccept: text/html\r\n")).as_bytes());
+        let (head, body) = reply.split_once("\r\n\r\n").unwrap();
+        assert!(head.starts_with("HTTP/1.1 200"), "{path}: {head}");
+        assert_eq!(body, "hello");
+        assert!(!head.contains("location:"));
+        assert!(!head.contains("set-cookie:"));
+        assert!(head.contains("content-security-policy: default-src 'self'\r\n"));
+        assert!(head.contains("cache-control: no-store\r\n"));
+        let seen = extension.seen.all();
+        assert_eq!(
+            seen.last().unwrap(),
+            &format!(
+                "GET {target} HTTP/1.1\r\nhost: {}\r\ntmt-mount: {}/x/colab/\r\naccept: text/html\r\nconnection: close\r\ncontent-length: 0\r\n\r\n",
+                door.addr, door.prefix
+            )
+        );
+    }
+    assert_eq!(
+        sessions.0.load(Ordering::Relaxed),
+        0,
+        "public session lookup"
+    );
+    let paths: std::collections::BTreeSet<_> = extension
+        .seen
+        .all()
+        .iter()
+        .map(|head| head.split_whitespace().nth(1).unwrap().to_owned())
+        .collect();
+    assert_eq!(
+        paths,
+        ["/", "/p/aB_0", "/read/Z9_-"]
+            .into_iter()
+            .map(str::to_owned)
+            .collect()
+    );
+}
+
+fn generic_public_refusal(reply: &str, status: u16) {
+    let (head, body) = reply.split_once("\r\n\r\n").unwrap();
+    assert!(head.starts_with(&format!("HTTP/1.1 {status} ")), "{head}");
+    assert_eq!(body, include_str!("../assets/error.html"));
+    assert!(!head.contains("location:"));
+    assert!(!head.contains("set-cookie:"));
+}
+
+#[test]
+fn short_public_entries_refuse_non_entries_and_admission_failures_before_connect() {
+    let door = Mounted::new(Arc::new(NoPublicSessionLookup));
+    let extension = door.extension(replying(PAGE));
+    for path in [
+        "/p",
+        "/p/",
+        "/p/abc",
+        "/p/abcd/",
+        "/p/abcd/other",
+        "/p/a.b_",
+        "/read",
+        "/read/",
+        "/read/abc",
+        "/read/abcd/",
+        "/p/.tmt",
+        "/read/.tmt",
+        "/p/abcd?tmt-session=00000000-0000-4000-8000-000000000004",
+        "/colab?tmt-session=00000000-0000-4000-8000-000000000004",
+    ] {
+        generic_public_refusal(&door.send(door.get(path, "").as_bytes()), 404);
+    }
+    for path in [
+        "/p/../abcd",
+        "/read/../abcd",
+        "/p/ab%63d",
+        "/read/ab%63d",
+        "/p//abcd",
+        "/read/abcd?cap=secret",
+        "/colab/#secret",
+        "/p/abcd\\other",
+    ] {
+        assert_eq!(door.status(&door.get(path, "")), 400, "{path}");
+    }
+    for path in [
+        "/colab/other",
+        "/.tmt/colab",
+        "/x/colab/",
+        "/r/abcd",
+        "/other/abcd",
+    ] {
+        assert_eq!(door.status(&door.get(path, "")), 404, "{path}");
+    }
+    for path in ["/p/abcd", "/read/abcd", "/colab", "/colab/"] {
+        for method in ["POST", "HEAD", "PUT", "PATCH", "DELETE", "OPTIONS"] {
+            generic_public_refusal(
+                &door.send(
+                    format!("{method} {path} HTTP/1.1\r\nHost: {}\r\n\r\n", door.addr).as_bytes(),
+                ),
+                404,
+            );
+        }
+        for headers in [
+            "Origin: https://example.com\r\n",
+            "Origin: null\r\n",
+            "Sec-Fetch-Site: cross-site\r\n",
+        ] {
+            generic_public_refusal(&door.send(door.get(path, headers).as_bytes()), 403);
+        }
+        generic_public_refusal(
+            &door.send(
+                door.get(path, "Connection: Upgrade\r\nUpgrade: websocket\r\n")
+                    .as_bytes(),
+            ),
+            404,
+        );
+        generic_public_refusal(
+            &door.send(
+                door.get(path, "Connection: Upgrade\r\nUpgrade: other\r\n")
+                    .as_bytes(),
+            ),
+            404,
+        );
+        assert_eq!(
+            &door.send(
+                format!(
+                    "GET {path} HTTP/1.1\r\nHost: localhost:{}\r\n\r\n",
+                    door.addr.port()
+                )
+                .as_bytes()
+            )[9..12],
+            "400"
+        );
+    }
+    for family in ["p", "read"] {
+        for id in ["a".repeat(65), "éabc".into()] {
+            generic_public_refusal(
+                &door.send(door.get(&format!("/{family}/{id}"), "").as_bytes()),
+                404,
+            );
+        }
+    }
+    assert!(
+        extension.seen.all().is_empty(),
+        "a refused entry reached Colab"
+    );
+    // Boundary positives reach exactly the public entry, not arbitrary root paths.
+    for family in ["p", "read"] {
+        for id in ["aB_0".to_owned(), "Z9_-".repeat(16)] {
+            for site in ["none", "same-origin"] {
+                assert_eq!(
+                    door.status(&door.get(
+                        &format!("/{family}/{id}"),
+                        &format!("Origin: {}\r\nSec-Fetch-Site: {site}\r\n", door.origin)
+                    )),
+                    200
+                );
+            }
+        }
+    }
+    assert_eq!(extension.seen.all().len(), 8);
+}
+
+#[test]
+fn short_public_unavailable_statuses_are_generic_and_id_independent() {
+    for path in ["/p/known000", "/p/unknown0", "/read/known000", "/colab/"] {
+        let door = Mounted::new(Arc::new(NoPublicSessionLookup));
+        generic_public_refusal(&door.send(door.get(path, "").as_bytes()), 404);
+        let door = Mounted::with(Arc::new(NoPublicSessionLookup), &[]);
+        let extension = door.extension(replying(PAGE));
+        generic_public_refusal(&door.send(door.get(path, "").as_bytes()), 404);
+        assert!(extension.seen.all().is_empty());
+        assert!(door.mounts.extension_of(path).is_none());
+        let door = Mounted::new(Arc::new(NoPublicSessionLookup));
+        let listener = UnixListener::bind(door.socket()).unwrap();
+        fs::set_permissions(door.socket(), fs::Permissions::from_mode(0o600)).unwrap();
+        drop(listener); // Existing, safe socket but no listener: connect fails.
+        generic_public_refusal(&door.send(door.get(path, "").as_bytes()), 503);
+    }
+    let door = Mounted::new(Arc::new(NoPublicSessionLookup));
+    let extension = door.extension(replying(PAGE));
+    fs::set_permissions(door.root.join("colab"), fs::Permissions::from_mode(0o755)).unwrap();
+    generic_public_refusal(&door.send(door.get("/p/abcd", "").as_bytes()), 404);
+    fs::set_permissions(door.root.join("colab"), fs::Permissions::from_mode(0o700)).unwrap();
+    fs::set_permissions(door.socket(), fs::Permissions::from_mode(0o666)).unwrap();
+    generic_public_refusal(&door.send(door.get("/p/abcd", "").as_bytes()), 404);
+    assert!(extension.seen.all().is_empty());
+    fs::set_permissions(door.socket(), fs::Permissions::from_mode(0o600)).unwrap();
+    let actual = door.root.join("colab/actual.sock");
+    fs::rename(door.socket(), &actual).unwrap();
+    std::os::unix::fs::symlink(&actual, door.socket()).unwrap();
+    generic_public_refusal(&door.send(door.get("/p/abcd", "").as_bytes()), 404);
+    assert!(extension.seen.all().is_empty());
+    fs::remove_file(door.socket()).unwrap();
+    fs::rename(actual, door.socket()).unwrap();
+}
+
+#[test]
+fn short_public_replies_keep_extension_policy_but_cannot_cache_or_upgrade() {
+    for policy in ["unsafe-url", "origin", "same-origin", "no-referrer"] {
+        let door = Mounted::new(Arc::new(NoPublicSessionLookup));
+        let reply: &'static [u8] = format!("HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Security-Policy: default-src 'self'\r\nSet-Cookie: shadow=1; Path=/\r\nCache-Control: public, max-age=1000\r\nReferrer-Policy: {policy}\r\nContent-Length: 2\r\n\r\nok").into_bytes().leak();
+        let _extension = door.extension(replying(reply));
+        let response = door.send(door.get("/read/abcd", "").as_bytes());
+        let (head, body) = response.split_once("\r\n\r\n").unwrap();
+        assert_eq!(body, "ok");
+        assert_eq!(
+            head.lines()
+                .filter(|line| line.starts_with("cache-control:"))
+                .collect::<Vec<_>>(),
+            ["cache-control: no-store"]
+        );
+        assert!(!head.contains("set-cookie:"));
+        assert!(head.contains("content-security-policy: default-src 'self'"));
+        assert!(head.contains(if policy == "same-origin" {
+            "referrer-policy: same-origin"
+        } else {
+            "referrer-policy: no-referrer"
+        }));
+    }
+    for reply in [
+        b"HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\n\r\n".as_slice(),
+        b"HTTP/1.1 200 OK\r\nContent-Length: 16777217\r\n\r\n",
+        b"HTTP/1.1 200 OK\r\nContent-Length: 1\r\nContent-Length: 1\r\n\r\nx",
+        b"HTTP/1.1 200 OK\r\nCache-Control: public\r\nCache-Control: private\r\nContent-Length: 1\r\n\r\nx",
+        b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n0\r\n\r\n",
+        b"garbage\r\n\r\n",
+        b"",
+    ] {
+        let door = Mounted::new(Arc::new(NoPublicSessionLookup));
+        let _extension = door.extension(replying(reply));
+        generic_public_refusal(&door.send(door.get("/p/abcd", "").as_bytes()), 502);
+    }
+    let door = Mounted::new(Arc::new(NoPublicSessionLookup));
+    let _extension = door.extension(replying(
+        b"HTTP/1.1 200 OK\r\nContent-Length: 9\r\n\r\nshort",
+    ));
+    let reply = door.send(door.get("/p/abcd", "").as_bytes());
+    assert!(reply.contains("content-length: 9\r\n"));
+    assert!(reply.ends_with("\r\n\r\nshort"));
+}
+
+#[test]
+fn short_public_reply_deadline_closes_the_owned_extension_connection() {
+    let door = Mounted::new(Arc::new(NoPublicSessionLookup));
+    let (closed, observed) = mpsc::channel();
+    let _extension = door.extension(Arc::new(move |mut stream, seen| {
+        seen.push(request(&mut stream));
+        stream
+            .set_read_timeout(Some(limits::MOUNT_RESPONSE + Duration::from_secs(5)))
+            .unwrap();
+        assert_eq!(
+            stream.read(&mut [0]).unwrap(),
+            0,
+            "door did not close after the reply deadline"
+        );
+        closed.send(()).unwrap();
+    }));
+    generic_public_refusal(&door.send(door.get("/p/abcd", "").as_bytes()), 502);
+    observed
+        .recv_timeout(Duration::from_secs(5))
+        .expect("extension connection leaked");
 }
