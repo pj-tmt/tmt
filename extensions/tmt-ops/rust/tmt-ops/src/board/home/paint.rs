@@ -336,14 +336,12 @@ pub(super) fn render_at(frame: &mut Frame, app: &App, area: Rect, now: u64) {
             lines.extend(tile_lines);
             let before = lines.len();
             if selected_region.is_some() {
-                if app.sent.as_ref().is_some_and(|feedback| {
-                    feedback.sent
-                        && feedback.target
-                            == crate::board::app::RowTarget::Home(
-                                entries[app.selected].target.clone(),
-                            )
+                if let Some(text) = app.sent.as_ref().and_then(|feedback| {
+                    feedback.line(&crate::board::app::RowTarget::Home(
+                        entries[app.selected].target.clone(),
+                    ))
                 }) {
-                    lines.push(Line::styled("   ✓ sent", look.role(Role::Working)));
+                    lines.push(Line::styled(format!("   {text}"), look.role(Role::Working)));
                 }
                 input_range =
                     crate::board::view::waiting::reserve_input(app, app.selected, area, &mut lines);

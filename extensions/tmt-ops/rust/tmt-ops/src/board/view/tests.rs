@@ -1441,7 +1441,7 @@ fn sent_feedback_sits_under_its_row_before_the_annotation_and_stays_clickable() 
     ]}]));
     app.view.as_mut().unwrap().look = Default::default();
     app.sent = Some(crate::board::app::RowFeedback {
-        sent: true,
+        mark: Some("sent"),
         target: app.row_target(0).unwrap(),
         home: None,
     });
@@ -1465,6 +1465,9 @@ fn sent_feedback_sits_under_its_row_before_the_annotation_and_stays_clickable() 
         painted_at(&buffer, 4, (alpha + 1) as u16),
         painted(look.role(Role::Working))
     );
+    // A queued request says so instead of claiming it was sent.
+    app.sent.as_mut().unwrap().mark = Some("queued · offline");
+    assert_eq!(draw(&app, 60, 12)[alpha + 1], "    ✓ queued · offline");
     // The next frame without feedback restores the original stream.
     app.sent = None;
     assert_eq!(draw(&app, 60, 12)[alpha + 1], "    ✎ sent to sol: noted");
@@ -4522,7 +4525,7 @@ columns = [{name = "member", width = 18}, {name = "task", grow = 1, overflow = "
                     app.view.as_mut().unwrap().document["sections"][0]["rows"][0]["annotation"] = json!({"to":case["renderOnlyFeedback"]["annotation"]["to"], "text":case["renderOnlyFeedback"]["annotation"]["text"]});
                     app.sent = Some(crate::board::app::RowFeedback {
                         target: app.row_target(app.selected).unwrap(),
-                        sent: true,
+                        mark: Some("sent"),
                         home: None,
                     });
                 }
@@ -4579,7 +4582,7 @@ columns = [{name="member", width=12}, {name="task", width=12, overflow="wrap", m
     );
     app.sent = Some(crate::board::app::RowFeedback {
         target: app.row_target(0).unwrap(),
-        sent: true,
+        mark: Some("sent"),
         home: None,
     });
     let document = app.view.as_ref().unwrap().document.clone();

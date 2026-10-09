@@ -95,7 +95,7 @@ fn a_frame_from_held_sections_equals_one_from_none() {
         press(&mut app, Esc);
         let target = app.home_entries()[app.selected].target.clone();
         app.sent = Some(RowFeedback {
-            sent: true,
+            mark: Some("sent"),
             target: RowTarget::Home(target),
             home: None,
         });

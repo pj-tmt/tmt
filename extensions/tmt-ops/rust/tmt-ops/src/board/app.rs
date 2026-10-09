@@ -353,10 +353,20 @@ pub(super) struct RowSend {
 /// A successful send keeps its Home row visible through the ensuing refresh,
 /// until the next key clears the confirmation. This is display evidence only.
 pub(super) struct RowFeedback {
-    /// Retention alone is not evidence that a message was sent.
-    pub sent: bool,
+    /// What the send reported, such as `sent` or `queued`; `None` keeps the
+    /// row without claiming a send.
+    pub mark: Option<&'static str>,
     pub target: RowTarget,
     pub home: Option<HomeFeedback>,
+}
+
+impl RowFeedback {
+    /// The confirmation shown under `target`, when this feedback is for it.
+    pub(crate) fn line(&self, target: &RowTarget) -> Option<String> {
+        self.mark
+            .filter(|_| &self.target == target)
+            .map(|mark| format!("✓ {mark}"))
+    }
 }
 
 pub(super) struct HomeFeedback {
@@ -3128,7 +3138,7 @@ impl App {
                 })
                 .flatten();
             RowFeedback {
-                sent: true,
+                mark: None,
                 target: send.target,
                 home,
             }
@@ -3140,8 +3150,7 @@ impl App {
             crate::membership::status_update::Outcome::Applied { .. }
                 | crate::membership::status_update::Outcome::Unknown(_)
         ) {
-            if let Some(mut feedback) = self.pending_send.take() {
-                feedback.sent = false;
+            if let Some(feedback) = self.pending_send.take() {
                 self.sent = Some(feedback);
             }
         } else {
@@ -3154,7 +3163,18 @@ impl App {
     }
     /// Shows how a request ended.
     pub fn finished(&mut self, outcome: Result<String, String>) {
-        self.sent = self.pending_send.take().filter(|_| outcome.is_ok());
+        self.finished_as(outcome, "sent");
+    }
+    /// Shows how a request ended; a success marks the row with `mark`.
+    pub fn finished_as(&mut self, outcome: Result<String, String>, mark: &'static str) {
+        self.sent = self
+            .pending_send
+            .take()
+            .filter(|_| outcome.is_ok())
+            .map(|feedback| RowFeedback {
+                mark: Some(mark),
+                ..feedback
+            });
         self.notice = Some(outcome.unwrap_or_else(|error| error));
     }
 
@@ -5026,14 +5046,30 @@ pub(crate) mod tests {
         press(&mut app, KeyCode::Enter);
         app.finished(Ok("Replied".into()));
         assert_eq!(
-            app.sent.as_ref().map(|feedback| &feedback.target),
-            Some(&target)
+            app.sent
+                .as_ref()
+                .map(|feedback| (&feedback.target, feedback.mark)),
+            Some((&target, Some("sent")))
         );
         assert_eq!(app.selected, 1);
         press(&mut app, KeyCode::Char('x'));
         assert!(
             app.sent.is_none(),
             "the next key clears the row confirmation"
+        );
+        press(&mut app, KeyCode::Char('a'));
+        typed(&mut app, "later");
+        press(&mut app, KeyCode::Enter);
+        app.finished_as(
+            Ok("Message queued in auth-fix's inbox (r).".into()),
+            "queued",
+        );
+        assert_eq!(
+            app.sent
+                .as_ref()
+                .and_then(|feedback| feedback.line(&target)),
+            Some("✓ queued".into()),
+            "an accepted request is marked with what Core reported"
         );
     }
 

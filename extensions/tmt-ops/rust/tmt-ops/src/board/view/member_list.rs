@@ -319,8 +319,11 @@ pub(in crate::board) fn render_squad(frame: &mut ratatui::Frame, app: &App, area
     let now = crate::status::now_ms();
     let reserved =
         crate::board::view::waiting::reserved_lines(app, app.selected, inner).unwrap_or_default();
-    let sent_row = app.sent.as_ref().filter(|sent| sent.sent).and_then(|sent| {
-        (0..app.rows().len()).find(|index| app.row_target(*index).as_ref() == Some(&sent.target))
+    let sent_row = app.sent.as_ref().and_then(|sent| {
+        (0..app.rows().len()).find_map(|index| {
+            let text = sent.line(&app.row_target(index)?)?;
+            Some((index, text))
+        })
     });
     let mut before = Vec::new();
     let mut rows = Vec::new();
@@ -396,8 +399,8 @@ pub(in crate::board) fn render_squad(frame: &mut ratatui::Frame, app: &App, area
         let mut after = vec![
             json!({"id":"task","text":format!("   {}",fit(&super::super::notes::sanitize(row["fields"]["task"].as_str().unwrap_or_default()),width.saturating_sub(3)).trim_end()),"role":"text"}),
         ];
-        if sent_row == Some(index) {
-            after.push(json!({"id": "sent", "text": "   ✓ sent", "role": "working"}));
+        if let Some((_, text)) = sent_row.as_ref().filter(|(row, _)| *row == index) {
+            after.push(json!({"id": "sent", "text": format!("   {text}"), "role": "working"}));
         }
         let reserve = if index == app.selected { reserved } else { 0 };
         after.extend(
