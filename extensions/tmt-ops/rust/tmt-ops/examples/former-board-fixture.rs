@@ -32,7 +32,13 @@ fn main() {
     println!("Former board fixture ready");
     while !stop.load(Ordering::Acquire) {
         if let Some(lease) = lease.as_mut() {
-            lease.renew(now()).unwrap();
+            match lease.renew(now()) {
+                Ok(_) => {}
+                // The Ops path migration holds the clock lock while it examines the
+                // lease. Like the production clock, wait for the next tick.
+                Err(error) if error.code == "SQUAD_CRON_CLOCK_BUSY" => {}
+                Err(error) => panic!("old clock renew failed: {error}"),
+            }
         }
         thread::sleep(Duration::from_millis(50));
     }
