@@ -144,12 +144,8 @@ test('native attach lists a file for every device, reads back byte-equal, and re
 
       // Every device lists it and downloads the same bytes, live and without a reload.
       await openFiles(first);
-      await expect(first.getByTestId('files-toggle')).toHaveText(`${text.files} 1`, {
-        timeout: 30_000,
-      });
-      await expect(second.getByTestId('files-toggle')).toHaveText(`${text.files} 1`, {
-        timeout: 30_000,
-      });
+      await expectFilesCount(first, 1);
+      await expectFilesCount(second, 1);
       const rowsOn = (page: Page) =>
         page
           .getByTestId('files-panel')
@@ -214,9 +210,7 @@ test('native attach lists a file for every device, reads back byte-equal, and re
         .poll(() => (slots()[slot] ?? []).includes('object'), { timeout: 30_000 })
         .toBe(true);
       child.kill('SIGKILL');
-      await expect(second.getByTestId('files-toggle')).toHaveText(`${text.files} 3`, {
-        timeout: 120_000,
-      });
+      await expectFilesCount(second, 3, 120_000);
       const resumed = colab(['attachment', 'attach', created.pageId, '--resume', slot]);
       expect(resumed.attachment).toMatchObject({
         filename: 'large.bin',
@@ -290,6 +284,12 @@ test('native attach lists a file for every device, reads back byte-equal, and re
   });
 });
 
+/** The Files control of the page header says how many files the page lists. */
+async function expectFilesCount(page: Page, count: number, timeout = 30_000) {
+  await expect(await pageAction(page, 'Files')).toHaveAccessibleName(`${text.files} (${count})`, {
+    timeout,
+  });
+}
 async function openFiles(page: Page) {
   const toggle = await pageAction(page, 'Files');
   await expect(toggle).toBeVisible({ timeout: 30_000 });
