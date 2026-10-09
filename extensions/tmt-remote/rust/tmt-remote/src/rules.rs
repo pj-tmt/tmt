@@ -23,6 +23,10 @@ use serde_json::json;
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 
+/// Single-field index configs a Spark database allows without billing (the free-plan quota
+/// table): a plan that needs more cannot be deployed, so it is refused before any artifact.
+pub const MAX_INDEX_CONFIGS: usize = 200;
+
 /// The artifact bytes of one extension in the plan.
 #[derive(Clone, Copy, Debug)]
 pub struct Fragment<'a> {
@@ -62,6 +66,8 @@ pub enum RulesReason {
     BareTrue,
     /// The condition refers to neither `request.auth` nor document data.
     Unconditional,
+    /// More single-field index configs than the free plan allows.
+    TooManyIndexConfigs,
 }
 impl RulesReason {
     pub fn code(self) -> &'static str {
@@ -82,6 +88,7 @@ impl RulesReason {
             Self::Macro => "macro",
             Self::BareTrue => "bare-true",
             Self::Unconditional => "unconditional",
+            Self::TooManyIndexConfigs => "too-many-index-configs",
         }
     }
 }
@@ -142,16 +149,18 @@ pub fn compose(
     rules.push_str(
         "    match /{document=**} {\n      allow read, write: if false;\n    }\n  }\n}\n",
     );
-    Ok(Composed {
-        rules,
-        indexes: indexes(view),
-    })
+    let (indexes, configs) = indexes(view);
+    if configs > MAX_INDEX_CONFIGS {
+        return Err(fail(None, None, RulesReason::TooManyIndexConfigs));
+    }
+    Ok(Composed { rules, indexes })
 }
 
 /// `firestore.indexes.json`: one field override per (collection ID, field). Overrides are
 /// keyed by collection ID, so extensions that use the same ID share a union, which only adds
 /// indexes. A `ttlField` becomes a TTL policy only when the plan says the target provisions it.
-fn indexes(view: &PlanView) -> String {
+/// Also returns the number of overrides, which is the number of single-field index configs.
+fn indexes(view: &PlanView) -> (String, usize) {
     let mut fields: BTreeMap<(String, String), (BTreeSet<&str>, bool)> = BTreeMap::new();
     for extension in &view.extensions {
         for resource in &extension.resources {
@@ -193,8 +202,10 @@ fn indexes(view: &PlanView) -> String {
             value
         })
         .collect();
-    serde_json::to_string(&json!({"indexes": [], "fieldOverrides": overrides}))
-        .expect("indexes serialize")
+    let configs = overrides.len();
+    let text = serde_json::to_string(&json!({"indexes": [], "fieldOverrides": overrides}))
+        .expect("indexes serialize");
+    (text, configs)
 }
 
 fn body(extension: &str, source: &[u8]) -> Result<String> {

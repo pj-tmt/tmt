@@ -1523,8 +1523,9 @@ interpolated or concatenated path strings, and a user function can shadow a buil
 documents use the macros `ext.get`, `ext.exists`, `ext.getAfter` and `ext.existsAfter`, which expand to a fixed
 `x/<extension>` prefix. A condition must refer to `request.auth` or document data: `if true`, constants and time-only
 conditions are refused. A recursive wildcard is allowed only inside the wrapper. Indexes come from the plan as
-per-collection field overrides, and a TTL policy is written only when the target provisions it. The device inbox,
-permit, chunk, response and checkpoint Rules above wait for the admission service.
+per-collection field overrides, and a TTL policy is written only when the target provisions it. A plan that needs more
+than 200 field overrides (the free-plan single-field index config limit) is refused as `too-many-index-configs`, with no
+artifact. The device inbox, permit, chunk, response and checkpoint Rules above wait for the admission service.
 
 ### Proposal: Cloudflare Worker and Durable Objects
 
