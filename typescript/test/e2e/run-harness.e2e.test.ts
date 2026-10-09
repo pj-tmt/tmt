@@ -248,6 +248,166 @@ exec /opt/tmt-tests/claude "$@"
     });
   });
 
+  it('resumes a verified bound seat through its recorded wrapper, observed model and bounded preset', async () => {
+    await withE2EFixture(async (fixture) => {
+      const pane = fixture.createShellPane('preset-seat').pane;
+      const empty = fixture.createShellPane('unbound-resume').pane;
+      const session = '12345678-1234-4234-8234-123456789abc';
+      const scenario = path.join(fixture.root, 'preset-scenario.json');
+      const report = path.join(fixture.root, 'preset-report.json');
+      const calls = path.join(fixture.root, 'preset-calls.jsonl');
+      writeFileSync(
+        scenario,
+        JSON.stringify([
+          {
+            args: ['__hook', 'claude'],
+            input: {
+              hook_event_name: 'SessionStart',
+              session_id: session,
+              source: 'startup',
+              model: 'sonnet',
+            },
+          },
+        ])
+      );
+      const record = `require('node:fs').appendFileSync(${JSON.stringify(calls)}, JSON.stringify({args:process.argv.slice(1), env:{pct:process.env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE,mini:process.env.CLAUDE_MINI_PCT}})+String.fromCharCode(10));`;
+      const wrapper = path.join(fixture.wrapperDir, 'claude_mini');
+      writeExecutable(
+        wrapper,
+        `#!/bin/sh\n${quote(process.execPath)} -e ${quote(record)} -- "$@" || exit "$?"\nexec /opt/tmt-tests/claude ${quote(fixture.executables.cli.executable)} ${quote(scenario)} ${quote(report)}\n`,
+        0o700
+      );
+      const home = path.join(fixture.root, 'preset-home');
+      mkdirSync(home);
+      const run = async (label: string, args: string[], env: Record<string, string> = {}) => {
+        const status = path.join(fixture.root, `${label}.status`);
+        submit(fixture, pane, args, status, { HOME: home, ...env });
+        expect(await waitForFileContent(status, { description: label })).toBe('0');
+      };
+      await run(
+        'preset-initial',
+        [
+          'run',
+          '--save',
+          'Preset',
+          wrapper,
+          '--model',
+          'opus',
+          '--effort',
+          'high',
+          'private prompt',
+        ],
+        {
+          CLAUDE_AUTOCOMPACT_PCT_OVERRIDE: '55',
+          CLAUDE_MINI_PCT: '60',
+          ANTHROPIC_API_KEY: 'fixture-secret',
+        }
+      );
+      const id = identityId(fixture, 'Preset');
+      const db = new Database(path.join(fixture.globalDir, 'tmux-team.db'), { readonly: true });
+      try {
+        const row = db
+          .prepare(
+            "SELECT value FROM identity_metadata WHERE identity_id = ? AND key = 'resume.launch'"
+          )
+          .get(id) as { value: string };
+        expect(row.value).not.toContain('private prompt');
+        expect(row.value).not.toContain('fixture-secret');
+        expect(JSON.parse(row.value)).toMatchObject({
+          executable: wrapper,
+          harness: 'claude',
+          session,
+          model: 'sonnet',
+          effort: 'high',
+          env: { CLAUDE_AUTOCOMPACT_PCT_OVERRIDE: '55', CLAUDE_MINI_PCT: '60' },
+        });
+        await run('preset-unnamed', ['resume']);
+        await run(
+          'preset-explicit',
+          ['resume', '--model', 'explicit-model', '--effort', 'low', 'Preset'],
+          {
+            CLAUDE_AUTOCOMPACT_PCT_OVERRIDE: '40',
+            CLAUDE_MINI_PCT: '',
+          }
+        );
+        const recorded = readFileSync(calls, 'utf8')
+          .trim()
+          .split('\n')
+          .map(
+            (line) =>
+              JSON.parse(line) as {
+                args: string[];
+                env: { pct?: string; mini?: string };
+              }
+          );
+        expect(recorded).toHaveLength(3);
+        expect(userArgsWithLaunchHooks(recorded[1].args)).toEqual([
+          '--resume',
+          session,
+          '--model',
+          'sonnet',
+          '--effort',
+          'high',
+        ]);
+        expect(recorded[1].env).toEqual({ pct: '55', mini: '60' });
+        expect(userArgsWithLaunchHooks(recorded[2].args)).toEqual([
+          '--resume',
+          session,
+          '--model',
+          'explicit-model',
+          '--effort',
+          'low',
+        ]);
+        expect(recorded[2].env).toEqual({ pct: '40', mini: '' });
+        const unbound = await fixture.runCli(['resume'], { pane: empty });
+        expect(unbound.code).toBe(1);
+        expect(unbound.stderr).toContain('No identity is bound');
+        expect(unbound.stderr).toContain('Preset');
+        const shown = await fixture.runCli(['resume', '--show', 'Preset']);
+        expect(shown.code).toBe(0);
+        expect(JSON.parse(shown.stdout)).toMatchObject({
+          identity: 'Preset',
+          launch: { executable: wrapper },
+        });
+        const cleared = await fixture.runCli(['resume', '--forget-launch', 'Preset']);
+        expect(cleared.code).toBe(0);
+        expect(
+          db
+            .prepare(
+              "SELECT value FROM identity_metadata WHERE identity_id = ? AND key = 'resume.launch'"
+            )
+            .get(id)
+        ).toBeUndefined();
+        expect(
+          preferences(fixture).find((row) => row.identity_id === id)?.provider_session_id
+        ).toBe(session);
+        const shownCleared = await fixture.runCli(['resume', '--show', 'Preset']);
+        expect(JSON.parse(shownCleared.stdout)).toEqual({ identity: 'Preset', launch: null });
+        // Clearing preferences preserves exact-session resume via the named driver.
+        const named = path.join(fixture.wrapperDir, 'claude');
+        writeExecutable(
+          named,
+          `#!/bin/sh\n${quote(process.execPath)} -e ${quote(record)} -- "$@" || exit "$?"\nexec /opt/tmt-tests/claude ${quote(fixture.executables.cli.executable)} ${quote(scenario)} ${quote(report)}\n`,
+          0o700
+        );
+        await run('preset-cleared-resume', ['resume', 'Preset']);
+        const final = JSON.parse(readFileSync(calls, 'utf8').trim().split('\n').at(-1)!) as {
+          args: string[];
+          env: Record<string, string>;
+        };
+        expect(userArgsWithLaunchHooks(final.args)).toEqual([
+          '--resume',
+          session,
+          '--model',
+          'sonnet',
+        ]);
+        expect(final.env).toEqual({});
+      } finally {
+        db.close();
+      }
+    });
+  });
+
   it('cleans up a failed temporary automatic spawn but retains an explicitly saved identity', async () => {
     await withE2EFixture(async (fixture) => {
       const pane = fixture.createShellPane('auto-spawn-failure').pane;

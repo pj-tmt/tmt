@@ -105,6 +105,22 @@ impl CallerSessionRefusal {
 }
 
 pub trait RuntimeLifecycle {
+    fn launch_settings(
+        &self,
+        _args: &[std::ffi::OsString],
+    ) -> super::launch_preset::LaunchSettings {
+        super::launch_preset::LaunchSettings::default()
+    }
+
+    /// Compose settings using this provider's own resume grammar.
+    fn resume_settings(
+        &self,
+        _command: &mut super::RuntimeCommand,
+        settings: &super::launch_preset::LaunchSettings,
+    ) -> bool {
+        settings.model.is_none() && settings.effort.is_none()
+    }
+
     fn caller_session(&self) -> Option<CallerSession> {
         None
     }

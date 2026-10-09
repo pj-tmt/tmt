@@ -55,6 +55,7 @@ pub(super) fn run_bound(
 ) -> Result<u8, Failure> {
     let RunRequest {
         name,
+        options,
         command,
         resume,
         save,
@@ -141,8 +142,64 @@ pub(super) fn run_bound(
             Ok(preferences)
         })
         .map_err(storage_failure)?;
-    let launch = select_command(&mut registry, name, command, resume, &preferences)?;
-    let claim = registry.claim(&launch.command.executable);
+    let mut launch = select_command(&mut registry, name, command, resume, &preferences)?;
+    let preset = existing
+        .as_ref()
+        .map(|identity| tmt_adapters::runtime::launch_preset::read(storage, &identity.id))
+        .transpose()
+        .map_err(storage_failure)?
+        .flatten();
+    let replay = launch
+        .resumed
+        .as_ref()
+        .and_then(|session| preset.as_ref().filter(|preset| preset.matches(session)));
+    let environment = replay
+        .map(|preset| preset.environment(|key| std::env::var_os(key).is_some()))
+        .unwrap_or_default();
+    if let Some(session) = &launch.resumed {
+        let lifecycle = registry.lifecycle(&session.harness).ok_or_else(|| {
+            Failure::new(
+                "RESUME_UNSUPPORTED",
+                "The session driver is unavailable.",
+                1,
+            )
+        })?;
+        let mut settings = replay.map(|p| p.settings()).unwrap_or_default();
+        // The last admitted observation wins over the launch model.
+        if let Some(model) = session
+            .state
+            .as_ref()
+            .and_then(|state| lifecycle.state_model(state))
+        {
+            settings.model = Some(model);
+        }
+        if options.model.is_some() {
+            settings.model = options.model.clone();
+        }
+        if options.effort.is_some() {
+            settings.effort = options.effort.clone();
+        }
+        if !lifecycle.resume_settings(&mut launch.command, &settings) {
+            return Err(Failure::new(
+                "RESUME_SETTINGS_INVALID",
+                "The driver cannot replay the selected launch settings.",
+                1,
+            ));
+        }
+        if let Some(preset) = replay {
+            launch.command.executable = preset.executable.clone().into();
+        } else {
+            diagnostic(
+                "no launch preset is associated with this session; using its registered driver command.",
+            );
+        }
+    }
+    // A resumed wrapper is associated through the admitted session, never its name.
+    let claim = launch
+        .resumed
+        .as_ref()
+        .map(|session| session.harness.clone())
+        .or_else(|| registry.claim(&launch.command.executable));
     let lifecycle = claim
         .as_ref()
         .and_then(|harness| registry.lifecycle(harness))
@@ -355,8 +412,26 @@ pub(super) fn run_bound(
     }
     let planned = lease.command(launch_command);
     tmt_adapters::workspace::refresh_server(paths, host, &binding.server);
+    let child_environment = environment
+        .iter()
+        .cloned()
+        .chain(lease.environment().iter().cloned())
+        .collect::<Vec<_>>();
+    let captured_preset = (launch.resumed.is_none())
+        .then(|| {
+            owner.as_ref().and_then(|owner| {
+                tmt_adapters::runtime::launch_preset::LaunchPreset::capture(
+                    &launch.command,
+                    &registry,
+                    &binding.id,
+                    owner,
+                    |key| std::env::var(key).ok(),
+                )
+            })
+        })
+        .flatten();
     let child =
-        InteractiveChild::start_with(&planned.executable, &planned.args, lease.environment())
+        InteractiveChild::start_with(&planned.executable, &planned.args, &child_environment)
             .map_err(|error| {
                 // No child exists, so nothing ran and the enrollment ends.
                 lease.never_spawned();
@@ -367,6 +442,18 @@ pub(super) fn run_bound(
                 Failure::new("LAUNCH_FAILED", "Could not start the requested command.", 1)
                     .caused_by(error)
             })?;
+    if let Some(preset) = &captured_preset {
+        if !tmt_adapters::runtime::launch_preset::remember(storage, &binding.identity_id, preset)
+            .unwrap_or(false)
+        {
+            diagnostic("could not record the bounded launch preset; this command keeps running.");
+        }
+    } else if launch.resumed.is_none() {
+        // A fresh launch without a record must not reuse an older launcher.
+        if tmt_adapters::runtime::launch_preset::clear(storage, &binding.identity_id).is_err() {
+            diagnostic("could not clear the previous launch preset; this command keeps running.");
+        }
+    }
     let child_evidence = child
         .observe_runtime(Instant::now() + Duration::from_secs(3))
         .unwrap_or(ProcessObservation::Unknown);
@@ -474,6 +561,26 @@ pub(super) fn run_bound(
         diagnostic(
             "command started, but runtime ownership could not be recorded; automatic delivery is not established.",
         );
+    }
+    // A start hook can race the foreground admission. Associate its already
+    // admitted session only when this exact child/owner still holds the binding.
+    if let (Some(owner), Some((key, _))) = (&owner, &admitted)
+        && let Ok(preferences) = storage.session_preferences(&binding.identity_id)
+        && let Some(session) = preferences
+            .remembered
+            .as_ref()
+            .filter(|session| key.provider_session.as_ref() == Some(&session.provider_session))
+        && tmt_adapters::runtime::launch_preset::associate(
+            storage,
+            &binding.identity_id,
+            &binding.id,
+            owner,
+            session,
+            &registry,
+        )
+        .is_err()
+    {
+        diagnostic("could not associate this launch preset with its admitted session.");
     }
     let (closed, signal_result) = child.with_deferred_suspend(|| storage.close());
     let storage_closed = closed.is_ok();

@@ -20,6 +20,7 @@ pub mod consumption;
 pub mod driver_state;
 pub(crate) mod evidence;
 pub mod hook_protocol;
+pub mod launch_preset;
 pub mod lifecycle;
 #[cfg(test)]
 mod prompt_tests;
@@ -275,6 +276,22 @@ impl RuntimeRegistry {
             .find(|entry| &entry.harness == harness)?
             .lifecycle
             .as_deref()
+    }
+
+    /// Wrapper names do not identify a provider. Capture only the small union
+    /// of registered drivers' recognized launch settings; hooks choose the owner.
+    pub fn launch_settings(&self, args: &[OsString]) -> launch_preset::LaunchSettings {
+        let mut settings = launch_preset::LaunchSettings::default();
+        for driver in self
+            .registrations
+            .iter()
+            .filter_map(|entry| entry.lifecycle.as_deref())
+        {
+            let extracted = driver.launch_settings(args);
+            settings.model = settings.model.or(extracted.model);
+            settings.effort = settings.effort.or(extracted.effort);
+        }
+        settings
     }
 
     pub fn claim(&self, executable: &OsStr) -> Option<HarnessId> {

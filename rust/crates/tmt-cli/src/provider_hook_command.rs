@@ -554,6 +554,25 @@ fn observe(
     )?;
     if changed
         && event.starting()
+        && let Some(owner) = next.launch_owner.as_ref()
+        && let Some(session) = storage
+            .session_preferences(&binding.identity_id)
+            .map_err(|_| ())?
+            .remembered
+            .as_ref()
+    {
+        tmt_adapters::runtime::launch_preset::associate(
+            &mut storage,
+            &binding.identity_id,
+            &binding.id,
+            owner,
+            session,
+            &registry,
+        )
+        .map_err(|_| ())?;
+    }
+    if changed
+        && event.starting()
         && let Ok(environment) = ProviderEnvironment::capture()
         && tmt_adapters::drivers::Registry::builtin()
             .find(provider)

@@ -315,6 +315,38 @@ impl tmt_core::driver::Driver for ClaudeRuntime {
 pub struct ClaudeLifecycle;
 
 impl crate::runtime::lifecycle::RuntimeLifecycle for ClaudeLifecycle {
+    fn launch_settings(
+        &self,
+        args: &[std::ffi::OsString],
+    ) -> crate::runtime::launch_preset::LaunchSettings {
+        crate::runtime::launch_preset::flags(args, &["--model"], &["--effort"], false)
+    }
+    fn resume_settings(
+        &self,
+        command: &mut crate::runtime::RuntimeCommand,
+        settings: &crate::runtime::launch_preset::LaunchSettings,
+    ) -> bool {
+        if !settings.valid() {
+            return false;
+        }
+        // Driver resume already supplies the observed model. Replace it only
+        // when the caller or preset has selected a model explicitly.
+        if let Some(model) = &settings.model {
+            if let Some(index) = command
+                .args
+                .iter()
+                .position(|arg| arg == "--model" || arg == "-m")
+            {
+                command.args.drain(index..index + 2);
+            }
+            command.args.extend(["--model".into(), model.into()]);
+        }
+        if let Some(effort) = &settings.effort {
+            command.args.extend(["--effort".into(), effort.into()]);
+        }
+        true
+    }
+
     fn caller_session(&self) -> Option<crate::runtime::lifecycle::CallerSession> {
         caller_session::coordinates(
             std::env::var_os("CLAUDE_CODE_SESSION_ID").as_deref(),

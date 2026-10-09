@@ -54,7 +54,11 @@ pub enum Invocation {
         directory: std::path::PathBuf,
     },
     Resume {
-        name: String,
+        name: Option<String>,
+        show: bool,
+        forget_launch: bool,
+        model: Option<String>,
+        effort: Option<String>,
         forget: bool,
         retry: bool,
         channel: ChannelMode,

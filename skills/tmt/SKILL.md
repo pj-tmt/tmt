@@ -794,16 +794,26 @@ This launches a real program and needs user authorization just like running it
 directly. Do not invoke it to replace an already running agent in this pane.
 
 A new identity is temporary unless `-s` is supplied; existing saved identities
-never downgrade. Registered runtime drivers remember their harness ID, never
-arguments, executable paths or anything derived from argv; provider hooks record
-the session and the model the provider reports. Generic commands leave the prior
-harness preference intact.
+never downgrade. Registered runtime drivers remember their harness ID; provider
+hooks record the session and observed model. A bounded launch preset separately records the exact
+executable, extracted model/effort and only `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE` and
+`CLAUDE_MINI_PCT` when present. No full argv or other environment is stored.
+An admitted provider session associates a wrapper with that exact launch; a wrapper
+name alone never identifies a provider. Generic commands leave the prior harness
+preference intact.
 Bare `tmt run <name>` launches the remembered registered executable through PATH
 with no arguments; without one, supply an explicit command.
 
-`tmt resume <name>` (alias `tmt run --resume <name>`) resumes the exact
-hook-recorded session in the current pane. It never starts fresh: when nothing
-is remembered or the driver cannot resume it, it fails and says
+`tmt resume` uses this pane's verified bound identity; an unbound pane refuses and
+lists saved names. `tmt resume <name>` (alias `tmt run --resume <name>`) resumes the exact
+hook-recorded session in the current pane. It replays the associated executable,
+last observed model and launch effort. `--model` and `--effort` before the name
+explicitly override those values; present allowed environment keys override stored
+ones, even when empty. `tmt resume --show <name>` displays the preset without
+launching; `tmt resume --forget-launch <name>` clears it while retaining the session.
+Without an associated preset, resume reports that it uses the registered driver.
+It never starts fresh: when nothing is remembered or the driver cannot resume it,
+it fails and says
 `Start fresh with: tmt run <name>`. Starting fresh is the user's call. A resume
 that fails before the provider confirms the session marks it stale; a stale
 session needs `tmt resume --retry <name>` or `tmt resume --forget <name>`. Never
