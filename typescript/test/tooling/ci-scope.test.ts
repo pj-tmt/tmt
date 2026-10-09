@@ -445,6 +445,21 @@ describe('component map', () => {
     return () => parseComponentMap(JSON.stringify(value));
   };
 
+  it('every workflow Node version-file input names a tracked repository file', () => {
+    const files = tracked();
+    for (const workflow of files.filter((file) =>
+      /^\.github\/workflows\/[^/]+\.ya?ml$/.test(file)
+    )) {
+      const text = readFileSync(path.join(repository, workflow), 'utf8');
+      for (const match of text.matchAll(/^\s*node-version-file:\s*([^\n]+)$/gm)) {
+        const versionFile = match[1].trim().replace(/^['"]|['"]$/g, '');
+        expect(files, `${workflow}: node-version-file ${versionFile} is not tracked`).toContain(
+          versionFile
+        );
+      }
+    }
+  });
+
   it('says which components are released: all but the ones that declare release: false', () => {
     expect(isReleased(map, 'cli')).toBe(true);
     expect(isReleased(map, 'ops')).toBe(true);
@@ -2809,6 +2824,8 @@ it('keeps native E2E archive consumers restore-only and the sole writer main-onl
   expect(seed).toContain('lookup-only: true');
   expect(seed).toContain('uses: actions/cache/save@v4');
   expect(seed).toContain('outputs: type=local,dest=${{ runner.temp }}/tmt-e2e-dependencies');
+  expect(seed).toContain('provenance: false');
+  expect(seed).toContain('sbom: false');
   expect(seed).not.toMatch(/pull_request|merge_group|workflow_dispatch|restore-keys|type=gha/);
   expect(seed).toContain("- '**/Cargo.toml'");
   expect(seed).toContain('- rust/Cargo.lock');

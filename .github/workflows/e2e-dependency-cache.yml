@@ -38,7 +38,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@v4
         with:
-          node-version-file: .node-version
+          node-version: 22.23.2
       - name: Name exact native E2E dependencies
         id: key
         run: node typescript/scripts/e2e-dependency-cache.mjs key >> "$GITHUB_OUTPUT"
@@ -61,12 +61,17 @@ jobs:
           file: typescript/test/e2e/dependency-cache.Dockerfile
           target: dependencies
           outputs: type=local,dest=${{ runner.temp }}/tmt-e2e-dependencies
+          provenance: false
+          sbom: false
       - name: Check and stamp the dependency archive
         if: steps.existing.outputs.cache-hit != 'true'
         env:
           DEPENDENCY_KEY: ${{ steps.key.outputs.key }}
           DEPENDENCY_ROOT: ${{ runner.temp }}/tmt-e2e-dependencies
-        run: node typescript/scripts/e2e-dependency-cache.mjs stamp "$DEPENDENCY_ROOT" "$DEPENDENCY_KEY"
+        run: |
+          node typescript/scripts/e2e-dependency-cache.mjs stamp "$DEPENDENCY_ROOT" "$DEPENDENCY_KEY"
+          node typescript/scripts/e2e-dependency-cache.mjs admit "$DEPENDENCY_ROOT" "$DEPENDENCY_KEY"
+          du -sb "$DEPENDENCY_ROOT"
       - name: Save the main-owned exact generation
         if: steps.existing.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
