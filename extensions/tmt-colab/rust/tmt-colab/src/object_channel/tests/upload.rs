@@ -122,7 +122,8 @@ impl OwnerObjectFixture {
             filename: "private label.txt".into(),
             media_type: "text/plain".into(),
         };
-        let base = crate::page::revision(&state.store, &state.key, PAGE).unwrap();
+        let base =
+            crate::attachments::captured_base(&state.store, &state.key, &descriptor).unwrap();
         let original =
             binding::FrozenUpload::new(descriptor, base, GENERATION, raw.clone()).unwrap();
         let jobs = PeerObjects::new(peer.clone()).unwrap();

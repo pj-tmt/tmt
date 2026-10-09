@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import { expect, test } from '@playwright/test';
 import { pairBrowser, startDoor } from './harness/browser.js';
-import { createPage, freePort, openChat, openPage } from './harness/ask.js';
+import { createPage, freePort, openChat, openPage, run } from './harness/ask.js';
 import { disposeActiveWorlds, withWorld } from './harness/with-world.js';
 import { text } from '../src/strings.js';
 
@@ -90,5 +90,55 @@ test('files attached in Chat reach a second paired device, preview and download 
         expect(sha(fs.readFileSync((await saved.path())!))).toBe(sha(file.buffer));
       }
     }
+  });
+});
+
+test('a foreign write during an upload leaves a message attachment valid; a membership change does not', async () => {
+  await withWorld(async (world) => {
+    const door = await startDoor(world, await freePort());
+    const author = await pairBrowser(world, 'fence-author');
+    const viewer = await pairBrowser(world, 'fence-viewer');
+    const created = createPage(world, 'Fence', '<h1>Fence</h1>');
+    const first = await openPage(door, author, created);
+    const second = await openPage(door, viewer, created);
+    await openChat(first);
+    await openChat(second);
+    const mine = first.getByTestId('chat-panel');
+    const theirs = second.getByTestId('chat-panel');
+    const big = {
+      name: 'big.bin',
+      mimeType: 'application/octet-stream',
+      buffer: bytes(3 * 1024 * 1024, 21),
+    };
+    const chip = mine.getByTestId('attachment-chip');
+    const sendBig = async (message: string) => {
+      await mine.getByRole('combobox', { name: 'Message', exact: true }).fill(message);
+      const chooser = first.waitForEvent('filechooser');
+      await mine.getByRole('button', { name: text.attachFiles }).click();
+      await (await chooser).setFiles([big]);
+      await mine.getByRole('button', { name: text.askSend, exact: true }).click();
+      await expect(chip).toHaveAttribute('data-state', 'uploading');
+    };
+    const colab = (args: string[], input?: string) =>
+      run(world, world.binaries.colab, [...args, '--json'], input);
+
+    // A foreign write (the page's source moves) while the upload runs: the message still
+    // sends with its attachment and no "page changed" notice appears.
+    await sendBig('Big one');
+    colab(
+      ['page', 'write', created.pageId, '--file', '-'],
+      '<h1>Fence, moved by another writer</h1>',
+    );
+    await expect(chip).toHaveAttribute('data-state', 'uploading', { timeout: 1000 });
+    await expect(mine.getByTestId('message-attachment')).toHaveCount(1, { timeout: 120_000 });
+    await expect(first.getByText(text.attachAgainPageChanged)).toHaveCount(0);
+    await expect(theirs.getByTestId('message-attachment')).toHaveCount(1, { timeout: 30_000 });
+
+    // A membership change (the share mode) while it runs: that upload is no longer valid.
+    await sendBig('Second one');
+    colab(['share', 'mode', created.pageId, 'link', '--yes']);
+    await expect(chip).toHaveAttribute('data-state', 'refused', { timeout: 120_000 });
+    await expect(mine.getByTestId('message-attachment')).toHaveCount(1);
+    await expect(theirs.getByTestId('message-attachment')).toHaveCount(1);
   });
 });

@@ -16,6 +16,10 @@ Run the oracle without `--write` to verify frozen bytes; deliberate regeneration
 uses a throwaway virtualenv. Reference/history authority and live object callbacks
 are subsequent #1853 slices, not established by these byte fixtures.
 
+`attachment-fence-reference.py` (stdlib only) independently frames the message-attachment
+fence; `attachment-fence-v1.json` is consumed by Rust `message_fence` and browser
+`messageFence`. Run it without `--write` to verify the frozen bytes.
+
 `ed25519-829.jsonl` retains all 148 cases from #829's
 `evidence/ed25519-differential-vectors.json`; each line is an unchanged case value,
 including nine accepted positives and mixed-order controls.

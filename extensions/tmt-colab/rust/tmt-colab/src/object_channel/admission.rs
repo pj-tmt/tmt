@@ -115,10 +115,10 @@ impl RequestCapture {
                 // Initial target decoding happened outside all live locks. A
                 // changed cut/head/base cannot reuse that admitted target.
                 let source = (self.source)()?;
-                if page::revision(&source.store, &source.keyring, &self.scope.page)? != *base {
+                let snapshot = Snapshot::capture(&source.store, &source.keyring, &self.scope.page)?;
+                if attachments::current_base(&source.keyring, descriptor, &snapshot)? != *base {
                     return Err(page::Fault::StaleBase.into());
                 }
-                let snapshot = Snapshot::capture(&source.store, &source.keyring, &self.scope.page)?;
                 snapshot.asset_author(&source.keyring, descriptor)?;
             }
             CapturedTarget::Read(capture) => {

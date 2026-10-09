@@ -1,0 +1,75 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "name": "base",
+      "space": "4kph3kmtxo7dinlvoixpw642ozfibd2w",
+      "page": "00000000-0000-4000-8000-000000000002",
+      "epoch": "1",
+      "revision": "2",
+      "headHash": "1111111111111111111111111111111111111111111111111111111111111111",
+      "author": "00000000-0000-4000-8000-000000000012",
+      "fence": "v1:9d482c83ffe8a5a75d35875c39f4d815b4335a411f0141ad75537f3879a657ea"
+    },
+    {
+      "name": "another-space",
+      "space": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "page": "00000000-0000-4000-8000-000000000002",
+      "epoch": "1",
+      "revision": "2",
+      "headHash": "1111111111111111111111111111111111111111111111111111111111111111",
+      "author": "00000000-0000-4000-8000-000000000012",
+      "fence": "v1:f8d0d6e6f9e456a53433e6b7b716f9792e068929f45d6ff8d5a5e8d310445a2c"
+    },
+    {
+      "name": "another-page",
+      "space": "4kph3kmtxo7dinlvoixpw642ozfibd2w",
+      "page": "00000000-0000-4000-8000-000000000003",
+      "epoch": "1",
+      "revision": "2",
+      "headHash": "1111111111111111111111111111111111111111111111111111111111111111",
+      "author": "00000000-0000-4000-8000-000000000012",
+      "fence": "v1:785e939fbb59f473b92d4a6ac4e463aee6f2ea795495bd0be6f2233ddd4f59f8"
+    },
+    {
+      "name": "another-epoch",
+      "space": "4kph3kmtxo7dinlvoixpw642ozfibd2w",
+      "page": "00000000-0000-4000-8000-000000000002",
+      "epoch": "2",
+      "revision": "2",
+      "headHash": "1111111111111111111111111111111111111111111111111111111111111111",
+      "author": "00000000-0000-4000-8000-000000000012",
+      "fence": "v1:094b5f4d0107e182be15830fd7a9c63b0ce4fd4076635ee0f5a7b7dfaea80a4d"
+    },
+    {
+      "name": "another-membership-revision",
+      "space": "4kph3kmtxo7dinlvoixpw642ozfibd2w",
+      "page": "00000000-0000-4000-8000-000000000002",
+      "epoch": "1",
+      "revision": "3",
+      "headHash": "1111111111111111111111111111111111111111111111111111111111111111",
+      "author": "00000000-0000-4000-8000-000000000012",
+      "fence": "v1:5ab4e34f6a36445925631700b057eb92fbcd2e03ed98ca0bc76e239d675fa7ad"
+    },
+    {
+      "name": "another-membership-hash",
+      "space": "4kph3kmtxo7dinlvoixpw642ozfibd2w",
+      "page": "00000000-0000-4000-8000-000000000002",
+      "epoch": "1",
+      "revision": "2",
+      "headHash": "2222222222222222222222222222222222222222222222222222222222222222",
+      "author": "00000000-0000-4000-8000-000000000012",
+      "fence": "v1:95015bb980915e30b73ce4717cc3362e237e84976eb90ee33336f4a5655d009a"
+    },
+    {
+      "name": "another-author",
+      "space": "4kph3kmtxo7dinlvoixpw642ozfibd2w",
+      "page": "00000000-0000-4000-8000-000000000002",
+      "epoch": "1",
+      "revision": "2",
+      "headHash": "1111111111111111111111111111111111111111111111111111111111111111",
+      "author": "00000000-0000-4000-8000-000000000013",
+      "fence": "v1:627d5c68f657633ebadefe1e925578ad64a281cadd0592ad7c59e29b5fc6a252"
+    }
+  ]
+}

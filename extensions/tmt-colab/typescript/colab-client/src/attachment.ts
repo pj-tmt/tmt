@@ -149,6 +149,40 @@ export function decodeAttachment(raw: Uint8Array): AttachmentDescriptor {
 export function attachmentJson(value: AttachmentDescriptor): Bytes {
   return text(JSON.stringify(attachmentDescriptor(value)));
 }
+/** The base a message-source attachment is fenced by: the space, page and epoch it was sealed
+ * under, the membership head it was admitted by and its author. It covers no stream cut, so a
+ * foreign write while the upload runs leaves it valid; a membership or epoch change does not.
+ * Its label is distinct, so a page revision (the base of a document-source attachment) can never
+ * satisfy a fence or the reverse. Mirrors native `message_fence`; both consume
+ * `attachment-fence-v1.json`. */
+export async function messageFence(value: {
+  space: string;
+  page: string;
+  epoch: string;
+  membershipRevision: string;
+  membershipHash: Bytes;
+  author: string;
+}): Promise<string> {
+  spaceId(value.space);
+  generatedId(value.page);
+  decimal(value.epoch);
+  decimal(value.membershipRevision);
+  requireValue(value.membershipHash.length === 32);
+  generatedId(value.author);
+  const hash = await digest(
+    frame(
+      text('tmt-colab-attachment-fence-v1'),
+      text('1'),
+      text(value.space),
+      text(value.page),
+      text(value.epoch),
+      text(value.membershipRevision),
+      value.membershipHash,
+      text(value.author),
+    ),
+  );
+  return `v1:${Array.from(hash, (b) => b.toString(16).padStart(2, '0')).join('')}`;
+}
 export function attachmentInput(value: AttachmentDescriptor): Bytes {
   const v = attachmentDescriptor(value);
   return frame(

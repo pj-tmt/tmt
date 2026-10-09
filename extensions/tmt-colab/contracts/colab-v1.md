@@ -89,7 +89,7 @@ declares at most 16 million pixels is stored under its raster type, everything e
 (video bytes included) as `application/octet-stream`.
 
 On Send the browser allocates the message ID once, then for each chip seals the asset
-under that ID (message revision 1), freezes it with the page revision as its base,
+under that ID (message revision 1), freezes it with the message fence (the membership head, epoch and author; see [attachment-v1](attachment-v1.md)) as its base,
 and runs `begin`, ordered `part`s and `commit`; progress is per chip and a failed Send
 leaves the text and the other chips as they are. `refused` outcomes (including a
 backend limit) never took effect and are retried only by an explicit action. A thrown
@@ -104,7 +104,8 @@ drafts.
 Only when every chip is committed does the Writer batch the verified publication records
 and the message record (with its descriptors) in one own publication, inside the
 discussion lock and after `verify` of each committed object. Publication requires the
-page revision to equal the base captured at seal time. If the page changed meanwhile,
+fence to equal the base captured at seal time, so another device's or agent's write while
+files upload never stops the Send. If the membership head or epoch changed meanwhile,
 nothing is published, the affected chips show that the page changed and the next Send
 uploads them again from the retained local bytes under the same message ID, releasing
 the first original. Objects left unreferenced by a failed or abandoned Send stay in the

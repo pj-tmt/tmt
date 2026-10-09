@@ -8,7 +8,11 @@ import {
 } from '@tmt/colab-client';
 import { FrozenAttachmentUpload, ATTACHMENT_CHUNK_BYTES } from './attachment-channel.js';
 import type { AttachmentObjectOutcome } from './attachment-channel.js';
-import { AdmittedAttachmentRead, prepareAttachmentPublication } from './attachments.js';
+import {
+  AdmittedAttachmentRead,
+  currentBase,
+  prepareAttachmentPublication,
+} from './attachments.js';
 import type { Connection } from './connection.js';
 import type { OwnRecord } from './fold-protocol.js';
 import { hex } from './export.js';
@@ -192,7 +196,7 @@ export class AttachmentService implements AttachmentBinding {
       mediaType: input.mediaType,
     });
     // The base is the connection's own revision, the one publication fences against.
-    const base = (await c.attachmentSnapshot()).revision;
+    const base = await currentBase(descriptor, await c.attachmentSnapshot());
     return FrozenAttachmentUpload.capture(descriptor, base, crypto.randomUUID(), raw);
   }
   /** Begin (or ask status of) the one original, send the missing parts in order, commit.
@@ -264,8 +268,11 @@ export class AttachmentService implements AttachmentBinding {
   async publication(stored: readonly StoredAttachment[]): Promise<OwnRecord[]> {
     const c = await this.#channel(),
       owner = { snapshot: (epoch?: string, bound?: number) => c.attachmentSnapshot(epoch, bound) },
-      current = (await c.attachmentSnapshot()).revision,
-      stale = stored.filter(({ original }) => original.base !== current);
+      snapshot = await c.attachmentSnapshot(),
+      stale: StoredAttachment[] = [];
+    for (const item of stored)
+      if (item.original.base !== (await currentBase(item.original.descriptor, snapshot)))
+        stale.push(item);
     if (stale.length)
       throw new AttachmentStaleError(stale.map((s) => s.original.descriptor.attachmentId));
     const records: OwnRecord[] = [];
