@@ -64,7 +64,7 @@ for (const surface of ['chat', 'thread'])
       await expect(input).toHaveText('My next draft.', { useInnerText: true });
       await input.focus();
       expect(await input.evaluate(() => document.getSelection()?.anchorOffset)).toBe(caret);
-      await expect(page.getByTestId('ask-state').last()).toContainText('Waiting for alpha');
+      await expect(page.getByTestId('ask-state').last()).toHaveText('Waiting for alpha');
     });
 
 test('two trusted activations while preparation waits produce one fresh operation', async ({
@@ -95,6 +95,7 @@ test('another refusal keeps both honest outcomes and one recipient action; keybo
   await expect(page.locator('[data-ledger-state=refused]')).toHaveCount(2);
   await expect(again).toHaveCount(1);
   await expect(page.getByTestId('ask-state').last()).toContainText('Not delivered');
+  await expect(page.getByTestId('ask-state').last()).toHaveText('@alpha · Not delivered');
   await expect(page.locator('.ask-supporting').last()).toContainText(
     'Remote is busy. Try again later.',
   );
@@ -107,6 +108,11 @@ for (const mode of ['uncertain', 'unknown', 'held'])
     await expect(page.getByRole('button', { name: 'Ask again', exact: true })).toHaveCount(0);
     const proof = await run(page, 'proof');
     expect(proof.writes).toBe(1);
+    await expect(page.getByTestId('ask-state').last()).toHaveText('Waiting for beta');
+    if (mode === 'held')
+      await expect(page.getByTestId('ask-state').first()).toHaveText(
+        '@alpha · Waiting for approval',
+      );
     if (mode === 'uncertain')
       await expect(page.getByRole('button', { name: 'Abandon tracking', exact: true })).toHaveCount(
         1,

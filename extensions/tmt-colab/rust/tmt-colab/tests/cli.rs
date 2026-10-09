@@ -368,7 +368,7 @@ fn listing_is_read_only_and_foreground_shutdown_releases_state_and_sockets_twice
             .unwrap();
         let mut page = String::new();
         socket.read_to_string(&mut page).unwrap();
-        assert!(page.starts_with("HTTP/1.1 200") && page.contains("This colab space is private"));
+        assert!(page.starts_with("HTTP/1.1 200") && page.contains("This Colab space is private"));
         assert_eq!(
             fs::read_to_string(pilot.root.join("calls")).unwrap(),
             "api\napi\n",

@@ -857,16 +857,15 @@ fn serve(
             "Signed-in space",
             "Colab is running",
             format!(
-                "<p>Colab space {} is running. You are signed in as {}. {}.</p>",
+                "<p>Colab space {} is running. You are signed in as {}.</p><p>Update Colab on this machine, then restart the serving process.</p><div class=\"tmt-ui-command\"><code class=\"tmt-ui-command-text\">tmt extension upgrade colab</code></div>",
                 escape(&browser.space_id),
                 escape(name),
-                assets::BUILD_HINT
             ),
         ),
         None => (
             "Private space",
             "Pair this browser first",
-            "<p>This colab space is private. Pair this browser with</p><div class=\"tmt-ui-command\"><code class=\"tmt-ui-command-text\">tmt remote pair</code></div><p>or open a share link.</p>".into(),
+            "<p>This Colab space is private. Pair this browser with</p><div class=\"tmt-ui-command\"><code class=\"tmt-ui-command-text\">tmt remote pair</code></div><p>or open a share link.</p>".into(),
         ),
     };
     let recovery = request.owner.is_none()

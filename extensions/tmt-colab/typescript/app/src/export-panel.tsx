@@ -90,18 +90,19 @@ export function ExportPanel({
       </p>
       <div className="export-actions">
         {PAGE_FILES.map((name) => (
-          <button
-            key={name}
-            disabled={blocked || state !== 'ready'}
-            onClick={(event) => {
-              if (event.isTrusted) download(name);
-            }}
-          >
-            {text.download} {name}
+          <div key={name} className="export-download">
+            <BrowserAction
+              type="button"
+              variant="primary"
+              label={text.exportDownload(name)}
+              disabled={blocked || state !== 'ready'}
+              onActivate={(event) => {
+                if (event.isTrusted) download(name);
+              }}
+            />
             {requested.includes(name) && <Check aria-hidden />}
-          </button>
+          </div>
         ))}
-        <button onClick={() => setOpen(false)}>{text.exportClose}</button>
       </div>
       {attachments.length > 0 && (
         <section className="export-attachments" aria-label={text.exportAttachments}>

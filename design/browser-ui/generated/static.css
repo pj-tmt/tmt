@@ -66,7 +66,7 @@
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme='light']) {
     --tmt-ui-color-text: #b0b0b0;
-    --tmt-ui-color-secondary: #b0b0b0;
+    --tmt-ui-color-secondary: #909090;
     --tmt-ui-color-selected-text: #d8d8d8;
     --tmt-ui-color-disabled-text: #858585;
     --tmt-ui-color-focus: #b0b0b0;
@@ -107,7 +107,7 @@
 }
 [data-theme='dark'] {
   --tmt-ui-color-text: #b0b0b0;
-  --tmt-ui-color-secondary: #b0b0b0;
+  --tmt-ui-color-secondary: #909090;
   --tmt-ui-color-selected-text: #d8d8d8;
   --tmt-ui-color-disabled-text: #858585;
   --tmt-ui-color-focus: #b0b0b0;

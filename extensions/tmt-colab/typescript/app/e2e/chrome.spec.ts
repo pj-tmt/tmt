@@ -66,7 +66,8 @@ async function nativeScreen(page: Page, name: 'private' | 'owner') {
   if (name === 'owner') {
     await expect(page.locator('.guidance-mark')).toHaveAttribute('fill', 'currentColor');
     await expect(page.locator('.guidance-detail')).toContainText('You are signed in as Laptop.');
-    await expect(page.locator('.guidance-detail')).toContainText('Build the app:');
+    await expect(page.locator('.guidance-detail')).toContainText('tmt extension upgrade colab');
+    await expect(page.locator('.guidance-detail')).not.toContainText('Build the app:');
   } else {
     await expect(page.locator('.guidance-mark path')).toBeVisible();
   }

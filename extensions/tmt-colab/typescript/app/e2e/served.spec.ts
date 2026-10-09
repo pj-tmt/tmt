@@ -256,7 +256,7 @@ for (let run = 1; run <= 2; run++) {
       );
       const privatePage = await fetch(server.origin + mount);
       const privateHtml = await privatePage.text();
-      expect(privateHtml).toContain('This colab space is private');
+      expect(privateHtml).toContain('This Colab space is private');
       expect(privateHtml).toContain(
         '<h2 class="tmt-ui-notice-heading">Pair this browser first</h2>',
       );

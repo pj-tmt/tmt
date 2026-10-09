@@ -50,12 +50,22 @@
   list-style: none;
 }
 .message-attachment {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
   align-items: center;
   gap: 2px 8px;
   padding: 4px 0;
   font-size: 13px;
+}
+.message-attachment .attachment-actions {
+  margin-inline-start: 0;
+  white-space: nowrap;
+  grid-column: 3;
+  grid-row: 1;
+}
+.message-attachment .attachment-state,
+.message-attachment .attachment-preview {
+  grid-column: 1 / -1;
 }
 .attachment-preview {
   flex: 1 0 100%;

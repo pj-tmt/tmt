@@ -430,7 +430,7 @@ body:has(.page-header-actions) {
 .export-panel {
   margin-top: 16px;
   padding: 20px;
-  background: var(--c-sheet);
+  background: transparent;
   border: 1px solid var(--c-text);
 }
 .export-panel h2 {
@@ -441,6 +441,19 @@ body:has(.page-header-actions) {
   display: flex;
   flex-wrap: wrap;
   gap: 12px;
+}
+.export-download {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.annotation-compose .tmt-ui-action[data-variant='primary']:not(:disabled) {
+  color: var(--c-paper);
+  background: var(--c-text);
+  border-color: var(--c-text);
+}
+.annotation-compose .tmt-ui-action[data-variant='primary']:disabled {
+  background: transparent;
 }
 .export-control button:disabled {
   cursor: default;

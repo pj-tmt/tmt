@@ -539,7 +539,7 @@ test('export and attachment read return the same bytes as the browser, and say w
         expect(saved.suggestedFilename()).toBe(file.name);
         expect(sha(fs.readFileSync((await saved.path())!))).toBe(sha(file.buffer));
       }
-      await exportPanel.getByRole('button', { name: 'Close export' }).click();
+      await first.locator('.page-drawer[data-panel="export"] .drawer-bar button').click();
 
       // attachment read returns one file from its manifest reference, and only that file.
       const referenceOf = (name: string) => {

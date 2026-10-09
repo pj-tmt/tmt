@@ -329,7 +329,7 @@ fn pages_follow_the_forwarded_owner_context_within_the_door_bounds() {
     assert!(private.starts_with("HTTP/1.1 200"));
     assert!(private.contains("<title>Colab</title>"));
     assert!(private.contains("<h2 class=\"tmt-ui-notice-heading\">Pair this browser first</h2>"));
-    assert!(private.contains("This colab space is private. Pair this browser with"));
+    assert!(private.contains("This Colab space is private. Pair this browser with"));
     assert!(private.contains("<code class=\"tmt-ui-command-text\">tmt remote pair</code>"));
     assert!(private.contains("or open a share link."));
     assert!(private.contains("<main class=\"guidance-main\">"));
@@ -377,10 +377,11 @@ fn pages_follow_the_forwarded_owner_context_within_the_door_bounds() {
     let owner_header = owner(DEVICE);
     let owned = server.request(&Running::get("/", &format!("{owner_header}\r\n")));
     assert!(owned.contains(&format!(
-        "Colab space {} is running. You are signed in as &lt;b&gt;Laptop&lt;/b&gt;. {}.",
+        "Colab space {} is running. You are signed in as &lt;b&gt;Laptop&lt;/b&gt;.",
         server.space,
-        tmt_colab::assets::BUILD_HINT
     )));
+    assert!(owned.contains("tmt extension upgrade colab"));
+    assert!(!owned.contains(tmt_colab::assets::BUILD_HINT));
     for context in [
         "tmt-device-context: {}\r\n",
         "tmt-device-context: not json\r\n",
@@ -1843,7 +1844,7 @@ fn owner_static_assets_have_exact_bytes_types_and_no_filesystem_path_resolution(
         }
     }
     let guidance = server.request(&Running::get("/", ""));
-    assert!(guidance.contains("This colab space is private"));
+    assert!(guidance.contains("This Colab space is private"));
     let brand_start = r#"<span class="tmt-ui-brand"><svg class="tmt-ui-mark" viewBox="0 0 200 200" aria-hidden="true" fill="currentColor">"#;
     let mark = guidance
         .split_once(brand_start)

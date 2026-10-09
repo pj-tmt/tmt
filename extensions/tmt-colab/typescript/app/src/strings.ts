@@ -242,6 +242,7 @@ export const text = {
     "Terminal delivery may escape '!' characters; the agent still receives the exact text above.",
   askUnavailable: 'Agent sending is unavailable for this page.',
   askSend: 'Send',
+  askRecipientPrefix: (agent: string) => `@${agent} · `,
   askClose: 'Close preview',
   agentStatus: 'Agents',
   agentStatusRecheck: 'Recheck status',
@@ -291,7 +292,7 @@ export const text = {
   exportReady: 'Download the files. This copy stays fixed while the live page changes.',
   exportPartial: 'Some files requested. Download the others to complete this copy.',
   exportRequested: 'All downloads requested. Check your browser downloads for the saved files.',
-  exportClose: 'Close export',
+  exportDownload: (name: string) => `Download ${name}`,
   exportAttachments: 'Attachments',
   exportAttachmentRequested: 'Download requested',
   exportAttachmentState: {

@@ -26,7 +26,7 @@ ${themed('light', '    ')}
     --body: ${systemFont(tokens.font.body.stack)};
     --mono: ${systemFont(tokens.font.mono.stack)};
     --size: ${tokens.header['wordmark-size']};
-    --heading: ${tokens.header['title-size']};
+    --heading: 28px;
     --rule: ${tokens.browser.metric['rule-width']};
     --gap: ${tokens.browser.metric['notice-heading-gap']};
     --small-gap: ${tokens.browser.metric['eyebrow-gap']};
@@ -60,8 +60,16 @@ ${themed('dark', '    ')}
   h2,
   h3 {
     margin: 0 0 var(--small-gap);
-    font-size: var(--heading);
     line-height: ${tokens.header['title-line-height']};
+  }
+  h1 {
+    font-size: var(--heading);
+  }
+  h2 {
+    font-size: 22px;
+  }
+  h3 {
+    font-size: 18px;
   }
   p,
   ul,

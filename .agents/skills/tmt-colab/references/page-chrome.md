@@ -18,7 +18,7 @@ field (`Unknown author` when absent) and the independently optional latest publi
 About this page (Page information for read-only readers). These are escaped publisher-provided display labels, never identity,
 permissions or Ask recipient selection. Long captions truncate with the full label in the tooltip and attribution panel.
 
-Native pairing/build guidance stays static. `chrome.rs` compile-time embeds the same checked
+Native pairing/app-unavailable guidance stays static. `chrome.rs` compile-time embeds the same checked
 CSS and Colab host/reader/notice layout styles; `/assets/chrome.css` serves those immutable
 bytes even without an app build. `socket.rs` uses shared static header/notice slots, escapes
 product text, and keeps the parent CSP free of inline style/script exemptions. Guidance
@@ -87,7 +87,9 @@ reserved empty anchor ID resolves without painting a highlight or creating a
 marker/action. Only an admitted resolution response marks the check complete;
 pending checks do not show the stale-quote hint. Annotation/Chat submits and recipient selection use `BrowserAction`: the existing
 Enter intent selects the one primary submit, while other submits and recipient selection
-remain text actions. `MessageComposer` renders its retained Lexical editable combobox through
+remain text actions. The ready primary Send is solid; disabled Send stays outlined and muted.
+Export downloads use the shared Action inside the drawer, with its header providing the single close action.
+`MessageComposer` renders its retained Lexical editable combobox through
 `BrowserField`, with host-owned popup ARIA, draft, ref, caret/IME and editor history.
 `PageDrawer` retains dialog modality and focus; Chat supplies its shared
 `ConversationWindow` header and close action instead of a duplicate drawer header.
