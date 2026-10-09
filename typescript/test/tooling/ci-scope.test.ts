@@ -2269,6 +2269,85 @@ describe('required CI gate', () => {
     expect(colab).toContain('save-if: false');
   });
 
+  it('keeps Docker dependency writes main-only and shard image preparation restore-only', () => {
+    const ci = readFileSync(new URL('../../../.github/workflows/ci.yml', import.meta.url), 'utf8');
+    const writer = readFileSync(
+      new URL('../../../.github/workflows/e2e-dependency-cache.yml', import.meta.url),
+      'utf8'
+    );
+    const admitted = (consumer: string, owner: string) => {
+      const shard = consumer
+        .split('steps: &docker-e2e-steps\n')[1]
+        ?.split('\n  docker-e2e-shard-2:')[0];
+      const seed = owner.split('\n  seed:\n')[1];
+      return (
+        shard?.includes('version: v0.29.1') === true &&
+        shard.includes('cache-from: type=gha,version=2,scope=tmt-e2e-dependencies') &&
+        !shard.includes('cache-to:') &&
+        !shard.includes('continue-on-error:') &&
+        !shard.includes('if: always()') &&
+        shard.includes('load: true') &&
+        shard.includes('TMT_NATIVE_BASE=ci-native-base') &&
+        shard.includes('            TMT_CI_DEPENDENCIES=1') &&
+        shard.includes(
+          'TMT_E2E_PREPARED_IMAGE: tmux-team-e2e:ci-${{ github.run_id }}-${{ github.job }}'
+        ) &&
+        shard.indexOf('name: Build the exact-source Docker E2E image') <
+          shard.indexOf('run: pnpm test:e2e') &&
+        seed?.includes("if: github.event_name == 'push' && github.ref == 'refs/heads/main'") ===
+          true &&
+        seed.includes('target: ci-dependencies') &&
+        seed.includes('build-args: TMT_CI_DEPENDENCIES=1') &&
+        seed.includes('cache-to: type=gha,version=2,scope=tmt-e2e-dependencies,mode=min') &&
+        !seed.includes('pnpm test:e2e') &&
+        owner.includes('group: e2e-dependency-cache-${{ github.ref }}') &&
+        owner.includes('cancel-in-progress: false') &&
+        owner.includes("      - '**/Cargo.toml'") &&
+        owner.includes('      - rust/Cargo.lock') &&
+        owner.includes('      - rust/rust-toolchain.toml') &&
+        owner.includes('      - typescript/test/e2e/Dockerfile') &&
+        [consumer, owner].every(
+          (source) =>
+            source.includes(
+              'docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435'
+            ) &&
+            source.includes('docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83')
+        )
+      );
+    };
+    expect(admitted(ci, writer)).toBe(true);
+    expect(admitted(ci.replace('            TMT_CI_DEPENDENCIES=1', ''), writer)).toBe(false);
+    expect(admitted(ci, writer.replace('build-args: TMT_CI_DEPENDENCIES=1', ''))).toBe(false);
+    expect(
+      admitted(
+        ci.replace(
+          '          cache-from: type=gha,version=2,scope=tmt-e2e-dependencies',
+          '          cache-to: type=gha,version=2,scope=tmt-e2e-dependencies'
+        ),
+        writer
+      )
+    ).toBe(false);
+    expect(
+      admitted(
+        ci,
+        writer.replace(
+          "if: github.event_name == 'push' && github.ref == 'refs/heads/main'",
+          "if: github.event_name == 'pull_request'"
+        )
+      )
+    ).toBe(false);
+    expect(
+      admitted(
+        ci,
+        writer.replace('scope=tmt-e2e-dependencies,mode=min', 'scope=tmt-e2e-dependencies,mode=max')
+      )
+    ).toBe(false);
+    expect(admitted(ci, writer.replace("      - '**/Cargo.toml'\n", ''))).toBe(false);
+    const mainPush = ci.split('\n  push:\n')[1].split('\n  schedule:\n')[0];
+    expect(mainPush).not.toContain('**/Cargo.toml');
+    expect(writer).not.toMatch(/^  (pull_request|qualification):/m);
+  });
+
   it('gives every native step and job an explicit scope, and gates on exactly those results', () => {
     const workflow = readFileSync(
       fileURLToPath(new URL('../../../.github/workflows/ci.yml', import.meta.url)),

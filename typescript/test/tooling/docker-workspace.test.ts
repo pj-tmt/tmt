@@ -1,10 +1,21 @@
-import { readFileSync, readdirSync } from 'node:fs';
+import {
+  readFileSync,
+  readdirSync,
+  mkdtempSync,
+  rmSync,
+  mkdirSync,
+  symlinkSync,
+  lstatSync,
+} from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { expect, it } from 'vite-plus/test';
 import ts from 'typescript';
 import { readCargoWorkspace } from '../../scripts/cargo-workspace.mjs';
 import { imports } from '../support/source-imports.js';
+import { writeExecutable } from '../support/executable-fixture.mjs';
 
 const { runPackedCommand } = await import(
   new URL('../../scripts/packed-command.mjs', import.meta.url).href
@@ -328,8 +339,9 @@ it('sets disposable native fixture profiles before Cargo runs in the Docker E2E 
   const setting = 'ENV CARGO_PROFILE_DEV_DEBUG=0 CARGO_INCREMENTAL=0';
   const configured = (text: string) => {
     const lines = instructions(text);
-    const nextStage = lines.findIndex((line, index) => index > 0 && /^FROM\s/i.test(line));
-    const native = lines.slice(0, nextStage);
+    const first = lines.findIndex((line) => / AS native-tests$/i.test(line));
+    const nextStage = lines.findIndex((line, index) => index > first && /^FROM\s/i.test(line));
+    const native = lines.slice(first, nextStage);
     const cargo = native.findIndex((line) => /^RUN\s.*\bcargo\b/.test(line));
     const settings = native.filter((line) =>
       /^(?:ENV|ARG)\s.*CARGO_(?:PROFILE_DEV_DEBUG|INCREMENTAL)/.test(line)
@@ -345,21 +357,317 @@ it('sets disposable native fixture profiles before Cargo runs in the Docker E2E 
     );
   };
   expect(configured(dockerfile)).toBe(true);
-  expect(configured(dockerfile.replace(`${setting}\n`, ''))).toBe(false);
+  expect(configured(dockerfile.replaceAll(`${setting}\n`, ''))).toBe(false);
   expect(
     configured(
-      dockerfile.replace(`${setting}\n`, '').replace(/^FROM node:/m, `${setting}\nFROM node:`)
+      dockerfile.replaceAll(`${setting}\n`, '').replace(/^FROM node:/m, `${setting}\nFROM node:`)
     )
   ).toBe(false);
   expect(
     configured(
-      dockerfile.replace(`${setting}\n`, '').replace(/^(FROM node:.*)$/m, `$1\n${setting}`)
+      dockerfile.replaceAll(`${setting}\n`, '').replace(/^(FROM node:.*)$/m, `$1\n${setting}`)
     )
   ).toBe(false);
   expect(
-    configured(dockerfile.replace('CARGO_PROFILE_DEV_DEBUG=0', 'CARGO_PROFILE_DEV_DEBUG=1'))
+    configured(dockerfile.replaceAll('CARGO_PROFILE_DEV_DEBUG=0', 'CARGO_PROFILE_DEV_DEBUG=1'))
   ).toBe(false);
-  expect(configured(dockerfile.replace('CARGO_INCREMENTAL=0', 'CARGO_INCREMENTAL=1'))).toBe(false);
+  expect(configured(dockerfile.replaceAll('CARGO_INCREMENTAL=0', 'CARGO_INCREMENTAL=1'))).toBe(
+    false
+  );
+});
+
+it('isolates the checksum-pinned CI dependency recipe from real source and local builds', () => {
+  const text = readFileSync(path.join(root, 'typescript/test/e2e/Dockerfile'), 'utf8');
+  const base =
+    'rust:1.97.0-bookworm@sha256:8fa55b2f3ddf97471ab6a767bfa3f37e6bad0986ba823e75fea57e2a2a5c3073';
+  const checksum = 'a3733ab416c3ffddd37914cd13919ca05fee1a1cf654f3016dcfe7f399d89cd1';
+  const admitted = (source: string) => {
+    const stages = source.split(/^FROM /m);
+    const dependencies = stages.find((part) => part.startsWith('ci-chef AS ci-cook\n'));
+    const planner = stages.find((part) => part.startsWith('ci-chef AS ci-planner\n'));
+    const native = stages.find((part) => part.startsWith('${TMT_NATIVE_BASE} AS native-tests\n'));
+    return (
+      source.startsWith(
+        `# Local builds keep CI planner/cooks inert, including with the classic builder.\nARG TMT_NATIVE_BASE=${base}\n`
+      ) &&
+      source.includes(`FROM ${base} AS ci-chef\n`) &&
+      source.includes('/v0.1.77/cargo-chef-x86_64-unknown-linux-musl.tar.xz') &&
+      source.includes(`echo '${checksum}  /tmp/chef.tar.xz' | sha256sum --check -`) &&
+      planner?.includes('&& cargo chef prepare --recipe-path /recipe.json') === true &&
+      !planner.includes('COPY . /native/') &&
+      crates.every((crate) =>
+        copiedAt(planner, crate.manifest, '/native/rust').includes(`/native/${crate.manifest}`)
+      ) &&
+      dependencies?.match(/^COPY .*$/gm)?.join('\n') ===
+        'COPY --from=ci-planner /recipe.json /recipe.json' &&
+      dependencies.includes('ENV CARGO_PROFILE_DEV_DEBUG=0 CARGO_INCREMENTAL=0') &&
+      [
+        '--examples -p tmt-adapters',
+        '-p tmt-cli',
+        '-p tmt-ops',
+        '-p tmt-remote',
+        '--profile test --tests -p tmt-adapters',
+      ].every((selection) => dependencies.includes(selection)) &&
+      dependencies.includes(
+        "find target/debug/deps -maxdepth 1 -type f -perm -111 -regex '.*/tmt_adapters-[0-9a-f][0-9a-f]*' -delete"
+      ) &&
+      native?.includes('COPY rust/ ./') === true &&
+      native.includes(
+        'RUN cargo build --locked --example tmux-probe --example runtime-caller-fixture --example claude-hook-fixture --example codex-channel-fixture'
+      ) &&
+      native.includes('cargo test --locked --no-run -p tmt-adapters')
+    );
+  };
+  expect(admitted(text)).toBe(true);
+  expect(
+    admitted(text.replace(`ARG TMT_NATIVE_BASE=${base}`, 'ARG TMT_NATIVE_BASE=ci-dependencies'))
+  ).toBe(false);
+  expect(
+    admitted(text.replace('COPY --from=ci-planner /recipe.json /recipe.json', 'COPY . /native/'))
+  ).toBe(false);
+  expect(admitted(text.replace(' | sha256sum --check -', ''))).toBe(false);
+  expect(admitted(text.replace(checksum, '0'.repeat(64)))).toBe(false);
+  expect(admitted(text.replace('--profile test --tests -p tmt-adapters', '--workspace'))).toBe(
+    false
+  );
+  expect(
+    admitted(
+      text.replace(
+        "find target/debug/deps -maxdepth 1 -type f -perm -111 -regex '.*/tmt_adapters-[0-9a-f][0-9a-f]*' -delete",
+        'true'
+      )
+    )
+  ).toBe(false);
+  // The recipe includes Cargo.lock; a changed lock cannot reuse an old cook input.
+  const planner = text.split(' AS ci-planner\n')[1].split('\nFROM ')[0];
+  expect(planner).toContain('COPY rust/ /native/rust/');
+  expect(admitted(text.replace('COPY rust/ /native/rust/\n', ''))).toBe(false);
+  expect(readFileSync(path.join(root, '.dockerignore'), 'utf8')).not.toMatch(
+    /^rust\/Cargo\.lock$/m
+  );
+});
+
+it('exports only linked Cargo target and registry layers and reuses the pinned native base', () => {
+  const text = readFileSync(path.join(root, 'typescript/test/e2e/Dockerfile'), 'utf8');
+  const payload =
+    'COPY --link --from=ci-cook /native/rust/target/ /native/rust/target/\nCOPY --link --from=ci-cook /usr/local/cargo/registry/ /usr/local/cargo/registry/';
+  const bridge = payload.replaceAll('--from=ci-cook', '--from=ci-dependencies');
+  const base =
+    'rust:1.97.0-bookworm@sha256:8fa55b2f3ddf97471ab6a767bfa3f37e6bad0986ba823e75fea57e2a2a5c3073';
+  const admitted = (source: string) => {
+    const stage = (name: string) =>
+      source.split(/^FROM /m).find((part) => part.split('\n')[0].endsWith(` AS ${name}`));
+    return (
+      stage('ci-dependencies')?.trim() === `scratch AS ci-dependencies\n${payload}` &&
+      stage('ci-native-base')?.trim() === `${base} AS ci-native-base\n${bridge}`
+    );
+  };
+  expect(admitted(text)).toBe(true);
+  expect(
+    admitted(text.replace('FROM scratch AS ci-dependencies', 'FROM ci-cook AS ci-dependencies'))
+  ).toBe(false);
+  expect(admitted(text.replace(payload, payload + '\nCOPY --from=ci-cook /native/ /native/'))).toBe(
+    false
+  );
+  expect(
+    admitted(
+      text.replace(
+        'COPY --link --from=ci-cook /usr/local/cargo/registry/ /usr/local/cargo/registry/',
+        ''
+      )
+    )
+  ).toBe(false);
+  expect(
+    admitted(
+      text.replace(
+        'COPY --link --from=ci-dependencies /native/rust/target/ /native/rust/target/',
+        'COPY --link --from=ci-dependencies /native/rust/target/ /wrong/'
+      )
+    )
+  ).toBe(false);
+});
+
+it.each([undefined, '0', '1'])(
+  'keeps every classic-builder CI RUN inert unless explicitly enabled (%s)',
+  (enabled) => {
+    const directory = mkdtempSync(path.join(os.tmpdir(), 'tmt-chef-opt-in-'));
+    try {
+      const log = path.join(directory, 'calls');
+      const recipe = path.join(directory, 'recipe.json');
+      const registry = path.join(directory, 'registry');
+      const tool = path.join(directory, 'tool');
+      writeExecutable(
+        tool,
+        `#!/usr/bin/env node
+const fs = require('node:fs');
+const path = require('node:path');
+const name = path.basename(process.argv[1]);
+const args = process.argv.slice(2);
+fs.appendFileSync(process.env.CHEF_CALL_LOG, JSON.stringify([name, ...args]) + '\\n');
+if (name === 'cargo' && args[1] === 'prepare')
+  fs.writeFileSync(args[args.indexOf('--recipe-path') + 1], '{"fixture":true}\\n');
+`,
+        0o755
+      );
+      for (const command of ['curl', 'sha256sum', 'tar', 'cargo', 'rm', 'find'])
+        symlinkSync(tool, path.join(directory, command));
+      const text = readFileSync(path.join(root, 'typescript/test/e2e/Dockerfile'), 'utf8');
+      const env: NodeJS.ProcessEnv = {
+        ...process.env,
+        PATH: `${directory}${path.delimiter}${process.env.PATH ?? ''}`,
+        CHEF_CALL_LOG: log,
+        TMT_NATIVE_PROFILE: 'dev',
+      };
+      if (enabled === undefined) delete env.TMT_CI_DEPENDENCIES;
+      else env.TMT_CI_DEPENDENCIES = enabled;
+      for (const name of ['ci-chef', 'ci-planner', 'ci-cook']) {
+        const stage = text
+          .split(/^FROM /m)
+          .find((part) => part.split('\n')[0].endsWith(` AS ${name}`))!;
+        expect(stage).toContain('ARG TMT_CI_DEPENDENCIES=0');
+        const command = instructions(stage)
+          .find((line) => line.startsWith('RUN '))!
+          .slice(4)
+          .replaceAll('/tmp/chef.tar.xz', path.join(directory, 'chef.tar.xz'))
+          .replaceAll('/recipe.json', recipe)
+          .replaceAll('/usr/local/cargo/registry', registry);
+        const result = spawnSync('/bin/sh', ['-c', command], {
+          cwd: directory,
+          env,
+          encoding: 'utf8',
+          timeout: 10_000,
+        });
+        expect(result.error).toBeUndefined();
+        expect(result.status, result.stderr).toBe(0);
+      }
+      expect(lstatSync(registry).isDirectory()).toBe(true);
+      expect(lstatSync(path.join(directory, 'target/debug/deps')).isDirectory()).toBe(true);
+      if (enabled !== '1') {
+        expect(readdirSync(directory)).not.toContain('calls');
+        expect(readFileSync(recipe, 'utf8')).toBe('{}\n');
+      } else {
+        expect(readFileSync(recipe, 'utf8')).toBe('{"fixture":true}\n');
+        const calls: string[][] = readFileSync(log, 'utf8')
+          .trim()
+          .split('\n')
+          .map((line) => JSON.parse(line));
+        expect(calls.map(([name]) => name)).toEqual([
+          'curl',
+          'sha256sum',
+          'tar',
+          'rm',
+          'cargo',
+          'cargo',
+          'cargo',
+          'cargo',
+          'cargo',
+          'cargo',
+          'cargo',
+          'find',
+        ]);
+        const cookPrefix = ['cargo', 'chef', 'cook', '--locked', '--recipe-path', recipe];
+        expect(calls.filter(([name, , action]) => name === 'cargo' && action === 'cook')).toEqual([
+          [...cookPrefix, '--examples', '-p', 'tmt-adapters'],
+          [...cookPrefix, '--profile', 'dev', '-p', 'tmt-cli'],
+          [...cookPrefix, '--profile', 'dev', '-p', 'tmt-ops'],
+          [...cookPrefix, '--profile', 'dev', '-p', 'tmt-remote'],
+          [...cookPrefix, '--profile', 'test', '--tests', '-p', 'tmt-adapters'],
+        ]);
+      }
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  }
+);
+
+it('removes only extensionless executable adapter dummies from the dependency layer', () => {
+  const directory = mkdtempSync(path.join(os.tmpdir(), 'tmt-chef-dummies-'));
+  try {
+    const deps = path.join(directory, 'target/debug/deps');
+    mkdirSync(deps, { recursive: true });
+    const dummy = 'tmt_adapters-0123456789abcdef';
+    const survivors = [
+      `${dummy}.rlib`,
+      `${dummy}.rmeta`,
+      `${dummy}.d`,
+      'serde-0123456789abcdef',
+      'libserde_derive-0123456789abcdef.so',
+      'tmt_adapters-not-a-hash',
+      'tmt_adapters-fedcba9876543210',
+    ];
+    writeExecutable(path.join(deps, dummy), 'dummy test executable', 0o755);
+    for (const file of survivors) {
+      writeExecutable(
+        path.join(deps, file),
+        `retained ${file}`,
+        file.endsWith('fedcba9876543210') ? 0o644 : 0o755
+      );
+    }
+    const nested = 'tmt_adapters-1111111111111111';
+    mkdirSync(path.join(deps, nested));
+    writeExecutable(path.join(deps, nested, dummy), 'nested executable', 0o755);
+    const link = 'tmt_adapters-2222222222222222';
+    symlinkSync('serde-0123456789abcdef', path.join(deps, link));
+    const text = readFileSync(path.join(root, 'typescript/test/e2e/Dockerfile'), 'utf8');
+    const dependencies = text.split(' AS ci-cook\n')[1].split('\nFROM ')[0];
+    const command = dependencies.match(/&& (find target\/debug\/deps .* -delete)\n/)![1];
+    const result = spawnSync('/bin/sh', ['-c', command], {
+      cwd: directory,
+      encoding: 'utf8',
+      timeout: 10_000,
+    });
+    expect(result.error).toBeUndefined();
+    expect(result.status, result.stderr).toBe(0);
+    expect(readdirSync(deps).sort()).toEqual([...survivors, nested, link].sort());
+    for (const file of survivors)
+      expect(readFileSync(path.join(deps, file), 'utf8')).toBe(`retained ${file}`);
+    expect(readFileSync(path.join(deps, nested, dummy), 'utf8')).toBe('nested executable');
+    expect(lstatSync(path.join(deps, link)).isSymbolicLink()).toBe(true);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+it('refuses mismatched planner bytes before extraction or execution', () => {
+  const directory = mkdtempSync(path.join(os.tmpdir(), 'tmt-chef-checksum-'));
+  try {
+    const artifact = path.join(directory, 'chef.tar.xz');
+    const log = path.join(directory, 'calls');
+    for (const command of ['curl', 'sha256sum', 'tar', 'cargo', 'rm']) {
+      const behavior =
+        command === 'curl'
+          ? "fs.writeFileSync(process.argv[process.argv.indexOf('--output') + 1], 'incorrect planner bytes');"
+          : command === 'sha256sum'
+            ? `const [expected, file] = fs.readFileSync(0, 'utf8').trim().split(/  /);
+process.exitCode = require('node:crypto').createHash('sha256').update(fs.readFileSync(file)).digest('hex') === expected ? 0 : 1;`
+            : '';
+      writeExecutable(
+        path.join(directory, command),
+        `#!/usr/bin/env node\nconst fs = require('node:fs');\nfs.appendFileSync(process.env.CHEF_CALL_LOG, ${JSON.stringify(command)} + '\\n');\n${behavior}\n`,
+        0o755
+      );
+    }
+    const text = readFileSync(path.join(root, 'typescript/test/e2e/Dockerfile'), 'utf8');
+    const command = instructions(text)
+      .find((line) => line.startsWith('RUN if ') && line.includes('&& curl '))!
+      .slice(4)
+      .replaceAll('/tmp/chef.tar.xz', artifact);
+    const result = spawnSync('/bin/sh', ['-c', command], {
+      env: {
+        ...process.env,
+        PATH: `${directory}${path.delimiter}${process.env.PATH ?? ''}`,
+        CHEF_CALL_LOG: log,
+        TMT_CI_DEPENDENCIES: '1',
+      },
+      encoding: 'utf8',
+      timeout: 10_000,
+    });
+    expect(result.error).toBeUndefined();
+    expect(result.status).toBe(1);
+    expect(readFileSync(log, 'utf8').trim().split('\n')).toEqual(['curl', 'sha256sum']);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
 });
 
 const trackedFiles: string[] = runPackedCommand('git', ['ls-files', '-z'], {
