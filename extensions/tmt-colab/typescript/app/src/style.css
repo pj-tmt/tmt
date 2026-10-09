@@ -621,6 +621,9 @@ body:has(.page-header-actions) {
 .management-dialog::backdrop {
   background: #0008;
 }
+#management-title:focus {
+  outline: none;
+}
 .dialog-bar {
   display: flex;
   align-items: center;
