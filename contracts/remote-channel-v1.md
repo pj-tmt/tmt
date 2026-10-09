@@ -552,9 +552,8 @@ Browser management never changes core settings, provider settings, drivers, exte
 argv, and never approves, rejects, cancels or releases held operations. `tmt remote approve` and
 held-operation cancellation remain terminal-only. There is no generic config/command endpoint,
 and designation alone cannot widen agent or extension authority; the explicit device talk toggle
-is the sole scope-widening exception above. Typed wire/SDK payloads,
-refusals and mutation recovery must be specified with the implementation before any such operation
-is advertised as supported.
+is the sole scope-widening exception above. Typed wire/SDK payloads, refusals and mutation recovery
+must be specified with the implementation before any such operation is advertised as supported.
 
 Implementation acceptance must prove same-loopback browsers with different keys cannot impersonate
 the designated browser, designation is local-only and never automatic, non-designated writes cause
@@ -601,8 +600,9 @@ admission, never authorization for a later effect. With no current designation t
 the reason is `local_cli_required`.
 
 A device summary is exactly
-`{clientId,name,kind,issuedAtMs,expiresAtMs,revision,revoked,talkEnabled}`, where kind is `browser`, `addon` or `cli`, expiry is null or a JSON-safe millisecond integer and revision is
-positive and JSON-safe; `talkEnabled` is the configured scope bit, not proof of live authority.
+`{clientId,name,kind,issuedAtMs,expiresAtMs,revision,revoked,talkEnabled}`, where kind is `browser`,
+`addon` or `cli`, expiry is null or a JSON-safe millisecond integer and revision is positive and
+JSON-safe; `talkEnabled` is the configured scope bit, not proof of live authority.
 A list row adds exactly `{thisBrowser:boolean,liveSessionCount:integer,
 lastActivityAtMs:null|integer}`. The page is `{devices:[row],nextCursor:null|string}`. Store performs
 UUID-keyset ordering and SQL limit+one-lookahead before materializing rows. Its 98-character
@@ -631,8 +631,9 @@ failure cannot remove that receipt or turn committed work into no effect.
 Typed signed errors retain `{error:{code,message,limit?,retryAfterMs?,settingsUrl?,scope?}}` admission
 conventions. A missing sending scope returns signed `REMOTE_SCOPE_DENIED` with `scope:"talk"`
 and an optional same-origin `settingsUrl`, unlike a recipient allowlist refusal.
-`REMOTE_MANAGEMENT_READ_ONLY` refuses non-designated effects before management intent adoption, with no setting/device effects or management holds; ordinary sequence/budget/audit
-accounting remains. `REMOTE_MANAGEMENT_UNAVAILABLE` means an original receipt is missing,
+`REMOTE_MANAGEMENT_READ_ONLY` refuses non-designated effects before management intent adoption,
+with no setting/device effects or management holds; ordinary sequence/budget/audit accounting remains.
+`REMOTE_MANAGEMENT_UNAVAILABLE` means an original receipt is missing,
 other-device or outside its deadline, never proof of no effect. `REMOTE_SETTINGS_UNAVAILABLE` is
 used only for a proved failure before the settings-file first-touch boundary. Existing input,
 rate, live-session, intent-conflict, device-not-found/revoked and state-unavailable codes retain

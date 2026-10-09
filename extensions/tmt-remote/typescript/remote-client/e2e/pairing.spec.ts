@@ -1516,6 +1516,9 @@ test('settings draft preserves authority, exact values, drafts and unknown self-
     'settings-read-only',
     'Non-designated browser, visible local CLI and disabled reasons',
   );
+  await expect(page.locator('.device-summary').first()).toHaveText(
+    /^Settings browser · This device · browser · Paired · Sending on · 2 live sessions · Last activity .+$/,
+  );
   await expect(page.locator('#limit-value')).toHaveText('8 · default');
   execFileSync(BINARY, ['devices', 'designate', clientId, '--json'], { env });
   await page.click('#refresh');
@@ -1579,6 +1582,9 @@ test('settings draft preserves authority, exact values, drafts and unknown self-
   await expect(page.locator('#access')).toContainText('unconfirmed');
   await page.click('#recover');
   await expect(page.getByRole('button', { name: 'Enable sending', exact: true })).toBeEnabled();
+  await expect(page.locator('.device-summary').first()).toHaveText(
+    /^Settings browser · This device · browser · Paired · Sending off · 1 live session · Last activity .+$/,
+  );
   for (const colorScheme of ['light', 'dark'] as const) {
     await page.emulateMedia({ colorScheme });
     await captureState(
@@ -1596,6 +1602,9 @@ test('settings draft preserves authority, exact values, drafts and unknown self-
   await expect(page.locator('#outcome')).toContainText('committed');
   await page.click('#recover');
   await expect(page.getByRole('button', { name: 'Disable sending', exact: true })).toBeEnabled();
+  await expect(page.locator('.device-summary').first()).toHaveText(
+    /^Settings browser · This device · browser · Paired · Sending on · 1 live session · Last activity .+$/,
+  );
   for (const colorScheme of ['light', 'dark'] as const) {
     await page.emulateMedia({ colorScheme });
     await captureState(

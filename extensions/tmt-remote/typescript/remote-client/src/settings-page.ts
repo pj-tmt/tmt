@@ -219,7 +219,7 @@ function render(): void {
         devices.append(row);
       }
       row.querySelector('.device-summary')!.textContent =
-        `${device.name}${device.thisBrowser ? ' · This device' : ''} · ${device.kind} · ${device.revoked ? 'Revoked' : 'Paired'} · ${device.liveSessionCount} live sessions · Last activity ${device.lastActivityAtMs === null ? 'unavailable' : new Date(device.lastActivityAtMs).toLocaleString()}`;
+        `${device.name}${device.thisBrowser ? ' · This device' : ''} · ${device.kind} · ${device.revoked ? 'Revoked' : `Paired · Sending ${device.talkEnabled ? 'on' : 'off'}`} · ${device.liveSessionCount} live ${device.liveSessionCount === 1 ? 'session' : 'sessions'} · Last activity ${device.lastActivityAtMs === null ? 'unavailable' : new Date(device.lastActivityAtMs).toLocaleString()}`;
       row.querySelector('[data-action="talk"] .tmt-ui-action-label')!.textContent =
         device.talkEnabled ? 'Disable sending' : 'Enable sending';
       const name = row.querySelector<HTMLInputElement>('input')!;

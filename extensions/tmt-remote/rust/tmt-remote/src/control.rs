@@ -628,15 +628,16 @@ pub fn request_stop(remote_directory: &Path) -> Result<bool, RemoteError> {
 const UNSUPPORTED: &str = "REMOTE_CONTROL_UNSUPPORTED";
 const LEGACY_UNSUPPORTED_MESSAGE: &str = "Unknown control operation.";
 
-/// Discovery operations postdate alpha.1, so a refusal as unsupported means the
-/// running serve is older than this client. It cannot be asked to stop, so the
-/// message sends the user to its terminal.
+/// Report a running owner that cannot safely implement this client command.
 pub fn outdated_serve() -> RemoteError {
     RemoteError::new(
         "REMOTE_SERVE_OUTDATED",
         "The running tmt remote serve is older than this tmt remote and does not support this command. Stop it by hand (Ctrl-C in its terminal) and start it again.",
     )
 }
+/// Discovery operations postdate alpha.1, so a refusal as unsupported means the
+/// running serve is older than this client. It cannot be asked to stop, so the
+/// message sends the user to its terminal.
 fn request_operation(remote_directory: &Path, op: &str) -> Result<Option<Value>, RemoteError> {
     request(remote_directory, &json!({ "op": op })).map_err(|error| {
         let legacy =

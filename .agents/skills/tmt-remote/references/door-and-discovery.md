@@ -108,7 +108,8 @@ malformed settings use it with a human warning. Setters serialize through the bo
 
 The [settings/device page authority](../../../../contracts/remote-channel-v1.md#remote-settings-browser-authority)
 is separate from paired channel trust. Its native/SDK implementation reuses this settings owner and existing
-device/session mutation owners; shared presentation supplies no authority. The contract owns settings semantics and the explicit talk-scope toggle.
+device/session mutation owners; shared presentation supplies no authority. The contract owns settings
+semantics and the explicit talk-scope toggle.
 
 ## Management implementation
 
