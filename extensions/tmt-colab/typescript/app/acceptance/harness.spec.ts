@@ -141,11 +141,16 @@ test('harness: a closer that never finishes is bounded and reported, and the res
   const world = new AcceptanceWorld(undefined, { closerBoundMs: 300 });
   await world.start();
   world.spawn('kept', process.execPath, idle);
-  world.onDispose(() => new Promise<void>(() => {}));
+  world.onDispose((stage) => {
+    stage('closing the browser context');
+    return new Promise<void>(() => {});
+  });
   const started = Date.now();
   const leaks = await world.dispose();
   expect(Date.now() - started).toBeLessThan(15_000);
-  expect(leaks).toEqual([expect.stringContaining('did not finish within 300 ms')]);
+  expect(leaks).toEqual([
+    expect.stringContaining('did not finish within 300 ms (in closing the browser context)'),
+  ]);
   expect(fs.existsSync(world.root)).toBe(false);
   const listing = await processes();
   expect(listing).not.toContain(world.root);

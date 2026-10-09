@@ -105,6 +105,25 @@ export async function annotationInput(container: Locator, _agent: string) {
   return input;
 }
 
+/**
+ * The message text a composer field holds: one paragraph per line joined by LF, a mention as its
+ * token. The mention chip's dot, removal control and machine suffix are presentation, and
+ * `innerText` adds a line break around the chip's inline-flex box, so it is not the sent text.
+ */
+export async function composerText(field: Locator): Promise<string> {
+  return field.evaluate((root) => {
+    const read = (node: Node): string => {
+      if (node.nodeType === Node.TEXT_NODE) return node.textContent ?? '';
+      if (!(node instanceof HTMLElement)) return '';
+      if (node.classList.contains('message-mention')) {
+        return node.querySelector('.message-mention-name')?.textContent ?? '';
+      }
+      return Array.from(node.childNodes, read).join('');
+    };
+    return Array.from(root.children, read).join('\n');
+  });
+}
+
 export interface ComposedChat {
   /** The text the recipient received for this turn; it exists only after Enter has sent it. */
   delivered(): string;
@@ -127,7 +146,7 @@ export async function composeChat(
   const input = panel.getByRole('combobox', { name: 'Message', exact: true });
   const draft = `@${agent.name} ${question}`;
   await input.fill(draft);
-  await expect.poll(() => input.innerText()).toBe(draft);
+  await expect.poll(() => composerText(input)).toBe(draft);
   await annotationInput(panel, agent.name);
   const turn = agent.received().length;
   return {

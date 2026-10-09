@@ -19,9 +19,12 @@ function listening(socket: string): Promise<boolean> {
   });
 }
 /** `work`, or a rejection when it has not finished within `ms`; the work itself is not cancelled. */
-function bounded<T>(work: Promise<T> | T, ms: number): Promise<T> {
+function bounded<T>(work: Promise<T> | T, ms: number, where = () => ''): Promise<T> {
   return new Promise<T>((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error(`did not finish within ${ms} ms`)), ms);
+    const timer = setTimeout(
+      () => reject(new Error(`did not finish within ${ms} ms${where()}`)),
+      ms,
+    );
     Promise.resolve(work).then(
       (value) => {
         clearTimeout(timer);
@@ -34,6 +37,8 @@ function bounded<T>(work: Promise<T> | T, ms: number): Promise<T> {
     );
   });
 }
+/** Cleanup that may name the stage it is in, so an overrun says where it stopped. */
+export type Closer = (stage: (name: string) => void) => Promise<void>;
 const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
 
 /** The longest one registered closer (a browser, a page) may take during dispose(). */
@@ -95,7 +100,7 @@ export class AcceptanceWorld {
   readonly binaries: Binaries;
   private readonly wrapperDirectory = path.join(this.root, 'wrap');
   private readonly processes = new Set<OwnedProcess>();
-  private readonly closers: Array<() => Promise<void>> = [];
+  private readonly closers: Closer[] = [];
   private tmuxPath = '';
   private socketPath = '';
   private serverPid = 0;
@@ -335,7 +340,7 @@ export class AcceptanceWorld {
   }
 
   /** Register cleanup that must run before the process checks (browsers, pages). */
-  onDispose(close: () => Promise<void>): void {
+  onDispose(close: Closer): void {
     this.live('register a closer');
     this.closers.push(close);
   }
@@ -394,8 +399,16 @@ export class AcceptanceWorld {
         leaks.push(`${what}: ${error instanceof Error ? error.message : String(error)}`);
       }
     };
-    for (const close of this.closers.reverse())
-      await attempt('closer', () => bounded(close(), this.closerBoundMs));
+    for (const close of this.closers.reverse()) {
+      let stage = '';
+      await attempt('closer', () =>
+        bounded(
+          close((name) => (stage = name)),
+          this.closerBoundMs,
+          () => (stage ? ` (in ${stage})` : ''),
+        ),
+      );
+    }
     for (const owned of this.processes) await attempt(owned.label, () => owned.stop());
     if (this.serverPid) {
       await attempt('tmux server', async () => {

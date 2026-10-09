@@ -118,6 +118,9 @@ test('page-visible device Chat threads send exact bytes once, preserve drafts, k
     const sent = await sendChat(first, draft);
     await until(() => agent.received().length === 1, 'first Chat received');
     expect(draft.delivered()).toContain('Quote:\n\n\nComment:');
+    expect(draft.delivered()).toContain(
+      `Comment:\n@${agent.name} <script>private Chat turn</script> Explain this page.`,
+    );
     const own = panel.getByTestId('chat-thread').first();
     const writer = (await own.getAttribute('data-writer'))!;
     await expect(own).toHaveAttribute('data-thread-id', writer);

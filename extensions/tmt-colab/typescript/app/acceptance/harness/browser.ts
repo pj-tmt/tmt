@@ -97,6 +97,16 @@ export interface PairedBrowser {
   profile: string;
 }
 
+/** Close each page, then the browser, naming the stage so a bounded overrun reports where it stopped. */
+async function closeContext(context: BrowserContext, stage: (name: string) => void) {
+  for (const page of context.pages()) {
+    stage(`closing page ${page.url().slice(0, 80)}`);
+    await page.close({ runBeforeUnload: false });
+  }
+  stage('closing the browser context');
+  await context.close();
+}
+
 /**
  * Pair a fresh Chromium profile as a device through the real door: the owner
  * side runs `pair --json`, the browser opens the link, both sides show the same
@@ -109,7 +119,7 @@ export async function pairBrowser(world: AcceptanceWorld, name: string): Promise
   const pair = world.spawn(`pair-${name}`, world.binaries.remote, ['pair', '--json']);
   const offer = await pair.event((value) => typeof value.link === 'string');
   const context = await chromium.launchPersistentContext(profile, { headless: true });
-  world.onDispose(() => context.close());
+  world.onDispose((stage) => closeContext(context, stage));
   const page = await context.newPage();
   await page.goto(offer.link as string);
   await page.waitForFunction(() => location.hash === '');
@@ -185,7 +195,7 @@ export async function openReaderLink(
   const profile = path.join(world.root, `profile-${name}`);
   fs.mkdirSync(profile, { mode: 0o700 });
   const context = await chromium.launchPersistentContext(profile, { headless: true });
-  world.onDispose(() => context.close());
+  world.onDispose((stage) => closeContext(context, stage));
   const requests: UnpairedBrowser['requests'] = [];
   context.on('request', (request) =>
     requests.push({ url: request.url(), body: request.postData() }),

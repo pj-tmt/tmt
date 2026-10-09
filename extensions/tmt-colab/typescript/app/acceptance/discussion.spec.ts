@@ -7,6 +7,7 @@ import path from 'node:path';
 import { pairBrowser, restartColab, startDoor } from './harness/browser.js';
 import {
   annotationInput as inputFor,
+  composerText,
   composerTrace,
   composerAssets,
   createPage,
@@ -618,10 +619,10 @@ test('composer records plain annotations and replies without a recipient, then s
     const question = `@${agent.name} Explain this exact quote.\n  Keep these spaces and this line.  `;
     await reply.fill(question);
     await inputFor(thread, agent.name);
-    await expect.poll(() => reply.innerText()).toBe(question);
+    await expect.poll(() => composerText(reply)).toBe(question);
     // Re-reading the shared field preserves exact multiline mention bytes.
     await inputFor(thread, agent.name);
-    await expect.poll(() => reply.innerText()).toBe(question);
+    await expect.poll(() => composerText(reply)).toBe(question);
     expect(agent.received()).toHaveLength(0);
     expect(world.coreCalls().filter((call) => call.operation === 'dispatch.create')).toHaveLength(
       0,
