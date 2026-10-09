@@ -1256,7 +1256,7 @@ async function landingPage() {
 				"○",
 				"Not paired",
 				"Pair this browser with your machine",
-				"Pair links are private and work once."
+				""
 			],
 			checking: [
 				"◌",
@@ -1267,7 +1267,7 @@ async function landingPage() {
 			connected: [
 				"●",
 				"Connected",
-				"Connected",
+				"This browser can use Remote",
 				"Open your app from its link in this browser."
 			],
 			different: [
@@ -1309,14 +1309,8 @@ async function landingPage() {
 			"unconfirmed",
 			"unreadable"
 		]) element(`steps-${name}`).hidden = name !== state;
-		element("command-pair").hidden = ![
-			"missing",
-			"different",
-			"refused",
-			"unreadable"
-		].includes(state);
-		element("command-devices").hidden = state !== "refused";
-		element("command-status").hidden = state !== "unconfirmed";
+		element("status").hidden = state === "missing";
+		element("pairing-note").hidden = state !== "missing";
 		element("command-location").hidden = ["checking", "connected"].includes(state);
 		button.hidden = [
 			"missing",
@@ -1325,11 +1319,14 @@ async function landingPage() {
 		].includes(state);
 		button.disabled = state === "checking";
 	};
-	for (const command of [
-		"pair",
-		"devices",
-		"status"
-	]) element(`copy-${command}`).addEventListener("click", async () => {
+	for (const [state, command] of [
+		["missing", "pair"],
+		["different", "pair"],
+		["refused", "devices"],
+		["refused", "pair"],
+		["unconfirmed", "status"],
+		["unreadable", "pair"]
+	]) element(`copy-${state}-${command}`).addEventListener("click", async () => {
 		const text = `tmt remote ${command}`;
 		try {
 			await navigator.clipboard.writeText(text);

@@ -226,6 +226,47 @@ fn static_pages_and_styles_are_exact_and_refusals_remain_generic() {
     ] {
         assert!(landing.body.contains(text), "{text}");
     }
+    for removed in ["command-pair", "command-devices", "command-status"] {
+        assert!(!landing.body.contains(&format!("id=\"{removed}\"")));
+    }
+    for (state, commands) in [
+        ("missing", vec!["pair"]),
+        ("different", vec!["pair"]),
+        ("refused", vec!["devices", "pair"]),
+        ("unconfirmed", vec!["status"]),
+        ("unreadable", vec!["pair"]),
+    ] {
+        let steps = landing
+            .body
+            .split(&format!("id=\"steps-{state}\""))
+            .nth(1)
+            .unwrap()
+            .split("</ol>")
+            .next()
+            .unwrap();
+        assert_eq!(steps.matches("<code>").count(), commands.len());
+        assert_eq!(
+            steps.matches("class=\"tmt-ui-action entry-copy\"").count(),
+            commands.len()
+        );
+        for command in commands {
+            assert_eq!(
+                steps
+                    .matches(&format!("<code>tmt remote {command}</code>"))
+                    .count(),
+                1
+            );
+            assert!(steps.contains(&format!("id=\"copy-{state}-{command}\"")));
+        }
+    }
+    assert!(
+        landing.body.find("id=\"command-location\"").unwrap()
+            < landing.body.find("id=\"steps-missing\"").unwrap()
+    );
+    assert!(
+        landing.body.find("id=\"steps-missing\"").unwrap()
+            < landing.body.find("id=\"pairing-note\"").unwrap()
+    );
     let entry = get(&h, "/sdk/landing.js", "");
     assert_eq!(entry.status, 200);
     assert_eq!(entry.body, include_str!("../assets/landing.js"));

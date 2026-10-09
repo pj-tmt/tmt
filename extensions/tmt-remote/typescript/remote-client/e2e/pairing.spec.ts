@@ -981,6 +981,58 @@ test('the native entry checks once and presents all seven evidenced states witho
   });
   const page = await context.newPage();
   const captureEntry = async (state: string): Promise<void> => {
+    await expect(page.locator('#command-pair, #command-devices, #command-status')).toHaveCount(0);
+    const commands = page.locator('.entry-steps:visible code');
+    const expected =
+      state === 'not-accepted' ? 2 : ['checking', 'connected'].includes(state) ? 0 : 1;
+    await expect(commands).toHaveCount(expected);
+    expect(await commands.evaluateAll((nodes) => nodes.map((node) => node.textContent))).toEqual(
+      state === 'not-accepted'
+        ? ['tmt remote devices', 'tmt remote pair']
+        : state === 'unconfirmed'
+          ? ['tmt remote status']
+          : expected
+            ? ['tmt remote pair']
+            : [],
+    );
+    expect(
+      await commands.evaluateAll((nodes) =>
+        nodes.every(
+          (node) =>
+            node.nextElementSibling?.matches('button.entry-copy[data-variant="text"]') &&
+            node.nextElementSibling.textContent?.trim() === 'Copy',
+        ),
+      ),
+    ).toBe(true);
+    expect(
+      await page.locator('.tmt-ui-action:visible').evaluateAll((nodes) =>
+        nodes.every((node) => {
+          const style = getComputedStyle(node);
+          return (
+            style.fontFamily === getComputedStyle(document.body).fontFamily &&
+            style.fontWeight === '400'
+          );
+        }),
+      ),
+    ).toBe(true);
+    if (state === 'not-paired') {
+      await expect(page.locator('#status')).toBeHidden();
+      await expect(page.locator('#pairing-note')).toHaveText(
+        'Pair links are private and work once.',
+      );
+      await expect(page.locator('#pairing-note')).toBeVisible();
+      expect(
+        await page
+          .locator('#pairing-note')
+          .evaluate(
+            (node) =>
+              !!(
+                document.querySelector('#steps-missing')!.compareDocumentPosition(node) &
+                Node.DOCUMENT_POSITION_FOLLOWING
+              ),
+          ),
+      ).toBe(true);
+    } else await expect(page.locator('#pairing-note')).toBeHidden();
     expect(
       await page.locator('#copy-feedback').evaluate((node) => {
         const style = getComputedStyle(node);
@@ -1022,7 +1074,7 @@ test('the native entry checks once and presents all seven evidenced states witho
   await expect(page.locator('#state-label')).toHaveText('Not paired');
   expect(counts()).toEqual({ mounts: 0, admissions: 0, observations: 0 });
   await captureEntry('not-paired');
-  await page.getByRole('button', { name: 'Copy pairing command' }).click();
+  await page.locator('#copy-missing-pair').click();
   expect(await page.evaluate(() => navigator.clipboard.readText())).toBe('tmt remote pair');
   await expect(page.locator('#copy-feedback')).toHaveText('Copied.');
   pair = spawn(BINARY, ['pair', '--json'], { env });
@@ -1109,7 +1161,7 @@ test('the native entry checks once and presents all seven evidenced states witho
     await continued.reached;
     await page.unroute('**/sdk/mount', hold);
   }
-  await expect(page.locator('#heading')).toHaveText('Connected');
+  await expect(page.locator('#heading')).toHaveText('This browser can use Remote');
   expect(counts()).toEqual({ mounts: 1, admissions: 1, observations: 1 });
   await expect(page.locator('#status')).toHaveText('Open your app from its link in this browser.');
   await captureEntry('connected');
@@ -1119,7 +1171,7 @@ test('the native entry checks once and presents all seven evidenced states witho
   await captureState(page, 'entry-details', 'Viewer-local time and short machine ID under Details');
   await page.getByRole('button', { name: 'Check again' }).focus();
   await page.keyboard.press('Enter');
-  await expect(page.locator('#heading')).toHaveText('Connected');
+  await expect(page.locator('#heading')).toHaveText('This browser can use Remote');
   await expect(page.locator('#check')).toBeEnabled();
   expect(counts()).toEqual({ mounts: 1, admissions: 1, observations: 2 });
   await expect(page.locator('#check')).toBeFocused();
@@ -1136,7 +1188,7 @@ test('the native entry checks once and presents all seven evidenced states witho
   await page.route('**/r/*/append', expireRead);
   try {
     await page.getByRole('button', { name: 'Check again' }).click();
-    await expect(page.locator('#heading')).toHaveText('Connected');
+    await expect(page.locator('#heading')).toHaveText('This browser can use Remote');
     await expect(page.locator('#check')).toBeEnabled();
     expect(expiredRead).toBe(true);
     expect(counts()).toEqual({ mounts: 2, admissions: 2, observations: 4 });
@@ -1181,7 +1233,7 @@ test('the native entry checks once and presents all seven evidenced states witho
       throw new Error('fixture denied');
     };
   });
-  await page.getByRole('button', { name: 'Copy status command' }).click();
+  await page.locator('#copy-unconfirmed-status').click();
   await expect(page.locator('#copy-feedback')).toHaveText(
     'Copy failed. Select the command and copy it manually.',
   );

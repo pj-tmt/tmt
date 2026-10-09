@@ -53,14 +53,15 @@ async function fixture(mode = 'success') {
     'steps-refused',
     'steps-unconfirmed',
     'steps-unreadable',
-    'command-pair',
-    'command-devices',
-    'command-status',
+    'pairing-note',
     'command-location',
     'copy-feedback',
-    'copy-pair',
-    'copy-devices',
-    'copy-status',
+    'copy-missing-pair',
+    'copy-different-pair',
+    'copy-refused-devices',
+    'copy-refused-pair',
+    'copy-unconfirmed-status',
+    'copy-unreadable-pair',
   ])
     nodes.set(id, { textContent: '', hidden: false, dataset: {}, addEventListener: () => {} });
   const button = {
@@ -165,7 +166,7 @@ test('entry automatically checks once, then manual checks reuse the verified ses
   const f = await fixture();
   try {
     await landingPage();
-    assert.equal(f.nodes.get('heading')!.textContent, 'Connected');
+    assert.equal(f.nodes.get('heading')!.textContent, 'This browser can use Remote');
     assert.equal(
       f.nodes.get('status')!.textContent,
       'Open your app from its link in this browser.',
@@ -200,7 +201,7 @@ for (const mode of [
     const f = await fixture(mode);
     try {
       await landingPage();
-      assert.equal(f.nodes.get('heading')!.textContent, 'Connected');
+      assert.equal(f.nodes.get('heading')!.textContent, 'This browser can use Remote');
       f.click();
       await vi.waitFor(() => assert.equal(f.button.disabled, false));
       const connected =
@@ -221,6 +222,23 @@ for (const mode of [
     }
   });
 }
+
+test('not-paired steps precede the muted privacy note without duplicate status copy', async () => {
+  const f = await fixture();
+  try {
+    f.record(undefined);
+    await landingPage();
+    assert.equal(f.nodes.get('state-label')!.textContent, 'Not paired');
+    assert.equal(f.nodes.get('status')!.hidden, true);
+    assert.equal(f.nodes.get('status')!.textContent, '');
+    assert.equal(f.nodes.get('pairing-note')!.hidden, false);
+    assert.equal(f.nodes.get('steps-missing')!.hidden, false);
+    assert.equal(f.nodes.get('command-location')!.hidden, false);
+    assert.deepEqual(f.counts(), { mounts: 0, admissions: 0 });
+  } finally {
+    vi.unstubAllGlobals();
+  }
+});
 
 test('checked time follows viewer local zones rather than ISO or forced UTC', async () => {
   const before = process.env.TZ;

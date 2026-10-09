@@ -136,12 +136,15 @@ input {
 .entry-steps li + li {
   margin-top: 12px;
 }
-.entry-command {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 12px;
-  margin-bottom: 12px;
+[data-tmt-page='landing'] {
+  --tmt-ui-host-action-font: var(--tmt-ui-font-body);
+  --tmt-ui-host-action-weight: 400;
+}
+.entry-copy {
+  --tmt-ui-host-action-padding: 0 4px;
+  --tmt-ui-host-action-min-height: 0;
+  width: auto;
+  vertical-align: baseline;
 }
 .entry-details {
   margin-top: 24px;
