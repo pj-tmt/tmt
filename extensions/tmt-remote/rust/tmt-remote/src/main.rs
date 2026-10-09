@@ -82,6 +82,16 @@ const SETTINGS: CommandSpec = CommandSpec {
     outputs: OutputModes::HumanAndJson,
     details: "Browser opening defaults to on. sessions-per-device accepts a positive integer or off (default: 8); changes apply at the next session open. Settings are stored only in Remote's data directory.",
 };
+const TALK: CommandSpec = CommandSpec {
+    name: "talk",
+    summary: "Enable or disable sending for one paired device",
+    examples: &[Example {
+        command: "tmt remote devices talk <client-id> on|off",
+        note: "Keep its other grant policy unchanged",
+    }],
+    outputs: OutputModes::HumanAndJson,
+    details: "Only the local owner can run this command. A changed scope ends Sessions on the previous revision; revoked devices cannot be enabled.",
+};
 const DEVICES: CommandSpec = CommandSpec {
     name: "devices",
     summary: "List, revoke or rename paired devices",
@@ -294,6 +304,15 @@ fn grammar() -> Command {
         .subcommand(tmt_cli_style::command(&CANCEL).arg(Arg::new("operation-id").required(true)))
         .subcommand(
             tmt_cli_style::command(&DEVICES)
+                .subcommand(
+                    tmt_cli_style::command(&TALK)
+                        .arg(Arg::new("client-id").required(true))
+                        .arg(
+                            Arg::new("enabled")
+                                .required(true)
+                                .value_parser(["on", "off"]),
+                        ),
+                )
                 .subcommand(
                     tmt_cli_style::command(&DESIGNATE).arg(Arg::new("client-id").required(true)),
                 )
@@ -834,6 +853,9 @@ fn devices(arguments: &clap::ArgMatches) -> Result<(), RemoteError> {
     let json_output =
         arguments.get_flag("json") || mutation.is_some_and(|(_, m)| m.get_flag("json"));
     let request = match mutation {
+        Some(("talk", m)) => {
+            json!({"op":"talk","clientId":m.get_one::<String>("client-id").unwrap(),"enabled":m.get_one::<String>("enabled").unwrap()=="on"})
+        }
         Some(("rename", m)) => {
             json!({"op":"rename","clientId":m.get_one::<String>("client-id").unwrap(), "name":m.get_one::<String>("name").unwrap()})
         }
@@ -879,6 +901,9 @@ fn devices(arguments: &clap::ArgMatches) -> Result<(), RemoteError> {
             store.machine()?;
             let devices = Devices::new(Arc::new(Mutex::new(store)), None);
             match mutation {
+                Some(("talk", m)) => {
+                    json!({"device":device_json(&devices.talk(m.get_one::<String>("client-id").unwrap(), m.get_one::<String>("enabled").unwrap()=="on")?)})
+                }
                 Some(("rename", m)) => {
                     json!({"device": device_json(&devices.rename(m.get_one::<String>("client-id").unwrap(), m.get_one::<String>("name").unwrap())?)})
                 }
@@ -932,10 +957,11 @@ fn devices(arguments: &clap::ArgMatches) -> Result<(), RemoteError> {
             terminal,
             &format!(
                 "{} {name}",
-                if request["op"] == "rename" {
-                    "Renamed"
-                } else {
-                    "Revoked"
+                match request["op"].as_str() {
+                    Some("rename") => "Renamed",
+                    Some("talk") if request["enabled"] == true => "Enabled sending for",
+                    Some("talk") => "Disabled sending for",
+                    _ => "Revoked",
                 }
             ),
         )?);

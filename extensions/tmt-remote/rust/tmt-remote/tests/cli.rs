@@ -3008,3 +3008,89 @@ fn running_layer_status_reads_atomic_deploy_snapshots_without_the_writer_lock() 
     drop(writer);
     drop(DeployRecordStore::open(&layout).unwrap());
 }
+
+#[test]
+fn owner_sending_scope_cli_works_stopped_and_running_without_changing_other_policy() {
+    use tmt_remote::{
+        state::Layout,
+        store::{DEFAULT_SCOPES, Grant, Store, uuid_v4},
+    };
+    let mut pilot = Pilot::new();
+    let root = pilot.root.join("state");
+    fs::create_dir(&root).unwrap();
+    let serving = Layout::open(&root).unwrap().serve_lock().unwrap();
+    let mut store = Store::open(&serving).unwrap();
+    store.machine().unwrap();
+    let id = uuid_v4().unwrap();
+    let grant = Grant {
+        client_id: id.clone(),
+        public_key: [7; 32],
+        kind: "cli".into(),
+        origin: "cli".into(),
+        name: "Owner device".into(),
+        agents: serde_json::json!([uuid_v4().unwrap()]).to_string(),
+        scopes: DEFAULT_SCOPES.map(str::to_owned).to_vec(),
+        mode: "hold".into(),
+        issued_at_ms: tmt_remote::pairing::now_ms().unwrap(),
+        expires_at_ms: None,
+        revision: 1,
+        disabled: false,
+    };
+    store.insert_grant(&grant).unwrap();
+    drop(store);
+    drop(serving);
+    let toggle = |pilot: &Pilot, mode: &str| {
+        let output = pilot
+            .command()
+            .args(["devices", "talk", &id, mode, "--json"])
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        serde_json::from_slice::<Value>(&output.stdout).unwrap()["device"].clone()
+    };
+    let off = toggle(&pilot, "off");
+    assert_eq!(off["revision"], 2);
+    assert!(
+        !off["scopes"]
+            .as_array()
+            .unwrap()
+            .contains(&serde_json::json!("talk"))
+    );
+    assert_eq!(toggle(&pilot, "off"), off, "exact repeat keeps revision");
+    let human = pilot
+        .command()
+        .args(["devices", "talk", &id, "off"])
+        .output()
+        .unwrap();
+    assert!(human.status.success());
+    assert_eq!(
+        String::from_utf8(human.stdout).unwrap(),
+        "✓ Disabled sending for Owner device\n"
+    );
+    let on = toggle(&pilot, "on");
+    assert_eq!(on["revision"], 3);
+    for field in [
+        "clientId",
+        "name",
+        "kind",
+        "origin",
+        "words",
+        "agents",
+        "mode",
+        "issuedAtMs",
+        "expiresAtMs",
+        "revoked",
+    ] {
+        assert_eq!(on[field], off[field], "{field} changed");
+    }
+    start_door(&mut pilot, &["--background"], false);
+    let live = toggle(&pilot, "off");
+    assert_eq!(live["revision"], 4);
+    assert_eq!(live["scopes"], off["scopes"]);
+    assert_eq!(stop_json(&pilot), serde_json::json!({"stopped":true}));
+    wait_stopped(pilot.child.as_mut().unwrap());
+}

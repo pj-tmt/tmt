@@ -300,6 +300,17 @@ fn session(
                 "Revoke needs a clientId.",
             )),
         }),
+        Some("talk") if request.as_object().is_some_and(|row| row.len() == 3) => Some(
+            match (
+                request.get("clientId").and_then(Value::as_str),
+                request.get("enabled").and_then(Value::as_bool),
+            ) {
+                (Some(client), Some(enabled)) => devices
+                    .talk(client, enabled)
+                    .map(|grant| json!({"device":device_json(&grant)})),
+                _ => Err(crate::operations::invalid()),
+            },
+        ),
         Some("rename") => Some(
             match (
                 request.get("clientId").and_then(Value::as_str),
