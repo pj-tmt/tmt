@@ -894,20 +894,41 @@ footer {
   color: var(--c-muted);
   font: 11px/1.5 var(--f-body);
 }
+.conversation-history {
+  position: relative;
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+}
+.conversation-message-content {
+  display: flow-root;
+}
+.conversation-arrivals {
+  position: absolute;
+  bottom: 10px;
+  right: 14px;
+}
+.conversation-arrivals:not(:empty) {
+  background: var(--c-sheet);
+  border: 1px solid var(--c-rule);
+}
 .conversation-messages {
   flex: 1 1 auto;
   min-height: 0;
   overflow: auto;
   overscroll-behavior: contain;
+  overflow-anchor: none;
   padding: 0;
+  min-width: 0;
 }
-.conversation-messages > blockquote,
-.conversation-messages > .annotation-hint,
-.conversation-messages > .isolation-note,
+.conversation-message-content > blockquote,
+.conversation-message-content > .annotation-hint,
+.conversation-message-content > .isolation-note,
 .conversation-window > .annotation-hint {
   margin: 10px 14px;
 }
-.conversation-messages > .comment-actions {
+.conversation-message-content > .comment-actions {
   margin: 10px 2px;
 }
 .conversation-composer {

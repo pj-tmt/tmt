@@ -420,7 +420,7 @@ for (const width of [1440, 390])
       const firstSend = await windowGeometry(continued);
       const newTurn = (await continued.getByTestId('comment-entry').boundingBox())!;
       const threadActions = await continued
-        .locator('.conversation-messages > .comment-actions')
+        .locator('.conversation-message-content > .comment-actions')
         .evaluate((node) => {
           const style = getComputedStyle(node);
           return (

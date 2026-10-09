@@ -9,6 +9,7 @@ function formatBytes(bytes: number): string {
 export const text = {
   unknownPageTitle: 'Untitled page',
   messageLabel: 'Message',
+  newMessages: 'New messages',
   annotationTitle: 'Annotate',
   annotationClose: 'Close annotation',
   messagePlaceholder: 'Write a message…',
