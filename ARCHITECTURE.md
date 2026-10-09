@@ -993,7 +993,7 @@ Independent releases use `tmt-ops-v<version>`; module/drawing ownership and guar
   (for example cron's planned `dispatch.create` and `identityHooks`) changes the seam and goes to tmt-lead.
 - **Data ownership.** A squad is the core room `squad-<name>`; member fields are
   identity metadata `squad.<name>.<field>`, with no Ops membership store. Ops owns
-  `<dataRoot>/ops` (`storage.root`) and disposable `$XDG_CACHE_HOME/tmt-ops` caches.
+  `<dataRoot>/ops` (`storage.root`), including private, bounded display snapshots in `cache/board` ([cache contract](.agents/skills/tmt-ops-dev/references/refresh-and-meter.md#display-snapshot-cache)), and disposable `$XDG_CACHE_HOME/tmt-ops` caches.
   `ops.toml` is the user's file: agents never write it; Ops uses its compare-and-set
   writer; `migration` owns the locked, byte-preserving legacy cutover. Ops switches verified former boards before install cleanup; new UIs defer automatic clock acquisition until cutover and retry through the existing clock worker. No Ops data goes into `config.json` or the core database.
 - **Checklist.** `checklist_command` exposes native grammar and scoped output over the existing
@@ -1167,7 +1167,7 @@ The door serves the browser SDK `remote-v1.js` (built from `remote-client`), whi
 gives mounted pages `reopenSession`, `operations(session)` and `certifyKey`; its README owns
 the caller-facing recovery rules. The
 [Remote skill](.agents/skills/tmt-remote/references/architecture-internals.md) owns module internals.
-Remote sessions are keyed by session ID; the effect journal and ack stay per device.
+Remote sessions are keyed by session ID; the effect journal and ack stay per device, bounded by dropping the oldest.
 Reads keep signed admission/replay fences without adoption. Mounted transports explicitly
 bind the session through a non-secret, cookie-device-checked `tmt-session` identifier
 stripped at the door. Last-close touches; every session without a live transport has the existing 60-second inactivity grace.

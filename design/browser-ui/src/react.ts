@@ -10,4 +10,6 @@ export { BrowserIconAction } from './icon-action.js';
 export type { BrowserIconActionProps } from './icon-action.js';
 export { BrowserToggle } from './toggle';
 export type { BrowserToggleProps } from './toggle';
+export { BrowserList, BrowserListRow } from './list.js';
+export type { BrowserListProps, BrowserListRowProps } from './list.js';
 export type { BrowserNoticeTone, BrowserActionVariant, BrowserAnnouncement } from './static';

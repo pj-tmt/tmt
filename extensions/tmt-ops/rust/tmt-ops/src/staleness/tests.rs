@@ -924,3 +924,58 @@ fn settings_preview_reclassifies_retained_evidence_without_inventing_unknown_age
     );
     assert_eq!(document["squad"]["notesStaleness"], known);
 }
+
+#[test]
+fn replacement_preserves_observer_path_lock_age_and_existing_directory_mode() {
+    use std::os::unix::fs::PermissionsExt;
+    let fixture = Fixture::new();
+    let cache = fixture.root.join("cache");
+    fs::create_dir(&cache).unwrap();
+    fs::set_permissions(&cache, fs::Permissions::from_mode(0o750)).unwrap();
+    fixture.record(&members(), None, None, 1000);
+    let observer = fixture.observer();
+    let path = observer.path.as_ref().unwrap().clone();
+    assert_eq!(
+        path,
+        cache.join(format!(
+            "{}-{}.json",
+            digest(fixture.config.as_os_str().as_encoded_bytes()),
+            fixture.squad.room_id
+        ))
+    );
+    assert!(
+        !fixture.observer().active(),
+        "the stable lock still fences publication"
+    );
+    let snapshot = observer.record(
+        &members(),
+        &[],
+        &provider::Cache::at(None),
+        None,
+        None,
+        61000,
+    );
+    assert_eq!(snapshot.members[MEMBER]["unchangedSinceMs"], 1000);
+    assert_eq!(snapshot.members[MEMBER]["ageMs"], 60000);
+    assert_eq!(
+        fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+        0o600
+    );
+    assert_eq!(
+        fs::metadata(path.with_extension("lock"))
+            .unwrap()
+            .permissions()
+            .mode()
+            & 0o777,
+        0o600
+    );
+    assert_eq!(
+        fs::metadata(&cache).unwrap().permissions().mode() & 0o777,
+        0o750
+    );
+    assert_eq!(fs::read_dir(&cache).unwrap().count(), 2);
+    assert_eq!(
+        read_cache(&path).unwrap()["source"]["roomId"],
+        fixture.squad.room_id
+    );
+}

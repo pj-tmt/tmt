@@ -3,7 +3,7 @@
   display: inline-flex;
   align-items: center;
   gap: var(--tmt-ui-toggle-gap);
-  padding: var(--tmt-ui-host-toggle-padding);
+  padding: var(--tmt-ui-toggle-gap);
   font: inherit;
   color: var(--tmt-ui-color-text);
   background: var(--tmt-ui-surface-sheet);

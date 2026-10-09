@@ -59,6 +59,15 @@ fn notice(text: &str) {
 pub(crate) struct Decision(Mutex<Option<Result<Paths, SquadError>>>);
 
 impl Decision {
+    /// Read the selected layout without attempting a cutover or creating paths.
+    pub(crate) fn is_current(&self) -> bool {
+        self.0
+            .lock()
+            .unwrap()
+            .as_ref()
+            .is_some_and(|result| result.as_ref().is_ok_and(|paths| !paths.legacy))
+    }
+
     pub fn board_notice(&self) -> Option<String> {
         self.0
             .lock()
@@ -234,7 +243,7 @@ fn regular(metadata: &fs::Metadata) -> io::Result<()> {
         ))
     }
 }
-fn directory(path: &Path) -> io::Result<()> {
+pub(crate) fn directory(path: &Path) -> io::Result<()> {
     let metadata = fs::symlink_metadata(path)?;
     if metadata.is_dir() && metadata.uid() == getuid().as_raw() {
         Ok(())
@@ -245,7 +254,7 @@ fn directory(path: &Path) -> io::Result<()> {
         )))
     }
 }
-fn open(path: &Path) -> io::Result<File> {
+pub(crate) fn open(path: &Path) -> io::Result<File> {
     let file = OpenOptions::new()
         .read(true)
         .custom_flags((OFlag::O_NOFOLLOW | OFlag::O_NONBLOCK).bits())

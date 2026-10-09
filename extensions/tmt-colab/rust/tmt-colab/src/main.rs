@@ -1051,6 +1051,8 @@ fn main() -> ExitCode {
 }
 
 #[cfg(test)]
+mod cli_style_allowlist;
+#[cfg(test)]
 mod tests {
     use super::*;
     #[test]
@@ -1085,6 +1087,15 @@ mod tests {
             tmt_colab::store::Fault::UnsupportedSchema(99).next(),
             Some("tmt upgrade")
         );
+    }
+    #[test]
+    fn hidden_commands_are_listed_with_a_reason_and_double_underscore_commands_are_hidden() {
+        let report = tmt_cli_style::audit::hidden_report(
+            &grammar(),
+            &["tmt", "colab"],
+            cli_style_allowlist::HIDDEN,
+        );
+        assert!(report.is_empty(), "{}", report.join("\n"));
     }
     #[test]
     fn help_and_examples_obey_shared_style() {
