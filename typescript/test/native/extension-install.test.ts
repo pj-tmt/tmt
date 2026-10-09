@@ -21,7 +21,12 @@ import {
   withSandbox,
   type Sandbox,
 } from '../support/cli-process.js';
-import { install, installFormerSquad, withReleaseSandbox } from '../support/native-installation.js';
+import {
+  install,
+  installFormerSquad,
+  warmExecutable,
+  withReleaseSandbox,
+} from '../support/native-installation.js';
 import { createArtifact, type ArtifactFixture } from '../support/native-artifact.js';
 
 const INSTALL_PROCESS_BUDGET_MS = 15_000;
@@ -105,6 +110,7 @@ describe('former Squad hook consent during Ops replacement', () => {
           let ops: unknown;
           if (independentOps) {
             await install(sandbox, candidate, prefix, ['--product', 'ops']);
+            warmExecutable(sandbox, path.join(prefix, 'bin/tmt-ops'));
             ops = await enableHooks(sandbox, 'ops');
           }
           const result = await runCli(
