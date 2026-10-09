@@ -3102,7 +3102,8 @@ fn serve_in_an_installed_release_warns_once_when_a_newer_version_becomes_current
     );
     std::fs::remove_file(&current).unwrap();
     std::os::unix::fs::symlink("releases/new", &current).unwrap();
-    let warning = Serving::wait_for(&serving.err, "is installed, but");
+    // The warning and its hint are written separately: wait for the last of them.
+    let warning = Serving::wait_for(&serving.err, "to update");
     assert!(
         warning.contains("Colab 9.9.9-installed is installed, but ")
             && warning.contains(" is still running")
@@ -3119,7 +3120,9 @@ fn serve_in_an_installed_release_warns_once_when_a_newer_version_becomes_current
 fn serve_with_a_door_that_will_not_start_keeps_the_local_space_without_the_install_line() {
     let pilot = Pilot::new(None);
     let mut serving = Serving::start(&pilot, pilot.remote_core(Some(STOPPED), Serve::Fail), &[]);
-    let warning = Serving::wait_for(&serving.err, "did not start");
+    // The warning and its hint are written separately: wait for the last of them.
+    let warning = Serving::wait_for(&serving.err, "tmt remote serve shows why");
+    assert!(warning.contains("did not start"), "{warning}");
     assert!(
         warning.starts_with("warning:") || warning.contains("warning:"),
         "{warning}"
