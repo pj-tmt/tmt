@@ -184,10 +184,13 @@ describe('non-invasive pane badge presentation', { concurrent: false }, () => {
 
   it('keeps hook and talk recovery refreshes silent when window borders are off', async () => {
     await withE2EFixture(async (fixture) => {
-      const pane = fixture.createShellPane('silent-badge').pane;
+      const shell = fixture.createShellPane('silent-badge');
+      const pane = shell.pane;
       fixture.tmux(['set-option', '-w', '-t', pane, 'pane-border-status', 'off']);
       const scenario = path.join(fixture.root, 'silent-badge-scenario.json');
       const report = path.join(fixture.root, 'silent-badge-report.json');
+      const nextScenario = path.join(fixture.root, 'silent-badge-next.json');
+      const nextReport = path.join(fixture.root, 'silent-badge-next-report.json');
       const checkpoint = path.join(fixture.root, 'silent-badge-held');
       fs.writeFileSync(
         scenario,
@@ -201,46 +204,65 @@ describe('non-invasive pane badge presentation', { concurrent: false }, () => {
               source: 'startup',
             },
           },
-          { args: ['whoami', '--json'], checkpoint },
         ])
       );
+      fs.writeFileSync(nextScenario, JSON.stringify([{ args: ['whoami', '--json'], checkpoint }]));
       const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
-      const command = [
-        'env',
-        `TMUX_TEAM_HOME=${fixture.globalDir}`,
-        '/opt/tmt-tests/claude',
-        fixture.executables.cli.executable,
-        scenario,
-        report,
-      ]
-        .map(quote)
-        .join(' ');
-      fixture.tmux(['send-keys', '-t', pane, '-l', command]);
-      fixture.tmux(['send-keys', '-t', pane, 'Enter']);
-      await fixture.waitFor(() => fs.existsSync(checkpoint), 15000, 'admitted hook completed');
+      const launch = (input: string, output: string, listen: boolean) => {
+        const command = [
+          'env',
+          `TMUX_TEAM_HOME=${fixture.globalDir}`,
+          '/opt/tmt-tests/claude',
+          fixture.executables.cli.executable,
+          input,
+          output,
+          ...(listen ? ['--listen'] : []),
+        ]
+          .map(quote)
+          .join(' ');
+        fixture.tmux(['send-keys', '-t', pane, '-l', command]);
+        fixture.tmux(['send-keys', '-t', pane, 'Enter']);
+      };
+      launch(scenario, report, false);
+      const results = JSON.parse(await waitForFileContent(report, { timeoutMs: 15000 })) as Array<{
+        code: number;
+        stdout: string;
+        stderr: string;
+        badge: string;
+      }>;
       const running = '#[push-default]#[fg=green]●#[default]#[pop-default] Silent Badge (tmt)';
+      expect(results[0].code).toBe(0);
+      expect(results[0].stderr).toContain('hint: pane borders are off');
+      expect(results[1].code).toBe(0);
+      expect(results[1].stdout).toContain('Silent Badge');
+      expect(results[1].stderr).toBe('');
+      expect(results[1].badge).toBe(running);
       const readBadge = () =>
         fixture.tmux(['-u', 'show-options', '-p', '-qv', '-t', pane, BADGE_OPTION]).trim();
-      expect(readBadge()).toBe(running);
-      const database = new Database(path.join(fixture.globalDir, 'tmux-team.db'));
+      const database = new Database(path.join(fixture.globalDir, 'tmux-team.db'), {
+        readonly: true,
+      });
       try {
-        const before = database
-          .prepare('SELECT runtime_state, runtime_pid FROM bindings WHERE pane_id=?')
-          .get(pane) as { runtime_state: string; runtime_pid: number };
-        expect(before.runtime_state).toBe('running');
-        // Seed a keyless Ended observation: delivery invokes replacement
-        // recovery only for Ended, never for the legacy Unknown/no-key path.
-        // Its native admission must restore the real badge and runtime PID.
-        database
-          .prepare(`UPDATE bindings SET runtime_state='ended', last_transition='ended',
-            runtime_pid=NULL, runtime_start_identity=NULL, observed_provider_session_id=NULL
-            WHERE pane_id=?`)
-          .run(pane);
-        expect(
+        const readRuntime = () =>
           database
             .prepare('SELECT runtime_state, runtime_pid FROM bindings WHERE pane_id=?')
-            .get(pane)
-        ).toEqual({ runtime_state: 'ended', runtime_pid: null });
+            .get(pane) as { runtime_state: string; runtime_pid: number };
+        const before = readRuntime();
+        expect(before.runtime_state).toBe('running');
+        // Let the hook-admitted native runtime actually exit. The next runtime
+        // waits before calling TMT, so only talk can admit its replacement.
+        await fixture.waitFor(
+          () =>
+            !fs.existsSync(`/proc/${before.runtime_pid}`) &&
+            fixture
+              .tmux(['display-message', '-p', '-t', pane, '#{pane_pid}|#{pane_current_command}'])
+              .trim() === `${shell.pid}|bash`,
+          5000,
+          'original provider exited and the same pane returned to its shell'
+        );
+        launch(nextScenario, nextReport, true);
+        await fixture.waitFor(() => fs.existsSync(checkpoint), 15000, 'replacement provider held');
+        expect(readRuntime()).toEqual(before);
         fixture.tmux(['set-option', '-p', '-u', '-t', pane, BADGE_OPTION]);
         fixture.tmux(['set-option', '-p', '-u', '-t', pane, 'pane-border-format']);
         fixture.tmux(['set-option', '-p', '-u', '-t', pane, BORDER_OWNER]);
@@ -253,24 +275,23 @@ describe('non-invasive pane badge presentation', { concurrent: false }, () => {
         expectJsonResult(talk);
         expect(readBadge()).toBe(running);
         expect(localOption(fixture, BORDER_OWNER, pane)).not.toBe('');
-        expect(
-          database
-            .prepare('SELECT runtime_state, runtime_pid FROM bindings WHERE pane_id=?')
-            .get(pane)
-        ).toEqual(before);
+        const after = readRuntime();
+        expect(after.runtime_state).toBe('running');
+        expect(after.runtime_pid).toBeGreaterThan(0);
+        expect(after.runtime_pid).not.toBe(before.runtime_pid);
+        expect(fs.existsSync(`/proc/${after.runtime_pid}`)).toBe(true);
       } finally {
         database.close();
       }
       fs.writeFileSync(checkpoint, 'continue');
-      const results = JSON.parse(await waitForFileContent(report, { timeoutMs: 15000 })) as Array<{
+      const resumed = JSON.parse(
+        await waitForFileContent(nextReport, { timeoutMs: 15000 })
+      ) as Array<{
         code: number;
-        stdout: string;
         stderr: string;
       }>;
-      expect(results[0].stderr).toContain('hint: pane borders are off');
-      expect(results[1].code).toBe(0);
-      expect(results[1].stdout).toContain('Silent Badge');
-      expect(results[1].stderr).toBe('');
+      expect(resumed[0].code).toBe(0);
+      expect(resumed[0].stderr).toBe('');
       expect(
         fixture.tmux(['show-options', '-w', '-v', '-t', pane, 'pane-border-status']).trim()
       ).toBe('off');
