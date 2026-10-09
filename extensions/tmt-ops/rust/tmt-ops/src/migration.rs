@@ -417,18 +417,19 @@ fn live_clock(root: &Path, now: i64) -> io::Result<Option<(String, String)>> {
     };
     let pid = holder.pid;
     let pane = holder.pane.as_deref();
-    let holder = format!(
-        "PID {pid}{}",
-        pane.map(|pane| format!(" in pane {pane}"))
-            .unwrap_or_default()
-    );
+    // After the one switch offer, the board shows only this line: it names the fix.
+    // Quitting releases the lease; the board's clock worker then completes the cutover.
+    let board = match pane {
+        Some(pane) => format!("the old board in pane {pane}"),
+        None => format!("old board PID {pid}"),
+    };
     Ok(Some((
         format!(
             "Ops migration deferred: old clock PID {pid}{}; legacy config/state stay active until the board switch completes.",
             pane.map(|pane| format!(" in pane {pane}"))
                 .unwrap_or_default()
         ),
-        format!("Ops migration pending; retrying. Old clock {holder}."),
+        format!("Ops migration pending: quit {board} (q); Ops then retries."),
     )))
 }
 fn copy(source: &Path, target: &Path) -> io::Result<()> {
@@ -658,7 +659,7 @@ fn prepare_mode(
             }
             let (warning, board_notice) = live_clock(&old_state, now)?.unwrap_or_else(|| (
                 "Ops migration deferred: legacy state has an active writer. Retry after it finishes; this invocation keeps using legacy config and state.".into(),
-                "Ops migration pending; scheduled sends paused until migration completes.".into(),
+                "Ops migration pending: quit old Squad boards (q); Ops then retries.".into(),
             ));
             let mut paths = Paths::at(config, true);
             paths.notice = Some(warning.clone());

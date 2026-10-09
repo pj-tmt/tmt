@@ -579,7 +579,7 @@ fn deferred_retry_preserves_guard_root_pairing_then_promotes_every_clone() {
         core.paths
             .board_notice()
             .unwrap()
-            .contains("PID 123 in pane %41")
+            .contains("old board in pane %41")
     );
     lease.release().unwrap();
     let guard = state_guard(&core).unwrap();
@@ -617,7 +617,7 @@ fn retry_writer_deferral_explains_paused_sends_and_migration_failure_is_shared()
     assert!(paths(&core, None).unwrap().legacy);
     assert_eq!(
         core.paths.board_notice().unwrap(),
-        "Ops migration pending; scheduled sends paused until migration completes."
+        "Ops migration pending: quit old Squad boards (q); Ops then retries."
     );
     assert!(retry(&core).unwrap().legacy);
     drop(guard);

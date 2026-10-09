@@ -136,12 +136,14 @@ describe('squad on a private tmux server', { concurrent: false }, () => {
           (screen) =>
             screen.includes('worker') &&
             !screen.includes('Opening product') &&
-            screen.includes('PID 123') &&
-            screen.includes('retrying'),
+            screen.includes('pane %41') &&
+            screen.includes('Ops then retries'),
           shell.pane
         );
         const screen = fixture.capture(24, shell.pane);
-        expect(screen).toContain('Ops migration pending; retrying. Old clock PID 123 in pane %41.');
+        expect(screen).toContain(
+          'Ops migration pending: quit the old board in pane %41 (q); Ops then retries.'
+        );
         expect(
           Number(fixture.tmux(['display-message', '-p', '-t', shell.pane, '#{pane_width}']).trim())
         ).toBe(width);
