@@ -1,5 +1,6 @@
 import { writeExecutable as publishExecutable } from '../support/executable-fixture.mjs';
 import fs from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -66,6 +67,56 @@ async function waitForFile(file: string, timeoutMs: number): Promise<void> {
       );
     }
     await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+}
+
+// Test-local ordering control: capture only runCli's synchronously armed execution timer.
+// Cleanup/observation timers stay real; this is not elapsed startup-time evidence.
+function controlledExecutionExpiry(start: () => Promise<unknown>) {
+  const schedule = globalThis.setTimeout;
+  let expire: (() => void) | undefined;
+  let requestedDelay: number | undefined;
+  const timer = vi
+    .spyOn(globalThis, 'setTimeout')
+    .mockImplementation((callback, delay, ...args) => {
+      if (delay === 1_000 && expire === undefined) {
+        requestedDelay = delay;
+        let expired = false;
+        expire = () => {
+          if (expired) return;
+          expired = true;
+          callback(...args);
+        };
+        return schedule(() => {}, delay);
+      }
+      return schedule(callback, delay, ...args);
+    });
+  try {
+    const pending = start();
+    if (!expire) throw new Error('The 1000ms execution timer was not armed synchronously.');
+    return { pending, expire, requestedDelay };
+  } finally {
+    timer.mockRestore();
+  }
+}
+
+async function settleControlledExpiry(
+  run: ReturnType<typeof controlledExecutionExpiry>,
+  ownedRoots: string[]
+) {
+  run.expire();
+  const failure = await run.pending.catch((error: unknown) => error);
+  if (
+    !(failure instanceof Error) ||
+    failure instanceof AggregateError ||
+    failure.message !== 'CLI subprocess exceeded the 1000 millisecond test bound.'
+  ) {
+    for (const root of ownedRoots) {
+      const index = temporaryRoots.indexOf(root);
+      if (index !== -1) temporaryRoots.splice(index, 1);
+    }
+    console.error('Controlled CLI cleanup unconfirmed; retained fixtures:', ownedRoots);
+    throw failure;
   }
 }
 
@@ -271,23 +322,86 @@ describe('CLI executable descriptors', () => {
     expect(result).toEqual({ status: 23, signal: null, stdout: '', stderr: '' });
   });
 
-  it('bounds selected executable runtime and cleans up its descendant process group', async () => {
+  it('controlled expiry cleans up an already-ready selected descendant process group', async () => {
     const root = temporaryRoot();
     const childPidPath = path.join(root, 'child.pid');
     const executable = writeExecutable(
       root,
       'long-running',
-      '#!/bin/sh\necho started > "${1%/*}/started"\n(sleep 30) &\necho "$!" > "$1"\nwhile :; do sleep 1; done\n'
+      '#!/bin/sh\necho started > "${1%/*}/started"\n(sleep 30) &\nprintf "%s %s\\n" "$!" "$$" > "$1.pending"\nmv "$1.pending" "$1"\nwhile :; do sleep 1; done\n'
     );
     const sandbox = sandboxWithEnv({ TMT_TEST_CLI: descriptor(executable, [childPidPath]) });
-
-    await expect(runCli(sandbox, [], { deadlineMs: 1_000 })).rejects.toThrow(
-      'CLI subprocess exceeded the 1000 millisecond test bound.'
-    );
-    await waitForFile(childPidPath, 1_000);
-    const childPid = Number(fs.readFileSync(childPidPath, 'utf8'));
-    expect(Number.isInteger(childPid)).toBe(true);
-    await waitForProcessExit(childPid, 2_000);
-    expect(processIsAlive(childPid)).toBe(false);
+    const run = controlledExecutionExpiry(() => runCli(sandbox, [], { deadlineMs: 1_000 }));
+    expect(run.requestedDelay).toBe(1_000);
+    try {
+      await waitForFile(childPidPath, 1_000);
+      const [childPid, group] = fs
+        .readFileSync(childPidPath, 'utf8')
+        .trim()
+        .split(/\s+/)
+        .map(Number);
+      expect(Number.isSafeInteger(childPid) && childPid > 0).toBe(true);
+      expect(Number.isSafeInteger(group) && group > 0 && group !== process.pid).toBe(true);
+      expect(
+        Number(
+          execFileSync('/bin/ps', ['-o', 'pgid=', '-p', String(childPid)], {
+            encoding: 'utf8',
+          }).trim()
+        )
+      ).toBe(group);
+      expect(processIsAlive(childPid)).toBe(true);
+      run.expire();
+      await expect(run.pending).rejects.toThrow(
+        'CLI subprocess exceeded the 1000 millisecond test bound.'
+      );
+      await waitForProcessExit(childPid, 2_000);
+      expect(processIsAlive(childPid)).toBe(false);
+      expect(processIsAlive(-group)).toBe(false);
+    } finally {
+      // Also expire after failed readiness/identity assertions; never leave this controlled run live.
+      await settleControlledExpiry(run, [root, sandbox.root]);
+    }
   });
+
+  it('controlled expiry before selected readiness cannot claim descendant cleanup', async () => {
+    const root = temporaryRoot();
+    const childPidPath = path.join(root, 'child.pid');
+    const executable = writeExecutable(root, 'not-ready', '#!/bin/sh\nwhile :; do sleep 1; done\n');
+    const sandbox = sandboxWithEnv({ TMT_TEST_CLI: descriptor(executable, [childPidPath]) });
+    const run = controlledExecutionExpiry(() => runCli(sandbox, [], { deadlineMs: 1_000 }));
+    expect(run.requestedDelay).toBe(1_000);
+    try {
+      run.expire();
+      await expect(run.pending).rejects.toThrow(
+        'CLI subprocess exceeded the 1000 millisecond test bound.'
+      );
+      expect(fs.existsSync(childPidPath)).toBe(false);
+    } finally {
+      await settleControlledExpiry(run, [root, sandbox.root]);
+    }
+  });
+});
+
+it('inert controlled expiry captures the unchanged timer once and restores scheduling immediately', async () => {
+  const failure = new Error('original deadline');
+  let fired = 0;
+  const originalSchedule = globalThis.setTimeout;
+  const run = controlledExecutionExpiry(
+    () =>
+      new Promise((_, reject) => {
+        const timer = setTimeout(() => {
+          clearTimeout(timer);
+          fired++;
+          reject(failure);
+        }, 1_000);
+      })
+  );
+  void run.pending.catch(() => {});
+  expect(globalThis.setTimeout).toBe(originalSchedule);
+  expect(run.requestedDelay).toBe(1_000);
+  expect(fired).toBe(0);
+  run.expire();
+  run.expire();
+  await expect(run.pending).rejects.toBe(failure);
+  expect(fired).toBe(1);
 });
