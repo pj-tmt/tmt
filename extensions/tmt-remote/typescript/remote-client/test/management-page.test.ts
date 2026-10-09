@@ -43,6 +43,9 @@ function fixture() {
     async rename(input) {
       return this.set({ operationId: input.operationId, setting: 'open', value: true });
     },
+    async talk(input) {
+      return this.set({ operationId: input.operationId, setting: 'open', value: input.enabled });
+    },
     async revoke(input) {
       return this.set({ operationId: input.operationId, setting: 'open', value: true });
     },
@@ -280,4 +283,23 @@ test('ordinary, effect and original-receipt refresh retain the last successfully
   assert.equal(f.page.onFirstPage, false);
   await f.page.refresh(null);
   assert.equal(f.page.onFirstPage, true);
+});
+
+test('unknown sending toggle keeps its frozen boolean and recovers only the original', async () => {
+  const f = fixture();
+  await f.page.refresh();
+  const intent: PageIntent = {
+    kind: 'talk',
+    input: { operationId: crypto.randomUUID(), clientId: crypto.randomUUID(), enabled: true },
+  };
+  const id = intent.input.operationId;
+  await f.page.submit(intent);
+  intent.input.enabled = false;
+  assert.equal(f.page.intent?.kind, 'talk');
+  assert.ok(f.page.intent?.kind === 'talk');
+  assert.equal(f.page.intent.input.enabled, true);
+  f.setResult({ operationId: id, state: 'refused', reason: 'REMOTE_DEVICE_REVOKED' });
+  await f.page.recover();
+  await f.page.recover();
+  assert.deepEqual(f.counts(), { effectCalls: 1, readCalls: 1, reopens: 1 });
 });

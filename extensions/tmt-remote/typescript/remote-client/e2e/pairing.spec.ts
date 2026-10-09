@@ -446,7 +446,7 @@ for (const failure of ['SDK abort', 'offer abort', 'offer refused', 'offer malfo
 }
 
 test('a browser pairs, gets a door session and certifies only its own extension', async () => {
-  pair = spawn(BINARY, ['pair', '--json'], { env });
+  pair = spawn(BINARY, ['pair', '--json', '--talk'], { env });
   const events = lines(pair);
   const offer = await events.next();
   const link = offer.link as string;
@@ -1516,6 +1516,9 @@ test('settings draft preserves authority, exact values, drafts and unknown self-
     'settings-read-only',
     'Non-designated browser, visible local CLI and disabled reasons',
   );
+  await expect(page.locator('.device-summary').first()).toHaveText(
+    /^Settings browser · This device · browser · Paired · Sending on · 2 live sessions · Last activity .+$/,
+  );
   await expect(page.locator('#limit-value')).toHaveText('8 · default');
   execFileSync(BINARY, ['devices', 'designate', clientId, '--json'], { env });
   await page.click('#refresh');
@@ -1573,6 +1576,44 @@ test('settings draft preserves authority, exact values, drafts and unknown self-
     'settings-designated-default',
     'Designated browser; unset default8 and admitted controls',
   );
+  // Explicit self scope changes use the same original-only recovery, never a resend.
+  await page.getByRole('button', { name: 'Disable sending', exact: true }).click();
+  await expect(page.locator('#outcome')).toContainText('committed');
+  await expect(page.locator('#access')).toContainText('unconfirmed');
+  await page.click('#recover');
+  await expect(page.getByRole('button', { name: 'Enable sending', exact: true })).toBeEnabled();
+  await expect(page.locator('.device-summary').first()).toHaveText(
+    /^Settings browser · This device · browser · Paired · Sending off · 1 live session · Last activity .+$/,
+  );
+  for (const colorScheme of ['light', 'dark'] as const) {
+    await page.emulateMedia({ colorScheme });
+    await captureState(
+      page,
+      'settings-sending-disabled',
+      'Explicit sending scope disabled; other device policy and original receipt retained',
+    );
+  }
+  const sendingConfirmation = page.waitForEvent('dialog');
+  const enableSending = page.getByRole('button', { name: 'Enable sending', exact: true }).click();
+  const sendingDialog = await sendingConfirmation;
+  expect(sendingDialog.message()).toBe('Allow Settings browser to send to its permitted agents?');
+  await sendingDialog.accept();
+  await enableSending;
+  await expect(page.locator('#outcome')).toContainText('committed');
+  await page.click('#recover');
+  await expect(page.getByRole('button', { name: 'Disable sending', exact: true })).toBeEnabled();
+  await expect(page.locator('.device-summary').first()).toHaveText(
+    /^Settings browser · This device · browser · Paired · Sending on · 1 live session · Last activity .+$/,
+  );
+  for (const colorScheme of ['light', 'dark'] as const) {
+    await page.emulateMedia({ colorScheme });
+    await captureState(
+      page,
+      'settings-sending-enabled',
+      'Explicit owner-settings sending enabled after confirmation and original-only recovery',
+    );
+  }
+  await page.emulateMedia({ colorScheme: 'light' });
   // Refresh preserves the unset source and never turns default 8 into an explicit cap.
   await page.click('#refresh');
   await expect(page.locator('#refresh')).toBeEnabled();
@@ -1757,7 +1798,10 @@ test('settings draft preserves authority, exact values, drafts and unknown self-
   );
   // Lost self-revoke acknowledgement: one fresh read-only admission, accurate access loss + unknown.
   const confirmation = page.waitForEvent('dialog');
-  const revokeClick = page.locator('.device button[type=button]').click();
+  const revokeClick = page
+    .locator('.device')
+    .getByRole('button', { name: 'Revoke', exact: true })
+    .click();
   const dialog = await confirmation;
   try {
     expect(dialog.type()).toBe('confirm');
@@ -1919,12 +1963,12 @@ test('settings pagination retains later-page drafts across refresh and guards na
     'settings-revoke-ready',
     'Native revoke action; confirm text is asserted separately, not rasterized by headless Chromium',
   );
-  await target.locator('button[type=button]').click();
+  await target.getByRole('button', { name: 'Revoke', exact: true }).click();
   await expect(target.locator('.device-summary')).toContainText('Revoked');
-  await expect(target.locator('button[type=button]')).toBeDisabled();
-  await expect(target.locator('button[type=button]')).toHaveAccessibleDescription(
-    'This device is revoked.',
-  );
+  await expect(target.getByRole('button', { name: 'Revoke', exact: true })).toBeDisabled();
+  await expect(
+    target.getByRole('button', { name: 'Revoke', exact: true }),
+  ).toHaveAccessibleDescription('This device is revoked.');
   await captureState(
     page,
     'settings-other-device-revoked',

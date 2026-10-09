@@ -396,6 +396,9 @@ impl DoorSessions {
             ));
         };
         if scope.is_some_and(|scope| !grant.permits_scope(scope)) {
+            if scope == Some("talk") {
+                return Err(admission::missing_talk(self, &message));
+            }
             return Err(deny(
                 "REMOTE_SCOPE_DENIED",
                 "Device scope does not admit this operation.",

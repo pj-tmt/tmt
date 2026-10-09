@@ -69,7 +69,8 @@ defines default/source, capacity and one-attempt live-grant recovery behavior.
 
 The existing Chromium pairing fixture also exercises the actual settings page: designated/
 read-only values, exact custom cap/off/default source, role removal, retained drafts/caret,
-lost self-rename/revoke acknowledgments, original-only recovery, no resend and process cleanup.
+explicit sending-scope enable/disable, lost self-change acknowledgments, original-only recovery,
+no resend and process cleanup. Sending controls preserve device-name drafts and other grant policy.
 A >25-device scenario covers later-page drafts through refresh, another committed effect,
 original-receipt recovery and guarded first/next navigation.
 Use `TMT_REMOTE_CAPTURE_DIR` for light/dark 1440/390 settings captures; 320 fit is asserted.

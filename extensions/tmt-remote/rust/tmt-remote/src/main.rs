@@ -70,7 +70,7 @@ const PAIR: CommandSpec = CommandSpec {
         note: "Open the pairing link in your browser, then confirm the device here",
     }],
     outputs: OutputModes::HumanAndJson,
-    details: "The device opens the link or enters the code. Compare the four words on both sides, then confirm once.\nThe grant reaches all agents, sends directly and does not expire; revoke it to end it.\n--json streams one event per line and reads confirm or refuse from stdin.",
+    details: "The device opens the link or enters the code. Compare the four words on both sides, then confirm once.\nThe grant reaches all agents, sends directly and does not expire; revoke it to end it.\n--talk explicitly grants sending (today every pairing already includes it). --agents <uuid,...> and --hold require --talk and narrow its sending policy.\n--json streams one event per line and reads confirm or refuse from stdin.",
 };
 const SETTINGS: CommandSpec = CommandSpec {
     name: "settings",
@@ -81,6 +81,16 @@ const SETTINGS: CommandSpec = CommandSpec {
     }],
     outputs: OutputModes::HumanAndJson,
     details: "Browser opening defaults to on. sessions-per-device accepts a positive integer or off (default: 8); changes apply at the next session open. Settings are stored only in Remote's data directory.",
+};
+const TALK: CommandSpec = CommandSpec {
+    name: "talk",
+    summary: "Enable or disable sending for one paired device",
+    examples: &[Example {
+        command: "tmt remote devices talk <client-id> on|off",
+        note: "Keep its other grant policy unchanged",
+    }],
+    outputs: OutputModes::HumanAndJson,
+    details: "Only the local owner can run this command. A changed scope ends Sessions on the previous revision; revoked devices cannot be enabled.",
 };
 const DEVICES: CommandSpec = CommandSpec {
     name: "devices",
@@ -245,6 +255,27 @@ fn grammar() -> Command {
         .subcommand(
             tmt_cli_style::command(&PAIR)
                 .arg(
+                    Arg::new("talk")
+                        .long("talk")
+                        .action(ArgAction::SetTrue)
+                        .help("Grant sending (today every pairing already includes it)"),
+                )
+                .arg(
+                    Arg::new("agents")
+                        .long("agents")
+                        .value_delimiter(',')
+                        .num_args(1..)
+                        .requires("talk")
+                        .help("Limit sending to these agent UUIDs"),
+                )
+                .arg(
+                    Arg::new("hold")
+                        .long("hold")
+                        .action(ArgAction::SetTrue)
+                        .requires("talk")
+                        .help("Hold sending for local approval"),
+                )
+                .arg(
                     Arg::new("open")
                         .long("open")
                         .action(ArgAction::SetTrue)
@@ -273,6 +304,15 @@ fn grammar() -> Command {
         .subcommand(tmt_cli_style::command(&CANCEL).arg(Arg::new("operation-id").required(true)))
         .subcommand(
             tmt_cli_style::command(&DEVICES)
+                .subcommand(
+                    tmt_cli_style::command(&TALK)
+                        .arg(Arg::new("client-id").required(true))
+                        .arg(
+                            Arg::new("enabled")
+                                .required(true)
+                                .value_parser(["on", "off"]),
+                        ),
+                )
                 .subcommand(
                     tmt_cli_style::command(&DESIGNATE).arg(Arg::new("client-id").required(true)),
                 )
@@ -305,7 +345,19 @@ fn run(matches: &clap::ArgMatches) -> Result<(), RemoteError> {
         return approval_command(name, arguments);
     }
     if name == "pair" {
-        return pair(arguments.get_flag("json"), open::flag(arguments));
+        let mut agents = arguments
+            .get_many::<String>("agents")
+            .map(|values| values.cloned().collect::<Vec<_>>());
+        if let Some(ids) = &mut agents {
+            ids.sort();
+        }
+        let policy = tmt_remote::pairing::PairingPolicy {
+            talk: arguments.get_flag("talk"),
+            agents,
+            hold: arguments.get_flag("hold"),
+        };
+        policy.validate()?;
+        return pair(arguments.get_flag("json"), open::flag(arguments), policy);
     }
     if name == "status" {
         return status(
@@ -561,7 +613,11 @@ fn approval_command(action: &str, arguments: &clap::ArgMatches) -> Result<(), Re
 }
 /// `tmt remote pair`: open the single offer on the running serve and relay
 /// the owner's one confirmation. State is reached only through serve.
-fn pair(json_output: bool, flag: open::Flag) -> Result<(), RemoteError> {
+fn pair(
+    json_output: bool,
+    flag: open::Flag,
+    policy: tmt_remote::pairing::PairingPolicy,
+) -> Result<(), RemoteError> {
     let interaction = Interaction::detect(json_output);
     if !json_output && interaction.prompt() != Mode::Interactive {
         return Err(RemoteError::new(
@@ -591,6 +647,11 @@ fn pair(json_output: bool, flag: open::Flag) -> Result<(), RemoteError> {
                 error["code"].as_str().unwrap_or("REMOTE_IO"),
                 error["message"].as_str().unwrap_or("Pairing failed."),
             ));
+        }
+        // An old owner ignores policy fields. Refuse before exposing its offer
+        // or answering it, so explicit narrowing cannot become a broad grant.
+        if event["event"] == "offer" && policy.talk && event["ownerPolicyVersion"] != 1 {
+            return Err(control::outdated_serve());
         }
         if json_output {
             writeln!(output, "{event}")?;
@@ -640,7 +701,21 @@ fn pair(json_output: bool, flag: open::Flag) -> Result<(), RemoteError> {
                             ("origin", event["origin"].as_str().unwrap_or("").into()),
                             ("name", event["name"].as_str().unwrap_or("").into()),
                             ("words", words.join(" ")),
-                            ("grant", "all agents, direct sends, no expiry".into()),
+                            (
+                                "grant",
+                                format!(
+                                    "{}, {}, no expiry",
+                                    policy.agents.as_ref().map_or_else(
+                                        || "all agents".into(),
+                                        |ids| format!("agents {}", ids.join(", "))
+                                    ),
+                                    if policy.hold {
+                                        "held sends"
+                                    } else {
+                                        "direct sends"
+                                    }
+                                ),
+                            ),
                         ],
                     )?;
                     output.flush()?;
@@ -649,6 +724,7 @@ fn pair(json_output: bool, flag: open::Flag) -> Result<(), RemoteError> {
                 // offer that ends first (expiry, refusal) is still reported.
                 if !answering.swap(true, Ordering::AcqRel) {
                     let mut control = stream.try_clone()?;
+                    let policy = policy.clone();
                     std::thread::spawn(move || {
                         if !json_output {
                             let mut prompt = tmt_cli_style::stream::stderr();
@@ -658,12 +734,12 @@ fn pair(json_output: bool, flag: open::Flag) -> Result<(), RemoteError> {
                         let mut answer = String::new();
                         let confirmed = std::io::stdin().read_line(&mut answer).is_ok()
                             && matches!(answer.trim(), "y" | "yes" | "confirm");
-                        let line: &[u8] = if confirmed {
-                            b"{\"op\":\"confirm\"}\n"
+                        let line = if confirmed {
+                            json!({"op":"confirm","policy":policy})
                         } else {
-                            b"{\"op\":\"refuse\"}\n"
+                            json!({"op":"refuse"})
                         };
-                        let _ = control.write_all(line);
+                        let _ = writeln!(control, "{line}");
                     });
                 }
             }
@@ -777,6 +853,9 @@ fn devices(arguments: &clap::ArgMatches) -> Result<(), RemoteError> {
     let json_output =
         arguments.get_flag("json") || mutation.is_some_and(|(_, m)| m.get_flag("json"));
     let request = match mutation {
+        Some(("talk", m)) => {
+            json!({"op":"talk","clientId":m.get_one::<String>("client-id").unwrap(),"enabled":m.get_one::<String>("enabled").unwrap()=="on"})
+        }
         Some(("rename", m)) => {
             json!({"op":"rename","clientId":m.get_one::<String>("client-id").unwrap(), "name":m.get_one::<String>("name").unwrap()})
         }
@@ -822,6 +901,9 @@ fn devices(arguments: &clap::ArgMatches) -> Result<(), RemoteError> {
             store.machine()?;
             let devices = Devices::new(Arc::new(Mutex::new(store)), None);
             match mutation {
+                Some(("talk", m)) => {
+                    json!({"device":device_json(&devices.talk(m.get_one::<String>("client-id").unwrap(), m.get_one::<String>("enabled").unwrap()=="on")?)})
+                }
                 Some(("rename", m)) => {
                     json!({"device": device_json(&devices.rename(m.get_one::<String>("client-id").unwrap(), m.get_one::<String>("name").unwrap())?)})
                 }
@@ -875,10 +957,11 @@ fn devices(arguments: &clap::ArgMatches) -> Result<(), RemoteError> {
             terminal,
             &format!(
                 "{} {name}",
-                if request["op"] == "rename" {
-                    "Renamed"
-                } else {
-                    "Revoked"
+                match request["op"].as_str() {
+                    Some("rename") => "Renamed",
+                    Some("talk") if request["enabled"] == true => "Enabled sending for",
+                    Some("talk") => "Disabled sending for",
+                    _ => "Revoked",
                 }
             ),
         )?);

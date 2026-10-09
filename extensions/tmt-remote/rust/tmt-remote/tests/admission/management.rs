@@ -475,3 +475,77 @@ fn response_sequence_publication_failure_preserves_committed_settings_receipt() 
     );
     assert!(core.calls().is_empty());
 }
+
+#[test]
+fn sending_toggle_requires_designation_then_recovers_its_own_original_after_self_change() {
+    let owner = OwnerDoor::with_device(vec!["talk".into()], "hold", "all".into(), None, "browser");
+    let core = core_fixture::Core::new();
+    let app = app(&owner, &core);
+    let session = owner.open();
+    let id = uuid_v4().unwrap();
+    let input = json!({"operationId":id,"clientId":owner.grant.client_id,"enabled":false});
+    let denied = request(
+        &owner,
+        Arc::clone(&app),
+        &session,
+        1,
+        "remote.devices.talk",
+        input.clone(),
+    );
+    assert_eq!(denied["error"]["code"], "REMOTE_MANAGEMENT_READ_ONLY");
+    assert!(
+        owner
+            .store
+            .lock()
+            .unwrap()
+            .grant(&owner.grant.client_id)
+            .unwrap()
+            .unwrap()
+            .permits_scope("talk")
+    );
+    owner
+        .store
+        .lock()
+        .unwrap()
+        .designate(
+            &owner.grant.client_id,
+            &owner.grant.origin,
+            now_ms().unwrap(),
+        )
+        .unwrap();
+    let result = request(
+        &owner,
+        Arc::clone(&app),
+        &session,
+        2,
+        "remote.devices.talk",
+        input,
+    );
+    assert_eq!(result["state"], "committed");
+    assert_eq!(result["sessionEnded"], true);
+    assert_eq!(result["result"]["device"]["talkEnabled"], false);
+    let reopened = owner.open();
+    let recovered = request(
+        &owner,
+        Arc::clone(&app),
+        &reopened,
+        1,
+        "remote.management.operation",
+        json!({"operationId":id}),
+    );
+    assert_eq!(recovered, result);
+    let fresh = uuid_v4().unwrap();
+    let enabled = request(
+        &owner,
+        app,
+        &reopened,
+        2,
+        "remote.devices.talk",
+        json!({"operationId":fresh,"clientId":owner.grant.client_id,"enabled":true}),
+    );
+    assert_eq!(enabled["result"]["device"]["talkEnabled"], true);
+    assert!(
+        core.calls().is_empty(),
+        "management never dispatches agent work"
+    );
+}

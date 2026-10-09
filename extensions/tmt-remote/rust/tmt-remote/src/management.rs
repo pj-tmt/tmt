@@ -7,7 +7,7 @@ use crate::{
     journal,
     pairing::now_ms,
     settings,
-    store::{Grant, Store, database, grant_in, rename_in, revoke_in},
+    store::{Grant, Store, database, grant_in, rename_in, revoke_in, talk_in},
 };
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use serde::Deserialize;
@@ -38,6 +38,13 @@ struct RenameInput {
 }
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct TalkInput {
+    operation_id: String,
+    client_id: String,
+    enabled: bool,
+}
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct Lookup {
     operation_id: String,
 }
@@ -52,6 +59,7 @@ enum Mutation {
     Setting { key: &'static str, value: Value },
     Rename { client: String, name: String },
     Revoke { client: String },
+    Talk { client: String, enabled: bool },
 }
 fn invalid() -> RemoteError {
     RemoteError::new("REMOTE_INPUT_INVALID", "Invalid Remote management input.")
@@ -91,7 +99,7 @@ fn settings_json(loaded: &settings::RemoteSettings) -> Value {
 fn summary(grant: &Grant) -> Value {
     json!({"clientId":grant.client_id,"name":grant.name,"kind":grant.kind,
         "issuedAtMs":grant.issued_at_ms,"expiresAtMs":grant.expires_at_ms,
-        "revision":grant.revision,"revoked":grant.disabled})
+        "revision":grant.revision,"revoked":grant.disabled,"talkEnabled":grant.permits_scope("talk")})
 }
 fn unknown(id: &str) -> Value {
     json!({"operationId":id,"state":"unknown","reason":"effect_outcome_unconfirmed"})
@@ -395,6 +403,23 @@ impl Store {
                     Err(error) => return Err(error),
                 }
             }
+            Mutation::Talk { client, enabled } => {
+                let before = grant_in(&tx, &client)?;
+                match talk_in(&tx, &client, enabled) {
+                    Ok(Some(target)) => {
+                        let changed = before.is_some_and(|g| g.revision != target.revision);
+                        (
+                            json!({"operationId":id,"state":"committed","result":{"device":summary(&target)},"sessionEnded":changed && client==grant.client_id}),
+                            changed.then_some(client),
+                        )
+                    }
+                    Ok(None) => (refused(id, "REMOTE_DEVICE_NOT_FOUND"), None),
+                    Err(error) if error.code == "REMOTE_DEVICE_REVOKED" => {
+                        (refused(id, &error.code), None)
+                    }
+                    Err(error) => return Err(error),
+                }
+            }
             Mutation::Revoke { client } => match revoke_in(&tx, &client) {
                 Ok(Some(target)) => (
                     json!({"operationId":id,"state":"committed","result":{"device":summary(&target)},"sessionEnded":client==grant.client_id}),
@@ -515,6 +540,19 @@ pub(crate) fn append(permit: &MessagePermit, devices: &crate::devices::Devices) 
                 Mutation::Rename {
                     client: input.client_id,
                     name: input.name,
+                },
+            )
+        }
+        "remote.devices.talk" => {
+            let input: TalkInput = decode(&permit.message.input)?;
+            if !canonical::is_core_id(&input.client_id) {
+                return Err(invalid());
+            }
+            (
+                input.operation_id,
+                Mutation::Talk {
+                    client: input.client_id,
+                    enabled: input.enabled,
                 },
             )
         }

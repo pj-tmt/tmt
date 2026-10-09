@@ -300,6 +300,17 @@ fn session(
                 "Revoke needs a clientId.",
             )),
         }),
+        Some("talk") if request.as_object().is_some_and(|row| row.len() == 3) => Some(
+            match (
+                request.get("clientId").and_then(Value::as_str),
+                request.get("enabled").and_then(Value::as_bool),
+            ) {
+                (Some(client), Some(enabled)) => devices
+                    .talk(client, enabled)
+                    .map(|grant| json!({"device":device_json(&grant)})),
+                _ => Err(crate::operations::invalid()),
+            },
+        ),
         Some("rename") => Some(
             match (
                 request.get("clientId").and_then(Value::as_str),
@@ -345,6 +356,7 @@ fn session(
     let link = format!("{}/pair#{}", door.door.origin, code.replace('-', ""));
     let opened = json!({
         "event": "offer",
+        "ownerPolicyVersion": 1,
         "link": link,
         "code": code,
         "descriptor": descriptor,
@@ -387,7 +399,21 @@ fn session(
         // The owner's answer, or a closed client, which cancels the offer.
         match poll_line(&mut stream, &mut buffer) {
             Ok(Some(answer)) => match answer.get("op").and_then(Value::as_str) {
-                Some("confirm") => pairing.confirm(&offer_id),
+                Some("confirm")
+                    if answer.as_object().is_some_and(|row| {
+                        row.keys()
+                            .all(|key| matches!(key.as_str(), "op" | "policy"))
+                    }) =>
+                {
+                    let policy = answer.get("policy").cloned().map_or_else(
+                        || Ok(crate::pairing::PairingPolicy::default()),
+                        serde_json::from_value,
+                    );
+                    match policy {
+                        Ok(policy) => pairing.confirm_with(&offer_id, policy),
+                        Err(_) => pairing.refuse(&offer_id),
+                    }
+                }
                 _ => pairing.refuse(&offer_id),
             },
             Ok(None) => {}
@@ -602,18 +628,22 @@ pub fn request_stop(remote_directory: &Path) -> Result<bool, RemoteError> {
 const UNSUPPORTED: &str = "REMOTE_CONTROL_UNSUPPORTED";
 const LEGACY_UNSUPPORTED_MESSAGE: &str = "Unknown control operation.";
 
+/// Report a running owner that cannot safely implement this client command.
+pub fn outdated_serve() -> RemoteError {
+    RemoteError::new(
+        "REMOTE_SERVE_OUTDATED",
+        "The running tmt remote serve is older than this tmt remote and does not support this command. Stop it by hand (Ctrl-C in its terminal) and start it again.",
+    )
+}
 /// Discovery operations postdate alpha.1, so a refusal as unsupported means the
 /// running serve is older than this client. It cannot be asked to stop, so the
 /// message sends the user to its terminal.
 fn request_operation(remote_directory: &Path, op: &str) -> Result<Option<Value>, RemoteError> {
     request(remote_directory, &json!({ "op": op })).map_err(|error| {
-        let legacy = error.code == "REMOTE_INPUT_INVALID"
-            && error.message == LEGACY_UNSUPPORTED_MESSAGE;
+        let legacy =
+            error.code == "REMOTE_INPUT_INVALID" && error.message == LEGACY_UNSUPPORTED_MESSAGE;
         if error.code == UNSUPPORTED || legacy {
-            RemoteError::new(
-                "REMOTE_SERVE_OUTDATED",
-                "The running tmt remote serve is older than this tmt remote and does not support this command. Stop it by hand (Ctrl-C in its terminal) and start it again.",
-            )
+            outdated_serve()
         } else {
             error
         }

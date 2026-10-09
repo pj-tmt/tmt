@@ -430,8 +430,9 @@ identity UUIDs. `mode` is `direct` (default) or `hold`. `expiresAtMs` is null (d
 or the time limit the owner chose at pairing. `revision` is a positive integer; `disabled` is
 false on issue. Names are presentation only; rename preserves UUID authority, and a retired
 identity's same-name replacement inherits nothing. After pairing, authority may only be narrowed
-or revoked through local management (`tmt remote devices`). The separate
-[settings designation](#remote-settings-browser-authority) does not widen this agent grant.
+or revoked, except an explicit local-owner or designated-browser talk toggle may add or remove
+only `talk`, preserving the agent allowlist, mode, expiry and every other scope; designation alone
+widens nothing.
 
 Default scopes are `agents.read`, `status.read`, `check.read`, `talk` and `results.read`. The owner
 may remove scopes at pairing. Future core capabilities do not silently become remotely callable;
@@ -550,9 +551,9 @@ resend or a replacement operation ID.
 Browser management never changes core settings, provider settings, drivers, extension installs or
 argv, and never approves, rejects, cancels or releases held operations. `tmt remote approve` and
 held-operation cancellation remain terminal-only. There is no generic config/command endpoint,
-and a management designation cannot widen agent or extension authority. Typed wire/SDK payloads,
-refusals and mutation recovery must be specified with the implementation before any such operation
-is advertised as supported.
+and designation alone cannot widen agent or extension authority; the explicit device talk toggle
+is the sole scope-widening exception above. Typed wire/SDK payloads, refusals and mutation recovery
+must be specified with the implementation before any such operation is advertised as supported.
 
 Implementation acceptance must prove same-loopback browsers with different keys cannot impersonate
 the designated browser, designation is local-only and never automatic, non-designated writes cause
@@ -580,6 +581,7 @@ requests use a fresh envelope ID; original-operation lookup never adopts or exec
 | `remote.devices.list`         | `{cursor:null\|string,limit:integer}`                                                                            | Device page below; limit 1–50                                          |
 | `remote.settings.set`         | `{operationId,setting:"open",value:boolean}` or `{operationId,setting:"sessions-per-device",value:string\|null}` | Management outcome below                                               |
 | `remote.devices.rename`       | `{operationId,clientId,name}`                                                                                    | Management outcome; existing 1–64-byte nonblank/control-free name rule |
+| `remote.devices.talk`         | `{operationId,clientId,enabled:boolean}`                                                                           | Management outcome; changes only the talk scope                         |
 | `remote.devices.revoke`       | `{operationId,clientId}`                                                                                         | Management outcome                                                     |
 | `remote.management.operation` | `{operationId}`                                                                                                  | Only the caller's original management outcome, with a live grant       |
 
@@ -597,9 +599,11 @@ readOnlyReason:null|"local_cli_required"}`. Both write capabilities represent th
 admission, never authorization for a later effect. With no current designation they are false and
 the reason is `local_cli_required`.
 
-A device summary is exactly `{clientId,name,kind,issuedAtMs,expiresAtMs,revision,revoked}`, where kind
-is `browser`, `addon` or `cli`, expiry is null or a JSON-safe millisecond integer and revision is
-positive and JSON-safe. A list row adds exactly `{thisBrowser:boolean,liveSessionCount:integer,
+A device summary is exactly
+`{clientId,name,kind,issuedAtMs,expiresAtMs,revision,revoked,talkEnabled}`, where kind is `browser`,
+`addon` or `cli`, expiry is null or a JSON-safe millisecond integer and revision is positive and
+JSON-safe; `talkEnabled` is the configured scope bit, not proof of live authority.
+A list row adds exactly `{thisBrowser:boolean,liveSessionCount:integer,
 lastActivityAtMs:null|integer}`. The page is `{devices:[row],nextCursor:null|string}`. Store performs
 UUID-keyset ordering and SQL limit+one-lookahead before materializing rows. Its 98-character
 base64url cursor encodes only caller UUID and last UUID, is checked against the admitted caller,
@@ -618,15 +622,18 @@ A management outcome is one of:
 A setting result contains settings; device mutations contain only the target summary.
 `sessionEnded` means the caller's old Session lost authority through a revision/revoke change,
 not proof that a physical TCP socket has closed. Exact-repeat rename preserves the revision and
-returns false. Repeated local revoke preserves the existing revoked revision. Device effects and
+returns false; exact-repeat talk toggles do likewise, and revoked grants cannot be enabled.
+Repeated local revoke preserves the existing revoked revision. Device effects and
 committed receipts share one immediate SQLite transaction; post-commit cleanup/events reuse the
 existing device and Session owners after releasing live/Store locks. A cleanup, signing or transport
 failure cannot remove that receipt or turn committed work into no effect.
 
-Typed signed errors retain `{error:{code,message,limit?,retryAfterMs?,settingsUrl?}}` admission
-conventions. `REMOTE_MANAGEMENT_READ_ONLY` refuses non-designated effects before management intent
-adoption, with no setting/device effects or management holds; ordinary sequence/budget/audit
-accounting remains. `REMOTE_MANAGEMENT_UNAVAILABLE` means an original receipt is missing,
+Typed signed errors retain `{error:{code,message,limit?,retryAfterMs?,settingsUrl?,scope?}}` admission
+conventions. A missing sending scope returns signed `REMOTE_SCOPE_DENIED` with `scope:"talk"`
+and an optional same-origin `settingsUrl`, unlike a recipient allowlist refusal.
+`REMOTE_MANAGEMENT_READ_ONLY` refuses non-designated effects before management intent adoption,
+with no setting/device effects or management holds; ordinary sequence/budget/audit accounting remains.
+`REMOTE_MANAGEMENT_UNAVAILABLE` means an original receipt is missing,
 other-device or outside its deadline, never proof of no effect. `REMOTE_SETTINGS_UNAVAILABLE` is
 used only for a proved failure before the settings-file first-touch boundary. Existing input,
 rate, live-session, intent-conflict, device-not-found/revoked and state-unavailable codes retain
@@ -672,7 +679,7 @@ same-key re-pair clears it; rename retains identity while ending old-revision Se
 optional pairing-confirmation choice is not implemented; later local designation
 is available without another browser ceremony.
 
-The SDK `management(session)` exposes `settings`, `devices`, `set`, `rename`, `revoke` and
+The SDK `management(session)` exposes `settings`, `devices`, `set`, `rename`, `talk`, `revoke` and
 `operation(originalId)` over the same serialized verified channel as agent operations. It opens
 nothing and never resends a mutation or creates a replacement mutation ID after unknown outcome.
 Freeze the original input/ID independently of subsequent form editing.

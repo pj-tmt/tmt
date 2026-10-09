@@ -2,7 +2,7 @@
 //! The machine identity (ID and `/r/` route prefix) is created once and is
 //! stable across restarts; neither is a credential.
 use crate::{error::RemoteError, state::Serving};
-use rusqlite::{Connection, OpenFlags, OptionalExtension, TransactionBehavior};
+use rusqlite::{Connection, OpenFlags, OptionalExtension, TransactionBehavior, params};
 
 /// First schema containing the remembered door port.
 const PORT_SCHEMA: usize = 5;
@@ -262,7 +262,7 @@ pub struct Grant {
     pub kind: String,
     pub origin: String,
     pub name: String,
-    /// `"all"`; owner-chosen allowlists are later work.
+    /// `"all"` or the owner-chosen canonical UUID allowlist.
     pub agents: String,
     pub scopes: Vec<String>,
     pub mode: String,
@@ -275,6 +275,21 @@ impl Store {
     /// Insert one grant in its own transaction. A live grant for the same
     /// device key refuses, and a failure leaves no partial grant.
     pub fn insert_grant(&mut self, grant: &Grant) -> Result<(), RemoteError> {
+        self.insert_grant_audited(grant, None)
+    }
+    pub(crate) fn insert_paired_grant(
+        &mut self,
+        grant: &Grant,
+        offer: &str,
+        digest: &[u8],
+    ) -> Result<(), RemoteError> {
+        self.insert_grant_audited(grant, Some((offer, digest)))
+    }
+    fn insert_grant_audited(
+        &mut self,
+        grant: &Grant,
+        audit: Option<(&str, &[u8])>,
+    ) -> Result<(), RemoteError> {
         let millis = |value: u64| {
             i64::try_from(value)
                 .ok()
@@ -320,6 +335,23 @@ impl Store {
                 }
                 other => database(other),
             })?;
+        if let Some((offer, digest)) = audit {
+            crate::audit::append(
+                &transaction,
+                crate::audit::AuditMetadata {
+                    time: grant.issued_at_ms,
+                    client: &grant.client_id,
+                    request: offer,
+                    operation: "remote.pair",
+                    operation_id: None,
+                    resources: std::slice::from_ref(&grant.client_id),
+                    digest,
+                    revision: grant.revision,
+                    decision: "committed",
+                    code: "",
+                },
+            )?;
+        }
         transaction.commit().map_err(database)
     }
     pub fn grant(&self, client_id: &str) -> Result<Option<Grant>, RemoteError> {
@@ -352,6 +384,40 @@ impl Store {
             .map_err(database)?;
         let grant = revoke_in(&transaction, client_id)?;
         transaction.commit().map_err(database)?;
+        Ok(grant)
+    }
+    /// Local owner uses the same transaction-local talk writer as browser management.
+    pub fn talk(&mut self, client_id: &str, enabled: bool) -> Result<Option<Grant>, RemoteError> {
+        use sha2::{Digest, Sha256};
+        let request = uuid_v4()?;
+        let time = crate::pairing::now_ms()?;
+        let digest = Sha256::digest(
+            serde_json::to_vec(&serde_json::json!({"clientId":client_id,"enabled":enabled}))
+                .map_err(database)?,
+        );
+        let tx = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(database)?;
+        let grant = talk_in(&tx, client_id, enabled)?;
+        if let Some(grant) = &grant {
+            crate::audit::append(
+                &tx,
+                crate::audit::AuditMetadata {
+                    time,
+                    client: client_id,
+                    request: &request,
+                    operation: "remote.devices.talk",
+                    operation_id: None,
+                    resources: &[client_id.to_owned()],
+                    digest: &digest,
+                    revision: grant.revision,
+                    decision: "committed",
+                    code: "LOCAL_OWNER",
+                },
+            )?;
+        }
+        tx.commit().map_err(database)?;
         Ok(grant)
     }
     /// Presentation-only rename. Disabled grants remain tombstones; an exact
@@ -398,6 +464,39 @@ pub(crate) fn revoke_in(
         return Err(database("grant revision exhausted"));
     }
     Ok(grant)
+}
+/// Change only the explicit sending scope. Other authority remains frozen.
+pub(crate) fn talk_in(
+    connection: &Connection,
+    client_id: &str,
+    enabled: bool,
+) -> Result<Option<Grant>, RemoteError> {
+    let Some(mut grant) = grant_in(connection, client_id)? else {
+        return Ok(None);
+    };
+    if grant.disabled {
+        return Err(RemoteError::new(
+            "REMOTE_DEVICE_REVOKED",
+            "A revoked device cannot grant sending.",
+        ));
+    }
+    if grant.permits_scope("talk") != enabled {
+        if grant.revision >= 9_007_199_254_740_990 {
+            return Err(database("grant revision exhausted"));
+        }
+        grant.scopes.retain(|scope| scope != "talk");
+        if enabled {
+            grant.scopes.push("talk".into());
+            grant.scopes.sort();
+        }
+        connection
+            .execute(
+                "UPDATE grants SET scopes=?2,revision=revision+1 WHERE client_id=?1",
+                params![client_id, grant.scopes.join(" ")],
+            )
+            .map_err(database)?;
+    }
+    grant_in(connection, client_id)
 }
 pub(crate) fn rename_in(
     connection: &Connection,

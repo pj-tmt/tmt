@@ -17,6 +17,7 @@ export type SendState =
       reason?: string;
       limit?: number;
       settingsUrl?: string;
+      scope?: 'talk';
     };
 export type ResultState =
   | { state: 'pending'; requestId: string }
@@ -76,6 +77,7 @@ export class RefusalError extends Error {
     readonly retryAfterMs?: number,
     readonly limit?: number,
     readonly settingsUrl?: string,
+    readonly scope?: 'talk',
   ) {
     super(`Remote operation refused: ${code}.`);
     this.name = 'RefusalError';
@@ -196,6 +198,8 @@ function remoteError(
       /^[A-Z][A-Z0-9_]{0,63}$/.test(error.code) &&
       typeof error.message === 'string',
   );
+  const scope = error.scope;
+  valid(scope === undefined || (error.code === 'REMOTE_SCOPE_DENIED' && scope === 'talk'));
   const limit = error.limit;
   valid(
     limit === undefined || (typeof limit === 'number' && Number.isSafeInteger(limit) && limit > 0),
@@ -243,6 +247,7 @@ function remoteError(
     retry as number | undefined,
     limit as number | undefined,
     settingsUrl,
+    scope as 'talk' | undefined,
   );
 }
 function enqueue<T>(channel: Channel, action: () => Promise<T>): Promise<T> {
@@ -518,6 +523,7 @@ export function operations(
             reason: error.code,
             ...(error.limit === undefined ? {} : { limit: error.limit }),
             ...(error.settingsUrl === undefined ? {} : { settingsUrl: error.settingsUrl }),
+            ...(error.scope === undefined ? {} : { scope: error.scope }),
           };
         if (error instanceof ClientError)
           throw new ClientError(error.code, error.message, operationId);
@@ -538,6 +544,7 @@ export function operations(
             reason: error.code,
             ...(error.limit === undefined ? {} : { limit: error.limit }),
             ...(error.settingsUrl === undefined ? {} : { settingsUrl: error.settingsUrl }),
+            ...(error.scope === undefined ? {} : { scope: error.scope }),
           };
         if (error instanceof ClientError)
           throw new ClientError(error.code, error.message, operationId);

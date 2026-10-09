@@ -56,7 +56,7 @@ var ManagementPage = class {
 		this.notice = "Saving…";
 		try {
 			const frozen = this.intent;
-			this.outcome = frozen.kind === "setting" ? await this.client.set(frozen.input) : frozen.kind === "rename" ? await this.client.rename(frozen.input) : await this.client.revoke(frozen.input);
+			this.outcome = frozen.kind === "setting" ? await this.client.set(frozen.input) : frozen.kind === "rename" ? await this.client.rename(frozen.input) : frozen.kind === "talk" ? await this.client.talk(frozen.input) : await this.client.revoke(frozen.input);
 			if (this.outcome.state === "committed" && this.outcome.sessionEnded) this.access = "unconfirmed";
 			if (this.outcome.state === "refused" && this.outcome.reason === "REMOTE_MANAGEMENT_READ_ONLY") this.access = "unconfirmed";
 			this.describeOutcome();
@@ -259,7 +259,28 @@ function render() {
 				const field = document.createElement("div");
 				field.className = "tmt-ui-field";
 				field.append(label, name);
-				form.append(field, save, revoke);
+				const talk = document.createElement("button");
+				talk.type = "button";
+				talk.className = "tmt-ui-action";
+				talk.dataset.action = "talk";
+				const talkLabel = document.createElement("span");
+				talkLabel.className = "tmt-ui-action-label";
+				talk.append(talkLabel);
+				talk.addEventListener("click", () => {
+					if (!page.writable) return;
+					const target = page.devices?.devices.find((item) => item.clientId === device.clientId);
+					if (!target || target.revoked) return;
+					if (!target.talkEnabled && !confirm(`Allow ${target.name} to send to its permitted agents?`)) return;
+					change({
+						kind: "talk",
+						input: {
+							operationId: crypto.randomUUID(),
+							clientId: target.clientId,
+							enabled: !target.talkEnabled
+						}
+					});
+				});
+				form.append(field, save, talk, revoke);
 				const disabledReason = document.createElement("p");
 				disabledReason.id = `device-reason-${device.clientId}`;
 				disabledReason.className = "tmt-ui-field-description";
@@ -267,7 +288,8 @@ function render() {
 				rows.set(device.clientId, row);
 				devices.append(row);
 			}
-			row.querySelector(".device-summary").textContent = `${device.name}${device.thisBrowser ? " · This device" : ""} · ${device.kind} · ${device.revoked ? "Revoked" : "Paired"} · ${device.liveSessionCount} live sessions · Last activity ${device.lastActivityAtMs === null ? "unavailable" : new Date(device.lastActivityAtMs).toLocaleString()}`;
+			row.querySelector(".device-summary").textContent = `${device.name}${device.thisBrowser ? " · This device" : ""} · ${device.kind} · ${device.revoked ? "Revoked" : `Paired · Sending ${device.talkEnabled ? "on" : "off"}`} · ${device.liveSessionCount} live ${device.liveSessionCount === 1 ? "session" : "sessions"} · Last activity ${device.lastActivityAtMs === null ? "unavailable" : new Date(device.lastActivityAtMs).toLocaleString()}`;
+			row.querySelector("[data-action=\"talk\"] .tmt-ui-action-label").textContent = device.talkEnabled ? "Disable sending" : "Enable sending";
 			const name = row.querySelector("input");
 			name.disabled = !editable || device.revoked;
 			if (editable) name.removeAttribute("aria-describedby");

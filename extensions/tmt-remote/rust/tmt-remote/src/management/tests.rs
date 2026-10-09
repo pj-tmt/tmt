@@ -772,3 +772,130 @@ fn process_crashes_preserve_original_management_identity_and_durable_boundaries(
         );
     }
 }
+
+#[test]
+fn talk_toggle_commits_only_the_scope_and_revision_with_an_immutable_receipt() {
+    let mut f = Fixture::new();
+    f.designate();
+    let original = f.grant.clone();
+    let id = uuid_v4().unwrap();
+    f.adopt(&id, "remote.devices.talk", &[9; 32]).unwrap();
+    let (outcome, changed) = f
+        .store
+        .management_effect(
+            &f.grant,
+            &id,
+            "remote.devices.talk",
+            &[9; 32],
+            Mutation::Talk {
+                client: f.grant.client_id.clone(),
+                enabled: false,
+            },
+        )
+        .unwrap();
+    assert_eq!(outcome["state"], "committed");
+    assert_eq!(outcome["result"]["device"]["talkEnabled"], false);
+    assert_eq!(outcome["sessionEnded"], true);
+    assert_eq!(changed, Some(f.grant.client_id.clone()));
+    assert_eq!(
+        receipt(
+            &f.store.connection,
+            &f.grant.client_id,
+            &id,
+            now_ms().unwrap()
+        )
+        .unwrap(),
+        outcome
+    );
+    let mut after = f.store.grant(&f.grant.client_id).unwrap().unwrap();
+    assert_eq!(after.revision, original.revision + 1);
+    assert!(!after.permits_scope("talk"));
+    after.scopes.push("talk".into());
+    after.revision = original.revision;
+    assert_eq!(after, original);
+    assert_eq!(f.count("audit"), 2);
+}
+
+#[test]
+fn talk_toggle_noop_preserves_revision_and_a_revoked_device_cannot_be_enabled() {
+    let mut f = Fixture::new();
+    f.designate();
+    let id = uuid_v4().unwrap();
+    f.adopt(&id, "remote.devices.talk", &[8; 32]).unwrap();
+    let (outcome, changed) = f
+        .store
+        .management_effect(
+            &f.grant,
+            &id,
+            "remote.devices.talk",
+            &[8; 32],
+            Mutation::Talk {
+                client: f.grant.client_id.clone(),
+                enabled: true,
+            },
+        )
+        .unwrap();
+    assert_eq!(outcome["result"]["device"]["revision"], f.grant.revision);
+    assert_eq!(outcome["sessionEnded"], false);
+    assert_eq!(changed, None);
+    let other = Grant {
+        client_id: uuid_v4().unwrap(),
+        public_key: [8; 32],
+        ..f.grant.clone()
+    };
+    f.store.insert_grant(&other).unwrap();
+    f.store.revoke(&other.client_id).unwrap();
+    let id = uuid_v4().unwrap();
+    f.adopt(&id, "remote.devices.talk", &[7; 32]).unwrap();
+    let (outcome, changed) = f
+        .store
+        .management_effect(
+            &f.grant,
+            &id,
+            "remote.devices.talk",
+            &[7; 32],
+            Mutation::Talk {
+                client: other.client_id.clone(),
+                enabled: true,
+            },
+        )
+        .unwrap();
+    assert_eq!(outcome["reason"], "REMOTE_DEVICE_REVOKED");
+    assert_eq!(changed, None);
+    assert!(f.store.grant(&other.client_id).unwrap().unwrap().disabled);
+}
+
+#[test]
+fn sending_scope_rolls_back_if_its_atomic_settlement_audit_cannot_commit() {
+    let mut f = Fixture::new();
+    f.designate();
+    let id = uuid_v4().unwrap();
+    f.adopt(&id, "remote.devices.talk", &[6; 32]).unwrap();
+    f.store.connection.execute_batch("CREATE TRIGGER fail_talk_audit BEFORE INSERT ON audit BEGIN SELECT RAISE(ABORT,'test audit failure'); END;").unwrap();
+    assert!(
+        f.store
+            .management_effect(
+                &f.grant,
+                &id,
+                "remote.devices.talk",
+                &[6; 32],
+                Mutation::Talk {
+                    client: f.grant.client_id.clone(),
+                    enabled: false
+                }
+            )
+            .is_err()
+    );
+    assert_eq!(f.store.grant(&f.grant.client_id).unwrap().unwrap(), f.grant);
+    assert_eq!(
+        receipt(
+            &f.store.connection,
+            &f.grant.client_id,
+            &id,
+            now_ms().unwrap()
+        )
+        .unwrap()["state"],
+        "unknown"
+    );
+    assert_eq!(f.count("audit"), 1, "only adoption committed");
+}

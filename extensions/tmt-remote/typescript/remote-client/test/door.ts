@@ -171,6 +171,7 @@ export class Door {
     message: string;
     retryAfterMs?: number;
     limit?: number;
+    scope?: string;
     settingsUrl?: string | null;
   };
   afterSign?: (response: Record<string, unknown>) => void;
@@ -280,6 +281,7 @@ export class Door {
         case 'remote.devices.list':
         case 'remote.devices.rename':
         case 'remote.devices.revoke':
+        case 'remote.devices.talk':
         case 'remote.management.operation':
           assert.ok(this.managementReply, 'Management fixture is explicitly configured.');
           result = this.managementReply(body.operation as string, payload);

@@ -700,3 +700,42 @@ for (const bad of [
     await assert.rejects(client.listAgents(), unknown('unverifiable_response'));
   });
 }
+
+for (const settingsUrl of [undefined, null, '/settings']) {
+  test(`missing talk exposes its signed scope and optional settings URL ${settingsUrl}`, async () => {
+    const { door, client, device } = await ready();
+    door.error = {
+      code: 'REMOTE_SCOPE_DENIED',
+      message: 'Sending is not enabled.',
+      scope: 'talk',
+      settingsUrl,
+    };
+    await assert.rejects(
+      client.listAgents(),
+      (error: unknown) =>
+        error instanceof RefusalError &&
+        error.scope === 'talk' &&
+        error.settingsUrl ===
+          (settingsUrl ? new URL(settingsUrl, device.result.address).href : undefined),
+    );
+    const again = await ready();
+    again.door.error = {
+      code: 'REMOTE_SCOPE_DENIED',
+      message: 'Sending is not enabled.',
+      scope: 'talk',
+      settingsUrl,
+    };
+    const result = await again.client.send(intent());
+    assert.ok(result.state === 'refused');
+    assert.equal(result.reason, 'REMOTE_SCOPE_DENIED');
+    assert.equal(result.scope, 'talk');
+  });
+}
+test('recipient scope denial does not claim the talk scope is missing', async () => {
+  const { door, client } = await ready();
+  door.error = { code: 'REMOTE_SCOPE_DENIED', message: 'Recipient is not permitted.' };
+  await assert.rejects(
+    client.listAgents(),
+    (error: unknown) => error instanceof RefusalError && error.scope === undefined,
+  );
+});

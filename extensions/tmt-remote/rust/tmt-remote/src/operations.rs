@@ -221,6 +221,7 @@ impl Operations {
                     "remote.devices.list",
                     "remote.devices.rename",
                     "remote.devices.revoke",
+                    "remote.devices.talk",
                     "remote.management.operation",
                 ]);
             }

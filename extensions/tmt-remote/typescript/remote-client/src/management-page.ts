@@ -11,6 +11,7 @@ import { ClientError, RefusalError } from 'remote-browser-sdk';
 export type PageIntent =
   | { kind: 'setting'; input: SettingChange }
   | { kind: 'rename'; input: { operationId: string; clientId: string; name: string } }
+  | { kind: 'talk'; input: { operationId: string; clientId: string; enabled: boolean } }
   | { kind: 'revoke'; input: { operationId: string; clientId: string } };
 export class ManagementPage {
   settings?: SettingsView;
@@ -75,7 +76,9 @@ export class ManagementPage {
           ? await this.client.set(frozen.input)
           : frozen.kind === 'rename'
             ? await this.client.rename(frozen.input)
-            : await this.client.revoke(frozen.input);
+            : frozen.kind === 'talk'
+              ? await this.client.talk(frozen.input)
+              : await this.client.revoke(frozen.input);
       if (this.outcome.state === 'committed' && this.outcome.sessionEnded)
         this.access = 'unconfirmed';
       if (

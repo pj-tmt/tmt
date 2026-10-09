@@ -8,12 +8,41 @@ use crate::{
     error::RemoteError,
     store::{DEFAULT_SCOPES, Grant, Store, uuid_v4},
 };
+use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
+use sha2::{Digest, Sha256};
 use std::{
     sync::{Arc, Condvar, Mutex, mpsc},
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
+/// Policy supplied only by the local owner's confirmation, never enrollment.
+/// In this preparatory release every default pairing still includes sending.
+#[derive(Clone, Default, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields, default)]
+pub struct PairingPolicy {
+    pub talk: bool,
+    pub agents: Option<Vec<String>>,
+    pub hold: bool,
+}
+impl PairingPolicy {
+    pub fn validate(&self) -> Result<(), RemoteError> {
+        if ((!self.talk) && (self.agents.is_some() || self.hold))
+            || self.agents.as_ref().is_some_and(|ids| {
+                ids.is_empty()
+                    || ids.len() > 256
+                    || ids.iter().any(|id| !canonical::is_core_id(id))
+                    || ids.windows(2).any(|pair| pair[0] >= pair[1])
+            })
+        {
+            return Err(RemoteError::new(
+                "REMOTE_INPUT_INVALID",
+                "--agents and --hold require --talk; agents must be distinct canonical UUIDs.",
+            ));
+        }
+        Ok(())
+    }
+}
 /// Offer timing. Production uses [`Timing::CONTRACT`].
 #[derive(Clone, Copy)]
 pub struct Timing {
@@ -227,6 +256,9 @@ impl Pairing {
     }
     /// Owner confirmation: create the grant and the receipt atomically.
     pub fn confirm(&self, offer_id: &str) {
+        self.confirm_with(offer_id, PairingPolicy::default());
+    }
+    pub fn confirm_with(&self, offer_id: &str, policy: PairingPolicy) {
         let mut slot = self.lock();
         self.expire_locked(&mut slot);
         let Some(offer) = slot.as_mut().filter(|o| o.id == offer_id) else {
@@ -236,7 +268,10 @@ impl Pairing {
             return;
         };
         let candidate = candidate.clone();
-        match self.issue(offer, &candidate) {
+        match policy
+            .validate()
+            .and_then(|()| self.issue(offer, &candidate, &policy))
+        {
             Ok((client_id, receipt, proof)) => {
                 // Only the bounded recovery data stays; the code is erased.
                 offer.code.fill(0);
@@ -436,11 +471,12 @@ impl Pairing {
             name: name.into(),
         })
     }
-    /// Insert the default grant and derive the exact receipt and its proof.
+    /// Insert the owner-selected grant and derive the exact receipt and its proof.
     fn issue(
         &self,
         offer: &Offer,
         candidate: &Candidate,
+        policy: &PairingPolicy,
     ) -> Result<(String, Vec<u8>, [u8; 32]), RemoteError> {
         let grant = Grant {
             client_id: uuid_v4()?,
@@ -448,9 +484,12 @@ impl Pairing {
             kind: candidate.kind.clone(),
             origin: candidate.origin.clone(),
             name: candidate.name.clone(),
-            agents: "all".into(),
+            agents: policy.agents.as_ref().map_or_else(
+                || "all".into(),
+                |ids| serde_json::to_string(ids).expect("UUID list"),
+            ),
             scopes: DEFAULT_SCOPES.map(str::to_owned).to_vec(),
-            mode: "direct".into(),
+            mode: if policy.hold { "hold" } else { "direct" }.into(),
             issued_at_ms: now_ms()?,
             expires_at_ms: None,
             revision: 1,
@@ -466,7 +505,7 @@ impl Pairing {
             .map_err(|_| {
                 RemoteError::new("REMOTE_STATE_UNAVAILABLE", "Remote state is unavailable.")
             })?
-            .insert_grant(&grant)?;
+            .insert_paired_grant(&grant, &offer.id, &Sha256::digest(&receipt))?;
         Ok((grant.client_id, receipt, proof))
     }
 }
@@ -476,6 +515,10 @@ pub fn receipt(
     machine_id: &str,
     machine_public: &[u8; 32],
 ) -> Result<Vec<u8>, RemoteError> {
+    let agents = match grant.authority()?.agents {
+        crate::authority::PermittedAgents::All => json!("all"),
+        crate::authority::PermittedAgents::Selected(ids) => json!(ids),
+    };
     serde_json::to_vec(&json!({
         "grant": {
             "clientId": grant.client_id,
@@ -485,7 +528,7 @@ pub fn receipt(
             "kind": grant.kind,
             "origin": grant.origin,
             "name": grant.name,
-            "agents": grant.agents,
+            "agents": agents,
             "scopes": grant.scopes,
             "mode": grant.mode,
             "issuedAtMs": grant.issued_at_ms,

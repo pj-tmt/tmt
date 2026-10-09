@@ -72,6 +72,9 @@ preserve unsupported peer errors. No HTTP descriptor or second status acquisitio
 [owning contract](../../../../contracts/remote-channel-v1.md#local-cli-discovery) defines its
 best-effort observation and use-time authority limits.
 
+The private pairing offer carries `ownerPolicyVersion: 1`; an explicit owner policy requires it
+before exposing the offer or confirming, otherwise the CLI reports `REMOTE_SERVE_OUTDATED`.
+
 Stop sends one control request to set serve's SIGTERM shutdown flag, then waits for
 the lifecycle lease and verifies socket cleanup while holding that lease. It never
 looks up or signals a PID.
@@ -105,8 +108,8 @@ malformed settings use it with a human warning. Setters serialize through the bo
 
 The [settings/device page authority](../../../../contracts/remote-channel-v1.md#remote-settings-browser-authority)
 is separate from paired channel trust. Its native/SDK implementation reuses this settings owner and existing
-device/session mutation owners; shared presentation supplies no authority. Settings semantics and
-agent grants remain unchanged.
+device/session mutation owners; shared presentation supplies no authority. The contract owns settings
+semantics and the explicit talk-scope toggle.
 
 ## Management implementation
 
@@ -137,3 +140,11 @@ file uncertainty and device transaction rollback/commit are verified independent
 fixture also kills/restarts its disposable serve after a signed management commit but before
 acknowledgment, then verifies a fresh live Session's original receipt and designation. These are
 process-interruption tests, not power-loss or complete product/release acceptance.
+
+Pairing accepts owner-side `--talk`; every pairing still includes sending in this preparatory
+release. `--agents <uuid,...>` and `--hold` require it and narrow the issued policy, not enrollment.
+The terminal confirmation prompt and bare JSON confirmation retain their existing defaults.
+`tmt remote devices talk <clientId> on|off` changes only sending, preserving every other grant
+field, and works through the current serve or under the stopped serve lease. It commits sanitized
+audit metadata with the scope change; designated settings browsers use the existing immutable
+management receipt/effect owner. Changed revisions end previous Sessions; revoked grants stay revoked.
