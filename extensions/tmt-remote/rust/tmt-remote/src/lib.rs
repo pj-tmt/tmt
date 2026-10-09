@@ -8,6 +8,8 @@ pub mod canonical;
 pub mod control;
 pub mod core;
 pub mod crypto;
+pub mod declaration;
+pub mod deploy_plan;
 pub mod devices;
 pub mod error;
 pub mod http;

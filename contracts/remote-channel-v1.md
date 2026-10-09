@@ -1594,26 +1594,36 @@ and 64 KiB of UTF-8 JSON. Remote reads only installed, owner-approved artifacts,
 executes a declaration-carried command.
 
 Each resource is `{name,kind,path,limits,ttlField,indexes}`. Name uses the extension-name grammar
-and is unique in the declaration; kind is `log`, `checkpoint`, `blob` or `awareness`. Path is a
-relative namespace path: no absolute path, empty/dot segment, escape or wildcard outside that extension's root. Limits specify
-positive JSON integers `maxObjectBytes`, `maxNamespaceBytes` and `maxEntries`, bounded by Remote's
-advertised backend limits. TtlField is null or a declared expiry field; indexes contain at most 64
-`{field,direction}` entries, where direction is `asc` or `desc` and field is declared by the
-resource. Awareness is ephemeral, with no stored objects, TTL field or indexes. Page membership,
+and is unique in the declaration; kind is `log`, `checkpoint`, `blob` or `awareness`. Path is 1 to 8
+`/`-separated segments of lowercase ASCII letters, digits, `-` or `_` (at most 64 bytes each), resolved under
+`x/<extension>/`: no absolute path, empty/dot segment, escape or wildcard, and no first segment equal to an
+operation route name (`append`, `subscribe`, `ack`, `pair`) or the mount segment `x`. Two resources of a plan never
+have equal or nested paths. Limits specify positive JSON integers `maxObjectBytes`, `maxNamespaceBytes` and
+`maxEntries` (each below 2^53, `maxObjectBytes` not above `maxNamespaceBytes`), bounded by Remote's advertised
+backend limits. TtlField is null or a field name (a letter, then letters or digits, at most 64 bytes); indexes
+contain at most 64 distinct `{field,direction}` entries, where direction is `asc` or `desc` and field uses the same
+name grammar. The fields a kind stores belong to its Rules and indexes, not to the declaration. Awareness is ephemeral, with no stored objects, TTL field or indexes. Page membership,
 epoch/writer checks and expiry policy remain extension-owned; declarations cannot redefine grants,
 signed operations or the machine journal.
 
 Admission is `{artifact,digest,entryPoint}`: an installed relative artifact path, its lowercase
-SHA-256 hex digest and its namespace entry point; `local` names the extension's existing admission
+SHA-256 hex digest (checked against the artifact's bytes, at most 64 KiB) and its namespace entry point; `local` names the extension's existing admission
 hook. Remote composes each artifact only with namespace-scoped resource/context capabilities;
 operation credentials, projections and response publication are unavailable to fragments. Reject
 cross-root reads/writes, reserved operation routes, catch-all grants, arbitrary IAM roles,
 overlapping resources or a composition that cannot enforce this boundary. The same
 [principal and relay rules](#extension-channel-api) apply; a fragment cannot confer owner-device
 context. Unsupported resource kinds, admission requirements, quotas or provider limits fail the
-whole plan before provisioning. Routes/assets may be mounted only through the declared namespace,
+whole plan before provisioning; a target without a physical expiry (TTL) policy instead records a non-null `ttlField` as
+`not-provisioned`, with expiry left to Rules, and does not fail the plan. On Firestore a resource path names a collection: an odd number of segments, at most 7, since `x/<extension>` is a document. Routes/assets may be mounted only through the declared namespace,
 never an extension-selected public operation URL. Extensions requiring changes submit a new
 declaration, not a second backend/sign-in/deploy owner.
+
+The composed plan is deterministic JSON (extensions and resources sorted by name) addressed by its SHA-256 digest,
+which also covers each declaration's own digest, the target backend and whether physical TTL is provisioned. Its
+`profile` is `sharing`: extension resources and admission fragments without an operation root. A later layer-2 profile
+is an additive variant and never changes the bytes or digest of a sharing plan. An enabled extension with no
+declaration for the target is listed as unavailable there and does not fail the rest of the plan.
 
 ### Proposal: authorized deploy
 
