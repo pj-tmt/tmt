@@ -49,8 +49,22 @@ jobs:
           path: ${{ runner.temp }}/tmt-e2e-dependencies
           key: ${{ steps.key.outputs.key }}
           lookup-only: true
-      - uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3.11.1
+      - name: Configure the hosted Docker mirror
         if: steps.existing.outputs.cache-hit != 'true'
+        uses: ./.github/actions/setup-docker-mirror
+      - id: mirror-builder
+        continue-on-error: true
+        uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3.11.1
+        if: steps.existing.outputs.cache-hit != 'true'
+        with:
+          version: v0.29.1
+          driver-opts: image=mirror.gcr.io/moby/buildkit:buildx-stable-1@sha256:cec9f139f45e93c5c69c60f8b07cfad9f43f4ef6b6a6cd917527fea5ff2e3dea
+          buildkitd-config-inline: |
+            [registry."docker.io"]
+              mirrors = ["mirror.gcr.io"]
+      - name: Fall back to the original Buildx setup
+        if: steps.existing.outputs.cache-hit != 'true' && steps.mirror-builder.outcome == 'failure'
+        uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3.11.1
         with:
           version: v0.29.1
       - name: Cook and export native E2E dependencies

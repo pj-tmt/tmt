@@ -38,6 +38,8 @@ failure/cleanup observations; the basic badge case belongs to `pane-badge`.
 
 ## Harness rules
 
+Hosted Docker E2E, Packed install musl and dependency-archive seed jobs use a best-effort registry mirror for unchanged digest-pinned base images; admitted-archive and seed Buildx builders use a digest-pinned mirrored builder image and retain the original setup on failure. Local `pnpm test:e2e` is unchanged.
+
 - CI may restore an exact main-owned Actions archive of dev Cargo dependencies before compiling current source; misses use the original single Docker build, and the default local command does not read this archive.
 
 - Hosted and local `pnpm test:e2e` images disable incremental compilation in `native-tests` and debug symbols for its dev/test fixtures; debug assertions remain enabled for those profiles, with fewer source details in backtraces.
