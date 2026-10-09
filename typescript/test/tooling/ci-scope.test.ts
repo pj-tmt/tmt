@@ -2209,7 +2209,7 @@ describe('required CI gate', () => {
     const cachePolicies = workflow.match(/^\s+save-if:.*$/gm) ?? [];
     const writers = cachePolicies.filter((line) => line.trim() !== 'save-if: false');
     expect(cachePolicies).toHaveLength(8);
-    expect(writers).toHaveLength(3);
+    expect(writers).toHaveLength(4);
     for (const writer of writers) {
       expect(writer.trim()).toBe(
         "save-if: ${{ needs.changes.outputs.verify == 'false' && github.ref == 'refs/heads/main' }}"
@@ -2464,19 +2464,47 @@ describe('required CI gate', () => {
     expect(job('native-process-tests')).toContain('chmod +x tmt-office');
     expect(workflow).toContain('env:\n  CARGO_PROFILE_DEV_DEBUG: 0\n  CARGO_INCREMENTAL: 0');
     // One main-only writer serves the shared dev cache; parallel readers never save.
-    for (const worker of [
-      'native-clippy',
-      'native-office-build',
-      'native-office',
-      'native-process-tests',
-    ]) {
+    for (const worker of ['native-clippy', 'native-office-build', 'native-office']) {
       expect(job(worker)).toContain('shared-key: native-rust');
       expect(job(worker)).toContain('save-if: false');
     }
-    for (const worker of ['native-workspace-tests', 'native-runtime-build', 'native-msrv']) {
+    for (const worker of [
+      'native-workspace-tests',
+      'native-runtime-build',
+      'native-msrv',
+      'native-process-tests',
+    ]) {
       expect(job(worker)).toContain(
         "save-if: ${{ needs.changes.outputs.verify == 'false' && github.ref == 'refs/heads/main' }}"
       );
+    }
+    // The process job seeds its existing dev/release builds in an isolated main-only cache.
+    const processCache = job('native-process-tests');
+    expect(processCache).toContain('shared-key: native-process-rust');
+    expect(processCache).not.toContain('shared-key: native-rust');
+    expect(processCache).not.toMatch(/cache-workspace-crates:|cache-on-failure:/);
+    const save = /^ {10}save-if: (.+)$/m.exec(processCache)?.[1];
+    expect(save).toBeDefined();
+    const evaluateSave = new Function(
+      'needs',
+      'github',
+      `return (${save!.replace(/^\$\{\{\s*|\s*\}\}$/g, '')})`
+    );
+    for (const ref of [
+      'refs/heads/main',
+      'refs/heads/feature',
+      'refs/pull/1/merge',
+      'refs/heads/gh-readonly-queue/main/pr-1',
+      'refs/tags/v5.0.0-alpha.1',
+    ]) {
+      for (const verify of ['false', 'true', '']) {
+        for (const scope of ['full', 'ops']) {
+          expect(
+            evaluateSave({ changes: { outputs: { verify, native_scope: scope } } }, { ref }),
+            `${ref} verify=${verify} scope=${scope}`
+          ).toBe(ref === 'refs/heads/main' && verify === 'false');
+        }
+      }
     }
     // The gate names the same eight jobs, in the order nativeGatePasses expects.
     const gate = job('native-install-gate');
