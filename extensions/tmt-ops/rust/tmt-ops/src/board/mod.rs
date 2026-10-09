@@ -331,8 +331,9 @@ fn session<T: Into<ActionOutcome>>(
             draw(app)?;
             if app.timing.is_some() {
                 let usable = app.view.is_some() && !app.loading();
+                let cached = app.cached_display().is_some();
                 if let Some(timing) = &mut app.timing {
-                    timing.drawn(app.current.as_deref(), usable);
+                    timing.drawn(app.current.as_deref(), usable, cached);
                 }
             }
             dirty = false;
@@ -809,6 +810,16 @@ pub fn run(
     let (picks, squad) = selection(&core, &config, picks.as_deref(), squad.as_deref())?;
     composition::admit().map_err(|message| SquadError::new("SQUAD_LAYOUT_INVALID", message))?;
     let initial_theme = config.theme(squad.as_deref().unwrap_or(""))?.0;
+    // Acquisition starts before terminal entry and its background query, which can
+    // wait on the terminal; events queue until the session reads them.
+    let (events, input) = mpsc::channel();
+    let worker = refresh::Worker::spawn(
+        core.clone(),
+        effects::tmux_socket().is_some(),
+        events.clone(),
+        trace.clone(),
+    );
+    worker.request(squad.clone(), false, false);
     let requested = initial_theme.base;
     let value = std::env::var("COLORFGBG").ok();
     let mut guard = terminal::Guard::enter(terminal::Crossterm).map_err(failed)?;
@@ -824,14 +835,6 @@ pub fn run(
     let filter = query
         .as_ref()
         .map(|reply| terminal::background::ReplyFilter::seed(&reply.received, Instant::now()));
-    let (events, input) = mpsc::channel();
-    let worker = refresh::Worker::spawn(
-        core.clone(),
-        effects::tmux_socket().is_some(),
-        events.clone(),
-        trace.clone(),
-    );
-    worker.request(squad.clone(), false, false);
     let mut app = App::new(squad);
     app.timing = trace.map(timing::Ui::new);
     app.migration_notice = core.paths.board_notice();

@@ -98,9 +98,19 @@ impl Worker {
                 fetch: fetcher(),
             };
             // Caller identity stays fixed; the watched config can promote to Ops.
-            let caller = crate::me::caller(&initial).ok().flatten();
-            let mut changes =
-                Changes::new(Config::locate(&initial).ok(), provider::Cache::directory());
+            let startup = trace.as_ref().map(timing::Trace::startup);
+            let caller = timing::measure(startup.as_ref(), "worker.caller", || {
+                crate::me::caller(&initial)
+            })
+            .ok()
+            .flatten();
+            let mut changes = Changes::new(
+                timing::measure(startup.as_ref(), "worker.Config::locate", || {
+                    Config::locate(&initial)
+                })
+                .ok(),
+                provider::Cache::directory(),
+            );
             let mut migration_notice = core.paths.board_notice();
             let mut history = super::rate::history::Cache::default();
             let mut places = super::cronboard::Places::new(crate::effects::tmux_socket());
