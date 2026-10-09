@@ -219,11 +219,14 @@ server.listen(${JSON.stringify(gate)}, () => {
           'e2e',
           '-n',
           'external',
-          command,
+          '-c',
+          fixture.workspace,
+          `${command}; exec /bin/sh`,
         ])
         .trim();
-      // Keep the completed pane/marker so exclusion cannot pass by losing the pane.
-      fixture.tmux(['set-option', '-p', '-t', pane, 'remain-on-exit', 'on']);
+      // Keep a live shell after the extension exits. A dead remain-on-exit
+      // pane has no current cwd and cannot form a valid recovery snapshot.
+      const panePid = fixture.tmux(['display-message', '-p', '-t', pane, '#{pane_pid}']).trim();
       await fixture.waitFor(() => fs.existsSync(ready), 5000, 'external foreground ready');
       const owner = Number(fs.readFileSync(ready, 'utf8'));
       expect(readSnapshot(fixture).panes.find((value) => value.id === pane)?.command).toMatchObject(
@@ -260,23 +263,32 @@ server.listen(${JSON.stringify(gate)}, () => {
         expect(response).toBe('released');
         expect(await waitForFileContent(done, { timeoutMs: remaining() })).toBe('released');
         await fixture.waitFor(
-          () => fixture.tmux(['display-message', '-p', '-t', pane, '#{pane_dead}']).trim() === '1',
-          remaining(),
-          'external pane completed'
-        );
-        await fixture.waitFor(
           () => !fs.existsSync(`/proc/${owner}`),
           remaining(),
           'external owner ended'
+        );
+        await fixture.waitFor(
+          () =>
+            fixture
+              .tmux([
+                'display-message',
+                '-p',
+                '-t',
+                pane,
+                '#{pane_pid}|#{pane_dead}|#{pane_current_command}|#{pane_current_path}',
+              ])
+              .trim() === `${panePid}|0|sh|${fixture.workspace}`,
+          remaining(),
+          'surviving shell owns the same recoverable pane'
         );
       } finally {
         release.destroy();
       }
       expect((await fixture.runJsonCli(['unbind'])).code).toBe(0);
-      expect(readSnapshot(fixture).panes.some((value) => value.id === pane)).toBe(true);
-      expect(readSnapshot(fixture).panes.some((value) => value.command?.owner.pid === owner)).toBe(
-        false
-      );
+      const refreshed = readSnapshot(fixture);
+      expect(refreshed.panes.find((value) => value.id === fixture.pane)?.identity).toBeNull();
+      expect(refreshed.panes.find((value) => value.id === pane)?.cwd).toBe(fixture.workspace);
+      expect(refreshed.panes.some((value) => value.command?.owner.pid === owner)).toBe(false);
     });
   });
 
