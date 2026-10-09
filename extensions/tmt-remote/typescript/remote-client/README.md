@@ -19,9 +19,15 @@ This private module implements the device side of
   signs exact payload bytes and verifies machine signatures, full correlation and
   increasing response sequences. Agent listing includes presence and optional
   core-published `delivery` unchanged; it never infers readiness.
+- `src/budget.ts`: the free-plan Firestore budget guard, the twin of the Rust `firestore_budget`
+  module. `BudgetModel.create(members, writers)` refuses a page the free plan cannot host,
+  `decide` allows, warns or refuses an append before any effect (with the reset time), and
+  `classifyProviderExhausted` keeps a provider `resource-exhausted` answer after a possible write
+  an unknown outcome, never `REMOTE_BUDGET_EXHAUSTED`. Pure: callers pass the clock and keep their
+  own per-day counter. The Rust tests and `test/budget.test.ts` share one set of vectors.
 - `src/browser.ts`: the browser entry the door serves as `/sdk/remote-v1.js`. It
   exposes `pairingPage(link)` for the fragment-erasing `/sdk/pair.js` bootstrap and gives mounted extension pages `reopenSession`,
-  `operations`, `ClientError`, `RefusalError` and `certifyKey`, whose extension comes from `/sdk/mount`.
+  `operations`, `ClientError`, `RefusalError` and `certifyKey`, whose extension comes from `/sdk/mount`, and the `budget` namespace of `src/budget.ts`.
 
 `parseLink(link, descriptor)` validates `http://127.0.0.1:PORT/pair#CODE` with a
 separately obtained public descriptor. `resolveLink(link, fetch?)` fetches the current
