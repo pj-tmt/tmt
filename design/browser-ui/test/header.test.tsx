@@ -35,7 +35,10 @@ it('renders the handbook aperture as one hidden currentColor SVG inside a retain
 
 it('keeps linked and plain labels neutral and removes the section divider', () => {
   const css = readFileSync(new URL('../generated/static.css', import.meta.url), 'utf8');
-  const block = (selector: string) => css.slice(css.indexOf(`${selector} {`)).split('}')[0];
+  const block = (selector: string) => {
+    expect(css).toContain(`${selector} {`);
+    return css.slice(css.indexOf(`${selector} {`)).split('}')[0];
+  };
   expect(block('.tmt-ui-brand > a')).toContain('color: var(--tmt-ui-color-text)');
   expect(block('.tmt-ui-wordmark')).toContain('color: var(--tmt-ui-color-text)');
   expect(block('.tmt-ui-heading,\n.tmt-ui-header > .tmt-ui-title')).not.toMatch(
