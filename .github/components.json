@@ -95,6 +95,11 @@
       "release": false,
       "releaseConsumers": ["tmt-colab", "tmt-remote"]
     },
+    "extension-serve": {
+      "owns": ["rust/crates/tmt-extension-serve"],
+      "release": false,
+      "releaseConsumers": ["tmt-colab", "tmt-remote"]
+    },
     "colab-client": {
       "owns": ["extensions/tmt-colab/typescript/colab-client"],
       "release": false,
@@ -162,7 +167,6 @@
       "release": true,
       "selectedBy": [
         "rust/crates/tmt-extension-state/**",
-        "rust/crates/tmt-extension-serve/**",
         "rust/crates/tmt-extension-objects/**",
         "typescript/test/e2e/remote-operations.e2e.test.ts",
         "typescript/test/e2e/remote-recovery.e2e.test.ts",
