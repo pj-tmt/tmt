@@ -33,6 +33,8 @@ The one-release Core-name cutover is owned by `skill_installation::retired` and
 `native_upgrade_command::rename`. Install and the upgrade skill-refresh child
 replace the former main skill only after checking the entire digest-tracked
 source inventory; edited or unmanaged entries remain conflicts even with force.
+Former-name conflicts refuse ordinary main skill publication, avoiding a newly
+published duplicate in that root.
 Publication and new target registration precede exact old-link revalidation and
 removal. Recorded custom roots participate; missing integrations stay missing.
 After the default directory moves, a dangling absolute source coordinate may be

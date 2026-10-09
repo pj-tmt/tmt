@@ -189,14 +189,25 @@ fn publish_managed_target(
         }
         publish(target, source)?;
     }
-    context.report.installed.push(InstalledSkill {
+    let mut installed = InstalledSkill {
         name,
         agent,
         target: target.to_path_buf(),
         changed,
         backup: context.pending_backup.take(),
         legacy_backups: Vec::new(),
-    });
+    };
+    if let Some(prior) = context
+        .report
+        .installed
+        .iter_mut()
+        .find(|item| item.target == target)
+    {
+        installed.changed |= prior.changed;
+        *prior = installed;
+    } else {
+        context.report.installed.push(installed);
+    }
     Ok(())
 }
 
@@ -363,13 +374,41 @@ fn install_with_publisher(
             let sources = assets.materialize_bundle()?;
             let main_source = sources.get(catalog::MAIN).expect("main source");
             let inbox_source = sources.get(catalog::INBOX).expect("inbox source");
-            registry::remember(&global, targets.iter().map(|(_, target, _)| target.clone()))?;
             let mut context = PublicationContext {
                 assets: &assets,
                 force,
                 report: &mut report,
                 pending_backup: &mut pending_backup,
             };
+            // The former-name owner decides before ordinary publication. A
+            // refused old source must not acquire a second main skill, even
+            // when the selected install explicitly permits unmanaged backups.
+            let mut conflicts = Vec::new();
+            for root in roots {
+                match retired::replace(&global, &root, &assets, main_source, &mut publish)? {
+                    retired::Replacement::Missing => {}
+                    retired::Replacement::Conflict(path) => {
+                        conflicts.push(path.display().to_string());
+                    }
+                    retired::Replacement::Replaced { target, changed } => {
+                        context.report.installed.push(InstalledSkill {
+                            name: catalog::MAIN,
+                            agent: None,
+                            target,
+                            changed,
+                            backup: None,
+                            legacy_backups: Vec::new(),
+                        });
+                    }
+                }
+            }
+            if !conflicts.is_empty() {
+                return Err(io::Error::other(format!(
+                    "Unmanaged or modified former skill targets were preserved: {}",
+                    conflicts.join(", ")
+                )));
+            }
+            registry::remember(&global, targets.iter().map(|(_, target, _)| target.clone()))?;
             for (agent, target, inbox) in targets {
                 let source = if inbox { inbox_source } else { main_source };
                 publish_managed_target(
@@ -407,38 +446,6 @@ fn install_with_publisher(
                         }
                     }
                 }
-            }
-            let mut conflicts = Vec::new();
-            for root in roots {
-                match retired::replace(&global, &root, &assets, main_source, &mut publish)? {
-                    retired::Replacement::Missing => {}
-                    retired::Replacement::Conflict(path) => {
-                        conflicts.push(path.display().to_string());
-                    }
-                    retired::Replacement::Replaced { target, changed } => {
-                        if !context
-                            .report
-                            .installed
-                            .iter()
-                            .any(|item| item.target == target)
-                        {
-                            context.report.installed.push(InstalledSkill {
-                                name: catalog::MAIN,
-                                agent: None,
-                                target,
-                                changed,
-                                backup: None,
-                                legacy_backups: Vec::new(),
-                            });
-                        }
-                    }
-                }
-            }
-            if !conflicts.is_empty() {
-                return Err(io::Error::other(format!(
-                    "Unmanaged or modified former skill targets were preserved: {}",
-                    conflicts.join(", ")
-                )));
             }
             Ok(())
         })

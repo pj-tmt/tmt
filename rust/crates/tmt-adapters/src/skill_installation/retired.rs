@@ -158,6 +158,7 @@ mod tests {
                 fs::read(root.join(NAME).join("SKILL.md")).unwrap(),
                 b"user changes"
             );
+            assert!(!root.join(MAIN).exists());
         }
     }
 
