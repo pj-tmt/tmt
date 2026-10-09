@@ -125,3 +125,10 @@ pub const RULES_FRAGMENT_NESTING: usize = 32;
 
 /// Maximum private deployment record and abandoned staging-file size.
 pub const DEPLOY_RECORD_BYTES: usize = 1024 * 1024;
+
+/// One provider helper operation, including compatibility, login refresh and read-back.
+pub const DEPLOY_PROVIDER_CALL: Duration = Duration::from_secs(30);
+/// Each captured helper stream and each provider response body.
+pub const DEPLOY_PROVIDER_BYTES: usize = 4 * 1024 * 1024;
+/// Finite inventory of provider field configs or Rulesets.
+pub const DEPLOY_PROVIDER_PAGES: usize = 10;

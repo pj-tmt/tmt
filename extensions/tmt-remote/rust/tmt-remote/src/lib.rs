@@ -10,6 +10,7 @@ pub mod core;
 pub mod crypto;
 pub mod declaration;
 pub mod deploy_command;
+pub mod deploy_firestore;
 pub mod deploy_plan;
 pub mod deploy_record;
 pub mod deploy_run;

@@ -20,6 +20,7 @@ Module owners (put a change in the existing owner; `canonical`, `crypto`, `wire`
 | `firestore_budget`                     | Free-plan Firestore budget model and client guard; vectors in `tests/fixtures/firestore_budget`                                                                                                                       |
 | `firestore_limits`                     | Dated free-plan Firestore limits table and its `status --budget` projection, validator and human lines; golden in `tests/fixtures/firestore_budget/limits-member.json`                                                |
 | `readiness`                            | Layered Firestore readiness: one table of items, reasons and sentences; record projection, validator and human lines over an injected evidence source                                                                 |
+| `deploy_firestore`                     | Library-only real provider port; binary-embedded Node helper, version-gated firebase-tools login, bounded no-retry mutations and exact Rules read-back                                                                |
 | `deploy_run`                           | Authorized Firestore sharing deploy over an injected `DeployPort`: envelope digest, authorization, step order, record and binding rule (library-only; CLI registration awaits reader/provider integration)            |
 | `object_service`                       | Lease-bound `ObjectService`: initial/demand single-flight Local setup, readiness, origins, admitted observation/upload; production Colab-only Local                                                                   |
 | `tmt-extension-objects` (leaf)         | Remote-owned protocol leaf, consumed only by `object_service`: canonical IDs/encodings, protocol bounds, strict JSON, typed frames and the Unix carrier; no backend, policy or Remote/Colab types, and grants nothing |
@@ -110,10 +111,32 @@ backend limits. Its tests are in-crate, so run it alone and keep it in the archi
 
 ## Deployment record
 
+`deploy_firestore` implements the existing `DeployPort`, not a second deployment algorithm.
+Its helper is compiled into the binary and passed to Node with fixed argv and no shell or
+runtime helper path. The package path selects an installed firebase-tools release; only
+version 15.29.0 and its checked auth/layout are supported. Compatibility is checked before
+auth loads or any provider call. The child inherits only HOME, PATH and XDG_CONFIG_HOME;
+tokens stay in that child. Each effect re-resolves the login and verifies its live account.
+Only bounded, fixed-schema JSON crosses stdout; stderr and exception text are discarded.
+The absolute invocation deadline includes process I/O and exit; owned-group cleanup/reaping
+has its existing separate bound. Mutations are never automatically retried. An ambiguous
+reply is unknown: inspect the retained run and read back before authorizing another attempt.
+
+Database, selected sign-in providers and indexes precede the Rules release. Index allocation
+counts unrelated live field configurations against the Spark ceiling and preserves existing
+index/TTL settings. Google OAuth and uninitialized Auth remain fixed owner steps. Ruleset
+lookup is bounded and compares exact source before another create; exhausted lookup refuses.
+Rules switching requires a single writer for the project: no provider atomic precondition
+exists. The adapter re-reads immediately before the last switch and checks full source after
+it; visible drift refuses, while ambiguity after a possible effect is unknown with no binding.
+Fake process/HTTP tests use a vendored layout stub and canary credentials, never real login.
+Real account/project provisioning remains separately authorized acceptance, not fixture proof.
+
 The library-only deployment owner defaults to a plan and saves one local draft identity,
 without a provider effect. Explicit digest authorization names the whole envelope; foreign
 Rules replacement needs its own digest. Sign-in providers are explicit inputs. Command
-registration, installed declaration discovery and the real provider adapter remain planned;
+registration and installed declaration discovery remain planned; the real `deploy_firestore`
+adapter is library-only and is not reachable from the CLI;
 running `status --layers` now reads recorded deployment evidence without a provider call.
 `DeployRecordEvidence` takes one bounded lock-free snapshot per request; missing/draft is
 empty, damaged state is unknown and never repaired. The pure `readiness::from_record`
