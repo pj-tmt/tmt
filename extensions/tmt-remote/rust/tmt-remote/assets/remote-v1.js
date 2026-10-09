@@ -1295,7 +1295,11 @@ async function landingPage() {
 				"Browser storage may have been cleared or blocked. Nothing was sent."
 			]
 		}[state];
-		element("notice").dataset.tone = state === "connected" ? "working" : ["missing", "checking"].includes(state) ? "waiting" : "blocked";
+		element("notice").dataset.tone = state === "connected" ? "working" : [
+			"missing",
+			"checking",
+			"different"
+		].includes(state) ? "waiting" : "blocked";
 		element("notice").dataset.state = state;
 		element("copy-feedback").textContent = "";
 		element("mark").textContent = copy[0];

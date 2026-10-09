@@ -981,6 +981,14 @@ test('the native entry checks once and presents all seven evidenced states witho
   });
   const page = await context.newPage();
   const captureEntry = async (state: string): Promise<void> => {
+    await expect(page.locator('#notice')).toHaveAttribute(
+      'data-tone',
+      state === 'connected'
+        ? 'working'
+        : ['not-paired', 'checking', 'different-machine'].includes(state)
+          ? 'waiting'
+          : 'blocked',
+    );
     await expect(page.locator('#command-pair, #command-devices, #command-status')).toHaveCount(0);
     const commands = page.locator('.entry-steps:visible code');
     const expected =
