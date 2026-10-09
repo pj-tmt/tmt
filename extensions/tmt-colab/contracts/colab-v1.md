@@ -73,6 +73,30 @@ peer close and generation replacement release its source and join owned workers.
 Root-local library reads use the actual management keyring and require an established
 channel; no new plaintext HTTP route, upload command or second backend is introduced.
 
+### Attachment access across page lifecycle (#1856)
+
+A read fails with one of four reasons, mapped the same way from the native peer to the browser:
+`denied` (the reader's access ended or never existed: sharing narrowed, member, link or
+device removed, page deleted), `not-found` (the page, as this reader may see it, holds no
+such reference; only `read` and `verify` answer it, mutations answer `unknown`),
+`changed` (the disclosure moved while the read ran, so trying again may work) and
+`unavailable` (everything else, including storage, the channel and a key epoch the
+reader does not hold).
+
+| Event                          | Existing attachment reads                                                       |
+| ------------------------------ | ------------------------------------------------------------------------------- |
+| Sharing, link or device change | Denied for whoever lost access; open previews and downloads end with the scope. |
+| Archive                        | Native reads and catch-up still work; writes are denied. See below.             |
+| Retention expiry               | A warning only; local reads and writes are unaffected and nothing is deleted.   |
+| Delete                         | Denied; the page's ciphertext is removed. See below.                            |
+| Incomplete upload              | Expires as staging; its original transfer ID is never re-executed.              |
+
+Warning-only page expiry never deletes completed objects, and Colab runs no garbage
+collection of Remote objects. Deleting a page keeps its encrypted objects charged to
+the space until Remote's deletion lands (follow-up #2294). The browser does not open
+an archived page in local v1 (follow-up #2298), so an already-open session ends in the
+existing `changed` or `unavailable` state.
+
 ### Attaching files in Chat and annotation conversations (#1854)
 
 The owner browser's shared composer can attach files to a Chat, annotation or reply
@@ -109,7 +133,7 @@ files upload never stops the Send. If the membership head or epoch changed meanw
 nothing is published, the affected chips show that the page changed and the next Send
 uploads them again from the retained local bytes under the same message ID, releasing
 the first original. Objects left unreferenced by a failed or abandoned Send stay in the
-backend until retention (tracked with #1856). A message that has attachments cannot be
+backend; Colab runs no garbage collection, so reclaiming them belongs to Remote (#2294). A message that has attachments cannot be
 edited; deleting it removes its references.
 
 Each attachment row opens bytes only on a trusted click, through the admitted read of
@@ -132,7 +156,7 @@ publishes the `intents` proof records first and only then writes the references 
 existing Save path as a typed `{set}` change (see Browser Save). A changed page never
 attaches: a stale base or source digest makes the chips upload again from the retained local
 bytes on the next "Add to page". Removing a file saves a typed `{remove}` change; its stored
-bytes stay unreferenced until retention (#1856). A page holds at most 128 files and one
+bytes stay unreferenced and unreclaimed (#2294). A page holds at most 128 files and one
 batch at most 16. The `tmt colab` command line has no attach entry yet.
 
 ## Channel boundary
@@ -688,7 +712,8 @@ identity or agent access. The [reader link](#read-only-reader-link-1545) opens t
 canonical base64url of the model's exact link-device chain JSON (at most 16 KiB).
 The server resolves the current local page/epoch, public or live assigned-link
 policy, pinned `link.add` keys and statement, certificate lifetime and device
-revocation. A private or deleted page denies readers; archive retains reads.
+revocation. A private or deleted page denies readers; archive retains native reads. The browser does not open
+an archived page in local v1 (follow-up #2298).
 The response is exactly `{challengeId,nonce,space,page,epoch,chainDigest,expiresAt}`:
 UUIDv4 challenge ID, nonce32, canonical scope, digest32, and safe-integer UTC
 milliseconds. Public uses zero32 chainDigest. Challenge lifetime is 60 seconds.
@@ -2328,7 +2353,8 @@ running Colab and Remote services and never starts another service, pairs a brow
 changes access or writes content. Explicit opening ignores the automatic-open setting
 and noninteractive-terminal suppression, using the shared `tmt-invoke` opener;
 `--no-open` and `--json` suppress launching. Missing, deleted and ambiguous pages refuse
-before opening. Archived pages remain eligible for read-only access. An unavailable
+before opening. Archived pages still print their link, but the browser does not open an
+archived page in local v1 (follow-up #2298). An unavailable
 service prints the current link/path and next step. Opener failure warns once and
 retains the link. JSON adds `spaceId`, full `pageId` (null for home), `running` and
 `opened: false` to the existing path/link/shortLink/paired/next facts; a stopped Colab

@@ -36,7 +36,9 @@ Complete committed reads check every range and raw digest before Colab asset cry
 Root-local `MountSocket::read_attachment` requires an established channel and never
 activates storage or opens a backend. Production Remote declares Colab Local;
 its routed lifecycle gate uses the three shipped binaries. Snapshot/retained-reference
-persistence is #1856, not a new Store/schema here. Historical `chains`/`readAuthor`
+persistence is #2299, not a new Store/schema here. Read failures are four reasons
+(`denied`, `not-found`, `changed`, `unavailable`): `object_channel/peer.rs` `error_code` maps
+native faults and `AttachmentReadError` carries them in the browser; colab-v1 owns the lifecycle matrix. Historical `chains`/`readAuthor`
 ignore original-creator current expiry, matching native folds; issuedAt, issuer/signature,
 membership and revocation cuts still apply. Fresh `author()` and the actual caller
 `validateRead()` retain expiry checks.

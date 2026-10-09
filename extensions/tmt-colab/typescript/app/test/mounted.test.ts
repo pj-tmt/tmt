@@ -14,6 +14,11 @@ const setup = vi.hoisted(() => {
     signals: [] as AbortSignal[],
     ports: [] as RemoteClient[],
     events: [] as string[],
+    pages: [{ pageId: 'page', sharing: 'private' }] as {
+      pageId: string;
+      sharing: string;
+      archived?: boolean;
+    }[],
     register: vi.fn(),
     verify: vi.fn(async () => {}),
     remote: vi.fn(),
@@ -30,7 +35,7 @@ vi.mock('../src/bootstrap.js', () => ({
   discover: async (_mount: URL, verify: (space: string, owner: Uint8Array) => Promise<void>) => {
     const owner = new Uint8Array(32);
     await verify('space', owner);
-    return { space: 'space', owner, pageIds: [], pages: [{ pageId: 'page', sharing: 'private' }] };
+    return { space: 'space', owner, pageIds: [], pages: setup.pages };
   },
 }));
 vi.mock('../src/registration.js', () => ({
@@ -86,6 +91,24 @@ vi.mock('../src/live.js', () => ({
     close() {}
   },
 }));
+
+it('opens no live page for an archived page, which the browser does not open in local v1', async () => {
+  setup.events.length = 0;
+  setup.pages = [
+    { pageId: 'page', sharing: 'private' },
+    { pageId: 'archived', sharing: 'private', archived: true },
+  ];
+  setup.register.mockReset().mockResolvedValueOnce(setup.first);
+  setup.remote.mockReset().mockResolvedValue({});
+  const mounted = await mountedTransport();
+  await expect(mounted.transport.page('archived', new AbortController().signal)).rejects.toThrow(
+    'Page unavailable',
+  );
+  expect(setup.events).toEqual([]);
+  await mounted.transport.page('page', new AbortController().signal);
+  expect(setup.events).toEqual(['connection']);
+  setup.pages = [{ pageId: 'page', sharing: 'private' }];
+});
 
 it('replaces a verified mounted session once for concurrent reconnects and creates Remote before sync', async () => {
   setup.events.length = 0;

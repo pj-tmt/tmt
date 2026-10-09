@@ -1751,6 +1751,33 @@ fn authenticated_attachment_reads_survive_rotation_archive_and_reject_stale_disc
         archived.disclose(&store, &key, &objects).unwrap(),
         b"original attachment bytes"
     );
+    // A retention long past expiry is a warning only: archived attachment reads still open.
+    let head = store
+        .owner_head(&key.space_id, &key.owner_public())
+        .unwrap()
+        .unwrap();
+    f.service()
+        .apply_owner(
+            OwnerRequest {
+                operation_id: "20000000-0000-4000-8000-000000000094",
+                expected_revision: head.revision,
+                action: OwnerAction::Retention {
+                    page: PAGE,
+                    days: Some(1),
+                },
+                transport_digest: None,
+                scope: None,
+            },
+            NOW + 400 * 86_400_000,
+        )
+        .unwrap();
+    let expired =
+        attachments::capture_root_local(&store, &key, PAGE, &selector(), &mut decoder, deadline())
+            .unwrap();
+    assert_eq!(
+        expired.disclose(&store, &key, &objects).unwrap(),
+        b"original attachment bytes"
+    );
     assert!(page::prepare_own_records(&store, &key, PAGE, &[], &mut decoder, NOW).is_err());
     let admission =
         tmt_colab::registration::OwnerAdmission(Arc::new(Mutex::new(f.service.take().unwrap())));

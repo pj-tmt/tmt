@@ -360,9 +360,10 @@ async function fixture(expiredCreator = false) {
 }
 it('fences publication and reads exact authenticated document/Chat/annotation references', async () => {
   const f = await fixture();
+  // Nothing published yet: the page holds no such reference, which is not a transient failure.
   await expect(
     AdmittedAttachmentRead.capture(f.owner, await f.selector(), f.deadline(), 'private'),
-  ).rejects.toThrow();
+  ).rejects.toMatchObject({ reason: 'not-found' });
   await f.publish();
   const read = await AdmittedAttachmentRead.capture(
     f.owner,
@@ -394,7 +395,7 @@ it('fences publication and reads exact authenticated document/Chat/annotation re
       f.deadline(),
       'private',
     ),
-  ).rejects.toThrow();
+  ).rejects.toMatchObject({ reason: 'not-found' });
   await expect(
     AdmittedAttachmentRead.capture(
       f.owner,
@@ -500,7 +501,8 @@ it('keeps archive reads, rejects archive publication, deletion and head-change r
   f.race(async () => {
     await f.appendStatement('page.archive', { pageId: v.page });
   });
-  await expect(read.disclose(f.backend, 'private')).rejects.toThrow();
+  // The disclosure moved while the read ran: the person may try again.
+  await expect(read.disclose(f.backend, 'private')).rejects.toMatchObject({ reason: 'changed' });
   f.race(async () => {});
   const archived = await AdmittedAttachmentRead.capture(
     f.owner,

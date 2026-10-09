@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { attachment } from '@tmt/colab-client';
 import { GENERIC_MEDIA_TYPE, RASTER_TYPES, previewType } from './attachment-file.js';
 import type { AttachmentBinding, AttachmentReference } from './attachment-service.js';
+import { readFailure, type ReadFailure } from './attachments.js';
 import { BlobDownloads } from './export.js';
 
 const dataUrl = (blob: Blob) =>
@@ -35,13 +36,13 @@ export function useAttachmentOpener(binding: AttachmentBinding | undefined) {
     };
   }, [scope]);
   const [busy, setBusy] = useState<string>();
-  const [failed, setFailed] = useState<Set<string>>(new Set());
+  const [failed, setFailed] = useState<ReadonlyMap<string, ReadFailure>>(new Map());
   const [shown, setShown] = useState<Record<string, string>>({});
   const [held, setHeld] = useState(scope);
   if (held !== scope) {
     setHeld(scope);
     setBusy(undefined);
-    setFailed(new Set());
+    setFailed(new Map());
     setShown({});
   }
   const run = async (
@@ -53,7 +54,7 @@ export function useAttachmentOpener(binding: AttachmentBinding | undefined) {
     const started = current.current;
     setBusy(d.attachmentId);
     setFailed((previous) => {
-      const next = new Set(previous);
+      const next = new Map(previous);
       next.delete(d.attachmentId);
       return next;
     });
@@ -63,9 +64,9 @@ export function useAttachmentOpener(binding: AttachmentBinding | undefined) {
       // A disclosure that changed while the read ran owns nothing of this result.
       if (current.current !== started) return;
       await use(bytes);
-    } catch {
+    } catch (error) {
       if (current.current === started)
-        setFailed((previous) => new Set(previous).add(d.attachmentId));
+        setFailed((previous) => new Map(previous).set(d.attachmentId, readFailure(error)));
     } finally {
       bytes?.fill(0);
       if (current.current === started) setBusy(undefined);

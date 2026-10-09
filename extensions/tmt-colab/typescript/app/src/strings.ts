@@ -110,6 +110,12 @@ export const text = {
   attachmentHidePreview: 'Hide preview',
   attachmentOpening: 'Opening…',
   attachmentUnavailable: 'This file is unavailable.',
+  attachmentReason: {
+    denied: 'You can no longer open this file.',
+    'not-found': 'This file is no longer on this page.',
+    changed: 'The page changed while opening. Try again.',
+    unavailable: 'This file is unavailable.',
+  },
   attachmentSize: humanSize,
   savedDrafts: 'Saved drafts',
   savedDraftQuote: 'Select this quote again to continue.',
