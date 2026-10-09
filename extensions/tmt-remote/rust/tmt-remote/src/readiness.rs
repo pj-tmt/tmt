@@ -86,7 +86,7 @@ const ROWS: [Row; 16] = [
         I::Project,
         R::AccessLost,
         "access-lost",
-        "Access to the Firebase project was lost.",
+        "TMT can no longer reach the Firebase project.",
         Some(DEPLOY),
     ),
     row(
@@ -107,7 +107,7 @@ const ROWS: [Row; 16] = [
         I::SignIn,
         R::PermissionMissing,
         "permission-missing",
-        "This account may not enable sign-in for the project.",
+        "This account isn't allowed to turn on sign-in for the project.",
         None,
     ),
     row(
@@ -163,28 +163,28 @@ const ROWS: [Row; 16] = [
         I::Quota,
         R::HeadroomLow,
         "headroom-low",
-        "The daily free quota is nearly used.",
+        "Today's free Firebase quota is almost used up.",
         None,
     ),
     row(
         I::Quota,
         R::Exhausted,
         "exhausted",
-        "The daily free quota is used up.",
+        "Today's free Firebase quota is used up.",
         None,
     ),
     row(
         I::Quota,
         R::NotChecked,
         "not-checked",
-        "The free quota has not been checked.",
+        "The free Firebase quota has not been checked.",
         None,
     ),
     row(
         I::Support,
         R::NotImplemented,
         "not-implemented",
-        "Not available in this release.",
+        "This isn't available in this release yet.",
         None,
     ),
 ];
@@ -213,8 +213,8 @@ impl FirestoreLayer {
     fn title(self) -> &'static str {
         match self {
             Self::Sharing => "Page sharing",
-            Self::Operations => "Device operations",
-            Self::Attachments => "Attachments",
+            Self::Operations => "Operation sync",
+            Self::Attachments => "Attachment storage",
         }
     }
 }

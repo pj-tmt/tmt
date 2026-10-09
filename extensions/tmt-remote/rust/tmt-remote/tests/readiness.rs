@@ -102,11 +102,11 @@ fn rules_out_of_date_golden_names_the_next_command_and_the_sentence() {
     assert_eq!(lines[0].hint.as_deref(), Some(DEPLOY));
     assert_eq!(
         lines[1].what,
-        "Device operations is not enabled. Not available in this release."
+        "Operation sync is not enabled. This isn't available in this release yet."
     );
     assert_eq!(
         lines[2].what,
-        "Attachments is not enabled. Not available in this release."
+        "Attachment storage is not enabled. This isn't available in this release yet."
     );
     assert!(lines.iter().skip(1).all(|l| l.hint.is_none()));
 }
@@ -296,7 +296,7 @@ fn the_human_line_names_the_prerequisite_behind_the_layer_state() {
     });
     assert_eq!(
         off_first.what,
-        "Page sharing is not enabled. Access to the Firebase project was lost."
+        "Page sharing is not enabled. TMT can no longer reach the Firebase project."
     );
     // With nothing definite, the first unknown names the layer.
     let unknowns = sharing(FirestoreEvidence {
