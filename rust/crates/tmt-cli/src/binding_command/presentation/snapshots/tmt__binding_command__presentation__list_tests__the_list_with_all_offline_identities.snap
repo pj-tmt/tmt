@@ -3,10 +3,10 @@ source: crates/tmt-cli/src/binding_command/presentation/list_tests.rs
 expression: "render(agents(), Terminal::PLAIN, true)"
 ---
 SAVED 5
-  ●  astra            codex:019a2f4c   ~/dev/tmux-team
+  ●  astra            codex:019a2f4c   ~/dev/tmt-local
   ○  codex-old        -
   ○  gemini           -
-  ●  opus-tmt-peer-2  claude:7c41e9d2  ~/dev/tmux-team
+  ●  opus-tmt-peer-2  claude:7c41e9d2  ~/dev/tmt-local
   ○  sol              claude:3f9a1c07                       ↻ tmt resume sol
 
 TEMPORARY 2

@@ -800,8 +800,8 @@ mod tests {
             assert!(bindings(&keys(), Path::new(bad)).is_err(), "{bad}");
         }
         assert_eq!(
-            owned_line(Path::new("/c/tmux-team/squad.tmux.conf")).unwrap(),
-            "source-file -q '/c/tmux-team/squad.tmux.conf' # tmt ops hotkeys"
+            owned_line(Path::new("/c/tmt-local/squad.tmux.conf")).unwrap(),
+            "source-file -q '/c/tmt-local/squad.tmux.conf' # tmt ops hotkeys"
         );
     }
 

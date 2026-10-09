@@ -15,7 +15,7 @@ fn render(table: &Table, terminal: Terminal) -> String {
 fn agents() -> Table {
     let mut table = Table::new(&[Column::Fixed, Column::Name, Column::Detail]);
     table
-        .row(["●", "coordinator", "~/dev/tmux-team/very/long/path"])
+        .row(["●", "coordinator", "~/dev/tmt-local/very/long/path"])
         .row(["○", "peer", "~/dev/other"]);
     table
 }
@@ -32,7 +32,7 @@ fn width(width: u16) -> Terminal {
 fn rows_are_indented_aligned_and_never_cut_without_a_known_width() {
     assert_eq!(
         render(&agents(), Terminal::PLAIN),
-        "  ●  coordinator  ~/dev/tmux-team/very/long/path\n  ○  peer         ~/dev/other\n"
+        "  ●  coordinator  ~/dev/tmt-local/very/long/path\n  ○  peer         ~/dev/other\n"
     );
     assert_eq!(render(&Table::new(&[Column::Name]), Terminal::PLAIN), "");
 }
@@ -41,7 +41,7 @@ fn rows_are_indented_aligned_and_never_cut_without_a_known_width() {
 fn details_truncate_before_names_and_rows_never_wrap() {
     assert_eq!(
         render(&agents(), width(36)),
-        "  ●  coordinator  ~/dev/tmux-team/v…\n  ○  peer         ~/dev/other\n"
+        "  ●  coordinator  ~/dev/tmt-local/v…\n  ○  peer         ~/dev/other\n"
     );
     // Once the detail is at its minimum, the name gives way too.
     assert_eq!(
@@ -97,11 +97,11 @@ fn a_row_needs_one_cell_per_column() {
 fn actions_trail_only_their_rows_and_are_never_truncated() {
     let mut table = Table::new(&[Column::Fixed, Column::Name, Column::Detail]);
     table
-        .row(["●", "astra", "~/dev/tmux-team"])
-        .row_with_action(["○", "sol", "~/dev/tmux-team"], "↻ tmt resume sol");
+        .row(["●", "astra", "~/dev/tmt-local"])
+        .row_with_action(["○", "sol", "~/dev/tmt-local"], "↻ tmt resume sol");
     assert_eq!(
         render(&table, Terminal::PLAIN),
-        "  ●  astra  ~/dev/tmux-team\n  ○  sol    ~/dev/tmux-team  ↻ tmt resume sol\n"
+        "  ●  astra  ~/dev/tmt-local\n  ○  sol    ~/dev/tmt-local  ↻ tmt resume sol\n"
     );
     // The detail gives way; the action keeps every character.
     assert_eq!(
@@ -133,7 +133,7 @@ fn colored_rows_end_without_padding() {
 
 #[test]
 fn a_colored_first_column_keeps_its_gap_before_text_ending_in_m() {
-    // `tmux-team` ends in `m`, like a color reset: only a whole SGR sequence
+    // `custom` ends in `m`, like a color reset: only a whole SGR sequence
     // may be taken for one, or the gap after `skill` disappears.
     let mut table = Table::new(&[Column::Fixed, Column::Detail]);
     table
@@ -143,7 +143,7 @@ fn a_colored_first_column_keeps_its_gap_before_text_ending_in_m() {
         ])
         .row([
             Cell::styled("skill", Token::Dim),
-            "~/.agents/skills/tmt".into(),
+            "~/.agents/skills/custom".into(),
         ]);
     let colored = render(
         &table,
@@ -156,11 +156,11 @@ fn a_colored_first_column_keeps_its_gap_before_text_ending_in_m() {
     let plain: String = anstream::adapter::strip_str(&colored).to_string();
     assert_eq!(
         plain,
-        "  command  ~/.local/bin/tmt\n  skill    ~/.agents/skills/tmt\n"
+        "  command  ~/.local/bin/tmt\n  skill    ~/.agents/skills/custom\n"
     );
     assert_eq!(
-        without_trailing_padding("\u{1b}[2mskill  \u{1b}[0m  ~/tmux-team  "),
-        "\u{1b}[2mskill  \u{1b}[0m  ~/tmux-team"
+        without_trailing_padding("\u{1b}[2mskill  \u{1b}[0m  ~/tmt-forum  "),
+        "\u{1b}[2mskill  \u{1b}[0m  ~/tmt-forum"
     );
 }
 

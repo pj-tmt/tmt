@@ -57,14 +57,14 @@ fn agents() -> Vec<Section<'static>> {
             "astra",
             "codex",
             "019a2f4c-1111-2222-3333-444455556666",
-            "/Users/ada/dev/tmux-team",
+            "/Users/ada/dev/tmt-local",
         ))
         .row(cells(
             Mark::Running,
             "opus-tmt-peer-2",
             "claude",
             "7c41e9d2-77aa-4c3d-9f10-3b2a1c0d9e8f",
-            "/Users/ada/dev/tmux-team/worktrees/feature-branch",
+            "/Users/ada/dev/tmt-local/worktrees/feature-branch",
         ))
         .row_with_action(
             cells(
@@ -72,7 +72,7 @@ fn agents() -> Vec<Section<'static>> {
                 "sol",
                 "claude",
                 "3f9a1c07-aaaa-bbbb-cccc-dddd0000ffff",
-                "/Users/ada/dev/tmux-team",
+                "/Users/ada/dev/tmt-local",
             ),
             &format!("{} tmt resume sol", Mark::Resumable.symbol()),
         );
