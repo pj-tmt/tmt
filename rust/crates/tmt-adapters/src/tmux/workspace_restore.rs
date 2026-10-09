@@ -8,7 +8,7 @@ use crate::{
     },
     workspace::restore::{LayoutRestore, RestoredPane, RestoredSession, RestoredWindow},
 };
-use std::{collections::HashMap, fmt::Write, io, time::Instant};
+use std::{collections::HashMap, fmt::Write, io, os::unix::fs::FileTypeExt, time::Instant};
 use tmt_core::{
     endpoint::ProcessIncarnation,
     workspace::{
@@ -61,10 +61,22 @@ impl<R: CommandRunner> Tmux<R> {
             Err(_) => return Err(invalid()),
             Ok(_) => false,
         };
-        let names = if absent {
-            Vec::new()
+        let (names, starting) = if absent {
+            (Vec::new(), true)
         } else {
-            self.workspace_session_names(socket, deadline)?
+            match self.workspace_session_names(socket, deadline) {
+                Ok(names) => (names, false),
+                Err(error)
+                    if error.exited()
+                        && !error.socket_permission_denied()
+                        && std::fs::symlink_metadata(socket)
+                            .is_ok_and(|entry| entry.file_type().is_socket())
+                        && stale_socket(socket, deadline) =>
+                {
+                    (Vec::new(), true)
+                }
+                Err(error) => return Err(error),
+            }
         };
         let plan = layout_creation(snapshot, &names).map_err(|_| invalid())?;
         // A skipped session's old directories are irrelevant to new creation.
@@ -92,7 +104,7 @@ impl<R: CommandRunner> Tmux<R> {
             panes: HashMap::new(),
             outcome: LayoutRestore::default(),
         };
-        if !absent {
+        if !starting {
             restore.fence = Some(restore.observe_server()?);
         }
         for planned in &plan.sessions {
@@ -326,7 +338,6 @@ impl<R: CommandRunner> Restore<'_, R> {
                 vec![
                     "set-option".into(),
                     "-s".into(),
-                    "-o".into(),
                     "@tmt.server-id".into(),
                     uuid::Uuid::new_v4().to_string(),
                 ],
@@ -620,6 +631,41 @@ impl<R: CommandRunner> Restore<'_, R> {
         )?;
         Ok(())
     }
+}
+
+/// Only a kernel refusal proves that a remaining socket has no listener.
+/// A nonblocking probe never removes the inode or waits for a healthy peer.
+fn stale_socket(path: &str, deadline: Instant) -> bool {
+    use nix::{
+        errno::Errno,
+        fcntl::{FcntlArg, FdFlag, OFlag, fcntl},
+        sys::socket::{AddressFamily, SockFlag, SockType, UnixAddr, connect, socket},
+    };
+    use std::os::fd::AsRawFd;
+    if Instant::now() >= deadline {
+        return false;
+    }
+    let Ok(address) = UnixAddr::new(path) else {
+        return false;
+    };
+    let Ok(fd) = socket(
+        AddressFamily::Unix,
+        SockType::Stream,
+        SockFlag::empty(),
+        None,
+    ) else {
+        return false;
+    };
+    // Darwin lacks atomic socket flags; use the same bounded native operation
+    // on both platforms and close the owned descriptor on every return.
+    if fcntl(&fd, FcntlArg::F_SETFD(FdFlag::FD_CLOEXEC)).is_err()
+        || fcntl(&fd, FcntlArg::F_SETFL(OFlag::O_NONBLOCK)).is_err()
+        || Instant::now() >= deadline
+    {
+        return false;
+    }
+    matches!(connect(fd.as_raw_fd(), &address), Err(Errno::ECONNREFUSED))
+        && Instant::now() < deadline
 }
 
 fn invalid() -> TmuxError {

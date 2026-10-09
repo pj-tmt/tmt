@@ -128,7 +128,10 @@ created windows; existing server options and pre-existing resources are preserve
 
 Outside tmux, select the socket explicitly. The first `new-session` starts an
 absent server and initializes a fresh TMT server UUID; snapshot server identity
-is never adopted. Existing but unobservable sockets are refused unchanged.
+is never adopted. A remaining socket is stale only after a bounded nonblocking
+OS connect proves `ECONNREFUSED`; tmux then owns normal socket replacement.
+Core never unlinks it. Live, denied, timed-out or otherwise uncertain sockets
+remain refused unchanged.
 The command prints one created/skipped/partial summary, or one version 1 JSON
 result with session actions, recorded/native window and pane mappings, failures
 and retained bootstrap IDs. Partial failure returns exit 1, retains created

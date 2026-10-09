@@ -275,3 +275,49 @@ fn directory_readback_refuses_silent_tmux_fallback_and_preserves_literal_newline
     assert!(owner.verify_cwd("%7", "/recorded\nnewline;").is_ok());
     assert_eq!(tmux.runner.scripted.calls.borrow().len(), 2);
 }
+
+#[test]
+fn stale_socket_requires_kernel_refusal_and_leaves_live_and_closed_inodes_untouched() {
+    use std::{
+        os::unix::{fs::MetadataExt, net::UnixListener},
+        path::PathBuf,
+    };
+    struct OwnedSocket(PathBuf);
+    impl Drop for OwnedSocket {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_file(&self.0);
+        }
+    }
+    let path = OwnedSocket(PathBuf::from(format!(
+        "/tmp/tmt-restore-{}.sock",
+        uuid::Uuid::new_v4()
+    )));
+    let listener = UnixListener::bind(&path.0).unwrap();
+    let before = std::fs::metadata(&path.0).unwrap().ino();
+    let deadline = Instant::now() + Duration::from_secs(1);
+    assert!(!stale_socket(path.0.to_str().unwrap(), deadline));
+    assert_eq!(std::fs::metadata(&path.0).unwrap().ino(), before);
+    let tmux = Tmux::new(Runner::default());
+    let mut saved = snapshot();
+    saved.server.socket = path.0.to_str().unwrap().into();
+    tmux.runner.scripted.results.borrow_mut().push_back(Err(
+        crate::scripted_runner::failure_with_kind(
+            crate::process::CommandFailure::Exit {
+                code: Some(1),
+                signal: None,
+            },
+            false,
+        ),
+    ));
+    assert!(tmux.workspace_restore_layout(&saved, deadline).is_err());
+    assert_eq!(tmux.runner.scripted.calls.borrow().len(), 1);
+    assert_eq!(std::fs::metadata(&path.0).unwrap().ino(), before);
+    drop(listener);
+    assert!(stale_socket(path.0.to_str().unwrap(), deadline));
+    assert_eq!(std::fs::metadata(&path.0).unwrap().ino(), before);
+    assert!(!stale_socket(path.0.to_str().unwrap(), Instant::now()));
+    assert!(!stale_socket(
+        "/tmp/nonexistent-tmt-restore-socket",
+        deadline
+    ));
+}
