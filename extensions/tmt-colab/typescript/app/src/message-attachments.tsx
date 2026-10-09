@@ -39,7 +39,7 @@ export function MessageAttachments({
             <span className="attachment-size">{text.attachmentSize(Number(d.plaintextBytes))}</span>
             {failed.has(d.attachmentId) && (
               <span className="attachment-state" role="alert">
-                {text.attachmentUnavailable}
+                {text.attachmentReason[failed.get(d.attachmentId)!]}
               </span>
             )}
             <span className="attachment-actions">

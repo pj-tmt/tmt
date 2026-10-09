@@ -186,3 +186,25 @@ it('status preserves the original and unknown never retries; committed reads che
     channel.verifier(original).readCommitted(new Uint8Array(32), key, deadline),
   ).rejects.toThrow();
 });
+
+it('a wire error on a read becomes the reason the person can act on, never a generic failure', async () => {
+  const value = corpus.cases.find((c) => c.name === `${corpus.channelPolicies[0].name}-asset`)!;
+  const descriptor = attachment.attachmentDescriptor(strictJson(text(value.input), 2048));
+  const { attachmentNamespace } = await import('../src/attachments.js');
+  const namespace = await attachmentNamespace(descriptor.space, descriptor.page);
+  const key = Uint8Array.from(descriptor.objectId.match(/../g)!, (byte) => parseInt(byte, 16));
+  const selector = attachment.attachmentSelector(corpus.channelPolicies[0].reference);
+  const deadline = performance.now() + 15_000;
+  for (const [code, reason] of [
+    ['denied', 'denied'],
+    ['not-found', 'not-found'],
+    ['conflict', 'changed'],
+    ['unavailable', 'unavailable'],
+    ['capacity', 'unavailable'],
+  ] as const) {
+    const channel = new AttachmentObjectChannel(async () => ({ error: { code } }));
+    await expect(
+      channel.read(selector, descriptor).readCommitted(namespace, key, deadline),
+    ).rejects.toMatchObject({ reason });
+  }
+});

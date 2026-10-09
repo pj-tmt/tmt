@@ -63,7 +63,7 @@ export function FilesList({
               metadata={text.attachmentSize(Number(d.plaintextBytes))}
               state={
                 failed.has(d.attachmentId) ? (
-                  <span role="alert">{text.attachmentUnavailable}</span>
+                  <span role="alert">{text.attachmentReason[failed.get(d.attachmentId)!]}</span>
                 ) : removeFailed.has(d.attachmentId) ? (
                   <span role="alert">{text.filesRemoveFailed}</span>
                 ) : removing === d.attachmentId ? (

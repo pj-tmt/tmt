@@ -97,6 +97,39 @@ pub(crate) struct PeerObjects {
     worker: Option<JoinHandle<()>>,
     pending: Mutex<HashSet<String>>,
 }
+/// The wire code a failed request reports. `denied` is authority that ended or never existed,
+/// `not-found` is a read or verify of a reference the page does not hold (never a transient
+/// failure, so a retry cannot help), `conflict` is a disclosure that changed while it ran and
+/// `unavailable` is everything else, including the backend and the channel.
+pub(crate) fn error_code(
+    error: &(dyn std::error::Error + 'static),
+    request: &ObjectRequest,
+) -> &'static str {
+    match error.downcast_ref::<page::Fault>() {
+        Some(page::Fault::Denied | page::Fault::Inactive) => "denied",
+        Some(page::Fault::Invalid) => "invalid",
+        Some(page::Fault::StaleBase) => "conflict",
+        Some(page::Fault::Missing)
+            if matches!(
+                request,
+                ObjectRequest::Read { .. } | ObjectRequest::Verify { .. }
+            ) =>
+        {
+            "not-found"
+        }
+        _ if matches!(
+            error.downcast_ref::<crate::sync::Code>(),
+            Some(crate::sync::Code::Denied | crate::sync::Code::Expired)
+        ) || matches!(
+            error.downcast_ref::<crate::registration::Code>(),
+            Some(crate::registration::Code::Denied | crate::registration::Code::Expired)
+        ) =>
+        {
+            "denied"
+        }
+        _ => "unavailable",
+    }
+}
 impl PeerObjects {
     pub(crate) fn new(peer: Arc<PeerIdentity>) -> std::io::Result<Self> {
         let (requests, incoming) = mpsc::sync_channel::<Job>(8);
@@ -136,25 +169,7 @@ impl PeerObjects {
                     {
                         Ok(pair) => pair,
                         Err(error) => {
-                            let code = match error.downcast_ref::<page::Fault>() {
-                                Some(page::Fault::Denied | page::Fault::Inactive) => "denied",
-                                Some(page::Fault::Invalid) => "invalid",
-                                Some(page::Fault::StaleBase) => "conflict",
-                                _ if matches!(
-                                    error.downcast_ref::<crate::sync::Code>(),
-                                    Some(crate::sync::Code::Denied | crate::sync::Code::Expired)
-                                ) || matches!(
-                                    error.downcast_ref::<crate::registration::Code>(),
-                                    Some(
-                                        crate::registration::Code::Denied
-                                            | crate::registration::Code::Expired
-                                    )
-                                ) =>
-                                {
-                                    "denied"
-                                }
-                                _ => "unavailable",
-                            };
+                            let code = error_code(error.as_ref(), &job.request);
                             (serde_json::json!({"error":{"code":code}}), None)
                         }
                     };
@@ -608,4 +623,56 @@ fn project_result(result: ResultFrame) -> crate::Result<serde_json::Value> {
     } else {
         serde_json::json!({"error":object.remove("error").ok_or(page::Fault::Invalid)?})
     })
+}
+
+#[cfg(test)]
+mod error_code_tests {
+    use super::*;
+    use tmt_colab_model::attachment::AttachmentSelector;
+
+    const ID: &str = "00000000-0000-4000-8000-000000000001";
+    fn read() -> ObjectRequest {
+        ObjectRequest::Read {
+            selector: AttachmentSelector::Message {
+                writer_id: ID.into(),
+                message_id: ID.into(),
+                message_revision: "1".into(),
+                attachment_id: ID.into(),
+                descriptor_hash: "00".repeat(32),
+            },
+            offset: 0,
+            count: 1,
+        }
+    }
+    fn code(error: impl std::error::Error + 'static, request: &ObjectRequest) -> &'static str {
+        error_code(&error, request)
+    }
+
+    #[test]
+    fn a_reference_the_page_does_not_hold_is_not_found_only_for_reads_never_a_transient_failure() {
+        assert_eq!(code(page::Fault::Missing, &read()), "not-found");
+        // The wire allows `not-found` only for read and verify; anything else stays unavailable.
+        assert_eq!(
+            code(
+                page::Fault::Missing,
+                &ObjectRequest::Commit {
+                    transfer_id: ID.into()
+                }
+            ),
+            "unavailable"
+        );
+    }
+
+    #[test]
+    fn authority_that_ended_is_denied_a_moved_disclosure_conflicts_and_the_rest_is_unavailable() {
+        for fault in [page::Fault::Denied, page::Fault::Inactive] {
+            assert_eq!(code(fault, &read()), "denied");
+        }
+        assert_eq!(code(crate::sync::Code::Expired, &read()), "denied");
+        assert_eq!(code(page::Fault::StaleBase, &read()), "conflict");
+        assert_eq!(code(page::Fault::Invalid, &read()), "invalid");
+        for fault in [page::Fault::Unavailable, page::Fault::Capacity] {
+            assert_eq!(code(fault, &read()), "unavailable");
+        }
+    }
 }

@@ -169,6 +169,32 @@ test('a read that finishes after the disclosure changed shows nothing', async ({
   await expect(row.getByRole('alert')).toHaveCount(0);
 });
 
+test('a file that cannot open says why: access ended, no longer on the page, changed, or unavailable', async ({
+  page,
+}) => {
+  await mount(page);
+  const panel = await openFiles(page);
+  await attach(panel, page, [
+    note('denied.txt'),
+    note('not-found.txt'),
+    note('changed.txt'),
+    note('missing.txt'),
+  ]);
+  await add(panel).click();
+  const rows = panel.getByTestId('file-row');
+  await expect(rows).toHaveCount(4);
+  const reasons = [
+    text.attachmentReason.denied,
+    text.attachmentReason['not-found'],
+    text.attachmentReason.changed,
+    text.attachmentReason.unavailable,
+  ];
+  for (const [index, reason] of reasons.entries()) {
+    await rows.nth(index).getByRole('button', { name: text.attachmentDownload }).click();
+    await expect(rows.nth(index).getByRole('alert')).toHaveText(reason);
+  }
+});
+
 const reader = '/test/reader-files-browser.tsx';
 async function mountReader(page: Page, files: boolean) {
   await page.goto('/');

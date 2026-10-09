@@ -39,6 +39,18 @@ export interface AttachmentReadOwner {
     deadline?: number,
   ): Promise<{ admission: Admission; objects: Objects; projection: PageView; revision: string }>;
 }
+/** Why an authorized-looking read did not open, in words the person can act on. `denied` is access
+ * that ended or never existed, `not-found` a reference this page (as you may see it) no longer
+ * holds, `changed` a disclosure that moved while it ran (trying again may work) and `unavailable`
+ * everything else, including storage and the channel. */
+export type ReadFailure = 'denied' | 'not-found' | 'changed' | 'unavailable';
+export class AttachmentReadError extends Error {
+  constructor(readonly reason: ReadFailure) {
+    super(`Attachment read ${reason}`);
+  }
+}
+export const readFailure = (error: unknown): ReadFailure =>
+  error instanceof AttachmentReadError ? error.reason : 'unavailable';
 function reference(
   projection: PageView,
   selector: attachment.AttachmentSelector,
@@ -48,7 +60,7 @@ function reference(
 ) {
   let list: unknown;
   if (selector.kind === 'document-current') {
-    requireValue(selector.contentRevision === revision);
+    if (selector.contentRevision !== revision) throw new AttachmentReadError('changed');
     list = projection.attachments;
   } else {
     const message =
@@ -113,7 +125,11 @@ export class AdmittedAttachmentRead {
       current = await owner.snapshot(undefined, deadline),
       revision = current.revision,
       a = current.admission;
-    a.validateRead(sharing);
+    try {
+      a.validateRead(sharing);
+    } catch {
+      throw new AttachmentReadError('denied');
+    }
     let d = reference(current.projection, selector, revision, a, current.objects.epoch);
     if (!d && selector.kind === 'message') {
       const epoch = decimal(a.epoch),
@@ -125,9 +141,9 @@ export class AdmittedAttachmentRead {
         if (d) break;
       }
     }
+    if (d === undefined) throw new AttachmentReadError('not-found');
     requireValue(
-      d !== undefined &&
-        d.space === a.space &&
+      d.space === a.space &&
         d.page === a.page &&
         hex(await attachment.attachmentHash(d)) === selector.descriptorHash,
     );
@@ -151,18 +167,23 @@ export class AdmittedAttachmentRead {
   async recheck(sharing: string | readonly string[]) {
     remaining(this.deadline);
     const current = await this.owner.snapshot(undefined, this.deadline);
-    current.admission.validateRead(sharing, this.descriptor.epoch);
+    try {
+      current.admission.validateRead(sharing, this.descriptor.epoch);
+    } catch {
+      throw new AttachmentReadError('denied');
+    }
     const original =
       this.descriptor.epoch === current.admission.epoch
         ? current
         : await this.owner.snapshot(this.descriptor.epoch, this.deadline);
-    requireValue(
-      original.admission === current.admission && original.revision === this.originalRevision,
-    );
-    requireValue(
-      current.revision === this.revision &&
-        current.admission.readRoot(this.descriptor.epoch) === this.root,
-    );
+    // The disclosure moved while this read ran: the capture no longer describes what is stored.
+    if (
+      original.admission !== current.admission ||
+      original.revision !== this.originalRevision ||
+      current.revision !== this.revision ||
+      current.admission.readRoot(this.descriptor.epoch) !== this.root
+    )
+      throw new AttachmentReadError('changed');
   }
   async disclose(objects: CommittedObjectVerifier, sharing: string | readonly string[]) {
     await this.recheck(sharing);

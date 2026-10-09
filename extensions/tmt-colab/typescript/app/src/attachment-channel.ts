@@ -12,7 +12,23 @@ import {
 } from '@tmt/colab-client';
 
 import type { AttachmentHistorySource } from './attachment-history.js';
-import { attachmentNamespace, type CommittedObjectVerifier } from './attachments.js';
+import {
+  AttachmentReadError,
+  attachmentNamespace,
+  type CommittedObjectVerifier,
+  type ReadFailure,
+} from './attachments.js';
+
+/** The person-facing reason for a wire error on a read; a retry cannot help `denied` or
+ * `not-found`, may help `changed`, and `unavailable` is everything else. */
+const readCodeReason = (code: string): ReadFailure =>
+  code === 'denied'
+    ? 'denied'
+    : code === 'not-found'
+      ? 'not-found'
+      : code === 'conflict'
+        ? 'changed'
+        : 'unavailable';
 
 const POLICY_BYTES = 2048;
 export const ATTACHMENT_CHUNK_BYTES = 32 * 1024;
@@ -383,7 +399,7 @@ export class AttachmentObjectChannel {
           requireValue(performance.now() < deadline);
           const count = Math.min(ATTACHMENT_CHUNK_BYTES, length - offset),
             outcome = await this.call(request(offset, count), deadline);
-          requireValue('ok' in outcome);
+          if ('error' in outcome) throw new AttachmentReadError(readCodeReason(outcome.error.code));
           const ok = outcome.ok;
           exactKeys(ok, ['result', 'offset', 'totalBytes', 'bytes']);
           requireValue(ok.result === 'read' && ok.offset === offset && ok.totalBytes === length);

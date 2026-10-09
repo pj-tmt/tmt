@@ -12,6 +12,7 @@ import {
 } from '../src/attachment-service.js';
 import type { FrozenAttachmentUpload } from '../src/attachment-channel.js';
 import type { DocumentFiles } from '../src/document-files.js';
+import { AttachmentReadError } from '../src/attachments.js';
 import type { QuoteSelector, ThreadView } from '../src/thread-records.js';
 import type { PageView, PageBinding } from '../src/transport.js';
 import { createAppRouter } from '../src/router.js';
@@ -195,6 +196,8 @@ export async function mount(
           );
           if (descriptor.filename.includes('slow')) await new Promise<void>((r) => (openGate = r));
           const bytes = stored.get(descriptor.attachmentId);
+          for (const reason of ['denied', 'not-found', 'changed'] as const)
+            if (descriptor.filename.startsWith(reason)) throw new AttachmentReadError(reason);
           if (!bytes || descriptor.filename.includes('missing')) throw new Error('Unavailable');
           return bytes.slice();
         },
