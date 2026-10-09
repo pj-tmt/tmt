@@ -28,6 +28,7 @@ const docsTargets = [
   '../rust/archive/NATIVE-INSTALL.md',
   '../contracts/extension-api.md',
   '../contracts/request-response-v1.md',
+  '../contracts/extension-serve-v1.md',
   '../.agents/skills/**/*.md',
   '../.github/pull_request_template.md',
   '../extensions/tmt-office/docs/**/*.md',

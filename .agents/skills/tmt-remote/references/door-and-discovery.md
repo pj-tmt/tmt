@@ -18,8 +18,9 @@ launcher departure after accepted handoff does not stop it. Limits are named in 
 `main` owns CLI grammar/dispatch; binary-private `serve` owns mode selection and one composition
 over existing core/state/Control/Approval/events/HTTP owners. The exact native self-exec worker, the
 private handoff (Ready -> Accept -> Accepted, the no-kill cutoff, bounded cleanup and reap, lost
-acknowledgment) and the failure-record writer are the shared `tmt-extension-serve` leaf; its crate
-docs own those semantics for Remote and Colab, so read them there. Remote supplies the Ready shape
+acknowledgment) and the failure-record writer are the shared `tmt-extension-serve` leaf; the
+[extension-serve contract](../../../../contracts/extension-serve-v1.md) owns those semantics for
+Remote and Colab, so read it there. Remote supplies the Ready shape
 and validation, its error codes and hints, the limits and the serve-error phase mapping.
 
 Only the background worker clears/writes fixed `remote/serve-error.json`, admitted under Serving.

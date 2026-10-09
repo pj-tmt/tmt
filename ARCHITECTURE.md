@@ -581,7 +581,7 @@ channels, backends and quotas. The Firestore deploy owners (`declaration`, `depl
 own the module table and per-module guarantees;
 [door and discovery](.agents/skills/tmt-remote/references/door-and-discovery.md) owns serve
 lifecycle, status and management implementation; the background start it shares with Colab
-is [extension-serve-v1](contracts/extension-serve-v1.md), run by the `tmt-extension-serve` leaf.
+is [extension-serve-v1](contracts/extension-serve-v1.md).
 
 ## Colab extension
 

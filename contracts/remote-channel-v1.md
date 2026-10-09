@@ -446,7 +446,7 @@ a new scope needs a revision of this contract.
 
 `tmt remote serve` with human output starts a detached owner-device door; the modes, handoff and
 stop semantics are the shared lifecycle in
-[`tmt-extension-serve`](../rust/crates/tmt-extension-serve/src/lib.rs). Foreground runs until Ctrl-C,
+[extension-serve-v1](extension-serve-v1.md). Foreground runs until Ctrl-C,
 SIGTERM or `tmt remote stop`; accepted background serving has no idle or hard deadline.
 Without `--port`, serve reuses its last successfully bound
 IPv4-loopback port; on first use it selects an unused port. If the remembered port is busy, serve
@@ -462,7 +462,8 @@ starting only after Accept. The bounds are `limits::SERVE_STARTUP` (one absolute
 `limits::SERVE_RECORD_BYTES` (one private record) and `limits::STOP_WAIT` (the launcher's cleanup
 wait). The background worker admits and clears one private `remote/serve-error.json` only after
 acquiring Serving, before runtime publication, and records fixed sanitized
-version/phase/code/message on ordinary failure. Foreground preserves terminal errors and need not
+version/phase/code/message on ordinary failure; it closes the file before releasing Serving. Duplicate
+starts cannot clear it. Foreground preserves terminal errors and need not
 create it. `status`/`stop` remain authoritative; run `serve --foreground` for terminal
 troubleshooting. Launcher departure after handoff preserves held work; actual stop/restart cancels
 pending holds through Approval. Frozen dispatching/unknown operation IDs remain recoverable and are
