@@ -1,5 +1,5 @@
 import { BrowserAction, BrowserList, BrowserListRow } from '@tmt/browser-ui/react';
-import { useEffect, useState, useSyncExternalStore } from 'react';
+import { Fragment, useEffect, useState, useSyncExternalStore } from 'react';
 import type { attachment } from '@tmt/colab-client';
 import { AttachmentDraft } from './attachment-draft.js';
 import { isRaster, useAttachmentOpener } from './attachment-opener.js';
@@ -55,77 +55,75 @@ export function FilesList({
           opening = busy === d.attachmentId,
           idle = !busy && !removing;
         return (
-          <BrowserListRow
-            key={d.attachmentId}
-            data-testid="file-row"
-            title={
-              <>
-                <span className="attachment-name">{d.filename}</span>
-                {image && (
-                  <div className="attachment-preview">
-                    <img src={image} alt={d.filename} />
-                  </div>
-                )}
-              </>
-            }
-            metadata={text.attachmentSize(Number(d.plaintextBytes))}
-            state={
-              failed.has(d.attachmentId) ? (
-                <span role="alert">{text.attachmentUnavailable}</span>
-              ) : removeFailed.has(d.attachmentId) ? (
-                <span role="alert">{text.filesRemoveFailed}</span>
-              ) : removing === d.attachmentId ? (
-                text.filesRemoving
-              ) : null
-            }
-            actions={
-              <>
-                {raster &&
-                  (image ? (
-                    <BrowserAction
-                      type="button"
-                      variant="text"
-                      label={text.attachmentHidePreview}
-                      onActivate={(event) => {
-                        if (event.isTrusted) opener.hide(d.attachmentId);
-                      }}
-                    />
-                  ) : (
-                    <BrowserAction
-                      type="button"
-                      variant="text"
-                      label={opening ? text.attachmentOpening : text.attachmentPreview}
-                      busy={opening}
-                      disabled={!idle || !binding}
-                      onActivate={(event) => {
-                        if (event.isTrusted) void opener.preview(DOCUMENT, d);
-                      }}
-                    />
-                  ))}
-                <BrowserAction
-                  type="button"
-                  variant="text"
-                  label={!raster && opening ? text.attachmentOpening : text.attachmentDownload}
-                  busy={!raster && opening}
-                  disabled={!idle || !binding}
-                  onActivate={(event) => {
-                    if (event.isTrusted) void opener.download(DOCUMENT, d);
-                  }}
-                />
-                {remove && (
+          <Fragment key={d.attachmentId}>
+            <BrowserListRow
+              data-testid="file-row"
+              data-previewed={image ? '' : undefined}
+              title={<span className="attachment-name">{d.filename}</span>}
+              metadata={text.attachmentSize(Number(d.plaintextBytes))}
+              state={
+                failed.has(d.attachmentId) ? (
+                  <span role="alert">{text.attachmentUnavailable}</span>
+                ) : removeFailed.has(d.attachmentId) ? (
+                  <span role="alert">{text.filesRemoveFailed}</span>
+                ) : removing === d.attachmentId ? (
+                  text.filesRemoving
+                ) : null
+              }
+              actions={
+                <>
+                  {raster &&
+                    (image ? (
+                      <BrowserAction
+                        type="button"
+                        variant="text"
+                        label={text.attachmentHidePreview}
+                        onActivate={(event) => {
+                          if (event.isTrusted) opener.hide(d.attachmentId);
+                        }}
+                      />
+                    ) : (
+                      <BrowserAction
+                        type="button"
+                        variant="text"
+                        label={opening ? text.attachmentOpening : text.attachmentPreview}
+                        busy={opening}
+                        disabled={!idle || !binding}
+                        onActivate={(event) => {
+                          if (event.isTrusted) void opener.preview(DOCUMENT, d);
+                        }}
+                      />
+                    ))}
                   <BrowserAction
                     type="button"
                     variant="text"
-                    label={text.attachRemove}
-                    disabled={!idle || disabled}
+                    label={!raster && opening ? text.attachmentOpening : text.attachmentDownload}
+                    busy={!raster && opening}
+                    disabled={!idle || !binding}
                     onActivate={(event) => {
-                      if (event.isTrusted) void drop(d.attachmentId);
+                      if (event.isTrusted) void opener.download(DOCUMENT, d);
                     }}
                   />
-                )}
-              </>
-            }
-          />
+                  {remove && (
+                    <BrowserAction
+                      type="button"
+                      variant="text"
+                      label={text.attachRemove}
+                      disabled={!idle || disabled}
+                      onActivate={(event) => {
+                        if (event.isTrusted) void drop(d.attachmentId);
+                      }}
+                    />
+                  )}
+                </>
+              }
+            />
+            {image && (
+              <li className="file-preview" data-testid="file-preview">
+                <img src={image} alt={d.filename} />
+              </li>
+            )}
+          </Fragment>
         );
       })}
     </BrowserList>
@@ -190,7 +188,7 @@ export function FilesPanel({
           disabled={disabled || adding}
         />
       ) : (
-        <p className="files-empty">{text.filesEmpty}</p>
+        !staged.chips.length && <p className="files-empty">{text.filesEmpty}</p>
       )}
       <AttachmentChips draft={draft} disabled={!attachable} page />
       <div className="annotation-status-row">

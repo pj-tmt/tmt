@@ -11,6 +11,7 @@ import {
   type StoredAttachment,
 } from '../src/attachment-service.js';
 import type { FrozenAttachmentUpload } from '../src/attachment-channel.js';
+import type { DocumentFiles } from '../src/document-files.js';
 import type { QuoteSelector, ThreadView } from '../src/thread-records.js';
 import type { PageView, PageBinding } from '../src/transport.js';
 import { createAppRouter } from '../src/router.js';
@@ -145,7 +146,7 @@ export async function mount(
         async limits() {
           return { payloadBytes: 12 * 1024 * 1024 };
         },
-        async upload(input, messageId, progress) {
+        async upload(input, target, progress) {
           actions.push(`attach:upload:${input.filename}`);
           progress(1, 2);
           if (input.filename.includes('refuse'))
@@ -157,7 +158,15 @@ export async function mount(
               filename: input.filename,
               mediaType: input.mediaType,
               plaintextBytes: String(input.bytes.length),
-              source: { kind: 'message', writerId: id(4), messageId, messageRevision: '1' },
+              source:
+                target.kind === 'message'
+                  ? {
+                      kind: 'message',
+                      writerId: id(4),
+                      messageId: target.messageId,
+                      messageRevision: '1',
+                    }
+                  : { kind: 'document', sourceDigest: '0'.repeat(64) },
             },
           } as unknown as FrozenAttachmentUpload;
           if (input.filename.includes('unknown') && lostOnce) {
@@ -186,6 +195,42 @@ export async function mount(
         },
       }
     : undefined;
+  let staleFile = true;
+  let lostSave = true;
+  const files: DocumentFiles | undefined = attachments && {
+    attachments,
+    target: () => ({ kind: 'document', source: current.source }),
+    async add(list) {
+      const names = list.map((s: StoredAttachment) => s.filename);
+      if (names.some((name: string) => name.includes('stale')) && staleFile) {
+        staleFile = false;
+        throw new AttachmentStaleError(
+          list.map((s: StoredAttachment) => s.original.descriptor.attachmentId),
+        );
+      }
+      if (names.some((name: string) => name.includes('unsaved')) && lostSave) {
+        lostSave = false;
+        throw new Error('Save failed');
+      }
+      actions.push(`files:add:${names.join(',')}`);
+      current = {
+        ...current,
+        attachments: [
+          ...(current.attachments ?? []),
+          ...list.map((s: StoredAttachment) => s.original.descriptor),
+        ],
+      };
+      emit();
+    },
+    async remove(ids) {
+      actions.push(`files:remove:${ids.length}`);
+      current = {
+        ...current,
+        attachments: (current.attachments ?? []).filter((d) => !ids.includes(d.attachmentId)),
+      };
+      emit();
+    },
+  };
   function addTurn(body: string, thread: ThreadView, attach?: MessageAttachments) {
     if (attach?.stored.some((s: StoredAttachment) => s.filename.includes('stale')) && staleOnce) {
       staleOnce = false;
@@ -362,6 +407,7 @@ export async function mount(
   const binding: PageBinding = {
     ask,
     discussion,
+    files,
     status: new ThreadStatusCoordinator({
       binding: discussion,
       asks: () => current.asks ?? [],
