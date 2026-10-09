@@ -1,5 +1,5 @@
 //! The door's handler: `<prefix>/x/<extension>/` mounts, root browser assets
-//! and the `/p/<id>` alias, and otherwise the remote binding, whose routes are
+//! and public extension entries, and otherwise the remote binding, whose routes are
 //! disjoint from the mount space.
 use crate::{
     http::{Handler, Head, Reply, Request},
@@ -30,6 +30,11 @@ impl Handler for Site {
     fn handle(&self, request: Request, client: &mut TcpStream) -> Option<Reply> {
         if self.mounts.serves(&request.path) {
             self.mounts.handle(request, client)
+        } else if Mounts::short_route(&request.path) {
+            let path = request.path.clone();
+            self.mounts
+                .handle_short(request, client)
+                .map(|reply| crate::pages::page_refusal(&path, reply.status))
         } else if Pages::serves(&request.path) {
             Some(self.pages.as_ref().map_or(Reply::empty(404), |pages| {
                 pages.handle(&request, &self.mounts)

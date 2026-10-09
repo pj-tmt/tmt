@@ -58,6 +58,8 @@ Rules that are easy to get wrong:
   device context on mounted paths; `/r/` refuses cookies. A transport-only
   `tmt-session` identifier must belong to that cookie device; it is stripped before forwarding.
 - **Mount trust.** Mounted extensions share one trust domain behind the door.
+  The static Remote-owned short-entry table forwards public Colab entries without
+  resolving sessions or adding device context; SDK mount lookup uses the same table.
   The device context header is added only for a live owner session and is never
   copied from a client. Session lifetime counts successful upgraded transports;
   last-close touches the session, starting the short inactivity grace for every session

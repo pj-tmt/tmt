@@ -162,13 +162,14 @@ function lines(child: ChildProcessWithoutNullStreams): Lines {
   };
 }
 /** Fixture colab: a page that shows the forwarded device context and may load the SDK. */
-async function colab(socket: string): Promise<Server> {
+async function colab(socket: string, recordHead: (head: string) => void): Promise<Server> {
   const server = createServer((connection) => {
     let head = '';
     connection.on('data', (chunk) => {
       head += chunk.toString('latin1');
       if (!head.includes('\r\n\r\n')) return;
       connection.removeAllListeners('data');
+      recordHead(head);
       expect(head).not.toContain('tmt-session');
       if (/^upgrade: websocket$/im.test(head)) {
         const key = /^sec-websocket-key: (.*)$/im.exec(head)?.[1]?.trim();
@@ -229,6 +230,7 @@ function exited(child: ChildProcessWithoutNullStreams): Promise<unknown> {
     : new Promise((resolve) => child.once('exit', resolve));
 }
 
+let publicHeads: string[];
 let root: string, serve: ChildProcessWithoutNullStreams, browser: Browser, fixture: Server;
 let origin: string,
   mounts: string,
@@ -254,7 +256,8 @@ test.beforeEach(async () => {
   // Mounts live under the machine's unpredictable route prefix.
   mounts = `${descriptor.address as string}/x/`;
   await mkdir(join(root, 'state/colab'), { recursive: true, mode: 0o700 });
-  fixture = await colab(join(root, 'state/colab/door.sock'));
+  publicHeads = [];
+  fixture = await colab(join(root, 'state/colab/door.sock'), (head) => publicHeads.push(head));
   browser = await chromium.launch();
 });
 test.afterEach(async () => {
@@ -267,6 +270,62 @@ test.afterEach(async () => {
   await exited(serve);
   await new Promise((resolve) => fixture.close(resolve));
   await rm(root, { recursive: true, force: true });
+});
+
+// The extension is a public-entry stand-in, not Colab app/routing acceptance.
+test('short public entries preserve the browser URL and map the SDK mount without authority', async () => {
+  const page = await browser.newPage();
+  const network: string[] = [];
+  const mount = `${new URL(mounts).pathname}colab/`;
+  page.on('request', (request) => network.push(request.url()));
+  for (const path of ['/colab', '/colab/', '/p/abcd#t=thread-canary', '/read/abcd#read-canary']) {
+    const address = `${origin}${path}`;
+    const response = await page.goto(address);
+    expect(response?.status()).toBe(200);
+    expect(response?.request().redirectedFrom()).toBeNull();
+    expect(page.url()).toBe(address);
+    await expect(page.locator('#context')).toHaveText('none');
+    const lookup = await page.evaluate(() =>
+      fetch('/sdk/mount', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path: location.pathname }),
+      }).then((reply) => reply.json()),
+    );
+    expect(lookup).toEqual({
+      machineId: expect.any(String),
+      windowId: expect.any(String),
+      address: mounts.slice(0, -3),
+      extension: 'colab',
+      mount,
+    });
+    expect((await page.reload())?.status()).toBe(200);
+    expect(page.url()).toBe(address);
+    await expect(page.locator('#context')).toHaveText('none');
+  }
+  expect(publicHeads.map((head) => head.split(' ')[1])).toEqual([
+    '/',
+    '/',
+    '/',
+    '/',
+    '/p/abcd',
+    '/p/abcd',
+    '/read/abcd',
+    '/read/abcd',
+  ]);
+  for (const head of publicHeads) {
+    expect(head).toContain(`tmt-mount: ${mount}\r\n`);
+    expect(head).not.toMatch(/^cookie:|^tmt-device-context:|^tmt-origin:|^upgrade:/im);
+    expect(head).not.toMatch(/thread-canary|read-canary|#/);
+  }
+  expect(network.every((url) => !url.includes('#'))).toBe(true);
+  // BFCache restoration need not return a new network response.
+  await page.goBack();
+  expect(page.url()).toBe(`${origin}/p/abcd#t=thread-canary`);
+  await expect(page.locator('#context')).toHaveText('none');
+  await page.goForward();
+  expect(page.url()).toBe(`${origin}/read/abcd#read-canary`);
+  await page.close();
 });
 
 /** Hold an actual route until the test has exercised the pre-readiness page. */

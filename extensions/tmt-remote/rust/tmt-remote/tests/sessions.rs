@@ -424,12 +424,12 @@ fn session_open_returns_a_signed_response_and_a_door_cookie() {
     let wire = Opening::new(&h, &client_id, &device.key).wire();
     let reply = open_session(&h, &wire);
     assert_eq!(reply.status, 200);
-    // The public root alias adds no cookie; session.open retains the mount path.
+    // The public short entry adds no cookie; session.open retains the mount path.
     let alias = exchange(
         &h,
         &format!("GET /p/abcd HTTP/1.1\r\nHost: {}\r\n\r\n", h.addr),
     );
-    assert_eq!(alias.status, 302);
+    assert_eq!(alias.status, 200);
     assert!(alias.cookie().is_none());
     // HttpOnly, SameSite=Strict, scoped to mounted pages; only a hash is kept.
     let set_cookie = reply.cookie().unwrap();
