@@ -90,6 +90,7 @@ pub struct StoredIdentity {
     pub preferences: SessionPreferences,
 }
 
+pub mod layout;
 pub mod plan;
 
 /// An annotation requires agreement with every durable marker coordinate.

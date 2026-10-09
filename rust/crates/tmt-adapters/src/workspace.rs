@@ -29,6 +29,24 @@ pub const HOOK_CAPTURE_BOUND: Duration =
     CAPTURE_BUDGET.saturating_add(crate::process::CLEANUP_TIMEOUT);
 pub const HOOK_RESERVE: Duration = Duration::from_millis(200);
 
+/// Recovery readers select exactly one private snapshot, without storage
+/// initialization or host effects. The socket remains explicit recovery input.
+pub fn read_snapshot(paths: &ConfigPaths, socket: &str) -> io::Result<WorkspaceSnapshot> {
+    let bytes = crate::bounded_file::read_no_follow(
+        &paths.workspace_directory(socket).join("latest.json"),
+        MAX_BYTES,
+    )
+    .map_err(io::Error::other)?;
+    let snapshot = decode(&bytes)?;
+    if snapshot.server.socket != socket {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "Workspace socket differs from its selection.",
+        ));
+    }
+    Ok(snapshot)
+}
+
 fn private_directory(path: &Path) -> io::Result<()> {
     match fs::DirBuilder::new().mode(0o700).create(path) {
         Ok(()) => (),

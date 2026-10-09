@@ -3,7 +3,7 @@
 use crate::{config::ConfigPaths, host::Host, process::CommandRunner, storage::Storage};
 use serde_json::{Value, json};
 use std::{io, time::Instant};
-use tmt_core::workspace::{MAX_BYTES, StoredIdentity, WorkspaceSnapshot, plan::restore_plan};
+use tmt_core::workspace::{StoredIdentity, WorkspaceSnapshot, plan::restore_plan};
 
 pub struct WorkspacePlanInput {
     pub snapshot: WorkspaceSnapshot,
@@ -17,18 +17,7 @@ pub fn read<R: CommandRunner + Clone>(
     host: &Host<R>,
     deadline: Instant,
 ) -> io::Result<WorkspacePlanInput> {
-    let bytes = crate::bounded_file::read_no_follow(
-        &paths.workspace_directory(socket).join("latest.json"),
-        MAX_BYTES,
-    )
-    .map_err(io::Error::other)?;
-    let snapshot = super::decode(&bytes)?;
-    if snapshot.server.socket != socket {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            "Workspace socket differs from its selection.",
-        ));
-    }
+    let snapshot = super::read_snapshot(paths, socket)?;
     let ids: Vec<&str> = snapshot
         .panes
         .iter()
