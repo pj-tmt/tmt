@@ -77,6 +77,7 @@ impl DeclarationSource for InstalledDeclarations<'_> {
             // An old installed command does not provide a declaration. All other failures
             // remain unavailable; stderr and raw exception text are never surfaced.
             let reply = wire::strict_json(&output.stdout).ok_or(DiscoveryRefusal::Unavailable)?;
+            // Old Colab reports its unknown public subcommand as COLAB_INPUT_INVALID.
             return match reply["error"]["code"].as_str() {
                 Some("USAGE_ERROR" | "EXTENSION_NOT_INSTALLED" | "COLAB_INPUT_INVALID") => Ok(None),
                 _ => Err(DiscoveryRefusal::Unavailable),

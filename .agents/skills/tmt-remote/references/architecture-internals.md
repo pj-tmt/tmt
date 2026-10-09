@@ -137,10 +137,13 @@ Real account/project provisioning remains separately authorized acceptance, not 
 The deployment owner defaults to a plan and saves one local draft identity,
 without a provider effect. Explicit digest authorization names the whole envelope; foreign
 Rules replacement needs its own digest. Sign-in providers are explicit inputs. Command
-registration composes `deploy_cli`, `deploy_discovery`, `deploy_tools` and the real port.
+registration wires factories into `deploy_cli`, the single declaration/setup/login/record
+sequencing owner; fixtures drive that same owner and the shipped binary.
 `deploy_discovery` enumerates trusted enabled mounts and invokes their fixed public
 `deploy-declaration --json` commands through supplied `TMT_EXECUTABLE`, with a neutral cwd,
-explicit environment allow-list, capped strict JSON and existing waited cleanup. It captures
+explicit environment allow-list, a 10 s cold-launch bound and existing waited cleanup.
+The [Remote contract](../../../../contracts/remote-channel-v1.md) owns the strict reply
+schema, byte bounds, digest rules and no-declaration codes. Discovery captures
 and validates exact UTF-8 declaration/artifact bytes and both digests once, then uses the pure
 plan/Rules owners. No installed-root/receipt parser or artifact-path read exists in Remote.
 An old unsupported command means no declaration; malformed/failed replies are unavailable.

@@ -21,12 +21,17 @@ pub struct FirestoreArgs {
 #[derive(Debug)]
 pub enum DeployCliError {
     Usage,
+    Tool(crate::deploy_tools::ToolDiscoveryError),
+    Setup(crate::deploy_firestore::DeploySetupError),
+    Local(crate::error::RemoteError),
+    Uncertain(std::path::PathBuf),
     Discovery(DiscoveryRefusal),
     Provider(DeployProviderError),
     Command(deploy_command::DeployCommandError),
 }
 /// Live Rules are an observation; the engine retains all mutation ownership.
 pub trait FirestoreCommandPort: DeployPort {
+    fn login(&mut self) -> Result<(), crate::deploy_firestore::DeploySetupError>;
     fn check_index_budget(
         &mut self,
         project: &str,
@@ -35,6 +40,9 @@ pub trait FirestoreCommandPort: DeployPort {
     fn live_rules(&mut self, project: &str) -> Result<Option<Vec<u8>>, DeployProviderError>;
 }
 impl FirestoreCommandPort for crate::deploy_firestore::DeployFirestore<'_> {
+    fn login(&mut self) -> Result<(), crate::deploy_firestore::DeploySetupError> {
+        self.login_account().map(|_| ())
+    }
     fn check_index_budget(
         &mut self,
         project: &str,
@@ -52,7 +60,7 @@ pub fn command() -> Command {
         name: "firestore", summary: "Plan or explicitly authorize Firestore sharing deployment",
         examples: &[tmt_cli_style::Example { command: "tmt remote deploy firestore --project <project-id> --region <region> --sign-in anonymous --json", note: "Read the exact plan without changing your Firebase project" }],
         outputs: tmt_cli_style::OutputModes::HumanAndJson,
-        details: "Needs the installed Firebase CLI and your own firebase login. Without --authorize, only reads the exact plan. --authorize takes at least 12 lowercase hex characters of the whole-envelope plan digest; login is never deployment authorization. --replace-rules also requires --authorize and the exact foreign Rules digest. Uses the Spark sharing profile; paid features and sharing-readiness enablement are not provided.",
+        details: "Needs the Firebase CLI and your own firebase login. Without --authorize it only prints the plan. To deploy, pass --authorize with the first 12 or more characters of the plan digest; signing in alone never deploys. --replace-rules also needs --authorize and the full digest of the existing Rules shown in the plan. Uses Firebase's free Spark plan; no paid features are set up.",
     })
         .arg(Arg::new("project").long("project").required(true))
         .arg(Arg::new("region").long("region").required(true))
@@ -110,27 +118,50 @@ fn digest(s: &str, minimum: usize) -> bool {
 }
 /// Read the exact installed snapshot once. A missing declaration never substitutes a
 /// fixture or calls the provider; the existing binding/record remain untouched.
-pub fn execute(
+pub fn execute<P: FirestoreCommandPort>(
     args: &FirestoreArgs,
     source: &mut dyn DeclarationSource,
     enabled: &[&str],
-    provider: &mut dyn FirestoreCommandPort,
-    store: &mut DeployRecordStore<'_>,
-    now_ms: u64,
+    provider_factory: impl FnOnce() -> Result<P, DeployCliError>,
+    layout_factory: impl FnOnce() -> Result<crate::state::Layout, DeployCliError>,
+    now: impl FnOnce() -> Result<u64, DeployCliError>,
 ) -> Result<DeployCommandOutput, DeployCliError> {
     let discovered =
         deploy_discovery::discover(source, enabled).map_err(DeployCliError::Discovery)?;
     if let Some(output) = unavailable(&discovered) {
         return Ok(output);
     }
-    execute_prepared(args, &discovered, provider, store, now_ms)
+    let mut provider = provider_factory()?;
+    provider.login().map_err(DeployCliError::Setup)?;
+    let layout = layout_factory()?;
+    let mut store = DeployRecordStore::open(&layout).map_err(DeployCliError::Local)?;
+    let path = layout.directory.join("deploy.json");
+    let mut output = execute_prepared(args, &discovered, &mut provider, &mut store, now()?)
+        .map_err(|error| match error {
+            DeployCliError::Command(deploy_command::DeployCommandError::Run(_)) => {
+                DeployCliError::Uncertain(path.clone())
+            }
+            other => other,
+        })?;
+    if output.json["record"]["run"]["state"] == "partial" {
+        output.human.push_str(&uncertain_message(&path));
+        output.human.push('\n');
+    }
+    Ok(output)
+}
+/// The raw saved record, unlike status --layers, contains each original step outcome.
+pub fn uncertain_message(path: &std::path::Path) -> String {
+    let quoted = path.to_string_lossy().replace('\'', "'\\''");
+    format!(
+        "Deployment could not be confirmed; some changes may already be applied. Read the saved outcome (if present) with cat '{quoted}', then rerun the same command to finish this plan."
+    )
 }
 /// No declaration means no provider setup, credential read or record change.
-pub fn unavailable(discovered: &deploy_discovery::DiscoveredPlan) -> Option<DeployCommandOutput> {
-    discovered.extensions.view().extensions.is_empty().then(|| DeployCommandOutput { json: json!({"available": false, "reason":"no-declaration", "extensions": discovered.extensions.view()}), human: "Firestore sharing is unavailable: no enabled extension supplies a Firestore declaration.\nNothing changed in your Firebase project.\n".into() })
+fn unavailable(discovered: &deploy_discovery::DiscoveredPlan) -> Option<DeployCommandOutput> {
+    discovered.extensions.view().extensions.is_empty().then(|| DeployCommandOutput { json: json!({"available": false, "reason":"no-declaration", "extensions": discovered.extensions.view()}), human: "Firestore sharing is unavailable: no enabled extension uses Firestore.\nNothing changed in your Firebase project.\n".into() })
 }
 /// Execute only the already captured declaration snapshot, without rediscovery.
-pub fn execute_prepared(
+fn execute_prepared(
     args: &FirestoreArgs,
     discovered: &deploy_discovery::DiscoveredPlan,
     provider: &mut dyn FirestoreCommandPort,

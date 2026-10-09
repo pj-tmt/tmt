@@ -137,5 +137,5 @@ pub const DEPLOY_PROVIDER_PAGES: usize = 10;
 pub const DEPLOY_TOOL_METADATA_BYTES: usize = 64 * 1024;
 /// A declaration and artifact may each expand sixfold in JSON escaping.
 pub const DEPLOY_DECLARATION_REPLY_BYTES: usize = 12 * DECLARATION_BYTES + 4096;
-/// One public installed-declaration observation, never a provider effect.
-pub const DEPLOY_DECLARATION_CALL: Duration = Duration::from_secs(3);
+/// One static declaration read allows cold installed-binary launch, never a provider effect.
+pub const DEPLOY_DECLARATION_CALL: Duration = Duration::from_secs(10);

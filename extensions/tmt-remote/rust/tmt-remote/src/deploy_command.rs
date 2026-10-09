@@ -96,7 +96,7 @@ pub fn execute(
     let json = json!({ "authorized": authorized, "plan": plan.view(), "planDigest": plan.digest(),
         "extensions": input.extensions.view(), "record": record });
     let mut human = format!(
-        "Firestore sharing plan\nAccount: {}\nProject: {}\nDeployment: {}\nDatabase: {} ({}), {}\nSign-in: {}\nRules: {} (replaces {})\nIndex configs: {}\nRoles: none created\nPhysical TTL: not provisioned\nPlan digest: {}\n",
+        "Firestore sharing plan\nAccount: {}\nProject: {}\nDeployment: {}\nDatabase: {} ({}), {}\nSign-in: {}\nRules: {} ({})\nIndex configs: {}\nRoles: none created\nTTL: not set up\nPlan digest: {}\n",
         plan.account(),
         input.project,
         plan.deployment_id(),
@@ -105,12 +105,16 @@ pub fn execute(
         input.location,
         plan.view().sign_in.join(", "),
         plan.view().rules.digest,
-        plan.view().rules.replaces,
+        if plan.view().rules.replaces == "none" {
+            "no existing Rules"
+        } else {
+            &plan.view().rules.replaces
+        },
         plan.view().index_configs,
-        plan.digest()
+        &plan.digest()[..12]
     );
     if let Some(replaced) = &plan.view().rules.replaced_digest {
-        writeln!(human, "Replaced Rules digest: {replaced}").expect("String write");
+        writeln!(human, "Existing Rules digest: {replaced}\nTo replace these Rules, run the same command with --authorize {} --replace-rules {replaced}", &plan.digest()[..12]).expect("String write");
     }
     for item in &plan.view().destructive {
         writeln!(human, "Destructive change: {item}").expect("String write");
@@ -132,14 +136,18 @@ pub fn execute(
         for resource in &extension.resources {
             writeln!(
                 human,
-                "  {}: {} at {}; object {} B, namespace {} B, entries {}, TTL {}",
+                "  {}: {} at {}; object {}, namespace {}, entries {}, TTL: {}",
                 resource.name,
                 resource.kind,
                 resource.path,
-                resource.limits.max_object_bytes,
-                resource.limits.max_namespace_bytes,
+                readable_bytes(resource.limits.max_object_bytes),
+                readable_bytes(resource.limits.max_namespace_bytes),
                 resource.limits.max_entries,
-                resource.ttl
+                if resource.ttl == "none" {
+                    "none"
+                } else {
+                    "not set up"
+                }
             )
             .expect("String write");
             for index in &resource.indexes {
@@ -159,9 +167,23 @@ pub fn execute(
     if authorized {
         describe_record(&mut human, &record);
     } else {
-        human.push_str("Not authorized; nothing changed in your Firebase project.\nAuthorize this exact plan with --authorize <plan-digest-prefix>.\n");
+        human.push_str("Not authorized; nothing changed in your Firebase project.\nTo deploy this plan, run the same command with --authorize <12-hex>.\n");
     }
     Ok(DeployCommandOutput { json, human })
+}
+fn readable_bytes(bytes: u64) -> String {
+    let (unit, divisor) = if bytes >= 1024 * 1024 {
+        ("MiB", 1024 * 1024)
+    } else if bytes >= 1024 {
+        ("KiB", 1024)
+    } else {
+        return format!("{bytes} B");
+    };
+    if bytes.is_multiple_of(divisor) {
+        format!("{} {unit}", bytes / divisor)
+    } else {
+        format!("{:.2} {unit}", bytes as f64 / divisor as f64)
+    }
 }
 fn describe_record(text: &mut String, record: &DeployRecord) {
     let run = record.run.as_ref().expect("authorized run");

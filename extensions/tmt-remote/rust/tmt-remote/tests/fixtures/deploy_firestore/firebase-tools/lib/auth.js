@@ -32,6 +32,33 @@ global.fetch = async (url, options) => {
     path.join(__dirname, '../calls.jsonl'),
     JSON.stringify({ url, method: options.method }) + '\n'
   );
+  // Binary fixtures retain the default release across separate helper processes.
+  if (value.mode === 'process' && url.startsWith('https://firebaserules.googleapis.com/')) {
+    const name = `projects/${value.project}/rulesets/exact`;
+    const save = () =>
+      fs.writeFileSync(path.join(__dirname, '../state.json'), JSON.stringify(value));
+    let body,
+      status = 200;
+    if (url.includes('/rulesets?')) body = { rulesets: value.created ? [{ name }] : [] };
+    else if (url.endsWith('/rulesets') && options.method === 'POST') {
+      value.source = JSON.parse(options.body).source.files[0].content;
+      value.created = true;
+      save();
+      body = { name };
+    } else if (url.endsWith('/releases') && options.method === 'POST') {
+      value.released = true;
+      save();
+      body = JSON.parse(options.body);
+    } else if (url.includes('/releases/')) {
+      if (!value.released) {
+        status = 404;
+        body = {};
+      } else body = { rulesetName: name };
+    } else if (url.includes('/rulesets/'))
+      body = { source: { files: [{ name: 'firestore.rules', content: value.source }] } };
+    else throw new Error('TOKEN_CANARY_UNEXPECTED_FIXTURE_ROUTE');
+    return new Response(JSON.stringify(body), { status });
+  }
   let result;
   if (url.endsWith('/oauth2/v3/userinfo')) result = { email: value.account, email_verified: true };
   else if (url.startsWith('https://firebase.googleapis.com/'))

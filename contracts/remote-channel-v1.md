@@ -1744,6 +1744,18 @@ Records carry fixed reason codes, never provider text, and Remote fixes the owne
   `_PROVIDER_REJECTED`, `_DATABASE_MISMATCH`, `_RULES_FOREIGN`, `_VERIFY_FAILED`.
 - Owner steps: `REMOTE_DEPLOY_OWNER_INITIALIZE_AUTH`, `_ENABLE_GOOGLE_SIGN_IN`.
 
+The public `<extension> deploy-declaration --json` reply has exactly six fields:
+`version: 1`, `extension` (the requested name), `backend: "firestore"`, `declaration`
+(exact UTF-8 declaration text), `artifact` (exact UTF-8 admission text), and
+`declarationDigest` (lowercase SHA-256 of the declaration's UTF-8 bytes). Both texts
+are bounded to 64 KiB; the strict JSON envelope is bounded to 790,528 bytes to allow
+escaping. Unknown/duplicate fields, mismatched identity or digest, and invalid
+artifact/declaration content refuse composition. One static read has a 10 s absolute
+invocation bound. A nonzero reply with structured `error.code` `USAGE_ERROR`,
+`EXTENSION_NOT_INSTALLED`, or `COLAB_INPUT_INVALID` means no declaration (the last
+is old Colab's unknown-command response); other failures are unavailable. Stderr
+and raw child errors are never disclosed. Missing bytes never select a fixture.
+
 **Current implementation.** `tmt remote deploy firestore` composes captured installed
 extension inputs through the existing deployment owner and real provider port. It defaults
 to a plan with no provider effects;

@@ -250,6 +250,16 @@ fn stale_short_changed_account_and_foreign_authorizations_have_zero_effects() {
     let replaced = preview.json["plan"]["rules"]["replacedDigest"]
         .as_str()
         .unwrap();
+    assert_eq!(replaced.len(), 64);
+    assert!(
+        preview
+            .human
+            .contains(&format!("Existing Rules digest: {replaced}"))
+    );
+    assert!(preview.human.contains(&format!(
+        "--authorize {} --replace-rules {replaced}",
+        &preview.json["planDigest"].as_str().unwrap()[..12]
+    )));
     port.rules = Some(foreign.clone());
     let done = execute(
         &request_for_foreign(&plan, &body, &foreign),
@@ -658,7 +668,7 @@ mod cli_composition {
         }
     }
     struct DeployCliProvider(deploy_port::Fake, usize);
-    impl DeployPort for DeployCliProvider {
+    impl DeployPort for &mut DeployCliProvider {
         fn account(&mut self) -> Result<String, DeployProviderError> {
             self.1 += 1;
             self.0.account()
@@ -678,7 +688,11 @@ mod cli_composition {
             self.0.apply(plan, step)
         }
     }
-    impl FirestoreCommandPort for DeployCliProvider {
+    impl FirestoreCommandPort for &mut DeployCliProvider {
+        fn login(&mut self) -> Result<(), tmt_remote::deploy_firestore::DeploySetupError> {
+            self.1 += 1;
+            Ok(())
+        }
         fn check_index_budget(
             &mut self,
             _: &str,
@@ -750,17 +764,18 @@ mod cli_composition {
     fn no_declaration_reports_unavailable_without_provider_or_record_effect() {
         let root = Root::new();
         let layout = root.layout();
-        let mut store = DeployRecordStore::open(&layout).unwrap();
         let before = deploy_record::read(&layout).unwrap();
         let mut source = DeployCliSource(0, false);
-        let mut provider = DeployCliProvider(deploy_port::Fake::new("owner@example.test"), 0);
+        let provider = DeployCliProvider(deploy_port::Fake::new("owner@example.test"), 0);
         let out = deploy_cli::execute(
             &args(&[]).unwrap(),
             &mut source,
             &["colab"],
-            &mut provider,
-            &mut store,
-            1,
+            || -> Result<&mut DeployCliProvider, DeployCliError> {
+                panic!("no declaration must not create a provider")
+            },
+            || panic!("no declaration must not open the record"),
+            || panic!("no declaration must not need a timestamp"),
         )
         .unwrap();
         assert_eq!(out.json["available"], false);
@@ -777,15 +792,16 @@ mod cli_composition {
         let layout = root.layout();
         let mut store = DeployRecordStore::open(&layout).unwrap();
         store.persist(&DeployRecord::new(ID)).unwrap();
+        drop(store);
         let mut source = DeployCliSource(0, true);
         let mut provider = DeployCliProvider(deploy_port::Fake::new("owner@example.test"), 0);
         let preview = deploy_cli::execute(
             &args(&["--json"]).unwrap(),
             &mut source,
             &["colab"],
-            &mut provider,
-            &mut store,
-            1,
+            || Ok(&mut provider),
+            || Ok(root.layout()),
+            || Ok(1),
         )
         .unwrap();
         assert!(provider.0.effects.is_empty());
@@ -798,14 +814,40 @@ mod cli_composition {
             .0
             .faults
             .insert("rules".into(), deploy_port::When::AfterEffectUnknown);
-        let partial =
-            deploy_cli::execute(&opts, &mut source, &["colab"], &mut provider, &mut store, 2)
-                .unwrap();
+        let partial = deploy_cli::execute(
+            &opts,
+            &mut source,
+            &["colab"],
+            || Ok(&mut provider),
+            || Ok(root.layout()),
+            || Ok(2),
+        )
+        .unwrap();
         assert!(partial.human.contains("rules: unknown"));
         assert!(partial.json["record"]["binding"].is_null());
-        let done =
-            deploy_cli::execute(&opts, &mut source, &["colab"], &mut provider, &mut store, 3)
-                .unwrap();
+        assert!(
+            partial
+                .human
+                .contains("some changes may already be applied")
+        );
+        assert!(partial.human.contains(&format!(
+            "cat '{}'",
+            layout.directory.join("deploy.json").display()
+        )));
+        assert!(
+            !partial
+                .human
+                .contains("Nothing changed in your Firebase project.")
+        );
+        let done = deploy_cli::execute(
+            &opts,
+            &mut source,
+            &["colab"],
+            || Ok(&mut provider),
+            || Ok(root.layout()),
+            || Ok(3),
+        )
+        .unwrap();
         assert_eq!(done.json["record"]["run"]["state"], "complete");
         assert_eq!(provider.0.effects_of("rules"), 1);
         assert_eq!(source.0, 3);
