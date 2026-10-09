@@ -344,8 +344,12 @@ fn run(matches: &clap::ArgMatches) -> Result<()> {
                 }),
             ),
         ));
+        let release = Arc::new(tmt_colab::serve_release::ServeRelease::new(
+            tmt_colab::serve_release::Running::detect(),
+        ));
         let socket = MountSocket::bind(&layout, &space_id, Tunnels::PRODUCT)?
             .with_registration(&layout, Arc::clone(&registration))?
+            .with_release(Arc::clone(&release))
             .with_app(app);
         // The socket is bound first, so a door started now mounts it as soon as it is ready.
         let access = supervisor::Access::open(&stop);
@@ -398,7 +402,14 @@ fn run(matches: &clap::ArgMatches) -> Result<()> {
         }
         output.flush()?;
         drop(output);
+        // The watcher ends with the serve, however the socket loop was stopped.
+        let serving = Arc::new(AtomicBool::new(true));
+        let watcher = (!json_output).then(|| watch_release(&release, &serving));
         let result = socket.run(&stop);
+        serving.store(false, std::sync::atomic::Ordering::Relaxed);
+        if let Some(watcher) = watcher {
+            let _ = watcher.join();
+        }
         let closed = Arc::try_unwrap(registration)
             .map_err(|_| "Registration worker retained.")?
             .into_inner()
@@ -413,6 +424,38 @@ fn run(matches: &clap::ArgMatches) -> Result<()> {
         signal_hook::low_level::unregister(signal);
     }
     result
+}
+/// Tells the foreground user, once, when the installed release is no longer the one serving.
+/// The check reads only the install layout; it never restarts, signals or changes the serve.
+/// It runs until `serving` clears and a stop within a tenth of a second.
+fn watch_release(
+    release: &Arc<tmt_colab::serve_release::ServeRelease>,
+    serving: &Arc<AtomicBool>,
+) -> std::thread::JoinHandle<()> {
+    let (release, serving) = (Arc::clone(release), Arc::clone(serving));
+    std::thread::spawn(move || {
+        // Check at most every `PERIOD`, but notice a stop within a tenth of a second.
+        const PERIOD: u32 = 50;
+        let mut ticks = PERIOD;
+        while serving.load(std::sync::atomic::Ordering::Relaxed) {
+            if ticks >= PERIOD {
+                ticks = 0;
+                if let Some(stale) = release.fresh() {
+                    let mut warning = tmt_cli_style::stream::stderr();
+                    let terminal = warning.terminal();
+                    let _ = tmt_cli_style::message::warning(
+                        &mut warning,
+                        terminal,
+                        &tmt_colab::serve_release::restart_text(&stale),
+                        Some(tmt_colab::serve_release::RESTART_HINT),
+                    );
+                    return;
+                }
+            }
+            ticks += 1;
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+    })
 }
 /// Ids of the pages that are not archived, for the start-up status. A catalog that cannot be
 /// read is unknown, never a reason to refuse to serve.

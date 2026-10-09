@@ -3056,6 +3056,64 @@ fn serve_without_remote_runs_local_only_and_names_the_install_step() {
     assert!(serving.running());
     serving.stop(Signal::SIGTERM);
 }
+/// The serve running from an installed release directory is told, once and only on its
+/// terminal, when `current` moves to another version; it keeps serving and nothing is changed.
+#[test]
+fn serve_in_an_installed_release_warns_once_when_a_newer_version_becomes_current() {
+    let pilot = Pilot::new(None);
+    let lib = pilot.root.join("lib/tmt-colab");
+    for (id, version) in [("old", "0.0.0-running"), ("new", "9.9.9-installed")] {
+        let dir = lib.join("releases").join(id);
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(
+            dir.join("receipt.json"),
+            json!({"version": version}).to_string(),
+        )
+        .unwrap();
+    }
+    let exe = lib.join("releases/old/tmt-colab");
+    tmt_test_support::write_executable(&exe, &fs::read(BINARY).unwrap(), 0o755).unwrap();
+    let current = lib.join("current");
+    std::os::unix::fs::symlink("releases/old", &current).unwrap();
+    let base = pilot.command();
+    let mut command = Command::new(&exe);
+    command.env_clear();
+    for (key, value) in base.get_envs() {
+        if let Some(value) = value {
+            command.env(key, value);
+        }
+    }
+    let out = pilot.root.join("serve.out");
+    let err = pilot.root.join("serve.err");
+    let child = command
+        .env("TMT_EXECUTABLE", pilot.remote_core(None, Serve::Fail))
+        .arg("serve")
+        .stdout(fs::File::create(&out).unwrap())
+        .stderr(fs::File::create(&err).unwrap())
+        .spawn()
+        .unwrap();
+    let mut serving = Serving { child, out, err };
+    Serving::wait_for(&serving.out, "LOCAL SPACE");
+    // The running release is the active one: nothing to say, and the serve does not wait for it.
+    assert!(
+        !fs::read_to_string(&serving.err)
+            .unwrap()
+            .contains("installed")
+    );
+    std::fs::remove_file(&current).unwrap();
+    std::os::unix::fs::symlink("releases/new", &current).unwrap();
+    let warning = Serving::wait_for(&serving.err, "is installed");
+    assert!(
+        warning.contains("is running but 9.9.9-installed is installed")
+            && warning.contains("Restart `tmt colab serve`"),
+        "{warning}"
+    );
+    assert_eq!(warning.matches("is installed").count(), 1, "{warning}");
+    // Still serving; no restart, no change to the installed release it was told about.
+    assert!(serving.running());
+    assert!(exe.is_file());
+    serving.stop(Signal::SIGTERM);
+}
 #[test]
 fn serve_with_a_door_that_will_not_start_keeps_the_local_space_without_the_install_line() {
     let pilot = Pilot::new(None);

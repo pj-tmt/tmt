@@ -160,6 +160,10 @@ the page moves down instead of being covered. An offline read, an unreadable pag
 another kind (pairing guidance, the reader) never counts. There is no polling and no
 automatic reload: Reload is the reader's action, and unsent in-tab drafts follow the existing
 rules (memory only, so a reload discards them).
+The same check also reads `GET api/serve-release` (`serve_release.rs`, contract): when the serve is
+older than the release installed beside it, the row says to restart `tmt colab serve` (naming both
+versions, no Reload, `data-colab-update='serve'` for its two-line height) and the serve prints one
+terminal warning. A reload cannot help, so nothing restarts or reloads itself.
 A recovery press does not dismiss it or take focus from an active composer. Mobile
 Chat closes its modal drawer to reach Reconnect; its DOM selection is retained only
 for that recovery and restored when the same connected composer regains focus.

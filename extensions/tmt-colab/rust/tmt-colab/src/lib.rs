@@ -19,6 +19,7 @@ pub mod page;
 pub mod publication;
 pub mod readers;
 pub mod registration;
+pub mod serve_release;
 pub mod settings;
 pub mod short_links;
 pub mod socket;

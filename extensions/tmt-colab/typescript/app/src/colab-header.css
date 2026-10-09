@@ -54,6 +54,10 @@
 :root[data-colab-update] {
   --colab-update-height: 40px;
 }
+/* The restart instruction names two versions, so it takes two lines on a narrow screen. */
+:root[data-colab-update='serve'] {
+  --colab-update-height: 64px;
+}
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme='light']) {
     color-scheme: dark;
