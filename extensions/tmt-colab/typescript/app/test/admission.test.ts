@@ -567,3 +567,43 @@ it('enforces the aggregate statement cap, absolute deadline and explicit close c
     vi.useRealTimers();
   }
 });
+
+it('uses the signed sealed epoch cut before a later revoke, never unsealed or beyond-cut history', async () => {
+  records.clear();
+  const signer = hex(v.public);
+  for (const value of v.sealedHistoryCases) {
+    // Each independent signed-log vector has its own durable browser state.
+    records.clear();
+    const a = admission(),
+      log = value.log.map((raw: unknown) =>
+        c.statement.Envelope.fromJson(c.text(JSON.stringify(raw))),
+      ),
+      latest = log.at(-1)!;
+    await a.membership(
+      {
+        revision: String(log.length),
+        statementHash: c.encodeBinary(await latest.hash()),
+        ownerKey: c.encodeBinary(signer),
+        statements: log.map((entry: c.statement.Envelope) => c.encodeBinary(entry.toJson())),
+        more: false,
+      },
+      true,
+    );
+    await a.chains([{ deviceId: v.page, chain: transport(value.chain) }]);
+    a.root = await crypto.subtle.importKey('raw', hex(v.epochKey), 'HKDF', false, ['deriveBits']);
+    const admitted = new Objects(a).admit(
+      v.page,
+      {
+        seq: value.seq,
+        envelopeHash: value.envelopeHash,
+        envelope: transport(value.receipt),
+      },
+      value.kind,
+      'own',
+    );
+    if (value.admitted) {
+      expect((await admitted)?.update).toEqual(c.binary(value.plaintext, 128));
+    } else await expect(admitted).rejects.toThrow();
+    a.closeKeys();
+  }
+});

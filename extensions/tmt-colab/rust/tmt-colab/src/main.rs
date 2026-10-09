@@ -349,11 +349,20 @@ fn run(matches: &clap::ArgMatches) -> Result<()> {
             .with_app(app);
         // The socket is bound first, so a door started now mounts it as soon as it is ready.
         let access = supervisor::Access::open(&stop);
-        let socket = socket.with_door(match &access {
-            supervisor::Access::Attached(_) => "attached",
-            supervisor::Access::Started { .. } => "started",
-            supervisor::Access::Unavailable { .. } => "unavailable",
-        });
+        let socket = socket
+            .with_door(match &access {
+                supervisor::Access::Attached(_) => "attached",
+                supervisor::Access::Started { .. } => "started",
+                supervisor::Access::Unavailable { .. } => "unavailable",
+            })
+            .with_object_discovery(|| match door::Door::lookup() {
+                door::Lookup::Running(door) => {
+                    let host = door.origin().strip_prefix("http://")?.to_owned();
+                    let mount = door.url("x/colab/").strip_prefix(door.origin())?.to_owned();
+                    Some((host, mount))
+                }
+                _ => None,
+            });
         let pairing = match &access {
             supervisor::Access::Unavailable { .. } => None,
             _ => Some(door::Pairing::lookup()),

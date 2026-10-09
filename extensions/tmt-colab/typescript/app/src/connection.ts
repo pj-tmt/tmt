@@ -9,6 +9,13 @@ import {
   requireValue,
   text,
 } from '@tmt/colab-client';
+import {
+  AttachmentObjectChannel,
+  objectOutcome,
+  type AttachmentObjectRequest,
+  type AttachmentObjectOutcome,
+} from './attachment-channel.js';
+import { attachmentHistory, type AttachmentSnapshot } from './attachment-history.js';
 import type { Admission } from './admission.js';
 import { Catchup } from './catchup.js';
 import { Fold } from './fold.js';
@@ -60,6 +67,18 @@ export const SYNC_ERROR_CODES = [
 export class Connection {
   readonly objects: Objects;
   readonly fold = new Fold();
+  readonly attachmentObjects = new AttachmentObjectChannel((request, deadline) =>
+    this.objectRequest(request, deadline),
+  );
+  #objectReplies = new Map<
+    string,
+    {
+      method: AttachmentObjectRequest['method'];
+      resolve(value: AttachmentObjectOutcome): void;
+      reject(error: Error): void;
+      timer: ReturnType<typeof setTimeout>;
+    }
+  >();
   readonly ready: Promise<Projection>;
   #socket: WebSocket;
   #frames: Frames;
@@ -97,7 +116,7 @@ export class Connection {
   constructor(
     readonly admission: Admission,
     mount: URL,
-    sharing: string | readonly string[],
+    private readonly sharing: string | readonly string[],
     readonly publish: (value: PageView) => void,
     readonly failed: (error: Error) => void,
     /** Offered subprotocols; the server selects only `colab-sync-v1`. A reader appends its ticket. */
@@ -168,15 +187,57 @@ export class Connection {
   /** Internal attachment owner: only this executor's authenticated Worker
    * projection and Objects cuts enter a capture. Historical bootstrap is supplied
    * by the object adapter, never substituted with the current projection. */
-  attachmentSnapshot(epoch = this.admission.epoch) {
+  async attachmentSnapshot(
+    epoch = this.admission.epoch,
+    deadline = performance.now() + 15_000,
+  ): Promise<AttachmentSnapshot> {
+    if (epoch !== this.admission.epoch) {
+      // The detached source awaits outside run(): its responses arrive through
+      // that same executor. It never mutates the live Worker or peer scope.
+      return attachmentHistory(
+        () => this.attachmentSnapshot(this.admission.epoch, deadline),
+        this.attachmentObjects.historySource(),
+        epoch,
+        this.sharing,
+        deadline,
+      );
+    }
     return this.run(async () => {
-      requireValue(this.#complete && epoch === this.admission.epoch);
+      requireValue(this.#complete && performance.now() < deadline);
       return {
         admission: this.admission,
         objects: this.objects,
         projection: structuredClone(this.#projection),
         revision: await this.objects.revision(),
       };
+    });
+  }
+  /** Await outside the Worker executor: inbound replies use that executor too. */
+  private async objectRequest(
+    request: AttachmentObjectRequest,
+    deadline: number,
+  ): Promise<AttachmentObjectOutcome> {
+    await this.ready;
+    requireValue(
+      !this.#stopped &&
+        Number.isFinite(deadline) &&
+        performance.now() < deadline &&
+        this.#objectReplies.size < 8,
+    );
+    const requestId = crypto.randomUUID();
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(
+        () => this.close(new Error('Storage unavailable')),
+        Math.min(15_000, deadline - performance.now()),
+      );
+      this.#objectReplies.set(requestId, { method: request.method, resolve, reject, timer });
+      try {
+        this.send('object', { requestId, request });
+      } catch (error) {
+        clearTimeout(timer);
+        this.#objectReplies.delete(requestId);
+        reject(error instanceof Error ? error : new Error('Object channel unavailable'));
+      }
     });
   }
   send(type: string, fields: Record<string, unknown>) {
@@ -335,6 +396,15 @@ export class Connection {
       this.#receipts.delete(frame.seq);
       clearTimeout(pending.timer);
       pending.resolve();
+    } else if (frame.type === 'object-result') {
+      exactKeys(frame, ['version', 'type', 'space', 'page', 'epoch', 'requestId', 'result']);
+      requireValue(typeof frame.requestId === 'string');
+      const pending = this.#objectReplies.get(frame.requestId);
+      requireValue(pending !== undefined);
+      const result = objectOutcome(frame.result, pending.method);
+      this.#objectReplies.delete(frame.requestId);
+      clearTimeout(pending.timer);
+      pending.resolve(result);
     } else if (frame.type === 'saveresult') {
       const pending = this.#reply;
       requireValue(pending !== null);
@@ -460,6 +530,11 @@ export class Connection {
       pending.reject(error);
     }
     this.#receipts.clear();
+    for (const pending of this.#objectReplies.values()) {
+      clearTimeout(pending.timer);
+      pending.reject(error);
+    }
+    this.#objectReplies.clear();
     if (this.#reply) {
       clearTimeout(this.#reply.timer);
       this.#reply.reject(error);

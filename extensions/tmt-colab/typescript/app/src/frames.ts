@@ -30,6 +30,7 @@ export class Frames {
   constructor(
     readonly admission: Admission,
     readonly fail: (error: Error) => void,
+    readonly epoch = admission.epoch,
   ) {}
   close() {
     clearTimeout(this.#timer);
@@ -53,7 +54,7 @@ export class Frames {
       frame.version === 1 &&
         frame.space === a.space &&
         frame.page === a.page &&
-        frame.epoch === a.epoch,
+        frame.epoch === this.epoch,
     );
     if (frame.type === 'chunk') {
       const p = this.#pending;

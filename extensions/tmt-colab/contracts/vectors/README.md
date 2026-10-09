@@ -65,6 +65,12 @@ the 64-most-recent-epochs cap. Atomic join delivery, global list admission, the
 history default and epoch cap remain caller policy; the model only parses and
 authenticates existing values. No aggregate join wire grammar is introduced.
 
+`authority-v1.json` `sealedHistoryCases` contains independently owner-signed epoch
+seals/revocations and encrypted receipts. Native fold and browser admission consume
+the same sealed positive, unsealed refusal, beyond-cut, tail-hash and checkpoint
+controls. The vectors use the actual derived management principal; they establish
+read-bound parity, not a live routed backend or current caller entitlement.
+
 `authority-v1.json` `linkDevice` freezes the browser reader's seed-derived link device: its ID,
 signing public key, and the exact link-issuer chain (fixed 0 to 2^53-1 validity window) with its
 digest. The TypeScript client reproduces these bytes and the Rust model verifies them.

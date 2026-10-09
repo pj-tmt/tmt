@@ -640,6 +640,20 @@ impl Registration {
 #[derive(Clone)]
 pub struct OwnerAdmission(pub std::sync::Arc<std::sync::Mutex<Registration>>);
 impl OwnerAdmission {
+    /// The socket supplies this forwarded context only for its actual upgraded
+    /// peer. This parses the existing Remote context; it does not grant Colab
+    /// write permission or turn a reader ticket into an owner.
+    pub(crate) fn object_remote_binding(raw: &str) -> Result<(String, u64)> {
+        let context = Context::parse(Some(raw))?;
+        Ok((context.device_id, context.grant_revision))
+    }
+    pub(crate) fn recheck_object_remote(&self, raw: &str) -> Result<()> {
+        self.0
+            .lock()
+            .map_err(|_| crate::sync::Code::Denied)?
+            .active_device(Some(raw), now_ms()?)?;
+        Ok(())
+    }
     /// Actual owner/reader Session and historical recipient entitlement. The
     /// private peer owner supplies the principal; policy JSON cannot select it.
     pub(crate) fn attachment_context(

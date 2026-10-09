@@ -1207,7 +1207,7 @@ core discovery or storage access.
   page-ID prefixes for links and CLI operands from its verified catalog, with browser ambiguity handled by parent chrome.
   The server stores ciphertext and never decodes Yjs.
 - **Dependency direction.** `tmt-colab` depends on `tmt-colab-model` (pure codecs and fixed
-  crypto), the `tmt-extension-state` leaf, `tmt-invoke` and `tmt-cli-style`; the browser
+  crypto), `tmt-extension-state`, `tmt-extension-objects` and `tmt-invoke`/`tmt-cli-style`; the browser
   depends on Remote's served SDK (`/sdk/remote-v1.js`). Never `tmt-core`, `tmt-adapters`,
   `tmt-remote` or Office; core is reached through `$TMT_EXECUTABLE api` and the fixed,
   bounded `identity show --json` command at CLI page create/write. Its optional caller
@@ -1243,8 +1243,8 @@ core discovery or storage access.
   anchor IDs and quote selectors; discussion bodies and display labels never enter author code.
   This contains author code; page self-navigation can still leak a request.
 - **Attachments.** Colab implements [descriptor/manifest/reference grammar and internal read/publication capture](extensions/tmt-colab/contracts/attachment-v1.md) with existing crypto, authenticated cuts and fold metadata.
-  Channel consumers/activation and snapshot/retained persistence remain planned in the [storage proposal](extensions/tmt-colab/contracts/storage-v1-proposal.md).
-  Remote owns generic backend/channel/quota/origin; Colab owns crypto/history/admission. No core object API or new reader credential is introduced; archive/history/native acceptance remains required.
+  The mount-owned object adapter joins generation-scoped callbacks, original uploads, committed reads and detached history; root-local reads require an established channel.
+  Remote owns backend/quota/origin; Colab owns crypto/admission. Remote declares Colab Local; #1856 snapshot/retained persistence remains planned in the [storage proposal](extensions/tmt-colab/contracts/storage-v1-proposal.md).
 - **Plaintext invariant.** Page source, discussion reads and export are root-local: only the isolated decoder
   child decodes Yjs, no route serves plaintext, and the browser Worker is resource
   containment, not a security sandbox. Private causal preparation returns deltas; pure [publication codecs](extensions/tmt-colab/contracts/colab-v1.md#content-publication-1908-1928-1934) validate sealed intent. The native library prepares a frozen signed packet and chain from one authenticated snapshot, then atomically retains content (or, as `kind:"own"`, a status action) with its scoped terminal outcome in the existing Store; `tmt colab page write` and `threads resolve|reopen` publish through it (offline or the local `page-publish` route), and the browser Save does over the owner sync socket (colab-v1 Browser Save), signed by the root-local writer.

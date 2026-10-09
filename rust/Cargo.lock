@@ -2846,6 +2846,7 @@ dependencies = [
  "signal-hook 0.4.4",
  "tmt-cli-style",
  "tmt-colab-model",
+ "tmt-extension-objects",
  "tmt-extension-state",
  "tmt-invoke",
  "tmt-test-support",

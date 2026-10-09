@@ -348,15 +348,32 @@ impl Store {
     /// Bounded namespace inventory, including checkpoint-only namespaces. This
     /// read transaction prevents an epoch transition between admission and reads.
     pub fn namespaces(&self, page: &str, epoch: u64) -> StoreResult<Vec<(String, Namespace)>> {
+        self.namespace_inventory(page, epoch, false)
+    }
+    /// Only detached history uses retained paging, after current caller admission.
+    pub(crate) fn retained_namespaces(
+        &self,
+        page: &str,
+        epoch: u64,
+    ) -> StoreResult<Vec<(String, Namespace)>> {
+        self.namespace_inventory(page, epoch, true)
+    }
+    fn namespace_inventory(
+        &self,
+        page: &str,
+        epoch: u64,
+        historical: bool,
+    ) -> StoreResult<Vec<(String, Namespace)>> {
         bounded_id(page)?;
         let tx = self.connection.unchecked_transaction()?;
-        current(
+        read_epoch(
             &tx,
             StreamScope {
                 page,
                 epoch,
                 stream: "",
             },
+            historical,
         )?;
         let mut query = tx.prepare(
             "SELECT stream,namespace FROM receipts WHERE page=?1 AND epoch=?2
@@ -408,8 +425,25 @@ impl Store {
         namespace: Namespace,
         cursor: NamespaceCursor,
     ) -> StoreResult<Option<ReadObject>> {
+        self.namespace_object(scope, namespace, cursor, false)
+    }
+    pub(crate) fn retained_namespace_next(
+        &self,
+        scope: StreamScope<'_>,
+        namespace: Namespace,
+        cursor: NamespaceCursor,
+    ) -> StoreResult<Option<ReadObject>> {
+        self.namespace_object(scope, namespace, cursor, true)
+    }
+    fn namespace_object(
+        &self,
+        scope: StreamScope<'_>,
+        namespace: Namespace,
+        cursor: NamespaceCursor,
+        historical: bool,
+    ) -> StoreResult<Option<ReadObject>> {
         let tx = self.connection.unchecked_transaction()?;
-        current(&tx, scope)?;
+        read_epoch(&tx, scope, historical)?;
         resolve_cursor(&tx, scope, namespace, cursor)?;
         let initial: Option<(String, Vec<u8>, Option<i64>)> = if cursor.seq == 0 {
             tx.query_row("SELECT c.seq,c.hash,length(c.payload) FROM checkpoints c
@@ -508,6 +542,23 @@ fn current(c: &Connection, s: StreamScope<'_>) -> StoreResult<()> {
         })
         .optional()?;
     if epoch.as_deref() != Some(s.epoch.to_string().as_str()) {
+        return Err(Fault::StaleEpoch);
+    }
+    Ok(())
+}
+fn read_epoch(c: &Connection, s: StreamScope<'_>, historical: bool) -> StoreResult<()> {
+    if !historical {
+        return current(c, s);
+    }
+    let epoch: Option<String> = c
+        .query_row("SELECT epoch FROM pages WHERE page=?", [s.page], |r| {
+            r.get(0)
+        })
+        .optional()?;
+    let current = epoch
+        .and_then(|value| value.parse::<u64>().ok())
+        .ok_or(Fault::StaleEpoch)?;
+    if s.epoch == 0 || s.epoch >= current || current - s.epoch >= 64 {
         return Err(Fault::StaleEpoch);
     }
     Ok(())

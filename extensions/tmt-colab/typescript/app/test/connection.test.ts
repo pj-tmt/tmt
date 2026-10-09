@@ -359,3 +359,69 @@ it('rejects an unanswered save when the connection closes and when the reply bud
   await timedOut;
   expect(slow.connection.active).toBe(false);
 });
+
+it('correlates object replies without blocking the inbound executor and keeps bare refusal usable', async () => {
+  const { connection, socket, failed } = await open();
+  try {
+    const result = connection.attachmentObjects.config(performance.now() + 15_000);
+    await awaitSent(socket, 1);
+    const request = JSON.parse(socket.send.mock.calls.at(-1)![0]);
+    expect(request).toMatchObject({ ...scope, type: 'object', request: { method: 'config' } });
+    socket.receive({
+      ...scope,
+      type: 'object-result',
+      requestId: request.requestId,
+      result: { error: { code: 'unavailable' } },
+    });
+    expect(await result).toEqual({ error: { code: 'unavailable' } });
+    expect(connection.active).toBe(true);
+    expect(failed).not.toHaveBeenCalled();
+    const next = connection.attachmentObjects.config(performance.now() + 15_000);
+    const refused = expect(next).rejects.toThrow('Sync disconnected');
+    await awaitSent(socket, 2);
+    connection.close(new Error('Sync disconnected'));
+    await refused;
+    expect(sent(socket).filter((frame) => frame.type === 'object')).toHaveLength(2);
+  } finally {
+    connection.close();
+  }
+});
+
+it('object method confusion ends the peer and outstanding requests cannot move to a successor', async () => {
+  const first = await open();
+  const result = first.connection.attachmentObjects.config(performance.now() + 15_000);
+  const rejected = expect(result).rejects.toThrow();
+  await awaitSent(first.socket, 1);
+  const request = JSON.parse(first.socket.send.mock.calls.at(-1)![0]);
+  first.socket.receive({
+    ...scope,
+    type: 'object-result',
+    requestId: request.requestId,
+    result: { ok: { result: 'read', offset: 0, totalBytes: 1, bytes: 'AA' } },
+  });
+  await rejected;
+  expect(first.connection.active).toBe(false);
+  const next = await open();
+  next.socket.receive({
+    ...scope,
+    type: 'object-result',
+    requestId: request.requestId,
+    result: { error: { code: 'unavailable' } },
+  });
+  await vi.waitFor(() => expect(next.failed).toHaveBeenCalledOnce());
+  expect(next.connection.active).toBe(false);
+  next.connection.close();
+});
+
+it('an unanswered object request settles as storage unavailable within its original budget', async () => {
+  vi.useFakeTimers();
+  const { connection, socket, failed } = await open();
+  const waiting = connection.attachmentObjects.config(performance.now() + 15_000);
+  const refused = expect(waiting).rejects.toThrow('Storage unavailable');
+  await awaitSent(socket, 1);
+  await vi.advanceTimersByTimeAsync(15_000);
+  await refused;
+  expect(failed).toHaveBeenCalledOnce();
+  expect(connection.active).toBe(false);
+  expect(sent(socket).filter((frame) => frame.type === 'object')).toHaveLength(1);
+});
