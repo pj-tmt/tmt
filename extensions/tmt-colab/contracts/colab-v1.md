@@ -2340,7 +2340,9 @@ stop` and `--foreground`. `--foreground` keeps the process attached until Ctrl-C
 says how to run in the background next time. Bare `--json` is the foreground serve (supervisors
 keep owning the process they start); `--background --json` prints the same line plus
 `"background":true`. The launcher opens the page after the handoff, with the same settings and
-flags as before; the worker never opens it. The handoff lifecycle (exact self-exec worker, one
+flags as before; the worker never opens it. Rerunning human `serve` while it runs starts
+nothing and succeeds: `Colab is already running` and the page link, opened under the same
+settings; `--json` modes keep the error `COLAB_ALREADY_SERVING`. The handoff lifecycle (exact self-exec worker, one
 startup deadline, no kill authority past the accept cutoff, no PID signals, the second-start
 rule) is written once in the
 [`tmt-extension-serve` crate docs](../../../rust/crates/tmt-extension-serve/src/lib.rs). Colab

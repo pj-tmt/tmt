@@ -249,10 +249,70 @@ pub(crate) fn run(root: &Path, args: &clap::ArgMatches, stop: &Arc<AtomicBool>) 
         return result;
     }
     if is_launcher(args) {
-        background(root, args, json_output, stop)
+        // A person who reruns `serve` wants the page: that is success, not an error. Scripts
+        // keep the typed `COLAB_ALREADY_SERVING`.
+        match background(root, args, json_output, stop) {
+            Err(error) if !json_output && is_already_serving(error.as_ref()) => {
+                already_running(root, args)
+            }
+            result => result,
+        }
     } else {
         serve(root, args, json_output, stop, None)
     }
+}
+
+fn is_already_serving(error: &(dyn std::error::Error + Send + Sync + 'static)) -> bool {
+    error
+        .downcast_ref::<StartFault>()
+        .is_some_and(|fault| fault.code == "COLAB_ALREADY_SERVING")
+}
+
+/// The serve is already running: show its page the way `tmt colab open` does, and open it under
+/// serve's own setting and flags. Starts nothing.
+fn already_running(root: &Path, args: &clap::ArgMatches) -> Result<()> {
+    let layout = Layout::existing(root)?.ok_or(tmt_colab::keyring::StateFault::AlreadyServing)?;
+    let keyring = Keyring::read(&layout)?;
+    let store = Store::read(&layout)?;
+    let (pages, all_pages) = open_pages(&store, &keyring);
+    let path = match pages.as_deref() {
+        Some([only]) => crate::reach::Reach::path(&keyring.space_id, only),
+        _ => format!("x/colab/#space={}", keyring.space_id),
+    };
+    let reach = crate::reach::Reach::gather().with_pages(all_pages.as_deref().unwrap_or(&[]));
+    let mut shown = reach.text(&path);
+    let mut warnings = Vec::new();
+    if let Some(link) = reach.short_link(&path).or_else(|| reach.link(&path)) {
+        let settings = tmt_colab::settings::read_or_default(root);
+        let outcome = open::open_link(&link, open::flag(args), settings.open(), false);
+        let (text, failed) = open::describe(&outcome, &link);
+        shown = text;
+        warnings.extend(failed);
+        if settings.malformed {
+            warnings.push(tmt_colab::settings::UNREADABLE.to_owned());
+        }
+    }
+    let mut rows = vec![("open", shown)];
+    rows.extend(reach.step().map(|step| ("pair", step.to_owned())));
+    let mut output = tmt_cli_style::stream::stdout(false);
+    let terminal = output.terminal();
+    tmt_cli_style::message::success(&mut output, terminal, "Colab is already running")?;
+    tmt_cli_style::detail::write(&mut output, terminal, "OPEN COLAB", &rows)?;
+    writeln!(
+        output,
+        "{}",
+        terminal.paint(
+            tmt_cli_style::palette::Token::Dim,
+            &tmt_cli_style::table::escape("Stop it with tmt colab stop.")
+        )
+    )?;
+    for what in &warnings {
+        let mut warning = tmt_cli_style::stream::stderr();
+        let terminal = warning.terminal();
+        tmt_cli_style::message::warning(&mut warning, terminal, what, None)?;
+    }
+    output.flush()?;
+    Ok(())
 }
 
 /// Whether this invocation starts a detached serve instead of being one. Bare `--json` stays

@@ -5009,12 +5009,28 @@ fn a_second_start_reports_the_running_serve_and_starts_nothing() {
             .success()
     );
     let door = pilot.serve_pid().unwrap();
-    let human = launcher(&pilot, &core, &["--no-open"]).output().unwrap();
-    assert!(!human.status.success());
-    let text = stderr_of(&human);
-    assert!(text.contains("already serving"), "{text}");
+    // A person who reruns it gets the running page, not an error, and nothing starts. The door now
+    // answers that it runs, as the one the first serve started would.
+    let running = pilot.remote_core(Some(DOOR), Serve::Fail);
+    let human = launcher(&pilot, &running, &["--no-open"]).output().unwrap();
+    assert!(human.status.success(), "{human:?}");
+    let text = squashed(&stdout_of(&human));
+    assert!(text.contains("Colab is already running"), "{text}");
+    assert!(text.contains("http://127.0.0.1:53253"), "{text}");
     assert!(text.contains("tmt colab stop"), "{text}");
-    let json = launcher(&pilot, &core, &["--background", "--json"])
+    assert!(!text.contains("background"), "{text}");
+    assert!(human.stderr.is_empty(), "{}", stderr_of(&human));
+    let opener = pilot.root.join("opened");
+    pilot.opener(0);
+    let opens = launcher(&pilot, &running, &["--open"]).output().unwrap();
+    assert!(opens.status.success(), "{opens:?}");
+    assert!(
+        fs::read_to_string(&opener)
+            .unwrap_or_default()
+            .contains("http://127.0.0.1:53253"),
+        "the rerun did not open the page under the usual settings"
+    );
+    let json = launcher(&pilot, &running, &["--background", "--json"])
         .output()
         .unwrap();
     assert!(!json.status.success());
