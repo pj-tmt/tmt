@@ -637,13 +637,13 @@ async function withRestoreFixture(callback: (fixture: E2EFixture) => Promise<voi
       try {
         await callback(fixture);
       } finally {
-        if (fs.existsSync(fixture.socketPath)) {
+        if (fixture.serverIsRunning()) {
           ownedPids = fixture
-            .tmux(['list-panes', '-a', '-F', '#{pane_pid}'])
+            .tmux(['-u', 'list-panes', '-a', '-F', '#{pane_pid}'])
             .trim()
             .split('\n')
             .map(Number);
-          ownedPids.push(Number(fixture.tmux(['display-message', '-p', '#{pid}']).trim()));
+          ownedPids.push(Number(fixture.tmux(['-u', 'display-message', '-p', '#{pid}']).trim()));
         }
       }
     });
@@ -706,6 +706,7 @@ process.exit(result.status ?? 98);
   return trace;
 }
 
+// Fixture observations preserve literal bytes; restore CLI clients exercise the C locale.
 describe('layout-only workspace restore', () => {
   for (const serverExit of ['clean', 'crash'] as const) {
     it(`starts a fresh server after ${serverExit} exit outside tmux and restores geometry, cwd, links, selection and zoom without revival`, async () => {
@@ -713,6 +714,7 @@ describe('layout-only workspace restore', () => {
         const special = path.join(fixture.root, `cwd '$#(unused) ending;`);
         fs.mkdirSync(special);
         fixture.tmux([
+          '-u',
           'new-window',
           '-d',
           '-t',
@@ -726,6 +728,7 @@ describe('layout-only workspace restore', () => {
         ]);
         const split = fixture
           .tmux([
+            '-u',
             'split-window',
             '-d',
             '-h',
@@ -743,6 +746,7 @@ describe('layout-only workspace restore', () => {
           ])
           .trim();
         fixture.tmux([
+          '-u',
           'split-window',
           '-d',
           '-v',
@@ -755,10 +759,10 @@ describe('layout-only workspace restore', () => {
           '/bin/sh',
           '-i',
         ]);
-        fixture.tmux(['select-pane', '-t', split]);
-        fixture.tmux(['resize-pane', '-Z', '-t', split]);
-        fixture.tmux(['new-session', '-d', '-s', 'linked']);
-        fixture.tmux(['link-window', '-s', 'e2e:4', '-t', 'linked:9']);
+        fixture.tmux(['-u', 'select-pane', '-t', split]);
+        fixture.tmux(['-u', 'resize-pane', '-Z', '-t', split]);
+        fixture.tmux(['-u', 'new-session', '-d', '-s', 'linked']);
+        fixture.tmux(['-u', 'link-window', '-s', 'e2e:4', '-t', 'linked:9']);
         expect((await fixture.runJsonCli(['name', 'Restore Remembered Identity', '-s'])).code).toBe(
           0
         );
@@ -774,15 +778,15 @@ describe('layout-only workspace restore', () => {
         const bytes = fs.readFileSync(snapshotPath(fixture));
         const database = path.join(fixture.globalDir, 'tmux-team.db');
         const databaseBytes = fs.readFileSync(database);
-        const oldId = fixture.tmux(['show-option', '-s', '-v', '@tmt.server-id']).trim();
+        const oldId = fixture.tmux(['-u', 'show-option', '-s', '-v', '@tmt.server-id']).trim();
         const oldPid = fixture.serverPid;
         const oldPanePids = fixture
-          .tmux(['list-panes', '-a', '-F', '#{pane_pid}'])
+          .tmux(['-u', 'list-panes', '-a', '-F', '#{pane_pid}'])
           .trim()
           .split('\n')
           .map(Number);
         if (serverExit === 'crash') process.kill(oldPid, 'SIGKILL');
-        else fixture.tmux(['kill-server']);
+        else fixture.tmux(['-u', 'kill-server']);
         await fixture.waitFor(
           () =>
             !fixture.mockProcessIsRunning(oldPid) &&
@@ -790,6 +794,12 @@ describe('layout-only workspace restore', () => {
           2000,
           'old private server exit'
         );
+        // tmux may leave its dead socket inode even after clean process exit.
+        // This fixture owns the exact socket; make the absent-socket case explicit.
+        if (serverExit === 'clean' && fs.existsSync(fixture.socketPath)) {
+          expect(fs.lstatSync(fixture.socketPath).isSocket()).toBe(true);
+          fs.unlinkSync(fixture.socketPath);
+        }
         expect(fs.existsSync(fixture.socketPath)).toBe(serverExit === 'crash');
         const result = await fixture.runJsonCli<LayoutRestore>(
           ['workspace', 'restore', '--layout-only', '--socket', fixture.socketPath],
@@ -798,15 +808,18 @@ describe('layout-only workspace restore', () => {
         expect(result.code, result.stderr + result.stdout).toBe(0);
         expect(result.json!.status).toBe('completed');
         expect(result.json!.sessions.every((session) => session.action === 'created')).toBe(true);
-        fixture.serverPid = Number(fixture.tmux(['display-message', '-p', '#{pid}']).trim());
+        fixture.serverPid = Number(fixture.tmux(['-u', 'display-message', '-p', '#{pid}']).trim());
         expect(fixture.serverPid).not.toBe(oldPid);
-        expect(fixture.tmux(['show-option', '-s', '-v', '@tmt.server-id']).trim()).not.toBe(oldId);
+        expect(fixture.tmux(['-u', 'show-option', '-s', '-v', '@tmt.server-id']).trim()).not.toBe(
+          oldId
+        );
         expect(fs.readFileSync(snapshotPath(fixture))).toEqual(bytes);
         expect(fs.readFileSync(database)).toEqual(databaseBytes);
         for (const session of saved.sessions) {
           const restored = result.json!.sessions.find((entry) => entry.recorded === session.id)!;
           const links = fixture
             .tmux([
+              '-u',
               'list-windows',
               '-t',
               restored.native!,
@@ -826,12 +839,13 @@ describe('layout-only workspace restore', () => {
           const restored = result.json!.panes.find((entry) => entry.recorded === pane.id)!;
           expect(
             fixture
-              .tmux(['display-message', '-p', '-t', restored.native, '#{pane_current_path}'])
+              .tmux(['-u', 'display-message', '-p', '-t', restored.native, '#{pane_current_path}'])
               .slice(0, -1)
           ).toBe(pane.cwd);
           expect(
             fixture
               .tmux([
+                '-u',
                 'display-message',
                 '-p',
                 '-t',
@@ -841,19 +855,30 @@ describe('layout-only workspace restore', () => {
               .trim()
           ).toBe(`${pane.left}:${pane.top}:${pane.width}:${pane.height}`);
           expect(
-            fixture.tmux(['display-message', '-p', '-t', restored.native, '#{@tmt.agent}']).trim()
+            fixture
+              .tmux(['-u', 'display-message', '-p', '-t', restored.native, '#{@tmt.agent}'])
+              .trim()
           ).toBe('');
           expect(
             fixture
-              .tmux(['display-message', '-p', '-t', restored.native, '#{pane_current_command}'])
+              .tmux([
+                '-u',
+                'display-message',
+                '-p',
+                '-t',
+                restored.native,
+                '#{pane_current_command}',
+              ])
               .trim()
-          ).toBe(path.basename(fixture.tmux(['show-options', '-g', '-v', 'default-shell']).trim()));
+          ).toBe(
+            path.basename(fixture.tmux(['-u', 'show-options', '-g', '-v', 'default-shell']).trim())
+          );
         }
         for (const window of saved.windows) {
           const restored = result.json!.windows.find((entry) => entry.recorded === window.id)!;
           expect(
             fixture
-              .tmux(['display-message', '-p', '-t', restored.native, '#{window_name}'])
+              .tmux(['-u', 'display-message', '-p', '-t', restored.native, '#{window_name}'])
               .slice(0, -1)
           ).toBe(window.name);
           const restoreOldIds = (layout: string) =>
@@ -864,20 +889,28 @@ describe('layout-only workspace restore', () => {
           expect(
             restoreOldIds(
               fixture
-                .tmux(['display-message', '-p', '-t', restored.native, '#{window_layout}'])
+                .tmux(['-u', 'display-message', '-p', '-t', restored.native, '#{window_layout}'])
                 .trim()
             )
           ).toBe(window.layout.slice(5));
           expect(
             restoreOldIds(
               fixture
-                .tmux(['display-message', '-p', '-t', restored.native, '#{window_visible_layout}'])
+                .tmux([
+                  '-u',
+                  'display-message',
+                  '-p',
+                  '-t',
+                  restored.native,
+                  '#{window_visible_layout}',
+                ])
                 .trim()
             )
           ).toBe(window.visibleLayout.slice(5));
           expect(
             fixture
               .tmux([
+                '-u',
                 'display-message',
                 '-p',
                 '-t',
@@ -890,6 +923,7 @@ describe('layout-only workspace restore', () => {
           );
         }
         const topology = fixture.tmux([
+          '-u',
           'list-panes',
           '-a',
           '-F',
@@ -906,6 +940,7 @@ describe('layout-only workspace restore', () => {
         expect(again.json!.panes).toEqual([]);
         expect(
           fixture.tmux([
+            '-u',
             'list-panes',
             '-a',
             '-F',
@@ -922,10 +957,19 @@ describe('layout-only workspace restore', () => {
       const saved = twoMissingLinkedSessions(fixture);
       recoveryInput(fixture, saved);
       // A configured login shell must survive restore; explicit /bin/sh would fail.
-      fixture.tmux(['set-option', '-g', 'default-shell', '/usr/bin/zsh']);
-      fixture.tmux(['set-option', '-g', 'default-command', '']);
-      fixture.tmux(['set-option', '-p', '-t', fixture.pane, '@restore-user-data', 'unchanged']);
+      fixture.tmux(['-u', 'set-option', '-g', 'default-shell', '/usr/bin/zsh']);
+      fixture.tmux(['-u', 'set-option', '-g', 'default-command', '']);
+      fixture.tmux([
+        '-u',
+        'set-option',
+        '-p',
+        '-t',
+        fixture.pane,
+        '@restore-user-data',
+        'unchanged',
+      ]);
       const topology = fixture.tmux([
+        '-u',
         'list-panes',
         '-t',
         'e2e',
@@ -945,11 +989,12 @@ describe('layout-only workspace restore', () => {
       expect(result.json!.windows).toHaveLength(1);
       expect(result.json!.panes).toHaveLength(1);
       expect(result.json!.panes[0].native).not.toBe(fixture.pane);
-      const defaultShell = fixture.tmux(['show-options', '-g', '-v', 'default-shell']).trim();
+      const defaultShell = fixture.tmux(['-u', 'show-options', '-g', '-v', 'default-shell']).trim();
       expect(defaultShell).toBe('/usr/bin/zsh');
       expect(
         fixture
           .tmux([
+            '-u',
             'display-message',
             '-p',
             '-t',
@@ -958,10 +1003,10 @@ describe('layout-only workspace restore', () => {
           ])
           .trim()
       ).toBe(path.basename(defaultShell));
-      expect(fixture.tmux(['show-options', '-g', '-v', 'default-command']).trim()).toBe('');
+      expect(fixture.tmux(['-u', 'show-options', '-g', '-v', 'default-command']).trim()).toBe('');
 
       for (const name of ['restore-first', 'restore-shared']) {
-        expect(fixture.tmux(['list-windows', '-t', name, '-F', '#{window_id}']).trim()).toBe(
+        expect(fixture.tmux(['-u', 'list-windows', '-t', name, '-F', '#{window_id}']).trim()).toBe(
           result.json!.windows[0].native
         );
       }
@@ -970,6 +1015,7 @@ describe('layout-only workspace restore', () => {
       );
       expect(
         fixture.tmux([
+          '-u',
           'list-panes',
           '-t',
           'e2e',
@@ -988,6 +1034,7 @@ describe('layout-only workspace restore', () => {
         );
         recoveryInput(fixture, twoMissingLinkedSessions(fixture));
         const original = fixture.tmux([
+          '-u',
           'list-panes',
           '-t',
           'e2e',
@@ -1005,7 +1052,7 @@ describe('layout-only workspace restore', () => {
         expect(partial.action).toBe('partial');
         expect(partial.retainedBootstrap).toMatch(/^%\d+$/);
         const panes = fixture
-          .tmux(['list-panes', '-s', '-t', 'restore-shared', '-F', '#{pane_id}'])
+          .tmux(['-u', 'list-panes', '-s', '-t', 'restore-shared', '-F', '#{pane_id}'])
           .trim()
           .split('\n');
         expect(panes).toContain(partial.retainedBootstrap);
@@ -1015,6 +1062,7 @@ describe('layout-only workspace restore', () => {
           expect(fs.readFileSync(trace, 'utf8')).toContain('pane_current_command');
         expect(
           fixture.tmux([
+            '-u',
             'list-panes',
             '-t',
             'e2e',
@@ -1032,7 +1080,7 @@ describe('layout-only workspace restore', () => {
         );
         expect(
           fixture
-            .tmux(['list-panes', '-s', '-t', 'restore-shared', '-F', '#{pane_id}'])
+            .tmux(['-u', 'list-panes', '-s', '-t', 'restore-shared', '-F', '#{pane_id}'])
             .trim()
             .split('\n')
         ).toEqual(panes);
