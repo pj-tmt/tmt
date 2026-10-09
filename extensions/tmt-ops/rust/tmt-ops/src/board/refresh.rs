@@ -92,8 +92,9 @@ impl Worker {
         let thread = std::thread::spawn(move || {
             let mut checklist = super::checklist::load::Lane::default();
             let initial = core.cancellable(read_generation.cancellation(0));
+            let known = std::rc::Rc::new(std::cell::RefCell::new(Known::default()));
             let mut kept = Kept {
-                bodies: BTreeMap::new(),
+                known: std::rc::Rc::clone(&known),
                 fetch: fetcher(),
             };
             // Caller identity stays fixed; the watched config can promote to Ops.
@@ -195,7 +196,8 @@ impl Worker {
                     if let (Some(trace), Some(started)) = (&mut trace, started) {
                         trace.completed(
                             &loaded.snapshot,
-                            loaded.attention.is_some()
+                            loaded.enrich.is_some()
+                                || loaded.attention.is_some()
                                 || loaded.home_leads.is_some()
                                 || loaded.cron.is_some()
                                 || loaded.history.is_some(),
@@ -217,6 +219,15 @@ impl Worker {
                     let reader = core.cancellable(cancellation.clone());
                     let event = match job {
                         Deferred::Checklist(_) => unreachable!("handled above"),
+                        Deferred::Enrich(job) => {
+                            let (squad, enrichment) =
+                                job.complete(&reader, &mut known.borrow_mut());
+                            super::BoardEvent::Enriched {
+                                cancellation: cancellation.clone(),
+                                squad,
+                                enrichment,
+                            }
+                        }
                         Deferred::History(job) => super::BoardEvent::History {
                             read: job.complete(&reader, &mut history),
                             cancellation: cancellation.clone(),
@@ -367,6 +378,7 @@ struct Reload {
 struct Loaded {
     rooms: snapshot_cache::Rooms,
     snapshot: Snapshot,
+    enrich: Option<EnrichJob>,
     attention: Option<AttentionJob>,
     home_leads: Option<super::home_leads::Fetch>,
     /// Every tab shows the cron projection, so any readable config schedules it.
@@ -379,6 +391,7 @@ impl Loaded {
         Self {
             rooms: Default::default(),
             snapshot,
+            enrich: None,
             attention: None,
             home_leads: None,
             cron: None,
@@ -451,6 +464,7 @@ impl HistoryJob {
 /// The existing worker's lower-priority work, behind full reloads.
 enum Deferred {
     Checklist(super::checklist::load::Task),
+    Enrich(EnrichJob),
     History(HistoryJob),
     HomeLeads(super::home_leads::Fetch),
     Attention(Box<AttentionJob>),
@@ -490,9 +504,51 @@ impl AttentionJob {
 
 /// What one worker keeps across loads.
 struct Kept {
+    /// Shared with the deferred enrichment job on the same worker thread.
+    known: std::rc::Rc<std::cell::RefCell<Known>>,
+    fetch: Sender<Fetch>,
+}
+
+/// What earlier reads learned, so a reload publishes it at once.
+#[derive(Default)]
+struct Known {
     /// Reply bodies never change once submitted.
     bodies: BTreeMap<String, String>,
-    fetch: Sender<Fetch>,
+    /// The last focus row read per identity; the deferred read corrects it.
+    focus: BTreeMap<String, Value>,
+}
+
+/// Reads the shown squad still lacks after its first publication: focus policy
+/// and reply bodies. A fully enriched view equals the former synchronous one.
+struct EnrichJob {
+    squad: String,
+    ids: Vec<String>,
+    replies: Option<Vec<Value>>,
+}
+
+impl EnrichJob {
+    fn complete(self, core: &Core, known: &mut Known) -> (String, Enrichment) {
+        let focus = crate::focus::rows(core, &self.ids);
+        if let Some(rows) = &focus {
+            known.focus.extend(rows.clone());
+        }
+        let replies = self.replies.and_then(|mut replies| {
+            requests::bodies(
+                |id| requests::show_request(core, id),
+                &mut replies,
+                &mut known.bodies,
+            )
+            .ok()
+            .map(|()| replies)
+        });
+        (self.squad, Enrichment { focus, replies })
+    }
+}
+
+/// The deferred reads' results; `focus: None` is a failed optional read.
+pub(crate) struct Enrichment {
+    pub focus: Option<BTreeMap<String, Value>>,
+    pub replies: Option<Vec<Value>>,
 }
 
 /// One squad's providers and members, for the fetcher.
@@ -632,6 +688,7 @@ fn serve(
         let Loaded {
             rooms,
             snapshot,
+            enrich,
             attention: job,
             cron,
             home_leads,
@@ -693,6 +750,13 @@ fn serve(
                     .map(|every| (MeterRead::Home, every, Instant::now() + every))
             });
         if !publish(snapshot, rooms, wanted.generation) {
+            break;
+        }
+        // The shown rows' own reads come before any other tab's or history work.
+        if let Some(job) = enrich
+            && generation.load(Ordering::Acquire) == wanted.generation
+            && !deferred(Deferred::Enrich(job), wanted.generation)
+        {
             break;
         }
         if let Some(job) = history
@@ -841,6 +905,7 @@ fn load(
     });
     let mut attention = BTreeMap::new();
     let mut deferred = None;
+    let mut enrich = None;
     let mut home_leads = None;
     let mut view = (|| {
         let config = config.as_ref().map_err(Clone::clone)?;
@@ -871,7 +936,8 @@ fn load(
                 )
             })?;
             deferred = Some((me.clone(), result.0.document.clone()));
-            result
+            enrich = result.2;
+            (result.0, result.1)
         };
         if key == ALL
             && let Some(home) = &view.home
@@ -917,12 +983,16 @@ fn load(
             squad: Some(key),
             view,
         },
+        enrich,
         attention: job,
         home_leads,
         cron,
         history,
     }
 }
+
+/// A squad tab's publishable view, its attention and its deferred reads.
+type SquadView = (View, BTreeMap<String, Attention>, Option<EnrichJob>);
 
 /// One squad's full view and its attention; other tabs follow publication.
 #[allow(clippy::too_many_arguments)] // Preserve the existing acquisition boundary.
@@ -935,7 +1005,7 @@ fn squad_view(
     preview_panes: bool,
     kept: &mut Kept,
     trace: Option<&timing::Load>,
-) -> Result<(View, BTreeMap<String, Attention>), crate::core::SquadError> {
+) -> Result<SquadView, crate::core::SquadError> {
     let layout = config.layout(&squad.name)?;
     let (theme, theme_notice) = config.theme(&squad.name)?;
     let states = config.states(&squad.name, layout)?;
@@ -995,11 +1065,15 @@ fn squad_view(
             },
         )
     })?;
-    timing::measure(trace, "focus::enrich", || {
-        crate::focus::enrich(core, &mut [&mut document], &active_ids);
-        Ok::<_, std::convert::Infallible>(())
-    })
-    .expect("focus enrichment is best effort");
+    // Publish with what earlier reads learned; the focus read and missing reply
+    // bodies follow as one deferred job on this worker (`EnrichJob`).
+    let ids = crate::focus::eligible([&document], &active_ids);
+    let mut known = kept.known.borrow_mut();
+    let focus = ids
+        .iter()
+        .filter_map(|id| known.focus.get(id).map(|row| (id.clone(), row.clone())))
+        .collect();
+    crate::focus::set(&mut document, Some(&focus));
     let attention = BTreeMap::from([(squad.name.clone(), Attention::of(&document))]);
     let mut replies = match &sent {
         Some(sent) if preview_panes || board.members || board.panes.contains(&Pane::Replies) => {
@@ -1007,13 +1081,15 @@ fn squad_view(
         }
         _ => Vec::new(),
     };
-    timing::measure(trace, "requests::bodies", || {
-        requests::bodies(
-            |id| requests::show_request(core, id),
-            &mut replies,
-            &mut kept.bodies,
-        )
-    })?;
+    // No read here: a body this worker has not seen yet stays absent until the job.
+    requests::bodies(|_| Ok(Value::Null), &mut replies, &mut known.bodies)?;
+    drop(known);
+    let unread = requests::unread(&replies).then(|| replies.clone());
+    let enrich = (!ids.is_empty() || unread.is_some()).then(|| EnrichJob {
+        squad: squad.name.clone(),
+        ids,
+        replies: unread,
+    });
     let notes = if shows_notes {
         lead_notes(notes)
     } else {
@@ -1046,7 +1122,7 @@ fn squad_view(
         notes,
         document,
     };
-    Ok((view, attention))
+    Ok((view, attention, enrich))
 }
 
 /// The built-in leads tab: every squad's lead, with presence from one `ls`
@@ -1794,7 +1870,7 @@ sys.exit(subprocess.run([str(root/'tmt')]+args,input=body).returncode)
         let core = Core::at(executable);
         let (fetch, _pending) = mpsc::channel();
         let mut kept = Kept {
-            bodies: BTreeMap::new(),
+            known: Default::default(),
             fetch,
         };
         for key in [
@@ -1816,10 +1892,17 @@ sys.exit(subprocess.run([str(root/'tmt')]+args,input=body).returncode)
                 None,
                 &mut |_, _| {},
             );
-            let view = loaded
+            let mut view = loaded
                 .snapshot
                 .view
                 .unwrap_or_else(|error| panic!("{key}: {error}"));
+            // A squad tab publishes before any focus read; its deferred job reads
+            // once and the board applies the result.
+            if let Some(job) = loaded.enrich {
+                assert!(!calls.exists(), "{key}: published before the focus read");
+                let (_, enrichment) = job.complete(&core, &mut kept.known.borrow_mut());
+                crate::focus::set(&mut view.document, enrichment.focus.as_ref());
+            }
             if let Some(job) = loaded.attention {
                 job.complete(&core);
             }
@@ -1852,6 +1935,35 @@ sys.exit(subprocess.run([str(root/'tmt')]+args,input=body).returncode)
                 );
             }
         }
+        // A reload publishes the focus it already read, so labels never blink off.
+        let calls = f.directory.join("focus-calls");
+        let _ = std::fs::remove_file(&calls);
+        let loaded = load(
+            &core,
+            false,
+            None,
+            Some("product".into()),
+            false,
+            false,
+            &mut kept,
+            None,
+            &mut |_, _| {},
+        );
+        assert!(!calls.exists());
+        assert!(
+            loaded
+                .snapshot
+                .view
+                .unwrap()
+                .document
+                .to_string()
+                .contains("heldCount"),
+            "known focus published at once"
+        );
+        assert!(
+            loaded.enrich.is_some(),
+            "and corrected by the deferred read"
+        );
     }
 
     #[test]
@@ -1883,7 +1995,7 @@ esac
         };
         let (fetch, _pending) = mpsc::channel();
         let mut kept = Kept {
-            bodies: BTreeMap::new(),
+            known: Default::default(),
             fetch,
         };
         for workflow in ["minimal", "crew"] {
@@ -1996,9 +2108,9 @@ printf '%s\n' '{{}}'
                 snapshot.view.as_ref().unwrap().document["sections"][0]["rows"][0]["name"],
                 "alice"
             );
-            // Attention is deferred behind cache publication on the same worker.
+            // Attention is deferred behind cache publication and enrichment.
             assert!(
-                (0..2).any(|_| matches!(
+                (0..3).any(|_| matches!(
                     input.recv_timeout(Duration::from_secs(30)).unwrap(),
                     super::super::BoardEvent::Attention { .. }
                 )),
@@ -2513,6 +2625,7 @@ printf '%s\n' '{{}}'
             |_, _| Stamp::cursor(1),
             |_, _, _, _| Loaded {
                 rooms: Default::default(),
+                enrich: None,
                 history: None,
                 snapshot: crate::board::app::tests::snapshot("product", json!([])),
                 attention: Some(AttentionJob {

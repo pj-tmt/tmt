@@ -20,6 +20,14 @@
   `board::changes` also watches.
 - Providers: the board hands each load's members to one fetcher thread that runs due provider
   work off the paint path and again at the shortest `every`.
+- Squad enrichment: a squad tab publishes without its focus-policy read and reply-body
+  reads. It applies the focus rows and bodies this worker already read (`Known`), so a
+  reload never blinks them off. The first deferred job (`EnrichJob`) then makes one
+  `focus.policy.show` read and the missing `requests.show` reads, and sends `Enriched`.
+  `App::apply_enriched` sets focus exactly as read (a failed read removes it, as before)
+  and fills only replies still without a body. It acts only on the shown, settled squad.
+  A fully enriched view equals the former synchronous load; a body-read failure no
+  longer fails the view.
 - Tab attention: the refresh computes attention for the shown squad from its document and
   publishes that view first. The same worker then computes every other squad's attention from a
   roster-only document (one `rooms.roster` read each plus one `inbox` read shared by all, no `ls`).
@@ -120,17 +128,18 @@ row contents are recorded. `load_id` is process-local, increasing from 1;
 startup uses 0 and null generation. Generation is the existing refresh fence.
 A default-tab acquisition can have null `tab` on early stages; its total/milestone
 records identify the resolved tab. `deferred_pending` on the total/milestone records
-means existing attention, history, cron or HOME exchanges remain scheduled.
+means existing enrichment, attention, history, cron or HOME exchanges remain scheduled.
 
-| Event         | Stage names / boundary                                                                                                 |
-| ------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| `stage`       | `startup.Config::load`: initial config in `board::run`                                                                 |
-| `stage`       | `Squad::list`, `Config::load`, `load`: `board::refresh::load` acquisition and total                                    |
-| `stage`       | `observe::observe`, `observation.document`, `focus::enrich`, `requests::bodies`, `squad_view`: named squad acquisition |
-| `stage`       | `snapshot_publish`: fresh event send; `snapshot_cache`: subsequent best-effort root/serialization/write                |
-| `stage`       | `all_view`: complete HOME base acquisition/projection                                                                  |
-| `first_frame` | `draw`: first successful terminal draw, including a loading screen                                                     |
-| `fresh_board` | `draw`: first successful draw after an accepted current-tab snapshot                                                   |
+| Event         | Stage names / boundary                                                                                            |
+| ------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `stage`       | `startup.Config::load`: initial config in `board::run`                                                            |
+| `stage`       | `Squad::list`, `Config::load`, `load`: `board::refresh::load` acquisition and total                               |
+| `stage`       | `observe::observe`, `observation.document`, `squad_view`: named squad acquisition (focus and bodies are deferred) |
+| `stage`       | `snapshot_cache_read`: the stored display offer after the inventory read                                          |
+| `stage`       | `snapshot_publish`: fresh event send; `snapshot_cache`: subsequent best-effort root/serialization/write           |
+| `stage`       | `all_view`: complete HOME base acquisition/projection                                                             |
+| `first_frame` | `draw`: first successful terminal draw, including a loading screen                                                |
+| `fresh_board` | `draw`: first successful draw after an accepted current-tab snapshot                                              |
 
 Stage durations include their called work and stop before trace serialization;
 outer stages include enabled inner trace emission overhead. Failed Result stages

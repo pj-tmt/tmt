@@ -1206,6 +1206,37 @@ impl App {
         true
     }
 
+    /// Completes the shown squad's view with its deferred reads. Focus follows the
+    /// read exactly; bodies fill only replies still without one, matched by request.
+    pub(super) fn apply_enriched(
+        &mut self,
+        squad: &str,
+        enrichment: super::refresh::Enrichment,
+    ) -> bool {
+        if self.shown.as_deref() != Some(squad) || self.loading() {
+            return false;
+        }
+        let Some(view) = self.view.as_mut().filter(|view| view.home.is_none()) else {
+            return false;
+        };
+        crate::focus::set(&mut view.document, enrichment.focus.as_ref());
+        for reply in &mut view.replies {
+            if let Some(response) = enrichment
+                .replies
+                .iter()
+                .flatten()
+                .find(|read| read["requestId"] == reply["requestId"])
+                .map(|read| &read["response"])
+                .filter(|response| !response.is_null())
+                && reply["response"].is_null()
+            {
+                reply["response"] = response.clone();
+            }
+        }
+        *view.derived.borrow_mut() = Default::default();
+        true
+    }
+
     /// The stored display on screen instead of a view, if any.
     pub(super) fn cached_display(&self) -> Option<&super::snapshot_cache::Display> {
         self.disk.as_ref().filter(|display| {
@@ -4326,6 +4357,56 @@ pub(crate) mod tests {
                 Item::Row(_, row) => row["name"].as_str(),
             })
             .collect()
+    }
+
+    #[test]
+    fn deferred_reads_complete_only_the_shown_squad_like_the_synchronous_load() {
+        let enrichment = |held: u64, body: &str| super::super::refresh::Enrichment {
+            focus: Some(BTreeMap::from([(
+                "a".to_owned(),
+                json!({"active": true, "focusUntilMs": 1, "remainingMs": 1, "heldCount": held}),
+            )])),
+            replies: Some(vec![json!({"requestId": "r1", "response": body})]),
+        };
+        let mut app = App::new(Some("product".into()));
+        app.apply(snapshot(
+            "product",
+            json!([{ "title": null, "rows": [row("a", ""), row("b", "")] }]),
+        ));
+        app.view.as_mut().unwrap().replies = vec![
+            json!({"requestId": "r1", "status": "retained", "response": null}),
+            json!({"requestId": "r2", "status": "retained", "response": "kept"}),
+        ];
+        assert!(
+            !app.apply_enriched("infra", enrichment(9, "x")),
+            "another squad"
+        );
+        assert!(app.apply_enriched("product", enrichment(2, "done")));
+        let view = app.view.as_ref().unwrap();
+        let rows = &view.document["sections"][0]["rows"];
+        assert_eq!(rows[0]["focus"]["heldCount"], 2);
+        assert!(rows[1].get("focus").is_none(), "no policy, no focus");
+        assert_eq!(view.replies[0]["response"], "done");
+        assert_eq!(
+            view.replies[1]["response"], "kept",
+            "bodies never overwrite"
+        );
+
+        // A failed optional read removes focus, as a load without it would show.
+        let failed = super::super::refresh::Enrichment {
+            focus: None,
+            replies: None,
+        };
+        assert!(app.apply_enriched("product", failed));
+        assert!(
+            app.view.as_ref().unwrap().document["sections"][0]["rows"][0]
+                .get("focus")
+                .is_none()
+        );
+
+        // A late result for the tab being left never lands on the next one.
+        let _ = app.go("infra".into());
+        assert!(!app.apply_enriched("product", enrichment(5, "late")));
     }
 
     #[test]

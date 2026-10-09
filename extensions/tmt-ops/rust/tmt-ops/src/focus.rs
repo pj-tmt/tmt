@@ -63,18 +63,70 @@ pub fn read_policies(core: &Core, ids: &[String]) -> Result<BTreeMap<String, Pol
 /// share one policy; only identities admitted by the acquired active room rosters
 /// are eligible. Overflow and optional-Core failures omit focus without noise.
 pub fn enrich(core: &Core, documents: &mut [&mut Value], active_ids: &BTreeSet<String>) {
-    let mut ids = BTreeSet::new();
-    for document in documents.iter() {
-        collect(document, active_ids, &mut ids);
-    }
-    let ids: Vec<_> = ids.into_iter().take(LIMIT).collect();
+    let ids = eligible(documents.iter().map(|document| &**document), active_ids);
     if ids.is_empty() {
         return;
     }
-    if let Ok(policies) = read_policies(core, &ids) {
+    if let Some(rows) = rows(core, &ids) {
         for document in documents {
-            apply(document, &policies);
+            set(document, Some(&rows));
         }
+    }
+}
+
+/// The identities one bounded policy read covers, in read order.
+pub fn eligible<'a>(
+    documents: impl IntoIterator<Item = &'a Value>,
+    active_ids: &BTreeSet<String>,
+) -> Vec<String> {
+    let mut ids = BTreeSet::new();
+    for document in documents {
+        collect(document, active_ids, &mut ids);
+    }
+    ids.into_iter().take(LIMIT).collect()
+}
+
+/// Each identity's projected focus row; `None` when the optional read failed.
+pub fn rows(core: &Core, ids: &[String]) -> Option<BTreeMap<String, Value>> {
+    if ids.is_empty() {
+        return Some(BTreeMap::new());
+    }
+    let policies = read_policies(core, ids).ok()?;
+    Some(
+        policies
+            .into_iter()
+            .map(|(id, policy)| (id, policy.row()))
+            .collect(),
+    )
+}
+
+/// Gives every member row exactly the focus `rows` holds for it, removing any
+/// other; `None` (a failed read) removes all, as a document read without focus.
+pub fn set(document: &mut Value, rows: Option<&BTreeMap<String, Value>>) {
+    match document {
+        Value::Object(object) => {
+            if object.contains_key("fields")
+                && let Some(id) = object.get("id").and_then(Value::as_str)
+            {
+                match rows.and_then(|rows| rows.get(id)) {
+                    Some(row) => {
+                        object.insert("focus".into(), row.clone());
+                    }
+                    None => {
+                        object.remove("focus");
+                    }
+                }
+            }
+            for value in object.values_mut() {
+                set(value, rows);
+            }
+        }
+        Value::Array(values) => {
+            for value in values {
+                set(value, rows);
+            }
+        }
+        _ => {}
     }
 }
 fn collect(document: &Value, active_ids: &BTreeSet<String>, ids: &mut BTreeSet<String>) {
@@ -94,29 +146,6 @@ fn collect(document: &Value, active_ids: &BTreeSet<String>, ids: &mut BTreeSet<S
         Value::Array(values) => {
             for value in values {
                 collect(value, active_ids, ids);
-            }
-        }
-        _ => {}
-    }
-}
-fn apply(document: &mut Value, policies: &BTreeMap<String, Policy>) {
-    match document {
-        Value::Object(object) => {
-            if object.contains_key("fields")
-                && let Some(policy) = object
-                    .get("id")
-                    .and_then(Value::as_str)
-                    .and_then(|id| policies.get(id))
-            {
-                object.insert("focus".into(), policy.row());
-            }
-            for value in object.values_mut() {
-                apply(value, policies);
-            }
-        }
-        Value::Array(values) => {
-            for value in values {
-                apply(value, policies);
             }
         }
         _ => {}
