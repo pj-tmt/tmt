@@ -87,6 +87,9 @@ The version 1 plan contains the existing `snapshot` topology plus `sessions` and
 `skip_existing`, absent names `create`, and uncertain observation `unknown`. A
 missing socket has no sessions. Every effectful restore must recheck live state;
 this preview grants no authority to overwrite or launch.
+Human output shows snapshot age with the CLI's relative-time formatter; JSON
+retains the exact `capturedAtMs`. A stale conversation is labeled as stale without
+advertising restore flags that this read-only command does not implement.
 
 Pane actions are `shell`, `relaunch_command` (literal external argv),
 `identity_missing`, `no_remembered_session`, `resumable`, or

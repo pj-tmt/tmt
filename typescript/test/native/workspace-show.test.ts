@@ -85,10 +85,19 @@ describe('read-only workspace restore preview', () => {
       );
       const human = await runCli(sandbox, ['workspace', 'show', '--socket', socket]);
       expect(human.status).toBe(0);
+      expect(human.stdout).toMatch(/\(captured \d+d ago\)/);
+      expect(human.stdout).not.toContain('(captured 1 ms)');
       expect(human.stdout).toContain('relaunch recorded command');
       expect(human.stdout).toContain('--tabs=a,b');
       const json = await runCli(sandbox, ['workspace', 'show', '--socket', socket, '--json']);
       expect(JSON.parse(json.stdout).snapshot.panes[0].command).toEqual(command);
+      expect(JSON.parse(json.stdout).snapshot.capturedAtMs).toBe(saved.capturedAtMs);
+      // A wall-clock rollback cannot turn recovery age into an underflow.
+      const future = { ...saved, capturedAtMs: Date.now() + 86_400_000 };
+      fs.writeFileSync(latest, JSON.stringify(future));
+      const futureHuman = await runCli(sandbox, ['workspace', 'show', '--socket', socket]);
+      expect(futureHuman.status).toBe(0);
+      expect(futureHuman.stdout).toContain('(captured just now)');
       expect(fs.existsSync(tripwire)).toBe(false);
     });
   });

@@ -78,8 +78,12 @@ pub fn execute(socket: Option<&str>, mode: OutputMode) -> io::Result<u8> {
         );
         writeln!(
             output,
-            "Workspace on {} (captured {} ms)",
-            input.snapshot.server.socket, input.snapshot.captured_at_ms
+            "Workspace on {} (captured {})",
+            input.snapshot.server.socket,
+            tmt_cli_style::value::relative_time(
+                tmt_adapters::request_runtime::wall_time_ms()
+                    .saturating_sub(input.snapshot.captured_at_ms)
+            )
         )?;
         for (id, action) in &preview.sessions {
             let session = input
@@ -147,6 +151,6 @@ fn pane_description(action: tmt_core::workspace::plan::WorkspacePaneAction) -> &
         WorkspacePaneAction::IdentityMissing => "identity missing",
         WorkspacePaneAction::NoRememberedSession => "no remembered session",
         WorkspacePaneAction::Resumable => "resume remembered session",
-        WorkspacePaneAction::StaleRequiresRetry => "stale session (needs --retry)",
+        WorkspacePaneAction::StaleRequiresRetry => "stale remembered session",
     }
 }

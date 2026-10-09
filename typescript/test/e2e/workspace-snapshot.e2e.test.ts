@@ -145,7 +145,8 @@ describe('event-driven workspace recovery snapshots', () => {
           .run(bound.json!.id);
         const human = await fixture.runCli(['workspace', 'show', '--socket', fixture.socketPath]);
         expect(human.code, human.stderr).toBe(0);
-        expect(human.stdout).toContain('stale session (needs --retry)');
+        expect(human.stdout).toContain('stale remembered session');
+        expect(human.stdout).not.toContain('--retry');
         expect(fs.readFileSync(snapshotPath(fixture))).toEqual(bytes);
       } finally {
         database.close();
