@@ -731,7 +731,9 @@ precede any network request. Stored key presence alone never establishes live au
 Each page open automatically checks once: read the current descriptor, open one verified
 `session.open`, then observe `capabilities` through that Session's serialized signed lane. These
 reads are not journaled. Check again is manual and reuses the current verified Session; an ended
-session can be reopened only by that explicit check. No polling, automatic re-pair, grant renewal,
+session can be reopened only by that explicit check. An expired Session is silently reopened once
+within the manual check; an ended capabilities response is not a pairing refusal. No polling,
+automatic re-pair, grant renewal,
 work dispatch or recovery resend occurs. Connected means this check verified current access,
 never settings-administrator designation; open an app from its link in this browser.
 

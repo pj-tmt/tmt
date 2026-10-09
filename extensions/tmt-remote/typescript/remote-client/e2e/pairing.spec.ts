@@ -981,6 +981,12 @@ test('the native entry checks once and presents all seven evidenced states witho
   });
   const page = await context.newPage();
   const captureEntry = async (state: string): Promise<void> => {
+    expect(
+      await page.locator('#copy-feedback').evaluate((node) => {
+        const style = getComputedStyle(node);
+        return [style.marginTop, style.marginBottom];
+      }),
+    ).toEqual(['0px', '0px']);
     await captureState(
       page,
       `entry-${state}`,
@@ -1118,6 +1124,25 @@ test('the native entry checks once and presents all seven evidenced states witho
   expect(counts()).toEqual({ mounts: 1, admissions: 1, observations: 2 });
   await expect(page.locator('#check')).toBeFocused();
   await captureState(page, 'entry-check-focus', 'Manual keyboard check retains visible focus');
+  // A deterministic expired-session response on the reused lane reopens once in this click.
+  let expiredRead = false;
+  const expireRead = async (route: import('@playwright/test').Route) => {
+    const operation = JSON.parse(route.request().postData()!).operation;
+    if (operation === 'capabilities' && !expiredRead) {
+      expiredRead = true;
+      await route.fulfill({ status: 404, body: '' });
+    } else await route.continue();
+  };
+  await page.route('**/r/*/append', expireRead);
+  try {
+    await page.getByRole('button', { name: 'Check again' }).click();
+    await expect(page.locator('#heading')).toHaveText('Connected');
+    await expect(page.locator('#check')).toBeEnabled();
+    expect(expiredRead).toBe(true);
+    expect(counts()).toEqual({ mounts: 2, admissions: 2, observations: 4 });
+  } finally {
+    await page.unroute('**/r/*/append', expireRead);
+  }
   const beforeGrants = execFileSync(
     'python3',
     [

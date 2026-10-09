@@ -278,7 +278,9 @@ The human `tmt remote serve` link opens `/`; the JSON `address` remains the sign
 `landingPage()` is the entry bootstrap, using the same saved non-extractable key and machine pins.
 On load it validates local storage, then checks once through a verified Session and signed
 `capabilities` read; a saved pairing alone never proves current access. Manual Check again reuses
-that Session while current. No polling, automatic re-pair, grant renewal, inventory or work is sent.
+that Session while current. An expired Session is silently reopened once within the manual check;
+an ended capabilities response is not a pairing refusal. No polling, automatic re-pair, grant
+renewal, inventory or work is sent.
 Only a verified signed refusal means Not accepted; opaque404, transport or unverifiable replies
 remain unconfirmed and keep the pairing unchanged. Details contains the short machine ID,
 viewer-local checked time, protocol address, trust pin and administration note. Commands are

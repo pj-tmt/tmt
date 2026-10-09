@@ -34,7 +34,9 @@ The human serve link names `/`; protocol readiness/status/SDK addresses retain `
 `Pages` serves the static entry and same-origin `/sdk/landing.js` bootstrap under the existing
 CSP/no-store/Host/Origin boundary. `browser.ts` validates local pairing before network, then checks
 once on page open through descriptor, verified Session and scope-free `capabilities` observation.
-Manual Check again reuses the current Session; no polling, inventory, work or grant repair occurs.
+Manual Check again reuses the current Session. An expired Session is silently reopened once
+within the manual check; an ended capabilities response is not a pairing refusal. No polling,
+inventory, work or grant repair occurs.
 Missing/unreadable storage sends nothing. Seven explicit icon-and-text states distinguish local
 pairing, checking, connected, different machine, signed refusal and unconfirmed access. Generic
 Connected uses no invented friendly name. Technical evidence and local-time checked time stay in

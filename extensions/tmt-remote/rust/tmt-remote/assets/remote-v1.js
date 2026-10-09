@@ -1355,42 +1355,58 @@ async function landingPage() {
 		element("machine-id").textContent = local.record.paired.machineId.slice(0, 8);
 		element("protocol-address").textContent = local.record.paired.address;
 		element("trust-pin").textContent = Array.from(local.record.paired.machinePublicKey, (byte) => byte.toString(16).padStart(2, "0")).join("");
+		const step = { phase: "open" };
+		const channel = session && channelFor(session);
+		const reused = !!channel && !channel.ended && channel.paired.clientId === local.record.paired.clientId && channel.paired.machineId === local.record.paired.machineId && channel.paired.machinePublicKey.every((byte, index) => byte === local.record.paired.machinePublicKey[index]) && channel.key.publicKey().every((byte, index) => byte === local.record.publicKey[index]);
+		const open = async () => {
+			step.phase = "open";
+			opaque = false;
+			session = void 0;
+			const current = await door();
+			if (!currentPage()) return false;
+			validateEntryDoor(current);
+			element("protocol-address").textContent = current.address;
+			if (current.machineId !== local.record.paired.machineId) {
+				render("different");
+				return false;
+			}
+			try {
+				session = await openSession({
+					...local.record.paired,
+					address: current.address
+				}, local.key, current.windowId, async (url, init) => {
+					if (!pageAlive()) throw new Error("Remote page ended.");
+					const response = await fetch(url, init);
+					opaque = response.status === 404;
+					return response;
+				});
+			} catch (error) {
+				if (!currentPage()) return false;
+				if (opaque) {
+					const latest = await door();
+					if (!currentPage()) return false;
+					validateEntryDoor(latest);
+				}
+				throw error;
+			}
+			return currentPage();
+		};
+		const observe = async () => {
+			step.phase = "capabilities";
+			await verifiedSessionRequest(session)("capabilities", crypto.randomUUID(), {}, parseCapabilities);
+		};
 		opaque = false;
 		try {
-			let current;
-			const channel = session && channelFor(session);
-			if (!channel || channel.ended || channel.paired.clientId !== local.record.paired.clientId || channel.paired.machineId !== local.record.paired.machineId || channel.paired.machinePublicKey.some((byte, index) => byte !== local.record.paired.machinePublicKey[index]) || channel.key.publicKey().some((byte, index) => byte !== local.record.publicKey[index])) {
-				session = void 0;
-				current = await door();
-				if (!currentPage()) return;
-				validateEntryDoor(current);
-				element("protocol-address").textContent = current.address;
-				if (current.machineId !== local.record.paired.machineId) {
-					render("different");
-					return;
-				}
-				try {
-					session = await openSession({
-						...local.record.paired,
-						address: current.address
-					}, local.key, current.windowId, async (url, init) => {
-						if (!pageAlive()) throw new Error("Remote page ended.");
-						const response = await fetch(url, init);
-						opaque = response.status === 404;
-						return response;
-					});
-				} catch (error) {
-					if (!currentPage()) return;
-					if (opaque) {
-						const latest = await door();
-						if (!currentPage()) return;
-						validateEntryDoor(latest);
-					}
-					throw error;
-				}
-			}
+			if (!reused && !await open()) return;
 			if (!currentPage()) return;
-			await verifiedSessionRequest(session)("capabilities", crypto.randomUUID(), {}, parseCapabilities);
+			try {
+				await observe();
+			} catch (error) {
+				if (!currentPage()) return;
+				if (!reused || !(error instanceof RefusalError) || error.code !== "REMOTE_SESSION_ENDED") throw error;
+				if (!await open()) return;
+				await observe();
+			}
 			if (!currentPage()) return;
 			element("checked-time").textContent = new Intl.DateTimeFormat(void 0, {
 				dateStyle: "medium",
@@ -1399,7 +1415,7 @@ async function landingPage() {
 			render("connected");
 		} catch (error) {
 			if (!currentPage()) return;
-			const verifiedRefusal = !opaque && error instanceof RefusalError && [
+			const verifiedRefusal = !opaque && error instanceof RefusalError && !(step.phase === "capabilities" && error.code === "REMOTE_SESSION_ENDED") && [
 				"REMOTE_CLOSED",
 				"REMOTE_SESSION_ENDED",
 				"REMOTE_SESSION_EVICTED",

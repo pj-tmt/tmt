@@ -17,7 +17,8 @@ async function fixture(mode = 'success') {
     paired: device.result,
   };
   let mounts = 0,
-    admissions = 0;
+    admissions = 0,
+    observations = 0;
   let release = () => {};
   const blocked = new Promise<void>((resolve) => {
     release = resolve;
@@ -97,7 +98,24 @@ async function fixture(mode = 'success') {
       });
     }
     const operation = JSON.parse(init!.body as string).operation;
-    if (operation === 'session.open') admissions++;
+    if (operation === 'session.open') {
+      admissions++;
+      if (mode === 'expired-reopen-refused' && admissions === 2)
+        return new Response('', { status: 404 });
+    }
+    if (operation === 'capabilities') {
+      observations++;
+      if (mode.startsWith('expired-') && observations === 2) {
+        if (mode !== 'expired-signed') return new Response('', { status: 404 });
+        door.error = { code: 'REMOTE_SESSION_ENDED', message: 'Idle session expired.' };
+        try {
+          return await door.fetch(url, init);
+        } finally {
+          door.error = undefined;
+        }
+      }
+      if (mode === 'expired-again' && observations > 2) return new Response('', { status: 404 });
+    }
     if (mode === 'pending-admission') {
       arrive();
       await blocked;
@@ -166,6 +184,32 @@ test('entry automatically checks once, then manual checks reuse the verified ses
     vi.unstubAllGlobals();
   }
 });
+
+for (const mode of ['expired-404', 'expired-signed', 'expired-reopen-refused', 'expired-again']) {
+  test(`manual check reopens an expired reused session once: ${mode}`, async () => {
+    const f = await fixture(mode);
+    try {
+      await landingPage();
+      assert.equal(f.nodes.get('heading')!.textContent, 'Connected');
+      f.click();
+      await vi.waitFor(() => assert.equal(f.button.disabled, false));
+      const connected = mode === 'expired-404' || mode === 'expired-signed';
+      assert.equal(
+        f.nodes.get('state-label')!.textContent,
+        connected ? 'Connected' : "Can't reach Remote",
+      );
+      assert.notEqual(f.nodes.get('state-label')!.textContent, 'Not accepted');
+      assert.deepEqual(f.counts(), {
+        mounts: mode === 'expired-reopen-refused' ? 3 : 2,
+        admissions: 2,
+      });
+      assert.equal(f.door.opens, connected || mode === 'expired-again' ? 2 : 1);
+      assert.ok(f.door.calls.every((call) => call.envelope.operation === 'capabilities'));
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+}
 
 test('checked time follows viewer local zones rather than ISO or forced UTC', async () => {
   const before = process.env.TZ;
