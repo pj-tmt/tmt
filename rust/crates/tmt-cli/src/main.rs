@@ -56,6 +56,7 @@ mod skill_reminder;
 mod talk_command;
 mod target;
 mod uninstall_command;
+mod workspace_hook;
 
 #[cfg(test)]
 mod cli_style_tests;

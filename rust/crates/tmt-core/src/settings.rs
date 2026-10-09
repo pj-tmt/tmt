@@ -90,9 +90,11 @@ pub enum SettingKey {
     ReplyBatchWindowMs,
     TypingQuietMs,
     NotesCompactionReminder,
+    WorkspaceSnapshotEnabled,
+    WorkspaceSnapshotIntervalMs,
 }
 
-pub const EDITABLE_KEYS: [SettingKey; 8] = [
+pub const EDITABLE_KEYS: [SettingKey; 10] = [
     SettingKey::PreambleMode,
     SettingKey::PaneBadge,
     SettingKey::PreambleEvery,
@@ -101,6 +103,8 @@ pub const EDITABLE_KEYS: [SettingKey; 8] = [
     SettingKey::ReplyBatchWindowMs,
     SettingKey::TypingQuietMs,
     SettingKey::NotesCompactionReminder,
+    SettingKey::WorkspaceSnapshotEnabled,
+    SettingKey::WorkspaceSnapshotIntervalMs,
 ];
 
 impl SettingKey {
@@ -117,6 +121,8 @@ impl SettingKey {
             Self::ReplyBatchWindowMs => "notifications.replyBatchWindowMs",
             Self::TypingQuietMs => "notifications.typingQuietMs",
             Self::NotesCompactionReminder => "notes.compactionReminder",
+            Self::WorkspaceSnapshotEnabled => "workspace.snapshotEnabled",
+            Self::WorkspaceSnapshotIntervalMs => "workspace.snapshotIntervalMs",
         }
     }
 
@@ -132,7 +138,10 @@ impl SettingKey {
             Self::PaneBadge => "'on' or 'off'",
             Self::ReplyBatchWindowMs => "an integer from 0 through 60000 milliseconds",
             Self::TypingQuietMs => "an integer from 0 through 30000 milliseconds",
-            Self::NotesCompactionReminder => "true or false",
+            Self::NotesCompactionReminder | Self::WorkspaceSnapshotEnabled => "true or false",
+            Self::WorkspaceSnapshotIntervalMs => {
+                "an integer from 0 through 2147483647 milliseconds"
+            }
         }
     }
 
@@ -144,6 +153,8 @@ impl SettingKey {
                 | Self::ReplyBatchWindowMs
                 | Self::TypingQuietMs
                 | Self::NotesCompactionReminder
+                | Self::WorkspaceSnapshotEnabled
+                | Self::WorkspaceSnapshotIntervalMs
         )
     }
 
@@ -182,6 +193,8 @@ pub enum Setting {
     ReplyBatchWindowMs(u64),
     TypingQuietMs(u64),
     NotesCompactionReminder(bool),
+    WorkspaceSnapshotEnabled(bool),
+    WorkspaceSnapshotIntervalMs(u64),
 }
 
 fn unsigned_integer(value: f64, maximum: u64) -> bool {
@@ -201,6 +214,14 @@ impl Setting {
 
     pub fn validate(key: SettingKey, value: Scalar<'_>) -> Option<Self> {
         match (key, value) {
+            (SettingKey::WorkspaceSnapshotEnabled, Scalar::Boolean(value)) => {
+                Some(Self::WorkspaceSnapshotEnabled(value))
+            }
+            (SettingKey::WorkspaceSnapshotIntervalMs, Scalar::Number(value))
+                if unsigned_integer(value, 2_147_483_647) =>
+            {
+                Some(Self::WorkspaceSnapshotIntervalMs(value as u64))
+            }
             (SettingKey::NotesCompactionReminder, Scalar::Boolean(value)) => {
                 Some(Self::NotesCompactionReminder(value))
             }
@@ -258,7 +279,10 @@ impl Setting {
     }
 
     pub fn parse_edit(key: SettingKey, text: &str) -> Result<Self, String> {
-        let scalar = if key == SettingKey::NotesCompactionReminder {
+        let scalar = if matches!(
+            key,
+            SettingKey::NotesCompactionReminder | SettingKey::WorkspaceSnapshotEnabled
+        ) {
             match text {
                 "true" => Scalar::Boolean(true),
                 "false" => Scalar::Boolean(false),
@@ -286,7 +310,9 @@ impl Setting {
             let expected = match key {
                 SettingKey::PreambleMode => "Valid values: always, disabled",
                 SettingKey::PaneBadge => "Valid values: on, off",
-                SettingKey::NotesCompactionReminder => "Valid values: true, false",
+                SettingKey::NotesCompactionReminder | SettingKey::WorkspaceSnapshotEnabled => {
+                    "Valid values: true, false"
+                }
                 _ => "Must be a supported non-negative integer.",
             };
             format!("Invalid value for {}: {text}. {expected}", key.name())
@@ -306,6 +332,8 @@ impl Setting {
             Self::ReplyBatchWindowMs(_) => SettingKey::ReplyBatchWindowMs,
             Self::TypingQuietMs(_) => SettingKey::TypingQuietMs,
             Self::NotesCompactionReminder(_) => SettingKey::NotesCompactionReminder,
+            Self::WorkspaceSnapshotEnabled(_) => SettingKey::WorkspaceSnapshotEnabled,
+            Self::WorkspaceSnapshotIntervalMs(_) => SettingKey::WorkspaceSnapshotIntervalMs,
         }
     }
 }
@@ -323,6 +351,9 @@ pub struct Settings {
     pub reply_batch_window_ms: u64,
     pub typing_quiet_ms: u64,
     pub notes_compaction_reminder: bool,
+    pub workspace_snapshot_enabled: bool,
+    /// Reserved for command refresh (#2102); event capture does not consult it.
+    pub workspace_snapshot_interval_ms: u64,
 }
 
 pub struct ResolvedSettings {
@@ -374,6 +405,8 @@ impl Default for Settings {
             reply_batch_window_ms: 5_000,
             typing_quiet_ms: 2_000,
             notes_compaction_reminder: true,
+            workspace_snapshot_enabled: true,
+            workspace_snapshot_interval_ms: 60_000,
         }
     }
 }
@@ -392,6 +425,10 @@ impl Settings {
             Setting::ReplyBatchWindowMs(value) => self.reply_batch_window_ms = value,
             Setting::TypingQuietMs(value) => self.typing_quiet_ms = value,
             Setting::NotesCompactionReminder(value) => self.notes_compaction_reminder = value,
+            Setting::WorkspaceSnapshotEnabled(value) => self.workspace_snapshot_enabled = value,
+            Setting::WorkspaceSnapshotIntervalMs(value) => {
+                self.workspace_snapshot_interval_ms = value
+            }
         }
     }
 }

@@ -79,31 +79,50 @@ pub(super) fn preferences(
                 p.driver_state_version, p.driver_state, p.stale_at_ms, p.resume_pending_at_ms, p.channel FROM identity_session_preferences p
          JOIN identities i ON i.id = p.identity_id WHERE p.identity_id = ? AND i.retired_at_ms IS NULL",
         [identity_id],
-        |row| {
-            let invalid = |_| rusqlite::Error::InvalidQuery;
-            let preferred_harness = row.get::<_, Option<String>>(0)?
-                .map(|value| HarnessId::new(&value).map_err(invalid))
-                .transpose()?;
-            let remembered = match (row.get::<_, Option<String>>(1)?, row.get::<_, Option<String>>(2)?, row.get::<_, Option<String>>(3)?) {
-                (None, None, None) => None,
-                (Some(harness), Some(mode), Some(session)) => Some(RememberedSession {
-                    harness: HarnessId::new(&harness).map_err(invalid)?,
-                    mode: RuntimeMode::new(&mode).map_err(invalid)?,
-                    provider_session: ProviderSessionId::new(&session).map_err(invalid)?,
-                    state: match (row.get::<_, Option<u16>>(4)?, row.get::<_, Option<String>>(5)?) {
-                        (None, None) => None,
-                        (Some(version), Some(document)) => Some(DriverState::new(version, &document).map_err(invalid)?),
-                        _ => return Err(rusqlite::Error::InvalidQuery),
-                    },
-                    stale_at_ms: time(row, 6)?,
-                    resume_pending_at_ms: time(row, 7)?,
-                }),
-                _ => return Err(rusqlite::Error::InvalidQuery),
-            };
-            Ok(SessionPreferences { preferred_harness, remembered, channel: row.get(8)? })
-        },
+        |row| decode_preferences(row, 0),
     ).optional().map(|value| value.unwrap_or_default())
         .map_err(|error| classify(error, "Read session preferences"))
+}
+
+pub(super) fn decode_preferences(
+    row: &Row<'_>,
+    offset: usize,
+) -> rusqlite::Result<SessionPreferences> {
+    let invalid = |_| rusqlite::Error::InvalidQuery;
+    let preferred_harness = row
+        .get::<_, Option<String>>(offset)?
+        .map(|value| HarnessId::new(&value).map_err(invalid))
+        .transpose()?;
+    let remembered = match (
+        row.get::<_, Option<String>>(offset + 1)?,
+        row.get::<_, Option<String>>(offset + 2)?,
+        row.get::<_, Option<String>>(offset + 3)?,
+    ) {
+        (None, None, None) => None,
+        (Some(harness), Some(mode), Some(session)) => Some(RememberedSession {
+            harness: HarnessId::new(&harness).map_err(invalid)?,
+            mode: RuntimeMode::new(&mode).map_err(invalid)?,
+            provider_session: ProviderSessionId::new(&session).map_err(invalid)?,
+            state: match (
+                row.get::<_, Option<u16>>(offset + 4)?,
+                row.get::<_, Option<String>>(offset + 5)?,
+            ) {
+                (None, None) => None,
+                (Some(version), Some(document)) => {
+                    Some(DriverState::new(version, &document).map_err(invalid)?)
+                }
+                _ => return Err(rusqlite::Error::InvalidQuery),
+            },
+            stale_at_ms: time(row, offset + 6)?,
+            resume_pending_at_ms: time(row, offset + 7)?,
+        }),
+        _ => return Err(rusqlite::Error::InvalidQuery),
+    };
+    Ok(SessionPreferences {
+        preferred_harness,
+        remembered,
+        channel: row.get(offset + 8)?,
+    })
 }
 
 fn time(row: &Row<'_>, index: usize) -> rusqlite::Result<Option<u64>> {

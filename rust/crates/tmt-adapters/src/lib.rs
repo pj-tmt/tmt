@@ -75,3 +75,6 @@ mod test_support;
 
 #[cfg(all(test, unix))]
 mod process_tests;
+
+#[cfg(unix)]
+pub mod workspace;

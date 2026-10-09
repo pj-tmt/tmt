@@ -204,6 +204,13 @@ fn run(request: RunRequest<'_>) -> Result<u8, Failure> {
             "could not close launch state cleanly; inspect identity status before retrying.",
         );
     }
+    let _ = tmt_adapters::workspace::capture_event(
+        &paths,
+        &host,
+        None,
+        Some(&environment),
+        Instant::now() + tmt_adapters::workspace::CAPTURE_BUDGET,
+    );
     pending
 }
 

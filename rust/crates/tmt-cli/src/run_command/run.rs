@@ -354,6 +354,7 @@ pub(super) fn run_bound(
         );
     }
     let planned = lease.command(launch_command);
+    tmt_adapters::workspace::refresh_server(paths, host, &binding.server);
     let child =
         InteractiveChild::start_with(&planned.executable, &planned.args, lease.environment())
             .map_err(|error| {

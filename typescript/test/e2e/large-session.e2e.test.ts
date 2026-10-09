@@ -217,8 +217,17 @@ describe('scoped identity operations in a large tmux session', { concurrent: fal
           .invocations()
           .map(invocationArgs)
           .filter((args) => args.includes('list-panes'));
-        expect(addListInvocations.length).toBeGreaterThan(0);
-        expect(addListInvocations.every((args) => args.includes(' -f '))).toBe(true);
+        // Snapshot capture intentionally reads the entire remembered layout;
+        // binding/routing evidence still selects only its requested panes.
+        const topologyReads = addListInvocations.filter(
+          (args) =>
+            args.includes('#{window_visible_layout}') && args.includes('@tmt.workspace-command')
+        );
+        expect(topologyReads).toHaveLength(1);
+        expect(topologyReads[0]).toContain(' -a ');
+        const bindingReads = addListInvocations.filter((args) => !topologyReads.includes(args));
+        expect(bindingReads.length).toBeGreaterThan(0);
+        expect(bindingReads.every((args) => args.includes(' -f '))).toBe(true);
 
         const metadataAfterName = fixture.paneMetadata();
         expect(JSON.parse(metadataAfterName)).toMatchObject(opaqueMetadata);

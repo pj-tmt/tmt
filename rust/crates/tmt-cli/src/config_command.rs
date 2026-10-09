@@ -209,6 +209,7 @@ fn show_json(
             },
             "exchange": { "retentionDays": settings.retention_days },
             "notes": { "compactionReminder": settings.notes_compaction_reminder },
+            "workspace": { "snapshotEnabled": settings.workspace_snapshot_enabled, "snapshotIntervalMs": settings.workspace_snapshot_interval_ms },
             "notifications": { "replyBatchWindowMs": settings.reply_batch_window_ms, "typingQuietMs": settings.typing_quiet_ms },
             "ui": { "paneBadge": settings.pane_badge.as_str() },
             "theme": theme,
@@ -219,6 +220,7 @@ fn show_json(
             "pasteEnterDelayMs": loaded.source(SettingKey::PasteEnterDelayMs),
             "exchange": { "retentionDays": loaded.source(SettingKey::RetentionDays) },
             "notes": { "compactionReminder": loaded.source(SettingKey::NotesCompactionReminder) },
+            "workspace": { "snapshotEnabled": loaded.source(SettingKey::WorkspaceSnapshotEnabled), "snapshotIntervalMs": loaded.source(SettingKey::WorkspaceSnapshotIntervalMs) },
             "notifications": { "replyBatchWindowMs": loaded.source(SettingKey::ReplyBatchWindowMs), "typingQuietMs": loaded.source(SettingKey::TypingQuietMs) },
             "ui": { "paneBadge": loaded.source(SettingKey::PaneBadge) },
             "theme": theme_source,
@@ -236,6 +238,16 @@ fn show_text(
 ) -> io::Result<()> {
     let settings = &loaded.settings;
     let rows = [
+        (
+            SettingKey::WorkspaceSnapshotEnabled,
+            "workspace.snapshotEnabled",
+            settings.workspace_snapshot_enabled.to_string(),
+        ),
+        (
+            SettingKey::WorkspaceSnapshotIntervalMs,
+            "workspace.snapshotIntervalMs",
+            settings.workspace_snapshot_interval_ms.to_string(),
+        ),
         (
             SettingKey::NotesCompactionReminder,
             "notes.compactionReminder",

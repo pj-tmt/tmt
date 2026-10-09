@@ -8,6 +8,7 @@ mod focus;
 mod input;
 mod metadata;
 mod transport;
+mod workspace;
 pub use binding::{BindingSession, PaneCosmetics, PaneRefresh};
 pub use focus::{ClientView, FocusError, Invoker};
 

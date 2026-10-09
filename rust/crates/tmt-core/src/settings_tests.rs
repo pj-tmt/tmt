@@ -344,6 +344,8 @@ fn apply_has_last_write_precedence_across_all_setting_kinds() {
             reply_batch_window_ms: 5_000,
             typing_quiet_ms: 2_000,
             notes_compaction_reminder: true,
+            workspace_snapshot_enabled: true,
+            workspace_snapshot_interval_ms: 60_000,
         }
     );
 }
@@ -390,4 +392,29 @@ fn notes_reminder_is_a_default_on_global_boolean() {
         ResolvedSettings::from_layers(vec![Setting::NotesCompactionReminder(false)], vec![]);
     assert!(!resolved.settings.notes_compaction_reminder);
     assert_eq!(resolved.source(key), "global");
+}
+
+#[test]
+fn workspace_snapshot_settings_are_global_and_interval_is_a_bounded_integer() {
+    assert!(Settings::default().workspace_snapshot_enabled);
+    assert_eq!(Settings::default().workspace_snapshot_interval_ms, 60_000);
+    for key in [
+        SettingKey::WorkspaceSnapshotEnabled,
+        SettingKey::WorkspaceSnapshotIntervalMs,
+    ] {
+        assert!(key.global_only());
+        assert!(Setting::edit(key.name(), "0", Scope::Local).is_err());
+        assert!(LocalClear::parse(Some(key.name())).is_err());
+    }
+    assert_eq!(
+        Setting::edit("workspace.snapshotEnabled", "false", Scope::Global).unwrap(),
+        Setting::WorkspaceSnapshotEnabled(false)
+    );
+    assert!(Setting::edit("workspace.snapshotEnabled", "1", Scope::Global).is_err());
+    for value in ["0", "2147483647"] {
+        assert!(Setting::edit("workspace.snapshotIntervalMs", value, Scope::Global).is_ok());
+    }
+    for value in ["-1", "1.5", "2147483648"] {
+        assert!(Setting::edit("workspace.snapshotIntervalMs", value, Scope::Global).is_err());
+    }
 }

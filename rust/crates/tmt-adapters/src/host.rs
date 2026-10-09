@@ -46,6 +46,15 @@ pub use crate::tmux::{
 pub(crate) use delivery::DeliveryCause;
 pub use delivery::{DeliveryError, DeliveryStage};
 
+/// Recovery topology and evidence returned by the optional host capture port.
+pub struct WorkspaceCapture {
+    pub snapshot: tmt_core::workspace::WorkspaceSnapshot,
+    pub evidence: Vec<(String, u64, Option<tmt_core::endpoint::BindingMarker>)>,
+    pub binding_server: Option<ServerEvidence>,
+    pub starts: std::collections::HashMap<u64, tmt_core::endpoint::ProcessIncarnation>,
+    pub terminals: BTreeMap<String, String>,
+}
+
 /// Invocation-owned observations; tests never mutate process-global variables.
 pub struct CallerEnvironment {
     /// `TMUX` and `TMUX_PANE`.
@@ -452,6 +461,65 @@ impl<R: CommandRunner> Host<R> {
                     .map_or(bound, |deadline| deadline.min(bound));
                 self.external.resolve_target(host, target, deadline)
             }
+        }
+    }
+
+    pub fn workspace_pane_tty(
+        &self,
+        socket: &str,
+        pane: &str,
+        deadline: Instant,
+    ) -> Result<Option<String>, HostError> {
+        match self.primary {
+            HostKind::Tmux => Ok(Some(self.tmux.workspace_pane_tty(socket, pane, deadline)?)),
+            HostKind::External(_) => Ok(None),
+        }
+    }
+
+    /// Recovery capture is optional; external drivers have no workspace port yet.
+    pub fn workspace_capture(
+        &self,
+        socket: &str,
+        expected: Option<&ServerEvidence>,
+        caller: Option<&CallerEnvironment>,
+        deadline: Instant,
+    ) -> Result<Option<WorkspaceCapture>, HostError> {
+        match self.primary {
+            HostKind::Tmux => Ok(Some(
+                self.tmux
+                    .workspace_capture(socket, expected, caller, deadline)?,
+            )),
+            HostKind::External(_) => Ok(None),
+        }
+    }
+
+    pub fn workspace_command_marker(
+        &self,
+        socket: &str,
+        pane: &str,
+        document: Option<&str>,
+        deadline: Instant,
+    ) -> Result<(), HostError> {
+        match self.primary {
+            HostKind::Tmux => Ok(self
+                .tmux
+                .workspace_command_marker(socket, pane, document, deadline)?),
+            HostKind::External(_) => Ok(()),
+        }
+    }
+
+    pub fn clear_workspace_command(
+        &self,
+        socket: &str,
+        pane: &str,
+        expected: &str,
+        deadline: Instant,
+    ) -> Result<(), HostError> {
+        match self.primary {
+            HostKind::Tmux => Ok(self
+                .tmux
+                .clear_workspace_command(socket, pane, expected, deadline)?),
+            HostKind::External(_) => Ok(()),
         }
     }
 
