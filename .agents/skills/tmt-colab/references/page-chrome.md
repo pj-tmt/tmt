@@ -12,14 +12,12 @@ visible state word and shadow-free presentation belong to that leaf; its
 metrics; `notice-card.css` retains product page positioning and inherited state-label type. Legacy product color/font
 variable names alias the shared browser roles rather than projecting another palette.
 
-Owner and ready reader headers show the canonical original author below the title,
-with `Unknown author` for absent historical metadata. `page-attribution.tsx` presents
-that same field and the independently optional latest publisher in Page information.
-These are escaped publisher-provided display labels, never identity, permissions or
-Ask recipient selection. Header height and page geometry stay unchanged; long
-captions truncate with the full label in the tooltip and information panel.
-
-`notice-card.tsx` owns state-card markup for router errors, mounted lifecycle and
+Owner and ready reader headers show `By <name>` below the title only when an original
+author is recorded; with none there is no caption. `page-attribution.tsx` presents that
+field (`Unknown author` when absent) and the independently optional latest publisher in
+Page information. These are escaped publisher-provided display labels, never identity,
+permissions or Ask recipient selection. Header height and page geometry stay unchanged;
+long captions truncate with the full label in the tooltip and information panel.
 
 Native pairing/build guidance stays static. `chrome.rs` compile-time embeds the same checked
 CSS and Colab host/reader/notice layout styles; `/assets/chrome.css` serves those immutable

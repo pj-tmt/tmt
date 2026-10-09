@@ -9,6 +9,7 @@ function formatBytes(bytes: number): string {
 export const text = {
   unknownPageTitle: 'Untitled page',
   originalAuthor: 'Original author',
+  byAuthor: (name: string) => `By ${name}`,
   unknownAuthor: 'Unknown author',
   latestPublisher: 'Latest publisher',
   authorAttributionNote:

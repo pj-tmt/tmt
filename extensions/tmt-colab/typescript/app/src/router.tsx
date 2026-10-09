@@ -940,7 +940,7 @@ function Page() {
         headerRef={toolbar}
         menuOpen={menu}
         title={view.title || snapshot.title || text.unknownPageTitle}
-        caption={`${text.originalAuthor}: ${view.originalAuthor ?? text.unknownAuthor}`}
+        caption={view.originalAuthor === undefined ? undefined : text.byAuthor(view.originalAuthor)}
         home={(brand) => (
           <Link to="/" aria-label={text.home}>
             {brand}

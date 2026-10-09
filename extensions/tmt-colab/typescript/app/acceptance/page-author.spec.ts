@@ -14,7 +14,7 @@ test('original author survives later publishing and owner reload and reads to a 
     const browser = await pairBrowser(world, 'author-viewer');
     const page = await openPage(door, browser, created);
     const caption = page.locator('.tmt-ui-caption');
-    await expect(caption).toHaveText(`Original author: ${creator.name}`);
+    await expect(caption).toHaveText(`By ${creator.name}`);
     // Browser Save carries no CLI label, so it removes the previous one; the original stays.
     await page.getByRole('button', { name: 'Source', exact: true }).click();
     const source = page.locator('.page-drawer[data-panel=source]');
@@ -25,7 +25,7 @@ test('original author survives later publishing and owner reload and reads to a 
     await expect(
       page.frameLocator('iframe').getByRole('heading', { name: 'Browser source' }),
     ).toBeVisible();
-    await expect(caption).toHaveText(`Original author: ${creator.name}`);
+    await expect(caption).toHaveText(`By ${creator.name}`);
     const read = JSON.parse(
       run(world, world.binaries.colab, ['page', 'read', created.pageId, '--json']),
     );
@@ -48,9 +48,9 @@ test('original author survives later publishing and owner reload and reads to a 
     await expect(
       page.frameLocator('iframe').getByRole('heading', { name: 'Later source' }),
     ).toBeVisible();
-    await expect(caption).toHaveText(`Original author: ${creator.name}`);
+    await expect(caption).toHaveText(`By ${creator.name}`);
     await page.reload();
-    await expect(caption).toHaveText(`Original author: ${creator.name}`);
+    await expect(caption).toHaveText(`By ${creator.name}`);
     await page.locator('.page-information summary').click();
     await expect(page.locator('.page-attribution')).toContainText(
       `Latest publisher${publisher.name}`,
@@ -62,7 +62,7 @@ test('original author survives later publishing and owner reload and reads to a 
         await page.setViewportSize({ width, height: 844 });
         for (const theme of ['light', 'dark']) {
           await page.evaluate((value) => (document.documentElement.dataset.theme = value), theme);
-          await expect(caption).toHaveText(`Original author: ${creator.name}`);
+          await expect(caption).toHaveText(`By ${creator.name}`);
           await page.screenshot({ path: `${captures}/${width}-${theme}-owner.png` });
         }
       }
@@ -82,9 +82,7 @@ test('original author survives later publishing and owner reload and reads to a 
       run(world, world.binaries.colab, ['share', 'link', 'add', created.pageId, '--yes', '--json']),
     );
     const reader = await openReaderLink(world, door, link.readerPath, 'author-reader');
-    await expect(reader.page.locator('.tmt-ui-caption')).toHaveText(
-      `Original author: ${creator.name}`,
-    );
+    await expect(reader.page.locator('.tmt-ui-caption')).toHaveText(`By ${creator.name}`);
     await reader.page.locator('.reader-information summary').click();
     await expect(reader.page.locator('.page-attribution')).toContainText(
       `Latest publisher${publisher.name}`,

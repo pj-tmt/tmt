@@ -41,8 +41,8 @@ export function ReaderApp({ state }: { state: ReaderState }) {
       <ColabHeader
         headerRef={bar}
         caption={
-          state.kind === 'ready'
-            ? `${text.originalAuthor}: ${state.view.originalAuthor ?? text.unknownAuthor}`
+          state.kind === 'ready' && state.view.originalAuthor !== undefined
+            ? text.byAuthor(state.view.originalAuthor)
             : undefined
         }
         title={
