@@ -140,39 +140,42 @@ pub(crate) struct RequestAdmission {
     pub input: AdmitInput,
     pub original: Option<BeginInput>,
 }
-impl RequestAdmission {
-    fn disclosure_matches(&self, disclosure: Option<Disclosure>) -> bool {
-        match disclosure {
-            Some(Disclosure::Receipt {
-                opaque_key,
-                payload_sha256,
-                payload_bytes,
-            }) => {
-                let frozen = match &self.input {
-                    AdmitInput::Begin(input) => {
-                        return input.opaque_key == opaque_key
+/// Whether the disclosure a callback names is exactly the one the admitted input implies.
+fn disclosure_matches(
+    input: &AdmitInput,
+    original: Option<&BeginInput>,
+    disclosure: Option<Disclosure>,
+) -> bool {
+    match disclosure {
+        Some(Disclosure::Receipt {
+            opaque_key,
+            payload_sha256,
+            payload_bytes,
+        }) => {
+            let frozen = match input {
+                AdmitInput::Begin(input) => {
+                    return input.opaque_key == opaque_key
+                        && input.payload_sha256 == payload_sha256
+                        && input.payload_bytes == payload_bytes;
+                }
+                AdmitInput::Commit(input) => &input.retained,
+                AdmitInput::Status(_) => {
+                    return original.is_some_and(|input| {
+                        input.opaque_key == opaque_key
                             && input.payload_sha256 == payload_sha256
-                            && input.payload_bytes == payload_bytes;
-                    }
-                    AdmitInput::Commit(input) => &input.retained,
-                    AdmitInput::Status(_) => {
-                        return self.original.as_ref().is_some_and(|input| {
-                            input.opaque_key == opaque_key
-                                && input.payload_sha256 == payload_sha256
-                                && input.payload_bytes == payload_bytes
-                        });
-                    }
-                    _ => return false,
-                };
-                frozen.opaque_key == opaque_key
-                    && frozen.payload_sha256 == payload_sha256
-                    && frozen.payload_bytes == payload_bytes
-            }
-            Some(Disclosure::Bytes { offset, length }) => {
-                matches!(&self.input, AdmitInput::Read(input) if input.offset == offset && input.count == length)
-            }
-            _ => true, // The neutral ledger admits the method's other exact classes.
+                            && input.payload_bytes == payload_bytes
+                    });
+                }
+                _ => return false,
+            };
+            frozen.opaque_key == opaque_key
+                && frozen.payload_sha256 == payload_sha256
+                && frozen.payload_bytes == payload_bytes
         }
+        Some(Disclosure::Bytes { offset, length }) => {
+            matches!(input, AdmitInput::Read(input) if input.offset == offset && input.count == length)
+        }
+        _ => true, // The neutral ledger admits the method's other exact classes.
     }
 }
 impl CallbackOwner for RequestAdmission {
@@ -181,7 +184,11 @@ impl CallbackOwner for RequestAdmission {
         if !self.capture.peer.context_matches(admit.context)
             || admit.generation != self.capture.peer.client.generation()
             || admit.operation.input != self.input
-            || !self.disclosure_matches(admit.operation.disclosure)
+            || !disclosure_matches(
+                &self.input,
+                self.original.as_ref(),
+                admit.operation.disclosure,
+            )
         {
             return Decision::Deny;
         }
@@ -227,6 +234,102 @@ impl CallbackOwner for RootReadAdmission {
         let checked =
             (self.source)().and_then(|source| self.capture.recheck(&source.store, &source.keyring));
         if checked.is_err() {
+            return Decision::Deny;
+        }
+        if Instant::now() >= deadline {
+            return Decision::Unavailable;
+        }
+        if !self.client.standing(Origin::LocalExtension) {
+            return Decision::Deny;
+        }
+        Decision::Allow
+    }
+}
+
+/// Native attach of one staged file (#2291), authored by the root-local writer. Narrower than a
+/// peer's admission on purpose: only `LocalExtension`, only the upload methods and the verify read
+/// of the one frozen original, only a descriptor the local writer created for a document, and
+/// only while the page is still writable at the captured base. Reads of anything else stay with
+/// [`RootReadAdmission`], and no browser or Remote context can reach it.
+pub(super) struct RootWriteAdmission {
+    pub client: Client,
+    pub source: page::save::SourceOpener,
+    pub descriptor: Descriptor,
+    pub base: String,
+    pub original: BeginInput,
+    /// The exact call being admitted; `None` admits the verify reads of the original, each
+    /// checked against its own offset and count by the reader that issues it.
+    pub input: Option<AdmitInput>,
+    pub deadline: Instant,
+}
+impl RootWriteAdmission {
+    fn names_the_original(&self, input: &AdmitInput) -> bool {
+        match input {
+            AdmitInput::Read(read) => {
+                read.namespace == self.original.namespace
+                    && read.opaque_key == self.original.opaque_key
+                    && read.policy == self.original.policy
+                    && read.payload_sha256 == self.original.payload_sha256
+                    && read.payload_bytes == self.original.payload_bytes
+            }
+            AdmitInput::Begin(_)
+            | AdmitInput::Status(_)
+            | AdmitInput::Part(_)
+            | AdmitInput::Commit(_)
+            | AdmitInput::Discard(_) => self.input.as_ref() == Some(input),
+            AdmitInput::Config(_) => false,
+        }
+    }
+    /// The writer, page state and base must all still hold. A discard only cleans up the
+    /// writer's own staging, so it needs the page writable but not the base it was started at.
+    fn current(&self, discard: bool) -> bool {
+        let Ok(view) = (self.source)() else {
+            return false;
+        };
+        let Ok((author, _, _)) = view.keyring.local_writer() else {
+            return false;
+        };
+        if self.descriptor.author_device != author
+            || !matches!(
+                self.descriptor.source,
+                tmt_colab_model::attachment::Source::Document { .. }
+            )
+        {
+            return false;
+        }
+        let Ok(snapshot) = page::snapshot(&view.store, &view.keyring, &self.descriptor.page, true)
+        else {
+            return false;
+        };
+        if discard {
+            return true;
+        }
+        attachments::current_base(&view.keyring, &self.descriptor, &snapshot)
+            .is_ok_and(|base| base == self.base)
+            && snapshot
+                .asset_author(&view.keyring, &self.descriptor)
+                .is_ok()
+    }
+}
+impl CallbackOwner for RootWriteAdmission {
+    fn decide(&self, admit: &Admit, deadline: Instant) -> Decision {
+        let deadline = deadline.min(self.deadline);
+        if admit.context != Context::LocalExtension
+            || admit.generation != self.client.generation()
+            || !self.names_the_original(&admit.operation.input)
+            || !disclosure_matches(
+                &admit.operation.input,
+                Some(&self.original),
+                admit.operation.disclosure,
+            )
+        {
+            return Decision::Deny;
+        }
+        if Instant::now() >= deadline {
+            return Decision::Unavailable;
+        }
+        let discard = matches!(admit.operation.input, AdmitInput::Discard(_));
+        if !self.client.standing(Origin::LocalExtension) || !self.current(discard) {
             return Decision::Deny;
         }
         if Instant::now() >= deadline {

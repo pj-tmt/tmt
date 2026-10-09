@@ -7,6 +7,7 @@
 use crate::{
     Result,
     assets::{self, App},
+    attachments::slots::StagingSlots,
     control::{self, Control, StopReply},
     keyring::{Layout, StateFault},
     limits, management,
@@ -106,6 +107,7 @@ pub struct MountSocket {
     registration: Option<Arc<Mutex<Registration>>>,
     sync: Option<Server<OwnerAdmission>>,
     objects: Arc<ChannelOwner>,
+    slots: Option<Arc<StagingSlots>>,
 }
 #[derive(Clone)]
 struct Browser {
@@ -164,6 +166,7 @@ impl MountSocket {
             registration: None,
             sync: None,
             objects: Arc::new(ChannelOwner::new(Arc::new(|| None))),
+            slots: None,
         })
     }
     /// Record how the Remote door is held (one of `control::DOORS`) for a stop request to report.
@@ -198,6 +201,7 @@ impl MountSocket {
             OwnerAdmission(Arc::clone(&registration)),
         ));
         self.registration = Some(registration);
+        self.slots = Some(Arc::new(StagingSlots::open(layout)?));
         Ok(self)
     }
     pub fn run(self, stop: &AtomicBool) -> Result<()> {
@@ -248,6 +252,7 @@ impl MountSocket {
                     let sync = self.sync.clone();
                     let active = Arc::clone(&active);
                     let objects = Arc::clone(&self.objects);
+                    let slots = self.slots.clone();
                     let handle =
                         thread::Builder::new()
                             .name("colab-socket".into())
@@ -262,6 +267,7 @@ impl MountSocket {
                                         sync: sync.as_ref(),
                                         active: &active,
                                         objects: &objects,
+                                        slots: slots.as_deref(),
                                     },
                                 )
                             })?;
@@ -323,6 +329,7 @@ struct MountedServices<'a> {
     sync: Option<&'a Server<OwnerAdmission>>,
     active: &'a ActiveTunnels,
     objects: &'a ChannelOwner,
+    slots: Option<&'a StagingSlots>,
 }
 fn serve(
     mut socket: UnixStream,
@@ -336,6 +343,7 @@ fn serve(
         sync,
         active,
         objects,
+        slots,
     } = services;
     let request = match acquire(&mut socket) {
         Ok(request) => request,
@@ -431,6 +439,42 @@ fn serve(
                     "",
                     limits::ATTACHMENT_RESPONSE,
                 );
+            }
+            Err(error) => {
+                let failure = crate::page::ipc::WriteError::from_error(error.as_ref());
+                if let Ok(bytes) = serde_json::to_vec(&failure) {
+                    let _ = response_as(&mut socket, failure.status(), &bytes, "application/json");
+                }
+            }
+        }
+        return;
+    }
+    if request.path == crate::attachments::attach_ipc::STAGE_PATH
+        || request.path == crate::attachments::attach_ipc::ATTACH_PATH
+    {
+        // Native attach (#2291): stage a file in a slot the serve names, then seal, upload and
+        // publish it as the root-local writer. Like the read route, the authority is this owned
+        // private socket; a browser or Remote context never reaches it.
+        let result = (|| -> Result<Vec<u8>> {
+            if local_denied(&request) {
+                return Err(crate::page::Fault::Denied.into());
+            }
+            if request.method != "POST" || request.upgrade {
+                return Err(crate::page::Fault::Invalid.into());
+            }
+            let slots = slots.ok_or(crate::page::Fault::Unavailable)?;
+            let source = registration
+                .and_then(|service| service.lock().ok()?.save_source())
+                .ok_or(crate::page::Fault::Unavailable)?;
+            if request.path == crate::attachments::attach_ipc::STAGE_PATH {
+                attach_stage(&request, slots, objects, &source)
+            } else {
+                attach_run(&request, slots, objects, &source, sync)
+            }
+        })();
+        match result {
+            Ok(bytes) => {
+                let _ = response_as(&mut socket, 200, &bytes, "application/json");
             }
             Err(error) => {
                 let failure = crate::page::ipc::WriteError::from_error(error.as_ref());
@@ -951,6 +995,87 @@ fn apply_event(
 /// Reserved local routes derive authority from the socket, never forwarded headers.
 fn local_denied(request: &Request) -> bool {
     request.context.is_some() || request.event.is_some()
+}
+/// Open a staging slot for a page that can take an attachment now. StagingSlots no one is going to
+/// finish are swept first, and the original of an aged started slot is discarded before it goes.
+fn attach_stage(
+    request: &Request,
+    slots: &StagingSlots,
+    objects: &ChannelOwner,
+    source: &crate::page::save::SourceOpener,
+) -> Result<Vec<u8>> {
+    use crate::attachments::attach_ipc::{Staged, parse_stage, stage_reply};
+    let (page, filename, media_type) = parse_stage(&request.body)?;
+    let now = registration::now_ms()?;
+    // The caller waits only a few seconds for a slot, so the discards of aged originals share one
+    // short budget; a slot past it goes without one.
+    let until = Instant::now() + Duration::from_secs(1);
+    for aged in slots.sweep(now)? {
+        objects.dispose_aged(aged, source, until);
+    }
+    {
+        let view = source()?;
+        crate::page::snapshot(&view.store, &view.keyring, &page, true)?;
+    }
+    let slot = slots.create(&page, &filename, &media_type, now)?;
+    stage_reply(&Staged {
+        slot: slot.id().to_owned(),
+        path: slot.source_path().to_string_lossy().into_owned(),
+    })
+}
+/// Seal, upload and publish the staged file of one slot, within one budget counted from when the
+/// request was read.
+fn attach_run(
+    request: &Request,
+    slots: &StagingSlots,
+    objects: &ChannelOwner,
+    source: &crate::page::save::SourceOpener,
+    sync: Option<&Server<OwnerAdmission>>,
+) -> Result<Vec<u8>> {
+    use crate::attachments::attach_ipc::{Attached, attach_reply, parse_attach};
+    use tmt_colab_model::{attachment::AttachmentSelector, values};
+    let (page, slot, digest) = parse_attach(&request.body)?;
+    let deadline = request.received + limits::ATTACH_BUDGET;
+    // One attach per slot at a time: a retry that overlaps the first waits, then finds it done.
+    let _claim = slots.claim(&slot, deadline)?;
+    let slot = slots.load(&slot)?;
+    if slot.record.page != page {
+        return Err(crate::page::Fault::Missing.into());
+    }
+    let publisher = ServePublish(sync.ok_or(crate::page::Fault::Unavailable)?);
+    let attached =
+        objects.attach_root_local(slot, digest, Arc::clone(source), &publisher, deadline)?;
+    let descriptor = attached.descriptor;
+    let descriptor_hash: String = descriptor
+        .hash()?
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect();
+    attach_reply(Attached {
+        attachment_id: descriptor.attachment_id.clone(),
+        descriptor_hash: descriptor_hash.clone(),
+        filename: descriptor.filename.clone(),
+        media_type: descriptor.media_type.clone(),
+        plaintext_bytes: values::decimal(&descriptor.plaintext_bytes, true)?,
+        reference: AttachmentSelector::DocumentCurrent {
+            attachment_id: descriptor.attachment_id,
+            descriptor_hash,
+            content_revision: attached.revision,
+        },
+    })
+}
+/// The serve's single writer, driven in process for a publication the serve itself prepared.
+struct ServePublish<'a>(&'a Server<OwnerAdmission>);
+impl crate::object_channel::attach::Publish for ServePublish<'_> {
+    fn publish(
+        &self,
+        key: &crate::keyring::Keyring,
+        frozen: &crate::page::FrozenPublication,
+    ) -> Result<crate::page::Published> {
+        let body = crate::page::ipc::local_write_body(key, frozen)?;
+        self.0
+            .publish(&body, registration::now_ms()?, Instant::now())
+    }
 }
 fn apply_management(
     request: &Request,

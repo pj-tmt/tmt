@@ -40,7 +40,7 @@ impl std::error::Error for ManagementFault {
         self.source.as_ref().map(|error| error.as_ref() as _)
     }
 }
-fn fail(code: &'static str, message: &str) -> Box<dyn std::error::Error + Send + Sync> {
+pub(crate) fn fail(code: &'static str, message: &str) -> Box<dyn std::error::Error + Send + Sync> {
     Box::new(ManagementFault {
         code,
         message: message.into(),

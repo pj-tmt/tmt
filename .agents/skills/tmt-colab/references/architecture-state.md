@@ -35,7 +35,7 @@ requests run outside its Worker executor; historical fetch uses a detached Worke
 Complete committed reads check every range and raw digest before Colab asset crypto.
 The root-local read is the serve's owner-only `attachment-read` route (`attachments/ipc.rs`,
 `socket.rs`): it requires an established channel, never activates storage or opens a backend, and
-answers only the local CLI (export and `attachment read`). Production Remote declares Colab Local;
+answers only the local CLI (export and `attachment read`). Native attach (#2291) is its write counterpart: `attachments/slots.rs` (serve-owned staging slots), `attachments/seal.rs`, `attachments/attach_ipc.rs`, `object_channel/attach.rs` (upload protocol over a `Transport` seam, then proof and list change through `Publish`) and `RootWriteAdmission`, all behind `socket.rs`'s `attachment-stage`/`attachment-attach` routes; Remote's hub already admits `LocalExtension` uploads. Production Remote declares Colab Local;
 its routed lifecycle gate uses the three shipped binaries. Snapshot/retained-reference
 persistence is #2299, not a new Store/schema here. Read failures are four reasons
 (`denied`, `not-found`, `changed`, `unavailable`): `object_channel/peer.rs` `error_code` maps

@@ -1534,6 +1534,97 @@ fn attachment_read_refuses_without_a_serve_or_a_valid_reference_and_creates_noth
     );
 }
 #[test]
+fn attachment_attach_refuses_what_it_cannot_send_and_creates_nothing_without_a_serve() {
+    let pilot = Pilot::new(None);
+    let file = pilot.root.join("source.html");
+    fs::write(&file, "<p>Kept</p>").unwrap();
+    let created = pilot.call(&[
+        "page",
+        "create",
+        "--title",
+        "Attach",
+        "--file",
+        file.to_str().unwrap(),
+        "--json",
+    ]);
+    let id = created["pageId"].as_str().unwrap();
+    let notes = pilot.root.join("notes.txt");
+    fs::write(&notes, b"notes").unwrap();
+    let link = pilot.root.join("link.txt");
+    std::os::unix::fs::symlink(&notes, &link).unwrap();
+    let big = pilot.root.join("big.bin");
+    fs::File::create(&big)
+        .unwrap()
+        .set_len(tmt_colab_model::attachment::PLAINTEXT_BYTES as u64 + 1)
+        .unwrap();
+    let attach = |args: &[&str]| {
+        let mut all = vec!["attachment", "attach", id];
+        all.extend_from_slice(args);
+        all.push("--json");
+        failure_args(&pilot, &all)
+    };
+    // A file that cannot be attached is refused before the serve is asked, whatever its state.
+    for path in [
+        pilot.root.join("absent.txt"),
+        link.clone(),
+        pilot.root.clone(),
+    ] {
+        assert_eq!(
+            attach(&[path.to_str().unwrap()])["error"]["code"],
+            "COLAB_INPUT_INVALID"
+        );
+    }
+    let large = attach(&[big.to_str().unwrap()]);
+    assert_eq!(large["error"]["code"], "COLAB_CAPACITY");
+    assert!(
+        large["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("at most 8 MiB"),
+        "{large}"
+    );
+    assert_eq!(
+        attach(&[notes.to_str().unwrap(), "--type", "TEXT/plain"])["error"]["code"],
+        "COLAB_INPUT_INVALID"
+    );
+    // A valid file with no serve cannot be staged, and nothing is created for it.
+    assert_eq!(
+        attach(&[notes.to_str().unwrap()])["error"]["code"],
+        "COLAB_UNAVAILABLE"
+    );
+    assert_eq!(
+        attach(&["--resume", &"a".repeat(32)])["error"]["code"],
+        "COLAB_UNAVAILABLE"
+    );
+    fn find(dir: &std::path::Path) -> bool {
+        fs::read_dir(dir).unwrap().flatten().any(|entry| {
+            entry.file_name() == "attach-slots"
+                || (entry.file_type().unwrap().is_dir() && find(&entry.path()))
+        })
+    }
+    assert!(!find(&pilot.root), "a refused attach left a slot behind");
+    // A file and a resume together are a usage error, not a serve question.
+    let output = pilot
+        .command()
+        .args([
+            "attachment",
+            "attach",
+            id,
+            notes.to_str().unwrap(),
+            "--resume",
+            &"a".repeat(32),
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(1), "{output:?}");
+    assert!(String::from_utf8_lossy(&output.stderr).contains("cannot be used with"));
+}
+fn failure_args(pilot: &Pilot, args: &[&str]) -> Value {
+    let output = pilot.command().args(args).output().unwrap();
+    assert_eq!(output.status.code(), Some(1), "{output:?}");
+    serde_json::from_slice(&output.stdout).unwrap()
+}
+#[test]
 fn writing_the_source_a_page_already_has_publishes_nothing_offline_and_serving() {
     for serving in [false, true] {
         let mut pilot = Pilot::new(None);

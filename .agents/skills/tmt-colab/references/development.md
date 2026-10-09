@@ -53,21 +53,22 @@ python3 extensions/tmt-colab/contracts/vectors/send-preview-reference.py
 
 Each is `(cd rust && cargo test --offline --locked -p tmt-colab <selector>)`:
 
-| Area                                            | Selector                                                                                                                         |
-| ----------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| Store state, paired checkpoints                 | `--test state`                                                                                                                   |
-| Durable time and expiry                         | `--test expiry`                                                                                                                  |
-| Owner state and schema preservation             | `--test owner_state --test registration`                                                                                         |
-| Owner transitions (real child, FIFO barriers)   | `--test transitions`                                                                                                             |
-| Registration, revoke callback, mounted endpoint | `--test registration`                                                                                                            |
-| Management DTOs and mounted socket              | `management`, `--test socket management`                                                                                         |
-| Management CLI (`ls`, `show`, `share ...`)      | `--bin tmt-colab --test cli`                                                                                                     |
-| Stream sync                                     | `--test sync`, `--test socket`                                                                                                   |
-| Readers                                         | `--lib readers::tests`, `--lib mounted_`, `--test socket mounted_public_readers`, `--test socket archived_owner_pages`           |
-| Decoder (real child)                            | `--test decoder -- --nocapture`, `--test decoder baseline_`, `--test checkpoint_vectors`, `--test own_vectors --test discussion` |
-| Page source CLI                                 | `--test page`                                                                                                                    |
-| Export and attachment read                      | `--test export`, `export::tests`, `export::attachments::tests`, `--test socket root_local_attachment_read`                       |
-| Object channel and admitted attachments         | `--lib object_channel::tests`, `--test attachments`                                                                              |
+| Area                                            | Selector                                                                                                                                                             |
+| ----------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Store state, paired checkpoints                 | `--test state`                                                                                                                                                       |
+| Durable time and expiry                         | `--test expiry`                                                                                                                                                      |
+| Owner state and schema preservation             | `--test owner_state --test registration`                                                                                                                             |
+| Owner transitions (real child, FIFO barriers)   | `--test transitions`                                                                                                                                                 |
+| Registration, revoke callback, mounted endpoint | `--test registration`                                                                                                                                                |
+| Management DTOs and mounted socket              | `management`, `--test socket management`                                                                                                                             |
+| Management CLI (`ls`, `show`, `share ...`)      | `--bin tmt-colab --test cli`                                                                                                                                         |
+| Stream sync                                     | `--test sync`, `--test socket`                                                                                                                                       |
+| Readers                                         | `--lib readers::tests`, `--lib mounted_`, `--test socket mounted_public_readers`, `--test socket archived_owner_pages`                                               |
+| Decoder (real child)                            | `--test decoder -- --nocapture`, `--test decoder baseline_`, `--test checkpoint_vectors`, `--test own_vectors --test discussion`                                     |
+| Page source CLI                                 | `--test page`                                                                                                                                                        |
+| Export and attachment read                      | `--test export`, `export::tests`, `export::attachments::tests`, `--test socket root_local_attachment_read`                                                           |
+| Object channel and admitted attachments         | `--lib object_channel::tests`, `--test attachments`                                                                                                                  |
+| Native attach                                   | `--lib attachments::slots`, `--lib object_channel::attach`, `--lib object_channel::tests::attach`, `--test cli attachment_attach`, `--test socket root_local_attach` |
 
 - Object-channel fixtures exercise the real private socket and neutral Bus with scripted
   extension outcomes; they do not prove the production Remote backend route. Production
@@ -129,7 +130,7 @@ directory with `page.html`, `conversations.json`, `conversations.md`, `manifest.
 `attachments/` directory of the files it could read (never replacing output), and reports
 `error.partialDirectory` on a failed publication. Attachments are read through the running serve,
 so `tmt colab attachment read <page-uuid> --reference <manifest-row-reference.json> --output <dir>`
-and the attachments of `export` need `tmt colab serve`; without it each is unavailable.
+and the attachments of `export` need `tmt colab serve`; without it each is unavailable. `tmt colab attachment attach <page-uuid> <file>` also needs an established object channel (open the page once in a browser through `tmt remote`).
 
 Serve and the door: the CLI suites in `tests/cli.rs` run a scripted `tmt remote ...` stand-in
 (`Pilot::remote_core`: attach, start, not installed, door that dies, a wrapper that leaves a
