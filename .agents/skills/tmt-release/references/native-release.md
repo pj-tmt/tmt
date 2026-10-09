@@ -241,6 +241,9 @@ neither own nor predecessor published history has nothing to upgrade from and sa
 that predates the scripts fails the proof with that message and is proven by hand.
 Asset acquisition by immutable GitHub id allows three attempts with 1/2 s backoff and the unchanged
 300 s per-call bound, logging earlier failures; staged-byte verification and local file errors are never retried.
+Only x64-Apple verification dependency installs allow one extra attempt after the exact Node async-hook abort,
+with a 5 s wait, owned partial-module cleanup and visible attempt logs; other failures stay immediate,
+and the existing 600/780 s verification/proof job caps and failed-draft publication protections remain unchanged.
 
 Extension-upgrade proofs (`test/native/extension-upgrade-proof.test.ts`) use one native
 recording driver on macOS and Linux; build it first and publish the built bytes through

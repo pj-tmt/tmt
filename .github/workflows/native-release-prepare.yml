@@ -337,11 +337,25 @@ jobs:
           architecture: ${{ matrix.target == 'x86_64-apple-darwin' && 'x64' || '' }}
       - name: Install verification dependencies
         working-directory: release-source/typescript
-        run: pnpm install --frozen-lockfile --ignore-scripts
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          if [ "$TARGET" = x86_64-apple-darwin ]; then
+            "$GITHUB_WORKSPACE/scripts/install-native-verification-dependencies.sh"
+          else
+            pnpm install --frozen-lockfile --ignore-scripts
+          fi
       - name: Install trusted CLI verification dependencies
         if: inputs.product == 'cli'
         working-directory: typescript
-        run: pnpm --filter tmux-team --fail-if-no-match install --frozen-lockfile --ignore-scripts
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          if [ "$TARGET" = x86_64-apple-darwin ]; then
+            "$GITHUB_WORKSPACE/scripts/install-native-verification-dependencies.sh" --trusted-cli
+          else
+            pnpm --filter tmux-team --fail-if-no-match install --frozen-lockfile --ignore-scripts
+          fi
       - name: Install pinned Rust for version-only resolution
         run: rustup toolchain install 1.97.0 --profile minimal
       - name: Inject the reviewed draft version and verify its source/lock contract
