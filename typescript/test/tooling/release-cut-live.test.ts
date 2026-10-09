@@ -1,5 +1,13 @@
 import { execFileSync, spawnSync, type SpawnSyncReturns } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { availableParallelism, cpus, loadavg, tmpdir } from 'node:os';
 import { performance, type EventLoopUtilization } from 'node:perf_hooks';
 import { basename, join } from 'node:path';
@@ -236,8 +244,24 @@ function releaseCutDiagnostics(
 }
 
 const roots: string[] = [];
+const inheritedCargoHome = process.env.CARGO_HOME;
+const inheritedRustupHome = process.env.RUSTUP_HOME;
+function privateCargoHome() {
+  // The dependency-free workspace needs no registry and must not share other workers' locks.
+  const home = mkdtempSync(join(tmpdir(), 'release-live-cargo-'));
+  vi.stubEnv('CARGO_HOME', home);
+  return {
+    home,
+    cleanup() {
+      vi.unstubAllEnvs();
+      rmSync(home, { recursive: true, force: true });
+    },
+  };
+}
+let caseCargoHome: ReturnType<typeof privateCargoHome>;
 let diagnostics: ReturnType<typeof releaseCutDiagnostics>;
 beforeEach(() => {
+  caseCargoHome = privateCargoHome();
   diagnostics = releaseCutDiagnostics(() => performance.now(), {
     loadavg: loadavg(),
     cpuCount: cpus().length,
@@ -262,8 +286,43 @@ afterEach(({ task }) => {
   } catch {
     // A best-effort diagnostic must not replace the case failure or prevent its existing cleanup.
   } finally {
-    roots.splice(0).forEach((root) => rmSync(root, { recursive: true, force: true }));
+    try {
+      caseCargoHome.cleanup();
+    } finally {
+      roots.splice(0).forEach((root) => rmSync(root, { recursive: true, force: true }));
+    }
   }
+});
+
+describe('release cut private Cargo home', () => {
+  it('sets an empty private home during the case without changing RUSTUP_HOME', () => {
+    expect(process.env.CARGO_HOME).toBe(caseCargoHome.home);
+    expect(process.env.CARGO_HOME).not.toBe(inheritedCargoHome);
+    expect(readdirSync(caseCargoHome.home)).toEqual([]);
+    expect(process.env.RUSTUP_HOME).toBe(inheritedRustupHome);
+  });
+  it('restores the inherited home and removes distinct empty homes between cases', () => {
+    // Exercise the same hook lifetime without running Git, Cargo or a release case.
+    const hookHome = caseCargoHome.home;
+    caseCargoHome.cleanup();
+    expect(process.env.CARGO_HOME).toBe(inheritedCargoHome);
+    expect(existsSync(hookHome)).toBe(false);
+    const homes: string[] = [];
+    for (let i = 0; i < 2; i++) {
+      const current = privateCargoHome();
+      try {
+        homes.push(current.home);
+        expect(process.env.CARGO_HOME).toBe(current.home);
+        expect(readdirSync(current.home)).toEqual([]);
+        expect(process.env.RUSTUP_HOME).toBe(inheritedRustupHome);
+      } finally {
+        current.cleanup();
+      }
+      expect(process.env.CARGO_HOME).toBe(inheritedCargoHome);
+      expect(existsSync(current.home)).toBe(false);
+    }
+    expect(new Set([hookHome, ...homes]).size).toBe(3);
+  });
 });
 
 function fixture(activateExtensions = false) {
