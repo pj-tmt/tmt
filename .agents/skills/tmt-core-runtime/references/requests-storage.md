@@ -130,8 +130,11 @@ configuration. The owner map is in
   and `TMT_HOME` before creating anything. An exclusive rename finding an occupied destination and a remaining
   former store refuses rather than silently splitting state. A completed concurrent
   move succeeds only with the source absent and the current directory present.
-  An owned successful move reports both paths once on stderr; ordinary discovery and
-  concurrent completion stay quiet. The DB, WAL and SHM remain together, including
+  An owned successful move normally reports both paths once on stderr; the managed
+  skill-refresh protocol supplies a silent report callback to preserve its frozen
+  JSON/empty-stderr contract. Resolution, admission and cutover have one owner;
+  ordinary discovery and concurrent completion stay quiet. The DB, WAL and SHM
+  remain together, including
   open file descriptors; `tmux-team.db` stays until a separately authorized
   stopped-writer cutover. Explicit homes and former local files are never renamed
   or read as aliases.

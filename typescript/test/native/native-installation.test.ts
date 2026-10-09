@@ -108,6 +108,42 @@ describe('native installation process contract', () => {
   );
 
   it(
+    'refreshes first from the active managed release without a cutover diagnostic in the frozen protocol',
+    { timeout: 60_000 },
+    async () => {
+      await withReleaseSandbox(async (sandbox) => {
+        const version = (await runCli(sandbox, ['--version'])).stdout.trim();
+        const artifact = await createArtifact(sandbox, version);
+        const prefix = installPrefix(sandbox);
+        const installed = await install(sandbox, artifact, prefix);
+        const activeId = currentReleaseId(prefix);
+        const active = realpathSync(path.join(currentPointer(prefix), 'tmt'));
+        expect(realpathSync(installed.executable)).toBe(active);
+        const managed = { ...sandbox, cli: { executable: active, args: [] } };
+        const former = path.join(sandbox.xdgConfigHome, 'tmux-team');
+        mkdirSync(former, { recursive: true });
+        const settings = JSON.stringify({ theme: { base: 'mono' }, opaque: { keep: true } });
+        writeFileSync(path.join(former, 'config.json'), settings);
+        expect(existsSync(sandbox.globalDir)).toBe(false);
+        const refreshed = await runCli(managed, ['__native-refresh-skills', '--managed', '--json']);
+        expect(refreshed.status, refreshed.stdout + refreshed.stderr).toBe(0);
+        expect(refreshed.signal).toBe(null);
+        expect(refreshed.stderr).toBe('');
+        expect(parseWholeStdout(refreshed)).toEqual({ refreshed: [], skipped: [], conflicts: [] });
+        expect(currentReleaseId(prefix)).toBe(activeId);
+        expect(realpathSync(installed.executable)).toBe(active);
+        expect(readFileSync(sandbox.globalConfig, 'utf8')).toBe(settings);
+        expect(existsSync(former)).toBe(false);
+        expect(existsSync(sandbox.database)).toBe(false);
+        const repeated = await runCli(managed, ['__native-refresh-skills', '--managed', '--json']);
+        expect(repeated.status, repeated.stdout + repeated.stderr).toBe(0);
+        expect(parseWholeStdout(repeated)).toEqual({ refreshed: [], skipped: [], conflicts: [] });
+        expect(readFileSync(sandbox.globalConfig, 'utf8')).toBe(settings);
+      });
+    }
+  );
+
+  it(
     'versioned candidate handoff fences publication and retains provenance and same-version repair',
     { timeout: 60_000 },
     async () => {

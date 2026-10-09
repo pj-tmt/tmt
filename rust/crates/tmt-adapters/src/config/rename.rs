@@ -12,6 +12,7 @@ pub(super) fn prepare(
     home: &Path,
     explicit: Option<&Path>,
     xdg: Option<&Path>,
+    report: impl FnOnce(&Path, &Path),
 ) -> Result<(), ConfigError> {
     prepare_with(
         current,
@@ -20,9 +21,7 @@ pub(super) fn prepare(
         xdg,
         || crate::native_install::inspect(&std::env::current_exe()?).map(|_| ()),
         rename_exclusive,
-        |former, current| {
-            eprintln!("tmt: moved Core data directory {former:?} to {current:?}");
-        },
+        report,
     )
 }
 
@@ -263,7 +262,10 @@ mod tests {
         let current = temp.path.join(".config/tmt");
         fs::create_dir(&former).unwrap();
         fs::write(former.join("config.json"), b"owned settings").unwrap();
-        let error = prepare(&current, &temp.path, None, None).unwrap_err();
+        let error = prepare(&current, &temp.path, None, None, |_, _| {
+            panic!("refused move must not be reported");
+        })
+        .unwrap_err();
         assert!(error.message.contains(&former.display().to_string()));
         assert!(error.message.contains(&current.display().to_string()));
         assert!(error.message.contains("TMT_HOME"));

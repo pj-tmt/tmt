@@ -197,6 +197,15 @@ not application-state selectors; verify pin policy, old executable preservation,
 partial command-link finalization and unchanged data. The internal installer is
 not permission to replace a user or package-manager installation.
 
+For the one-release Core name cutover (#2270), the owner runs two back-to-back
+unpinned `tmt upgrade` commands: the first activates rename A (the first release
+that carries the tmt names) and refreshes managed skills with the new executable;
+the second, from newly active A, converts verified pane options. The prior
+executable owns the first finish and cannot run the new pane converter. Do not
+release rename B (the later release that drops the former names) until this
+second step completes; no install/setup or skill-refresh pane effects are added.
+Remove this paragraph once rename B has shipped.
+
 `tmt upgrade [--channel stable|alpha] [--to <version> | --unpin] [--json]` and `tmt update`
 share one grammar. Use task-owned managed prefixes; an unmanaged checkout binary fails before
 networking. Production has no test endpoint or TLS bypass: API fixtures inject only the

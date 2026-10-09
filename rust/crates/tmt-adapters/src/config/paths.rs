@@ -74,6 +74,16 @@ impl ConfigPaths {
     }
 
     pub fn discover() -> Result<Self, ConfigError> {
+        Self::discover_with_move_report(|former, current| {
+            eprintln!("tmt: moved Core data directory {former:?} to {current:?}");
+        })
+    }
+
+    /// Protocol callers own their output; resolution, admission and cutover stay
+    /// identical while the caller chooses how to report its successful move.
+    pub fn discover_with_move_report(
+        report: impl FnOnce(&Path, &Path),
+    ) -> Result<Self, ConfigError> {
         let cwd = env::current_dir().map_err(|error| ConfigError::internal(error.to_string()))?;
         let home = env::home_dir()
             .ok_or_else(|| ConfigError::internal("Cannot determine the home directory"))?;
@@ -89,6 +99,7 @@ impl ConfigPaths {
             &home,
             explicit.as_deref(),
             xdg.as_deref(),
+            report,
         )?;
         Ok(paths)
     }
