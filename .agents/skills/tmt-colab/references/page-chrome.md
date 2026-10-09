@@ -102,7 +102,9 @@ explicit full-history/details view.
 
 `page-drawer.tsx` portals chrome outside the header/menu. Desktop panels float on
 the right on an opaque square surface; mobile uses a full-screen native modal sheet. Neither
-changes renderer width or content layout. The panel body scrolls independently.
+changes renderer width or content layout. Panel bodies scroll independently except
+Chat: its bounded flex body keeps the shared header and non-shrinking composer
+visible, with only message history scrolling in the remaining height.
 Crossing the mobile breakpoint changes native modality in place, preserving a connected
 focused descendant and its editing selection; it does not restart a draft or run initial-open focus.
 Close/Escape restores focus, and media listeners/dialogs clean up on close or

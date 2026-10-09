@@ -1,0 +1,647 @@
+{
+ "append": [
+  {
+   "members": 1,
+   "writers": 1,
+   "readsPerAppend": 3,
+   "optimisticReadsPerAppend": 3,
+   "dailyAppendLimit": 16666,
+   "share": 16666,
+   "warnAt": 11666,
+   "refuseAt": 14999,
+   "minFlushIntervalMs": 618
+  },
+  {
+   "members": 2,
+   "writers": 1,
+   "readsPerAppend": 6,
+   "optimisticReadsPerAppend": 4,
+   "dailyAppendLimit": 8333,
+   "share": 8333,
+   "warnAt": 5833,
+   "refuseAt": 7499,
+   "minFlushIntervalMs": 1235
+  },
+  {
+   "members": 2,
+   "writers": 2,
+   "readsPerAppend": 6,
+   "optimisticReadsPerAppend": 4,
+   "dailyAppendLimit": 8333,
+   "share": 4166,
+   "warnAt": 2916,
+   "refuseAt": 3749,
+   "minFlushIntervalMs": 1235
+  },
+  {
+   "members": 3,
+   "writers": 2,
+   "readsPerAppend": 9,
+   "optimisticReadsPerAppend": 5,
+   "dailyAppendLimit": 5555,
+   "share": 2777,
+   "warnAt": 1943,
+   "refuseAt": 2499,
+   "minFlushIntervalMs": 1852
+  },
+  {
+   "members": 5,
+   "writers": 3,
+   "readsPerAppend": 15,
+   "optimisticReadsPerAppend": 7,
+   "dailyAppendLimit": 3333,
+   "share": 1111,
+   "warnAt": 777,
+   "refuseAt": 999,
+   "minFlushIntervalMs": 3087
+  },
+  {
+   "members": 5,
+   "writers": 5,
+   "readsPerAppend": 15,
+   "optimisticReadsPerAppend": 7,
+   "dailyAppendLimit": 3333,
+   "share": 666,
+   "warnAt": 466,
+   "refuseAt": 599,
+   "minFlushIntervalMs": 3087
+  },
+  {
+   "members": 10,
+   "writers": 4,
+   "readsPerAppend": 30,
+   "optimisticReadsPerAppend": 12,
+   "dailyAppendLimit": 1666,
+   "share": 416,
+   "warnAt": 291,
+   "refuseAt": 374,
+   "minFlushIntervalMs": 6175
+  },
+  {
+   "members": 10,
+   "writers": 10,
+   "readsPerAppend": 30,
+   "optimisticReadsPerAppend": 12,
+   "dailyAppendLimit": 1666,
+   "share": 166,
+   "warnAt": 116,
+   "refuseAt": 149,
+   "minFlushIntervalMs": 6175
+  },
+  {
+   "members": 25,
+   "writers": 5,
+   "readsPerAppend": 75,
+   "optimisticReadsPerAppend": 27,
+   "dailyAppendLimit": 666,
+   "share": 133,
+   "warnAt": 93,
+   "refuseAt": 119,
+   "minFlushIntervalMs": 15451
+  },
+  {
+   "members": 25,
+   "writers": 25,
+   "readsPerAppend": 75,
+   "optimisticReadsPerAppend": 27,
+   "dailyAppendLimit": 666,
+   "share": 26,
+   "warnAt": 18,
+   "refuseAt": 23,
+   "minFlushIntervalMs": 15451
+  },
+  {
+   "members": 100,
+   "writers": 10,
+   "readsPerAppend": 300,
+   "optimisticReadsPerAppend": 102,
+   "dailyAppendLimit": 166,
+   "share": 16,
+   "warnAt": 11,
+   "refuseAt": 14,
+   "minFlushIntervalMs": 62069
+  }
+ ],
+ "assess": [
+  {
+   "members": 1,
+   "writers": 1,
+   "used": 0,
+   "verdict": "ok"
+  },
+  {
+   "members": 1,
+   "writers": 1,
+   "used": 11665,
+   "verdict": "ok"
+  },
+  {
+   "members": 1,
+   "writers": 1,
+   "used": 11666,
+   "verdict": "warn"
+  },
+  {
+   "members": 1,
+   "writers": 1,
+   "used": 14998,
+   "verdict": "warn"
+  },
+  {
+   "members": 1,
+   "writers": 1,
+   "used": 14999,
+   "verdict": "refuse"
+  },
+  {
+   "members": 1,
+   "writers": 1,
+   "used": 15000,
+   "verdict": "refuse"
+  },
+  {
+   "members": 2,
+   "writers": 1,
+   "used": 0,
+   "verdict": "ok"
+  },
+  {
+   "members": 2,
+   "writers": 1,
+   "used": 5832,
+   "verdict": "ok"
+  },
+  {
+   "members": 2,
+   "writers": 1,
+   "used": 5833,
+   "verdict": "warn"
+  },
+  {
+   "members": 2,
+   "writers": 1,
+   "used": 7498,
+   "verdict": "warn"
+  },
+  {
+   "members": 2,
+   "writers": 1,
+   "used": 7499,
+   "verdict": "refuse"
+  },
+  {
+   "members": 2,
+   "writers": 1,
+   "used": 7500,
+   "verdict": "refuse"
+  },
+  {
+   "members": 2,
+   "writers": 2,
+   "used": 0,
+   "verdict": "ok"
+  },
+  {
+   "members": 2,
+   "writers": 2,
+   "used": 2915,
+   "verdict": "ok"
+  },
+  {
+   "members": 2,
+   "writers": 2,
+   "used": 2916,
+   "verdict": "warn"
+  },
+  {
+   "members": 2,
+   "writers": 2,
+   "used": 3748,
+   "verdict": "warn"
+  },
+  {
+   "members": 2,
+   "writers": 2,
+   "used": 3749,
+   "verdict": "refuse"
+  },
+  {
+   "members": 2,
+   "writers": 2,
+   "used": 3750,
+   "verdict": "refuse"
+  },
+  {
+   "members": 3,
+   "writers": 2,
+   "used": 0,
+   "verdict": "ok"
+  },
+  {
+   "members": 3,
+   "writers": 2,
+   "used": 1942,
+   "verdict": "ok"
+  },
+  {
+   "members": 3,
+   "writers": 2,
+   "used": 1943,
+   "verdict": "warn"
+  },
+  {
+   "members": 3,
+   "writers": 2,
+   "used": 2498,
+   "verdict": "warn"
+  },
+  {
+   "members": 3,
+   "writers": 2,
+   "used": 2499,
+   "verdict": "refuse"
+  },
+  {
+   "members": 3,
+   "writers": 2,
+   "used": 2500,
+   "verdict": "refuse"
+  },
+  {
+   "members": 5,
+   "writers": 3,
+   "used": 0,
+   "verdict": "ok"
+  },
+  {
+   "members": 5,
+   "writers": 3,
+   "used": 776,
+   "verdict": "ok"
+  },
+  {
+   "members": 5,
+   "writers": 3,
+   "used": 777,
+   "verdict": "warn"
+  },
+  {
+   "members": 5,
+   "writers": 3,
+   "used": 998,
+   "verdict": "warn"
+  },
+  {
+   "members": 5,
+   "writers": 3,
+   "used": 999,
+   "verdict": "refuse"
+  },
+  {
+   "members": 5,
+   "writers": 3,
+   "used": 1000,
+   "verdict": "refuse"
+  },
+  {
+   "members": 5,
+   "writers": 5,
+   "used": 0,
+   "verdict": "ok"
+  },
+  {
+   "members": 5,
+   "writers": 5,
+   "used": 465,
+   "verdict": "ok"
+  },
+  {
+   "members": 5,
+   "writers": 5,
+   "used": 466,
+   "verdict": "warn"
+  },
+  {
+   "members": 5,
+   "writers": 5,
+   "used": 598,
+   "verdict": "warn"
+  },
+  {
+   "members": 5,
+   "writers": 5,
+   "used": 599,
+   "verdict": "refuse"
+  },
+  {
+   "members": 5,
+   "writers": 5,
+   "used": 600,
+   "verdict": "refuse"
+  },
+  {
+   "members": 10,
+   "writers": 4,
+   "used": 0,
+   "verdict": "ok"
+  },
+  {
+   "members": 10,
+   "writers": 4,
+   "used": 290,
+   "verdict": "ok"
+  },
+  {
+   "members": 10,
+   "writers": 4,
+   "used": 291,
+   "verdict": "warn"
+  },
+  {
+   "members": 10,
+   "writers": 4,
+   "used": 373,
+   "verdict": "warn"
+  },
+  {
+   "members": 10,
+   "writers": 4,
+   "used": 374,
+   "verdict": "refuse"
+  },
+  {
+   "members": 10,
+   "writers": 4,
+   "used": 375,
+   "verdict": "refuse"
+  },
+  {
+   "members": 10,
+   "writers": 10,
+   "used": 0,
+   "verdict": "ok"
+  },
+  {
+   "members": 10,
+   "writers": 10,
+   "used": 115,
+   "verdict": "ok"
+  },
+  {
+   "members": 10,
+   "writers": 10,
+   "used": 116,
+   "verdict": "warn"
+  },
+  {
+   "members": 10,
+   "writers": 10,
+   "used": 148,
+   "verdict": "warn"
+  },
+  {
+   "members": 10,
+   "writers": 10,
+   "used": 149,
+   "verdict": "refuse"
+  },
+  {
+   "members": 10,
+   "writers": 10,
+   "used": 150,
+   "verdict": "refuse"
+  },
+  {
+   "members": 25,
+   "writers": 5,
+   "used": 0,
+   "verdict": "ok"
+  },
+  {
+   "members": 25,
+   "writers": 5,
+   "used": 92,
+   "verdict": "ok"
+  },
+  {
+   "members": 25,
+   "writers": 5,
+   "used": 93,
+   "verdict": "warn"
+  },
+  {
+   "members": 25,
+   "writers": 5,
+   "used": 118,
+   "verdict": "warn"
+  },
+  {
+   "members": 25,
+   "writers": 5,
+   "used": 119,
+   "verdict": "refuse"
+  },
+  {
+   "members": 25,
+   "writers": 5,
+   "used": 120,
+   "verdict": "refuse"
+  },
+  {
+   "members": 25,
+   "writers": 25,
+   "used": 0,
+   "verdict": "ok"
+  },
+  {
+   "members": 25,
+   "writers": 25,
+   "used": 17,
+   "verdict": "ok"
+  },
+  {
+   "members": 25,
+   "writers": 25,
+   "used": 18,
+   "verdict": "warn"
+  },
+  {
+   "members": 25,
+   "writers": 25,
+   "used": 22,
+   "verdict": "warn"
+  },
+  {
+   "members": 25,
+   "writers": 25,
+   "used": 23,
+   "verdict": "refuse"
+  },
+  {
+   "members": 25,
+   "writers": 25,
+   "used": 24,
+   "verdict": "refuse"
+  },
+  {
+   "members": 100,
+   "writers": 10,
+   "used": 0,
+   "verdict": "ok"
+  },
+  {
+   "members": 100,
+   "writers": 10,
+   "used": 10,
+   "verdict": "ok"
+  },
+  {
+   "members": 100,
+   "writers": 10,
+   "used": 11,
+   "verdict": "warn"
+  },
+  {
+   "members": 100,
+   "writers": 10,
+   "used": 13,
+   "verdict": "warn"
+  },
+  {
+   "members": 100,
+   "writers": 10,
+   "used": 14,
+   "verdict": "refuse"
+  },
+  {
+   "members": 100,
+   "writers": 10,
+   "used": 15,
+   "verdict": "refuse"
+  }
+ ],
+ "hosting": [
+  {
+   "case": "one writer",
+   "members": 8333,
+   "writers": 1,
+   "accepted": true
+  },
+  {
+   "case": "one writer",
+   "members": 8334,
+   "writers": 1,
+   "accepted": false
+  },
+  {
+   "case": "every member writes",
+   "members": 91,
+   "writers": 91,
+   "accepted": true
+  },
+  {
+   "case": "every member writes",
+   "members": 92,
+   "writers": 92,
+   "accepted": false
+  },
+  {
+   "case": "10,000 members, all writing",
+   "members": 10000,
+   "writers": 10000,
+   "accepted": false
+  }
+ ],
+ "pacific": [
+  {
+   "nowMs": 1768478400000,
+   "day": 20468,
+   "resetAtMs": 1768550400000
+  },
+  {
+   "nowMs": 1784116800000,
+   "day": 20649,
+   "resetAtMs": 1784185200000
+  },
+  {
+   "nowMs": 1772963999000,
+   "day": 20520,
+   "resetAtMs": 1773039600000
+  },
+  {
+   "nowMs": 1772964000000,
+   "day": 20520,
+   "resetAtMs": 1773039600000
+  },
+  {
+   "nowMs": 1773039599000,
+   "day": 20520,
+   "resetAtMs": 1773039600000
+  },
+  {
+   "nowMs": 1773039600000,
+   "day": 20521,
+   "resetAtMs": 1773126000000
+  },
+  {
+   "nowMs": 1793523599000,
+   "day": 20758,
+   "resetAtMs": 1793606400000
+  },
+  {
+   "nowMs": 1793523600000,
+   "day": 20758,
+   "resetAtMs": 1793606400000
+  },
+  {
+   "nowMs": 1793606399000,
+   "day": 20758,
+   "resetAtMs": 1793606400000
+  },
+  {
+   "nowMs": 1793606400000,
+   "day": 20759,
+   "resetAtMs": 1793692800000
+  },
+  {
+   "nowMs": 1798703999000,
+   "day": 20817,
+   "resetAtMs": 1798704000000
+  },
+  {
+   "nowMs": 1798704000000,
+   "day": 20818,
+   "resetAtMs": 1798790400000
+  },
+  {
+   "nowMs": 1805018399000,
+   "day": 20891,
+   "resetAtMs": 1805094000000
+  },
+  {
+   "nowMs": 1805018400000,
+   "day": 20891,
+   "resetAtMs": 1805094000000
+  },
+  {
+   "nowMs": 1835438400000,
+   "day": 21243,
+   "resetAtMs": 1835510400000
+  },
+  {
+   "nowMs": 1857027599000,
+   "day": 21493,
+   "resetAtMs": 1857110400000
+  },
+  {
+   "nowMs": 1857027600000,
+   "day": 21493,
+   "resetAtMs": 1857110400000
+  },
+  {
+   "nowMs": 3171312000000,
+   "day": 36704,
+   "resetAtMs": 3171337200000
+  }
+ ]
+}

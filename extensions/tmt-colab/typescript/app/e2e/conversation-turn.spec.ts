@@ -209,6 +209,114 @@ for (const width of [1440, 390]) {
   }
 }
 
+async function chatGeometry(window: Locator) {
+  return window.evaluate((node) => {
+    const rect = (element: Element) => element.getBoundingClientRect().toJSON();
+    const find = (selector: string) => node.querySelector<HTMLElement>(selector)!;
+    const drawer = node.closest('dialog')!;
+    const composer = find('.conversation-composer');
+    const history = find('.conversation-messages');
+    return {
+      drawer: rect(drawer),
+      header: rect(find('.conversation-window-bar')),
+      composer: rect(composer),
+      field: rect(find('[role="combobox"]')),
+      status: rect(find('.annotation-status-row')),
+      send: rect(find('.annotation-status-row > button')),
+      history: rect(history),
+      historyTop: history.scrollTop,
+      historyOverflow: history.scrollHeight - history.clientHeight,
+      outer: [drawer, node.parentElement!, node, composer].map((element) => ({
+        top: element.scrollTop,
+        overflow: element.scrollHeight - element.clientHeight,
+      })),
+      pageScroll: scrollY,
+      viewport: { width: innerWidth, height: innerHeight },
+    };
+  });
+}
+function visibleChatComposer(geometry: Awaited<ReturnType<typeof chatGeometry>>) {
+  for (const bounds of [
+    geometry.header,
+    geometry.composer,
+    geometry.field,
+    geometry.status,
+    geometry.send,
+  ]) {
+    expect(bounds.top).toBeGreaterThanOrEqual(geometry.drawer.top);
+    expect(bounds.bottom).toBeLessThanOrEqual(geometry.drawer.bottom);
+    expect(bounds.left).toBeGreaterThanOrEqual(geometry.drawer.left);
+    expect(bounds.right).toBeLessThanOrEqual(geometry.drawer.right);
+    expect(bounds.top).toBeGreaterThanOrEqual(0);
+    expect(bounds.bottom).toBeLessThanOrEqual(geometry.viewport.height);
+    expect(bounds.left).toBeGreaterThanOrEqual(0);
+    expect(bounds.right).toBeLessThanOrEqual(geometry.viewport.width);
+  }
+  for (const bounds of [geometry.field, geometry.status, geometry.send]) {
+    expect(bounds.top).toBeGreaterThanOrEqual(geometry.composer.top);
+    expect(bounds.bottom).toBeLessThanOrEqual(geometry.composer.bottom);
+  }
+  expect(geometry.history.top).toBeGreaterThanOrEqual(geometry.header.bottom - 1);
+  expect(geometry.history.bottom).toBeLessThanOrEqual(geometry.composer.top + 1);
+  for (const element of geometry.outer) {
+    expect(element.overflow).toBeLessThanOrEqual(1);
+    expect(element.top).toBe(0);
+  }
+}
+for (const width of [1440, 390])
+  for (const theme of ['light', 'dark'] as const)
+    test(`long Chat keeps its whole composer visible at ${width} ${theme}`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await page.emulateMedia({ colorScheme: theme });
+      await page.addInitScript((theme) => {
+        document.documentElement.dataset.theme = theme;
+      }, theme);
+      await mount(page, 'chat');
+      const window = page.getByTestId('chat-panel');
+      const short = await chatGeometry(window);
+      await run(page, 'scrollHistory');
+      await expect(window.getByTestId('comment-entry')).toHaveCount(40);
+      const history = window.locator('.conversation-messages');
+      await expect
+        .poll(() =>
+          history.evaluate((node) => node.scrollHeight - node.clientHeight - node.scrollTop),
+        )
+        .toBeLessThanOrEqual(1);
+      const long = await chatGeometry(window);
+      visibleChatComposer(long);
+      expect(long.composer.height).toBeCloseTo(short.composer.height, 1);
+      expect(long.historyOverflow).toBeGreaterThan(0);
+      mkdirSync(captureDir, { recursive: true });
+      await capture(page, window, `chat-composer-${width}-${theme}`);
+      await history.evaluate((node) => {
+        node.scrollTop = 150;
+      });
+      await expect.poll(() => history.evaluate((node) => node.scrollTop)).toBe(150);
+      const scrolled = await chatGeometry(window);
+      visibleChatComposer(scrolled);
+      for (const key of ['header', 'composer', 'field', 'status', 'send'] as const)
+        expect(scrolled[key]).toEqual(long[key]);
+      expect(scrolled.outer).toEqual(long.outer);
+      expect(scrolled.pageScroll).toBe(long.pageScroll);
+      await page.setViewportSize({ width, height: 500 });
+      const resized = await chatGeometry(window);
+      visibleChatComposer(resized);
+      expect(resized.composer.height).toBeCloseTo(long.composer.height, 1);
+      expect(resized.history.height).toBeLessThan(long.history.height);
+      expect(resized.historyOverflow).toBeGreaterThan(0);
+      if (width === 390) {
+        // With room for only the stationary controls, history yields all its height.
+        await page.setViewportSize({
+          width,
+          height: Math.ceil(resized.header.height + resized.composer.height),
+        });
+        const minimum = await chatGeometry(window);
+        visibleChatComposer(minimum);
+        expect(minimum.composer.height).toBeCloseTo(long.composer.height, 1);
+        expect(minimum.history.height).toBeLessThanOrEqual(1);
+      }
+    });
+
 test('status copy preserves every ledger outcome and explicit trusted tracking actions', async ({
   page,
 }) => {
