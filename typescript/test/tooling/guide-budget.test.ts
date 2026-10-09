@@ -9,6 +9,10 @@ const BUDGETS = {
   'DEVELOPMENT.md': 600,
   'ARCHITECTURE.md': 1250,
 } as const;
+const BYTE_BUDGETS = {
+  'DEVELOPMENT.md': 23_000,
+  'ARCHITECTURE.md': 97_000,
+} as const;
 
 export function lineCount(text: string): number {
   return text.endsWith('\n') ? text.split('\n').length - 1 : text.split('\n').length;
@@ -16,6 +20,10 @@ export function lineCount(text: string): number {
 
 export function withinBudget(text: string, budget: number): boolean {
   return lineCount(text) <= budget;
+}
+
+export function withinByteBudget(text: string, budget: number): boolean {
+  return Buffer.byteLength(text, 'utf8') <= budget;
 }
 
 describe('shared guide budgets', () => {
@@ -32,10 +40,31 @@ describe('shared guide budgets', () => {
     });
   }
 
+  for (const [guide, budget] of Object.entries(BYTE_BUDGETS)) {
+    it(`keeps ${guide} within its ${budget}-byte budget`, () => {
+      const text = readFileSync(new URL(`../../../${guide}`, import.meta.url), 'utf8');
+      expect(withinByteBudget(text, budget)).toBe(true);
+    });
+  }
+
   it('rejects a guide one line over its budget and accepts one at it', () => {
     for (const budget of Object.values(BUDGETS)) {
       expect(withinBudget(`${'line\n'.repeat(budget)}`, budget)).toBe(true);
       expect(withinBudget(`${'line\n'.repeat(budget + 1)}`, budget)).toBe(false);
+    }
+  });
+
+  it('counts UTF-8 bytes including the final newline', () => {
+    expect(withinByteBudget('é😀\n', 7)).toBe(true);
+    expect(withinByteBudget('é😀\n', 6)).toBe(false);
+    expect(withinByteBudget('', 0)).toBe(true);
+  });
+
+  it('rejects a guide one byte over its budget and accepts one at it', () => {
+    for (const budget of Object.values(BYTE_BUDGETS)) {
+      const text = 'é'.repeat(budget / 2);
+      expect(withinByteBudget(text, budget)).toBe(true);
+      expect(withinByteBudget(`${text}a`, budget)).toBe(false);
     }
   });
 });
