@@ -57,6 +57,10 @@ append `--engines chromium` for a Chromium-only diagnostic (or a comma-separated
 known set). Empty/unknown/duplicate sets reject, and every requested engine must
 pass. Reports use `{engines, results}` and explicitly name the selected engines;
 a scoped run is not full L1 evidence. Developers run the default full set before handoff.
+Each Ed25519 row records `rawProbed`: raw WebCrypto verification runs only when
+both public points pass the shared guard. Unprobed rows must refuse admission and
+record `raw: false`; all nine native-positive controls must be probed and return
+`raw: true` in every engine.
 
 The test-only harness checks WebCrypto snapshots, opaque keys, independent known
 answers and fresh ciphertext interoperability both ways with the Rust model

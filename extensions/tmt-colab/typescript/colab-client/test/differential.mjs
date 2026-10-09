@@ -424,19 +424,25 @@ try {
           const rows = [];
           for (const v of corpus) {
             progress('started', 'ed25519:' + v.name);
+            const publicKey = hex(v.public),
+              signature = hex(v.signature),
+              message = hex(v.message),
+              rawProbed = c.validEdPoint(publicKey) && c.validEdPoint(signature.slice(0, 32));
             let raw = false;
-            try {
-              const key = await crypto.subtle.importKey('raw', hex(v.public), 'Ed25519', false, [
-                'verify',
-              ]);
-              raw = await crypto.subtle.verify('Ed25519', key, hex(v.signature), hex(v.message));
-            } catch {
-              /* Recorded as false; native positive controls and probe still must pass. */
-            }
+            if (rawProbed)
+              try {
+                const key = await crypto.subtle.importKey('raw', publicKey, 'Ed25519', false, [
+                  'verify',
+                ]);
+                raw = await crypto.subtle.verify('Ed25519', key, signature, message);
+              } catch {
+                /* Recorded as false; all native positive controls still must pass. */
+              }
             rows.push({
               name: v.name,
+              rawProbed,
               raw,
-              accepted: await c.strictVerify(hex(v.public), hex(v.signature), hex(v.message)),
+              accepted: await c.strictVerify(publicKey, signature, message),
             });
             progress('completed', 'ed25519:' + v.name);
           }
