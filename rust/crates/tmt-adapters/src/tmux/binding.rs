@@ -53,6 +53,7 @@ impl<'a, R: CommandRunner> BindingSession<'a, R> {
 }
 
 mod actions;
+mod border;
 
 impl<R: CommandRunner> BindingEndpoint for BindingSession<'_, R> {
     type Error = TmuxError;
@@ -126,7 +127,12 @@ impl<R: CommandRunner> BindingEndpoint for BindingSession<'_, R> {
 pub enum PaneCosmetics<'a> {
     /// The bound identity: a marker still carrying an earlier name is
     /// rewritten to the stored one, and the badge is shown when enabled.
-    Bound { identity: &'a Identity, badge: bool },
+    Bound {
+        identity: &'a Identity,
+        badge: bool,
+        /// Only an explicit user binding/launch command requests guidance.
+        border_hint: bool,
+    },
     /// The binding ended: the badge is hidden.
     Ended,
 }
@@ -168,7 +174,7 @@ impl<R: CommandRunner> Tmux<R> {
         if Instant::now() >= deadline {
             return Ok(PaneRefresh::Failed);
         }
-        let result = (|| {
+        let result: Result<PaneRefresh, TmuxError> = (|| {
             let panes = [binding.pane_id.clone()];
             let options = OperationOptions {
                 deadline: Some(deadline),
@@ -199,8 +205,12 @@ impl<R: CommandRunner> Tmux<R> {
             if pane.marker.is_some() && owned.is_none() {
                 return Ok(PaneRefresh::Absent);
             }
-            let badge = match cosmetics {
-                PaneCosmetics::Bound { identity, badge } => {
+            let (badge, border_hint) = match cosmetics {
+                PaneCosmetics::Bound {
+                    identity,
+                    badge,
+                    border_hint,
+                } => {
                     let Some(marker) = owned.filter(|_| identity.id == binding.identity_id) else {
                         return Ok(PaneRefresh::Absent);
                     };
@@ -215,9 +225,9 @@ impl<R: CommandRunner> Tmux<R> {
                     {
                         return Ok(PaneRefresh::Absent);
                     }
-                    badge.then_some(identity.name.as_str())
+                    (badge.then_some(identity.name.as_str()), border_hint)
                 }
-                PaneCosmetics::Ended => None,
+                PaneCosmetics::Ended => (None, false),
             };
             let mut args = socket_args(Some(&binding.server.socket_path));
             args.extend(["set-option".into(), "-p".into()]);
@@ -232,8 +242,9 @@ impl<R: CommandRunner> Tmux<R> {
             if let Some(name) = badge {
                 args.push(badge_label(name, binding.session.state));
             }
-            self.execute(args, options, TmuxFailure::Command)
-                .map(|_| PaneRefresh::Updated)
+            self.execute(args, options, TmuxFailure::Command)?;
+            self.update_badge_border(binding, badge.is_some(), border_hint, options)?;
+            Ok(PaneRefresh::Updated)
         })();
         match result {
             Err(error) if error.cleanup_failed() => Err(error),

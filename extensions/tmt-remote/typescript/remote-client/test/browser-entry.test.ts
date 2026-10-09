@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { test, vi } from 'vite-plus/test';
 import { landingPage, pairingPage } from '../src/browser.js';
 import { Door, paired } from './door.js';
@@ -17,7 +18,8 @@ async function fixture(mode = 'success') {
     paired: device.result,
   };
   let mounts = 0,
-    admissions = 0;
+    admissions = 0,
+    observations = 0;
   let release = () => {};
   const blocked = new Promise<void>((resolve) => {
     release = resolve;
@@ -28,25 +30,41 @@ async function fixture(mode = 'success') {
   });
   let click: () => void | Promise<void> = () => {};
   let hide = () => {};
-  let done: () => void;
-  const settled = new Promise<void>((resolve) => {
-    done = resolve;
-  });
   const nodes = new Map<
     string,
-    { textContent: string; hidden: boolean; dataset: Record<string, string> }
+    {
+      textContent: string;
+      hidden: boolean;
+      dataset: Record<string, string>;
+      addEventListener: () => void;
+    }
   >();
-  for (const id of ['status', 'mark', 'notice', 'state-label', 'pairing-status', 'access-status'])
-    nodes.set(id, { textContent: '', hidden: false, dataset: {} });
-  const access = nodes.get('access-status')!;
-  let accessText = '';
-  Object.defineProperty(access, 'textContent', {
-    get: () => accessText,
-    set: (text: string) => {
-      accessText = text;
-      if (text !== 'Connecting…') done();
-    },
-  });
+  for (const id of [
+    'status',
+    'mark',
+    'notice',
+    'state-label',
+    'heading',
+    'checked-time',
+    'machine-id',
+    'protocol-address',
+    'trust-pin',
+    'steps-missing',
+    'steps-different',
+    'steps-refused',
+    'steps-unconfirmed',
+    'steps-unreadable',
+    'pairing-note',
+    'command-location',
+    'copy-feedback',
+    'copy-missing-pair',
+    'copy-different-pair',
+    'copy-refused-devices',
+    'copy-refused-pair',
+    'copy-unconfirmed-status',
+    'copy-unreadable-pair',
+  ])
+    nodes.set(id, { textContent: '', hidden: false, dataset: {}, addEventListener: () => {} });
   const button = {
     disabled: true,
     isConnected: true,
@@ -81,7 +99,29 @@ async function fixture(mode = 'success') {
         mount: null,
       });
     }
-    admissions++;
+    const operation = JSON.parse(init!.body as string).operation;
+    if (operation === 'session.open') {
+      admissions++;
+      if (mode === 'expired-reopen-refused' && admissions === 2)
+        return new Response('', { status: 404 });
+    }
+    if (operation === 'capabilities') {
+      observations++;
+      if (mode.startsWith('expired-') && observations === 2) {
+        if (mode !== 'expired-signed' && mode !== 'expired-evicted')
+          return new Response('', { status: 404 });
+        door.error =
+          mode === 'expired-evicted'
+            ? { code: 'REMOTE_SESSION_EVICTED', message: 'Session evicted.', limit: 4 }
+            : { code: 'REMOTE_SESSION_ENDED', message: 'Idle session expired.' };
+        try {
+          return await door.fetch(url, init);
+        } finally {
+          door.error = undefined;
+        }
+      }
+      if (mode === 'expired-again' && observations > 2) return new Response('', { status: 404 });
+    }
     if (mode === 'pending-admission') {
       arrive();
       await blocked;
@@ -90,6 +130,8 @@ async function fixture(mode = 'success') {
     if (mode === 'signing') return new Response('', { status: 404 });
     if (mode === 'refused' || mode === 'stale') return new Response('', { status: 404 });
     door.tamper.signature = mode === 'unverified';
+    if (mode === 'signed-refusal')
+      door.error = { code: 'REMOTE_SESSION_EVICTED', message: 'ended', limit: 4 };
     return door.fetch(url, init);
   });
   if (mode === 'signing') {
@@ -108,7 +150,7 @@ async function fixture(mode = 'success') {
     device,
     nodes,
     button,
-    settled,
+    door,
     record: (value: unknown) => {
       record = value;
     },
@@ -121,29 +163,134 @@ async function fixture(mode = 'success') {
     },
   };
 }
-test('entry reads only validated local pairing evidence and never connects on load', async () => {
-  for (const state of ['missing', 'saved', 'invalid']) {
+test('entry automatically checks once, then manual checks reuse the verified session without effects', async () => {
+  const f = await fixture();
+  try {
+    await landingPage();
+    assert.equal(f.nodes.get('heading')!.textContent, 'This browser can use Remote');
+    assert.equal(
+      f.nodes.get('status')!.textContent,
+      'Open your app from its link in this browser.',
+    );
+    assert.deepEqual(f.counts(), { mounts: 1, admissions: 1 });
+    assert.deepEqual(
+      f.door.calls.map((call) => call.envelope.operation),
+      ['capabilities'],
+    );
+    f.click();
+    await vi.waitFor(() => assert.equal(f.door.calls.length, 2));
+    await vi.waitFor(() => assert.equal(f.button.disabled, false));
+    assert.deepEqual(f.counts(), { mounts: 1, admissions: 1 });
+    assert.deepEqual(
+      f.door.calls.map((call) => call.envelope.operation),
+      ['capabilities', 'capabilities'],
+    );
+    assert.notEqual(f.door.calls[0]!.envelope.id, f.door.calls[1]!.envelope.id);
+  } finally {
+    vi.unstubAllGlobals();
+  }
+});
+
+for (const mode of [
+  'expired-404',
+  'expired-signed',
+  'expired-evicted',
+  'expired-reopen-refused',
+  'expired-again',
+]) {
+  test(`manual check reopens an expired reused session once: ${mode}`, async () => {
+    const f = await fixture(mode);
+    try {
+      await landingPage();
+      assert.equal(f.nodes.get('heading')!.textContent, 'This browser can use Remote');
+      f.click();
+      await vi.waitFor(() => assert.equal(f.button.disabled, false));
+      const connected =
+        mode === 'expired-404' || mode === 'expired-signed' || mode === 'expired-evicted';
+      assert.equal(
+        f.nodes.get('state-label')!.textContent,
+        connected ? 'Connected' : "Can't reach Remote",
+      );
+      assert.notEqual(f.nodes.get('state-label')!.textContent, 'Not accepted');
+      assert.deepEqual(f.counts(), {
+        mounts: mode === 'expired-reopen-refused' ? 3 : 2,
+        admissions: 2,
+      });
+      assert.equal(f.door.opens, connected || mode === 'expired-again' ? 2 : 1);
+      assert.ok(f.door.calls.every((call) => call.envelope.operation === 'capabilities'));
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+}
+
+test('not-paired steps precede the muted privacy note without duplicate status copy', async () => {
+  const f = await fixture();
+  try {
+    f.record(undefined);
+    await landingPage();
+    assert.equal(f.nodes.get('state-label')!.textContent, 'Not paired');
+    assert.equal(f.nodes.get('status')!.hidden, true);
+    assert.equal(f.nodes.get('status')!.textContent, '');
+    assert.equal(f.nodes.get('pairing-note')!.hidden, false);
+    assert.equal(f.nodes.get('steps-missing')!.hidden, false);
+    assert.equal(f.nodes.get('command-location')!.hidden, false);
+    assert.deepEqual(f.counts(), { mounts: 0, admissions: 0 });
+  } finally {
+    vi.unstubAllGlobals();
+  }
+});
+
+test('checked time follows viewer local zones rather than ISO or forced UTC', async () => {
+  const before = process.env.TZ;
+  const displayed: string[] = [];
+  try {
+    for (const zone of ['Asia/Tokyo', 'America/Los_Angeles']) {
+      process.env.TZ = zone;
+      const f = await fixture();
+      try {
+        vi.useFakeTimers({ toFake: ['Date'] });
+        vi.setSystemTime(new Date('2026-10-09T01:23:45Z'));
+        await landingPage();
+        const expected = new Intl.DateTimeFormat(undefined, {
+          dateStyle: 'medium',
+          timeStyle: 'short',
+        }).format(new Date());
+        const actual = f.nodes.get('checked-time')!.textContent;
+        assert.equal(actual, expected, zone);
+        assert.ok(!actual.includes('2026-10-09T'));
+        displayed.push(actual);
+      } finally {
+        vi.useRealTimers();
+        vi.unstubAllGlobals();
+      }
+    }
+    assert.notEqual(displayed[0], displayed[1]);
+  } finally {
+    if (before === undefined) delete process.env.TZ;
+    else process.env.TZ = before;
+  }
+});
+
+test('missing and unreadable pairing send nothing', async () => {
+  for (const state of ['missing', 'invalid']) {
     const f = await fixture();
     try {
-      if (state === 'missing') f.record(undefined);
-      if (state === 'invalid') f.record(null);
+      f.record(state === 'missing' ? undefined : null);
       await landingPage();
       assert.equal(
-        f.nodes.get('pairing-status')!.textContent,
-        {
-          missing: 'No saved pairing',
-          saved: 'Pairing saved in this browser',
-          invalid: 'Pairing status unknown',
-        }[state],
+        f.nodes.get('state-label')!.textContent,
+        state === 'missing' ? 'Not paired' : 'Pairing unreadable',
       );
-      assert.equal(f.button.disabled, state !== 'saved');
       assert.deepEqual(f.counts(), { mounts: 0, admissions: 0 });
+      assert.deepEqual(f.door.calls, []);
     } finally {
       vi.unstubAllGlobals();
     }
   }
 });
-test('entry validates complete stored identities, origin, address and exact key pins before network', async () => {
+
+test('entry validates stored identities, origin, address and exact key pins before network', async () => {
   for (const change of [
     'machine',
     'client',
@@ -174,87 +321,63 @@ test('entry validates complete stored identities, origin, address and exact key 
       if (change === 'handle') record.handle = {} as CryptoKey;
       f.record(record);
       await landingPage();
-      assert.equal(f.nodes.get('pairing-status')!.textContent, 'Pairing status unknown', change);
+      assert.equal(f.nodes.get('state-label')!.textContent, 'Pairing unreadable', change);
       assert.deepEqual(f.counts(), { mounts: 0, admissions: 0 }, change);
     } finally {
       vi.unstubAllGlobals();
     }
   }
 });
-test('explicit entry check distinguishes verified access, current refusal and unconfirmed failures without effects', async () => {
-  for (const mode of ['success', 'refused', 'stale', 'transport', 'unverified', 'other-machine']) {
+
+test('entry separates signed refusal from opaque, mismatched and unverifiable responses', async () => {
+  for (const mode of [
+    'refused',
+    'stale',
+    'transport',
+    'unverified',
+    'other-machine',
+    'signed-refusal',
+  ]) {
     const f = await fixture(mode);
     try {
       await landingPage();
-      assert.deepEqual(f.counts(), { mounts: 0, admissions: 0 });
-      f.click();
-      await f.settled;
       assert.equal(
-        f.nodes.get('access-status')!.textContent,
-        mode === 'success'
-          ? 'Access confirmed'
-          : mode === 'refused'
-            ? 'Could not verify access'
-            : mode === 'other-machine'
-              ? 'Not checked'
-              : 'Could not verify access',
+        f.nodes.get('state-label')!.textContent,
+        mode === 'other-machine'
+          ? 'Different machine'
+          : mode === 'signed-refusal'
+            ? 'Not accepted'
+            : "Can't reach Remote",
       );
       assert.deepEqual(f.counts(), {
         mounts: ['refused', 'stale'].includes(mode) ? 2 : 1,
         admissions: ['transport', 'other-machine'].includes(mode) ? 0 : 1,
       });
-      assert.equal(
-        f.nodes.get('pairing-status')!.textContent,
-        mode === 'other-machine'
-          ? 'Saved pairing does not match this Remote'
-          : 'Pairing saved in this browser',
-      );
       assert.ok(!f.nodes.get('status')!.textContent.includes('private transport cause'));
-      if (mode === 'success')
-        assert.match(f.nodes.get('status')!.textContent, /Checked at \d{4}-\d{2}-\d{2}T/);
-      if (mode === 'refused')
-        assert.ok(f.nodes.get('status')!.textContent.includes('not a verified refusal reason'));
+      assert.ok(f.door.calls.every((call) => call.envelope.operation === 'capabilities'));
     } finally {
       vi.unstubAllGlobals();
     }
   }
 });
 
-test('a departed page cannot paint a late connection result or continue admission', async () => {
-  const f = await fixture('delayed');
-  try {
-    await landingPage();
-    const attempt = f.click();
-    // Wait for the actual descriptor request, then replace the page before its answer.
-    await vi.waitFor(() => assert.equal(f.counts().mounts, 1));
-    f.hide();
-    f.release();
-    await attempt;
-    assert.deepEqual(f.counts(), { mounts: 1, admissions: 0 });
-    assert.equal(f.nodes.get('access-status')!.textContent, 'Connecting…');
-  } finally {
-    vi.unstubAllGlobals();
-  }
-});
-
-for (const mode of ['signing', 'pending-admission']) {
-  test(`departure during ${mode} prevents new requests after the pending boundary`, async () => {
+for (const mode of ['delayed', 'signing', 'pending-admission']) {
+  test(`departure during ${mode} prevents late painting and new requests`, async () => {
     const f = await fixture(mode);
+    const pending = landingPage();
     try {
-      await landingPage();
-      const attempt = f.click();
-      await f.reached;
+      if (mode === 'delayed') await vi.waitFor(() => assert.equal(f.counts().mounts, 1));
+      else await f.reached;
       const status = f.nodes.get('status')!.textContent;
       f.hide();
       f.release();
-      await attempt;
-      assert.deepEqual(f.counts(), {
-        mounts: 1,
-        admissions: mode === 'signing' ? 0 : 1,
-      });
-      assert.equal(f.nodes.get('access-status')!.textContent, 'Connecting…');
+      await pending;
+      assert.deepEqual(f.counts(), { mounts: 1, admissions: mode === 'pending-admission' ? 1 : 0 });
       assert.equal(f.nodes.get('status')!.textContent, status);
+      assert.equal(f.nodes.get('state-label')!.textContent, 'Checking');
     } finally {
+      f.release();
+      await pending;
       vi.restoreAllMocks();
       vi.unstubAllGlobals();
     }
@@ -345,3 +468,27 @@ for (const outcome of ['valid', 'refused', 'malformed', 'transport']) {
     }
   });
 }
+
+test('inline Copy actions have command-specific names and no trailing action period', () => {
+  const html = readFileSync(
+    new URL('../../../rust/tmt-remote/assets/landing.html', import.meta.url),
+    'utf8',
+  );
+  for (const [state, command] of [
+    ['missing', 'pair'],
+    ['different', 'pair'],
+    ['refused', 'devices'],
+    ['refused', 'pair'],
+    ['unconfirmed', 'status'],
+    ['unreadable', 'pair'],
+  ]) {
+    const action = html.match(
+      new RegExp(`<button\\s+id="copy-${state}-${command}"([\\s\\S]*?)>\\s*Copy\\s*</button\\s*>`),
+    );
+    assert.ok(action);
+    assert.ok(action[1]!.includes(`aria-label="Copy tmt remote ${command}"`));
+  }
+  assert.equal(html.match(/class="entry-command"/g)!.length, 6);
+  assert.ok(!/<\/span\s*>\s*\./.test(html));
+  assert.ok(html.includes('on it.'));
+});

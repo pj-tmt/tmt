@@ -39,7 +39,7 @@ const SWITCH: &CommandSpec = &CommandSpec {
     summary: "Switch verified former boards to Ops in their existing panes",
     examples: SPEC.examples,
     outputs: OutputModes::Human,
-    details: "Only former board processes under the verified install prefix are stopped. Other panes and processes stay running.",
+    details: "Verified former boards are stopped in their existing panes. The live clock holder may be verified after its executable leaves the former install prefix. Other panes and processes stay running.",
 };
 
 pub(crate) fn grammar() -> Command {
@@ -195,11 +195,13 @@ fn quote(value: &str) -> String {
 struct Discovery {
     boards: Vec<Value>,
     deferred: bool,
+    blocked_holder: Option<Value>,
 }
 
-fn discover(prefix: &Path, socket: &str) -> Result<Discovery, SquadError> {
+fn discover(root: &Path, prefix: &Path, socket: &str) -> Result<Discovery, SquadError> {
     let panes = panes(socket)?;
     let table = process::table()?;
+    let holder = migration::legacy_clock_holder(root).map_err(fail)?;
     let mut boards = Vec::new();
     let mut deferred = false;
     for pane in panes.iter().filter(|pane| !pane.dead) {
@@ -207,7 +209,18 @@ fn discover(prefix: &Path, socket: &str) -> Result<Discovery, SquadError> {
             .iter()
             .filter(|p| process::in_pane(p, pane.pid, &pane.tty, &table))
         {
-            let Ok((executable, _)) = process::kernel(observed.pid) else {
+            let leased = holder.as_ref().is_some_and(|holder| {
+                holder.pid == observed.pid && holder.pane.as_deref() == Some(pane.id.as_str())
+            });
+            if leased
+                && !process::started_before_lease(observed.pid, holder.as_ref().unwrap().since_ms)
+                    .unwrap_or(false)
+            {
+                deferred = true;
+                continue;
+            }
+            let executable = process::kernel(observed.pid).ok().map(|(path, _)| path);
+            if executable.is_none() && !leased {
                 // A vanished process needs no switch. A still-live foreground
                 // process with unavailable executable evidence must not let
                 // replacement cleanup claim that every former board switched.
@@ -218,15 +231,29 @@ fn discover(prefix: &Path, socket: &str) -> Result<Discovery, SquadError> {
                         && process::in_pane(p, pane.pid, &pane.tty, &latest)
                 });
                 continue;
-            };
-            if !process::former(&executable, prefix) {
+            }
+            if !leased
+                && !executable
+                    .as_deref()
+                    .is_some_and(|path| process::former(path, prefix))
+            {
                 continue;
             }
-            let Ok(launch) = process::launch(observed.pid, prefix) else {
+            let launch = if leased {
+                process::lease_launch(observed.pid, prefix)
+            } else {
+                process::launch(observed.pid, prefix)
+            };
+            let Ok(launch) = launch else {
                 deferred = true;
                 continue;
             };
-            let Some(args) = process::board_arguments(&launch.arguments) else {
+            let args = if leased {
+                process::lease_board_arguments(&launch.arguments)
+            } else {
+                process::board_arguments(&launch.arguments)
+            };
+            let Some(args) = args else {
                 deferred = true;
                 continue;
             };
@@ -234,23 +261,45 @@ fn discover(prefix: &Path, socket: &str) -> Result<Discovery, SquadError> {
                 continue;
             };
             if !launch.cwd.is_absolute() || !launch.cwd.is_dir() {
+                if leased {
+                    deferred = true;
+                    continue;
+                }
                 return Err(fail(
                     "A former board's cwd is unavailable; it was left running.",
                 ));
             }
-            boards.push(json!({"pid": observed.pid, "start": observed.start, "executable": launch.executable,
+            let mut board = json!({"pid": observed.pid, "start": observed.start, "executable": launch.executable,
                 "pane":pane.id,"rootPid":root.pid,"rootStart":root.start,"tty":pane.tty,
                 "cwd":launch.cwd,"args":args,"state":"old",
-                "remain":tmux(socket,&["show-options","-p","-v","-t",&pane.id,"remain-on-exit"])?.trim()}));
+                "remain":tmux(socket,&["show-options","-p","-v","-t",&pane.id,"remain-on-exit"])?.trim()});
+            if leased {
+                board["leaseSinceMs"] = json!(holder.as_ref().unwrap().since_ms);
+            }
+            boards.push(board);
         }
     }
     if boards.len() > 32 {
         return Err(fail("More than 32 former boards exceed the switch bound."));
     }
-    Ok(Discovery { boards, deferred })
+    let blocked_holder = holder
+        .filter(|holder| {
+            !boards.iter().any(|board| {
+                board["pid"] == holder.pid && board["pane"].as_str() == holder.pane.as_deref()
+            })
+        })
+        .map(|holder| {
+            json!({"pid":holder.pid,"pane":holder.pane,
+        "leaseSinceMs":holder.since_ms})
+        });
+    Ok(Discovery {
+        boards,
+        deferred,
+        blocked_holder,
+    })
 }
 
-fn still_old(board: &Value, prefix: &Path, socket: &str) -> Result<bool, SquadError> {
+fn still_old(board: &Value, root: &Path, prefix: &Path, socket: &str) -> Result<bool, SquadError> {
     let table = process::table()?;
     let pid = number(board, "pid")?;
     let Some(observed) = table.iter().find(|p| p.pid == pid) else {
@@ -278,11 +327,34 @@ fn still_old(board: &Value, prefix: &Path, socket: &str) -> Result<bool, SquadEr
             "The original pane process changed; no signal was sent.",
         ));
     }
-    let launch = process::launch(pid, prefix)?;
-    if !process::former(&launch.executable, prefix)
-        || launch.executable.to_str() != Some(string(board, "executable")?)
-        || process::board_arguments(&launch.arguments).as_ref() != Some(&strings(board, "args")?)
-    {
+    let arguments = if let Some(since) = board["leaseSinceMs"].as_i64() {
+        let holder = migration::legacy_clock_holder(root)
+            .map_err(fail)?
+            .ok_or_else(|| fail("The old clock lease is no longer live; no signal was sent."))?;
+        if holder.pid != pid
+            || holder.pane.as_deref() != Some(pane.id.as_str())
+            || holder.since_ms != since
+            || !process::started_before_lease(pid, since)?
+        {
+            return Err(fail(
+                "The clock holder incarnation changed; no signal was sent.",
+            ));
+        }
+        process::lease_board_arguments(&process::lease_launch(pid, prefix)?.arguments)
+    } else {
+        let launch = process::launch(pid, prefix)?;
+        if !launch
+            .executable
+            .as_deref()
+            .is_some_and(|path| process::former(path, prefix))
+            || launch.executable.as_deref().and_then(Path::to_str)
+                != Some(string(board, "executable")?)
+        {
+            return Err(fail("The former executable changed; no signal was sent."));
+        }
+        process::board_arguments(&launch.arguments)
+    };
+    if arguments.as_ref() != Some(&strings(board, "args")?) {
         return Err(fail(
             "The former executable or board arguments changed; no signal was sent.",
         ));
@@ -302,11 +374,25 @@ fn still_old(board: &Value, prefix: &Path, socket: &str) -> Result<bool, SquadEr
 
 fn stop(
     board: &mut Value,
+    root: &Path,
     prefix: &Path,
     socket: &str,
     deadline: Instant,
 ) -> Result<(), SquadError> {
-    if !still_old(board, prefix, socket)? {
+    let verify = |board: &Value| {
+        still_old(board, root, prefix, socket).map_err(|error| {
+            if board["leaseSinceMs"].is_i64() {
+                fail(format!(
+                    "{} {}",
+                    holder_recovery(Some(board)),
+                    error.message
+                ))
+            } else {
+                error
+            }
+        })
+    };
+    if !verify(board)? {
         board["state"] = json!("stopped");
         return Ok(());
     }
@@ -317,7 +403,7 @@ fn stop(
         socket,
         &["set-option", "-p", "-t", &pane, "remain-on-exit", "on"],
     )?;
-    if still_old(board, prefix, socket)? {
+    if verify(board)? {
         kill(
             Pid::from_raw(i32::try_from(number(board, "pid")?).map_err(fail)?),
             Signal::SIGTERM,
@@ -530,13 +616,22 @@ fn switch(core: &Core, prefix: &Path, socket: Option<&str>) -> Result<Value, Squ
     };
     let root = migration::data_root(core)?;
     let mut record = record::Record::open(&root, prefix, socket)?;
-    let fresh = discover(prefix, socket)?;
+    let fresh = discover(&root, prefix, socket)?;
     for board in fresh.boards {
-        if !record
+        if let Some(old) = record
             .boards
-            .iter()
-            .any(|old| old["pid"] == board["pid"] && old["start"] == board["start"])
+            .iter_mut()
+            .find(|old| old["pid"] == board["pid"] && old["start"] == board["start"])
         {
+            // Older pending records predate the lease-holder exception. Retain
+            // their identity/progress; still_old rechecks it before any signal.
+            if old["state"] == "old"
+                && old.get("leaseSinceMs").is_none()
+                && board["leaseSinceMs"].is_i64()
+            {
+                old["leaseSinceMs"] = board["leaseSinceMs"].clone();
+            }
+        } else {
             record.add(board)?;
         }
     }
@@ -554,15 +649,13 @@ fn switch(core: &Core, prefix: &Path, socket: Option<&str>) -> Result<Value, Squ
                 return Err(fail("The board-switch deadline elapsed."));
             }
             if record.boards[index]["state"] == "old" {
-                stop(&mut record.boards[index], prefix, socket, deadline)?;
+                stop(&mut record.boards[index], &root, prefix, socket, deadline)?;
                 record.save()?;
             }
         }
         let initial = migration::paths(core, None)?;
         if initial.legacy && migration::retry(core)?.legacy {
-            return Err(fail(
-                "Migration is still deferred; scheduled sends remain paused in new Ops boards.",
-            ));
+            return Err(fail(holder_recovery(fresh.blocked_holder.as_ref())));
         }
         for index in 0..record.boards.len() {
             let mut board = record.boards[index].clone();
@@ -615,6 +708,34 @@ fn switch(core: &Core, prefix: &Path, socket: Option<&str>) -> Result<Value, Squ
     }
 }
 
+fn offer_inventory(boards: &[Value]) -> Vec<Value> {
+    let mut result = Vec::new();
+    for board in boards {
+        let identity = if board["pending"] == true {
+            json!({"pending":true})
+        } else if board["leaseSinceMs"].is_i64() {
+            // Losing process evidence does not create a new lease incarnation.
+            json!({"pid":board["pid"],"pane":board["pane"],"leaseSinceMs":board["leaseSinceMs"]})
+        } else {
+            json!({"pid":board["pid"],"start":board["start"],"pane":board["pane"]})
+        };
+        if !result.contains(&identity) {
+            result.push(identity);
+        }
+    }
+    result
+}
+
+fn holder_recovery(holder: Option<&Value>) -> String {
+    match holder {
+        Some(holder) => format!(
+            "Cannot verify old clock PID {} in pane {}. Exit its former board, then run the recovery command below.",
+            holder["pid"], holder["pane"].as_str().unwrap_or("unknown")
+        ),
+        None => "Migration is still deferred by a legacy writer; finish that operation, then run the recovery command below.".into(),
+    }
+}
+
 /// One pre-dispatch offer. Protocol/help/completion paths never reach here.
 pub(crate) fn offer(interaction: Interaction) -> Result<(), SquadError> {
     if std::env::var_os("TMT_OPS_SWITCH_READY").is_some() {
@@ -624,23 +745,42 @@ pub(crate) fn offer(interaction: Interaction) -> Result<(), SquadError> {
         return Ok(());
     };
     let core = Core::discover()?;
-    let shown = core.json(&["config", "show"])?;
-    let old = shown["paths"]["global"]
-        .as_str()
-        .and_then(|path| Path::new(path).parent())
-        .is_some_and(|path| path.join("squad.toml").exists());
     let socket = effects::tmux_socket();
     let root = migration::data_root(&core)?;
-    if !old && !record::exists(&root) {
-        let Some(socket) = &socket else {
-            return Ok(());
-        };
-        let found = discover(&prefix, socket)?;
-        if found.boards.is_empty() && !found.deferred {
-            return Ok(());
+    let mut boards = Vec::new();
+    if let Some(socket) = &socket {
+        let found = discover(&root, &prefix, socket)?;
+        boards.extend(found.boards);
+        if let Some(holder) = found.blocked_holder {
+            boards.push(holder);
+        }
+        if record::exists(&root) {
+            boards.extend(record::Record::open(&root, &prefix, socket)?.boards.clone());
+        }
+    } else {
+        if let Some(holder) = migration::legacy_clock_holder(&root).map_err(fail)? {
+            boards
+                .push(json!({"pid":holder.pid,"pane":holder.pane,"leaseSinceMs":holder.since_ms}));
+        }
+        if record::exists(&root) {
+            boards.push(json!({"pending":true}));
         }
     }
+    let boards = offer_inventory(&boards);
+    if boards.is_empty() {
+        return Ok(());
+    }
     let prefix = verify_prefix(&core, None)?;
+    let scope = socket.as_deref().unwrap_or("");
+    if !record::remember_offer(
+        &root,
+        &prefix,
+        scope,
+        &boards,
+        interaction.prompt() == Mode::Interactive,
+    )? {
+        return Ok(());
+    }
     let hint = command(&prefix, socket.as_deref());
     if interaction.prompt() != Mode::Interactive {
         write_notice(&hint)?;
@@ -681,4 +821,24 @@ pub(crate) fn acknowledge(file: &mut fs::File) -> std::io::Result<()> {
     file.set_len(0)?;
     file.write_all(std::process::id().to_string().as_bytes())?;
     file.sync_all()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn holder_offer_survives_lost_process_evidence_but_not_a_new_lease() {
+        let live = json!({"pid":42,"pane":"%4","start":"original","leaseSinceMs":100});
+        let missing = json!({"pid":42,"pane":"%4","leaseSinceMs":100});
+        assert_eq!(
+            offer_inventory(&[live]),
+            offer_inventory(std::slice::from_ref(&missing))
+        );
+        let new_incarnation = json!({"pid":42,"pane":"%4","leaseSinceMs":200});
+        assert_ne!(
+            offer_inventory(&[missing]),
+            offer_inventory(&[new_incarnation])
+        );
+    }
 }

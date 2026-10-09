@@ -20,7 +20,7 @@ failure/cleanup observations; the basic badge case belongs to `pane-badge`.
 | `talk-completion` vs `durable-talk`                            | Observer interruption, attribution, uncertain delivery vs inline input, size bounds, concurrency, retries                                                                                                                                                         |
 | `exchange-watermarks` vs `exchange-attention`                  | Gated revision/watermark state, late finals vs config isolation, redaction, rebind access                                                                                                                                                                         |
 | `tmux-adapter`, `transport-adapter`                            | Explicit adapter-probe evidence (caller/inventory/markers; delivery/capture stages), not public CLI success                                                                                                                                                       |
-| `pane-badge`                                                   | Default-off behavior, opt-in updates, theme preservation, rendering, conflicts, cleanup                                                                                                                                                                           |
+| `pane-badge`                                                   | Pane-only badge composition, user ownership, shared theme preservation, rendering, conflicts, cleanup                                                                                                                                                             |
 | `executable-selection`, `smoke`                                | Harness selection, causal nested replies, startup and cleanup controls                                                                                                                                                                                            |
 | `claude-channel`, `codex-channel`                              | Channel delivery against a mock `claude` or model-free `codex-channel-fixture`: no paste to an opted-in pane, crash cleanup, plain paste kept                                                                                                                     |
 | `reply-batching`                                               | Fixed pane windows, disabled grouping, binding-replacement fencing, real attached PTY key debounce, worker/log cleanup; its Python fixture owns and reaps a tmux client so real key bytes reach `client_activity` (control-mode `send-keys` is not user activity) |
@@ -37,6 +37,7 @@ failure/cleanup observations; the basic badge case belongs to `pane-badge`.
   Synchronous fixture tmux calls fail after five seconds and kill the client;
   scenario timeouts stay required. Install a fixture's tmux trace once and reuse
   `clear()`.
+  Private-server pane borders are visible by default; the badge hint case opts out.
 - Shared cross-suite utilities go in `typescript/test/support/`; helper tests go in
   `typescript/test/tooling/` and must prove rejection as well as positive behavior.
   The import-direction guard checks these boundaries without Docker.

@@ -48,8 +48,15 @@ channels and the driver protocol. The owner map is in
   until the driver is approved. Without it, a Herdr pane command keeps its result and prints
   `tmt driver install herdr` on stderr once a day per pane (`hint_cadence`).
 - Cosmetics: tmux badge and marker refresh (names sanitized before markup); `pane_badge` is
-  bounded presentation, never routing evidence; on an external host only the marker's name is
-  refreshed.
+  bounded post-commit presentation, never routing evidence. A badge refresh prefixes the
+  inherited border format on that pane only, unless a user-local override or existing badge
+  reference already supplies it. `@tmux-team.border` stores the exact installed format;
+  cleanup compares it on the server before unsetting only that unchanged pane override.
+  Creation uses set-only-if-unset, and publishes ownership after successful format writing;
+  failed ownership publication conservatively leaves the format unowned. No shared option or
+  configuration file is changed. Only explicit binding/launch callers request the off-border
+  enable-command hint; delivery, hooks and automatic refreshes remain silent. The copied
+  inherited format stays fixed until unbind and rebind. External hosts refresh only the marker's name.
 
 ## External host drivers
 

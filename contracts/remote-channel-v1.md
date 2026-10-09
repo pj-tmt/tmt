@@ -726,22 +726,29 @@ The existing no-argument reopen behavior and ordinary agent operations remain un
 
 Human `serve` output links to the same-origin `/` browser entry. JSON readiness, status and SDK
 `address` retain the protocol `/r/<prefix>` base; navigating there still gets the generic refusal.
-The entry initially reads only this origin's saved browser record through the existing SDK owner.
-Absent local data means no saved pairing; validated data means saved pairing with access unchecked.
-Malformed or inaccessible data is unconfirmed. No descriptor, admission, inventory or work request
-runs merely to display that state. Complete identity/origin/address/key-pin validation and the
-existing non-extractable device-key consistency check precede an explicit connection attempt.
+The entry validates this origin's saved browser record through the existing SDK owner. Absent
+local data means Not paired; inaccessible or malformed data means Pairing unreadable. Complete
+identity/origin/address/key-pin validation and the existing non-extractable key consistency check
+precede any network request. Stored key presence alone never establishes live authority.
 
-Connect makes one fresh `session.open` attempt and verifies its signed result against the
-saved machine pin. A verified response confirms access at the displayed checked time, never
-administrator designation. An opaque404 with an unchanged current descriptor recheck is still
-not a signed refusal reason: access could not be verified, without inferring revocation, eviction
-or another permanent cause. Only a specifically verified refusal may report Access refused. Transport, changed or
-malformed descriptor and unverified response failures remain unconfirmed; a public descriptor
-cannot replace a machine trust pin. Async results and new admission/recheck requests are fenced
-to their page attempt, including after signing. Departure cannot undo an already dispatched request. No automatic
-re-pair, grant repair, work resend or session admission on page load exists. Owner pairing still
-uses the fragment-erasing bootstrap, fingerprint comparison and terminal confirmation.
+Each page open automatically checks once: read the current descriptor, open one verified
+`session.open`, then observe `capabilities` through that Session's serialized signed lane. These
+reads are not journaled. Check again is manual and reuses the current verified Session; an ended
+session can be reopened only by that explicit check. An expired Session is silently reopened once
+within the manual check; an ended capabilities response is not a pairing refusal. No polling,
+automatic re-pair, grant renewal,
+work dispatch or recovery resend occurs. Connected means this check verified current access,
+never settings-administrator designation; open an app from its link in this browser.
+
+A different machine keeps the saved pairing unchanged. Only a specifically verified signed
+refusal reports Not accepted. Opaque404, transport, stale/malformed descriptor or unverifiable
+response stays unconfirmed, without inferring revocation or another permanent cause; a public
+descriptor cannot replace the saved machine pin. A descriptor-only recheck after opaque404 never
+retries admission. Page lifetime fences prevent new requests after departure, including signing
+continuations; per-check fences prevent late painting. Departure cannot undo an already sent
+request. Details contains the short machine ID, viewer-local checked time, protocol address,
+trust pin and pairing-versus-administration note. Owner pairing retains fragment erasure,
+fingerprint comparison and terminal confirmation.
 
 ### Local CLI discovery
 
@@ -805,6 +812,24 @@ next request succeeds; status never activates or retries a channel. The ordinary
 projections remain unchanged. Stopped inspection keeps the two-key stopped shape, without
 `objectChannels`. Unsupported optional requests preserve their original error code/message;
 malformed or silent replies are errors, never proof of stopped or healthy storage.
+
+`tmt remote status --layers [--json]` selects a third optional running-only observation, exclusive with `--machine` and
+`--objects`; unlike them it also has a human rendering, and plain `status` is unchanged. It sends exactly
+`{"op":"status","layers":true}` and returns the ordinary three members plus `firestoreLayers`. The list is empty until a
+Firestore deployment exists and has recorded evidence: status reads that recorded evidence, never contacts the provider
+and never starts anything. Otherwise it has one entry per layer, in the order `sharing` (page sharing and collaboration),
+`operations` (device operations) and `attachments`, each exactly `{layer,state,prerequisites}`. `state` is `enabled`,
+`not-enabled` or `unknown`, derived from the prerequisites (any `not-enabled` makes it `not-enabled`, otherwise any
+`unknown` makes it `unknown`). Each layer has its own prerequisites in a fixed order, as `{item,state}` plus, unless
+`enabled`, a fixed `reason` and, only where a command exists, `next`: sharing has `project`, `sign-in`, `rules`,
+`plan-tier`, `quota`; operations has `plan-tier`, `support`; attachments has `support`, `project`, `rules`, `quota`.
+Reasons per item are `project`: `not-configured`, `access-lost`; `sign-in`: `provider-disabled`, `permission-missing`;
+`rules`: `not-deployed`, `out-of-date`, `partial`; `plan-tier`: `paid-plan-required`; `quota`: `headroom-low`, `exhausted`
+(only from a recorded refusal); `support`: `not-implemented`. An `unknown` prerequisite has the reason `not-checked` and
+nothing is guessed. `next` is only `tmt remote deploy firestore`. Device operations are not offered on the free Firebase
+plan, so they report `paid-plan-required` there and, until a release implements them, `support: not-implemented`. Every
+word comes from a fixed table: no provider text, secret or path. The ordinary, `--machine` and `--objects` projections and
+stopped inspection are unchanged.
 
 An old command rejects `--machine` before state work. Against an old live serve, the optional
 projection preserves the standard nonzero error document and its original unsupported code/message:

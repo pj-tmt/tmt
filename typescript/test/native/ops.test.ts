@@ -4270,13 +4270,46 @@ type SwitchFixture = {
     tabs: string | undefined,
     clock?: boolean,
     shell?: boolean,
-    executable?: string
+    executable?: string,
+    boardCommand?: 'board' | 'ui'
   ) => Promise<{ pane: string; pid: number; cwd: string; proof: string }>;
   candidate: ArtifactFixture;
   oldConfig: Buffer;
   oldState: Buffer;
   dataRoot: string;
 };
+
+function quoteSwitchArgument(value: string) {
+  return `'${value.replaceAll("'", "'\\''")}'`;
+}
+
+async function runSwitchOffer(
+  fixture: SwitchFixture,
+  pane: string,
+  name: string,
+  answer?: 'y' | 'n'
+) {
+  const { sandbox, tmux } = fixture;
+  const done = path.join(sandbox.root, `offer-${name}.done`);
+  const capture = () => tmux(['capture-pane', '-p', '-S', '-', '-t', pane]);
+  const before = capture().split('Switch now?').length - 1;
+  const line = `${quoteSwitchArgument(sandbox.cli.executable)} ops squad ls; printf '%s\\n' "$?" > ${quoteSwitchArgument(done)}`;
+  tmux(['send-keys', '-t', pane, '-l', line]);
+  tmux(['send-keys', '-t', pane, 'Enter']);
+  if (answer) {
+    await vi.waitFor(() => expect(capture().split('Switch now?').length - 1).toBe(before + 1), {
+      timeout: 10_000,
+      interval: 25,
+    });
+    tmux(['send-keys', '-t', pane, answer, 'Enter']);
+  }
+  await vi.waitFor(() => expect(existsSync(done)).toBe(true), { timeout: 20_000, interval: 25 });
+  expect(readFileSync(done, 'utf8').trim()).toBe('0');
+  const screen = capture();
+  expect(screen).toContain('product');
+  expect(screen.split('Switch now?').length - 1).toBe(before + (answer ? 1 : 0));
+  return screen;
+}
 
 function liveOps(sandbox: Sandbox, prefix: string, tmux: (args: string[]) => string, pane: string) {
   const tty = tmux(['display-message', '-p', '-t', pane, '#{pane_tty}']).replace('/dev/', '');
@@ -4378,19 +4411,19 @@ async function withBoardSwitch<T>(body: (fixture: SwitchFixture) => Promise<T>):
     ]);
     const serverPid = tmux(['display-message', '-p', '#{pid}']);
     sandbox.env.TMUX = `${socket},${serverPid},0`;
-    const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
     const old = async (
       name: string,
       tabs: string | undefined,
       clock = false,
       shell = false,
-      executable = former
+      executable = former,
+      boardCommand: 'board' | 'ui' = 'board'
     ) => {
       const proof = path.join(sandbox.root, `${name}.json`);
       const cwd = path.join(sandbox.root, `${name} cwd`);
       mkdirSync(cwd);
-      const args = [executable, 'board', ...(tabs === undefined ? [] : ['--tabs', tabs])];
-      const line = `/usr/bin/env ${quote(`TMT_FORMER_PROOF=${proof}`)} ${clock ? quote(`TMT_FORMER_CLOCK_ROOT=${path.join(dataRoot, 'squad')}`) : ''} ${args.map(quote).join(' ')}`;
+      const args = [executable, boardCommand, ...(tabs === undefined ? [] : ['--tabs', tabs])];
+      const line = `/usr/bin/env ${quoteSwitchArgument(`TMT_FORMER_PROOF=${proof}`)} ${clock ? quoteSwitchArgument(`TMT_FORMER_CLOCK_ROOT=${path.join(dataRoot, 'squad')}`) : ''} ${args.map(quoteSwitchArgument).join(' ')}`;
       const pane = tmux([
         'new-window',
         '-d',
@@ -4474,6 +4507,157 @@ async function withBoardSwitch<T>(body: (fixture: SwitchFixture) => Promise<T>):
 }
 
 describe('verified former-board switching', () => {
+  it('never offers a board switch for legacy config without a former board', async () => {
+    await withBoardSwitch(async (fixture) => {
+      const pane = fixture.tmux(['new-window', '-d', '-P', '-F', '#{pane_id}', 'exec /bin/sh']);
+      const offer = path.join(fixture.dataRoot, '.ops-board-switch-offer-v1.json');
+      const before = existsSync(offer) ? readFileSync(offer) : undefined;
+      await runSwitchOffer(fixture, pane, 'no-boards');
+      if (before) expect(readFileSync(offer)).toEqual(before);
+      else expect(existsSync(offer)).toBe(false);
+      expect(readFileSync(path.join(fixture.sandbox.globalDir, 'ops.toml'))).toEqual(
+        fixture.oldConfig
+      );
+    });
+  }, 60_000);
+
+  it('remembers a decline until a new former-board incarnation appears', async () => {
+    await withBoardSwitch(async (fixture) => {
+      const first = await fixture.old('declined-first', 'product', true);
+      const pane = fixture.tmux(['new-window', '-d', '-P', '-F', '#{pane_id}', 'exec /bin/sh']);
+      // A piped command's hint must not consume the first interactive choice.
+      const hinted = await runCli(fixture.sandbox, ['ops', 'squad', 'ls']);
+      expect(hinted.status).toBe(0);
+      expect(hinted.stderr).toContain('tmt ops migration switch --yes');
+      await runSwitchOffer(fixture, pane, 'first-decline', 'n');
+      await runSwitchOffer(fixture, pane, 'same-decline');
+      const second = await fixture.old('declined-second', 'product');
+      await runSwitchOffer(fixture, pane, 'new-decline', 'n');
+      await runSwitchOffer(fixture, pane, 'same-new-decline');
+      for (const former of [first, second]) {
+        expect(existsSync(former.proof.replace(/\.json$/, '.stopped'))).toBe(false);
+      }
+      expect(
+        statSync(path.join(fixture.dataRoot, '.ops-board-switch-offer-v1.json')).mode & 0o777
+      ).toBe(0o600);
+    });
+  }, 60_000);
+
+  it.each([false, true])(
+    'switches the consented lease holder outside the former namespace with historical pending record=%s',
+    async (pending) => {
+      await withBoardSwitch(async (fixture) => {
+        const { sandbox, prefix, socket, old, tmux, dataRoot, oldConfig } = fixture;
+        const directory = path.join(sandbox.root, 'retired release');
+        mkdirSync(directory);
+        const executable = path.join(directory, 'tmt-squad');
+        const original = realpathSync(path.join(prefix, 'bin/tmt-squad'));
+        if (!pending) {
+          copyFileSync(formerBoardFixture, executable);
+          chmodSync(executable, 0o755);
+        }
+        const former = await old(
+          'lease-only',
+          'product',
+          true,
+          false,
+          pending ? original : executable,
+          pending ? 'board' : 'ui'
+        );
+        const record = path.join(dataRoot, '.ops-board-switch-v1.json');
+        const ready = path.join(dataRoot, `.ops-board-switch-ready-${'0'.repeat(64)}`);
+        if (pending) {
+          const observed = spawnSync('/bin/ps', ['-p', String(former.pid), '-o', 'lstart='], {
+            env: sandbox.env,
+            encoding: 'utf8',
+            timeout: 5000,
+          });
+          expect(observed.status, observed.stderr).toBe(0);
+          const start = observed.stdout.trim().split(/\s+/).join(' ');
+          expect(Number(tmux(['display-message', '-p', '-t', former.pane, '#{pane_pid}']))).toBe(
+            former.pid
+          );
+          // Historical v1 inventory predates the lease exception. Capture real
+          // identity fields, retain its private ready path, then move the vnode.
+          writeFileSync(ready, '', { mode: 0o600 });
+          writeFileSync(
+            record,
+            JSON.stringify({
+              version: 1,
+              prefix,
+              socket,
+              boards: [
+                {
+                  pid: former.pid,
+                  start,
+                  executable: original,
+                  pane: former.pane,
+                  rootPid: former.pid,
+                  rootStart: start,
+                  tty: tmux(['display-message', '-p', '-t', former.pane, '#{pane_tty}']),
+                  cwd: former.cwd,
+                  args: ['ui', '--tabs', 'product'],
+                  state: 'old',
+                  remain: tmux(['show-options', '-p', '-v', '-t', former.pane, 'remain-on-exit']),
+                  ready,
+                },
+              ],
+            }),
+            { mode: 0o600 }
+          );
+          renameSync(original, executable);
+        }
+        const pane = tmux(['new-window', '-d', '-P', '-F', '#{pane_id}', 'exec /bin/sh']);
+        const screen = await runSwitchOffer(fixture, pane, 'verified-yes', 'y');
+        expect(screen).toContain('switched 1 boards to Ops');
+        expect(existsSync(former.proof.replace(/\.json$/, '.stopped'))).toBe(true);
+        expect(liveOps(sandbox, prefix, tmux, former.pane).pid).not.toBe(former.pid);
+        expect(readFileSync(path.join(sandbox.globalDir, 'ops.toml'))).toEqual(oldConfig);
+        expect(existsSync(path.join(dataRoot, 'squad', 'cron', 'clock.json'))).toBe(false);
+        expect(existsSync(record)).toBe(false);
+        expect(existsSync(ready)).toBe(false);
+      });
+    },
+    60_000
+  );
+
+  it.each(['wrong pane', 'process born after lease'])(
+    'reports an unverified holder once for %s and never signals it',
+    async (failure) => {
+      await withBoardSwitch(async (fixture) => {
+        const directory = path.join(fixture.sandbox.root, 'unverified original');
+        mkdirSync(directory);
+        const executable = path.join(directory, 'tmt-squad');
+        copyFileSync(formerBoardFixture, executable);
+        chmodSync(executable, 0o755);
+        const former = await fixture.old(
+          'unverified-holder',
+          'product',
+          true,
+          false,
+          executable,
+          'ui'
+        );
+        const pane = fixture.tmux(['new-window', '-d', '-P', '-F', '#{pane_id}', 'exec /bin/sh']);
+        const leasePath = path.join(fixture.dataRoot, 'squad', 'cron', 'clock.json');
+        const lease = JSON.parse(readFileSync(leasePath, 'utf8'));
+        if (failure === 'wrong pane') lease.pane = pane;
+        else lease.sinceMs = 0;
+        writeFileSync(leasePath, JSON.stringify(lease));
+        const screen = await runSwitchOffer(fixture, pane, 'unverified-yes', 'y');
+        expect(screen).toContain(`Cannot verify old clock PID ${former.pid} in pane ${lease.pane}`);
+        expect(screen).toContain('Exit its former board');
+        const again = await runSwitchOffer(fixture, pane, 'unverified-again');
+        expect(again.split('Exit its former board')).toHaveLength(2);
+        expect(existsSync(former.proof.replace(/\.json$/, '.stopped'))).toBe(false);
+        expect(fixture.tmux(['display-message', '-p', '-t', former.pane, '#{pane_pid}'])).toBe(
+          String(former.pid)
+        );
+      });
+    },
+    60_000
+  );
+
   it.each([false, true])(
     'switches several former boards after namespace removal=%s',
     async (removed) => {

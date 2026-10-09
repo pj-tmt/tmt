@@ -863,7 +863,7 @@ for behavior and limits; module rules: [storage and requests reference](.agents/
 deadlines, process-group cleanup, reaping); `process::interactive` owns direct
 terminal children without taking the shared process group. `tmux` uses explicit
 socket/server evidence, bounded budgets and no ambient host fallback; a failed paste
-or Enter is uncertain and never retried as unsent.
+or Enter is uncertain and never retried as unsent; [pane cosmetics](.agents/skills/tmt-core-runtime/references/hosts-drivers.md) own only pane-local badge overrides.
 
 The CLI and the `delivery` and `pane_badge` adapters reach a terminal only through
 `tmt-adapters::host::Host`; extensions never do (they read `tmt ls --json` and
@@ -995,7 +995,7 @@ Independent releases use `tmt-ops-v<version>`; module/drawing ownership and guar
   identity metadata `squad.<name>.<field>`, with no Ops membership store. Ops owns
   `<dataRoot>/ops` (`storage.root`), including private, bounded display snapshots in `cache/board` ([cache contract](.agents/skills/tmt-ops-dev/references/refresh-and-meter.md#display-snapshot-cache)), and disposable `$XDG_CACHE_HOME/tmt-ops` caches.
   `ops.toml` is the user's file: agents never write it; Ops uses its compare-and-set
-  writer; `migration` owns the locked, byte-preserving legacy cutover. Ops switches verified former boards before install cleanup; new UIs defer automatic clock acquisition until cutover and retry through the existing clock worker. No Ops data goes into `config.json` or the core database.
+  writer; `migration` owns the locked, byte-preserving legacy cutover. Ops switches verified former boards before install cleanup; `board_switch` owns consented clock-holder verification and private offer memory separately from launch recovery. New UIs defer automatic clock acquisition until cutover and retry through the existing clock worker. No Ops data goes into `config.json` or the core database.
 - **Checklist.** `checklist_command` exposes native grammar and scoped output over the existing
   `checklist` caller/room admission, `model` revisions/tombstones and `store` versioned room-UUID JSON
   under `<dataRoot>/ops/checklist`. Reads create no checklist files; locked admission precedes synced replacement outside a Core/file transaction.
@@ -1157,8 +1157,8 @@ Colab owns short-ID resolution, while the door session cookie stays scoped to th
 [`contracts/remote-channel-v1.md`](contracts/remote-channel-v1.md) owns
 the wire, pairing, session, operations and extension channel API. Remote owns the
 static browser entry and pairing ceremony; human serve links name `/`, while protocol addresses
-retain their route prefix. Saved pairing is local evidence, not live authority: only an explicit
-connection check opens a signed Session. No state display sends work or designates an administrator.
+retain their route prefix. Saved pairing is local evidence, not live authority: entry checks once
+through a signed Session and capabilities read; manual rechecks reuse it. No work or designation.
 Protocol refusals and mounted extension responses retain their own representation.
 [Remote settings administration](contracts/remote-channel-v1.md#remote-settings-browser-authority)
 separates local effect designation from paired trust; live-grant original-ID reads never reapply
@@ -1173,7 +1173,7 @@ bind the session through a non-secret, cookie-device-checked `tmt-session` ident
 stripped at the door. Last-close touches; every session without a live transport has the existing 60-second inactivity grace.
 Activity renews it; reattach resumes that session. Detached sessions count against the cap until expiry. Idle expiry, explicit end, eviction and authority loss reuse session-owned cleanup.
 Grant-owned held work survives session end; only stop, revoke or grant expiry/revision change cancels it. Uncertain dispatch retains recovery.
-The `objects` backend and the `rust/crates/tmt-extension-objects` wire leaf (identifiers, bounds, strict JSON, frames and Unix carrier) belong to Remote's lease-bound object service: serve attempts each Local declaration before door readiness, reactivates on validated websocket demand, shares its origin registry with mounts and joins it after door shutdown. Only Colab declares Local (#1852); missing adapter admission refuses operations before ledger effects, and setup failure forwards without an origin; optional `status --objects --json` observes live channel readiness without activation: see the [Remote internals](.agents/skills/tmt-remote/references/architecture-internals.md) and [object-backends](.agents/skills/tmt-remote/references/object-backends.md) references. Backend declarations, Rules composition and the free-plan budget guard (`declaration`, `deploy_plan`, `rules`, `firestore_budget`) are pure library code, unreachable until the deploy command (#2164): they turn owner-approved bytes into a digest-addressed `sharing` plan allow-list-composed Firestore Rules and a refusal before the Spark quotas.
+The `objects` backend and the `rust/crates/tmt-extension-objects` wire leaf (identifiers, bounds, strict JSON, frames and Unix carrier) belong to Remote's lease-bound object service: serve attempts each Local declaration before door readiness, reactivates on validated websocket demand, shares its origin registry with mounts and joins it after door shutdown. Only Colab declares Local (#1852); missing adapter admission refuses operations before ledger effects, and setup failure forwards without an origin; optional `status --objects --json` observes live channel readiness without activation, and `status --layers` reports layered Firestore readiness from recorded evidence (`readiness`, empty until a deployment exists): see the [Remote internals](.agents/skills/tmt-remote/references/architecture-internals.md) and [object-backends](.agents/skills/tmt-remote/references/object-backends.md) references. Backend declarations, Rules composition and the free-plan budget guard (`declaration`, `deploy_plan`, `rules`, `firestore_budget`) are pure library code, unreachable until the deploy command (#2164): they turn owner-approved bytes into a digest-addressed `sharing` plan, allow-list-composed Firestore Rules and a refusal before the Spark quotas.
 
 System-wide invariants:
 

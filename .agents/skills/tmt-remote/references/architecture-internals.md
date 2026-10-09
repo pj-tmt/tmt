@@ -1,7 +1,7 @@
 # Remote architecture internals
 
 Module owners (put a change in the existing owner; `canonical`, `crypto`, `wire`,
-`transport`, `declaration`, `deploy_plan`, `rules` and `firestore_budget` have no I/O, clock, storage or `CoreClient` access):
+`transport`, `declaration`, `deploy_plan`, `rules`, `firestore_budget` and `readiness` have no I/O, clock, storage or `CoreClient` access):
 
 | Module                                 | Owns                                                                                                                                                                                                                  |
 | -------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -17,6 +17,7 @@ Module owners (put a change in the existing owner; `canonical`, `crypto`, `wire`
 | `objects`                              | Object backend trait and `LocalFs`: the `objects.db` ledger and extension-private payload trees under the serve lease; the channel and config belong to `object_service`                                              |
 | `declaration`, `deploy_plan`, `rules`  | Strict backend declaration parse; digest-addressed `sharing` deploy plan; allow-listed Rules/indexes composition (bytes in, library only until #2164)                                                                 |
 | `firestore_budget`                     | Free-plan Firestore budget model and client guard; vectors in `tests/fixtures/firestore_budget`                                                                                                                       |
+| `readiness`                            | Layered Firestore readiness: one table of items, reasons and sentences; projection, validator and human lines over an injected evidence source                                                                        |
 | `object_service`                       | Lease-bound `ObjectService`: initial/demand single-flight Local setup, readiness, origins, admitted observation/upload; production Colab-only Local                                                                   |
 | `tmt-extension-objects` (leaf)         | Remote-owned protocol leaf, consumed only by `object_service`: canonical IDs/encodings, protocol bounds, strict JSON, typed frames and the Unix carrier; no backend, policy or Remote/Colab types, and grants nothing |
 

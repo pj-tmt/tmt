@@ -6,7 +6,8 @@
  * events and pending squash incarnations stay unknown; cancellations do not prove
  * invalidation causes. Sole worker failures exclude propagated gate failures.
  * Exact-tree fail/pass pairs are candidates requiring independent log review.
- * Mutable lists refresh; completed attempts/commit comparisons reuse local evidence.
+ * Mutable lists refresh; terminal job pages require a complete qualified acquisition.
+ * API source trees stay separate from source-bound worker checkout evidence.
  */
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -72,7 +73,32 @@ function describe(values) {
   };
 }
 
-/** Read-only, bounded REST requests. Terminal evidence is reused; mutable lists refresh. */
+function testedTree(job) {
+  const proof = job.testedCheckout;
+  return proof?.reason === null &&
+    /^[a-f0-9]{40}$/.test(proof.sha ?? '') &&
+    /^[a-f0-9]{40}$/.test(proof.tree ?? '') &&
+    /^[a-f0-9]{64}$/.test(proof.logSha256 ?? '') &&
+    proof.logPath?.endsWith(`/actions/jobs/${job.id}/logs`)
+    ? proof.tree
+    : null;
+}
+
+function terminalJobs(data) {
+  return (
+    Array.isArray(data?.jobs) &&
+    data.jobs.every(
+      (job) =>
+        job.status === 'completed' &&
+        typeof job.conclusion === 'string' &&
+        job.conclusion.length > 0 &&
+        job.completed_at
+    )
+  );
+}
+const jobPage = (path) => /\/attempts\/\d+\/jobs\?/.test(path);
+
+/** Read-only, bounded REST requests. Only qualified terminal job pages may be frozen. */
 export function restClient({
   cache,
   repo = DEFAULT_REPO,
@@ -84,36 +110,100 @@ export function restClient({
   mkdirSync(cache, { recursive: true });
   let requests = 0;
   const touched = [];
-  return {
-    get(path, immutable = false) {
-      if (!path.startsWith(`${ROOT}/`)) throw new Error(`Only ${ROOT} REST paths are allowed.`);
-      const file = resolve(cache, `${createHash('sha256').update(path).digest('hex')}.json`);
-      if ((offline || immutable) && existsSync(file)) {
-        const stored = JSON.parse(readFileSync(file, 'utf8'));
-        if (stored.path !== path) throw new Error(`Cache path mismatch: ${file}`);
+  const fileOf = (path) =>
+    resolve(cache, `${createHash('sha256').update(path).digest('hex')}.json`);
+  function get(path, immutable = false, text = false) {
+    if (!path.startsWith(`${ROOT}/`)) throw new Error(`Only ${ROOT} REST paths are allowed.`);
+    const file = fileOf(path);
+    if ((offline || immutable) && existsSync(file)) {
+      const stored = JSON.parse(readFileSync(file, 'utf8'));
+      if (stored.path !== path) throw new Error(`Cache path mismatch: ${file}`);
+      const qualified =
+        (!immutable ||
+          !jobPage(path) ||
+          (stored.terminalJobs === true && terminalJobs(stored.data))) &&
+        (!immutable || !/\/attempts\/\d+$/.test(path) || stored.data?.status === 'completed') &&
+        (!text || stored.format === 'text');
+      if (qualified) {
         touched.push(file);
         return stored.data;
       }
-      if (offline) throw new Error(`Offline evidence missing: ${path}`);
-      if (requests >= maxRequests)
-        throw new Error(
-          `REST budget ${maxRequests} exhausted; narrow the window or reuse cached evidence.`
-        );
-      requests += 1;
-      const data = JSON.parse(
-        execute('gh', ['api', '--method', 'GET', path], {
-          cwd: process.cwd(),
-          env: process.env,
-          timeoutMs: 60_000,
-        })
+      if (offline) throw new Error(`Offline terminal evidence unqualified: ${path}`);
+    }
+    if (offline) throw new Error(`Offline evidence missing: ${path}`);
+    if (requests >= maxRequests)
+      throw new Error(
+        `REST budget ${maxRequests} exhausted; narrow the window or reuse cached evidence.`
       );
-      writeFileSync(
-        file,
-        `${JSON.stringify({ path, fetchedAt: new Date().toISOString(), data })}\n`,
-        { mode: 0o600 }
-      );
-      touched.push(file);
-      return data;
+    requests += 1;
+    const output = execute(
+      'gh',
+      ['api', '--method', 'GET', ...(text ? ['--allow-escape-sequences'] : []), path],
+      {
+        cwd: process.cwd(),
+        env: process.env,
+        timeoutMs: 60_000,
+      }
+    );
+    const data = text ? output : JSON.parse(output);
+    writeFileSync(
+      file,
+      `${JSON.stringify({ path, fetchedAt: new Date().toISOString(), format: text ? 'text' : 'json', data })}\n`,
+      { mode: 0o600 }
+    );
+    touched.push(file);
+    return data;
+  }
+  return {
+    get,
+    qualifyTerminalJobs(paths) {
+      // Called only after all pages/counts and every terminal row passed collection validation.
+      const records = paths.map((path) => {
+        if (!path.startsWith(`${ROOT}/`) || !jobPage(path))
+          throw new Error('Invalid terminal jobs path.');
+        const stored = JSON.parse(readFileSync(fileOf(path), 'utf8'));
+        if (stored.path !== path || !terminalJobs(stored.data))
+          throw new Error(`Nonterminal jobs: ${path}`);
+        return { path, stored };
+      });
+      if (!offline)
+        for (const { path, stored } of records)
+          writeFileSync(fileOf(path), `${JSON.stringify({ ...stored, terminalJobs: true })}\n`, {
+            mode: 0o600,
+          });
+    },
+    testedCheckout(job) {
+      const logPath = `${ROOT}/actions/jobs/${job.id}/logs`;
+      const unknown = (reason) => ({ sha: null, tree: null, logPath, reason });
+      if (job.status !== 'completed' || !job.completed_at)
+        return unknown('Worker is not terminal.');
+      try {
+        const log = get(logPath, true, true);
+        // Refuse multiple checkouts or ambiguous output rather than assigning the API source head.
+        const refs = log.match(/##\[group\]Checking out the ref/g) ?? [];
+        const commits = [
+          ...log.matchAll(
+            /##\[group\]Checking out the ref[^]*?##\[endgroup\]\r?\n[^\n]*\[command\][^\n]*\/git log -1 --format=%H\r?\n[^\n]*? ([a-f0-9]{40})\r?\n/g
+          ),
+        ];
+        if (refs.length !== 1 || commits.length !== 1)
+          return unknown('Checkout log is missing or ambiguous.');
+        const sha = commits[0][1];
+        const commit = get(`${ROOT}/git/commits/${sha}`, true);
+        if (commit.sha !== sha || !/^[a-f0-9]{40}$/.test(commit.tree?.sha ?? ''))
+          return unknown('Immutable checkout commit/tree identity is invalid.');
+        return {
+          sha,
+          tree: commit.tree.sha,
+          logPath,
+          logSha256: createHash('sha256').update(log).digest('hex'),
+          reason: null,
+        };
+      } catch (error) {
+        if (error.message.startsWith('REST budget ')) throw error;
+        // Missing/offline/oversized/inaccessible evidence stays unknown; never use source-head fallback.
+        return unknown(`Checkout evidence unavailable: ${error.message}`);
+      }
     },
     evidence: () => ({ requests, files: [...new Set(touched)] }),
   };
@@ -121,12 +211,18 @@ export function restClient({
 
 function pages(api, path, key, immutable = false) {
   const rows = [];
+  const paths = [];
+  let advertisedCount;
   for (let page = 1; page <= 100; page += 1) {
-    const data = api.get(
-      `${path}${path.includes('?') ? '&' : '?'}per_page=${PAGE_SIZE}&page=${page}`,
-      immutable
-    );
+    const endpoint = `${path}${path.includes('?') ? '&' : '?'}per_page=${PAGE_SIZE}&page=${page}`;
+    paths.push(endpoint);
+    const data = api.get(endpoint, immutable);
     const batch = list(key ? data[key] : data, path);
+    if (immutable && key === 'jobs' && Number.isSafeInteger(data.total_count)) {
+      if (advertisedCount !== undefined && advertisedCount !== data.total_count)
+        throw new Error(`Inconsistent terminal job count: ${path}`);
+      advertisedCount = data.total_count;
+    }
     rows.push(...batch);
     if (key && data.total_count > 1000 && path.includes('/runs?')) {
       throw new Error('GitHub run search is capped at 1000; split the window.');
@@ -136,6 +232,16 @@ function pages(api, path, key, immutable = false) {
         throw new Error(
           `Incomplete REST page: ${path}; received ${rows.length} of ${data.total_count}.`
         );
+      }
+      if (immutable && key === 'jobs') {
+        if (
+          (advertisedCount !== undefined && rows.length !== advertisedCount) ||
+          new Set(rows.map((job) => job.id)).size !== rows.length
+        )
+          throw new Error(`Incomplete or duplicate terminal jobs: ${path}`);
+        if (!terminalJobs({ jobs: rows }))
+          throw new Error(`Nonterminal jobs in completed attempt: ${path}`);
+        api.qualifyTerminalJobs?.(paths);
       }
       return rows;
     }
@@ -253,8 +359,8 @@ export function collectMetrics(
         event: run.event,
         createdAt: run.created_at,
         startedAt: detail.run_started_at,
-        sha: run.head_sha,
-        tree: run.head_commit?.tree_id ?? null,
+        sourceSha: run.head_sha,
+        sourceTree: run.head_commit?.tree_id ?? null,
         tipPr: tip(run),
         conclusion: detail.conclusion,
         status: detail.status,
@@ -266,6 +372,32 @@ export function collectMetrics(
             : null,
         url: run.html_url,
       });
+    }
+  }
+  const failedWorkers = new Map();
+  for (const run of [...attempts].sort(
+    (a, b) => a.createdAt.localeCompare(b.createdAt) || a.attempt - b.attempt
+  )) {
+    for (const job of run.jobs) {
+      const key = `${run.event}\0${job.name}\0${runner(job)}`;
+      const failed = FAILURE.has(job.conclusion) && !propagated(job);
+      const followsFailure =
+        job.conclusion === 'success' &&
+        failedWorkers.has(key) &&
+        Date.parse(job.started_at) >= Date.parse(failedWorkers.get(key));
+      job.testedCheckout =
+        failed || followsFailure
+          ? (api.testedCheckout?.(job) ?? {
+              sha: null,
+              tree: null,
+              reason: 'Worker checkout evidence unavailable.',
+            })
+          : {
+              sha: null,
+              tree: null,
+              reason: 'No fail/pass comparison requires this worker checkout.',
+            };
+      if (failed) failedWorkers.set(key, job.completed_at);
     }
   }
   return {
@@ -317,25 +449,21 @@ export function summarizeMetrics(snapshot, since = snapshot.since, until = snaps
     const failures = run.jobs.filter((job) => FAILURE.has(job.conclusion) && !propagated(job));
     for (const job of run.jobs) {
       // Match workflow, event, job and exact git tree; same SHA without a tree is not claimed.
-      const treeKey = `${run.event}\0${job.name}\0${runner(job)}\0${run.tree}`;
-      if (
-        run.tree &&
-        job.conclusion === 'success' &&
-        history.has(treeKey) &&
-        within(run.createdAt)
-      ) {
+      const tree = testedTree(job);
+      const treeKey = `${run.event}\0${job.name}\0${runner(job)}\0${tree}`;
+      if (tree && job.conclusion === 'success' && history.has(treeKey) && within(run.createdAt)) {
         const failed = history.get(treeKey);
         if (Date.parse(job.started_at) >= Date.parse(failed.job.completed_at)) {
           flakes.push({
             job: job.name,
-            tree: run.tree,
+            tree,
             failed: failed.job.html_url,
             passed: job.html_url,
           });
           history.delete(treeKey);
         }
       }
-      if (run.tree && FAILURE.has(job.conclusion) && !propagated(job))
+      if (tree && FAILURE.has(job.conclusion) && !propagated(job))
         history.set(treeKey, { run, job });
       if (!within(run.createdAt)) continue;
       const key = `${run.event}\0${job.name}\0${runner(job)}`;
@@ -500,7 +628,7 @@ export function renderMetrics(snapshot, boundary, { details = false } = {}) {
       lines.push(`- #${removal.pr} at ${removal.time}: ${cell(removal.reason)}.`);
     lines.push(
       '',
-      `Same-tree fail→pass candidates: ${summary.flakes.length} (candidate flakiness, not a diagnosed test).`
+      `Same-tested-tree fail→pass candidates: ${summary.flakes.length} (candidate flakiness, not a diagnosed test).`
     );
     for (const flake of details ? summary.flakes : summary.flakes.slice(0, 3))
       lines.push(
@@ -513,7 +641,7 @@ export function renderMetrics(snapshot, boundary, { details = false } = {}) {
     '',
     'Sole worker failures exclude aggregate-only checks and jobs whose only failed steps start with “Require ”. These counts require a completed attempt; totals retain all failed jobs. Costs/steps are available in the JSON snapshot/summary. Distinct PR count is queue-tip coverage, not full cumulative membership. Merged PRs require a queue-enqueue timeline event. Latency uses the last recorded enqueue; REST removal at merge does not establish interrupted residency. Missing enqueue events remain unknown.',
     '',
-    'Invalidation cause is not inferred from cancellation: REST removal reasons are reported when exposed; failure/conflict/dequeue-ahead attribution otherwise remains unknown. Pending PR inclusion is proven against observed queue-head ancestry; a missing anchor/incarnation remains unknown. A merged PR uses its merge commit ancestry. Every run carries inclusion tags and job/step evidence in JSON. Reports are generated locally; posting is a separate requested action.',
+    'Invalidation cause is not inferred from cancellation: REST removal reasons are reported when exposed; failure/conflict/dequeue-ahead attribution otherwise remains unknown. Pending PR inclusion is proven against observed queue-head ancestry; a missing anchor/incarnation remains unknown. A merged PR uses its merge commit ancestry. Every run retains API sourceSha/sourceTree separately. Exact-tested-tree candidates require per-worker checkout log SHA and immutable Git tree proof; missing/oversized/ambiguous checkout evidence and legacy source-only snapshots are excluded. Relevant failed workers and subsequent successes acquire logs within the same REST budget. Every run carries inclusion tags and job/step evidence in JSON. Reports are generated locally; posting is a separate requested action.',
     '',
     `REST requests this collection: ${snapshot.evidence.requests ?? 'fixture'}; evidence files: ${snapshot.evidence.files.length}.`
   );

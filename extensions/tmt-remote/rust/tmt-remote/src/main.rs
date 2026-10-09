@@ -12,11 +12,11 @@ use std::{
 };
 use tmt_cli_style::{CommandSpec, Example, Interaction, Mode, OutputModes, Route};
 use tmt_remote::{
-    control,
+    control::{self, StatusProjection},
     core::CoreClient,
     devices::{Devices, device_json},
     error::RemoteError,
-    open, settings,
+    open, readiness, settings,
     state::Layout,
     store::Store,
 };
@@ -49,18 +49,18 @@ const STATUS: CommandSpec = CommandSpec {
             note: "Discover the live origin and route path, or the last port when stopped",
         },
         Example {
-            command: "tmt remote status --machine --json",
-            note: "Include the running owner's machine UUID as an optional local observation",
-        },
-        Example {
             command: "tmt remote status --objects --json",
             note: "Observe Local object-channel readiness without starting a channel",
+        },
+        Example {
+            command: "tmt remote status --layers",
+            note: "Show which Firestore layers are enabled and what is missing; empty until a Firestore deployment exists",
         },
     ],
     outputs: OutputModes::HumanAndJson,
     details: "Read-only; does not start the door or pair a device. Live addresses come from serve.
 Stopped status reports only the remembered port, which is not a live address.
---machine and --objects each require --json and cannot be combined; an older running door may not support these optional projections.",
+--machine adds the running owner's machine UUID. --machine and --objects each require --json; --machine, --objects and --layers cannot be combined; an older running door may not support these optional projections.",
 };
 const PAIR: CommandSpec = CommandSpec {
     name: "pair",
@@ -226,6 +226,13 @@ fn grammar() -> Command {
                         .requires("json")
                         .conflicts_with("machine")
                         .help("Include live Local object-channel readiness (requires --json)"),
+                )
+                .arg(
+                    Arg::new("layers")
+                        .long("layers")
+                        .action(ArgAction::SetTrue)
+                        .conflicts_with_all(["machine", "objects"])
+                        .help("Show which Firestore layers are enabled and what is missing"),
                 ),
         )
         .subcommand(
@@ -296,8 +303,15 @@ fn run(matches: &clap::ArgMatches) -> Result<(), RemoteError> {
     if name == "status" {
         return status(
             arguments.get_flag("json"),
-            arguments.get_flag("machine"),
-            arguments.get_flag("objects"),
+            if arguments.get_flag("layers") {
+                StatusProjection::Layers
+            } else if arguments.get_flag("objects") {
+                StatusProjection::Objects
+            } else if arguments.get_flag("machine") {
+                StatusProjection::Machine
+            } else {
+                StatusProjection::Ordinary
+            },
         );
     }
     if name == "stop" {
@@ -382,11 +396,11 @@ fn stop_command(json_output: bool) -> Result<(), RemoteError> {
 }
 /// Public discovery for local extensions. Only the control socket supplies
 /// live values; stopped reads hold the same lease as every database opener.
-fn status(json_output: bool, machine: bool, objects: bool) -> Result<(), RemoteError> {
+fn status(json_output: bool, projection: StatusProjection) -> Result<(), RemoteError> {
     let root = discovery_root()?;
     let answer = match Layout::existing(&root)? {
         None => json!({"running":false,"lastPort":null}),
-        Some(layout) => match control::status_with_objects(&layout.directory, machine, objects) {
+        Some(layout) => match control::status_projection(&layout.directory, projection) {
             Ok(Some(answer)) => answer,
             Ok(None) => {
                 let last_port = match layout.existing_serve_lock()? {
@@ -411,6 +425,20 @@ fn status(json_output: bool, machine: bool, objects: bool) -> Result<(), RemoteE
                 answer["origin"].as_str().unwrap(),
                 answer["path"].as_str().unwrap()
             )?;
+            if projection == StatusProjection::Layers {
+                for line in readiness::human_lines(&answer["firestoreLayers"], &readiness::LAYERS) {
+                    if line.enabled {
+                        tmt_cli_style::message::success(&mut output, terminal, &line.what)?;
+                    } else {
+                        tmt_cli_style::message::warning(
+                            &mut output,
+                            terminal,
+                            &line.what,
+                            line.hint.as_deref(),
+                        )?;
+                    }
+                }
+            }
         } else {
             let detail = answer["lastPort"]
                 .as_u64()

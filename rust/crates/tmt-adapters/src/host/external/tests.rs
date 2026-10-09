@@ -661,6 +661,7 @@ mod through_the_driver {
                 PaneCosmetics::Bound {
                     identity,
                     badge: true,
+                    border_hint: false,
                 },
                 Instant::now() + Duration::from_secs(5),
             )

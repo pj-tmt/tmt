@@ -369,7 +369,7 @@ fn legacy_clock_lock(root: &Path, locks: &mut Vec<Flock<File>>) -> io::Result<()
     }
     Ok(())
 }
-fn live_clock(root: &Path, now: i64) -> io::Result<Option<(String, String)>> {
+fn live_clock_holder(root: &Path, now: i64) -> io::Result<Option<tmt_ops::cron::Holder>> {
     if !clock_directory(root)? {
         return Ok(None);
     }
@@ -395,23 +395,41 @@ fn live_clock(root: &Path, now: i64) -> io::Result<Option<(String, String)>> {
     let pane = value["pane"]
         .as_str()
         .filter(|pane| !pane.chars().any(char::is_control));
-    if since <= now && now < expiry {
-        let holder = format!(
-            "PID {pid}{}",
+    Ok(
+        (since <= now && now < expiry).then(|| tmt_ops::cron::Holder {
+            pid: pid as u32,
+            pane: pane.map(str::to_owned),
+            since_ms: since,
+            expires_ms: expiry,
+        }),
+    )
+}
+
+/// Observe the legacy holder through the same admission used by path migration.
+/// A lease identifies a candidate; the switch owner still verifies its process.
+pub(crate) fn legacy_clock_holder(root: &Path) -> io::Result<Option<tmt_ops::cron::Holder>> {
+    live_clock_holder(&root.join("squad"), jiff::Timestamp::now().as_millisecond())
+}
+
+fn live_clock(root: &Path, now: i64) -> io::Result<Option<(String, String)>> {
+    let Some(holder) = live_clock_holder(root, now)? else {
+        return Ok(None);
+    };
+    let pid = holder.pid;
+    let pane = holder.pane.as_deref();
+    let holder = format!(
+        "PID {pid}{}",
+        pane.map(|pane| format!(" in pane {pane}"))
+            .unwrap_or_default()
+    );
+    Ok(Some((
+        format!(
+            "Ops migration deferred: old clock PID {pid}{}; legacy config/state stay active until the board switch completes.",
             pane.map(|pane| format!(" in pane {pane}"))
                 .unwrap_or_default()
-        );
-        Ok(Some((
-            format!(
-                "Ops migration deferred: old clock PID {pid}{}; legacy config/state stay active until the board switch completes.",
-                pane.map(|pane| format!(" in pane {pane}"))
-                    .unwrap_or_default()
-            ),
-            format!("Ops migration pending; retrying. Old clock {holder}."),
-        )))
-    } else {
-        Ok(None)
-    }
+        ),
+        format!("Ops migration pending; retrying. Old clock {holder}."),
+    )))
 }
 fn copy(source: &Path, target: &Path) -> io::Result<()> {
     let metadata = fs::symlink_metadata(source)?;
