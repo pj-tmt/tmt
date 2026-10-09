@@ -20,6 +20,7 @@ function fixture(failPublish = false) {
   });
   const files = new LiveDocumentFiles({
     service,
+    epoch: () => '1',
     source: () => 'source',
     publish: async () => {
       order.push('publish');

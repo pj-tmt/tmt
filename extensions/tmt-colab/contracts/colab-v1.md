@@ -3219,6 +3219,39 @@ Success is `{pageId,slot,attachment:{attachmentId,descriptorHash,filename,mediaT
 reference}}`; `reference` is the exact selector `attachment read` takes. A refusal is the JSON error
 of the publish route with the page fault code.
 
+### Rekey after an epoch advance (#2293)
+
+`epoch.advance` always commits first and is unchanged: narrowing never waits for a re-seal, and no
+failure of one reverts it. Its baseline still carries the document's descriptors, which name
+objects sealed under the old epoch. The serve then re-seals each one under the current epoch, and
+only a descriptor whose `epoch` differs from the page's waits for it, so the work is read from the
+page and never remembered.
+
+**Window.** Between the advance and the swap the document references old-epoch objects. A holder
+of the revoked key can read those bytes only with raw access to the object store, and only until
+the swap and until the old object is deleted, which needs the Remote delete operation of #2294.
+Until then the old object stays and is charged; this contract makes no erasure claim.
+
+**Swap.** The serve reads the old attachment through the root-local read, stages the plaintext in
+a slot that records the attachment it `replaces`, and runs the native attach pipeline: seal under
+the current epoch as the local writer, a new `attachmentId`, upload, creation proof, then one Save
+whose `DocumentChange` removes the old ID and sets the new descriptor, bound to the source digest.
+Readers therefore see the old complete reference or the new complete one, never a half swap. A
+descriptor is swapped inside the baseline neither now nor later: its creation proof is an own
+record of the new epoch and cannot exist before it.
+
+**Triggers and bounds.** One worker runs at serve start, after any management change, when an
+object channel is established, and a minute after an unfinished pass. A pass takes pages whose epoch
+is past 1, at most 4 attachments per page and 120 s per page; the rest wait for the next pass.
+Quota exhaustion, a lost channel, a crash or a serve stop leave the old reference, and the next pass
+resumes the slot's frozen transfer ID without a second upload. A page that moved meanwhile, an edit
+or a further advance, is a terminal stale base for that attempt: the original is discarded and the
+swap is derived again from the new page, at most three times per pass, never over the edit. An
+attachment removed meanwhile is left removed.
+
+**Status.** Each Files row of a page whose epoch is newer than its file says `Securing after a key
+change. Still available.`; the line is derived from the page and has no state of its own.
+
 ### Browser page title hints (#1564)
 
 The paired owner browser uses accepted Live folds as its only title source. Home

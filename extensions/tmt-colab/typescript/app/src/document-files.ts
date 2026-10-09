@@ -12,6 +12,8 @@ import type { OwnRecord } from './fold-protocol.js';
 export interface DocumentFiles {
   /** Uploads and authorized reads over the page's object channel. */
   readonly attachments: AttachmentBinding;
+  /** The page's current epoch: a file sealed under an earlier one waits to be re-sealed. */
+  readonly epoch: string;
   /** The upload target now: the exact source a new file is bound to. */
   target(): AttachmentTarget;
   /** Prove, then write, uploaded files into the page; a changed page is a stale error. */
@@ -22,6 +24,8 @@ export interface DocumentFiles {
 
 export interface DocumentFilesOptions {
   service: AttachmentService;
+  /** The page's current epoch. */
+  epoch(): string;
   /** The admitted source a save is based on. */
   source(): string;
   publish(records: OwnRecord[]): Promise<void>;
@@ -32,6 +36,9 @@ export class LiveDocumentFiles implements DocumentFiles {
   constructor(private options: DocumentFilesOptions) {}
   get attachments() {
     return this.options.service;
+  }
+  get epoch() {
+    return this.options.epoch();
   }
   target(): AttachmentTarget {
     return { kind: 'document', source: this.options.source() };
