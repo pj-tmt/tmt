@@ -360,12 +360,12 @@ fn standby_shutdown_cancels_an_inflight_root_read_without_releasing_another_hold
 #[test]
 fn stop_preserves_a_completed_core_error_even_with_the_cancellation_message() {
     let f = Fixture::new();
-    service::root(&f.core).unwrap();
+    let selected = f.directory.join("error-tmt");
     crate::test_support::write_ready_executable(
-        f.core.executable(),
+        &selected,
         "#!/bin/sh\ncat >/dev/null\nprintf '%s' '{\"error\":{\"code\":\"SQUAD_CORE_UNAVAILABLE\",\"message\":\"The board load was superseded.\"}}'\nexit 1\n",
     );
-    let mut worker = ClockWorker::spawn(f.core.clone(), f.config.clone(), false);
+    let mut worker = ClockWorker::spawn(Core::at(selected), f.config.clone(), false);
     worker
         .finished
         .recv_timeout(Duration::from_secs(5))
