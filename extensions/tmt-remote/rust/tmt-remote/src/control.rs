@@ -7,6 +7,7 @@ use crate::{
     error::RemoteError,
     object_service::ObjectReadiness,
     pairing::{End, Pairing, PairingEvent},
+    readiness::{self, FirestoreEvidenceSource, NotConfigured},
     state::Serving,
 };
 use nix::poll::{PollFd, PollFlags, poll};
@@ -41,9 +42,23 @@ pub struct Door {
     pub origin: String,
     pub prefix: String,
 }
+/// The observational views `status` can add to ordinary discovery.
+#[derive(Clone)]
+pub struct StatusViews {
+    pub objects: ObjectReadiness,
+    pub layers: Arc<dyn FirestoreEvidenceSource>,
+}
+impl Default for StatusViews {
+    fn default() -> Self {
+        Self {
+            objects: ObjectReadiness::default(),
+            layers: Arc::new(NotConfigured),
+        }
+    }
+}
 struct RemoteControlContext {
     door: Door,
-    objects: ObjectReadiness,
+    views: StatusViews,
 }
 pub struct Control {
     path: PathBuf,
@@ -61,25 +76,25 @@ impl Control {
         approval: Option<Arc<crate::approval::Approval>>,
         serve_stop: Arc<AtomicBool>,
     ) -> Result<Self, RemoteError> {
-        Self::start_with_objects(
+        Self::start_with_views(
             serving,
             pairing,
             devices,
             door,
             approval,
             serve_stop,
-            ObjectReadiness::default(),
+            StatusViews::default(),
         )
     }
     /// Attach the observational service view without changing ordinary discovery.
-    pub fn start_with_objects(
+    pub fn start_with_views(
         serving: &Serving,
         pairing: Arc<Pairing>,
         devices: Arc<Devices>,
         door: Door,
         approval: Option<Arc<crate::approval::Approval>>,
         serve_stop: Arc<AtomicBool>,
-        objects: ObjectReadiness,
+        views: StatusViews,
     ) -> Result<Self, RemoteError> {
         let path = serving.layout().directory.join(SOCKET);
         match fs::symlink_metadata(&path) {
@@ -108,7 +123,7 @@ impl Control {
         listener.set_nonblocking(true).map_err(io_error)?;
         let stop = Arc::new(AtomicBool::new(false));
         let flag = Arc::clone(&stop);
-        let door = Arc::new(RemoteControlContext { door, objects });
+        let door = Arc::new(RemoteControlContext { door, views });
         let accept = thread::Builder::new()
             .name("remote-control".into())
             .spawn(move || {
@@ -236,64 +251,69 @@ fn session(
         let _ = write_line(&mut stream, &result);
         return;
     }
-    let answer =
-        match request.get("op").and_then(Value::as_str) {
-            Some("status") if request == json!({"op":"status"}) => Some(Ok(json!({
-                "running":true, "origin":door.door.origin, "path":door.door.prefix,
-            }))),
-            Some("status") if request == json!({"op":"status","objects":true}) => Some(Ok(json!({
-                "running":true, "origin":door.door.origin, "path":door.door.prefix,
-                "objectChannels":door.objects.snapshot(),
-            }))),
-            Some("status") if request == json!({"op":"status","machine":true}) => Some(Ok(json!({
-                "running":true, "origin":door.door.origin, "path":door.door.prefix,
-                "machineId":pairing.machine_id(),
-            }))),
-            Some("pair") => None,
-            Some("designate") if request.as_object().is_some_and(|o| o.len() == 2) => {
-                Some(match request["clientId"].as_str() {
-                    Some(client) => devices
-                        .designate(client, &door.door.origin)
-                        .map(|grant| json!({"designatedClientId":grant.client_id})),
-                    None => Err(crate::operations::invalid()),
-                })
-            }
-            Some("undesignate") if request == json!({"op":"undesignate"}) => Some(
-                devices
-                    .undesignate()
-                    .map(|()| json!({"designatedClientId":null})),
-            ),
-            Some("devices") => Some(devices.list().map(
+    let answer = match request.get("op").and_then(Value::as_str) {
+        Some("status") if request == json!({"op":"status"}) => Some(Ok(json!({
+            "running":true, "origin":door.door.origin, "path":door.door.prefix,
+        }))),
+        Some("status") if request == json!({"op":"status","objects":true}) => Some(Ok(json!({
+            "running":true, "origin":door.door.origin, "path":door.door.prefix,
+            "objectChannels":door.views.objects.snapshot(),
+        }))),
+        Some("status") if request == json!({"op":"status","layers":true}) => Some(Ok(json!({
+            "running":true, "origin":door.door.origin, "path":door.door.prefix,
+            "firestoreLayers":readiness::project(door.views.layers.evidence().as_ref(), &readiness::LAYERS),
+        }))),
+        Some("status") if request == json!({"op":"status","machine":true}) => Some(Ok(json!({
+            "running":true, "origin":door.door.origin, "path":door.door.prefix,
+            "machineId":pairing.machine_id(),
+        }))),
+        Some("pair") => None,
+        Some("designate") if request.as_object().is_some_and(|o| o.len() == 2) => {
+            Some(match request["clientId"].as_str() {
+                Some(client) => devices
+                    .designate(client, &door.door.origin)
+                    .map(|grant| json!({"designatedClientId":grant.client_id})),
+                None => Err(crate::operations::invalid()),
+            })
+        }
+        Some("undesignate") if request == json!({"op":"undesignate"}) => Some(
+            devices
+                .undesignate()
+                .map(|()| json!({"designatedClientId":null})),
+        ),
+        Some("devices") => {
+            Some(devices.list().map(
                 |grants| json!({"devices": grants.iter().map(device_json).collect::<Vec<_>>()}),
+            ))
+        }
+        Some("revoke") => Some(match request.get("clientId").and_then(Value::as_str) {
+            Some(client_id) => devices
+                .revoke(client_id)
+                .map(|grant| json!({"device": device_json(&grant)})),
+            None => Err(RemoteError::new(
+                "REMOTE_INPUT_INVALID",
+                "Revoke needs a clientId.",
             )),
-            Some("revoke") => Some(match request.get("clientId").and_then(Value::as_str) {
-                Some(client_id) => devices
-                    .revoke(client_id)
+        }),
+        Some("rename") => Some(
+            match (
+                request.get("clientId").and_then(Value::as_str),
+                request.get("name").and_then(Value::as_str),
+            ) {
+                (Some(client_id), Some(name)) => devices
+                    .rename(client_id, name)
                     .map(|grant| json!({"device": device_json(&grant)})),
-                None => Err(RemoteError::new(
+                _ => Err(RemoteError::new(
                     "REMOTE_INPUT_INVALID",
-                    "Revoke needs a clientId.",
+                    "Rename needs a clientId and name.",
                 )),
-            }),
-            Some("rename") => Some(
-                match (
-                    request.get("clientId").and_then(Value::as_str),
-                    request.get("name").and_then(Value::as_str),
-                ) {
-                    (Some(client_id), Some(name)) => devices
-                        .rename(client_id, name)
-                        .map(|grant| json!({"device": device_json(&grant)})),
-                    _ => Err(RemoteError::new(
-                        "REMOTE_INPUT_INVALID",
-                        "Rename needs a clientId and name.",
-                    )),
-                },
-            ),
-            _ => Some(Err(RemoteError::new(
-                UNSUPPORTED,
-                "Unknown control operation.",
-            ))),
-        };
+            },
+        ),
+        _ => Some(Err(RemoteError::new(
+            UNSUPPORTED,
+            "Unknown control operation.",
+        ))),
+    };
     if let Some(answer) = answer {
         let line = answer
             .unwrap_or_else(|error| json!({"error":{"code":error.code,"message":error.message}}));
@@ -465,6 +485,18 @@ fn socket_path(remote_directory: &Path) -> Result<PathBuf, RemoteError> {
     Ok(path)
 }
 
+/// The optional read-only views of a running door. Each adds exactly one member to the
+/// ordinary three-member answer; none starts, repairs or retries anything.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum StatusProjection {
+    Ordinary,
+    /// The running owner's machine UUID.
+    Machine,
+    /// Local object-channel readiness.
+    Objects,
+    /// Layered Firestore readiness.
+    Layers,
+}
 /// Bounded read-only discovery. The live address comes from this run, never
 /// from remembered state. Malformed or silent peers cannot become stopped status.
 pub fn status(remote_directory: &Path, machine: bool) -> Result<Option<Value>, RemoteError> {
@@ -476,14 +508,34 @@ pub fn status_with_objects(
     machine: bool,
     objects: bool,
 ) -> Result<Option<Value>, RemoteError> {
+    status_projection(
+        remote_directory,
+        if objects {
+            StatusProjection::Objects
+        } else if machine {
+            StatusProjection::Machine
+        } else {
+            StatusProjection::Ordinary
+        },
+    )
+}
+pub fn status_projection(
+    remote_directory: &Path,
+    projection: StatusProjection,
+) -> Result<Option<Value>, RemoteError> {
     // Optional discovery preserves peer errors: unsupported is absence of this
     // projection, not a reason to repair or restart an otherwise usable door.
-    let response = if objects {
-        request(remote_directory, &json!({"op":"status","objects":true}))
-    } else if machine {
-        request(remote_directory, &json!({"op":"status","machine":true}))
-    } else {
-        request_operation(remote_directory, "status")
+    let response = match projection {
+        StatusProjection::Ordinary => request_operation(remote_directory, "status"),
+        StatusProjection::Machine => {
+            request(remote_directory, &json!({"op":"status","machine":true}))
+        }
+        StatusProjection::Objects => {
+            request(remote_directory, &json!({"op":"status","objects":true}))
+        }
+        StatusProjection::Layers => {
+            request(remote_directory, &json!({"op":"status","layers":true}))
+        }
     };
     let Some(answer) = response? else {
         return Ok(None);
@@ -495,15 +547,24 @@ pub fn status_with_objects(
         .filter(|port| *port != 0);
     let origin_valid = port.is_some_and(|port| origin == format!("http://127.0.0.1:{port}"));
     let path_valid = answer["path"].as_str().is_some_and(canonical::route_prefix);
-    let machine_valid = !machine
-        || answer["machineId"]
+    let member_valid = match projection {
+        StatusProjection::Ordinary => true,
+        StatusProjection::Machine => answer["machineId"]
             .as_str()
-            .is_some_and(|id| canonical::uuid(id).is_ok());
-    if answer
-        .as_object()
-        .is_none_or(|fields| fields.len() != if machine || objects { 4 } else { 3 })
-        || (objects && !ObjectReadiness::validate(&answer["objectChannels"]))
-        || !machine_valid
+            .is_some_and(|id| canonical::uuid(id).is_ok()),
+        StatusProjection::Objects => ObjectReadiness::validate(&answer["objectChannels"]),
+        StatusProjection::Layers => {
+            readiness::validate(&answer["firestoreLayers"], &readiness::LAYERS)
+        }
+    };
+    if answer.as_object().is_none_or(|fields| {
+        fields.len()
+            != if projection == StatusProjection::Ordinary {
+                3
+            } else {
+                4
+            }
+    }) || !member_valid
         || answer["running"] != true
         || !origin_valid
         || !path_valid

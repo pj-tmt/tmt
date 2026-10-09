@@ -778,7 +778,7 @@ fn foreground_with(
         let reactivation = objects
             .as_ref()
             .map(|objects| objects.reactivation(Arc::clone(stop)));
-        let control = Control::start_with_objects(
+        let control = Control::start_with_views(
             &serving,
             Arc::clone(&pairing),
             Arc::clone(&devices),
@@ -788,7 +788,10 @@ fn foreground_with(
             },
             Some(Arc::clone(&approval)),
             Arc::clone(stop),
-            readiness,
+            control::StatusViews {
+                objects: readiness,
+                layers: Arc::new(tmt_remote::readiness::NotConfigured),
+            },
         )?;
         let mut mounts = Mounts::with_extensions(
             root,

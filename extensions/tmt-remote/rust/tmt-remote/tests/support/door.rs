@@ -18,13 +18,15 @@ use std::{
 };
 use tmt_remote::{
     canonical::{self, Enrollment},
-    control::{self, Control},
+    control::{self, Control, StatusViews},
     crypto,
     devices::Devices,
     http::{Door, Handler},
     mount::{IdleClock, Mounts},
+    object_service::ObjectReadiness,
     pages::Pages,
     pairing::{Pairing, Timing},
+    readiness::{FirestoreEvidenceSource, NotConfigured},
     routes::Routes,
     session::{self, DoorSessions},
     site::Site,
@@ -56,6 +58,18 @@ impl Harness {
     }
     /// A serving door with a shared monotonic session clock.
     pub fn with_clock(timing: Timing, idle: Duration, clock: IdleClock) -> Self {
+        Self::build(timing, idle, clock, Arc::new(NotConfigured))
+    }
+    /// A serving door whose control socket answers `status --layers` from `layers`.
+    pub fn with_evidence(timing: Timing, layers: Arc<dyn FirestoreEvidenceSource>) -> Self {
+        Self::build(timing, session::IDLE, Arc::new(Instant::now), layers)
+    }
+    fn build(
+        timing: Timing,
+        idle: Duration,
+        clock: IdleClock,
+        layers: Arc<dyn FirestoreEvidenceSource>,
+    ) -> Self {
         // Short absolute root: Unix socket paths are limited to about 100 bytes.
         let root = PathBuf::from(format!(
             "/tmp/tmt-1039-pair-{}-{}",
@@ -102,7 +116,7 @@ impl Harness {
             .with_pairing(Arc::clone(&pairing))
             .with_sessions(Arc::clone(&sessions));
         let stop = Arc::new(AtomicBool::new(false));
-        let control = Control::start(
+        let control = Control::start_with_views(
             &serving,
             Arc::clone(&pairing),
             Arc::clone(&devices),
@@ -112,6 +126,10 @@ impl Harness {
             },
             None,
             Arc::clone(&stop),
+            StatusViews {
+                objects: ObjectReadiness::default(),
+                layers,
+            },
         )
         .unwrap();
         let site = Arc::new(Site {
