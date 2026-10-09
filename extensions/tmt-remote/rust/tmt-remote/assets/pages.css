@@ -128,16 +128,54 @@ input {
 .entry-status dd {
   margin: 0 0 12px;
 }
-.entry-help {
-  margin-top: 28px;
-  --tmt-ui-host-notice-heading-size: clamp(24px, 3vw, 28px);
-}
-.entry-help ol {
+/* Landing keeps next steps in its one state sheet, with optional technical details. */
+.entry-steps {
   margin: 0 0 24px;
   padding-left: 24px;
 }
-.entry-help li + li {
+.entry-steps li + li {
   margin-top: 12px;
+}
+[data-tmt-page='landing'] {
+  --tmt-ui-host-action-font: var(--tmt-ui-font-body);
+  --tmt-ui-host-action-weight: 400;
+}
+.entry-command {
+  display: inline-flex;
+  align-items: baseline;
+  max-width: 100%;
+  gap: 4px;
+}
+.entry-command code {
+  min-width: 0;
+}
+.entry-copy {
+  flex-shrink: 0;
+  --tmt-ui-host-action-padding: 0 4px;
+  --tmt-ui-host-action-min-height: 0;
+  width: auto;
+  vertical-align: baseline;
+}
+.entry-details {
+  margin-top: 24px;
+  border-top: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
+  padding-top: 20px;
+}
+.entry-details summary {
+  cursor: pointer;
+}
+.entry-details summary:focus-visible {
+  outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
+  outline-offset: var(--tmt-ui-host-focus-offset);
+}
+.entry-details dl {
+  margin-top: 20px;
+}
+.entry-details dd {
+  overflow-wrap: anywhere;
+}
+#copy-feedback:empty {
+  margin: 0;
 }
 .entry-note {
   margin-top: 24px;
