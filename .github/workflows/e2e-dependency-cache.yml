@@ -1,0 +1,75 @@
+name: Docker E2E dependency archive
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '**/Cargo.toml'
+      - rust/Cargo.lock
+      - '**/rust-toolchain.toml'
+      - '**/.cargo/config*'
+      - '**/build.rs'
+      - '**/src/main.rs'
+      - '**/src/lib.rs'
+      - '**/src/bin/**'
+      - '**/examples/**'
+      - '**/tests/**'
+      - '**/benches/**'
+      - typescript/scripts/e2e-dependency-cache.mjs
+      - typescript/test/e2e/dependency-cache.Dockerfile
+      - typescript/test/e2e/Dockerfile
+      - .github/workflows/e2e-dependency-cache.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: e2e-dependency-cache-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  seed:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+      - name: Name exact native E2E dependencies
+        id: key
+        run: node typescript/scripts/e2e-dependency-cache.mjs key >> "$GITHUB_OUTPUT"
+      - name: Check for an existing exact generation
+        id: existing
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ runner.temp }}/tmt-e2e-dependencies
+          key: ${{ steps.key.outputs.key }}
+          lookup-only: true
+      - uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3.11.1
+        if: steps.existing.outputs.cache-hit != 'true'
+        with:
+          version: v0.29.1
+      - name: Cook and export native E2E dependencies
+        if: steps.existing.outputs.cache-hit != 'true'
+        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
+        with:
+          context: .
+          file: typescript/test/e2e/dependency-cache.Dockerfile
+          target: dependencies
+          outputs: type=local,dest=${{ runner.temp }}/tmt-e2e-dependencies
+      - name: Check and stamp the dependency archive
+        if: steps.existing.outputs.cache-hit != 'true'
+        env:
+          DEPENDENCY_KEY: ${{ steps.key.outputs.key }}
+          DEPENDENCY_ROOT: ${{ runner.temp }}/tmt-e2e-dependencies
+        run: node typescript/scripts/e2e-dependency-cache.mjs stamp "$DEPENDENCY_ROOT" "$DEPENDENCY_KEY"
+      - name: Save the main-owned exact generation
+        if: steps.existing.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ runner.temp }}/tmt-e2e-dependencies
+          key: ${{ steps.key.outputs.key }}

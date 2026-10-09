@@ -3,6 +3,13 @@
 import { spawn } from 'node:child_process';
 import process from 'node:process';
 import path from 'node:path';
+import fs from 'node:fs';
+import os from 'node:os';
+import {
+  dependencyCacheKey,
+  inspectDependencyCache,
+  renderDependencyDockerfile,
+} from './e2e-dependency-cache.mjs';
 import { fileURLToPath } from 'node:url';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -72,14 +79,30 @@ async function main() {
     console.error('CARGO_BUILD_JOBS must be a positive integer or default.');
     return 2;
   }
+  let temporary;
   try {
+    let buildFile = dockerfile;
+    let dependencyArgs = [];
+    const bundle = process.env.TMT_E2E_DEPENDENCY_CACHE;
+    if (process.env.GITHUB_ACTIONS === 'true' && process.env.CI === 'true' && bundle) {
+      const admitted = inspectDependencyCache(bundle, dependencyCacheKey(repoRoot));
+      console.error(`E2E dependency cache: ${admitted.reason}`);
+      if (admitted.usable) {
+        const rendered = renderDependencyDockerfile(fs.readFileSync(dockerfile, 'utf8'));
+        temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'tmt-e2e-dependencies-'));
+        buildFile = path.join(temporary, 'Dockerfile');
+        fs.writeFileSync(buildFile, rendered);
+        dependencyArgs = ['--load', '--build-context', `tmtdeps=${path.resolve(bundle)}`];
+      }
+    }
     const buildStatus = await run('docker', [
-      'build',
+      ...(temporary ? ['buildx', 'build'] : ['build']),
+      ...dependencyArgs,
       '--tag',
       image,
       ...(cargoJobs === '' ? [] : ['--build-arg', `CARGO_BUILD_JOBS=${cargoJobs}`]),
       '--file',
-      dockerfile,
+      buildFile,
       repoRoot,
     ]);
     if (buildStatus !== 0) return interrupted ? 130 : buildStatus;
@@ -113,6 +136,13 @@ async function main() {
     return 1;
   } finally {
     await removeImage();
+    if (temporary) {
+      try {
+        fs.rmSync(temporary, { recursive: true, force: true });
+      } catch {
+        /* Preserve the primary build/test failure when cleanup cannot run. */
+      }
+    }
   }
 }
 

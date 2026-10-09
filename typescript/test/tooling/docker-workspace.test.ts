@@ -1,4 +1,20 @@
-import { readFileSync, readdirSync } from 'node:fs';
+import {
+  readFileSync,
+  readdirSync,
+  mkdtempSync,
+  mkdirSync,
+  writeFileSync,
+  rmSync,
+  chmodSync,
+  existsSync,
+} from 'node:fs';
+import { tmpdir } from 'node:os';
+import { spawnSync } from 'node:child_process';
+import {
+  dependencyCacheKey,
+  inspectDependencyCache,
+  renderDependencyDockerfile,
+} from '../../scripts/e2e-dependency-cache.mjs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { expect, it } from 'vite-plus/test';
@@ -554,4 +570,164 @@ COPY typescript/pnpm-workspace.yaml typescript/
         install
     )
   ).toEqual(['other: /workspace/design/browser-ui/package.json']);
+});
+
+it('keys E2E dependency archives by dependency bytes and auto-target paths, not ordinary source', () => {
+  const directory = mkdtempSync(path.join(tmpdir(), 'tmt-dependency-key-'));
+  const files = [
+    'rust/Cargo.lock',
+    'rust/rust-toolchain.toml',
+    'rust/crates/sample/Cargo.toml',
+    'rust/crates/sample/src/main.rs',
+    'rust/crates/sample/src/module.rs',
+    'typescript/scripts/e2e-dependency-cache.mjs',
+    'typescript/test/e2e/dependency-cache.Dockerfile',
+    'typescript/test/e2e/Dockerfile',
+  ];
+  try {
+    for (const file of files) {
+      mkdirSync(path.dirname(path.join(directory, file)), { recursive: true });
+      writeFileSync(path.join(directory, file), file);
+    }
+    const key = dependencyCacheKey(directory, files);
+    expect(key).toMatch(/^tmt-e2e-native-archive-v1-[a-f0-9]{64}$/);
+    writeFileSync(path.join(directory, 'rust/crates/sample/src/main.rs'), 'new current source');
+    expect(dependencyCacheKey(directory, files)).toBe(key);
+    expect(dependencyCacheKey(directory, [...files, 'rust/crates/sample/src/ordinary.rs'])).toBe(
+      key
+    );
+    expect(
+      dependencyCacheKey(directory, [...files, 'rust/crates/sample/src/bin/tool/module.rs'])
+    ).toBe(key);
+    for (const target of [
+      'build.rs',
+      'src/bin/tool.rs',
+      'src/bin/tool/main.rs',
+      'examples/tool.rs',
+      'tests/tool.rs',
+      'benches/tool.rs',
+    ]) {
+      expect(dependencyCacheKey(directory, [...files, `rust/crates/sample/${target}`])).not.toBe(
+        key
+      );
+    }
+    writeFileSync(path.join(directory, 'rust/Cargo.lock'), 'new dependencies');
+    expect(dependencyCacheKey(directory, files)).not.toBe(key);
+    expect(() =>
+      dependencyCacheKey(
+        directory,
+        files.filter((file) => !file.endsWith('Cargo.lock'))
+      )
+    ).toThrow('Missing E2E dependency input');
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+it('admits exact dependency payloads and refuses absent, mismatched, scratch and dummy payloads', () => {
+  const directory = mkdtempSync(path.join(tmpdir(), 'tmt-dependency-payload-'));
+  const key = 'tmt-e2e-native-archive-v1-' + 'a'.repeat(64);
+  try {
+    mkdirSync(path.join(directory, 'target/debug/deps'), { recursive: true });
+    mkdirSync(path.join(directory, 'registry'), { recursive: true });
+    writeFileSync(path.join(directory, 'cache-key'), key + '\n');
+    writeFileSync(path.join(directory, 'target/debug/deps/libthirdparty.rlib'), 'retained library');
+    writeFileSync(path.join(directory, 'registry/index'), 'registry bytes');
+    expect(inspectDependencyCache(directory, key)).toEqual({
+      usable: true,
+      reason: 'exact dependency archive',
+    });
+    expect(inspectDependencyCache(directory, key.replace(/a$/, 'b'))).toEqual({
+      usable: false,
+      reason: 'dependency key differs',
+    });
+    mkdirSync(path.join(directory, 'target/tmp'));
+    expect(inspectDependencyCache(directory, key)).toEqual({
+      usable: false,
+      reason: 'target contains non-dev scratch',
+    });
+    rmSync(path.join(directory, 'target/tmp'), { recursive: true });
+    const dummy = path.join(directory, 'target/debug/deps/tmt_adapters-abcdef');
+    writeFileSync(dummy, 'dummy');
+    chmodSync(dummy, 0o755);
+    expect(inspectDependencyCache(directory, key)).toEqual({
+      usable: false,
+      reason: 'dummy adapter executable retained',
+    });
+    rmSync(dummy);
+    rmSync(path.join(directory, 'registry/index'));
+    expect(inspectDependencyCache(directory, key)).toEqual({
+      usable: false,
+      reason: 'missing or empty registry',
+    });
+    expect(inspectDependencyCache(path.join(directory, 'absent'), key).usable).toBe(false);
+    expect(inspectDependencyCache(directory, 'bad')).toEqual({
+      usable: false,
+      reason: 'invalid dependency key',
+    });
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+it('renders only two dependency COPYs while preserving the shipped native/runtime Dockerfile', () => {
+  const text = readFileSync(path.join(root, 'typescript/test/e2e/Dockerfile'), 'utf8');
+  const inserted =
+    'COPY --from=tmtdeps /target/ /native/rust/target/\nCOPY --from=tmtdeps /registry/ /usr/local/cargo/registry/\n';
+  const rendered = renderDependencyDockerfile(text);
+  expect(rendered.replace(inserted, '')).toBe(text);
+  expect(rendered.split(inserted)).toHaveLength(2);
+  expect(rendered).toContain(inserted + 'RUN cargo build --locked --example tmux-probe');
+  for (const invalid of [
+    text.replace('AS native-tests', 'AS other'),
+    text.replace('RUN cargo build --locked --example tmux-probe', 'RUN cargo changed'),
+    text + '\nRUN cargo build --locked --example tmux-probe',
+    text.replace('CARGO_INCREMENTAL=0', 'CARGO_INCREMENTAL=1'),
+  ]) {
+    expect(() => renderDependencyDockerfile(invalid)).toThrow(
+      'E2E native Dockerfile anchor changed'
+    );
+  }
+});
+
+it('sanitizes only extensionless regular executable adapter dummies in the dependency seed', () => {
+  const seed = readFileSync(
+    path.join(root, 'typescript/test/e2e/dependency-cache.Dockerfile'),
+    'utf8'
+  );
+  const command = seed.match(/&& (find target\/debug\/deps[^\n]+)$/m)![1];
+  expect(seed).toContain('a3733ab416c3ffddd37914cd13919ca05fee1a1cf654f3016dcfe7f399d89cd1');
+  expect(seed).not.toMatch(/cache-(?:from|to)|type=gha/);
+  expect(seed).toContain('COPY --from=ci-cook /native/rust/target/debug/ /target/debug/');
+  const directory = mkdtempSync(path.join(tmpdir(), 'tmt-dependency-sanitize-'));
+  try {
+    const deps = path.join(directory, 'target/debug/deps');
+    mkdirSync(deps, { recursive: true });
+    const retained = [
+      'tmt_adapters-abcdef.rlib',
+      'tmt_adapters-abcdef.rmeta',
+      'tmt_adapters-abcdef.d',
+      'thirdparty-abcdef',
+      'tmt_adapters-nothex',
+      'tmt_adapters-123456',
+    ];
+    for (const file of [...retained, 'tmt_adapters-abcdef']) {
+      writeFileSync(path.join(deps, file), 'fixture');
+      chmodSync(path.join(deps, file), file === 'tmt_adapters-123456' ? 0o644 : 0o755);
+    }
+    mkdirSync(path.join(deps, 'tmt_adapters-aaaaaa'));
+    const result = spawnSync('sh', ['-c', command], {
+      cwd: directory,
+      encoding: 'utf8',
+      timeout: 1000,
+    });
+    expect(result.error).toBeUndefined();
+    expect(result.status).toBe(0);
+    expect(existsSync(path.join(deps, 'tmt_adapters-abcdef'))).toBe(false);
+    expect(readdirSync(deps).sort()).toEqual([...retained, 'tmt_adapters-aaaaaa'].sort());
+    for (const file of retained)
+      expect(readFileSync(path.join(deps, file), 'utf8')).toBe('fixture');
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
 });

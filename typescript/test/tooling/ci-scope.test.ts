@@ -2787,3 +2787,30 @@ it('schedules architecture CI for the map, every declaring crate file and releas
   expect(job).toContain("if: needs.changes.outputs.native_scope == 'full'");
   expect(job).toContain('cargo test --locked --workspace');
 });
+
+it('keeps native E2E archive consumers restore-only and the sole writer main-only', () => {
+  const ci = readFileSync(new URL('../../../.github/workflows/ci.yml', import.meta.url), 'utf8');
+  const shard = ci.slice(ci.indexOf('  docker-e2e-shard-1:'), ci.indexOf('  docker-e2e-shard-2:'));
+  expect(shard).toContain('uses: actions/cache/restore@v4');
+  expect(shard).toContain('continue-on-error: true');
+  expect(shard).not.toMatch(
+    /actions\/cache\/save|restore-keys|cache-(?:from|to)|fail-on-cache-miss/
+  );
+  expect(shard).toContain("if: steps.e2e-admission.outputs.usable == 'true'");
+  expect(shard).toContain('node typescript/scripts/e2e-dependency-cache.mjs admit');
+  expect(shard).toContain("steps.e2e-admission.outputs.usable == 'true' && format");
+  const seed = readFileSync(
+    new URL('../../../.github/workflows/e2e-dependency-cache.yml', import.meta.url),
+    'utf8'
+  );
+  expect(seed).toContain("if: github.event_name == 'push' && github.ref == 'refs/heads/main'");
+  expect(seed).toContain('group: e2e-dependency-cache-${{ github.ref }}');
+  expect(seed).toContain('cancel-in-progress: false');
+  expect(seed).toContain('lookup-only: true');
+  expect(seed).toContain('uses: actions/cache/save@v4');
+  expect(seed).toContain('outputs: type=local,dest=${{ runner.temp }}/tmt-e2e-dependencies');
+  expect(seed).not.toMatch(/pull_request|merge_group|workflow_dispatch|restore-keys|type=gha/);
+  expect(seed).toContain("- '**/Cargo.toml'");
+  expect(seed).toContain('- rust/Cargo.lock');
+  expect(seed).toContain('node typescript/scripts/e2e-dependency-cache.mjs stamp');
+});
