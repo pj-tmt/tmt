@@ -395,8 +395,8 @@ body:has(.page-header-actions) {
   margin: 24px auto;
   padding: 24px;
   background: var(--c-sheet);
-  border: 2px solid var(--c-text);
-  box-shadow: 5px 5px 0 var(--c-accent);
+  border: var(--tmt-ui-rule-width) solid var(--tmt-ui-color-edge);
+  box-shadow: none;
 }
 .ask-preview h2 {
   margin-top: 0;
@@ -615,7 +615,8 @@ body:has(.page-header-actions) {
   padding: 24px;
   background: var(--c-paper);
   color: var(--c-text);
-  border: 2px solid var(--c-text);
+  border: var(--tmt-ui-rule-width) solid var(--tmt-ui-color-edge);
+  box-shadow: none;
 }
 .management-dialog::backdrop {
   background: #0008;
