@@ -1827,6 +1827,66 @@ fn validated_upgrade_activates_a_late_listener_and_restart_replaces_origins() {
     assert!(!env.directory("alpha").join("door.sock").exists());
 }
 
+/// Every phase uses the same assertion, including the full-pool sensitivity probe.
+fn assert_page_upgrade(response: &str, phase: &str, elapsed_ms: usize, ext: &Ext) {
+    assert!(
+        response.starts_with("HTTP/1.1 101"),
+        "{phase}: clock={elapsed_ms}ms attempts={} page_heads={} status={:?} full_head={response:?}",
+        ext.attempts.load(Ordering::SeqCst),
+        ext.heads(),
+        response.lines().next().unwrap_or("<empty>")
+    );
+}
+
+fn await_page_tunnel_release(live: &Live) {
+    let session = live
+        .mounts()
+        .sessions()
+        .context(Some(OWNER))
+        .unwrap()
+        .session;
+    // In Mounts::adopt, `_slot` is a closure-body local; `session` remains in
+    // the consumed closure environment. Body locals drop before that environment,
+    // so the last SessionTransport detach follows every fixture TunnelSlot release.
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while session.has_transport() {
+        assert!(
+            Instant::now() < deadline,
+            "page tunnel teardown did not finish"
+        );
+        thread::yield_now();
+    }
+}
+
+#[test]
+fn a_full_page_tunnel_pool_refuses_the_next_upgrade_with_503() {
+    let env = Env::new();
+    let origins = Origins::default();
+    let live = Live::new(&env, &origins);
+    let ext = Ext::start(&env, &live);
+    let mut clients = Vec::new();
+    for _ in 0..ALPHA[0].tunnels {
+        let (client, response) = live.upgrade(OWNER, "");
+        assert_page_upgrade(&response, "fill pool", 0, &ext);
+        clients.push(client);
+    }
+    for index in 0..ALPHA[0].tunnels {
+        ext.head(index);
+    }
+    let (refused, response) = live.upgrade(OWNER, "");
+    assert!(response.starts_with("HTTP/1.1 503"), "{response:?}");
+    assert_eq!(ext.heads(), ALPHA[0].tunnels);
+    assert_eq!(ext.attempts.load(Ordering::SeqCst), 0);
+    drop((refused, clients));
+    await_page_tunnel_release(&live);
+    let (successor, response) = live.upgrade(OWNER, "");
+    assert_page_upgrade(&response, "pool released", 0, &ext);
+    drop(successor);
+    live.mounts().shutdown();
+    drop(live);
+    drop(ext);
+}
+
 #[test]
 fn hung_setup_is_single_flight_forwards_without_origin_and_cools_down_monotonically() {
     use crate::mount::ActivationSink;
@@ -1846,16 +1906,23 @@ fn hung_setup_is_single_flight_forwards_without_origin_and_cools_down_monotonica
     let (live, _) = Live::with_hook(&env, &origins, |_| Tabs::new(), Some(hook.clone()));
     let ext = Ext::launch_mode(&env, &live, false, true);
     service.with_reactivation(&hook, live.mounts(), || {
-        thread::scope(|scope| {
+        let clients = thread::scope(|scope| {
             let mut clients = Vec::new();
             for _ in 0..4 {
                 clients.push(scope.spawn(|| live.upgrade(OWNER, "")));
             }
+            let mut sockets = Vec::new();
             for client in clients {
                 let (socket, response) = client.join().unwrap();
-                assert!(response.starts_with("HTTP/1.1 101"));
-                drop(socket);
+                assert_page_upgrade(
+                    &response,
+                    "initial single flight",
+                    elapsed.load(Ordering::SeqCst),
+                    &ext,
+                );
+                sockets.push(socket);
             }
+            sockets
         });
         // Wait on the typed setup outcome, not elapsed fixture wall time: the real
         // held private head must have exhausted exactly the 250 ms demand deadline.
@@ -1876,14 +1943,27 @@ fn hung_setup_is_single_flight_forwards_without_origin_and_cools_down_monotonica
         }
         assert_eq!(origins.count(), 0);
         assert_eq!(service.readiness().snapshot()[0]["state"], "unavailable");
+        // Closing clients alone does not synchronously join their splice owners.
+        drop(clients);
+        await_page_tunnel_release(&live);
         elapsed.store(999, Ordering::SeqCst);
         let (client, response) = live.upgrade(OWNER, "");
-        assert!(response.starts_with("HTTP/1.1 101"));
+        assert_page_upgrade(
+            &response,
+            "inside cooldown",
+            elapsed.load(Ordering::SeqCst),
+            &ext,
+        );
         drop(client);
         assert_eq!(ext.attempts.load(Ordering::SeqCst), 1);
         elapsed.store(1000, Ordering::SeqCst);
         let (client, response) = live.upgrade(OWNER, "");
-        assert!(response.starts_with("HTTP/1.1 101"));
+        assert_page_upgrade(
+            &response,
+            "cooldown elapsed",
+            elapsed.load(Ordering::SeqCst),
+            &ext,
+        );
         drop(client);
         assert_eq!(ext.attempts.load(Ordering::SeqCst), 2);
         hook.close();
