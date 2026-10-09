@@ -1462,6 +1462,78 @@ fn writing_an_archived_page_is_refused_before_anything_is_recorded() {
     assert_eq!(fs::read(&db).unwrap(), before, "a refused write left a row");
 }
 #[test]
+fn attachment_read_refuses_without_a_serve_or_a_valid_reference_and_creates_nothing() {
+    let pilot = Pilot::new(None);
+    let file = pilot.root.join("source.html");
+    fs::write(&file, "<p>Kept</p>").unwrap();
+    let created = pilot.call(&[
+        "page",
+        "create",
+        "--title",
+        "Attachments",
+        "--file",
+        file.to_str().unwrap(),
+        "--json",
+    ]);
+    let id = created["pageId"].as_str().unwrap();
+    let output = pilot.root.join("output");
+    fs::create_dir(&output).unwrap();
+    let reference = pilot.root.join("reference.json");
+    let selector = format!(
+        r#"{{"kind":"document-current","attachmentId":"00000000-0000-4000-8000-000000000021","descriptorHash":"{}","contentRevision":"v1:{}"}}"#,
+        "b".repeat(64),
+        "a".repeat(64)
+    );
+    let read = |path: &std::path::Path| {
+        [
+            "attachment",
+            "read",
+            id,
+            "--reference",
+            path.to_str().unwrap(),
+            "--output",
+            output.to_str().unwrap(),
+            "--json",
+        ]
+        .map(str::to_owned)
+    };
+    // A well-formed reference with no serve: nothing can be read, and nothing is created.
+    fs::write(&reference, &selector).unwrap();
+    let args = read(&reference);
+    failure(
+        &pilot,
+        &args.iter().map(String::as_str).collect::<Vec<_>>(),
+        "COLAB_UNAVAILABLE",
+    );
+    // Each malformed reference is refused before the serve is asked.
+    for malformed in [
+        "{}".to_owned(),
+        selector.replace(&"b".repeat(64), "short"),
+        selector.replace("}", r#","agent":"x"}"#),
+        " ".repeat(tmt_colab_model::attachment::REFERENCE_BYTES + 1),
+    ] {
+        fs::write(&reference, malformed).unwrap();
+        let args = read(&reference);
+        failure(
+            &pilot,
+            &args.iter().map(String::as_str).collect::<Vec<_>>(),
+            "COLAB_INPUT_INVALID",
+        );
+    }
+    // A missing file is invalid input too, not a serve problem.
+    let args = read(&pilot.root.join("missing.json"));
+    failure(
+        &pilot,
+        &args.iter().map(String::as_str).collect::<Vec<_>>(),
+        "COLAB_INPUT_INVALID",
+    );
+    assert_eq!(
+        fs::read_dir(&output).unwrap().count(),
+        0,
+        "a refused read left output behind"
+    );
+}
+#[test]
 fn writing_the_source_a_page_already_has_publishes_nothing_offline_and_serving() {
     for serving in [false, true] {
         let mut pilot = Pilot::new(None);
@@ -3102,7 +3174,8 @@ fn serve_in_an_installed_release_warns_once_when_a_newer_version_becomes_current
     );
     std::fs::remove_file(&current).unwrap();
     std::os::unix::fs::symlink("releases/new", &current).unwrap();
-    let warning = Serving::wait_for(&serving.err, "is installed, but");
+    // The warning and its hint are written separately: wait for the last of them.
+    let warning = Serving::wait_for(&serving.err, "to update");
     assert!(
         warning.contains("Colab 9.9.9-installed is installed, but ")
             && warning.contains(" is still running")
@@ -3119,7 +3192,9 @@ fn serve_in_an_installed_release_warns_once_when_a_newer_version_becomes_current
 fn serve_with_a_door_that_will_not_start_keeps_the_local_space_without_the_install_line() {
     let pilot = Pilot::new(None);
     let mut serving = Serving::start(&pilot, pilot.remote_core(Some(STOPPED), Serve::Fail), &[]);
-    let warning = Serving::wait_for(&serving.err, "did not start");
+    // The warning and its hint are written separately: wait for the last of them.
+    let warning = Serving::wait_for(&serving.err, "tmt remote serve shows why");
+    assert!(warning.contains("did not start"), "{warning}");
     assert!(
         warning.starts_with("warning:") || warning.contains("warning:"),
         "{warning}"

@@ -33,8 +33,9 @@ retries. Reader tickets take precedence over a paired cookie and never upload.
 without opening another socket or changing the live fold. Browser `Connection`
 requests run outside its Worker executor; historical fetch uses a detached Worker.
 Complete committed reads check every range and raw digest before Colab asset crypto.
-Root-local `MountSocket::read_attachment` requires an established channel and never
-activates storage or opens a backend. Production Remote declares Colab Local;
+The root-local read is the serve's owner-only `attachment-read` route (`attachments/ipc.rs`,
+`socket.rs`): it requires an established channel, never activates storage or opens a backend, and
+answers only the local CLI (export and `attachment read`). Production Remote declares Colab Local;
 its routed lifecycle gate uses the three shipped binaries. Snapshot/retained-reference
 persistence is #2299, not a new Store/schema here. Read failures are four reasons
 (`denied`, `not-found`, `changed`, `unavailable`): `object_channel/peer.rs` `error_code` maps

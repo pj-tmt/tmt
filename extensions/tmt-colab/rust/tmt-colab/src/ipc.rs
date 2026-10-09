@@ -40,10 +40,12 @@ pub(crate) fn send(layout: &Layout, path: &str, body: &[u8]) -> Result<UnixStrea
     if let Err(error) = socket.write_all(body) {
         // A server may refuse a request it will not read (a body over its cap) and close. The
         // refusal is then already waiting; without it the failure is only a failed send.
-        return Err(match read_reply(socket, limits::RESPONSE) {
-            Ok((code, body)) => EarlyReply { code, body }.into(),
-            Err(_) => error.into(),
-        });
+        return Err(
+            match read_reply(socket, limits::RESPONSE, limits::HTTP_BODY_BYTES) {
+                Ok((code, body)) => EarlyReply { code, body }.into(),
+                Err(_) => error.into(),
+            },
+        );
     }
     Ok(socket)
 }
@@ -67,6 +69,14 @@ impl std::error::Error for EarlyReply {}
 /// Finish the request and read one framed reply within `wait`. Any error here leaves the
 /// outcome in doubt.
 pub(crate) fn receive(socket: UnixStream, wait: std::time::Duration) -> Result<(u16, Vec<u8>)> {
+    receive_up_to(socket, wait, limits::HTTP_BODY_BYTES)
+}
+/// `receive` for a route whose reply body may reach `body_cap` bytes.
+pub(crate) fn receive_up_to(
+    socket: UnixStream,
+    wait: std::time::Duration,
+    body_cap: usize,
+) -> Result<(u16, Vec<u8>)> {
     match socket.shutdown(std::net::Shutdown::Write) {
         Ok(()) => {}
         // A server that already answered and closed leaves nothing to half-close (macOS says
@@ -74,9 +84,13 @@ pub(crate) fn receive(socket: UnixStream, wait: std::time::Duration) -> Result<(
         Err(error) if error.kind() == std::io::ErrorKind::NotConnected => {}
         Err(error) => return Err(error.into()),
     }
-    read_reply(socket, wait)
+    read_reply(socket, wait, body_cap)
 }
-fn read_reply(mut socket: UnixStream, wait: std::time::Duration) -> Result<(u16, Vec<u8>)> {
+fn read_reply(
+    mut socket: UnixStream,
+    wait: std::time::Duration,
+    body_cap: usize,
+) -> Result<(u16, Vec<u8>)> {
     let deadline = Instant::now() + wait;
     let mut response = Vec::new();
     let mut chunk = [0; 4096];
@@ -106,7 +120,7 @@ fn read_reply(mut socket: UnixStream, wait: std::time::Duration) -> Result<(u16,
             break;
         }
         response.extend_from_slice(&chunk[..n]);
-        if response.len() > limits::HEADER_BYTES + limits::HTTP_BODY_BYTES {
+        if response.len() > limits::HEADER_BYTES + body_cap {
             return Err(Fault::Unavailable.into());
         }
     }
@@ -163,7 +177,8 @@ mod tests {
         client.write_all(&[7; 4096]).unwrap();
         server.write_all(REPLY).unwrap();
         drop(server);
-        let (code, body) = read_reply(client, Duration::from_secs(5)).unwrap();
+        let (code, body) =
+            read_reply(client, Duration::from_secs(5), limits::HTTP_BODY_BYTES).unwrap();
         assert_eq!((code, body.as_slice()), (413, b"TOO LARGE".as_slice()));
     }
 

@@ -511,6 +511,7 @@ test('a browser pairs, gets a door session and certifies only its own extension'
   expect(result.exports).toEqual([
     'ClientError',
     'RefusalError',
+    'budget',
     'certifyKey',
     'landingPage',
     'management',

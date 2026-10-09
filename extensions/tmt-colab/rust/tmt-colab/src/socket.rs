@@ -121,23 +121,6 @@ struct Worker {
     handle: JoinHandle<()>,
 }
 impl MountSocket {
-    /// Native root-local admitted read through this serve's established object
-    /// channel. It never activates storage, opens a backend or serves plaintext
-    /// over a route. Owner/reader browser requests use the sync peer instead.
-    pub fn read_attachment(
-        &self,
-        page: &str,
-        selector: &tmt_colab_model::attachment::AttachmentSelector,
-        deadline: Instant,
-    ) -> Result<Vec<u8>> {
-        let source = self
-            .registration
-            .as_ref()
-            .and_then(|service| service.lock().ok()?.save_source())
-            .ok_or(crate::page::Fault::Unavailable)?;
-        self.objects
-            .read_root_local(page, selector, source, deadline)
-    }
     /// Bind under the held serve lock. An existing socket owned by this user is
     /// a stale leftover of an earlier serve and is replaced; anything else
     /// refuses.
@@ -405,6 +388,49 @@ fn serve(
         match result {
             Ok(bytes) => {
                 let _ = response_as(&mut socket, 200, &bytes, "application/json");
+            }
+            Err(error) => {
+                let failure = crate::page::ipc::WriteError::from_error(error.as_ref());
+                if let Ok(bytes) = serde_json::to_vec(&failure) {
+                    let _ = response_as(&mut socket, failure.status(), &bytes, "application/json");
+                }
+            }
+        }
+        return;
+    }
+    if request.path == crate::attachments::ipc::PATH {
+        // Native root-local admitted read through this serve's established object channel. The
+        // authority is this owned private socket; it never activates storage, opens a backend
+        // or answers a browser, and the plaintext reaches only this local caller.
+        let result = (|| -> Result<Vec<u8>> {
+            if local_denied(&request) {
+                return Err(crate::page::Fault::Denied.into());
+            }
+            if request.method != "POST" || request.upgrade {
+                return Err(crate::page::Fault::Invalid.into());
+            }
+            let (page, selector) = crate::attachments::ipc::parse(&request.body)?;
+            let source = registration
+                .and_then(|service| service.lock().ok()?.save_source())
+                .ok_or(crate::page::Fault::Unavailable)?;
+            objects.read_root_local(
+                &page,
+                &selector,
+                source,
+                request.received + limits::OBJECT_REPLY,
+            )
+        })();
+        match result {
+            Ok(bytes) => {
+                let _ = write_response(
+                    &mut socket,
+                    200,
+                    &bytes,
+                    "application/octet-stream",
+                    POLICY,
+                    "",
+                    limits::ATTACHMENT_RESPONSE,
+                );
             }
             Err(error) => {
                 let failure = crate::page::ipc::WriteError::from_error(error.as_ref());
@@ -1092,7 +1118,27 @@ fn response_with_headers(
     policy: &str,
     headers: &str,
 ) -> std::io::Result<()> {
-    let deadline = Instant::now() + limits::RESPONSE;
+    write_response(
+        socket,
+        status,
+        body,
+        kind,
+        policy,
+        headers,
+        limits::RESPONSE,
+    )
+}
+/// One response written, and its peer's close awaited, within `wait` altogether.
+fn write_response(
+    socket: &mut UnixStream,
+    status: u16,
+    body: &[u8],
+    kind: &str,
+    policy: &str,
+    headers: &str,
+    wait: std::time::Duration,
+) -> std::io::Result<()> {
+    let deadline = Instant::now() + wait;
     let bytes = format!(
         "HTTP/1.1 {status} Response\r\nContent-Type: {kind}\r\nContent-Length: {}\r\nConnection: close\r\nCache-Control: no-store\r\nContent-Security-Policy: {policy}\r\nReferrer-Policy: no-referrer\r\nX-Content-Type-Options: nosniff\r\n{headers}\r\n",
         body.len()
@@ -1262,6 +1308,7 @@ fn acquire(socket: &mut UnixStream) -> std::result::Result<Request, u16> {
             | management::PATH
             | management::LOCAL_PATH
             | crate::page::ipc::PATH
+            | crate::attachments::ipc::PATH
             | control::STOP_PATH
             | crate::readers::CHALLENGE_PATH
             | crate::readers::SESSION_PATH

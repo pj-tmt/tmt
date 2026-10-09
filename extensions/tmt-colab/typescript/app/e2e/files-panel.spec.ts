@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { expect, test, type Page } from '@playwright/test';
 import { text } from '../src/strings.js';
 
@@ -313,3 +314,44 @@ for (const width of [1440, 390])
       await expect(page.getByTestId('file-row')).toHaveCount(3);
       await shot('reader');
     });
+
+test('the Export panel lists every attachment with its outcome and saves an included one under its own name', async ({
+  page,
+}) => {
+  await page.goto('/');
+  await page.evaluate(
+    async ({ fixture }) => (await import(fixture)).mount({ exportAttachments: true }),
+    { fixture },
+  );
+  const host = page.locator('#ask-page-fixture');
+  await expect(host.locator('.status')).toContainText('Live preview');
+  if (!(await host.getByRole('button', { name: 'Export page', exact: true }).isVisible()))
+    await host.getByRole('button', { name: 'More page actions' }).click();
+  await host.getByRole('button', { name: 'Export page', exact: true }).click();
+  // The drawer is portaled out of the host.
+  const panel = page.getByRole('region', { name: 'Export page' });
+  const list = panel.getByRole('region', { name: text.exportAttachments });
+  await expect(list.getByRole('listitem')).toHaveCount(4);
+  // An included file offers a download; every other outcome says why and offers none.
+  const row = (name: string) => list.getByRole('listitem').filter({ hasText: name });
+  await expect(
+    row('note.txt').getByRole('button', { name: text.attachmentDownload }),
+  ).toBeEnabled();
+  await expect(list.getByRole('button')).toHaveCount(1);
+  await expect(list).toContainText(text.exportAttachmentState.missing);
+  await expect(list).toContainText(text.exportAttachmentState.denied);
+  await expect(list).toContainText(text.exportAttachmentState['too-large']);
+  const pending = page.waitForEvent('download');
+  await row('note.txt').getByRole('button', { name: text.attachmentDownload }).click();
+  const received = await pending;
+  expect(received.suggestedFilename()).toBe('note.txt');
+  expect(readFileSync((await received.path())!).toString()).toBe('exported note');
+  // Requesting the other files completes the copy: the included attachment counts too.
+  await expect(panel.getByRole('status')).toContainText(text.exportPartial);
+  for (const name of ['page.html', 'conversations.json', 'conversations.md', 'manifest.json']) {
+    const next = page.waitForEvent('download');
+    await panel.getByRole('button', { name: `Download ${name}`, exact: true }).click();
+    await next;
+  }
+  await expect(panel.getByRole('status')).toContainText(text.exportRequested);
+});

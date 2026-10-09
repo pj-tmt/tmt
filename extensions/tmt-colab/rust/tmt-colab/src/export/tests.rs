@@ -1,4 +1,5 @@
 use super::*;
+use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use std::{
     fs,
     os::unix::fs::symlink,
@@ -39,9 +40,13 @@ fn bundle() -> Bundle {
     let files = names
         .iter()
         .zip(&contents)
-        .map(|(name, bytes)| FileInfo::new(name, bytes))
+        .map(|(name, bytes)| FileInfo::new(*name, bytes))
         .collect();
-    Bundle { contents, files }
+    Bundle {
+        contents,
+        files,
+        disclosure: DISCLOSURE,
+    }
 }
 #[test]
 fn publication_is_create_only_private_and_cleans_only_its_staging() {
@@ -56,11 +61,11 @@ fn publication_is_create_only_private_and_cleans_only_its_staging() {
         0o700
     );
     for info in &published.files {
-        let path = published.directory.join(info.name);
+        let path = published.directory.join(&info.name);
         let m = fs::metadata(&path).unwrap();
         assert_eq!(m.mode() & 0o777, 0o600);
         assert_eq!(m.nlink(), 1, "staging link leaked");
-        assert_eq!(FileInfo::new(info.name, &fs::read(path).unwrap()), *info);
+        assert_eq!(FileInfo::new(&info.name, &fs::read(path).unwrap()), *info);
     }
     assert!(!dir.0.join(format!(".tmt-colab-export-{ID}")).exists());
     assert!(bundle.publish_as(&dir.0, ID, |_, _| Ok(())).is_err());
@@ -268,6 +273,44 @@ fn shared_fixture_matches_the_native_bundle_bytes_and_field_order() {
         FileInfo::new("conversations.json", &json),
         FileInfo::new("conversations.md", &markdown),
     ];
+    // The listed attachment rows are fixed inputs; every included file's bytes must match its digest.
+    let attachments: Vec<attachments::AttachmentRow> = input["attachments"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|row| {
+            let word = |value: &serde_json::Value, words: &[&'static str]| {
+                words
+                    .iter()
+                    .copied()
+                    .find(|word| value.as_str() == Some(word))
+            };
+            if let Some(file) = row["file"].as_str() {
+                let bytes = URL_SAFE_NO_PAD
+                    .decode(input["attachmentBytes"][file].as_str().unwrap())
+                    .unwrap();
+                assert_eq!(row["sha256"], hex(&crypto::digest(&bytes)));
+                assert_eq!(row["plaintextBytes"], bytes.len().to_string());
+            }
+            attachments::AttachmentRow::fixture(
+                row["attachmentId"].as_str().unwrap(),
+                word(&row["source"], &["document", "message"]).unwrap(),
+                serde_json::from_value(row["reference"].clone()).unwrap(),
+                (
+                    row["filename"].as_str().unwrap(),
+                    row["mediaType"].as_str().unwrap(),
+                ),
+                row["plaintextBytes"].as_str().unwrap(),
+                word(&row["state"], &["included", "missing", "unavailable"]).unwrap(),
+                word(
+                    &row["reason"],
+                    &["denied", "changed", "too-large", "unavailable"],
+                ),
+                row["sha256"].as_str().map(str::to_owned),
+                row["file"].as_str().map(str::to_owned),
+            )
+        })
+        .collect();
     // Exercise the production native serializer, not a Value's map ordering.
     let recipient = input.get("creationRecipient").map(|value| {
         serde_json::from_value::<crate::decoder::CreationRecipient>(value.clone()).unwrap()
@@ -297,6 +340,7 @@ fn shared_fixture_matches_the_native_bundle_bytes_and_field_order() {
             format: conversations::FORMAT,
             version: 1,
         },
+        attachments: &attachments,
         files: &files,
     })
     .unwrap();
@@ -402,5 +446,89 @@ fn status_projection_matches_browser_literal_bytes_and_historical_scope_binding(
         assert!(
             conversations::threads(&scope, &own, &keys, &keys.keys().cloned().collect()).is_empty()
         );
+    }
+}
+fn nested_bundle() -> Bundle {
+    let names = [
+        "page.html",
+        "attachments/20000000-0000-4000-8000-000000000092",
+        "manifest.json",
+    ];
+    let contents = vec![
+        b"<p>page</p>".to_vec(),
+        b"attachment bytes \0".to_vec(),
+        b"{}".to_vec(),
+    ];
+    let files = names
+        .iter()
+        .zip(&contents)
+        .map(|(name, bytes)| FileInfo::new(*name, bytes))
+        .collect();
+    Bundle {
+        contents,
+        files,
+        disclosure: DISCLOSURE,
+    }
+}
+#[test]
+fn attachment_files_publish_in_one_private_subdirectory_and_leave_no_staging() {
+    let dir = Directory::new();
+    let bundle = nested_bundle();
+    let published = bundle.publish_as(&dir.0, ID, |_, _| Ok(())).unwrap();
+    let nested = published.directory.join("attachments");
+    assert_eq!(fs::metadata(&nested).unwrap().mode() & 0o777, 0o700);
+    let file = nested.join("20000000-0000-4000-8000-000000000092");
+    let metadata = fs::metadata(&file).unwrap();
+    assert_eq!(metadata.mode() & 0o777, 0o600);
+    assert_eq!(metadata.nlink(), 1, "staging link leaked");
+    assert_eq!(fs::read(&file).unwrap(), bundle.contents[1]);
+    assert!(!dir.0.join(format!(".tmt-colab-export-{ID}")).exists());
+    assert_eq!(fs::read_dir(&dir.0).unwrap().count(), 1);
+}
+#[test]
+fn a_failure_after_an_attachment_file_reports_the_partial_output_and_keeps_foreign_entries() {
+    let dir = Directory::new();
+    let error = nested_bundle()
+        .publish_as(&dir.0, ID, |_, phase| {
+            // Phase 2 follows the attachment file: the manifest is still unpublished.
+            if phase == 2 {
+                assert!(dir.0.join(ID).join("attachments").is_dir());
+                assert!(!dir.0.join(ID).join("manifest.json").exists());
+                fs::write(dir.0.join(ID).join("manifest.json"), b"foreign")?;
+            }
+            Ok(())
+        })
+        .err()
+        .unwrap();
+    let fault = error.downcast_ref::<Fault>().unwrap();
+    assert_eq!(fault.partial_directory(), Some(dir.0.join(ID).as_path()));
+    assert_eq!(
+        fs::read(dir.0.join(ID).join("manifest.json")).unwrap(),
+        b"foreign"
+    );
+    assert!(dir.0.join(ID).join("attachments").is_dir());
+    assert!(!dir.0.join(format!(".tmt-colab-export-{ID}")).exists());
+}
+#[test]
+fn only_generated_names_may_be_published() {
+    for name in [
+        "",
+        "..",
+        "../x",
+        "a/b/c",
+        "attachments/",
+        "/absolute",
+        "attachments/..",
+        "name with space",
+        "a\\b",
+    ] {
+        let mut bundle = nested_bundle();
+        bundle.files[1].name = name.to_owned();
+        let dir = Directory::new();
+        assert!(
+            bundle.publish_as(&dir.0, ID, |_, _| Ok(())).is_err(),
+            "{name:?}"
+        );
+        assert_eq!(fs::read_dir(&dir.0).unwrap().count(), 0, "{name:?}");
     }
 }
