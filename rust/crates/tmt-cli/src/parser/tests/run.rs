@@ -170,3 +170,32 @@ fn both_foreground_commands_choose_one_channel_mode_and_reject_conflicts() {
         assert!(parse(&args(&["resume", "--forget", flag, "Alice"])).is_err());
     }
 }
+
+#[test]
+fn resume_uses_an_optional_name_and_bounded_explicit_overrides() {
+    match parsed(&["resume", "--model", "sonnet", "--effort", "high"]).invocation {
+        Invocation::Resume {
+            name,
+            model,
+            effort,
+            show,
+            forget_launch,
+            ..
+        } => {
+            assert_eq!(name, None);
+            assert_eq!(model.as_deref(), Some("sonnet"));
+            assert_eq!(effort.as_deref(), Some("high"));
+            assert!(!show && !forget_launch);
+        }
+        other => panic!("unexpected resume: {other:?}"),
+    }
+    for flag in ["--show", "--forget-launch"] {
+        assert!(parse(&args(&["resume", flag, "Alice"])).is_ok());
+        for conflict in ["--forget", "--retry", "--channel", "--no-channel"] {
+            assert!(parse(&args(&["resume", flag, conflict, "Alice"])).is_err());
+        }
+        assert!(parse(&args(&["resume", flag, "--model", "sonnet", "Alice"])).is_err());
+    }
+    assert!(parse(&args(&["resume", "--json"])).is_err());
+    assert!(parse(&args(&["resume", "Alice", "command"])).is_err());
+}

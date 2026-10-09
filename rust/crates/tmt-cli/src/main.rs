@@ -255,18 +255,21 @@ fn dispatch(parsed: invocation::Parsed) -> io::Result<u8> {
         }
         Invocation::Resume {
             name,
+            show,
+            forget_launch,
+            model,
+            effort,
             forget,
             retry,
             channel,
         } => {
-            if forget {
-                return resume_command::forget(&name);
-            }
-            return run_command::execute(
-                &name,
-                &[],
-                Some(run_command::Resume { retry }),
-                false,
+            return resume_command::execute(
+                name.as_deref(),
+                show,
+                forget_launch,
+                forget,
+                retry,
+                tmt_adapters::runtime::launch_preset::LaunchSettings { model, effort },
                 channel,
             );
         }

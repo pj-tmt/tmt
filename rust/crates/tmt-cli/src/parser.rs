@@ -294,7 +294,11 @@ fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
             }
         }
         ["resume"] => Invocation::Resume {
-            name: text(m, "name").expect("required resume name"),
+            name: text(m, "name"),
+            show: flag(m, "show"),
+            forget_launch: flag(m, "forget-launch"),
+            model: text(m, "model"),
+            effort: text(m, "effort"),
             forget: flag(m, "forget"),
             retry: flag(m, "retry"),
             channel: channel_mode(m),

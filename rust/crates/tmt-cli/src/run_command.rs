@@ -1,5 +1,5 @@
-//! Foreground command composition. Arguments belong to the child; only the
-//! driver's harness ID and process ownership enter TMT storage.
+//! Foreground command composition. Full argv belongs to the child; only bounded
+//! launch preferences, driver identity and process ownership enter TMT storage.
 
 use crate::{binding_error::endpoint_failure, invocation::OutputMode, output::Failure};
 use std::{
@@ -111,6 +111,7 @@ fn warn(message: &str, hint: Option<&str>) {
 #[derive(Clone, Copy)]
 struct RunRequest<'a> {
     name: &'a str,
+    options: &'a tmt_adapters::runtime::launch_preset::LaunchSettings,
     command: &'a [OsString],
     resume: Option<Resume>,
     save: bool,
@@ -151,6 +152,26 @@ pub fn execute(
         resume,
         save,
         channel,
+        options: &Default::default(),
+    }) {
+        Ok(status) => Ok(status),
+        Err(error) => error.publish(OutputMode::default()),
+    }
+}
+
+pub fn resume_with_options(
+    name: &str,
+    retry: bool,
+    options: &tmt_adapters::runtime::launch_preset::LaunchSettings,
+    channel: crate::invocation::ChannelMode,
+) -> io::Result<u8> {
+    match run(RunRequest {
+        name,
+        command: &[],
+        resume: Some(Resume { retry }),
+        save: false,
+        channel,
+        options,
     }) {
         Ok(status) => Ok(status),
         Err(error) => error.publish(OutputMode::default()),

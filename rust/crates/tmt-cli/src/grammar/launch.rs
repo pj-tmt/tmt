@@ -127,7 +127,48 @@ pub(in crate::grammar) fn resume() -> Command {
             .conflicts_with("forget")
             .help("Try a session marked stale once more"),
     )
-    .arg(operand("name", true).help("Identity name; TMT options go before it"));
+    .arg(
+        Arg::new("show")
+            .long("show")
+            .action(ArgAction::SetTrue)
+            .conflicts_with_all([
+                "forget",
+                "forget-launch",
+                "retry",
+                "channel",
+                "no-channel",
+                "model",
+                "effort",
+            ])
+            .help("Show the recorded launch preset without launching"),
+    )
+    .arg(
+        Arg::new("forget-launch")
+            .long("forget-launch")
+            .action(ArgAction::SetTrue)
+            .conflicts_with_all([
+                "forget",
+                "retry",
+                "channel",
+                "no-channel",
+                "model",
+                "effort",
+            ])
+            .help("Clear the launch preset without forgetting the session"),
+    )
+    .arg(
+        Arg::new("model")
+            .long("model")
+            .conflicts_with("forget")
+            .help("Override the observed or recorded model for this resume"),
+    )
+    .arg(
+        Arg::new("effort")
+            .long("effort")
+            .conflicts_with("forget")
+            .help("Override the recorded effort for this resume"),
+    )
+    .arg(operand("name", false).help("Identity name; omit to use this pane's verified identity"));
     channel_options(command, true)
 }
 

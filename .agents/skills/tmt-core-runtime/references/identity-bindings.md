@@ -114,7 +114,8 @@ in `contracts/`.
   parses. `RuntimeLifecycle::reads_state` names readable versions and
   `RuntimeRegistry::reconcile` drops what no registered driver can read. It holds resume
   essentials only (model, opt-in usage, activity, consumption), never transcript content,
-  arguments or secrets. Claude and Codex share `runtime::driver_state` (v1 model, v2 usage, v3
+  arguments or secrets. Bounded launch settings use separate metadata. Claude and Codex
+  share `runtime::driver_state` (v1 model, v2 usage, v3
   activity, v4 consumption; a document without a newer field stays byte for byte).
 - The model comes only from a starting hook's `model` field; resume replays it only when
   readable and a safe single argv value.
@@ -143,7 +144,15 @@ in `contracts/`.
   conclusive process observation.
 - Competing executable claims resolve by descending priority, then harness ID. Explicit launches
   select argv verbatim; optional driver-owned session settings are composed afterward. Bare
-  relaunch resolves the registered executable with no arguments.
+  relaunch resolves the registered executable with no arguments. Exact resume instead uses
+  the associated `resume.launch` metadata preset: exact executable, driver-extracted model
+  and effort, and only `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE`/`CLAUDE_MINI_PCT`. It never stores
+  full argv. A starting admitted hook associates the preset with its exact launch owner and
+  provider session; unassociated presets cannot replace a driver executable. The last
+  observed model wins over launch settings; explicit resume model/effort and present env
+  values (including empty env) win. Conditional metadata updates fence replacement and clear.
+  `resume --show` inspects the record; `--forget-launch` clears it without forgetting the
+  session. Unnamed resume uses the shared verified caller selector, never a sole-name fallback.
 
 ## Consumption and context usage
 
