@@ -202,6 +202,59 @@ fn only_the_exact_upload_calls_of_the_writers_own_original_are_admitted() {
     );
 }
 #[test]
+fn a_begin_receipt_must_carry_the_admitted_object_digest_and_size() {
+    let world = World::new();
+    let begin = AdmitInput::Begin(world.original.clone());
+    let owner = world.admission(Some(begin.clone()));
+    let receipt = |key: Bytes32, digest, bytes| Disclosure::Receipt {
+        opaque_key: key,
+        payload_sha256: digest,
+        payload_bytes: bytes,
+    };
+    let at_disclose = |disclosure: Disclosure| {
+        owner.decide(
+            &Admit {
+                generation: world.channel.client().generation(),
+                callback_id: Counter::new(1).unwrap(),
+                request_id: Counter::new(1).unwrap(),
+                boundary: Checkpoint::Disclose,
+                context: Context::LocalExtension,
+                operation: Operation {
+                    input: begin.clone(),
+                    disclosure: Some(disclosure),
+                },
+            },
+            Instant::now() + Duration::from_secs(10),
+        )
+    };
+    let original = &world.original;
+    assert_eq!(
+        at_disclose(receipt(
+            original.opaque_key,
+            original.payload_sha256,
+            original.payload_bytes
+        )),
+        Decision::Allow
+    );
+    // The same object under another digest, or another size, is not the admitted original.
+    assert_eq!(
+        at_disclose(receipt(
+            original.opaque_key,
+            tmt_extension_objects::Sha256Hex::from_bytes([5; 32]),
+            original.payload_bytes
+        )),
+        Decision::Deny
+    );
+    assert_eq!(
+        at_disclose(receipt(
+            original.opaque_key,
+            original.payload_sha256,
+            original.payload_bytes + 1
+        )),
+        Decision::Deny
+    );
+}
+#[test]
 fn no_other_context_generation_or_call_is_admitted() {
     let world = World::new();
     let begin = AdmitInput::Begin(world.original.clone());
