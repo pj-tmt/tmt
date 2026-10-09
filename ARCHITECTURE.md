@@ -806,9 +806,9 @@ falls back to a working directory, active pane or sole identity.
   boundary.
 - Concrete implementations: `storage::{identities,identity_metadata,identity_status,bindings}`
   and `tmux::{metadata,evidence,binding,caller,transport}`; `binding_command`
-  performs caller/target preflight and composes them. Per-module rules (names,
-  rename and marker, resume and activity, consumption, setup/uninstall, foreground
-  launch, caller identification) are in the [identity and bindings reference](.agents/skills/tmt-core-runtime/references/identity-bindings.md). Workspace recovery ownership and format: [core reference](.agents/skills/tmt-core-runtime/references/workspace.md).
+  performs caller/target preflight and composes them. Module rules:
+  [identity and bindings](.agents/skills/tmt-core-runtime/references/identity-bindings.md)
+  and [workspace recovery](.agents/skills/tmt-core-runtime/references/workspace.md).
 
 ### Saved identity notes
 
