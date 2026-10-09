@@ -268,6 +268,74 @@ fn mounted_short_links_resolve_without_remote_and_preserve_ambiguous_past_links(
 }
 
 #[test]
+fn anonymous_root_page_aliases_do_not_disclose_known_absent_archived_or_deleted_pages() {
+    let server = Running::start(Tunnels::PRODUCT);
+    let mount = "tmt-mount: /r/abcdefghijklmnop/x/colab/\r\n";
+    let get = |prefix: &str| server.request(&Running::get(&format!("/p/{prefix}"), mount));
+    let known = get("00000000");
+    let absent = get("99999999");
+    assert!(known.starts_with("HTTP/1.1 302"));
+    let (known_headers, known_body) = known.split_once("\r\n\r\n").unwrap();
+    let (absent_headers, absent_body) = absent.split_once("\r\n\r\n").unwrap();
+    assert_eq!(
+        known_headers,
+        absent_headers.replace("99999999", "00000000")
+    );
+    assert_eq!(known_body, absent_body.replace("99999999", "00000000"));
+    assert_eq!(known_body, "");
+    // Use actual admitted lifecycle operations, then compare the same public request.
+    // No owner context is forwarded in any alias request, including archived/deleted states.
+    for (revision, operation) in [(1, "page.archive"), (2, "page.delete")] {
+        let body = local_management(
+            &server,
+            &format!("90000000-0000-4000-8000-{revision:012}"),
+            revision,
+            operation,
+            json!({"pageId":PAGE}),
+        );
+        management_response(
+            &server,
+            &server.event(tmt_colab::management::LOCAL_PATH, "", &body),
+            &(revision + 1).to_string(),
+        );
+        let catalog = server.request(&Running::get(
+            "/api/pages",
+            &format!("{}\r\n", owner(DEVICE)),
+        ));
+        let catalog: Value =
+            serde_json::from_str(catalog.split_once("\r\n\r\n").unwrap().1).unwrap();
+        if operation == "page.archive" {
+            assert_eq!(catalog["pages"][0]["archived"], true);
+        } else {
+            assert_eq!(catalog["pages"], json!([]));
+            assert_eq!(catalog["pageIds"][0]["deleted"], true);
+        }
+        let reply = get("00000000");
+        let (headers, body) = reply.split_once("\r\n\r\n").unwrap();
+        assert_eq!(headers, known_headers, "{operation}");
+        assert_eq!(body, known_body, "{operation}");
+    }
+    for reply in [&known, &absent] {
+        for private in [
+            PAGE,
+            server.space.as_str(),
+            DEVICE,
+            OTHER,
+            "Laptop",
+            "title",
+            "author",
+            "pageId",
+            "spaceId",
+        ] {
+            assert!(
+                !reply.contains(private),
+                "private marker {private}: {reply}"
+            );
+        }
+    }
+}
+
+#[test]
 fn page_alias_redirects_use_remote_mount_for_mounted_and_root_forwarded_entries() {
     let server = Running::start(Tunnels::PRODUCT);
     for mount in [
