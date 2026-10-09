@@ -713,6 +713,11 @@ per-job failures: `node typescript/scripts/merge-queue-metrics.mjs --repo pj-tmt
 inclusive and end exclusive; `--boundary` compares cohorts, `--details` prints all cost rows,
 `--offline` requires cached evidence, `--max-requests N` overrides the 500-request budget (split
 capped windows), `--workflow FILE` defaults to `ci.yml` and `--tag-pr N` (repeatable) marks
-confounder PRs. The script and report state their methodology limits. Verify with
+confounder PRs. Terminal job pages refresh once through complete acquisition before cache reuse;
+unqualified offline pages cannot prove completion. API source SHA/tree stay separate from each
+worker's checkout-log and immutable Git-tree proof; missing or ambiguous checkout evidence and
+legacy source-only snapshots are excluded from same-tested-tree candidates. Only relevant failed
+workers and subsequent successes acquire bounded logs within the REST budget. The script and
+report state their methodology limits. Verify with
 `pnpm exec vp test run --config vitest.config.ts test/tooling/merge-queue-metrics.test.ts` from
 `typescript/`.
