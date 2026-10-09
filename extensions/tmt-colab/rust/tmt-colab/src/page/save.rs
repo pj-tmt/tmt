@@ -85,15 +85,29 @@ pub fn prepare(
             membership_head,
             base_revision,
             memory_limit,
-        } => Prepared::Unchanged(Box::new(super::Receipt::unchanged(
-            &source.keyring,
-            &save.page,
-            &save.source,
-            epoch,
-            membership_head,
-            base_revision,
-            memory_limit,
-        ))),
+        } => {
+            // A no-op records nothing, so an operation ID that already has a recorded outcome
+            // was used by another save: it must not answer "unchanged" for this one.
+            if super::publication_status_by_operation(
+                &source.store,
+                &source.keyring,
+                &save.page,
+                &save.operation_id,
+            )?
+            .is_some()
+            {
+                return Err(OwnerFault::Conflict.into());
+            }
+            Prepared::Unchanged(Box::new(super::Receipt::unchanged(
+                &source.keyring,
+                &save.page,
+                &save.source,
+                epoch,
+                membership_head,
+                base_revision,
+                memory_limit,
+            )))
+        }
         PublicationPreparation::Write(frozen) => Prepared::Write(frozen),
     })
 }

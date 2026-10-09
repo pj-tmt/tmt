@@ -3725,6 +3725,66 @@ fn a_save_with_a_typed_attachment_change_is_checked_against_its_source_and_the_p
 }
 
 #[test]
+fn a_reused_operation_id_never_reports_success_for_a_different_save() {
+    let oracle: Value = serde_json::from_str(include_str!(
+        "../../../contracts/vectors/attachment-change-v1.json"
+    ))
+    .unwrap();
+    let source = oracle["source"].as_str().unwrap();
+    let (server, layout, key, mut peer) = publish_fixture();
+    let mut a = oracle["descriptors"]["a"].clone();
+    a["space"] = json!(key.space_id);
+    a["page"] = json!(PAGE);
+    a["epoch"] = json!("1");
+    let save = |peer: &mut _, operation: &str, base: &str, change: Option<Value>| {
+        let mut frames = server.save_frames(operation, base, source);
+        if let Some(change) = change {
+            frames[0]["attachments"] = change;
+        }
+        for frame in frames {
+            send(peer, frame);
+        }
+        receive_until(peer, "saveresult").0
+    };
+    let committed = save(&mut peer, SAVE_ONE, "", None);
+    assert_eq!(committed["state"], "committed", "{committed}");
+    let revision = |layout: &_| {
+        let store = Store::read(layout).unwrap();
+        let revision = tmt_colab::page::revision(&store, &key, PAGE).unwrap();
+        store.close().unwrap();
+        revision
+    };
+    let before = revision(&layout);
+    // The same operation ID and source with an attachment change, an empty one or none: it is
+    // not the save that committed, so none of them may answer committed or unchanged. A change
+    // that would do something is refused on its own merits; one that would do nothing is a
+    // reuse of the ID.
+    for (change, code) in [
+        (Some(json!({"set":[a]})), None),
+        (Some(json!({"remove":[a["attachmentId"]]})), None),
+        (Some(json!({})), Some("COLAB_OPERATION_CONFLICT")),
+        (None, Some("COLAB_OPERATION_CONFLICT")),
+    ] {
+        let reused = save(&mut peer, SAVE_ONE, source, change.clone());
+        assert_eq!(reused["state"], "rejected", "{change:?} {reused}");
+        if let Some(code) = code {
+            assert_eq!(reused["code"], code, "{change:?} {reused}");
+        }
+        assert_eq!(revision(&layout), before);
+    }
+    // A fresh operation ID with nothing to change is still just unchanged.
+    let fresh = save(&mut peer, SAVE_TWO, source, None);
+    assert_eq!(fresh["state"], "unchanged", "{fresh}");
+    // Only status reports what the original operation did.
+    send(
+        &mut peer,
+        server.frame("savestatus", json!({"operationId":SAVE_ONE})),
+    );
+    let (status, _) = receive_until(&mut peer, "saveresult");
+    assert_eq!(status["state"], "committed", "{status}");
+}
+
+#[test]
 fn a_public_reader_cannot_save_or_ask_about_a_save() {
     let server = Running::start(Tunnels::PRODUCT);
     server.publish();

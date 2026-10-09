@@ -1998,7 +1998,9 @@ final) or `absent` (the operation never reached the page, so nothing changed). I
 or `savestatus`. A wide fan-out may end the originator's connection with `RESYNC_REQUIRED` before
 its reply; the browser then reconnects and sends one `savestatus` for the same ID, answered from
 the root-local operation record by (page, root-local stream, `operationId`). A reused
-`operationId` with different bytes is `COLAB_OPERATION_CONFLICT`. The browser never resends a
+`operationId` with different bytes is `COLAB_OPERATION_CONFLICT`, and so is one whose recorded
+outcome exists when the new save would change nothing (an operation ID answers only for the
+save that used it, never `unchanged` for another, including a different attachment change). The browser never resends a
 save: an unanswered status names the original ID, and a later Save is a new operation. The
 browser refuses a source over 2 MiB before sending, naming its size and the limit.
 Measured with incompressible fixtures through the real door: a fully different 1.5 MiB source
