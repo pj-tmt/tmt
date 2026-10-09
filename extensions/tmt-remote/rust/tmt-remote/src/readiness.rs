@@ -414,6 +414,10 @@ fn valid_layer(entry: &Value, spec: &LayerSpec) -> bool {
         else {
             return false;
         };
+        // Only a layer the free plan cannot run can report that it needs a paid plan.
+        if row.reason == R::PaidPlanRequired && !spec.requires_paid_plan {
+            return false;
+        }
         // `unknown` is only ever "not checked"; `not-enabled` is never that.
         if (state == "unknown") != (row.reason == R::NotChecked) {
             return false;
@@ -434,7 +438,7 @@ pub struct HumanLine {
     pub hint: Option<String>,
 }
 /// The human rendering of a validated projection: one line per layer, naming the first
-/// prerequisite that is not enabled.
+/// prerequisite whose state is the layer's state.
 pub fn human_lines(value: &Value, layers: &[LayerSpec]) -> Vec<HumanLine> {
     let Some(entries) = value.as_array().filter(|e| !e.is_empty()) else {
         return vec![HumanLine {
@@ -455,10 +459,12 @@ pub fn human_lines(value: &Value, layers: &[LayerSpec]) -> Vec<HumanLine> {
                     hint: None,
                 };
             }
+            // The layer's own state names the culprit: a definite `not-enabled` outranks an
+            // `unknown` that happens to come first.
             let first = entry["prerequisites"]
                 .as_array()
-                .and_then(|p| p.iter().find(|p| p["state"] != "enabled"))
-                .expect("a layer that is not enabled has a prerequisite that is not");
+                .and_then(|p| p.iter().find(|p| p["state"] == entry["state"]))
+                .expect("a layer's state comes from one of its prerequisites");
             let row = lookup_code(
                 first["item"].as_str().unwrap_or_default(),
                 first["reason"].as_str().unwrap_or_default(),

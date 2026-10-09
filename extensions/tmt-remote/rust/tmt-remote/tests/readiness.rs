@@ -275,6 +275,42 @@ fn missing_or_impossible_evidence_is_unknown_never_guessed() {
 }
 
 #[test]
+fn the_human_line_names_the_prerequisite_behind_the_layer_state() {
+    let sharing =
+        |evidence: FirestoreEvidence| human_lines(&projected(evidence), &LAYERS)[0].clone();
+    // A definite not-enabled outranks an unknown, whichever comes first in the layer.
+    let unknown_first = sharing(FirestoreEvidence {
+        project: Observed::Unknown,
+        rules: Observed::Off(R::NotDeployed),
+        ..ALL_ENABLED
+    });
+    assert_eq!(
+        unknown_first.what,
+        "Page sharing is not enabled. Firestore rules are not deployed."
+    );
+    assert_eq!(unknown_first.hint.as_deref(), Some(DEPLOY));
+    let off_first = sharing(FirestoreEvidence {
+        project: Observed::Off(R::AccessLost),
+        rules: Observed::Unknown,
+        ..ALL_ENABLED
+    });
+    assert_eq!(
+        off_first.what,
+        "Page sharing is not enabled. Access to the Firebase project was lost."
+    );
+    // With nothing definite, the first unknown names the layer.
+    let unknowns = sharing(FirestoreEvidence {
+        sign_in: Observed::Unknown,
+        rules: Observed::Unknown,
+        ..ALL_ENABLED
+    });
+    assert_eq!(
+        unknowns.what,
+        "Page sharing is not checked. Sign-in has not been checked."
+    );
+}
+
+#[test]
 fn the_validator_accepts_only_what_the_table_derives() {
     let good = projected(FirestoreEvidence {
         rules: Observed::Off(R::OutOfDate),
@@ -320,6 +356,11 @@ fn the_validator_accepts_only_what_the_table_derives() {
     });
     refuses("extra member on an unknown prerequisite", &|v| {
         v[0]["prerequisites"][4]["detail"] = json!("x")
+    });
+    refuses("paid plan required outside a paid-plan layer", &|v| {
+        v[0]["prerequisites"][3] =
+            json!({"item": "plan-tier", "state": "not-enabled", "reason": "paid-plan-required"});
+        v[0]["state"] = json!("not-enabled");
     });
     refuses("reason on enabled", &|v| {
         v[0]["prerequisites"][0]["reason"] = json!("not-checked")
