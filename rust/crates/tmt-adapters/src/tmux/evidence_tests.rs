@@ -32,6 +32,74 @@ fn workspace_plan_reads_only_session_names_on_the_exact_socket() {
     );
 }
 
+#[test]
+fn workspace_capture_reads_the_current_binding_options() {
+    let runner = crate::scripted_runner::ScriptedRunner::default();
+    let raw = r#"{"version":1}"#;
+    let row = [
+        SERVER_ID,
+        SOCKET,
+        SERVER_PID,
+        START_TIME,
+        "$1",
+        "main",
+        "@1",
+        "0",
+        "1",
+        "shell",
+        "abc,80x24,0,0,1",
+        "abc,80x24,0,0,1",
+        "80",
+        "24",
+        "%9",
+        "0",
+        "1",
+        "0",
+        "0",
+        "80",
+        "24",
+        "/repo",
+        PANE_PID,
+        raw,
+        "",
+        "/dev/pts/9",
+    ]
+    .join(evidence::SEPARATOR);
+    runner.push_output(row.into_bytes(), Vec::new());
+    runner.push_output(
+        b"321 Fri Oct 9 10:00:00 2026 S\n654 Fri Oct 9 10:01:00 2026 S\n".to_vec(),
+        Vec::new(),
+    );
+    let tmux = super::Tmux::new(runner);
+    let expected = ServerEvidence {
+        host: tmt_core::host::HostKind::Tmux,
+        server_id: SERVER_ID.into(),
+        socket_path: SOCKET.into(),
+        server_pid: SERVER_PID.parse().unwrap(),
+        server_start_time: START_TIME.into(),
+    };
+    let capture = tmux
+        .workspace_capture(
+            SOCKET,
+            Some(&expected),
+            None,
+            std::time::Instant::now() + std::time::Duration::from_secs(1),
+        )
+        .unwrap();
+    assert_eq!(capture.binding_server, Some(expected));
+    let calls = tmux.runner.calls.borrow();
+    let fields: Vec<_> = calls[0]
+        .args
+        .last()
+        .unwrap()
+        .split(evidence::SEPARATOR)
+        .collect();
+    assert_eq!(fields[0], "#{@tmt.server-id}");
+    assert_eq!(fields[23], "#{@tmt.agent}");
+    assert_eq!(fields[24], "#{@tmt.workspace-command}");
+    assert!(!fields.iter().any(|field| field.contains("@tmux-team.")));
+}
+
 fn server_row(server_id: &str, socket: &str, pid: &str, start_time: &str) -> String {
     [server_id, socket, pid, start_time].join(evidence::SEPARATOR)
 }

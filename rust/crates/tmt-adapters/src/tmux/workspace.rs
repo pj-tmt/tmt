@@ -85,7 +85,7 @@ impl<R: CommandRunner> Tmux<R> {
         deadline: Instant,
     ) -> Result<WorkspaceCapture, TmuxError> {
         let format = [
-            "#{@tmux-team.server-id}",
+            "#{@tmt.server-id}",
             "#{socket_path}",
             "#{pid}",
             "#{start_time}",
@@ -108,7 +108,7 @@ impl<R: CommandRunner> Tmux<R> {
             "#{pane_height}",
             "#{pane_current_path}",
             "#{pane_pid}",
-            "#{@tmux-team.agent}",
+            "#{@tmt.agent}",
             "#{@tmt.workspace-command}",
             "#{pane_tty}",
         ]
