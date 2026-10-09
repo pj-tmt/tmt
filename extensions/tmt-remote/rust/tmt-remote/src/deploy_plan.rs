@@ -76,6 +76,9 @@ pub enum PlanReason {
     ArtifactDigest,
     /// Two resources share a namespace path or one lies inside the other.
     Overlap,
+    /// On Firestore a resource path names a collection: an odd number of segments, at most
+    /// seven, because `x/<extension>` is a document. An unsupported requirement.
+    PathNotCollection,
 }
 impl PlanReason {
     pub fn code(self) -> &'static str {
@@ -90,6 +93,7 @@ impl PlanReason {
             Self::ArtifactTooLarge => "artifact-too-large",
             Self::ArtifactDigest => "artifact-digest",
             Self::Overlap => "overlap",
+            Self::PathNotCollection => "path-not-collection",
         }
     }
 }
@@ -188,6 +192,8 @@ impl Plan {
 /// backend until a backend ticket states its own.
 const MAX_OBJECT_BYTES: u64 = limits::OBJECT_PAYLOAD_BYTES;
 const MAX_NAMESPACE_BYTES: u64 = limits::OBJECT_NAMESPACE_BYTES;
+/// Longest resource path that names a Firestore collection under `x/<extension>`.
+const FIRESTORE_COLLECTION_SEGMENTS: usize = 7;
 const MAX_ENTRIES: u64 = limits::OBJECT_NAMESPACE_ENTRIES as u64;
 
 pub fn compose(target: Target, enabled: &[Enabled<'_>]) -> Result<Plan, PlanError> {
@@ -269,6 +275,12 @@ fn extension(target: Target, name: &str, supplied: Supplied<'_>) -> Result<Plann
     let mut resources = Vec::with_capacity(parsed.resources.len());
     for (position, resource) in parsed.resources.iter().enumerate() {
         let bounds = resource.bounds;
+        if target.backend == CloudBackend::Firestore {
+            let segments = resource.path.split('/').count();
+            if segments % 2 == 0 || segments > FIRESTORE_COLLECTION_SEGMENTS {
+                return Err((Some(position), PlanReason::PathNotCollection));
+            }
+        }
         if bounds.max_object_bytes > MAX_OBJECT_BYTES
             || bounds.max_namespace_bytes > MAX_NAMESPACE_BYTES
             || bounds.max_entries > MAX_ENTRIES

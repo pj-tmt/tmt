@@ -1606,7 +1606,7 @@ overlapping resources or a composition that cannot enforce this boundary. The sa
 [principal and relay rules](#extension-channel-api) apply; a fragment cannot confer owner-device
 context. Unsupported resource kinds, admission requirements, quotas or provider limits fail the
 whole plan before provisioning; a target without a physical expiry (TTL) policy instead records a non-null `ttlField` as
-`not-provisioned`, with expiry left to Rules, and does not fail the plan. Routes/assets may be mounted only through the declared namespace,
+`not-provisioned`, with expiry left to Rules, and does not fail the plan. On Firestore a resource path names a collection: an odd number of segments, at most 7, since `x/<extension>` is a document. Routes/assets may be mounted only through the declared namespace,
 never an extension-selected public operation URL. Extensions requiring changes submit a new
 declaration, not a second backend/sign-in/deploy owner.
 

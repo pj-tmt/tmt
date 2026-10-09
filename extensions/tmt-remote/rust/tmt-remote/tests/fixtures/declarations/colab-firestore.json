@@ -6,7 +6,7 @@
     {
       "name": "page-log",
       "kind": "log",
-      "path": "pages/log",
+      "path": "log",
       "limits": { "maxObjectBytes": 262144, "maxNamespaceBytes": 16777216, "maxEntries": 1024 },
       "ttlField": "expiresAt",
       "indexes": [
@@ -17,7 +17,7 @@
     {
       "name": "page-checkpoint",
       "kind": "checkpoint",
-      "path": "pages/checkpoints",
+      "path": "checkpoints",
       "limits": { "maxObjectBytes": 4194304, "maxNamespaceBytes": 33554432, "maxEntries": 64 },
       "ttlField": "expiresAt",
       "indexes": [{ "field": "epoch", "direction": "desc" }]
@@ -25,7 +25,7 @@
     {
       "name": "page-blob",
       "kind": "blob",
-      "path": "pages/blobs",
+      "path": "attachments/default/blobs",
       "limits": { "maxObjectBytes": 12582912, "maxNamespaceBytes": 67108864, "maxEntries": 256 },
       "ttlField": null,
       "indexes": []
@@ -33,7 +33,7 @@
     {
       "name": "presence",
       "kind": "awareness",
-      "path": "pages/presence",
+      "path": "presence",
       "limits": { "maxObjectBytes": 4096, "maxNamespaceBytes": 65536, "maxEntries": 64 },
       "ttlField": null,
       "indexes": []

@@ -566,9 +566,9 @@ fn backend_limits_and_overlaps_are_unsupported_requirements() {
     compose(FIRESTORE, &[colab(&at_bounds, &artifact)]).unwrap();
 
     for (label, first, second) in [
-        ("equal", "pages/log", "pages/log"),
-        ("nested", "pages", "pages/log"),
-        ("nested the other way", "pages/log/deep", "pages/log"),
+        ("equal", "log", "log"),
+        ("nested", "pages", "pages/a/log"),
+        ("nested the other way", "pages/a/log", "pages"),
     ] {
         let declaration = edit("colab-firestore.json", |v| {
             v["resources"][0]["path"] = json!(first);
@@ -580,8 +580,8 @@ fn backend_limits_and_overlaps_are_unsupported_requirements() {
     }
     // A name prefix is not a path prefix, and two extensions never share a root.
     let siblings = edit("colab-firestore.json", |v| {
-        v["resources"][0]["path"] = json!("pages/log");
-        v["resources"][1]["path"] = json!("pages/logs");
+        v["resources"][0]["path"] = json!("log");
+        v["resources"][1]["path"] = json!("logs");
     });
     compose(FIRESTORE, &[colab(&siblings, &artifact)]).unwrap();
     both(FIRESTORE);
@@ -608,4 +608,45 @@ fn admission_artifact_must_be_the_approved_bytes() {
     );
     // The plan records the digest it verified, never the artifact bytes.
     assert!(!String::from_utf8_lossy(both(FIRESTORE).bytes()).contains("colabAdmitted()"));
+}
+
+#[test]
+fn on_firestore_a_resource_path_names_a_collection() {
+    let artifact = colab_artifact();
+    let with_path = |path: &str| {
+        edit("colab-firestore.json", |v| {
+            v["resources"][0]["path"] = json!(path)
+        })
+    };
+    for (count, path) in [
+        (1, "a"),
+        (3, "a/b/c"),
+        (5, "a/b/c/d/e"),
+        (7, "a/b/c/d/e/f/g"),
+    ] {
+        let declaration = with_path(path);
+        compose(FIRESTORE, &[colab(&declaration, &artifact)])
+            .unwrap_or_else(|e| panic!("{count}: {e:?}"));
+    }
+    // Even counts name a document. The refusal is the plan's, for the Firestore target only:
+    // the declaration grammar (1 to 8 segments) and other backends are unchanged.
+    for path in ["a/b", "a/b/c/d", "a/b/c/d/e/f", "a/b/c/d/e/f/g/h"] {
+        let declaration = with_path(path);
+        let error = refused(FIRESTORE, &[colab(&declaration, &artifact)]);
+        assert_eq!(
+            (error.reason, error.resource),
+            (PlanReason::PathNotCollection, Some(0)),
+            "{path}"
+        );
+        declaration::parse(&declaration).expect("the grammar still admits it");
+        let cloudflare = edit("colab-firestore.json", |v| {
+            v["backend"] = json!("cloudflare");
+            v["resources"][0]["path"] = json!(path);
+        });
+        let target = Target {
+            backend: CloudBackend::Cloudflare,
+            physical_ttl: false,
+        };
+        compose(target, &[colab(&cloudflare, &artifact)]).expect(path);
+    }
 }

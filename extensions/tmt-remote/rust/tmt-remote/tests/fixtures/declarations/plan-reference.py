@@ -25,6 +25,8 @@ for name in sorted(["colab", "notes"]):
     assert sha(artifact) == decl["admission"]["digest"]
     resources = []
     for r in sorted(decl["resources"], key=lambda r: r["name"]):
+        # On Firestore a resource path names a collection: x/<ext> is a document.
+        assert len(r["path"].split("/")) % 2 == 1 and len(r["path"].split("/")) <= 7
         if r["ttlField"] is None:
             ttl = "none"
         else:

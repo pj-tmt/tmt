@@ -6,7 +6,7 @@
     {
       "name": "note-log",
       "kind": "log",
-      "path": "pages/log",
+      "path": "log",
       "limits": { "maxObjectBytes": 65536, "maxNamespaceBytes": 1048576, "maxEntries": 512 },
       "ttlField": null,
       "indexes": []
