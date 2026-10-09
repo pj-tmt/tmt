@@ -46,6 +46,77 @@ async function save(page: Page) {
 }
 
 test.afterEach(disposeActiveWorlds);
+
+// #1998: a single committed batch must not exhaust the live peer queue before it can ACK.
+test('wide CLI and browser batches keep the original live socket and exact source through a following edit', async () => {
+  test.setTimeout(300_000);
+  await withWorld(async (world) => {
+    const door = await startDoor(world, await freePort());
+    const browser = await pairBrowser(world, 'batch-live-author');
+    const colab = world.binaries.colab;
+    const original = '<h1>Before batch</h1>';
+    const created = createPage(world, 'Live batch', original);
+    const page = await browser.context.newPage();
+    const sockets: { closed: boolean; received: number; errors: string[] }[] = [];
+    page.on('websocket', (socket) => {
+      if (!new URL(socket.url()).pathname.endsWith('/sync')) return;
+      const observed = { closed: false, received: 0, errors: [] as string[] };
+      sockets.push(observed);
+      socket.on('close', () => {
+        observed.closed = true;
+      });
+      socket.on('framereceived', ({ payload }) => {
+        observed.received++;
+        const frame = JSON.parse(String(payload)) as { type: string; code?: string };
+        if (frame.type === 'error') observed.errors.push(frame.code ?? 'unknown');
+      });
+    });
+    await page.goto(`${door.address}/${created.path}`);
+    await expect(
+      page.frameLocator('iframe').getByRole('heading', { name: 'Before batch', exact: true }),
+    ).toBeVisible();
+    const box = await openSource(page);
+    await expect(box).toHaveValue(original);
+    expect(sockets).toHaveLength(1);
+    expect(sockets[0].received).toBeGreaterThan(0);
+    const sameSocket = () => {
+      expect(sockets).toHaveLength(1);
+      expect(sockets[0].closed).toBe(false);
+      expect(sockets[0].errors).toEqual([]);
+    };
+    const read = () =>
+      JSON.parse(run(world, colab, ['page', 'read', created.pageId, '--json'])) as {
+        source: string;
+      };
+    const cliSource = distinct(1.5 * 1024 * 1024, '1998-cli');
+    const written = JSON.parse(
+      run(world, colab, ['page', 'write', created.pageId, '--file', '-', '--json'], cliSource),
+    ) as { count: number };
+    expect(written.count).toBeGreaterThan(4);
+    await expect
+      .poll(async () => (await box.inputValue()) === cliSource, { timeout: 60_000 })
+      .toBe(true);
+    expect(read().source === cliSource).toBe(true);
+    sameSocket();
+    const browserSource = distinct(1.5 * 1024 * 1024, '1998-browser');
+    await box.fill(browserSource);
+    await save(page);
+    await expect.poll(() => read().source === browserSource, { timeout: 60_000 }).toBe(true);
+    await expect
+      .poll(async () => (await box.inputValue()) === browserSource, { timeout: 60_000 })
+      .toBe(true);
+    await expect(page.getByRole('alert')).toHaveCount(0);
+    sameSocket();
+    const follow = browserSource + '<h2>Following edit</h2>';
+    await box.fill(follow);
+    await save(page);
+    await expect.poll(() => read().source === follow, { timeout: 60_000 }).toBe(true);
+    await expect(
+      page.frameLocator('iframe').getByRole('heading', { name: 'Following edit', exact: true }),
+    ).toBeVisible();
+    sameSocket();
+  });
+});
 test('a 1.5 MiB page takes a browser save, a CLI write and 80 small browser edits, byte for byte', async () => {
   test.setTimeout(900_000);
   await withWorld(async (world) => {

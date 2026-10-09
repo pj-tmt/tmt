@@ -2721,6 +2721,128 @@ fn author_key(frozen: &tmt_colab::page::FrozenPublication) -> [u8; 32] {
         .signing_key
 }
 
+/// Drain a committed batch on this socket, returning exact authenticated envelope bytes.
+/// Each wire frame releases only its own credit; chunks must remain consecutive within an entry.
+fn receive_batch(
+    server: &Running,
+    peer: &mut WebSocket<UnixStream>,
+    count: usize,
+    cursor: &mut Option<Value>,
+) -> Vec<(Value, Vec<u8>)> {
+    let mut entries = Vec::new();
+    let mut previous: Option<(String, u64, [u8; 32])> = None;
+    let mut credits = 0;
+    let mut credited = |peer: &mut WebSocket<UnixStream>, cursor: &Option<Value>| {
+        let frame = receive(peer);
+        credits += 1;
+        if credits == limits::SEND_QUEUE_FRAMES {
+            let timeout = peer.get_ref().read_timeout().unwrap();
+            peer.get_ref()
+                .set_read_timeout(Some(Duration::from_millis(50)))
+                .unwrap();
+            assert!(
+                matches!(peer.read(), Err(tungstenite::Error::Io(e))
+                if matches!(e.kind(), std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut)),
+                "a ninth unacknowledged frame bypassed the credit bound"
+            );
+            peer.get_ref().set_read_timeout(timeout).unwrap();
+            for _ in 0..credits {
+                send(
+                    peer,
+                    server.frame("ack", json!({"cursors":cursor.iter().collect::<Vec<_>>()})),
+                );
+            }
+            credits = 0;
+        }
+        frame
+    };
+    for _ in 0..count {
+        let broadcast = credited(peer, cursor);
+        assert_eq!(broadcast["type"], "broadcast", "{broadcast}");
+        assert_eq!(broadcast["space"], server.space);
+        assert_eq!(broadcast["page"], PAGE);
+        assert_eq!(broadcast["epoch"], "1");
+        let bytes = if let Some(inline) = broadcast["envelope"].as_str() {
+            values::binary(inline, limits::OBJECT_BYTES).unwrap()
+        } else {
+            let mut bytes = Vec::new();
+            let mut count = None;
+            for index in 0..limits::OBJECT_BYTES.div_ceil(limits::CHUNK_BYTES) {
+                let chunk = credited(peer, cursor);
+                assert_eq!(chunk["type"], "chunk", "{chunk}");
+                for field in ["space", "page", "epoch", "envelopeHash"] {
+                    assert_eq!(chunk[field], broadcast[field]);
+                }
+                assert_eq!(chunk["objectId"], broadcast["envelope"]["objectId"]);
+                assert_eq!(chunk["index"], index);
+                let n = *count.get_or_insert_with(|| chunk["count"].as_u64().unwrap() as usize);
+                assert!(n > 0 && n <= limits::OBJECT_BYTES.div_ceil(limits::CHUNK_BYTES));
+                assert_eq!(chunk["count"], n);
+                let part =
+                    values::binary(chunk["bytes"].as_str().unwrap(), limits::CHUNK_BYTES).unwrap();
+                if index + 1 < n {
+                    assert_eq!(part.len(), limits::CHUNK_BYTES);
+                }
+                bytes.extend(part);
+                if index + 1 == n {
+                    break;
+                }
+            }
+            assert!(bytes.len() > limits::CHUNK_BYTES && bytes.len() <= limits::OBJECT_BYTES);
+            bytes
+        };
+        let envelope = object::Envelope::from_json(&bytes).unwrap();
+        let hash = envelope.hash().unwrap();
+        assert_eq!(broadcast["envelopeHash"], values::encode_binary(&hash));
+        let header = object::Header::decode(envelope.header()).unwrap();
+        let c = &header.context;
+        assert_eq!(c.space, server.space);
+        assert_eq!(c.page, PAGE);
+        assert_eq!(c.epoch, "1");
+        assert_eq!(c.kind, "update");
+        assert_eq!(c.namespace, "content");
+        assert_eq!(broadcast["seq"], c.stream_seq);
+        assert_eq!(broadcast["streamId"], c.author_device);
+        if broadcast["envelope"].is_object() {
+            assert_eq!(broadcast["envelope"]["objectId"], header.object_id);
+        }
+        let seq = values::decimal(&c.stream_seq, false).unwrap();
+        if let Some((stream, old, head)) = &previous {
+            assert_eq!(&c.author_device, stream);
+            assert_eq!(seq, old + 1);
+            assert_eq!(&c.prev_hash, head);
+        }
+        assert_eq!(broadcast["chains"].as_array().unwrap().len(), 1);
+        assert_eq!(broadcast["chains"][0]["deviceId"], c.author_device);
+        let chain = values::binary(
+            broadcast["chains"][0]["chain"].as_str().unwrap(),
+            tmt_colab::publication::CHAIN_BYTES,
+        )
+        .unwrap();
+        let chain = tmt_colab_model::certificate::Chain::from_json(&chain).unwrap();
+        let cert = chain.certificate().unwrap();
+        assert_eq!(cert.device_id, c.author_device);
+        tmt_colab_model::crypto::verify_signature(
+            cert.signing_key,
+            &envelope.signature_input().unwrap(),
+            envelope.signature(),
+        )
+        .unwrap();
+        *cursor = Some(
+            json!({"streamId":c.author_device,"namespace":c.namespace,"seq":c.stream_seq,"envelopeHash":values::encode_binary(&hash)}),
+        );
+        previous = Some((c.author_device.clone(), seq, hash));
+        entries.push((broadcast, bytes));
+    }
+    for _ in 0..credits {
+        send(
+            peer,
+            server.frame("ack", json!({"cursors":cursor.iter().collect::<Vec<_>>()})),
+        );
+    }
+    entries
+}
+
 #[test]
 fn root_local_attachment_read_is_refused_for_remote_callers_and_never_opens_storage() {
     use tmt_colab::attachments;
@@ -2851,51 +2973,15 @@ fn root_local_page_publish_broadcasts_each_entry_in_order_and_replays_without_fa
         .filter(|entry| entry.bytes.len() > limits::CHUNK_BYTES)
         .map(|entry| entry.bytes.len().div_ceil(limits::CHUNK_BYTES))
         .sum::<usize>();
-    // The server keeps at most one send queue of frames unacknowledged, as a browser acks them.
-    let mut frames = Vec::new();
-    let mut outstanding = 0;
-    for _ in 0..entries + chunked {
-        frames.push(receive(&mut peer));
-        outstanding += 1;
-        if outstanding == limits::SEND_QUEUE_FRAMES {
-            for _ in 0..outstanding {
-                send(&mut peer, server.frame("ack", json!({"cursors":[]})));
-            }
-            outstanding = 0;
-        }
-    }
-    let broadcasts = frames
-        .iter()
-        .filter(|frame| frame["type"] == "broadcast")
-        .collect::<Vec<_>>();
-    assert_eq!(broadcasts.len(), entries);
-    for (broadcast, entry) in broadcasts.iter().zip(&verified) {
-        assert_eq!(broadcast["seq"], entry.header.context.stream_seq);
-        assert_eq!(broadcast["streamId"], entry.header.context.author_device);
+    assert!(chunked > 0);
+    let mut cursor = None;
+    let received = receive_batch(&server, &mut peer, entries, &mut cursor);
+    for ((broadcast, bytes), entry) in received.iter().zip(&verified) {
+        assert_eq!(bytes, &entry.bytes);
         assert_eq!(
             broadcast["chains"][0]["chain"],
             values::encode_binary(frozen.chain())
         );
-        if entry.bytes.len() > limits::CHUNK_BYTES {
-            let mut assembled = Vec::new();
-            for chunk in frames.iter().filter(|f| {
-                f["type"] == "chunk" && f["objectId"] == broadcast["envelope"]["objectId"]
-            }) {
-                assembled.extend(
-                    values::binary(chunk["bytes"].as_str().unwrap(), limits::CHUNK_BYTES).unwrap(),
-                );
-            }
-            assert_eq!(assembled, entry.bytes);
-        } else {
-            assert_eq!(
-                values::binary(
-                    broadcast["envelope"].as_str().unwrap(),
-                    limits::UPDATE_BYTES
-                )
-                .unwrap(),
-                entry.bytes
-            );
-        }
     }
     let before = fs::read(layout.directory.join("space.db")).unwrap();
     let replay = page::ipc::publish(&layout, &key, &frozen).unwrap().unwrap();
@@ -3162,31 +3248,67 @@ fn a_publish_that_starts_after_its_combine_window_commits_but_never_combines() {
 }
 
 #[test]
-fn a_batch_wider_than_the_send_queue_commits_and_tells_the_live_peer_to_resync() {
+fn a_batch_wider_than_the_send_queue_delivers_in_order_without_replacing_the_live_peer() {
     use tmt_colab::{decoder::Decoder, page, publication::Outcome};
-    let (_server, layout, key, mut peer) = publish_fixture();
-    let source = "wide 🐈\r\n".repeat(150_000);
+    let (server, layout, key, mut peer) = publish_fixture();
+    let initial = prepare_write(&layout, &key, "<h1>Before batch</h1>");
+    assert_eq!(initial.job().manifest.entries.len(), 1);
+    page::ipc::publish(&layout, &key, &initial)
+        .unwrap()
+        .unwrap();
+    let mut cursor = None;
+    receive_batch(&server, &mut peer, 1, &mut cursor);
+    assert_eq!(cursor.as_ref().unwrap()["seq"], "1");
+    let source = distinct(1_572_864, "1998-cli");
     let frozen = prepare_write(&layout, &key, &source);
     let entries = frozen.job().manifest.entries.len();
-    // Each over-chunk entry takes two queue slots; the existing slow-peer rule applies.
+    // The old per-entry queue overflowed before this healthy peer could drain it.
     assert!(entries * 2 > limits::SEND_QUEUE_FRAMES, "{entries}");
     let record = page::ipc::publish(&layout, &key, &frozen)
         .unwrap()
         .unwrap()
         .record;
     assert!(matches!(record.outcome, Outcome::Committed { .. }));
-    let mut closed = None;
-    for _ in 0..64 {
-        match peer.read() {
-            Ok(Message::Close(frame)) => {
-                closed = frame.map(|f| f.reason.to_string());
-                break;
-            }
-            Ok(_) => {}
-            Err(_) => break,
-        }
+    assert_eq!(entries, 8, "seq1 then eight updates checkpoints at9");
+    assert_eq!(
+        server
+            .oracle()
+            .query_row(
+                "SELECT max(seq) FROM checkpoints WHERE page=?",
+                [PAGE],
+                |r| r.get::<_, String>(0)
+            )
+            .unwrap(),
+        "00000000000000000009"
+    );
+    assert_eq!(
+        server
+            .oracle()
+            .query_row(
+                "SELECT count(*) FROM receipts WHERE page=? AND seq=? AND payload IS NOT NULL",
+                [PAGE, "00000000000000000001"],
+                |r| r.get::<_, i64>(0)
+            )
+            .unwrap(),
+        0
+    );
+    let received = receive_batch(&server, &mut peer, entries, &mut cursor);
+    let verified = frozen
+        .job()
+        .verify_packet(frozen.packet(), &author_key(&frozen))
+        .unwrap();
+    for ((broadcast, bytes), entry) in received.iter().zip(&verified) {
+        assert_eq!(bytes, &entry.bytes);
+        assert_eq!(
+            broadcast["chains"][0]["chain"],
+            values::encode_binary(frozen.chain())
+        );
     }
-    assert_eq!(closed.as_deref(), Some("RESYNC_REQUIRED"));
+    peer.send(Message::Ping(vec![9].into())).unwrap();
+    assert!(
+        matches!(peer.read().unwrap(), Message::Pong(_)),
+        "the original socket did not survive"
+    );
     let store = Store::read(&layout).unwrap();
     let mut decoder = Decoder::with_config(support::decoder_config(
         env!("CARGO_BIN_EXE_tmt-colab").into(),
@@ -3614,43 +3736,20 @@ fn a_browser_save_commits_as_the_root_local_writer_fans_out_replays_and_answers_
     assert!(matches!(second.read().unwrap(), Message::Pong(_)));
 }
 
-impl Running {
-    /// What a browser sees of a save: the reply on its live connection or, when a wide fan-out
-    /// made the server ask it to resync first, the answer to one status request after it
-    /// reconnects. Either way the original operation is answered exactly once.
-    fn saved_or_resynced(
-        &self,
-        peer: &mut WebSocket<UnixStream>,
-        operation: &str,
-        base: &str,
-        source: &str,
-    ) -> (Value, bool) {
-        for frame in self.save_frames(operation, base, source) {
-            send(peer, frame);
-        }
-        loop {
-            match peer.read() {
-                Ok(Message::Text(text)) => {
-                    let frame: Value = serde_json::from_str(&text).unwrap();
-                    if frame["type"] == "saveresult" {
-                        return (frame, false);
-                    }
-                }
-                Ok(Message::Close(_)) | Err(_) => break,
-                Ok(_) => {}
-            }
-        }
-        let mut again = self.peer(DEVICE);
-        again
-            .get_ref()
-            .set_read_timeout(Some(Duration::from_secs(60)))
-            .unwrap();
-        send(
-            &mut again,
-            self.frame("savestatus", json!({"operationId":operation})),
-        );
-        (receive_until(&mut again, "saveresult").0, true)
-    }
+fn saved_count(server: &Running, operation: &str) -> usize {
+    let bytes: Vec<u8> = server
+        .oracle()
+        .query_row(
+            "SELECT outcome FROM owner_operations WHERE id=? AND publication_kind='content'",
+            [operation],
+            |row| row.get(0),
+        )
+        .unwrap();
+    let outcome: tmt_colab::publication::Outcome = serde_json::from_slice(&bytes).unwrap();
+    let tmt_colab::publication::Outcome::Committed { count, .. } = outcome else {
+        panic!("{outcome:?}")
+    };
+    count
 }
 
 #[test]
@@ -3664,48 +3763,50 @@ fn a_one_and_a_half_mib_browser_save_uploads_in_chunks_and_every_peer_follows() 
             .set_read_timeout(Some(Duration::from_secs(60)))
             .unwrap();
     }
+    let mut first_cursor = None;
+    let mut second_cursor = None;
     let source = distinct(1_572_864, "a");
     let started = std::time::Instant::now();
-    let (result, resynced) = server.saved_or_resynced(&mut first, SAVE_ONE, "", &source);
-    println!(
-        "1.5 MiB browser save took {:?} (resync first: {resynced})",
-        started.elapsed()
-    );
+    let (result, before) = server.save(&mut first, SAVE_ONE, "", &source);
+    assert!(before.is_empty(), "{before:?}");
+    send(&mut first, server.frame("ack", json!({"cursors":[]})));
+    println!("1.5 MiB browser save took {:?}", started.elapsed());
     assert_eq!(result["state"], "committed", "{result}");
     assert_eq!(result["operationId"], SAVE_ONE);
-    // The other subscribed tab either follows the broadcasts or is told to resync, the same
-    // slow-peer rule every wide write has.
-    let mut told = false;
-    for _ in 0..200 {
-        match second.read() {
-            Ok(Message::Text(text)) => {
-                let frame: Value = serde_json::from_str(&text).unwrap();
-                told |= frame["type"] == "broadcast";
-            }
-            Ok(Message::Close(frame)) => {
-                told |= frame.is_some_and(|f| f.reason.to_lowercase().contains("resync"));
-                break;
-            }
-            Err(_) => break,
-            Ok(_) => {}
-        }
-        if told {
-            break;
-        }
-    }
-    assert!(told, "the other tab saw neither a broadcast nor a resync");
+    let entries = saved_count(&server, SAVE_ONE);
+    assert!(entries * 2 > limits::SEND_QUEUE_FRAMES);
+    // Both healthy peers drain concurrently; leaving one unread during the other's
+    // deliberate credit probes would exercise the separate stalled-write deadline.
+    std::thread::scope(|scope| {
+        let other =
+            scope.spawn(|| receive_batch(&server, &mut second, entries, &mut second_cursor));
+        let delivered = receive_batch(&server, &mut first, entries, &mut first_cursor);
+        assert_eq!(other.join().unwrap(), delivered);
+    });
     assert!(native_source(&layout, &key) == source);
-    // A second distinct source replaces the first, from the first's digest, on a connection
-    // that is not subscribed to the fan-out.
-    let mut quiet = server.peer(DEVICE);
-    quiet
-        .get_ref()
-        .set_read_timeout(Some(Duration::from_secs(60)))
-        .unwrap();
+    // The same two live sockets follow a second wide replacement, not a quiet replacement socket.
     let next = distinct(1_572_864, "b");
-    let (result, _) = server.save(&mut quiet, SAVE_TWO, &source, &next);
+    let (result, before) = server.save(&mut first, SAVE_TWO, &source, &next);
+    assert!(before.is_empty(), "{before:?}");
     assert_eq!(result["state"], "committed", "{result}");
+    send(&mut first, server.frame("ack", json!({"cursors":[]})));
+    let entries = saved_count(&server, SAVE_TWO);
+    // Both healthy peers drain concurrently; leaving one unread during the other's
+    // deliberate credit probes would exercise the separate stalled-write deadline.
+    std::thread::scope(|scope| {
+        let other =
+            scope.spawn(|| receive_batch(&server, &mut second, entries, &mut second_cursor));
+        let delivered = receive_batch(&server, &mut first, entries, &mut first_cursor);
+        assert_eq!(other.join().unwrap(), delivered);
+    });
     assert!(native_source(&layout, &key) == next);
+    for peer in [&mut first, &mut second] {
+        peer.send(Message::Ping(vec![1].into())).unwrap();
+        assert!(
+            matches!(peer.read().unwrap(), Message::Pong(_)),
+            "the original socket did not survive"
+        );
+    }
 }
 
 #[test]

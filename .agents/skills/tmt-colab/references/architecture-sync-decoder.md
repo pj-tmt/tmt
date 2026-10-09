@@ -18,6 +18,9 @@ and `limits.rs`; do not restate them.
 - Overflow, an unknown or pruned cursor and any abnormal close end in `RESYNC_REQUIRED`:
   clients reconstruct from a fresh verified catchup. Bytes already written cannot be
   recalled, so a stalled write drops the stream instead of flushing ciphertext.
+- ACK resolves exact scoped receipt/checkpoint identities even after compaction prunes their
+  payloads, releasing only the existing frame credit. Catchup cursors still require payloads;
+  a known identity alone cannot resume a pruned tail.
 - Catchup pins the retained owner head (`Store::owner_head`), pages membership statements,
   then scoped baseline, wraps and the latest paired checkpoints before the merged
   namespace tails. The final page and the live subscription commit under the server lock
@@ -108,8 +111,9 @@ and `limits.rs`; do not restate them.
   other later doubt is resolved
   by one read-only `publication_status` in `main.rs::publish_write`, else
   `COLAB_OUTCOME_UNKNOWN` with the original operation ID. `Server::publish` prepares one
-  broadcast per entry before the transaction and fans out only for a new committed
-  outcome, then combines the own tail (`Trigger::until` = request read time plus `PUBLISH_COMBINE`; a later combine publishes
+  broadcast per entry before the transaction and fans out one immutable, bounded batch only for a new committed
+  outcome. Each peer lazily drains its batch in one queue slot through the existing frame credits and
+  per-poll authority check, without eagerly materializing chunk frames. The server then combines the own tail (`Trigger::until` = request read time plus `PUBLISH_COMBINE`; a later combine publishes
   nothing, so the page does not move after the reply the client waits for, and the reply
   carries the revision read under the sync lock). The write signs with a purpose-separated local device certified by the
   management member; it is not a Remote registration.

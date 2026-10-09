@@ -1998,10 +1998,13 @@ wrong types, noncanonical values and unsupported operations reject.
 `cursors` has at most 256 strict objects `{streamId, namespace, seq, envelopeHash}`,
 unique by stream/namespace. Sequence zero is an explicit bootstrap sentinel and
 requires zero32 hash; an omitted namespace also bootstraps. A nonzero cursor must
-match an exact retained update or checkpoint in that namespace. Unknown, wrong-
-namespace, hash-substituted and pruned cursors return `RESYNC_REQUIRED`; a retained
-receipt alone is insufficient after its payload is pruned. A client restarts with
-zero/omitted cursors to receive the latest paired prefix checkpoint and retained tail.
+match an exact retained update or checkpoint identity in that namespace. ACK validates
+that identity even after its payload is pruned: partial chunks report the last admitted
+position while consuming the existing frame credit, without granting read authority.
+Hello/subscribe catchup additionally requires the matching payload; a retained receipt
+alone cannot resume catchup after pruning. Unknown, wrong-namespace and hash-substituted
+cursors return `RESYNC_REQUIRED`. A client restarts with zero/omitted cursors to receive
+the latest paired prefix checkpoint and retained tail.
 If compaction invalidates a cursor during catchup, catchup stops with
 `RESYNC_REQUIRED` instead of silently skipping data. Store preserves the durable
 receipt ledger, so pruning never permits accepting a sequence again.
@@ -2925,10 +2928,12 @@ with the normal scoped position/envelope fields and `chains:[{deviceId,chain}]`;
 identifies the local author and is repeated to permit certificate renewal. The browser
 admits chains on its serialized executor before envelope authentication and Worker
 application. Larger envelopes use the existing reference and lazy chunk transfer, with the
-chain retained on the completed broadcast. Each entry takes one send-queue slot and each
-chunked entry one more; a batch that needs more than `SEND_QUEUE_FRAMES` ends subscribed
-peers with the existing slow-peer `RESYNC_REQUIRED` close, and they catch up through
-normal resync. Exact replay and rejected outcomes broadcast nothing. Queue failure does not
+chain retained on the completed broadcast. One bounded, immutable committed batch occupies
+one send-queue slot per peer, with an independent lazy cursor over its entries and chunks.
+Only one existing wire frame is emitted per poll; the unchanged `SEND_QUEUE_FRAMES`
+unacknowledged-frame credits still pause delivery until ACK, and authority is rechecked
+before every disclosure. Separate queued deliveries that overflow the queue and stalled
+writes still end in `RESYNC_REQUIRED`. Exact replay and rejected outcomes broadcast nothing. Queue failure does not
 undo a durable outcome. The service never receives or decodes plaintext source.
 
 ### Content publication (#1908, #1928, #1934)

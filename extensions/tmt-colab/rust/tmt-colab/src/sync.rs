@@ -208,8 +208,8 @@ impl Peer {
         }
     }
 }
-/// A transfer reserves one queue slot and emits only one bounded frame per
-/// poll. Arc shares frozen broadcast bytes; no eager list of chunk frames exists.
+/// A transfer or committed batch reserves one queue slot and emits one bounded frame per
+/// poll. Arc shares frozen bytes/deliveries; no eager list of chunk frames exists.
 #[derive(Clone)]
 enum Delivery {
     Frame(String),
@@ -217,6 +217,11 @@ enum Delivery {
         text: String,
         refused: String,
         fence: Arc<crate::object_channel::admission::RequestCapture>,
+    },
+    Batch {
+        deliveries: Arc<Vec<Delivery>>,
+        index: usize,
+        current: Option<Box<Delivery>>,
     },
     Transfer {
         scope: SyncScope,
@@ -259,6 +264,19 @@ impl Delivery {
                     .clone(),
                     true,
                 ))
+            }
+            Self::Batch {
+                deliveries,
+                index,
+                current,
+            } => {
+                let delivery = current.get_or_insert_with(|| Box::new(deliveries[*index].clone()));
+                let (text, done) = delivery.next()?;
+                if done {
+                    *current = None;
+                    *index += 1;
+                }
+                Ok((text, *index == deliveries.len()))
             }
             Self::Transfer {
                 scope,
@@ -400,15 +418,15 @@ fn broadcasts(
     packet: &[u8],
     chain: &str,
     author: &[u8; 32],
-) -> crate::Result<Vec<(SyncScope, String, Option<Delivery>)>> {
+) -> crate::Result<(SyncScope, Delivery)> {
     let mut outputs = Vec::new();
+    let scope = SyncScope {
+        space: job.manifest.space_id.clone(),
+        page: job.manifest.page_id.clone(),
+        epoch: job.manifest.epoch.clone(),
+    };
     for entry in job.verify_packet(packet, author)? {
         let c = &entry.header.context;
-        let scope = SyncScope {
-            space: c.space.clone(),
-            page: c.page.clone(),
-            epoch: c.epoch.clone(),
-        };
         let hash = entry.envelope.hash()?;
         let (envelope, transfer) = delivery(&scope, hash, entry.bytes.to_vec())?;
         let broadcast = wire::output(
@@ -420,9 +438,18 @@ fn broadcasts(
                 "chains": [{"deviceId": c.author_device, "chain": chain}]
             }),
         )?;
-        outputs.push((scope, broadcast, transfer));
+        outputs.push(Delivery::Frame(broadcast));
+        outputs.extend(transfer);
     }
-    Ok(outputs)
+    // verify_packet binds every entry to this manifest scope and bounds the complete packet.
+    Ok((
+        scope,
+        Delivery::Batch {
+            deliveries: Arc::new(outputs),
+            index: 0,
+            current: None,
+        },
+    ))
 }
 impl Server<crate::registration::OwnerAdmission> {
     /// Prepare transport before committing. The opaque server never opens source.
@@ -470,9 +497,7 @@ impl Server<crate::registration::OwnerAdmission> {
                 publication::Outcome::Committed { .. }
             )
         {
-            for (scope, broadcast, transfer) in outputs {
-                state.fanout(&scope, broadcast, transfer);
-            }
+            state.fanout_delivery(&outputs.0, outputs.1);
         }
         Ok(crate::page::Published {
             record: committed.record,
@@ -626,16 +651,19 @@ impl<A: Admission> State<A> {
         }
     }
     fn fanout(&mut self, scope: &SyncScope, text: String, transfer: Option<Delivery>) {
+        self.fanout_delivery(scope, Delivery::Frame(text));
+        if let Some(transfer) = transfer {
+            self.fanout_delivery(scope, transfer);
+        }
+    }
+    fn fanout_delivery(&mut self, scope: &SyncScope, delivery: Delivery) {
         self.recheck();
         for peer in self
             .peers
             .values_mut()
             .filter(|p| p.subscribed && p.scope.as_ref() == Some(scope))
         {
-            peer.push(text.clone());
-            if let Some(transfer) = &transfer {
-                peer.enqueue(transfer.clone());
-            }
+            peer.enqueue(delivery.clone());
         }
     }
     /// `Some` is a save whose long preparation the caller runs outside this lock, then hands back
@@ -690,8 +718,21 @@ impl<A: Admission> State<A> {
                 if subscribing && !cursors.as_slice().is_empty() {
                     self.start_catchup(id, &scope, &principal, &cursors, 0)?;
                 } else {
+                    // Nonempty subscribe cursors resume through start_catchup above.
+                    // ACK only releases frame credit: its exact identity survives compaction.
                     for c in cursors.as_slice() {
-                        self.resolve(&scope, c)?;
+                        self.store.resolve_ack_cursor(
+                            StreamScope {
+                                page: &scope.page,
+                                epoch: values::decimal(&scope.epoch, false)?,
+                                stream: &c.stream_id,
+                            },
+                            namespace(&c.namespace)?,
+                            store::NamespaceCursor {
+                                seq: values::decimal(&c.seq, true)?,
+                                hash: wire::hash(&c.envelope_hash)?,
+                            },
+                        )?;
                     }
                     if !subscribing {
                         let peer = self.peers.get_mut(&id).ok_or(Code::Denied)?;
@@ -986,13 +1027,10 @@ impl<A: Admission> State<A> {
         // Under this lock hold the commit and the removal are one step for a status request.
         self.unsave(&job);
         let operation = job.save.operation_id.clone();
-        let done = (|| -> crate::Result<(SaveResult, Vec<_>)> {
+        let done = (|| -> crate::Result<(SaveResult, Option<_>)> {
             let write = match prepared? {
                 Prepared::Unchanged(receipt) => {
-                    return Ok((
-                        SaveResult::unchanged(&operation, receipt.revision),
-                        Vec::new(),
-                    ));
+                    return Ok((SaveResult::unchanged(&operation, receipt.revision), None));
                 }
                 Prepared::Write(frozen) => frozen,
             };
@@ -1021,16 +1059,16 @@ impl<A: Admission> State<A> {
                 );
             Ok((
                 SaveResult::committed(&operation, revision.unwrap_or(receipt.revision)),
-                if fan_out { outputs } else { Vec::new() },
+                fan_out.then_some(outputs),
             ))
         })();
         let (reply, outputs) = match done {
             Ok(done) => done,
-            Err(error) => (SaveResult::rejected(&operation, error.as_ref()), Vec::new()),
+            Err(error) => (SaveResult::rejected(&operation, error.as_ref()), None),
         };
         self.reply_save(id, &job.scope, &reply)?;
-        for (scope, broadcast, transfer) in outputs {
-            self.fanout(&scope, broadcast, transfer);
+        if let Some((scope, delivery)) = outputs {
+            self.fanout_delivery(&scope, delivery);
         }
         Ok(())
     }
@@ -1688,7 +1726,7 @@ impl<S: Read + Write, A: Admission> Connection<S, A> {
             if !done {
                 peer.queue.push_front(delivery);
             }
-            // An unfinished transfer already reserves its buffered chunk through
+            // An unfinished transfer or batch reserves its buffered frame through
             // the continuation entry; only a completed delivery needs another slot.
             peer.buffered_slot = done;
             match self
