@@ -1,0 +1,4 @@
+// Test fixture standing in for a Rules fragment. Remote's plan hashes it and never reads it.
+function colabAdmitted() {
+  return request.auth != null;
+}

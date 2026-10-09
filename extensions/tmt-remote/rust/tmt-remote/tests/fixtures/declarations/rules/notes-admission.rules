@@ -1,0 +1,4 @@
+// Test fixture standing in for a second extension's Rules fragment.
+function notesAdmitted() {
+  return request.auth != null;
+}

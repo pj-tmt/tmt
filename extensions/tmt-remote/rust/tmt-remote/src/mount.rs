@@ -71,6 +71,8 @@ pub const RETRY_AFTER_SECONDS: u32 = 5;
 pub const SOCKET: &str = "door.sock";
 /// Set only by remote; never copied from a client request.
 pub const CONTEXT_HEADER: &str = "tmt-device-context";
+/// The path segment between the route prefix and an extension name: `<prefix>/x/<extension>/`.
+pub const MOUNT_SEGMENT: &str = "x";
 /// The mount the forwarded path was taken from, for example `/r/<prefix>/x/colab/`.
 pub const MOUNT_HEADER: &str = "tmt-mount";
 /// The origin of a websocket upgrade to an extension with an object channel: one lowercase
@@ -318,7 +320,7 @@ impl Mounts {
     ) -> Self {
         Self {
             root,
-            base: format!("{prefix}/x/"),
+            base: format!("{prefix}/{MOUNT_SEGMENT}/"),
             host: origin.trim_start_matches("http://").to_owned(),
             origin: origin.to_owned(),
             sessions,
