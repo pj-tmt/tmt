@@ -1,4 +1,5 @@
 import { copy, equal, frame, requireValue, text, type Bytes } from './bytes.js';
+import { mixedMessage, mixedPolicy } from './ed25519-probe.js';
 const unhex = (hex: string): Bytes =>
   Uint8Array.from(hex.match(/../g) ?? [], (n) => Number.parseInt(n, 16));
 // Pinned curve25519-dalek 5.0.0 EIGHT_TORSION; masking also rejects sign-bit variants.
@@ -159,5 +160,11 @@ export async function probeCapabilities(): Promise<void> {
   const x = (await crypto.subtle.generateKey('X25519', false, ['deriveBits'])) as CryptoKeyPair;
   const p = new Uint8Array(await crypto.subtle.exportKey('raw', ed.publicKey));
   requireValue(await strictVerify(p, await sign(ed.privateKey, text('probe')), text('probe')));
+  const message = unhex(mixedMessage);
+  for (const group of mixedPolicy)
+    for (const [signature, nativePolicy] of group.answers)
+      requireValue(
+        (await strictVerify(unhex(group.publicKey), unhex(signature), message)) === nativePolicy,
+      );
   await crypto.subtle.deriveBits({ name: 'X25519', public: x.publicKey }, x.privateKey, 256);
 }

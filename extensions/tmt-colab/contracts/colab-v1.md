@@ -264,6 +264,7 @@ The joint documented browser feature floor is Chromium 137, Firefox 130 and
 Safari 17. These are not tested minimum binaries. Probe generate/sign/strict
 verify, X25519 generate/derive and secure-context availability before use; fail
 closed with an update-browser explanation, with no weaker fallback.
+The probe also requires every frozen mixed-order signature known answer to match native policy.
 
 ### Strict signature admission
 
