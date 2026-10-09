@@ -165,6 +165,7 @@ function SelectionAnnotation({
         <button
           className={`selection-ask ${ui.action}`}
           data-testid="selection-ask"
+          aria-keyshortcuts="c Alt+Enter"
           onPointerDown={(event) => event.preventDefault()}
           onClick={(event) => {
             if (event.isTrusted) open();
