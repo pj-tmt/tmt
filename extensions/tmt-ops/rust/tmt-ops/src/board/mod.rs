@@ -347,6 +347,11 @@ fn session(
     let mut spinner = view::spinner_frame(app, Instant::now());
     // Hands a job to the lane and says so at once; the event that comes back says how it ended.
     let submit = |app: &mut App, job: lane::Job| {
+        // An overlay opens once: a second request for one waits for the first.
+        if !matches!(job, lane::Job::Act(_)) && app.in_flight > 0 {
+            app.notice = Some("Still working on the previous request.".to_owned());
+            return;
+        }
         app.notice = Some(job.progress().to_owned());
         app.in_flight += 1;
         io(job);
@@ -1363,6 +1368,40 @@ mod tests {
         assert_eq!(done.1.as_deref(), Some("Message sent to sol (req_1)."));
         assert!(done.0 >= Duration::from_millis(450));
         std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn an_overlay_is_requested_once_while_its_config_is_still_loading() {
+        let mut app = App::new(Some("product".into()));
+        app.apply(app::tests::snapshot(
+            "product",
+            serde_json::json!([{"title":null,"rows":[{"name":"coder"}]}]),
+        ));
+        let (events, input) = channel();
+        for code in [KeyCode::Char('T'), KeyCode::Char('T'), KeyCode::Char('q')] {
+            events.send(key(code)).unwrap();
+        }
+        let jobs = std::cell::Cell::new(0);
+        let mut notices = Vec::new();
+        session(
+            &mut app,
+            &AtomicUsize::new(0),
+            &input,
+            |_, _, _| {},
+            |_, _| {},
+            |_| {},
+            |_| jobs.set(jobs.get() + 1),
+            |app| {
+                notices.push(app.notice.clone());
+                Ok(())
+            },
+        )
+        .unwrap();
+        assert_eq!(jobs.get(), 1);
+        assert!(
+            notices.contains(&Some("Still working on the previous request.".to_owned())),
+            "{notices:?}"
+        );
     }
 
     fn acted(jump: bool, sends: bool, outcome: Result<&str, String>) -> BoardEvent {
