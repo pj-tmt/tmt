@@ -93,11 +93,25 @@ jobs:
           architecture: ${{ matrix.target == 'x86_64-apple-darwin' && 'x64' || '' }}
       - name: Install verification dependencies
         working-directory: typescript
-        run: pnpm install --frozen-lockfile --ignore-scripts
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          if [ "$TARGET" = x86_64-apple-darwin ]; then
+            "$GITHUB_WORKSPACE/scripts/install-native-verification-dependencies.sh"
+          else
+            pnpm install --frozen-lockfile --ignore-scripts
+          fi
       - name: Install release-cut proof dependencies
         if: ${{ !inputs.current-tooling }}
         working-directory: release-source/typescript
-        run: pnpm install --frozen-lockfile --ignore-scripts
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          if [ "$TARGET" = x86_64-apple-darwin ]; then
+            "$GITHUB_WORKSPACE/scripts/install-native-verification-dependencies.sh"
+          else
+            pnpm install --frozen-lockfile --ignore-scripts
+          fi
       - name: Warm the macOS toolchain lookup
         if: runner.os == 'macOS'
         uses: ./.github/actions/warm-xcrun

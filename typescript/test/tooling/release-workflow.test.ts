@@ -115,6 +115,98 @@ describe('required manifest packaging cache restore (#2076)', () => {
   });
 });
 
+describe('signature-limited native install wiring (#1806)', () => {
+  const upgrade = read('.github/workflows/native-release-upgrade-prove.yml');
+  const script = read('scripts/install-native-verification-dependencies.sh');
+  const selected = (source: string, owner: string, next: string) =>
+    source.split(`  ${owner}:\n`)[1].split(`  ${next}:\n`)[0];
+  function requireWiring(source: string, labels: string[]) {
+    for (const label of labels) {
+      const step = source.split('\n      - ').find((part) => part.startsWith(`name: ${label}\n`))!;
+      expect(step).toContain('TARGET: ${{ matrix.target }}');
+      expect(step).toContain('if [ "$TARGET" = x86_64-apple-darwin ]; then');
+      expect(step).toContain(
+        '"$GITHUB_WORKSPACE/scripts/install-native-verification-dependencies.sh"'
+      );
+      expect(step).toMatch(
+        /\n          else\n            pnpm (?:--filter tmux-team --fail-if-no-match )?install --frozen-lockfile --ignore-scripts\n          fi/
+      );
+      expect(step).not.toContain('continue-on-error');
+    }
+  }
+  it('shares both reviewed owners with rehearsal and keeps the package filter tied to the manifest', () => {
+    expect(/^CLI_PACKAGE='([^']+)'$/m.exec(script)?.[1]).toBe(
+      JSON.parse(read('typescript/package.json')).name
+    );
+    expect(script.match(/--filter "\$CLI_PACKAGE"/g)).toHaveLength(1);
+    requireWiring(selected(prepare, 'verify', 'upgrade-fetch'), [
+      'Install verification dependencies',
+      'Install trusted CLI verification dependencies',
+    ]);
+    requireWiring(selected(upgrade, 'prove', 'conclude'), [
+      'Install verification dependencies',
+      'Install release-cut proof dependencies',
+    ]);
+    expect(read('.github/workflows/ci.yml')).toContain(
+      'uses: ./.github/workflows/native-release-prepare.yml'
+    );
+    expect(prepare).toContain('uses: ./.github/workflows/native-release-upgrade-prove.yml');
+  });
+  it('rejects removing the controller or the x64-only boundary', () => {
+    const owner = selected(upgrade, 'prove', 'conclude');
+    expect(() =>
+      requireWiring(
+        owner.replaceAll(
+          'scripts/install-native-verification-dependencies.sh',
+          'scripts/missing.sh'
+        ),
+        ['Install verification dependencies']
+      )
+    ).toThrow();
+    expect(() =>
+      requireWiring(owner.replaceAll('x86_64-apple-darwin', 'aarch64-apple-darwin'), [
+        'Install verification dependencies',
+      ])
+    ).toThrow();
+  });
+  it('pins runtime and inert pre-merge counterparts, and refuses an absent incident', () => {
+    const manifest = JSON.parse(read('.github/release-parity.json'));
+    expect(manifest.incidents['1806']).toEqual({
+      release: {
+        workflow: 'native-release-prepare.yml',
+        job: 'verify',
+        step: 'name:Install verification dependencies',
+      },
+      preMerge: [
+        {
+          workflow: 'ci.yml',
+          job: 'release-rehearsal',
+          selection: {
+            kind: 'ci-scope',
+            output: 'release_rehearsal',
+            value: 'true',
+            source: 'typescript/scripts/release-rehearsal.mjs',
+          },
+          coverage: 'runtime',
+        },
+        {
+          workflow: 'ci.yml',
+          job: 'unit-tests',
+          selection: { kind: 'ci-scope', output: 'native_scope', value: 'full' },
+          coverage: 'policy',
+          tests: [
+            'typescript/test/tooling/install-native-verification-dependencies.test.ts',
+            'typescript/test/tooling/release-workflow.test.ts',
+          ],
+        },
+      ],
+    });
+    expect(() => checkReleaseParity(manifest, { read })).not.toThrow();
+    delete manifest.incidents['1806'];
+    expect(() => checkReleaseParity(manifest, { read })).toThrow('unmapped 1806');
+  });
+});
+
 describe('compiled CLI schema preparation order', () => {
   const blocks = (source: string) => ({
     build: source.split('  build:\n')[1].split('  assemble:\n')[0],
@@ -132,7 +224,7 @@ describe('compiled CLI schema preparation order', () => {
     const install = installs[0];
     expect(install.split('\n')).toContain("        if: inputs.product == 'cli'");
     expect(install.split('\n')).toContain('        working-directory: typescript');
-    expect(install.split('\n')).toContain(`        run: ${trustedInstallCommand}`);
+    expect(install).toContain(`            ${trustedInstallCommand}`);
     const setup = steps.findIndex((step) => step.startsWith('name: Set up Node.js and pnpm\n'));
     const preparation = steps.indexOf(install);
     const final = steps.findIndex((step) =>
@@ -152,9 +244,7 @@ describe('compiled CLI schema preparation order', () => {
     expect(candidate?.split('\n')).toContain(
       '        working-directory: release-source/typescript'
     );
-    expect(candidate?.split('\n')).toContain(
-      '        run: pnpm install --frozen-lockfile --ignore-scripts'
-    );
+    expect(candidate).toContain('            pnpm install --frozen-lockfile --ignore-scripts');
     const activation = read('.github/actions/setup-tooling/action.yml');
     expect(activation).toContain('default: 22.23.2');
     expect(activation).toContain('default: 10.33.0');

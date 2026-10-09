@@ -193,7 +193,7 @@
           "name:Execute final archive and bootstrap with the matching target process",
           "name:Recheck version-only source after this stage"
         ],
-        "sha256": "d7b1a474a2152f595731fcdfd19d5ad11d921b8b78acca6ab297f5873e4b99b9",
+        "sha256": "84d210d20d1afa8930c3ac3c9aaf32e5f7c31d18c0d52f883bc491aae6878cb5",
         "preMerge": [
           {
             "workflow": "ci.yml",
@@ -324,7 +324,7 @@
           "name:Recheck version-only source after runtime proof and adapter acceptance",
           "name:Keep the log of a failed proof"
         ],
-        "sha256": "9a03330fd6fc252359f2251a5ebb2139c04d7359ef8157032aa006282fe24b3c",
+        "sha256": "7781676fc13d136952d90e327d6b8cb13468bb13455f976dbdc82a19db2b54f8",
         "preMerge": [
           {
             "workflow": "ci.yml",
@@ -800,6 +800,36 @@
           },
           "coverage": "policy",
           "tests": ["typescript/test/tooling/release-upgrade.test.ts"]
+        }
+      ]
+    },
+    "1806": {
+      "release": {
+        "workflow": "native-release-prepare.yml",
+        "job": "verify",
+        "step": "name:Install verification dependencies"
+      },
+      "preMerge": [
+        {
+          "workflow": "ci.yml",
+          "job": "release-rehearsal",
+          "selection": {
+            "kind": "ci-scope",
+            "output": "release_rehearsal",
+            "value": "true",
+            "source": "typescript/scripts/release-rehearsal.mjs"
+          },
+          "coverage": "runtime"
+        },
+        {
+          "workflow": "ci.yml",
+          "job": "unit-tests",
+          "selection": { "kind": "ci-scope", "output": "native_scope", "value": "full" },
+          "coverage": "policy",
+          "tests": [
+            "typescript/test/tooling/install-native-verification-dependencies.test.ts",
+            "typescript/test/tooling/release-workflow.test.ts"
+          ]
         }
       ]
     },
