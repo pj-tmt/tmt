@@ -229,20 +229,14 @@ impl DeployPort for DeployFirestore<'_> {
         plan: &DeployPlan,
         step: &DeployStep,
     ) -> Result<DeployObserved, DeployProviderError> {
-        let deadline = Instant::now() + limits::DEPLOY_PROVIDER_CALL;
         if step.kind == StepKind::Verify {
-            for other in plan.steps().iter().filter(|s| s.kind != StepKind::Verify) {
-                match self.observe_until(plan, other, deadline)? {
-                    DeployObserved::Satisfied
-                    | DeployObserved::Adopted
-                    | DeployObserved::Rules(deploy_run::LiveRules::Current) => {}
-                    DeployObserved::Building => return Ok(DeployObserved::Building),
-                    _ => return Err(unknown()),
-                }
-            }
-            return Ok(DeployObserved::Satisfied);
+            return verify_steps(
+                plan.steps(),
+                |other, deadline| self.observe_until(plan, other, deadline),
+                Instant::now,
+            );
         }
-        self.observe_until(plan, step, deadline)
+        self.observe_until(plan, step, Instant::now() + limits::DEPLOY_PROVIDER_CALL)
     }
     fn apply(
         &mut self,
@@ -319,4 +313,67 @@ fn provider_error(code: String) -> DeployProviderError {
         _ => return unknown(),
     };
     DeployProviderError::Rejected(fault)
+}
+
+// Verification is read-only and plan-bounded; each child gets a full operation budget.
+fn verify_steps(
+    steps: &[DeployStep],
+    mut observe: impl FnMut(&DeployStep, Instant) -> Result<DeployObserved, DeployProviderError>,
+    mut now: impl FnMut() -> Instant,
+) -> Result<DeployObserved, DeployProviderError> {
+    for step in steps.iter().filter(|s| s.kind != StepKind::Verify) {
+        match observe(step, now() + limits::DEPLOY_PROVIDER_CALL)? {
+            DeployObserved::Satisfied
+            | DeployObserved::Adopted
+            | DeployObserved::Rules(deploy_run::LiveRules::Current) => {}
+            DeployObserved::Building => return Ok(DeployObserved::Building),
+            _ => return Err(unknown()),
+        }
+    }
+    Ok(DeployObserved::Satisfied)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Duration;
+
+    #[test]
+    fn verify_gives_each_read_its_own_absolute_deadline_after_slow_prior_reads() {
+        let steps: Vec<_> = [StepKind::Database, StepKind::Rules, StepKind::Verify]
+            .into_iter()
+            .enumerate()
+            .map(|(i, kind)| DeployStep {
+                id: i.to_string(),
+                kind,
+            })
+            .collect();
+        let start = Instant::now();
+        let mut clock = start;
+        let mut deadlines = Vec::new();
+        let outcome = verify_steps(
+            &steps,
+            |step, deadline| {
+                deadlines.push(deadline);
+                Ok(if step.kind == StepKind::Rules {
+                    DeployObserved::Rules(deploy_run::LiveRules::Current)
+                } else {
+                    DeployObserved::Adopted
+                })
+            },
+            || {
+                let current = clock;
+                clock += Duration::from_secs(20);
+                current
+            },
+        );
+        assert_eq!(outcome.unwrap(), DeployObserved::Satisfied);
+        assert_eq!(
+            deadlines,
+            [
+                start + limits::DEPLOY_PROVIDER_CALL,
+                start + Duration::from_secs(20) + limits::DEPLOY_PROVIDER_CALL
+            ]
+        );
+    }
 }

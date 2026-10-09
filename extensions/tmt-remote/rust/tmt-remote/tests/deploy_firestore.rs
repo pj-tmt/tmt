@@ -185,6 +185,7 @@ fn cancellation_after_child_readiness_reaps_the_process_and_closes_its_socket() 
             let _ = fs::remove_file(&self.0);
         }
     }
+    // macOS temp_dir paths exceed sun_path; /tmp keeps this fixture socket short.
     let gate = GateFile(PathBuf::from("/tmp").join(format!(
         "tmt-dg-{}.sock",
         tmt_remote::store::uuid_v4().unwrap()
