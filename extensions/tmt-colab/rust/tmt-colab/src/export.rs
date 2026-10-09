@@ -111,7 +111,7 @@ struct Manifest<'a> {
     epoch: String,
     plaintext: bool,
     discussions: Discussions,
-    attachments: &'a [attachments::Entry],
+    attachments: &'a [attachments::AttachmentRow],
     files: &'a [FileInfo],
 }
 #[derive(Serialize)]
@@ -201,11 +201,11 @@ impl Bundle {
             entries,
             files: attachment_files,
         } = attachments::gather(
-            &attachments::Page {
+            &attachments::PageParts {
                 meta: &view.meta,
                 own: &view.own,
             },
-            &attachments::Scope {
+            &attachments::GatherScope {
                 space: &key.space_id,
                 page,
                 epoch: snapshot.epoch,

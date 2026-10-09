@@ -1,5 +1,7 @@
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { expect, test, type Page } from '@playwright/test';
 import { openReaderLink, pairBrowser, startDoor } from './harness/browser.js';
 import { createPage, freePort, openChat, openPage, run } from './harness/ask.js';
@@ -264,5 +266,148 @@ test('a foreign write during an upload leaves a message attachment valid; a memb
     await expect(chip).toHaveAttribute('data-state', 'refused', { timeout: 120_000 });
     await expect(mine.getByTestId('message-attachment')).toHaveCount(1);
     await expect(theirs.getByTestId('message-attachment')).toHaveCount(1);
+  });
+});
+
+test('export and attachment read return the same bytes as the browser, and say why they cannot', async () => {
+  await withWorld(async (world) => {
+    const door = await startDoor(world, await freePort());
+    const author = await pairBrowser(world, 'export-files-author');
+    const created = createPage(world, 'Export files', '<h1>Export files</h1>');
+    const first = await openPage(door, author, created);
+    const colab = (args: string[]) =>
+      JSON.parse(run(world, world.binaries.colab, [...args, '--json'])) as Record<string, unknown>;
+    const out = fs.mkdtempSync(path.join(os.tmpdir(), 'colab-export-files-'));
+    try {
+      const notes = { name: 'notes.txt', mimeType: 'text/plain', buffer: bytes(40 * 1024, 5) };
+      const picture = { name: 'dot.png', mimeType: 'image/png', buffer: PNG };
+      const chat = {
+        name: 'chat.bin',
+        mimeType: 'application/octet-stream',
+        buffer: bytes(3000, 7),
+      };
+
+      // Two document files through the Files panel and one message attachment through Chat.
+      const files = await openFiles(first);
+      const chooser = first.waitForEvent('filechooser');
+      await files.getByRole('button', { name: text.attachFiles }).click();
+      await (await chooser).setFiles([notes, picture]);
+      await files.getByRole('button', { name: text.filesAdd, exact: true }).click();
+      await expect(files.getByTestId('file-row')).toHaveCount(2, { timeout: 30_000 });
+      await openChat(first);
+      const panel = first.getByTestId('chat-panel');
+      await panel.getByRole('combobox', { name: 'Message', exact: true }).fill('One file');
+      const pick = first.waitForEvent('filechooser');
+      await panel.getByRole('button', { name: text.attachFiles }).click();
+      await (await pick).setFiles([chat]);
+      await panel.getByRole('button', { name: text.askSend, exact: true }).click();
+      await expect(panel.getByTestId('message-attachment')).toHaveCount(1, { timeout: 30_000 });
+      const originals = new Map([notes, picture, chat].map((file) => [file.name, file.buffer]));
+
+      // The CLI export lists and includes all three, byte for byte, in private files.
+      const exported = colab(['export', created.pageId, '--dir', out]);
+      const directory = exported.directory as string;
+      const manifest = JSON.parse(fs.readFileSync(path.join(directory, 'manifest.json'), 'utf8'));
+      type Row = {
+        filename: string;
+        source: string;
+        state: string;
+        file?: string;
+        sha256?: string;
+        reference: Record<string, unknown>;
+      };
+      const rows = manifest.attachments as Row[];
+      expect(rows.map((row) => [row.filename, row.source, row.state]).sort()).toEqual(
+        [
+          ['chat.bin', 'message', 'included'],
+          ['dot.png', 'document', 'included'],
+          ['notes.txt', 'document', 'included'],
+        ].sort(),
+      );
+      for (const row of rows) {
+        const written = fs.readFileSync(path.join(directory, row.file!));
+        expect(sha(written)).toBe(sha(originals.get(row.filename)!));
+        expect(row.sha256).toBe(sha(written));
+        expect(fs.statSync(path.join(directory, row.file!)).mode & 0o777).toBe(0o600);
+      }
+      expect(fs.statSync(path.join(directory, 'attachments')).mode & 0o777).toBe(0o700);
+
+      // The browser's Export panel offers the same three files under their own names.
+      await first.getByRole('button', { name: 'Export page', exact: true }).click();
+      const exportPanel = first.getByRole('region', { name: 'Export page' });
+      for (const file of [notes, picture, chat]) {
+        const pending = first.waitForEvent('download');
+        await exportPanel.getByRole('button', { name: `Download ${file.name}` }).click();
+        const saved = await pending;
+        expect(saved.suggestedFilename()).toBe(file.name);
+        expect(sha(fs.readFileSync((await saved.path())!))).toBe(sha(file.buffer));
+      }
+      await exportPanel.getByRole('button', { name: 'Close export' }).click();
+
+      // attachment read returns one file from its manifest reference, and only that file.
+      const referenceOf = (name: string) => {
+        const file = path.join(out, `${name}.reference.json`);
+        fs.writeFileSync(
+          file,
+          JSON.stringify(rows.find((row) => row.filename === name)!.reference),
+        );
+        return file;
+      };
+      const read = (name: string) =>
+        colab([
+          'attachment',
+          'read',
+          created.pageId,
+          '--reference',
+          referenceOf(name),
+          '--output',
+          out,
+        ]);
+      const result = read('notes.txt');
+      expect(sha(fs.readFileSync(path.join(result.directory as string, 'attachment.bin')))).toBe(
+        sha(notes.buffer),
+      );
+      expect(JSON.stringify(result)).not.toContain(notes.buffer.toString('latin1').slice(0, 64));
+      expect(fs.readdirSync(result.directory as string).sort()).toEqual([
+        'attachment.bin',
+        'manifest.json',
+      ]);
+
+      // The page's source moves: the old document reference is stale, a message's is not.
+      run(
+        world,
+        world.binaries.colab,
+        ['page', 'write', created.pageId, '--file', '-'],
+        '<h1>Moved</h1>',
+      );
+      expect(() => read('notes.txt')).toThrow(/COLAB_STALE_BASE/);
+      const chatAgain = read('chat.bin');
+      expect(sha(fs.readFileSync(path.join(chatAgain.directory as string, 'attachment.bin')))).toBe(
+        sha(chat.buffer),
+      );
+      expect(() =>
+        run(world, world.binaries.colab, [
+          'attachment',
+          'read',
+          created.pageId,
+          '--reference',
+          path.join(out, 'missing.json'),
+        ]),
+      ).toThrow();
+
+      // With no serve, nothing can be read: every row is listed and none is disclosed.
+      run(world, world.binaries.colab, ['stop']);
+      const offline = colab(['export', created.pageId, '--dir', out]);
+      const offlineManifest = JSON.parse(
+        fs.readFileSync(path.join(offline.directory as string, 'manifest.json'), 'utf8'),
+      );
+      expect(
+        (offlineManifest.attachments as Row[]).map((row) => [row.state, row.file, row.sha256]),
+      ).toEqual(Array(3).fill(['unavailable', undefined, undefined]));
+      expect(fs.existsSync(path.join(offline.directory as string, 'attachments'))).toBe(false);
+      expect(() => read('chat.bin')).toThrow(/COLAB_UNAVAILABLE/);
+    } finally {
+      fs.rmSync(out, { recursive: true, force: true });
+    }
   });
 });

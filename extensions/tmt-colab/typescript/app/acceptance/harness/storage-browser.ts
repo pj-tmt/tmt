@@ -8,6 +8,7 @@ import { register, remoteSdk, verifyRegistration } from '../../src/registration.
 import { FrozenAttachmentUpload } from '../../src/attachment-channel.js';
 import {
   AdmittedAttachmentRead,
+  currentBase,
   prepareAttachmentPublication,
   attachmentNamespace,
 } from '../../src/attachments.js';
@@ -112,7 +113,8 @@ export async function capture() {
   readDescriptor = descriptor;
   original = await FrozenAttachmentUpload.capture(
     descriptor,
-    await peer.objects.revision(),
+    // A message attachment is fenced by the membership head, not by the page revision.
+    await currentBase(descriptor, await peer.attachmentSnapshot()),
     crypto.randomUUID(),
     raw,
   );

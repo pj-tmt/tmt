@@ -37,7 +37,7 @@ impl Source for Unserved {
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct Entry {
+pub struct AttachmentRow {
     attachment_id: String,
     source: &'static str,
     reference: AttachmentSelector,
@@ -53,7 +53,7 @@ pub struct Entry {
     file: Option<String>,
 }
 #[cfg(test)]
-impl Entry {
+impl AttachmentRow {
     /// A row as the shared vector lists it, to pin the serialized bytes.
     #[allow(clippy::too_many_arguments)]
     pub(super) fn fixture(
@@ -83,7 +83,7 @@ impl Entry {
 }
 /// What the entries need beyond the view: the page revision a document attachment is fenced by
 /// and the epoch whose messages the export covers.
-pub(crate) struct Scope<'a> {
+pub(crate) struct GatherScope<'a> {
     pub space: &'a str,
     pub page: &'a str,
     pub epoch: u64,
@@ -93,7 +93,7 @@ pub(crate) struct Scope<'a> {
     pub budget: Duration,
 }
 /// The decoded page the entries come from: its metadata and each writer's `own` projection.
-pub(crate) struct Page<'a> {
+pub(crate) struct PageParts<'a> {
     pub meta: &'a Value,
     pub own: &'a BTreeMap<String, Value>,
 }
@@ -107,7 +107,7 @@ fn hex(bytes: &[u8]) -> String {
 }
 /// Document attachments in list order, then the live messages of the current epoch ordered by
 /// writer, message and revision. Superseded and deleted messages list nothing.
-fn candidates(page: &Page<'_>, scope: &Scope<'_>) -> Result<Vec<Candidate>> {
+fn candidates(page: &PageParts<'_>, scope: &GatherScope<'_>) -> Result<Vec<Candidate>> {
     let mut found = Vec::new();
     let mut add = |source,
                    list: Option<&Value>,
@@ -187,12 +187,12 @@ fn outcome(error: &(dyn std::error::Error + 'static)) -> (&'static str, Option<&
 }
 /// Every listed attachment, and the bytes of the included ones keyed by their file path.
 pub(crate) struct Gathered {
-    pub entries: Vec<Entry>,
+    pub entries: Vec<AttachmentRow>,
     pub files: Vec<(String, Vec<u8>)>,
 }
 pub(crate) fn gather(
-    page: &Page<'_>,
-    scope: &Scope<'_>,
+    page: &PageParts<'_>,
+    scope: &GatherScope<'_>,
     source: &dyn Source,
     started: Instant,
 ) -> Result<Gathered> {
@@ -205,7 +205,7 @@ pub(crate) fn gather(
         descriptor,
     } in candidates(page, scope)?
     {
-        let mut entry = Entry {
+        let mut entry = AttachmentRow {
             attachment_id: descriptor.attachment_id.clone(),
             source: kind,
             reference: reference.clone(),
@@ -296,8 +296,8 @@ mod tests {
             "spaceId": SPACE, "pageId": PAGE, "epoch": "3", "attachments": attachments,
         })
     }
-    fn scope(total_bytes: usize, budget: Duration) -> Scope<'static> {
-        Scope {
+    fn scope(total_bytes: usize, budget: Duration) -> GatherScope<'static> {
+        GatherScope {
             space: SPACE,
             page: PAGE,
             epoch: 3,
@@ -329,11 +329,11 @@ mod tests {
     fn run(
         meta: Value,
         own: BTreeMap<String, Value>,
-        scope: Scope<'_>,
+        scope: GatherScope<'_>,
         source: &dyn Source,
     ) -> (Vec<Value>, Vec<(String, Vec<u8>)>) {
         let Gathered { entries, files } = gather(
-            &Page {
+            &PageParts {
                 meta: &meta,
                 own: &own,
             },
@@ -510,7 +510,7 @@ mod tests {
             let meta = json!({"attachments": [foreign_descriptor]});
             let own = BTreeMap::new();
             let outcome = gather(
-                &Page {
+                &PageParts {
                     meta: &meta,
                     own: &own,
                 },

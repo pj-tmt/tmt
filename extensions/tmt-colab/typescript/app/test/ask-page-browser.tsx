@@ -450,14 +450,28 @@ export async function mount(
         sizeBytes: bytes.length,
         sha256: '0'.repeat(64),
       });
-      const [html, note, manifest] = [utf8('<p>page</p>'), utf8('exported note'), utf8('{}')];
+      const [html, json, markdown, note, manifest] = [
+        utf8('<p>page</p>'),
+        utf8('{}'),
+        utf8('# Conversations'),
+        utf8('exported note'),
+        utf8('{}'),
+      ];
       return new ExportBundle(
         new Map([
           ['page.html', html],
+          ['conversations.json', json],
+          ['conversations.md', markdown],
           [file, note],
           ['manifest.json', manifest],
         ]),
-        [info('page.html', html), info(file, note), info('manifest.json', manifest)],
+        [
+          info('page.html', html),
+          info('conversations.json', json),
+          info('conversations.md', markdown),
+          info(file, note),
+          info('manifest.json', manifest),
+        ],
         [
           { attachmentId: id(40), filename: 'note.txt', state: 'included', file },
           { attachmentId: id(41), filename: 'gone.bin', state: 'missing' },

@@ -1,7 +1,13 @@
 import { browserUiClasses as ui } from '@tmt/browser-ui/static';
 import { Check } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
-import { DISCLOSURE, Downloads, type ExportFile, type ListedAttachment } from './export.js';
+import {
+  DISCLOSURE,
+  Downloads,
+  PAGE_FILES,
+  type ExportFile,
+  type ListedAttachment,
+} from './export.js';
 import type { PageBinding } from './transport.js';
 import { PageDrawer } from './page-drawer.js';
 import { text } from './strings.js';
@@ -25,27 +31,20 @@ export function ExportPanel({
   const setOpen = changeOpen ?? setLocalOpen;
   const [state, setState] = useState<'preparing' | 'ready' | 'failed'>('preparing');
   const [requested, setRequested] = useState<ExportFile[]>([]);
-  // What this copy holds: the page files, then each attachment with its outcome.
-  const [listing, setListing] = useState<{
-    pageFiles: readonly ExportFile[];
-    attachments: readonly ListedAttachment[];
-  }>({ pageFiles: [], attachments: [] });
+  // Each attachment of this copy with its outcome; the page files are always the same four.
+  const [attachments, setAttachments] = useState<readonly ListedAttachment[]>([]);
   const current = useRef<Downloads | null>(null);
   useEffect(() => {
     if (!open || !binding || blocked) return;
     let active = true;
     setState('preparing');
     setRequested([]);
+    setAttachments([]);
     void binding.export().then(
       (bundle) => {
         if (!active) return;
         current.current = new Downloads(bundle);
-        setListing({
-          pageFiles: bundle.files
-            .map((file) => file.name)
-            .filter((name) => !name.startsWith('attachments/')),
-          attachments: bundle.attachments,
-        });
+        setAttachments(bundle.attachments);
         setState('ready');
       },
       () => {
@@ -70,7 +69,7 @@ export function ExportPanel({
       setState('failed');
     }
   }
-  const downloadable = listing.pageFiles.length + listing.attachments.filter((a) => a.file).length;
+  const downloadable = PAGE_FILES.length + attachments.filter((a) => a.file).length;
   const content = (
     <section className="export-panel" aria-label={text.export}>
       {!drawer && <h2>{text.export}</h2>}
@@ -88,7 +87,7 @@ export function ExportPanel({
                 : text.exportReady}
       </p>
       <div className="export-actions">
-        {listing.pageFiles.map((name) => (
+        {PAGE_FILES.map((name) => (
           <button
             key={name}
             disabled={blocked || state !== 'ready'}
@@ -102,11 +101,11 @@ export function ExportPanel({
         ))}
         <button onClick={() => setOpen(false)}>{text.exportClose}</button>
       </div>
-      {listing.attachments.length > 0 && (
+      {attachments.length > 0 && (
         <section className="export-attachments" aria-label={text.exportAttachments}>
           <h3>{text.exportAttachments}</h3>
           <ul>
-            {listing.attachments.map((item) => (
+            {attachments.map((item) => (
               <li key={item.attachmentId}>
                 <span className="export-attachment-name">{item.filename}</span>{' '}
                 {item.file === undefined ? (

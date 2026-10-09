@@ -66,7 +66,7 @@ Each is `(cd rust && cargo test --offline --locked -p tmt-colab <selector>)`:
 | Readers                                         | `--lib readers::tests`, `--lib mounted_`, `--test socket mounted_public_readers`, `--test socket archived_owner_pages`           |
 | Decoder (real child)                            | `--test decoder -- --nocapture`, `--test decoder baseline_`, `--test checkpoint_vectors`, `--test own_vectors --test discussion` |
 | Page source CLI                                 | `--test page`                                                                                                                    |
-| Export                                          | `--test export`, `export::tests`                                                                                                 |
+| Export and attachment read                      | `--test export`, `export::tests`, `export::attachments::tests`, `--test socket root_local_attachment_read`                       |
 | Object channel and admitted attachments         | `--lib object_channel::tests`, `--test attachments`                                                                              |
 
 - Object-channel fixtures exercise the real private socket and neutral Bus with scripted
@@ -125,9 +125,11 @@ tmt colab export <page-uuid> --json          # or --dir /existing/export-parent
 Use the exact revision from `read`; a stale base returns `COLAB_STALE_BASE` (exit 1)
 and is never retried. A failed or uncertain serving IPC returns `COLAB_UNAVAILABLE`
 without an offline fallback. Export needs an existing parent, creates a new UUID
-directory with `page.html`, `conversations.json`, `conversations.md` and `manifest.json`
-(never replacing output), and reports
-`error.partialDirectory` on a failed publication.
+directory with `page.html`, `conversations.json`, `conversations.md`, `manifest.json` and an
+`attachments/` directory of the files it could read (never replacing output), and reports
+`error.partialDirectory` on a failed publication. Attachments are read through the running serve,
+so `tmt colab attachment read <page-uuid> --reference <manifest-row-reference.json> --output <dir>`
+and the attachments of `export` need `tmt colab serve`; without it each is unavailable.
 
 Serve and the door: the CLI suites in `tests/cli.rs` run a scripted `tmt remote ...` stand-in
 (`Pilot::remote_core`: attach, start, not installed, door that dies, a wrapper that leaves a

@@ -18,6 +18,13 @@ export const DISCLOSURE =
   'This creates an unencrypted copy of the page. Anyone with these files can read it.';
 /** A published file name: one of the four page files, or `attachments/<attachmentId>`. */
 export type ExportFile = string;
+/** The four page files every export publishes, in order; attachments sit between the third and the manifest. */
+export const PAGE_FILES: readonly ExportFile[] = [
+  'page.html',
+  'conversations.json',
+  'conversations.md',
+  'manifest.json',
+];
 /** One bundle never exceeds this many bytes of conversations (both files together). */
 export const CONVERSATIONS_BYTES = 8 * 1024 * 1024;
 export interface ExportView {

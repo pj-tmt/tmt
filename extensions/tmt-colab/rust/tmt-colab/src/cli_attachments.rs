@@ -9,8 +9,9 @@ use std::{
 use tmt_cli_style::{CommandSpec, Example, OutputModes};
 use tmt_colab::{
     Result,
-    export::{Bundle, Fault},
+    export::{self, Bundle},
     keyring::{Keyring, Layout},
+    page::Fault,
     store::Store,
 };
 use tmt_colab_model::{attachment::AttachmentSelector, crypto};
@@ -60,7 +61,7 @@ pub fn command() -> Command {
 }
 pub fn run(root: &Path, args: &ArgMatches) -> Result<()> {
     let (_, args) = args.subcommand().expect("required attachment command");
-    let layout = Layout::existing(root)?.ok_or(Fault::MissingState)?;
+    let layout = Layout::existing(root)?.ok_or(export::Fault::MissingState)?;
     let key = Keyring::read(&layout)?;
     let store = Store::read(&layout)?;
     store.require_current_schema()?;
@@ -131,8 +132,12 @@ pub fn run(root: &Path, args: &ArgMatches) -> Result<()> {
 /// The exact selector the file holds, bounded before it is parsed.
 fn reference(path: &Path) -> Result<AttachmentSelector> {
     let mut raw = Vec::new();
-    std::fs::File::open(path)?
-        .take(tmt_colab_model::attachment::REFERENCE_BYTES as u64 + 1)
-        .read_to_end(&mut raw)?;
-    Ok(AttachmentSelector::from_json(&raw)?)
+    // A reference that cannot be read or parsed is invalid input, never a serve problem.
+    std::fs::File::open(path)
+        .and_then(|file| {
+            file.take(tmt_colab_model::attachment::REFERENCE_BYTES as u64 + 1)
+                .read_to_end(&mut raw)
+        })
+        .map_err(|_| Fault::Invalid)?;
+    Ok(AttachmentSelector::from_json(&raw).map_err(|_| Fault::Invalid)?)
 }

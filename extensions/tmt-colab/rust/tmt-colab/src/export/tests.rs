@@ -274,7 +274,7 @@ fn shared_fixture_matches_the_native_bundle_bytes_and_field_order() {
         FileInfo::new("conversations.md", &markdown),
     ];
     // The listed attachment rows are fixed inputs; every included file's bytes must match its digest.
-    let attachments: Vec<attachments::Entry> = input["attachments"]
+    let attachments: Vec<attachments::AttachmentRow> = input["attachments"]
         .as_array()
         .unwrap()
         .iter()
@@ -292,7 +292,7 @@ fn shared_fixture_matches_the_native_bundle_bytes_and_field_order() {
                 assert_eq!(row["sha256"], hex(&crypto::digest(&bytes)));
                 assert_eq!(row["plaintextBytes"], bytes.len().to_string());
             }
-            attachments::Entry::fixture(
+            attachments::AttachmentRow::fixture(
                 row["attachmentId"].as_str().unwrap(),
                 word(&row["source"], &["document", "message"]).unwrap(),
                 serde_json::from_value(row["reference"].clone()).unwrap(),

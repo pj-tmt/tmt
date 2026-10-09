@@ -147,7 +147,7 @@ fn grammar() -> Command {
             note: "Create a private UUID-named export directory",
         }],
         outputs: OutputModes::HumanAndJson,
-        details: "This creates an unencrypted copy of the page. Anyone with these files can read it.\nCreates page.html, conversations.json, conversations.md and manifest.json in a new UUID subdirectory of --dir (default: current directory). The parent must exist; aliases resolve to a canonical path. Created entries cannot be symlinks; parent traversal and overwrite are refused. The conversations files hold the page's verified threads, comments and Ask conversations for the current epoch (names and times are labels). Archived or deleted pages cannot be exported yet.",
+        details: "This creates an unencrypted copy of the page. Anyone with these files can read it.\nCreates page.html, conversations.json, conversations.md, manifest.json and an attachments/ directory in a new UUID subdirectory of --dir (default: current directory). The parent must exist; aliases resolve to a canonical path. Created entries cannot be symlinks; parent traversal and overwrite are refused. The conversations files hold the page's verified threads, comments and Ask conversations for the current epoch (names and times are labels). The manifest lists every attachment of the page; each file is read through the running serve under current access, so an attachment that cannot be read is listed as missing or unavailable with its reason and nothing of it is written. Without tmt colab serve every attachment is unavailable. Archived or deleted pages cannot be exported yet.",
     };
     const PAGE: CommandSpec = CommandSpec {
         name: "page",
@@ -601,8 +601,20 @@ fn export(root: &std::path::Path, args: &clap::ArgMatches) -> Result<()> {
                         .files
                         .iter()
                         .map(|file| file.name.as_str())
+                        .filter(|name| !name.starts_with("attachments/"))
                         .collect::<Vec<_>>()
                         .join(", "),
+                ),
+                (
+                    "attachments",
+                    format!(
+                        "{} included; manifest.json lists any that are missing or unavailable",
+                        published
+                            .files
+                            .iter()
+                            .filter(|file| file.name.starts_with("attachments/"))
+                            .count()
+                    ),
                 ),
                 (
                     "discussions",

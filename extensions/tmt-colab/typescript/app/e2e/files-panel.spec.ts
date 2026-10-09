@@ -345,7 +345,7 @@ test('the Export panel lists every attachment with its outcome and saves an incl
   expect(readFileSync((await received.path())!).toString()).toBe('exported note');
   // Requesting the other files completes the copy: the included attachment counts too.
   await expect(panel.getByRole('status')).toContainText(text.exportPartial);
-  for (const name of ['page.html', 'manifest.json']) {
+  for (const name of ['page.html', 'conversations.json', 'conversations.md', 'manifest.json']) {
     const next = page.waitForEvent('download');
     await panel.getByRole('button', { name: `Download ${name}`, exact: true }).click();
     await next;
