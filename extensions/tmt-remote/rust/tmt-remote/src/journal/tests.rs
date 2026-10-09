@@ -73,7 +73,7 @@ fn recovery_capacity_refuses_new_work_without_evicting_uncertain_work() {
     let mut f = Fixture::new();
     let message = f.message();
     f.adopt(&message, f.now).unwrap();
-    f.store.connection.execute("WITH RECURSIVE n(x) AS (VALUES(1) UNION ALL SELECT x+1 FROM n WHERE x<999) INSERT INTO operations(id,client_id,operation,digest,phase,receipt,updated_ms) SELECT printf('00000000-0000-4000-8000-%012x',x),?1,'capabilities',zeroblob(32),'uncertain','{}',?2 FROM n",params![f.grant.client_id,f.now as i64]).unwrap();
+    f.store.connection.execute("WITH RECURSIVE n(x) AS (VALUES(1) UNION ALL SELECT x+1 FROM n WHERE x<999) INSERT INTO operations(id,client_id,operation,digest,phase,receipt,updated_ms) SELECT printf('00000000-0000-4000-8000-%012x',x),?1,'dispatch.create',zeroblob(32),'uncertain','{}',?2 FROM n",params![f.grant.client_id,f.now as i64]).unwrap();
     let next = f.message();
     assert_eq!(
         f.adopt(&next, f.now + RECOVERY + 1).unwrap_err().code,

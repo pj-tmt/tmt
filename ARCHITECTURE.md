@@ -1167,7 +1167,7 @@ The door serves the browser SDK `remote-v1.js` (built from `remote-client`), whi
 gives mounted pages `reopenSession`, `operations(session)` and `certifyKey`; its README owns
 the caller-facing recovery rules. The
 [Remote skill](.agents/skills/tmt-remote/references/architecture-internals.md) owns module internals.
-Remote sessions are keyed by session ID; the effect journal and ack stay per device.
+Remote sessions are keyed by session ID; the effect journal and ack stay per device, bounded by dropping the oldest.
 Reads keep signed admission/replay fences without adoption. Mounted transports explicitly
 bind the session through a non-secret, cookie-device-checked `tmt-session` identifier
 stripped at the door. Last-close touches; every session without a live transport has the existing 60-second inactivity grace.

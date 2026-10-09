@@ -313,8 +313,7 @@ beginning cursor. The fixed observational operations (`capabilities`, `agents.li
 the read ID, observed-read metadata or new ownership rows. `operation.show` is recovery observation:
 stable or still-unresolved originals are pure reads; a definitive outcome learned for an unresolved
 caller-owned original settles that original once, with its notification attributed to the observing
-session. It never sends. At journal-entry capacity the original still settles, omitting only that
-notification. A lost read reply requires a new signed
+session. It never sends. A lost read reply requires a new signed
 request, not journal recovery. Signature, freshness, session, scope, sequence and call-budget
 fences still apply. Response entries contain effect state/receipt references
 rather than full final bodies. Release frozen payloads after confirmed core acceptance/cancellation;
@@ -330,15 +329,19 @@ is a delivery checkpoint, not core X acknowledgment, task success, cancellation,
 retention renewal. Controls and their responses do not create entries requiring another ack,
 avoiding ack loops. No implicit acknowledgment on subscribe/read. Enforce ack at or before the last
 successfully subscribed position; a client cannot skip unseen entries. Bound retained journal
-entries to 24 hours and 1000 entries/client; acked prefixes may be compacted earlier; refuse new
-effect adoption if unacknowledged capacity is exhausted; journal capacity never refuses a read.
-Expired journal metadata can require fresh
-own-state recovery; it does not alter core prompt/final retention. Separate bounded
-operation/request ownership records survive journal eviction for 30 days after their last state
-change. Limit these to 1000 operations/client and refuse new adoption at capacity; never evict an
-uncertain operation to admit another. After this recovery horizon an owned read returns
-REMOTE_STATE_UNAVAILABLE, never permission to resend. Revoked/expired grants cannot use these
-records to regain access.
+entries to 24 hours and 1000 entries/client; acked prefixes may be compacted earlier. A full stream
+drops its oldest entries to hold a new one and never refuses work or a read for entry capacity; a
+cursor behind the dropped position returns `REMOTE_CURSOR_EXPIRED`, so recover with own operation
+IDs. Expired journal metadata can require fresh own-state recovery; it does not alter core
+prompt/final retention. Separate bounded operation/request ownership records survive journal
+eviction for 30 days after their last state change. Limit these to 1000 operations/client. To admit
+a new operation, drop records left by reads, finished records (accepted, cancelled, refused) past
+that horizon and, over the limit, the oldest finished records. Held, dispatching and uncertain
+records are live work: never evict one to admit another, and refuse new adoption only when every
+record is live or the frozen-byte caps are reached. A send under a dropped ID is a new adoption
+that asks core for that operation ID before it creates anything. After this recovery horizon, or
+once dropped, an owned read returns REMOTE_STATE_UNAVAILABLE, never permission to resend.
+Revoked/expired grants cannot use these records to regain access.
 
 ## Pairing
 

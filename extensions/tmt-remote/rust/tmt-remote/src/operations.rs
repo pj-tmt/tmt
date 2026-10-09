@@ -639,20 +639,7 @@ impl Store {
         .map_err(database)?;
         if let Some(metadata) = metadata {
             crate::journal::prune(&tx, &grant.client_id, now)?;
-            let entries: i64 = tx
-                .query_row(
-                    "SELECT COUNT(*) FROM entries WHERE client_id=?1",
-                    [&grant.client_id],
-                    |r| r.get(0),
-                )
-                .map_err(database)?;
-            if entries >= crate::journal::ENTRIES {
-                return match kind {
-                    SettlementKind::Effect => Err(database("journal capacity")),
-                    SettlementKind::RecoveryObservation => tx.commit().map_err(database),
-                };
-            }
-
+            crate::journal::make_room_for_entry(&tx, &grant.client_id)?;
             if metadata.len() > crate::limits::METADATA_BYTES {
                 return Err(invalid());
             }
