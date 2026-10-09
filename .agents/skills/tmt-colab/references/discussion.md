@@ -61,6 +61,8 @@ owns record fields, limits, revision semantics and trust boundaries.
 - `components/conversation-window.tsx` owns one header, full-width history and bottom
   composer placement for Chat, anchored threads and new annotations. Window geometry
   remains caller-owned; this component owns scrolling for both surfaces.
+  Its shared composer does not shrink; history takes the remaining height, down to
+  zero, so the field, status and Send stay inside the window with a long history.
   It opens at the history bottom and follows new record identities while the reader
   is within 24px of the bottom. Above that threshold, arrivals preserve the reading
   position and show a politely announced "New messages" text action at the history's
