@@ -197,28 +197,16 @@ fn office_install_adds_optional_guidance_to_detected_and_managed_custom_roots() 
 }
 
 #[test]
-fn office_install_preserves_unmanaged_target_until_force_creates_a_backup() {
+fn office_install_replaces_an_existing_published_name_without_force() {
     let (_directory, environment, global, home) = fixture();
     let target = home.join(".agents/skills/tmt-avatar-create");
     fs::create_dir_all(target.parent().unwrap()).unwrap();
-    fs::write(&target, b"user-owned office guidance").unwrap();
-
-    let failure = install_office(&environment, &global, false).unwrap_err();
-    assert_failure_preserves(&failure, "Refusing to replace existing unmanaged path");
-    assert_eq!(fs::read(&target).unwrap(), b"user-owned office guidance");
-
-    let forced = install_office(&environment, &global, true).unwrap();
-    assert_eq!(forced.installed.len(), 3);
-    let avatar = forced
-        .installed
-        .iter()
-        .find(|item| item.name == "tmt-avatar-create")
-        .unwrap();
-    let backup = avatar.backup.as_ref().unwrap();
-    assert_eq!(fs::read(backup).unwrap(), b"user-owned office guidance");
-    assert!(backup.starts_with(home.join(".agents/.tmt-skill-backups")));
+    fs::write(&target, b"old copy").unwrap();
+    let report = install_office(&environment, &global, false).unwrap();
+    assert_eq!(report.installed.len(), 3);
+    assert!(report.installed.iter().all(|item| item.backup.is_none()));
     assert_eq!(
-        fs::read(assert_link(&target).join("SKILL.md")).unwrap(),
+        fs::read(target.join("SKILL.md")).unwrap(),
         bundled_skill_named("tmt-avatar-create").unwrap()
     );
 }
@@ -309,85 +297,29 @@ fn all_install_deduplicates_shared_targets_but_reports_stable_provider_order() {
 }
 
 #[test]
-fn unmanaged_file_directory_broken_and_wrong_links_refuse_without_force() {
+fn existing_file_directory_broken_and_foreign_links_are_replaced_without_force() {
     for kind in 0..4 {
         let (_directory, environment, global, home) = fixture();
         let target = home.join(".claude/skills/tmt");
-        fs::create_dir_all(target.parent().unwrap()).unwrap();
+        let personal = home.join(".claude/skills/personal");
+        fs::create_dir_all(&personal).unwrap();
+        fs::write(personal.join("SKILL.md"), "personal").unwrap();
         match kind {
-            0 => fs::write(&target, b"user file").unwrap(),
+            0 => fs::write(&target, b"old file").unwrap(),
             1 => {
                 fs::create_dir(&target).unwrap();
-                fs::write(target.join("user.md"), b"user directory").unwrap();
+                std::os::unix::fs::symlink(&personal, target.join("nested")).unwrap();
             }
             2 => std::os::unix::fs::symlink(home.join("missing"), &target).unwrap(),
-            _ => {
-                let wrong = home.join("wrong-skill");
-                fs::create_dir(&wrong).unwrap();
-                fs::write(wrong.join("SKILL.md"), b"wrong skill").unwrap();
-                std::os::unix::fs::symlink(&wrong, &target).unwrap();
-            }
+            _ => std::os::unix::fs::symlink(&personal, &target).unwrap(),
         }
-        let before = fs::read_dir(target.parent().unwrap())
-            .unwrap()
-            .map(|entry| entry.unwrap().file_name())
-            .collect::<Vec<_>>();
-        let failure = install(&environment, &global, Some("claude"), None, false).unwrap_err();
-        assert_failure_preserves(&failure, "Refusing to replace existing unmanaged path");
-        assert_eq!(
-            fs::read_dir(target.parent().unwrap())
-                .unwrap()
-                .map(|entry| entry.unwrap().file_name())
-                .collect::<Vec<_>>(),
-            before
-        );
-        match kind {
-            0 => assert_eq!(fs::read(&target).unwrap(), b"user file"),
-            1 => assert_eq!(fs::read(target.join("user.md")).unwrap(), b"user directory"),
-            2 => assert_eq!(fs::read_link(&target).unwrap(), home.join("missing")),
-            _ => {
-                assert_eq!(fs::read_link(&target).unwrap(), home.join("wrong-skill"));
-                assert_eq!(
-                    fs::read(home.join("wrong-skill/SKILL.md")).unwrap(),
-                    b"wrong skill"
-                );
-            }
-        }
+        let report = install(&environment, &global, Some("claude"), None, false).unwrap();
+        assert!(report.installed[0].changed);
+        assert!(report.installed.iter().all(|item| item.backup.is_none()));
+        assert_eq!(fs::read(target.join("SKILL.md")).unwrap(), bundled_skill());
+        assert_eq!(fs::read(personal.join("SKILL.md")).unwrap(), b"personal");
+        assert!(!home.join(".claude/.tmt-skill-backups").exists());
     }
-}
-
-#[test]
-fn force_preserves_unmanaged_directory_and_broken_link_outside_discovery() {
-    let (_directory, environment, global, home) = fixture();
-    let target = home.join(".claude/skills/tmt");
-    fs::create_dir_all(&target).unwrap();
-    fs::write(target.join("user.md"), b"user-owned").unwrap();
-    let report = install(&environment, &global, Some("claude"), None, true).unwrap();
-    let backup = report.installed[0].backup.as_ref().unwrap();
-    assert_eq!(
-        backup.parent().unwrap(),
-        home.join(".claude/.tmt-skill-backups")
-    );
-    assert!(backup.strip_prefix(home.join(".claude/skills")).is_err());
-    assert_eq!(fs::read(backup.join("user.md")).unwrap(), b"user-owned");
-    assert_eq!(
-        fs::read(assert_link(&target).join("SKILL.md")).unwrap(),
-        bundled_skill()
-    );
-
-    fs::remove_file(&target).unwrap();
-    let missing = home.join("missing-skill");
-    std::os::unix::fs::symlink(&missing, &target).unwrap();
-    let broken_report = install(&environment, &global, Some("claude"), None, true).unwrap();
-    let broken_backup = broken_report.installed[0].backup.as_ref().unwrap();
-    assert!(fs::symlink_metadata(broken_backup).unwrap().is_symlink());
-    assert_eq!(fs::read_link(broken_backup).unwrap(), missing);
-
-    fs::remove_file(&target).unwrap();
-    fs::write(&target, b"user file").unwrap();
-    let file_report = install(&environment, &global, Some("claude"), None, true).unwrap();
-    let file_backup = file_report.installed[0].backup.as_ref().unwrap();
-    assert_eq!(fs::read(file_backup).unwrap(), b"user file");
 }
 
 #[test]
@@ -440,20 +372,6 @@ fn invalid_or_oversized_registry_is_preserved_and_prevents_materialization() {
         assert!(!home.join(".claude/skills/tmt").exists());
         assert!(!global.join("skill-assets").exists());
     }
-}
-
-#[test]
-fn installer_error_releases_lock_for_a_following_success() {
-    let (_directory, environment, global, home) = fixture();
-    let target = home.join(".claude/skills/tmt");
-    fs::create_dir_all(target.parent().unwrap()).unwrap();
-    fs::write(&target, b"user-owned").unwrap();
-    let failure = install(&environment, &global, Some("claude"), None, false).unwrap_err();
-    assert_failure_preserves(&failure, "Refusing to replace existing unmanaged path");
-    fs::remove_file(&target).unwrap();
-    let success = install(&environment, &global, Some("claude"), None, false).unwrap();
-    assert!(success.installed[0].changed);
-    assert!(fs::symlink_metadata(&target).unwrap().is_symlink());
 }
 
 fn digest(bytes: &[u8]) -> String {
@@ -517,7 +435,7 @@ fn valid_old_two_skill_bundle_upgrades_both_targets_without_backup() {
 }
 
 #[test]
-fn tampered_old_two_skill_bundle_is_unmanaged_and_preserved() {
+fn tampered_old_two_skill_bundle_targets_are_replaced_and_sources_preserved() {
     let (_directory, environment, global, home) = fixture();
     let old_core = b"old core skill bytes\n";
     let old_inbox = b"old inbox skill bytes\n";
@@ -529,10 +447,9 @@ fn tampered_old_two_skill_bundle_is_unmanaged_and_preserved() {
     std::os::unix::fs::symlink(&old_main, &target).unwrap();
     std::os::unix::fs::symlink(&old_inbox_source, &inbox_target).unwrap();
 
-    let failure = install(&environment, &global, Some("claude"), None, false).unwrap_err();
-    assert_failure_preserves(&failure, "Refusing to replace existing unmanaged path");
-    assert_eq!(assert_link(&target), old_main);
-    assert_eq!(assert_link(&inbox_target), old_inbox_source);
+    install(&environment, &global, Some("claude"), None, false).unwrap();
+    assert_ne!(assert_link(&target), old_main);
+    assert_ne!(assert_link(&inbox_target), old_inbox_source);
     assert_eq!(fs::read(old_main.join("SKILL.md")).unwrap(), old_core);
     assert_eq!(
         fs::read(old_inbox_source.join("SKILL.md")).unwrap(),
@@ -564,7 +481,7 @@ fn valid_old_digest_source_refreshes_to_current_source_without_backup() {
 }
 
 #[test]
-fn modified_old_digest_source_is_unmanaged_and_refuses_replacement() {
+fn modified_old_digest_source_is_untouched_when_its_target_is_replaced() {
     let (_directory, environment, global, home) = fixture();
     let original = b"old canonical skill\n";
     let modified = b"tampered old skill\n";
@@ -579,13 +496,9 @@ fn modified_old_digest_source_is_unmanaged_and_refuses_replacement() {
     fs::create_dir_all(target.parent().unwrap()).unwrap();
     std::os::unix::fs::symlink(&old_source, &target).unwrap();
 
-    let failure = install(&environment, &global, Some("claude"), None, false).unwrap_err();
-    assert_failure_preserves(&failure, "Refusing to replace existing unmanaged path");
-    assert_eq!(fs::read_link(&target).unwrap(), old_source);
-    assert_eq!(fs::read(old_source.join("SKILL.md")).unwrap(), modified);
-    let forced = install(&environment, &global, Some("claude"), None, true).unwrap();
-    let backup = forced.installed[0].backup.as_ref().unwrap();
-    assert_eq!(fs::read_link(backup).unwrap(), old_source);
+    let report = install(&environment, &global, Some("claude"), None, false).unwrap();
+    assert!(report.installed[0].backup.is_none());
+    assert_ne!(fs::read_link(&target).unwrap(), old_source);
     assert_eq!(fs::read(old_source.join("SKILL.md")).unwrap(), modified);
     assert_eq!(fs::read(target.join("SKILL.md")).unwrap(), bundled_skill());
 }

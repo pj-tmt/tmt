@@ -6,7 +6,7 @@ use crate::test_support::TestDirectory;
 use std::{fs, io};
 
 #[test]
-fn failed_publication_reports_prior_success_and_recoverable_backup_then_releases_lock() {
+fn failed_publication_reports_prior_success_then_releases_lock() {
     let root = TestDirectory::new();
     let home = root.path.join("home");
     let global = root.path.join("global");
@@ -21,8 +21,8 @@ fn failed_publication_reports_prior_success_and_recoverable_backup_then_releases
         install_with_publisher(&env, &global, Some("all"), None, true, |target, source| {
             publications += 1;
             if target == second {
-                // The real backup has already happened. Fail only the file boundary.
-                assert!(!target.exists());
+                // Fail before the replacement boundary.
+                assert!(target.is_dir());
                 return Err(io::Error::other("injected publication failure"));
             }
             files::link(target, source)
@@ -32,16 +32,14 @@ fn failed_publication_reports_prior_success_and_recoverable_backup_then_releases
     assert_eq!(failure.report.installed.len(), 2);
     assert_eq!(failure.report.installed[0].target, first);
     assert!(fs::symlink_metadata(&first).unwrap().is_symlink());
-    let backup = failure.pending_backup.as_ref().unwrap();
+    assert!(failure.pending_backup.is_none());
     assert_eq!(
-        fs::read(backup.join("user.md")).unwrap(),
+        fs::read(second.join("user.md")).unwrap(),
         b"irreplaceable user content"
     );
-    assert!(!second.exists());
     let message = failure.to_string();
     assert!(message.contains("injected publication failure"));
     assert!(message.contains(first.to_str().unwrap()));
-    assert!(message.contains(backup.to_str().unwrap()));
     // Intent remains discoverable, but failed targets are not reported installed.
     assert!(super::registry::read(&global).unwrap().contains(&second));
     let retry = install(&env, &global, Some("all"), None, false).unwrap();
@@ -49,14 +47,10 @@ fn failed_publication_reports_prior_success_and_recoverable_backup_then_releases
     assert!(!retry.installed[1].changed);
     assert!(retry.installed[2].changed);
     assert!(fs::symlink_metadata(&second).unwrap().is_symlink());
-    assert_eq!(
-        fs::read(backup.join("user.md")).unwrap(),
-        b"irreplaceable user content"
-    );
 }
 
 #[test]
-fn failed_office_publication_preserves_a_recoverable_backup_and_can_retry() {
+fn failed_office_publication_preserves_the_unreplaced_entry_and_can_retry() {
     let root = TestDirectory::new();
     let home = root.path.join("home");
     let global = root.path.join("global");
@@ -68,7 +62,7 @@ fn failed_office_publication_preserves_a_recoverable_backup_and_can_retry() {
 
     let failure = install_office_with_publisher(&env, &global, true, |published, source| {
         if published == target {
-            assert!(!published.exists());
+            assert!(published.is_dir());
             return Err(io::Error::other("injected Office publication failure"));
         }
         files::link(published, source)
@@ -76,13 +70,11 @@ fn failed_office_publication_preserves_a_recoverable_backup_and_can_retry() {
     .unwrap_err();
     assert_eq!(failure.report.installed.len(), 1);
     assert_eq!(failure.report.installed[0].name, "tmt-avatar-create");
-    let backup = failure.pending_backup.as_ref().unwrap();
+    assert!(failure.pending_backup.is_none());
     assert_eq!(
-        fs::read(backup.join("user.md")).unwrap(),
+        fs::read(target.join("user.md")).unwrap(),
         b"user-owned office guidance"
     );
-    assert!(!target.exists());
-    assert!(failure.to_string().contains(backup.to_str().unwrap()));
 
     let retry = install_office(&env, &global, false).unwrap();
     assert_eq!(retry.installed.len(), 3);
@@ -95,10 +87,6 @@ fn failed_office_publication_preserves_a_recoverable_backup_and_can_retry() {
             .changed
     );
     assert!(fs::symlink_metadata(&target).unwrap().is_symlink());
-    assert_eq!(
-        fs::read(backup.join("user.md")).unwrap(),
-        b"user-owned office guidance"
-    );
 }
 
 #[test]

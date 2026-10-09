@@ -326,7 +326,7 @@ describe('former Squad hook consent during Ops replacement', () => {
 
 describe('Remote replacement notices after partial completion', () => {
   it.each([true, false])(
-    'retains one restart hint when skill settlement fails, JSON=%s',
+    'retains successful activation and one restart hint with a skill warning, JSON=%s',
     async (json) => {
       await withSandbox(async (sandbox) => {
         const prefix = path.join(sandbox.root, 'remote partial prefix');
@@ -367,15 +367,22 @@ describe('Remote replacement notices after partial completion', () => {
           'remote'
         );
         const replaced = await installRemote(second);
-        expect(replaced.status, replaced.stdout + replaced.stderr).toBe(1);
+        expect(replaced.status, replaced.stdout + replaced.stderr).toBe(0);
         const hint =
           'Remote was upgraded, but its door status could not be confirmed. Finish active pairing and held approvals, then restart if running: tmt remote stop && tmt remote serve.';
         if (json)
           expect(parseWholeStdout(replaced)).toMatchObject({
-            error: { code: 'EXTENSION_SKILLS_FAILED', suggestion: hint },
+            installed: true,
+            changed: true,
+            version: '0.1.0-alpha.2',
+            skills: { status: 'warning', warning: { code: 'EXTENSION_SKILLS_FAILED' } },
+            restartHint: hint,
           });
-        // The human message renderer drops one final period; JSON retains it.
-        else expect(replaced.stderr).toContain(`hint: ${hint.slice(0, -1)}\n`);
+        else {
+          expect(replaced.stdout).toContain('Warning:');
+          expect(replaced.stdout).toContain(hint);
+        }
+        expect(replaced.stdout).toContain(path.join(sandbox.globalDir, 'skill-owners.json'));
         expect((replaced.stdout + replaced.stderr).split('Remote was upgraded').length - 1).toBe(1);
         expect(realpathSync(path.join(prefix, 'lib/tmt-remote/current'))).not.toBe(oldRelease);
         expect(existsSync(oldRelease)).toBe(true);
@@ -462,6 +469,7 @@ describe('tmt extension install surface', () => {
           changed: true,
           version: '0.1.0-alpha.1',
           executable: path.join(realpathSync(prefix), `bin/tmt-${name}`),
+          skills: { status: 'current', available: [], published: [], removed: [] },
         });
         expect(readlinkSync(path.join(prefix, `bin/tmt-${name}`))).toBe(
           `../lib/tmt-${name}/current/tmt-${name}`
@@ -560,6 +568,7 @@ describe('tmt extension install surface', () => {
         changed: true,
         version: '0.1.0-alpha.1',
         executable: path.join(realpathSync(prefix), 'bin/tmt-ops'),
+        skills: { status: 'current', available: [], published: [], removed: [] },
       });
       for (const link of ['tmt-ops'])
         expect(readlinkSync(path.join(prefix, 'bin', link))).toBe('../lib/tmt-ops/current/tmt-ops');
@@ -956,7 +965,7 @@ describe('tmt extension install surface', () => {
     });
   }, 120_000);
 
-  it('offers bundled skills, refreshes them by name on update, and uninstall removes every owned skill', async () => {
+  it('publishes bundled skills, refreshes them by name on update, and uninstall removes every owned skill', async () => {
     await withSandbox(async (sandbox) => {
       const prefix = path.join(sandbox.root, 'extension prefix');
       const cli = (args: string[]) =>
@@ -985,37 +994,11 @@ describe('tmt extension install surface', () => {
         'tmt-ops-retired/SKILL.md': 'retired\n',
       });
 
-      // --yes installs the extension but never publishes skills by itself.
-      const offered = parseWholeStdout(await install(first)) as Record<string, unknown>;
-      expect(offered.skills).toEqual({
-        available: ['tmt-ops', 'tmt-ops-retired'],
-        published: [],
-        removed: [],
-      });
-      const human = await runCli(
-        sandbox,
-        [
-          'extension',
-          'install',
-          'ops',
-          '--yes',
-          '--archive',
-          first.archive,
-          '--manifest',
-          first.manifest,
-          '--prefix',
-          prefix,
-        ],
-        { deadlineMs: INSTALL_PROCESS_BUDGET_MS }
-      );
-      expect(human.stdout).toContain(
-        '2 agent skills available (tmt-ops, tmt-ops-retired); publish with: tmt extension install ops --skills'
-      );
-
-      // --skills publishes the verified tree into every provider root.
-      const accepted = parseWholeStdout(await install(first, ['--skills'])) as {
-        skills: { published: Array<{ name: string; target: string }> };
+      // Binary consent also publishes the verified release tree without another flag.
+      const accepted = parseWholeStdout(await install(first)) as {
+        skills: { status: string; published: Array<{ name: string; target: string }> };
       };
+      expect(accepted.skills.status).toBe('current');
       const targets = accepted.skills.published.map((item) => item.target);
       expect(targets.length).toBeGreaterThan(0);
       // The provider roots this sandbox publishes into, from the report itself.
@@ -1084,7 +1067,7 @@ describe('tmt extension install surface', () => {
     });
   }, 90_000);
 
-  it('installs canonical Colab skill bytes, refreshes managed links and preserves unmanaged conflicts', async () => {
+  it('installs canonical Colab skill bytes and replaces existing published names', async () => {
     await withSandbox(async (sandbox) => {
       const canonical = readFileSync(
         new URL('../../../extensions/tmt-colab/skills/tmt-colab/SKILL.md', import.meta.url),
@@ -1115,15 +1098,9 @@ describe('tmt extension install surface', () => {
           { deadlineMs: INSTALL_PROCESS_BUDGET_MS }
         );
       const first = await artifact('0.1.0-alpha.1', canonical);
-      const offered = await install(first);
-      expect(offered.status, offered.stdout + offered.stderr).toBe(0);
-      expect(parseWholeStdout(offered).skills).toEqual({
-        available: ['tmt-colab'],
-        published: [],
-        removed: [],
-      });
-      const accepted = await install(first, true);
+      const accepted = await install(first);
       expect(accepted.status, accepted.stdout + accepted.stderr).toBe(0);
+      expect((parseWholeStdout(accepted).skills as { status: string }).status).toBe('current');
       const {
         skills: { published },
       } = parseWholeStdout(accepted) as {
@@ -1154,16 +1131,28 @@ describe('tmt extension install surface', () => {
       expect(updated.status, updated.stdout + updated.stderr).toBe(0);
       for (const item of published)
         expect(readFileSync(path.join(item.target, 'SKILL.md'), 'utf8')).toBe(updatedBytes);
-      // Modified content is user-owned: a newer extension stays installed without overwriting it.
+      // The published name replaces any real directory without byte or ownership checks.
       const conflict = published[0]!.target;
       unlinkSync(conflict);
       mkdirSync(conflict);
       writeFileSync(path.join(conflict, 'SKILL.md'), 'User-owned Colab instructions.\n');
-      const refused = await install(await artifact('0.1.0-alpha.3', canonical), true);
-      expectError(refused, 'EXTENSION_SKILLS_FAILED');
-      expect(readFileSync(path.join(conflict, 'SKILL.md'), 'utf8')).toBe(
-        'User-owned Colab instructions.\n'
-      );
+      const personal = path.join(path.dirname(conflict), 'personal-guidance');
+      mkdirSync(personal);
+      writeFileSync(path.join(personal, 'SKILL.md'), 'Personal instructions.');
+      symlinkSync(personal, path.join(conflict, 'nested'));
+      const replaced = await install(await artifact('0.1.0-alpha.3', canonical));
+      expect(replaced.status, replaced.stdout + replaced.stderr).toBe(0);
+      expect(readFileSync(path.join(conflict, 'SKILL.md'), 'utf8')).toBe(canonical);
+      expect(readFileSync(path.join(personal, 'SKILL.md'), 'utf8')).toBe('Personal instructions.');
+      unlinkSync(conflict);
+      symlinkSync(personal, conflict);
+      const relinked = await install(await artifact('0.1.0-alpha.4', updatedBytes));
+      expect(relinked.status, relinked.stdout + relinked.stderr).toBe(0);
+      expect(readFileSync(path.join(conflict, 'SKILL.md'), 'utf8')).toBe(updatedBytes);
+      expect(readFileSync(path.join(personal, 'SKILL.md'), 'utf8')).toBe('Personal instructions.');
+      expect(
+        existsSync(path.join(path.dirname(path.dirname(conflict)), '.tmt-skill-backups'))
+      ).toBe(false);
       expect(readlinkSync(path.join(prefix, 'bin/tmt-colab'))).toBe(
         '../lib/tmt-colab/current/tmt-colab'
       );
@@ -1171,7 +1160,7 @@ describe('tmt extension install surface', () => {
       expect(listed.status, listed.stdout + listed.stderr).toBe(0);
       expect(parseWholeStdout(listed)).toMatchObject({
         extensions: expect.arrayContaining([
-          expect.objectContaining({ name: 'colab', installed: true, version: '0.1.0-alpha.3' }),
+          expect.objectContaining({ name: 'colab', installed: true, version: '0.1.0-alpha.4' }),
         ]),
       });
       expect(existsSync(path.join(sandbox.globalDir, 'colab', 'door.sock'))).toBe(false);
@@ -1182,6 +1171,9 @@ describe('tmt extension install surface', () => {
   it('keeps the extension installed when its skills cannot be published', async () => {
     await withSandbox(async (sandbox) => {
       const prefix = path.join(sandbox.root, 'extension prefix');
+      const initial = await createArtifact(sandbox, '0.0.9-alpha.1', new Uint8Array(), 'ops');
+      const installed = await runCli(sandbox, replacementArgs(initial, prefix));
+      expect(installed.status, installed.stdout + installed.stderr).toBe(0);
       const artifact = await createArtifact(
         sandbox,
         '0.1.0-alpha.1',
@@ -1190,33 +1182,50 @@ describe('tmt extension install surface', () => {
         undefined,
         { 'tmt-ops/SKILL.md': 'lead\n' }
       );
-      // An unmanaged folder already holds the name in the Claude root.
+      // Publication cannot replace a directory in a root without write permission.
       const conflict = path.join(sandbox.home, '.claude/skills/tmt-ops');
       mkdirSync(conflict, { recursive: true });
-      writeFileSync(path.join(conflict, 'SKILL.md'), 'hand-written');
-      const result = await runCli(
-        sandbox,
-        [
-          'extension',
-          'install',
-          'ops',
-          '--yes',
-          '--skills',
-          '--archive',
-          artifact.archive,
-          '--manifest',
-          artifact.manifest,
-          '--prefix',
-          prefix,
-          '--channel',
-          'alpha',
-          '--json',
-        ],
-        { deadlineMs: INSTALL_PROCESS_BUDGET_MS }
-      );
-      expectError(result, 'EXTENSION_SKILLS_FAILED');
-      expect(readFileSync(path.join(conflict, 'SKILL.md'), 'utf8')).toBe('hand-written');
-      expect(readlinkSync(path.join(prefix, 'bin/tmt-ops'))).toBe('../lib/tmt-ops/current/tmt-ops');
+      writeFileSync(path.join(conflict, 'SKILL.md'), 'old copy');
+      const root = path.dirname(conflict);
+      chmodSync(root, 0o555);
+      try {
+        const result = await runCli(
+          sandbox,
+          [
+            'extension',
+            'install',
+            'ops',
+            '--yes',
+            '--skills',
+            '--archive',
+            artifact.archive,
+            '--manifest',
+            artifact.manifest,
+            '--prefix',
+            prefix,
+            '--channel',
+            'alpha',
+            '--json',
+          ],
+          { deadlineMs: INSTALL_PROCESS_BUDGET_MS }
+        );
+        expect(result.status, result.stdout + result.stderr).toBe(0);
+        expect(parseWholeStdout(result)).toMatchObject({
+          installed: true,
+          changed: true,
+          version: '0.1.0-alpha.1',
+          skills: { status: 'warning', warning: { code: 'EXTENSION_SKILLS_FAILED' } },
+        });
+        expect(
+          (parseWholeStdout(result).skills as { warning: { message: string } }).warning.message
+        ).toContain(conflict);
+        expect(readFileSync(path.join(conflict, 'SKILL.md'), 'utf8')).toBe('old copy');
+        expect(readlinkSync(path.join(prefix, 'bin/tmt-ops'))).toBe(
+          '../lib/tmt-ops/current/tmt-ops'
+        );
+      } finally {
+        chmodSync(root, 0o755);
+      }
     });
   }, 60_000);
 });

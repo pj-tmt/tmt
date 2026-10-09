@@ -13,16 +13,17 @@ publication and verification procedures are in the [tmt-release skill](../../tmt
   bytes and the earlier bundle layouts upgrades still verify; `Catalog::new` joins owner-held
   skills and never lets an owner shadow a core name. Skills install as one versioned bundle
   materialized by digest. Skill installation never opens configuration, SQLite or tmux.
-- Ownership needs a known skill name and a link into this home's `skill-assets` store. A missing
-  generation is a dangling TMT link (refreshable or removable); a real directory, mismatched
-  name, outside link or modified source is preserved as a conflict.
+- Publication selects names from the bundled catalog or verified release tree and replaces
+  existing leaf entries at those names, without prompt, flag, backup or prior ownership/byte
+  checks. Other names and symlink destinations are untouched. Immutable source validation and
+  source-overlap guards remain; missing recorded targets stay missing during refresh.
 - Extension-owned skills arrive through `skills.install`/`skills.remove` (explicit
   `consent: true`). `skill_installation::owned` validates them, stores each under
   `skill-assets/owners/<owner>/<digest>/<name>` (digest recomputed) and links it into the same
   roots; `skill-owners.json`, separate from the target intents core refresh reads, records each
   name's owner, digest and targets. The first owner of a name keeps it until an explicit force.
   The same-user API cannot authenticate its caller, so install and remove refuse targets another
-  owner holds. Claims and unmanaged paths are checked for every target before any effect;
+  owner holds. Name claims are checked before publication;
   removal deletes only links into the owner's store.
 - The Office skill sources under `extensions/tmt-office/skills/` are still embedded into the core
   bundle (extraction debt owned by #328, not a second source).
@@ -97,7 +98,7 @@ upgrade failure, retirement, re-launch or automatic rebind.
   installs, unchanged versions (including pin/channel-only changes), skipped pins, stopped doors
   and other products stay quiet. CLI success exposes `restartHint` (under product `details` in
   bulk upgrades); post-activation failure retains the notice in `error.suggestion`. Standalone
-  and bulk human output render it once, including skill-settlement failure. Finish active pairing
+  and bulk human output render it once, including skill-settlement warnings. Finish active pairing
   and held approvals before manually restarting; legacy doors require Ctrl-C in their terminal.
 
 ## Former product replacement
@@ -111,13 +112,13 @@ locks the new namespace before the old namespace and applies existing channel,
 version and pin policy. Interrupted preparation can retry from an empty new layout.
 
 After new activation, `owned::migrate_former_owned` verifies immutable skill
-sources and every recorded target before effects. It changes the owner to `ops`
+sources and former recorded links before effects. It changes the owner to `ops`
 and the lead skill name to `tmt-ops`, retaining custom targets and leaving removed
-targets absent. Modified/foreign targets fail closed. Immutable source generations
-remain; interrupted link transitions can retry. Ordinary Ops refresh uses recorded
-targets only; discovering new providers needs explicit publication consent.
+targets absent. Modified former links fail closed; existing entries at the new published
+name are replaced. Immutable source generations remain; interrupted link transitions can
+retry. Activated release skills publish into the selected provider and custom roots.
 
-After successful skill settlement, the CLI verifies both installations and
+After activation and skill settlement (including warnings), the CLI verifies both installations and
 uses `extension_hooks::disable` to withdraw only the former name's recorded
 consent. Prior consent removal adds the separate-successor enable command to human
 output and `hooks.disabled`/`hooks.enableCommand` to JSON; absent consent adds
@@ -125,7 +126,7 @@ neither. No successor consent is created or refreshed. A consent read/write fail
 reports the hook error and settings path, leaves the successor active and retains
 the former installation for retry. A later former-removal failure keeps consent
 withdrawn and reports partial replacement. An unpinned upgrade with no publication
-change retries settlement only when a verified former installation remains;
+change retries skill publication and any remaining former replacement;
 pinned no-ops retain it.
 
 Before removing former Squad, the CLI's bounded replacement adapter invokes the
@@ -141,8 +142,8 @@ owns the deleted-executable fallback and private pending-switch record.
 locks and verifies the old activation, removes only old command links whose target
 resolves inside the verified old namespace, and removes that installation namespace.
 Foreign same-named commands remain. The CLI reports `replaced`, `removed` and `kept`;
-application config, cron, checklist and other data are never removed. A skill failure
-retains the old installation for retry. Pinned no-ops retain the former installation.
+application config, cron, checklist and other data are never removed. Skill failures are
+warnings independent of binary replacement. Pinned no-ops retain the former installation.
 Full `tmt uninstall` plans and removes a verified former installation through the
 same receipt and command-link fence, even without Ops installed; ordinary data
 retention and explicit `--purge` policy still apply.
@@ -236,5 +237,6 @@ A parent CLI released before Ops registration parses the candidate's upgrade pla
   runs without `--yes` report `consentRequired`; product failures stay independent, a CLI failure
   stops the extension phase and a pinned CLI permits it.
 - `NATIVE_UPGRADE_FAILED` carries a diagnostic `cause`; HTTPS failures never echo URI or proxy
-  credentials. Managed-skill conflicts keep the path array and one shell-quoted backup command per
-  preserved entry.
+  credentials. After binary activation, skill failures become `skills.status: "warning"` with
+  path/cause and partial publication; they never turn that product into a failed upgrade or stop
+  later products. Human and JSON output retain each product's activation and skill summary.

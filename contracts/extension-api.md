@@ -394,18 +394,20 @@ is not itself an unsafe-input refusal.
 ## Other operation details
 
 `skills.install` publishes an extension's agent skills into the user's provider
-skill directories, so send `consent: true` only after asking the user, as
-`tmt extension install` does. `owner` is the extension name; each skill is
+skill directories, so send `consent: true` only after obtaining user consent.
+Native extension installation publishes its release skills after binary consent.
+`owner` is the extension name; each skill is
 `{name, files: [{path, content}]}` with UTF-8 `content`, a top-level
 `SKILL.md`, canonical `/`-separated relative paths (no empty or
 `.`-prefixed segments, no trailing `/`), at most 64 files of 1 MiB each and
 16 skills per call. Core's `tmt` and `tmt-inbox` cannot be claimed; the
-first owner of any other name keeps it. Office links core published before
-owners existed belong to core too, and only owner `office` takes them over
-without force. `force: true` transfers a name and backs up an unmanaged path
-in the way. Errors are
-`SKILL_INVALID`, `SKILL_OWNED_ELSEWHERE`, `SKILL_CONFLICT` (an unmanaged path),
-`API_CONSENT_REQUIRED` and `SKILL_INSTALL_FAILED`. Repeating identical content
+first recorded owner of any other name keeps it unless `force: true` transfers
+the name claim. Publication replaces existing leaf entries at the selected skill
+names without a prompt, flag, backup or target ownership/content check; other
+names and symlink destinations remain untouched. Immutable sources are validated
+before publication. Errors are `SKILL_INVALID`, `SKILL_OWNED_ELSEWHERE`,
+`SKILL_CONFLICT` (invalid source or retired migration path), `API_CONSENT_REQUIRED`
+and `SKILL_INSTALL_FAILED`. Repeating identical content at current links
 changes nothing. `skills.remove` removes only links that still point at the
 owner's content and reports anything else at a recorded target as `kept`. By default it
 removes all of the owner's skills; `skills` limits it to 1 to 16 distinct names, and a

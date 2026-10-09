@@ -1002,8 +1002,9 @@ All targets link the same bundled content. No plugin or separate command wrapper
 Installation is non-interactive; `--json` is supported. With no detected provider,
 the shared target is installed and its result omits `agent`. This does not install
 an agent application. An existing `.agents` directory alone is not provider evidence.
-Claude's native skill can be invoked as `/tmt`. Inspect conflicts before
-using `--force`, which creates recoverable skill backups outside the discovery root.
+Claude's native skill can be invoked as `/tmt`. Publication replaces any existing
+entry named for a published skill in the selected roots, without a prompt, flag,
+backup or content check. Other names and symlink destinations are untouched.
 Plugin settings are never modified.
 Native `tmt upgrade` refreshes recorded managed skills. For a manual binary
 replacement, run `tmt install` again. Reload or restart the agent afterwards.
@@ -1026,8 +1027,8 @@ This links sibling `./my-skills/tmt` and `./my-skills/tmt-inbox`; do not
 also specify a provider. Choose a
 folder your provider actually discovers and reload its skills if needed.
 Managed links follow bundled updates at the same package path. Re-run the same
-install command to inspect/repair the target after relocation; existing
-unmanaged content is preserved unless `--force` requests a recoverable backup.
+install command to refresh the target after relocation; existing entries at the
+published skill names are replaced.
 Automatic drift reminders inspect known default paths, not custom folders.
 They do not reload an active agent, update provider-managed plugins, or track
 alpha release channels. Package upgrades and skill installation are separate
@@ -1045,9 +1046,8 @@ TypeScript runtime. Default Core data moves once as one directory; explicit
 `TMT_HOME` stays exact. No package-manager installation is uninstalled.
 If the selected installation is uncertain, check `tmt --help`; never fall back
 to TypeScript against native state or delete data as a migration workaround.
-Inspect skill-link conflicts before using `tmt install --force` for an intended
-replacement. A skill failure can leave the native binary installed; do not report
-rollback or silently force.
+A skill publication problem after a successful binary upgrade is a warning;
+the binary stays active. Inspect the reported path and cause before retrying.
 Read this skill again through the new executable before using remembered syntax.
 
 The installer does not edit shell profiles or change the parent shell's PATH.
@@ -1062,15 +1062,12 @@ an immutable digest-addressed source under TMT's global directory
 (`skill-assets/<sha256>/{tmt,tmt-inbox}`). Re-run the intended `install` command after
 replacing a manual binary to refresh valid managed links. An edited current
 bundled source blocks installation even with force; inspect it before repair.
-Links to modified older sources are unmanaged conflicts: force can back up the
-link, never overwrite its source content. Old source
+Replacing links to older sources never changes the source content. Old source
 directories remain available for recovery, not automatic cache deletion.
 
-`--force` backs up unmanaged target entries outside skill discovery in the
-sibling `.tmt-skill-backups` directory. If a later step fails, inspect the error's
-completed-target and recoverable-backup paths; installation across providers is
-not all-or-nothing. Custom target intents are recorded in `skill-installations.json`
-for future managed refresh, never as permission to overwrite their content.
+Publication across providers is not all-or-nothing; a warning retains completed
+skill targets. Custom target intents are recorded in `skill-installations.json`
+for future refresh at those published names. Missing integrations stay missing.
 Native passive reminders cover known defaults only during interactive human
 commands; JSON and piped automation do not perform that scan. Neither installation
 nor a reminder reloads an active conversation.
@@ -1082,17 +1079,17 @@ pins an exact version, and `--unpin` resumes channel updates; do not combine
 a no-network no-op. Package-manager or unmanaged binaries refuse native updates;
 use their original manager, not an overwrite workaround.
 
-Successful native updates use the new executable to refresh only recorded
-managed skills. Missing integrations stay missing and modified content is
-preserved. With `--json`, inspect `changed`, `version`, `pinnedVersion`, `skills`
-and any `error`; a nonzero result can mean the binary is already active while
-skill refresh or finalization failed. Resolve the reported conflict and repeat
-the original update selection (including `--to <version>` when pinned); an
-ordinary pinned invocation will not retry skill work. Do not downgrade or
-delete user content. Check `pathWarning` before assuming the
+Successful native updates use the new executable to refresh existing recorded
+skill targets, replacing entries at the published names. With `--json`, inspect
+`changed`, `version`, `pinnedVersion`, each product's activation result and
+`skills.status`; skill problems use `skills.warning` with the path and cause,
+while partial publication remains in the skill report. They do not fail an
+otherwise successful binary update. Fix the cause and repeat the original update
+selection (including `--to <version>` when pinned); an ordinary pinned invocation
+will not retry skill work. Check `pathWarning` before assuming the
 shell selects the updated binary. Reload/restart the agent, or read the complete
 `tmt learn --skill` output in an existing conversation.
 
-Office is optional and separate. Install it only after explicit user consent
-(`tmt office install --yes`); never disclose an Office session token or URL token.
-If installed, read its skill with `tmt learn --skill tmt-office`.
+Office is frozen: installation and upgrade refuse before acquisition. Existing
+Office skills remain readable with `tmt learn --skill tmt-office`. Never disclose
+an Office session token or URL token.

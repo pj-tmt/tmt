@@ -262,7 +262,7 @@ fn missing_recorded_target_is_skipped_without_resurrection() {
 }
 
 #[test]
-fn conflicts_are_preserved_while_independent_targets_refresh() {
+fn existing_published_names_refresh_without_inspecting_prior_contents() {
     let (directory, global) = fixture();
     let old = b"old canonical skill\n";
     let modified_source = old_source(&global, old);
@@ -284,21 +284,18 @@ fn conflicts_are_preserved_while_independent_targets_refresh() {
         ],
     );
 
-    let failure = refresh(&global).unwrap_err();
-    assert_eq!(failure.report.refreshed.len(), 1);
-    assert_eq!(failure.report.refreshed[0].target, good_target);
-    assert!(failure.report.refreshed[0].changed);
-    assert_eq!(
-        failure.report.conflicts,
-        vec![unmanaged_target.clone(), modified_target.clone()]
-    );
-    assert!(failure.report.skipped.is_empty());
+    let report = refresh(&global).unwrap();
+    assert_eq!(report.refreshed.len(), 3);
+    assert!(report.refreshed.iter().all(|item| item.changed));
+    assert!(report.conflicts.is_empty());
+    assert!(report.skipped.is_empty());
     assert_current(&good_target);
+    assert_current(&modified_target);
+    assert_current(&unmanaged_target);
     assert_eq!(
         fs::read(modified_source.join("SKILL.md")).unwrap(),
         b"user-modified source\n"
     );
-    assert_eq!(fs::read(&unmanaged_target).unwrap(), b"user-owned target\n");
     assert!(
         !directory
             .path

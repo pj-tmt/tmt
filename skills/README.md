@@ -56,8 +56,8 @@ Repeating installation is a no-op when both links are correct. Native
 `tmt upgrade`/`tmt update` refreshes recorded managed skills through the newly
 activated executable; use `--channel stable|alpha`, `--to <version>`, or
 `--unpin` as needed. A skill refresh can fail after binary activation and is
-reported as partial completion; resolve the conflict and repeat the same
-selection.
+reported as a warning with its path, cause and partial skill publication; the
+binary upgrade stays successful. Fix the cause and repeat the same selection.
 
 The legacy TypeScript `tmt upgrade` follows npm `latest` and cannot update a
 native installation. Use the original manager for package-manager installations.
@@ -103,18 +103,10 @@ arbitrary custom folders.
 
 ## Optional Office guidance
 
-`tmt office install --yes` installs the verified companion and the `tmt-office`,
-`tmt-prop-create`, and `tmt-avatar-create` skills in detected provider roots. If a core skill is still
-managed in a custom root, Office setup adds all three optional siblings there too. A failed companion
-installation creates no Office skills. A skill conflict after companion
-activation is reported as partial completion and preserves user content; inspect
-it before repeating with explicit `--force`.
-
-`tmt office upgrade` refreshes all three optional skills as part of the explicit Office
-operation. Native `tmt upgrade` also refreshes an already-recorded Office link,
-but neither CLI upgrade nor core installation creates a missing Office
-integration. Office uninstall retains managed guidance along with release and
-application data.
+Office is frozen: installation and upgrade refuse before acquisition. Existing
+Office skills remain available for viewing and consented removal; native core
+refresh skips names held by an extension owner. Publication of optional bundled
+Office guidance uses the same name replacement contract as core guidance.
 
 ```bash
 tmt learn --skill tmt-office
@@ -139,15 +131,13 @@ Replacing package-manager or manual installations does not delete their files.
 Verify `command -v tmt` and the new absolute `tmt --help`. The one-shot default
 data-directory cutover is owned by Core configuration; explicit `TMT_HOME` stays exact.
 
-Existing unmanaged targets are preserved by default. Inspect a conflict before
-using `tmt install <provider> --force`; replacement creates a recoverable backup.
-A former Core skill target is retired only after its complete managed source
-digest and inventory verify and the replacement is published. Modified or
-unmanaged former targets remain conflicts even with `--force`.
-Skill target backups are stored in a sibling `.tmt-skill-backups` directory
-outside the skills root so agents do not discover them as duplicate skills.
-The installer reports backup paths. Do not delete the source package or your
-identity database to repair a skill link.
+Publication replaces any existing entry named for a skill TMT publishes in the
+selected roots, with no prompt, flag, backup or prior ownership/content check.
+Other names and symlink destinations remain untouched; immutable sources are
+validated before publication. A former Core skill target is retired only after
+its complete managed source digest and inventory verify and the replacement is
+published. Modified or unmanaged former targets remain conflicts. Do not delete
+the source package or your identity database to repair a skill link.
 
 The old Claude `~/.claude/commands/team.md` entry is no longer installed or
 updated. `tmt install claude` preserves an existing entry and warns; after the

@@ -99,14 +99,11 @@ pub fn execute_with_schema_consent(
             mode,
         );
     }
-    let refreshed = refresh(&report.installation.active_executable, &UnixCommandRunner);
-    let (skills, mut failure) = match refreshed {
-        Ok(skills) => (Some(skills), None),
-        Err((skills, cause)) => (skills, Some(Failure::new(
-            "NATIVE_UPGRADE_SKILLS_FAILED",
-            "Native binary installation completed, but managed skill refresh failed. User-owned skill content was not overwritten.", 1,
-        ).caused_by(cause))),
-    };
+    let skills = Some(skill_outcome(refresh(
+        &report.installation.active_executable,
+        &UnixCommandRunner,
+    )));
+    let mut failure = None;
     if interrupt.is_interrupted() {
         failure = Some(Failure::new(
             "NATIVE_UPGRADE_INTERRUPTED",
@@ -200,6 +197,30 @@ fn refresh(
     }
 }
 
+fn skill_outcome(result: Result<Value, (Option<Value>, io::Error)>) -> Value {
+    match result {
+        Ok(mut document) => {
+            document["status"] = json!("current");
+            document
+        }
+        Err((document, cause)) => {
+            let mut document = document
+                .unwrap_or_else(|| json!({"refreshed": [], "skipped": [], "conflicts": []}));
+            let cause = document["error"]["message"]
+                .as_str()
+                .map(ToOwned::to_owned)
+                .unwrap_or_else(|| cause.to_string());
+            document["status"] = json!("warning");
+            document["warning"] = json!({"code": "NATIVE_UPGRADE_SKILLS_FAILED", "message": format!("Native binary installation completed, but managed skill refresh failed: {cause}")});
+            document
+                .as_object_mut()
+                .expect("skill report object")
+                .remove("error");
+            document
+        }
+    }
+}
+
 fn publish(
     report: Option<&UpgradeReport>,
     skills: Option<Value>,
@@ -252,7 +273,8 @@ fn publish_products_with_hints(
     if let Some(failure) = &failure {
         document["error"] = failure_document(failure)["error"].clone();
     }
-    let products = product_rows(report, failure.as_ref(), extensions);
+    let mut products = product_rows(report, failure.as_ref(), extensions);
+    products[0]["skills"] = document["skills"].clone();
     let extension_failed = products.iter().skip(1).any(|p| p["status"] == "failed");
     document["products"] = json!(products);
     if !rename_hints.is_empty() {
@@ -300,6 +322,9 @@ fn publish_products_with_hints(
                     )?;
                 }
             }
+        }
+        if let Some(message) = document["skills"]["warning"]["message"].as_str() {
+            tmt_cli_style::message::warning(&mut stdout, terminal, message, None)?;
         }
         for product in products.iter().skip(1) {
             write_extension_product(&mut stdout, terminal, product)?;
@@ -355,6 +380,16 @@ fn write_extension_product(
                 .as_str()
                 .unwrap_or("Extension update failed")
         )?;
+    }
+    if let Some(skills) = product["details"].get("skills") {
+        writeln!(
+            stdout,
+            "Agent skills: {} published",
+            skills["published"].as_array().map_or(0, Vec::len)
+        )?;
+        if let Some(message) = skills["warning"]["message"].as_str() {
+            tmt_cli_style::message::warning(stdout, terminal, message, None)?;
+        }
     }
     if let Some(hint) = product["details"]["restartHint"]
         .as_str()

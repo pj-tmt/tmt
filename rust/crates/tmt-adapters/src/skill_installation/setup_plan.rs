@@ -3,9 +3,7 @@
 //! targets: core's skills through [`publish_core`], and extensions' skills
 //! already recorded by their owners into roots that do not have them yet.
 
-use super::{
-    ProviderEnvironment, assets::SkillAssets, catalog, files, managed_link, owned, registry,
-};
+use super::{ProviderEnvironment, assets::SkillAssets, catalog, files, owned, registry};
 use crate::drivers::DriverDefinition;
 use std::{
     fs, io,
@@ -20,18 +18,18 @@ pub enum SkillState {
     Stale,
     Current,
     /// A link to this skill in another TMT home's assets, left by an earlier
-    /// or moved installation: setup backs it up and replaces it.
+    /// or moved installation: setup replaces it.
     Foreign {
         source: PathBuf,
     },
-    /// Something that is not TMT's: setup leaves it and reports it.
+    /// An existing entry at a published name: setup replaces it.
     Occupied,
 }
 
 impl SkillState {
     /// Whether apply publishes this target.
     pub fn changes(&self) -> bool {
-        matches!(self, Self::Missing | Self::Stale | Self::Foreign { .. })
+        !matches!(self, Self::Current)
     }
 }
 
@@ -69,19 +67,17 @@ fn core_state(target: &Path, name: &str, assets: &SkillAssets) -> io::Result<Ski
     if !files::exists(target)? {
         return Ok(SkillState::Missing);
     }
-    Ok(match managed_link(target, assets)? {
-        Some(source) if source == assets.source_of(name) => SkillState::Current,
-        Some(_) => SkillState::Stale,
-        None => match foreign_source(target, name)? {
-            Some(source) => SkillState::Foreign { source },
-            None => SkillState::Occupied,
-        },
+    if files::current_link(target, &assets.source_of(name)) {
+        return Ok(SkillState::Current);
+    }
+    Ok(match foreign_source(target, name)? {
+        Some(source) => SkillState::Foreign { source },
+        None => SkillState::Occupied,
     })
 }
 
-/// A symlink into `<a TMT home>/skill-assets/<bundle>/<name>` whose skill,
-/// while still readable, declares the same name: TMT's own skill from another
-/// installation rather than a user's.
+/// Read-only source coordinates for a link into another TMT home's assets.
+/// Planning never reads the prior target's skill contents.
 fn foreign_source(target: &Path, name: &str) -> io::Result<Option<PathBuf>> {
     if !fs::symlink_metadata(target)?.is_symlink() {
         return Ok(None);
@@ -98,46 +94,33 @@ fn foreign_source(target: &Path, name: &str) -> io::Result<Option<PathBuf>> {
             .and_then(Path::parent)
             .and_then(Path::file_name)
             .is_some_and(|assets| assets == "skill-assets");
-    if !layout {
-        return Ok(None);
-    }
-    let declared = match fs::read_to_string(source.join("SKILL.md")) {
-        Ok(text) => declares(&text, name),
-        // A dangling link into another home's assets is still TMT's.
-        Err(error) if error.kind() == io::ErrorKind::NotFound => true,
-        Err(_) => false,
-    };
-    Ok(declared.then_some(source))
-}
-
-/// Whether the skill's front matter names it `name`.
-fn declares(text: &str, name: &str) -> bool {
-    let mut lines = text.lines();
-    lines.next() == Some("---")
-        && lines
-            .take_while(|line| *line != "---")
-            .any(|line| line.strip_prefix("name:").map(str::trim) == Some(name))
+    Ok(layout.then_some(source))
 }
 
 /// What [`publish_core`] did with the planned targets.
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct CorePublication {
     pub linked: Vec<PathBuf>,
-    /// Where each replaced foreign link was moved first.
+    /// Legacy report field; publication no longer creates backups.
     pub backups: Vec<PathBuf>,
-    /// Targets whose state changed after planning; left untouched.
+    /// Planned targets already current when publication ran.
     pub skipped: Vec<PathBuf>,
 }
 
-/// Publishes exactly the planned core targets that change. Each one is
-/// classified again under the installer lock, and one that no longer matches
-/// its plan is skipped rather than overwritten: apply never touches a path
-/// the plan did not show as a change.
+/// Publishes the planned core names. Existing entries at those names are
+/// replaced regardless of their contents or changes since planning.
 pub fn publish_core(global: &Path, planned: &[SkillTarget]) -> io::Result<CorePublication> {
     let global = files::resolved(global)?;
     let assets = SkillAssets::new(&global);
-    let planned: Vec<&SkillTarget> = planned.iter().filter(|item| item.state.changes()).collect();
+    let planned: Vec<&SkillTarget> = planned.iter().collect();
     for item in &planned {
+        if !catalog::Catalog::bundled()
+            .names(catalog::Group::Core)
+            .contains(&item.name.as_str())
+            || item.target.file_name() != Some(std::ffi::OsStr::new(&item.name))
+        {
+            return Err(io::Error::other("Invalid planned core skill target."));
+        }
         files::safe_target(assets.root(), &item.target)?;
     }
     files::with_lock(&global, || {
@@ -146,14 +129,11 @@ pub fn publish_core(global: &Path, planned: &[SkillTarget]) -> io::Result<CorePu
         registry::remember(&global, planned.iter().map(|item| item.target.clone()))?;
         let mut done = CorePublication::default();
         for item in planned {
-            if core_state(&item.target, &item.name, &assets)? != item.state {
+            let source = sources.get(&item.name).expect("a bundled core source");
+            if files::current_link(&item.target, source) {
                 done.skipped.push(item.target.clone());
                 continue;
             }
-            if matches!(item.state, SkillState::Foreign { .. }) {
-                done.backups.push(files::backup(&item.target)?);
-            }
-            let source = sources.get(&item.name).expect("a bundled core source");
             files::link(&item.target, source)?;
             done.linked.push(item.target.clone());
         }
@@ -185,7 +165,7 @@ pub fn plan_owned(global: &Path, roots: &[PathBuf]) -> io::Result<Vec<SkillTarge
 }
 
 /// Links the planned owned skills to their owners' current sources and
-/// records the new targets; a target that appeared meanwhile is skipped.
+/// records the new targets; an entry that appeared meanwhile is replaced.
 pub fn publish_owned(global: &Path, planned: &[SkillTarget]) -> io::Result<Vec<PathBuf>> {
     let global = files::resolved(global)?;
     owned::link_recorded(

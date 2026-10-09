@@ -99,20 +99,34 @@ fn names_held_by_core_or_another_owner_are_refused_before_any_effect() {
 }
 
 #[test]
-fn an_unmanaged_path_is_refused_and_force_backs_it_up() {
-    let (_directory, env, global, root) = fixture();
-    let target = root.join("tmt-ops");
-    fs::create_dir_all(&target).unwrap();
-    fs::write(target.join("SKILL.md"), b"hand written").unwrap();
-    let refused =
-        install_owned(&env, &global, "squad", &[skill("tmt-ops", "v1")], false).unwrap_err();
-    assert!(matches!(refusal(&refused.cause), Some(Refusal::Unmanaged(path)) if *path == target));
-    assert_eq!(read_skill(&target), "hand written");
-
-    let forced = install_owned(&env, &global, "squad", &[skill("tmt-ops", "v1")], true).unwrap();
-    let backup = forced.published[0].backup.clone().expect("backup");
-    assert_eq!(fs::read(backup.join("SKILL.md")).unwrap(), b"hand written");
-    assert_eq!(read_skill(&target), "v1");
+fn an_existing_published_name_is_replaced_without_backup_or_following_links() {
+    for foreign_link in [false, true] {
+        let (_directory, env, global, root) = fixture();
+        let target = root.join("tmt-colab");
+        let other = root.join("personal");
+        fs::create_dir_all(&other).unwrap();
+        fs::write(other.join("SKILL.md"), "personal").unwrap();
+        if foreign_link {
+            std::os::unix::fs::symlink(&other, &target).unwrap();
+        } else {
+            fs::create_dir(&target).unwrap();
+            fs::write(target.join("SKILL.md"), "old copy").unwrap();
+            std::os::unix::fs::symlink(&other, target.join("nested")).unwrap();
+        }
+        let report = install_owned(
+            &env,
+            &global,
+            "colab",
+            &[skill("tmt-colab", "release")],
+            false,
+        )
+        .unwrap();
+        assert!(report.published[0].changed);
+        assert!(report.published[0].backup.is_none());
+        assert_eq!(read_skill(&target), "release");
+        assert_eq!(read_skill(&other), "personal");
+        assert!(!root.parent().unwrap().join(".tmt-skill-backups").exists());
+    }
 }
 
 #[test]
@@ -165,43 +179,24 @@ fn office_links_published_before_owners_existed_are_adopted_without_force() {
 }
 
 #[test]
-fn only_office_adopts_core_office_links_without_force() {
+fn publication_replaces_an_unclaimed_optional_core_link_without_force() {
     let (_directory, env, global, root) = fixture();
     install(&env, &global, None, None, false).unwrap();
     install_office(&env, &global, false).unwrap();
     let office = root.join("tmt-office");
-    let core_link = fs::read_link(&office).unwrap();
-
-    let refused = install_owned(
+    let old = fs::read_link(&office).unwrap();
+    let report = install_owned(
         &env,
         &global,
         "squad",
-        &[skill("tmt-office", "squad's office")],
+        &[skill("tmt-office", "release")],
         false,
     )
-    .unwrap_err();
-    assert_eq!(
-        claimed(&refused.cause),
-        Some(("tmt-office".into(), "core".into()))
-    );
-    assert!(refused.report.published.is_empty());
-    assert_eq!(fs::read_link(&office).unwrap(), core_link);
-    assert!(!global.join("skill-owners.json").exists());
-
-    let forced = install_owned(
-        &env,
-        &global,
-        "squad",
-        &[skill("tmt-office", "squad's office")],
-        true,
-    )
     .unwrap();
-    assert!(forced.published[0].changed);
-    assert!(
-        forced.published[0].backup.is_none(),
-        "a managed link is relinked"
-    );
-    assert_eq!(read_skill(&office), "squad's office");
+    assert!(report.published[0].changed);
+    assert!(report.published[0].backup.is_none());
+    assert_ne!(fs::read_link(&office).unwrap(), old);
+    assert_eq!(read_skill(&office), "release");
     assert_eq!(owners(&global).unwrap()["tmt-office"], "squad");
 }
 
@@ -386,7 +381,9 @@ fn guided_setup_links_recorded_extension_skills_into_new_roots_once() {
             .collect::<Vec<_>>(),
         [new_root.join("tmt-ops")]
     );
-    // Something the user put there meanwhile is never replaced.
+    // A directory appearing at the selected published name is replaced.
+    fs::create_dir_all(new_root.join("tmt-ops")).unwrap();
+    fs::write(new_root.join("tmt-ops/SKILL.md"), "old copy").unwrap();
     let linked = super::publish_owned(&global, &planned).unwrap();
     assert_eq!(linked, [new_root.join("tmt-ops")]);
     assert_eq!(read_skill(&new_root.join("tmt-ops")), "v1");
@@ -473,7 +470,7 @@ fn ops_migration_preserves_recorded_custom_targets_without_discovering_providers
 }
 
 #[test]
-fn ops_migration_refuses_modified_or_foreign_targets_before_any_effect() {
+fn ops_migration_validates_sources_and_replaces_existing_new_names() {
     for modified_source in [false, true] {
         let (_directory, env, global, root) = fixture();
         install_owned(&env, &global, "squad", &[skill("tmt-squad", "old")], false).unwrap();
@@ -482,21 +479,22 @@ fn ops_migration_refuses_modified_or_foreign_targets_before_any_effect() {
             fs::write(old.join("SKILL.md"), "modified").unwrap();
         } else {
             fs::create_dir(root.join("tmt-ops")).unwrap();
-            fs::write(root.join("tmt-ops/SKILL.md"), "user").unwrap();
+            fs::write(root.join("tmt-ops/SKILL.md"), "old copy").unwrap();
         }
-        assert!(
-            super::migrate_former_owned(
-                &global,
-                tmt_core::native_install::Product::Ops,
-                &[skill("tmt-ops", "new")]
-            )
-            .is_err()
+        let result = super::migrate_former_owned(
+            &global,
+            tmt_core::native_install::Product::Ops,
+            &[skill("tmt-ops", "new")],
         );
-        assert_eq!(owners(&global).unwrap()["tmt-squad"], "squad");
-        assert_eq!(
-            read_skill(&old),
-            if modified_source { "modified" } else { "old" }
-        );
+        if modified_source {
+            assert!(result.is_err());
+            assert_eq!(owners(&global).unwrap()["tmt-squad"], "squad");
+            assert_eq!(read_skill(&old), "modified");
+        } else {
+            result.unwrap();
+            assert_eq!(read_skill(&root.join("tmt-ops")), "new");
+            assert!(!old.exists());
+        }
     }
 }
 
@@ -569,4 +567,24 @@ fn default_directory_cutover_republishes_only_full_digest_verified_owned_sources
         }
         assert!(!former.exists());
     }
+}
+
+#[test]
+fn ops_migration_replaces_a_foreign_new_name_after_the_former_link_was_removed() {
+    let (_directory, env, global, root) = fixture();
+    install_owned(&env, &global, "squad", &[skill("tmt-squad", "old")], false).unwrap();
+    fs::remove_file(root.join("tmt-squad")).unwrap();
+    let personal = root.join("personal");
+    fs::create_dir(&personal).unwrap();
+    fs::write(personal.join("SKILL.md"), "personal").unwrap();
+    std::os::unix::fs::symlink(&personal, root.join("tmt-ops")).unwrap();
+    super::migrate_former_owned(
+        &global,
+        tmt_core::native_install::Product::Ops,
+        &[skill("tmt-ops", "new")],
+    )
+    .unwrap();
+    assert_eq!(read_skill(&root.join("tmt-ops")), "new");
+    assert_eq!(read_skill(&personal), "personal");
+    assert!(!owners(&global).unwrap().contains_key("tmt-squad"));
 }
