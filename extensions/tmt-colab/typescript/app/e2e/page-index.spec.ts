@@ -226,3 +226,18 @@ test('an out-of-range update has the same unknown copy and no fabricated time el
   await expect(row.getByText('Untitled page', { exact: true })).toBeVisible();
   await expect(row.locator('summary')).toHaveAccessibleName('Actions for Untitled page');
 });
+
+test('the first committed index render uses the actual time snapshot', async ({ page }) => {
+  await page.goto('/');
+  await page.clock.setFixedTime(new Date('2026-10-09T00:00:00Z'));
+  await page.evaluate(async () => {
+    const path = '/test/page-index-browser.tsx';
+    await (await import(path)).mountPageIndex('few');
+  });
+  await expect(page.locator('#index-fixture .pages > li')).toHaveCount(3);
+  const initialLabels = await page.evaluate(async () => {
+    const path = '/test/page-index-browser.tsx';
+    return (await import(path)).firstUpdateLabels();
+  });
+  expect(initialLabels).toEqual(['1 hour ago', '1 hour ago', '3 days ago']);
+});

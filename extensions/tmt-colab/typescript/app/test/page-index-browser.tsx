@@ -1,4 +1,5 @@
 /** Page-index presentations with deterministic metadata and no real transport effects. */
+import { Profiler } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { RouterProvider } from '@tanstack/react-router';
 import { createAppRouter } from '../src/router.js';
@@ -6,6 +7,8 @@ import { localTransport, type PageSnapshot } from '../src/transport.js';
 
 export const indexNow = Date.UTC(2026, 9, 9, 0, 0);
 let root: Root | undefined;
+let initialUpdateLabels: string[] | undefined;
+export const firstUpdateLabels = () => initialUpdateLabels;
 function page(index: number, changes: Partial<PageSnapshot> = {}): PageSnapshot {
   return {
     id: `c${String(index).padStart(7, '0')}-1111-4111-8111-000000000001`,
@@ -34,6 +37,8 @@ export async function mountPageIndex(
   }
   root?.unmount();
   root = createRoot(host);
+  initialUpdateLabels = undefined;
+  const container = host;
   const pages =
     size === 'many'
       ? Array.from({ length: 200 }, (_, index) => page(200 - index))
@@ -64,5 +69,18 @@ export async function mountPageIndex(
     spaceHome: async () => ({ title: 'Studio pages', pages }),
   });
   location.hash = '/';
-  root.render(<RouterProvider router={router} />);
+  root.render(
+    <Profiler
+      id="page-index"
+      onRender={() => {
+        const times = container.querySelectorAll('.pages > li time');
+        if (times.length && initialUpdateLabels === undefined) {
+          // Capture the first committed DOM before passive effects can correct it.
+          initialUpdateLabels = Array.from(times, (time) => time.textContent ?? '');
+        }
+      }}
+    >
+      <RouterProvider router={router} />
+    </Profiler>,
+  );
 }

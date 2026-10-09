@@ -501,7 +501,7 @@ function Home() {
   const { transport } = root.useRouteContext();
   const [archived, setArchived] = useState(false);
   const pages = orderPages(space.pages.filter((p) => Boolean(p.archived) === archived));
-  const [now, setNow] = useState(0);
+  const [now, setNow] = useState(() => Date.now());
   useEffect(() => setNow(Date.now()), [space.pages, archived]);
   useEffect(() => {
     document.title =
