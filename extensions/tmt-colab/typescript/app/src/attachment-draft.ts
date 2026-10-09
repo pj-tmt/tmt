@@ -8,6 +8,7 @@ import {
 import {
   AttachmentUploadError,
   type AttachmentBinding,
+  type AttachmentTarget,
   type RefusalReason,
   type StoredAttachment,
 } from './attachment-service.js';
@@ -55,7 +56,11 @@ export class AttachmentDraft {
   #listeners = new Set<() => void>();
   #snapshot: DraftSnapshot;
   /** The binding is read at each use: it may appear or be replaced while the composer lives. */
-  constructor(private source: () => AttachmentBinding | undefined) {
+  constructor(
+    private source: () => AttachmentBinding | undefined,
+    /** Where uploads belong at the moment they run; a message draft uses its own ID. */
+    private target?: () => AttachmentTarget,
+  ) {
     this.#snapshot = this.#view();
   }
   get binding(): AttachmentBinding {
@@ -172,7 +177,7 @@ export class AttachmentDraft {
       try {
         const stored = await this.binding.upload(
           { filename: chip.filename, mediaType: chip.mediaType, bytes: chip.bytes },
-          this.#messageId,
+          this.target?.() ?? { kind: 'message', messageId: this.#messageId },
           (sent, total) => this.#set(chip.id, { kind: 'uploading', sent, total }),
         );
         if (old) void this.binding.discard(old);

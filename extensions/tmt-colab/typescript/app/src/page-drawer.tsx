@@ -1,3 +1,4 @@
+import './page-drawer.css';
 import { BrowserIconAction } from '@tmt/browser-ui/react';
 import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';

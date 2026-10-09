@@ -5,17 +5,23 @@ import type { AttachmentDraft, Chip } from './attachment-draft.js';
 import { text } from './strings.js';
 import './attachment-tray.css';
 
-function stateText(chip: Chip): string {
+function stateText(chip: Chip, page: boolean): string {
   const state = chip.state;
   switch (state.kind) {
     case 'ready':
-      return text.attachReady;
+      return page ? text.filesReady : text.attachReady;
     case 'uploading':
       return text.attachUploading(Math.floor((state.sent / Math.max(state.total, 1)) * 100));
     case 'stored':
       return text.attachStored;
     case 'again':
-      return state.why === 'page-changed' ? text.attachAgainPageChanged : text.attachAgainNotStored;
+      return state.why === 'page-changed'
+        ? page
+          ? text.filesAgainPageChanged
+          : text.attachAgainPageChanged
+        : page
+          ? text.filesAgainNotStored
+          : text.attachAgainNotStored;
     case 'unknown':
       return text.attachUnknown;
     case 'refused':
@@ -60,9 +66,12 @@ export function AttachButton({ draft, disabled }: { draft: AttachmentDraft; disa
 export function AttachmentChips({
   draft,
   disabled,
+  page = false,
 }: {
   draft: AttachmentDraft;
   disabled: boolean;
+  /** Chips of the page's Files panel: they upload when added, not when a message is sent. */
+  page?: boolean;
 }) {
   const snapshot = useSyncExternalStore(draft.subscribe, draft.getSnapshot);
   const action = (label: string, run: () => void) => (
@@ -91,7 +100,7 @@ export function AttachmentChips({
               <span className="attachment-name">{chip.filename}</span>
               <span className="attachment-size">{text.attachmentSize(chip.size)}</span>
               <span className="attachment-state" role="status">
-                {stateText(chip)}
+                {stateText(chip, page)}
               </span>
               <span className="attachment-actions">
                 {chip.state.kind === 'unknown' &&
@@ -112,7 +121,9 @@ export function AttachmentChips({
           role="status"
           data-testid="attachment-notice"
         >
-          {text.attachNotice[notice.reason](notice.filename)}{' '}
+          {page && notice.reason === 'too-many'
+            ? text.filesTooMany(notice.filename)
+            : text.attachNotice[notice.reason](notice.filename)}{' '}
           {action(text.attachDismiss, () => draft.dismiss(notice.id))}
         </p>
       ))}

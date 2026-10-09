@@ -2,6 +2,7 @@ import type { attachment } from '@tmt/colab-client';
 import type { ThreadPresentation } from './thread-status-presentation.js';
 import type { ThreadStatusCoordinator } from './thread-status-coordinator.js';
 import type { ThreadBinding } from './thread-store.js';
+import type { DocumentFiles } from './document-files.js';
 import type { DiscussionRef, ThreadView } from './thread-records.js';
 import type { AskBinding, PageAsk } from './ask-panel.js';
 import type { ExportBundle } from './export.js';
@@ -40,6 +41,8 @@ export interface PageBinding {
   readonly ask?: AskBinding;
   readonly discussion?: ThreadBinding;
   readonly status?: ThreadStatusCoordinator;
+  /** Files attached to the page document. */
+  readonly files?: DocumentFiles;
   markThreadStatusSeen?(thread: DiscussionRef): void;
   reconnect?(): Promise<boolean>;
   subscribe(publish: (value: PageView) => void, failed: (error: Error) => void): () => void;

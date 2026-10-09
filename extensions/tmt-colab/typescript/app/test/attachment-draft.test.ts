@@ -19,8 +19,11 @@ function binding(overrides: Partial<AttachmentBinding> = {}) {
   const uploads: { messageId: string; filename: string }[] = [];
   const value: AttachmentBinding = {
     limits: vi.fn(async () => ({ payloadBytes: 1 })),
-    upload: vi.fn(async (input, messageId, progress) => {
-      uploads.push({ messageId, filename: input.filename });
+    upload: vi.fn(async (input, target, progress) => {
+      uploads.push({
+        messageId: target.kind === 'message' ? target.messageId : `document:${target.source}`,
+        filename: input.filename,
+      });
       progress(1, 2);
       progress(2, 2);
       return { original: original(), filename: input.filename, size: input.bytes.length };
@@ -176,4 +179,17 @@ it('removing or leaving the composer releases what was stored; sending keeps it'
   expect(value.discard).toHaveBeenCalledTimes(2);
   expect(sent.getSnapshot().messageId).not.toBe(before);
   expect(sent.getSnapshot().chips).toHaveLength(0);
+});
+
+it('uploads to the target given at upload time, not the draft message id', async () => {
+  const { value, uploads } = binding();
+  let source = 'one';
+  const draft = new AttachmentDraft(
+    () => value,
+    () => ({ kind: 'document', source }),
+  );
+  await draft.add([file('a.txt')]);
+  source = 'two';
+  await draft.prepare();
+  expect(uploads).toEqual([{ messageId: 'document:two', filename: 'a.txt' }]);
 });

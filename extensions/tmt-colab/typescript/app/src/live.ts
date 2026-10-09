@@ -1,3 +1,4 @@
+import { LiveDocumentFiles, type DocumentFiles } from './document-files.js';
 import { shortPageId } from './short-links.js';
 import { ThreadStore, commentForAsk, conversationForAsk } from './thread-store.js';
 import { readThreads, type DiscussionRef } from './thread-records.js';
@@ -46,6 +47,7 @@ export class Live implements PageBinding {
   ask?: LiveAsk;
   readonly discussion: ThreadStore;
   readonly status: ThreadStatusCoordinator;
+  readonly files: DocumentFiles;
   #remote: RemoteClient | null = null;
   #seen?: { deviceId: string; value: ThreadStatusSeen };
   #observation: AbortController | null = null;
@@ -91,6 +93,12 @@ export class Live implements PageBinding {
       connection: () => this.#current,
       publish: (records) => this.#writer.submitOwnRecords(records),
       available: () => !this.#closed && !this.#error && !this.#opening?.pending,
+    });
+    this.files = new LiveDocumentFiles({
+      service: this.discussion.attachments,
+      source: () => this.#admitted.source,
+      publish: (records) => this.#writer.submitOwnRecords(records),
+      edit: (source, base, change) => this.edit(source, base, change),
     });
     this.status = new ThreadStatusCoordinator({
       binding: this.discussion,

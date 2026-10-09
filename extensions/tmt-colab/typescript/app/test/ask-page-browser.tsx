@@ -177,7 +177,9 @@ export async function mount(
           actions.push(`attach:discard:${original.descriptor.filename}`);
         },
         async open(message, descriptor) {
-          actions.push(`attach:open:${descriptor.filename}:${message.revision}`);
+          actions.push(
+            `attach:open:${descriptor.filename}:${message.kind === 'message' ? message.revision : 'document'}`,
+          );
           const bytes = stored.get(descriptor.attachmentId);
           if (!bytes || descriptor.filename.includes('missing')) throw new Error('Unavailable');
           return bytes.slice();

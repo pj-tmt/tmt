@@ -65,3 +65,17 @@
   max-width: 100%;
   max-height: 320px;
 }
+.files-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.files-empty {
+  margin: 0;
+  color: var(--c-muted);
+}
+.files-list .attachment-preview img {
+  display: block;
+  max-width: 100%;
+  max-height: 320px;
+}

@@ -56,6 +56,7 @@ import { ExportPanel } from './export-panel.js';
 import { PageDrawer } from './page-drawer.js';
 import { AgentStatusPanel } from './agent-status-panel.js';
 import { ChatPanel } from './chat-panel.js';
+import { FilesPanel } from './files-panel.js';
 import { DraftSession } from './draft-store.js';
 import { CHAT_DRAFT, SavedDrafts, savedDrafts } from './saved-drafts.js';
 import { isChatThread } from './thread-records.js';
@@ -576,9 +577,9 @@ function Page() {
   const snapshot = page.useLoaderData();
   const backendName = transport.backendName?.trim();
   const backendLabel = backendName ? `local · ${backendName}` : 'local';
-  const [panel, setPanel] = useState<'source' | 'comments' | 'chat' | 'export' | 'agents' | null>(
-    null,
-  );
+  const [panel, setPanel] = useState<
+    'source' | 'comments' | 'chat' | 'export' | 'agents' | 'files' | null
+  >(null);
   const [menu, setMenu] = useState(false);
   const [chatOpened, setChatOpened] = useState(false);
   const toolbar = useRef<HTMLElement>(null);
@@ -842,6 +843,7 @@ function Page() {
       )
     : undefined;
   const openThreads = openThreadCount(view.threads ?? []);
+  const fileCount = view.attachments?.length ?? 0;
   const unseenThreads = (view.threadPresentations ?? []).some((value) => value.status.unseen);
   const statusCoordinator =
     liveError?.message === managementChanged ? undefined : snapshot.binding?.status;
@@ -1162,6 +1164,20 @@ function Page() {
                 {openThreads > 0 && ` ${openThreads}`}
                 {unseenThreads && ` · ${text.threadUnseen}`}
               </button>
+              {snapshot.binding?.files && (
+                <button
+                  className={ui.action}
+                  data-variant="text"
+                  data-testid="files-toggle"
+                  aria-expanded={panel === 'files'}
+                  onClick={(event) => {
+                    if (event.isTrusted) toggle('files');
+                  }}
+                >
+                  {text.files}
+                  {fileCount > 0 && ` ${fileCount}`}
+                </button>
+              )}
               <button
                 className={ui.action}
                 data-variant="text"
@@ -1382,6 +1398,20 @@ function Page() {
             )}
           </SelectionAnnotation>
         )}
+      {snapshot.binding?.files && (
+        <PageDrawer
+          open={panel === 'files'}
+          title={text.files}
+          kind="files"
+          close={() => setPanel(null)}
+        >
+          <FilesPanel
+            descriptors={view.attachments ?? []}
+            files={snapshot.binding.files}
+            disabled={!!liveError || saving}
+          />
+        </PageDrawer>
+      )}
       <PageDrawer
         open={panel === 'source'}
         title={text.source}
