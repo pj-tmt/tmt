@@ -345,7 +345,8 @@ try {
           assert(historyPages.size === 9 && [...historyPages.values()].every((n) => n === 64));
           progress('started', 'native-authority-and-certificate');
           let head = null;
-          for (const wire of nativeAuthority.statements)
+          for (const wire of nativeAuthority.statements) {
+            progress('started', 'native-statement:' + nativeAuthority.statements.indexOf(wire));
             head = (
               await c.statement.Envelope.fromJson(c.text(JSON.stringify(wire))).verifyNext(
                 authority.space,
@@ -353,13 +354,20 @@ try {
                 head,
               )
             ).head;
+            progress('completed', 'native-statement:' + nativeAuthority.statements.indexOf(wire));
+          }
           assert(head.revision === 2n);
           const chain = c.certificate.Chain.fromJson(c.text(JSON.stringify(authority.chain)));
+          progress('started', 'certificate-digest');
           assert(same(await chain.digest(), authority.chainDigest));
+          progress('completed', 'certificate-digest');
+          progress('started', 'certificate-valid-root');
           await chain.verify(genesis.head.hash, chain.certificate(), root);
+          progress('completed', 'certificate-valid-root');
           const off = new Uint8Array(32);
           off[0] = 2;
           assert(c.validEdPoint(off));
+          progress('started', 'off-curve-strict-verify');
           assert(
             !(await c.strictVerify(
               off,
@@ -367,12 +375,15 @@ try {
               c.certificate.input(chain.certificate()),
             )),
           );
+          progress('completed', 'off-curve-strict-verify');
+          progress('started', 'off-curve-certificate');
           let issued = false;
           try {
             await chain.verify(genesis.head.hash, chain.certificate(), off);
             issued = true;
           } catch {}
           assert(!issued);
+          progress('completed', 'off-curve-certificate');
           progress('completed', 'native-authority-and-certificate');
           progress('started', 'independent-wrap-and-aliasing');
           const independent = c.wrap.Envelope.fromJson(c.text(JSON.stringify(authority.wrap)));
