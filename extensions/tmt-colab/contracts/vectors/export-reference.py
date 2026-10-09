@@ -444,6 +444,7 @@ def vector():
              info("conversations.md", markdown.encode("utf-8"))]
     manifest = compact({
         "format": "tmt-colab-page-export", "version": 1, "spaceId": SPACE, "pageId": uid(1), "title": title,
+        "originalAuthor": "original-author", "publisherAgent": "latest-publisher",
         "creationRecipient": {"machineId": uid(5), "agentId": uid(6)},
         "exportedAtMs": 1700000000123, "membershipHead": head, "epoch": EPOCH, "plaintext": True,
         "discussions": {"included": True, "scope": "current-epoch", "format": "tmt-colab-conversations",
@@ -454,6 +455,7 @@ def vector():
                       "over public RFC 8032 fixture seeds; export-reference.py. Unicode, control and bidi characters "
                       "are intentional exact-byte data. Shared by native and browser tests; exportedAtMs is injected.",
         "input": {"spaceId": SPACE, "pageId": uid(1), "source": source, "title": title, "creationRecipient": {"machineId": uid(5), "agentId": uid(6)}, "exportedAtMs": 1700000000123,
+                  "originalAuthor": "original-author", "publisherAgent": "latest-publisher",
                   "membershipHead": head, "epoch": EPOCH, "own": own,
                   "signingKeys": {w: k.hex() for w, k in keys.items()}},
         "conversationsJson": json_text,

@@ -109,6 +109,48 @@ it('bounds aggregate content and own input before posting to the Worker', async 
   fold.close();
 });
 
+it('preserves creation attribution from the strict Worker result without using it as authority', async () => {
+  const worker = {
+    postMessage: vi.fn(),
+    terminate: vi.fn(),
+    onerror: null,
+    onmessage: null as unknown as (event: unknown) => void,
+  };
+  const fold = new Fold(worker as unknown as Worker);
+  const pending = fold.run({ type: 'apply', updates: [] });
+  worker.onmessage({
+    data: {
+      id: 1,
+      source: 'page',
+      title: 'Title',
+      originalAuthor: '<creator>',
+      publisherAgent: 'later-agent',
+      own: {},
+      update: new Uint8Array(),
+    },
+  });
+  expect((await pending).originalAuthor).toBe('<creator>');
+  expect(worker.terminate).not.toHaveBeenCalled();
+  fold.close();
+});
+it('rejects malformed original-author labels at the parent projection boundary', async () => {
+  for (const originalAuthor of ['', 1, 'line\nbreak', '🚀'.repeat(33)]) {
+    const worker = {
+      postMessage: vi.fn(),
+      terminate: vi.fn(),
+      onerror: null,
+      onmessage: null as unknown as (event: unknown) => void,
+    };
+    const fold = new Fold(worker as unknown as Worker);
+    const pending = fold.run({ type: 'apply', updates: [] });
+    const rejected = expect(pending).rejects.toThrow();
+    worker.onmessage({
+      data: { id: 1, source: '', title: '', originalAuthor, own: {}, update: new Uint8Array() },
+    });
+    await rejected;
+    expect(worker.terminate).toHaveBeenCalledOnce();
+  }
+});
 const recipient = {
   machineId: '40000000-0000-4000-8000-000000000001',
   agentId: '50000000-0000-1000-8000-000000000001',
@@ -396,6 +438,43 @@ it('preserves admitted creation preferences in parent preparation and rejects ch
         data: { id: 2, type: 'prepared-content', kind: 'noop', projection: base },
       });
       expect((await noop).projection.creationRecipient).toEqual(recipient);
+      fold.close();
+    } else {
+      await outcome;
+      expect(worker.terminate).toHaveBeenCalledOnce();
+    }
+  }
+});
+it('preserves the original author in parent preparation and rejects changed or dropped replies', async () => {
+  const base = { source: 'old', title: 'T', own: {}, originalAuthor: 'Creator' };
+  for (const replacement of ['same', 'dropped', 'changed']) {
+    const worker = {
+      postMessage: vi.fn(),
+      terminate: vi.fn(),
+      onerror: null,
+      onmessage: null as unknown as (event: unknown) => void,
+    };
+    const fold = new Fold(worker as unknown as Worker);
+    const pending = fold.prepareContent('new', base);
+    const outcome = replacement === 'same' ? pending : expect(pending).rejects.toThrow();
+    worker.onmessage({
+      data: {
+        id: 1,
+        type: 'prepared-content',
+        kind: 'updates',
+        projection: {
+          source: 'new',
+          title: 'T',
+          own: {},
+          ...(replacement === 'dropped'
+            ? {}
+            : { originalAuthor: replacement === 'same' ? 'Creator' : 'Someone else' }),
+        },
+        updates: [new Uint8Array([1])],
+      },
+    });
+    if (replacement === 'same') {
+      expect((await pending).projection.originalAuthor).toBe('Creator');
       fold.close();
     } else {
       await outcome;

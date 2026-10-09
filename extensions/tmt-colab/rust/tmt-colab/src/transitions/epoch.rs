@@ -38,6 +38,7 @@ impl Prepared {
             .transpose()?;
         let baseline = decoder.produce_baseline(
             BaselineInput {
+                original_author: view.original_author.as_deref(),
                 attachments: attachments.as_ref(),
                 source: view.source.as_bytes(),
                 title: &view.title,

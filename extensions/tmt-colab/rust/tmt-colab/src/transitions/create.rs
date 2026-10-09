@@ -90,6 +90,7 @@ impl Engine {
                 })?;
                 let baseline = engine.decoder(page)?.produce_page(
                     BaselineInput {
+                        original_author: publisher_agent,
                         attachments: None,
                         source: source.as_bytes(),
                         title,

@@ -2,10 +2,16 @@
 import { createRoot, type Root } from 'react-dom/client';
 import { RouterProvider } from '@tanstack/react-router';
 import { createAppRouter } from '../src/router.js';
-import { localTransport } from '../src/transport.js';
+import { localTransport, type PageBinding, type PageView } from '../src/transport.js';
+import type { Projection } from '../src/fold-protocol.js';
 import { ReaderApp } from '../src/reader-app.js';
 let root: Root | undefined;
-export function mount(source: string) {
+let publish: ((view: PageView) => void) | undefined;
+let current: PageView;
+export function mount(
+  source: string,
+  attribution?: Pick<Projection, 'originalAuthor' | 'publisherAgent'>,
+) {
   root?.unmount();
   document.getElementById('root')!.style.display = 'none';
   let host = document.getElementById('layout-fixture');
@@ -15,16 +21,45 @@ export function mount(source: string) {
     document.body.append(host);
   }
   root = createRoot(host);
+  current = { title: 'Release notes', source, ...attribution };
+  const binding: PageBinding = {
+    subscribe(next) {
+      publish = next;
+      return () => {
+        publish = undefined;
+      };
+    },
+    async edit() {
+      throw new Error('Read-only fixture');
+    },
+    async export() {
+      throw new Error('Read-only fixture');
+    },
+    close() {},
+  };
   const transport = localTransport('Review space', [
-    { id: 'layout', title: 'Release notes', source, sharing: 'private' },
+    {
+      id: attribution ? 'notes' : 'layout',
+      ...current,
+      sharing: 'private',
+      ...(attribution ? { binding } : {}),
+    },
   ]);
   root.render(
     <RouterProvider router={createAppRouter({ ...transport, backendName: 'Studio Mac' })} />,
   );
-  location.hash = '/pages/layout';
+  // Author fixtures share an existing preview route so the hidden app never opens an unknown page.
+  location.hash = attribution ? '/pages/notes' : '/pages/layout';
+}
+export function updatePublisher(publisherAgent?: string) {
+  current = { ...current, publisherAgent };
+  publish?.(current);
 }
 
-export async function mountReader(source: string) {
+export async function mountReader(
+  source: string,
+  attribution?: Pick<Projection, 'originalAuthor' | 'publisherAgent'>,
+) {
   await import('../src/reader-style.css');
   root?.unmount();
   document.getElementById('root')!.style.display = 'none';
@@ -35,5 +70,9 @@ export async function mountReader(source: string) {
     document.body.append(host);
   }
   root = createRoot(host);
-  root.render(<ReaderApp state={{ kind: 'ready', view: { title: 'Reader notes', source } }} />);
+  root.render(
+    <ReaderApp
+      state={{ kind: 'ready', view: { title: 'Reader notes', source, ...attribution } }}
+    />,
+  );
 }

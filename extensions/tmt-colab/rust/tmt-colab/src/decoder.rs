@@ -114,6 +114,7 @@ pub fn valid_publisher_agent(value: &str) -> bool {
 /// Exact current view supplied by the owner's authenticated fold. This seam
 /// does not establish log, page or epoch authority.
 pub struct BaselineInput<'a> {
+    pub original_author: Option<&'a str>,
     pub attachments: Option<&'a tmt_colab_model::attachment::DocumentAttachments>,
     pub source: &'a [u8],
     pub title: &'a str,
@@ -587,6 +588,12 @@ impl Decoder {
             return Err(DecodeFault::InvalidInput);
         }
         if view
+            .original_author
+            .is_some_and(|v| !valid_publisher_agent(v))
+        {
+            return Err(DecodeFault::InvalidInput);
+        }
+        if view
             .publisher_agent
             .is_some_and(|v| !valid_publisher_agent(v))
         {
@@ -615,6 +622,7 @@ impl Decoder {
             },
             title: view.title.into(),
             publisher_agent: view.publisher_agent.map(str::to_owned),
+            original_author: view.original_author.map(str::to_owned),
             creation_recipient: view.creation_recipient.cloned(),
             source_digest: URL_SAFE_NO_PAD.encode(view.source_digest),
             action,
@@ -972,6 +980,8 @@ pub const BASELINE_UPDATE_BYTES: usize = STATE_BYTES + BASELINE_TITLE_BYTES + 10
 #[serde(deny_unknown_fields)]
 struct WireBaseline {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    original_author: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     attachments: Option<tmt_colab_model::attachment::DocumentAttachments>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     creation_recipient: Option<CreationRecipient>,
@@ -1054,7 +1064,9 @@ fn validate_projection(namespace: Namespace, value: &Value) -> Result<(), Decode
                 .ok_or(DecodeFault::InvalidOutput)?;
             if meta.iter().any(|(k, v)| match k.as_str() {
                 "title" => !v.is_string(),
-                "publisherAgent" => v.as_str().is_none_or(|v| !valid_publisher_agent(v)),
+                "publisherAgent" | "originalAuthor" => {
+                    v.as_str().is_none_or(|v| !valid_publisher_agent(v))
+                }
                 "creationRecipient" => {
                     !serde_json::from_value::<CreationRecipient>(v.clone()).is_ok_and(|v| v.valid())
                 }

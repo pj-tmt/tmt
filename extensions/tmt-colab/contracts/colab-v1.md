@@ -734,10 +734,10 @@ scoped `(streamId, seq)` key. One browser tab owns the device's write lock with
 `own` have separate documents and decoders; unsigned routing cannot choose a
 document. The following roots are exhaustive:
 
-| Namespace | Roots                                                                                             | Fold and authority                                                                   |
-| --------- | ------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
-| `content` | `html` Y.Text; `meta` Y.Map containing `title` and optional `publisherAgent`, `creationRecipient` | Shared page document, folded from admitted owner/editor streams in the current epoch |
-| `own`     | `threads`, `messages`, `intents`, `replies` Y.Maps                                                | Separate document per writer; only that writer's signed stream mutates it            |
+| Namespace | Roots                                                                                                               | Fold and authority                                                                   |
+| --------- | ------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| `content` | `html` Y.Text; `meta` Y.Map containing `title` and optional `publisherAgent`, `originalAuthor`, `creationRecipient` | Shared page document, folded from admitted owner/editor streams in the current epoch |
+| `own`     | `threads`, `messages`, `intents`, `replies` Y.Maps                                                                  | Separate document per writer; only that writer's signed stream mutates it            |
 
 `meta.publisherAgent`, when present, is a nonempty string of at most 128 UTF-8
 bytes without control characters. It is a publisher-asserted display-only label,
@@ -745,9 +745,11 @@ never an identity binding, agent ID or publication authority. CLI page create/wr
 captures it best-effort through the fixed public `identity show --json` command via
 `tmt_invoke` and the invoking TMT executable (one-second deadline, 64 KiB output
 cap). Unknown/unbound callers, invalid output and invocation failures produce no
-label; an unknown CLI writer removes the previous label. Browser source edits
-retain the last CLI label. Content folding and epoch baselines preserve it in the
+label; an unknown CLI writer removes the previous label. Browser Save carries no
+CLI label and so removes it the same way. Content folding and epoch baselines preserve it in the
 committed update bytes; no descriptor field or extra signature is added.
+
+`meta.originalAuthor`, when present, uses the same bounded label grammar. Initial page creation derives it from that request's already captured `publisherAgent`; there is no separate creator lookup or public creation selection. It is a publisher-asserted creation display snapshot, not authenticated proof of a person's identity. Supported native and browser source writes preserve it independently of the latest publisher; an unknown creation remains absent after later known writes. Legacy absence means Unknown author in trusted presentation, never a guessed or backfilled value. Fresh epoch baselines and content checkpoints preserve it. It never supplies authorization, an Ask recipient or an Ask default.
 
 `meta.creationRecipient`, when present, is exactly `{machineId,agentId}`: a
 canonical non-nil Remote UUIDv4 and canonical non-nil core UUID. It is an asserted
@@ -944,7 +946,7 @@ and atomic epoch transitions remain caller-owned, later integration work.
 [Baseline vectors](vectors/baseline-v1.json) pin update-v1 bytes and commitment
 with a test-only fixed client ID; production uses a fresh identity. Their
 [independent oracle](vectors/baseline-reference.py) covers only the fresh
-`html`/`meta.title` plus optional `meta.publisherAgent` and `meta.creationRecipient` schema and requires no third-party libraries.
+`html`/`meta.title` plus optional `meta.publisherAgent`, `meta.originalAuthor` and `meta.creationRecipient` schema and requires no third-party libraries.
 The complete two-key preference has two fixed-client lib0 object-key byte orders,
 each with its own exact-byte commitment; this does not relax the deterministic
 frozen export manifest.
@@ -2623,7 +2625,7 @@ codes apply; failures exit 1. The browser home empty state names this command.
 owner-authenticated fold and isolated decoder. Raw stdout is exact admitted UTF-8
 source, without an added newline; stderr carries the verified head, epoch and
 page revision. JSON is `{spaceId,pageId,source,title,epoch,membershipHead,
-revision,memoryLimit}` with optional bounded `publisherAgent` and optional complete `creationRecipient`, omitted
+revision,memoryLimit}` with optional bounded `publisherAgent` and `originalAuthor` and optional complete `creationRecipient`, omitted
 when absent. `membershipHead` is `{revision,statementHash}` with decimal
 revision and lowercase hex hash. Reads never initialize or migrate state.
 Archived reads retain the fold's current inactive-page restriction; deleted
@@ -2863,6 +2865,8 @@ The manifest is UTF-8 JSON with these fields:
 | `spaceId`           | Pinned space ID                                                                                                       |
 | `pageId`            | Exported page UUID                                                                                                    |
 | `title`             | Exact admitted title                                                                                                  |
+| `originalAuthor`    | Optional bounded creation display label, omitted when unknown; never identity proof                                   |
+| `publisherAgent`    | Optional latest CLI publisher display label, omitted when unknown                                                     |
 | `creationRecipient` | Optional complete `{machineId,agentId}` creation preference; omitted when absent                                      |
 | `exportedAtMs`      | Safe-integer UTC milliseconds                                                                                         |
 | `membershipHead`    | `{revision, statementHash}`; decimal revision, lowercase hex SHA-256                                                  |

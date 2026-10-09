@@ -278,6 +278,8 @@ fn shared_fixture_matches_the_native_bundle_bytes_and_field_order() {
         space_id: input["spaceId"].as_str().unwrap(),
         page_id: input["pageId"].as_str().unwrap(),
         title: input["title"].as_str().unwrap(),
+        original_author: input["originalAuthor"].as_str(),
+        publisher_agent: input["publisherAgent"].as_str(),
         creation_recipient: recipient.as_ref(),
         exported_at_ms: input["exportedAtMs"].as_u64().unwrap(),
         membership_head: MembershipHead {

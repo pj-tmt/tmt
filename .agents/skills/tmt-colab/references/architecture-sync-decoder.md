@@ -85,7 +85,8 @@ and `limits.rs`; do not restate them.
   `identity show --json` command in `core.rs`; failures leave no label. The decoder's
   `ContentEdit` replaces/clears `meta.publisherAgent` atomically with source. Browser
   edits preserve it, and owner epoch baselines carry it in their committed update.
-  No label selects an identity or grant. Creation reuses that single bounded identity
+  Creation also initializes `meta.originalAuthor` from that same captured label. Source edits preserve the creation snapshot, and unknown creation is never backfilled. Both labels survive fresh epoch baselines and compacted content. The original label is asserted display, never identity proof or an Ask default; grammar and legacy absence are owned by colab-v1. No label selects an identity or grant.
+  Creation reuses that single bounded identity
   snapshot and one optional same-root public machine-status observation to freeze
   `decoder::CreationRecipient`; the browser projection uses the canonical
   `CreationRecipient` in `fold-protocol.ts`. Strict metadata admission, source-edit
@@ -120,7 +121,7 @@ and `limits.rs`; do not restate them.
   `commit_publication` (through `Admission::commit_save` and the same combine as a CLI write), the one
   `saveresult` and the shared fan-out. The browser's `Connection.save` paces the chunks and holds one
   request in flight; `Live.edit` settles a lost reply with one `savestatus` and never resends.
-- `export.rs` snapshots exact source and title through `fold::Snapshot` and the decoder and
+- `export.rs` snapshots exact source, title and optional creation/latest display labels through `fold::Snapshot` and the decoder and
   writes `page.html`, `conversations.json`, `conversations.md` and `manifest.json` (format and
   disclosure: colab-v1). The fold now keeps each writer's decoded `own` projection and
   historical signing key in `View`; `export/conversations.rs` projects threads, comments and
