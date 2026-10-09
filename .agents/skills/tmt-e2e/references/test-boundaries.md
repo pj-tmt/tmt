@@ -1,9 +1,31 @@
 # Test infrastructure and evidence
 
 [DEVELOPMENT.md](../../../../DEVELOPMENT.md#native-process-and-shared-tests)
-owns basic setup and selection; this reference owns the helper boundaries and
+owns basic setup; this reference owns native CLI selection, helper boundaries and
 failure behavior needed when changing native or Docker fixtures. Shared system
 invariants stay in [ARCHITECTURE.md](../../../../ARCHITECTURE.md#testing-and-evidence-boundaries).
+
+## Native CLI selection
+
+**Selecting the CLI.** The native selector resolves `rust/target/debug/tmt` and
+fails if it is absent. An explicit descriptor may select another absolute
+executable; neither an installed host command nor Node is a fallback, and paths
+and argv are data, never shell fragments:
+
+```bash
+cargo build --locked --manifest-path rust/Cargo.toml
+cargo build --locked --manifest-path rust/Cargo.toml --example storage-probe
+TMT_TEST_CLI='{"executable":"/abs/rust/target/debug/tmt","args":[]}' \
+TMT_TEST_STORAGE_PROBE='{"executable":"/abs/rust/target/debug/examples/storage-probe","args":[]}' \
+  pnpm test:native
+```
+
+Installation and upgrade tests build their fixtures per the
+[release skill](../../tmt-release/references/installation-fixtures.md). The suite
+needs a Git checkout and Cargo: version expectations read `cargo
+metadata --no-deps --offline --locked`, `rust/Cargo.lock` and `git ls-files -z`
+once per suite. Native Rust CI selects the same-checkout release CLI; local
+selection defaults to the debug build.
 
 ## Owners and evidence
 

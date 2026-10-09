@@ -80,22 +80,20 @@ and never restart Docker Desktop.
   `CARGO_TARGET_DIR` at `/tmp` or elsewhere. Reuse a clean worktree instead of
   adding one: `git status --short` empty and the branch pushed or merged, then
   `git fetch origin` and `git switch -c <new-branch> origin/main`.
-- **Remove a worktree when its PR merges**, in the same turn, with the script
-  that checks it is safe:
+- **Remove a worktree when its PR merges**, in the same turn, following
+  [AGENTS' delivery lifecycle](AGENTS.md#delivery-lifecycle) and
+  [`scripts/dev-worktree-remove.sh`](scripts/dev-worktree-remove.sh):
 
   ```sh
   scripts/dev-worktree-remove.sh <worktree-path> <pr-number>
   ```
 
-  It removes the worktree and prunes only when `git status --short` prints
-  nothing **and** either the PR is merged (REST `GET /repos/{owner}/{repo}/pulls/<n>`
-  has a non-null `merged_at`) or the branch has an upstream and `git log @{u}..`
-  prints nothing. Open, closed-unmerged and failed PR lookups require the
-  upstream proof, which alone is not enough after a server-side rebase. If the
-  script refuses, stop and ask the maintainer: a refusal is not permission to
-  remove the worktree by hand, with `--force`, or by deleting the branch.
-  Only after it succeeds, remove that worktree's images
-  (`docker image rm "<purpose>:$worktree"`; never-built images are skipped).
+  The script requires empty `git status --short` and either non-null REST `merged_at` or
+  an upstream with empty `git log @{u}..`; open, closed-unmerged and failed PR
+  lookups require the upstream proof, which alone is not enough after a
+  server-side rebase. If it refuses, stop and ask the maintainer; never remove by
+  hand, with `--force`, or by deleting the branch. Only after it succeeds, remove
+  that worktree's images (`docker image rm "<purpose>:$worktree"`; skip never-built images).
 
 ## Run the workspace CLI
 
@@ -216,32 +214,9 @@ before tooling or native tests, as CI does:
 cargo build --locked --manifest-path rust/Cargo.toml -p tmt-adapters --example runtime-caller-fixture
 ```
 
-**Selecting the CLI.** The native selector resolves `rust/target/debug/tmt` and
-fails if it is absent. An explicit descriptor may select another absolute
-executable; neither an installed host command nor Node is a fallback, and paths
-and argv are data, never shell fragments:
+CLI descriptors and suite prerequisites: [native CLI selection](.agents/skills/tmt-e2e/references/test-boundaries.md#native-cli-selection).
 
-```bash
-cargo build --locked --manifest-path rust/Cargo.toml
-cargo build --locked --manifest-path rust/Cargo.toml --example storage-probe
-TMT_TEST_CLI='{"executable":"/abs/rust/target/debug/tmt","args":[]}' \
-TMT_TEST_STORAGE_PROBE='{"executable":"/abs/rust/target/debug/examples/storage-probe","args":[]}' \
-  pnpm test:native
-```
-
-Installation and upgrade tests build their fixtures per the
-[release skill](.agents/skills/tmt-release/references/installation-fixtures.md). The suite
-needs a Git checkout and Cargo: version expectations read `cargo
-metadata --no-deps --offline --locked`, `rust/Cargo.lock` and `git ls-files -z`
-once per suite. Native Rust CI selects the same-checkout release CLI; local
-selection defaults to the debug build.
-
-**Fixture builds belong in the process job itself.** Process and archive fixtures
-need the CLI and Herdr together (`cargo build --locked -p tmt-cli -p
-tmt-driver-herdr --bins`); extension archive scenarios also need `tmt-ops`,
-`tmt-remote` and `tmt-colab`, and Colab's verifier needs `cargo build --locked -p
-tmt-test-support --example colab-runtime-fixture`. Another job's build or a warm
-local target does not supply them.
+Process-job fixture builds: [installation fixtures](.agents/skills/tmt-release/references/installation-fixtures.md#process-fixture-builds).
 
 **Rules.**
 
@@ -278,18 +253,11 @@ transport, identity, talk or cleanup changes:
 (cd typescript && corepack pnpm test:e2e)
 ```
 
-`TMT_E2E_FILES="ops.e2e.test.ts"` (space-separated plain file names) limits the
-run; the image anchors each name as `test/e2e/<name>` because vitest filters by
-substring. `TMT_E2E_ADAPTER_TESTS=0` skips the Rust adapter tests, and a host
-`CARGO_BUILD_JOBS` (a positive count or `default`) limits the image's builds. CI
-runs two shards behind the required `Docker E2E` gate, balanced by
-`typescript/test/e2e/shard-weights.json` through `typescript/scripts/e2e-shards.mjs`
-(refresh weights from a full run when shards drift; a guard fails if a scenario is
-in no shard or two).
+Docker selection knobs and shard balancing: [E2E scenarios](.agents/skills/tmt-e2e/references/e2e-scenarios.md#selection-and-sharding).
 
-The harness builds its pinned image with `--network none`, private tmux sockets
-and deterministic mock agents, and must not reach a host tmux server or a real
-agent. The wrapper's `--init` is part of orphan-child cleanup evidence. The image
+The harness builds its pinned image, then runs it with `--network none`, private
+tmux sockets and deterministic mock agents, and must not reach a host tmux server
+or a real agent. The wrapper's `--init` is part of orphan-child cleanup evidence. The image
 places its binary at `rust/target/debug/tmt` and leaves the selector unset, so it
 exercises the developer default path. Scenario ownership and harness rules are in
 [tmt-e2e](.agents/skills/tmt-e2e/SKILL.md).
@@ -310,9 +278,7 @@ docs. Neither replaces the Rust commands, the native process suite or Docker run
 The single approved type policy is `CONVENTIONAL_PR_TYPES` in
 `typescript/scripts/pr-title-check.mjs`; the [release reference](.agents/skills/tmt-release/references/native-release.md#conventional-pr-titles)
 owns syntax, released-path scope, edit feedback and cumulative merge-group enforcement.
-The report-only observation day ended at **2026-10-03T16:35:42Z** (#1165); its original
-impact findings belong in the issue/flip PR, not this guide. `--report-only` is explicit
-observation compatibility, never the required CI gate.
+`--report-only` is explicit observation compatibility, never the required CI gate.
 
 ## Installed guidance source ownership
 
@@ -403,8 +369,6 @@ from crash recovery, and retain uncertainty, transaction, retention,
 acknowledgment, lifetime and cleanup evidence when changing those boundaries.
 Compare exact file bytes, not symlink-directory snapshots or enumerated binary
 objects; use structured output or a focused formatter test, not mocked
-`console.log`. Test design belongs to [CONVENTIONS](CONVENTIONS.md#tests-and-review),
-isolation and evidence ownership to
-[ARCHITECTURE](ARCHITECTURE.md#testing-and-evidence-boundaries); apply the
-[architecture maintenance contract](ARCHITECTURE.md#maintenance-contract) when
-changing an owner, boundary or verification procedure.
+`console.log`. Test design: [CONVENTIONS](CONVENTIONS.md#tests-and-review); isolation, evidence and
+maintenance: [ARCHITECTURE](ARCHITECTURE.md#testing-and-evidence-boundaries) and its
+[maintenance contract](ARCHITECTURE.md#maintenance-contract).

@@ -1055,7 +1055,7 @@ shares the native runtime/linkage proof across archive, installer, upgrade and
 public smoke verification. Raw executables do not prove archives or public
 installation. The candidate-owned installer handoff contract is
 [`contracts/native-install-handoff-v1.md`](contracts/native-install-handoff-v1.md).
-Archive, installer, verifier, publication, compiled CLI schema and unarmed RC checkpoint/coordinator sources belong to
+Archive, installer, verifier, publication, compiled CLI schema and the PR release-candidate checkpoint/coordinator sources belong to
 [tmt-release](.agents/skills/tmt-release/SKILL.md).
 
 ### Main release cuts
@@ -1083,11 +1083,9 @@ immutable after all gates pass; only the CLI converges latest to its highest pub
 Automatic publication covers authorized existing alpha products only. Ben retains
 stable, breaking, version-line changes and manual publication authorization.
 Activating a new released product is a component-map change accepted by tmt-lead
-and the owning squad lead (for example, #1418). Exact gates and owner recovery
+and the owning squad lead. Exact gates and owner recovery
 operations belong to the [release skill](.agents/skills/tmt-release/SKILL.md) and
 [main-cut reference](.agents/skills/tmt-release/references/main-cuts.md).
-
-### Release-to-Project tracking
 
 Delivery and publication evidence are separate. Release reconciliation rules and
 procedures live in [tmt-release](.agents/skills/tmt-release/SKILL.md#project-release-reconciliation);

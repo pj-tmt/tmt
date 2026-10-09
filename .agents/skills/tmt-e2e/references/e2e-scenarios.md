@@ -1,7 +1,18 @@
 # Docker E2E scenarios and harness
 
-Basics (run twice, `TMT_E2E_FILES`, sharding, isolation) are in
+Run-count requirements and isolation are in
 [DEVELOPMENT.md](../../../../DEVELOPMENT.md#docker-e2e).
+
+## Selection and sharding
+
+`TMT_E2E_FILES="ops.e2e.test.ts"` (space-separated plain file names) limits the
+run; the image anchors each name as `test/e2e/<name>` because vitest filters by
+substring. `TMT_E2E_ADAPTER_TESTS=0` skips the Rust adapter tests, and a host
+`CARGO_BUILD_JOBS` (a positive count or `default`) limits the image's builds. CI
+runs two shards behind the required `Docker E2E` gate, balanced by
+`typescript/test/e2e/shard-weights.json` through `typescript/scripts/e2e-shards.mjs`
+(refresh weights from a full run when shards drift; a guard fails if a scenario is
+in no shard or two).
 
 ## Scenario ownership
 

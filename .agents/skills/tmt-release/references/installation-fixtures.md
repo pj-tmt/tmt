@@ -22,6 +22,15 @@ captured commit and confirm `git diff --exit-code HEAD --` before running tests.
 Retain the fixture, build time and source-gate evidence in the delivery record;
 never publish this synthetic version. Shared-host Cargo limits still apply.
 
+## Process fixture builds
+
+**Fixture builds belong in the process job itself.** Process and archive fixtures
+need the CLI and Herdr together (`cargo build --locked -p tmt-cli -p
+tmt-driver-herdr --bins`); extension archive scenarios also need `tmt-ops`,
+`tmt-remote` and `tmt-colab`, and Colab's verifier needs `cargo build --locked -p
+tmt-test-support --example colab-runtime-fixture`. Another job's build or a warm
+local target does not supply them.
+
 ## Synthetic preparation version
 
 Non-publishing `prepare` rehearsals and installation fixtures use
