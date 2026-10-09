@@ -1,3 +1,4 @@
+import { AttachmentService, disclosureScope } from './attachment-service.js';
 import {
   binary,
   certificate,
@@ -40,6 +41,16 @@ export const accessEnded = (error: Error) =>
 /** One link device. The seed and the keys derived from it stay in memory, in this tab only. */
 export class ReaderSession {
   #connection: Connection | null = null;
+  /** Read-only: authorized reads of the page's files over the current connection. */
+  readonly attachments = new AttachmentService({
+    connection: async () => {
+      if (!this.#connection) throw new Error('Reader unavailable');
+      return this.#connection;
+    },
+    available: () => !this.#closed && this.#connection !== null,
+    sharing: SHARING,
+    scope: () => disclosureScope(this.#connection),
+  });
   #closed = false;
   #failures = 0;
   private constructor(

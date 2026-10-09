@@ -90,6 +90,7 @@ export interface ThreadStoreOptions extends DiscussionScope {
   publish(records: OwnRecord[]): Promise<void>;
   available(): boolean;
   sharing: string;
+  scope?(): string;
 }
 
 /** Discussion records never leave Colab. The existing own envelope authenticates

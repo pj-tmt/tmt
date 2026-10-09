@@ -110,7 +110,9 @@ const input = (size = 100 * 1024) => ({
 it('uploads one frozen original in order and binds it to the preallocated message', async () => {
   const { service, calls } = await fixture();
   const progress: number[] = [];
-  const stored = await service.upload(input(), messageId, (sent) => progress.push(sent));
+  const stored = await service.upload(input(), { kind: 'message', messageId }, (sent) =>
+    progress.push(sent),
+  );
   const methods = calls.map((c) => c.method);
   expect(methods[0]).toBe('config');
   expect(methods[1]).toBe('begin');
@@ -142,7 +144,9 @@ it('a lost part leaves the same original unknown, and status continues it withou
       return undefined;
     },
   });
-  const failure = await service.upload(input(), messageId, () => {}).catch((e) => e);
+  const failure = await service
+    .upload(input(), { kind: 'message', messageId }, () => {})
+    .catch((e) => e);
   expect(failure).toBeInstanceOf(AttachmentUploadError);
   expect(failure.failure.kind).toBe('unknown');
   const original = failure.failure.original;
@@ -166,7 +170,9 @@ it('a thrown request after the first one left is unknown, never refused', async 
   const { service } = await fixture({
     script: (request) => (request.method === 'part' ? new Error('socket closed') : undefined),
   });
-  const failure = await service.upload(input(), messageId, () => {}).catch((e) => e);
+  const failure = await service
+    .upload(input(), { kind: 'message', messageId }, () => {})
+    .catch((e) => e);
   expect(failure.failure.kind).toBe('unknown');
 });
 
@@ -174,7 +180,9 @@ it('a denied begin is a refusal that sent no part', async () => {
   const { service, calls } = await fixture({
     script: (request) => (request.method === 'begin' ? { error: { code: 'denied' } } : undefined),
   });
-  const failure = await service.upload(input(), messageId, () => {}).catch((e) => e);
+  const failure = await service
+    .upload(input(), { kind: 'message', messageId }, () => {})
+    .catch((e) => e);
   expect(failure.failure).toEqual({ kind: 'refused', reason: 'denied' });
   expect(calls.some((c) => c.method === 'part')).toBe(false);
 });
@@ -184,7 +192,7 @@ it('a status answer that the original is gone is reported as gone', async () => 
     script: (request) =>
       request.method === 'status' ? { ok: { result: 'state', state: 'expired' } } : undefined,
   });
-  const stored = await service.upload(input(10), messageId, () => {});
+  const stored = await service.upload(input(10), { kind: 'message', messageId }, () => {});
   const failure = await service
     .resume(stored.original, { filename: 'notes.bin', size: 10 }, () => {})
     .catch((e) => e);
@@ -210,11 +218,15 @@ it('refuses before sealing when the backend cannot recover by original id or the
           }
         : undefined,
   });
-  const a = await none.service.upload(input(10), messageId, () => {}).catch((e) => e);
+  const a = await none.service
+    .upload(input(10), { kind: 'message', messageId }, () => {})
+    .catch((e) => e);
   expect(a.failure).toEqual({ kind: 'refused', reason: 'unavailable' });
   expect(none.calls.map((c) => c.method)).toEqual(['config']);
   const small = await fixture({ payloadBytes: 1024 });
-  const b = await small.service.upload(input(4096), messageId, () => {}).catch((e) => e);
+  const b = await small.service
+    .upload(input(4096), { kind: 'message', messageId }, () => {})
+    .catch((e) => e);
   expect(b.failure).toEqual({ kind: 'refused', reason: 'too-large' });
   expect(small.calls.map((c) => c.method)).toEqual(['config']);
 });
@@ -223,7 +235,7 @@ it('a message attachment is fenced by the membership head, not the page revision
   let revision = `v1:${hex(64)}`;
   const fx = await fixture({ revision: () => revision });
   const { service, admission } = fx;
-  const stored = await service.upload(input(10), messageId, () => {});
+  const stored = await service.upload(input(10), { kind: 'message', messageId }, () => {});
   // A foreign write moves the page revision: the fence does not, so it is not stale.
   revision = `v1:${'cd'.repeat(32)}`;
   const moved = await service.publication([stored]).catch((e) => e);
@@ -237,7 +249,7 @@ it('a message attachment is fenced by the membership head, not the page revision
 
 it('the message fence is not a page revision and changes with epoch or membership hash', async () => {
   const { service, admission } = await fixture();
-  const stored = await service.upload(input(10), messageId, () => {});
+  const stored = await service.upload(input(10), { kind: 'message', messageId }, () => {});
   expect(stored.original.base).toMatch(/^v1:[0-9a-f]{64}$/);
   expect(stored.original.base).not.toBe(`v1:${hex(64)}`);
   admission.head = { revision: 1n, hash: Uint8Array.from({ length: 32 }, () => 7) };
@@ -249,7 +261,7 @@ it('a status question that cannot be answered leaves the original unknown, not r
   const { service } = await fixture({
     script: (request) => (request.method === 'status' ? new Error('socket closed') : undefined),
   });
-  const stored = await service.upload(input(10), messageId, () => {});
+  const stored = await service.upload(input(10), { kind: 'message', messageId }, () => {});
   const failure = await service
     .resume(stored.original, { filename: 'notes.bin', size: 10 }, () => {})
     .catch((e) => e);
@@ -263,7 +275,7 @@ it('a status state of unavailable keeps the original unknown; expired, discarded
     script: (request) =>
       request.method === 'status' ? { ok: { result: 'state', state } } : undefined,
   });
-  const stored = await service.upload(input(10), messageId, () => {});
+  const stored = await service.upload(input(10), { kind: 'message', messageId }, () => {});
   const ask = () =>
     service
       .resume(stored.original, { filename: 'notes.bin', size: 10 }, () => {})
@@ -271,4 +283,29 @@ it('a status state of unavailable keeps the original unknown; expired, discarded
   expect(await ask()).toMatchObject({ kind: 'unknown', original: stored.original });
   for (state of ['expired', 'discarded', 'not-observed'])
     expect(await ask()).toEqual({ kind: 'gone' });
+});
+
+const sha256Hex = async (value: string) =>
+  [...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value)))]
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
+
+it('a document upload is a content asset bound to the digest of the source being written', async () => {
+  const { service } = await fixture();
+  const stored = await service.upload(
+    input(10),
+    { kind: 'document', source: '<h1>a</h1>' },
+    () => {},
+  );
+  const d = stored.original.descriptor;
+  expect(d.namespace).toBe('content');
+  expect(d.source).toEqual({ kind: 'document', sourceDigest: await sha256Hex('<h1>a</h1>') });
+});
+
+it('document publication refuses a file bound to a source other than the one being written', async () => {
+  const { service } = await fixture();
+  const stored = await service.upload(input(10), { kind: 'document', source: 'one' }, () => {});
+  const failure = await service.publication([stored], 'two').catch((e) => e);
+  expect(failure).toBeInstanceOf(AttachmentStaleError);
+  expect(failure.attachmentIds).toEqual([stored.original.descriptor.attachmentId]);
 });

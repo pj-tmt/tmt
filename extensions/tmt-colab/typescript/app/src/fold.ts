@@ -1,4 +1,4 @@
-import { exactKeys, generatedId, requireValue } from '@tmt/colab-client';
+import { attachment, exactKeys, generatedId, requireValue } from '@tmt/colab-client';
 import {
   BASELINE_UPDATE_BYTES,
   READ_TAIL_UPDATES,
@@ -148,7 +148,11 @@ export class Fold {
     return this.#run(command) as Promise<FoldResult>;
   }
   /** Private preparation seam; never commits or publishes these deltas. */
-  prepareContent(source: string, base: ContentSnapshot): Promise<ContentPreparation> {
+  prepareContent(
+    source: string,
+    base: ContentSnapshot,
+    attachments?: attachment.DocumentChange,
+  ): Promise<ContentPreparation> {
     exactKeys(base, [
       'source',
       'title',
@@ -167,6 +171,9 @@ export class Fold {
       type: 'prepare-content',
       source,
       base: structuredClone(base),
+      ...(attachments === undefined
+        ? {}
+        : { attachments: attachment.documentChange(structuredClone(attachments)) }),
     }) as Promise<ContentPreparation>;
   }
   #run(command: DecoderCommand): Promise<FoldResult | ContentPreparation> {

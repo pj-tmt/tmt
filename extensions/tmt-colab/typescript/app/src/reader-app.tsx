@@ -1,5 +1,8 @@
 import { browserUiClasses as ui } from '@tmt/browser-ui/static';
 import { Circle, Info, LoaderCircle, X } from 'lucide-react';
+import type { AttachmentBinding } from './attachment-service.js';
+import { FilesList } from './files-panel.js';
+import { PageDrawer } from './page-drawer.js';
 import { ColabHeader } from './colab-header.js';
 import { PageAttribution } from './page-attribution.js';
 import { NoticeCard } from './notice-card.js';
@@ -16,7 +19,16 @@ export type ReaderState =
   | { kind: 'failed' };
 
 /** The read-only page: no editor, Ask, export or share controls exist in this entry. */
-export function ReaderApp({ state }: { state: ReaderState }) {
+export function ReaderApp({
+  state,
+  attachments,
+}: {
+  state: ReaderState;
+  /** Authorized reads of the page's files; absent until the session is open. */
+  attachments?: AttachmentBinding;
+}) {
+  const [files, setFiles] = useState(false);
+  const descriptors = state.kind === 'ready' ? (state.view.attachments ?? []) : [];
   const source = state.kind === 'ready' ? state.view.source : null;
   const title = state.kind === 'ready' ? state.view.title : '';
   const [render, setRender] = useState<RenderState | 'loading'>('loading');
@@ -78,6 +90,19 @@ export function ReaderApp({ state }: { state: ReaderState }) {
                 </span>
               </>
             )}
+            {descriptors.length > 0 && (
+              <button
+                className={ui.action}
+                data-variant="text"
+                data-testid="files-toggle"
+                aria-expanded={files}
+                onClick={(event) => {
+                  if (event.isTrusted) setFiles((open) => !open);
+                }}
+              >
+                {text.files} {descriptors.length}
+              </button>
+            )}
             <details className="reader-information">
               <summary className={ui.action} data-variant="text" aria-label={text.readerInfo}>
                 <Info aria-hidden />
@@ -131,6 +156,16 @@ export function ReaderApp({ state }: { state: ReaderState }) {
           </NoticeCard>
         )}
       </main>
+      {state.kind === 'ready' && (
+        <PageDrawer
+          open={files && descriptors.length > 0}
+          title={text.files}
+          kind="files"
+          close={() => setFiles(false)}
+        >
+          <FilesList descriptors={descriptors} binding={attachments} />
+        </PageDrawer>
+      )}
     </>
   );
 }

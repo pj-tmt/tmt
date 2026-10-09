@@ -1,4 +1,5 @@
 import {
+  attachment,
   binary,
   decodeHeader,
   digest,
@@ -416,15 +417,23 @@ export class Connection {
   }
   /** Publish the whole source through native preparation. The reply says what happened; a lost
    * reply closes this connection and is settled by one `saveStatus` on the next. */
-  async save(operationId: string, base: string, source: string): Promise<SaveResult> {
+  async save(
+    operationId: string,
+    base: string,
+    source: string,
+    attachments?: attachment.DocumentChange,
+  ): Promise<SaveResult> {
     await this.ready;
     const bytes = text(source);
     if (bytes.length > SAVE_SOURCE_BYTES) throw new SaveTooLarge(bytes.length, SAVE_SOURCE_BYTES);
     const [baseHash, sourceHash] = await Promise.all([digest(text(base)), digest(bytes)]);
+    const change = attachments === undefined ? undefined : attachment.documentChange(attachments);
     const fields = {
       operationId,
       baseSha256: encodeBinary(baseHash),
       sourceSha256: encodeBinary(sourceHash),
+      // A typed set/remove of document references, bound to this source by native preparation.
+      ...(change && !attachment.emptyDocumentChange(change) ? { attachments: change } : {}),
     };
     return this.#request(operationId, async () => {
       if (bytes.length <= CHUNK_BYTES)

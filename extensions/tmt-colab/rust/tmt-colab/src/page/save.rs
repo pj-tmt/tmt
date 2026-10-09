@@ -42,6 +42,8 @@ pub struct Save {
     pub operation_id: String,
     pub base_sha256: [u8; 32],
     pub source: String,
+    /// A typed change to the document's attachment list, bound to `source`.
+    pub attachments: Option<tmt_colab_model::attachment::DocumentChange>,
 }
 /// A save after native preparation: nothing to publish, or a frozen publication.
 pub enum Prepared {
@@ -67,6 +69,7 @@ pub fn prepare(
         ContentEdit {
             source: &save.source,
             publisher_agent: None,
+            attachments: save.attachments.as_ref(),
         },
         PublishOptions {
             expected_revision: None,
@@ -82,15 +85,29 @@ pub fn prepare(
             membership_head,
             base_revision,
             memory_limit,
-        } => Prepared::Unchanged(Box::new(super::Receipt::unchanged(
-            &source.keyring,
-            &save.page,
-            &save.source,
-            epoch,
-            membership_head,
-            base_revision,
-            memory_limit,
-        ))),
+        } => {
+            // A no-op records nothing, so an operation ID that already has a recorded outcome
+            // was used by another save: it must not answer "unchanged" for this one.
+            if super::publication_status_by_operation(
+                &source.store,
+                &source.keyring,
+                &save.page,
+                &save.operation_id,
+            )?
+            .is_some()
+            {
+                return Err(OwnerFault::Conflict.into());
+            }
+            Prepared::Unchanged(Box::new(super::Receipt::unchanged(
+                &source.keyring,
+                &save.page,
+                &save.source,
+                epoch,
+                membership_head,
+                base_revision,
+                memory_limit,
+            )))
+        }
         PublicationPreparation::Write(frozen) => Prepared::Write(frozen),
     })
 }

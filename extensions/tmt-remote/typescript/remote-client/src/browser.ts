@@ -269,7 +269,7 @@ export async function landingPage(): Promise<void> {
     element('notice').dataset.tone =
       state === 'connected'
         ? 'working'
-        : ['missing', 'checking'].includes(state)
+        : ['missing', 'checking', 'different'].includes(state)
           ? 'waiting'
           : 'blocked';
     element('notice').dataset.state = state;

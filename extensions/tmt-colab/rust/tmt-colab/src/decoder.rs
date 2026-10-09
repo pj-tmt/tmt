@@ -71,6 +71,8 @@ impl CreationRecipient {
 pub struct ContentEdit<'a> {
     pub source: &'a str,
     pub publisher_agent: Option<&'a str>,
+    /// A typed change to `meta.attachments`, bound to `source`; `None` keeps the list as it is.
+    pub attachments: Option<&'a tmt_colab_model::attachment::DocumentChange>,
 }
 /// A bounded plain-data batch for one authenticated writer's own document.
 /// The caller establishes writer/page/epoch scope; only the child touches Yjs.
@@ -469,7 +471,12 @@ impl Decoder {
         }
         validate_projection(Namespace::Content, expected_base)
             .map_err(|_| DecodeFault::InvalidInput)?;
-        let expected = edited_projection(expected_base, edit);
+        if let Some(change) = edit.attachments {
+            change
+                .validate(&tmt_colab_model::crypto::digest(edit.source.as_bytes()))
+                .map_err(|_| DecodeFault::InvalidInput)?;
+        }
+        let expected = edited_projection(expected_base, edit)?;
         let wire = WireContentPreparation {
             version: 1,
             baseline: URL_SAFE_NO_PAD.encode(batch.baseline),
@@ -481,6 +488,7 @@ impl Decoder {
             expected_base,
             source: edit.source,
             publisher_agent: edit.publisher_agent,
+            attachments: edit.attachments,
         };
         let (input, hash) = SerializedInput::serialize(&wire)?.finish();
         let output = self.invoke(&input, ChildCommand::PrepareContent, stop, deadline, None)?;
@@ -888,13 +896,20 @@ struct WireResult<B = String> {
 }
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct WireContentPreparation<S = String, V = Value, B = String> {
+struct WireContentPreparation<
+    S = String,
+    V = Value,
+    B = String,
+    C = tmt_colab_model::attachment::DocumentChange,
+> {
     version: u8,
     baseline: B,
     updates: Vec<B>,
     expected_base: V,
     source: S,
     publisher_agent: Option<S>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    attachments: Option<C>,
 }
 #[derive(Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "lowercase", deny_unknown_fields)]
@@ -912,7 +927,7 @@ struct WirePreparedContent<B = String> {
     memory_limit: MemoryLimit,
     pid: u32,
 }
-fn edited_projection(base: &Value, edit: ContentEdit<'_>) -> Value {
+fn edited_projection(base: &Value, edit: ContentEdit<'_>) -> Result<Value, DecodeFault> {
     let mut expected = serde_json::json!({
         "html": edit.source,
         "meta": base["meta"].clone(),
@@ -925,7 +940,26 @@ fn edited_projection(base: &Value, edit: ContentEdit<'_>) -> Value {
     } else {
         meta.remove("publisherAgent");
     }
-    expected
+    if let Some(change) = edit.attachments.filter(|change| !change.is_empty()) {
+        let current: Vec<tmt_colab_model::attachment::Descriptor> = match meta.get("attachments") {
+            Some(list) => {
+                serde_json::from_value(list.clone()).map_err(|_| DecodeFault::InvalidInput)?
+            }
+            None => Vec::new(),
+        };
+        let next = change
+            .apply(&current)
+            .map_err(|_| DecodeFault::InvalidInput)?;
+        if next.is_empty() {
+            meta.remove("attachments");
+        } else {
+            meta.insert(
+                "attachments".into(),
+                serde_json::to_value(&next).map_err(|_| DecodeFault::InvalidInput)?,
+            );
+        }
+    }
+    Ok(expected)
 }
 fn admit_prepared_content(
     reply: WirePreparedContent,

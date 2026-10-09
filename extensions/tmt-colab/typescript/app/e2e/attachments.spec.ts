@@ -299,3 +299,17 @@ for (const width of [1440, 390])
       await expect(png.locator('img')).toBeVisible();
       await shot('message-preview');
     });
+
+test('an epoch or admission change disposes a shown message preview', async ({ page }) => {
+  await mount(page);
+  const { panel, input } = await openChat(page);
+  await input.fill('Look');
+  await attach(page, [{ name: 'shot.png', mimeType: 'image/png', buffer: PNG }]);
+  await send(page).click();
+  const png = panel.getByTestId('message-attachment');
+  await png.getByRole('button', { name: text.attachmentPreview }).click();
+  await expect(png.locator('img')).toBeVisible();
+  await page.evaluate(async (path) => (await import(path)).advanceDisclosure(), fixture);
+  await expect(png.locator('img')).toHaveCount(0);
+  await expect(png.getByRole('button', { name: text.attachmentPreview })).toBeVisible();
+});

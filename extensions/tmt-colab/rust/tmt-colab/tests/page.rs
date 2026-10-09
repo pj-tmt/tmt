@@ -200,6 +200,7 @@ impl Fixture {
             tmt_colab::decoder::ContentEdit {
                 source,
                 publisher_agent: None,
+                attachments: None,
             },
             revision,
             &mut self.decoder(),
@@ -1428,6 +1429,7 @@ fn original_author_survives_native_edits_compaction_reload_epoch_and_export() {
             tmt_colab::decoder::ContentEdit {
                 source: "updated",
                 publisher_agent: publisher,
+                attachments: None,
             },
             None,
             &mut f.decoder(),
@@ -2646,6 +2648,7 @@ mod native_preparation {
             ContentEdit {
                 source,
                 publisher_agent: publisher,
+                attachments: None,
             },
             expected,
             &mut Decoder::new(BINARY.into()).unwrap(),
@@ -2793,6 +2796,7 @@ mod native_preparation {
                 ContentEdit {
                     source: &text,
                     publisher_agent: None,
+                    attachments: None,
                 },
                 None,
                 &mut decoder,
@@ -3931,6 +3935,7 @@ sys.stdout.write(json.dumps(reply))
             ContentEdit {
                 source: "new",
                 publisher_agent: None,
+                attachments: None,
             },
             None,
             &mut decoder,
@@ -3952,7 +3957,8 @@ sys.stdout.write(json.dumps(reply))
                 PAGE,
                 ContentEdit {
                     source: "old 🐈\r\n",
-                    publisher_agent: None
+                    publisher_agent: None,
+                    attachments: None,
                 },
                 None,
                 &mut decoder,
@@ -3976,6 +3982,7 @@ sys.stdout.write(json.dumps(reply))
             ContentEdit {
                 source: "new",
                 publisher_agent: None,
+                attachments: None,
             },
             None,
             &mut decoder,
@@ -4003,7 +4010,8 @@ sys.stdout.write(json.dumps(reply))
                 PAGE,
                 ContentEdit {
                     source: "old 🐈\r\n",
-                    publisher_agent: None
+                    publisher_agent: None,
+                    attachments: None,
                 },
                 None,
                 &mut decoder,

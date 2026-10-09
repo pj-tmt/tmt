@@ -543,6 +543,19 @@ impl Snapshot {
         if base_sha256.is_some_and(|d| *d != crypto::digest(base.source.as_bytes())) {
             return Err(crate::page::Fault::StaleBase.into());
         }
+        if let Some(change) = edit.attachments {
+            // Added references must belong to this page and epoch and be witnessed by their
+            // creator's own-stream proof; the decoder checks the change against the source.
+            for descriptor in change.set.as_slice() {
+                if descriptor.space != key.space_id
+                    || descriptor.page != page
+                    || descriptor.epoch != self.epoch.to_string()
+                {
+                    return Err(crate::page::Fault::Invalid.into());
+                }
+                crate::attachments::creation_proof(&base, descriptor)?;
+            }
+        }
         let expected_base = serde_json::json!({"html":base.source,"meta":base.meta});
         let refs = input.updates.iter().map(Vec::as_slice).collect::<Vec<_>>();
         let prepared = decoder.prepare_content_batch(

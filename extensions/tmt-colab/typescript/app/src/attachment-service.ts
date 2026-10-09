@@ -5,6 +5,7 @@ import {
   decodeHeader,
   encodeBinary,
   requireValue,
+  text,
 } from '@tmt/colab-client';
 import { FrozenAttachmentUpload, ATTACHMENT_CHUNK_BYTES } from './attachment-channel.js';
 import type { AttachmentObjectOutcome } from './attachment-channel.js';
@@ -57,12 +58,26 @@ export class AttachmentStaleError extends Error {
   }
 }
 
+/** What a sealed original will belong to: a message (own namespace, revision 1) or this
+ * page's document at the exact source being attached to (content namespace). */
+export type AttachmentTarget =
+  | { kind: 'message'; messageId: string }
+  | { kind: 'document'; source: string };
+/** The exact immutable reference a read resolves: a message revision, or the document at
+ * its current content revision (resolved at read time, so an earlier one never matches). */
+export type AttachmentReference =
+  | { kind: 'message'; writer: string; messageId: string; revision: string }
+  | { kind: 'document' };
+
 export interface AttachmentBinding {
+  /** Names the disclosure now in force (epoch, admission head, connection standing). Anything
+   * shown or held from a read belongs to one scope and is disposed when it changes. */
+  scope?(): string;
   /** Upload availability and the effective payload bound, or why there is none. */
   limits(): Promise<{ payloadBytes: number } | { reason: RefusalReason }>;
   upload(
     input: AttachmentInput,
-    messageId: string,
+    target: AttachmentTarget,
     progress: (sent: number, total: number) => void,
   ): Promise<StoredAttachment>;
   /** Status of the same frozen original; continues a pending transfer, never replays one. */
@@ -73,19 +88,24 @@ export interface AttachmentBinding {
   ): Promise<StoredAttachment>;
   /** Best effort release of the same original; failure is not reported as removal. */
   discard(original: FrozenAttachmentUpload): Promise<void>;
-  /** The verified plaintext of one attachment on a message in this conversation. */
-  open(message: MessageReference, descriptor: attachment.AttachmentDescriptor): Promise<Uint8Array>;
-}
-export interface MessageReference {
-  writer: string;
-  messageId: string;
-  revision: string;
+  /** The verified plaintext of one attachment of this page or of a message in it. */
+  open(
+    reference: AttachmentReference,
+    descriptor: attachment.AttachmentDescriptor,
+  ): Promise<Uint8Array>;
 }
 
 export interface AttachmentServiceOptions {
   connection(): Promise<Connection>;
   available(): boolean;
-  sharing: string;
+  sharing: string | readonly string[];
+  scope?(): string;
+}
+
+/** The epoch and admission head a connection reads under; `closed` once it is not standing. */
+export function disclosureScope(c: Connection | null | undefined): string {
+  const head = c?.active ? c.admission.head : null;
+  return head ? `${c!.admission.epoch}:${head.revision}:${hex(head.hash)}` : 'closed';
 }
 
 /** Owns the upload, status, discard and read protocol over the connection's object
@@ -93,6 +113,9 @@ export interface AttachmentServiceOptions {
  * same batch as the message that references them. */
 export class AttachmentService implements AttachmentBinding {
   constructor(private options: AttachmentServiceOptions) {}
+  scope() {
+    return this.options.scope?.() ?? '';
+  }
   async #channel() {
     requireValue(this.options.available());
     const c = await this.options.connection();
@@ -122,7 +145,7 @@ export class AttachmentService implements AttachmentBinding {
   }
   async upload(
     input: AttachmentInput,
-    messageId: string,
+    target: AttachmentTarget,
     progress: (sent: number, total: number) => void,
   ) {
     const limit = await this.limits();
@@ -130,7 +153,7 @@ export class AttachmentService implements AttachmentBinding {
       throw new AttachmentUploadError({ kind: 'refused', reason: limit.reason });
     let original: FrozenAttachmentUpload;
     try {
-      original = await this.#seal(input, messageId, limit.payloadBytes);
+      original = await this.#seal(input, target, limit.payloadBytes);
     } catch (error) {
       if (error instanceof AttachmentUploadError) throw error;
       throw new AttachmentUploadError({ kind: 'refused', reason: 'unavailable' });
@@ -149,7 +172,7 @@ export class AttachmentService implements AttachmentBinding {
       progress,
     );
   }
-  async #seal(input: AttachmentInput, messageId: string, payloadLimit: number) {
+  async #seal(input: AttachmentInput, target: AttachmentTarget, payloadLimit: number) {
     const c = await this.#channel(),
       a = c.admission;
     requireValue(!a.reader && a.head !== null && a.root !== null);
@@ -163,7 +186,7 @@ export class AttachmentService implements AttachmentBinding {
           page: a.page,
           epoch: a.epoch,
           kind: 'asset',
-          namespace: 'own',
+          namespace: target.kind === 'document' ? 'content' : 'own',
           authorDevice: device,
           membershipRevision: membership,
           streamSeq: '0',
@@ -182,11 +205,19 @@ export class AttachmentService implements AttachmentBinding {
       space: a.space,
       page: a.page,
       epoch: a.epoch,
-      namespace: 'own',
+      namespace: target.kind === 'document' ? 'content' : 'own',
       objectId: decodeHeader(envelope.header()).objectId,
       authorDevice: device,
       membershipRevision: membership,
-      source: { kind: 'message', writerId: device, messageId, messageRevision: '1' },
+      source:
+        target.kind === 'document'
+          ? { kind: 'document', sourceDigest: hex(await digest(text(target.source))) }
+          : {
+              kind: 'message',
+              writerId: device,
+              messageId: target.messageId,
+              messageRevision: '1',
+            },
       envelopeHash: hex(await envelope.hash()),
       signature: encodeBinary(envelope.signature()),
       payloadSha256: hex(await digest(raw)),
@@ -265,13 +296,22 @@ export class AttachmentService implements AttachmentBinding {
     }
   }
   /** Records for the same batch as the message: verified committed bytes only. */
-  async publication(stored: readonly StoredAttachment[]): Promise<OwnRecord[]> {
+  async publication(
+    stored: readonly StoredAttachment[],
+    /** The document source being written; a document descriptor bound to another one is stale. */
+    source?: string,
+  ): Promise<OwnRecord[]> {
     const c = await this.#channel(),
       owner = { snapshot: (epoch?: string, bound?: number) => c.attachmentSnapshot(epoch, bound) },
       snapshot = await c.attachmentSnapshot(),
+      sourceDigest = source === undefined ? undefined : hex(await digest(text(source))),
       stale: StoredAttachment[] = [];
     for (const item of stored)
-      if (item.original.base !== (await currentBase(item.original.descriptor, snapshot)))
+      if (
+        item.original.base !== (await currentBase(item.original.descriptor, snapshot)) ||
+        (item.original.descriptor.source.kind === 'document' &&
+          item.original.descriptor.source.sourceDigest !== sourceDigest)
+      )
         stale.push(item);
     if (stale.length)
       throw new AttachmentStaleError(stale.map((s) => s.original.descriptor.attachmentId));
@@ -289,17 +329,28 @@ export class AttachmentService implements AttachmentBinding {
       );
     return records;
   }
-  async open(message: MessageReference, descriptor: attachment.AttachmentDescriptor) {
+  async open(reference: AttachmentReference, descriptor: attachment.AttachmentDescriptor) {
     const c = await this.#channel(),
       d = attachment.attachmentDescriptor(descriptor),
-      selector = attachment.attachmentSelector({
-        kind: 'message',
-        writerId: message.writer,
-        messageId: message.messageId,
-        messageRevision: message.revision,
-        attachmentId: d.attachmentId,
-        descriptorHash: hex(await attachment.attachmentHash(d)),
-      }),
+      descriptorHash = hex(await attachment.attachmentHash(d)),
+      selector = attachment.attachmentSelector(
+        reference.kind === 'document'
+          ? {
+              kind: 'document-current',
+              attachmentId: d.attachmentId,
+              descriptorHash,
+              // The current revision at read time: an earlier one can never satisfy this.
+              contentRevision: (await c.attachmentSnapshot()).revision,
+            }
+          : {
+              kind: 'message',
+              writerId: reference.writer,
+              messageId: reference.messageId,
+              messageRevision: reference.revision,
+              attachmentId: d.attachmentId,
+              descriptorHash,
+            },
+      ),
       owner = { snapshot: (epoch?: string, bound?: number) => c.attachmentSnapshot(epoch, bound) },
       deadline = this.#bound(READ_MS),
       admitted = await AdmittedAttachmentRead.capture(

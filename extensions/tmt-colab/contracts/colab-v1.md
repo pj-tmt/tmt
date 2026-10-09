@@ -118,6 +118,23 @@ header is parsed again; every other file is an explicit `application/octet-strea
 download through the parent's blob-download lifecycle, revoked after hand-off and on
 unmount. No inline video, active content, relaxed CSP or renderer capability exists.
 
+### Page files in the Files panel (#1855)
+
+The Files panel is a peer of Comments, Chat and Source, opened from a header action
+(`Files`, with the count when non-empty). A writer always has it; a read-only link shows it
+only when the page has files. Rows are the shared list rows with Preview, Download and, for
+writers, Remove; opening bytes follows the same trusted-click rule as message attachments,
+but through the admitted `document-current` read of the document's current content revision.
+
+Choosing files again only adds inert local chips. "Add to page" uploads each chip as a
+`content` asset bound to the digest of the source it is being written against, then
+publishes the `intents` proof records first and only then writes the references through the
+existing Save path as a typed `{set}` change (see Browser Save). A changed page never
+attaches: a stale base or source digest makes the chips upload again from the retained local
+bytes on the next "Add to page". Removing a file saves a typed `{remove}` change; its stored
+bytes stay unreferenced until retention (#1856). A page holds at most 128 files and one
+batch at most 16. The `tmt colab` command line has no attach entry yet.
+
 ## Channel boundary
 
 Colab is an app on remote. The [remote channel contract](../../../contracts/remote-channel-v1.md#extension-channel-api)
@@ -1619,8 +1636,8 @@ Interactive JavaScript state is lost on each replacement. Paused preview and
 Send retain the captured source/quote/final bytes.
 
 After the bootstrap document loads, the parent sends exactly one source-init
-message containing `type:"colab.render.bind"`, `renderId`, `sourceDigest` and
-`source`, plus one MessagePort. The renderer accepts only these exact fields,
+message containing `type:"colab.render.bind"`, `renderId`, `sourceDigest`,
+`source` and `theme` (`"light"` or `"dark"`), plus one MessagePort. The renderer accepts only these exact fields,
 valid UUIDv4/digest metadata and source at most 2 MiB UTF-8, from
 `event.source === window.parent`; origin is not an admission predicate for this
 opaque channel. Direct top-level opening cannot initialize source. Invalid or
@@ -1631,12 +1648,30 @@ response policy and prepending a trusted acknowledgement before author source.
 Bootstrap load and initial source-document load are the only permitted loads;
 further document loads/navigation tear down the frame.
 
+The parent derives the effective theme from its explicit root `data-theme` choice,
+otherwise the current OS preference. Only user theme activation records a choice;
+without one, OS changes remain live. Before author code runs, the bootstrap projects
+the effective theme onto the renderer root as `data-theme="light"` or `"dark"`.
+After binding, the parent sends the current value again to cover initialization races,
+and sends subsequent changes over the existing port as exactly
+`{type:"colab.render.theme", renderId, theme}`. The renderer accepts only the current
+render ID and the two theme values. Theme changes update the same document without
+source replacement or loss of interactive state. Renderer release/teardown removes
+the parent theme subscription; author messages cannot choose the parent theme.
+
+Author CSS must use the explicit root `data-theme` selectors to follow Colab's choice;
+the bundled skill's starter includes them and matching `color-scheme` declarations.
+CSS keyed only on `prefers-color-scheme` continues to follow the OS. This cosmetic
+projection does not rewrite source, inject palettes, force author backgrounds or
+change the existing white canvas for unstyled pages. Author code may tamper with it;
+it grants no capability or truth about the page.
+
 The initial window handshake carries renderId and transfers a MessagePort;
 accept its reply only with `event.source === frame.contentWindow` and matching
 renderId. Highlight requests/results use that bound port; selections use the
 bound window channel. Port events do not have the window-source predicate. Close it on rerender/teardown and discard stale
 messages. Allow only bounded selection/rectangle/anchor-result inbound,
-known-thread view actions and narrow highlight/scroll outbound. No secrets, signing/send capabilities or bridge actions cross it.
+known-thread view actions and narrow highlight/scroll/theme outbound. No secrets, signing/send capabilities or bridge actions cross it.
 Interactive page scripts can intercept the port and forge a schema-valid quote;
 port possession does not prove selection truth. Frame data is untrusted text,
 never HTML in parent UI. A selection cannot silently
@@ -1663,7 +1698,7 @@ Legacy text-only messages supply no anchor. Alt+Enter can request the same view
 using exactly `type:"colab.render.annotate",renderId`; it cannot send. A trusted
 parent action captures the quote. Page-wide comments have null anchors.
 
-The bound MessagePort accepts only parent highlight messages with exactly
+The parent highlight request on the bound MessagePort contains exactly
 `type:"colab.render.highlight"`, `renderId`, `requestId` and `anchors`, whose entries
 are exactly `{id,selector}`. Comment bodies, reply text and discussion display labels
 MUST NOT enter the author-code frame; the parent reconstructs these narrow objects
@@ -1865,20 +1900,20 @@ upgrade cannot establish authorship. Removed access terminates live subscription
 space, page and epoch. The backend moves bytes, not Yjs state vectors. The wire
 operations are:
 
-| Type         | Additional fields / behavior                                                                                                                 |
-| ------------ | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| `hello`      | `device, membershipRevision, cursors`; authenticated session/proof from upgrade, page/epoch admission before catch-up                        |
-| `catchup`    | `membershipHead, baseline, optional baselineObject, streams, more`; bounded pages of each stream's namespace checkpoints and subsequent tail |
-| `subscribe`  | `cursors`; observe only the admitted page/current epoch                                                                                      |
-| `append`     | `streamId, seq, envelopeHash, envelope`; create-only, exact frozen retry returns original receipt                                            |
-| `save`       | `operationId, baseSha256, sourceSha256, source`; owner device only; the browser's whole-source Save, prepared and committed natively         |
-| `savestatus` | `operationId`; owner device only; what the page recorded for an earlier `save`                                                               |
-| `saveresult` | `operationId, state` and `revision` or `code, message`; the one reply to a `save` or `savestatus`                                            |
-| `receipt`    | `streamId, seq, envelopeHash`; durable acceptance, not task completion                                                                       |
-| `broadcast`  | `streamId, seq, envelopeHash, envelope`; subscriber must verify before applying                                                              |
-| `ack`        | `cursors`; scoped delivery positions only                                                                                                    |
-| `awareness`  | `device, data`; bounded ephemeral presence, never persisted or authority                                                                     |
-| `error`      | `code`; one of DENIED, EXPIRED, STALE_EPOCH, INVALID, GAP, CAPACITY, CONFLICT, RESYNC_REQUIRED                                               |
+| Type         | Additional fields / behavior                                                                                                                        |
+| ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `hello`      | `device, membershipRevision, cursors`; authenticated session/proof from upgrade, page/epoch admission before catch-up                               |
+| `catchup`    | `membershipHead, baseline, optional baselineObject, streams, more`; bounded pages of each stream's namespace checkpoints and subsequent tail        |
+| `subscribe`  | `cursors`; observe only the admitted page/current epoch                                                                                             |
+| `append`     | `streamId, seq, envelopeHash, envelope`; create-only, exact frozen retry returns original receipt                                                   |
+| `save`       | `operationId, baseSha256, sourceSha256, source[, attachments]`; owner device only; the browser's whole-source Save, prepared and committed natively |
+| `savestatus` | `operationId`; owner device only; what the page recorded for an earlier `save`                                                                      |
+| `saveresult` | `operationId, state` and `revision` or `code, message`; the one reply to a `save` or `savestatus`                                                   |
+| `receipt`    | `streamId, seq, envelopeHash`; durable acceptance, not task completion                                                                              |
+| `broadcast`  | `streamId, seq, envelopeHash, envelope`; subscriber must verify before applying                                                                     |
+| `ack`        | `cursors`; scoped delivery positions only                                                                                                           |
+| `awareness`  | `device, data`; bounded ephemeral presence, never persisted or authority                                                                            |
+| `error`      | `code`; one of DENIED, EXPIRED, STALE_EPOCH, INVALID, GAP, CAPACITY, CONFLICT, RESYNC_REQUIRED                                                      |
 
 ### Implemented stream subset (#1156, #1166)
 
@@ -1892,16 +1927,16 @@ Every client message is one UTF-8 JSON object with exactly the common fields
 Epoch is a positive canonical decimal string. Duplicate/unknown fields, nulls,
 wrong types, noncanonical values and unsupported operations reject.
 
-| Client type  | Exact additional fields                         | Implemented behavior                                                                                                       |
-| ------------ | ----------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| `hello`      | `device, membershipRevision, cursors`           | Device matches principal; one successful hello per connection starts server-driven catchup, then live delivery.            |
-| `subscribe`  | `cursors`                                       | Empty list starts live delivery; nonempty list resolves cursors and starts catchup, then live delivery.                    |
-| `append`     | `streamId, seq, envelopeHash, envelope`         | Inline update or object reference; verify complete exact bytes and durably append before receipt.                          |
-| `chunk`      | `objectId, envelopeHash, index, count, bytes`   | Complete the connection's pending referenced append or save; no standalone upload or partial append.                       |
-| `save`       | `operationId, baseSha256, sourceSha256, source` | Owner device only. Inline source or `{objectId}` plus chunks; see Browser Save below.                                      |
-| `savestatus` | `operationId`                                   | Owner device only. Answers from the root-local operation record; see Browser Save below.                                   |
-| `ack`        | `cursors`                                       | Resolve retained scoped positions and release one frame credit; no deletion, core acknowledgment or application authority. |
-| `awareness`  | `device, data`                                  | Device matches principal; at most 4 KiB canonical base64url bytes, ephemeral.                                              |
+| Client type  | Exact additional fields                                        | Implemented behavior                                                                                                       |
+| ------------ | -------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `hello`      | `device, membershipRevision, cursors`                          | Device matches principal; one successful hello per connection starts server-driven catchup, then live delivery.            |
+| `subscribe`  | `cursors`                                                      | Empty list starts live delivery; nonempty list resolves cursors and starts catchup, then live delivery.                    |
+| `append`     | `streamId, seq, envelopeHash, envelope`                        | Inline update or object reference; verify complete exact bytes and durably append before receipt.                          |
+| `chunk`      | `objectId, envelopeHash, index, count, bytes`                  | Complete the connection's pending referenced append or save; no standalone upload or partial append.                       |
+| `save`       | `operationId, baseSha256, sourceSha256, source[, attachments]` | Owner device only. Inline source or `{objectId}` plus chunks; see Browser Save below.                                      |
+| `savestatus` | `operationId`                                                  | Owner device only. Answers from the root-local operation record; see Browser Save below.                                   |
+| `ack`        | `cursors`                                                      | Resolve retained scoped positions and release one frame credit; no deletion, core acknowledgment or application authority. |
+| `awareness`  | `device, data`                                                 | Device matches principal; at most 4 KiB canonical base64url bytes, ephemeral.                                              |
 
 `cursors` has at most 256 strict objects `{streamId, namespace, seq, envelopeHash}`,
 unique by stream/namespace. Sequence zero is an explicit bootstrap sentinel and
@@ -1946,6 +1981,25 @@ connection, at most `SAVE_CHUNKS` (64) chunks and 2 MiB, and it completes within
 (10 s) of the `save` frame; anything else, a digest that does not match the bytes, or a second
 request while one assembles ends the connection with `INVALID` and commits nothing.
 
+`attachments` is optional and is a typed change of the document's `meta.attachments`, never
+free-form metadata: `{set?: descriptor[], remove?: attachmentId[]}`, each list at most 128. Every
+`set` descriptor is a valid document asset (`namespace` `content`, `source.kind` `document`)
+whose `sourceDigest` is the SHA-256 of the `source` being written, so a change cannot ride on
+another source; IDs are unique across both lists. Descriptors are immutable: a `set` of an
+existing ID must be identical (a no-op), a `remove` of an absent ID, a different descriptor
+under an existing ID and a result over 128 are refused. The list is applied removals first, new
+descriptors appended, and an empty result removes the key (absence is the no-attachment
+grammar). The serve checks structure and source binding when the frame assembles; the isolated
+decoder re-checks them and applies the change in the same atomic content update as the source;
+native preparation additionally requires each added descriptor to name this space, page and
+epoch and to be witnessed by its creator's own-stream creation proof, so the browser publishes
+that proof first and waits for its own fold to admit it. A change that violates a check is a
+protocol error (`INVALID`) or a terminal `rejected` result and commits nothing; a change
+that leaves the list as it is publishes nothing. The browser's private `Fold.prepareContent`
+applies the same change and both preparers consume
+[`attachment-change-v1.json`](vectors/attachment-change-v1.json) (oracle
+`attachment-change-reference.py`).
+
 The serve verifies the digest, then prepares natively exactly as `tmt colab page write` does
 (`page::prepare_publication` in the isolated decoder) from its own fresh read-only snapshot,
 outside the sync lock, with the base-source digest as a precondition. It then re-takes the lock
@@ -1963,7 +2017,9 @@ final) or `absent` (the operation never reached the page, so nothing changed). I
 or `savestatus`. A wide fan-out may end the originator's connection with `RESYNC_REQUIRED` before
 its reply; the browser then reconnects and sends one `savestatus` for the same ID, answered from
 the root-local operation record by (page, root-local stream, `operationId`). A reused
-`operationId` with different bytes is `COLAB_OPERATION_CONFLICT`. The browser never resends a
+`operationId` with different bytes is `COLAB_OPERATION_CONFLICT`, and so is one whose recorded
+outcome exists when the new save would change nothing (an operation ID answers only for the
+save that used it, never `unchanged` for another, including a different attachment change). The browser never resends a
 save: an unanswered status names the original ID, and a later Save is a new operation. The
 browser refuses a source over 2 MiB before sending, naming its size and the limit.
 Measured with incompressible fixtures through the real door: a fully different 1.5 MiB source

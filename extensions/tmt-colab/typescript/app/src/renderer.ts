@@ -1,5 +1,6 @@
 import { validateSelector, type QuoteSelector } from './thread-records.js';
 import { text } from './strings.js';
+import { getTheme, subscribeTheme } from './theme.js';
 
 /** Exact HTML source byte limit, owned by colab-v1 Resource bounds. */
 export const MAX_RENDER_SOURCE_BYTES = 2 * 1024 * 1024;
@@ -80,6 +81,15 @@ export async function mountRenderer(
     loads = 0,
     ready = false;
   const channel = new MessageChannel();
+  const sendTheme = () => {
+    if (stopped || !ready) return;
+    channel.port1.postMessage({
+      type: 'colab.render.theme',
+      renderId: snapshot.renderId,
+      theme: getTheme(),
+    });
+  };
+  const stopTheme = subscribeTheme(sendTheme);
   let requestId = '';
   let anchors: { id: string; selector: QuoteSelector }[] = [];
   const positions = new Map<string, number>();
@@ -144,6 +154,7 @@ export async function mountRenderer(
   const release = () => {
     if (stopped) return;
     stopped = true;
+    stopTheme();
     clearTimeout(deadline);
     clearTimeout(heightTimer);
     window.removeEventListener('resize', resize);
@@ -281,6 +292,8 @@ export async function mountRenderer(
       return;
     clearTimeout(deadline);
     ready = true;
+    // A choice can change between source init and the bound acknowledgement.
+    sendTheme();
     options.onState('ready');
   };
   channel.port1.onmessage = (event: MessageEvent<unknown>) => {
@@ -392,9 +405,11 @@ export async function mountRenderer(
     // https://html.spec.whatwg.org/multipage/iframe-embed-object.html#iframe-load-event-steps
     // The bootstrap load receives source once; document.write completes the second load.
     if (loads !== 1) return;
-    frame.contentWindow?.postMessage({ type: 'colab.render.bind', ...snapshot }, '*', [
-      channel.port2,
-    ]);
+    frame.contentWindow?.postMessage(
+      { type: 'colab.render.bind', ...snapshot, theme: getTheme() },
+      '*',
+      [channel.port2],
+    );
   };
   frame.src = new URL('./renderer.html', document.baseURI).href;
   // Preserve the current offset through replacement, without replaying an older

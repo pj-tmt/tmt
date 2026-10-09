@@ -296,14 +296,14 @@ pub(crate) struct SaveJob {
 }
 /// What an assembling upload becomes when its last chunk arrives.
 enum Upload {
-    Append {
-        stream: String,
-        seq: String,
-    },
-    Save {
-        operation_id: String,
-        base: [u8; 32],
-    },
+    Append { stream: String, seq: String },
+    Save(SaveIntent),
+}
+/// What the client bound to a save before its source arrived.
+struct SaveIntent {
+    operation_id: String,
+    base: [u8; 32],
+    attachments: Option<tmt_colab_model::attachment::DocumentChange>,
 }
 impl Upload {
     /// Bytes the whole object may hold, the chunks it may take and how long it may take.
@@ -822,16 +822,9 @@ impl<A: Admission> State<A> {
                                 object_id: Some(object_id),
                             },
                         )?,
-                        Upload::Save { operation_id, base } => {
+                        Upload::Save(intent) => {
                             return self
-                                .save_job(
-                                    &scope,
-                                    principal,
-                                    operation_id,
-                                    base,
-                                    &incoming.hash,
-                                    incoming.bytes,
-                                )
+                                .save_job(&scope, principal, intent, &incoming.hash, incoming.bytes)
                                 .map(Some);
                         }
                     }
@@ -844,6 +837,7 @@ impl<A: Admission> State<A> {
                 base_sha256,
                 source_sha256,
                 source,
+                attachments,
                 ..
             } => {
                 if self.peers[&id].incoming.is_some() {
@@ -856,14 +850,28 @@ impl<A: Admission> State<A> {
                     wire::Payload::Inline(text) => {
                         let bytes = values::binary(&text, crate::decoder::BASELINE_BYTES)?;
                         return self
-                            .save_job(&scope, principal, operation_id, base, &source_sha256, bytes)
+                            .save_job(
+                                &scope,
+                                principal,
+                                SaveIntent {
+                                    operation_id,
+                                    base,
+                                    attachments,
+                                },
+                                &source_sha256,
+                                bytes,
+                            )
                             .map(Some);
                     }
                     wire::Payload::Reference(reference) => {
                         values::object_id(&reference.object_id)?;
                         self.admission.save_source().ok_or(Code::Denied)?;
                         self.peers.get_mut(&id).ok_or(Code::Denied)?.incoming = Some(Incoming {
-                            upload: Upload::Save { operation_id, base },
+                            upload: Upload::Save(SaveIntent {
+                                operation_id,
+                                base,
+                                attachments,
+                            }),
                             hash: source_sha256,
                             object_id: reference.object_id,
                             count: None,
@@ -901,15 +909,25 @@ impl<A: Admission> State<A> {
         &mut self,
         scope: &SyncScope,
         principal: String,
-        operation_id: String,
-        base: [u8; 32],
+        intent: SaveIntent,
         source_sha256: &str,
         bytes: Vec<u8>,
     ) -> Result<SaveJob, Code> {
+        let SaveIntent {
+            operation_id,
+            base,
+            attachments,
+        } = intent;
         if wire::hash(source_sha256)? != crypto::digest(&bytes) {
             return Err(Code::Invalid);
         }
         let source = String::from_utf8(bytes).map_err(|_| Code::Invalid)?;
+        // Structure and source binding are decided here; page scope and proofs by the preparer.
+        if let Some(change) = &attachments {
+            change
+                .validate(&crypto::digest(source.as_bytes()))
+                .map_err(|_| Code::Invalid)?;
+        }
         let open = self.admission.save_source().ok_or(Code::Denied)?;
         *self
             .saving
@@ -924,6 +942,7 @@ impl<A: Admission> State<A> {
                 operation_id,
                 base_sha256: base,
                 source,
+                attachments,
             },
         })
     }
