@@ -2740,31 +2740,27 @@ fn object_status_is_opt_in_live_only_and_preserves_strict_ordinary_discovery() {
 
 #[path = "cli/object_negative.rs"]
 mod object_negative;
+fn status_run(pilot: &Pilot, args: &[&str]) -> std::process::Output {
+    pilot.command().args(args).output().unwrap()
+}
+fn status_answer(pilot: &Pilot, args: &[&str]) -> Value {
+    let result = status_run(pilot, args);
+    assert!(
+        result.status.success(),
+        "{args:?}: {} {}",
+        String::from_utf8_lossy(&result.stdout),
+        String::from_utf8_lossy(&result.stderr)
+    );
+    serde_json::from_slice(&result.stdout).unwrap()
+}
+fn member_keys(value: &Value) -> Vec<String> {
+    value.as_object().unwrap().keys().cloned().collect()
+}
 #[test]
 fn status_layers_is_opt_in_and_empty_until_firestore_exists() {
     let mut pilot = Pilot::new();
     start_door(&mut pilot, &[], false);
-    fn run(pilot: &Pilot, args: &[&str]) -> std::process::Output {
-        pilot.command().args(args).output().unwrap()
-    }
-    fn json(pilot: &Pilot, args: &[&str]) -> Value {
-        let result = run(pilot, args);
-        assert!(
-            result.status.success(),
-            "{args:?}: {} {}",
-            String::from_utf8_lossy(&result.stdout),
-            String::from_utf8_lossy(&result.stderr)
-        );
-        serde_json::from_slice(&result.stdout).unwrap()
-    }
-    let keys = |value: &Value| {
-        value
-            .as_object()
-            .unwrap()
-            .keys()
-            .cloned()
-            .collect::<Vec<_>>()
-    };
+    let (run, json, keys) = (status_run, status_answer, member_keys);
     let ordinary = json(&pilot, &["status", "--json"]);
     assert_eq!(keys(&ordinary), ["running", "origin", "path"]);
     let layers = json(&pilot, &["status", "--layers", "--json"]);
@@ -2793,6 +2789,55 @@ fn status_layers_is_opt_in_and_empty_until_firestore_exists() {
     assert_eq!(keys(&stopped), ["running", "lastPort"]);
     assert!(
         String::from_utf8(run(&pilot, &["status", "--layers"]).stdout)
+            .unwrap()
+            .contains("not running")
+    );
+}
+
+#[test]
+fn status_budget_is_opt_in_and_static() {
+    let mut pilot = Pilot::new();
+    start_door(&mut pilot, &[], false);
+    let ordinary = status_answer(&pilot, &["status", "--json"]);
+    let budget = status_answer(&pilot, &["status", "--budget", "--json"]);
+    assert_eq!(
+        member_keys(&budget),
+        ["running", "origin", "path", "firestoreBudget"]
+    );
+    assert_eq!(budget["origin"], ordinary["origin"]);
+    let fixture: Value = serde_json::from_slice(
+        &std::fs::read(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("tests/fixtures/firestore_budget/limits-member.json"),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(budget["firestoreBudget"], fixture);
+    // Plain human status stays one running line plus the address; --budget adds the table.
+    let human = String::from_utf8(status_run(&pilot, &["status"]).stdout).unwrap();
+    assert!(!human.contains("free-plan"), "{human}");
+    let with = String::from_utf8(status_run(&pilot, &["status", "--budget"]).stdout).unwrap();
+    assert!(with.starts_with(&human), "{with}");
+    assert!(with.contains("Document reads"), "{with}");
+    assert!(with.contains("50,000 per day"), "{with}");
+    assert!(
+        with.contains("only the Firebase console shows it"),
+        "{with}"
+    );
+    // The optional projections are exclusive.
+    for args in [
+        ["status", "--budget", "--layers", "--json"],
+        ["status", "--budget", "--machine", "--json"],
+        ["status", "--budget", "--objects", "--json"],
+    ] {
+        assert!(!status_run(&pilot, &args).status.success(), "{args:?}");
+    }
+    terminate(pilot.child.take().unwrap());
+    let stopped = status_answer(&pilot, &["status", "--budget", "--json"]);
+    assert_eq!(member_keys(&stopped), ["running", "lastPort"]);
+    assert!(
+        String::from_utf8(status_run(&pilot, &["status", "--budget"]).stdout)
             .unwrap()
             .contains("not running")
     );

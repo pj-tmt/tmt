@@ -16,7 +16,7 @@ use tmt_remote::{
     core::CoreClient,
     devices::{Devices, device_json},
     error::RemoteError,
-    open, readiness, settings,
+    firestore_limits, open, readiness, settings,
     state::Layout,
     store::Store,
 };
@@ -60,7 +60,7 @@ const STATUS: CommandSpec = CommandSpec {
     outputs: OutputModes::HumanAndJson,
     details: "Read-only; does not start the door or pair a device. Live addresses come from serve.
 Stopped status reports only the remembered port, which is not a live address.
---machine adds the running owner's machine UUID. --machine and --objects each require --json; --machine, --objects and --layers cannot be combined; an older running door may not support these optional projections.",
+--machine adds the running owner's machine UUID. --machine and --objects each require --json. --budget shows the dated Firestore free-plan limits, not the project's real usage. --machine, --objects, --layers and --budget cannot be combined; an older running door may not support these optional projections.",
 };
 const PAIR: CommandSpec = CommandSpec {
     name: "pair",
@@ -233,6 +233,13 @@ fn grammar() -> Command {
                         .action(ArgAction::SetTrue)
                         .conflicts_with_all(["machine", "objects"])
                         .help("Show which Firestore layers are enabled and what is missing"),
+                )
+                .arg(
+                    Arg::new("budget")
+                        .long("budget")
+                        .action(ArgAction::SetTrue)
+                        .conflicts_with_all(["machine", "objects", "layers"])
+                        .help("Show the dated Firestore free-plan limits (not real usage)"),
                 ),
         )
         .subcommand(
@@ -303,7 +310,9 @@ fn run(matches: &clap::ArgMatches) -> Result<(), RemoteError> {
     if name == "status" {
         return status(
             arguments.get_flag("json"),
-            if arguments.get_flag("layers") {
+            if arguments.get_flag("budget") {
+                StatusProjection::Budget
+            } else if arguments.get_flag("layers") {
                 StatusProjection::Layers
             } else if arguments.get_flag("objects") {
                 StatusProjection::Objects
@@ -425,6 +434,11 @@ fn status(json_output: bool, projection: StatusProjection) -> Result<(), RemoteE
                 answer["origin"].as_str().unwrap(),
                 answer["path"].as_str().unwrap()
             )?;
+            if projection == StatusProjection::Budget {
+                for line in firestore_limits::human_lines(&answer["firestoreBudget"]) {
+                    writeln!(output, "{line}")?;
+                }
+            }
             if projection == StatusProjection::Layers {
                 for line in readiness::human_lines(&answer["firestoreLayers"], &readiness::LAYERS) {
                     if line.enabled {

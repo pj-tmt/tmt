@@ -831,6 +831,16 @@ plan, so they report `paid-plan-required` there and, until a release implements 
 word comes from a fixed table: no provider text, secret or path. The ordinary, `--machine` and `--objects` projections and
 stopped inspection are unchanged.
 
+`tmt remote status --budget [--json]` selects a fourth optional running-only observation, exclusive with `--machine`,
+`--objects` and `--layers`; it also has a human rendering, and plain `status` is unchanged. It sends exactly
+`{"op":"status","budget":true}` and returns the ordinary three members plus `firestoreBudget`: a dated snapshot of the
+Firebase no-cost plan's Firestore limits, never the project's usage, which only the Firebase console shows. Its fixed
+members are `plan` (`no-cost`), `readOn` (the date the official pages were read), `resetsAt` (the provider's words for
+the daily reset), `limits` (positive integers for document reads, writes and deletes per day, stored bytes, egress bytes
+per month, free databases per project, composite indexes, single-field index configs, document bytes and Rules lookups
+per request) and `guard` (the `warnPercent` and `refusePercent` of the budget guard). It holds no provider text, secret
+or path, and the numbers live in the Remote implementation guide's dated table, not in this contract.
+
 An old command rejects `--machine` before state work. Against an old live serve, the optional
 projection preserves the standard nonzero error document and its original unsupported code/message:
 `REMOTE_CONTROL_UNSUPPORTED`, or the exact legacy `REMOTE_INPUT_INVALID` / "Unknown control operation."

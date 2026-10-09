@@ -1,0 +1,18 @@
+{
+  "plan": "no-cost",
+  "readOn": "2026-10-09",
+  "resetsAt": "around midnight Pacific",
+  "limits": {
+    "readsPerDay": 50000,
+    "writesPerDay": 20000,
+    "deletesPerDay": 20000,
+    "storedBytes": 1073741824,
+    "egressBytesPerMonth": 10737418240,
+    "databases": 1,
+    "compositeIndexes": 200,
+    "singleFieldIndexConfigs": 200,
+    "documentBytes": 1048576,
+    "rulesLookupsPerRequest": 10
+  },
+  "guard": { "warnPercent": 70, "refusePercent": 90 }
+}
