@@ -115,3 +115,10 @@ pub const DECLARATION_IDENTIFIER_BYTES: usize = 64;
 pub const DECLARATION_ARTIFACT_BYTES: usize = 64 * 1024;
 /// Enabled extensions one deploy plan composes.
 pub const PLAN_EXTENSIONS: usize = 16;
+
+// Rules fragment admission (#2163): bounds on what the tokenizer and parser will hold.
+pub const RULES_FRAGMENT_TOKENS: usize = 16_384;
+/// Nested `match` blocks inside an extension's wrapper.
+pub const RULES_FRAGMENT_DEPTH: usize = 8;
+/// Nesting of one condition (parentheses, arguments, lists, ternaries).
+pub const RULES_FRAGMENT_NESTING: usize = 32;

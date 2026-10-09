@@ -35,6 +35,7 @@ import {
   selectNativeScope,
   selectOfficeBrowser,
   selectColabApp,
+  selectRemoteFirestore,
   selectColabHarness,
   selectNativeNotices,
 } from '../../scripts/ci-scope.mjs';
@@ -1151,6 +1152,7 @@ describe('CI diff and command integration', () => {
         colab_app: 'false',
         native_scope: 'ops',
         native_notices: 'false',
+        remote_firestore: 'false',
         scoped_native_tests:
           'ops.test.ts extension-install.test.ts extension-upgrade-proof.test.ts uninstall.test.ts',
         e2e_shard_1: 'ops.e2e.test.ts ops-reminder.e2e.test.ts',
@@ -1166,6 +1168,14 @@ describe('CI diff and command integration', () => {
       runCiScope([opsHead, remoteHead], { cwd: root, stdout: remoteOutput, stderr: remoteLog });
       expect(outputs(remoteOutput.text())).toEqual(full);
       expect(remoteLog.text()).toContain('| tmt-remote | remote-rust | native |');
+      // The Rules emulator suite's fixtures select its Unit tests steps and stay a full native scope.
+      const rulesDir = 'extensions/tmt-remote/rust/tmt-remote/tests/fixtures/rules';
+      mkdirSync(path.join(root, rulesDir), { recursive: true });
+      writeFileSync(path.join(root, rulesDir, 'composed.rules'), '// x\n');
+      const rulesHead = commit();
+      const rulesOutput = capture();
+      runCiScope([remoteHead, rulesHead], { cwd: root, stdout: rulesOutput, stderr: capture() });
+      expect(outputs(rulesOutput.text())).toEqual({ ...full, remote_firestore: 'true' });
       const officePath = path.join(root, 'extensions/tmt-office/docs/fixture.md');
       mkdirSync(path.dirname(officePath), { recursive: true });
       writeFileSync(officePath, 'Office fixture\n');
@@ -1292,6 +1302,76 @@ describe('CI diff and command integration', () => {
       JSON.stringify({ components: { cli: { owns: ['.'] } }, rules: [] })
     );
     expect(selectColabApp(['extensions/tmt-colab/typescript/app/src/index.ts'], map)).toBe(false);
+  });
+
+  it.each([
+    'extensions/tmt-remote/rust/tmt-remote/tests/emulator/suite.mjs',
+    'extensions/tmt-remote/rust/tmt-remote/tests/emulator/firebase.json',
+    'extensions/tmt-remote/rust/tmt-remote/tests/emulator/Dockerfile',
+    'extensions/tmt-remote/rust/tmt-remote/tests/fixtures/rules/composed.rules',
+    'extensions/tmt-remote/rust/tmt-remote/tests/fixtures/rules/hostile/path-literal.rules',
+    'extensions/tmt-remote/rust/tmt-remote/src/rules.rs',
+    '.github/workflows/ci.yml',
+  ])('selects the Remote Firestore Rules emulator steps for %s', (file) => {
+    expect(selectRemoteFirestore([file])).toBe(true);
+    expect(selectRemoteFirestore(['DEVELOPMENT.md', file])).toBe(true);
+    // The steps live in the Unit tests job, which runs only for a full native scope: a selected
+    // path must never be scoped away, or the selected steps would be skipped unexpectedly.
+    expect(selectNativeScope([file])).toBe('full');
+  });
+
+  it.each([
+    'extensions/tmt-remote/rust/tmt-remote/tests/emulator-other/suite.mjs',
+    'extensions/tmt-remote/rust/tmt-remote/tests/fixtures/declarations/colab-firestore.json',
+    'extensions/tmt-remote/rust/tmt-remote/tests/fixtures/rules-other/x.rules',
+    'extensions/tmt-remote/rust/tmt-remote/src/deploy_plan.rs',
+    'extensions/tmt-remote/rust/tmt-remote/tests/rules.rs',
+    '.github/workflows/colab-browser.yml',
+    'DEVELOPMENT.md',
+    'unknown/input',
+  ])('does not select the Remote Firestore Rules emulator steps for %s', (file) => {
+    expect(selectRemoteFirestore([file])).toBe(false);
+  });
+
+  it('does not select the Rules emulator steps for an empty diff', () => {
+    expect(selectRemoteFirestore([])).toBe(false);
+  });
+
+  it('runs the Rules emulator as pinned, fail-closed steps of the Unit tests job', () => {
+    const read = (file: string) =>
+      readFileSync(new URL(`../../../${file}`, import.meta.url), 'utf8');
+    const ci = read('.github/workflows/ci.yml');
+    const job = ci.slice(ci.indexOf('\n  unit-tests:'), ci.indexOf('\n  # The Docker E2E suite'));
+    const steps = job.slice(
+      job.indexOf('# Remote Firestore Rules emulator suite'),
+      job.indexOf('- name: Run retained developer tooling tests')
+    );
+    expect(ci).toContain(
+      "      remote_firestore: ${{ steps.scope.outputs.remote_firestore || steps.queue.outputs.remote_firestore || 'false' }}"
+    );
+    expect(steps.match(/if: needs\.changes\.outputs\.remote_firestore == 'true'/g)).toHaveLength(2);
+    expect(steps).toContain('timeout-minutes: 8');
+    expect(steps).toContain('test -n "$JAVA_HOME_21_X64"');
+    expect(steps).toContain('"$JAVA_HOME_21_X64/bin/java" -version');
+    // No third-party action, retry, cache or relaxed failure in the selected steps.
+    for (const forbidden of ['uses:', 'continue-on-error', 'retry', 'cache', '|| true']) {
+      expect(steps).not.toContain(forbidden);
+    }
+    // The pins mirror Office's Dockerfile and the suite's own Dockerfile.
+    const pin = 'firebase-tools@15.29.0';
+    for (const file of [
+      'extensions/tmt-office/typescript/services/office/Dockerfile',
+      'extensions/tmt-remote/rust/tmt-remote/tests/emulator/Dockerfile',
+    ]) {
+      expect(read(file)).toContain(pin);
+    }
+    expect(steps).toContain(pin);
+    const javaImage = /eclipse-temurin:21-jre-jammy@sha256:[0-9a-f]{64}/;
+    expect(
+      read('extensions/tmt-remote/rust/tmt-remote/tests/emulator/Dockerfile').match(javaImage)?.[0]
+    ).toBe(
+      read('extensions/tmt-office/typescript/services/office/Dockerfile').match(javaImage)?.[0]
+    );
   });
 
   it('requires mapped Colab ownership and does not expand empty advisory scope', () => {

@@ -1,0 +1,3 @@
+// probe: x/colab/docs/1
+// Hostile fragment: an absolute exists reads outside the extension's root.
+match /docs/{id} { allow read: if request.auth == null && exists(/databases/$(database)/documents/secret/s); }

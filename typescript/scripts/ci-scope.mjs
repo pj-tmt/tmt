@@ -488,6 +488,27 @@ export function selectColabApp(paths, map = componentMap()) {
   );
 }
 
+// The Remote Firestore Rules emulator suite (Java 21 plus firebase-tools, no Docker) runs as
+// steps of the Unit tests job. Remote is a CLI-scope owner, so every selected path below is a
+// full native scope and that job always runs for it; selection stays a plain path match.
+const REMOTE_FIRESTORE_ROOTS = [
+  'extensions/tmt-remote/rust/tmt-remote/tests/emulator',
+  'extensions/tmt-remote/rust/tmt-remote/tests/fixtures/rules',
+];
+
+const REMOTE_FIRESTORE_INPUTS = new Set([
+  '.github/workflows/ci.yml',
+  'extensions/tmt-remote/rust/tmt-remote/src/rules.rs',
+]);
+
+/** The suite, its fixtures, the composer or the pinned CI step changed. Empty diffs select nothing. */
+export function selectRemoteFirestore(paths) {
+  return paths.some(
+    (path) =>
+      REMOTE_FIRESTORE_INPUTS.has(path) || REMOTE_FIRESTORE_ROOTS.some((root) => within(root, path))
+  );
+}
+
 /**
  * How much of the native work a change needs. `none`: nothing native is selected.
  * A component name (only `ops` declares `scopedChecks`): every path that selects
@@ -751,6 +772,7 @@ export function runCiScope(args, { cwd, stdout, stderr, summaryFile }) {
   const colabHarness = !queue && !seed && !full && selectColabHarness(selection.paths);
   const colabApp = !queue && !seed && !full && selectColabApp(selection.paths);
   const nativeNotices = !seed && (full || selectNativeNotices(selection.paths));
+  const remoteFirestore = !seed && !full && selectRemoteFirestore(selection.paths);
   const evidence =
     (full || seed || fallback
       ? `### CI selection\n\n${fallback ?? (full ? 'Weekly/manual retained-product verification; Office retired.' : 'Main cache seed; Office product verification is retired.')}\n`
@@ -758,7 +780,8 @@ export function runCiScope(args, { cwd, stdout, stderr, summaryFile }) {
     `\nOffice browser selection (retired product): ${officeBrowser}.\n` +
     `\nColab browser PR selection (client, model, vectors or harness workflow): ${colabHarness}.\n` +
     `\nColab app component suite PR selection (app, client, browser UI, workflow or lockfile): ${colabApp}.\n` +
-    `\nNative dependency notices selection: ${nativeNotices}.\n`;
+    `\nNative dependency notices selection: ${nativeNotices}.\n` +
+    `\nRemote Firestore Rules emulator selection (Unit tests job): ${remoteFirestore}.\n`;
   stderr.write(evidence);
   if (summaryFile) appendFileSync(summaryFile, evidence);
   const { areas, nativeScope } = selection;
@@ -770,6 +793,7 @@ export function runCiScope(args, { cwd, stdout, stderr, summaryFile }) {
       `colab_harness=${colabHarness}\n` +
       `colab_app=${colabApp}\n` +
       `native_notices=${nativeNotices}\n` +
+      `remote_firestore=${remoteFirestore}\n` +
       `native_scope=${nativeScope}\n` +
       `scoped_native_tests=${checks.nativeTests.join(' ')}\n` +
       `e2e_shard_1=${firstShard.join(' ')}\n` +

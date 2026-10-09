@@ -1,0 +1,3 @@
+// probe: x/colab/docs/1
+// Hostile fragment: path() from a concatenated string.
+match /docs/{id} { allow read: if request.auth == null && get(path('/data' + 'bases/(default)/documents/secret/s')).data.ok == true; }

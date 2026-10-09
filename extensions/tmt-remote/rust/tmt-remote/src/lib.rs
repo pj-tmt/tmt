@@ -24,6 +24,7 @@ pub mod operations;
 pub mod pages;
 pub mod pairing;
 pub mod routes;
+pub mod rules;
 pub mod session;
 pub mod settings;
 pub mod site;

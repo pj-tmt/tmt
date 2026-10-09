@@ -34,6 +34,11 @@ contexts must succeed. Held-draft recovery belongs to
   Reject empty Remote test discovery before execution. Office product verification
   is retired for every event, independently of its parked release attribution.
 
+The Remote Firestore Rules emulator suite runs as selected steps inside the `Unit tests` job (no new
+required context, no Docker): `remote_firestore` is true only for the suite, its fixtures, `rules.rs` or
+`ci.yml`, all full native scope, so the job always runs when it is selected. The steps use the hosted Temurin
+21 (`JAVA_HOME_21_X64`) and the pinned firebase-tools, with a step timeout and no retry or cache.
+
 ## Worker gates
 
 `Native Rust contracts` aggregates fmt/Clippy, workspace test/build, native process

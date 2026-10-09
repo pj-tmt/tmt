@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "extension": "colab",
+  "backend": "firestore",
+  "resources": [
+    {
+      "name": "page-docs",
+      "kind": "log",
+      "path": "docs",
+      "limits": { "maxObjectBytes": 262144, "maxNamespaceBytes": 16777216, "maxEntries": 1024 },
+      "ttlField": "expiresAt",
+      "indexes": [
+        { "field": "sequence", "direction": "asc" },
+        { "field": "expiresAt", "direction": "desc" }
+      ]
+    },
+    {
+      "name": "page-checkpoints",
+      "kind": "checkpoint",
+      "path": "checkpoints",
+      "limits": { "maxObjectBytes": 4194304, "maxNamespaceBytes": 33554432, "maxEntries": 64 },
+      "ttlField": "expiresAt",
+      "indexes": [{ "field": "epoch", "direction": "desc" }]
+    },
+    {
+      "name": "page-presence",
+      "kind": "awareness",
+      "path": "presence",
+      "limits": { "maxObjectBytes": 4096, "maxNamespaceBytes": 65536, "maxEntries": 64 },
+      "ttlField": null,
+      "indexes": []
+    }
+  ],
+  "admission": { "artifact": "rules/colab.rules", "digest": "2d3f32c04c0bfe154c54d87781a8704c1e857a239d32cf8386dba7d018301bba", "entryPoint": "colab" }
+}

@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "extension": "notes",
+  "backend": "firestore",
+  "resources": [
+    {
+      "name": "note-docs",
+      "kind": "log",
+      "path": "notes",
+      "limits": { "maxObjectBytes": 65536, "maxNamespaceBytes": 1048576, "maxEntries": 512 },
+      "ttlField": null,
+      "indexes": []
+    }
+  ],
+  "admission": { "artifact": "rules/notes.rules", "digest": "44ffabda09848a05a2c2767334772501fb4a9f31e88df228ec002c6d4f406ff2", "entryPoint": "notes" }
+}
