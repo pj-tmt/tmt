@@ -3,7 +3,14 @@ import { createRoot, type Root } from 'react-dom/client';
 import { RouterProvider } from '@tanstack/react-router';
 import { ReadRefusedError } from '../src/ask-remote.js';
 import type { AskBinding, PageAsk } from '../src/ask-panel.js';
-import type { ThreadBinding } from '../src/thread-store.js';
+import type { MessageAttachments, ThreadBinding } from '../src/thread-store.js';
+import {
+  AttachmentStaleError,
+  AttachmentUploadError,
+  type AttachmentBinding,
+  type StoredAttachment,
+} from '../src/attachment-service.js';
+import type { FrozenAttachmentUpload } from '../src/attachment-channel.js';
 import type { QuoteSelector, ThreadView } from '../src/thread-records.js';
 import type { PageView, PageBinding } from '../src/transport.js';
 import { createAppRouter } from '../src/router.js';
@@ -66,7 +73,13 @@ function sessionDrafts(mode: 'session' | 'failing'): DraftStore {
   };
 }
 export async function mount(
-  options: { creator?: boolean; checking?: boolean; drafts?: 'session' | 'failing' } = {},
+  options: {
+    creator?: boolean;
+    checking?: boolean;
+    drafts?: 'session' | 'failing';
+    /** In-memory storage; a file name steers the outcome: `refuse`, `unknown`, `stale`. */
+    attachments?: boolean;
+  } = {},
 ) {
   root?.unmount();
   document.getElementById('ask-page-fixture')?.remove();
@@ -124,8 +137,62 @@ export async function mount(
       actions.push(`abandon:${operationId}`);
     },
   };
-  function addTurn(body: string, thread: ThreadView) {
-    const messageId = crypto.randomUUID();
+  const stored = new Map<string, Uint8Array>();
+  let staleOnce = true;
+  let lostOnce = true;
+  const attachments: AttachmentBinding | undefined = options.attachments
+    ? {
+        async limits() {
+          return { payloadBytes: 12 * 1024 * 1024 };
+        },
+        async upload(input, messageId, progress) {
+          actions.push(`attach:upload:${input.filename}`);
+          progress(1, 2);
+          if (input.filename.includes('refuse'))
+            throw new AttachmentUploadError({ kind: 'refused', reason: 'capacity' });
+          const original = {
+            transferId: crypto.randomUUID(),
+            descriptor: {
+              attachmentId: crypto.randomUUID(),
+              filename: input.filename,
+              mediaType: input.mediaType,
+              plaintextBytes: String(input.bytes.length),
+              source: { kind: 'message', writerId: id(4), messageId, messageRevision: '1' },
+            },
+          } as unknown as FrozenAttachmentUpload;
+          if (input.filename.includes('unknown') && lostOnce) {
+            lostOnce = false;
+            stored.set(original.descriptor.attachmentId, input.bytes.slice());
+            throw new AttachmentUploadError({ kind: 'unknown', original });
+          }
+          progress(2, 2);
+          stored.set(original.descriptor.attachmentId, input.bytes.slice());
+          return { original, filename: input.filename, size: input.bytes.length };
+        },
+        async resume(original, input) {
+          actions.push(`attach:resume:${original.transferId}`);
+          return { original, filename: input.filename, size: input.size };
+        },
+        async discard(original) {
+          actions.push(`attach:discard:${original.descriptor.filename}`);
+        },
+        async open(message, descriptor) {
+          actions.push(`attach:open:${descriptor.filename}:${message.revision}`);
+          const bytes = stored.get(descriptor.attachmentId);
+          if (!bytes || descriptor.filename.includes('missing')) throw new Error('Unavailable');
+          return bytes.slice();
+        },
+      }
+    : undefined;
+  function addTurn(body: string, thread: ThreadView, attach?: MessageAttachments) {
+    if (attach?.stored.some((s: StoredAttachment) => s.filename.includes('stale')) && staleOnce) {
+      staleOnce = false;
+      throw new AttachmentStaleError(
+        attach.stored.map((s: StoredAttachment) => s.original.descriptor.attachmentId),
+      );
+    }
+    if (options.attachments) actions.push(`message:${body}:${attach?.stored.length ?? 0}`);
+    const messageId = attach?.messageId ?? crypto.randomUUID();
     const {
       kind: _kind,
       threadId: _id,
@@ -141,6 +208,9 @@ export async function mount(
       thread: thread.ref,
       body,
       messageId,
+      ...(attach
+        ? { attachments: attach.stored.map((s: StoredAttachment) => s.original.descriptor) }
+        : {}),
       ref: { writer: id(4), id: messageId },
     };
     current = {
@@ -158,7 +228,12 @@ export async function mount(
       messageRevision: '1',
     };
   }
-  function createThread(body: string, anchor: QuoteSelector | null, threadId: string) {
+  function createThread(
+    body: string,
+    anchor: QuoteSelector | null,
+    threadId: string,
+    attach?: MessageAttachments,
+  ) {
     const thread: ThreadView = {
       version: 1,
       kind: 'thread',
@@ -176,9 +251,10 @@ export async function mount(
       ref: { writer: id(4), id: threadId },
       comments: [],
     };
-    return addTurn(body, thread);
+    return addTurn(body, thread, attach);
   }
   const discussion: ThreadBinding = {
+    attachments,
     async setStatus(ref, _previous, resolved) {
       actions.push(`status:${resolved ? 'resolve' : 'reopen'}`);
       return { changed: true, status: setResolved(find(ref), resolved, 'person') };
@@ -187,17 +263,18 @@ export async function mount(
       throw new Error('Not used');
     },
     deviceId: id(4),
-    async createChat(body) {
-      return createThread(body, null, id(4));
+    async createChat(body, attach) {
+      return createThread(body, null, id(4), attach);
     },
-    async reply(ref, body) {
+    async reply(ref, body, _expected, attach) {
       return addTurn(
         body,
         current.threads!.find((thread) => thread.ref.id === ref.id)!,
+        attach,
       );
     },
-    async create(body, anchor) {
-      return createThread(body, anchor, crypto.randomUUID());
+    async create(body, anchor, attach) {
+      return createThread(body, anchor, crypto.randomUUID(), attach);
     },
     async edit() {
       throw new Error('Not used');

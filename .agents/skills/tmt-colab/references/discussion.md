@@ -47,6 +47,17 @@ owns record fields, limits, revision semantics and trust boundaries.
   the root-local `page-publish` route, with the certificate, sequence, ciphertext commit
   and unknown-outcome rules of source writes. `cli_threads.rs` adapts these operations to `threads`, `resolve` and `reopen`.
   Actor labels and clocks remain display assertions.
+- Attachments (#1854): `attachment-file.ts` owns bounds, filename shortening and the
+  header-only PNG/JPEG/WebP parse; `attachment-service.ts` (`AttachmentService`, held by
+  `ThreadStore.attachments`) owns seal, begin/part/commit, status resume, discard, the
+  publication records and the admitted read; `attachment-draft.ts` is one composer's chip
+  state machine (no effect before Send, no automatic retry); `attachment-tray.tsx` and
+  `message-attachments.tsx` are the trusted-click composer and message surfaces.
+  `ThreadStore.create/createChat/reply` take the preallocated message ID and committed
+  originals and write the proofs with the message in one batch; edit refuses a message that
+  has references. Checks: `test/attachment-{file,service,draft}.test.ts`, the
+  attachment cases in `test/thread-records.test.ts`, `e2e/attachments.spec.ts` and the
+  real-binary `acceptance/attachments.spec.ts`.
 - `components/conversation-window.tsx` owns one header, full-width history and bottom
   composer placement for Chat, anchored threads and new annotations. Window geometry
   and scrolling remain caller-owned. `components/conversation-turn.tsx` owns their

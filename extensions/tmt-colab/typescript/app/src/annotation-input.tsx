@@ -1,5 +1,16 @@
 import { BrowserAction } from '@tmt/browser-ui/react';
-import { useEffect, useId, useRef, useState } from 'react';
+import {
+  useEffect,
+  useId,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type ClipboardEvent,
+  type DragEvent,
+} from 'react';
+import { AttachmentDraft } from './attachment-draft.js';
+import { AttachmentStaleError } from './attachment-service.js';
+import { AttachmentTray } from './attachment-tray.js';
 import { useAgentDirectory } from './agent-directory.js';
 import { MessageComposer } from './components/message-composer.js';
 import type { ComposerEdit } from './components/message-composer-edit.js';
@@ -69,6 +80,14 @@ export function AnnotationInput({
   const section = useRef<HTMLElement>(null);
   const [retrying, setRetrying] = useState(false);
   const focusAfterRetry = useRef(false);
+  const attachments = useRef(discussion?.attachments);
+  useEffect(() => {
+    attachments.current = discussion?.attachments;
+  }, [discussion?.attachments]);
+  const [files] = useState(() => new AttachmentDraft(() => attachments.current));
+  const staged = useSyncExternalStore(files.subscribe, files.getSnapshot);
+  // Leaving unsent releases what the composer stored; the local bytes just drop.
+  useEffect(() => () => files.dispose(), [files]);
   useEffect(() => {
     if (directory.state !== 'loading') setRetrying(false);
   }, [directory.state]);
@@ -166,11 +185,20 @@ export function AnnotationInput({
     setError(undefined);
     let origin: Awaited<ReturnType<ThreadBinding['create']>> | undefined;
     try {
+      // Files upload only here, on the explicit Send, and the message is recorded only
+      // once every one of them is stored; a refusal leaves text and chips as they are.
+      const prepared = await files.prepare();
+      if (!prepared.ok) {
+        setError(text.attachBlocked[prepared.why]);
+        return;
+      }
+      const attach = prepared.attach;
       origin = captured.thread
-        ? await discussion.reply(captured.thread, captured.value, captured.threadRevision)
+        ? await discussion.reply(captured.thread, captured.value, captured.threadRevision, attach)
         : chat
-          ? await discussion.createChat(captured.value)
-          : await discussion.create(captured.value, captured.anchor);
+          ? await discussion.createChat(captured.value, attach)
+          : await discussion.create(captured.value, captured.anchor, attach);
+      files.committed();
       for (const destination of captured.destinations) {
         if (!binding) break;
         let attempt: Awaited<ReturnType<AskBinding['prepare']>>;
@@ -214,7 +242,12 @@ export function AnnotationInput({
       }
       clearDraft();
       committed(origin.thread);
-    } catch {
+    } catch (failure) {
+      if (failure instanceof AttachmentStaleError) {
+        files.stale(failure.attachmentIds);
+        setError(text.attachBlocked.stale);
+        return;
+      }
       setError(origin ? text.messageRecordedUncertain : text.messageRecordFailed);
       if (origin) {
         clearDraft();
@@ -225,8 +258,29 @@ export function AnnotationInput({
       setBusy(false);
     }
   }
+  const attachable = !!discussion?.attachments && !busy && !blocked && !recorded;
+  const takeFiles = (list: FileList | null | undefined, event: ClipboardEvent | DragEvent) => {
+    // Adding only makes an inert local chip; the trusted Send is the first effect.
+    if (!attachable || !list?.length) return false;
+    event.preventDefault();
+    void files.add([...list]);
+    return true;
+  };
   return (
-    <section className="annotation-compose" data-testid="annotation-compose" ref={section}>
+    <section
+      className="annotation-compose"
+      data-testid="annotation-compose"
+      ref={section}
+      onDragOver={(event) => {
+        if (attachable && event.dataTransfer.types.includes('Files')) event.preventDefault();
+      }}
+      onDrop={(event) => takeFiles(event.dataTransfer.files, event)}
+      onPaste={(event) => {
+        // A paste that carries text stays a text paste; only a files-only paste attaches.
+        if (!event.clipboardData.types.includes('text/plain'))
+          takeFiles(event.clipboardData.files, event);
+      }}
+    >
       <MessageComposer
         edit={edit}
         onChange={(next) => {
@@ -249,6 +303,7 @@ export function AnnotationInput({
             cancel();
         }}
       />
+      {discussion?.attachments && <AttachmentTray draft={files} disabled={!attachable} />}
       <div className="annotation-status-row">
         <p id={statusId} role="status" className="annotation-hint">
           {busy
@@ -296,6 +351,7 @@ export function AnnotationInput({
           busy={busy}
           disabled={
             blocked ||
+            staged.chips.some((chip) => chip.state.kind === 'uploading') ||
             !!recorded ||
             !discussion ||
             !value.trim() ||
