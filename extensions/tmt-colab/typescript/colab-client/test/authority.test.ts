@@ -309,24 +309,25 @@ describe('browser authority ports', () => {
     expect(c.payload.decode('page.delete', atLimit).operation).toBe('page.delete');
     expect(() => c.payload.decode('page.delete', c.concat(c.text(' '), atLimit))).toThrow();
   });
-  it('grants no signature authority to syntactically accepted off-curve subjects', async () => {
+  it('rejects off-curve subjects before granting signature authority', async () => {
     // y=2 has nonsquare x^2=(y^2-1)/(d*y^2+1) over p=2^255-19; public fixture only.
     const off = new Uint8Array(32);
     off[0] = 2;
-    expect(c.validEdPoint(off)).toBe(true);
-    expect(
-      c.payload.decode('member.add', json({ ...member, signKey: c.encodeBinary(off) })).operation,
-    ).toBe('member.add');
+    expect(c.validEdPoint(off)).toBe(false);
+    expect(() =>
+      c.payload.decode('member.add', json({ ...member, signKey: c.encodeBinary(off) })),
+    ).toThrow();
     const chain = c.certificate.Chain.fromJson(json(v.chain)),
       cert = chain.certificate();
-    c.certificate.input({ ...cert, signingKey: off });
+    expect(() => c.certificate.input({ ...cert, signingKey: off })).toThrow();
     const message = c.certificate.input(cert),
       signature = c.binary(v.chain.issuerSignature, 64, 64);
     expect(await c.strictVerify(hex(v.public), signature, message)).toBe(true);
     expect(await c.strictVerify(off, signature, message)).toBe(false);
     await expect(chain.verify(hex(v.statementHash), cert, off)).rejects.toThrow();
-    // Match the off-curve root's space so rejection is by signature, not the URL pin.
-    const space = await c.deriveSpaceId(off),
+    await expect(c.deriveSpaceId(off)).rejects.toThrow();
+    // Retain the exact old off-curve space fixture without admitting it through deriveSpaceId.
+    const space = 'k4ixlppyfuqlt2jptrnrwnfujkagqv5v',
       bytes = c.text(v.payload);
     const input = c.statement.input({
       space,

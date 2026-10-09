@@ -22,13 +22,14 @@ to `shared` and enforce the 64-most-recent-epochs forward-wrap cap and atomic
 join lists of at most 512 sorted unique entries. Earlier-epoch wraps use the
 existing epoch-key grammar at the current membership revision.
 
-Subject-key admission deliberately differs: browser syntax checks canonical
-encoding and torsion; native admission additionally decompresses the point.
-The owner admits keys natively before signing, and enrolled devices prove
-sign-in possession. A backend cannot inject an unusable subject without the
-owner/issuer signature. Syntax grants nothing: every authority use still requires
-a successful strict native signature. No custom curve or extra possession step
-is introduced.
+Browser subject-key admission checks canonical encoding, torsion and public-point
+decompression, matching native public-key admission. The same bounded guard rejects
+non-decompressible public keys and signature R before WebCrypto import. Its fixed
+exponentiation chain handles only public 32-byte points; signing, verification and
+secret-key operations remain native. Valid mixed-order points remain admissible.
+Syntax grants nothing: every authority use still requires a successful strict native
+signature, the owner admits keys before signing, and enrolled devices prove sign-in
+possession. No alternate verifier or extra possession step is introduced.
 
 Object seal generates its ID internally. WebKit's native Ed25519 signer produces
 valid randomized signatures. No Colab code may rely on re-signing to reproduce

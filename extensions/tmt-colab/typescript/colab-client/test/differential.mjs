@@ -366,7 +366,7 @@ try {
           progress('completed', 'certificate-valid-root');
           const off = new Uint8Array(32);
           off[0] = 2;
-          assert(c.validEdPoint(off));
+          assert(!c.validEdPoint(off));
           progress('started', 'off-curve-strict-verify');
           assert(
             !(await c.strictVerify(

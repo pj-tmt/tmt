@@ -16,18 +16,46 @@ function lessLE(a: Uint8Array, b: Uint8Array): boolean {
   for (let i = a.length - 1; i >= 0; i--) if (a[i] !== b[i]) return a[i] < b[i];
   return false;
 }
+const fieldPrime = (1n << 255n) - 19n;
+// RFC 8032 section 5.1: d = -121665/121666 modulo the fixed field prime.
+const edwardsD = 37095705934669439343138083508754565189542113879843219016388785533085940283555n;
 export function validEdPoint(raw: Uint8Array): boolean {
   if (raw.length !== 32) return false;
   const y = copy(raw);
   y[31] &= 127;
-  return (
-    lessLE(y, unhex('ed' + 'ff'.repeat(30) + '7f')) &&
-    !torsion.some((p) => {
+  if (
+    !lessLE(y, unhex('ed' + 'ff'.repeat(30) + '7f')) ||
+    torsion.some((p) => {
       const masked = copy(p);
       masked[31] &= 127;
       return equal(y, masked);
     })
-  );
+  )
+    return false;
+  // Public-point decompression only; never pass secret material through this guard.
+  // Canonical y and the torsion check above also exclude x=0, including negative zero.
+  let coordinate = 0n;
+  for (let i = 31; i >= 0; i--) coordinate = (coordinate << 8n) | BigInt(y[i]);
+  const square = (coordinate * coordinate) % fieldPrime,
+    u = (square + fieldPrime - 1n) % fieldPrime,
+    v = (edwardsD * square + 1n) % fieldPrime;
+  if (v === 0n) return false;
+  // RFC 8032 section 5.1.3: x = u*v^3*(u*v^7)^((p-5)/8).
+  const v2 = (v * v) % fieldPrime,
+    v3 = (v2 * v) % fieldPrime,
+    v7 = (v3 * v3 * v) % fieldPrime,
+    base = (u * v7) % fieldPrime;
+  let powered = 1n;
+  // (p-5)/8 = 2^252-3. The fixed chain depends only on this public constant.
+  for (let bit = 251; bit >= 0; bit--) {
+    powered = (powered * powered) % fieldPrime;
+    if (bit !== 1) powered = (powered * base) % fieldPrime;
+  }
+  const x = (((u * v3) % fieldPrime) * powered) % fieldPrime,
+    check = (v * x * x) % fieldPrime;
+  // Either candidate yields a square root (the second after multiplying by sqrt(-1)).
+  // For nonzero x either sign bit selects a canonical root; no subgroup restriction.
+  return check === u || check === (fieldPrime - u) % fieldPrime;
 }
 export async function strictVerify(
   publicKey: Uint8Array,
