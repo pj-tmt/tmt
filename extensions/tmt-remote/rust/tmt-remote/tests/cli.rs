@@ -2740,3 +2740,60 @@ fn object_status_is_opt_in_live_only_and_preserves_strict_ordinary_discovery() {
 
 #[path = "cli/object_negative.rs"]
 mod object_negative;
+#[test]
+fn status_layers_is_opt_in_and_empty_until_firestore_exists() {
+    let mut pilot = Pilot::new();
+    start_door(&mut pilot, &[], false);
+    fn run(pilot: &Pilot, args: &[&str]) -> std::process::Output {
+        pilot.command().args(args).output().unwrap()
+    }
+    fn json(pilot: &Pilot, args: &[&str]) -> Value {
+        let result = run(pilot, args);
+        assert!(
+            result.status.success(),
+            "{args:?}: {} {}",
+            String::from_utf8_lossy(&result.stdout),
+            String::from_utf8_lossy(&result.stderr)
+        );
+        serde_json::from_slice(&result.stdout).unwrap()
+    }
+    let keys = |value: &Value| {
+        value
+            .as_object()
+            .unwrap()
+            .keys()
+            .cloned()
+            .collect::<Vec<_>>()
+    };
+    let ordinary = json(&pilot, &["status", "--json"]);
+    assert_eq!(keys(&ordinary), ["running", "origin", "path"]);
+    let layers = json(&pilot, &["status", "--layers", "--json"]);
+    assert_eq!(
+        keys(&layers),
+        ["running", "origin", "path", "firestoreLayers"]
+    );
+    assert_eq!(layers["firestoreLayers"], serde_json::json!([]));
+    assert_eq!(layers["origin"], ordinary["origin"]);
+    // Plain human status stays one running line plus the address; --layers adds the layer lines.
+    let human = String::from_utf8(run(&pilot, &["status"]).stdout).unwrap();
+    assert!(!human.contains("Firestore"), "{human}");
+    let with = String::from_utf8(run(&pilot, &["status", "--layers"]).stdout).unwrap();
+    assert!(with.starts_with(&human), "{with}");
+    assert!(with.contains("Firestore is not configured"), "{with}");
+    assert!(!with.contains("deploy"), "{with}");
+    // The three optional projections are exclusive.
+    for args in [
+        ["status", "--layers", "--machine", "--json"],
+        ["status", "--layers", "--objects", "--json"],
+    ] {
+        assert!(!run(&pilot, &args).status.success(), "{args:?}");
+    }
+    terminate(pilot.child.take().unwrap());
+    let stopped = json(&pilot, &["status", "--layers", "--json"]);
+    assert_eq!(keys(&stopped), ["running", "lastPort"]);
+    assert!(
+        String::from_utf8(run(&pilot, &["status", "--layers"]).stdout)
+            .unwrap()
+            .contains("not running")
+    );
+}

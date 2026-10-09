@@ -813,6 +813,24 @@ projections remain unchanged. Stopped inspection keeps the two-key stopped shape
 `objectChannels`. Unsupported optional requests preserve their original error code/message;
 malformed or silent replies are errors, never proof of stopped or healthy storage.
 
+`tmt remote status --layers [--json]` selects a third optional running-only observation, exclusive with `--machine` and
+`--objects`; unlike them it also has a human rendering, and plain `status` is unchanged. It sends exactly
+`{"op":"status","layers":true}` and returns the ordinary three members plus `firestoreLayers`. The list is empty until a
+Firestore deployment exists and has recorded evidence: status reads that recorded evidence, never contacts the provider
+and never starts anything. Otherwise it has one entry per layer, in the order `sharing` (page sharing and collaboration),
+`operations` (device operations) and `attachments`, each exactly `{layer,state,prerequisites}`. `state` is `enabled`,
+`not-enabled` or `unknown`, derived from the prerequisites (any `not-enabled` makes it `not-enabled`, otherwise any
+`unknown` makes it `unknown`). Each layer has its own prerequisites in a fixed order, as `{item,state}` plus, unless
+`enabled`, a fixed `reason` and, only where a command exists, `next`: sharing has `project`, `sign-in`, `rules`,
+`plan-tier`, `quota`; operations has `plan-tier`, `support`; attachments has `support`, `project`, `rules`, `quota`.
+Reasons per item are `project`: `not-configured`, `access-lost`; `sign-in`: `provider-disabled`, `permission-missing`;
+`rules`: `not-deployed`, `out-of-date`, `partial`; `plan-tier`: `paid-plan-required`; `quota`: `headroom-low`, `exhausted`
+(only from a recorded refusal); `support`: `not-implemented`. An `unknown` prerequisite has the reason `not-checked` and
+nothing is guessed. `next` is only `tmt remote deploy firestore`. Device operations are not offered on the free Firebase
+plan, so they report `paid-plan-required` there and, until a release implements them, `support: not-implemented`. Every
+word comes from a fixed table: no provider text, secret or path. The ordinary, `--machine` and `--objects` projections and
+stopped inspection are unchanged.
+
 An old command rejects `--machine` before state work. Against an old live serve, the optional
 projection preserves the standard nonzero error document and its original unsupported code/message:
 `REMOTE_CONTROL_UNSUPPORTED`, or the exact legacy `REMOTE_INPUT_INVALID` / "Unknown control operation."
