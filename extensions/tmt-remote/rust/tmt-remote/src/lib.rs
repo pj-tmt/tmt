@@ -12,6 +12,7 @@ pub mod declaration;
 pub mod deploy_plan;
 pub mod devices;
 pub mod error;
+pub mod firestore_budget;
 pub mod http;
 pub mod journal;
 pub mod limits;
