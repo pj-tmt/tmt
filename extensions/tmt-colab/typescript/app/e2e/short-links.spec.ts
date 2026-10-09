@@ -27,7 +27,7 @@ test('an old short link opens a chooser after a new page collides and never gues
   await expect(page.getByRole('link', { name: /Later proposal/ })).toBeVisible();
   await expect(page.locator('iframe')).toHaveCount(0);
   await expect(page.locator('#short-fixture header')).toHaveCount(1);
-  await expect(page.locator('#short-fixture .tmt-ui-header .tmt-ui-mark')).toHaveText('▚');
+  await expect(page.locator('#short-fixture .tmt-ui-header svg.tmt-ui-mark')).toBeVisible();
   await expect(page.getByTestId('short-page-choice').locator('section')).toHaveAttribute(
     'role',
     'status',
