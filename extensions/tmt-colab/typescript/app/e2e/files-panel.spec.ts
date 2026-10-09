@@ -125,6 +125,50 @@ test('a page that changed while uploading asks to add again; a failed save keeps
   await expect(panel.getByTestId('file-row')).toHaveCount(2);
 });
 
+test('an epoch or admission change disposes shown previews and failures, and a later read starts clean', async ({
+  page,
+}) => {
+  await mount(page);
+  const panel = await openFiles(page);
+  await attach(panel, page, [
+    { name: 'shot.png', mimeType: 'image/png', buffer: PNG },
+    note('missing.txt'),
+  ]);
+  await add(panel).click();
+  const rows = panel.getByTestId('file-row');
+  await expect(rows).toHaveCount(2);
+  await rows.nth(0).getByRole('button', { name: text.attachmentPreview }).click();
+  await expect(page.getByTestId('file-preview').locator('img')).toBeVisible();
+  await rows.nth(1).getByRole('button', { name: text.attachmentDownload }).click();
+  await expect(rows.nth(1).getByRole('alert')).toHaveText(text.attachmentUnavailable);
+
+  await page.evaluate(async (path) => (await import(path)).advanceDisclosure(), fixture);
+  await expect(page.getByTestId('file-preview')).toHaveCount(0);
+  await expect(rows.nth(1).getByRole('alert')).toHaveCount(0);
+  // The preview is only a click away again, read afresh under the new disclosure.
+  const opens = (await actions(page)).filter((a) => a.startsWith('attach:open')).length;
+  await rows.nth(0).getByRole('button', { name: text.attachmentPreview }).click();
+  await expect(page.getByTestId('file-preview').locator('img')).toBeVisible();
+  expect((await actions(page)).filter((a) => a.startsWith('attach:open')).length).toBe(opens + 1);
+});
+
+test('a read that finishes after the disclosure changed shows nothing', async ({ page }) => {
+  await mount(page);
+  const panel = await openFiles(page);
+  await attach(panel, page, [{ name: 'slow.png', mimeType: 'image/png', buffer: PNG }]);
+  await add(panel).click();
+  const row = panel.getByTestId('file-row');
+  await row.getByRole('button', { name: text.attachmentPreview }).click();
+  await expect
+    .poll(async () => (await actions(page)).includes('attach:open:slow.png:document'))
+    .toBe(true);
+  await page.evaluate(async (path) => (await import(path)).advanceDisclosure(), fixture);
+  await page.evaluate(async (path) => (await import(path)).releaseOpen(), fixture);
+  await expect(row.getByRole('button', { name: text.attachmentPreview })).toBeEnabled();
+  await expect(page.getByTestId('file-preview')).toHaveCount(0);
+  await expect(row.getByRole('alert')).toHaveCount(0);
+});
+
 const reader = '/test/reader-files-browser.tsx';
 async function mountReader(page: Page, files: boolean) {
   await page.goto('/');

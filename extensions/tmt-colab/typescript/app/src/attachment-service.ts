@@ -66,6 +66,9 @@ export type AttachmentReference =
   | { kind: 'document' };
 
 export interface AttachmentBinding {
+  /** Names the disclosure now in force (epoch, admission head, connection standing). Anything
+   * shown or held from a read belongs to one scope and is disposed when it changes. */
+  scope?(): string;
   /** Upload availability and the effective payload bound, or why there is none. */
   limits(): Promise<{ payloadBytes: number } | { reason: RefusalReason }>;
   upload(
@@ -92,6 +95,13 @@ export interface AttachmentServiceOptions {
   connection(): Promise<Connection>;
   available(): boolean;
   sharing: string | readonly string[];
+  scope?(): string;
+}
+
+/** The epoch and admission head a connection reads under; `closed` once it is not standing. */
+export function disclosureScope(c: Connection | null | undefined): string {
+  const head = c?.active ? c.admission.head : null;
+  return head ? `${c!.admission.epoch}:${head.revision}:${hex(head.hash)}` : 'closed';
 }
 
 /** Owns the upload, status, discard and read protocol over the connection's object
@@ -99,6 +109,9 @@ export interface AttachmentServiceOptions {
  * same batch as the message that references them. */
 export class AttachmentService implements AttachmentBinding {
   constructor(private options: AttachmentServiceOptions) {}
+  scope() {
+    return this.options.scope?.() ?? '';
+  }
   async #channel() {
     requireValue(this.options.available());
     const c = await this.options.connection();

@@ -1,3 +1,4 @@
+import { disclosureScope } from './attachment-service.js';
 import { LiveDocumentFiles, type DocumentFiles } from './document-files.js';
 import { shortPageId } from './short-links.js';
 import { ThreadStore, commentForAsk, conversationForAsk } from './thread-store.js';
@@ -93,6 +94,7 @@ export class Live implements PageBinding {
       connection: () => this.#current,
       publish: (records) => this.#writer.submitOwnRecords(records),
       available: () => !this.#closed && !this.#error && !this.#opening?.pending,
+      scope: () => (this.#error ? 'blocked' : disclosureScope(this.#connection)),
     });
     this.files = new LiveDocumentFiles({
       service: this.discussion.attachments,

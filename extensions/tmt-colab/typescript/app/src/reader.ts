@@ -1,4 +1,4 @@
-import { AttachmentService } from './attachment-service.js';
+import { AttachmentService, disclosureScope } from './attachment-service.js';
 import {
   binary,
   certificate,
@@ -49,6 +49,7 @@ export class ReaderSession {
     },
     available: () => !this.#closed && this.#connection !== null,
     sharing: SHARING,
+    scope: () => disclosureScope(this.#connection),
   });
   #closed = false;
   #failures = 0;

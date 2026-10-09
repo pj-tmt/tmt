@@ -112,8 +112,8 @@ test('files added to the page reach another device and a read-only link byte-ide
     const colab = (args: string[]) =>
       JSON.parse(run(world, world.binaries.colab, [...args, '--json'])) as Record<string, unknown>;
     colab(['share', 'mode', created.pageId, 'link', '--yes']);
-    const readerPath = colab(['share', 'link', 'add', created.pageId, '--yes'])
-      .readerPath as string;
+    const added = colab(['share', 'link', 'add', created.pageId, '--yes']);
+    const readerPath = added.readerPath as string;
     const first = await openPage(door, author, created);
     const second = await openPage(door, viewer, created);
     await expect(
@@ -204,5 +204,15 @@ test('files added to the page reach another device and a read-only link byte-ide
     await expect(reader.page.getByTestId('files-toggle')).toHaveText(`${text.files} 2`, {
       timeout: 30_000,
     });
+
+    // Ending the link while a preview is shown disposes it: nothing of the read stays on screen.
+    // The earlier check left the preview shown.
+    await expect(reader.page.getByTestId('file-preview').locator('img')).toBeVisible();
+    colab(['share', 'link', 'reset', created.pageId, added.linkId as string, '--yes']);
+    await expect(reader.page.getByRole('heading', { name: 'Access ended', level: 2 })).toBeVisible({
+      timeout: 60_000,
+    });
+    await expect(reader.page.locator('img[src^="data:"]')).toHaveCount(0);
+    await expect(reader.page.getByTestId('file-row')).toHaveCount(0);
   });
 });

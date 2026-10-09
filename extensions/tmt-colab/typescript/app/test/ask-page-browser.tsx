@@ -33,6 +33,8 @@ let records: PageAsk[];
 let current: PageView;
 let seen: ThreadStatusSeen | undefined;
 let seenOpens = 0;
+let scope = 'epoch-1';
+let openGate: (() => void) | undefined;
 let ownerDevice = true;
 let hooks: { seed(): void; agentResolves(): void } | undefined;
 /** Parent-computed presentation inputs, as Live publishes them. */
@@ -141,8 +143,10 @@ export async function mount(
   const stored = new Map<string, Uint8Array>();
   let staleOnce = true;
   let lostOnce = true;
+  scope = 'epoch-1';
   const attachments: AttachmentBinding | undefined = options.attachments
     ? {
+        scope: () => scope,
         async limits() {
           return { payloadBytes: 12 * 1024 * 1024 };
         },
@@ -189,6 +193,7 @@ export async function mount(
           actions.push(
             `attach:open:${descriptor.filename}:${message.kind === 'message' ? message.revision : 'document'}`,
           );
+          if (descriptor.filename.includes('slow')) await new Promise<void>((r) => (openGate = r));
           const bytes = stored.get(descriptor.attachmentId);
           if (!bytes || descriptor.filename.includes('missing')) throw new Error('Unavailable');
           return bytes.slice();
@@ -469,6 +474,15 @@ export function nonOwnerDevice() {
   emit();
 }
 /** An anchored thread, as if a person had just saved it. */
+/** The page's epoch or admission head moved (a revoke or an epoch advance). */
+export function advanceDisclosure() {
+  scope = `${scope}+`;
+  emit();
+}
+/** Lets a read of a file whose name contains `slow` finish. */
+export function releaseOpen() {
+  openGate?.();
+}
 export function seedThread() {
   hooks!.seed();
 }
