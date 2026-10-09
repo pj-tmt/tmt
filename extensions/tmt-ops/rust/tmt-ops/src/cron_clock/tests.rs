@@ -324,6 +324,61 @@ fn worker_shutdown_cancels_and_joins_an_inflight_core_child_then_releases_lease(
 }
 
 #[test]
+fn standby_shutdown_cancels_an_inflight_root_read_without_releasing_another_holder() {
+    let f = Fixture::new();
+    let root = service::root(&f.core).unwrap();
+    let clock = Clock::new(&root).unwrap();
+    let lease = clock
+        .acquire(now(), 123, Some("%41".into()))
+        .unwrap()
+        .unwrap();
+    let held = fs::read(root.join("cron/clock.json")).unwrap();
+    f.change_model(|model| model["blockOn"] = json!("storage.root"));
+    let mut worker = ClockWorker::spawn(f.core.clone(), f.config.clone(), false);
+    let pid: i32 = wait_for(|| {
+        fs::read_to_string(f.directory.join("blocked.pid"))
+            .ok()
+            .and_then(|text| text.parse().ok())
+    });
+    let started = Instant::now();
+    let stopped = worker.stop();
+    assert!(started.elapsed() < Duration::from_secs(5));
+    assert_eq!(
+        nix::sys::signal::kill(nix::unistd::Pid::from_raw(pid), None),
+        Err(nix::errno::Errno::ESRCH)
+    );
+    assert_eq!(fs::read(root.join("cron/clock.json")).unwrap(), held);
+    assert!(request_calls(&f.model()).is_empty());
+    lease.release().unwrap();
+    assert_eq!(
+        stopped.unwrap(),
+        json!({"action":"run","warnings":[],"complete":true})
+    );
+    assert_eq!(worker.stop().unwrap(), json!({"action":"run"}));
+}
+
+#[test]
+fn stop_preserves_a_completed_core_error_even_with_the_cancellation_message() {
+    let f = Fixture::new();
+    let selected = f.directory.join("error-tmt");
+    crate::test_support::write_ready_executable(
+        &selected,
+        "#!/bin/sh\ncat >/dev/null\nprintf '%s' '{\"error\":{\"code\":\"SQUAD_CORE_UNAVAILABLE\",\"message\":\"The board load was superseded.\"}}'\nexit 1\n",
+    );
+    let mut worker = ClockWorker::spawn(Core::at(selected), f.config.clone(), false);
+    worker
+        .finished
+        .recv_timeout(Duration::from_secs(5))
+        .unwrap();
+    assert_eq!(
+        worker.stop().unwrap_err().to_json(),
+        json!({"error":{"code":"SQUAD_CORE_UNAVAILABLE","message":"The board load was superseded."}})
+    );
+    assert!(!f.directory.join("ops/cron/clock.json").exists());
+    assert!(request_calls(&f.model()).is_empty());
+}
+
+#[test]
 fn deferred_ui_workers_never_take_the_old_clock_and_migrate_without_stopping() {
     let mut f = Fixture::new();
     let actor = f.actor(LEAD);
@@ -360,14 +415,30 @@ fn deferred_ui_workers_never_take_the_old_clock_and_migrate_without_stopping() {
     );
     assert!(!f.directory.join("ops").exists());
     assert!(request_calls(&f.model()).is_empty());
-    old_lease.release().unwrap();
+    // Simulate the former board removing its unchanged lease. Migration probes
+    // can hold this lock; Lease::release consumes the lease even on BUSY, so the
+    // fixture waits for the guard before removing its own evidence.
+    let old_directory = f.directory.join("squad/cron");
+    let guard = wait_for(|| {
+        let file = fs::File::open(old_directory.join("clock.lock")).unwrap();
+        match nix::fcntl::Flock::lock(file, nix::fcntl::FlockArg::LockExclusiveNonblock) {
+            Ok(guard) => Some(guard),
+            Err((_, nix::errno::Errno::EAGAIN)) => None,
+            Err((_, error)) => panic!("fixture clock lock: {error}"),
+        }
+    });
+    assert_eq!(fs::read(old_directory.join("clock.json")).unwrap(), held);
+    fs::remove_file(old_directory.join("clock.json")).unwrap();
+    fs::File::open(&old_directory).unwrap().sync_all().unwrap();
+    drop(guard);
+    drop(old_lease);
     wait_for(|| f.directory.join(".ops-paths-v1").exists().then_some(()));
     wait_for(|| {
-        matches!(
-            Clock::new(&f.directory.join("ops")).unwrap().status(now()),
-            ClockStatus::Running(_)
-        )
-        .then_some(())
+        // A contended status is Unknown, so keep observing until Running.
+        Clock::new(&f.directory.join("ops"))
+            .ok()
+            .is_some_and(|clock| matches!(clock.status(now()), ClockStatus::Running(_)))
+            .then_some(())
     });
     assert!(!crate::migration::paths(&f.core, None).unwrap().legacy);
     assert_eq!(

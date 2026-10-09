@@ -26,6 +26,8 @@ pub struct SquadError {
     pub current: Option<Box<Value>>,
     /// Where `message` splits into what failed and the next step.
     hint: Option<(usize, usize)>,
+    /// Local process cancellation, never inferred from a public error document.
+    cancelled: bool,
 }
 
 impl SquadError {
@@ -35,6 +37,7 @@ impl SquadError {
             message: message.into(),
             hint: None,
             current: None,
+            cancelled: false,
         }
     }
 
@@ -46,6 +49,7 @@ impl SquadError {
             message: format!("{what}{separator}{hint}"),
             hint: Some((what.len(), what.len() + separator.len())),
             current: None,
+            cancelled: false,
         }
     }
 
@@ -59,6 +63,10 @@ impl SquadError {
 
     pub fn to_json(&self) -> Value {
         json!({"error": {"code": self.code, "message": self.message}})
+    }
+
+    pub(crate) fn was_cancelled(&self) -> bool {
+        self.cancelled
     }
 }
 
@@ -185,13 +193,16 @@ impl Core {
             ),
         };
         let finished = result.map_err(|error| {
-            unavailable(match error {
+            let cancelled = error == RunError::Cancelled;
+            let mut failure = unavailable(match error {
                 RunError::Spawn => "Could not start tmt.",
                 RunError::Timeout => "tmt did not finish in time; the outcome is unknown.",
                 RunError::OutputLimit => "tmt output exceeded squad's bound.",
                 RunError::Io => "Could not read tmt output; the outcome is unknown.",
                 RunError::Cancelled => "The board load was superseded.",
-            })
+            });
+            failure.cancelled = cancelled;
+            failure
         })?;
         let document: Value = serde_json::from_slice(&finished.stdout)
             .map_err(|_| unavailable("tmt returned no JSON document."))?;

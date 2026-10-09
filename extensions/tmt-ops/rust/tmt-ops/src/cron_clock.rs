@@ -264,7 +264,12 @@ impl ClockWorker {
         let (stop, waiting) = mpsc::channel();
         let (completed, finished) = mpsc::channel();
         let thread = std::thread::spawn(move || {
-            let result = serve(&reader, &config, &waiting, &token, foreground);
+            let result = match serve(&reader, &config, &waiting, &token, foreground) {
+                Err(error) if token.cancelled() && error.was_cancelled() => {
+                    Ok(json!({"action":"run","warnings":[],"complete":true}))
+                }
+                result => result,
+            };
             let _ = completed.send(());
             result
         });
