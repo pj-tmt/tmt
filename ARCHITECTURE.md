@@ -1157,8 +1157,8 @@ Colab owns short-ID resolution, while the door session cookie stays scoped to th
 [`contracts/remote-channel-v1.md`](contracts/remote-channel-v1.md) owns
 the wire, pairing, session, operations and extension channel API. Remote owns the
 static browser entry and pairing ceremony; human serve links name `/`, while protocol addresses
-retain their route prefix. Saved pairing is local evidence, not live authority: only an explicit
-connection check opens a signed Session. No state display sends work or designates an administrator.
+retain their route prefix. Saved pairing is local evidence, not live authority: entry checks once
+through a signed Session and capabilities read; manual rechecks reuse it. No work or designation.
 Protocol refusals and mounted extension responses retain their own representation.
 [Remote settings administration](contracts/remote-channel-v1.md#remote-settings-browser-authority)
 separates local effect designation from paired trust; live-grant original-ID reads never reapply

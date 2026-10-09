@@ -17,8 +17,9 @@ Cargo and installed serving never run Node or a generator. The shared package ow
 browser roles, fonts/header tokens and Header/Notice/Field/Action presentation;
 Remote defines host metrics, viewport layout, safe-area offsets and one window
 scrollbar. Regeneration and drift checks belong to the
-[shared package](../../../../design/browser-ui/README.md). Remote has no copied
-palette, header projection or shadow styling.
+[shared package](../../../../design/browser-ui/README.md). Remote has no copied palette or shadow styling. Its four static templates carry the approved
+inline aperture mark from the leaf’s static-host contract (#2207), pinned by a Remote-owned literal
+test; Cargo does not read the leaf’s React source or fetch the mark at runtime.
 
 Static markup uses shared class/slot and native accessibility contracts.
 `browser.ts` supplies explicit notice tones and visible state words; decorative marks
@@ -31,19 +32,18 @@ states. The card heading is the page's `h2`; the header title is its only `h1`.
 
 The human serve link names `/`; protocol readiness/status/SDK addresses retain `/r/<prefix>`.
 `Pages` serves the static entry and same-origin `/sdk/landing.js` bootstrap under the existing
-CSP/no-store/Host/Origin boundary. `browser.ts` owns its local pairing inspection and explicit
-Connect action using the same IndexedDB record, non-extractable key and verified Session flow.
-Inspection validates all stored identities, origin/canonical address, exact key pins and handle
-consistency without a descriptor/admission call. Missing data, valid saved data and unavailable
-or malformed storage remain distinct; saved data never proves current access.
+CSP/no-store/Host/Origin boundary. `browser.ts` validates local pairing before network, then checks
+once on page open through descriptor, verified Session and scope-free `capabilities` observation.
+Manual Check again reuses the current Session; no polling, inventory, work or grant repair occurs.
+Missing/unreadable storage sends nothing. Seven explicit icon-and-text states distinguish local
+pairing, checking, connected, different machine, signed refusal and unconfirmed access. Generic
+Connected uses no invented friendly name. Technical evidence and local-time checked time stay in
+native Details; command Copy actions report denial honestly and leave selectable text.
 
-Connect opens one fresh Session only on user action. Signed verification establishes
-access with its checked time; an unchanged descriptor recheck after opaque404 remains
-unconfirmed, not a signed refusal reason or evidence of revocation. Transport, stale descriptor or unverified reply remains unconfirmed.
-Page-attempt fencing prevents late results repainting a departed page and new admission/recheck
-requests after departure, including signing continuations. Already dispatched requests cannot be undone. No work/inventory/grant
-repair, automatic re-pair or settings designation is performed. Pair success offers an ordinary
-link back to `/`; its existing fragment erasure and terminal confirmation are unchanged.
+Only signed refusal supports Not accepted. Opaque404 remains unconfirmed even after a
+descriptor-only recheck, never another admission. Page-lifetime/signing fences prevent new
+requests after departure; per-check fences prevent late painting. Pair success still links back
+to `/`, with unchanged fragment erasure, terminal confirmation and disabled-until-ready controls.
 
 The native CLI regression fetches the printed human URL as HTML and verifies protocol-base
 refusal with zero request-triggered core calls. Existing Chromium owners cover exact pairing,

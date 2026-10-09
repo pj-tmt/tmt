@@ -276,8 +276,11 @@ or restored to its admitted value. Only the current bounded page's forms are ret
 
 The human `tmt remote serve` link opens `/`; the JSON `address` remains the signed protocol base.
 `landingPage()` is the entry bootstrap, using the same saved non-extractable key and machine pins.
-On load it checks local storage only: a saved pairing does not prove current access. Connect
-is explicit and opens one verified Session; errors stay unconfirmed. An opaque404 and unchanged
-descriptor recheck do not establish a signed refusal reason. No inventory or work is sent, and pairing
-never claims settings-admin designation. Run `tmt remote pair` locally, open the full code-bearing
-link in this browser, compare the displayed words with the terminal and confirm there.
+On load it validates local storage, then checks once through a verified Session and signed
+`capabilities` read; a saved pairing alone never proves current access. Manual Check again reuses
+that Session while current. No polling, automatic re-pair, grant renewal, inventory or work is sent.
+Only a verified signed refusal means Not accepted; opaque404, transport or unverifiable replies
+remain unconfirmed and keep the pairing unchanged. Details contains the short machine ID,
+viewer-local checked time, protocol address, trust pin and administration note. Commands are
+copyable and run on the machine running Remote. The owner ceremony is unchanged: open the full
+code-bearing link in this browser, compare its words with the terminal and confirm there.

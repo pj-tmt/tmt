@@ -128,17 +128,15 @@ input {
 .entry-status dd {
   margin: 0 0 12px;
 }
-.entry-help {
-  margin-top: 28px;
-  --tmt-ui-host-notice-heading-size: clamp(24px, 3vw, 28px);
-}
-.entry-help ol {
-  margin: 0 0 24px;
-  padding-left: 24px;
-}
-.entry-help li + li {
-  margin-top: 12px;
-}
+/* Landing keeps next steps in its one state sheet, with optional technical details. */
+.entry-steps { margin: 0 0 24px; padding-left: 24px; }
+.entry-steps li + li { margin-top: 12px; }
+.entry-command { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin-bottom: 12px; }
+.entry-details { margin-top: 24px; border-top: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule); padding-top: 20px; }
+.entry-details summary { cursor: pointer; }
+.entry-details summary:focus-visible { outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus); outline-offset: var(--tmt-ui-host-focus-offset); }
+.entry-details dl { margin-top: 20px; }
+.entry-details dd { overflow-wrap: anywhere; }
 .entry-note {
   margin-top: 24px;
   color: var(--tmt-ui-color-secondary);

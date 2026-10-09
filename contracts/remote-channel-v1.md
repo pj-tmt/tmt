@@ -723,22 +723,27 @@ The existing no-argument reopen behavior and ordinary agent operations remain un
 
 Human `serve` output links to the same-origin `/` browser entry. JSON readiness, status and SDK
 `address` retain the protocol `/r/<prefix>` base; navigating there still gets the generic refusal.
-The entry initially reads only this origin's saved browser record through the existing SDK owner.
-Absent local data means no saved pairing; validated data means saved pairing with access unchecked.
-Malformed or inaccessible data is unconfirmed. No descriptor, admission, inventory or work request
-runs merely to display that state. Complete identity/origin/address/key-pin validation and the
-existing non-extractable device-key consistency check precede an explicit connection attempt.
+The entry validates this origin's saved browser record through the existing SDK owner. Absent
+local data means Not paired; inaccessible or malformed data means Pairing unreadable. Complete
+identity/origin/address/key-pin validation and the existing non-extractable key consistency check
+precede any network request. Stored key presence alone never establishes live authority.
 
-Connect makes one fresh `session.open` attempt and verifies its signed result against the
-saved machine pin. A verified response confirms access at the displayed checked time, never
-administrator designation. An opaque404 with an unchanged current descriptor recheck is still
-not a signed refusal reason: access could not be verified, without inferring revocation, eviction
-or another permanent cause. Only a specifically verified refusal may report Access refused. Transport, changed or
-malformed descriptor and unverified response failures remain unconfirmed; a public descriptor
-cannot replace a machine trust pin. Async results and new admission/recheck requests are fenced
-to their page attempt, including after signing. Departure cannot undo an already dispatched request. No automatic
-re-pair, grant repair, work resend or session admission on page load exists. Owner pairing still
-uses the fragment-erasing bootstrap, fingerprint comparison and terminal confirmation.
+Each page open automatically checks once: read the current descriptor, open one verified
+`session.open`, then observe `capabilities` through that Session's serialized signed lane. These
+reads are not journaled. Check again is manual and reuses the current verified Session; an ended
+session can be reopened only by that explicit check. No polling, automatic re-pair, grant renewal,
+work dispatch or recovery resend occurs. Connected means this check verified current access,
+never settings-administrator designation; open an app from its link in this browser.
+
+A different machine keeps the saved pairing unchanged. Only a specifically verified signed
+refusal reports Not accepted. Opaque404, transport, stale/malformed descriptor or unverifiable
+response stays unconfirmed, without inferring revocation or another permanent cause; a public
+descriptor cannot replace the saved machine pin. A descriptor-only recheck after opaque404 never
+retries admission. Page lifetime fences prevent new requests after departure, including signing
+continuations; per-check fences prevent late painting. Departure cannot undo an already sent
+request. Details contains the short machine ID, viewer-local checked time, protocol address,
+trust pin and pairing-versus-administration note. Owner pairing retains fragment erasure,
+fingerprint comparison and terminal confirmation.
 
 ### Local CLI discovery
 

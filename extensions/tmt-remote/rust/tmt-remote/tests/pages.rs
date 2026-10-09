@@ -213,21 +213,16 @@ fn static_pages_and_styles_are_exact_and_refusals_remain_generic() {
     assert!(
         landing
             .body
-            .contains(r#"class="header-mark tmt-ui-mark">tmt</span"#)
-    );
-    assert!(
-        landing
-            .body
             .contains(r#"class="header-wordmark tmt-ui-wordmark">Remote</span>"#)
     );
-    assert!(landing.body.contains("aria-hidden=\"true\">○</span"));
+    assert!(landing.body.contains("aria-hidden=\"true\">◌</span"));
     assert!(landing.body.contains("/sdk/landing.js"));
     for text in [
-        "pairing-status",
-        "access-status",
+        "checked-time",
+        "Check again",
         "tmt remote pair",
         "four words",
-        "confirm in the terminal",
+        "Confirm in the terminal",
     ] {
         assert!(landing.body.contains(text), "{text}");
     }
@@ -331,13 +326,15 @@ fn pages_consume_shared_presentation_without_a_second_projection() {
             "tmt-ui-notice-mark",
             "tmt-ui-notice-heading",
             "tmt-ui-notice-body",
-            "tmt-ui-notice-eyebrow",
         ] {
             assert!(classes.contains(&class), "missing shared consumer {class}");
             assert!(
                 shared.contains(&format!(".{class}")),
                 "missing shared export {class}"
             );
+        }
+        if page != include_str!("../assets/landing.html") {
+            assert!(classes.contains(&"tmt-ui-notice-eyebrow"));
         }
         let mark = page.find("header-mark tmt-ui-mark").unwrap();
         let product = page.find("header-wordmark tmt-ui-wordmark").unwrap();
@@ -564,4 +561,38 @@ fn settings_consume_shared_classes_and_native_selects_without_a_palette() {
             .any(|word| word.starts_with('#') && word.ends_with(';')),
         "host CSS must not declare colors"
     );
+}
+
+#[test]
+fn remote_static_headers_pin_the_approved_aperture_mark() {
+    // Approved static-host projection of design/browser-ui/src/header.tsx (#2207).
+    // This literal adds no native input dependency on the leaf's source module.
+    const MARK: &str = r#"<svg class="header-mark tmt-ui-mark" viewBox="0 0 200 200" aria-hidden="true" fill="currentColor">
+          <g transform="rotate(0 100 100)"><path d="M100 18A82 82 0 0 1 164 49C143 45 117 55 110 77L92 75C85 50 87 31 100 18Z" /></g>
+          <g transform="rotate(60 100 100)"><path d="M100 18A82 82 0 0 1 164 49C143 45 117 55 110 77L92 75C85 50 87 31 100 18Z" /></g>
+          <g transform="rotate(120 100 100)"><path d="M100 18A82 82 0 0 1 164 49C143 45 117 55 110 77L92 75C85 50 87 31 100 18Z" /></g>
+          <g transform="rotate(180 100 100)"><path d="M100 18A82 82 0 0 1 164 49C143 45 117 55 110 77L92 75C85 50 87 31 100 18Z" /></g>
+          <g transform="rotate(240 100 100)"><path d="M100 18A82 82 0 0 1 164 49C143 45 117 55 110 77L92 75C85 50 87 31 100 18Z" /></g>
+          <g transform="rotate(300 100 100)"><path d="M100 18A82 82 0 0 1 164 49C143 45 117 55 110 77L92 75C85 50 87 31 100 18Z" /></g>
+        </svg>"#;
+    let normalize = |markup: &str| {
+        markup
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ")
+            .replace(" >", ">")
+            .replace("> <", "><")
+    };
+    let expected = normalize(MARK);
+    for page in [
+        include_str!("../assets/landing.html"),
+        include_str!("../assets/pair.html"),
+        include_str!("../assets/error.html"),
+        include_str!("../assets/settings.html"),
+    ] {
+        let normalized = normalize(page);
+        assert!(normalized.contains(&expected));
+        assert_eq!(page.matches("class=\"header-mark tmt-ui-mark\"").count(), 1);
+        assert!(page.contains("class=\"header-wordmark tmt-ui-wordmark\">Remote</span>"));
+    }
 }

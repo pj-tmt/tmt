@@ -586,6 +586,12 @@ async function attempt(channel, timeoutMs, operation, id, payload, sequence, par
 		abort.abort();
 	}
 }
+function parseCapabilities(value) {
+	const reply = record(value);
+	valid$1(reply.version === 1 && reply.profile === "local-v1" && reply.binding === "loopback-http");
+	valid$1(Array.isArray(reply.operations) && reply.operations.every((value) => typeof value === "string"));
+	record(reply.limits);
+}
 /** Scope-free reads synchronize the lane; the caller's operation is never a probe. */
 async function synchronize(channel, timeoutMs) {
 	const unresolved = channel.uncertainSequence;
@@ -594,18 +600,12 @@ async function synchronize(channel, timeoutMs) {
 	if (unresolved === "unavailable") throw unavailable();
 	const id = crypto.randomUUID();
 	const payload = utf8$1.encode("{}");
-	function capabilities(value) {
-		const reply = record(value);
-		valid$1(reply.version === 1 && reply.profile === "local-v1" && reply.binding === "loopback-http");
-		valid$1(Array.isArray(reply.operations) && reply.operations.every((value) => typeof value === "string"));
-		record(reply.limits);
-	}
 	try {
 		try {
-			await attempt(channel, timeoutMs, "capabilities", id, payload, channel.clientSequence, capabilities);
+			await attempt(channel, timeoutMs, "capabilities", id, payload, channel.clientSequence, parseCapabilities);
 		} catch (error) {
 			if (!(error instanceof SequenceMismatch)) throw error;
-			await attempt(channel, timeoutMs, "capabilities", id, payload, unresolved, capabilities);
+			await attempt(channel, timeoutMs, "capabilities", id, payload, unresolved, parseCapabilities);
 		}
 		channel.uncertainSequence = void 0;
 	} catch (error) {
@@ -1237,89 +1237,184 @@ async function entryPairing() {
 		return { state: "unavailable" };
 	}
 }
-/** Landing-page projection of existing pairing and signed Session owners; no new authority. */
+/** Landing-page observation uses the verified Session lane; it never dispatches work. */
 async function landingPage() {
 	if (document.readyState === "loading") await new Promise((resolve) => document.addEventListener("DOMContentLoaded", () => resolve(), { once: true }));
-	const status = element("status");
-	const pairing = element("pairing-status");
-	const access = element("access-status");
 	const button = element("check");
 	let attempt = 0;
+	let departed = false;
+	let session;
+	let opaque = false;
+	const pageAlive = () => !departed && button.isConnected;
 	window.addEventListener("pagehide", () => {
+		departed = true;
 		attempt++;
 	}, { once: true });
-	const renderPairing = (value) => {
-		pairing.textContent = {
-			missing: "No saved pairing",
-			saved: "Pairing saved in this browser",
-			unavailable: "Pairing status unknown"
-		}[value.state];
-		button.disabled = value.state !== "saved";
-		if (value.state === "missing") showState(status, "waiting", "Follow the terminal-confirmed pairing steps below.");
-		else if (value.state === "unavailable") showState(status, "blocked", "The saved pairing could not be read or validated. Access is unconfirmed; no connection was attempted.");
-		element("mark").textContent = "○";
+	const render = (state, validated = false) => {
+		const copy = {
+			missing: [
+				"○",
+				"Not paired",
+				"Pair this browser with your machine",
+				"Pair links are private and work once."
+			],
+			checking: [
+				"◌",
+				"Checking",
+				"Checking the connection…",
+				"This browser is paired. Nothing is sent while checking."
+			],
+			connected: [
+				"●",
+				"Connected",
+				"Connected",
+				"Open your app from its link in this browser."
+			],
+			different: [
+				"△",
+				"Different machine",
+				"This browser is paired with another machine",
+				"This Remote runs on a machine this browser isn't paired with. Your existing pairing is kept."
+			],
+			refused: [
+				"×",
+				"Not accepted",
+				"Remote didn't accept this browser",
+				"The pairing may have been removed on the machine."
+			],
+			unconfirmed: [
+				"×",
+				"Can't reach Remote",
+				"Couldn't confirm the connection",
+				"Remote may have stopped, or its reply couldn't be verified. Your pairing is unchanged."
+			],
+			unreadable: [
+				"×",
+				"Pairing unreadable",
+				"This browser's pairing can't be read",
+				"Browser storage may have been cleared or blocked. Nothing was sent."
+			]
+		}[state];
+		element("notice").dataset.tone = state === "connected" ? "working" : ["missing", "checking"].includes(state) ? "waiting" : "blocked";
+		element("notice").dataset.state = state;
+		element("copy-feedback").textContent = "";
+		element("mark").textContent = copy[0];
+		element("state-label").textContent = copy[1];
+		element("heading").textContent = copy[2];
+		element("status").textContent = state === "checking" && !validated ? "Reading this browser's pairing." : copy[3];
+		for (const name of [
+			"missing",
+			"different",
+			"refused",
+			"unconfirmed",
+			"unreadable"
+		]) element(`steps-${name}`).hidden = name !== state;
+		element("command-pair").hidden = ![
+			"missing",
+			"different",
+			"refused",
+			"unreadable"
+		].includes(state);
+		element("command-devices").hidden = state !== "refused";
+		element("command-status").hidden = state !== "unconfirmed";
+		element("command-location").hidden = ["checking", "connected"].includes(state);
+		button.hidden = [
+			"missing",
+			"different",
+			"unreadable"
+		].includes(state);
+		button.disabled = state === "checking";
 	};
-	const initial = attempt;
-	const local = await entryPairing();
-	if (attempt !== initial || !button.isConnected) return;
-	renderPairing(local);
-	button.addEventListener("click", async () => {
-		if (button.disabled) return;
-		button.disabled = true;
+	for (const command of [
+		"pair",
+		"devices",
+		"status"
+	]) element(`copy-${command}`).addEventListener("click", async () => {
+		const text = `tmt remote ${command}`;
+		try {
+			await navigator.clipboard.writeText(text);
+			if (pageAlive()) element("copy-feedback").textContent = "Copied.";
+		} catch {
+			if (pageAlive()) element("copy-feedback").textContent = "Copy failed. Select the command and copy it manually.";
+		}
+	});
+	const check = async () => {
+		const restoreFocus = document.activeElement === button;
 		const currentAttempt = ++attempt;
-		const currentPage = () => attempt === currentAttempt && button.isConnected;
-		access.textContent = "Connecting…";
-		showState(status, "waiting", "Connecting using this browser’s saved pairing. No work is sent.");
-		{
-			const local = await entryPairing();
-			if (!currentPage()) return;
-			if (local.state !== "saved") {
-				renderPairing(local);
-				access.textContent = "Could not verify access";
-				return;
-			}
-			let refused = false;
-			try {
-				const current = await door();
+		const currentPage = () => pageAlive() && attempt === currentAttempt;
+		render("checking");
+		element("checked-time").textContent = "Not checked";
+		const local = await entryPairing();
+		if (!currentPage()) return;
+		if (local.state !== "saved") {
+			session = void 0;
+			render(local.state === "missing" ? "missing" : "unreadable");
+			return;
+		}
+		render("checking", true);
+		element("machine-id").textContent = local.record.paired.machineId.slice(0, 8);
+		element("protocol-address").textContent = local.record.paired.address;
+		element("trust-pin").textContent = Array.from(local.record.paired.machinePublicKey, (byte) => byte.toString(16).padStart(2, "0")).join("");
+		opaque = false;
+		try {
+			let current;
+			const channel = session && channelFor(session);
+			if (!channel || channel.ended || channel.paired.clientId !== local.record.paired.clientId || channel.paired.machineId !== local.record.paired.machineId || channel.paired.machinePublicKey.some((byte, index) => byte !== local.record.paired.machinePublicKey[index]) || channel.key.publicKey().some((byte, index) => byte !== local.record.publicKey[index])) {
+				session = void 0;
+				current = await door();
 				if (!currentPage()) return;
 				validateEntryDoor(current);
+				element("protocol-address").textContent = current.address;
 				if (current.machineId !== local.record.paired.machineId) {
-					pairing.textContent = "Saved pairing does not match this Remote";
-					access.textContent = "Not checked";
-					showState(status, "blocked", "This door names a different machine from the saved pairing. Your saved pairing has not been changed. Confirm the machine in its local terminal.");
+					render("different");
 					return;
 				}
 				try {
-					await openSession({
+					session = await openSession({
 						...local.record.paired,
 						address: current.address
 					}, local.key, current.windowId, async (url, init) => {
-						if (!currentPage()) throw new Error("Remote page attempt ended.");
+						if (!pageAlive()) throw new Error("Remote page ended.");
 						const response = await fetch(url, init);
-						refused = response.status === 404;
+						opaque = response.status === 404;
 						return response;
 					});
 				} catch (error) {
 					if (!currentPage()) return;
-					if (!refused) throw error;
-					const latest = await door();
-					if (!currentPage()) return;
-					validateEntryDoor(latest);
-					if (latest.machineId !== current.machineId || latest.address !== current.address || latest.windowId !== current.windowId) throw error;
-					access.textContent = "Could not verify access";
-					showState(status, "blocked", "The current door did not admit this saved pairing. This is not a verified refusal reason. Your saved pairing has not been changed. Inspect access locally with tmt remote devices.");
-					return;
+					if (opaque) {
+						const latest = await door();
+						if (!currentPage()) return;
+						validateEntryDoor(latest);
+					}
+					throw error;
 				}
-				if (!currentPage()) return;
-				access.textContent = "Access confirmed";
-				showState(status, "paired", `Checked at ${(/* @__PURE__ */ new Date()).toISOString()}. The signed response matches this browser’s saved trust pins. Use your app’s local link in this browser; no work was sent.`);
-			} catch {
-				if (!currentPage()) return;
-				access.textContent = "Could not verify access";
-				showState(status, "blocked", "Your saved pairing has not been changed. The door may be unavailable or its reply could not be verified. Inspect access locally with tmt remote devices; no work was sent.");
 			}
+			if (!currentPage()) return;
+			await verifiedSessionRequest(session)("capabilities", crypto.randomUUID(), {}, parseCapabilities);
+			if (!currentPage()) return;
+			element("checked-time").textContent = new Intl.DateTimeFormat(void 0, {
+				dateStyle: "medium",
+				timeStyle: "short"
+			}).format(/* @__PURE__ */ new Date());
+			render("connected");
+		} catch (error) {
+			if (!currentPage()) return;
+			const verifiedRefusal = !opaque && error instanceof RefusalError && [
+				"REMOTE_CLOSED",
+				"REMOTE_SESSION_ENDED",
+				"REMOTE_SESSION_EVICTED",
+				"REMOTE_DEVICE_REVOKED"
+			].includes(error.code);
+			session = void 0;
+			render(verifiedRefusal ? "refused" : "unconfirmed");
+		} finally {
+			if (currentPage() && restoreFocus && !button.hidden) button.focus();
 		}
+	};
+	button.addEventListener("click", () => {
+		if (!button.disabled) check();
 	});
+	await check();
 }
 function entryUuid(value) {
 	return typeof value === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(value);

@@ -10,7 +10,31 @@
   <body>
     <header class="header tmt-ui-header">
       <span class="header-brand tmt-ui-brand">
-        <span class="header-mark tmt-ui-mark">tmt</span
+        <!-- Static-host mark from design/browser-ui/src/header.tsx (#2207). -->
+        <svg
+          class="header-mark tmt-ui-mark"
+          viewBox="0 0 200 200"
+          aria-hidden="true"
+          fill="currentColor"
+        >
+          <g transform="rotate(0 100 100)">
+            <path d="M100 18A82 82 0 0 1 164 49C143 45 117 55 110 77L92 75C85 50 87 31 100 18Z" />
+          </g>
+          <g transform="rotate(60 100 100)">
+            <path d="M100 18A82 82 0 0 1 164 49C143 45 117 55 110 77L92 75C85 50 87 31 100 18Z" />
+          </g>
+          <g transform="rotate(120 100 100)">
+            <path d="M100 18A82 82 0 0 1 164 49C143 45 117 55 110 77L92 75C85 50 87 31 100 18Z" />
+          </g>
+          <g transform="rotate(180 100 100)">
+            <path d="M100 18A82 82 0 0 1 164 49C143 45 117 55 110 77L92 75C85 50 87 31 100 18Z" />
+          </g>
+          <g transform="rotate(240 100 100)">
+            <path d="M100 18A82 82 0 0 1 164 49C143 45 117 55 110 77L92 75C85 50 87 31 100 18Z" />
+          </g>
+          <g transform="rotate(300 100 100)">
+            <path d="M100 18A82 82 0 0 1 164 49C143 45 117 55 110 77L92 75C85 50 87 31 100 18Z" />
+          </g></svg
         ><span class="header-wordmark tmt-ui-wordmark">Remote</span>
       </span>
       <h1 class="header-title tmt-ui-title">Remote connection</h1>
@@ -24,57 +48,72 @@
       >
         <div class="sheet-body tmt-ui-notice-body">
           <div class="tmt-ui-notice-mark">
-            <span id="mark" class="state-mark" aria-hidden="true">○</span
-            ><span id="state-label">Not connected</span>
+            <span id="mark" class="state-mark" aria-hidden="true">◌</span
+            ><span id="state-label">Checking</span>
           </div>
-          <p class="eyebrow tmt-ui-notice-eyebrow">This browser</p>
-          <h2 id="heading" class="tmt-ui-notice-heading">Remote connection</h2>
-          <dl class="entry-status">
-            <dt>Pairing</dt>
-            <dd id="pairing-status">Pairing status unknown</dd>
-            <dt>Current Remote access</dt>
-            <dd id="access-status">Not checked</dd>
-          </dl>
-          <p id="status" role="status">No connection is opened until you choose Connect.</p>
-          <button id="check" class="tmt-ui-action" type="button" aria-describedby="status" disabled>
-            <span class="tmt-ui-action-label">Connect</span>
-          </button>
-          <p class="entry-note">
-            Pairing gives this browser its own access. It does not designate a settings
-            administrator.
-          </p>
-        </div>
-      </section>
-      <section class="sheet entry-help tmt-ui-notice" aria-labelledby="pair-heading">
-        <div class="sheet-body tmt-ui-notice-body">
-          <p class="eyebrow tmt-ui-notice-eyebrow">Local owner confirmation</p>
-          <h2 id="pair-heading" class="tmt-ui-notice-heading">Pair this browser</h2>
-          <ol>
-            <li>
-              In the terminal on the machine running Remote, run <code>tmt remote pair</code>.
-            </li>
-            <li>
-              Open the link it prints in <strong>this browser</strong>. If another browser opens
-              automatically, paste the full link into this browser’s address bar.
-            </li>
-            <li>
-              Enter a device name and choose Pair. Compare the four words on the page with the
-              terminal.
-            </li>
-            <li>
-              If the words match, confirm in the terminal. Return here to connect with your saved
-              pairing.
-            </li>
+          <h2 id="heading" class="tmt-ui-notice-heading">Checking the connection…</h2>
+          <p id="status" role="status">Reading this browser's pairing.</p>
+          <ol id="steps-missing" class="entry-steps" hidden>
+            <li>On the machine running Remote, run <code>tmt remote pair</code>.</li>
+            <li>Open the link it prints <strong>in this browser</strong>.</li>
+            <li>Name this device, then check that the four words match the terminal.</li>
+            <li>Confirm in the terminal. This page updates when you come back.</li>
           </ol>
-          <p>
-            Keep the pairing link private. A link that no longer works needs a new
-            <code>tmt remote pair</code> offer.
+          <ol id="steps-different" class="entry-steps" hidden>
+            <li>To use this machine too, run <code>tmt remote pair</code> on it.</li>
+          </ol>
+          <ol id="steps-refused" class="entry-steps" hidden>
+            <li>Check this device with <code>tmt remote devices</code>.</li>
+            <li>If it's missing, pair again with <code>tmt remote pair</code>.</li>
+          </ol>
+          <ol id="steps-unconfirmed" class="entry-steps" hidden>
+            <li>Check Remote is running: <code>tmt remote status</code>.</li>
+          </ol>
+          <ol id="steps-unreadable" class="entry-steps" hidden>
+            <li>Pair again with <code>tmt remote pair</code>.</li>
+          </ol>
+          <p id="command-location" class="entry-note" hidden>
+            Run these commands on the machine that runs Remote.
           </p>
-          <p>
-            For a saved pairing that loses access, inspect it locally with
-            <code>tmt remote devices</code>. Pairing again requires your explicit terminal
-            confirmation.
-          </p>
+          <div id="command-pair" class="entry-command" hidden>
+            <code>tmt remote pair</code
+            ><button id="copy-pair" type="button" class="tmt-ui-action">
+              Copy pairing command
+            </button>
+          </div>
+          <div id="command-devices" class="entry-command" hidden>
+            <code>tmt remote devices</code
+            ><button id="copy-devices" type="button" class="tmt-ui-action">
+              Copy devices command
+            </button>
+          </div>
+          <div id="command-status" class="entry-command" hidden>
+            <code>tmt remote status</code
+            ><button id="copy-status" type="button" class="tmt-ui-action">
+              Copy status command
+            </button>
+          </div>
+          <p id="copy-feedback" role="status" class="entry-note"></p>
+          <button id="check" class="tmt-ui-action" type="button" aria-describedby="status" disabled>
+            Check again
+          </button>
+          <details class="entry-details">
+            <summary>Details</summary>
+            <dl class="entry-status">
+              <dt>Machine ID</dt>
+              <dd id="machine-id">Not available</dd>
+              <dt>Checked time</dt>
+              <dd id="checked-time">Not checked</dd>
+              <dt>Protocol address</dt>
+              <dd id="protocol-address">Not available</dd>
+              <dt>Trust pin</dt>
+              <dd id="trust-pin">Not available</dd>
+            </dl>
+            <p class="entry-note">
+              Pairing gives this browser its own access. It does not designate a settings
+              administrator.
+            </p>
+          </details>
         </div>
       </section>
     </main>

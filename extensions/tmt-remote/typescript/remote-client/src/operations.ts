@@ -369,6 +369,15 @@ async function attempt<T>(
   }
 }
 
+export function parseCapabilities(value: unknown): void {
+  const reply = record(value);
+  valid(reply.version === 1 && reply.profile === 'local-v1' && reply.binding === 'loopback-http');
+  valid(
+    Array.isArray(reply.operations) && reply.operations.every((value) => typeof value === 'string'),
+  );
+  record(reply.limits);
+}
+
 /** Scope-free reads synchronize the lane; the caller's operation is never a probe. */
 async function synchronize(channel: Channel, timeoutMs: number): Promise<void> {
   const unresolved = channel.uncertainSequence;
@@ -381,15 +390,7 @@ async function synchronize(channel: Channel, timeoutMs: number): Promise<void> {
   if (unresolved === 'unavailable') throw unavailable();
   const id = crypto.randomUUID();
   const payload = utf8.encode('{}');
-  function capabilities(value: unknown): void {
-    const reply = record(value);
-    valid(reply.version === 1 && reply.profile === 'local-v1' && reply.binding === 'loopback-http');
-    valid(
-      Array.isArray(reply.operations) &&
-        reply.operations.every((value) => typeof value === 'string'),
-    );
-    record(reply.limits);
-  }
+
   try {
     try {
       await attempt(
@@ -399,11 +400,11 @@ async function synchronize(channel: Channel, timeoutMs: number): Promise<void> {
         id,
         payload,
         channel.clientSequence,
-        capabilities,
+        parseCapabilities,
       );
     } catch (error) {
       if (!(error instanceof SequenceMismatch)) throw error;
-      await attempt(channel, timeoutMs, 'capabilities', id, payload, unresolved, capabilities);
+      await attempt(channel, timeoutMs, 'capabilities', id, payload, unresolved, parseCapabilities);
     }
     channel.uncertainSequence = undefined;
   } catch (error) {
