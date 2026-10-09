@@ -6,6 +6,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vite-plus/test';
 import { PROOF_FILES } from '../../scripts/release-upgrade.mjs';
+import { checkReleaseParity } from '../../scripts/release-parity.mjs';
 
 const repository = fileURLToPath(new URL('../../../', import.meta.url));
 const read = (relative: string) => readFileSync(path.join(repository, relative), 'utf8');
@@ -14,6 +15,105 @@ const run = read('.github/workflows/native-release.yml');
 const bundle = read('.github/workflows/native-release-bundle.yml');
 const prepare = read('.github/workflows/native-release-prepare.yml');
 const smokeWorkflow = read('.github/workflows/native-release-smoke.yml');
+
+describe('required manifest packaging cache restore (#2076)', () => {
+  const assembly = prepare.split('  assemble:\n')[1].split('  verify:\n')[0];
+  const steps = assembly.split('\n      - ').slice(1);
+  const restores = steps.filter((step) => step.includes('uses: actions/cache/restore@v4'));
+  const gate = steps.find((step) =>
+    step.startsWith('name: Require an exact packaging tools cache hit\n')
+  )!;
+  const field = (step: string, name: string) =>
+    new RegExp(`^ {8}${name}: (.+)$`, 'm').exec(step)?.[1];
+  const condition = field(restores[1], 'if')!;
+  const hit = /^ {10}CACHE_HIT: (.+)$/m.exec(gate)![1];
+  const command = gate.split('        run: |\n')[1].replace(/^ {10}/gm, '');
+  type Result = { status: 'success' | 'failure'; hit?: string };
+  function evaluate(expression: string, first?: string, second?: string) {
+    return new Function(
+      'first',
+      'second',
+      `return (${expression
+        .replace(/^\$\{\{\s*|\s*\}\}$/g, '')
+        .replace(/steps\.tools-restore\.outputs\.cache-hit/g, 'first')
+        .replace(/steps\.tools-retry\.outputs\.cache-hit/g, 'second')});`
+    )(first ?? '', second ?? '');
+  }
+  function simulate(first: Result, second: Result) {
+    const calls = [first];
+    if (evaluate(condition, first.hit)) calls.push(second);
+    const last = calls.at(-1)!;
+    const shell = spawnSync('bash', ['-e', '-c', command], {
+      encoding: 'utf8',
+      env: { ...process.env, CACHE_HIT: String(evaluate(hit, first.hit, calls[1]?.hit)) },
+    });
+    return { calls: calls.length, accepted: last.status === 'success' && shell.status === 0 };
+  }
+
+  it('allows one identical restore retry and requires an exact hit before every verifier', () => {
+    expect(restores).toHaveLength(2);
+    for (const step of restores) {
+      expect(field(step, 'uses')).toBe('actions/cache/restore@v4');
+      expect(step.split('        with:\n')[1]).toBe(
+        '          path: ~/.tmt-packaging\n' +
+          '          key: native-tools-${{ runner.os }}-${{ runner.arch }}-rust1.97-dist0.32.0-about0.9.2\n' +
+          '          fail-on-cache-miss: true'
+      );
+    }
+    expect(field(restores[0], 'continue-on-error')).toBe('true');
+    expect(field(restores[1], 'continue-on-error')).toBeUndefined();
+    expect(condition).toBe("steps.tools-restore.outputs.cache-hit != 'true'");
+    expect(hit).toBe(
+      "${{ steps.tools-restore.outputs.cache-hit == 'true' || steps.tools-retry.outputs.cache-hit == 'true' }}"
+    );
+    expect(assembly.indexOf('name: Require an exact packaging tools cache hit')).toBeLessThan(
+      assembly.indexOf('name: Install verification dependencies')
+    );
+    expect(assembly).toContain('timeout-minutes: 15');
+    expect(gate).not.toContain('continue-on-error');
+  });
+
+  it.each([
+    ['first exact hit', { status: 'success', hit: 'true' }, { status: 'failure' }, 1, true],
+    ['timeout then exact hit', { status: 'failure' }, { status: 'success', hit: 'true' }, 2, true],
+    ['real miss twice', { status: 'failure' }, { status: 'failure' }, 2, false],
+    ['persistent service error', { status: 'failure' }, { status: 'failure' }, 2, false],
+    [
+      'unavailable twice',
+      { status: 'success', hit: 'false' },
+      { status: 'success', hit: 'false' },
+      2,
+      false,
+    ],
+    ['missing outputs', { status: 'success' }, { status: 'success' }, 2, false],
+    ['non-exact second hit', { status: 'failure' }, { status: 'success', hit: 'false' }, 2, false],
+  ] as const)('keeps %s bounded and fail-closed', (_, first, second, calls, accepted) => {
+    expect(simulate(first, second)).toEqual({ calls, accepted });
+  });
+
+  it('pins the incident counterpart and rejects removing it from the inventory', () => {
+    const manifest = JSON.parse(read('.github/release-parity.json'));
+    expect(manifest.incidents['2076']).toEqual({
+      release: {
+        workflow: 'native-release-prepare.yml',
+        job: 'assemble',
+        step: 'name:Require an exact packaging tools cache hit',
+      },
+      preMerge: [
+        {
+          workflow: 'ci.yml',
+          job: 'unit-tests',
+          selection: { kind: 'ci-scope', output: 'native_scope', value: 'full' },
+          coverage: 'policy',
+          tests: ['typescript/test/tooling/release-workflow.test.ts'],
+        },
+      ],
+    });
+    expect(() => checkReleaseParity(manifest, { read })).not.toThrow();
+    delete manifest.incidents['2076'];
+    expect(() => checkReleaseParity(manifest, { read })).toThrow('unmapped 2076');
+  });
+});
 
 describe('compiled CLI schema preparation order', () => {
   const blocks = (source: string) => ({

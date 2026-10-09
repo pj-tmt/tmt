@@ -204,11 +204,30 @@ jobs:
           product: ${{ inputs.product }}
           tag: ${{ inputs.tag }}
           source-root: release-source
-      - uses: actions/cache/restore@v4
+      - name: Restore required packaging tools
+        id: tools-restore
+        continue-on-error: true
+        uses: actions/cache/restore@v4
         with:
           path: ~/.tmt-packaging
           key: native-tools-${{ runner.os }}-${{ runner.arch }}-rust1.97-dist0.32.0-about0.9.2
           fail-on-cache-miss: true
+      - name: Retry required packaging tools restore once
+        id: tools-retry
+        if: steps.tools-restore.outputs.cache-hit != 'true'
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.tmt-packaging
+          key: native-tools-${{ runner.os }}-${{ runner.arch }}-rust1.97-dist0.32.0-about0.9.2
+          fail-on-cache-miss: true
+      - name: Require an exact packaging tools cache hit
+        env:
+          CACHE_HIT: ${{ steps.tools-restore.outputs.cache-hit == 'true' || steps.tools-retry.outputs.cache-hit == 'true' }}
+        run: |
+          if [ "$CACHE_HIT" != true ]; then
+            echo "Required packaging tools cache was not restored after two attempts." >&2
+            exit 1
+          fi
       - name: Install verification dependencies
         working-directory: release-source/typescript
         run: pnpm install --frozen-lockfile --ignore-scripts

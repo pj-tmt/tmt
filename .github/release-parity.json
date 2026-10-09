@@ -153,14 +153,16 @@
           "name:Set up Node.js and pnpm",
           "name:Install pinned Rust",
           "id:version",
-          "uses:actions/cache/restore@v4",
+          "id:tools-restore",
+          "id:tools-retry",
+          "name:Require an exact packaging tools cache hit",
           "name:Install verification dependencies",
           "uses:actions/download-artifact@v4",
           "name:Merge with cargo-dist and verify bootstrap inputs",
           "name:Recheck version-only source after this stage",
           "uses:actions/upload-artifact@v4"
         ],
-        "sha256": "38db5a0573b9a0608fadbf86f55e26725e57c42232091e829e19d958c639c1c3",
+        "sha256": "b45546be764e4166d775f234979709702bffcfdff1ff721abc734ebf14b36bbc",
         "preMerge": [
           {
             "workflow": "ci.yml",
@@ -798,6 +800,26 @@
           },
           "coverage": "policy",
           "tests": ["typescript/test/tooling/release-upgrade.test.ts"]
+        }
+      ]
+    },
+    "2076": {
+      "release": {
+        "workflow": "native-release-prepare.yml",
+        "job": "assemble",
+        "step": "name:Require an exact packaging tools cache hit"
+      },
+      "preMerge": [
+        {
+          "workflow": "ci.yml",
+          "job": "unit-tests",
+          "selection": {
+            "kind": "ci-scope",
+            "output": "native_scope",
+            "value": "full"
+          },
+          "coverage": "policy",
+          "tests": ["typescript/test/tooling/release-workflow.test.ts"]
         }
       ]
     }
