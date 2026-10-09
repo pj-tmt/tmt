@@ -1,5 +1,5 @@
 import * as Y from 'yjs';
-import { digest, equal, frame, text } from '@tmt/colab-client';
+import { attachment, digest, equal, frame, text } from '@tmt/colab-client';
 import {
   BASELINE_UPDATE_BYTES,
   CONTENT_CHUNK_BYTES,
@@ -16,6 +16,7 @@ import {
   type ContentPreparation,
   type Projection,
 } from './fold-protocol.js';
+const hex = (bytes: Uint8Array) => [...bytes].map((b) => b.toString(16).padStart(2, '0')).join('');
 
 // One shared content document and one own document per admitted writer; only this module imports/decodes Yjs.
 let committed = new Y.Doc();
@@ -233,18 +234,36 @@ self.onmessage = async (event: MessageEvent<{ id: number; command: DecoderComman
       const before = { ...project(committed), own: admittedOwn };
       if (!sameContent(before, command.base)) throw new Error('Stale content preparation base');
       const diff = contentDiff(before.source, command.source);
+      // The change is checked here against the source being written, never taken on trust.
+      const change =
+        command.attachments === undefined
+          ? undefined
+          : attachment.documentChange(command.attachments);
+      const next =
+        change && !attachment.emptyDocumentChange(change)
+          ? attachment.applyDocumentChange(
+              before.attachments ?? [],
+              change,
+              hex(await digest(text(command.source))),
+            )
+          : undefined;
       const updates: Uint8Array[] = [];
       const capture = (bytes: Uint8Array) => updates.push(new Uint8Array(bytes));
       candidate.on('update', capture);
       try {
         const html = candidate.getText('html');
+        const meta = candidate.getMap('meta');
         const pieces = [...contentPieces(diff.insert)];
-        if (diff.remove || pieces.length) {
+        if (diff.remove || pieces.length || next) {
           let offset = diff.start;
           for (let index = 0; index < Math.max(1, pieces.length); index++) {
             const piece = pieces[index] ?? '';
             candidate.transact(() => {
               if (index === 0 && diff.remove) html.delete(diff.start, diff.remove);
+              if (index === 0 && next) {
+                if (next.length) meta.set('attachments', JSON.parse(JSON.stringify(next)));
+                else meta.delete('attachments');
+              }
               if (piece) html.insert(offset, piece);
             });
             offset += piece.length;
@@ -254,7 +273,11 @@ self.onmessage = async (event: MessageEvent<{ id: number; command: DecoderComman
       } finally {
         candidate.off('update', capture);
       }
-      const expected = { ...before, source: command.source };
+      const expected: typeof before = { ...before, source: command.source };
+      if (next) {
+        if (next.length) expected.attachments = next;
+        else delete expected.attachments;
+      }
       if (!sameContent({ ...project(candidate), own: before.own }, expected))
         throw new Error('Content preparation projection mismatch');
       replayContent(committed, updates, expected);

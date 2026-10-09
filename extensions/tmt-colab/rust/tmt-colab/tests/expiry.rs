@@ -195,6 +195,7 @@ fn content_samples_append_clock_and_failed_late_receipt_rolls_back_time() {
         tmt_colab::decoder::ContentEdit {
             source: "<p>New</p>",
             publisher_agent: None,
+            attachments: None,
         },
         None,
         &mut f.decoder(),

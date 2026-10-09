@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { expect, it, vi } from 'vite-plus/test';
 import type { Bootstrap, PageInfo } from '../src/bootstrap.js';
 import type { LiveAskOptions } from '../src/live-ask.js';
@@ -106,8 +107,8 @@ vi.mock('../src/connection.js', () => ({
     async run<T>(fn: () => Promise<T>) {
       return fn();
     }
-    save(operationId: string, base: string, source: string) {
-      return saves.save(this, operationId, base, source);
+    save(operationId: string, base: string, source: string, attachments?: unknown) {
+      return saves.save(this, operationId, base, source, ...(attachments ? [attachments] : []));
     }
     saveStatus(operationId: string) {
       return saves.status(this, operationId);
@@ -1572,6 +1573,41 @@ it('a save resolves once the page shows the saved source, with one operation ID 
       '<p>new</p>',
     ]);
     expect(saves.status).not.toHaveBeenCalled();
+  } finally {
+    live.close();
+  }
+});
+
+it('a typed attachment change resolves once the page shows the saved list, and an impossible one is refused before any save', async () => {
+  const oracle = JSON.parse(
+    readFileSync(
+      new URL('../../../contracts/vectors/attachment-change-v1.json', import.meta.url),
+      'utf8',
+    ),
+  );
+  const live = openLive();
+  try {
+    await live.snapshot();
+    const a = oracle.descriptors.a;
+    let resolved = false;
+    saves.save.mockImplementation(async (connection, operationId) => {
+      // The page shows the new source first; the save resolves only with the list too.
+      setTimeout(() => connection.publish(shows(oracle.source)), 10);
+      setTimeout(() => {
+        resolved = true;
+        connection.publish({ ...shows(oracle.source), attachments: [a] });
+      }, 80);
+      return committed(operationId);
+    });
+    await live.edit(oracle.source, 'verified', { set: [a] });
+    expect(resolved).toBe(true);
+    expect(saves.save.mock.calls[0][4]).toEqual({ set: [a] });
+    saves.save.mockClear();
+    // Removing what the admitted page does not hold fails here, before anything is sent.
+    await expect(
+      live.edit(oracle.source, oracle.source, { remove: [oracle.descriptors.b.attachmentId] }),
+    ).rejects.toThrow();
+    expect(saves.save).not.toHaveBeenCalled();
   } finally {
     live.close();
   }

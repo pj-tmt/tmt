@@ -466,6 +466,7 @@ fn borrowed_preparation_wire_preserves_exact_bytes_hash_and_strict_owned_parse()
             expected_base: &base,
             source,
             publisher_agent: publisher,
+            attachments: None::<()>,
         };
         let (bytes, hash) = SerializedInput::serialize(&borrowed).unwrap().finish();
         let oracle = if publisher.is_some() {
@@ -517,8 +518,10 @@ fn edited_projection_preserves_full_metadata_publisher_set_clear_and_noop() {
             ContentEdit {
                 source,
                 publisher_agent: publisher,
+                attachments: None,
             },
-        );
+        )
+        .unwrap();
         let mut oracle = base.clone();
         oracle["html"] = Value::String(source.into());
         let meta = oracle["meta"].as_object_mut().unwrap();
@@ -1103,6 +1106,7 @@ fn observation_preparation_replays_independently_without_normalizing_fresh_bytes
             expected_base: serde_json::json!({"html":"old","meta":{"title":"T"}}),
             source,
             publisher_agent: publisher,
+            attachments: None::<()>,
         };
         let input = serde_json::to_vec(&wire).unwrap();
         let mut output = Vec::new();
@@ -1293,6 +1297,7 @@ fn observation_preparation_delta_and_wrong_base_keep_independent_semantics() {
         expected_base: serde_json::json!({"html":"old","meta":{"title":"T"}}),
         source: "new 🐈",
         publisher_agent: Some("agent"),
+        attachments: None::<()>,
     };
     let input = serde_json::to_vec(&wire).unwrap();
     for observe in [false, true] {
@@ -1353,6 +1358,7 @@ fn observation_preparation_delta_and_wrong_base_keep_independent_semantics() {
         expected_base: serde_json::json!({"html":"wrong","meta":{"title":"T"}}),
         source: "new",
         publisher_agent: None::<&str>,
+        attachments: None::<()>,
     };
     let mut checkpoints = Vec::new();
     assert!(matches!(
@@ -1772,6 +1778,7 @@ fn one_generated_reply_preserves_owned_wire_projection_and_independent_replay() 
                 expected_base: expected.clone(),
                 source,
                 publisher_agent: publisher,
+                attachments: None::<()>,
             })
             .unwrap();
             let mut output = Vec::new();
@@ -1845,8 +1852,10 @@ fn one_generated_reply_preserves_owned_wire_projection_and_independent_replay() 
                 ContentEdit {
                     source,
                     publisher_agent: publisher,
+                    attachments: None,
                 },
-            );
+            )
+            .unwrap();
             assert_eq!(reply.projection, expected);
             let noop = source == "old 🐈" && publisher == Some("agent");
             assert!(

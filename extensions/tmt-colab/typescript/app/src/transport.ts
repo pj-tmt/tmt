@@ -1,3 +1,4 @@
+import type { attachment } from '@tmt/colab-client';
 import type { ThreadPresentation } from './thread-status-presentation.js';
 import type { ThreadStatusCoordinator } from './thread-status-coordinator.js';
 import type { ThreadBinding } from './thread-store.js';
@@ -42,7 +43,8 @@ export interface PageBinding {
   markThreadStatusSeen?(thread: DiscussionRef): void;
   reconnect?(): Promise<boolean>;
   subscribe(publish: (value: PageView) => void, failed: (error: Error) => void): () => void;
-  edit(source: string, base: string): Promise<void>;
+  /** Save the whole source; a typed change also sets or removes document attachment references. */
+  edit(source: string, base: string, attachments?: attachment.DocumentChange): Promise<void>;
   export(): Promise<ExportBundle>;
   close(): void;
 }

@@ -200,6 +200,64 @@ impl Descriptor {
         Ok(plain)
     }
 }
+/// One typed change to a document's `meta.attachments`, never free-form metadata. `set`
+/// adds descriptors the writer already committed and proved; `remove` drops references by
+/// attachment ID. Descriptors are immutable, so a `set` of an existing ID must be identical.
+/// The browser and native preparers share its vectors (`attachment-change-v1.json`).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct DocumentChange {
+    #[serde(default, skip_serializing_if = "List::is_empty")]
+    pub set: List<Descriptor, DOCUMENT_ATTACHMENTS>,
+    #[serde(default, skip_serializing_if = "List::is_empty")]
+    pub remove: List<String, DOCUMENT_ATTACHMENTS>,
+}
+impl DocumentChange {
+    pub fn is_empty(&self) -> bool {
+        self.set.is_empty() && self.remove.is_empty()
+    }
+    /// Structure and source binding, before any page is consulted: each added descriptor is a
+    /// valid document asset whose recorded source digest is the source being written.
+    pub fn validate(&self, source_sha256: &[u8; 32]) -> Result<()> {
+        let digest = hex(source_sha256);
+        let mut ids = HashSet::new();
+        for descriptor in self.set.as_slice() {
+            descriptor.validate()?;
+            require(
+                descriptor.namespace == "content"
+                    && matches!(&descriptor.source, Source::Document { source_digest } if *source_digest == digest)
+                    && ids.insert(descriptor.attachment_id.as_str()),
+            )?;
+        }
+        for id in self.remove.as_slice() {
+            values::generated_id(id)?;
+            require(ids.insert(id.as_str()))?;
+        }
+        Ok(())
+    }
+    /// The list after the change, in order: removals first, then new descriptors appended.
+    /// A removal of an absent ID, a different descriptor under an existing ID and a result
+    /// over the document cap are refused rather than ignored.
+    pub fn apply(&self, current: &[Descriptor]) -> Result<Vec<Descriptor>> {
+        let mut out: Vec<Descriptor> = current.to_vec();
+        for id in self.remove.as_slice() {
+            let before = out.len();
+            out.retain(|d| d.attachment_id != *id);
+            require(out.len() + 1 == before)?;
+        }
+        for descriptor in self.set.as_slice() {
+            match out
+                .iter()
+                .find(|d| d.attachment_id == descriptor.attachment_id)
+            {
+                Some(existing) => require(existing == descriptor)?,
+                None => out.push(descriptor.clone()),
+            }
+        }
+        validate_attachment_list(&out, DOCUMENT_ATTACHMENTS, None)?;
+        Ok(out)
+    }
+}
 fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }

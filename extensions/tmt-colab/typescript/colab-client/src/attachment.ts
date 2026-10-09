@@ -164,6 +164,74 @@ export function attachmentInput(value: AttachmentDescriptor): Bytes {
 export async function attachmentHash(value: AttachmentDescriptor): Promise<Bytes> {
   return digest(attachmentInput(value));
 }
+/** One typed change to a document's `meta.attachments`: never free-form metadata. `set` adds
+ * committed, proven descriptors; `remove` drops references by attachment ID. Descriptors are
+ * immutable, so a `set` of an existing ID must be identical. Mirrors native `DocumentChange`;
+ * both consume `attachment-change-v1.json`. */
+export interface DocumentChange {
+  set?: AttachmentDescriptor[];
+  remove?: string[];
+}
+export function documentChange(value: unknown): DocumentChange {
+  requireValue(value !== null && typeof value === 'object' && !Array.isArray(value));
+  const keys = Reflect.ownKeys(value);
+  requireValue(keys.every((key) => key === 'set' || key === 'remove'));
+  const raw = value as Record<string, unknown>,
+    out: DocumentChange = {};
+  if (Object.hasOwn(raw, 'set')) {
+    requireValue(Array.isArray(raw.set) && raw.set.length <= DOCUMENT_ATTACHMENTS);
+    out.set = raw.set.map(attachmentDescriptor);
+  }
+  if (Object.hasOwn(raw, 'remove')) {
+    requireValue(Array.isArray(raw.remove) && raw.remove.length <= DOCUMENT_ATTACHMENTS);
+    out.remove = raw.remove.map((id: unknown) => {
+      generatedId(id as string);
+      return id as string;
+    });
+  }
+  return out;
+}
+export function emptyDocumentChange(change: DocumentChange): boolean {
+  return !change.set?.length && !change.remove?.length;
+}
+/** The list after the change, in order: removals first (each must exist), then new
+ * descriptors appended. A descriptor not bound to `sourceSha256` (lowercase hex) as a content
+ * asset, a repeated ID, a different descriptor under an existing ID and a result over the
+ * document cap are refused rather than ignored. */
+export function applyDocumentChange(
+  current: readonly AttachmentDescriptor[],
+  raw: DocumentChange,
+  sourceSha256: string,
+): AttachmentDescriptor[] {
+  hashValue(sourceSha256);
+  const change = documentChange(raw),
+    ids = new Set<string>();
+  for (const d of change.set ?? []) {
+    requireValue(
+      d.namespace === 'content' &&
+        d.source.kind === 'document' &&
+        d.source.sourceDigest === sourceSha256 &&
+        !ids.has(d.attachmentId),
+    );
+    ids.add(d.attachmentId);
+  }
+  for (const id of change.remove ?? []) {
+    requireValue(!ids.has(id));
+    ids.add(id);
+  }
+  let out = current.map(attachmentDescriptor);
+  for (const id of change.remove ?? []) {
+    const kept = out.filter((d) => d.attachmentId !== id);
+    requireValue(kept.length + 1 === out.length);
+    out = kept;
+  }
+  for (const d of change.set ?? []) {
+    const found = out.find((e) => e.attachmentId === d.attachmentId);
+    if (found) requireValue(JSON.stringify(found) === JSON.stringify(d));
+    else out.push(d);
+  }
+  return attachmentList(out, DOCUMENT_ATTACHMENTS);
+}
 export function attachmentList(
   value: unknown,
   limit: number,

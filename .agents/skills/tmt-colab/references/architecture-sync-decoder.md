@@ -83,7 +83,9 @@ and `limits.rs`; do not restate them.
   after checkpoints; the page budget (gzipped, `fold::gzip_over_budget`) applies to larger states.
 - CLI create/write obtains an optional caller display label from the fixed public
   `identity show --json` command in `core.rs`; failures leave no label. The decoder's
-  `ContentEdit` replaces/clears `meta.publisherAgent` atomically with source. Browser
+  `ContentEdit` replaces/clears `meta.publisherAgent` atomically with source and may carry a typed
+  `DocumentChange` (model `attachment.rs`; set/remove by attachment ID, bound to the written source),
+  which the parent, the sync frame and the child each re-validate before one atomic update. Browser
   edits preserve it, and owner epoch baselines carry it in their committed update.
   Creation also initializes `meta.originalAuthor` from that same captured label. Source edits preserve the creation snapshot, and unknown creation is never backfilled. Both labels survive fresh epoch baselines and compacted content. The original label is asserted display, never identity proof or an Ask default; grammar and legacy absence are owned by colab-v1. No label selects an identity or grant.
   Creation reuses that single bounded identity
@@ -147,7 +149,8 @@ and `limits.rs`; do not restate them.
   `RENDERER_POLICY`); change them only with the colab-v1 renderer section and the
   `renderer.spec.ts` browser checks.
 - The browser Worker produces no content updates: Save is native (Page source and export). `Fold.prepareContent`
-  (the private `prepare-content` Worker command) remains for tests with no production caller. It returns an explicit
+  (the private `prepare-content` Worker command, which also applies a typed attachment change like the
+  child) remains for tests and shared-vector parity with no production caller. It returns an explicit
   no-op or bounded ordered content deltas with the expected projection. Preparation leaves
   committed Worker state unchanged, and the parent validates the typed result against its
   admitted base. This interface has no signing or transport capability.

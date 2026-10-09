@@ -42,6 +42,8 @@ pub struct Save {
     pub operation_id: String,
     pub base_sha256: [u8; 32],
     pub source: String,
+    /// A typed change to the document's attachment list, bound to `source`.
+    pub attachments: Option<tmt_colab_model::attachment::DocumentChange>,
 }
 /// A save after native preparation: nothing to publish, or a frozen publication.
 pub enum Prepared {
@@ -67,6 +69,7 @@ pub fn prepare(
         ContentEdit {
             source: &save.source,
             publisher_agent: None,
+            attachments: save.attachments.as_ref(),
         },
         PublishOptions {
             expected_revision: None,

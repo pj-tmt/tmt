@@ -1309,6 +1309,80 @@ fn authenticated_attachment_reads_survive_rotation_archive_and_reject_stale_disc
             .unwrap();
         previous = envelope.hash().unwrap();
     }
+    // The typed document change reaches this real page. A reference without its creator's
+    // own-stream proof, or bound to another epoch, never prepares; an exact repeat of a proven
+    // one changes nothing; removing it is an ordinary content publication.
+    {
+        use tmt_colab::{decoder::ContentEdit, page::PublishOptions};
+        use tmt_colab_model::attachment::DocumentChange;
+        let change = |set: Vec<Descriptor>, remove: Vec<&str>| -> DocumentChange {
+            serde_json::from_value(json!({
+                "set": set,
+                "remove": remove,
+            }))
+            .unwrap()
+        };
+        let prepare = |change: &DocumentChange, store: &Store, decoder: &mut Decoder| {
+            page::prepare_publication(
+                store,
+                &key,
+                PAGE,
+                ContentEdit {
+                    source: &base.source,
+                    publisher_agent: None,
+                    attachments: Some(change),
+                },
+                PublishOptions::default(),
+                decoder,
+                NOW,
+            )
+        };
+        let unproven = Descriptor {
+            attachment_id: "20000000-0000-4000-8000-0000000000a1".into(),
+            ..descriptor.clone()
+        };
+        assert!(
+            prepare(
+                &change(vec![unproven.clone()], vec![]),
+                &store,
+                &mut decoder
+            )
+            .is_err()
+        );
+        let other_epoch = Descriptor {
+            epoch: "2".into(),
+            ..descriptor.clone()
+        };
+        assert!(prepare(&change(vec![other_epoch], vec![]), &store, &mut decoder).is_err());
+        let wrong_source = Descriptor {
+            source: Source::Document {
+                source_digest: hex(&crypto::digest(b"another source")),
+            },
+            ..descriptor.clone()
+        };
+        assert!(prepare(&change(vec![wrong_source], vec![]), &store, &mut decoder).is_err());
+        assert!(matches!(
+            prepare(
+                &change(vec![descriptor.clone()], vec![]),
+                &store,
+                &mut decoder
+            )
+            .unwrap(),
+            page::PublicationPreparation::Noop { .. }
+        ));
+        assert!(matches!(
+            prepare(&change(vec![], vec![ATTACHMENT]), &store, &mut decoder).unwrap(),
+            page::PublicationPreparation::Write(_)
+        ));
+        assert!(
+            prepare(
+                &change(vec![], vec!["20000000-0000-4000-8000-0000000000a2"]),
+                &store,
+                &mut decoder
+            )
+            .is_err()
+        );
+    }
     let deadline = || std::time::Instant::now() + std::time::Duration::from_secs(10);
     let selector = || AttachmentSelector::DocumentCurrent {
         attachment_id: ATTACHMENT.into(),

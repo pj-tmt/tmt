@@ -1022,6 +1022,7 @@ fn publisher_metadata_updates_and_unknown_cli_edits_clear_it() {
                 ContentEdit {
                     source,
                     publisher_agent: publisher,
+                    attachments: None,
                 },
                 None,
             )
@@ -1088,7 +1089,8 @@ fn publisher_metadata_updates_and_unknown_cli_edits_clear_it() {
                     &base,
                     ContentEdit {
                         source: "after",
-                        publisher_agent: Some(&invalid)
+                        publisher_agent: Some(&invalid),
+                        attachments: None,
                     },
                     None
                 )
@@ -1268,6 +1270,7 @@ fn creation_recipient_survives_chunked_baselines_and_known_or_unknown_source_edi
                     ContentEdit {
                         source: "later",
                         publisher_agent: publisher,
+                        attachments: None,
                     },
                     None,
                 )
@@ -1395,6 +1398,7 @@ fn content_batch_full_replacement_replays_without_reattributing_foreign_structs(
             ContentEdit {
                 source: &source,
                 publisher_agent: Some("New publisher"),
+                attachments: None,
             },
             None,
         )
@@ -1502,6 +1506,7 @@ fn content_batch_handles_unicode_deletion_noop_and_publisher_only_changes() {
                 ContentEdit {
                     source: &source,
                     publisher_agent: None,
+                    attachments: None,
                 },
                 None,
             )
@@ -1531,7 +1536,7 @@ fn content_batch_handles_unicode_deletion_noop_and_publisher_only_changes() {
             let made = owner().prepare_content_batch(
                 UpdateBatch { namespace: Namespace::Content, baseline: &baseline, updates: &[] },
                 &serde_json::json!({"html":source,"meta":if publisher.is_some() { serde_json::json!({"title":"T"}) } else { serde_json::json!({"title":"T","publisherAgent":"Publisher"}) }}),
-                ContentEdit { source: &source, publisher_agent: publisher }, None,
+                ContentEdit { source: &source, publisher_agent: publisher, attachments: None }, None,
             ).unwrap();
             let ContentBatch::Updates(updates) = made.batch else {
                 panic!("publisher change is not a no-op")
@@ -1568,7 +1573,8 @@ fn content_batch_rejection_and_deadline_keep_the_runner_reusable() {
             &before,
             ContentEdit {
                 source: &source,
-                publisher_agent: None
+                publisher_agent: None,
+                attachments: None,
             },
             None,
         ),
@@ -1584,7 +1590,8 @@ fn content_batch_rejection_and_deadline_keep_the_runner_reusable() {
             &serde_json::json!({"html":"wrong","meta":{}}),
             ContentEdit {
                 source: "new",
-                publisher_agent: None
+                publisher_agent: None,
+                attachments: None,
             },
             None,
         ),
@@ -1603,7 +1610,8 @@ fn content_batch_rejection_and_deadline_keep_the_runner_reusable() {
             &before,
             ContentEdit {
                 source: "new",
-                publisher_agent: None
+                publisher_agent: None,
+                attachments: None,
             },
             None,
         ),
@@ -1622,6 +1630,7 @@ fn content_batch_rejection_and_deadline_keep_the_runner_reusable() {
             ContentEdit {
                 source: "",
                 publisher_agent: None,
+                attachments: None,
             },
             None,
         )
@@ -1641,6 +1650,7 @@ fn content_batch_rejection_and_deadline_keep_the_runner_reusable() {
             ContentEdit {
                 source: "new",
                 publisher_agent: None,
+                attachments: None,
             },
             None,
         )
@@ -1661,6 +1671,7 @@ fn content_batch_rejection_and_deadline_keep_the_runner_reusable() {
             ContentEdit {
                 source: "new",
                 publisher_agent: None,
+                attachments: None,
             },
             None,
         )
@@ -1713,6 +1724,7 @@ fn content_batch_preserves_creation_recipient_through_replay_and_noop() {
                     ContentEdit {
                         source,
                         publisher_agent: None,
+                        attachments: None,
                     },
                     None,
                 )

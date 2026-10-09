@@ -610,7 +610,9 @@ fn send(peer: &mut WebSocket<UnixStream>, frame: Value) {
     peer.send(Message::Text(frame.to_string().into())).unwrap();
 }
 fn receive(peer: &mut WebSocket<UnixStream>) -> Value {
-    serde_json::from_str(peer.read().unwrap().to_text().unwrap()).unwrap()
+    let message = peer.read().unwrap();
+    serde_json::from_str(message.to_text().unwrap())
+        .unwrap_or_else(|_| panic!("not JSON: {message:?}"))
 }
 fn hello(server: &Running, peer: &mut WebSocket<UnixStream>, id: &str) -> Vec<Value> {
     send(
@@ -2672,6 +2674,7 @@ fn prepare_write(
         ContentEdit {
             source,
             publisher_agent: None,
+            attachments: None,
         },
         None,
         &mut decoder,
@@ -3666,6 +3669,51 @@ fn a_save_that_breaks_the_upload_rules_is_refused_and_leaves_the_page_alone() {
 }
 
 #[test]
+fn a_save_with_a_typed_attachment_change_is_checked_against_its_source_and_the_page() {
+    let oracle: Value = serde_json::from_str(include_str!(
+        "../../../contracts/vectors/attachment-change-v1.json"
+    ))
+    .unwrap();
+    let source = oracle["source"].as_str().unwrap();
+    // Bound to another source, free-form beyond `set`/`remove`, or not an ID at all: the frame
+    // is a protocol violation (an error or a closed socket) and nothing commits.
+    for broken in [
+        json!({"set":[oracle["descriptors"]["foreignDigest"]]}),
+        json!({"set":[],"remove":[],"meta":{"title":"x"}}),
+        json!({"remove":["not-an-id"]}),
+    ] {
+        let (server, layout, key, mut peer) = publish_fixture();
+        let mut frames = server.save_frames(SAVE_ONE, "", source);
+        frames[0]["attachments"] = broken;
+        for frame in frames {
+            send(&mut peer, frame);
+        }
+        loop {
+            let message = peer.read().unwrap();
+            if message.is_close()
+                || message
+                    .to_text()
+                    .is_ok_and(|text| text.contains("\"type\":\"error\""))
+            {
+                break;
+            }
+        }
+        assert_eq!(native_source(&layout, &key), "");
+    }
+    // A well-formed change that names a reference the page does not hold is a terminal
+    // refusal of that operation: nothing is published.
+    let (server, layout, key, mut peer) = publish_fixture();
+    let mut frames = server.save_frames(SAVE_TWO, "", source);
+    frames[0]["attachments"] = json!({"remove":[oracle["descriptors"]["a"]["attachmentId"]]});
+    for frame in frames {
+        send(&mut peer, frame);
+    }
+    let (result, _) = receive_until(&mut peer, "saveresult");
+    assert_eq!(result["state"], "rejected");
+    assert_eq!(native_source(&layout, &key), "");
+}
+
+#[test]
 fn a_public_reader_cannot_save_or_ask_about_a_save() {
     let server = Running::start(Tunnels::PRODUCT);
     server.publish();
@@ -3779,6 +3827,7 @@ fn a_save_reads_the_clock_after_its_snapshot_so_a_later_certificate_cannot_deny_
         operation_id: SAVE_ONE.into(),
         base_sha256: tmt_colab_model::crypto::digest(b""),
         source: "<p>Late clock</p>".into(),
+        attachments: None,
     };
     // The reading is taken now, and then another writer commits as the page's first publisher,
     // which issues the root-local certificate a few milliseconds after that reading. If the clock

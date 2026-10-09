@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { afterEach, expect, it, vi } from 'vite-plus/test';
 import { binary, concat, digest, encodeBinary, text } from '@tmt/colab-client';
 import type { Admission } from '../src/admission.js';
@@ -236,6 +237,35 @@ it('saves a small source inline, bound to the base and source digests, and resol
       revision: 'v1:00ff',
     });
     expect(failed).not.toHaveBeenCalled();
+  } finally {
+    connection.close();
+  }
+});
+
+it('sends a typed attachment change with the save, omits an empty one and refuses free-form metadata', async () => {
+  const oracle = JSON.parse(
+    readFileSync(
+      new URL('../../../contracts/vectors/attachment-change-v1.json', import.meta.url),
+      'utf8',
+    ),
+  );
+  const { connection, socket } = await open();
+  try {
+    const change = { set: [oracle.descriptors.a], remove: [oracle.descriptors.b.attachmentId] };
+    const pending = connection.save(operation, '<p>old</p>', oracle.source, change);
+    await awaitSent(socket, 1);
+    expect(sent(socket)[0]).toMatchObject({ type: 'save', attachments: change });
+    socket.receive(savedFrame({ state: 'committed', revision: 'v1:00ff' }));
+    await pending;
+    const plain = connection.save(operation, '<p>old</p>', '<p>new</p>', {});
+    await awaitSent(socket, 2);
+    expect(sent(socket)[1]).not.toHaveProperty('attachments');
+    socket.receive(savedFrame({ state: 'committed', revision: 'v1:00ff' }));
+    await plain;
+    await expect(
+      connection.save(operation, 'old', 'new', { meta: { title: 'x' } } as never),
+    ).rejects.toThrow();
+    expect(sent(socket)).toHaveLength(2);
   } finally {
     connection.close();
   }

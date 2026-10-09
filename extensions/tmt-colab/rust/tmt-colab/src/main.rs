@@ -608,6 +608,7 @@ fn page(root: &std::path::Path, args: &clap::ArgMatches) -> Result<()> {
             tmt_colab::decoder::ContentEdit {
                 source: &source,
                 publisher_agent: publisher_agent.as_deref(),
+                attachments: None,
             },
             args.get_one::<String>("expected-revision")
                 .map(String::as_str),
