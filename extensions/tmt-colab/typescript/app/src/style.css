@@ -22,8 +22,8 @@ a {
 button {
   color: var(--c-text);
   background: var(--c-sheet);
-  border: 2px solid var(--c-text);
-  box-shadow: 3px 3px 0 var(--c-text);
+  border: var(--tmt-ui-action-border-width) solid var(--tmt-ui-color-edge);
+  box-shadow: none;
   padding: 7px 12px;
   border-radius: 0;
   cursor: pointer;
@@ -203,10 +203,6 @@ body:has(.page-header-actions) {
 }
 .page-header-unseen {
   color: var(--c-waiting);
-}
-.page-header-actions .tmt-action-menu-list {
-  border-width: 1px;
-  box-shadow: none;
 }
 .page-header-actions .tmt-action-menu-check {
   float: right;
@@ -1069,10 +1065,6 @@ body:has(.page-header-actions) {
   flex: none;
   margin: 12px 0 8px;
   font-weight: 600;
-}
-.comment-thread[data-layout='anchored'] .tmt-action-menu-list {
-  border-width: 1px;
-  box-shadow: none;
 }
 /* A state is a mark plus a word; the mark takes the state's role color, the word stays muted text. */
 .ask-state {
