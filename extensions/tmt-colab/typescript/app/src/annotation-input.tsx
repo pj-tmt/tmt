@@ -10,7 +10,7 @@ import {
 } from 'react';
 import { AttachmentDraft } from './attachment-draft.js';
 import { AttachmentStaleError } from './attachment-service.js';
-import { AttachmentTray } from './attachment-tray.js';
+import { AttachButton, AttachmentChips } from './attachment-tray.js';
 import { useAgentDirectory } from './agent-directory.js';
 import { MessageComposer } from './components/message-composer.js';
 import type { ComposerEdit } from './components/message-composer-edit.js';
@@ -303,8 +303,9 @@ export function AnnotationInput({
             cancel();
         }}
       />
-      {discussion?.attachments && <AttachmentTray draft={files} disabled={!attachable} />}
+      {discussion?.attachments && <AttachmentChips draft={files} disabled={!attachable} />}
       <div className="annotation-status-row">
+        {discussion?.attachments && <AttachButton draft={files} disabled={!attachable} />}
         <p id={statusId} role="status" className="annotation-hint">
           {busy
             ? text.messageSending

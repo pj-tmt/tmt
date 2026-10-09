@@ -6,6 +6,13 @@ function formatBytes(bytes: number): string {
   return `${value.toFixed(2).replace(/\.?0+$/, '')} ${unit} (${bytes.toLocaleString('en-US')} bytes)`;
 }
 
+/** One short size a person reads: 18 bytes, 2.4 KB, 8 MB. */
+function humanSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} ${bytes === 1 ? 'byte' : 'bytes'}`;
+  const [value, unit] = bytes >= 1024 * 1024 ? [bytes / (1024 * 1024), 'MB'] : [bytes / 1024, 'KB'];
+  return `${value.toFixed(1).replace(/\.0$/, '')} ${unit}`;
+}
+
 export const text = {
   unknownPageTitle: 'Untitled page',
   originalAuthor: 'Original author',
@@ -66,7 +73,7 @@ export const text = {
   attachNotice: {
     empty: (name: string) => `${name} is empty.`,
     'too-large': (name: string) =>
-      `${name} is larger than ${formatBytes(8 * 1024 * 1024)}, the limit per file.`,
+      `${name} is larger than ${humanSize(8 * 1024 * 1024)}, the limit per file.`,
     'too-many': (name: string) => `${name} was not added. A message holds up to 16 files.`,
     unreadable: (name: string) => `${name} could not be read.`,
   },
@@ -83,7 +90,7 @@ export const text = {
   attachmentHidePreview: 'Hide preview',
   attachmentOpening: 'Opening…',
   attachmentUnavailable: 'This file is unavailable.',
-  attachmentSize: (bytes: number) => formatBytes(bytes),
+  attachmentSize: humanSize,
   savedDrafts: 'Saved drafts',
   savedDraftQuote: 'Select this quote again to continue.',
   savedDraftThreadGone: 'The thread for this draft is no longer available.',

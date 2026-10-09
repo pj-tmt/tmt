@@ -25,22 +25,10 @@ function stateText(chip: Chip): string {
 
 /** Files only join the draft here. Choosing one never sends, prepares an Ask, or touches the
  * message text; the parent's explicit Send uploads and publishes them with the message. */
-export function AttachmentTray({ draft, disabled }: { draft: AttachmentDraft; disabled: boolean }) {
-  const snapshot = useSyncExternalStore(draft.subscribe, draft.getSnapshot);
+export function AttachButton({ draft, disabled }: { draft: AttachmentDraft; disabled: boolean }) {
   const input = useRef<HTMLInputElement>(null);
-  const action = (label: string, run: () => void, busy = false) => (
-    <BrowserAction
-      type="button"
-      variant="text"
-      label={label}
-      disabled={disabled || busy}
-      onActivate={(event) => {
-        if (event.isTrusted) run();
-      }}
-    />
-  );
   return (
-    <div className="attachment-tray" data-testid="attachment-tray">
+    <>
       <input
         ref={input}
         type="file"
@@ -64,6 +52,33 @@ export function AttachmentTray({ draft, disabled }: { draft: AttachmentDraft; di
           if (event.isTrusted) input.current?.click();
         }}
       />
+    </>
+  );
+}
+
+/** The chips and refusal notices of one composer, above its status row. */
+export function AttachmentChips({
+  draft,
+  disabled,
+}: {
+  draft: AttachmentDraft;
+  disabled: boolean;
+}) {
+  const snapshot = useSyncExternalStore(draft.subscribe, draft.getSnapshot);
+  const action = (label: string, run: () => void) => (
+    <BrowserAction
+      type="button"
+      variant="text"
+      label={label}
+      disabled={disabled}
+      onActivate={(event) => {
+        if (event.isTrusted) run();
+      }}
+    />
+  );
+  if (!snapshot.chips.length && !snapshot.notices.length) return null;
+  return (
+    <div className="attachment-tray" data-testid="attachment-tray">
       {snapshot.chips.length > 0 && (
         <ul className="attachment-chips" aria-label={text.attachListLabel}>
           {snapshot.chips.map((chip) => (
