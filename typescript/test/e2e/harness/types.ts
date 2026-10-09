@@ -44,6 +44,8 @@ export interface MockPane {
 
 export interface CliRunOptions {
   cwd?: string;
+  /** Exercise client output handling independently of the fixture locale. */
+  locale?: 'C' | 'C.UTF-8';
   pane?: string;
   /**
    * Remove pane context and fail visibly if the CLI attempts to invoke tmux. The

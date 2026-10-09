@@ -529,6 +529,20 @@ impl<R: CommandRunner> Host<R> {
         }
     }
 
+    /// Layout creation owns only newly returned resources on the selected socket.
+    pub fn workspace_restore_layout(
+        &self,
+        snapshot: &tmt_core::workspace::WorkspaceSnapshot,
+        deadline: Instant,
+    ) -> Result<Option<crate::workspace::restore::LayoutRestore>, HostError> {
+        match self.primary {
+            HostKind::Tmux => Ok(Some(
+                self.tmux.workspace_restore_layout(snapshot, deadline)?,
+            )),
+            HostKind::External(_) => Ok(None),
+        }
+    }
+
     /// Recovery capture is optional; external drivers have no workspace port yet.
     pub fn workspace_capture(
         &self,

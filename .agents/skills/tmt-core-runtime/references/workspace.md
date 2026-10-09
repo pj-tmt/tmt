@@ -107,3 +107,41 @@ resume coordinates exclude opaque driver state. No command settles a pending
 resume, repairs storage or starts a fresh conversation during preview.
 `resumable` means current durable coordinates exist without a stale mark;
 provider capability, availability and binding admission are rechecked at launch.
+
+## Layout-only restore
+
+`tmt workspace restore --layout-only [--socket PATH] [--json]` reads the latest
+snapshot for the exact selected socket through the same bounded, no-follow reader.
+It bypasses identity learning, provider observation, SQLite and advisory capture.
+Core validates every saved layout's checksum, bounded tree, dimensions, leaf
+correspondence, selection and zoom before the adapter permits host effects.
+Historical IDs are correspondence keys, never live targets.
+
+The built-in tmux adapter owns a finite 30-second creation budget and native
+server-incarnation fencing. Matching live session names are skipped whole,
+including their windows and panes. New sessions use only returned native IDs;
+shared saved windows link only among invocation-created sessions. User panes
+pass no command and inherit tmux's `default-command`/`default-shell`, entering
+recorded directories checked before creation and read back afterwards. No saved
+identity, provider session or external command is replayed or bound. Window-local
+geometry and border settings affect only created windows; existing server options and pre-existing resources are preserved.
+
+Outside tmux, select the socket explicitly. The first `new-session` starts an
+absent server and initializes a fresh TMT server UUID; snapshot server identity
+is never adopted. A remaining socket is stale only after a bounded nonblocking
+OS connect proves `ECONNREFUSED`; tmux then owns normal socket replacement.
+Core never unlinks it. Live, denied, timed-out or otherwise uncertain sockets
+remain refused unchanged.
+The command prints one created/skipped/partial summary, or one version 1 JSON
+result with session actions, recorded/native window and pane mappings, failures
+and retained bootstrap IDs. Partial failure returns exit 1, retains created
+resources and stops further effects; reruns skip the surviving sessions.
+
+A session containing only windows already created by this invocation needs a
+bootstrap `/bin/sh -i` shell. Its exact startup command is rechecked, and it may
+be removed only after all required links succeed and fresh native PID/start, pane,
+ordinary-shell and foreground evidence agree.
+A server-side guard also requires the same server/pane/PID, an unattached session,
+one unshared bootstrap pane, another linked window and no TMT runtime markers.
+Failed linking or uncertain verification retains and reports the bootstrap.
+No pre-existing pane, window or session is removed or overwritten.

@@ -295,6 +295,7 @@ exit ${'$'}status
   ): CliProcess<T> {
     if (!this.started) throw new Error('E2E fixture must be started before invoking the CLI.');
     const env: NodeJS.ProcessEnv = { ...this.env };
+    if (options.locale) env.LC_ALL = options.locale;
     if (!options.outsideTmux && !options.withoutTmux) {
       const callerPane = options.pane ?? this.pane;
       env.TMUX = `${this.socketPath},${this.serverPid},${this.paneSessionId(callerPane)}`;

@@ -30,6 +30,11 @@ type Snapshot = {
   panes: Array<{
     id: string;
     window: string;
+    index: number;
+    left: number;
+    top: number;
+    width: number;
+    height: number;
     cwd: string;
     identity: null | {
       id: string;
@@ -602,4 +607,484 @@ describe('rate-gated workspace command refresh', () => {
       expect(fs.readFileSync(latest, 'utf8')).toBe(bytes);
     });
   });
+});
+
+type LayoutRestore = {
+  status: 'completed' | 'partial';
+  layoutOnly: boolean;
+  sessions: Array<{
+    recorded: string;
+    name: string;
+    action: string;
+    native: string | null;
+    retainedBootstrap: string | null;
+  }>;
+  windows: Array<{ recorded: string; native: string }>;
+  panes: Array<{ recorded: string; native: string }>;
+  failures: string[];
+};
+
+function recoveryInput(fixture: E2EFixture, snapshot: Snapshot) {
+  fs.writeFileSync(snapshotPath(fixture), JSON.stringify(snapshot));
+}
+
+async function withRestoreFixture(callback: (fixture: E2EFixture) => Promise<void>) {
+  let observed: E2EFixture | undefined;
+  let ownedPids: number[] = [];
+  try {
+    await withE2EFixture(async (fixture) => {
+      observed = fixture;
+      try {
+        await callback(fixture);
+      } finally {
+        if (fixture.serverIsRunning()) {
+          ownedPids = fixture
+            .tmux(['-u', 'list-panes', '-a', '-F', '#{pane_pid}'])
+            .trim()
+            .split('\n')
+            .map(Number);
+          ownedPids.push(Number(fixture.tmux(['-u', 'display-message', '-p', '#{pid}']).trim()));
+        }
+      }
+    });
+  } finally {
+    if (observed) {
+      const fixture = observed;
+      await fixture.waitFor(
+        () => ownedPids.every((pid) => !fixture.mockProcessIsRunning(pid)),
+        2000,
+        'restored server and pane processes cleaned up'
+      );
+      expect(fs.existsSync(fixture.socketPath)).toBe(false);
+      expect(fs.existsSync(fixture.root)).toBe(false);
+    }
+  }
+}
+
+function twoMissingLinkedSessions(fixture: E2EFixture): Snapshot {
+  const saved = readSnapshot(fixture);
+  const original = saved.sessions.find((session) => session.name === 'e2e')!;
+  return {
+    ...saved,
+    sessions: [
+      original,
+      ...['restore-first', 'restore-shared'].map((name, index) => ({
+        id: `$${9000 + index}`,
+        name,
+        windows: original.windows,
+      })),
+    ],
+  };
+}
+
+function injectRestoreObservation(fixture: E2EFixture, fault: 'link' | 'pid') {
+  const wrapper = path.join(fixture.wrapperDir, 'tmux');
+  const inner = path.join(fixture.wrapperDir, 'tmux-restore-inner');
+  const trace = path.join(fixture.root, 'restore-fault.log');
+  fs.renameSync(wrapper, inner);
+  writeExecutable(
+    wrapper,
+    `#!${process.execPath}
+const { spawnSync } = require('node:child_process');
+const fs = require('node:fs');
+const args = process.argv.slice(2);
+const decoded = args.map(arg => arg.replace(/\\\\([0-3][0-7]{2})/g, (_, octal) => String.fromCharCode(parseInt(octal, 8))));
+const branch = decoded.find(arg => arg.startsWith('"link-window"') || (arg.startsWith('"display-message"') && arg.includes('pane_current_command')));
+if (branch) fs.appendFileSync(${JSON.stringify(trace)}, branch + '\\n');
+if (${JSON.stringify(fault)} === 'link' && branch?.startsWith('"link-window"')) process.exit(97);
+const result = spawnSync(${JSON.stringify(inner)}, args, { encoding: 'utf8', timeout: 5000 });
+let output = result.stdout || '';
+if (${JSON.stringify(fault)} === 'pid' && branch?.includes('pane_current_command')) {
+  const fields = output.split('__TMT_FIELD_4f1c__'); fields[1] = '2147483647'; output = fields.join('__TMT_FIELD_4f1c__');
+}
+process.stdout.write(output);
+process.stderr.write(result.stderr || '');
+process.exit(result.status ?? 98);
+`,
+    0o755
+  );
+  return trace;
+}
+
+// Fixture observations preserve literal bytes; restore CLI clients exercise the C locale.
+describe('layout-only workspace restore', () => {
+  for (const serverExit of ['clean', 'crash'] as const) {
+    it(`starts a fresh server after ${serverExit} exit outside tmux and restores geometry, cwd, links, selection and zoom without revival`, async () => {
+      await withRestoreFixture(async (fixture) => {
+        const special = path.join(fixture.root, `cwd '$#(unused) ending;`);
+        fs.mkdirSync(special);
+        fixture.tmux([
+          '-u',
+          'new-window',
+          '-d',
+          '-t',
+          'e2e:4',
+          '-n',
+          "Literal ##(unused) '$name\\;",
+          '-c',
+          special.replaceAll('#', '##').replace(/;$/, '\\;'),
+          '/bin/sh',
+          '-i',
+        ]);
+        const split = fixture
+          .tmux([
+            '-u',
+            'split-window',
+            '-d',
+            '-h',
+            '-l',
+            '100',
+            '-P',
+            '-F',
+            '#{pane_id}',
+            '-t',
+            'e2e:4',
+            '-c',
+            fixture.workspace,
+            '/bin/sh',
+            '-i',
+          ])
+          .trim();
+        fixture.tmux([
+          '-u',
+          'split-window',
+          '-d',
+          '-v',
+          '-l',
+          '20',
+          '-t',
+          split,
+          '-c',
+          fixture.root,
+          '/bin/sh',
+          '-i',
+        ]);
+        fixture.tmux(['-u', 'select-pane', '-t', split]);
+        fixture.tmux(['-u', 'resize-pane', '-Z', '-t', split]);
+        fixture.tmux(['-u', 'new-session', '-d', '-s', 'linked']);
+        fixture.tmux(['-u', 'link-window', '-s', 'e2e:4', '-t', 'linked:9']);
+        expect((await fixture.runJsonCli(['name', 'Restore Remembered Identity', '-s'])).code).toBe(
+          0
+        );
+        const saved = readSnapshot(fixture);
+        // Restore also accepts literal cwd bytes from valid synthetic recovery input;
+        // capture's line-delimited host read is a separate contract.
+        const newlineCwd = path.join(fixture.root, 'cwd with\nnewline;');
+        fs.mkdirSync(newlineCwd);
+        for (const pane of saved.panes) {
+          if (pane.cwd === special) pane.cwd = newlineCwd;
+        }
+        recoveryInput(fixture, saved);
+        const bytes = fs.readFileSync(snapshotPath(fixture));
+        const database = path.join(fixture.globalDir, 'tmux-team.db');
+        const databaseBytes = fs.readFileSync(database);
+        const oldId = fixture.tmux(['-u', 'show-option', '-s', '-v', '@tmt.server-id']).trim();
+        const oldPid = fixture.serverPid;
+        const oldPanePids = fixture
+          .tmux(['-u', 'list-panes', '-a', '-F', '#{pane_pid}'])
+          .trim()
+          .split('\n')
+          .map(Number);
+        if (serverExit === 'crash') process.kill(oldPid, 'SIGKILL');
+        else fixture.tmux(['-u', 'kill-server']);
+        await fixture.waitFor(
+          () =>
+            !fixture.mockProcessIsRunning(oldPid) &&
+            oldPanePids.every((pid) => !fixture.mockProcessIsRunning(pid)),
+          2000,
+          'old private server exit'
+        );
+        // tmux may leave its dead socket inode even after clean process exit.
+        // This fixture owns the exact socket; make the absent-socket case explicit.
+        if (serverExit === 'clean' && fs.existsSync(fixture.socketPath)) {
+          expect(fs.lstatSync(fixture.socketPath).isSocket()).toBe(true);
+          fs.unlinkSync(fixture.socketPath);
+        }
+        expect(fs.existsSync(fixture.socketPath)).toBe(serverExit === 'crash');
+        const result = await fixture.runJsonCli<LayoutRestore>(
+          ['workspace', 'restore', '--layout-only', '--socket', fixture.socketPath],
+          { outsideTmux: true, locale: 'C' }
+        );
+        expect(result.code, result.stderr + result.stdout).toBe(0);
+        expect(result.json!.status).toBe('completed');
+        expect(result.json!.sessions.every((session) => session.action === 'created')).toBe(true);
+        fixture.serverPid = Number(fixture.tmux(['-u', 'display-message', '-p', '#{pid}']).trim());
+        expect(fixture.serverPid).not.toBe(oldPid);
+        expect(fixture.tmux(['-u', 'show-option', '-s', '-v', '@tmt.server-id']).trim()).not.toBe(
+          oldId
+        );
+        expect(fs.readFileSync(snapshotPath(fixture))).toEqual(bytes);
+        expect(fs.readFileSync(database)).toEqual(databaseBytes);
+        for (const session of saved.sessions) {
+          const restored = result.json!.sessions.find((entry) => entry.recorded === session.id)!;
+          const links = fixture
+            .tmux([
+              '-u',
+              'list-windows',
+              '-t',
+              restored.native!,
+              '-F',
+              '#{window_index}:#{window_id}:#{window_active}',
+            ])
+            .trim()
+            .split('\n');
+          expect(links).toEqual(
+            session.windows.map(
+              (link) =>
+                `${link.index}:${result.json!.windows.find((window) => window.recorded === link.window)!.native}:${Number(link.active)}`
+            )
+          );
+        }
+        for (const pane of saved.panes) {
+          const restored = result.json!.panes.find((entry) => entry.recorded === pane.id)!;
+          expect(
+            fixture
+              .tmux(['-u', 'display-message', '-p', '-t', restored.native, '#{pane_current_path}'])
+              .slice(0, -1)
+          ).toBe(pane.cwd);
+          expect(
+            fixture
+              .tmux([
+                '-u',
+                'display-message',
+                '-p',
+                '-t',
+                restored.native,
+                '#{pane_left}:#{pane_top}:#{pane_width}:#{pane_height}',
+              ])
+              .trim()
+          ).toBe(`${pane.left}:${pane.top}:${pane.width}:${pane.height}`);
+          expect(
+            fixture
+              .tmux(['-u', 'display-message', '-p', '-t', restored.native, '#{@tmt.agent}'])
+              .trim()
+          ).toBe('');
+          expect(
+            fixture
+              .tmux([
+                '-u',
+                'display-message',
+                '-p',
+                '-t',
+                restored.native,
+                '#{pane_current_command}',
+              ])
+              .trim()
+          ).toBe(
+            path.basename(fixture.tmux(['-u', 'show-options', '-g', '-v', 'default-shell']).trim())
+          );
+        }
+        for (const window of saved.windows) {
+          const restored = result.json!.windows.find((entry) => entry.recorded === window.id)!;
+          expect(
+            fixture
+              .tmux(['-u', 'display-message', '-p', '-t', restored.native, '#{window_name}'])
+              .slice(0, -1)
+          ).toBe(window.name);
+          const restoreOldIds = (layout: string) =>
+            layout.slice(5).replace(/(\d+x\d+,\d+,\d+),(\d+)/g, (_, cell: string, id: string) => {
+              const pane = result.json!.panes.find((pane) => pane.native === `%${id}`)!;
+              return `${cell},${pane.recorded.slice(1)}`;
+            });
+          expect(
+            restoreOldIds(
+              fixture
+                .tmux(['-u', 'display-message', '-p', '-t', restored.native, '#{window_layout}'])
+                .trim()
+            )
+          ).toBe(window.layout.slice(5));
+          expect(
+            restoreOldIds(
+              fixture
+                .tmux([
+                  '-u',
+                  'display-message',
+                  '-p',
+                  '-t',
+                  restored.native,
+                  '#{window_visible_layout}',
+                ])
+                .trim()
+            )
+          ).toBe(window.visibleLayout.slice(5));
+          expect(
+            fixture
+              .tmux([
+                '-u',
+                'display-message',
+                '-p',
+                '-t',
+                restored.native,
+                '#{window_width}x#{window_height}:#{window_zoomed_flag}',
+              ])
+              .trim()
+          ).toBe(
+            `${window.width}x${window.height}:${Number(window.layout !== window.visibleLayout)}`
+          );
+        }
+        const topology = fixture.tmux([
+          '-u',
+          'list-panes',
+          '-a',
+          '-F',
+          '#{session_id}:#{window_id}:#{window_layout}:#{pane_id}:#{pane_pid}:#{pane_current_path}',
+        ]);
+        const again = await fixture.runJsonCli<LayoutRestore>(
+          ['workspace', 'restore', '--layout-only', '--socket', fixture.socketPath],
+          { outsideTmux: true, locale: 'C' }
+        );
+        expect(again.code, again.stdout).toBe(0);
+        expect(again.json!.sessions.every((session) => session.action === 'skip_existing')).toBe(
+          true
+        );
+        expect(again.json!.panes).toEqual([]);
+        expect(
+          fixture.tmux([
+            '-u',
+            'list-panes',
+            '-a',
+            '-F',
+            '#{session_id}:#{window_id}:#{window_layout}:#{pane_id}:#{pane_pid}:#{pane_current_path}',
+          ])
+        ).toBe(topology);
+      });
+    });
+  }
+
+  it('skips an existing session whole and restores two missing sessions sharing one single-pane window', async () => {
+    await withRestoreFixture(async (fixture) => {
+      expect((await fixture.runJsonCli(['name', 'Preserved Restore Pane', '-s'])).code).toBe(0);
+      const saved = twoMissingLinkedSessions(fixture);
+      recoveryInput(fixture, saved);
+      // A configured login shell must survive restore; explicit /bin/sh would fail.
+      fixture.tmux(['-u', 'set-option', '-g', 'default-shell', '/usr/bin/zsh']);
+      fixture.tmux(['-u', 'set-option', '-g', 'default-command', '']);
+      fixture.tmux([
+        '-u',
+        'set-option',
+        '-p',
+        '-t',
+        fixture.pane,
+        '@restore-user-data',
+        'unchanged',
+      ]);
+      const topology = fixture.tmux([
+        '-u',
+        'list-panes',
+        '-t',
+        'e2e',
+        '-F',
+        '#{window_layout}:#{pane_id}:#{pane_pid}:#{pane_current_path}:#{@tmt.agent}:#{@restore-user-data}',
+      ]);
+      const result = await fixture.runJsonCli<LayoutRestore>(
+        ['workspace', 'restore', '--layout-only', '--socket', fixture.socketPath],
+        { outsideTmux: true, locale: 'C' }
+      );
+      expect(result.code, result.stdout).toBe(0);
+      expect(result.json!.sessions.map((session) => session.action)).toEqual([
+        'skip_existing',
+        'created',
+        'created',
+      ]);
+      expect(result.json!.windows).toHaveLength(1);
+      expect(result.json!.panes).toHaveLength(1);
+      expect(result.json!.panes[0].native).not.toBe(fixture.pane);
+      const defaultShell = fixture.tmux(['-u', 'show-options', '-g', '-v', 'default-shell']).trim();
+      expect(defaultShell).toBe('/usr/bin/zsh');
+      expect(
+        fixture
+          .tmux([
+            '-u',
+            'display-message',
+            '-p',
+            '-t',
+            result.json!.panes[0].native,
+            '#{pane_current_command}',
+          ])
+          .trim()
+      ).toBe(path.basename(defaultShell));
+      expect(fixture.tmux(['-u', 'show-options', '-g', '-v', 'default-command']).trim()).toBe('');
+
+      for (const name of ['restore-first', 'restore-shared']) {
+        expect(fixture.tmux(['-u', 'list-windows', '-t', name, '-F', '#{window_id}']).trim()).toBe(
+          result.json!.windows[0].native
+        );
+      }
+      expect(result.json!.sessions.every((session) => session.retainedBootstrap === null)).toBe(
+        true
+      );
+      expect(
+        fixture.tmux([
+          '-u',
+          'list-panes',
+          '-t',
+          'e2e',
+          '-F',
+          '#{window_layout}:#{pane_id}:#{pane_pid}:#{pane_current_path}:#{@tmt.agent}:#{@restore-user-data}',
+        ])
+      ).toBe(topology);
+    });
+  });
+
+  for (const fault of ['link', 'pid'] as const) {
+    it(`retains the bootstrap after ${fault === 'link' ? 'failed linking' : 'fresh pid mismatch'} and leaves existing panes untouched`, async () => {
+      await withRestoreFixture(async (fixture) => {
+        expect((await fixture.runJsonCli(['name', 'Bootstrap Failure Preserve', '-s'])).code).toBe(
+          0
+        );
+        recoveryInput(fixture, twoMissingLinkedSessions(fixture));
+        const original = fixture.tmux([
+          '-u',
+          'list-panes',
+          '-t',
+          'e2e',
+          '-F',
+          '#{pane_id}:#{pane_pid}:#{window_layout}:#{@tmt.agent}',
+        ]);
+        const trace = injectRestoreObservation(fixture, fault);
+        const result = await fixture.runJsonCli<LayoutRestore>(
+          ['workspace', 'restore', '--layout-only', '--socket', fixture.socketPath],
+          { outsideTmux: true, locale: 'C' }
+        );
+        expect(result.code).toBe(1);
+        expect(result.json!.status).toBe('partial');
+        const partial = result.json!.sessions.find((session) => session.name === 'restore-shared')!;
+        expect(partial.action).toBe('partial');
+        expect(partial.retainedBootstrap).toMatch(/^%\d+$/);
+        const panes = fixture
+          .tmux(['-u', 'list-panes', '-s', '-t', 'restore-shared', '-F', '#{pane_id}'])
+          .trim()
+          .split('\n');
+        expect(panes).toContain(partial.retainedBootstrap);
+        expect(panes).toHaveLength(fault === 'link' ? 1 : 2);
+        expect(fs.readFileSync(trace, 'utf8')).toContain('"link-window"');
+        if (fault === 'pid')
+          expect(fs.readFileSync(trace, 'utf8')).toContain('pane_current_command');
+        expect(
+          fixture.tmux([
+            '-u',
+            'list-panes',
+            '-t',
+            'e2e',
+            '-F',
+            '#{pane_id}:#{pane_pid}:#{window_layout}:#{@tmt.agent}',
+          ])
+        ).toBe(original);
+        const again = await fixture.runJsonCli<LayoutRestore>(
+          ['workspace', 'restore', '--layout-only', '--socket', fixture.socketPath],
+          { outsideTmux: true, locale: 'C' }
+        );
+        expect(again.code, again.stdout).toBe(0);
+        expect(again.json!.sessions.every((session) => session.action === 'skip_existing')).toBe(
+          true
+        );
+        expect(
+          fixture
+            .tmux(['-u', 'list-panes', '-s', '-t', 'restore-shared', '-F', '#{pane_id}'])
+            .trim()
+            .split('\n')
+        ).toEqual(panes);
+      });
+    });
+  }
 });
