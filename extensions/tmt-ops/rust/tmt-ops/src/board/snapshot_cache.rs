@@ -19,7 +19,7 @@ const LIMIT: usize = 1024 * 1024;
 pub(super) type Rooms = BTreeMap<String, String>;
 
 /// Inert display JSON with a closed schema. It cannot become an App/View/Request.
-pub(super) struct Display(pub(super) Value);
+pub(crate) struct Display(pub(super) Value);
 
 pub(super) struct Store {
     root: PathBuf,
@@ -132,6 +132,14 @@ fn valid_home(value: &Value) -> bool {
 }
 
 impl Display {
+    /// The tab this value was projected for; `valid` checked it on load.
+    pub(super) fn tab(&self) -> &str {
+        self.0["tabKey"].as_str().unwrap_or_default()
+    }
+    pub(super) fn written_at_ms(&self) -> u64 {
+        self.0["writtenAtMs"].as_u64().unwrap_or_default()
+    }
+
     pub(super) fn project(snapshot: &Snapshot, rooms: &Rooms, written_at_ms: u64) -> Option<Self> {
         let view = snapshot.view.as_ref().ok()?;
         if view.document["partial"] == true
@@ -291,14 +299,7 @@ impl Store {
         }
     }
 
-    /// #2123 will consume this read-only, always-stale value. No action owner does.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "The first-frame consumer is the separate #2123 topic."
-        )
-    )]
+    /// A read-only, always-stale value for the first frame. No action owner reads it.
     pub(super) fn load(&self, tab: &str, rooms: &Rooms) -> Option<Display> {
         let path = self.directory(false).ok()?.join(filename(tab)?);
         let file: File = migration::open(&path).ok()?;

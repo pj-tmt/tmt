@@ -103,6 +103,11 @@ pub(super) enum BoardEvent {
         cancellation: crate::runner::Cancellation,
         snapshot: Box<Snapshot>,
     },
+    /// The tab's last stored display, always stale, offered before its fresh load.
+    Cached {
+        cancellation: crate::runner::Cancellation,
+        display: Box<snapshot_cache::Display>,
+    },
     History {
         cancellation: crate::runner::Cancellation,
         read: refresh::HistoryRead,
@@ -371,6 +376,15 @@ fn session<T: Into<ActionOutcome>>(
                 } else {
                     Effect::None
                 }
+            }
+            Ok(BoardEvent::Cached {
+                cancellation,
+                display,
+            }) => {
+                if !cancellation.cancelled() && app.adopt_cached(*display) {
+                    dirty = true;
+                }
+                Effect::None
             }
             Ok(BoardEvent::Notebook {
                 cancellation,

@@ -617,8 +617,13 @@ describe('squad on a private tmux server', { concurrent: false }, () => {
       // The pane form: the same jump leaves the board running.
       fixture.tmux(['switch-client', '-t', shell.pane]);
       fixture.tmux(['send-keys', '-t', shell.pane, 'clear; tmt ops ui --squad product', 'Enter']);
+      // The first board stored this tab, so the second may open from that
+      // display; it acts only once fresh rows replace it.
       await fixture.waitForCapture(
-        (screen) => screen.includes('auth-fix') && !screen.includes('BOARD_EXIT'),
+        (screen) =>
+          screen.includes('auth-fix') &&
+          !screen.includes('· cached') &&
+          !screen.includes('BOARD_EXIT'),
         shell.pane
       );
       fixture.tmux(['send-keys', '-t', shell.pane, 'Enter']);
