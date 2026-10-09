@@ -267,7 +267,7 @@ lock ownership and no effects on SQLite or tmux. `test/native/legacy-extension-s
 owns the legacy-bundle regressions, `skill_installation::owned_tests` the
 extension-owned skills, and every fixture uses the isolated HOME/config sandbox.
 Provider and custom-root usage: [Settings chapter](site/src/chapters/settings.mdx)
-and `skills/README.md`. The squad lead skill
+and `skills/README.md`. The Ops lead skill
 (`extensions/tmt-ops/skills/tmt-ops/SKILL.md`) and playbooks are embedded by the
 Ops executable and sit outside this bundle (see
 [tmt-ops-dev](.agents/skills/tmt-ops-dev/SKILL.md)).
