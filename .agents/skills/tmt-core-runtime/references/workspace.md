@@ -120,11 +120,11 @@ Historical IDs are correspondence keys, never live targets.
 The built-in tmux adapter owns a finite 30-second creation budget and native
 server-incarnation fencing. Matching live session names are skipped whole,
 including their windows and panes. New sessions use only returned native IDs;
-shared saved windows link only among invocation-created sessions. Ordinary
-`/bin/sh -i` panes enter recorded directories, which are checked before creation
-and read back afterwards. No saved identity, provider session or external command
-is launched or bound. Window-local geometry and border settings affect only
-created windows; existing server options and pre-existing resources are preserved.
+shared saved windows link only among invocation-created sessions. User panes
+pass no command and inherit tmux's `default-command`/`default-shell`, entering
+recorded directories checked before creation and read back afterwards. No saved
+identity, provider session or external command is replayed or bound. Window-local
+geometry and border settings affect only created windows; existing server options and pre-existing resources are preserved.
 
 Outside tmux, select the socket explicitly. The first `new-session` starts an
 absent server and initializes a fresh TMT server UUID; snapshot server identity
@@ -138,8 +138,9 @@ and retained bootstrap IDs. Partial failure returns exit 1, retains created
 resources and stops further effects; reruns skip the surviving sessions.
 
 A session containing only windows already created by this invocation needs a
-bootstrap shell. It may be removed only after all required links succeed and
-fresh native PID/start, pane, ordinary-shell and foreground evidence agree.
+bootstrap `/bin/sh -i` shell. Its exact startup command is rechecked, and it may
+be removed only after all required links succeed and fresh native PID/start, pane,
+ordinary-shell and foreground evidence agree.
 A server-side guard also requires the same server/pane/PID, an unattached session,
 one unshared bootstrap pane, another linked window and no TMT runtime markers.
 Failed linking or uncertain verification retains and reports the bootstrap.

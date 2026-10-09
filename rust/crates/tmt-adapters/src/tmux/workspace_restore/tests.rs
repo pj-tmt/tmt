@@ -244,7 +244,7 @@ fn bootstrap_pid_or_process_mismatch_removes_nothing() {
     assert!(tmux.runner.scripted.calls.borrow().is_empty());
     tmux.runner.replaced.set(false);
     tmux.runner.scripted.push_output(
-        format!("%4{SEP}99{SEP}sh{SEP}/dev/tty\n").into_bytes(),
+        format!("%4{SEP}99{SEP}sh{SEP}/dev/tty{SEP}/bin/sh -i\n").into_bytes(),
         vec![],
     );
     assert!(owner.remove_bootstrap(&created).is_err());
@@ -256,7 +256,7 @@ fn bootstrap_pid_or_process_mismatch_removes_nothing() {
             "-p".into(),
             "-t".into(),
             "%4".into(),
-            "#{pane_id}\u{1f}#{pane_pid}\u{1f}#{pane_current_command}\u{1f}#{pane_tty}".into()
+            "#{pane_id}\u{1f}#{pane_pid}\u{1f}#{pane_current_command}\u{1f}#{pane_tty}\u{1f}#{pane_start_command}".into()
         ])
     );
 }
@@ -320,4 +320,17 @@ fn stale_socket_requires_kernel_refusal_and_leaves_live_and_closed_inodes_untouc
         "/tmp/nonexistent-tmt-restore-socket",
         deadline
     ));
+}
+
+#[test]
+fn bootstrap_with_a_different_start_command_is_retained_before_terminal_or_kill_checks() {
+    let tmux = Tmux::new(Runner::default());
+    let mut owner = restore(&tmux);
+    let created = owner.created(&created_output(2, 3, 4, 0)).unwrap();
+    tmux.runner.scripted.push_output(
+        format!("%4{SEP}20{SEP}sh{SEP}/dev/tty{SEP}/bin/sh user-script\n").into_bytes(),
+        vec![],
+    );
+    assert!(owner.remove_bootstrap(&created).is_err());
+    assert_eq!(tmux.runner.scripted.calls.borrow().len(), 1);
 }

@@ -847,7 +847,7 @@ describe('layout-only workspace restore', () => {
             fixture
               .tmux(['display-message', '-p', '-t', restored.native, '#{pane_current_command}'])
               .trim()
-          ).toBe('sh');
+          ).toBe(path.basename(fixture.tmux(['show-options', '-g', '-v', 'default-shell']).trim()));
         }
         for (const window of saved.windows) {
           const restored = result.json!.windows.find((entry) => entry.recorded === window.id)!;
@@ -921,6 +921,9 @@ describe('layout-only workspace restore', () => {
       expect((await fixture.runJsonCli(['name', 'Preserved Restore Pane', '-s'])).code).toBe(0);
       const saved = twoMissingLinkedSessions(fixture);
       recoveryInput(fixture, saved);
+      // A configured login shell must survive restore; explicit /bin/sh would fail.
+      fixture.tmux(['set-option', '-g', 'default-shell', '/usr/bin/zsh']);
+      fixture.tmux(['set-option', '-g', 'default-command', '']);
       fixture.tmux(['set-option', '-p', '-t', fixture.pane, '@restore-user-data', 'unchanged']);
       const topology = fixture.tmux([
         'list-panes',
@@ -942,6 +945,21 @@ describe('layout-only workspace restore', () => {
       expect(result.json!.windows).toHaveLength(1);
       expect(result.json!.panes).toHaveLength(1);
       expect(result.json!.panes[0].native).not.toBe(fixture.pane);
+      const defaultShell = fixture.tmux(['show-options', '-g', '-v', 'default-shell']).trim();
+      expect(defaultShell).toBe('/usr/bin/zsh');
+      expect(
+        fixture
+          .tmux([
+            'display-message',
+            '-p',
+            '-t',
+            result.json!.panes[0].native,
+            '#{pane_current_command}',
+          ])
+          .trim()
+      ).toBe(path.basename(defaultShell));
+      expect(fixture.tmux(['show-options', '-g', '-v', 'default-command']).trim()).toBe('');
+
       for (const name of ['restore-first', 'restore-shared']) {
         expect(fixture.tmux(['list-windows', '-t', name, '-F', '#{window_id}']).trim()).toBe(
           result.json!.windows[0].native

@@ -22,6 +22,7 @@ use tmt_core::{
 
 const REFUSED: &str = "tmt-workspace-effect-refused";
 const SEP: &str = "\u{1f}";
+const BOOTSTRAP_COMMAND: [&str; 2] = ["/bin/sh", "-i"];
 const CREATED: &str = "#{socket_path}\u{1f}#{pid}\u{1f}#{start_time}\u{1f}#{session_id}\u{1f}#{window_id}\u{1f}#{pane_id}\u{1f}#{pane_pid}\u{1f}#{window_index}";
 
 struct Fence {
@@ -308,9 +309,12 @@ impl<R: CommandRunner> Restore<'_, R> {
             first.window.height.to_string(),
             "-c".into(),
             cwd,
-            "/bin/sh".into(),
-            "-i".into(),
         ];
+        if seed.is_none() {
+            // User panes inherit tmux defaults. Only the removable bootstrap
+            // has a fixed command whose exact startup is checked again below.
+            args.extend(BOOTSTRAP_COMMAND.map(str::to_owned));
+        }
         let starting = self.fence.is_none();
         let output = if starting {
             // Only new-session may start the missing server. No attach, replace or grouping.
@@ -390,8 +394,6 @@ impl<R: CommandRunner> Restore<'_, R> {
                         format_literal(&saved_window.window.name),
                         "-c".into(),
                         format_literal(&saved_window.panes[0].cwd),
-                        "/bin/sh".into(),
-                        "-i".into(),
                     ],
                 )?;
                 let new = self.created(&output)?;
@@ -512,8 +514,6 @@ impl<R: CommandRunner> Restore<'_, R> {
                     target.clone(),
                     "-c".into(),
                     format_literal(&pane.cwd),
-                    "/bin/sh".into(),
-                    "-i".into(),
                 ],
             )?;
             let new = self.created(&output)?;
@@ -598,14 +598,15 @@ impl<R: CommandRunner> Restore<'_, R> {
                 "-p".into(),
                 "-t".into(),
                 created.pane.clone(),
-                "#{pane_id}\u{1f}#{pane_pid}\u{1f}#{pane_current_command}\u{1f}#{pane_tty}".into(),
+                "#{pane_id}\u{1f}#{pane_pid}\u{1f}#{pane_current_command}\u{1f}#{pane_tty}\u{1f}#{pane_start_command}".into(),
             ],
         )?;
         let fields: Vec<_> = output.trim_end_matches('\n').split(SEP).collect();
-        if fields.len() != 4
+        if fields.len() != 5
             || fields[0] != created.pane
             || number(fields[1])? != created.process.pid()
             || fields[2] != "sh"
+            || fields[4] != BOOTSTRAP_COMMAND.join(" ")
             || !crate::process::terminal::foreground(fields[3], created.process.pid())
             || self.live(created.process.pid())? != created.process
         {
@@ -617,6 +618,10 @@ impl<R: CommandRunner> Restore<'_, R> {
             format!("#{{==:#{{session_id}},{}}}", created.session),
             format!("#{{==:#{{window_id}},{}}}", created.window),
             "#{==:#{pane_current_command},sh}".into(),
+            format!(
+                "#{{==:#{{pane_start_command}},{}}}",
+                BOOTSTRAP_COMMAND.join(" ")
+            ),
             "#{==:#{window_panes},1}".into(),
             "#{==:#{window_linked_sessions},1}".into(),
             "#{>=:#{session_windows},2}".into(),
