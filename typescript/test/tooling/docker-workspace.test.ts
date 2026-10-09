@@ -1,4 +1,12 @@
-import { readFileSync, readdirSync, mkdtempSync, rmSync } from 'node:fs';
+import {
+  readFileSync,
+  readdirSync,
+  mkdtempSync,
+  rmSync,
+  mkdirSync,
+  symlinkSync,
+  lstatSync,
+} from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
@@ -396,6 +404,9 @@ it('isolates the checksum-pinned CI dependency recipe from real source and local
         '-p tmt-remote',
         '--profile test --tests -p tmt-adapters',
       ].every((selection) => dependencies.includes(selection)) &&
+      dependencies.includes(
+        "find target/debug/deps -maxdepth 1 -type f -perm -111 -regex '.*/tmt_adapters-[0-9a-f][0-9a-f]*' -delete"
+      ) &&
       native?.includes('COPY rust/ ./') === true &&
       native.includes(
         'RUN cargo build --locked --example tmux-probe --example runtime-caller-fixture --example claude-hook-fixture --example codex-channel-fixture'
@@ -415,12 +426,68 @@ it('isolates the checksum-pinned CI dependency recipe from real source and local
   expect(admitted(text.replace('--profile test --tests -p tmt-adapters', '--workspace'))).toBe(
     false
   );
+  expect(
+    admitted(
+      text.replace(
+        "find target/debug/deps -maxdepth 1 -type f -perm -111 -regex '.*/tmt_adapters-[0-9a-f][0-9a-f]*' -delete",
+        'true'
+      )
+    )
+  ).toBe(false);
   // The recipe includes Cargo.lock; a changed lock cannot reuse an old cook input.
   const planner = text.split(' AS ci-planner\n')[1].split('\nFROM ')[0];
   expect(planner).toContain('COPY . /native/');
   expect(readFileSync(path.join(root, '.dockerignore'), 'utf8')).not.toMatch(
     /^rust\/Cargo\.lock$/m
   );
+});
+
+it('removes only extensionless executable adapter dummies from the dependency layer', () => {
+  const directory = mkdtempSync(path.join(os.tmpdir(), 'tmt-chef-dummies-'));
+  try {
+    const deps = path.join(directory, 'target/debug/deps');
+    mkdirSync(deps, { recursive: true });
+    const dummy = 'tmt_adapters-0123456789abcdef';
+    const survivors = [
+      `${dummy}.rlib`,
+      `${dummy}.rmeta`,
+      `${dummy}.d`,
+      'serde-0123456789abcdef',
+      'libserde_derive-0123456789abcdef.so',
+      'tmt_adapters-not-a-hash',
+      'tmt_adapters-fedcba9876543210',
+    ];
+    writeExecutable(path.join(deps, dummy), 'dummy test executable', 0o755);
+    for (const file of survivors) {
+      writeExecutable(
+        path.join(deps, file),
+        `retained ${file}`,
+        file.endsWith('fedcba9876543210') ? 0o644 : 0o755
+      );
+    }
+    const nested = 'tmt_adapters-1111111111111111';
+    mkdirSync(path.join(deps, nested));
+    writeExecutable(path.join(deps, nested, dummy), 'nested executable', 0o755);
+    const link = 'tmt_adapters-2222222222222222';
+    symlinkSync('serde-0123456789abcdef', path.join(deps, link));
+    const text = readFileSync(path.join(root, 'typescript/test/e2e/Dockerfile'), 'utf8');
+    const dependencies = text.split(' AS ci-dependencies\n')[1].split('\nFROM ')[0];
+    const command = dependencies.match(/&& (find target\/debug\/deps .* -delete)\n/)![1];
+    const result = spawnSync('/bin/sh', ['-c', command], {
+      cwd: directory,
+      encoding: 'utf8',
+      timeout: 10_000,
+    });
+    expect(result.error).toBeUndefined();
+    expect(result.status, result.stderr).toBe(0);
+    expect(readdirSync(deps).sort()).toEqual([...survivors, nested, link].sort());
+    for (const file of survivors)
+      expect(readFileSync(path.join(deps, file), 'utf8')).toBe(`retained ${file}`);
+    expect(readFileSync(path.join(deps, nested, dummy), 'utf8')).toBe('nested executable');
+    expect(lstatSync(path.join(deps, link)).isSymbolicLink()).toBe(true);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
 });
 
 it('refuses mismatched planner bytes before extraction or execution', () => {

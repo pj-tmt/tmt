@@ -2349,6 +2349,9 @@ describe('required CI gate', () => {
     expect(qualification).toContain('>> rust/crates/tmt-core/src/lib.rs');
     expect(qualification).toContain('compile_error!');
     expect(qualification).toContain('test "$status" -ne 0');
+    expect(qualification).toContain('Real adapter test artifact count: %s; chosen path: %s');
+    expect(qualification).toContain('test "$adapter_count" -eq 1');
+    expect(qualification).toContain('--file "$proof" --target native-tests');
     expect(qualification).not.toContain('type=gha');
     expect(qualification).not.toContain('docker run');
   });

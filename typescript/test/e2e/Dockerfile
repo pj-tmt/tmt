@@ -19,12 +19,14 @@ ARG TMT_NATIVE_PROFILE=dev
 ARG CARGO_BUILD_JOBS=default
 ENV CARGO_PROFILE_DEV_DEBUG=0 CARGO_INCREMENTAL=0
 # Keep dependency variants separate, like the real commands below. Chef removes
-# compiled workspace dummies; current source is copied only after this layer.
+# compiled workspace libraries, but v0.1.77 leaves dummy test executables.
+# Remove only those adapter executables before copying current source.
 RUN cargo chef cook --locked --recipe-path /recipe.json --examples -p tmt-adapters \
     && cargo chef cook --locked --recipe-path /recipe.json --profile "$TMT_NATIVE_PROFILE" -p tmt-cli \
     && cargo chef cook --locked --recipe-path /recipe.json --profile "$TMT_NATIVE_PROFILE" -p tmt-ops \
     && cargo chef cook --locked --recipe-path /recipe.json --profile "$TMT_NATIVE_PROFILE" -p tmt-remote \
-    && cargo chef cook --locked --recipe-path /recipe.json --profile test --tests -p tmt-adapters
+    && cargo chef cook --locked --recipe-path /recipe.json --profile test --tests -p tmt-adapters \
+    && find target/debug/deps -maxdepth 1 -type f -perm -111 -regex '.*/tmt_adapters-[0-9a-f][0-9a-f]*' -delete
 
 FROM ${TMT_NATIVE_BASE} AS native-tests
 WORKDIR /native/rust

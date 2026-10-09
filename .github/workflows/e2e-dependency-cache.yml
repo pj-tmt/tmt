@@ -65,6 +65,23 @@ jobs:
           mkdir "$evidence"
           git rev-parse HEAD | tee "$evidence/tested-head.txt"
           sha256sum rust/Cargo.lock typescript/test/e2e/Dockerfile | tee "$evidence/source.sha256"
+          # Instrument only this temporary proof copy; the shipped native stage stays unchanged.
+          proof="$RUNNER_TEMP/e2e-qualification.Dockerfile"
+          python3 - "$proof" <<'PYPROOF'
+          import pathlib, sys
+          source = pathlib.Path('typescript/test/e2e/Dockerfile').read_text()
+          anchor = "  && find target/debug/deps -maxdepth 1 -type f -name 'tmt_adapters-*' -executable " + chr(92) + "\n"
+          assert source.count(anchor) == 1
+          lines = [
+            '  && adapter_paths=$(find target/debug/deps -maxdepth 1 -type f -name \'tmt_adapters-*\' -executable)',
+            '  && adapter_count=$(printf \'%s\\n\' "$adapter_paths" | grep -c .)',
+            '  && printf \'Real adapter test artifact count: %s; chosen path: %s\\n\' "$adapter_count" "$adapter_paths"',
+            '  && test "$adapter_count" -eq 1',
+          ]
+          observation = ''.join(line + ' ' + chr(92) + '\n' for line in lines)
+          pathlib.Path(sys.argv[1]).write_text(source.replace(anchor, observation + anchor))
+          PYPROOF
+          sha256sum "$proof" | tee "$evidence/proof-dockerfile.sha256"
           # No Actions-cache export. Each fresh builder isolates compiled source.
           trap 'docker buildx rm qual-baseline qual-cold qual-warm >/dev/null 2>&1 || true' EXIT
           for builder in qual-baseline qual-cold qual-warm; do
@@ -75,7 +92,7 @@ jobs:
             shift 2
             local started=$SECONDS
             docker buildx build --builder "$builder" --progress plain \
-              --file typescript/test/e2e/Dockerfile --target native-tests "$@" . \
+              --file "$proof" --target native-tests "$@" . \
               2>&1 | tee "$evidence/$phase.log"
             local status=${PIPESTATUS[0]}
             echo "Native qualification $phase wall: $((SECONDS - started)) s." | tee -a "$evidence/wall.txt"
