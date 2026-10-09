@@ -50,7 +50,11 @@ rows, occupied new keys, unknown evidence and edited pane formats remain intact.
 Only an unchanged owned pane border prefix is rewritten; inherited formats and
 other host presentation are untouched. The former server key remains recovery
 evidence for unverifiable panes; ordinary adapters read only the new keys.
-Partial failure is a human hint or optional `paneRenameHints` JSON array, never
+Storage opening has its own 3-second budget; each selected pane gets a fresh
+3-second deadline within an overall 3-minute native-effect cap. A failed pane
+keeps its metadata and cannot consume a later pane's allocation. One summary
+reports converted and unchanged counts; panes without retired markers are unchanged
+without a rebind hint. Partial failure is a human hint or optional `paneRenameHints` JSON array, never
 upgrade failure, retirement, re-launch or automatic rebind.
 
 - `native_install::Product` is fixed policy with no filesystem or network effect: identity,
