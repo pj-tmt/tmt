@@ -35,6 +35,15 @@ const SHARED_PATTERNS = [
   /^scripts\/(?:build-native-artifact|native-cargo|native-bootstrap|run-native-verification|retry-command)\.sh$/,
   /^typescript\/scripts\/(?:native-application-schema|native-artifact-policy|native-bootstrap|native-release-policy|generate-native-bootstrap|release-policy|release-version-injection|release-versions|verify-native-(?:artifact|bootstrap|notices|installation|extension-upgrade|driver-upgrade)|release-upgrade|publication-gates|verify-colab-app-entries|packed-command|cargo-workspace)\.mjs$/,
 ];
+// These code and test owners exercise the real-archive CLI upgrade/skill-refresh proof.
+// Trailing slashes select module descendants; file entries select only the named owner.
+const CLI_UPGRADE_INPUTS = [
+  'rust/crates/tmt-adapters/src/native_install/',
+  'rust/crates/tmt-adapters/src/skill_installation/',
+  'rust/crates/tmt-cli/src/native_upgrade_command/',
+  'rust/crates/tmt-cli/src/native_upgrade_command.rs',
+  'rust/crates/tmt-cli/src/native_upgrade_command_tests.rs',
+];
 // Extension manifests belong to one product, so component attribution picks the products.
 const PRODUCT_MANIFEST = /^extensions\/(?:.*\/)?Cargo\.toml$/;
 
@@ -51,7 +60,8 @@ export function activeProducts(map = componentMap()) {
 
 /**
  * Products to rehearse for the changed paths: all active products for a shared release input (or an
- * empty path list, kept conservative), otherwise the products that own a changed extension manifest.
+ * empty path list, kept conservative), CLI for upgrade/skill-refresh owners, and products owning
+ * changed extension manifests.
  */
 export function selectReleaseRehearsal(paths, map = componentMap()) {
   const all = activeProducts(map);
@@ -62,6 +72,13 @@ export function selectReleaseRehearsal(paths, map = componentMap()) {
     return all;
   const selected = new Set();
   for (const path of paths) {
+    if (
+      all.includes('cli') &&
+      CLI_UPGRADE_INPUTS.some((input) =>
+        input.endsWith('/') ? path.startsWith(input) : path === input
+      )
+    )
+      selected.add('cli');
     if (!PRODUCT_MANIFEST.test(path)) continue;
     for (const name of releasedComponentNamesOfPath(path, map)) {
       const product = productOfComponent(name);
