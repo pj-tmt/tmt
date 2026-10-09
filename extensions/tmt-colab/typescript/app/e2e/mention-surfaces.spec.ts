@@ -1,3 +1,4 @@
+import { pageAction } from '../test/page-actions.js';
 import { expect, test, type Locator, type Page } from '@playwright/test';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { captureDirectory } from './captures.js';
@@ -16,9 +17,7 @@ async function open(page: Page, surface: string, checking: boolean) {
     await run(page, 'conversation', { surface: 'thread', state: 'replied' });
     await page.frameLocator('#ask-page-fixture iframe').locator('[data-colab-thread]').click();
   } else if (surface === 'chat') {
-    const toggle = app.getByTestId('chat-toggle');
-    if (!(await toggle.isVisible()))
-      await app.getByRole('button', { name: 'More page actions' }).click();
+    const toggle = await pageAction(app, 'Chat');
     await toggle.click();
   } else {
     await page

@@ -28,9 +28,7 @@ async function mount(page: Page, source: string, reader = false) {
     },
     { source, reader },
   );
-  await expect(page.locator('#layout-fixture .status')).toContainText(
-    reader ? 'Live' : 'Live preview',
-  );
+  await expect(page.locator('#layout-fixture .status')).toContainText('Live');
   await expect(
     page.frameLocator('#layout-fixture iframe').getByRole('heading', { name: 'Review notes' }),
   ).toBeVisible();
@@ -52,29 +50,14 @@ async function palette(page: Page, theme: 'light' | 'dark') {
 
 async function choose(page: Page, theme: 'light' | 'dark') {
   if ((await page.evaluate(() => document.documentElement.dataset.theme)) === theme) return;
-  const toggle = async () => {
-    const host = page.locator('#layout-fixture');
-    const action = host.getByRole('button', { name: 'Change color theme' });
-    if (!(await action.isVisible()))
-      await host.getByRole('button', { name: 'More page actions' }).click();
-    await action.click();
-  };
-  const dark = await page.evaluate(() => matchMedia('(prefers-color-scheme: dark)').matches);
-  if (
-    (dark ? 'dark' : 'light') !== theme ||
-    (await page.locator('html').getAttribute('data-theme'))
-  )
-    await toggle();
-  else {
-    // Select the current OS palette explicitly, through two real activations.
-    await toggle();
-    await toggle();
-  }
+  await page.getByRole('button', { name: 'More', exact: true }).click();
+  await page
+    .getByRole('menuitemradio', {
+      name: `Theme: ${theme === 'dark' ? 'Dark' : 'Light'}`,
+      exact: true,
+    })
+    .click();
   await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
-  if (
-    (await page.locator('#layout-fixture .tmt-ui-header').getAttribute('data-menu-open')) === 'true'
-  )
-    await page.keyboard.press('Escape');
 }
 
 for (const width of [1440, 390]) {
@@ -292,7 +275,7 @@ test('a theme change between source init and acknowledgement reaches the same re
     const path = '/test/page-layout-browser.tsx';
     (await import(path)).mount(source);
   }, `${interactive}<script>parent.postMessage({type:'theme-test.loading'},'*')</script>`);
-  await expect(page.locator('#layout-fixture .status')).toContainText('Live preview');
+  await expect(page.locator('#layout-fixture .status')).toContainText('Live');
   await expect(page.frameLocator('#layout-fixture iframe').locator('body')).toHaveAttribute(
     'data-initial-theme',
     'light',

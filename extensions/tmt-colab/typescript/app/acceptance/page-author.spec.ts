@@ -1,3 +1,4 @@
+import { pageAction } from '../test/page-actions.js';
 import { expect, test } from '@playwright/test';
 import { mkdirSync, readFileSync } from 'node:fs';
 import { pairBrowser, startDoor, openReaderLink } from './harness/browser.js';
@@ -16,7 +17,7 @@ test('original author survives later publishing and owner reload and reads to a 
     const caption = page.locator('.tmt-ui-caption');
     await expect(caption).toHaveText(`By ${creator.name}`);
     // Browser Save carries no CLI label, so it removes the previous one; the original stays.
-    await page.getByRole('button', { name: 'Source', exact: true }).click();
+    await (await pageAction(page, 'Source')).click();
     const source = page.locator('.page-drawer[data-panel=source]');
     await source
       .getByRole('textbox', { name: 'Source', exact: true })
@@ -68,7 +69,7 @@ test('original author survives later publishing and owner reload and reads to a 
       }
     }
     await page.setViewportSize({ width: 1440, height: 844 });
-    await page.getByRole('button', { name: 'Export page', exact: true }).click();
+    await (await pageAction(page, 'Export page')).click();
     const pending = page.waitForEvent('download');
     await page.getByRole('button', { name: /Download manifest.json/ }).click();
     const downloaded = await pending;

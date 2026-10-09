@@ -140,7 +140,8 @@ keyboard users; a blocked action does not disappear. A destructive variant does
 not perform confirmation or mutate anything. Consumers supply consequence wording,
 explicit confirmation intent, and persistence/retry behavior.
 
-Toggle and icon-action pressed state are controlled by their caller. Field accepts
+Toggle and icon-action pressed/disclosure state are controlled by their caller.
+Icon actions expose a button ref, popup semantics and keyboard handler for host menus. Field accepts
 a label, description, validation message and `renderControl` for one focusable text
 control; the host retains value, ref, caret/IME and editor lifetime. The package owns
 accessible association and visual feedback, not validation authority or settings writes.

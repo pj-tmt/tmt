@@ -1,3 +1,4 @@
+import { pageAction } from '../test/page-actions.js';
 import { expect, test } from '@playwright/test';
 import { mkdirSync } from 'node:fs';
 import { pairBrowser, startDoor } from './harness/browser.js';
@@ -138,7 +139,7 @@ test('three tabs on two pages sync edits and annotations, then all lose a revoke
       c.frameLocator('iframe').getByRole('heading', { name: 'Second page' }),
     ).toBeVisible();
 
-    await a.getByRole('button', { name: 'Source', exact: true }).click();
+    await (await pageAction(a, 'Source')).click();
     await a.getByRole('textbox').fill('<h1>Edited in A</h1><p id="quote">Quote A.</p>');
     await a.getByRole('button', { name: 'Save source' }).click();
     await expect(
@@ -159,12 +160,12 @@ test('three tabs on two pages sync edits and annotations, then all lose a revoke
       await input.press('Enter');
       await expect(tab.getByTestId('comment-thread')).toContainText(quote);
     }
-    await expect(a.getByTestId('comments-toggle')).toBeVisible();
-    await a.getByTestId('comments-toggle').click();
+    await expect(a.getByRole('button', { name: /^Discussion \(/ })).toBeVisible();
+    await (await pageAction(a, 'Comments')).click();
     await expect(a.getByTestId('annotation-row')).toContainText('Quote A.');
     await expect(a.getByTestId('annotation-row')).toHaveCount(1);
-    if ((await c.getByTestId('comments-toggle').getAttribute('aria-expanded')) === 'false')
-      await c.getByTestId('comments-toggle').click();
+    if (!(await c.locator('.page-drawer[data-panel=comments][open]').isVisible()))
+      await (await pageAction(c, 'Comments')).click();
     await expect(c.getByTestId('annotation-row')).toHaveCount(1);
     await expect(c.getByTestId('annotation-row')).toContainText('Quote B.');
 

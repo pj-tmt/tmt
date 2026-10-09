@@ -9,17 +9,8 @@ import {
 } from '@tmt/browser-ui/react';
 import { browserUiClasses as ui } from '@tmt/browser-ui/static';
 import { validPagePrefix } from './short-links.js';
-import {
-  ArrowUpRight,
-  Circle,
-  Diamond,
-  LoaderCircle,
-  Ellipsis,
-  Info,
-  Moon,
-  Sun,
-  X,
-} from 'lucide-react';
+import { ArrowUpRight, LoaderCircle, Moon, Sun } from 'lucide-react';
+import { PageHeaderActions, type PageHeaderAction } from './page-header-actions.js';
 import { ColabHeader } from './colab-header.js';
 import { PageAttribution } from './page-attribution.js';
 import { NoticeCard } from './notice-card.js';
@@ -49,7 +40,7 @@ import { ShareDialog } from './share-dialog.js';
 import { mountRenderer, MAX_RENDER_SOURCE_BYTES } from './renderer.js';
 import type { RenderState, SelectionRect } from './renderer.js';
 import { text } from './strings.js';
-import { getTheme, subscribeTheme } from './theme.js';
+import { getTheme, setThemeChoice, subscribeTheme } from './theme.js';
 import { terminalFailure } from './terminal-failure.js';
 import { buildWatch } from './app-build.js';
 import { SessionEvictedError } from './ask-remote.js';
@@ -386,7 +377,7 @@ export function AppHeader({
     />
   );
 }
-function ThemeButton({ menuLabel = false }: { menuLabel?: boolean }) {
+function ThemeButton() {
   const dark = useSyncExternalStore(subscribeTheme, getTheme) === 'dark';
   return (
     <span className="theme">
@@ -396,10 +387,9 @@ function ThemeButton({ menuLabel = false }: { menuLabel?: boolean }) {
         label={text.theme}
         icon={dark ? <Moon /> : <Sun />}
         onActivate={() => {
-          document.documentElement.dataset.theme = getTheme() === 'dark' ? 'light' : 'dark';
+          setThemeChoice(getTheme() === 'dark' ? 'light' : 'dark');
         }}
       />
-      {menuLabel && <span className="theme-label">Theme: {dark ? 'dark' : 'light'}</span>}
     </span>
   );
 }
@@ -428,19 +418,47 @@ function Shell() {
     </>
   );
 }
-function ManageButton({
+function ManagePage({
   pageId,
   title,
+  open,
+  close,
   changed,
 }: {
   pageId: string;
   title: string;
+  open: boolean;
+  close(): void;
   changed?(): void;
 }) {
   const port = root.useRouteContext().transport.management;
   const router = useRouter();
-  const [open, setOpen] = useState(false);
   const touched = useRef(false);
+  return open && port
+    ? createPortal(
+        <ShareDialog
+          port={port}
+          pageId={pageId}
+          title={title}
+          committed={() => {
+            touched.current = true;
+            changed?.();
+          }}
+          close={() => {
+            close();
+            if (touched.current) {
+              touched.current = false;
+              void router.invalidate();
+            }
+          }}
+        />,
+        document.body,
+      )
+    : null;
+}
+function ManageButton({ pageId, title }: { pageId: string; title: string }) {
+  const port = root.useRouteContext().transport.management;
+  const [open, setOpen] = useState(false);
   if (!port) return null;
   return (
     <>
@@ -452,26 +470,7 @@ function ManageButton({
           if (event.isTrusted) setOpen(true);
         }}
       />
-      {open &&
-        createPortal(
-          <ShareDialog
-            port={port}
-            pageId={pageId}
-            title={title}
-            committed={() => {
-              touched.current = true;
-              changed?.();
-            }}
-            close={() => {
-              setOpen(false);
-              if (touched.current) {
-                touched.current = false;
-                void router.invalidate();
-              }
-            }}
-          />,
-          document.body,
-        )}
+      <ManagePage pageId={pageId} title={title} open={open} close={() => setOpen(false)} />
     </>
   );
 }
@@ -608,32 +607,10 @@ function Page() {
   const snapshot = page.useLoaderData();
   const backendName = transport.backendName?.trim();
   const backendLabel = backendName ? `local · ${backendName}` : 'local';
-  const [panel, setPanel] = useState<
-    'source' | 'comments' | 'chat' | 'export' | 'agents' | 'files' | null
-  >(null);
-  const [menu, setMenu] = useState(false);
-  const [chatOpened, setChatOpened] = useState(false);
   const toolbar = useRef<HTMLElement>(null);
-  useEffect(() => {
-    if (!menu) return;
-    const outside = (event: PointerEvent) => {
-      if (event.target instanceof Node && !toolbar.current?.contains(event.target)) setMenu(false);
-    };
-    const escape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        setMenu(false);
-        toolbar.current?.querySelector<HTMLButtonElement>('.page-overflow-toggle button')?.focus();
-      }
-    };
-    document.addEventListener('pointerdown', outside);
-    document.addEventListener('keydown', escape);
-    return () => {
-      document.removeEventListener('pointerdown', outside);
-      document.removeEventListener('keydown', escape);
-    };
-  }, [menu]);
-  const toggle = (value: typeof panel) => {
-    setMenu(false);
+  const [panel, setPanel] = useState<PageHeaderAction | null>(null);
+  const [chatOpened, setChatOpened] = useState(false);
+  const toggle = (value: PageHeaderAction) => {
     if (value === 'chat') setChatOpened(true);
     setPanel((previous) => (previous === value ? null : value));
   };
@@ -864,7 +841,6 @@ function Page() {
     setActiveThread(null);
     setRectangle(null);
     setPanel(null);
-    setMenu(false);
   }
   const annotationThread = annotation?.thread
     ? view.threads?.find(
@@ -928,7 +904,6 @@ function Page() {
     binding.current?.markThreadStatusSeen?.(ref);
     setActiveThread(id);
     setPanel('comments');
-    setMenu(false);
     renderer.current?.scrollAnchor(id);
   }
   function continueAnnotation(ref: DiscussionRef) {
@@ -960,7 +935,6 @@ function Page() {
     });
     setActiveThread(null);
     setPanel(null);
-    setMenu(false);
   }
   const [resolved, setResolved] = useState<string[]>([]);
   const [anchorsChecked, setAnchorsChecked] = useState(false);
@@ -1072,7 +1046,6 @@ function Page() {
     >
       <ColabHeader
         headerRef={toolbar}
-        menuOpen={menu}
         title={view.title || snapshot.title || text.unknownPageTitle}
         caption={view.originalAuthor === undefined ? undefined : text.byAuthor(view.originalAuthor)}
         home={(brand) => (
@@ -1080,14 +1053,13 @@ function Page() {
             {brand}
           </Link>
         )}
-        actions={
-          <>
+        status={
+          <div className="page-header-meta">
             <span className="page-backend" title={backendLabel}>
-              {backendLabel}
+              local · Browser
             </span>
-            <span className="chip page-sharing">{text[snapshot.sharing]}</span>
             <span
-              className={`status ${state === 'ready' ? 'live' : ''}`}
+              className={`chip page-sharing status ${state === 'ready' ? 'live' : ''}`}
               title={
                 recoveryRequired
                   ? text.connectionLost
@@ -1098,166 +1070,62 @@ function Page() {
                       : text.blocked
               }
             >
-              <span aria-hidden>
-                {recoveryRequired ? (
-                  <Diamond fill="currentColor" aria-hidden />
-                ) : state === 'failed' || state === 'navigation' ? (
-                  <X aria-hidden />
-                ) : state === 'loading' ? (
-                  <LoaderCircle aria-hidden />
-                ) : (
-                  <Circle className="status-dot" fill="currentColor" aria-hidden />
-                )}
-              </span>
+              {text[snapshot.sharing]} ·{' '}
               <span className="status-label">
                 {recoveryRequired
                   ? text.connectionLost
                   : state === 'ready'
-                    ? text.loaded
+                    ? 'Live'
                     : state === 'loading'
                       ? text.loading
                       : text.blocked}
               </span>
             </span>
-            <span className="page-overflow-toggle">
-              <BrowserIconAction
-                type="button"
-                variant="text"
-                label="More page actions"
-                expanded={menu}
-                controls="page-actions-menu"
-                icon={<Ellipsis />}
-                onActivate={(event) => {
-                  if (event.isTrusted) setMenu(!menu);
-                }}
-              />
-            </span>
-            <div
-              className="page-secondary"
-              id="page-actions-menu"
-              role="group"
-              aria-label="Page actions"
-              onClick={(event) => {
-                if (
-                  event.isTrusted &&
-                  event.target instanceof Element &&
-                  event.target.closest('button')
-                )
-                  setMenu(false);
-              }}
-            >
-              <span className="page-menu-close">
-                <BrowserIconAction
-                  type="button"
-                  variant="text"
-                  label="Close page actions"
-                  icon={<X />}
-                  onActivate={() => setMenu(false)}
-                />
-              </span>
-              <div className="page-menu-meta">
-                <span title={backendLabel}>{backendLabel}</span>
-                <span>{text[snapshot.sharing]}</span>
-              </div>
-              <button
-                className={ui.action}
-                data-variant="text"
-                data-testid="chat-toggle"
-                aria-label="Chat"
-                aria-expanded={panel === 'chat'}
-                onClick={(event) => {
-                  if (event.isTrusted) toggle('chat');
-                }}
-              >
-                Chat
-              </button>
-              <button
-                className={ui.action}
-                data-variant="text"
-                data-testid="agents-toggle"
-                aria-expanded={panel === 'agents'}
-                onClick={(event) => {
-                  if (event.isTrusted) toggle('agents');
-                }}
-              >
-                {text.agentStatus}
-              </button>
-              <button
-                className={ui.action}
-                data-variant="text"
-                data-testid="comments-toggle"
-                aria-expanded={panel === 'comments'}
-                onClick={(event) => {
-                  if (event.isTrusted) toggle('comments');
-                }}
-              >
-                {text.comments}
-                {openThreads > 0 && ` ${openThreads}`}
-                {unseenThreads && ` · ${text.threadUnseen}`}
-              </button>
-              {snapshot.binding?.files && (
-                <button
-                  className={ui.action}
-                  data-variant="text"
-                  data-testid="files-toggle"
-                  aria-expanded={panel === 'files'}
-                  onClick={(event) => {
-                    if (event.isTrusted) toggle('files');
-                  }}
-                >
-                  {text.files}
-                  {fileCount > 0 && ` ${fileCount}`}
-                </button>
-              )}
-              <button
-                className={ui.action}
-                data-variant="text"
-                aria-pressed={panel === 'source'}
-                onClick={(event) => {
-                  if (event.isTrusted) toggle('source');
-                }}
-              >
-                {text.source}
-              </button>
-              <ExportPanel
-                key={`export:${snapshot.id}`}
-                binding={snapshot.binding}
-                blocked={!!liveError}
-                drawer
-                opened={panel === 'export'}
-                changeOpen={(open) => {
-                  setMenu(false);
-                  setPanel(open ? 'export' : null);
-                }}
-              />
-              <ManageButton
-                pageId={snapshot.id}
-                title={view.title || snapshot.title}
-                changed={() => {
-                  snapshot.binding?.close();
-                  setLiveError(new Error(managementChanged));
-                }}
-              />
-              <ThemeButton menuLabel />
-              <details className="page-information">
-                <summary className={ui.action} data-variant="text" aria-label="Page information">
-                  <span className="info-symbol" aria-hidden>
-                    <Info aria-hidden />
-                  </span>
-                  <span className="info-label">Page information</span>
-                </summary>
-                <div className="page-information-panel">
-                  <PageAttribution
-                    originalAuthor={view.originalAuthor}
-                    publisherAgent={view.publisherAgent}
-                  />
-                  <p>{text.warning}</p>
-                </div>
-              </details>
-            </div>
-          </>
+          </div>
+        }
+        actions={
+          <PageHeaderActions
+            active={panel}
+            comments={openThreads}
+            files={fileCount}
+            unseen={unseenThreads}
+            canExport={!!snapshot.binding && !liveError}
+            canManage={!!transport.management}
+            canFiles={!!snapshot.binding?.files}
+            onSelect={toggle}
+          />
         }
       />
+      <ExportPanel
+        key={`export:${snapshot.id}`}
+        binding={snapshot.binding}
+        blocked={!!liveError}
+        drawer
+        opened={panel === 'export'}
+        changeOpen={(open) => setPanel(open ? 'export' : null)}
+      />
+      <ManagePage
+        pageId={snapshot.id}
+        title={view.title || snapshot.title}
+        open={panel === 'manage'}
+        close={() => setPanel(null)}
+        changed={() => {
+          snapshot.binding?.close();
+          setLiveError(new Error(managementChanged));
+        }}
+      />
+      <PageDrawer
+        open={panel === 'about'}
+        title="About this page"
+        kind="about"
+        close={() => setPanel(null)}
+      >
+        <PageAttribution
+          originalAuthor={view.originalAuthor}
+          publisherAgent={view.publisherAgent}
+        />
+        <p>{text.warning}</p>
+      </PageDrawer>
       <div className="workspace">
         <div className="canvas">
           <div className="frame-host" ref={host} />

@@ -1,3 +1,4 @@
+import { pageAction } from '../test/page-actions.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -74,7 +75,7 @@ test('the served Agents view reads the admitted directory without sending or reo
       ).toBe(asset.sha256);
     }
     const opened = operations.filter((value) => value === 'session.open').length;
-    await page.getByTestId('agents-toggle').click();
+    await (await pageAction(page, 'Agents')).click();
     const panel = page.locator('.page-drawer[data-panel=agents]');
     const row = panel.locator('.agent-status-list li').filter({ hasText: agent.id });
     await expect(row).toContainText(agent.name);

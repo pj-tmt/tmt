@@ -1,3 +1,4 @@
+import { pageAction } from '../test/page-actions.js';
 import { expect, test, type Page } from '@playwright/test';
 import { mkdirSync } from 'node:fs';
 
@@ -18,12 +19,9 @@ async function mount(page: Page, reader = false, unknown = false) {
     page.frameLocator('iframe:visible').getByRole('heading', { name: 'Author fixture' }),
   ).toBeVisible();
 }
-async function info(page: Page, width: number, reader: boolean) {
-  if (width === 390 && !reader)
-    await page.getByRole('button', { name: 'More page actions' }).click();
-  await page
-    .locator(reader ? '.reader-information:visible summary' : '.page-information:visible summary')
-    .click();
+async function info(page: Page, reader: boolean) {
+  if (reader) await page.locator('.reader-information:visible summary').click();
+  else await (await pageAction(page, 'About this page')).click();
 }
 for (const width of [1440, 390])
   for (const theme of ['light', 'dark'] as const) {
@@ -39,10 +37,10 @@ for (const width of [1440, 390])
       const header = page.locator('.tmt-ui-header:visible');
       await expect(header.locator('.tmt-ui-caption')).toHaveText('By Alice <b>creator</b>');
       await expect(header.locator('.tmt-ui-caption b')).toHaveCount(0);
-      await expect(header).toHaveCSS('height', width === 390 ? '48px' : '56px');
+      await expect(header).toHaveCSS('height', width === 390 ? '82px' : '56px');
       expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);
-      await info(page, width, false);
-      const attribution = page.locator('.page-information-panel:visible .page-attribution');
+      await info(page, false);
+      const attribution = page.locator('.page-drawer[data-panel=about]:visible .page-attribution');
       await expect(attribution).toContainText('Original authorAlice <b>creator</b>');
       await expect(attribution).toContainText('Latest publisherBob latest publisher');
       const captures = process.env.COLAB_AUTHOR_CAPTURE_DIR;
@@ -58,7 +56,7 @@ for (const width of [1440, 390])
       await expect(header.locator('.tmt-ui-caption')).toHaveText('By Alice <b>creator</b>');
       await mount(page, false, true);
       await expect(header.locator('.tmt-ui-caption')).toHaveCount(0);
-      await info(page, width, false);
+      await info(page, false);
       await expect(page.locator('.page-attribution:visible')).toContainText(
         'Latest publisherBob latest publisher',
       );
@@ -67,7 +65,7 @@ for (const width of [1440, 390])
       );
       await mount(page, true);
       await expect(header.locator('.tmt-ui-caption')).toHaveText('By Alice <b>creator</b>');
-      await info(page, width, true);
+      await info(page, true);
       await expect(
         page.locator('.reader-information-panel:visible .page-attribution'),
       ).toContainText('Latest publisherBob latest publisher');

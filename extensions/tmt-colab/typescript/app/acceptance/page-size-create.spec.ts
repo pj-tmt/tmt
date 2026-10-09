@@ -1,3 +1,4 @@
+import { pageAction } from '../test/page-actions.js';
 import { expect, test } from '@playwright/test';
 import { pairBrowser, startDoor } from './harness/browser.js';
 import { createPage, freePort, openPage, run } from './harness/ask.js';
@@ -31,7 +32,7 @@ test('a 1.5 MiB page creates, opens in the browser and takes edits from both sid
 
     // The browser opens it with the exact source and saves a small edit.
     const page = await openPage(door, a, created);
-    await page.getByRole('button', { name: 'Source', exact: true }).click();
+    await (await pageAction(page, 'Source')).click();
     const box = page.getByRole('textbox', { name: 'Source', exact: true });
     expect((await box.inputValue()) === source).toBe(true);
     const browserEdit = source + '<p>browser edit</p>';
@@ -55,7 +56,7 @@ test('a 1.5 MiB page creates, opens in the browser and takes edits from both sid
     run(world, colab, ['page', 'write', created.pageId, '--file', '-', '--json'], cliEdit);
     expect(read(created.pageId).source === cliEdit).toBe(true);
     await page.reload();
-    await page.getByRole('button', { name: 'Source', exact: true }).click();
+    await (await pageAction(page, 'Source')).click();
     expect(
       (await page.getByRole('textbox', { name: 'Source', exact: true }).inputValue()) === cliEdit,
     ).toBe(true);

@@ -1,3 +1,4 @@
+import { pageAction } from '../test/page-actions.js';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { expect, test, type Locator, type Page } from '@playwright/test';
@@ -159,9 +160,7 @@ for (const surface of ['chat', 'thread'])
       await page.reload();
       if (surface === 'chat') await openChat(page);
       else {
-        const toggle = page.getByTestId('comments-toggle');
-        if (!(await toggle.isVisible()))
-          await page.getByRole('button', { name: 'More page actions' }).click();
+        const toggle = await pageAction(page, 'Comments');
         await toggle.click();
         await page.locator(`[data-testid=annotation-row][data-thread-id="${threadId}"]`).click();
       }

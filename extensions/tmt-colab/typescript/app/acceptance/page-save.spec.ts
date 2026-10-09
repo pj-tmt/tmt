@@ -1,3 +1,4 @@
+import { pageAction } from '../test/page-actions.js';
 import { expect, test, type Page } from '@playwright/test';
 import { createHash } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
@@ -32,7 +33,7 @@ async function capture(page: Page, name: string) {
 }
 const source = (page: Page) => page.getByRole('textbox', { name: 'Source', exact: true });
 async function openSource(page: Page) {
-  await page.getByRole('button', { name: 'Source', exact: true }).click({ timeout: 60_000 });
+  await (await pageAction(page, 'Source')).click({ timeout: 60_000 });
   return source(page);
 }
 // A save is done when the editor leaves "Saving…": the reply arrives after the serve has combined

@@ -1,24 +1,37 @@
-import { useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react';
+import {
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type ReactNode,
+} from 'react';
 import { Ellipsis } from 'lucide-react';
+import { BrowserIconAction } from '@tmt/browser-ui/react';
 import './action-menu.css';
 
 export interface ActionMenuItem {
   key: string;
   label: string;
   disabled?: boolean;
+  checked?: boolean;
 }
 
-/** A text-button menu for per-row actions. Focus moves into the open menu; Esc returns it to the trigger. */
+/** A row or header action menu. Focus enters the open menu; Escape returns to its trigger. */
 export function ActionMenu({
   label,
   items,
   onSelect,
   disabled = false,
+  icon,
 }: {
   label: string;
   items: readonly ActionMenuItem[];
   onSelect(key: string): void;
   disabled?: boolean;
+  /** Header hosts supply their icon/count; row actions retain their ellipsis trigger. */
+  icon?: ReactNode;
 }) {
   const id = useId();
   const root = useRef<HTMLSpanElement>(null);
@@ -109,33 +122,52 @@ export function ActionMenu({
     event.preventDefault();
     if (next !== undefined) entries.current[next]?.focus();
   }
+  function onTriggerKeyDown(event: KeyboardEvent<HTMLButtonElement>) {
+    if (event.key === 'Escape' && open) {
+      event.preventDefault();
+      event.stopPropagation();
+      close(true);
+    } else if (event.key === 'ArrowDown' && event.isTrusted) {
+      event.preventDefault();
+      setOpen(true);
+    }
+  }
   return (
-    <span className="tmt-action-menu" ref={root}>
-      <button
-        ref={trigger}
-        type="button"
-        className="tmt-action-menu-trigger"
-        aria-label={label}
-        aria-haspopup="menu"
-        aria-expanded={open}
-        aria-controls={open ? id : undefined}
-        disabled={disabled || enabled.length === 0}
-        onClick={(event) => {
-          if (event.isTrusted) setOpen(!open);
-        }}
-        onKeyDown={(event) => {
-          if (event.key === 'Escape' && open) {
-            event.preventDefault();
-            event.stopPropagation();
-            close(true);
-          } else if (event.key === 'ArrowDown' && event.isTrusted) {
-            event.preventDefault();
-            setOpen(true);
-          }
-        }}
-      >
-        <Ellipsis aria-hidden />
-      </button>
+    <span className={`tmt-action-menu${icon ? ' tmt-action-menu-icon' : ''}`} ref={root}>
+      {icon ? (
+        <BrowserIconAction
+          buttonRef={trigger}
+          type="button"
+          variant="text"
+          label={label}
+          icon={icon}
+          hasPopup="menu"
+          expanded={open}
+          controls={open ? id : undefined}
+          disabled={disabled || enabled.length === 0}
+          onActivate={(event) => {
+            if (event.isTrusted) setOpen(!open);
+          }}
+          onKeyDown={onTriggerKeyDown}
+        />
+      ) : (
+        <button
+          ref={trigger}
+          type="button"
+          className="tmt-action-menu-trigger"
+          aria-label={label}
+          aria-haspopup="menu"
+          aria-expanded={open}
+          aria-controls={open ? id : undefined}
+          disabled={disabled || enabled.length === 0}
+          onClick={(event) => {
+            if (event.isTrusted) setOpen(!open);
+          }}
+          onKeyDown={onTriggerKeyDown}
+        >
+          <Ellipsis aria-hidden />
+        </button>
+      )}
       {open && (
         <div
           className="tmt-action-menu-list"
@@ -149,7 +181,8 @@ export function ActionMenu({
           {items.map((item, index) => (
             <button
               type="button"
-              role="menuitem"
+              role={item.checked === undefined ? 'menuitem' : 'menuitemradio'}
+              aria-checked={item.checked}
               className="tmt-action-menu-item"
               key={item.key}
               ref={(node) => {
@@ -164,6 +197,11 @@ export function ActionMenu({
               }}
             >
               {item.label}
+              {item.checked && (
+                <span className="tmt-action-menu-check" aria-hidden="true">
+                  ✓
+                </span>
+              )}
             </button>
           ))}
         </div>

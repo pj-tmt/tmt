@@ -1,3 +1,4 @@
+import { pageAction } from '../test/page-actions.js';
 import { expect, test, type Page } from '@playwright/test';
 import { capturePath } from './captures.js';
 import { text } from '../src/strings.js';
@@ -11,13 +12,8 @@ async function run(page: Page, method: string, argument?: string) {
 async function mount(page: Page) {
   await page.goto('/');
   await run(page, 'mount');
-  await expect(page.locator('#ask-page-fixture .status')).toContainText('Live preview');
-  const toggle = page.locator('#ask-page-fixture').getByTestId('chat-toggle');
-  if (!(await toggle.isVisible()))
-    await page
-      .locator('#ask-page-fixture')
-      .getByRole('button', { name: 'More page actions' })
-      .click();
+  await expect(page.locator('#ask-page-fixture .status')).toContainText('Live');
+  const toggle = await pageAction(page.locator('#ask-page-fixture'), 'Chat');
   await toggle.click();
   await expect(page.getByTestId('chat-panel')).toBeVisible();
 }
@@ -36,7 +32,7 @@ test('Chat retains drafts across close and live edits; only trusted Enter freeze
   const input = await compose(page);
   await page.getByRole('button', { name: 'Close Chat', exact: true }).click();
   expect((await run(page, 'proof')).sends).toEqual([]);
-  await page.locator('#ask-page-fixture').getByTestId('chat-toggle').click();
+  await (await pageAction(page.locator('#ask-page-fixture'), 'Chat')).click();
   await expect(input).toHaveText('@Agent 1 Explain exactly', { useInnerText: true });
   await run(page, 'change', '<p id="selected">Changed selected text</p>');
   await expect(page.getByRole('heading', { name: 'Changed live title' })).toBeVisible();
@@ -52,9 +48,9 @@ test('Chat retains drafts across close and live edits; only trusted Enter freeze
   expect(sent.message).not.toContain('Changed selected text');
   await expect(page.getByTestId('ask-preview')).toHaveCount(0);
   await expect(input).toHaveText('', { useInnerText: true });
-  await page.locator('#ask-page-fixture').getByTestId('comments-toggle').click();
+  await (await pageAction(page.locator('#ask-page-fixture'), 'Comments')).click();
   await expect(page.getByTestId('annotation-row')).toHaveCount(0);
-  await page.locator('#ask-page-fixture').getByTestId('chat-toggle').click();
+  await (await pageAction(page.locator('#ask-page-fixture'), 'Chat')).click();
   await run(page, 'syncRecords');
   await expect(page.locator('[data-turn-role="user"] .conversation-body > pre').first()).toHaveText(
     '<script>inert ask</script>',
@@ -81,7 +77,7 @@ test('closing a pending explicit send retains it and never dispatches again on r
   await page.getByRole('button', { name: 'Close Chat', exact: true }).click();
   await run(page, 'resumePrepare');
   await expect.poll(async () => (await run(page, 'proof')).sends.length).toBe(1);
-  await page.locator('#ask-page-fixture').getByTestId('chat-toggle').click();
+  await (await pageAction(page.locator('#ask-page-fixture'), 'Chat')).click();
   await expect(input).toHaveText('', { useInnerText: true });
   expect((await run(page, 'proof')).sends).toHaveLength(1);
   await run(page, 'block');
@@ -217,10 +213,10 @@ test('mobile Chat preserves an open autocomplete inside its dialog across keyboa
   await close.focus();
   await close.press('Enter');
   await expect(page.locator('.page-drawer[data-panel=chat][open]')).toHaveCount(0);
-  const more = page.locator('#ask-page-fixture').getByRole('button', { name: 'More page actions' });
+  const more = page.locator('#ask-page-fixture').getByRole('button', { name: /^Discussion \(/ });
   await more.focus();
   await more.press('Enter');
-  const toggle = page.locator('#ask-page-fixture').getByTestId('chat-toggle');
+  const toggle = await pageAction(page.locator('#ask-page-fixture'), 'Chat');
   await toggle.focus();
   await toggle.press('Enter');
   await expect(input).toHaveText('@', { useInnerText: true });

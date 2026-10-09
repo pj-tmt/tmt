@@ -153,9 +153,14 @@ for (const width of [1440, 390, 320])
           }
           const current = await metrics(page);
           reference ??= current;
-          expect(current, screen).toEqual(reference);
+          // The page adds rows for its environment/status and five controls on phones.
+          const extra = screen === 'page' && width <= 640 ? (width <= 360 ? 68 : 34) : 0;
+          expect(current, screen).toEqual(
+            extra ? { ...reference, height: reference.height + extra, gap: '0px 6px' } : reference,
+          );
           expect(current.height).toBe(
-            parseFloat(width < 480 ? tokens.header['compact-height'] : tokens.header.height),
+            parseFloat(width < 480 ? tokens.header['compact-height'] : tokens.header.height) +
+              extra,
           );
           expect(current.title.size).toBe(tokens.header['title-size']);
           expect(current.wordmark.size).toBe(tokens.header['wordmark-size']);
@@ -247,7 +252,7 @@ for (const width of [1440, 390, 320])
           });
           await expect.poll(() => page.evaluate(() => scrollY)).toBeGreaterThan(0);
           expect((await page.locator('.tmt-ui-header:visible').boundingBox())!.y).toBe(0);
-          expect(await metrics(page)).toEqual(reference);
+          expect(await metrics(page)).toEqual(current);
           await containment(page);
           if (screen === 'page' || screen === 'reader') {
             await expect(page.locator('iframe')).toHaveAttribute('scrolling', 'no');
@@ -333,13 +338,13 @@ for (const width of [1440, 390, 320])
 
 for (const width of [1440, 390, 320])
   for (const theme of ['light', 'dark'] as const)
-    test(`page header shows only labeled actions until they overflow, with a text-sized live dot: ${width}px ${theme}`, async ({
+    test(`page header keeps environment, status and five icon actions: ${width}px ${theme}`, async ({
       page,
     }) => {
       await page.setViewportSize({ width, height: 800 });
       await page.emulateMedia({ colorScheme: theme });
-      await page.addInitScript((theme) => {
-        document.documentElement.dataset.theme = theme;
+      await page.addInitScript((value) => {
+        document.documentElement.dataset.theme = value;
       }, theme);
       await page.goto('/');
       await page.evaluate(async () => {
@@ -347,32 +352,30 @@ for (const width of [1440, 390, 320])
         await (await import(path)).mount('page');
       });
       const header = page.locator('#chrome-fixture .tmt-ui-header');
-      await expect(header).toBeVisible();
-      const overflow = header.locator('.page-overflow-toggle button');
-      const close = header.locator('.page-menu-close button');
-      await expect(close).toBeHidden();
-      if (width === 1440) {
-        // Every action fits: no "more" button and no bare × in the header.
-        await expect(overflow).toBeHidden();
-        await expect(header.getByRole('button', { name: 'More page actions' })).toBeHidden();
-        const dot = header.locator('.status svg.status-dot');
-        await expect(dot).toBeVisible();
-        const box = (await dot.boundingBox())!;
-        expect(box.width).toBeLessThanOrEqual(10);
-        expect(box.height).toBeLessThanOrEqual(10);
-        for (const button of await header.getByRole('button').all())
-          if (await button.isVisible()) {
-            const name = (await button.getAttribute('aria-label')) ?? (await button.innerText());
-            expect(name.trim(), 'every visible header action is labeled').not.toBe('');
-          }
-        await page.screenshot({ path: `/tmp/1730-${width}-${theme}-header.png` });
-      } else {
-        await expect(overflow).toBeVisible();
-        await page.screenshot({ path: `/tmp/1730-${width}-${theme}-header.png` });
-        await overflow.click();
-        await expect(close).toBeVisible();
-        await page.screenshot({ path: `/tmp/1730-${width}-${theme}-header-menu.png` });
-        await close.click();
-        await expect(close).toBeHidden();
+      await expect(header.locator('.page-backend')).toHaveText('local · Browser');
+      await expect(header.locator('.page-sharing')).toHaveText('Private · Live');
+      expect(
+        await header
+          .locator('.page-sharing')
+          .evaluate((node) => node.scrollWidth <= node.clientWidth),
+      ).toBe(true);
+      const actions = header.getByRole('navigation', { name: 'Page actions' });
+      await expect(actions.getByRole('button')).toHaveCount(5);
+      for (const button of await actions.getByRole('button').all()) {
+        await expect(button).toBeInViewport();
+        expect(await button.getAttribute('aria-label')).toBeTruthy();
+        await expect(button).toHaveClass(/tmt-ui-icon-action-control/);
       }
+      expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);
+      await page.screenshot({ path: `/tmp/2314-${width}-${theme}-header.png` });
+      const more = actions.getByRole('button', { name: 'More', exact: true });
+      await more.click();
+      const menu = actions.getByRole('menu');
+      await expect(menu).toBeVisible();
+      await expect(menu).toHaveCSS('box-shadow', 'none');
+      await expect(menu).toHaveCSS('border-top-width', '1px');
+      await page.screenshot({ path: `/tmp/2314-${width}-${theme}-header-menu.png` });
+      await page.keyboard.press('Escape');
+      await expect(menu).toHaveCount(0);
+      await expect(more).toBeFocused();
     });

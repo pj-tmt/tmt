@@ -1,3 +1,4 @@
+import { pageAction } from '../test/page-actions.js';
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -242,7 +243,7 @@ test('page-visible device Chat threads send exact bytes once, preserve drafts, k
     expect(traffic.length).toBeGreaterThan(0);
     expect(traffic.join('')).not.toContain('private Chat turn');
     expect(traffic.join('')).not.toContain('Follow up with the earlier answer');
-    await first.getByTestId('comments-toggle').click();
+    await (await pageAction(first, 'Comments')).click();
     await expect(first.getByTestId('annotation-row')).toHaveCount(0);
     await expect(first.getByRole('button', { name: 'Delete thread', exact: true })).toHaveCount(0);
     await first.getByRole('button', { name: '+ Comment on page', exact: true }).click();

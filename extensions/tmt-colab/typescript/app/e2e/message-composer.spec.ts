@@ -1,3 +1,4 @@
+import { pageAction } from '../test/page-actions.js';
 import { expect, test, type Page } from '@playwright/test';
 import { mkdirSync, writeFileSync } from 'node:fs';
 
@@ -211,7 +212,7 @@ for (const width of [1440, 390]) {
           return (await import(path))[method]();
         }, method);
       await run('mount');
-      await expect(page.locator('#ask-page-fixture .status')).toContainText('Live preview');
+      await expect(page.locator('#ask-page-fixture .status')).toContainText('Live');
       await page
         .frameLocator('#ask-page-fixture iframe')
         .locator('#selected')
@@ -305,9 +306,7 @@ for (const width of [1440, 390]) {
       await run('resumePrepare');
       await expect(input).toHaveAttribute('contenteditable', 'true');
       await dialog.getByRole('button', { name: 'Close thread', exact: true }).click();
-      const toggle = page.locator('#ask-page-fixture').getByTestId('chat-toggle');
-      if (!(await toggle.isVisible()))
-        await page.getByRole('button', { name: 'More page actions' }).click();
+      const toggle = await pageAction(page.locator('#ask-page-fixture'), 'Chat');
       await toggle.click();
       const chat = page.getByTestId('chat-panel');
       const chatInput = chat.getByRole('combobox', { name: 'Message', exact: true });

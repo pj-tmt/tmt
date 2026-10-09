@@ -145,7 +145,9 @@ announced once. `pressed` is omitted when absent; supplied false/true becomes
 and a 1px text-colored edge; disabled/busy styling and event fences take priority.
 The icon and busy mark share one fixed square target without changing geometry.
 Disclosure actions instead supply controlled `expanded` and optional `controls`,
-forwarded as `aria-expanded`/`aria-controls` on the same button. The type contract
+forwarded as `aria-expanded`/`aria-controls` on the same button. Hosts may supply
+`buttonRef`, `hasPopup` and `onKeyDown` for their own menu focus, popup semantics
+and keyboard handling; the leaf does not own the menu. The type contract
 requires `expanded` with `controls` and excludes `pressed` from disclosure actions.
 Expanded uses the same selection treatment as pressed. While expanded, the tooltip
 stays hidden and installs no Escape listener; the host owns menu dismissal.

@@ -1,3 +1,4 @@
+import { pageAction } from '../test/page-actions.js';
 import { createServer } from 'node:http';
 import type { Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
@@ -81,7 +82,7 @@ test('space home opens a local page, scripts run, source stays in trusted chrome
   await expect(page.getByRole('heading', { name: 'My space' })).toBeVisible();
   await page.screenshot({ path: '/tmp/1187-home.png', fullPage: true });
   await page.getByRole('link', { name: /A shared page/ }).click();
-  await expect(page.locator('.status').filter({ hasText: 'Live preview' })).toBeVisible();
+  await expect(page.locator('.status').filter({ hasText: 'Live' })).toBeVisible();
   const frame = page.frameLocator('iframe');
   await expect(frame.getByRole('heading', { name: 'Small pages, shared ideas.' })).toBeVisible();
   await frame.getByRole('button', { name: 'Try the page: 0' }).click();
@@ -91,11 +92,11 @@ test('space home opens a local page, scripts run, source stays in trusted chrome
   await expect(page.locator('iframe')).not.toHaveAttribute('srcdoc');
   await expect(page.locator('iframe')).toHaveAttribute('src', /\/renderer\.html$/);
   await page.screenshot({ path: '/tmp/1187-page-view.png', fullPage: true });
-  await page.getByRole('button', { name: 'Source', exact: true }).click();
+  await (await pageAction(page, 'Source')).click();
   await expect(page.getByRole('textbox')).toHaveAttribute('readonly', '');
   await page.screenshot({ path: '/tmp/1187-page-light.png', fullPage: true });
   const renderId = await page.locator('iframe').getAttribute('data-render-id');
-  await page.getByRole('button', { name: 'Change color theme' }).click();
+  await (await pageAction(page, 'Theme: Dark')).click();
   await expect(frame.getByRole('button', { name: 'Try the page: 1' })).toBeVisible();
   await expect(page.locator('iframe')).toHaveAttribute('data-render-id', renderId!);
   // Wait for the child compositor to paint after the parent theme update.

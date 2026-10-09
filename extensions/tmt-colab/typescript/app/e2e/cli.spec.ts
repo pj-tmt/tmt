@@ -1,3 +1,4 @@
+import { pageAction } from '../test/page-actions.js';
 import { execFile, spawn, type ChildProcess } from 'node:child_process';
 import { once } from 'node:events';
 import { access, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
@@ -296,7 +297,7 @@ test('a direct mounted short URL redirects into the native owner page with worki
               (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'),
           )) !== theme
         )
-          await page.getByRole('button', { name: 'Change color theme' }).click();
+          await (await pageAction(page, `Theme: ${theme === 'dark' ? 'Dark' : 'Light'}`)).click();
         await expect(page.locator('html')).toHaveCSS('color-scheme', theme);
         for (const width of [1440, 390]) {
           await page.setViewportSize({ width, height: 900 });
@@ -325,7 +326,7 @@ test('CLI writes reach a live native browser, preserve title and refuse a stale 
     await expect(
       page.frameLocator('iframe').getByRole('heading', { name: 'Before CLI' }),
     ).toBeVisible();
-    await page.getByRole('button', { name: 'Source', exact: true }).click();
+    await (await pageAction(page, 'Source')).click();
     const initial = JSON.parse(
       (await server.cli(['page', 'read', server.fixture.pageId, '--json'])).stdout,
     ) as { revision: string };

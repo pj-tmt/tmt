@@ -1,3 +1,4 @@
+import { pageAction } from '../test/page-actions.js';
 import { readFileSync } from 'node:fs';
 import { expect, test, type Page } from '@playwright/test';
 import { text } from '../src/strings.js';
@@ -19,15 +20,13 @@ async function mount(page: Page) {
   await page.evaluate(async ({ fixture }) => (await import(fixture)).mount({ attachments: true }), {
     fixture,
   });
-  await expect(page.locator('#ask-page-fixture .status')).toContainText('Live preview');
+  await expect(page.locator('#ask-page-fixture .status')).toContainText('Live');
 }
 const actions = async (page: Page): Promise<string[]> =>
   page.evaluate(async (path) => (await import(path)).proof().actions, fixture);
 async function openFiles(page: Page) {
   const host = page.locator('#ask-page-fixture');
-  const toggle = host.getByTestId('files-toggle');
-  if (!(await toggle.isVisible()))
-    await host.getByRole('button', { name: 'More page actions' }).click();
+  const toggle = await pageAction(host, 'Files');
   await toggle.click();
   return page.getByTestId('files-panel');
 }
@@ -43,8 +42,8 @@ test('Files is a peer panel: empty for a writer, then rows with a count after Ad
   page,
 }) => {
   await mount(page);
-  const toggle = page.locator('#ask-page-fixture').getByTestId('files-toggle');
-  await expect(toggle).toHaveText(text.files);
+  const toggle = await pageAction(page.locator('#ask-page-fixture'), 'Files');
+  await expect(toggle).toHaveAccessibleName('Files (0)');
   const panel = await openFiles(page);
   await expect(panel.getByText(text.filesEmpty)).toBeVisible();
   await attach(panel, page, [
@@ -60,7 +59,8 @@ test('Files is a peer panel: empty for a writer, then rows with a count after Ad
   const rows = panel.getByTestId('file-row');
   await expect(rows).toHaveCount(2);
   await expect(chips).toHaveCount(0);
-  await expect(toggle).toHaveText(`${text.files} 2`);
+  await expect(toggle).toHaveAccessibleName('Files (2)');
+  await expect(toggle.locator('.page-header-count')).toHaveText('2');
   expect(await actions(page)).toEqual([
     'attach:upload:notes.txt',
     'attach:upload:shot.png',
@@ -207,9 +207,9 @@ async function mountReader(page: Page, files: boolean) {
 
 test('a reader link lists files read-only and only when the page has files', async ({ page }) => {
   await mountReader(page, false);
-  await expect(page.getByTestId('files-toggle')).toHaveCount(0);
+  await expect(await pageAction(page, 'Files')).toHaveCount(0);
   await mountReader(page, true);
-  const toggle = page.getByTestId('files-toggle');
+  const toggle = await pageAction(page, 'Files');
   await expect(toggle).toHaveText(`${text.files} 3`);
   await toggle.click();
   const rows = page.getByTestId('file-row');
@@ -310,7 +310,7 @@ for (const width of [1440, 390])
       await expect(page.getByTestId('file-preview').locator('img')).toBeVisible();
       await shot('preview');
       await mountReader(page, true);
-      await page.getByTestId('files-toggle').click();
+      await (await pageAction(page, 'Files')).click();
       await expect(page.getByTestId('file-row')).toHaveCount(3);
       await shot('reader');
     });
@@ -324,10 +324,8 @@ test('the Export panel lists every attachment with its outcome and saves an incl
     { fixture },
   );
   const host = page.locator('#ask-page-fixture');
-  await expect(host.locator('.status')).toContainText('Live preview');
-  if (!(await host.getByRole('button', { name: 'Export page', exact: true }).isVisible()))
-    await host.getByRole('button', { name: 'More page actions' }).click();
-  await host.getByRole('button', { name: 'Export page', exact: true }).click();
+  await expect(host.locator('.status')).toContainText('Live');
+  await (await pageAction(host, 'Export page')).click();
   // The drawer is portaled out of the host.
   const panel = page.getByRole('region', { name: 'Export page' });
   const list = panel.getByRole('region', { name: text.exportAttachments });

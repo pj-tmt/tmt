@@ -137,30 +137,76 @@ footer {
 .page-main {
   min-height: 0;
 }
+/* Page chrome adds a second row on phones without changing other screen headers. */
+body:has(.page-header-actions) {
+  --page-header-extra: 0px;
+  --colab-header-height: calc(
+    var(--tmt-ui-header-height) + var(--colab-update-height) + var(--page-header-extra)
+  );
+  --page-bar-size: var(--colab-header-height);
+}
 .page {
   min-height: calc(100dvh - var(--colab-header-height));
 }
+.page .tmt-ui-header {
+  height: calc(var(--tmt-ui-header-height) + var(--page-header-extra));
+}
+/* Open header menus sit above selection controls and the update row. */
+.page .tmt-ui-header:has(.page-header-actions [role='menu']) {
+  z-index: 50;
+}
+.page-header-meta,
+.page-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.page-header-meta {
+  min-width: 0;
+}
 .page-backend {
-  max-width: 180px;
+  color: var(--c-muted);
+  font: 11px var(--f-mono);
+  white-space: nowrap;
+}
+.page-sharing {
+  border-width: var(--tmt-ui-rule-width);
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: var(--c-muted);
+}
+.page-header-actions {
+  position: relative;
+  gap: 2px;
+}
+.page-header-actions .tmt-ui-icon-action-control {
+  width: auto;
+  min-width: 32px;
+  padding: 0 6px;
+}
+.page-header-actions .tmt-ui-icon-action-icon {
+  width: auto;
+  gap: 4px;
+}
+.page-header-actions .tmt-ui-icon-action-icon > svg {
+  width: 18px;
+  height: 18px;
+  flex: none;
+}
+.page-header-count {
   font: 11px var(--f-mono);
 }
-.tmt-ui-header .export-control {
-  margin: 0;
+.page-header-unseen {
+  color: var(--c-waiting);
 }
-.theme-label,
-.info-label,
-.page-menu-meta {
-  display: none;
+.page-header-actions .tmt-action-menu-list {
+  border-width: 1px;
+  box-shadow: none;
 }
-/* Keep shared action controls hidden until the product overflow menu is needed. */
-.tmt-ui-header .page-menu-close,
-.tmt-ui-header .page-overflow-toggle {
-  display: none;
+.page-header-actions .tmt-action-menu-check {
+  float: right;
+  margin-left: 8px;
 }
 .status {
   color: var(--c-muted);
@@ -173,33 +219,11 @@ footer {
 .status-label {
   margin-left: 6px;
 }
+.page-header-meta .status-label {
+  margin-left: 0;
+}
 .workspace {
   min-height: 0;
-}
-.page-secondary {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-.page-information {
-  position: relative;
-}
-.page-information summary {
-  cursor: pointer;
-  list-style: none;
-}
-.page-information-panel {
-  position: absolute;
-  top: 100%;
-  right: 0;
-  width: min(320px, 90vw);
-  max-height: calc(100dvh - var(--page-bar-size) - 32px);
-  overflow: auto;
-  white-space: normal;
-  box-sizing: border-box;
-  padding: 16px;
-  background: var(--c-sheet);
-  border: 1px solid var(--c-rule);
 }
 .drawer-body > .ask-control {
   margin: 0;
@@ -216,84 +240,71 @@ footer {
 .drawer-body .ask-panel > h2 {
   margin-top: 24px;
 }
-@media (max-width: 1100px) {
-  .tmt-ui-header .page-overflow-toggle {
-    display: inline-flex;
+@media (max-width: 640px) {
+  body:has(.page-header-actions) {
+    --page-header-extra: 34px;
   }
-  .page-secondary {
-    display: none;
+  .page .tmt-ui-header {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-areas: 'brand heading heading' 'status status actions';
+    grid-template-rows: minmax(0, 1fr) 34px;
+    column-gap: 6px;
+    row-gap: 0;
   }
-  .tmt-ui-header[data-menu-open='true'] .page-secondary {
-    display: flex;
-    position: fixed;
-    top: calc(var(--page-bar-size) + env(safe-area-inset-top, 0px));
-    right: 12px;
-    max-height: calc(100dvh - var(--page-bar-size) - env(safe-area-inset-top, 0px) - 12px);
-    overflow: auto;
-    align-items: stretch;
-    flex-direction: column;
+  .page .tmt-ui-brand {
+    grid-area: brand;
+  }
+  .page .tmt-ui-heading {
+    grid-area: heading;
+  }
+  .page .tmt-ui-status {
+    grid-area: status;
+    min-width: 0;
+  }
+  .page .tmt-ui-actions {
+    grid-area: actions;
+  }
+  .page-header-actions .tmt-ui-icon-action-control {
+    min-width: 28px;
+    padding: 0 3px;
+  }
+  .page-header-actions {
     gap: 0;
-    width: min(260px, calc(100vw - 24px));
-    padding: 4px 12px;
-    background: var(--c-sheet);
-    border: 1px solid var(--c-text);
-    box-shadow: none;
   }
-  .page-secondary > button,
-  .page-secondary .page-information summary {
-    width: 100%;
-    text-align: left;
-    font-size: 14px;
-    padding: 12px 0;
-    border-bottom: 1px solid var(--c-rule);
+  .page-header-actions .tmt-ui-icon-action-icon {
+    gap: 3px;
   }
-  .page-secondary .page-information summary {
-    border: 0;
+  .page-header-count {
+    font-size: 10px;
   }
-  .page-secondary .page-information-panel {
-    position: static;
-    width: 100%;
-    margin: 0;
-    padding: 12px 0;
-    border: 0;
-    background: transparent;
+  .page-header-meta {
+    gap: 4px;
   }
-  .page-secondary .page-menu-close {
-    display: flex;
-    justify-content: flex-end;
-    align-self: flex-end;
+  .page-backend {
+    font-size: 10px;
   }
-  .page-secondary .theme-label,
-  .page-secondary .info-label {
-    display: inline;
-  }
-  .page-secondary .theme {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    margin: 0;
-  }
-  .tmt-ui-header .chip {
+  .page-header-meta .chip {
     padding: 3px 5px;
     font-size: 10px;
   }
+  body:has(.page-header-actions) .update-notice {
+    top: calc(env(safe-area-inset-top, 0px) + var(--tmt-ui-header-height) + 34px);
+  }
 }
-@media (max-width: 640px) {
-  .tmt-ui-actions > .page-backend,
-  .tmt-ui-actions > .page-sharing,
-  .tmt-ui-actions > .status {
-    display: none;
+@media (max-width: 360px) {
+  body:has(.page-header-actions) {
+    --page-header-extra: 68px;
   }
-  .page-menu-meta {
-    display: flex;
-    flex-direction: column;
-    color: var(--c-muted);
-    font: 11px var(--f-mono);
-    border-bottom: 1px solid var(--c-rule);
+  .page .tmt-ui-header {
+    grid-template-areas: 'brand heading heading' 'status status status' 'actions actions actions';
+    grid-template-rows: minmax(0, 1fr) 34px 34px;
   }
-  .page-menu-meta span {
-    padding: 10px 0;
-    overflow-wrap: anywhere;
+  .page .tmt-ui-actions {
+    justify-content: flex-end;
+  }
+  body:has(.page-header-actions) .update-notice {
+    top: calc(env(safe-area-inset-top, 0px) + var(--tmt-ui-header-height) + 68px);
   }
 }
 .canvas {

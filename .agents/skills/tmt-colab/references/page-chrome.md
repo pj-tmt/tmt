@@ -2,9 +2,9 @@
 
 `colab-header.tsx` and `notice-card.tsx` adapt Colab content to the private
 `@tmt/browser-ui/react` Header/Notice exports. Router chrome uses the shared Action/Toggle/List
-and static classes; Theme and page overflow/close use `BrowserIconAction`.
-The overflow trigger supplies controlled disclosure state and its menu ID; the
-host owns menu dismissal and focus return. Original trusted activation events remain Colab-owned. App and reader
+and static classes; Theme, page icons and close use `BrowserIconAction`.
+`ActionMenu` supplies disclosure state, popup semantics, trigger ref and keyboard handling;
+it owns menu dismissal and focus return. Original trusted activation events remain Colab-owned. App and reader
 entry points import `/static.css`. Header/card geometry, opaque square surfaces, mark plus
 visible state word and shadow-free presentation belong to that leaf; its
 [package contract](../../../../design/browser-ui/README.md) owns generation and host inputs.
@@ -15,9 +15,8 @@ variable names alias the shared browser roles rather than projecting another pal
 Owner and ready reader headers show `By <name>` below the title only when an original
 author is recorded; with none there is no caption. `page-attribution.tsx` presents that
 field (`Unknown author` when absent) and the independently optional latest publisher in
-Page information. These are escaped publisher-provided display labels, never identity,
-permissions or Ask recipient selection. Header height and page geometry stay unchanged;
-long captions truncate with the full label in the tooltip and information panel.
+About this page (Page information for read-only readers). These are escaped publisher-provided display labels, never identity,
+permissions or Ask recipient selection. Long captions truncate with the full label in the tooltip and attribution panel.
 
 Native pairing/build guidance stays static. `chrome.rs` compile-time embeds the same checked
 CSS and Colab host/reader/notice layout styles; `/assets/chrome.css` serves those immutable
@@ -26,9 +25,21 @@ product text, and keeps the parent CSP free of inline style/script exemptions. G
 loads the admitted build's recovery entry only when present; otherwise its details remain
 visible. Neither Cargo nor installed serving runs Node or fetches external assets.
 
-`router.tsx` retains the active Source, Comments, Chat, Agents or Export overlay. At narrow
-widths the page actions move into an overflow menu. The existing display-only
-`local · <name>` label and sharing metadata move inside that menu on mobile.
+`router.tsx` retains one active Source, Comments, Chat, Agents, Files, Export, Manage or
+About overlay. `page-header-actions.tsx` owns the five visible icon entry points:
+Discussion (open-thread count) opens Chat or Comments; Agents and Files (file count)
+open their panels; Source and export opens Source or Export page; More opens Manage
+page, Theme: Light/Dark/System, or About this page. Icons are centralized inline SVG;
+labels supply hover and keyboard-focus tooltips. Counts come from the existing page projection.
+`ActionMenu` retains its row trigger for conversation actions and accepts an icon for
+headers; keyboard navigation skips disabled entries, Escape returns focus, and selection
+returns focus before opening a portal. Open header menus sit above the update row and
+selection controls. Explicit theme choices are radio menu items.
+The display-only `local · Browser` environment slot (backend name in its tooltip) and
+one sharing/live-state chip remain outside menus. At 390px, brand/title occupies the
+first row and metadata plus the same five controls the second; at 320px actions get a
+third row. Colab owns these extra header heights and update-notice offsets. Other
+screen headers retain the shared token height. No menu grants writer admission.
 The page index uses leaf List/Row presentation with newest-update-first ordering,
 then displayed title and page ID for ties. Active titles are links; archived titles
 remain plain text with their actions menu. Tab order is title then actions for
@@ -54,7 +65,7 @@ nor anchor reports grant a publication capability. Quote capture/resolution and
 the existing selection channel remain cosmetic and keep working after resize.
 Author backgrounds and widths belong to the page; parent theme tokens style
 chrome. `theme.ts` reads the parent's explicit root choice, otherwise the live OS
-preference; ThemeButton records a choice only on activation. `renderer.ts` subscribes
+preference; theme actions record Light/Dark or remove the explicit choice for System only on activation. `renderer.ts` subscribes
 for its mounted lifetime and projects the effective light/dark value through the
 bound init/port. The bootstrap sets root `data-theme` before author code and updates
 it without replacing the document. The [renderer contract](../../../../extensions/tmt-colab/contracts/colab-v1.md#renderer-and-live-anchors)
@@ -118,7 +129,7 @@ Close/Escape restores focus, and media listeners/dialogs clean up on close or
 unmount. Chat initializes on first opening; closed Source, Comments and Chat panels retain drafts and admitted history;
 closing never dispatches, abandons or retries. Export closes its preparation and
 revokes download Blob URLs. Manage also portals outside the menu. Safety details
-remain available from Page information and blocked views; visibility never
+remain available from About this page, reader Page information and blocked views; visibility never
 substitutes for writer admission.
 
 `agent-status-panel.tsx` presents the canonical read-only `LiveAsk` observation
@@ -130,11 +141,11 @@ binding replacement; this presentation has no message or recovery capability.
 The read owner and typed failure boundary are defined in [Ask agent](ask-agent.md).
 
 `e2e/chrome.spec.ts` compares header and state-card dimensions, font metrics, state words/colors and window-scroll
-containment across every screen at 1440/390/320 in light/dark, including responses
+containment across every screen (including page-owned compact rows) at 1440/390/320 in light/dark, including responses
 from the native no-app socket fixture. Short-screen midpoint checks add an inert
 scroll probe; their top captures show the natural notice layout.
 `e2e/layout.spec.ts` covers window-scrolled 1440/390 light/dark short/long captures,
-one-row/menu layout, overlays that preserve page geometry, and focus/Escape.
+five icons and visible metadata, menus, overlays that preserve page geometry, and focus/Escape.
 `e2e/live-update.spec.ts` covers annotation/thread/Chat draft survival, frozen-quote
 sends, highlight reprojection, window offsets and page-change resets at 1440/390.
 `e2e/renderer-scroll.spec.ts` covers owner and reader resizing, local anchors,

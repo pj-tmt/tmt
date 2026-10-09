@@ -1,3 +1,4 @@
+import { pageAction } from '../test/page-actions.js';
 import { expect, test, type Page } from '@playwright/test';
 import { mkdirSync } from 'node:fs';
 const fixture = '/test/agent-status-browser.html';
@@ -25,9 +26,7 @@ async function command(
   );
 }
 async function openStatus(page: Page) {
-  const overflow = page.getByRole('button', { name: 'More page actions' });
-  if (await overflow.isVisible()) await overflow.click();
-  await page.getByTestId('agents-toggle').click();
+  await (await pageAction(page, 'Agents')).click();
   return page.locator('.page-drawer[data-panel=agents]');
 }
 async function proof(page: Page) {
@@ -152,7 +151,7 @@ test('replaced binding drops the old pending directory and retains a Chat draft'
   page,
 }) => {
   await page.goto(fixture);
-  await page.getByTestId('chat-toggle').click();
+  await (await pageAction(page, 'Chat')).click();
   const chat = page.locator('.page-drawer[data-panel=chat]');
   await chat.getByRole('combobox', { name: 'Message', exact: true }).fill('Retain this draft');
   await chat.getByRole('button', { name: 'Close Chat', exact: true }).click();
@@ -166,7 +165,7 @@ test('replaced binding drops the old pending directory and retains a Chat draft'
   await command(page, 'resolvePrevious');
   await expect(panel.getByText('Unobserved agent', { exact: true })).toHaveCount(0);
   await panel.getByRole('button', { name: 'Close Agents', exact: true }).click();
-  await page.getByTestId('chat-toggle').click();
+  await (await pageAction(page, 'Chat')).click();
   await expect(chat.getByRole('combobox', { name: 'Message', exact: true })).toHaveText(
     'Retain this draft',
     { useInnerText: true },

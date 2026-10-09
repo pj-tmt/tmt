@@ -1,3 +1,4 @@
+import { pageAction } from '../test/page-actions.js';
 import { expect, test, type Locator, type Page } from '@playwright/test';
 import { capturePath } from './captures.js';
 
@@ -14,13 +15,11 @@ async function mount(page: Page, surface: 'thread' | 'chat') {
   await run(page, 'conversation', { surface, state: 'waiting' });
   await run(page, 'scrollHistory');
   const host = page.locator('#ask-page-fixture');
-  await expect(host.locator('.status')).toContainText('Live preview');
+  await expect(host.locator('.status')).toContainText('Live');
   if (surface === 'thread') {
     await page.frameLocator('#ask-page-fixture iframe').locator('[data-colab-thread]').click();
   } else {
-    const toggle = host.getByTestId('chat-toggle');
-    if (!(await toggle.isVisible()))
-      await host.getByRole('button', { name: 'More page actions' }).click();
+    const toggle = await pageAction(host, 'Chat');
     await toggle.click();
   }
   const window = page.getByTestId(surface === 'thread' ? 'comment-thread' : 'chat-panel');
@@ -218,9 +217,7 @@ for (const surface of ['chat', 'thread'] as const) {
     await expect(window).not.toBeVisible();
     if (surface === 'chat') {
       const host = page.locator('#ask-page-fixture');
-      const toggle = host.getByTestId('chat-toggle');
-      if (!(await toggle.isVisible()))
-        await host.getByRole('button', { name: 'More page actions' }).click();
+      const toggle = await pageAction(host, 'Chat');
       await toggle.click();
     } else {
       await page.frameLocator('#ask-page-fixture iframe').locator('[data-colab-thread]').click();

@@ -1,3 +1,4 @@
+import { pageAction } from '../test/page-actions.js';
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -96,11 +97,8 @@ test('files attached in Chat reach a second paired device, preview and download 
 });
 
 async function openFiles(page: Page) {
-  const toggle = page.getByTestId('files-toggle');
-  const menu = page.getByRole('button', { name: 'More page actions' });
-  // A reloaded page needs a moment before either control exists.
-  await expect(toggle.or(menu)).toBeVisible({ timeout: 30_000 });
-  if (!(await toggle.isVisible())) await menu.click();
+  const toggle = await pageAction(page, 'Files');
+  await expect(toggle).toBeVisible({ timeout: 30_000 });
   await toggle.click();
   return page.getByTestId('files-panel');
 }
@@ -142,12 +140,12 @@ test('files added to the page reach another device and a read-only link byte-ide
     await (await chooser).setFiles(all);
     await expect(panel.getByTestId('attachment-chip')).toHaveCount(3);
     // Choosing stored and wrote nothing: the other device still shows no files.
-    await expect(second.getByTestId('files-toggle')).toHaveText(text.files);
+    await expect(await pageAction(second, 'Files')).toHaveAccessibleName('Files (0)');
 
     await panel.getByRole('button', { name: text.filesAdd, exact: true }).click();
     await expect(panel.getByTestId('file-row')).toHaveCount(3, { timeout: 30_000 });
-    await expect(first.getByTestId('files-toggle')).toHaveText(`${text.files} 3`);
-    await expect(second.getByTestId('files-toggle')).toHaveText(`${text.files} 3`, {
+    await expect(await pageAction(first, 'Files')).toHaveAccessibleName('Files (3)');
+    await expect(await pageAction(second, 'Files')).toHaveAccessibleName('Files (3)', {
       timeout: 30_000,
     });
 
@@ -186,10 +184,10 @@ test('files added to the page reach another device and a read-only link byte-ide
     await check(second, true);
 
     const reader = await openReaderLink(world, door, readerPath, 'files-reader');
-    await expect(reader.page.getByTestId('files-toggle')).toHaveText(`${text.files} 3`, {
+    await expect(await pageAction(reader.page, 'Files')).toHaveText(`${text.files} 3`, {
       timeout: 30_000,
     });
-    await reader.page.getByTestId('files-toggle').click();
+    await (await pageAction(reader.page, 'Files')).click();
     await check(reader.page, false);
     await expect(reader.page.getByRole('button', { name: text.attachFiles })).toHaveCount(0);
 
@@ -200,10 +198,10 @@ test('files added to the page reach another device and a read-only link byte-ide
       .getByRole('button', { name: text.attachRemove })
       .click();
     await expect(panel.getByTestId('file-row')).toHaveCount(2, { timeout: 30_000 });
-    await expect(second.getByTestId('files-toggle')).toHaveText(`${text.files} 2`, {
+    await expect(await pageAction(second, 'Files')).toHaveAccessibleName('Files (2)', {
       timeout: 30_000,
     });
-    await expect(reader.page.getByTestId('files-toggle')).toHaveText(`${text.files} 2`, {
+    await expect(await pageAction(reader.page, 'Files')).toHaveText(`${text.files} 2`, {
       timeout: 30_000,
     });
 
@@ -333,7 +331,7 @@ test('export and attachment read return the same bytes as the browser, and say w
       expect(fs.statSync(path.join(directory, 'attachments')).mode & 0o777).toBe(0o700);
 
       // The browser's Export panel offers the same three files under their own names.
-      await first.getByRole('button', { name: 'Export page', exact: true }).click();
+      await (await pageAction(first, 'Export page')).click();
       const exportPanel = first.getByRole('region', { name: 'Export page' });
       for (const file of [notes, picture, chat]) {
         const pending = first.waitForEvent('download');
