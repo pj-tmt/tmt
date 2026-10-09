@@ -1575,6 +1575,14 @@ test('settings draft preserves authority, exact values, drafts and unknown self-
   let renameCalls = 0,
     revokeCalls = 0,
     opens = 0;
+  const statuses: { operation: string; status: number }[] = [];
+  page.on('response', (response) => {
+    if (new URL(response.url()).pathname.endsWith('/append'))
+      statuses.push({
+        operation: response.request().postDataJSON().operation,
+        status: response.status(),
+      });
+  });
   let recorded!: () => void, release!: () => void;
   const published = new Promise<void>((resolve) => {
     recorded = resolve;
@@ -1692,8 +1700,29 @@ test('settings draft preserves authority, exact values, drafts and unknown self-
   );
   expect(revokeCalls).toBe(1);
   expect(opens).toBe(2);
+  // Observe completion even when the ended SDK rejects locally without an HTTP request.
+  await page.evaluate(() => {
+    const fixtureWindow = window as typeof window & { refreshFinished?: Promise<void> };
+    const control = document.querySelector<HTMLButtonElement>('#refresh')!;
+    fixtureWindow.refreshFinished = new Promise((resolve) => {
+      const observer = new MutationObserver((records) => {
+        if (records.some((record) => record.oldValue !== null) && !control.disabled) {
+          observer.disconnect();
+          resolve();
+        }
+      });
+      observer.observe(control, {
+        attributes: true,
+        attributeFilter: ['disabled'],
+        attributeOldValue: true,
+      });
+    });
+  });
   await page.click('#refresh');
-  await expect(page.locator('#outcome')).toContainText('unknown');
+  await page.evaluate(async () => {
+    await (window as typeof window & { refreshFinished: Promise<void> }).refreshFinished;
+  });
+  await expect(page.locator('#outcome'), JSON.stringify(statuses)).toContainText('unknown');
   expect(opens).toBe(2);
   const calls = (await readFile(join(root, 'core-calls.jsonl'), 'utf8'))
     .split('\n')

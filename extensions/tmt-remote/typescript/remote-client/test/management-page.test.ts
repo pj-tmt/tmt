@@ -157,6 +157,76 @@ test('unavailable original receipt retains unknown, never authorizes replay', as
   assert.equal(f.page.writable, false);
   assert.deepEqual(f.counts(), { effectCalls: 1, readCalls: 1, reopens: 1 });
 });
+for (const state of ['unknown', 'committed'] as const) {
+  for (const method of ['settings', 'devices'] as const) {
+    for (const access of ['lost', 'unconfirmed'] as const) {
+      test(`failed ${method} refresh preserves ${state} original with ${access} access`, async () => {
+        const f = fixture();
+        await f.page.refresh();
+        const intent = input();
+        if (state === 'committed')
+          f.setResult({
+            operationId: intent.input.operationId,
+            state,
+            result: { settings: f.page.settings!.settings },
+            sessionEnded: true,
+          });
+        await f.page.submit(intent);
+        const original = f.page.intent;
+        const outcome = f.page.outcome;
+        let arrived!: () => void;
+        let reject!: (error: unknown) => void;
+        const reached = new Promise<void>((resolve) => {
+          arrived = resolve;
+        });
+        const held = new Promise<never>((_resolve, refused) => {
+          reject = refused;
+        });
+        f.remote[method] = () => {
+          arrived();
+          return held;
+        };
+        const refresh = f.page.refresh();
+        await reached;
+        assert.equal(f.page.busy, true);
+        assert.equal(f.page.writable, false);
+        assert.equal(f.page.intent, original);
+        assert.equal(f.page.outcome, outcome);
+        reject(
+          access === 'lost'
+            ? new RefusalError('REMOTE_SESSION_ENDED')
+            : new ClientError('transport_failure', 'Unconfirmed refresh.'),
+        );
+        await refresh;
+        assert.equal(f.page.busy, false);
+        assert.equal(f.page.access, access);
+        assert.equal(f.page.intent, original);
+        assert.equal(f.page.outcome, outcome);
+        assert.equal(f.page.writable, false);
+        assert.equal(
+          f.page.notice,
+          state === 'unknown'
+            ? 'Outcome unknown. Read the original operation; do not submit it again.'
+            : 'Saved. Session limits apply at the next session open.',
+        );
+        assert.deepEqual(f.counts(), { effectCalls: 1, readCalls: 0, reopens: 0 });
+      });
+    }
+  }
+}
+
+test('failed refresh without an original keeps current-access guidance', async () => {
+  const f = fixture();
+  f.remote.settings = async () => {
+    throw new RefusalError('REMOTE_SESSION_ENDED');
+  };
+  await f.page.refresh();
+  assert.equal(f.page.access, 'lost');
+  assert.equal(f.page.outcome, undefined);
+  assert.equal(f.page.notice, 'Current access could not be confirmed. Use the local CLI.');
+  assert.deepEqual(f.counts(), { effectCalls: 0, readCalls: 0, reopens: 0 });
+});
+
 test('capacity refusal names local CLI and acknowledged self-change remains committed after access loss', async () => {
   const f = fixture();
   await f.page.refresh();
