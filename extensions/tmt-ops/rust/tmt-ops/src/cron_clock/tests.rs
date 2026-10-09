@@ -415,14 +415,30 @@ fn deferred_ui_workers_never_take_the_old_clock_and_migrate_without_stopping() {
     );
     assert!(!f.directory.join("ops").exists());
     assert!(request_calls(&f.model()).is_empty());
-    old_lease.release().unwrap();
+    // Simulate the former board removing its unchanged lease. Migration probes
+    // can hold this lock; Lease::release consumes the lease even on BUSY, so the
+    // fixture waits for the guard before removing its own evidence.
+    let old_directory = f.directory.join("squad/cron");
+    let guard = wait_for(|| {
+        let file = fs::File::open(old_directory.join("clock.lock")).unwrap();
+        match nix::fcntl::Flock::lock(file, nix::fcntl::FlockArg::LockExclusiveNonblock) {
+            Ok(guard) => Some(guard),
+            Err((_, nix::errno::Errno::EAGAIN)) => None,
+            Err((_, error)) => panic!("fixture clock lock: {error}"),
+        }
+    });
+    assert_eq!(fs::read(old_directory.join("clock.json")).unwrap(), held);
+    fs::remove_file(old_directory.join("clock.json")).unwrap();
+    fs::File::open(&old_directory).unwrap().sync_all().unwrap();
+    drop(guard);
+    drop(old_lease);
     wait_for(|| f.directory.join(".ops-paths-v1").exists().then_some(()));
     wait_for(|| {
-        matches!(
-            Clock::new(&f.directory.join("ops")).unwrap().status(now()),
-            ClockStatus::Running(_)
-        )
-        .then_some(())
+        // A contended status is Unknown, so keep observing until Running.
+        Clock::new(&f.directory.join("ops"))
+            .ok()
+            .is_some_and(|clock| matches!(clock.status(now()), ClockStatus::Running(_)))
+            .then_some(())
     });
     assert!(!crate::migration::paths(&f.core, None).unwrap().legacy);
     assert_eq!(
