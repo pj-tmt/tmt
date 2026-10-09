@@ -84,6 +84,8 @@ native reader needs CSS; Office product execution remains disabled.
 
 ## Cache ownership
 
+Docker E2E PR/merge-group shards restore only exact main-owned dependency archives; the purpose-specific main seed exports Cargo target/debug and registry, while misses build cold and real compiler failures never retry cold.
+
 Rust dependency caches use the pinned `Swatinem/rust-cache` action with one
 main-only writer per key: workspace tests for shared dev dependencies, process
 contracts for their existing dev/release builds under `native-process-rust`, MSRV

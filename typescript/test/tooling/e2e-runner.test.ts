@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vite-plus/test';
+import { dependencyCacheKey } from '../../scripts/e2e-dependency-cache.mjs';
 import { createSandbox, runCli } from '../support/cli-process.js';
 
 describe('Docker wrapper executable forwarding', () => {
@@ -242,3 +243,92 @@ require('node:fs').appendFileSync(process.env.TMT_RUNNER_LOG, JSON.stringify(pro
     }
   );
 });
+
+it.each(['hit', 'compile failure', 'mismatch', 'absent', 'local'])(
+  'keeps archive %s on the existing E2E lifecycle without cold retry',
+  (mode) => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'tmt-e2e-archive-control-'));
+    const repo = fileURLToPath(new URL('../../../', import.meta.url));
+    try {
+      const bundle = path.join(root, 'bundle');
+      const log = path.join(root, 'docker.jsonl');
+      fs.mkdirSync(path.join(bundle, 'target/debug/deps'), { recursive: true });
+      fs.mkdirSync(path.join(bundle, 'registry'), { recursive: true });
+      fs.writeFileSync(path.join(bundle, 'target/debug/deps/libthirdparty.rlib'), 'dependency');
+      fs.writeFileSync(path.join(bundle, 'registry/index'), 'registry');
+      fs.writeFileSync(path.join(bundle, 'cache-key'), dependencyCacheKey(repo) + '\n');
+      if (mode === 'mismatch') fs.writeFileSync(path.join(bundle, 'cache-key'), 'other key');
+      writeExecutable(
+        path.join(root, 'docker'),
+        `#!/usr/bin/env node
+const fs = require('node:fs');
+const args = process.argv.slice(2);
+fs.appendFileSync(process.env.TMT_RUNNER_LOG, JSON.stringify(args) + '\\n');
+const file = args[args.indexOf('--file') + 1];
+if (args.includes('--file')) fs.writeFileSync(process.env.TMT_RENDER_LOG, fs.readFileSync(file));
+process.exitCode = args.includes('build') ? Number(process.env.TMT_BUILD_STATUS) : 0;
+`,
+        0o755
+      );
+      const result = spawnSync(
+        process.execPath,
+        [fileURLToPath(new URL('../../scripts/run-e2e.mjs', import.meta.url))],
+        {
+          encoding: 'utf8',
+          timeout: 10000,
+          env: {
+            ...process.env,
+            PATH: `${root}${path.delimiter}${process.env.PATH ?? ''}`,
+            TMT_RUNNER_LOG: log,
+            TMT_RENDER_LOG: path.join(root, 'rendered'),
+            TMT_BUILD_STATUS: mode === 'compile failure' ? '23' : '0',
+            CI: 'true',
+            GITHUB_ACTIONS: mode === 'local' ? '' : 'true',
+            TMT_E2E_DEPENDENCY_CACHE: mode === 'absent' ? path.join(root, 'missing') : bundle,
+            TMT_E2E_FILES: '',
+            TMT_E2E_ADAPTER_TESTS: '',
+            CARGO_BUILD_JOBS: '',
+          },
+        }
+      );
+      expect(result.error).toBeUndefined();
+      expect(result.status).toBe(mode === 'compile failure' ? 23 : 0);
+      const calls: string[][] = fs
+        .readFileSync(log, 'utf8')
+        .trim()
+        .split('\n')
+        .map((line) => JSON.parse(line));
+      const hit = mode === 'hit' || mode === 'compile failure';
+      expect(calls[0].slice(0, hit ? 3 : 2)).toEqual(
+        hit ? ['buildx', 'build', '--load'] : ['build', '--tag']
+      );
+      expect(calls.filter((args) => args.includes('build'))).toHaveLength(1);
+      if (hit) {
+        expect(calls[0]).toContain(`tmtdeps=${bundle}`);
+        const file = calls[0][calls[0].indexOf('--file') + 1];
+        expect(fs.existsSync(path.dirname(file))).toBe(false);
+        expect(fs.readFileSync(path.join(root, 'rendered'), 'utf8')).toContain(
+          'COPY --from=tmtdeps'
+        );
+      } else {
+        expect(calls[0]).not.toContain('--build-context');
+        expect(fs.readFileSync(path.join(root, 'rendered'), 'utf8')).toBe(
+          fs.readFileSync(path.join(repo, 'typescript/test/e2e/Dockerfile'), 'utf8')
+        );
+      }
+      expect(calls.filter((args) => args[0] === 'run')).toHaveLength(
+        mode === 'compile failure' ? 0 : 1
+      );
+      if (mode !== 'compile failure')
+        expect(calls[1].slice(0, 5)).toEqual(['run', '--rm', '--init', '--network', 'none']);
+      expect(calls.at(-1)).toEqual([
+        'image',
+        'rm',
+        '--force',
+        calls[0][calls[0].indexOf('--tag') + 1],
+      ]);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  }
+);
