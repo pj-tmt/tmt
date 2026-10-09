@@ -59,6 +59,15 @@ fn notice(text: &str) {
 pub(crate) struct Decision(Mutex<Option<Result<Paths, SquadError>>>);
 
 impl Decision {
+    /// Read the selected layout without attempting a cutover or creating paths.
+    pub(crate) fn is_current(&self) -> bool {
+        self.0
+            .lock()
+            .unwrap()
+            .as_ref()
+            .is_some_and(|result| result.as_ref().is_ok_and(|paths| !paths.legacy))
+    }
+
     pub fn board_notice(&self) -> Option<String> {
         self.0
             .lock()

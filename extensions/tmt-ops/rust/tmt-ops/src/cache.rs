@@ -24,22 +24,22 @@ pub fn directory(name: &str) -> Option<PathBuf> {
 /// Replaces `path` atomically with a file only the user can read, creating
 /// its directory the same way, so a reader never sees half a file.
 pub fn replace(path: &Path, contents: &[u8]) -> io::Result<()> {
+    let directory = path.parent().ok_or(io::ErrorKind::InvalidInput)?;
+    fs::DirBuilder::new()
+        .recursive(true)
+        .mode(0o700)
+        .create(directory)?;
     replace_if(path, contents, || Ok(()))
 }
 
-/// Shares publication with a caller that must recheck cancellation before rename.
-/// Existing cache callers retain their paths and existing-directory permissions.
+/// Publishes in an existing directory, rechecking cancellation before rename.
+/// Never recreates a missing parent owned by migration.
 pub(crate) fn replace_if(
     path: &Path,
     contents: &[u8],
     before_publish: impl FnOnce() -> io::Result<()>,
 ) -> io::Result<()> {
     static NEXT: AtomicU64 = AtomicU64::new(0);
-    let directory = path.parent().ok_or(io::ErrorKind::InvalidInput)?;
-    fs::DirBuilder::new()
-        .recursive(true)
-        .mode(0o700)
-        .create(directory)?;
     let temporary = path.with_extension(format!(
         "{}-{}.tmp",
         std::process::id(),

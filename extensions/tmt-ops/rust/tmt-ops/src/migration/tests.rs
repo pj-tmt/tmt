@@ -55,6 +55,24 @@ impl Drop for Fixture {
 }
 
 #[test]
+fn current_decision_requires_a_selected_nonlegacy_layout_without_creating_paths() {
+    let f = Fixture::new();
+    let original = f.old_config();
+    assert!(!Decision::default().is_current());
+    for (selected, expected) in [
+        (Err(failed("migration unavailable")), false),
+        (Ok(Paths::at(&f.config, true)), false),
+        (Ok(Paths::at(&f.config, false)), true),
+    ] {
+        let decision = Decision(Mutex::new(Some(selected)));
+        assert_eq!(decision.is_current(), expected);
+        assert!(!f.data.join("ops").exists());
+        assert_eq!(fs::read(f.config.join("squad.toml")).unwrap(), original);
+        assert_eq!(fs::read_dir(&f.config).unwrap().count(), 1);
+    }
+}
+
+#[test]
 fn fresh_install_and_completed_fast_path_never_read_legacy_or_take_lock() {
     let f = Fixture::new();
     let (paths, warning) = f.run().unwrap();

@@ -59,6 +59,11 @@ and cancelled generations preserve the last good file. The current board does
 not load this cache: initial painting, stale labelling and action gating belong
 to the separate first-frame consumer (#2123).
 
+Writes require current migration paths and an existing owned `ops` directory.
+Legacy/deferred paths or a missing `ops` directory silently skip caching. The
+cache creates only its `cache/board` children; atomic publication cannot recreate
+missing parents or change the migration cutover decision.
+
 Version 1 explicitly projects tab order/pinning, squad-key/room-UUID inventory,
 waiting/blocked tab counts, section titles/order and basic member/lead headings
 (name, squad, state, task, and a boolean decision mark). HOME

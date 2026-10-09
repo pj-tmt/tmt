@@ -20,6 +20,10 @@ impl Fixture {
             NEXT.fetch_add(1, Ordering::Relaxed)
         ));
         fs::create_dir(&root).unwrap();
+        fs::DirBuilder::new()
+            .mode(0o700)
+            .create(root.join("ops"))
+            .unwrap();
         Self(root)
     }
     fn store(&self) -> Store {
@@ -50,6 +54,53 @@ fn display(name: &str) -> Display {
 }
 fn mode(path: &Path) -> u32 {
     fs::metadata(path).unwrap().permissions().mode() & 0o777
+}
+
+#[test]
+fn legacy_root_writes_create_no_ops_state_until_migration_creates_it() {
+    let fixture = Fixture::new();
+    fs::remove_dir(fixture.0.join("ops")).unwrap();
+    let legacy = fixture.0.join("squad");
+    fs::create_dir(&legacy).unwrap();
+    fs::write(legacy.join("clock.json"), b"legacy holder").unwrap();
+    let store = fixture.store();
+    store.write(&display("alice"), || true).unwrap();
+    assert!(!fixture.0.join("ops").exists());
+    assert!(store.load("product", &rooms()).is_none());
+    assert_eq!(
+        fs::read(legacy.join("clock.json")).unwrap(),
+        b"legacy holder"
+    );
+    assert_eq!(fs::read_dir(&fixture.0).unwrap().count(), 1);
+
+    // Only the migration owner supplies this directory; its mode is preserved.
+    fs::DirBuilder::new()
+        .mode(0o755)
+        .create(fixture.0.join("ops"))
+        .unwrap();
+    store.write(&display("alice"), || true).unwrap();
+    assert!(store.load("product", &rooms()).is_some());
+    assert_eq!(mode(&fixture.0.join("ops")), 0o755);
+    fs::remove_dir_all(fixture.0.join("ops")).unwrap();
+    store.write(&display("bob"), || true).unwrap();
+    assert!(
+        !fixture.0.join("ops").exists(),
+        "a retained store cannot recreate Ops"
+    );
+}
+
+#[test]
+fn publication_does_not_recreate_a_parent_removed_after_admission() {
+    let fixture = Fixture::new();
+    fixture.store().write(&display("alice"), || true).unwrap();
+    fs::remove_dir_all(fixture.0.join("ops")).unwrap();
+    assert_eq!(
+        cache::replace_if(&fixture.path(), b"candidate", || Ok(()))
+            .unwrap_err()
+            .kind(),
+        io::ErrorKind::NotFound
+    );
+    assert!(!fixture.0.join("ops").exists());
 }
 
 #[test]
@@ -193,7 +244,10 @@ fn absent_corrupt_truncated_wrong_tab_versions_room_changes_and_unknown_fields_a
     let fixture = Fixture::new();
     let store = fixture.store();
     assert!(store.load("product", &rooms()).is_none());
-    assert!(!fixture.0.join("ops").exists(), "a load creates nothing");
+    assert!(
+        !fixture.0.join("ops/cache").exists(),
+        "a load creates nothing"
+    );
     store.write(&display("alice"), || true).unwrap();
     let original = fs::read(fixture.path()).unwrap();
     for bytes in [b"{broken".as_slice(), &original[..original.len() / 2]] {

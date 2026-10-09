@@ -131,6 +131,9 @@ impl Worker {
                     {
                         // A failure cannot change the published board's result.
                         let _ = timing::measure(trace.as_ref(), "snapshot_cache", || {
+                            if !core.paths.is_current() {
+                                return Ok(());
+                            }
                             if cache.is_none() {
                                 cache = crate::migration::data_root(
                                     &core.cancellable(cancellation.clone()),
@@ -1898,6 +1901,8 @@ esac
         const ROOM: &str = "11111111-1111-4111-8111-111111111111";
         let root = std::env::temp_dir().join(format!("ops-worker-snapshot-{}", std::process::id()));
         fs::create_dir(&root).unwrap();
+        // A completed migration owns Ops; the cache must not supply it.
+        fs::create_dir(root.join("ops")).unwrap();
         fs::write(root.join(".ops-paths-v1"), "{}").unwrap();
         fs::write(
             root.join("ops.toml"),

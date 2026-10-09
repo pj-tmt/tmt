@@ -237,7 +237,9 @@ impl Store {
     fn directory(&self, create: bool) -> io::Result<PathBuf> {
         let mut path = self.root.clone();
         migration::directory(&path)?;
-        for (component, private) in [("ops", false), ("cache", true), ("board", true)] {
+        path.push("ops");
+        migration::directory(&path)?;
+        for component in ["cache", "board"] {
             path.push(component);
             if create && !path.try_exists()? {
                 match fs::DirBuilder::new().mode(0o700).create(&path) {
@@ -247,7 +249,7 @@ impl Store {
                 }
             }
             migration::directory(&path)?;
-            if private && fs::symlink_metadata(&path)?.permissions().mode() & 0o777 != 0o700 {
+            if fs::symlink_metadata(&path)?.permissions().mode() & 0o777 != 0o700 {
                 return Err(io::Error::other("snapshot directory must be private"));
             }
         }
@@ -255,7 +257,7 @@ impl Store {
     }
 
     pub(super) fn write(&self, display: &Display, current: impl Fn() -> bool) -> io::Result<()> {
-        if !current() {
+        if !current() || !self.root.join("ops").try_exists()? {
             return Ok(());
         }
         let mut bytes = Bytes(Vec::new());
