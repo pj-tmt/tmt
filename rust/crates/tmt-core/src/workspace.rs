@@ -90,6 +90,8 @@ pub struct StoredIdentity {
     pub preferences: SessionPreferences,
 }
 
+pub mod plan;
+
 /// An annotation requires agreement with every durable marker coordinate.
 /// Missing or disagreeing evidence leaves an ordinary pane; it never retires rows.
 pub fn identity_for_pane(

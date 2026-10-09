@@ -35,6 +35,9 @@ pub enum Invocation {
         skill: Option<String>,
     },
     Init,
+    WorkspaceShow {
+        socket: Option<String>,
+    },
     Run {
         name: String,
         command: Vec<std::ffi::OsString>,

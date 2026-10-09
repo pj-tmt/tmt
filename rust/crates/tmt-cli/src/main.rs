@@ -57,6 +57,7 @@ mod talk_command;
 mod target;
 mod uninstall_command;
 mod workspace_hook;
+mod workspace_show_command;
 
 #[cfg(test)]
 mod cli_style_tests;
@@ -102,6 +103,10 @@ fn execute(parsed: invocation::Parsed) -> io::Result<u8> {
         );
     }
     // A driver's pane IDs and targets are known once its syntax is registered.
+    // Recovery inspection never participates in optional learning/delivery effects.
+    if let Invocation::WorkspaceShow { socket } = &parsed.invocation {
+        return workspace_show_command::execute(socket.as_deref(), parsed.mode);
+    }
     tmt_adapters::host::external::register_approved();
     // Companions reach core through this executable, whatever name it has.
     tmt_adapters::core_executable::declare_core();
@@ -197,6 +202,9 @@ fn dispatch(parsed: invocation::Parsed) -> io::Result<u8> {
         }
         Invocation::Config(request) => {
             return config_command::execute(request, parsed.mode);
+        }
+        Invocation::WorkspaceShow { socket } => {
+            return workspace_show_command::execute(socket.as_deref(), parsed.mode);
         }
         Invocation::ExtensionInstall(request) => {
             return extension_install_command::execute(request, parsed.mode);

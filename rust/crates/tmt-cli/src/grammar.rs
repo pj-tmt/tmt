@@ -35,6 +35,7 @@ mod presence;
 mod requests;
 mod rooms;
 mod settings;
+mod workspace;
 
 /// The root's help; root help adds the extensions discovered on `PATH`.
 pub const ROOT: &CommandSpec = spec!(
@@ -96,6 +97,7 @@ pub fn grammar_for(drivers: &[&'static DriverDescriptor]) -> Command {
         ["Serve tools for a saved identity" => "tmt mcp --identity reviewer"]
     )).arg(option("identity").global(false).required(true)));
     root = root.subcommand(rooms::room());
+    root = root.subcommand(workspace::workspace());
     root.subcommand(
         general(spec!(
             "help",

@@ -73,3 +73,28 @@ Linux cross-pane foreground evidence reads only the exact owner's bounded
 native tty device. It does not require the observing command to own that terminal.
 Darwin uses the existing selected-process BSD information boundary for the same
 tty and foreground-group agreement when the direct terminal query is unavailable.
+
+## Restore preview
+
+`tmt workspace show [--socket PATH] [--json]` reads the exact selected socket's
+snapshot without capture, publication, database initialization, reconciliation or
+provider observation. Outside the original tmux environment, select its absolute
+socket path explicitly; no default server or snapshot-directory search occurs.
+Malformed, unsupported, oversized or symlinked snapshots are refused unchanged.
+
+The version 1 plan contains the existing `snapshot` topology plus `sessions` and
+`panes` actions. A bounded read of current session names marks matching names
+`skip_existing`, absent names `create`, and uncertain observation `unknown`. A
+missing socket has no sessions. Every effectful restore must recheck live state;
+this preview grants no authority to overwrite or launch.
+
+Pane actions are `shell`, `relaunch_command` (literal external argv),
+`identity_missing`, `no_remembered_session`, `resumable`, or
+`stale_requires_retry`. Exact current unretired UUIDs and durable preferences take
+precedence over snapshot names and conversation annotations, including unbound
+saved identities. A same-name replacement is missing, never resurrected. Pending
+resume marks remain informational; stale marks require explicit retry. Public
+resume coordinates exclude opaque driver state. No command settles a pending
+resume, repairs storage or starts a fresh conversation during preview.
+`resumable` means current durable coordinates exist without a stale mark;
+provider capability, availability and binding admission are rechecked at launch.

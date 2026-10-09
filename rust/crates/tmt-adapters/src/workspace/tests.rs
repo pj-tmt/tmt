@@ -1,7 +1,7 @@
 use super::*;
 use tmt_core::{endpoint::ProcessIncarnation, workspace::*};
 
-fn sample() -> WorkspaceSnapshot {
+pub(super) fn sample() -> WorkspaceSnapshot {
     WorkspaceSnapshot {
         captured_at_ms: 1,
         server: WorkspaceServer {
@@ -212,7 +212,7 @@ fn codec_refuses_unknown_versions_and_inconsistent_structure() {
     assert!(decode(&serde_json::to_vec(&value).unwrap()).is_err());
 }
 
-fn paths(directory: &Path) -> ConfigPaths {
+pub(super) fn paths(directory: &Path) -> ConfigPaths {
     ConfigPaths::resolve(directory, directory, Some(&directory.join("global")), None)
 }
 

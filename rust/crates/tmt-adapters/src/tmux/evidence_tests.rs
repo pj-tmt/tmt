@@ -11,6 +11,27 @@ const START_TIME: &str = "1700000000";
 const SERVER_PID: &str = "321";
 const PANE_PID: &str = "654";
 
+#[test]
+fn workspace_plan_reads_only_session_names_on_the_exact_socket() {
+    let runner = crate::scripted_runner::ScriptedRunner::default();
+    runner.push_output(b"one\ntwo\n".to_vec(), Vec::new());
+    let tmux = super::Tmux::new(runner);
+    assert_eq!(
+        tmux.workspace_session_names(
+            SOCKET,
+            std::time::Instant::now() + std::time::Duration::from_secs(1)
+        )
+        .unwrap(),
+        ["one", "two"]
+    );
+    let calls = tmux.runner.calls.borrow();
+    assert_eq!(calls.len(), 1);
+    assert_eq!(
+        calls[0].args,
+        ["-S", SOCKET, "list-sessions", "-F", "#{session_name}"]
+    );
+}
+
 fn server_row(server_id: &str, socket: &str, pid: &str, start_time: &str) -> String {
     [server_id, socket, pid, start_time].join(evidence::SEPARATOR)
 }
