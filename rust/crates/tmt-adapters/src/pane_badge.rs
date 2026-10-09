@@ -48,6 +48,7 @@ pub fn refresh<R: CommandRunner>(
     let cosmetics = PaneCosmetics::Bound {
         identity: &context.entry.identity,
         badge: settings.settings.pane_badge == PaneBadge::On,
+        border_hint: false,
     };
     let _ = host.update_binding_cosmetics_until(binding, cosmetics, deadline);
 }

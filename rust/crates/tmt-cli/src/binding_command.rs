@@ -328,6 +328,7 @@ fn run(request: Invocation) -> Result<Report, Failure> {
                     PaneCosmetics::Bound {
                         identity: &result.presence.identity,
                         badge,
+                        border_hint: true,
                     },
                 )
             }),
@@ -355,6 +356,7 @@ fn run(request: Invocation) -> Result<Report, Failure> {
             let cosmetics = PaneCosmetics::Bound {
                 identity: &result.identity,
                 badge,
+                border_hint: false,
             };
             let refresh = Host::for_server(&binding.server)
                 .update_binding_cosmetics(binding, cosmetics)

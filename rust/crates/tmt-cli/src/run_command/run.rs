@@ -244,6 +244,7 @@ pub(super) fn run_bound(
             PaneCosmetics::Bound {
                 identity: &bound.presence.identity,
                 badge: badge == PaneBadge::On,
+                border_hint: true,
             },
         )
         .is_err()
