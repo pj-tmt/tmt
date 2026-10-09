@@ -49,6 +49,12 @@ export function validateReport(report, corpus, engines = ENGINES) {
     for (let i = 0; i < 148; i++) {
       const row = result.rows[i],
         expected = corpus[i];
+      if (typeof row.rawProbed !== 'boolean')
+        throw new Error(`${name} missing rawProbed boolean for ${expected.name}`);
+      if (expected.nativePolicy && (!row.rawProbed || row.raw !== true))
+        throw new Error(`${name} missing raw positive control for ${expected.name}`);
+      if (!row.rawProbed && (row.accepted !== false || row.raw !== false))
+        throw new Error(`${name} guard-rejected raw probe must refuse ${expected.name}`);
       if (
         row.name !== expected.name ||
         row.accepted !== expected.nativePolicy ||
