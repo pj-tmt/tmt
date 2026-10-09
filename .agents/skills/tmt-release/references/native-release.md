@@ -711,8 +711,9 @@ Read-only REST evidence (no GraphQL) on queue throughput, group duration, enqueu
 per-job failures: `node typescript/scripts/merge-queue-metrics.mjs --repo pj-tmt/tmt --since <UTC>
 --until <UTC> [--boundary <UTC>] --cache <dir> --output <md> --json <json>`. Bounds are UTC, start
 inclusive and end exclusive; `--boundary` compares cohorts, `--details` prints all cost rows,
-`--offline` requires cached evidence, `--max-requests N` overrides the 500-request budget (split
-capped windows), `--workflow FILE` defaults to `ci.yml` and `--tag-pr N` (repeatable) marks
+`--offline` requires cached evidence. The default 500-request budget can be exhausted on windows
+near 12 hours; narrow the window or pass `--max-requests N`. `--workflow FILE` defaults to `ci.yml`
+and `--tag-pr N` (repeatable) marks
 confounder PRs. Terminal job pages refresh once through complete acquisition before cache reuse;
 unqualified offline pages cannot prove completion. API source SHA/tree stay separate from each
 worker's checkout-log and immutable Git-tree proof; missing or ambiguous checkout evidence and
