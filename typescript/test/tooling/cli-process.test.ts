@@ -34,6 +34,13 @@ function fixture(mode = 'exit', output = 'ignore') {
         const pendingMarker = process.argv[2] + '.pending';
         fs.writeFileSync(pendingMarker, JSON.stringify({ child: child.pid, group, launcherGroup }));
         fs.renameSync(pendingMarker, process.argv[2]);
+        if (process.argv[3] === 'controlled-exit') {
+          const exit = () => {
+            if (fs.existsSync(process.argv[2] + '.exit')) process.exit(0);
+          };
+          fs.watch(import.meta.dirname, exit);
+          exit();
+        }
         if (process.argv[3] === 'exit') process.exit(0);
         if (process.argv[3] === 'overflow') process.stdout.write('over the limit');
       });
@@ -42,7 +49,7 @@ function fixture(mode = 'exit', output = 'ignore') {
     0o644
   );
   const cli = { executable: process.execPath, args: [script, marker, mode] };
-  return { root, marker, cli };
+  return { root, marker, cli, releaseExit: () => fs.writeFileSync(marker + '.exit', 'exit') };
 }
 function alive(pid: number): boolean {
   try {
@@ -60,11 +67,96 @@ async function until(condition: () => boolean) {
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
 }
+// This independent fixture observation never treats EPERM as absence or signalling authority.
+async function knownProcessState(
+  pid: number,
+  expectedAlive: boolean,
+  observations = {
+    probe: alive,
+    now: () => performance.now(),
+    wait: () => new Promise<void>((resolve) => setTimeout(resolve, 10)),
+  }
+) {
+  const deadline = observations.now() + 2_000;
+  let denial: unknown;
+  for (;;) {
+    try {
+      const observedAlive = observations.probe(pid);
+      if (observedAlive === expectedAlive) return observedAlive;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'EPERM') throw error;
+      denial = error;
+    }
+    if (observations.now() >= deadline)
+      throw new Error(
+        `Fixture process ${pid} state did not confirm ${expectedAlive ? 'live' : 'absent'} within 2000ms.`,
+        { cause: denial }
+      );
+    await observations.wait();
+  }
+}
+
+async function readyOwnedFixture(f: ReturnType<typeof fixture>) {
+  await until(() => fs.existsSync(f.marker));
+  const state = JSON.parse(fs.readFileSync(f.marker, 'utf8')) as {
+    child: number;
+    group: number;
+    launcherGroup: number;
+  };
+  for (const pid of Object.values(state)) expect(Number.isSafeInteger(pid) && pid > 0).toBe(true);
+  expect(state.group).not.toBe(process.pid);
+  expect(state.group).not.toBe(state.launcherGroup);
+  expect(
+    Number(
+      childProcess
+        .execFileSync('/bin/ps', ['-o', 'pgid=', '-p', String(state.child)], { encoding: 'utf8' })
+        .trim()
+    )
+  ).toBe(state.group);
+  expect(
+    Number(
+      childProcess
+        .execFileSync('/bin/ps', ['-o', 'pgid=', '-p', String(state.group)], { encoding: 'utf8' })
+        .trim()
+    )
+  ).toBe(state.group);
+  expect(await knownProcessState(state.child, true)).toBe(true);
+  expect(await knownProcessState(-state.group, true)).toBe(true);
+  return state;
+}
+
+function retainRoots(paths: string[]) {
+  for (const root of paths) {
+    const index = roots.indexOf(root);
+    if (index !== -1) roots.splice(index, 1);
+  }
+  console.error('Fixture cleanup unconfirmed; retained paths:', paths);
+}
+
 async function cleanup(marker: string) {
   if (!fs.existsSync(marker)) return;
-  const { group } = JSON.parse(fs.readFileSync(marker, 'utf8')) as { group: number };
-  if (alive(-group)) process.kill(-group, 'SIGKILL');
+  const { child, group } = JSON.parse(fs.readFileSync(marker, 'utf8')) as {
+    child: number;
+    group: number;
+  };
+  if (![child, group].every((pid) => Number.isSafeInteger(pid) && pid > 0) || group === process.pid)
+    throw new Error('Invalid owned fixture process identity; retaining files.');
+  if (alive(-group)) {
+    // Recheck the still-live child's group and private fixture path before any fallback signal.
+    const resident = childProcess
+      .execFileSync('/bin/ps', ['-o', 'pgid=,command=', '-p', String(child)], { encoding: 'utf8' })
+      .trim();
+    const match = /^(\d+)\s+(.+)$/.exec(resident);
+    if (
+      !match ||
+      Number(match[1]) !== group ||
+      !match[2].includes(path.join(path.dirname(marker), 'peer.mjs') + ' child')
+    )
+      throw new Error('Owned fixture child identity changed; retaining files.');
+    process.kill(-group, 'SIGKILL');
+  }
   await until(() => !alive(-group));
+  await knownProcessState(child, false);
 }
 afterEach(() => {
   for (const root of roots.splice(0)) fs.rmSync(root, { recursive: true, force: true });
@@ -497,64 +589,75 @@ it('unconfirmed group exit is bounded and retains files and the original failure
 it.each(['signal', 'probe'])(
   '%s EPERM resolves only after direct close and confirmed group absence',
   async (denial) => {
-    const f = fixture('exit');
+    const f = fixture('controlled-exit');
     const kill = process.kill.bind(process);
     let signalled = 0;
     let absent = false;
     let probeDenied = false;
-    const probe = vi.spyOn(process, 'kill').mockImplementation((pid, signal) => {
-      const group = fs.existsSync(f.marker)
-        ? (JSON.parse(fs.readFileSync(f.marker, 'utf8')) as { group: number }).group
-        : undefined;
-      if (
-        denial === 'probe' &&
-        !probeDenied &&
-        group !== undefined &&
-        pid === -group &&
-        signal === 0
-      ) {
-        probeDenied = true;
-        // Emulate independently exiting fixture members, then deny the stale probe.
-        // The harness must not send a signal after this unconfirmed observation.
-        kill(pid, 'SIGKILL');
-        throw Object.assign(new Error('Simulated probe exit race'), { code: 'EPERM' });
-      }
-      if (group !== undefined && pid === -group && signal === 'SIGKILL') {
-        signalled++;
-        if (denial === 'probe') return kill(pid, signal);
-        // Deliver the real signal, then emulate the error from a concurrent exit.
-        kill(pid, signal);
-        throw Object.assign(new Error('Simulated signal exit race'), { code: 'EPERM' });
-      }
-      try {
-        return kill(pid, signal);
-      } catch (error) {
+    let state: Awaited<ReturnType<typeof readyOwnedFixture>> | undefined;
+    let probe = { mockRestore: () => {} };
+    const installDenial = () =>
+      vi.spyOn(process, 'kill').mockImplementation((pid, signal) => {
+        const group = state?.group;
         if (
+          denial === 'probe' &&
+          !probeDenied &&
           group !== undefined &&
           pid === -group &&
-          signal === 0 &&
-          (error as NodeJS.ErrnoException).code === 'ESRCH'
+          signal === 0
         ) {
-          absent = true;
+          probeDenied = true;
+          // Emulate independently exiting fixture members, then deny the stale probe.
+          // The harness must not send a signal after this unconfirmed observation.
+          kill(pid, 'SIGKILL');
+          throw Object.assign(new Error('Simulated probe exit race'), { code: 'EPERM' });
         }
-        throw error;
-      }
-    });
+        if (group !== undefined && pid === -group && signal === 'SIGKILL') {
+          signalled++;
+          if (denial === 'probe') return kill(pid, signal);
+          // Deliver the real signal, then emulate the error from a concurrent exit.
+          kill(pid, signal);
+          throw Object.assign(new Error('Simulated signal exit race'), { code: 'EPERM' });
+        }
+        try {
+          return kill(pid, signal);
+        } catch (error) {
+          if (
+            group !== undefined &&
+            pid === -group &&
+            signal === 0 &&
+            (error as NodeJS.ErrnoException).code === 'ESRCH'
+          ) {
+            absent = true;
+          }
+          throw error;
+        }
+      });
     try {
       await withSandbox(async (sandbox) => {
-        const result = await runCli({ ...sandbox, cli: f.cli }, []);
+        const pending = runCli({ ...sandbox, cli: f.cli }, []);
+        state = await readyOwnedFixture(f);
+        probe = installDenial();
+        f.releaseExit();
+        const result = await pending;
         expect(result.status).toBe(0);
         expect(result.signal).toBeNull();
         expect(signalled).toBe(denial === 'signal' ? 1 : 0);
         expect(probeDenied).toBe(denial === 'probe');
         expect(absent).toBe(true);
-        const { child, group } = JSON.parse(fs.readFileSync(f.marker, 'utf8'));
-        expect(alive(child)).toBe(false);
-        expect(alive(-group)).toBe(false);
+        probe.mockRestore();
+        const { child, group } = state;
+        expect(await knownProcessState(child, false)).toBe(false);
+        expect(await knownProcessState(-group, false)).toBe(false);
       });
     } finally {
       probe.mockRestore();
-      await cleanup(f.marker);
+      try {
+        await cleanup(f.marker);
+      } catch (error) {
+        retainRoots([f.root]);
+        throw error;
+      }
     }
   }
 );
@@ -562,37 +665,42 @@ it.each(['signal', 'probe'])(
 it.each(['signal', 'probe'])(
   '%s EPERM with a live group fails bounded cleanup and retains files',
   async (denial) => {
-    const f = fixture('exit');
+    const f = fixture('controlled-exit');
     const kill = process.kill.bind(process);
     let signalled = 0;
     let sandboxRoot = '';
     let probeDenied = false;
-    const probe = vi.spyOn(process, 'kill').mockImplementation((pid, signal) => {
-      const group = fs.existsSync(f.marker)
-        ? (JSON.parse(fs.readFileSync(f.marker, 'utf8')) as { group: number }).group
-        : undefined;
-      if (
-        denial === 'probe' &&
-        !probeDenied &&
-        group !== undefined &&
-        pid === -group &&
-        signal === 0
-      ) {
-        probeDenied = true;
-        throw Object.assign(new Error('Simulated inspection denial'), { code: 'EPERM' });
-      }
-      if (group !== undefined && pid === -group && signal === 'SIGKILL') {
-        signalled++;
-        if (denial === 'probe') return kill(pid, signal);
-        throw Object.assign(new Error('Simulated permission denial'), { code: 'EPERM' });
-      }
-      return kill(pid, signal);
-    });
+    let state: Awaited<ReturnType<typeof readyOwnedFixture>> | undefined;
+    let probe = { mockRestore: () => {} };
+    const installDenial = () =>
+      vi.spyOn(process, 'kill').mockImplementation((pid, signal) => {
+        const group = state?.group;
+        if (
+          denial === 'probe' &&
+          !probeDenied &&
+          group !== undefined &&
+          pid === -group &&
+          signal === 0
+        ) {
+          probeDenied = true;
+          throw Object.assign(new Error('Simulated inspection denial'), { code: 'EPERM' });
+        }
+        if (group !== undefined && pid === -group && signal === 'SIGKILL') {
+          signalled++;
+          if (denial === 'probe') return kill(pid, signal);
+          throw Object.assign(new Error('Simulated permission denial'), { code: 'EPERM' });
+        }
+        return kill(pid, signal);
+      });
     try {
       const error = await withSandbox(async (sandbox) => {
         sandboxRoot = sandbox.root;
         roots.push(sandboxRoot);
-        await runCli({ ...sandbox, cli: f.cli }, []);
+        const pending = runCli({ ...sandbox, cli: f.cli }, []);
+        state = await readyOwnedFixture(f);
+        probe = installDenial();
+        f.releaseExit();
+        await pending;
       }).catch((error: unknown) => error);
       expect(error).toBeInstanceOf(AggregateError);
       expect((error as Error).message).toContain('retained fixture');
@@ -606,13 +714,23 @@ it.each(['signal', 'probe'])(
       expect(signalled).toBe(denial === 'signal' ? 1 : 0);
       expect(probeDenied).toBe(denial === 'probe');
       expect(fs.existsSync(sandboxRoot)).toBe(true);
-      const { child, group } = JSON.parse(fs.readFileSync(f.marker, 'utf8'));
+      probe.mockRestore();
+      const { child, group } = state!;
       // Linux's independent cwd guard stops residents even when group cleanup fails.
-      expect(alive(child)).toBe(process.platform !== 'linux');
-      expect(alive(-group)).toBe(process.platform !== 'linux');
+      expect(await knownProcessState(child, process.platform !== 'linux')).toBe(
+        process.platform !== 'linux'
+      );
+      expect(await knownProcessState(-group, process.platform !== 'linux')).toBe(
+        process.platform !== 'linux'
+      );
     } finally {
       probe.mockRestore();
-      await cleanup(f.marker);
+      try {
+        await cleanup(f.marker);
+      } catch (error) {
+        retainRoots([f.root, sandboxRoot]);
+        throw error;
+      }
     }
   },
   5_000
@@ -1396,3 +1514,51 @@ it.each([
     f.restore();
   }
 });
+
+it.each([true, false])(
+  'inert EPERM observation requires a later confirmed %s process state',
+  async (expectedAlive) => {
+    let elapsed = 0;
+    let probes = 0;
+    const denial = Object.assign(new Error('unknown'), { code: 'EPERM' });
+    await knownProcessState(-123, expectedAlive, {
+      probe: () => {
+        probes++;
+        if (probes === 1) throw denial;
+        return expectedAlive;
+      },
+      now: () => elapsed,
+      wait: async () => {
+        elapsed += 10;
+      },
+    });
+    expect(probes).toBe(2);
+    expect(elapsed).toBe(10);
+  }
+);
+
+it.each(['unknown', 'live'])(
+  'inert %s observation refuses absence at the unchanged bound',
+  async (state) => {
+    let elapsed = 0;
+    let probes = 0;
+    const denial = Object.assign(new Error('unknown'), { code: 'EPERM' });
+    const observation = knownProcessState(-123, false, {
+      probe: () => {
+        probes++;
+        if (state === 'unknown') throw denial;
+        return true;
+      },
+      now: () => elapsed,
+      wait: async () => {
+        elapsed += 1_000;
+      },
+    });
+    await expect(observation).rejects.toMatchObject({
+      message: 'Fixture process -123 state did not confirm absent within 2000ms.',
+      cause: state === 'unknown' ? denial : undefined,
+    });
+    expect(probes).toBe(3);
+    expect(elapsed).toBe(2_000);
+  }
+);
