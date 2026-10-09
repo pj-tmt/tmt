@@ -24,6 +24,8 @@ bytes even without an app build. `socket.rs` uses shared static header/notice sl
 product text, and keeps the parent CSP free of inline style/script exemptions. Guidance
 loads the admitted build's recovery entry only when present; otherwise its details remain
 visible. Neither Cargo nor installed serving runs Node or fetches external assets.
+Signed-in app-unavailable guidance shows a waiting-colored Update needed state and
+asks the person to update Colab to open the page, preserving space/sign-in details and the user command.
 
 `router.tsx` retains one active Source, Comments, Chat, Agents, Files, Export, Manage or
 About overlay. `page-header-actions.tsx` owns the five visible icon entry points:

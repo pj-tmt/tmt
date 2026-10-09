@@ -381,6 +381,11 @@ fn pages_follow_the_forwarded_owner_context_within_the_door_bounds() {
         server.space,
     )));
     assert!(owned.contains("tmt extension upgrade colab"));
+    assert!(owned.contains("Update Colab to open this page"));
+    assert!(owned.contains("Update needed"));
+    assert!(owned.contains("data-tone=\"waiting\""));
+    assert!(!owned.contains("guidance-mark live"));
+    assert!(!owned.contains("Colab is running"));
     assert!(!owned.contains(tmt_colab::assets::BUILD_HINT));
     for context in [
         "tmt-device-context: {}\r\n",

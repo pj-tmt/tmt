@@ -5,6 +5,7 @@ import { pageAction } from '../test/page-actions.js';
 const captures = process.env.COLAB_DETAIL_CAPTURE_DIR;
 const native = process.env.COLAB_DETAIL_NATIVE_DIR;
 const phase = process.env.COLAB_DETAIL_CAPTURE_PHASE;
+const items = process.env.COLAB_DETAIL_CAPTURE_ITEMS?.split(',');
 const skill = readFileSync(new URL('../../../skills/tmt-colab/SKILL.md', import.meta.url), 'utf8');
 const style = skill.match(/<style>[\s\S]*?<\/style>/)?.[0];
 if (!style) throw new Error('The author starter is missing.');
@@ -30,7 +31,9 @@ for (const width of [1440, 390])
         document.documentElement.dataset.theme = theme;
       }, theme);
       const shot = (item: string) =>
-        page.screenshot({ path: `${captures}/${item}-${width}-${theme}.png` });
+        !items || items.includes(item.split('-')[0])
+          ? page.screenshot({ path: `${captures}/${item}-${width}-${theme}.png` })
+          : Promise.resolve();
 
       await page.goto('/');
       await fixture(page, 'ask-page-browser', 'mount');
@@ -75,6 +78,12 @@ for (const width of [1440, 390])
         if (phase === 'after') {
           await expect(page.locator('.guidance-detail')).not.toContainText('This colab');
           await expect(page.locator('.guidance-detail')).not.toContainText('corepack');
+          if (state === 'owner') {
+            await expect(page.locator('.tmt-ui-notice-heading')).toHaveText(
+              'Update Colab to open this page',
+            );
+            await expect(page.locator('.tmt-ui-notice-mark')).toContainText('Update needed');
+          }
         }
         await shot(`4-guidance-${state}`);
         await page.unroute('**/detail-guidance/');
