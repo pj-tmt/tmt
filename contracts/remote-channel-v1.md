@@ -1703,12 +1703,21 @@ observation, never reported as failed. An existing equivalent object is adopted 
 ever deleted. Replacing Rules that Remote does not own is the one hard gate: the authorization must
 also name the digest of the replaced release, and a release that changed after the plan is refused.
 The deployed Rules begin with a Remote marker line naming the deployment and the digest of the
-composed body, so ownership of a live release is read from its bytes. A console step only the owner
+composed body, so ownership of a live release is read from its bytes; a Remote release edited after
+it was published is no longer Remote's and needs the replaced digest like any foreign release. A console step only the owner
 can do (for example creating a sign-in provider that needs an OAuth client) ends the run as partial
 with a fixed instruction code, and the retry continues after the owner acts. The binding is written
 in the same save that completes the last step. From the moment the Rules call may have been made
 until the run completes no binding is usable; a failure before that call leaves the earlier binding
-valid. Records carry fixed reason codes, never provider text.
+valid; running a finished plan again is a fresh check that keeps the binding until a Rules call is made.
+Records carry fixed reason codes, never provider text, and Remote fixes the owner-step instruction text:
+
+- Refusals before any effect: `REMOTE_DEPLOY_PROJECT_INVALID`, `_LOCATION_INVALID`,
+  `_DEPLOYMENT_INVALID`, `_SIGN_IN_MISSING`, `_AUTHORIZATION_STALE`, `_ACCOUNT_CHANGED`,
+  `_ACCOUNT_UNREADABLE`, `_REPLACE_RULES_REQUIRED`.
+- Step faults: `REMOTE_DEPLOY_PERMISSION_DENIED`, `_API_DISABLED`, `_QUOTA_EXCEEDED`,
+  `_PROVIDER_REJECTED`, `_DATABASE_MISMATCH`, `_RULES_FOREIGN`, `_VERIFY_FAILED`.
+- Owner steps: `REMOTE_DEPLOY_OWNER_INITIALIZE_AUTH`, `_ENABLE_GOOGLE_SIGN_IN`.
 
 [Start and pair](#provisioning-on-start-and-pair) automatically prepare the namespaces/bridge of
 already authorized local or deployed resources and publish the device admission projection. They

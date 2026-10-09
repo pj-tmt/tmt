@@ -31,6 +31,8 @@ pub struct Fake {
     pub owner_pending: BTreeMap<String, DeployOwnerAction>,
     /// One-shot scripted failures by step id.
     pub faults: BTreeMap<String, When>,
+    /// One-shot failures of the read-only look at a step.
+    pub observe_faults: BTreeMap<String, DeployProviderError>,
     /// Objects the deploy must never touch.
     pub unrelated: BTreeMap<String, String>,
     /// Times each step's effect landed.
@@ -66,6 +68,9 @@ impl DeployPort for Fake {
         step: &DeployStep,
     ) -> Result<DeployObserved, DeployProviderError> {
         self.calls.push(format!("observe:{}", step.id));
+        if let Some(error) = self.observe_faults.remove(&step.id) {
+            return Err(error);
+        }
         if let Some(action) = self.owner_pending.get(&step.id) {
             return Ok(DeployObserved::OwnerAction(*action));
         }

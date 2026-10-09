@@ -7,8 +7,8 @@ use tmt_remote::{
     deploy_plan::{CloudBackend, Enabled, Plan, Supplied, Target, compose},
     deploy_run::{
         DeployBinding, DeployError, DeployFault, DeployInput, DeployOwnerAction, DeployPlan,
-        DeployRecord, DeployRefusal, LiveRules, RunState, SignInProvider, StepState, authorize,
-        prepare, run,
+        DeployProviderError, DeployRecord, DeployRefusal, LiveRules, RunState, SignInProvider,
+        StepState, authorize, prepare, run,
     },
 };
 #[path = "support/deploy_port.rs"]
@@ -292,15 +292,57 @@ fn authorization_names_the_digest_and_the_replaced_rules() {
     assert!(authorize(&foreign, foreign.digest(), Some(&replaced)).is_ok());
 }
 
+/// An earlier, untouched release of this deployment: its marker names the digest of its body.
+fn earlier_release(deployment: &str, body: &[u8]) -> Vec<u8> {
+    let mut bytes = format!(
+        "// tmt-remote deployment {deployment} rules {}\n",
+        sha256(body)
+    )
+    .into_bytes();
+    bytes.extend_from_slice(body);
+    bytes
+}
+
 #[test]
 fn live_rules_are_classified_by_ownership() {
     let plan = fresh();
-    let mut own = plan.deployed_rules().to_vec();
-    own.extend_from_slice(b"// edited\n");
+    let earlier = earlier_release(DEPLOYMENT, b"rules_version = '2';\n// first release\n");
+    let mut edited = plan.deployed_rules().to_vec();
+    edited.extend_from_slice(b"// edited\n");
+    let mut edited_earlier = earlier.clone();
+    edited_earlier.extend_from_slice(b"// edited\n");
+    let foreign = |bytes: &[u8]| LiveRules::Foreign(sha256(bytes));
     let cases = [
         (None, LiveRules::Absent),
         (Some(plan.deployed_rules().to_vec()), LiveRules::Current),
-        (Some(own), LiveRules::Own),
+        (Some(earlier.clone()), LiveRules::Own),
+        // Edited after it was published: no longer Remote's.
+        (Some(edited.clone()), foreign(&edited)),
+        (Some(edited_earlier.clone()), foreign(&edited_earlier)),
+        // A marker whose digest names other bytes is not intact either.
+        (
+            Some(
+                text(deploy_fixture("deployed.rules"))
+                    .replace("rules d84f", "rules 0000")
+                    .into_bytes(),
+            ),
+            foreign(
+                &text(deploy_fixture("deployed.rules"))
+                    .replace("rules d84f", "rules 0000")
+                    .into_bytes(),
+            ),
+        ),
+        // Another deployment's release is not this deployment's.
+        (
+            Some(earlier_release(
+                "3f2b8c1e-5d4a-4e7b-9c1d-2a6f8e0b4c12",
+                b"x\n",
+            )),
+            foreign(&earlier_release(
+                "3f2b8c1e-5d4a-4e7b-9c1d-2a6f8e0b4c12",
+                b"x\n",
+            )),
+        ),
     ];
     for (live, expected) in cases {
         let mut inputs = Inputs::new();
@@ -310,17 +352,35 @@ fn live_rules_are_classified_by_ownership() {
             &expected
         );
     }
-    // The marker of another deployment is not this deployment's.
+}
+
+#[test]
+fn rules_edited_after_publishing_are_replaced_only_with_their_digest() {
+    let mut live = fresh().deployed_rules().to_vec();
+    live.extend_from_slice(b"// edited in the console\n");
     let mut inputs = Inputs::new();
-    inputs.live = Some(
-        text(deploy_fixture("deployed.rules"))
-            .replace(DEPLOYMENT, "3f2b8c1e-5d4a-4e7b-9c1d-2a6f8e0b4c12")
-            .into_bytes(),
+    inputs.live = Some(live.clone());
+    let plan = inputs.prepare(&extension_plan(true)).unwrap();
+    assert_eq!(plan.view().rules.replaces, "foreign");
+    assert_eq!(
+        authorize(&plan, plan.digest(), None).unwrap_err(),
+        DeployRefusal::ReplaceRulesRequired
     );
-    assert!(matches!(
-        inputs.prepare(&extension_plan(true)).unwrap().live_rules(),
-        LiveRules::Foreign(_)
-    ));
+    let authorization = authorize(&plan, plan.digest(), Some(&sha256(&live))).unwrap();
+    let mut fake = Fake::new(ACCOUNT);
+    fake.rules = Some(live);
+    let mut sink = Mem::default();
+    let record = run(
+        &plan,
+        &authorization,
+        DeployRecord::new(DEPLOYMENT),
+        &mut fake,
+        &mut sink,
+        1,
+    )
+    .unwrap();
+    assert_eq!(record.run.as_ref().unwrap().state, RunState::Complete);
+    assert_eq!(fake.rules.as_deref(), Some(plan.deployed_rules()));
 }
 
 #[test]
@@ -502,6 +562,53 @@ fn a_new_plan_after_a_partial_rules_switch_withdraws_the_old_binding() {
     let again = go(&old, &mut stuck, &mut sink, partial).unwrap();
     assert_eq!(again.binding, None);
     assert_eq!(again.usable_binding(), None);
+}
+
+#[test]
+fn running_a_finished_plan_again_keeps_the_binding_until_rules_are_touched() {
+    let plan = fresh();
+    for error in [
+        DeployProviderError::Rejected(DeployFault::ProviderRejected),
+        DeployProviderError::Unknown,
+    ] {
+        let mut fake = Fake::new(ACCOUNT);
+        let mut sink = Mem::default();
+        let done = go(&plan, &mut fake, &mut sink, DeployRecord::new(DEPLOYMENT)).unwrap();
+        let binding = done.binding.clone().unwrap();
+        // The check itself fails on the first read: the Rules were never touched again.
+        fake.observe_faults.insert("database".into(), error);
+        let again = go(&plan, &mut fake, &mut sink, done).unwrap();
+        let run = again.run.as_ref().unwrap();
+        assert_eq!(run.state, RunState::Partial, "{error:?}");
+        assert!(!run.rules_attempted, "{error:?}");
+        assert_eq!(again.usable_binding(), Some(&binding), "{error:?}");
+        // The retry resumes this unfinished check and completes it.
+        let third = go(&plan, &mut fake, &mut sink, again).unwrap();
+        assert_eq!(third.run.as_ref().unwrap().state, RunState::Complete);
+        assert_eq!(third.usable_binding().unwrap().plan_digest, plan.digest());
+    }
+}
+
+#[test]
+fn drift_found_on_a_finished_plan_withdraws_the_binding_when_rules_are_applied() {
+    let plan = fresh();
+    let earlier = earlier_release(DEPLOYMENT, b"rules_version = '2';\n// first release\n");
+    let foreign = deploy_fixture("foreign.rules");
+    for (drifted, replace) in [(earlier, None), (foreign.clone(), Some(sha256(&foreign)))] {
+        let mut fake = Fake::new(ACCOUNT);
+        let mut sink = Mem::default();
+        let done = go(&plan, &mut fake, &mut sink, DeployRecord::new(DEPLOYMENT)).unwrap();
+        fake.rules = Some(drifted);
+        fake.faults.insert("rules".into(), When::BeforeEffect);
+        let authorization = authorize(&plan, plan.digest(), replace.as_deref()).unwrap();
+        let partial = run(&plan, &authorization, done, &mut fake, &mut sink, 2).unwrap();
+        assert!(partial.run.as_ref().unwrap().rules_attempted);
+        assert_eq!(partial.usable_binding(), None);
+        let finished = run(&plan, &authorization, partial, &mut fake, &mut sink, 3).unwrap();
+        assert_eq!(finished.run.as_ref().unwrap().state, RunState::Complete);
+        assert!(finished.usable_binding().is_some());
+        assert_eq!(fake.rules.as_deref(), Some(plan.deployed_rules()));
+    }
 }
 
 #[test]

@@ -201,7 +201,9 @@ fn deployed(deployment_id: &str, body: &[u8]) -> Vec<u8> {
 }
 
 /// Classify live Rules against the bytes this deploy would publish. The one definition
-/// shared by plan time and every adapter, so both read the same ownership.
+/// shared by plan time and every adapter, so both read the same ownership. A release is
+/// Remote's only while its marker names this deployment and the digest in the marker is
+/// the digest of the bytes after the marker line: an edited release is no longer Remote's.
 pub fn classify_live_rules(live: Option<&[u8]>, deployment_id: &str, publish: &[u8]) -> LiveRules {
     let Some(live) = live else {
         return LiveRules::Absent;
@@ -210,10 +212,19 @@ pub fn classify_live_rules(live: Option<&[u8]>, deployment_id: &str, publish: &[
         return LiveRules::Current;
     }
     let own_prefix = format!("{MARKER_PREFIX}{deployment_id} rules ");
-    if live.starts_with(own_prefix.as_bytes()) {
-        return LiveRules::Own;
+    let intact = live
+        .strip_prefix(own_prefix.as_bytes())
+        .and_then(|rest| {
+            let end = rest.iter().position(|byte| *byte == b'\n')?;
+            let (digest, body) = (&rest[..end], &rest[end + 1..]);
+            Some(digest == rules_digest(body).as_bytes())
+        })
+        .unwrap_or(false);
+    if intact {
+        LiveRules::Own
+    } else {
+        LiveRules::Foreign(sha256_hex(live))
     }
-    LiveRules::Foreign(sha256_hex(live))
 }
 
 fn project_ok(value: &str) -> bool {
@@ -598,12 +609,14 @@ fn save(sink: &mut dyn DeploySink, record: &DeployRecord) -> Result<(), DeployEr
     sink.save(record).map_err(|_| DeployError::Interrupted)
 }
 
-/// Start the run for this plan, or resume the saved one when it is the same plan.
+/// Start the run for this plan, or resume the saved one when it is the same plan and
+/// unfinished. A finished run is never resumed: running the same plan again is a fresh
+/// check that keeps the binding until a Rules call is actually made.
 fn begin(record: &mut DeployRecord, plan: &DeployPlan, now_ms: u64) {
     if record
         .run
         .as_ref()
-        .is_some_and(|run| run.plan_digest == plan.digest)
+        .is_some_and(|run| run.plan_digest == plan.digest && run.state != RunState::Complete)
     {
         let run = run_of(record);
         run.state = RunState::Applying;
