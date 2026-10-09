@@ -5206,8 +5206,8 @@ fn capture_focus_window_rows() {
 
 #[test]
 fn migration_notice_survives_keys_and_refresh_until_promotion_in_all_themes() {
-    let paused = "Ops migration pending; scheduled sends paused until migration completes.";
-    let holder = "Ops migration pending; retrying. Old clock PID 123 in pane %41.";
+    let paused = "Ops migration pending: quit old Squad boards (q); Ops then retries.";
+    let holder = "Ops migration pending: quit the old board in pane %41 (q); Ops then retries.";
     for width in [80, 100, 160] {
         for (base, depth) in [
             ("tmt", tmt_cli_style::Depth::TrueColor),
