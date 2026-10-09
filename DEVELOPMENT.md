@@ -241,9 +241,10 @@ Herdr, provider-contract, load and performance checks are in
 
 ## Docker E2E
 
-Run one focused private tmux and caller lifecycle selection for the affected
-scenarios. Run it twice only when a lifecycle or transport change needs repeat
-evidence for leaks, cleanup ordering or non-idempotent teardown; record why.
+For lifecycle, transport, identity, talk or cleanup changes, run one focused
+private tmux and caller lifecycle selection for the affected scenarios. Run it
+twice only when a lifecycle or transport change needs repeat evidence for leaks,
+cleanup ordering or non-idempotent teardown; record why.
 
 ```bash
 (cd typescript && TMT_E2E_FILES="affected.e2e.test.ts" corepack pnpm test:e2e)
