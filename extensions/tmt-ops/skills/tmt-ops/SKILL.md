@@ -387,7 +387,12 @@ Inside the message band, Enter sends and Esc cancels; Tab cycles answer, note, t
 where they apply, preserving your text. The band has a visible rule in both themes
 and NO_COLOR. At 80 columns the quoted question truncates before the recipient
 or input, which retains at least 30 columns. A successful send closes the band
-and shows `✓ sent` on the row until the next key; the cursor stays with it.
+and marks the row until the next key; the cursor stays with it. Talk and notes
+report what Core did with the request, naming its ID: `✓ sent` (written to the
+pane), `✓ queued` (in the inbox), `✓ queued · offline` (no live session),
+`✓ held` (the recipient's focus checklist holds it) or `✓ handed over` (no
+receipt; do not resend). A failure after Core accepted the request names that
+retained request, and the board never resends it.
 Opening, cancelling, empty input or a changed target sends nothing. A failed
 send shows its error and does not show `✓ sent` or retry automatically.
 

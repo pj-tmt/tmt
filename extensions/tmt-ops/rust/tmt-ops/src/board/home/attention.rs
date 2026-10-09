@@ -156,13 +156,12 @@ pub(super) fn paint(
                 piece["word"].as_str().unwrap().width() + piece["suffix"].as_str().unwrap().width() + 1
             });
             let name_width = (available.saturating_sub(focus_width) / 2).min(24);
-            let sent = app.sent.as_ref().is_some_and(|feedback| {
-                feedback.sent
-                    && feedback.target == crate::board::app::RowTarget::Home(entry.target.clone())
+            let sent = app.sent.as_ref().and_then(|feedback| {
+                feedback.line(&crate::board::app::RowTarget::Home(entry.target.clone()))
             });
             let mut after = Vec::new();
-            if sent {
-                after.push(json!({"id": "sent", "text": "   ✓ sent", "role": "working"}));
+            if let Some(text) = sent {
+                after.push(json!({"id": "sent", "text": format!("   {text}"), "role": "working"}));
             }
             for line in
                 0..crate::board::view::waiting::reserved_lines(app, index, area).unwrap_or_default()

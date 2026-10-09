@@ -170,7 +170,7 @@ fn sent_on(app: &mut App, section: &str, squad: &str) {
     select(app, section, squad);
     let target = app.home_entries()[app.selected].target.clone();
     app.sent = Some(RowFeedback {
-        sent: true,
+        mark: Some("sent"),
         target: RowTarget::Home(target),
         home: None,
     });

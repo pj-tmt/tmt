@@ -80,45 +80,46 @@ pub(super) fn paint(
         width: area.width.saturating_sub(2),
         ..area
     };
-    let rows =
-        section
-            .leads
-            .iter()
-            .enumerate()
-            .map(|(local, lead)| {
-                let index = section.first + local;
-                let target = RowTarget::Home(section.entries[local].target.clone());
-                let mut after = Vec::new();
-                if app
-                    .sent
-                    .as_ref()
-                    .is_some_and(|feedback| feedback.sent && feedback.target == target)
-                {
-                    after.push(json!({"id": "sent", "text": "  ✓ sent", "role": "working"}));
-                }
-                let reserved = crate::board::view::waiting::reserved_lines(app, index, inner)
-                    .unwrap_or_default();
-                after.extend((0..reserved).map(
+    let rows = section
+        .leads
+        .iter()
+        .enumerate()
+        .map(|(local, lead)| {
+            let index = section.first + local;
+            let target = RowTarget::Home(section.entries[local].target.clone());
+            let mut after = Vec::new();
+            if let Some(text) = app
+                .sent
+                .as_ref()
+                .and_then(|feedback| feedback.line(&target))
+            {
+                after.push(json!({"id": "sent", "text": format!("  {text}"), "role": "working"}));
+            }
+            let reserved =
+                crate::board::view::waiting::reserved_lines(app, index, inner).unwrap_or_default();
+            after.extend(
+                (0..reserved).map(
                     |line| json!({"id": format!("reserve-{line}"), "text": null, "role": null}),
-                ));
-                let mut row = heading(lead, area.width, now);
-                row["id"] = json!(id(local));
-                row["before"] = json!([]);
-                for field in ["tag", "state", "model"] {
-                    row[field] = json!("");
-                }
-                row["state_role"] = json!("text");
-                row["separator"] = json!([]);
-                row["after"] = json!(after);
-                let visible = if row["focus_visible"] == true {
-                    vec!["focus"]
-                } else {
-                    vec![]
-                };
-                row["detail"] = app.detail_value(index, &visible);
-                row
-            })
-            .collect::<Vec<_>>();
+                ),
+            );
+            let mut row = heading(lead, area.width, now);
+            row["id"] = json!(id(local));
+            row["before"] = json!([]);
+            for field in ["tag", "state", "model"] {
+                row[field] = json!("");
+            }
+            row["state_role"] = json!("text");
+            row["separator"] = json!([]);
+            row["after"] = json!(after);
+            let visible = if row["focus_visible"] == true {
+                vec!["focus"]
+            } else {
+                vec![]
+            };
+            row["detail"] = app.detail_value(index, &visible);
+            row
+        })
+        .collect::<Vec<_>>();
     let selected = app
         .selected
         .checked_sub(section.first)

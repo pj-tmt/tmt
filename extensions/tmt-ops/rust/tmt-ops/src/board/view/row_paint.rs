@@ -33,7 +33,7 @@ pub(in crate::board) struct Extra {
     /// Age of the oldest request waiting on the user.
     pub request_age: Option<String>,
     /// The `✓ sent` feedback line is shown under the row.
-    pub sent: bool,
+    pub sent: Option<String>,
     /// Blank lines under the row for the inline input band.
     pub reserve: usize,
     pub detail: Value,
@@ -458,8 +458,9 @@ impl RowPaint {
             self.details.push((at, y, extra.detail.clone()));
             y += detail_height;
         }
-        if extra.sent {
-            let text = "    ✓ sent";
+        if let Some(sent) = &extra.sent {
+            let text = format!("    {sent}");
+            let text = text.as_str();
             let index = self.label(
                 Some(text.into()),
                 (0, y, text.width().min(width), 1),

@@ -602,7 +602,7 @@ mod tests {
             intent: intent.clone(),
             notification: Err("offline".into()),
         });
-        assert!(!app.sent.as_ref().unwrap().sent);
+        assert!(app.sent.as_ref().unwrap().mark.is_none());
         assert_eq!(press(&mut app, KeyCode::Enter), Effect::None);
         press(&mut app, KeyCode::End);
         let Effect::Act(Request::Status(action)) = press(&mut app, KeyCode::Enter) else {
@@ -629,7 +629,7 @@ mod tests {
             assert!(text.contains("Retry notification only"));
         }
         app.finished_status(Outcome::Unknown("Outcome unknown".into()));
-        assert!(!app.sent.as_ref().unwrap().sent);
+        assert!(app.sent.as_ref().unwrap().mark.is_none());
         assert_eq!(press(&mut app, KeyCode::Enter), Effect::None);
     }
 

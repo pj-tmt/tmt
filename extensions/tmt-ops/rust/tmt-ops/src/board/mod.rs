@@ -199,6 +199,11 @@ fn spawn_input(sender: Sender<BoardEvent>, mut filter: Option<terminal::backgrou
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum ActionOutcome {
     Message(String),
+    /// A request Core accepted: the notice and the row's mark.
+    Accepted {
+        notice: String,
+        mark: &'static str,
+    },
     Status(Box<crate::membership::status_update::Outcome>),
 }
 impl From<String> for ActionOutcome {
@@ -254,18 +259,28 @@ fn execute(core: &Core, request: Request) -> Result<ActionOutcome, String> {
             squad,
             to,
             text,
-        } => send::talk(core, &squad, &me, &to, &text)
-            .map(|request| format!("Sent to {to} ({request})."))
-            .map_err(|error| error.message),
+        } => {
+            return send::talk(core, &squad, &me, &to, &text)
+                .map(|accepted| ActionOutcome::Accepted {
+                    notice: accepted.describe("Message", &to),
+                    mark: accepted.mark(),
+                })
+                .map_err(|error| error.message);
+        }
         Request::Annotate {
             me,
             squad,
             to,
             row,
             text,
-        } => send::annotate(core, &squad, &me, &to, &row, &text)
-            .map(|request| format!("Note on {row} sent to {to} ({request})."))
-            .map_err(|error| error.message),
+        } => {
+            return send::annotate(core, &squad, &me, &to, &row, &text)
+                .map(|accepted| ActionOutcome::Accepted {
+                    notice: accepted.describe(&format!("Note on {row}"), &to),
+                    mark: accepted.mark(),
+                })
+                .map_err(|error| error.message);
+        }
         Request::Reorder(keys) => Config::load(core)
             .and_then(|mut config| config.set_tab_order(&keys))
             .map(|()| "Tab order saved.".to_owned())
@@ -718,6 +733,9 @@ fn session<T: Into<ActionOutcome>>(
                         app.finished_status(*outcome);
                     }
                     Ok(ActionOutcome::Message(message)) => app.finished(Ok(message)),
+                    Ok(ActionOutcome::Accepted { notice, mark }) => {
+                        app.finished_as(Ok(notice), mark)
+                    }
                     Err(error) => app.finished(Err(error)),
                 }
                 if jumped && app.popup {

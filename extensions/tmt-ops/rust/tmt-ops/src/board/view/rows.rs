@@ -229,9 +229,10 @@ pub(super) fn render_rows(frame: &mut Frame, app: &App, area: Rect) {
                     .as_str()
                     .and_then(|id| app.cron.member_label(id, now)),
                 request_age: super::waiting::age(row, request_now),
-                sent: app.sent.as_ref().is_some_and(|feedback| {
-                    feedback.sent && app.row_target(index).as_ref() == Some(&feedback.target)
-                }),
+                sent: app
+                    .sent
+                    .as_ref()
+                    .and_then(|feedback| feedback.line(&app.row_target(index)?)),
                 reserve: super::waiting::reserved_lines(app, index, area).unwrap_or(0),
             }
         })

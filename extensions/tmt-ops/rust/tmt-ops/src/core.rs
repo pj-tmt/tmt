@@ -24,6 +24,8 @@ pub struct SquadError {
     pub message: String,
     /// Transaction conflict snapshot supplied by the public metadata API.
     pub current: Option<Box<Value>>,
+    /// A request Core accepted before failing; it is retained, never resent.
+    pub request: Option<String>,
     /// Where `message` splits into what failed and the next step.
     hint: Option<(usize, usize)>,
     /// Local process cancellation, never inferred from a public error document.
@@ -37,6 +39,7 @@ impl SquadError {
             message: message.into(),
             hint: None,
             current: None,
+            request: None,
             cancelled: false,
         }
     }
@@ -49,6 +52,7 @@ impl SquadError {
             message: format!("{what}{separator}{hint}"),
             hint: Some((what.len(), what.len() + separator.len())),
             current: None,
+            request: None,
             cancelled: false,
         }
     }
@@ -214,6 +218,7 @@ impl Core {
             (Some(code), Some(message)) => {
                 let mut failure = SquadError::new(code, message);
                 failure.current = error.get("current").cloned().map(Box::new);
+                failure.request = document["requestId"].as_str().map(str::to_owned);
                 Err(failure)
             }
             _ => Err(unavailable("tmt failed without a structured error.")),
