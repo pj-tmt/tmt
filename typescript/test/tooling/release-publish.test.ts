@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { describe, expect, it } from 'vite-plus/test';
+import { describe, expect, it, vi } from 'vite-plus/test';
 import {
   checkPublishedRelease,
   convergeCliLatest,
@@ -420,7 +420,9 @@ describe('verifyPublication', () => {
       getRelease: () => published({ immutable: ++reads >= 3 }),
       verifyRelease: () => {
         verifications += 1;
-        return verifications >= 2 ? ok : { ok: false, output: 'no attestation yet' };
+        return verifications >= 2
+          ? ok
+          : { ok: false, output: `no attestations found for tag ${TAG}` };
       },
     });
     const sleeps: number[] = [];
@@ -450,14 +452,259 @@ describe('verifyPublication', () => {
     const { api } = fakeApi({
       verifyRelease: () => {
         verifications += 1;
-        return { ok: false, output: 'attestation for v5.0.0-alpha.9 not found' };
+        return { ok: false, output: `no attestations found for tag ${TAG}` };
       },
     });
     const sleeps: number[] = [];
     const results = verify(api, sleeps);
     expect(verifications).toBe(3);
     expect(sleeps).toHaveLength(2);
-    expect(failures(results).attestation).toContain('attestation for v5.0.0-alpha.9 not found');
+    expect(failures(results).attestation).toBe(
+      `gh release verify failed: no attestations found for tag ${TAG}`
+    );
+  });
+
+  it('retries the exact missing asset lookup and logs both admitted delays without changing results', () => {
+    let reads = 0;
+    let time = 0;
+    const lines: string[] = [];
+    const missing = `no attestations found for tag ${TAG} (sha1:${SHA})`;
+    const { api, calls } = fakeApi({
+      verifyAsset: (_tag, file) => {
+        calls.push(`verify-asset ${TAG} ${file}`);
+        return path.basename(file) === 'tmt-cli-x.tar.gz' && ++reads < 3
+          ? { ok: false, output: missing }
+          : ok;
+      },
+    });
+    const waits: number[] = [];
+    const writer = vi.spyOn(process.stderr, 'write').mockImplementation((line) => {
+      lines.push(String(line));
+      return true;
+    });
+    try {
+      const results = verifyPublication({
+        api,
+        product: 'cli',
+        tag: TAG,
+        directory: '/work/published',
+        attempts: 3,
+        sleep: (ms) => {
+          waits.push(ms);
+          time += ms;
+        },
+        clock: () => time,
+      });
+      expect(failures(results)).toEqual({});
+      expect(results.at(-1)).toEqual({
+        check: 'assets',
+        ok: true,
+        reason: 'gh release verify-asset passed for 3 assets',
+      });
+      expect(reads).toBe(3);
+      expect(waits).toEqual([15_000, 15_000]);
+      expect(lines).toEqual(
+        [1, 2].map(
+          (attempt) =>
+            `Asset tmt-cli-x.tar.gz attestation attempt ${attempt}/3 failed: ${missing}\nRetrying in 15000 ms.\n`
+        )
+      );
+      expect(calls.filter((call) => call.startsWith('verify-asset'))).toEqual([
+        `verify-asset ${TAG} /work/published/release-publication.json`,
+        `verify-asset ${TAG} /work/published/dist-manifest.json`,
+        ...Array.from({ length: 3 }, () => `verify-asset ${TAG} /work/published/tmt-cli-x.tar.gz`),
+      ]);
+    } finally {
+      writer.mockRestore();
+    }
+  });
+
+  it('shares seven waits across release and asset lookups and retains the last missing output', () => {
+    let releaseReads = 0;
+    let assetReads = 0;
+    const last: Outcome = {
+      ok: false,
+      output: `no attestations found for tag ${TAG} (sha1:${'b'.repeat(40)})`,
+    };
+    const original = { ...last };
+    const { api, calls } = fakeApi({
+      verifyRelease: () =>
+        ++releaseReads < 5 ? { ok: false, output: `no attestations found for tag ${TAG}` } : ok,
+      verifyAsset: (_tag, file) => {
+        calls.push(`verify-asset ${TAG} ${file}`);
+        if (path.basename(file) !== 'release-publication.json') return ok;
+        assetReads += 1;
+        return last;
+      },
+    });
+    const waits: number[] = [];
+    const writer = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    try {
+      // The zero-cost injected clock isolates the shared count bound from the wall cap.
+      const results = verifyPublication({
+        api,
+        product: 'cli',
+        tag: TAG,
+        directory: '/work/published',
+        sleep: (ms) => waits.push(ms),
+        clock: () => 0,
+      });
+      expect(releaseReads).toBe(5);
+      expect(assetReads).toBe(4);
+      expect(waits).toEqual(Array(7).fill(15_000));
+      expect(failures(results)).toEqual({
+        assets: `gh release verify-asset failed for release-publication.json: ${last.output}`,
+      });
+      expect(last).toEqual(original);
+      expect(calls.filter((call) => call.startsWith('verify-asset')).at(-1)).toBe(
+        `verify-asset ${TAG} /work/published/tmt-cli-x.tar.gz`
+      );
+    } finally {
+      writer.mockRestore();
+    }
+  });
+
+  it('stops retries after a slow lookup when the next whole lookup cannot fit the wall cap', () => {
+    let reads = 0;
+    let time = 0;
+    const waits: number[] = [];
+    const lines: string[] = [];
+    const first: Outcome = { ok: false, output: `no attestations found for tag ${TAG}` };
+    const last: Outcome = {
+      ok: false,
+      output: `no attestations found for tag ${TAG} (sha1:${SHA})`,
+    };
+    const { api } = fakeApi({
+      verifyRelease: () => {
+        reads += 1;
+        if (reads === 1) return first;
+        time += 100_000;
+        return last;
+      },
+    });
+    const writer = vi.spyOn(process.stderr, 'write').mockImplementation((line) => {
+      lines.push(String(line));
+      return true;
+    });
+    try {
+      const results = verifyPublication({
+        api,
+        product: 'cli',
+        tag: TAG,
+        directory: '/work/published',
+        sleep: (ms) => {
+          waits.push(ms);
+          time += ms;
+        },
+        clock: () => time,
+      });
+      expect(reads).toBe(2);
+      expect(time).toBe(115_000);
+      expect(waits).toEqual([15_000]);
+      expect(lines).toEqual([
+        `Release ${TAG} attestation attempt 1/8 failed: ${first.output}\nRetrying in 15000 ms.\n`,
+      ]);
+      expect(failures(results)).toEqual({
+        attestation: `gh release verify failed: ${last.output}`,
+      });
+      expect(last).toEqual({
+        ok: false,
+        output: `no attestations found for tag ${TAG} (sha1:${SHA})`,
+      });
+    } finally {
+      writer.mockRestore();
+    }
+  });
+
+  it('reserves a whole 120-second lookup before admitting another fast retry', () => {
+    let time = 0;
+    let reads = 0;
+    const waits: number[] = [];
+    const { api } = fakeApi({
+      verifyRelease: () => {
+        reads += 1;
+        return { ok: false, output: `no attestations found for tag ${TAG}` };
+      },
+    });
+    const writer = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    try {
+      const results = verifyPublication({
+        api,
+        product: 'cli',
+        tag: TAG,
+        directory: '/work/published',
+        sleep: (ms) => {
+          time += ms;
+          waits.push(ms);
+        },
+        clock: () => time,
+      });
+      expect(reads).toBe(5);
+      expect(waits).toEqual(Array(4).fill(15_000));
+      expect(time).toBe(60_000);
+      expect(failures(results).attestation).toBe(
+        `gh release verify failed: no attestations found for tag ${TAG}`
+      );
+    } finally {
+      writer.mockRestore();
+    }
+  });
+
+  it.each([
+    'digest mismatch',
+    'does not contain subject',
+    'invalid signature',
+    'HTTP 503',
+    'no attestation yet',
+    'no attestations found for tag v5.0.0-alpha.8',
+    `no attestations found for tag ${TAG} extra`,
+    `prefix no attestations found for tag ${TAG}`,
+    `no attestations found for tag ${TAG}\ndigest mismatch`,
+    `no attestations found for tag ${TAG} (sha1:bad)`,
+  ])('does not retry release or asset verification error %s', (output) => {
+    const releaseRead = vi.fn(() => ({ ok: false, output }));
+    const assetRead = vi.fn(() => ({ ok: false, output }));
+    const { api } = fakeApi({ verifyRelease: releaseRead, verifyAsset: assetRead });
+    const sleep = vi.fn();
+    const writer = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    try {
+      const results = verifyPublication({
+        api,
+        product: 'cli',
+        tag: TAG,
+        directory: '/work/published',
+        sleep,
+        clock: () => 0,
+      });
+      expect(releaseRead).toHaveBeenCalledTimes(1);
+      expect(assetRead).toHaveBeenCalledTimes(3);
+      expect(sleep).not.toHaveBeenCalled();
+      expect(writer).not.toHaveBeenCalled();
+      expect(failures(results).attestation).toBe(`gh release verify failed: ${output}`);
+      expect(failures(results).assets).toBe(
+        `gh release verify-asset failed for ${['release-publication.json', 'dist-manifest.json', 'tmt-cli-x.tar.gz'].map((name) => `${name}: ${output}`).join('; ')}`
+      );
+    } finally {
+      writer.mockRestore();
+    }
+  });
+
+  it('rethrows an original lookup error without retrying or sleeping', () => {
+    const error = new Error('lookup timed out');
+    const read = vi.fn(() => {
+      throw error;
+    });
+    const { api } = fakeApi({ verifyRelease: read });
+    const sleep = vi.fn();
+    let caught: unknown;
+    try {
+      verifyPublication({ api, product: 'cli', tag: TAG, directory: '/work/published', sleep });
+    } catch (failure) {
+      caught = failure;
+    }
+    expect(caught).toBe(error);
+    expect(read).toHaveBeenCalledTimes(1);
+    expect(sleep).not.toHaveBeenCalled();
   });
 
   it('tries each asset once, names the ones that do not verify and still checks the others', () => {

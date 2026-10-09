@@ -79,6 +79,7 @@ export function verifyPublication(input: {
   directory: string;
   attempts?: number;
   sleep?: (milliseconds: number) => void;
+  clock?: () => number;
 }): CheckResult[];
 export function postPublicationIssueTitles(tag: string): { failure: string; rateLimit: string };
 export function renderFailureIssue(input: {
