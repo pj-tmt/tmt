@@ -12,6 +12,7 @@ mod glyph_guard;
 mod help;
 mod home;
 mod home_leads;
+mod lane;
 mod markdown;
 mod menu_surface;
 mod meter;
@@ -157,6 +158,18 @@ pub(super) enum BoardEvent {
         cancellation: crate::runner::Cancellation,
         read: Result<cronboard::Cron, String>,
     },
+    /// A user action finished on the lane.
+    Acted {
+        jump: bool,
+        sends: bool,
+        outcome: Result<ActionOutcome, String>,
+    },
+    /// The config an overlay opens over was read on the lane.
+    Opened {
+        opening: lane::Opening,
+        config: Result<Config, String>,
+    },
+    TokenWindowSaved(Result<Config, String>),
 }
 
 fn spawn_input(sender: Sender<BoardEvent>, mut filter: Option<terminal::background::ReplyFilter>) {
@@ -197,7 +210,7 @@ fn spawn_input(sender: Sender<BoardEvent>, mut filter: Option<terminal::backgrou
 /// Jump and back share the plain commands' path, including the per-client
 /// back stack.
 #[derive(Debug, Clone, PartialEq, Eq)]
-enum ActionOutcome {
+pub(super) enum ActionOutcome {
     Message(String),
     /// A request Core accepted: the notice and the row's mark.
     Accepted {
@@ -313,17 +326,18 @@ fn reload_interval(app: &App) -> Option<Duration> {
 /// The board loop, independent of the real terminal. It always returns within
 /// one input wait of a stop signal or a closed input, whatever the reader does.
 #[allow(clippy::too_many_arguments)] // The terminal-independent loop injects worker requests and effects.
-fn session<T: Into<ActionOutcome>>(
+fn session(
     app: &mut App,
     stop: &AtomicUsize,
     input: &Receiver<BoardEvent>,
     request: impl Fn(Option<String>, bool, bool),
     selected_read: impl Fn(u64, Option<refresh::SelectedRead>),
     checklist: impl Fn(checklist::load::Task),
-    mut act: impl FnMut(Request) -> Result<T, String>,
-    mut load_config: impl FnMut() -> Result<Config, String>,
+    io: impl Fn(lane::Job),
     mut draw: impl FnMut(&mut App) -> io::Result<()>,
 ) -> io::Result<Option<i32>> {
+    // Nothing below may start a command: jobs go to the lane, reads to the worker.
+    let _no_commands = crate::runner::forbid_commands();
     let mut revision = 0;
     // None defers selection work until a pending reload publishes its snapshot.
     let mut requested = Some(None);
@@ -331,6 +345,17 @@ fn session<T: Into<ActionOutcome>>(
     let mut dirty = true;
     let mut marks = view::time_marks(app, crate::status::now_ms());
     let mut spinner = view::spinner_frame(app, Instant::now());
+    // Hands a job to the lane and says so at once; the event that comes back says how it ended.
+    let submit = |app: &mut App, job: lane::Job| {
+        // An overlay opens once: a second request for one waits for the first.
+        if !matches!(job, lane::Job::Act(_)) && app.in_flight > 0 {
+            app.notice = Some("Still working on the previous request.".to_owned());
+            return;
+        }
+        app.notice = Some(job.progress().to_owned());
+        app.in_flight += 1;
+        io(job);
+    };
     loop {
         if let Some(signal) = terminal::stop_signal(stop) {
             return Ok(Some(signal));
@@ -523,6 +548,94 @@ fn session<T: Into<ActionOutcome>>(
                 }
                 Effect::None
             }
+            Ok(BoardEvent::Acted {
+                jump,
+                sends,
+                outcome,
+            }) => {
+                app.in_flight = app.in_flight.saturating_sub(1);
+                dirty = true;
+                let jumped = jump && outcome.is_ok();
+                match outcome {
+                    Ok(ActionOutcome::Status(outcome)) => app.finished_status(*outcome),
+                    Ok(ActionOutcome::Message(message)) => app.finished(Ok(message)),
+                    Ok(ActionOutcome::Accepted { notice, mark }) => {
+                        app.finished_as(Ok(notice), mark)
+                    }
+                    Err(error) => app.finished(Err(error)),
+                }
+                if jumped && app.popup {
+                    return Ok(None);
+                }
+                if sends {
+                    revision += 1;
+                    requested = None;
+                    request(
+                        app.current.clone(),
+                        false,
+                        app.view_picker.is_some() || app.settings.is_some(),
+                    );
+                    refreshed = Instant::now();
+                }
+                Effect::None
+            }
+            Ok(BoardEvent::Opened { opening, config }) => {
+                app.in_flight = app.in_flight.saturating_sub(1);
+                dirty = true;
+                app.notice = None;
+                let opened = match (opening, config) {
+                    (_, Err(error)) => Err(error),
+                    (lane::Opening::ViewPicker, Ok(config)) => app
+                        .open_view_picker(config)
+                        .map_err(|error| error.message)
+                        .map(|()| true),
+                    (lane::Opening::Settings, Ok(config)) => app
+                        .open_settings(config)
+                        .map_err(|error| error.message)
+                        .map(|()| true),
+                    (lane::Opening::ThemePicker(squad), Ok(config)) => {
+                        theme_picker::Picker::open(config, squad)
+                            .map_err(|error| error.message)
+                            .map(|picker| {
+                                app.theme_picker = Some(picker);
+                                app.help = false;
+                                false
+                            })
+                    }
+                };
+                match opened {
+                    // The picker or overlay opens over a preview of the live board.
+                    Ok(reload) => {
+                        if reload {
+                            revision += 1;
+                            requested = None;
+                            request(
+                                app.current.clone(),
+                                true,
+                                app.view_picker.is_some() || app.settings.is_some(),
+                            );
+                            refreshed = Instant::now();
+                        }
+                    }
+                    Err(error) => app.finished(Err(error)),
+                }
+                Effect::None
+            }
+            Ok(BoardEvent::TokenWindowSaved(result)) => {
+                app.in_flight = app.in_flight.saturating_sub(1);
+                dirty = true;
+                match result {
+                    Ok(config) => {
+                        app.notice = Some(app.apply_token_window(&config));
+                        revision += 1;
+                        requested = None;
+                        request(app.current.clone(), true, app.settings.is_some());
+                        refreshed = Instant::now();
+                    }
+                    Err(error) => app.finished(Err(error)),
+                }
+                Effect::None
+            }
             Ok(BoardEvent::Input(Event::Key(key))) if key.kind == KeyEventKind::Press => {
                 dirty = true;
                 app.key(key)
@@ -569,23 +682,7 @@ fn session<T: Into<ActionOutcome>>(
                 );
                 refreshed = Instant::now();
             }
-            Effect::PickView => {
-                match load_config()
-                    .and_then(|config| app.open_view_picker(config).map_err(|error| error.message))
-                {
-                    Ok(()) => {
-                        revision += 1;
-                        requested = None;
-                        request(
-                            app.current.clone(),
-                            true,
-                            app.view_picker.is_some() || app.settings.is_some(),
-                        );
-                        refreshed = Instant::now();
-                    }
-                    Err(error) => app.finished(Err(error)),
-                }
-            }
+            Effect::PickView => submit(app, lane::Job::Open(lane::Opening::ViewPicker)),
             Effect::CancelView => {
                 revision += 1;
                 requested = None;
@@ -609,19 +706,7 @@ fn session<T: Into<ActionOutcome>>(
                 }
             }
             Effect::Checklist(task) => checklist(task),
-            Effect::Settings => {
-                match load_config()
-                    .and_then(|config| app.open_settings(config).map_err(|error| error.message))
-                {
-                    Ok(()) => {
-                        revision += 1;
-                        requested = None;
-                        request(app.current.clone(), true, true);
-                        refreshed = Instant::now();
-                    }
-                    Err(error) => app.finished(Err(error)),
-                }
-            }
+            Effect::Settings => submit(app, lane::Job::Open(lane::Opening::Settings)),
             Effect::SaveSetting => {
                 if app.settings.as_mut().is_some_and(|overlay| overlay.save()) {
                     app.settings_preview();
@@ -650,30 +735,18 @@ fn session<T: Into<ActionOutcome>>(
             }
             Effect::CycleTokenWindow => {
                 if let Some(window) = app.next_token_window() {
-                    let result = if let Some(overlay) = &mut app.settings {
+                    if let Some(overlay) = &mut app.settings {
+                        // The settings overlay already holds the config; its save is a bounded file write.
                         if overlay.save_window(window) {
-                            Some(Ok(overlay.config().unwrap().clone()))
-                        } else {
-                            None
-                        }
-                    } else {
-                        Some(load_config().and_then(|mut config| {
-                            config
-                                .set_setting(None, "board.token_rate.window", &window.label())
-                                .map_err(|error| error.message)?;
-                            Ok(config)
-                        }))
-                    };
-                    match result {
-                        Some(Ok(config)) => {
+                            let config = overlay.config().unwrap().clone();
                             app.notice = Some(app.apply_token_window(&config));
                             revision += 1;
                             requested = None;
-                            request(app.current.clone(), true, app.settings.is_some());
+                            request(app.current.clone(), true, true);
                             refreshed = Instant::now();
                         }
-                        Some(Err(error)) => app.finished(Err(error)),
-                        None => {}
+                    } else {
+                        submit(app, lane::Job::TokenWindow(window.label()));
                     }
                 }
             }
@@ -685,15 +758,7 @@ fn session<T: Into<ActionOutcome>>(
             }
             Effect::PickTheme => {
                 let squad = app.current.clone().filter(|name| !tabs::aggregate(name));
-                match load_config().and_then(|config| {
-                    theme_picker::Picker::open(config, squad).map_err(|error| error.message)
-                }) {
-                    Ok(picker) => {
-                        app.theme_picker = Some(picker);
-                        app.help = false;
-                    }
-                    Err(error) => app.finished(Err(error)),
-                }
+                submit(app, lane::Job::Open(lane::Opening::ThemePicker(squad)));
             }
             Effect::SaveTheme => {
                 if let Some(picker) = &mut app.theme_picker {
@@ -723,35 +788,7 @@ fn session<T: Into<ActionOutcome>>(
                     }
                 }
             }
-            Effect::Act(action) => {
-                let sends = action.sends();
-                let jump = matches!(action, Request::Jump(_));
-                let outcome = act(action);
-                let jumped = jump && outcome.is_ok();
-                match outcome.map(Into::into) {
-                    Ok(ActionOutcome::Status(outcome)) => {
-                        app.finished_status(*outcome);
-                    }
-                    Ok(ActionOutcome::Message(message)) => app.finished(Ok(message)),
-                    Ok(ActionOutcome::Accepted { notice, mark }) => {
-                        app.finished_as(Ok(notice), mark)
-                    }
-                    Err(error) => app.finished(Err(error)),
-                }
-                if jumped && app.popup {
-                    return Ok(None);
-                }
-                if sends {
-                    revision += 1;
-                    requested = None;
-                    request(
-                        app.current.clone(),
-                        false,
-                        app.view_picker.is_some() || app.settings.is_some(),
-                    );
-                    refreshed = Instant::now();
-                }
-            }
+            Effect::Act(action) => submit(app, lane::Job::Act(action)),
             Effect::None => {}
         }
         // A snapshot may change the interval, including turning reload off.
@@ -822,25 +859,44 @@ pub fn run(
     let startup = trace.as_ref().map(timing::Trace::startup);
     terminal::restore_before_panic_reports();
     let stop = terminal::stop_requested().map_err(failed)?;
-    let config = timing::measure(startup.as_ref(), "startup.Config::load", || {
-        Config::load(&core)
-    })?;
-    let (picks, squad) = selection(&core, &config, picks.as_deref(), squad.as_deref())?;
-    composition::admit().map_err(|message| SquadError::new("SQUAD_LAYOUT_INVALID", message))?;
-    let initial_theme = config.theme(squad.as_deref().unwrap_or(""))?.0;
-    // The worker's setup reads (caller identity, config location) overlap terminal
-    // entry and its background query. Loads build looks from that background, so the
-    // first request waits until `configure_background` has run.
+    // The screen is ours before any command runs: a placeholder is painted at once,
+    // and the config read, the worker's setup reads and the terminal's background
+    // query all follow it. A failure below drops the guard, which restores the
+    // terminal before the error is reported.
+    let mut guard = terminal::Guard::enter(terminal::Crossterm).map_err(failed)?;
+    let mut screen = Terminal::new(CrosstermBackend::new(io::stdout())).map_err(failed)?;
+    timing::measure(startup.as_ref(), "startup.placeholder", || {
+        screen.draw(|frame| {
+            let area = ratatui::layout::Rect {
+                height: 1,
+                ..frame.area()
+            };
+            tmt_tui::components::strip::paint_left(
+                frame.buffer_mut(),
+                area,
+                ratatui::text::Line::from(" Opening…"),
+            );
+        })
+    })
+    .map_err(failed)?;
     let (events, input) = mpsc::channel();
+    // The worker's setup reads (caller identity, config location) overlap the config
+    // read and the terminal's background query. Loads build looks from that
+    // background, so the first request waits until `configure_background` has run.
     let worker = refresh::Worker::spawn(
         core.clone(),
         effects::tmux_socket().is_some(),
         events.clone(),
         trace.clone(),
     );
+    let config = timing::measure(startup.as_ref(), "startup.Config::load", || {
+        Config::load(&core)
+    })?;
+    let (picks, squad) = selection(&core, &config, picks.as_deref(), squad.as_deref())?;
+    composition::admit().map_err(|message| SquadError::new("SQUAD_LAYOUT_INVALID", message))?;
+    let initial_theme = config.theme(squad.as_deref().unwrap_or(""))?.0;
     let requested = initial_theme.base;
     let value = std::env::var("COLORFGBG").ok();
-    let mut guard = terminal::Guard::enter(terminal::Crossterm).map_err(failed)?;
     let eligible = terminal::background::allowed(
         requested,
         interaction,
@@ -864,9 +920,9 @@ pub fn run(
     app.initial_look = Some(crate::look::Look::new(initial_theme));
     app.picks = picks;
     app.popup = popup;
-    let mut screen = Terminal::new(CrosstermBackend::new(io::stdout())).map_err(failed)?;
     let mut switch_ready = crate::board_switch::ready(&core)?;
     let mut clock = crate::cron_clock::ClockWorker::spawn(core.clone(), config, false);
+    let lane = lane::Lane::spawn(core.clone(), events.clone());
     spawn_input(events, filter);
     let result = session(
         &mut app,
@@ -875,8 +931,7 @@ pub fn run(
         |squad, preempt, preview| worker.request(squad, preempt, preview),
         |revision, identity| worker.selected(revision, identity),
         |task| worker.checklist(task),
-        |request| execute(&core, request),
-        || Config::load(&core).map_err(|error| error.message),
+        |job| lane.submit(job),
         |app| {
             screen
                 .draw(|frame| {
@@ -897,6 +952,7 @@ pub fn run(
     );
     // Restore first, whatever happened; then report the session's outcome.
     let restored = guard.restore();
+    lane.finish();
     let stopped = clock.stop();
     let signal = result.map_err(failed)?;
     restored.map_err(failed)?;
@@ -978,8 +1034,7 @@ mod tests {
                 }
             },
                 |_| {},
-            no_actions,
-            no_load_config,
+            no_io,
             |app| {
                 terminal
                     .draw(|frame| {
@@ -1038,18 +1093,9 @@ mod tests {
             .board("product")
             .unwrap();
         app.apply(snapshot);
-        for code in [
-            KeyCode::Char('l'),
-            KeyCode::Down,
-            KeyCode::Down,
-            KeyCode::Enter,
-            KeyCode::Enter,
-            KeyCode::Char('q'),
-        ] {
-            events.send(key(code)).unwrap();
-        }
-        let mut reads = 0;
-        let mut actions = 0;
+        events.send(key(KeyCode::Char('l'))).unwrap();
+        let reads = std::cell::Cell::new(0);
+        let actions = std::cell::Cell::new(0);
         let reloads = std::cell::RefCell::new(Vec::new());
         session(
             &mut app,
@@ -1058,19 +1104,27 @@ mod tests {
             |_, preempt, preview| reloads.borrow_mut().push((preempt, preview)),
             |_, _| {},
             |_| {},
-            |request| {
-                assert_eq!(request, Request::Jump("coder".into()));
-                actions += 1;
-                Ok("Jumped".to_owned())
-            },
-            || {
-                reads += 1;
-                Config::read(path.clone()).map_err(|error| error.message)
+            |job| match job {
+                lane::Job::Open(opening) => {
+                    reads.set(reads.get() + 1);
+                    let config = Config::read(path.clone()).map_err(|error| error.message);
+                    events.send(BoardEvent::Opened { opening, config }).unwrap();
+                    for code in [KeyCode::Down, KeyCode::Down, KeyCode::Enter, KeyCode::Enter] {
+                        events.send(key(code)).unwrap();
+                    }
+                }
+                lane::Job::Act(request) => {
+                    assert_eq!(request, Request::Jump("coder".into()));
+                    actions.set(actions.get() + 1);
+                    events.send(acted(true, false, Ok("Jumped"))).unwrap();
+                    events.send(key(KeyCode::Char('q'))).unwrap();
+                }
+                other => panic!("unexpected {other:?}"),
             },
             |_| Ok(()),
         )
         .unwrap();
-        assert_eq!((reads, actions), (1, 1));
+        assert_eq!((reads.get(), actions.get()), (1, 1));
         assert_eq!(*reloads.borrow(), [(true, true), (true, false)]);
         assert!(app.view_picker.is_none());
         assert_eq!(
@@ -1093,17 +1147,9 @@ mod tests {
             "product",
             serde_json::json!([{"title":null,"rows":[{"name":"coder"}]}]),
         ));
-        for code in [
-            KeyCode::Char('T'),
-            KeyCode::Down,
-            KeyCode::Enter,
-            KeyCode::Enter,
-            KeyCode::Char('q'),
-        ] {
-            events.send(key(code)).unwrap();
-        }
-        let mut reads = 0;
-        let mut actions = 0;
+        events.send(key(KeyCode::Char('T'))).unwrap();
+        let reads = std::cell::Cell::new(0);
+        let actions = std::cell::Cell::new(0);
         let reloads = std::cell::Cell::new(0);
         session(
             &mut app,
@@ -1112,19 +1158,27 @@ mod tests {
             |_, _, _| reloads.set(reloads.get() + 1),
             |_, _| {},
             |_| {},
-            |request| {
-                assert_eq!(request, Request::Jump("coder".into()));
-                actions += 1;
-                Ok("Jumped".to_owned())
-            },
-            || {
-                reads += 1;
-                Config::read(path.clone()).map_err(|error| error.message)
+            |job| match job {
+                lane::Job::Open(opening) => {
+                    reads.set(reads.get() + 1);
+                    let config = Config::read(path.clone()).map_err(|error| error.message);
+                    events.send(BoardEvent::Opened { opening, config }).unwrap();
+                    for code in [KeyCode::Down, KeyCode::Enter, KeyCode::Enter] {
+                        events.send(key(code)).unwrap();
+                    }
+                }
+                lane::Job::Act(request) => {
+                    assert_eq!(request, Request::Jump("coder".into()));
+                    actions.set(actions.get() + 1);
+                    events.send(acted(true, false, Ok("Jumped"))).unwrap();
+                    events.send(key(KeyCode::Char('q'))).unwrap();
+                }
+                other => panic!("unexpected {other:?}"),
             },
             |_| Ok(()),
         )
         .unwrap();
-        assert_eq!((reads, actions, reloads.get()), (1, 1, 1));
+        assert_eq!((reads.get(), actions.get(), reloads.get()), (1, 1, 1));
         assert!(app.theme_picker.is_none());
         assert_eq!(app.look().theme.base, tmt_cli_style::Base::TmtLight);
         assert_eq!(
@@ -1143,15 +1197,7 @@ mod tests {
         let (events, input) = channel();
         let mut app = App::new(Some("@tab:needs-me".into()));
         app.apply(app::tests::snapshot("@tab:needs-me", serde_json::json!([])));
-        for code in [
-            KeyCode::Char('T'),
-            KeyCode::Down,
-            KeyCode::Tab,
-            KeyCode::Enter,
-            KeyCode::Char('q'),
-        ] {
-            events.send(key(code)).unwrap();
-        }
+        events.send(key(KeyCode::Char('T'))).unwrap();
         let mut checked = false;
         session(
             &mut app,
@@ -1160,8 +1206,21 @@ mod tests {
             |_, _, _| {},
             |_, _| {},
             |_| {},
-            no_actions,
-            || Config::read(path.clone()).map_err(|error| error.message),
+            |job| {
+                let lane::Job::Open(opening) = job else {
+                    panic!("unexpected {job:?}")
+                };
+                let config = Config::read(path.clone()).map_err(|error| error.message);
+                events.send(BoardEvent::Opened { opening, config }).unwrap();
+                for code in [
+                    KeyCode::Down,
+                    KeyCode::Tab,
+                    KeyCode::Enter,
+                    KeyCode::Char('q'),
+                ] {
+                    events.send(key(code)).unwrap();
+                }
+            },
             |app| {
                 if let Some(picker) = &app.theme_picker {
                     assert_eq!(picker.scope, crate::theme::ThemeScope::Board);
@@ -1188,15 +1247,7 @@ mod tests {
         let (events, input) = channel();
         let mut app = App::new(Some("product".into()));
         app.apply(app::tests::snapshot("product", serde_json::json!([])));
-        for code in [
-            KeyCode::Char('T'),
-            KeyCode::Down,
-            KeyCode::Enter,
-            KeyCode::Esc,
-            KeyCode::Char('q'),
-        ] {
-            events.send(key(code)).unwrap();
-        }
+        events.send(key(KeyCode::Char('T'))).unwrap();
         let mut changed = false;
         let mut failure_shown = false;
         session(
@@ -1206,8 +1257,21 @@ mod tests {
             |_, _, _| panic!("a failed save must not reload or retry"),
             |_, _| {},
             |_| {},
-            no_actions,
-            || Config::read(path.clone()).map_err(|error| error.message),
+            |job| {
+                let lane::Job::Open(opening) = job else {
+                    panic!("unexpected {job:?}")
+                };
+                let config = Config::read(path.clone()).map_err(|error| error.message);
+                events.send(BoardEvent::Opened { opening, config }).unwrap();
+                for code in [
+                    KeyCode::Down,
+                    KeyCode::Enter,
+                    KeyCode::Esc,
+                    KeyCode::Char('q'),
+                ] {
+                    events.send(key(code)).unwrap();
+                }
+            },
             |app| {
                 if let Some(picker) = &app.theme_picker {
                     if !changed {
@@ -1229,12 +1293,127 @@ mod tests {
         std::fs::remove_dir_all(directory).unwrap();
     }
 
-    fn no_load_config() -> Result<Config, String> {
-        panic!("unexpected config read")
+    #[test]
+    #[should_panic(expected = "input/render thread")]
+    fn a_command_on_the_session_thread_is_a_test_failure() {
+        let _ui = crate::runner::forbid_commands();
+        let _ = crate::runner::run(
+            std::path::Path::new("/usr/bin/true"),
+            &[],
+            b"",
+            Duration::from_secs(1),
+            1024,
+        );
     }
 
-    fn no_actions(request: Request) -> Result<String, String> {
-        panic!("unexpected {request:?}")
+    #[test]
+    fn a_slow_send_runs_on_the_lane_while_the_board_keeps_painting() {
+        let directory = std::env::temp_dir().join(format!("ops-lane-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&directory);
+        std::fs::create_dir_all(&directory).unwrap();
+        let fake = directory.join("tmt");
+        crate::test_support::write_ready_executable(
+            &fake,
+            "#!/bin/sh\nsleep 0.5\necho '{\"requestId\":\"req_1\",\"status\":\"sent\"}'\n",
+        );
+        let mut app = App::new(Some("product".into()));
+        let mut snapshot = app::tests::snapshot(
+            "product",
+            serde_json::json!([{"title":null,"rows":[{"name":"auth-fix"}]}]),
+        );
+        let view = snapshot.view.as_mut().unwrap();
+        view.me = Some("Ben".into());
+        view.document["squad"]["lead"] = serde_json::json!({"name": "sol"});
+        view.bindings =
+            crate::action::with_action_keys(crate::action::preset(true, &view.board.panes));
+        app.apply(snapshot);
+        let (events, input) = channel();
+        events.send(key(KeyCode::Char('A'))).unwrap();
+        events.send(key(KeyCode::Enter)).unwrap();
+        let lane = lane::Lane::spawn(Core::at(fake), events.clone());
+        let started = Instant::now();
+        let mut notices: Vec<(Duration, Option<String>)> = Vec::new();
+        session(
+            &mut app,
+            &AtomicUsize::new(0),
+            &input,
+            |_, _, _| {},
+            |_, _| {},
+            |_| {},
+            |job| lane.submit(job),
+            |app| {
+                notices.push((started.elapsed(), app.notice.clone()));
+                if app
+                    .notice
+                    .as_deref()
+                    .is_some_and(|notice| notice.starts_with("Message sent to sol"))
+                {
+                    events.send(key(KeyCode::Char('q'))).unwrap();
+                }
+                Ok(())
+            },
+        )
+        .unwrap();
+        lane.finish();
+        let placeholder = notices
+            .iter()
+            .find(|(_, notice)| notice.as_deref() == Some("Sending…"))
+            .expect("a placeholder frame");
+        assert!(
+            placeholder.0 < Duration::from_millis(300),
+            "the placeholder paints long before the 500 ms command ends: {:?}",
+            placeholder.0
+        );
+        let done = notices.last().unwrap();
+        assert_eq!(done.1.as_deref(), Some("Message sent to sol (req_1)."));
+        assert!(done.0 >= Duration::from_millis(450));
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn an_overlay_is_requested_once_while_its_config_is_still_loading() {
+        let mut app = App::new(Some("product".into()));
+        app.apply(app::tests::snapshot(
+            "product",
+            serde_json::json!([{"title":null,"rows":[{"name":"coder"}]}]),
+        ));
+        let (events, input) = channel();
+        for code in [KeyCode::Char('T'), KeyCode::Char('T'), KeyCode::Char('q')] {
+            events.send(key(code)).unwrap();
+        }
+        let jobs = std::cell::Cell::new(0);
+        let mut notices = Vec::new();
+        session(
+            &mut app,
+            &AtomicUsize::new(0),
+            &input,
+            |_, _, _| {},
+            |_, _| {},
+            |_| {},
+            |_| jobs.set(jobs.get() + 1),
+            |app| {
+                notices.push(app.notice.clone());
+                Ok(())
+            },
+        )
+        .unwrap();
+        assert_eq!(jobs.get(), 1);
+        assert!(
+            notices.contains(&Some("Still working on the previous request.".to_owned())),
+            "{notices:?}"
+        );
+    }
+
+    fn acted(jump: bool, sends: bool, outcome: Result<&str, String>) -> BoardEvent {
+        BoardEvent::Acted {
+            jump,
+            sends,
+            outcome: outcome.map(|message| ActionOutcome::Message(message.to_owned())),
+        }
+    }
+
+    fn no_io(job: lane::Job) {
+        panic!("unexpected {job:?}")
     }
 
     /// A stand-in core that logs each call: `answer` succeeds, anything else
@@ -1311,8 +1490,7 @@ mod tests {
                 |_, _, _| {},
                 |_, _| {},
                 |_| {},
-                no_actions,
-                no_load_config,
+                no_io,
                 |_| Ok(()),
             )
             .unwrap()
@@ -1341,8 +1519,7 @@ mod tests {
                 )))
                 .unwrap();
             events.send(key(KeyCode::Enter)).unwrap();
-            events.send(BoardEvent::InputClosed).unwrap();
-            let mut jumps = 0;
+            let jumps = std::cell::Cell::new(0);
             let ended = session(
                 &mut app,
                 &AtomicUsize::new(0),
@@ -1350,16 +1527,25 @@ mod tests {
                 |_, _, _| {},
                 |_, _| {},
                 |_| {},
-                |request| {
+                |job| {
+                    let lane::Job::Act(request) = job else {
+                        panic!("unexpected {job:?}")
+                    };
                     assert_eq!(request, Request::Jump("auth-fix".into()));
-                    jumps += 1;
-                    outcome.clone()
+                    jumps.set(jumps.get() + 1);
+                    events
+                        .send(BoardEvent::Acted {
+                            jump: true,
+                            sends: false,
+                            outcome: outcome.clone().map(ActionOutcome::Message),
+                        })
+                        .unwrap();
+                    events.send(BoardEvent::InputClosed).unwrap();
                 },
-                no_load_config,
                 |_| Ok(()),
             )
             .unwrap();
-            (ended, jumps)
+            (ended, jumps.get())
         };
         assert_eq!(run(true, Ok("Showing auth-fix.".into())), (None, 1));
         assert_eq!(run(true, Err("tmt focus failed".into())), (Some(HANGUP), 1));
@@ -1384,8 +1570,7 @@ mod tests {
                 |_, _, _| {},
                 |_, _| {},
                 |_| {},
-                no_actions,
-                no_load_config,
+                no_io,
                 |_| {
                     if case == "draw-error" {
                         return Err(io::Error::other("draw refused"));
@@ -1456,8 +1641,7 @@ mod tests {
             |_, _, _| {},
             |_, _| {},
             |_| {},
-            no_actions,
-            no_load_config,
+            no_io,
             |_| Err(io::Error::other("terminal gone")),
         )
         .unwrap_err();
@@ -1482,8 +1666,7 @@ mod tests {
                 |_, _, _| {},
                 |_, _| {},
                 |_| {},
-                no_actions,
-                no_load_config,
+                no_io,
                 |app| {
                     painted
                         .send((app.selected, app.view.as_ref().unwrap().document.clone()))
@@ -1539,8 +1722,7 @@ mod tests {
                 |_, _, _| {},
                 |_, _| {},
                 |_| {},
-                no_actions,
-                no_load_config,
+                no_io,
                 |app| {
                     *app.hits.borrow_mut() = vec![app::Hit {
                         y: 1,
@@ -1599,8 +1781,7 @@ mod tests {
                     },
                     |_, _| {},
                     |_| {},
-                    no_actions,
-                    no_load_config,
+                    no_io,
                     |_| {
                         painted.send(()).unwrap();
                         Ok(())
@@ -1642,8 +1823,7 @@ mod tests {
                 |_, _, _| {},
                 |_, _| {},
                 |_| {},
-                no_actions,
-                no_load_config,
+                no_io,
                 |_| {
                     painted.send(()).unwrap();
                     Ok(())
@@ -1697,8 +1877,7 @@ mod tests {
                 |_, _, _| {},
                 |_, _| {},
                 |_| {},
-                no_actions,
-                no_load_config,
+                no_io,
                 |_| {
                     frames += 1;
                     Ok(())
@@ -1738,8 +1917,7 @@ mod tests {
                 |_, _, _| panic!("automatic refresh was turned off by the snapshot"),
                 |_, _| {},
                 |_| {},
-                no_actions,
-                no_load_config,
+                no_io,
                 |_| Ok(())
             )
             .unwrap(),

@@ -211,6 +211,21 @@ pub enum Request {
 }
 
 impl Request {
+    /// What the board shows while the lane runs this request.
+    pub fn progress(&self) -> &'static str {
+        match self {
+            Self::Jump(_) | Self::Back => "Jumping…",
+            Self::Open { .. } | Self::RevealFile { .. } | Self::Run(_) => "Opening…",
+            Self::Copy { .. } => "Copying…",
+            Self::Talk { .. } | Self::Annotate { .. } | Self::Reply { .. } | Self::Leads { .. } => {
+                "Sending…"
+            }
+            Self::Status(_) => "Updating status…",
+            Self::Reorder(_) => "Saving the tab order…",
+            Self::Cron(_) => "Updating the job…",
+        }
+    }
+
     /// Sending changes request state, and a saved order changes the tabs, so
     /// the view reloads afterwards.
     pub fn sends(&self) -> bool {
@@ -672,6 +687,8 @@ pub struct App {
     /// Last successful row send; cleared on the next user action.
     pub(super) sent: Option<RowFeedback>,
     pub(super) pending_send: Option<RowFeedback>,
+    /// Lane jobs submitted whose events have not arrived.
+    pub(super) in_flight: usize,
     /// Current-frame inline band, reserved by the row painter.
     pub(super) input_band: std::cell::Cell<Option<ratatui::layout::Rect>>,
     /// Index of the focused pane (split) or visible tab (tabs).
@@ -3030,6 +3047,10 @@ impl App {
                 return Effect::None;
             }
             _ => return Effect::None,
+        }
+        if self.in_flight > 0 {
+            return self
+                .say("Still working on the previous request; press Enter again in a moment.");
         }
         let input = self.input.take().expect("composing");
         if matches!(input.compose, Compose::Cron) {

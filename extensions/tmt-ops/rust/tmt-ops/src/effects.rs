@@ -32,6 +32,7 @@ fn unfinished(program: &str, error: RunError) -> String {
 /// board's terminal does not end it), and a thread that reaps it.
 pub fn spawn(argv: &[String]) -> Result<(), String> {
     let (program, args) = argv.split_first().ok_or("no program to run")?;
+    crate::runner::assert_commands_allowed("spawn");
     let mut child = Command::new(program)
         .args(args)
         .process_group(0)

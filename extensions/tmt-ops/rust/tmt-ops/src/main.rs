@@ -1095,11 +1095,6 @@ fn main() -> ExitCode {
     }
     // Decided once: whether a person can see the board or answer a question.
     let interaction = Interaction::detect(json);
-    if command != "migration"
-        && let Err(failure) = board_switch::offer(interaction)
-    {
-        report(&failure);
-    }
     if command == "skill" {
         return print_embedded(SKILL);
     }
