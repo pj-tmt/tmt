@@ -2417,7 +2417,8 @@ sort = ["-name"]
         interval: 25,
       });
 
-      for (const [args, code] of [
+      // Refusals change nothing, so they run together: one process round, not eight.
+      const refusals = [
         [['open', 'auth-fix', '--link', 'doc_link'], 'SQUAD_ACTION_REFUSED'],
         [['open', 'Sol'], 'SQUAD_ACTION_REFUSED'],
         [['open', 'Rin'], 'SQUAD_NOT_MEMBER'],
@@ -2427,11 +2428,12 @@ sort = ["-name"]
         [['jump', 'auth-fix'], 'HOST_UNSUPPORTED'],
         [['back'], 'HOST_UNSUPPORTED'],
         [['jump', 'Rin'], 'SQUAD_NOT_MEMBER'],
-      ] as const) {
-        const refused = await squad(sandbox, [...args]);
-        expect(refused.status, args.join(' ')).toBe(1);
-        expect(refused.body.error.code, args.join(' ')).toBe(code);
-      }
+      ] as const;
+      const refused = await Promise.all(refusals.map(([args]) => squad(sandbox, [...args])));
+      refusals.forEach(([args, code], index) => {
+        expect(refused[index].status, args.join(' ')).toBe(1);
+        expect(refused[index].body.error.code, args.join(' ')).toBe(code);
+      });
       expect(readFileSync(opened, 'utf8')).toContain('/issues/9');
       expect(existsSync(copied)).toBe(false);
 
@@ -2450,7 +2452,8 @@ sort = ["-name"]
         '✓ Copied with the configured clipboard program\n'
       );
     });
-  });
+    // Two detached-opener waits of up to 5 s each cannot fit the 10 s default on a loaded host.
+  }, 20_000);
 
   it('talks, annotates and answers as the user through core commands only', async () => {
     await withSandbox(async (sandbox) => {
@@ -4074,7 +4077,8 @@ sys.exit(result.returncode)
       expect(help.stdout).toContain('Showing, setting and clearing');
       expect(help.stdout).not.toContain('--every');
     });
-  });
+    // About 26 sequential CLI processes, each through a Python caller shim; ~4.7 s in CI.
+  }, 30_000);
 });
 
 describe('Ops path migration with unchanged Squad commands', () => {
