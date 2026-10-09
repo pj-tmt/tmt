@@ -751,7 +751,7 @@ var firestoreReasons = {
 	},
 	support: { "not-implemented": ["This isn't available in this release yet.", false] }
 };
-var specs = [
+var firestoreSpecs = [
 	["sharing", [
 		"project",
 		"sign-in",
@@ -780,8 +780,8 @@ function keys(row, expected) {
 function parseFirestoreLayers(value) {
 	requireValid(Array.isArray(value));
 	if (!value.length) return [];
-	requireValid(value.length === specs.length);
-	for (const [index, [layer, items]] of specs.entries()) {
+	requireValid(value.length === firestoreSpecs.length);
+	for (const [index, [layer, items]] of firestoreSpecs.entries()) {
 		const row = object$1(value[index]);
 		keys(row, [
 			"layer",

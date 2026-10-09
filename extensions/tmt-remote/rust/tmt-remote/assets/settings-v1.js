@@ -182,6 +182,7 @@ var ManagementPage = class {
 	notice = "";
 	freshAttempted = false;
 	cursor = null;
+	firestoreRead;
 	get onFirstPage() {
 		return this.cursor === null;
 	}
@@ -194,6 +195,7 @@ var ManagementPage = class {
 	}
 	async refresh(cursor = this.cursor) {
 		this.busy = true;
+		this.firestoreRead = void 0;
 		this.firestore = void 0;
 		this.firestoreAccess = "checking";
 		try {
@@ -208,12 +210,6 @@ var ManagementPage = class {
 			this.access = "live";
 			if (this.outcome) this.describeOutcome();
 			else this.notice = settings.settings.warning ?? "";
-			try {
-				this.firestore = await this.client.settings({ firestore: true });
-				this.firestoreAccess = "confirmed";
-			} catch {
-				this.firestoreAccess = "unconfirmed";
-			}
 		} catch (error) {
 			this.firestoreAccess = "unconfirmed";
 			this.access = accessRefused(error) ? "lost" : "unconfirmed";
@@ -221,6 +217,20 @@ var ManagementPage = class {
 			else this.notice = "Current access could not be confirmed. Use the local CLI.";
 		} finally {
 			this.busy = false;
+		}
+	}
+	/** Optional serialized observation owns no management busy window. */
+	async observeFirestore() {
+		const read = this.client.settings({ firestore: true });
+		this.firestoreRead = read;
+		try {
+			const view = await read;
+			if (this.firestoreRead !== read) return;
+			this.firestore = view;
+			this.firestoreAccess = "confirmed";
+		} catch {
+			if (this.firestoreRead !== read) return;
+			this.firestoreAccess = "unconfirmed";
 		}
 	}
 	async submit(intent) {
@@ -496,9 +506,15 @@ async function run(action) {
 	}
 	render();
 }
+/** Paint management first; only the optional section changes when its read completes. */
+async function refreshView(cursor) {
+	await page.refresh(cursor);
+	render();
+	if (page.access === "live") page.observeFirestore().then(() => renderFirestore(element("firestore-content"), page.firestoreAccess, page.firestore));
+}
 async function change(intent) {
 	await run(() => page.submit(intent));
-	if (page.outcome?.state === "committed" && !page.outcome.sessionEnded) await run(() => page.refresh());
+	if (page.outcome?.state === "committed" && !page.outcome.sessionEnded) await run(() => refreshView());
 }
 element("opening-form").addEventListener("submit", (event) => {
 	event.preventDefault();
@@ -529,7 +545,7 @@ element("limit-form").addEventListener("submit", (event) => {
 	});
 });
 mode.addEventListener("change", render);
-refresh.addEventListener("click", () => void run(() => page.refresh()));
+refresh.addEventListener("click", () => void run(() => refreshView()));
 function navigate(cursor) {
 	if (page.busy) return;
 	for (const device of page.devices?.devices ?? []) {
@@ -541,13 +557,13 @@ function navigate(cursor) {
 			return;
 		}
 	}
-	run(() => page.refresh(cursor));
+	run(() => refreshView(cursor));
 }
 more.addEventListener("click", () => navigate(page.devices?.nextCursor ?? null));
 first.addEventListener("click", () => navigate(null));
 recover.addEventListener("click", () => void run(async () => {
 	await page.recover();
-	if (page.access === "live") await page.refresh();
+	if (page.access === "live") await refreshView();
 }));
 try {
 	let session = await reopenSession();
@@ -555,7 +571,7 @@ try {
 		session = await reopenSession(session);
 		return management(session);
 	});
-	await run(() => page.refresh());
+	await run(() => refreshView());
 } catch (error) {
 	commandNotice(element("access"), error instanceof RefusalError ? "Current browser access refused. Use the local CLI." : "Current browser access unconfirmed. Pair locally with tmt remote pair, or use the local CLI.");
 	refresh.disabled = true;

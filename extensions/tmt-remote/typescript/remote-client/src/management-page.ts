@@ -26,6 +26,7 @@ export class ManagementPage {
   notice = '';
   private freshAttempted = false;
   private cursor: string | null = null;
+  private firestoreRead?: Promise<FirestoreSettingsView>;
   get onFirstPage(): boolean {
     return this.cursor === null;
   }
@@ -44,6 +45,7 @@ export class ManagementPage {
   }
   async refresh(cursor: string | null = this.cursor): Promise<void> {
     this.busy = true;
+    this.firestoreRead = undefined;
     this.firestore = undefined;
     this.firestoreAccess = 'checking';
     try {
@@ -55,13 +57,6 @@ export class ManagementPage {
       this.access = 'live';
       if (this.outcome) this.describeOutcome();
       else this.notice = settings.settings.warning ?? '';
-      // Optional observation cannot replace settings access or a frozen effect outcome.
-      try {
-        this.firestore = await this.client.settings({ firestore: true });
-        this.firestoreAccess = 'confirmed';
-      } catch {
-        this.firestoreAccess = 'unconfirmed';
-      }
     } catch (error) {
       this.firestoreAccess = 'unconfirmed';
       this.access = accessRefused(error) ? 'lost' : 'unconfirmed';
@@ -69,6 +64,20 @@ export class ManagementPage {
       else this.notice = 'Current access could not be confirmed. Use the local CLI.';
     } finally {
       this.busy = false;
+    }
+  }
+  /** Optional serialized observation owns no management busy window. */
+  async observeFirestore(): Promise<void> {
+    const read = this.client.settings({ firestore: true });
+    this.firestoreRead = read;
+    try {
+      const view = await read;
+      if (this.firestoreRead !== read) return;
+      this.firestore = view;
+      this.firestoreAccess = 'confirmed';
+    } catch {
+      if (this.firestoreRead !== read) return;
+      this.firestoreAccess = 'unconfirmed';
     }
   }
   async submit(intent: PageIntent): Promise<void> {

@@ -2211,7 +2211,70 @@ test('Firestore settings show recorded prerequisites and the approved fixture ca
       ).firestoreBudget,
     };
   }
-  await page.goto(`${origin}/settings`);
+  // Hold the optional signed reply, not the base management reads or page assets.
+  const inventory = JSON.parse(
+    execFileSync(BINARY, ['devices', '--json'], { env, encoding: 'utf8' }),
+  );
+  execFileSync(BINARY, ['devices', 'designate', inventory.devices[0].clientId, '--json'], { env });
+  const optional = routeBarrier();
+  const optionalJoined = routeBarrier();
+  const holdOptional = async (route: import('@playwright/test').Route) => {
+    const wire = route.request().postDataJSON();
+    const input = JSON.parse(Buffer.from(wire.payload, 'base64url').toString('utf8'));
+    if (wire.operation !== 'remote.settings.show' || input.firestore !== true) {
+      await route.continue();
+      return;
+    }
+    const response = await route.fetch();
+    optional.arrive();
+    try {
+      await optional.held;
+      await route.fulfill({ response });
+    } finally {
+      optionalJoined.arrive();
+    }
+  };
+  await page.route('**/append', holdOptional);
+  try {
+    await page.goto(`${origin}/settings`);
+    await optional.reached;
+    await expect(page.locator('#access')).toHaveText('Current browser access confirmed.');
+    await expect(page.locator('#opening')).toBeEnabled();
+    await expect(page.locator('#refresh')).toBeEnabled();
+    await expect(page.locator('.device-summary')).toContainText('Firestore browser');
+    await expect(page.locator('#firestore-content')).toHaveText(
+      'Checking recorded Firestore setup…',
+    );
+  } finally {
+    optional.release();
+    await optionalJoined.reached;
+    await page.unroute('**/append', holdOptional);
+  }
+  const failOptional = async (route: import('@playwright/test').Route) => {
+    const wire = route.request().postDataJSON();
+    const input = JSON.parse(Buffer.from(wire.payload, 'base64url').toString('utf8'));
+    if (wire.operation === 'remote.settings.show' && input.firestore === true) {
+      // Admit the read before losing its reply, preserving the signed sequence.
+      const response = await route.fetch();
+      await route.fulfill({ response, status: 502, body: 'optional fixture unavailable' });
+    } else await route.continue();
+  };
+  await expect(page.locator('#firestore-content')).toContainText('Firestore is not configured.');
+  await page.route('**/append', failOptional);
+  try {
+    await page.click('#refresh');
+    await expect(page.locator('#firestore-content')).toContainText(
+      'Firestore setup could not be confirmed.',
+    );
+    await expect(page.locator('#access')).toHaveText('Current browser access confirmed.');
+    await expect(page.locator('#opening')).toBeEnabled();
+    await expect(page.locator('#refresh')).toBeEnabled();
+    await expect(page.locator('.device-summary')).toContainText('Firestore browser');
+  } finally {
+    await page.unroute('**/append', failOptional);
+  }
+  execFileSync(BINARY, ['devices', 'undesignate', '--json'], { env });
+  await page.click('#refresh');
   await expect(page.locator('#firestore-content')).toContainText('Firestore is not configured.');
   expect((await recorded()).firestoreLayers).toEqual([]);
   await captureFirestore(
@@ -2393,10 +2456,13 @@ test('Firestore settings show recorded prerequisites and the approved fixture ca
   );
   await expect(page.locator('#firestore-budget')).toContainText('70%');
   await expect(page.locator('#firestore-budget')).toContainText('90%');
+  expect(observed).toEqual(expect.arrayContaining(['remote.settings.show', 'remote.devices.list']));
   expect(
+    // A lost read reply invokes the SDK's scope-free sequence recovery read.
     observed.every((op) =>
-      ['session.open', 'remote.settings.show', 'remote.devices.list'].includes(op),
+      ['session.open', 'capabilities', 'remote.settings.show', 'remote.devices.list'].includes(op),
     ),
+    `Observed signed operations: ${JSON.stringify(observed)}`,
   ).toBe(true);
   // The damaged fixture is never repaired by inspection.
   expect(await readFile(join(root, 'state/remote/deploy.json'), 'utf8')).toBe('damaged fixture');

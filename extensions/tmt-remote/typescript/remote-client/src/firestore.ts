@@ -54,7 +54,7 @@ export const firestoreReasons: Record<string, Record<string, [string, boolean]>>
   },
   support: { 'not-implemented': ["This isn't available in this release yet.", false] },
 };
-const specs = [
+export const firestoreSpecs = [
   ['sharing', ['project', 'sign-in', 'rules', 'plan-tier', 'quota']],
   ['operations', ['plan-tier', 'support']],
   ['attachments', ['support', 'project', 'rules', 'quota']],
@@ -74,8 +74,8 @@ function keys(row: Record<string, unknown>, expected: string[]): void {
 export function parseFirestoreLayers(value: unknown): FirestoreLayerView[] {
   requireValid(Array.isArray(value));
   if (!value.length) return [];
-  requireValid(value.length === specs.length);
-  for (const [index, [layer, items]] of specs.entries()) {
+  requireValid(value.length === firestoreSpecs.length);
+  for (const [index, [layer, items]] of firestoreSpecs.entries()) {
     const row = object(value[index]);
     keys(row, ['layer', 'state', 'prerequisites']);
     requireValid(

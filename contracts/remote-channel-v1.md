@@ -714,7 +714,8 @@ framework, agent/held-work recovery exception or general recovery route exists.
 
 `GET /settings` serves the Remote-owned shared-presentation page with the existing page CSP,
 origin checks and no-store policy. `/sdk/settings-v1.js` imports `/sdk/remote-v1.js`; it does not
-embed another signer/channel implementation. The sections are
+embed another signer/channel implementation. The additive public SDK exports are
+`FirestoreSettingsView`, `budget.parsePublishedLimits` and `budget.publishedLimitRows`. The sections are
 Browser opening, Session limit per device, Firestore and Paired devices. Effective values, sources,
 warning and write capabilities come from admitted server reads. The shared package supplies checked CSS
 and static presentation contracts; Remote owns host layout and native select controls. Shared

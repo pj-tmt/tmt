@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { test, vi } from 'vite-plus/test';
-import { parseFirestoreLayers } from '../src/firestore.js';
+import { parseFirestoreLayers, firestoreSpecs, firestoreReasons } from '../src/firestore.js';
 import { parsePublishedLimits } from '../src/budget.js';
 import { renderFirestore } from '../src/firestore-page.js';
 import type { FirestoreSettingsView } from '../src/management.js';
@@ -222,5 +222,48 @@ test('dated budget equals the native golden and renders received date/values, ne
     assert.ok(render([]).text().includes('Firestore is not configured.'));
   } finally {
     vi.unstubAllGlobals();
+  }
+});
+
+test('SDK readiness vocabulary mechanically equals the Rust-owned table fixture', () => {
+  const fixture = JSON.parse(
+    readFileSync(
+      new URL(
+        '../../../rust/tmt-remote/tests/fixtures/firestore_readiness/table.json',
+        import.meta.url,
+      ),
+      'utf8',
+    ),
+  );
+  assert.deepEqual(
+    firestoreSpecs.map(([layer, items]) => ({ layer, items })),
+    fixture.layers.map(({ layer, items }: { layer: string; items: string[] }) => ({
+      layer,
+      items,
+    })),
+  );
+  const reasons = Object.entries(firestoreReasons).flatMap(([item, rows]) =>
+    Object.entries(rows).map(([reason, [sentence, next]]) => ({
+      item,
+      reason,
+      sentence,
+      next: next ? 'tmt remote deploy firestore' : null,
+    })),
+  );
+  assert.deepEqual(reasons, fixture.reasons);
+  for (const spec of fixture.layers) {
+    if (!spec.items.includes('plan-tier')) continue;
+    const layers = enabledFixture();
+    const layer = layers.find((layer) => layer.layer === spec.layer)!;
+    Object.assign(
+      layer.prerequisites.find((item) => item.item === 'plan-tier')!,
+      {
+        state: 'not-enabled',
+        reason: 'paid-plan-required',
+      },
+    );
+    layer.state = 'not-enabled';
+    if (spec.requiresPaidPlan) parseFirestoreLayers(layers);
+    else assert.throws(() => parseFirestoreLayers(layers));
   }
 });

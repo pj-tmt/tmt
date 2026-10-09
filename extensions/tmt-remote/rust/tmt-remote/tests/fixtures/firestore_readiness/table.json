@@ -1,0 +1,131 @@
+{
+  "layers": [
+    {
+      "layer": "sharing",
+      "items": [
+        "project",
+        "sign-in",
+        "rules",
+        "plan-tier",
+        "quota"
+      ],
+      "requiresPaidPlan": false
+    },
+    {
+      "layer": "operations",
+      "items": [
+        "plan-tier",
+        "support"
+      ],
+      "requiresPaidPlan": true
+    },
+    {
+      "layer": "attachments",
+      "items": [
+        "support",
+        "project",
+        "rules",
+        "quota"
+      ],
+      "requiresPaidPlan": false
+    }
+  ],
+  "reasons": [
+    {
+      "item": "project",
+      "reason": "not-configured",
+      "sentence": "No Firebase project is set up.",
+      "next": "tmt remote deploy firestore"
+    },
+    {
+      "item": "project",
+      "reason": "access-lost",
+      "sentence": "tmt can no longer reach the Firebase project.",
+      "next": "tmt remote deploy firestore"
+    },
+    {
+      "item": "project",
+      "reason": "not-checked",
+      "sentence": "The Firebase project has not been checked.",
+      "next": null
+    },
+    {
+      "item": "sign-in",
+      "reason": "provider-disabled",
+      "sentence": "Sign-in is not enabled for the project.",
+      "next": "tmt remote deploy firestore"
+    },
+    {
+      "item": "sign-in",
+      "reason": "permission-missing",
+      "sentence": "This account isn't allowed to turn on sign-in for the project.",
+      "next": null
+    },
+    {
+      "item": "sign-in",
+      "reason": "not-checked",
+      "sentence": "Sign-in has not been checked.",
+      "next": null
+    },
+    {
+      "item": "rules",
+      "reason": "not-deployed",
+      "sentence": "Firestore rules are not deployed.",
+      "next": "tmt remote deploy firestore"
+    },
+    {
+      "item": "rules",
+      "reason": "out-of-date",
+      "sentence": "Firestore rules are out of date.",
+      "next": "tmt remote deploy firestore"
+    },
+    {
+      "item": "rules",
+      "reason": "partial",
+      "sentence": "Firestore rules are only partly deployed.",
+      "next": "tmt remote deploy firestore"
+    },
+    {
+      "item": "rules",
+      "reason": "not-checked",
+      "sentence": "Firestore rules have not been checked.",
+      "next": null
+    },
+    {
+      "item": "plan-tier",
+      "reason": "paid-plan-required",
+      "sentence": "This needs a paid Firebase plan.",
+      "next": null
+    },
+    {
+      "item": "plan-tier",
+      "reason": "not-checked",
+      "sentence": "The Firebase plan has not been checked.",
+      "next": null
+    },
+    {
+      "item": "quota",
+      "reason": "headroom-low",
+      "sentence": "Today's free Firebase quota is almost used up.",
+      "next": null
+    },
+    {
+      "item": "quota",
+      "reason": "exhausted",
+      "sentence": "Today's free Firebase quota is used up.",
+      "next": null
+    },
+    {
+      "item": "quota",
+      "reason": "not-checked",
+      "sentence": "The free Firebase quota has not been checked.",
+      "next": null
+    },
+    {
+      "item": "support",
+      "reason": "not-implemented",
+      "sentence": "This isn't available in this release yet.",
+      "next": null
+    }
+  ]
+}
