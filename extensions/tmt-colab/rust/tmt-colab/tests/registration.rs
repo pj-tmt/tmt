@@ -492,7 +492,11 @@ fn schema_two_authority_rows_survive_registration_migration() {
         })
         .unwrap();
     db.execute_batch(
-        "ALTER TABLE pages DROP COLUMN last_update_at_ms; DROP TABLE baselines; DROP TABLE device_registrations; PRAGMA user_version=2;",
+        "ALTER TABLE owner_operations RENAME TO current_owner_operations;
+        CREATE TABLE owner_operations(id TEXT PRIMARY KEY, digest BLOB NOT NULL, outcome BLOB NOT NULL);
+        INSERT INTO owner_operations(id,digest,outcome) SELECT id,digest,outcome FROM current_owner_operations;
+        DROP TABLE current_owner_operations;
+        ALTER TABLE pages DROP COLUMN last_update_at_ms; DROP TABLE baselines; DROP TABLE device_registrations; PRAGMA user_version=2;",
     )
     .unwrap();
     let store = Store::open(&f.layout).unwrap();
@@ -506,7 +510,7 @@ fn schema_two_authority_rows_survive_registration_migration() {
     assert_eq!(
         db.pragma_query_value(None, "user_version", |r| r.get::<_, u32>(0))
             .unwrap(),
-        5
+        6
     );
     store.close().unwrap();
 }
@@ -796,6 +800,7 @@ fn create_page(
                 operation_id: operation,
                 expected_revision: expected,
                 action: tmt_colab::transitions::OwnerAction::Create {
+                    creation_recipient: None,
                     page,
                     title: "Created title",
                     source: "<h1>Created source</h1>",
@@ -1037,26 +1042,32 @@ fn create_first_registration_and_saved_head_certificate_retry_use_the_genesis_an
 fn fresh_creation_is_atomic_replayable_and_conflicting_selections_never_create_another_page() {
     use tmt_colab::transitions::{OwnerAction, OwnerRequest};
     const PAGE: &str = "50000000-0000-4000-8000-000000000004";
+    let recipient = tmt_colab::decoder::CreationRecipient {
+        machine_id: "40000000-0000-4000-8000-000000000001".into(),
+        agent_id: "50000000-0000-1000-8000-000000000001".into(),
+    };
     let mut f = Fixture::new();
     f.oracle().execute_batch("CREATE TRIGGER deny_create_receipt BEFORE INSERT ON owner_operations BEGIN SELECT RAISE(FAIL,'forced rollback'); END;").unwrap();
-    let apply = |f: &mut Fixture, title: &str| {
-        f.service().apply_owner(
-            OwnerRequest {
-                operation_id: PAGE,
-                expected_revision: 0,
-                action: OwnerAction::Create {
-                    page: PAGE,
-                    title,
-                    source: "<h1>Created source</h1>",
-                    publisher_agent: Some("original-author"),
+    let apply =
+        |f: &mut Fixture, title: &str, hint: Option<&tmt_colab::decoder::CreationRecipient>| {
+            f.service().apply_owner(
+                OwnerRequest {
+                    operation_id: PAGE,
+                    expected_revision: 0,
+                    action: OwnerAction::Create {
+                        creation_recipient: hint,
+                        page: PAGE,
+                        title,
+                        source: "<h1>Created source</h1>",
+                        publisher_agent: Some("original-author"),
+                    },
+                    transport_digest: None,
+                    scope: None,
                 },
-                transport_digest: None,
-                scope: None,
-            },
-            NOW,
-        )
-    };
-    assert!(apply(&mut f, "Created title").is_err());
+                NOW,
+            )
+        };
+    assert!(apply(&mut f, "Created title", Some(&recipient)).is_err());
     for table in [
         "pages",
         "membership_log",
@@ -1071,19 +1082,31 @@ fn fresh_creation_is_atomic_replayable_and_conflicting_selections_never_create_a
     f.oracle()
         .execute_batch("DROP TRIGGER deny_create_receipt")
         .unwrap();
-    let first = apply(&mut f, "Created title").unwrap();
+    let first = apply(&mut f, "Created title", Some(&recipient)).unwrap();
     assert_eq!(first.head.revision, 2);
     f.reopen();
-    let again = apply(&mut f, "Created title").unwrap();
+    let again = apply(&mut f, "Created title", Some(&recipient)).unwrap();
     assert!(again.replayed);
     assert_eq!(first.outcome, again.outcome);
     assert_eq!(f.rows("pages"), 1);
     assert_eq!(f.rows("receipts"), 1);
     assert_eq!(
-        apply(&mut f, "Changed").unwrap_err().code,
+        apply(&mut f, "Changed", Some(&recipient)).unwrap_err().code,
         tmt_colab::transitions::Code::Conflict
     );
     assert_eq!(f.rows("pages"), 1);
+    assert_eq!(
+        apply(&mut f, "Created title", None).unwrap_err().code,
+        tmt_colab::transitions::Code::Conflict
+    );
+    let mut different = recipient.clone();
+    different.agent_id = "50000000-0000-1000-8000-000000000002".into();
+    assert_eq!(
+        apply(&mut f, "Created title", Some(&different))
+            .unwrap_err()
+            .code,
+        tmt_colab::transitions::Code::Conflict
+    );
     let key = Keyring::read(&f.layout).unwrap();
     let store = Store::read(&f.layout).unwrap();
     let mut decoder = tmt_colab::decoder::Decoder::with_config(support::decoder_config(
@@ -1095,5 +1118,467 @@ fn fresh_creation_is_atomic_replayable_and_conflicting_selections_never_create_a
     assert_eq!(page.title, "Created title");
     assert_eq!(page.original_author.as_deref(), Some("original-author"));
     assert_eq!(page.publisher_agent.as_deref(), Some("original-author"));
+    assert_eq!(page.creation_recipient, Some(recipient));
     store.close().unwrap();
+}
+
+/// Attachment scenarios use the real owner registration, signed streams and
+/// isolated decoder. SQLite inspection supplies fixture asset bytes, never admission.
+#[test]
+fn authenticated_attachment_reads_survive_rotation_archive_and_reject_stale_disclosure() {
+    use tmt_colab::{
+        attachments::{self, CommittedObjectVerifier},
+        decoder::Decoder,
+        page,
+        store::{Envelope as StoredEnvelope, Namespace, StreamScope},
+        transitions::{OwnerAction, OwnerRequest},
+    };
+    use tmt_colab_model::{
+        attachment::{AttachmentPublication, AttachmentSelector, Descriptor, Source},
+        crypto, object,
+    };
+    use yrs::{Any, Doc, Map, ReadTxn, StateVector, Transact};
+    const PAGE: &str = "20000000-0000-4000-8000-000000000091";
+    const ATTACHMENT: &str = "20000000-0000-4000-8000-000000000092";
+    const MESSAGE: &str = "20000000-0000-4000-8000-000000000093";
+    fn hex(b: &[u8]) -> String {
+        b.iter().map(|b| format!("{b:02x}")).collect()
+    }
+    struct Committed {
+        namespace: [u8; 32],
+        key: [u8; 32],
+        raw: Vec<u8>,
+        complete: bool,
+    }
+    impl CommittedObjectVerifier for Committed {
+        fn read_committed(
+            &self,
+            namespace: &[u8; 32],
+            key: &[u8; 32],
+            _: std::time::Instant,
+        ) -> tmt_colab::Result<Vec<u8>> {
+            assert_eq!(*namespace, self.namespace);
+            assert_eq!(*key, self.key);
+            if !self.complete {
+                return Err(page::Fault::Unavailable.into());
+            }
+            Ok(self.raw.clone())
+        }
+    }
+    let mut f = Fixture::new();
+    register(
+        &mut f,
+        Some(&context(DEVICE, 1)),
+        &request(DEVICE, NOW),
+        NOW,
+    )
+    .unwrap();
+    let created = create_page(&mut f, PAGE, PAGE, 1);
+    register(&mut f, Some(&context(OTHER, 1)), &request(OTHER, NOW), NOW).unwrap();
+    let key = Keyring::read(&f.layout).unwrap();
+    let mut store = Store::open(&f.layout).unwrap();
+    let mut decoder = Decoder::with_config(support::decoder_config(
+        env!("CARGO_BIN_EXE_tmt-colab").into(),
+    ))
+    .unwrap();
+    let base = page::read(&store, &key, PAGE, &mut decoder).unwrap();
+    let secret: Vec<u8> = f
+        .oracle()
+        .query_row(
+            "SELECT secret FROM epoch_secrets WHERE page=? AND CAST(epoch AS INTEGER)=1",
+            [PAGE],
+            |r| r.get(0),
+        )
+        .unwrap();
+    let secret: [u8; 32] = secret.try_into().unwrap();
+    let source = Source::Document {
+        source_digest: hex(&crypto::digest(base.source.as_bytes())),
+    };
+    let asset_context = object::Context {
+        space: key.space_id.clone(),
+        page: PAGE.into(),
+        epoch: "1".into(),
+        kind: "asset".into(),
+        namespace: "content".into(),
+        author_device: DEVICE.into(),
+        membership_revision: created.head.revision.to_string(),
+        stream_seq: "0".into(),
+        prev_hash: [0; 32],
+    };
+    let asset = object::seal(
+        &asset_context,
+        &secret,
+        &SigningKey::from_bytes(&[10; 32]),
+        b"original attachment bytes",
+    )
+    .unwrap();
+    let raw = asset.to_json().unwrap();
+    let descriptor = Descriptor {
+        version: 1,
+        attachment_id: ATTACHMENT.into(),
+        space: key.space_id.clone(),
+        page: PAGE.into(),
+        epoch: "1".into(),
+        namespace: "content".into(),
+        object_id: object::Header::decode(asset.header()).unwrap().object_id,
+        author_device: DEVICE.into(),
+        membership_revision: created.head.revision.to_string(),
+        source,
+        envelope_hash: hex(&asset.hash().unwrap()),
+        signature: values::encode_binary(asset.signature()),
+        payload_sha256: hex(&crypto::digest(&raw)),
+        payload_bytes: raw.len().to_string(),
+        plaintext_bytes: "25".into(),
+        filename: "original.txt".into(),
+        media_type: "text/plain".into(),
+    };
+    assert_eq!(b"original attachment bytes".len(), 25);
+    descriptor.validate().unwrap();
+    let proof = AttachmentPublication {
+        version: 1,
+        kind: "attachment-publication".into(),
+        space_id: key.space_id.clone(),
+        page_id: PAGE.into(),
+        epoch: "1".into(),
+        sender_device: DEVICE.into(),
+        membership_revision: created.head.revision.to_string(),
+        attachment_id: ATTACHMENT.into(),
+        descriptor_hash: hex(&descriptor.hash().unwrap()),
+        source: descriptor.source.clone(),
+        base_revision: base.revision,
+    };
+    let own = Doc::with_client_id(18531);
+    own.get_or_insert_map("intents").insert(
+        &mut own.transact_mut(),
+        ATTACHMENT,
+        Any::from_json(&serde_json::to_string(&proof).unwrap()).unwrap(),
+    );
+    // An immutable Chat/annotation revision can reference an existing document asset.
+    let comment = json!({"version":1,"kind":"comment","spaceId":key.space_id,"pageId":PAGE,"epoch":"1","senderDevice":DEVICE,"revision":"1","deleted":false,
+        "deviceName":"Browser","at":NOW.to_string(),"messageId":MESSAGE,"thread":{"writer":DEVICE,"id":DEVICE},"body":"Original revision","attachments":[descriptor]});
+    own.get_or_insert_map("messages").insert(
+        &mut own.transact_mut(),
+        format!("{MESSAGE}:1"),
+        Any::from_json(&comment.to_string()).unwrap(),
+    );
+    let content = Doc::with_client_id(18532);
+    content.get_or_insert_map("meta").insert(
+        &mut content.transact_mut(),
+        "attachments",
+        Any::from_json(&json!([descriptor]).to_string()).unwrap(),
+    );
+    let mut previous = [0; 32];
+    for (index, (namespace, doc)) in [("own", &own), ("content", &content)]
+        .into_iter()
+        .enumerate()
+    {
+        let update = doc
+            .transact()
+            .encode_state_as_update_v1(&StateVector::default());
+        let context = object::Context {
+            kind: "update".into(),
+            namespace: namespace.into(),
+            stream_seq: (index + 1).to_string(),
+            prev_hash: previous,
+            ..asset_context.clone()
+        };
+        let envelope = object::seal(
+            &context,
+            &secret,
+            &SigningKey::from_bytes(&[10; 32]),
+            &update,
+        )
+        .unwrap();
+        store
+            .append(&StoredEnvelope {
+                scope: StreamScope {
+                    page: PAGE,
+                    epoch: 1,
+                    stream: DEVICE,
+                },
+                namespace: if namespace == "own" {
+                    Namespace::Own
+                } else {
+                    Namespace::Content
+                },
+                seq: (index + 1) as u64,
+                previous,
+                hash: envelope.hash().unwrap(),
+                bytes: &envelope.to_json().unwrap(),
+            })
+            .unwrap();
+        previous = envelope.hash().unwrap();
+    }
+    let deadline = || std::time::Instant::now() + std::time::Duration::from_secs(10);
+    let selector = || AttachmentSelector::DocumentCurrent {
+        attachment_id: ATTACHMENT.into(),
+        descriptor_hash: hex(&descriptor.hash().unwrap()),
+        content_revision: page::revision(&store, &key, PAGE).unwrap(),
+    };
+    let object_key: [u8; 32] = descriptor
+        .object_id
+        .as_bytes()
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .map(|b| u8::from_str_radix(std::str::from_utf8(b).unwrap(), 16).unwrap())
+        .collect::<Vec<_>>()
+        .try_into()
+        .unwrap();
+    let mut objects = Committed {
+        namespace: attachments::namespace(&key.space_id, PAGE).unwrap(),
+        key: object_key,
+        raw,
+        complete: true,
+    };
+    // Fixture-only oracle derives the actual local writer's key. Production
+    // preparation still admits that writer through the Keyring/fold owners.
+    let seed = fs::read(f.layout.directory.join("owner.key")).unwrap();
+    let derive = |label: &[u8]| {
+        crypto::derive_key(
+            &seed,
+            &[],
+            &framing::frame(&[label, key.space_id.as_bytes()]).unwrap(),
+        )
+    };
+    let mut id = derive(b"tmt-colab-cli-device-id-v1");
+    id[6] = (id[6] & 15) | 64;
+    id[8] = (id[8] & 63) | 128;
+    let h = hex(&id[..16]);
+    let local_id = format!(
+        "{}-{}-{}-{}-{}",
+        &h[..8],
+        &h[8..12],
+        &h[12..16],
+        &h[16..20],
+        &h[20..]
+    );
+    let local_signer = SigningKey::from_bytes(&derive(b"tmt-colab-cli-signing-seed-v1"));
+    let local_context = object::Context {
+        author_device: local_id.clone(),
+        ..asset_context.clone()
+    };
+    let local_asset = object::seal(
+        &local_context,
+        &secret,
+        &local_signer,
+        b"original attachment bytes",
+    )
+    .unwrap();
+    let local_raw = local_asset.to_json().unwrap();
+    let local_descriptor = Descriptor {
+        author_device: local_id,
+        object_id: object::Header::decode(local_asset.header())
+            .unwrap()
+            .object_id,
+        envelope_hash: hex(&local_asset.hash().unwrap()),
+        signature: values::encode_binary(local_asset.signature()),
+        payload_sha256: hex(&crypto::digest(&local_raw)),
+        payload_bytes: local_raw.len().to_string(),
+        ..descriptor.clone()
+    };
+    let local_object_key = local_descriptor
+        .object_id
+        .as_bytes()
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .map(|b| u8::from_str_radix(std::str::from_utf8(b).unwrap(), 16).unwrap())
+        .collect::<Vec<_>>()
+        .try_into()
+        .unwrap();
+    let mut committed = Committed {
+        namespace: objects.namespace,
+        key: local_object_key,
+        raw: local_raw,
+        complete: false,
+    };
+    let current = page::revision(&store, &key, PAGE).unwrap();
+    let intent = || attachments::PublicationIntent {
+        descriptor: &local_descriptor,
+        base: &current,
+    };
+    assert!(
+        attachments::prepare_publication(
+            &store,
+            &key,
+            intent(),
+            &committed,
+            &mut decoder,
+            deadline(),
+            NOW
+        )
+        .is_err()
+    );
+    committed.complete = true;
+    let frozen = attachments::prepare_publication(
+        &store,
+        &key,
+        intent(),
+        &committed,
+        &mut decoder,
+        deadline(),
+        NOW,
+    )
+    .unwrap();
+    assert_eq!(page::revision(&store, &key, PAGE).unwrap(), current);
+    let entries = frozen
+        .job()
+        .verify_packet(frozen.packet(), &local_signer.verifying_key().to_bytes())
+        .unwrap();
+    let updates = entries
+        .iter()
+        .map(|e| {
+            object::open(
+                &e.envelope,
+                &e.header.context,
+                &secret,
+                &local_signer.verifying_key().to_bytes(),
+            )
+            .unwrap()
+        })
+        .collect::<Vec<_>>();
+    let refs = updates.iter().map(Vec::as_slice).collect::<Vec<_>>();
+    let result = decoder
+        .decode(
+            tmt_colab::decoder::UpdateBatch {
+                namespace: tmt_colab::decoder::Namespace::Own,
+                baseline: &[],
+                updates: &refs,
+            },
+            tmt_colab::decoder::Role::Commenter,
+            None,
+        )
+        .unwrap();
+    let prepared_proof = AttachmentPublication::from_json(
+        &serde_json::to_vec(&result.projection["intents"][ATTACHMENT]).unwrap(),
+    )
+    .unwrap();
+    prepared_proof
+        .matches_descriptor(&local_descriptor)
+        .unwrap();
+    assert_eq!(prepared_proof.base_revision, current);
+    let stale = attachments::PublicationIntent {
+        descriptor: &local_descriptor,
+        base: &format!("v1:{}", "00".repeat(32)),
+    };
+    assert!(
+        attachments::prepare_publication(
+            &store,
+            &key,
+            stale,
+            &committed,
+            &mut decoder,
+            deadline(),
+            NOW
+        )
+        .is_err()
+    );
+    let read =
+        attachments::capture_root_local(&store, &key, PAGE, &selector(), &mut decoder, deadline())
+            .unwrap();
+    assert_eq!(
+        read.disclose(&store, &key, &objects).unwrap(),
+        b"original attachment bytes"
+    );
+    objects.complete = false;
+    assert!(read.disclose(&store, &key, &objects).is_err());
+    objects.complete = true;
+    objects.raw[0] ^= 1;
+    assert!(read.disclose(&store, &key, &objects).is_err());
+    objects.raw[0] ^= 1;
+    // Actual revoked creator: original own proof is pinned in the old epoch;
+    // the baseline carries the document descriptor unchanged into the new epoch.
+    assert!(f.service().revoke(DEVICE, 2).unwrap());
+    assert!(read.disclose(&store, &key, &objects).is_err());
+    let rotated =
+        attachments::capture_root_local(&store, &key, PAGE, &selector(), &mut decoder, deadline())
+            .unwrap();
+    assert_eq!(rotated.descriptor(), &descriptor);
+    assert_eq!(
+        rotated.disclose(&store, &key, &objects).unwrap(),
+        b"original attachment bytes"
+    );
+    let message = AttachmentSelector::Message {
+        writer_id: DEVICE.into(),
+        message_id: MESSAGE.into(),
+        message_revision: "1".into(),
+        attachment_id: ATTACHMENT.into(),
+        descriptor_hash: hex(&descriptor.hash().unwrap()),
+    };
+    assert_eq!(
+        attachments::capture_root_local(&store, &key, PAGE, &message, &mut decoder, deadline())
+            .unwrap()
+            .disclose(&store, &key, &objects)
+            .unwrap(),
+        b"original attachment bytes"
+    );
+    let head = store
+        .owner_head(&key.space_id, &key.owner_public())
+        .unwrap()
+        .unwrap();
+    f.service()
+        .apply_owner(
+            OwnerRequest {
+                operation_id: MESSAGE,
+                expected_revision: head.revision,
+                action: OwnerAction::Archive { page: PAGE },
+                transport_digest: None,
+                scope: None,
+            },
+            NOW,
+        )
+        .unwrap();
+    let archived =
+        attachments::capture_root_local(&store, &key, PAGE, &selector(), &mut decoder, deadline())
+            .unwrap();
+    assert_eq!(
+        archived.disclose(&store, &key, &objects).unwrap(),
+        b"original attachment bytes"
+    );
+    assert!(page::prepare_own_records(&store, &key, PAGE, &[], &mut decoder, NOW).is_err());
+    let admission =
+        tmt_colab::registration::OwnerAdmission(Arc::new(Mutex::new(f.service.take().unwrap())));
+    let scope = tmt_colab::sync::SyncScope {
+        space: key.space_id.clone(),
+        page: PAGE.into(),
+        epoch: page::read(&store, &key, PAGE, &mut decoder).unwrap().epoch,
+    };
+    assert!(admission.attachment_read_owner(DEVICE, &scope).is_err());
+    let owner = admission.attachment_read_owner(OTHER, &scope).unwrap();
+    let scoped =
+        attachments::capture_session(&store, &key, &owner, &message, &mut decoder, deadline())
+            .unwrap();
+    assert_eq!(
+        scoped.disclose(&store, &key, &objects).unwrap(),
+        b"original attachment bytes"
+    );
+
+    let head = store
+        .owner_head(&key.space_id, &key.owner_public())
+        .unwrap()
+        .unwrap();
+    admission
+        .0
+        .lock()
+        .unwrap()
+        .apply_owner(
+            OwnerRequest {
+                operation_id: ATTACHMENT,
+                expected_revision: head.revision,
+                action: OwnerAction::Delete { page: PAGE },
+                transport_digest: None,
+                scope: None,
+            },
+            NOW,
+        )
+        .unwrap();
+    assert!(archived.disclose(&store, &key, &objects).is_err());
+    assert!(scoped.disclose(&store, &key, &objects).is_err());
+    assert!(
+        attachments::capture_root_local(&store, &key, PAGE, &message, &mut decoder, deadline())
+            .is_err()
+    );
+    drop(store);
+    drop(key);
 }

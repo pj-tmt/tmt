@@ -16,6 +16,21 @@ restate them.
 
 ## Gotchas
 
+Attachment descriptor/manifest/selector/publication syntax and asset verification
+live in model `attachment.rs` and client `attachment.ts`, reusing existing crypto;
+[attachment-v1](../../../../extensions/tmt-colab/contracts/attachment-v1.md) owns the bytes.
+Runtime `attachments.rs`/`attachments.ts` join exact authenticated references to
+positive-sequence own creation proof and recheck current authority after committed-object
+I/O. Fold has separate writable and archive-capable read capture; frozen epochs remain
+read-only. Native Session reads use registration/readers' actual context and eligible
+addressed wraps or owner-signed public keys; browser history keys are opaque addressed-wrap
+handles. The internal committed verifier is DI, with production channel/peer-generation
+composition and activation still planned in the final #1853 slice. Snapshot/retained-reference
+persistence is #1856, not a new Store/schema here. Historical `chains`/`readAuthor`
+ignore original-creator current expiry, matching native folds; issuedAt, issuer/signature,
+membership and revocation cuts still apply. Fresh `author()` and the actual caller
+`validateRead()` retain expiry checks.
+
 - Run Rust gates with your own `CARGO_TARGET_DIR` and `CARGO_BUILD_JOBS=2`. Add
   `--no-fail-fast` when judging `cargo test -p tmt-colab`: Cargo stops at the first failing
   test binary and hides the rest. Timing-sensitive decoder tests can fail under load; rerun
@@ -41,6 +56,52 @@ an app build. Only these files and `renderer.html` are public; the rest of the a
 guidance CSP and pairing failure/reload guard alongside the app lifecycle tests (`served.spec.ts`,
 `session-recovery.test.ts`).
 
+## Message editing boundary
+
+The main app uses one Colab-local `components/message-composer.tsx` for Chat,
+annotations, agent follow-ups, plain replies and comment edits. Exact 0.52.0
+`lexical`, `@lexical/react`, `@lexical/plain-text` and `@lexical/history` are app-only
+runtime dependencies; only plaintext/history extensions are imported. The source
+editor is a separate editing mode. Reader and recovery entries have no composer.
+
+`ComposerEdit` emits one atomic snapshot of exact plaintext and all bound
+machine/agent UUIDs with UTF16 mention ranges. Paragraphs serialize with one LF,
+retaining blank and trailing lines. Parent echoes preserve history/selection;
+explicit reset keys end a draft's editing lifetime. Mention-node identity follows
+edits and undo; editing/removing a token invalidates that binding. `mentionQuery`
+opens completion at `@` or full-width `＠` after non-address-like text, including CJK;
+`email@host` never routes. No Lexical document is persisted or sent as authority.
+
+`AnnotationInput` owns the draft, trusted action, current content/Ask admission and
+immutable one-comment send capture. `message-recipient.ts` resolves exact typed names
+and distinct UUID pairs for presentation only; LiveAsk re-admits each frozen Ask.
+The [browser discussion contract](../../../../extensions/tmt-colab/contracts/colab-v1.md#inline-annotation-conversations-1587)
+owns default-creator lookup, typed/picked binding, eight-recipient fan-out, offline
+handling and recipient failure rules. `conversationAsks` owns comment/Ask association
+and captured conversation; neither prior replies nor display names select recipients.
+The editor has no storage, ledger, notification or Remote capability. `LiveAsk` reports
+whether Send adopted an operation. Only an authoritative failure before adoption
+starts can be shown locally without inventing a signed Ask row; missing read views
+after publication failure remain uncertain. Adopted outcomes come from the admitted stream.
+
+`agent-directory.ts` (`useAgentDirectory`) gives each Ask binding one explicit
+`loading`, `failed` or `ready` state (empty `ready` is a real answer). Replacement
+and explicit retry read again, show loading in the same render, and ignore obsolete
+results. Mention Sends stay fenced before preparation until ready; plain comments,
+draft, caret and token UUIDs remain. Failed discovery shows Try again in place,
+kept mounted/busy during retry with focus restored. Disconnected recovery's
+"Reconnect to send." wins. There is no per-keystroke/recipient read or retry timer.
+A `failed` read that Remote refused or ended carries Remote's code as a muted `Code: …` reference
+under the same generic line. `REMOTE_STATE_UNAVAILABLE` is any Remote storage fault, so it gets no
+sentence of its own; one cause is a full per-device request journal (1000 owned entries per 24 h,
+which reads such as `agents.list` also consume, #2170), cleared as entries expire and prevented
+by the sync keepalive that stops idle tabs from reconnecting.
+
+Candidate geometry is input-only in the shared Listbox: it uses viewport bounds and
+the native popover layer, remaining inside the current modal dialog's ownership.
+Management pickers retain their button policy. No native asset allowlist, embedding
+mechanism or CSP changes are required; no inline-style/eval relaxation is permitted.
+
 ## Read-only reader
 
 `src/reader-link.ts` parses the fragment (strict grammar in the contract), `src/reader.ts`
@@ -60,12 +121,58 @@ reload receives Colab's private guidance page. That page loads the public `asset
 (`colab-recovery:<mount path>`, `src/session-recovery.ts`) spans that reload so a second
 guidance response cannot loop; authenticated boot (`mounted.ts`) clears it. A failed or
 refused reopen, or unavailable session storage, leaves plain pairing guidance and never
-retries an Ask. On an open page's socket close, `Live` makes one read-only old-session
-probe: signed session end silently reopens that tab; signed eviction stops it with the
-limit notice. Transport failures remain distinct and get bounded sync catchup. If recovery
-fails, the explicit Reconnect button uses `recoverSession` through `Live.reconnect`, closing
-the page socket, Ask and observer first. The Remote restart cases drive that explicit path
-through `reconnect(page)` in `acceptance/ask.spec.ts`.
+retries an Ask. On an open page's socket close, `Live` makes one read-only probe of the exact old
+Connection/Registration/Remote owner. A current pending same-session attempt keeps
+that owner while diagnosis settles, even if readiness has already rejected.
+Verified session end starts one existing mounted-owner replacement; verified eviction
+blocks. A pending failed attempt also blocks on a successful read without session end
+or an unverified read failure. An opaque socket disconnect, or a native fetch
+`TypeError` during mounted-owner Session replacement, stops the binding with
+`RecoveryRequiredError` (original cause retained) and offers explicit Reconnect.
+Other replacement, admission and eviction failures remain terminal.
+A terminal failure card shows a sentence, never the raw token (`terminal-failure.ts`). Each
+token the live path can end a page with (sync frame codes, Remote refusal codes, a few short
+messages) maps to one of five `strings.ts` sentences (access ended, page gone, session ended,
+too large, generic); an unknown token gets the generic sentence and stays visible, bounded to
+120 characters, as a muted `Code: …` reference. A test requires a decision for every
+`SYNC_ERROR_CODES` and `REMOTE_REFUSAL_CODES` entry, so a new code cannot ship as a raw headline.
+Eviction, management-changed and the recoverable "Connection lost" keep their own cards.
+Ready-page transport failures retain bounded same-session catchup. Superseded callbacks,
+readiness, publications and diagnosis cannot alter the current attempt. Recovery
+never re-sends an Ask or generates a new mutation. Pending own-stream envelopes
+may be re-delivered through the Writer's existing staging path; exact accepted
+envelopes deduplicate as `Replay`. If automatic recovery fails, explicit Reconnect
+first reuses the admitted mounted-owner replacement on the same Live binding. The
+stopped write fence remains until the fresh Connection and projection are verified;
+then a new Writer uses the identical stream key and the new Ask facade resumes
+read-only observation. Recovery keeps the admitted Ask view and mounted composer
+drafts; all sends and publications stay blocked until verification. An open annotation
+stays mounted while its retired Ask facade is absent and rebinds after replacement.
+
+A tab that outlives an app upgrade says so (`app-build.ts`). The build is the hashed entry
+module the page references (`assets/index-<hash>.js`; every response is `no-store`, so a
+reload always fetches the served build). On a failure path (mounted registration, a live
+page ending) and on route resolution, at most once a minute, the tab reads its own root page
+uncached and shows the non-blocking `Colab has been updated.` row with a Reload action only when
+the same bundle name has a different hash. The row sits directly under the fixed header and
+`--colab-update-height` (set by `data-colab-update` on the root) extends the header metric, so
+the page moves down instead of being covered. An offline read, an unreadable page, or a page of
+another kind (pairing guidance, the reader) never counts. There is no polling and no
+automatic reload: Reload is the reader's action, and unsent in-tab drafts follow the existing
+rules (memory only, so a reload discards them).
+A recovery press does not dismiss it or take focus from an active composer. Mobile
+Chat closes its modal drawer to reach Reconnect; its DOM selection is retained only
+for that recovery and restored when the same connected composer regains focus.
+Concurrent clicks share one in-flight attempt. Network failure returns to the waiting
+notice and editable draft without another automatic reopen. Eviction, authority,
+admission and page faults remain terminal. Only a typed fresh `SessionEndedError`
+permits the existing guarded `recoverSession`/reload fallback, whose successful
+reload resets local-only drafts. The card makes no draft-persistence promise for
+that fallback. The guarded fallback marker still spans its reload: only its
+explicitly started network failure clears the failed marker. Automatic guidance
+keeps its marker until authenticated boot clears it.
+The Remote restart and retained-draft cases in `acceptance/ask.spec.ts` verify
+original-ID observation, no resend and fresh explicit Send after recovery.
 
 ## Persistence layout
 
@@ -81,8 +188,9 @@ through `reconnect(page)` in `acceptance/ask.spec.ts`.
 - `space.db` schemas are append-only (`store/schema.rs`): 1 ciphertext (pages, streams,
   receipts, checkpoints), 2 owner authority (membership log, recipients, devices, epoch
   secrets, wraps, `owner_operations`), 3 `device_registrations`, 4 `baselines`,
-  5 nullable checked server-observed content time on `pages`. Migration leaves legacy
-  times null without backfill. Epoch
+  5 nullable checked server-observed content time on `pages`, 6 nullable original content
+  publication scope on `owner_operations`. Migration leaves legacy times null and legacy
+  outcomes unscoped without backfill. Epoch
   secrets are local key material, not an encrypted-at-rest guarantee.
 - `Store::open` creates and migrates. `Store::read` and `Store::write_existing` open only
   existing 0600 state owned by the user, create nothing and never migrate;
@@ -124,14 +232,23 @@ through `reconnect(page)` in `acceptance/ask.spec.ts`.
 - Signed statement, secrets, baseline, wraps, page epoch and the operation receipt commit in
   one transaction or not at all; `owner_operations` makes an exact retry return the saved
   outcome with its original head. Callers propagate mutation errors so everything rolls back.
+- `page::commit_publication` reuses the immediate device transaction and a
+  content savepoint for a verified sealed batch plus one scoped terminal outcome. Expected
+  admitted rejection rolls back content/stream/receipt/device/time changes before retaining the rejection;
+  unexpected failure rolls back the enclosing transaction. Original-key replay returns exact
+  bytes after current writer admission, without effect fences, quota charge or time refresh.
+  `publication_status` is a read-only original-key lookup with caller-supplied current authority;
+  it never issues a chain or persists UNKNOWN. Shared capacity includes scoped outcomes in
+  existing page budgets across epochs, without eviction. The contract owns wire details;
+  CLI `page write` and its serving route call it; browser Save does not.
 - Link seeds are borrowed for key derivation and never persisted or returned
   (`transitions/links.rs`).
 
 ## Admission and lock order
 
-- `socket.rs` treats registration, session, pages, management, the reserved page-write and
+- `socket.rs` treats registration, session, pages, management, the reserved page-publish and
   device-events routes and the reader challenge/session routes specially. The root-local
-  management and page-write routes deny any request carrying a forwarded
+  management and page-publish routes deny any request carrying a forwarded
   `tmt-device-context` or device-event header (`local_denied`), and Remote refuses to
   forward the reserved `/.tmt/` subtree from browsers.
 - **Lock order: the sync lock before the `Registration` mutex** (`registration.rs`).

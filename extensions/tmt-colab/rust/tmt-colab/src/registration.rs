@@ -159,6 +159,7 @@ pub struct Registration {
     engine: Engine,
     readers: crate::readers::Sessions,
     reader_clock: std::sync::Arc<dyn Fn() -> std::result::Result<u64, Code> + Send + Sync>,
+    save_source: Option<crate::page::save::SourceOpener>,
 }
 impl Registration {
     pub fn new(
@@ -179,6 +180,7 @@ impl Registration {
             engine: Engine::with_decoder_config(decoder_config)?,
             readers: Default::default(),
             reader_clock: std::sync::Arc::new(now_ms),
+            save_source: None,
         })
     }
     /// Server-owned reader clock, injected for deterministic expiry verification.
@@ -279,25 +281,84 @@ impl Registration {
         self.engine
             .apply(&mut self.store, &self.keyring, request, now)
     }
-    /// Root-local ciphertext write; caller holds the sync mutex before this service.
-    pub(crate) fn page_write(
+    /// The public key that must have signed a root-local batch; never request-selected.
+    pub(crate) fn author_key(&self) -> crate::Result<[u8; 32]> {
+        Ok(self.keyring.local_writer()?.1)
+    }
+    /// Root-local sealed batch commit; caller holds the sync mutex before this service.
+    pub(crate) fn publish(
         &mut self,
-        prepared: &crate::page::Prepared,
+        job: &crate::publication::SignedJob,
+        packet: &[u8],
+        chain: &[u8],
         now: u64,
-    ) -> crate::Result<crate::page::Committed> {
-        let committed = crate::page::commit(&mut self.store, &self.keyring, prepared, now)?;
-        // Combining this device's own tail is best effort: the write is already durable, and the
-        // next write tries again.
-        let _ = self.engine.decoder(&prepared.page_id).and_then(|decoder| {
-            crate::page::compact::compact(
-                &mut self.store,
-                &self.keyring,
-                &prepared.page_id,
-                decoder,
-                crate::page::compact::Trigger::default(),
+        combine_until: std::time::Instant,
+    ) -> crate::Result<(crate::page::PublicationCommitted, Option<String>)> {
+        let committed = crate::page::commit_publication(
+            &mut self.store,
+            &self.keyring,
+            job,
+            packet,
+            chain,
+            now,
+        )?;
+        if committed.accepted == crate::store::Accepted::New
+            && matches!(
+                committed.record.outcome,
+                crate::publication::Outcome::Committed { .. }
             )
-        });
-        Ok(committed)
+        {
+            // Combining this device's own tail is best effort: the write is already durable, and
+            // the next write tries again.
+            let page = &job.manifest.page_id;
+            let _ = self.engine.decoder(page).and_then(|decoder| {
+                crate::page::compact::compact(
+                    &mut self.store,
+                    &self.keyring,
+                    page,
+                    decoder,
+                    crate::page::compact::Trigger {
+                        until: Some(combine_until),
+                        ..Default::default()
+                    },
+                )
+            });
+        }
+        // The sync mutex is held, so no other writer can move the page between the combine and
+        // this read: the revision is the one this write's reply reports.
+        let revision = matches!(
+            committed.record.outcome,
+            crate::publication::Outcome::Committed { .. }
+        )
+        .then(|| crate::page::revision(&self.store, &self.keyring, &job.manifest.page_id).ok())
+        .flatten();
+        Ok((committed, revision))
+    }
+    /// What the root-local stream recorded for an operation a browser Save chose. Read-only.
+    pub(crate) fn save_status(
+        &self,
+        page: &str,
+        operation_id: &str,
+    ) -> crate::Result<crate::page::save::SaveResult> {
+        crate::page::save::SaveResult::recorded(
+            operation_id,
+            crate::page::publication_status_by_operation(
+                &self.store,
+                &self.keyring,
+                page,
+                operation_id,
+            )?,
+        )
+    }
+    /// Where a browser Save gets a snapshot of its own to prepare from, outside every lock.
+    pub(crate) fn save_source(&self) -> Option<crate::page::save::SourceOpener> {
+        self.save_source.clone()
+    }
+    /// The serve supplies how to open a fresh read-only store, keyring and decoder, so that a
+    /// large preparation never holds the writer or the sync mutex.
+    pub fn with_save_source(mut self, open: crate::page::save::SourceOpener) -> Self {
+        self.save_source = Some(open);
+        self
     }
     pub(crate) fn management_device(
         &mut self,
@@ -576,8 +637,189 @@ impl Registration {
 /// Mounted owner and read-only reader admission. Upgrade verifies owner binding
 /// through active_device or consumes a reader ticket; sync reads live authority.
 /// The pinned local management member represents the owner across local pages.
+#[derive(Clone)]
 pub struct OwnerAdmission(pub std::sync::Arc<std::sync::Mutex<Registration>>);
+impl OwnerAdmission {
+    /// Actual owner/reader Session and historical recipient entitlement. The
+    /// private peer owner supplies the principal; policy JSON cannot select it.
+    pub(crate) fn attachment_context(
+        &self,
+        principal: &str,
+        scope: &crate::sync::SyncScope,
+        epoch: u64,
+    ) -> Result<[u8; 32]> {
+        use crate::sync::{Access, Admission, WrapRecipients};
+        self.authorize(principal, scope, Access::Read)?;
+        let service = self.0.lock().map_err(|_| crate::sync::Code::Denied)?;
+        let current = values::decimal(&scope.epoch, false)?;
+        if epoch == 0 || epoch > current || current - epoch >= 64 {
+            return Err(crate::sync::Code::Denied.into());
+        }
+        let reader = service.readers.contains(principal);
+        let recipients = if reader {
+            service.readers.recipients(principal)?
+        } else {
+            WrapRecipients::Owner
+        };
+        let reader_context = if reader {
+            Some(service.readers.attachment_context(principal)?)
+        } else {
+            None
+        };
+        service
+            .store
+            .owner_read(&scope.space, &service.keyring.owner_public(), |tx| {
+                let head = tx.head().ok_or(crate::sync::Code::Denied)?;
+                if matches!(recipients, WrapRecipients::None) {
+                    let (_, log) =
+                        crate::fold::verify_log(&tx.log()?, &service.keyring, &scope.page)?;
+                    let published = log
+                        .iter()
+                        .rev()
+                        .find_map(|p| match p {
+                            tmt_colab_model::payload::Payload::PageShare(p)
+                                if p.page_id == scope.page =>
+                            {
+                                Some(p)
+                            }
+                            _ => None,
+                        })
+                        .ok_or(crate::sync::Code::Denied)?;
+                    let key = published
+                        .published_keys
+                        .as_ref()
+                        .and_then(|keys| {
+                            keys.as_slice()
+                                .iter()
+                                .find(|k| k.epoch == epoch.to_string())
+                        })
+                        .ok_or(crate::sync::Code::Denied)?;
+                    if !matches!(published.mode, tmt_colab_model::payload::ShareMode::Public)
+                        || values::binary(&key.key, 32)?.as_slice()
+                            != tx
+                                .epoch_secret(&scope.page, epoch)?
+                                .ok_or(crate::sync::Code::Denied)?
+                    {
+                        return Err(crate::sync::Code::Denied.into());
+                    }
+                } else {
+                    let recipient = match &recipients {
+                        WrapRecipients::Owner => ("device", principal),
+                        WrapRecipients::Link(id) => ("link", id.as_str()),
+                        WrapRecipients::None => unreachable!(),
+                    };
+                    let recipient_key = match &recipients {
+                        WrapRecipients::Owner => {
+                            *certificate::Chain::from_json(
+                                &tx.device(principal)?
+                                    .ok_or(crate::sync::Code::Denied)?
+                                    .chain,
+                            )?
+                            .certificate()?
+                            .encryption_key
+                        }
+                        WrapRecipients::Link(id) => {
+                            tx.recipient("link", id)?
+                                .ok_or(crate::sync::Code::Denied)?
+                                .encryption_key
+                        }
+                        WrapRecipients::None => unreachable!(),
+                    };
+                    let mut offset = 0;
+                    let mut entitled = false;
+                    loop {
+                        let (wraps, more) = tx.wrap_page(
+                            &scope.page,
+                            current,
+                            principal,
+                            head,
+                            offset,
+                            &recipients,
+                        )?;
+                        if wraps.is_empty() && more {
+                            return Err(crate::sync::Code::Denied.into());
+                        }
+                        offset += wraps.len();
+                        if offset > 512 {
+                            return Err(crate::sync::Code::Capacity.into());
+                        }
+                        for raw in wraps {
+                            let envelope = tmt_colab_model::wrap::Envelope::from_json(
+                                &values::binary(&raw, 2048)?,
+                            )?;
+                            envelope.verify_owner(&service.keyring.owner_public())?;
+                            let h = envelope.header()?;
+                            if h.space == scope.space
+                                && h.page == scope.page
+                                && h.epoch == epoch.to_string()
+                                && h.recipient_kind == recipient.0
+                                && h.recipient_id == recipient.1
+                                && h.recipient_key == recipient_key
+                                && values::decimal(&h.membership_revision, false)? <= head.revision
+                            {
+                                entitled = true;
+                            }
+                        }
+                        if !more {
+                            break;
+                        }
+                    }
+                    if !entitled {
+                        return Err(crate::sync::Code::Denied.into());
+                    }
+                }
+                if let Some(context) = reader_context {
+                    return Ok(context);
+                }
+                let row = tx
+                    .registration(principal)?
+                    .ok_or(crate::sync::Code::Denied)?;
+                let device = tx.device(principal)?.ok_or(crate::sync::Code::Denied)?;
+                Ok(crypto::digest(&framing::frame(&[
+                    b"tmt-colab-attachment-owner-context-v1",
+                    principal.as_bytes(),
+                    &serde_json::to_vec(scope)?,
+                    row.grant_revision.to_string().as_bytes(),
+                    row.binding.as_deref().ok_or(crate::sync::Code::Denied)?,
+                    &device.chain,
+                ])?))
+            })
+    }
+}
 impl crate::sync::Admission for OwnerAdmission {
+    fn save_source(&self) -> Option<crate::page::save::SourceOpener> {
+        self.0.lock().ok()?.save_source()
+    }
+    fn save_author(&self) -> crate::Result<[u8; 32]> {
+        self.0
+            .lock()
+            .map_err(|_| crate::page::Fault::Unavailable)?
+            .author_key()
+    }
+    fn commit_save(
+        &mut self,
+        job: &crate::publication::SignedJob,
+        packet: &[u8],
+        chain: &[u8],
+        now: u64,
+        combine_until: std::time::Instant,
+    ) -> crate::Result<(crate::page::PublicationCommitted, Option<String>)> {
+        self.0
+            .lock()
+            .map_err(|_| crate::page::Fault::Unavailable)?
+            .publish(job, packet, chain, now, combine_until)
+    }
+    fn save_status(
+        &self,
+        page: &str,
+        operation_id: &str,
+    ) -> crate::Result<crate::page::save::SaveResult> {
+        self.0
+            .lock()
+            .map_err(|_| crate::page::Fault::Unavailable)?
+            .save_status(page, operation_id)
+    }
+
     fn alive(&self, principal: &str) -> std::result::Result<(), crate::sync::Code> {
         let service = self.0.lock().map_err(|_| crate::sync::Code::Denied)?;
         if service.readers.contains(principal) {

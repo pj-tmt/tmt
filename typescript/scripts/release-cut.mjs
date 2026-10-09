@@ -9,6 +9,8 @@ import writer from 'conventional-changelog-writer';
 import { releasedComponentNamesOfPath } from './ci-scope.mjs';
 import {
   componentOfProduct,
+  isProductReleased,
+  predecessorOfProduct,
   productOfComponent,
   productOfTag,
   releasePolicy,
@@ -255,7 +257,7 @@ const failedDraft = (release) =>
   release.draft && release.assets?.some((asset) => asset.name === 'verification-failed.json');
 
 /** All drafts/tags reserve numbers; non-failed allocated ancestors delimit work, published ancestors delimit notes. */
-export function releaseCutHistory({ releases, product, cut, git, excludeTag = '' }) {
+function ownCutHistory({ releases, product, cut, git, excludeTag = '' }) {
   const { tagPrefix } = releasePolicy(product);
   const tags = git(['tag', '--list', `${tagPrefix}*`])
     .trim()
@@ -317,12 +319,49 @@ export function releaseCutHistory({ releases, product, cut, git, excludeTag = ''
   };
 }
 
+/** Succession changes boundaries only before this line has its own published release. */
+export function releaseCutHistory({ releases, product, cut, git, excludeTag = '', map }) {
+  const own = ownCutHistory({ releases, product, cut, git, excludeTag });
+  if (
+    !map ||
+    publishedReleases(
+      releases.filter((release) => release.tag_name !== excludeTag),
+      product
+    ).length
+  )
+    return own;
+  const predecessor = predecessorOfProduct(map, product);
+  if (!predecessor) return own;
+  const inherited = releaseCutHistory({
+    releases,
+    product: predecessor,
+    cut,
+    git,
+    excludeTag,
+    map,
+  });
+  const highestVersion = [own.highestVersion, inherited.highestVersion]
+    .filter((version) => version !== undefined)
+    .sort((left, right) => compareVersions(right, left))[0];
+  let previousAllocated = inherited.previousAllocated;
+  if (own.previousAllocated) {
+    if (!previousAllocated || previousAllocated.sha === own.previousAllocated.sha)
+      previousAllocated = own.previousAllocated;
+    else {
+      try {
+        git(['merge-base', '--is-ancestor', previousAllocated.sha, own.previousAllocated.sha]);
+        previousAllocated = own.previousAllocated;
+      } catch (error) {
+        if (error.cause?.status !== 1) throw error;
+      }
+    }
+  }
+  return { highestVersion, previous: inherited.previous, previousAllocated };
+}
+
 export async function planReleaseCuts({ metadata, map, workspace, git, date, versions = {} }) {
   for (const [product, version] of Object.entries(versions)) {
-    if (
-      !componentOfProduct(map, product).package ||
-      componentOfProduct(map, product).release === false
-    )
+    if (!componentOfProduct(map, product).package || !isProductReleased(map, product))
       throw new Error(`Explicit version names an unreleased component ${product}.`);
     if (!/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-alpha\.(0|[1-9]\d*))?$/.test(version))
       throw new Error('An explicit cut version must be a canonical stable or alpha version.');
@@ -350,10 +389,12 @@ export async function planReleaseCuts({ metadata, map, workspace, git, date, ver
     const row = { product: component.name, cut, status: 'blocked' };
     try {
       const product = productOfComponent(component.name);
+      if (!isProductReleased(map, product)) continue;
       row.product = product;
       const { tagPrefix } = releasePolicy(product);
       const history = releaseCutHistory({
         releases: metadata.releases,
+        map,
         product,
         cut,
         git,
@@ -377,7 +418,11 @@ export async function planReleaseCuts({ metadata, map, workspace, git, date, ver
       }
       if (!history.previous && (!component.bootstrapSha || !component.initialVersion))
         throw new Error('First cut needs bootstrapSha and an owner-approved initial version.');
-      if (!history.previous && component.requiresCliSha) {
+      if (
+        component.requiresCliSha &&
+        (!history.previous ||
+          (component.predecessor && !publishedReleases(metadata.releases, product).length))
+      ) {
         const cli = publishedReleases(metadata.releases, 'cli')[0];
         const reason = `First ${product} cut requires a published supporting CLI containing registration ${component.requiresCliSha}.`;
         if (!cli) throw new Error(reason);

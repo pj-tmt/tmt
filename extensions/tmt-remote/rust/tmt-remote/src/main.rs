@@ -1,3 +1,5 @@
+mod serve;
+
 use clap::{Arg, ArgAction, Command};
 use serde_json::json;
 use std::{
@@ -10,23 +12,13 @@ use std::{
 };
 use tmt_cli_style::{CommandSpec, Example, Interaction, Mode, OutputModes, Route};
 use tmt_remote::{
-    approval::Approval,
-    control::{self, Control},
+    control,
     core::CoreClient,
     devices::{Devices, device_json},
     error::RemoteError,
-    http::{Door, Handler},
-    mount::Mounts,
-    open,
-    operations::Operations,
-    pages::Pages,
-    pairing::{Pairing, Timing},
-    routes::Routes,
-    session::{self, DoorSessions},
-    settings,
-    site::Site,
-    state::{Layout, MachineKey},
-    store::{Store, uuid_v4},
+    open, settings,
+    state::Layout,
+    store::Store,
 };
 const ROOT: CommandSpec = CommandSpec {
     name: "remote",
@@ -51,13 +43,24 @@ const STOP: CommandSpec = CommandSpec {
 const STATUS: CommandSpec = CommandSpec {
     name: "status",
     summary: "Inspect the running door address without changing Remote state",
-    examples: &[Example {
-        command: "tmt remote status --json",
-        note: "Discover the live origin and route path, or the last port when stopped",
-    }],
+    examples: &[
+        Example {
+            command: "tmt remote status --json",
+            note: "Discover the live origin and route path, or the last port when stopped",
+        },
+        Example {
+            command: "tmt remote status --machine --json",
+            note: "Include the running owner's machine UUID as an optional local observation",
+        },
+        Example {
+            command: "tmt remote status --objects --json",
+            note: "Observe Local object-channel readiness without starting a channel",
+        },
+    ],
     outputs: OutputModes::HumanAndJson,
     details: "Read-only; does not start the door or pair a device. Live addresses come from serve.
-Stopped status reports only the remembered port, which is not a live address.",
+Stopped status reports only the remembered port, which is not a live address.
+--machine and --objects each require --json and cannot be combined; an older running door may not support these optional projections.",
 };
 const PAIR: CommandSpec = CommandSpec {
     name: "pair",
@@ -119,15 +122,35 @@ const RENAME: CommandSpec = CommandSpec {
     outputs: OutputModes::HumanAndJson,
     details: "Names are 1–64 nonblank UTF-8 bytes without controls. Authority stays the same.\nA changed name ends the old door session; the device silently reopens it.\nRepeating the same name preserves the revision. Revoked devices cannot be renamed.",
 };
+const DESIGNATE: CommandSpec = CommandSpec {
+    name: "designate",
+    summary: "Authorize one paired browser to manage Remote settings and devices",
+    examples: &[Example {
+        command: "tmt remote devices designate <client-id>",
+        note: "Select a live browser UUID shown by devices",
+    }],
+    outputs: OutputModes::HumanAndJson,
+    details: "Local-only. No browser is designated automatically. Replaces the previous designation; agent grants stay unchanged.",
+};
+const UNDESIGNATE: CommandSpec = CommandSpec {
+    name: "undesignate",
+    summary: "Remove browser authority to manage Remote settings and devices",
+    examples: &[Example {
+        command: "tmt remote devices undesignate",
+        note: "Keep every browser read-only",
+    }],
+    outputs: OutputModes::HumanAndJson,
+    details: "Local-only. Keeps pairings and existing agent grants; fences later management effects.",
+};
 const SERVE: CommandSpec = CommandSpec {
     name: "serve",
-    summary: "Run a foreground IPv4-loopback owner-device door",
+    summary: "Start the IPv4-loopback owner-device door",
     examples: &[Example {
         command: "tmt remote serve --json",
         note: "Print the bound descriptor for local testing",
     }],
     outputs: OutputModes::HumanAndJson,
-    details: "Runs in the foreground until Ctrl-C or SIGTERM; there is no default deadline.\nSigned direct sends reach core; held sends wait for local approval.\nMounts colab under <prefix>/x/colab/ while its owner-only socket exists.\nWithout --port, reuse the last bound port; if busy, refuse until freed or explicitly overridden. --port 0 selects a random unused port.",
+    details: "Human output starts in the background; use status and stop to inspect and end it.\n--foreground owns the door until Ctrl-C or SIGTERM. Bare --json remains foreground; use --background --json to detach.\nSigned direct sends reach core; held sends wait for local approval.\nMounts colab under <prefix>/x/colab/ while its owner-only socket exists.\nWithout --port, reuse the last bound port; if busy, refuse until freed or explicitly overridden. --port 0 selects a random unused port.",
 };
 const APPROVE: CommandSpec = CommandSpec {
     name: "approve",
@@ -156,15 +179,55 @@ fn grammar() -> Command {
         .arg(tmt_cli_style::version_arg(ArgAction::Version))
         .subcommand_required(true)
         .subcommand(
-            tmt_cli_style::command(&SERVE).arg(
-                Arg::new("port")
-                    .long("port")
-                    .value_parser(clap::value_parser!(u16))
-                    .help("Loopback port; omitted reuses the last port, 0 selects an unused port"),
-            ),
+            tmt_cli_style::command(&SERVE)
+                .arg(
+                    Arg::new("foreground")
+                        .long("foreground")
+                        .action(ArgAction::SetTrue)
+                        .conflicts_with("background")
+                        .help("Keep the door owned by this command"),
+                )
+                .arg(
+                    Arg::new("background")
+                        .long("background")
+                        .action(ArgAction::SetTrue)
+                        .help("Detach after the private readiness handoff"),
+                )
+                .arg(
+                    Arg::new("worker")
+                        .long("worker")
+                        .hide(true)
+                        .action(ArgAction::SetTrue)
+                        .requires("foreground"),
+                )
+                .arg(
+                    Arg::new("port")
+                        .long("port")
+                        .value_parser(clap::value_parser!(u16))
+                        .help(
+                            "Loopback port; omitted reuses the last port, 0 selects an unused port",
+                        ),
+                ),
         )
         .subcommand(tmt_cli_style::command(&STOP))
-        .subcommand(tmt_cli_style::command(&STATUS))
+        .subcommand(
+            tmt_cli_style::command(&STATUS)
+                .arg(
+                    Arg::new("machine")
+                        .long("machine")
+                        .action(ArgAction::SetTrue)
+                        .requires("json")
+                        .help("Include the live machine UUID (requires --json)"),
+                )
+                .arg(
+                    Arg::new("objects")
+                        .long("objects")
+                        .action(ArgAction::SetTrue)
+                        .requires("json")
+                        .conflicts_with("machine")
+                        .help("Include live Local object-channel readiness (requires --json)"),
+                ),
+        )
         .subcommand(
             tmt_cli_style::command(&PAIR)
                 .arg(
@@ -197,6 +260,10 @@ fn grammar() -> Command {
         .subcommand(
             tmt_cli_style::command(&DEVICES)
                 .subcommand(
+                    tmt_cli_style::command(&DESIGNATE).arg(Arg::new("client-id").required(true)),
+                )
+                .subcommand(tmt_cli_style::command(&UNDESIGNATE))
+                .subcommand(
                     tmt_cli_style::command(&REVOKE).arg(
                         Arg::new("client-id")
                             .required(true)
@@ -227,7 +294,11 @@ fn run(matches: &clap::ArgMatches) -> Result<(), RemoteError> {
         return pair(arguments.get_flag("json"), open::flag(arguments));
     }
     if name == "status" {
-        return status(arguments.get_flag("json"));
+        return status(
+            arguments.get_flag("json"),
+            arguments.get_flag("machine"),
+            arguments.get_flag("objects"),
+        );
     }
     if name == "stop" {
         return stop_command(arguments.get_flag("json"));
@@ -238,161 +309,7 @@ fn run(matches: &clap::ArgMatches) -> Result<(), RemoteError> {
     if name == "devices" {
         return devices(arguments);
     }
-    let serve = arguments;
-    let stop = Arc::new(AtomicBool::new(false));
-    let signals = [signal_hook::consts::SIGINT, signal_hook::consts::SIGTERM]
-        .map(|signal| signal_hook::flag::register(signal, Arc::clone(&stop)));
-    let result = (|| {
-        if signals.iter().any(Result::is_err) {
-            return Err(RemoteError::new(
-                "REMOTE_SIGNAL",
-                "Could not register foreground shutdown.",
-            ));
-        }
-        let core = CoreClient::discover()?;
-        let capabilities = core.capabilities(&stop)?;
-        if capabilities["version"] != 1
-            || capabilities["limits"]["outputBytes"]
-                .as_u64()
-                .is_none_or(|n| n == 0 || n > tmt_remote::core::OUTPUT_LIMIT as u64)
-        {
-            return Err(RemoteError::new(
-                "REMOTE_CORE_UNAVAILABLE",
-                "Core advertised an unsupported protocol or output bound.",
-            ));
-        }
-        let input_limit = capabilities["limits"]["inputBytes"]
-            .as_u64()
-            .filter(|n| *n > 0 && *n <= tmt_remote::limits::CORE_INPUT_BYTES as u64)
-            .ok_or_else(|| {
-                RemoteError::new(
-                    "REMOTE_CORE_UNAVAILABLE",
-                    "Core did not advertise a valid input bound.",
-                )
-            })? as usize;
-        let root = core.storage_root(&stop)?;
-        let layout = Layout::open(&root)?;
-        let serving = layout.serve_lock()?;
-        serving.retain_for_invocations()?;
-        let machine_key = MachineKey::open(&layout)?;
-        let mut store = Store::open(&serving)?;
-        let machine = store.machine()?;
-        let requested = serve.get_one::<u16>("port").copied();
-        let remembered = store.remembered_port()?;
-        let selected = requested.or(remembered).unwrap_or(0);
-        let door = Door::bind(selected).map_err(|error| {
-            if requested.is_none() && remembered.is_some() && error.code == "REMOTE_PORT_BUSY" {
-                RemoteError::new(
-                    "REMOTE_PORT_BUSY",
-                    &format!("Remote's port {selected} is in use"),
-                )
-                .with_hint("stop what is using it to keep this browser paired, or run tmt remote serve --port <n> and pair again")
-            } else {
-                error
-            }
-        })?;
-        let bound_port = door.socket_addr()?.port();
-        let store = Arc::new(Mutex::new(store));
-        // Each run is a new window; grants survive it, sessions do not.
-        let window_id = uuid_v4()?;
-        let pairing = Arc::new(Pairing::new(
-            machine.id.clone(),
-            window_id.clone(),
-            machine_key.public(),
-            door.origin.clone(),
-            Arc::clone(&store),
-            Timing::CONTRACT,
-        ));
-        let sessions = Arc::new(DoorSessions::new(
-            machine.id.clone(),
-            window_id.clone(),
-            door.origin.clone(),
-            format!("{}/x/", machine.route_prefix),
-            machine_key,
-            Arc::clone(&store),
-            session::IDLE,
-        ));
-        let operations = Arc::new(Operations::new(core, Arc::clone(&stop), input_limit));
-        let routes = Routes::new(input_limit, machine.route_prefix.clone())?
-            .with_pairing(Arc::clone(&pairing))
-            .with_sessions(Arc::clone(&sessions))
-            .with_operations(Arc::clone(&operations));
-        let address = format!("{}{}", door.origin, routes.prefix());
-        let approval = Arc::new(Approval::new(
-            Arc::clone(&store),
-            Arc::clone(&sessions),
-            operations,
-        ));
-        approval.cancel_pending()?;
-        let devices = Arc::new(Devices::new(
-            Arc::clone(&store),
-            Some(Arc::clone(&sessions)),
-        ));
-        let control = Control::start(
-            &serving,
-            Arc::clone(&pairing),
-            Arc::clone(&devices),
-            control::Door {
-                origin: door.origin.clone(),
-                prefix: machine.route_prefix.clone(),
-            },
-            Some(Arc::clone(&approval)),
-            Arc::clone(&stop),
-        )?;
-        let site = Arc::new(Site {
-            routes,
-            mounts: Arc::new(Mounts::new(
-                root,
-                &door.origin,
-                &machine.route_prefix,
-                sessions,
-            )),
-            pages: Some(
-                Pages::new(
-                    &door.origin,
-                    machine.id.clone(),
-                    window_id.clone(),
-                    &machine.route_prefix,
-                )
-                .with_pairing(pairing),
-            ),
-        });
-        let events = devices.start_events(Arc::clone(&site.mounts))?;
-        store
-            .lock()
-            .expect("store lock")
-            .remember_port(bound_port)?;
-        let json_output = serve.get_flag("json");
-        let mut output = tmt_cli_style::stream::stdout(json_output);
-        if json_output {
-            writeln!(
-                output,
-                "{}",
-                json!({"profile":"local-v1","binding":"loopback-http","state":"ready","address":address,"machineId":machine.id,"windowId":window_id,"startupCoreCalls":2})
-            )?;
-        } else {
-            let terminal = output.terminal();
-            tmt_cli_style::message::warning(
-                &mut output,
-                terminal,
-                "Door ready; pair a device with tmt remote pair",
-                None,
-            )?;
-            writeln!(output, "{address}")?;
-        }
-        output.flush()?;
-        drop(output);
-        let result = door.run(&stop, site as Arc<dyn Handler>);
-        // Stopping cancels any pending pairing before state is released.
-        control.stop();
-        approval.cancel_pending()?;
-        drop(events);
-        result
-    })();
-    for id in signals.into_iter().flatten() {
-        signal_hook::low_level::unregister(id);
-    }
-    result
+    serve::run(arguments)
 }
 fn discovery_root() -> Result<std::path::PathBuf, RemoteError> {
     CoreClient::discover()?
@@ -465,11 +382,11 @@ fn stop_command(json_output: bool) -> Result<(), RemoteError> {
 }
 /// Public discovery for local extensions. Only the control socket supplies
 /// live values; stopped reads hold the same lease as every database opener.
-fn status(json_output: bool) -> Result<(), RemoteError> {
+fn status(json_output: bool, machine: bool, objects: bool) -> Result<(), RemoteError> {
     let root = discovery_root()?;
     let answer = match Layout::existing(&root)? {
         None => json!({"running":false,"lastPort":null}),
-        Some(layout) => match control::status(&layout.directory) {
+        Some(layout) => match control::status_with_objects(&layout.directory, machine, objects) {
             Ok(Some(answer)) => answer,
             Ok(None) => {
                 let last_port = match layout.existing_serve_lock()? {
@@ -824,6 +741,10 @@ fn devices(arguments: &clap::ArgMatches) -> Result<(), RemoteError> {
         Some(("revoke", m)) => {
             json!({"op":"revoke","clientId":m.get_one::<String>("client-id").unwrap()})
         }
+        Some(("designate", m)) => {
+            json!({"op":"designate","clientId":m.get_one::<String>("client-id").unwrap()})
+        }
+        Some(("undesignate", _)) => json!({"op":"undesignate"}),
         Some(_) => unreachable!("typed device grammar"),
         None => json!({"op":"devices"}),
     };
@@ -852,13 +773,33 @@ fn devices(arguments: &clap::ArgMatches) -> Result<(), RemoteError> {
         }
         Err(error) if error.code == "REMOTE_NOT_RUNNING" => {
             let serving = Layout::open(&root)?.serve_lock()?;
-            let devices = Devices::new(Arc::new(Mutex::new(Store::open(&serving)?)), None);
+            let mut store = Store::open(&serving)?;
+            let origin = store
+                .remembered_port()?
+                .map(|port| format!("http://127.0.0.1:{port}"));
+            store.machine()?;
+            let devices = Devices::new(Arc::new(Mutex::new(store)), None);
             match mutation {
                 Some(("rename", m)) => {
                     json!({"device": device_json(&devices.rename(m.get_one::<String>("client-id").unwrap(), m.get_one::<String>("name").unwrap())?)})
                 }
                 Some(("revoke", m)) => {
                     json!({"device": device_json(&devices.revoke(m.get_one::<String>("client-id").unwrap())?)})
+                }
+                Some(("designate", m)) => {
+                    let origin = origin.ok_or_else(|| {
+                        RemoteError::new(
+                            "REMOTE_NOT_RUNNING",
+                            "No remembered door origin; run serve first.",
+                        )
+                    })?;
+                    let grant =
+                        devices.designate(m.get_one::<String>("client-id").unwrap(), &origin)?;
+                    json!({"designatedClientId":grant.client_id})
+                }
+                Some(("undesignate", _)) => {
+                    devices.undesignate()?;
+                    json!({"designatedClientId":null})
                 }
                 Some(_) => unreachable!("typed device grammar"),
                 None => {
@@ -874,6 +815,17 @@ fn devices(arguments: &clap::ArgMatches) -> Result<(), RemoteError> {
         return Ok(());
     }
     let terminal = output.terminal();
+    if let Some(client) = answer.get("designatedClientId") {
+        return Ok(tmt_cli_style::message::success(
+            &mut output,
+            terminal,
+            &if let Some(client) = client.as_str() {
+                format!("Designated browser {client}")
+            } else {
+                "Removed browser management designation".to_owned()
+            },
+        )?);
+    }
     if let Some(device) = answer.get("device") {
         let name = device["name"].as_str().unwrap_or("");
         return Ok(tmt_cli_style::message::success(
@@ -964,7 +916,7 @@ fn main() -> ExitCode {
     match run(&matches) {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
-            if wants_json(&matches) {
+            if wants_json(&matches) && error.code != "REMOTE_READY_OUTPUT" {
                 let _ = writeln!(
                     tmt_cli_style::stream::stdout(true),
                     "{}",

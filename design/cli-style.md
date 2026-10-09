@@ -2,7 +2,7 @@
 
 This document owns how TMT's command-line output and help look. Browser
 surfaces follow the [browser interface style](gui-style.md). Every CLI (core
-`tmt`, `tmt-squad` and `tmt-office`) follows it. The only implementation is the
+`tmt`, `tmt-ops` and `tmt-office`) follows it. The only implementation is the
 `rust/crates/tmt-cli-style` crate. It depends on no TMT crate, so any CLI can
 depend on it. Rules are enforced by tests, not by review.
 
@@ -45,7 +45,10 @@ architecture test enforces it for the CLIs and the Rust extensions.
 `theme` owns what the design tokens (`design/tokens/tokens.json`) look like in
 a terminal. Its roles are the tokens: `text`, `muted`, `dim`, `accent`,
 `waiting`, `working`, `review`, `blocked`, `link` and `selection` (a
-background). A `Theme` is a built-in base plus per-role overrides:
+background). Truecolor neutral roles (`text`, `muted`, `dim` and `selection`)
+use grayscale values from that single token source; semantic colors remain saturated.
+Terminal16, `mono`, `NO_COLOR` and explicit overrides keep their existing behavior.
+A `Theme` is a built-in base plus per-role overrides:
 
 | Base        | Rendering                                                                      |
 | ----------- | ------------------------------------------------------------------------------ |
@@ -77,7 +80,7 @@ during the query (at most 100 ms) is discarded; late OSC replies are filtered
 before board actions. An unavailable signal uses `tmt`. Picker previews reuse the
 same signal and save the requested `auto` base, without changing CLI defaults.
 
-`tmt sq theme ls` lists `auto` first. With COLORFGBG it shows `auto (tmt-light)`
+`tmt ops sq theme ls` lists `auto` first. With COLORFGBG it shows `auto (tmt-light)`
 or `auto (tmt)` and source `detected`. Without a measurement it shows `auto`
 with detail `matches the terminal when the board opens`, the configured source,
 and JSON `resolvedBase: null`. An auto result retains its configuration layer in
@@ -161,6 +164,7 @@ tokens. Additional marks stay labelled board only. A row's leading state mark is
 | `◆`        | waits on your decision                                                                    |
 | `▾`        | an open foldable pane in a toggle hint (board only)                                       |
 | `▸`        | folded Squad board pane (board only)                                                      |
+| `≠`        | differs from all boards (this squad overrides it; board only)                             |
 | `~`        | approximate observed token total from incomplete coverage (board only)                    |
 | `▁▂▃▄▅▆▇█` | completed-request trend: ▁ measured zero, ▂–█ relative totals, blank no data (board only) |
 
@@ -477,9 +481,9 @@ Attention marks (`◆`, `✗`) keep their own roles in every state, including se
   `Plain`. `Plain` prints the plain result and never asks: a view falls back to
   its text or JSON output, and a question needs its flag (`--yes`). Commands
   never test a handle themselves.
-- A command whose main view is interactive may run as the CLI's bare command
-  (`tmt squad`): it opens the view when `view()` is `Interactive` and prints its
-  list otherwise, so scripts and pipes get the same list as its `ls`.
+- A command whose main view is interactive (`tmt ops ui`) opens the view when
+  `view()` is `Interactive` and prints its list otherwise, so scripts and pipes
+  get the same list as its `ls`.
 - Text that must reach the reader unchanged (a stored response, a prompt,
   captured pane text, a path a script reads) is written through the stream by a
   function of its own that neither styles nor escapes it. Only output that
@@ -524,13 +528,13 @@ entries. The first two lists are empty when #436 closes, the interaction list wh
   inverse of what `command` writes). Each example must invoke its own command
   and parse through the CLI's real parser without running. Core's walk and its
   list are in `rust/crates/tmt-cli/src/cli_style_{tests,allowlist}.rs`;
-  Squad's are the same files in `extensions/tmt-squad/rust/tmt-squad/src/`.
+  Squad's are the same files in `extensions/tmt-ops/rust/tmt-ops/src/`.
 
 - **Hidden-command guard** (`tmt_cli_style::audit::hidden_report`). It walks the
   same grammars, extension trees included, and applies
   [Hidden commands](#hidden-commands). Its `HIDDEN` allowlists are permanent
   (command and reason), not migration lists, and sit beside the style lists in
-  `cli_style_allowlist.rs`; `tmt-cli` and `tmt-squad` run it in `cli_style_tests`.
+  `cli_style_allowlist.rs`; `tmt-cli` and `tmt-ops` run it in `cli_style_tests`.
   An extension with a grammar of its own calls it from its own test.
 
 - **Printed command guard** (`tmt-cli`'s `cli_style_tests`, #1079). Core help
@@ -548,7 +552,7 @@ entries. The first two lists are empty when #436 closes, the interaction list wh
   `learn` guidance are labeled separately, rather than treated as hints.
 
 - **Output guard** (the architecture test). In `tmt-cli`, `tmt-office-command`
-  and `tmt-squad`, production code may not:
+  and `tmt-ops`, production code may not:
   - call `print!`, `println!`, `eprint!` or `eprintln!`;
   - reach `std::io::stdout` or `std::io::stderr` in any form, including an
     import;

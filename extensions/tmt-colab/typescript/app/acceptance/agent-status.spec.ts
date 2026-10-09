@@ -1,4 +1,6 @@
 import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
 import { expect, test } from '@playwright/test';
 import { pairBrowser, startDoor } from './harness/browser.js';
@@ -42,11 +44,23 @@ test('the served Agents view reads the admitted directory without sending or reo
     expect(policy).not.toContain('unsafe-inline');
     expect(policy).not.toContain('unsafe-eval');
     const manifestPath = process.env.COLAB_STATUS_ASSET_MANIFEST;
-    if (!manifestPath)
-      throw new Error('Set COLAB_STATUS_ASSET_MANIFEST to the hashed build report.');
-    const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8')) as {
-      distAssets: { path: string; sha256: string }[];
-    };
+    // The ordinary suite checks its current build; specialized frozen runs may
+    // supply an independently retained manifest for relocated embedded binaries.
+    const dist = fileURLToPath(new URL('../dist/', import.meta.url));
+    const manifest: { distAssets: { path: string; sha256: string }[] } = manifestPath
+      ? JSON.parse(fs.readFileSync(manifestPath, 'utf8'))
+      : {
+          distAssets: fs
+            .readdirSync(dist, { recursive: true, withFileTypes: true })
+            .filter((entry) => entry.isFile())
+            .map((entry) => {
+              const file = path.join(entry.parentPath, entry.name);
+              return {
+                path: path.relative(dist, file),
+                sha256: createHash('sha256').update(fs.readFileSync(file)).digest('hex'),
+              };
+            }),
+        };
     expect(manifest.distAssets).toHaveLength(11);
     const mount = new URL('./', page.url());
     for (const asset of manifest.distAssets) {

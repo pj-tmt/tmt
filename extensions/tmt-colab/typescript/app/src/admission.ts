@@ -1,4 +1,5 @@
 import {
+  attachment,
   binary,
   certificate,
   decimal,
@@ -32,6 +33,7 @@ export interface ReaderSeat {
   linkId: string;
   /** The server-issued reader principal that hello names; it is not the link device's ID. */
   principal: string;
+  expiresAt: number;
 }
 
 /** Content subset for the owner browser or a link reader. A transport head/hash is never log authority. */
@@ -41,6 +43,7 @@ export class Admission {
   #raw: string[] = [];
   #target: { revision: bigint; hash: Uint8Array } | null = null;
   root: CryptoKey | null = null;
+  #roots = new Map<string, CryptoKey>();
   #authors = new Map<string, certificate.Certificate>();
   constructor(
     readonly space: string,
@@ -151,6 +154,8 @@ export class Admission {
     this.#raw = raw;
     this.#target = target;
   }
+  /** Historical issuer verification ignores current expiry, matching native
+   * fold. Fresh author() and the actual caller validateRead() still enforce it. */
   async chains(values: unknown) {
     requireValue(Array.isArray(values) && values.length <= 64 && this.head !== null);
     const verified: certificate.Certificate[] = [];
@@ -165,8 +170,7 @@ export class Admission {
           c.issuerKind === 'member' &&
           c.issuerId === this.head.ownerMember.id &&
           issuer !== undefined &&
-          c.issuedAt <= Date.now() &&
-          c.expiresAt > Date.now(),
+          c.issuedAt <= Date.now(),
       );
       await chain.verify(issuer.head.hash, c, this.head.ownerMember.signingKey);
       const prior = this.#authors.get(c.deviceId);
@@ -202,12 +206,14 @@ export class Admission {
       );
       await envelope.verifyOwner(this.owner);
       // A member wrap cannot be opened by a device key. Do not substitute its key or authority.
-      if (!own || h.epoch !== this.epoch) continue;
+      if (!own || epoch > decimal(this.epoch) || decimal(this.epoch) - epoch >= 64n) continue;
       const secret = await envelope.open(h, this.registration.keys.enc, this.owner);
       try {
-        requireValue(this.root === null);
+        requireValue(!this.#roots.has(h.epoch) && (h.epoch !== this.epoch || this.root === null));
         // wrap.open returns copy(..., 32), satisfying the opaque root's import-length precondition.
-        this.root = await crypto.subtle.importKey('raw', secret, 'HKDF', false, ['deriveBits']);
+        const root = await crypto.subtle.importKey('raw', secret, 'HKDF', false, ['deriveBits']);
+        this.#roots.set(h.epoch, root);
+        if (h.epoch === this.epoch) this.root = root;
       } finally {
         secret.fill(0);
       }
@@ -224,28 +230,74 @@ export class Admission {
       requireValue(value[field] === expected[field]);
     return this.head.ownerMember.signingKey.slice();
   }
-  cuts(device?: string) {
+  cuts(device?: string, epoch = this.epoch) {
     return this.#log.flatMap((v) =>
       v.payload.operation === 'device.revoke' &&
       (device === undefined || v.payload.value.deviceId === device)
         ? v.payload.value.cuts
-            .filter((c) => c.pageId === this.page && c.epoch === this.epoch)
+            .filter((c) => c.pageId === this.page && c.epoch === epoch)
             .map((c) => ({ revision: v.head.revision, cut: streamCut.decode(binary(c.cut, 1024)) }))
         : [],
     );
   }
-  readAuthor(context: Context, envelopeHash: Uint8Array): Uint8Array {
+  /** Owner-member provenance: the device chain was issued by the owner member
+   * and verified at its membership revision, and the device is not revoked.
+   * A bridge's own envelopes are admitted (`readAuthor`) but never have it, so a
+   * status record can only come from such a device. */
+  ownerDevice(device: string): boolean {
+    try {
+      this.author(device, this.head!.revision.toString());
+      return true;
+    } catch {
+      return false;
+    }
+  }
+  /** The bridge a verified `bridge.add` named at `revision`, as native `open_object` finds it
+   * in the membership state at the envelope's revision: the latest add for this machine,
+   * with the page and epoch that state granted. An archived or deleted page never reaches
+   * here: `validatePage` refuses it for every author. */
+  #bridge(device: string, revision: bigint) {
+    let bridge: { signKey: Uint8Array; pages: readonly string[] } | undefined;
+    let epoch = 1n;
+    for (const { payload: p } of this.#log.slice(0, Number(revision))) {
+      if (p.operation === 'bridge.add' && p.value.machineId === device)
+        bridge = {
+          signKey: binary(p.value.machineSignKey, 32, 32),
+          pages: p.value.pages,
+        };
+      if (p.operation === 'epoch.advance' && p.value.pageId === this.page)
+        epoch = decimal(p.value.epoch);
+    }
+    return bridge && { ...bridge, epoch };
+  }
+  /** The pinned key that signed an envelope and whether its author is an owner-member device.
+   * Admission matches native: a stream with a device chain is an owner-member device; a stream
+   * named by a `bridge.add` at the envelope's revision is a bridge, admitted for the `own`
+   * namespace of its granted pages only, and never as an owner device. Both stop at the
+   * device's signed `device.revoke` cut. */
+  readAuthor(
+    context: Context,
+    envelopeHash: Uint8Array,
+  ): { key: Uint8Array; ownerDevice: boolean } {
     const revision = decimal(context.membershipRevision);
-    const c = this.#authors.get(context.authorDevice);
-    if (!this.head || revision > this.head.revision || !c)
+    if (!this.head || revision > this.head.revision)
       throw new Error('Fresh membership catchup required');
-    requireValue(
-      c.issuerKind === 'member' &&
-        c.issuerId === this.head.ownerMember.id &&
-        decimal(c.membershipRevision) <= revision &&
-        c.issuedAt <= Date.now() &&
-        c.expiresAt > Date.now(),
-    );
+    const bridge = this.#bridge(context.authorDevice, revision),
+      c = bridge ? undefined : this.#authors.get(context.authorDevice);
+    if (!bridge && !c) throw new Error('Fresh membership catchup required');
+    if (bridge)
+      requireValue(
+        context.namespace === 'own' &&
+          bridge.epoch === decimal(context.epoch) &&
+          bridge.pages.includes(this.page),
+      );
+    else
+      requireValue(
+        c!.issuerKind === 'member' &&
+          c!.issuerId === this.head.ownerMember.id &&
+          decimal(c!.membershipRevision) <= revision &&
+          c!.issuedAt <= Date.now(),
+      );
     for (const statement of this.#log) {
       if (
         statement.payload.operation !== 'device.revoke' ||
@@ -256,7 +308,7 @@ export class Admission {
       const wrapped = statement.payload.value.cuts.find(
         (c) =>
           c.pageId === this.page &&
-          c.epoch === this.epoch &&
+          c.epoch === context.epoch &&
           c.namespace === context.namespace &&
           streamCut.decode(binary(c.cut, 1024)).streamId === context.authorDevice,
       );
@@ -273,7 +325,9 @@ export class Admission {
       else if (context.streamSeq === cut.tailHeadSeq)
         requireValue(equal(envelopeHash, cut.tailHeadHash));
     }
-    return c.signingKey.slice();
+    return bridge
+      ? { key: bridge.signKey.slice(), ownerDevice: false }
+      : { key: c!.signingKey.slice(), ownerDevice: true };
   }
   author(device: string, revision: string): Uint8Array {
     const c = this.#authors.get(device);
@@ -291,7 +345,69 @@ export class Admission {
     );
     return c.signingKey.slice();
   }
-  validatePage(sharing: string | readonly string[]) {
+  /** Eligible keys came from this actual device/link's verified addressed wraps.
+   * A member wrap or ambient server epoch secret never enters this map. */
+  readRoot(epoch: string): CryptoKey {
+    const current = decimal(this.epoch),
+      requested = decimal(epoch);
+    requireValue(requested <= current && current - requested < 64n);
+    const root = epoch === this.epoch ? this.root : this.#roots.get(epoch);
+    requireValue(root !== null && root !== undefined);
+    return root;
+  }
+  closeKeys() {
+    this.root = null;
+    this.#roots.clear();
+  }
+  /** Asset sequence zero is deliberately not passed through readAuthor's
+   * positive-stream cut check. The admitted own publication proves creation. */
+  assetAuthor(descriptor: attachment.AttachmentDescriptor): Uint8Array {
+    const d = attachment.attachmentDescriptor(descriptor),
+      revision = decimal(d.membershipRevision),
+      c = this.#authors.get(d.authorDevice);
+    requireValue(
+      this.head !== null &&
+        revision <= this.head.revision &&
+        c !== undefined &&
+        d.space === this.space &&
+        d.page === this.page &&
+        c.issuerKind === 'member' &&
+        c.issuerId === this.head.ownerMember.id &&
+        decimal(c.membershipRevision) <= revision,
+    );
+    let epoch = '1';
+    for (const { payload: p, head } of this.#log) {
+      if (head.revision > revision) break;
+      if (p.operation === 'epoch.advance' && p.value.pageId === this.page) epoch = p.value.epoch;
+      if (p.operation === 'device.revoke' && p.value.deviceId === d.authorDevice)
+        throw new Error('Attachment creator was revoked');
+      if (
+        (p.operation === 'page.delete' || p.operation === 'page.archive') &&
+        p.value.pageId === this.page
+      )
+        throw new Error('Attachment creation was unavailable');
+    }
+    requireValue(epoch === d.epoch);
+    return c.signingKey.slice();
+  }
+  /** Current read policy, including the actual link seat. Writes still use
+   * validatePage's writable default and author(), never this read purpose. */
+  validateRead(sharing: string | readonly string[]) {
+    this.validatePage(sharing, true);
+    if (!this.reader) {
+      this.author(this.registration.deviceId, this.head!.revision.toString());
+      return;
+    }
+    requireValue(Date.now() < this.reader.expiresAt);
+    let active = false;
+    for (const { payload: p } of this.#log) {
+      if (p.operation === 'link.add' && p.value.linkId === this.reader.linkId)
+        active = p.value.pages.includes(this.page);
+      if (p.operation === 'link.remove' && p.value.linkId === this.reader.linkId) active = false;
+    }
+    requireValue(active);
+  }
+  validatePage(sharing: string | readonly string[], reading = false) {
     let epoch: string | undefined,
       mode = 'private';
     for (const { payload: p } of this.#log) {
@@ -301,7 +417,7 @@ export class Admission {
       }
       if (p.operation === 'epoch.advance' && p.value.pageId === this.page) epoch = p.value.epoch;
       if (
-        (p.operation === 'page.delete' || p.operation === 'page.archive') &&
+        (p.operation === 'page.delete' || (!reading && p.operation === 'page.archive')) &&
         p.value.pageId === this.page
       )
         throw new Error('Page unavailable');

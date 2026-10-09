@@ -16,21 +16,23 @@ const targets = [
   'aarch64-unknown-linux-musl',
   'x86_64-unknown-linux-musl',
 ];
-const products = ['cli', 'squad', 'colab', 'remote'];
+const products = ['cli', 'ops', 'colab', 'remote', 'driver-herdr'];
 
 afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 
-function fixture() {
+function fixture(opsActive = true) {
   const root = mkdtempSync(path.join(tmpdir(), 'tmt-notices-&-'));
   roots.push(root);
   mkdirSync(path.join(root, '.github'));
   mkdirSync(path.join(root, 'scripts'));
-  writeFileSync(
-    path.join(root, '.github/components.json'),
-    readFileSync(new URL('../../../.github/components.json', import.meta.url))
+  const map = JSON.parse(
+    readFileSync(new URL('../../../.github/components.json', import.meta.url), 'utf8')
   );
+  // Explicit activation and refusal fixtures stay independent of the committed map.
+  map.components.ops.release = opsActive;
+  writeFileSync(path.join(root, '.github/components.json'), JSON.stringify(map));
   writeFileSync(
     path.join(root, 'dist-workspace.toml'),
     `[dist]\ntargets = ${JSON.stringify(targets)}\n`
@@ -63,6 +65,10 @@ printf 'generator diagnostic\\n' >&2
 }
 
 describe('native dependency notice verification', () => {
+  it('does not generate notices for blocked Ops or its retired predecessor', () => {
+    const results = verifyNativeNotices(fixture(false), { report: () => {} });
+    expect(results.some(({ product }) => ['ops', 'squad'].includes(product))).toBe(false);
+  });
   it('generates and retains every active product/target inventory without native builds', () => {
     const root = fixture();
     const results = verifyNativeNotices(root, { report: () => {} });
@@ -98,10 +104,10 @@ describe('native dependency notice verification', () => {
     ['failure', 'generator failed'],
   ])('fails on %s output instead of accepting the previous inventory', (fault, diagnostic) => {
     const root = fixture();
-    writeFileSync(path.join(root, 'fault.txt'), `squad|${targets[0]}|${fault}`);
+    writeFileSync(path.join(root, 'fault.txt'), `ops|${targets[0]}|${fault}`);
     expect(() => verifyNativeNotices(root, { report: () => {} })).toThrow(diagnostic);
     const evidence = path.join(root, 'rust/target/native-notices/verified');
-    expect(readFileSync(path.join(evidence, `squad-${targets[0]}-failure.log`), 'utf8')).toContain(
+    expect(readFileSync(path.join(evidence, `ops-${targets[0]}-failure.log`), 'utf8')).toContain(
       diagnostic
     );
     expect(() => readFileSync(path.join(evidence, 'results.json'))).toThrow();
@@ -111,16 +117,11 @@ describe('native dependency notice verification', () => {
     const root = fixture();
     const file = path.join(root, '.github/components.json');
     const map = JSON.parse(readFileSync(file, 'utf8'));
-    map.components.squad.release = false;
-    map.components['driver-herdr'].release = true;
+    map.components.ops.release = false;
+    map.components['driver-herdr'].release = false;
     writeFileSync(file, JSON.stringify(map));
     const results = verifyNativeNotices(root, { report: () => {} });
-    expect([...new Set(results.map(({ product }) => product))]).toEqual([
-      'cli',
-      'colab',
-      'remote',
-      'driver-herdr',
-    ]);
+    expect([...new Set(results.map(({ product }) => product))]).toEqual(['cli', 'colab', 'remote']);
   });
 
   it('refuses empty product discovery and unknown active product policies', () => {

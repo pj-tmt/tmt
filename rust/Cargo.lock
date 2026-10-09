@@ -2786,6 +2786,7 @@ dependencies = [
  "unicode-width",
  "ureq",
  "uuid",
+ "zip",
 ]
 
 [[package]]
@@ -2908,6 +2909,17 @@ dependencies = [
  "serde",
  "serde_json",
  "tmt-host-grammar",
+]
+
+[[package]]
+name = "tmt-extension-objects"
+version = "5.0.0-dev"
+dependencies = [
+ "base64 0.22.1",
+ "httparse",
+ "nix",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -3037,6 +3049,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "tmt-ops"
+version = "0.1.0-dev"
+dependencies = [
+ "clap",
+ "jiff",
+ "nix",
+ "pulldown-cmark",
+ "ratatui",
+ "serde_json",
+ "sha2",
+ "signal-hook 0.4.4",
+ "subprocess",
+ "tmt-cli-style",
+ "tmt-invoke",
+ "tmt-test-support",
+ "tmt-tui",
+ "toml_edit",
+ "unicode-width",
+]
+
+[[package]]
 name = "tmt-release-tool"
 version = "5.0.0-dev"
 dependencies = [
@@ -3061,29 +3094,9 @@ dependencies = [
  "sha2",
  "signal-hook 0.4.4",
  "tmt-cli-style",
+ "tmt-extension-objects",
  "tmt-extension-state",
  "tmt-invoke",
-]
-
-[[package]]
-name = "tmt-squad"
-version = "0.1.0-dev"
-dependencies = [
- "clap",
- "jiff",
- "nix",
- "pulldown-cmark",
- "ratatui",
- "serde_json",
- "sha2",
- "signal-hook 0.4.4",
- "subprocess",
- "tmt-cli-style",
- "tmt-invoke",
- "tmt-test-support",
- "tmt-tui",
- "toml_edit",
- "unicode-width",
 ]
 
 [[package]]
@@ -3198,6 +3211,12 @@ dependencies = [
  "sha1",
  "thiserror",
 ]
+
+[[package]]
+name = "typed-path"
+version = "0.12.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8e28f89b80c87b8fb0cf04ab448d5dd0dd0ade2f8891bae878de66a75a28600e"
 
 [[package]]
 name = "typenum"
@@ -3798,6 +3817,19 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 3.0.5",
+]
+
+[[package]]
+name = "zip"
+version = "8.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2d04a6b5381502aa6087c94c669499eb1602eb9c5e8198e534de571f7154809b"
+dependencies = [
+ "crc32fast",
+ "flate2",
+ "indexmap",
+ "memchr",
+ "typed-path",
 ]
 
 [[package]]

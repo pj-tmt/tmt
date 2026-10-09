@@ -74,7 +74,94 @@ pub struct TurnEnd {
     pub transcript: Option<PathBuf>,
 }
 
+/// Invocation-owned correlation locators. Native admission remains mandatory.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CallerSession {
+    pub session: ProviderSessionId,
+    pub runtime_pid: Option<u32>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CallerSessionRefusal {
+    Configuration,
+    IndexUnavailable,
+    IndexShape,
+    HeaderUnavailable,
+    HeaderShape,
+    NotRoot,
+}
+
+impl CallerSessionRefusal {
+    pub fn layer(self) -> &'static str {
+        match self {
+            Self::Configuration => "provider-configuration",
+            Self::IndexUnavailable => "provider-index-unavailable",
+            Self::IndexShape => "provider-index-shape",
+            Self::HeaderUnavailable => "provider-header-unavailable",
+            Self::HeaderShape => "provider-header-shape",
+            Self::NotRoot => "provider-not-root",
+        }
+    }
+}
+
 pub trait RuntimeLifecycle {
+    fn caller_session(&self) -> Option<CallerSession> {
+        None
+    }
+
+    /// An exact-ID provider header/index can corroborate a main conversation;
+    /// it never establishes ownership and never reads transcript records.
+    fn caller_session_observation(
+        &self,
+        _coordinates: &CallerSession,
+        _environment: &ProviderEnvironment,
+        _deadline: Instant,
+    ) -> Result<Box<dyn LifecycleObservation>, CallerSessionRefusal> {
+        Err(CallerSessionRefusal::HeaderShape)
+    }
+
+    fn observe_main_caller(
+        &self,
+        _runner: &dyn crate::process::CommandRunner,
+        _caller: u64,
+        _pane: u64,
+        _deadline: Instant,
+    ) -> Option<ProcessIncarnation> {
+        None
+    }
+
+    /// Optional provider-owned, session-only hook installation. Global provider
+    /// settings are read for composition/ownership, never written by a launch.
+    fn prepare_launch_hooks(
+        &self,
+        _plan: &super::hook_protocol::LaunchHooks<'_>,
+    ) -> std::io::Result<Option<super::RuntimeCommand>> {
+        Ok(None)
+    }
+
+    /// Only a provider's main-agent continuation boundary may claim Focus.
+    fn decode_focus_turn(&self, _payload: &[u8]) -> Option<ProviderSessionId> {
+        None
+    }
+
+    fn encode_focus_turn(&self, _digest: &str) -> Option<String> {
+        None
+    }
+
+    /// Map a native hook caller to the exact launch incarnation. Shared callers
+    /// need a driver-owned enrollment proof; the default admits only independent
+    /// callers and never grants a shared server the foreground's authority.
+    fn focus_process(
+        &self,
+        _current: &BindingSessionState,
+        observed: &ProcessIncarnation,
+        _session: &ProviderSessionId,
+        host: HostEvidence,
+        _deadline: Instant,
+    ) -> Option<ProcessIncarnation> {
+        matches!(host, HostEvidence::Independent { .. }).then(|| observed.clone())
+    }
+
     /// Optional shared work budget for input, admission and the hook worker.
     /// The driver reserves process cleanup and provider timeout margin.
     fn hook_work_duration(&self) -> Option<Duration> {
@@ -193,6 +280,7 @@ pub trait RuntimeLifecycle {
 
     fn observe_in_pane(
         &self,
+        _runner: &dyn crate::process::CommandRunner,
         _caller_pid: u64,
         _pane_pid: u64,
         _deadline: Instant,

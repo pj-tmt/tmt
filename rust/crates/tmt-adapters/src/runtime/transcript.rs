@@ -1,5 +1,5 @@
 //! The one place a driver reads its own provider's transcript, and only for
-//! usage numbers (#519). The path comes from hook input, so it is trusted only
+//! usage numbers (#519), plus Codex's exact-ID metadata header admission. A path is trusted only
 //! as a regular `.jsonl` file under the driver's own tree, opened without
 //! following a final symlink or blocking on a FIFO. Tail and incremental reads
 //! share this trust boundary. Tails have a byte bound; Claude incremental
@@ -89,7 +89,7 @@ pub(super) fn open(root: &Path, path: &Path) -> Option<File> {
     Some(file)
 }
 
-fn read_tail(file: &mut File, end: u64) -> Option<Vec<u8>> {
+pub(super) fn read_tail(file: &mut File, end: u64) -> Option<Vec<u8>> {
     let start = end.saturating_sub(TAIL_LIMIT);
     file.seek(SeekFrom::Start(start)).ok()?;
     let mut tail = Vec::new();

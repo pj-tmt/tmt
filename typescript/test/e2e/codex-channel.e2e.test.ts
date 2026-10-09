@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { describe, expect, it } from 'vite-plus/test';
+import { describe, expect, it, vi } from 'vite-plus/test';
 import { withE2EFixture, type E2EFixture } from './harness.js';
 import { installTmuxTrace, type TmuxTrace } from './tmux-trace.js';
 import { waitForFileContent } from './wait-for-file.js';
@@ -19,7 +19,10 @@ const mock = fs.existsSync('/opt/tmt-tests/codex-channel-fixture')
   ? '/opt/tmt-tests/codex-channel-fixture'
   : localMock;
 const quote = (text: string) => `'${text.replaceAll("'", "'\\''")}'`;
+const inlineHookConfig =
+  '[hooks]\nStop = [{ hooks = [{ type = "command", command = "/user/hook", timeout = 7 }] }]\n';
 interface Session {
+  home: string;
   pane: string;
   log: string;
   status: string;
@@ -45,7 +48,8 @@ function start(
   channel: boolean | 'default',
   extra: Record<string, string> = {},
   existingPane?: string,
-  resume = false
+  resume = false,
+  providerArgs: string[] = []
 ): Session {
   const pane = existingPane ?? f.createShellPane(`codex-${name}`).pane;
   const run = randomUUID();
@@ -53,7 +57,7 @@ function start(
   const status = `${log}.status`;
   const executable = path.join(f.wrapperDir, 'codex');
   if (!fs.existsSync(executable)) {
-    if (extra.MOCK_HOOK_MODEL || extra.MOCK_EAGER_HOOK_MODEL) {
+    if (extra.MOCK_HOOK_MODEL || extra.MOCK_EAGER_HOOK_MODEL || extra.MOCK_FOCUS_HOOKS) {
       // This scenario needs real Codex-named app-server ancestry for its hooks.
       writeExecutable(executable, fs.readFileSync(mock));
     } else {
@@ -62,6 +66,31 @@ function start(
   }
   const home = path.join(f.root, `home-${name}-${run}`);
   fs.mkdirSync(home);
+  if (extra.MOCK_FOCUS_INLINE_HOOKS === '1') {
+    fs.writeFileSync(path.join(home, 'config.toml'), inlineHookConfig);
+  }
+  if (extra.MOCK_FOCUS_SETUP === '1') {
+    const observer = {
+      hooks: [
+        {
+          type: 'command',
+          command: `${quote(f.executables.cli.executable)} __hook codex`,
+          timeout: 3,
+        },
+      ],
+    };
+    fs.writeFileSync(
+      path.join(home, 'hooks.json'),
+      JSON.stringify({
+        hooks: Object.fromEntries(
+          ['SessionStart', 'SessionEnd', 'UserPromptSubmit', 'Stop'].map((event) => [
+            event,
+            [observer],
+          ])
+        ),
+      })
+    );
+  }
   const env = {
     HOME: home,
     CODEX_HOME: home,
@@ -77,13 +106,13 @@ function start(
     ...f.executables.cli.args,
     resume ? 'resume' : 'run',
     ...(channel === true ? ['--channel'] : channel === false ? ['--no-channel'] : []),
-    ...(resume ? [name] : ['-s', name, executable]),
+    ...(resume ? [name] : ['-s', name, executable, ...providerArgs]),
   ]
     .map(quote)
     .join(' ');
   f.tmux(['send-keys', '-t', pane, '-l', `${command}; printf '%s' "$?" > ${quote(status)}`]);
   f.tmux(['send-keys', '-t', pane, 'Enter']);
-  return { pane, log, status, channel: channel === true };
+  return { home, pane, log, status, channel: channel === true };
 }
 function events(s: Session, name: string): Event[] {
   return fs.existsSync(s.log)
@@ -94,6 +123,18 @@ function events(s: Session, name: string): Event[] {
         .map((line) => JSON.parse(line) as Event)
         .filter((e) => e.event === name)
     : [];
+}
+function publishFocusStep(s: Session, step: Record<string, unknown>): void {
+  const destination = `${s.log}.focus-step`;
+  const staged = `${destination}.${randomUUID()}.tmp`;
+  try {
+    // The peer removes the watched file before parsing it. Publish only complete
+    // bytes, never the create/truncate boundary that can kill its hook worker.
+    fs.writeFileSync(staged, JSON.stringify(step));
+    fs.renameSync(staged, destination);
+  } finally {
+    fs.rmSync(staged, { force: true });
+  }
 }
 async function ready(f: E2EFixture, s: Session) {
   await f.waitFor(
@@ -328,7 +369,10 @@ describe('Codex native channel product routing', { concurrent: false }, () => {
       expect(records(f)).toEqual([]);
       expect(events(worker, 'thread-start')).toEqual([]);
       expect(events(worker, 'attached')).toEqual([]);
-      expect(events(worker, 'started')[0].args).toEqual([]);
+      expect(events(worker, 'started')[0].args).toEqual([
+        '-c',
+        expect.stringContaining(' __focus-hook codex --discover-launch'),
+      ]);
       expect(f.capture(200, worker.pane)).not.toContain('uses paste delivery:');
       const trace = installTmuxTrace(f);
       expect((await talk(f, 'Default', 'default plain control')).code).toBe(0);
@@ -458,7 +502,13 @@ describe('Codex native channel product routing', { concurrent: false }, () => {
         expect((await talk(f, 'Resume', 'resumed message')).code).toBe(0);
         if (!usesChannel) {
           expect(records(f)).toEqual([]);
-          expect(events(resumed, 'started')[0].args).toEqual(['resume', original, '--no-daemon']);
+          expect(events(resumed, 'started')[0].args).toEqual([
+            'resume',
+            '-c',
+            expect.stringContaining(' __focus-hook codex --discover-launch'),
+            original,
+            '--no-daemon',
+          ]);
           expect(
             f.capture(200, resumed.pane).match(/tmt: Resume uses paste delivery:/g) ?? []
           ).toHaveLength(0);
@@ -508,7 +558,13 @@ describe('Codex native channel product routing', { concurrent: false }, () => {
         expect(preference()).toEqual({ channel: remembered, provider_session_id: original });
         const plain = start(f, 'PlainResume', 'default', {}, first.pane, true);
         await ready(f, plain);
-        expect(events(plain, 'started')[0].args).toEqual(['resume', original, '--no-daemon']);
+        expect(events(plain, 'started')[0].args).toEqual([
+          'resume',
+          '-c',
+          expect.stringContaining(' __focus-hook codex --discover-launch'),
+          original,
+          '--no-daemon',
+        ]);
         expect(records(f)).toEqual([]);
         await quit(plain);
         expect(preference()).toEqual({ channel: remembered, provider_session_id: original });
@@ -623,6 +679,287 @@ describe('Codex native channel product routing', { concurrent: false }, () => {
       await exerciseHook(resumed, 'fixture-resumed-model');
     });
   }, 60000);
+
+  for (const channel of [false, true])
+    for (const setup of [false, true]) {
+      it(`Focus Codex channel=${channel} setup=${setup} fresh/resume hands one Stop checklist without double observations`, async () => {
+        await withE2EFixture(async (f) => {
+          const name = 'FocusedCodex';
+          const created = await f.runJsonCli<{ identity: { id: string } }>([
+            'identity',
+            'create',
+            'FocusOwner',
+          ]);
+          expect(created.code).toBe(0);
+          const owner = created.json!.identity.id;
+          let prior: Session | undefined;
+          let definitions: unknown;
+          let remembered: string | undefined;
+          for (const resume of [false, true]) {
+            const s = start(
+              f,
+              name,
+              channel,
+              {
+                MOCK_FOCUS_HOOKS: '1',
+                MOCK_TRUST_HOOKS: '1',
+                MOCK_FOCUS_SETUP: setup ? '1' : '0',
+                MOCK_AUTOREPLY: '0',
+              },
+              prior?.pane,
+              resume
+            );
+            await ready(f, s);
+            await f.waitFor(
+              () => events(s, 'focus-definitions').length === 1,
+              5000,
+              'provider read actual launch hook definitions'
+            );
+            const composed = events(s, 'focus-definitions')[0].hooks;
+            if (resume) expect(composed).toEqual(definitions);
+            else definitions = composed;
+            const step = async (name: string, more: Record<string, unknown> = {}) => {
+              publishFocusStep(s, { name, ...more });
+              try {
+                await f.waitFor(
+                  () => events(s, 'focus-step-done').some((e) => e.step === name),
+                  10000,
+                  `owned hook step ${name}`
+                );
+              } catch (error) {
+                const tail = fs.readFileSync(s.log, 'utf8').split('\n').slice(-21).join('\n');
+                throw new Error(
+                  `${String(error)}; launch=${resume ? 'resume' : 'fresh'}, channel=${channel}, setup=${setup}\nProvider pane:\n${f.capture(60, s.pane)}\nRecent fixture events:\n${tail}`,
+                  { cause: error }
+                );
+              }
+            };
+            await step('start', {
+              hookEvent: 'SessionStart',
+              source: resume ? 'resume' : 'startup',
+            });
+            const session = events(s, 'focus-step-done')[0].session as string;
+            if (resume) expect(session).toBe(remembered);
+            else remembered = session;
+            await step('prompt', { hookEvent: 'UserPromptSubmit' });
+            expect(events(s, 'focus-handler').filter((e) => e.step === 'start')).toHaveLength(1);
+            expect(events(s, 'focus-handler').filter((e) => e.step === 'prompt')).toHaveLength(1);
+            const identity = sql(f, (db) =>
+              db.prepare('SELECT id FROM identities WHERE name=?').get(name)
+            ) as { id: string };
+            const api = (operation: string, input: unknown) =>
+              JSON.parse(
+                execFileSync(f.executables.cli.executable, [...f.executables.cli.args, 'api'], {
+                  input: JSON.stringify({ version: 1, operation, input }),
+                  encoding: 'utf8',
+                  timeout: 5000,
+                  env: { PATH: process.env.PATH, HOME: f.root, TMUX_TEAM_HOME: f.globalDir },
+                })
+              );
+            const policy = {
+              identityId: identity.id,
+              ownerIdentityId: owner,
+              setterIdentityId: owner,
+              expectedRevision: resume ? 2 : 0,
+            };
+            expect(
+              api('focus.policy.set', { ...policy, untilMs: Date.now() + 600000 })
+            ).toMatchObject({ active: true });
+            const requests: string[] = [];
+            for (const text of ['First ordered decision', 'Second ordered review']) {
+              const result = await f.runJsonCli<Record<string, unknown>>([
+                'talk',
+                name,
+                text,
+                '--kind',
+                text.startsWith('First') ? 'decision' : 'review',
+                '--detach',
+              ]);
+              expect(result.json).toMatchObject({ status: 'queued', focus: true });
+              requests.push(result.json!.requestId as string);
+            }
+            const batch = () =>
+              sql(f, (db) =>
+                db
+                  .prepare(
+                    'SELECT state FROM focus_checklists WHERE identity_id=? ORDER BY created_at_ms,id'
+                  )
+                  .all(identity.id)
+              ) as { state: string }[];
+            const before = batch().length;
+            await step('stale', { session: 'stale-session' });
+            await step('recursive', { active: true });
+            await step('subagent', { hookEvent: 'SubagentStop' });
+            expect(batch()).toHaveLength(before);
+            expect(events(s, 'focus-continuation')).toEqual([]);
+            // An ordinary Stop observer is still allowed to record idle. Start
+            // the next turn before testing bypasses, keeping verified-idle delivery separate.
+            await step('working-again', { hookEvent: 'UserPromptSubmit' });
+            const bypass = await f.runJsonCli<Record<string, unknown>>([
+              'talk',
+              name,
+              'urgent bypass',
+              '--urgent',
+              '--detach',
+            ]);
+            expect(bypass.code).toBe(0);
+            expect(bypass.json!.focus).toBeUndefined();
+            const own = await f.runJsonCli<Record<string, unknown>>([
+              'talk',
+              name,
+              'owner bypass',
+              '--identity',
+              owner,
+              '--detach',
+            ]);
+            expect(own.code).toBe(0);
+            expect(own.json!.focus).toBeUndefined();
+            await step('boundary');
+            const continuations = events(s, 'focus-continuation');
+            expect(continuations).toHaveLength(1);
+            const reason = continuations[0].reason as string;
+            expect(reason.match(/TMT Focus checklist/g)).toHaveLength(1);
+            expect(reason.indexOf(requests[0])).toBeLessThan(reason.indexOf(requests[1]));
+            expect(reason).toContain('First ordered decision');
+            expect(reason).toContain('Second ordered review');
+            expect(batch().slice(before)).toEqual([{ state: 'delivered' }]);
+            expect(
+              sql(f, (db) =>
+                db
+                  .prepare(
+                    'SELECT COUNT(*) AS count FROM request_responses WHERE request_id IN (?,?)'
+                  )
+                  .get(...requests)
+              )
+            ).toEqual({ count: 0 });
+            const stops = events(s, 'focus-handler').filter((e) => e.step === 'boundary');
+            expect(stops).toHaveLength(2);
+            expect(stops.every((e) => e.ok === true && e.stderr === '')).toBe(true);
+            const saved = sql(f, (db) =>
+              db
+                .prepare(
+                  'SELECT driver_state FROM identity_session_preferences WHERE identity_id=?'
+                )
+                .get(identity.id)
+            ) as { driver_state: string };
+            if (!setup) expect(JSON.parse(saved.driver_state).consumption).toBeUndefined();
+            await step('empty');
+            expect(events(s, 'focus-continuation')).toHaveLength(1);
+            expect(
+              api('focus.policy.clear', {
+                ...policy,
+                expectedRevision: policy.expectedRevision + 1,
+              })
+            ).toMatchObject({ active: false });
+            await quit(s);
+            await f.waitFor(() => records(f).length === 0, 5000, 'owned channel cleanup');
+            prior = s;
+          }
+        });
+      }, 90000);
+    }
+
+  for (const { args, inlineHooks } of [
+    { args: ['--disable', 'hooks'] },
+    { args: ['-c', 'allow_managed_hooks_only=true'] },
+    { args: ['-c', 'hooks.Stop=[]', '-c', 'hooks.Stop=[]'] },
+    { args: [], inlineHooks: true },
+  ]) {
+    it(`Focus composition refusal preserves Codex launch argv ${inlineHooks ? 'with config.toml hooks' : args.join(' ')}`, async () => {
+      await withE2EFixture(async (f) => {
+        const s = start(
+          f,
+          'FallbackFocus',
+          false,
+          inlineHooks ? { MOCK_FOCUS_INLINE_HOOKS: '1' } : {},
+          undefined,
+          false,
+          args
+        );
+        await ready(f, s);
+        expect(events(s, 'started')[0].args).toEqual(args);
+        expect(
+          f
+            .capture(200, s.pane)
+            .split('\n')
+            .filter((line) => line.includes('session-only Focus hooks unavailable'))
+        ).toHaveLength(1);
+        expect(
+          sql(f, (db) =>
+            db
+              .prepare(
+                "SELECT COUNT(*) AS count FROM bindings b JOIN identities i ON i.id=b.identity_id WHERE i.name='FallbackFocus' AND i.retired_at_ms IS NULL"
+              )
+              .get()
+          )
+        ).toEqual({ count: 1 });
+        await quit(s);
+        if (inlineHooks) {
+          expect(fs.readFileSync(path.join(s.home, 'config.toml'), 'utf8')).toBe(inlineHookConfig);
+        }
+      });
+    }, 60000);
+  }
+
+  it('untrusted Focus hooks remain skipped without claiming or approving trust', async () => {
+    await withE2EFixture(async (f) => {
+      const s = start(f, 'UntrustedFocus', false, { MOCK_FOCUS_HOOKS: '1', MOCK_TRUST_HOOKS: '0' });
+      await ready(f, s);
+      publishFocusStep(s, { name: 'skipped' });
+      await f.waitFor(
+        () => events(s, 'focus-step-done').length === 1,
+        5000,
+        'fake provider skipped untrusted hooks'
+      );
+      expect(events(s, 'focus-skipped')).toHaveLength(1);
+      expect(events(s, 'focus-handler')).toEqual([]);
+      expect(
+        sql(f, (db) => db.prepare('SELECT COUNT(*) AS count FROM focus_checklists').get())
+      ).toEqual({ count: 0 });
+      const args = events(s, 'started')[0].args as string[];
+      expect(args).not.toContain('--dangerously-bypass-hook-trust');
+      await quit(s);
+    });
+  }, 60000);
+
+  it('publishes a Focus step only after its private preparation is complete', async () => {
+    await withE2EFixture(async (f) => {
+      const s = start(f, 'AtomicFocus', true, { MOCK_FOCUS_HOOKS: '1', MOCK_TRUST_HOOKS: '0' });
+      await ready(f, s);
+      const destination = `${s.log}.focus-step`;
+      const write = fs.writeFileSync.bind(fs);
+      let preparations = 0;
+      try {
+        // Expose the real writer's empty-file boundary deterministically. The
+        // watched path must remain absent until all JSON bytes are complete.
+        const writer = vi.spyOn(fs, 'writeFileSync').mockImplementation((file, data, options) => {
+          expect(file === destination, 'writer must not expose the watched path').toBe(false);
+          write(file, '', options);
+          expect(fs.existsSync(destination)).toBe(false);
+          write(file, data, options);
+          preparations += 1;
+        });
+        try {
+          publishFocusStep(s, { name: 'atomic-publication' });
+        } finally {
+          writer.mockRestore();
+        }
+        expect(preparations).toBe(1);
+        await f.waitFor(
+          () => events(s, 'focus-step-done').length === 1,
+          5000,
+          'native peer consumed complete atomic step'
+        );
+        expect(events(s, 'focus-step-done')[0].step).toBe('atomic-publication');
+        expect(events(s, 'focus-skipped')).toHaveLength(1);
+        expect(events(s, 'focus-handler')).toEqual([]);
+        expect(fs.existsSync(destination)).toBe(false);
+      } finally {
+        await quit(s);
+        await f.waitFor(() => records(f).length === 0, 5000, 'atomic step owned channel cleanup');
+      }
+    });
+  });
 
   it('queue receipt is delivery only; durable reply completes and name/raw sends never paste', async () => {
     await withE2EFixture(async (f) => {

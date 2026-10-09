@@ -116,6 +116,9 @@ pub fn decode_history_request(bytes: &[u8]) -> Option<String> {
 
 fn item_document<T>(item: &HistoryItem<T>, content: impl FnOnce(&T) -> Option<Value>) -> Value {
     let final_state = match &item.final_state {
+        FinalState::Withdrawn(withdrawal) => {
+            json!({"status":"withdrawn", "reason":withdrawal.reason, "withdrawnAtMs":withdrawal.withdrawn_at_ms})
+        }
         FinalState::NotSubmitted => json!({"status":"not_submitted"}),
         FinalState::NotRequired => json!({"status":"not_required"}),
         FinalState::Retained {
@@ -145,7 +148,7 @@ fn item_document<T>(item: &HistoryItem<T>, content: impl FnOnce(&T) -> Option<Va
     };
     json!({"requestId":item.request_id,"roomId":item.room_id,"recipientId":item.recipient_identity_id,
         "sender":{"kind":item.originator.as_str(),"identityId":item.originator.identity_id()},
-        "kind":item.kind.as_str(),"preparedAtMs":item.prepared_at_ms,"delivery":item.delivery.as_str(),
+        "kind":item.kind.as_str(),"urgent":item.delivery_policy.urgent,"focusKind":item.delivery_policy.kind.as_str(),"preparedAtMs":item.prepared_at_ms,"delivery":item.delivery.as_str(),
         "recipientAcknowledged":item.recipient_acknowledged,"final":final_state})
 }
 

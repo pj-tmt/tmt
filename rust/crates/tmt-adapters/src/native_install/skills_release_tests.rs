@@ -6,7 +6,7 @@ use crate::native_install::{Product, inspect_product, uninstall_extension};
 use std::path::Path;
 use tmt_core::native_install::PinAction;
 
-const SKILL: &[u8] = b"---\nname: tmt-squad\n---\nLead a squad.\n";
+const SKILL: &[u8] = b"---\nname: tmt-ops\n---\nLead a squad.\n";
 
 fn skill_entries(root: &str, files: &[(&str, &[u8])]) -> Vec<Entry> {
     files
@@ -26,24 +26,24 @@ fn squad_release(archived: Vec<Entry>, listed: &[&str]) -> Fixture {
     let root = "tmux-team-1.2.3-aarch64-apple-darwin";
     let mut entries = valid_entries(root);
     entries[0] = Entry::File {
-        path: format!("{root}/tmt-squad"),
+        path: format!("{root}/tmt-ops"),
         bytes: b"squad\n".to_vec(),
         mode: 0o755,
     };
     entries.extend(archived);
-    let files = Product::Squad
+    let files = Product::Ops
         .files()
         .into_iter()
         .chain(listed.iter().copied())
         .collect::<Vec<_>>();
-    product_fixture_at(entries, "tmt-squad", &files, "1.2.3")
+    product_fixture_at(entries, "tmt-ops", &files, "1.2.3")
 }
 
 fn with_skills() -> Fixture {
     let root = "tmux-team-1.2.3-aarch64-apple-darwin";
     let files: [(&str, &[u8]); 2] = [
-        ("skills/tmt-squad/SKILL.md", SKILL),
-        ("skills/tmt-squad/references/usage.md", b"usage\n"),
+        ("skills/tmt-ops/SKILL.md", SKILL),
+        ("skills/tmt-ops/references/usage.md", b"usage\n"),
     ];
     squad_release(skill_entries(root, &files), &["skills"])
 }
@@ -58,7 +58,7 @@ fn install_on(
     channel: tmt_core::native_install::Channel,
 ) -> io::Result<super::super::InstallReport> {
     super::super::install_product(
-        Product::Squad,
+        Product::Ops,
         super::super::InstallRequest {
             archive: &fixture.archive,
             manifest: &fixture.manifest,
@@ -83,23 +83,23 @@ fn a_skills_tree_is_installed_recorded_and_reverified_with_the_release() {
     let report = install(&fixture, &prefix).unwrap();
     let release = release_dir(&report);
     assert_eq!(
-        fs::read(release.join("skills/tmt-squad/SKILL.md")).unwrap(),
+        fs::read(release.join("skills/tmt-ops/SKILL.md")).unwrap(),
         SKILL
     );
     assert_eq!(
-        fs::read(release.join("skills/tmt-squad/references/usage.md")).unwrap(),
+        fs::read(release.join("skills/tmt-ops/references/usage.md")).unwrap(),
         b"usage\n"
     );
     let receipt: serde_json::Value =
         serde_json::from_slice(&fs::read(release.join("receipt.json")).unwrap()).unwrap();
     assert_eq!(
-        receipt["file_sha256"]["skills/tmt-squad/SKILL.md"],
+        receipt["file_sha256"]["skills/tmt-ops/SKILL.md"],
         artifact::digest(SKILL)
     );
-    inspect_product(Product::Squad, &report.executable).unwrap();
+    inspect_product(Product::Ops, &report.executable).unwrap();
     // A repeated install of the same release is a verified no-op.
     assert!(!install(&fixture, &prefix).unwrap().changed);
-    assert!(uninstall_extension(&prefix, Product::Squad).unwrap());
+    assert!(uninstall_extension(&prefix, Product::Ops).unwrap());
 }
 
 #[test]
@@ -107,22 +107,20 @@ fn a_changed_extra_or_missing_skill_file_fails_closed_without_rewriting_anything
     type Change = fn(&Path);
     let changes: [(Change, &str); 4] = [
         (
-            |release| fs::write(release.join("skills/tmt-squad/SKILL.md"), b"tampered").unwrap(),
+            |release| fs::write(release.join("skills/tmt-ops/SKILL.md"), b"tampered").unwrap(),
             "has changed",
         ),
         (
-            |release| fs::write(release.join("skills/tmt-squad/extra.md"), b"x").unwrap(),
+            |release| fs::write(release.join("skills/tmt-ops/extra.md"), b"x").unwrap(),
+            "inventory has changed",
+        ),
+        (
+            |release| fs::remove_file(release.join("skills/tmt-ops/references/usage.md")).unwrap(),
             "inventory has changed",
         ),
         (
             |release| {
-                fs::remove_file(release.join("skills/tmt-squad/references/usage.md")).unwrap()
-            },
-            "inventory has changed",
-        ),
-        (
-            |release| {
-                std::os::unix::fs::symlink("/etc/hosts", release.join("skills/tmt-squad/link.md"))
+                std::os::unix::fs::symlink("/etc/hosts", release.join("skills/tmt-ops/link.md"))
                     .unwrap()
             },
             "inventory has changed",
@@ -135,10 +133,10 @@ fn a_changed_extra_or_missing_skill_file_fails_closed_without_rewriting_anything
         let release = release_dir(&report);
         change(&release);
         let before = tree(&prefix);
-        let error = inspect_product(Product::Squad, &report.executable).unwrap_err();
+        let error = inspect_product(Product::Ops, &report.executable).unwrap_err();
         assert!(error.to_string().contains(message), "{error}");
         assert!(install(&fixture, &prefix).is_err());
-        assert!(uninstall_extension(&prefix, Product::Squad).is_err());
+        assert!(uninstall_extension(&prefix, Product::Ops).is_err());
         assert_eq!(tree(&prefix), before, "nothing was rewritten or removed");
     }
 }
@@ -152,13 +150,13 @@ fn a_reader_meeting_an_unknown_release_entry_fails_closed() {
     let report = install(&fixture, &prefix).unwrap();
     fs::write(release_dir(&report).join("unknown.txt"), b"newer layout").unwrap();
     let before = tree(&prefix);
-    let error = inspect_product(Product::Squad, &report.executable).unwrap_err();
+    let error = inspect_product(Product::Ops, &report.executable).unwrap_err();
     assert!(
         error.to_string().contains("inventory has changed"),
         "{error}"
     );
     assert!(install(&fixture, &prefix).is_err());
-    assert!(uninstall_extension(&prefix, Product::Squad).is_err());
+    assert!(uninstall_extension(&prefix, Product::Ops).is_err());
     assert_eq!(tree(&prefix), before);
 }
 
@@ -185,23 +183,23 @@ fn an_invalid_skills_tree_rejects_the_whole_release_before_publication() {
         ),
         (
             "archived but not declared",
-            skill_entries(root, &[("skills/tmt-squad/SKILL.md", SKILL)]),
+            skill_entries(root, &[("skills/tmt-ops/SKILL.md", SKILL)]),
             Vec::new(),
         ),
         (
             "listed file by file instead of declared",
-            skill_entries(root, &[("skills/tmt-squad/SKILL.md", SKILL)]),
-            vec!["skills/tmt-squad/SKILL.md".into()],
+            skill_entries(root, &[("skills/tmt-ops/SKILL.md", SKILL)]),
+            vec!["skills/tmt-ops/SKILL.md".into()],
         ),
         (
             "declared twice",
-            skill_entries(root, &[("skills/tmt-squad/SKILL.md", SKILL)]),
+            skill_entries(root, &[("skills/tmt-ops/SKILL.md", SKILL)]),
             vec!["skills".into(), "skills".into()],
         ),
         (
             "a link where a skill file should be",
             vec![Entry::Symlink {
-                path: format!("{root}/skills/tmt-squad/SKILL.md"),
+                path: format!("{root}/skills/tmt-ops/SKILL.md"),
                 target: "/etc/passwd".into(),
             }],
             declared.clone(),
@@ -209,9 +207,9 @@ fn an_invalid_skills_tree_rejects_the_whole_release_before_publication() {
         (
             "a non-canonical path",
             [
-                skill_entries(root, &[("skills/tmt-squad/SKILL.md", SKILL)]),
+                skill_entries(root, &[("skills/tmt-ops/SKILL.md", SKILL)]),
                 vec![Entry::AdversarialFile {
-                    path: format!("{root}/skills/tmt-squad//x.md"),
+                    path: format!("{root}/skills/tmt-ops//x.md"),
                     bytes: b"x".to_vec(),
                     mode: 0o644,
                 }],
@@ -224,7 +222,7 @@ fn an_invalid_skills_tree_rejects_the_whole_release_before_publication() {
         (
             "an empty directory beside the tree",
             [
-                skill_entries(root, &[("skills/tmt-squad/SKILL.md", SKILL)]),
+                skill_entries(root, &[("skills/tmt-ops/SKILL.md", SKILL)]),
                 vec![Entry::Directory {
                     path: format!("{root}/skills/empty/"),
                 }],
@@ -242,7 +240,7 @@ fn an_invalid_skills_tree_rejects_the_whole_release_before_publication() {
                     bytes: b"not a directory".to_vec(),
                     mode: 0o644,
                 }],
-                skill_entries(root, &[("skills/tmt-squad/SKILL.md", SKILL)]),
+                skill_entries(root, &[("skills/tmt-ops/SKILL.md", SKILL)]),
             ]
             .into_iter()
             .flatten()
@@ -251,12 +249,12 @@ fn an_invalid_skills_tree_rejects_the_whole_release_before_publication() {
         ),
         (
             "missing SKILL.md",
-            skill_entries(root, &[("skills/tmt-squad/README.md", b"r")]),
+            skill_entries(root, &[("skills/tmt-ops/README.md", b"r")]),
             declared.clone(),
         ),
         (
             "an oversized file",
-            skill_entries(root, &[("skills/tmt-squad/SKILL.md", &oversized)]),
+            skill_entries(root, &[("skills/tmt-ops/SKILL.md", &oversized)]),
             declared.clone(),
         ),
         (
@@ -326,9 +324,9 @@ fn receipts_are_bounded_per_product() {
         fs::write(&receipt, &padded).unwrap();
     };
     pad(super::super::skills_tree::CLI_RECEIPT_BYTES + 1);
-    inspect_product(Product::Squad, &report.executable).unwrap();
-    pad(super::super::skills_tree::receipt_limit(Product::Squad) + 1);
-    assert!(inspect_product(Product::Squad, &report.executable).is_err());
+    inspect_product(Product::Ops, &report.executable).unwrap();
+    pad(super::super::skills_tree::receipt_limit(Product::Ops) + 1);
+    assert!(inspect_product(Product::Ops, &report.executable).is_err());
 
     let cli = fixture_cli();
     let cli_prefix = cli.directory.path.join("prefix");
@@ -377,13 +375,14 @@ fn tree(root: &Path) -> BTreeMap<PathBuf, Vec<u8>> {
 /// (`dist build --artifacts local --target aarch64-apple-darwin --tag
 /// tmt-squad-v0.1.0-alpha.1 --output-format=json --no-local-paths`, with the
 /// skills directory included). It declares the whole tree as one `skills`
-/// asset; only the archive checksum is replaced below.
+/// asset. The test projects this historical manifest into the Ops identity,
+/// then substitutes its synthetic archive checksum; the original stays intact.
 const CARGO_DIST_MANIFEST: &str = include_str!("fixtures/squad-cargo-dist-0.32.0-manifest.json");
 
 #[test]
-fn a_real_cargo_dist_squad_manifest_installs_its_archived_skills_tree() {
-    let name = "tmt-squad-aarch64-apple-darwin.tar.gz";
-    let root = "tmt-squad-aarch64-apple-darwin";
+fn a_cargo_dist_manifest_projected_to_ops_installs_its_archived_skills_tree() {
+    let name = "tmt-ops-aarch64-apple-darwin.tar.gz";
+    let root = "tmt-ops-aarch64-apple-darwin";
     // The same records, in the same order and form, as that archive: the
     // root directory with a slash, tree directories without one.
     let archived = vec![
@@ -391,7 +390,7 @@ fn a_real_cargo_dist_squad_manifest_installs_its_archived_skills_tree() {
             path: format!("{root}/"),
         },
         Entry::File {
-            path: format!("{root}/tmt-squad"),
+            path: format!("{root}/tmt-ops"),
             bytes: b"squad\n".to_vec(),
             mode: 0o755,
         },
@@ -399,10 +398,10 @@ fn a_real_cargo_dist_squad_manifest_installs_its_archived_skills_tree() {
             path: format!("{root}/skills"),
         },
         Entry::Directory {
-            path: format!("{root}/skills/tmt-squad"),
+            path: format!("{root}/skills/tmt-ops"),
         },
         Entry::File {
-            path: format!("{root}/skills/tmt-squad/SKILL.md"),
+            path: format!("{root}/skills/tmt-ops/SKILL.md"),
             bytes: SKILL.to_vec(),
             mode: 0o644,
         },
@@ -424,7 +423,8 @@ fn a_real_cargo_dist_squad_manifest_installs_its_archived_skills_tree() {
     ];
     let directory = TestDirectory::new();
     let compressed = gzip_tar(archived);
-    let mut manifest: serde_json::Value = serde_json::from_str(CARGO_DIST_MANIFEST).unwrap();
+    let mut manifest: serde_json::Value =
+        serde_json::from_str(&CARGO_DIST_MANIFEST.replace("tmt-squad", "tmt-ops")).unwrap();
     let assets = manifest["artifacts"][name]["assets"].as_array().unwrap();
     assert!(
         assets.iter().any(|asset| asset["path"] == "skills")
@@ -448,16 +448,16 @@ fn a_real_cargo_dist_squad_manifest_installs_its_archived_skills_tree() {
     let report = install_on(&fixture, &prefix, alpha).unwrap();
     let release = release_dir(&report);
     assert_eq!(
-        fs::read(release.join("skills/tmt-squad/SKILL.md")).unwrap(),
+        fs::read(release.join("skills/tmt-ops/SKILL.md")).unwrap(),
         SKILL
     );
     let receipt: serde_json::Value =
         serde_json::from_slice(&fs::read(release.join("receipt.json")).unwrap()).unwrap();
     assert_eq!(
-        receipt["file_sha256"]["skills/tmt-squad/SKILL.md"],
+        receipt["file_sha256"]["skills/tmt-ops/SKILL.md"],
         artifact::digest(SKILL)
     );
-    inspect_product(Product::Squad, &report.executable).unwrap();
+    inspect_product(Product::Ops, &report.executable).unwrap();
     assert!(!install_on(&fixture, &prefix, alpha).unwrap().changed);
 }
 
@@ -466,9 +466,9 @@ fn release_skills_are_exactly_the_verified_tree_or_nothing() {
     let fixture = with_skills();
     let prefix = fixture.directory.path.join("prefix");
     let report = install(&fixture, &prefix).unwrap();
-    let skills = super::super::release_skills(Product::Squad, &report.executable).unwrap();
+    let skills = super::super::release_skills(Product::Ops, &report.executable).unwrap();
     assert_eq!(skills.len(), 1);
-    assert_eq!(skills[0].name, "tmt-squad");
+    assert_eq!(skills[0].name, "tmt-ops");
     let mut files = skills[0].files.clone();
     files.sort();
     assert_eq!(
@@ -483,17 +483,17 @@ fn release_skills_are_exactly_the_verified_tree_or_nothing() {
     let bare_prefix = bare.directory.path.join("prefix");
     let bare_report = install(&bare, &bare_prefix).unwrap();
     assert!(
-        super::super::release_skills(Product::Squad, &bare_report.executable)
+        super::super::release_skills(Product::Ops, &bare_report.executable)
             .unwrap()
             .is_empty()
     );
     // A changed byte fails the whole read: nothing partial to publish.
     fs::write(
-        release_dir(&report).join("skills/tmt-squad/references/usage.md"),
+        release_dir(&report).join("skills/tmt-ops/references/usage.md"),
         b"tampered",
     )
     .unwrap();
-    assert!(super::super::release_skills(Product::Squad, &report.executable).is_err());
+    assert!(super::super::release_skills(Product::Ops, &report.executable).is_err());
 }
 
 #[test]
@@ -502,14 +502,14 @@ fn release_skill_names_are_the_receipt_names_of_a_verified_tree() {
     let prefix = fixture.directory.path.join("prefix");
     let report = install(&fixture, &prefix).unwrap();
     assert_eq!(
-        super::super::release_skill_names(Product::Squad, &report.executable).unwrap(),
-        ["tmt-squad"]
+        super::super::release_skill_names(Product::Ops, &report.executable).unwrap(),
+        ["tmt-ops"]
     );
     // Like every receipt read, a damaged tree fails closed.
     fs::write(
-        release_dir(&report).join("skills/tmt-squad/SKILL.md"),
+        release_dir(&report).join("skills/tmt-ops/SKILL.md"),
         b"tampered",
     )
     .unwrap();
-    assert!(super::super::release_skill_names(Product::Squad, &report.executable).is_err());
+    assert!(super::super::release_skill_names(Product::Ops, &report.executable).is_err());
 }

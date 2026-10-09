@@ -4,6 +4,7 @@ mod appearance;
 mod binding_command;
 mod binding_error;
 mod caller_context;
+mod caller_session_command;
 mod channel_command;
 mod channel_server_command;
 mod check_command;
@@ -40,6 +41,7 @@ mod office_facade;
 mod output;
 use tmt_adapters::pane_badge;
 mod consumption_sample_command;
+mod focus_hook_command;
 mod parser;
 mod profile_command;
 mod provider_hook_command;
@@ -109,9 +111,25 @@ fn execute(parsed: invocation::Parsed) -> io::Result<u8> {
     // This process may observe lifecycle changes for enabled extension hooks;
     // delivery runs after the command's own effects and output.
     tmt_adapters::extension_hooks::allow_capture();
+    let learn_session = !matches!(
+        parsed.invocation,
+        Invocation::Help(_)
+            | Invocation::Version
+            | Invocation::ProviderHook { .. }
+            | Invocation::FocusHook { .. }
+            | Invocation::ReplyNoticeWorker { .. }
+            | Invocation::RequestObserver { .. }
+            | Invocation::Mcp { .. }
+            | Invocation::Api
+    );
     let code = dispatch(parsed);
     tmt_adapters::extension_hooks::deliver_pending();
     let code = code?;
+    if learn_session {
+        // Flush the user's result before any optional native/provider I/O.
+        let _ = tmt_cli_style::stream::stdout(mode.json).flush();
+        caller_session_command::observe();
+    }
     // A Herdr pane without its driver: whatever the result, say how to
     // approve one. It replaces the passive drift line.
     if driver_hint && skill_reminder::present_driver_hint() {
@@ -249,12 +267,35 @@ fn dispatch(parsed: invocation::Parsed) -> io::Result<u8> {
             return setup_command::execute(provider, status, remove, usage, yes, parsed.mode);
         }
         Invocation::ConsumptionSample => return consumption_sample_command::execute(),
+        Invocation::FocusHook {
+            provider,
+            launch,
+            worker,
+            work_budget_ms,
+        } => {
+            return focus_hook_command::execute(
+                &provider,
+                launch.as_deref(),
+                worker,
+                work_budget_ms,
+            );
+        }
         Invocation::ProviderHook {
+            caller_session,
+            activity_only,
             provider,
             worker,
             work_budget_ms,
         } => {
-            return provider_hook_command::execute(&provider, worker, work_budget_ms);
+            if caller_session {
+                return Ok(caller_session_command::worker(&provider, work_budget_ms));
+            }
+            return provider_hook_command::execute(
+                &provider,
+                worker,
+                work_budget_ms,
+                activity_only,
+            );
         }
         Invocation::ReplyNoticeWorker { batch_id, log_id } => {
             return reply_notice_command::execute(&batch_id, &log_id);
@@ -315,12 +356,14 @@ fn dispatch(parsed: invocation::Parsed) -> io::Result<u8> {
             exact,
             unpin,
             yes,
+            allow_schema_ahead,
         } => {
-            return native_upgrade_command::execute(
+            return native_upgrade_command::execute_with_schema_consent(
                 channel,
                 exact.as_deref(),
                 unpin,
                 yes,
+                allow_schema_ahead,
                 parsed.mode,
             );
         }
@@ -336,8 +379,11 @@ fn dispatch(parsed: invocation::Parsed) -> io::Result<u8> {
         Invocation::Office { prefix, operation } => {
             return office_facade::execute(prefix, operation, parsed.mode);
         }
-        Invocation::NativeInstallHandoff { probe } => {
-            return native_install_command::handoff(probe, parsed.mode);
+        Invocation::NativeInstallHandoff { probe, version } => {
+            return native_install_command::handoff(version, probe, parsed.mode);
+        }
+        Invocation::NativeSchema { source_sha } => {
+            return native_install_command::schema(&source_sha, parsed.mode);
         }
         Invocation::NativeInstall {
             product,

@@ -1,0 +1,89 @@
+:root {
+  --tmt-ui-host-focus-offset: var(--tmt-ui-focus-width);
+  --tmt-ui-host-icon-action-size: calc(
+    var(--tmt-ui-header-icon-size) + var(--tmt-ui-toggle-gap) * 2
+  );
+  --tmt-ui-host-action-min-height: var(--tmt-ui-host-icon-action-size);
+  --tmt-ui-host-action-padding: var(--tmt-ui-toggle-gap);
+  --tmt-ui-host-action-size: var(--tmt-ui-header-action-size);
+  --tmt-ui-host-action-weight: var(--tmt-ui-header-action-weight);
+  --tmt-ui-host-action-line-height: var(--tmt-ui-header-action-line-height);
+  --tmt-ui-host-action-font: var(--tmt-ui-font-body);
+  --tmt-ui-host-action-gap: var(--tmt-ui-toggle-gap);
+  --tmt-ui-host-action-underline-offset: var(--tmt-ui-focus-width);
+  --tmt-ui-host-field-padding: var(--tmt-ui-toggle-gap);
+  --tmt-ui-host-field-size: var(--tmt-ui-header-wordmark-size);
+  --tmt-ui-host-field-line-height: var(--tmt-ui-header-wordmark-line-height);
+  --tmt-ui-host-field-label-size: var(--tmt-ui-header-action-size);
+  --tmt-ui-host-field-label-weight: var(--tmt-ui-header-wordmark-weight);
+  --tmt-ui-host-field-label-line-height: var(--tmt-ui-header-wordmark-line-height);
+  --tmt-ui-host-field-label-font: var(--tmt-ui-font-body);
+}
+body {
+  margin: 0;
+  padding: var(--tmt-ui-header-gap);
+  background: var(--tmt-ui-surface-paper);
+  color: var(--tmt-ui-color-text);
+  font-family: var(--tmt-ui-font-body);
+}
+main,
+section,
+.fixture-fields {
+  display: grid;
+  gap: var(--tmt-ui-header-gap);
+  min-width: 0;
+}
+section {
+  padding: var(--tmt-ui-header-gap);
+  background: var(--tmt-ui-surface-sheet);
+  border: var(--tmt-ui-rule-width) solid var(--tmt-ui-color-edge);
+}
+h1,
+h2,
+p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+h1,
+h2 {
+  font-size: var(--tmt-ui-header-title-size);
+}
+.fixture-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: start;
+  gap: var(--tmt-ui-header-gap);
+}
+.fixture-action {
+  display: grid;
+  gap: var(--tmt-ui-toggle-gap);
+}
+.fixture-busy-mark {
+  width: var(--tmt-ui-header-icon-size);
+  height: var(--tmt-ui-header-icon-size);
+}
+.fixture-stretched-action > .tmt-ui-action {
+  width: 100%;
+}
+#busy-actions > .fixture-action {
+  justify-items: start;
+}
+.fixture-edges {
+  display: flex;
+  justify-content: space-between;
+}
+.tmt-ui-field-control {
+  display: block;
+  width: 100%;
+  min-height: var(--tmt-ui-host-icon-action-size);
+  overflow-wrap: anywhere;
+}
+/* Capture-only demonstrations of CSS pseudo states; live interactions remain available. */
+[data-fixture-state='hover'] {
+  color: var(--tmt-ui-color-selected-text);
+  background: var(--tmt-ui-surface-selection);
+}
+[data-fixture-state='focus'] {
+  outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
+  outline-offset: var(--tmt-ui-host-focus-offset);
+}

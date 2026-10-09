@@ -1,6 +1,6 @@
 ---
 source: site/src/chapters/design.mdx
-sourceRevision: 962e2bd12fcd3a3e827acacdc076b2dbc7082c24
+sourceRevision: 59fece53c9538c367373921a2a9a0b2b6611343c
 title: 共通の見た目と意味
 ---
 
@@ -10,7 +10,7 @@ import { Tag } from "../../components/marks";
 import { MarkList, TokenPreview, TokenTable, TypePreview } from "../../components/samples";
 import { components as Mdx } from "../../components/mdx";
 
-コマンドライン、Squad の board、このサイトのどこでも、tmt は同じ製品として見えるようにします。このページは共通の指針です。値は1つのファイル、[`design/tokens/tokens.json`](https://github.com/pj-tmt/tmt/blob/main/design/tokens/tokens.json) にあります。サイトのスタイルシートとこのページのすべての表がそこから読み取るので、手作業でコピーした値はありません。
+コマンドライン、Ops の board、このサイトのどこでも、tmt は同じ製品として見えるようにします。このページは共通の指針です。値は1つのファイル、[`design/tokens/tokens.json`](https://github.com/pj-tmt/tmt/blob/main/design/tokens/tokens.json) にあります。サイトのスタイルシートとこのページのすべての表がそこから読み取るので、手作業でコピーした値はありません。
 
 <Mdx.h3 id="interactive-design-guidebook-mdx">MDX インタラクティブデザインガイド</Mdx.h3>
 
@@ -51,7 +51,7 @@ Light と Dark、Ready、Waiting、Stopped を切り替えてください。入�
 
 見出しには display、本文には body、読者が入力するものや端末の出力には mono の書体を使います。コマンドは入力する形のまま、`$` プロンプトと淡い `# コメント` を添えて表示します。
 
-<Cmd>{`$ tmt sq board --squad product   # 読者がコピーして使えるコマンド`}</Cmd>
+<Cmd>{`$ tmt ops ui --squad product   # 読者がコピーして使えるコマンド`}</Cmd>
 
 <Mdx.h3 id="marks">記号</Mdx.h3>
 

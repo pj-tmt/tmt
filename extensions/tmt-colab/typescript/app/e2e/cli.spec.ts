@@ -14,6 +14,12 @@ const mount = '/r/abcd/x/colab/';
 const app = fileURLToPath(new URL('../dist/', import.meta.url));
 const binary = process.env.COLAB_SERVE_EXECUTABLE;
 const producer = process.env.COLAB_PAGE_FIXTURE_EXECUTABLE;
+test.beforeEach(() => {
+  test.skip(
+    !binary || !producer,
+    'Needs the native serve and page fixture: set COLAB_SERVE_EXECUTABLE and COLAB_PAGE_FIXTURE_EXECUTABLE',
+  );
+});
 interface Fixture {
   pageId: string;
   deviceId: string;

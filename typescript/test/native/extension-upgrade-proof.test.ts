@@ -1,10 +1,12 @@
-import { readFileSync, realpathSync, writeFileSync } from 'node:fs';
+import { appendFileSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { writeExecutable } from '../support/executable-fixture.mjs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vite-plus/test';
 import { runCli, withSandbox, type Sandbox } from '../support/cli-process.js';
 import { createArtifact, nativeTarget } from '../support/native-artifact.js';
+import { parseComponentMap } from '../../scripts/ci-scope.mjs';
+import { proveStaged } from '../../scripts/release-upgrade.mjs';
 
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const verifier = path.join(repositoryRoot, 'scripts/verify-native-extension-upgrade.mjs');
@@ -21,14 +23,14 @@ type Artifact = Awaited<ReturnType<typeof createArtifact>>;
 
 // The proof's verifier drives the newest published CLI, so it may only use what that CLI has. The
 // driver here is the freshly built CLI behind a native fixture that records its public commands.
-// Squad/Remote/Colab: the Office installer also checks that the executable reports the version it is
+// Ops/Remote/Colab: the Office installer also checks that the executable reports the version it is
 // installed as, which a built `tmt-office` can do for one version only; the verifier builds the
 // same commands for every extension.
 describe('extension upgrade proof against the real CLI', () => {
   // The driver is the newest published CLI: today's, carrying its companion, or one released
   // before companions existed (5.0.0-alpha.39), read against its own manifest.
   it.each(
-    (['squad', 'remote', 'colab'] as const).flatMap(
+    (['ops', 'remote', 'colab'] as const).flatMap(
       (product) =>
         [
           [product, 'a current CLI', undefined],
@@ -45,7 +47,7 @@ describe('extension upgrade proof against the real CLI', () => {
         const artifact = (
           name: string,
           version: string,
-          product: 'cli' | 'squad' | 'remote' | 'colab'
+          product: 'cli' | 'ops' | 'remote' | 'colab'
         ) =>
           createArtifact(
             {
@@ -85,6 +87,84 @@ describe('extension upgrade proof against the real CLI', () => {
     PROOF_BUDGET_MS
   );
 });
+
+// Explicit admitted qualification only. Default PR CI has no historical two-CLI inputs.
+// An explicitly supplied empty/malformed directory fails; it never falls back or pass-skips.
+describe.skipIf(!Object.hasOwn(process.env, 'TMT_EXTENSION_UPGRADE_PROOF_DIRECTORY'))(
+  'prepared two-real-CLI squad -> ops qualification',
+  () => {
+    it(
+      'proves the staged predecessor through the release caller and records real commands',
+      async () => {
+        const directory = process.env.TMT_EXTENSION_UPGRADE_PROOF_DIRECTORY;
+        expect(directory).toBeTruthy();
+        const plan = JSON.parse(readFileSync(path.join(directory!, 'plan.json'), 'utf8'));
+        const map = parseComponentMap(
+          readFileSync(path.join(directory!, 'component-map.json'), 'utf8')
+        );
+        expect(plan.product).toBe('ops');
+        expect(plan.previous).toBe('tmt-squad-v0.1.0-alpha.50');
+        const calls: { script: string; args: string[] }[] = [];
+        const proven = proveStaged({
+          directory: directory!,
+          product: 'ops',
+          tag: plan.tag,
+          target: nativeTarget(),
+          map,
+          run: (script, args) => calls.push({ script, args }),
+        });
+        expect(proven.previous).toBe(plan.previous);
+        expect(calls).toHaveLength(1);
+        expect(calls[0].script).toBe('verify-native-extension-upgrade.mjs');
+        expect(calls[0].args).toContain('--previous-driver-archive');
+        await withSandbox(async (sandbox) => {
+          const log = path.join(directory!, 'qualification-commands.jsonl');
+          const module = new URL(
+            '../../scripts/verify-native-extension-upgrade.mjs',
+            import.meta.url
+          ).href;
+          const packed = new URL('../../scripts/packed-command.mjs', import.meta.url).href;
+          const execute = `import { extensionUpgradeOptions, verifyExtensionUpgrade } from ${JSON.stringify(module)};
+          import { runPackedCommand } from ${JSON.stringify(packed)};
+          import { appendFileSync } from 'node:fs';
+          await verifyExtensionUpgrade(extensionUpgradeOptions(${JSON.stringify(calls[0].args)}), (executable, args, options) => {
+            try {
+              const stdout = runPackedCommand(executable, args, options);
+              appendFileSync(${JSON.stringify(log)}, JSON.stringify({ executable, args, cwd: options.cwd, env: options.env, status: options.expectedStatus ?? 0, stdout, stderr: '' }) + '\\n');
+              return stdout;
+            } catch (error) {
+              appendFileSync(${JSON.stringify(log)}, JSON.stringify({ executable, args, cwd: options.cwd, env: options.env, error: error.message, cause: error.cause }) + '\\n');
+              throw error;
+            }
+          });`;
+          const result = await runCli(
+            { ...sandbox, cli: { executable: process.execPath, args: [] } },
+            ['--input-type=module', '--eval', execute],
+            { deadlineMs: PROOF_BUDGET_MS - 10_000 }
+          );
+          appendFileSync(
+            path.join(directory!, 'qualification-result.json'),
+            JSON.stringify(result) + '\n'
+          );
+          expect(result.status).toBe(0);
+          expect(result.stderr).toBe('');
+          expect(result.stdout).toBe(
+            `Extension replacement verified: squad 0.1.0-alpha.50 -> ops ${plan.tag.slice('tmt-ops-v'.length)} (${nativeTarget()})\n`
+          );
+          const records = readFileSync(log, 'utf8')
+            .trim()
+            .split('\n')
+            .map((line) => JSON.parse(line));
+          expect(records.length).toBeGreaterThan(0);
+          for (const record of records) expect(typeof record.cwd).toBe('string');
+          const roots = new Set<string>(records.map((record) => record.cwd));
+          for (const root of roots) expect(() => realpathSync(root)).toThrow();
+        });
+      },
+      PROOF_BUDGET_MS
+    );
+  }
+);
 
 describe('native recording driver', () => {
   it('preserves argv, input, output, cwd, empty PATH and a failing delegate status', async () => {
@@ -155,7 +235,7 @@ function runProof(
     previous,
     candidate,
     driver,
-    product = 'squad',
+    product = 'ops',
   }: Record<'previous' | 'candidate' | 'driver', Artifact> & { product?: string }
 ) {
   return runCli(

@@ -18,17 +18,27 @@ pub const TRIGGER_UPDATES: usize = 50;
 /// ...or once their plaintext adds up to this many bytes.
 pub const TRIGGER_BYTES: usize = 1024 * 1024;
 
-/// When a device's own tail is long enough to combine.
+/// When a device's own tail is long enough to combine, and until when it may still publish.
 #[derive(Clone, Copy)]
 pub struct Trigger {
     pub updates: usize,
     pub bytes: usize,
+    /// A combine that is still working at this instant publishes nothing, so a caller that
+    /// answers by then never sees the page change after its answer.
+    pub until: Option<std::time::Instant>,
+}
+impl Trigger {
+    fn late(&self) -> bool {
+        self.until
+            .is_some_and(|until| std::time::Instant::now() >= until)
+    }
 }
 impl Default for Trigger {
     fn default() -> Self {
         Self {
             updates: TRIGGER_UPDATES,
             bytes: TRIGGER_BYTES,
+            until: None,
         }
     }
 }
@@ -125,6 +135,9 @@ pub fn compact(
         }
         pending.push((name, namespace, cut_index, objects.len(), merged));
         namespaces += 1;
+        if trigger.late() {
+            return Ok(None);
+        }
     }
     if namespaces == 0 {
         return Err(Fault::Missing.into());
@@ -133,21 +146,27 @@ pub fn compact(
         // A merge can be valid update-v1 yet omit or change content. Compare every projection
         // before the first checkpoint can make a paired prefix eligible for pruning.
         let current = s.materialize(key, page, decoder)?;
+        if trigger.late() {
+            return Ok(None);
+        }
         let replacements = pending
             .iter()
             .map(|(_, _, index, _, merged)| (*index, merged.clone()))
             .collect::<BTreeMap<_, _>>();
-        let candidate =
-            match s.materialize_with_replacements(key, page, decoder, None, &replacements) {
-                Ok(candidate) => candidate,
-                Err(_) => return Ok(None),
-            };
+        let candidate = match s.materialize_with_replacements(key, page, decoder, &replacements) {
+            Ok(candidate) => candidate,
+            Err(_) => return Ok(None),
+        };
         if current.source != candidate.source
             || current.meta != candidate.meta
             || current.own != candidate.own
         {
             return Ok(None);
         }
+    }
+    // Everything above only read; from here the page changes.
+    if trigger.late() {
+        return Ok(None);
     }
     let mut merged_objects = 0;
     for (name, namespace, _, count, merged) in pending {

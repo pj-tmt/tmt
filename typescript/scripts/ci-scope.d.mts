@@ -15,6 +15,7 @@ export interface ComponentMap {
     readonly bootstrapSha?: string;
     readonly initialVersion?: string;
     readonly requiresCliSha?: string;
+    readonly predecessor?: string;
     readonly releaseConsumers: readonly string[];
     readonly owns: readonly string[];
     readonly excludes: readonly string[];
@@ -84,7 +85,7 @@ export interface E2eShardResults {
 }
 
 export function globToRegExp(glob: string): RegExp;
-export function parseComponentMap(text: string): ComponentMap;
+export function parseComponentMap(text: string, options?: { historical?: boolean }): ComponentMap;
 export function releasedComponentNamesOfPath(
   path: string,
   map: ComponentMap,
@@ -106,6 +107,7 @@ export function explainCiSelection(
 export function selectCiAreas(paths: readonly string[], map?: ComponentMap): CiAreas;
 export function selectOfficeBrowser(paths: readonly string[], map?: ComponentMap): boolean;
 export function selectColabHarness(paths: readonly string[], map?: ComponentMap): boolean;
+export function selectColabApp(paths: readonly string[], map?: ComponentMap): boolean;
 export function selectNativeNotices(paths: readonly string[]): boolean;
 export function selectNativeScope(paths: readonly string[], map?: ComponentMap): string;
 export function scopedChecks(

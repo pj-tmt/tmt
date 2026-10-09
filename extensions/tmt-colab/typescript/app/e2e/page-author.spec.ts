@@ -36,11 +36,11 @@ for (const width of [1440, 390])
         document.documentElement.dataset.theme = value;
       }, theme);
       await mount(page);
-      const header = page.locator('.colab-header:visible');
-      await expect(header.locator('.colab-caption')).toHaveText(
+      const header = page.locator('.tmt-ui-header:visible');
+      await expect(header.locator('.tmt-ui-caption')).toHaveText(
         'Original author: Alice <b>creator</b>',
       );
-      await expect(header.locator('.colab-caption b')).toHaveCount(0);
+      await expect(header.locator('.tmt-ui-caption b')).toHaveCount(0);
       await expect(header).toHaveCSS('height', width === 390 ? '48px' : '56px');
       expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);
       await info(page, width, false);
@@ -57,11 +57,11 @@ for (const width of [1440, 390])
         (await import(path)).updatePublisher();
       });
       await expect(attribution).not.toContainText('Latest publisher');
-      await expect(header.locator('.colab-caption')).toHaveText(
+      await expect(header.locator('.tmt-ui-caption')).toHaveText(
         'Original author: Alice <b>creator</b>',
       );
       await mount(page, false, true);
-      await expect(header.locator('.colab-caption')).toHaveText('Original author: Unknown author');
+      await expect(header.locator('.tmt-ui-caption')).toHaveText('Original author: Unknown author');
       await info(page, width, false);
       await expect(page.locator('.page-attribution:visible')).toContainText(
         'Latest publisherBob latest publisher',
@@ -70,7 +70,7 @@ for (const width of [1440, 390])
         'Original authorUnknown author',
       );
       await mount(page, true);
-      await expect(header.locator('.colab-caption')).toHaveText(
+      await expect(header.locator('.tmt-ui-caption')).toHaveText(
         'Original author: Alice <b>creator</b>',
       );
       await info(page, width, true);

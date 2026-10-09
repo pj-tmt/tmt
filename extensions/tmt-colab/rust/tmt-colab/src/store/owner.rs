@@ -197,19 +197,8 @@ impl Store {
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
         let head = read_head(&tx, space, root)?;
-        let saved: Option<(Vec<u8>, Vec<u8>)> = tx
-            .query_row(
-                "SELECT digest,outcome FROM owner_operations WHERE id=?",
-                [mutation.operation_id],
-                |r| Ok((r.get(0)?, r.get(1)?)),
-            )
-            .optional()?;
-        if let Some((digest, outcome)) = saved {
-            return if digest == mutation.digest {
-                Ok(outcome)
-            } else {
-                Err(OwnerFault::Conflict.into())
-            };
+        if let Some(outcome) = legacy_operation(&tx, mutation.operation_id, &mutation.digest)? {
+            return Ok(outcome);
         }
         if head.as_ref().map_or(0, |h| h.revision) != mutation.expected_revision {
             return Err(OwnerFault::StaleHead.into());
@@ -233,7 +222,7 @@ impl Store {
             return Err(OwnerFault::Capacity.into());
         }
         tx.execute(
-            "INSERT INTO owner_operations VALUES (?,?,?)",
+            "INSERT INTO owner_operations(id,digest,outcome) VALUES (?,?,?)",
             params![mutation.operation_id, mutation.digest.as_slice(), outcome],
         )?;
         tx.commit()?;
@@ -334,25 +323,58 @@ impl OwnerTransaction<'_> {
             .query_row("SELECT epoch FROM pages WHERE page=?", [page], |r| r.get(0))
             .optional()?)
     }
-    pub(crate) fn append_content(
+    pub(crate) fn append_update(
         &mut self,
         envelope: &super::Envelope<'_>,
     ) -> Result<super::Accepted> {
         Ok(super::append_in(self.tx, envelope, self.clock)?.ok_or(super::Fault::Conflict)?)
     }
-    pub(crate) fn save_operation(
+    /// Only content/device projection writes belong here; membership head stays unchanged.
+    pub(crate) fn content_savepoint<T>(
         &mut self,
-        id: &str,
-        digest: &[u8; 32],
-        outcome: &[u8],
-    ) -> Result<()> {
-        values::generated_id(id)?;
-        if outcome.len() > MAX_OUTCOME_BYTES {
-            return Err(OwnerFault::Capacity.into());
+        apply: impl FnOnce(&mut Self) -> Result<T>,
+    ) -> Result<T> {
+        self.tx.execute_batch("SAVEPOINT content_publication")?;
+        let result = apply(self);
+        if result.is_err() {
+            self.tx.execute_batch("ROLLBACK TO content_publication")?;
         }
+        self.tx.execute_batch("RELEASE content_publication")?;
+        result
+    }
+    pub(crate) fn admit_publication(
+        &self,
+        key: &crate::publication::JobKey,
+        packet_bytes: usize,
+        entries: usize,
+    ) -> Result<()> {
+        let bytes = publication_charge(key, crate::publication::JSON_BYTES)?
+            .checked_add(packet_bytes)
+            .ok_or(super::Fault::Capacity)?;
+        let identities = entries.checked_add(1).ok_or(super::Fault::Capacity)?;
+        Ok(super::admit_page(self.tx, &key.page_id, bytes, identities)?)
+    }
+    pub(crate) fn save_publication(
+        &mut self,
+        key: &crate::publication::JobKey,
+        job: &crate::publication::SignedJob,
+        bytes: &[u8],
+    ) -> Result<()> {
+        let outcome = crate::publication::Outcome::from_json(bytes, key, Some(job))?;
+        if matches!(outcome, crate::publication::Outcome::Unknown { .. }) {
+            return Err(OwnerFault::Invalid.into());
+        }
+        super::admit_page(
+            self.tx,
+            &key.page_id,
+            publication_charge(key, bytes.len())?,
+            1,
+        )?;
+        let digest = values::binary(&key.job_digest, 32)?;
         self.tx.execute(
-            "INSERT INTO owner_operations VALUES (?,?,?)",
-            params![id, digest.as_slice(), outcome],
+            "INSERT INTO owner_operations(id,digest,outcome,publication_kind,space,page,original_epoch,original_stream)
+             VALUES (?,?,?,'content',?,?,?,?)",
+            params![key.operation_id, digest, bytes, key.space_id, key.page_id, key.original_epoch, key.stream_id],
         )?;
         Ok(())
     }
@@ -624,6 +646,37 @@ fn read_head(
             encryption_key: key(encryption)?,
         },
     }))
+}
+
+/// Old operations never adopt a scoped publication with the same global ID.
+fn legacy_operation(c: &Connection, id: &str, digest: &[u8; 32]) -> Result<Option<Vec<u8>>> {
+    let row = c.query_row(
+        "SELECT digest,outcome,publication_kind,space,page,original_epoch,original_stream FROM owner_operations WHERE id=?",
+        [id], |r| Ok((r.get::<_, Vec<u8>>(0)?, r.get::<_, Vec<u8>>(1)?,
+            (2..7).any(|i| !matches!(r.get_ref(i), Ok(rusqlite::types::ValueRef::Null))))),
+    ).optional()?;
+    match row {
+        Some((old, bytes, false)) if old == digest => Ok(Some(bytes)),
+        Some(_) => Err(OwnerFault::Conflict.into()),
+        None => Ok(None),
+    }
+}
+fn publication_charge(key: &crate::publication::JobKey, outcome: usize) -> Result<usize> {
+    key.validate()?;
+    [
+        key.operation_id.len(),
+        32,
+        "content".len(),
+        key.space_id.len(),
+        key.page_id.len(),
+        key.original_epoch.len(),
+        key.stream_id.len(),
+    ]
+    .into_iter()
+    .try_fold(outcome, |n, v| {
+        n.checked_add(v)
+            .ok_or_else(|| super::Fault::Capacity.into())
+    })
 }
 
 #[cfg(test)]

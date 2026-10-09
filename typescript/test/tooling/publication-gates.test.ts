@@ -43,6 +43,14 @@ describe('countMigrations', () => {
     ).toBe(3);
   });
 
+  it('counts migration macros with single-line and multiline arguments', () => {
+    expect(
+      countMigrations(
+        list('migration!("one", "schema/001.sql"),\nmigration!(\n  "two",\n  "schema/002.sql",\n),')
+      )
+    ).toBe(2);
+  });
+
   it('counts a last entry without a trailing comma, and an empty list as none', () => {
     expect(countMigrations(list('A { x: 1 },\nA { x: 2 }'))).toBe(2);
     expect(countMigrations(list(''))).toBe(0);
@@ -73,7 +81,7 @@ describe('countMigrations', () => {
       cli.indexOf('const MIGRATIONS'),
       cli.indexOf('\n];', cli.indexOf('const MIGRATIONS'))
     );
-    expect(countMigrations(cli)).toBe(cliRegion.match(/^ {4}Migration \{$/gm)?.length);
+    expect(countMigrations(cli)).toBe(cliRegion.match(/^ {4}migration!\(/gm)?.length);
     expect(countMigrations(cli)).toBeGreaterThan(20);
 
     const office = read('extensions/tmt-office/rust/tmt-office-storage/src/schema.rs');
@@ -95,7 +103,7 @@ describe('the component map names each component’s migration files', () => {
     );
     expect(byName.cli.migrations).toHaveLength(1);
     expect(byName.office.migrations).toHaveLength(1);
-    expect(byName.squad.migrations).toEqual([]);
+    expect(byName.ops.migrations).toEqual([]);
     for (const component of map.components) {
       for (const file of component.migrations) {
         expect(ownerOf(file, map), file).toBe(component.name);
@@ -141,7 +149,7 @@ describe('checkChannel', () => {
     ['cli', 'v5.0.0-alpha.9'],
     ['cli', 'v5.0.0-alpha.10'],
     ['office', 'tmt-office-v0.1.0-alpha.4'],
-    ['squad', 'tmt-squad-v0.1.0-alpha.2'],
+    ['ops', 'tmt-ops-v0.1.0-alpha.2'],
   ])('lets the alpha release %s %s publish automatically', (product, tag) => {
     expect(checkChannel({ product, tag }).ok).toBe(true);
   });
@@ -149,11 +157,11 @@ describe('checkChannel', () => {
   it.each([
     ['cli', 'v5.0.0', 'stable'],
     ['cli', 'v5.1.3', 'stable'],
-    ['squad', 'tmt-squad-v0.1.0', 'stable'],
+    ['ops', 'tmt-ops-v0.1.0', 'stable'],
     ['office', 'tmt-office-v1.0.0', 'stable'],
     ['cli', 'v5.0.0-beta.1', 'beta'],
     ['cli', 'v5.0.0-rc.1', 'release candidate'],
-    ['squad', 'tmt-squad-v0.1.0-beta.2', 'beta'],
+    ['ops', 'tmt-ops-v0.1.0-beta.2', 'beta'],
     ['cli', 'v5.0.0-alpha', 'alpha without a number'],
     ['cli', 'v5.0.0-alpha.1.2', 'alpha with a longer label'],
     ['cli', 'v5.0.0-alpha.x', 'alpha with a word'],
@@ -166,7 +174,7 @@ describe('checkChannel', () => {
   });
 
   it('refuses a tag of another product instead of judging it', () => {
-    expect(() => checkChannel({ product: 'cli', tag: 'tmt-squad-v0.1.0-alpha.2' })).toThrow(
+    expect(() => checkChannel({ product: 'cli', tag: 'tmt-ops-v0.1.0-alpha.2' })).toThrow(
       'is not a cli tag'
     );
   });
@@ -345,11 +353,11 @@ describe('checkImmutability', () => {
     const result = checkImmutability({
       releases: [
         release('v5.0.0-alpha.7', '2026-09-29T12:00:00Z', true),
-        release('tmt-squad-v0.1.0-alpha.2', '2026-09-29T16:00:00Z', false),
+        release('tmt-ops-v0.1.0-alpha.2', '2026-09-29T16:00:00Z', false),
       ],
     });
     expect(result.ok).toBe(false);
-    expect(result.reason).toContain('tmt-squad-v0.1.0-alpha.2 is not immutable');
+    expect(result.reason).toContain('tmt-ops-v0.1.0-alpha.2 is not immutable');
   });
 
   it('holds when nothing is published, because nothing shows the setting', () => {
@@ -370,7 +378,7 @@ describe('checkMonotonic', () => {
   it('passes a release newer than everything published of its product', () => {
     expect(checkMonotonic({ releases, product: 'cli', tag: 'v5.0.0-alpha.9' }).ok).toBe(true);
     expect(checkMonotonic({ releases, product: 'cli', tag: 'v5.0.0-alpha.10' }).ok).toBe(true);
-    expect(checkMonotonic({ releases, product: 'squad', tag: 'tmt-squad-v0.1.0-alpha.1' }).ok).toBe(
+    expect(checkMonotonic({ releases, product: 'ops', tag: 'tmt-ops-v0.1.0-alpha.1' }).ok).toBe(
       true
     );
   });
@@ -513,7 +521,7 @@ describe('checkUpgrade', () => {
 
   it('puts the cause the failed hosts name in front of the run, and still cites the run without one', () => {
     const cause =
-      'Packed command failed (exited 1, expected 0): tmt extension install squad: unrecognized subcommand squad';
+      'Packed command failed (exited 1, expected 0): tmt extension install ops: unrecognized subcommand ops';
     expect(
       checkUpgrade({
         result: 'failure',

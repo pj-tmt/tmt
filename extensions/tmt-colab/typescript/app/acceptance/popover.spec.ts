@@ -36,14 +36,14 @@ test('the annotation popover closes by its × , Escape anywhere in it, an outsid
     const page = await openPage(door, browser, createPage(world, 'Popover page', html, agent.pane));
     const popover = page.getByRole('dialog', { name: 'Annotate selection' });
     const close = popover.getByRole('button', { name: 'Close annotation', exact: true });
-    const input = popover.getByRole('combobox', { name: 'Message to agent' });
+    const input = popover.getByRole('combobox', { name: 'Message' });
     const open = async (touch: boolean) => {
       await selectInRenderer(page, '#quote');
       const bubble = page.getByTestId('selection-ask');
       if (touch) await tap(page, bubble);
       else await bubble.click();
       await expect(popover).toBeVisible();
-      await expect(input).toHaveValue(`@${agent.name} `);
+      await expect(input).toHaveText(`@${agent.name} `, { useInnerText: true });
     };
     for (const width of [1440, 390]) {
       const touch = width === 390;
@@ -71,12 +71,12 @@ test('the annotation popover closes by its × , Escape anywhere in it, an outsid
 
         // A press outside the popover.
         await open(touch);
-        const bar = page.locator('.colab-header');
+        const bar = page.locator('.tmt-ui-header');
         if (touch) await tap(page, bar);
         else await bar.click({ position: { x: 4, y: 4 } });
         await expect(popover).toHaveCount(0);
 
-        // A cleared selection closes an untouched prefill.
+        // A cleared selection closes an untouched composer, including its automatic creator seed.
         await open(touch);
         await clearSelection(page);
         await expect(popover).toHaveCount(0);
@@ -90,21 +90,21 @@ test('the annotation popover closes by its × , Escape anywhere in it, an outsid
     await input.fill(`@${agent.name} Keep this draft.`);
     await clearSelection(page);
     await expect(popover).toBeVisible();
-    await expect(input).toHaveValue(`@${agent.name} Keep this draft.`);
+    await expect(input).toHaveText(`@${agent.name} Keep this draft.`, { useInnerText: true });
     await input.press('Escape');
     await expect(popover).toHaveCount(0);
     await selectInRenderer(page, '#quote');
     await page.getByTestId('selection-ask').click();
     await expect(popover).toBeVisible();
-    await expect(input).toHaveValue(`@${agent.name} Keep this draft.`);
+    await expect(input).toHaveText(`@${agent.name} Keep this draft.`, { useInnerText: true });
     await expect(popover.getByText('Draft kept', { exact: true })).toBeVisible();
     await page.screenshot({ path: '/tmp/1713-native-1440-light-draft-kept.png' });
-    await page.locator('.colab-header').click({ position: { x: 4, y: 4 } });
+    await page.locator('.tmt-ui-header').click({ position: { x: 4, y: 4 } });
     await expect(popover).toHaveCount(0);
     // A different selection does not inherit it.
     await selectInRenderer(page, '#other');
     await page.getByTestId('selection-ask').click();
-    await expect(input).toHaveValue(`@${agent.name} `);
+    await expect(input).toHaveText('', { useInnerText: true });
     await expect(popover.getByText('Draft kept', { exact: true })).toHaveCount(0);
     await close.click();
     expect(agent.received()).toHaveLength(0);
@@ -127,16 +127,35 @@ test('the annotation popover closes by its × , Escape anywhere in it, an outsid
     });
     await input.fill(`@${agent.name} Hold this send.`);
     await input.press('Enter');
-    await expect(input).toBeDisabled();
+    await expect(input).toHaveAttribute('contenteditable', 'false');
     await close.click();
     await close.focus();
     await page.keyboard.press('Escape');
-    await page.locator('.colab-header').click({ position: { x: 4, y: 4 } });
+    await page.locator('.tmt-ui-header').click({ position: { x: 4, y: 4 } });
     await clearSelection(page);
     await page.waitForTimeout(300);
     await expect(popover).toBeVisible();
     release();
     await expect.poll(() => agent.received().length).toBe(1);
+    await expect(popover).toBeVisible();
+    await expect.poll(() => agent.rows().find((row) => row.event === 'replied')?.body).toBeTruthy();
+    const reply = agent.rows().find((row) => row.event === 'replied')!.body as string;
+    await expect(popover.getByTestId('ask-reply')).toHaveText(reply);
+    await expect(page.locator('.page-drawer[open]')).toHaveCount(0);
+    await expect(input).toHaveText('', { useInnerText: true });
+    expect(agent.received()).toHaveLength(1);
+    expect(world.coreCalls().filter((call) => call.operation === 'dispatch.create')).toHaveLength(
+      1,
+    );
+    await input.fill(`@${agent.name} Continue this annotation.`);
+    expect(agent.received()).toHaveLength(1);
+    await input.press('Enter');
+    await expect.poll(() => agent.received().length).toBe(2);
+    await expect(popover.getByTestId('ask-reply')).toHaveCount(2);
+    expect(world.coreCalls().filter((call) => call.operation === 'dispatch.create')).toHaveLength(
+      2,
+    );
+    await popover.getByRole('button', { name: 'Close thread', exact: true }).click();
     await expect(popover).toHaveCount(0);
   });
 });

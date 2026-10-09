@@ -12,14 +12,15 @@ are recorded in the [browser component contracts](gui-components.md).
 `extensions/tmt-colab/typescript/app/src`; the other descriptions include
 approved design targets that have not shipped yet. Remote's pairing and door
 pages follow the same token, header and card rules in their own `pages.css`.
-Office has not adopted this style. A shared component package and the
-implementation basis column are a **proposal**. A future package and any new
-dependencies require architecture and dependency review.
+Office has not adopted this style. The private browser leaf and its shared
+integration are in place; product adoption is separate consumer work. The implementation basis column still includes proposals beyond that
+leaf. See the [package contract](browser-ui/README.md) for the bounded subset.
 
 ## Principles
 
-1. **Square and flat.** Corners are square everywhere. Depth is a hard offset
-   shadow in a solid token color, never a blur.
+1. **Square and flat.** Corners are square everywhere. The initial browser leaf
+   uses opaque surfaces and no shadows. Existing product shadows await owning
+   adoption; they are not a fallback for the new leaf.
 2. **Edge to edge.** The page fills the window. There is exactly one window
    scrollbar; no region under the header scrolls on its own, except an overlay's
    body.
@@ -201,12 +202,26 @@ Comments, Chat, Source, Share and settings panels.
 
 The small input at a selection or an item: annotation, follow-up, quick reply.
 
-- Prefills the recipient (`@agent`); Enter sends, Shift+Enter adds a line, Esc
-  closes. Typed text is kept as a draft when it closes and restored on the same
-  anchor with `Draft kept`.
+- The recipient is independent of the message. An admitted stable prior
+  reply can supply the default; creation defaults require a reliable canonical binding.
+  Unknown creation and ambiguity require explicit selection, never a name or sole-agent guess.
+  Choose/Change recipient selects without mutating message text. There is no mandatory
+  `@` prefix. Optional mention completion preserves the surrounding
+  text and caret; changing or removing the token does not change the selected recipient.
+- Enter submits the parent's current message action; Shift+Enter adds a line, Esc
+  closes the innermost candidate list before the composer. Typed text and the selected
+  recipient are kept on close and restored on the same anchor with `Draft kept`.
+- Plain comments have an explicit Post action and remain available under current
+  content-write admission when agent discovery fails. Asking an agent is an explicit
+  action; choosing a recipient alone never prepares or sends a message.
 - Outside press closes it, but a page click never hides a typed draft; nothing
   closes it while a send is in flight.
-- Shipped in `annotation-input.tsx`. Basis: Radix (Popover) around an own field.
+- `components/message-composer.tsx` is the shared plaintext editing boundary for
+  Chat, annotation, thread reply and comment edit. Its plaintext/history
+  extensions preserve undo, IME and exact message bytes; the source editor stays separate.
+- Candidate lists use available viewport space and the browser popover layer, including
+  inside modal Chat. The field grows to a bounded height, then scrolls. Square corners
+  and existing ink/accent tokens apply. Basis: own parent chrome with Lexical editing.
 
 ### Conversation turn
 

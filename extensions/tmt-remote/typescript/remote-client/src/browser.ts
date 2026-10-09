@@ -1,6 +1,13 @@
 import { channelFor } from './session-channel.js';
 import { RefusalError } from './operations.js';
 export { operations, ClientError, RefusalError } from './operations.js';
+export { management } from './management.js';
+export type {
+  RemoteManagement,
+  ManagementOutcome,
+  RemoteSettings,
+  DevicePage,
+} from './management.js';
 export type {
   ClientErrorCode,
   RemoteRefusalCode,
@@ -88,19 +95,251 @@ async function paired(): Promise<{ record: Stored; key: DeviceKey }> {
 }
 
 /** Reopen this browser's door session for the running remote; no owner step. */
-export async function reopenSession(): Promise<Session> {
+export async function reopenSession(previous?: Session): Promise<Session> {
   const { record, key } = await paired();
+  if (previous) {
+    const old = channelFor(previous);
+    if (!old) throw new TypeError('Use a verified previous Session.');
+    if (
+      record.paired.clientId !== old.paired.clientId ||
+      record.paired.machineId !== old.paired.machineId ||
+      record.paired.origin !== old.paired.origin ||
+      !(record.paired.machinePublicKey instanceof Uint8Array) ||
+      record.paired.machinePublicKey.length !== 32 ||
+      old.paired.machinePublicKey.length !== 32 ||
+      record.paired.machinePublicKey.some(
+        (byte, index) => byte !== old.paired.machinePublicKey[index],
+      ) ||
+      record.publicKey.some((byte, index) => byte !== old.key.publicKey()[index])
+    ) {
+      throw new RefusalError('REMOTE_SESSION_ENDED');
+    }
+  }
   const current = await door();
+  validateDoor(current, record);
+  let refused = false;
+  try {
+    return await openSession(
+      { ...record.paired, address: current.address },
+      key,
+      current.windowId,
+      async (url, init) => {
+        const response = await fetch(url, init);
+        refused = response.status === 404;
+        return response;
+      },
+    );
+  } catch (error) {
+    if (!refused || !previous) throw error;
+    // A restart or stale descriptor is uncertainty, not current access refusal.
+    // This is another descriptor read, never another admission or mutation.
+    const latest = await door();
+    validateDoor(latest, record);
+    if (latest.address !== current.address || latest.windowId !== current.windowId) {
+      throw new Error('The door descriptor changed during admission.');
+    }
+    throw new RefusalError('REMOTE_SESSION_ENDED');
+  }
+}
+function validateDoor(current: Door, record: Stored): void {
   if (current.machineId !== record.paired.machineId)
     throw new Error('Paired with another machine.');
-  // A schema migration may replace the non-credential route path while the origin/grant survive.
   if (
+    typeof current.windowId !== 'string' ||
+    !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(
+      current.windowId,
+    ) ||
+    typeof current.address !== 'string' ||
     !current.address.startsWith(`${location.origin}/r/`) ||
     !/^[a-z2-7]{16}$/.test(current.address.slice(`${location.origin}/r/`.length))
   ) {
-    throw new Error('The door advertised an invalid address.');
+    throw new Error('The door advertised an invalid descriptor.');
   }
-  return openSession({ ...record.paired, address: current.address }, key, current.windowId);
+}
+
+type EntryPairing =
+  | { state: 'missing' | 'unavailable' }
+  | { state: 'saved'; record: Stored; key: DeviceKey };
+
+/** Local evidence only: never read a descriptor or attempt admission to paint the entry. */
+async function entryPairing(): Promise<EntryPairing> {
+  try {
+    const record = await load();
+    if (record === undefined) return { state: 'missing' };
+    if (typeof record !== 'object' || record === null || Array.isArray(record))
+      return { state: 'unavailable' };
+    const pin = record.paired?.machinePublicKey;
+    if (
+      typeof record.paired !== 'object' ||
+      record.paired === null ||
+      Array.isArray(record.paired) ||
+      record.paired.kind !== 'browser' ||
+      record.paired.origin !== location.origin ||
+      !entryUuid(record.paired.machineId) ||
+      !entryUuid(record.paired.clientId) ||
+      !entryAddress(record.paired.address) ||
+      !Number.isSafeInteger(record.paired.grantRevision) ||
+      record.paired.grantRevision < 1 ||
+      !(record.publicKey instanceof Uint8Array) ||
+      record.publicKey.length !== 32 ||
+      !(pin instanceof Uint8Array) ||
+      pin.length !== 32
+    )
+      return { state: 'unavailable' };
+    return {
+      state: 'saved',
+      record,
+      key: await DeviceKey.fromHandle(record.handle, record.publicKey),
+    };
+  } catch {
+    return { state: 'unavailable' };
+  }
+}
+
+/** Landing-page projection of existing pairing and signed Session owners; no new authority. */
+export async function landingPage(): Promise<void> {
+  if (document.readyState === 'loading') {
+    await new Promise<void>((resolve) =>
+      document.addEventListener('DOMContentLoaded', () => resolve(), { once: true }),
+    );
+  }
+  const status = element('status');
+  const pairing = element('pairing-status');
+  const access = element('access-status');
+  const button = element('check') as HTMLButtonElement;
+  let attempt = 0;
+  window.addEventListener(
+    'pagehide',
+    () => {
+      attempt++;
+    },
+    { once: true },
+  );
+  const renderPairing = (value: EntryPairing): void => {
+    pairing.textContent = {
+      missing: 'No saved pairing',
+      saved: 'Pairing saved in this browser',
+      unavailable: 'Pairing status unknown',
+    }[value.state];
+    button.disabled = value.state !== 'saved';
+    if (value.state === 'missing') {
+      showState(status, 'waiting', 'Follow the terminal-confirmed pairing steps below.');
+    } else if (value.state === 'unavailable') {
+      showState(
+        status,
+        'blocked',
+        'The saved pairing could not be read or validated. Access is unconfirmed; no connection was attempted.',
+      );
+    }
+    element('mark').textContent = '○';
+  };
+  const initial = attempt;
+  const local = await entryPairing();
+  if (attempt !== initial || !button.isConnected) return;
+  renderPairing(local);
+  button.addEventListener('click', async () => {
+    if (button.disabled) return;
+    button.disabled = true;
+    const currentAttempt = ++attempt;
+    const currentPage = (): boolean => attempt === currentAttempt && button.isConnected;
+    access.textContent = 'Connecting…';
+    showState(status, 'waiting', 'Connecting using this browser’s saved pairing. No work is sent.');
+    {
+      const local = await entryPairing();
+      if (!currentPage()) return;
+      if (local.state !== 'saved') {
+        renderPairing(local);
+        access.textContent = 'Could not verify access';
+        return;
+      }
+      let refused = false;
+      try {
+        const current = await door();
+        if (!currentPage()) return;
+        validateEntryDoor(current);
+        if (current.machineId !== local.record.paired.machineId) {
+          pairing.textContent = 'Saved pairing does not match this Remote';
+          access.textContent = 'Not checked';
+          showState(
+            status,
+            'blocked',
+            'This door names a different machine from the saved pairing. Your saved pairing has not been changed. Confirm the machine in its local terminal.',
+          );
+          return;
+        }
+        try {
+          await openSession(
+            { ...local.record.paired, address: current.address },
+            local.key,
+            current.windowId,
+            async (url, init) => {
+              if (!currentPage()) throw new Error('Remote page attempt ended.');
+              const response = await fetch(url, init);
+              refused = response.status === 404;
+              return response;
+            },
+          );
+        } catch (error) {
+          if (!currentPage()) return;
+          if (!refused) throw error;
+          const latest = await door();
+          if (!currentPage()) return;
+          validateEntryDoor(latest);
+          if (
+            latest.machineId !== current.machineId ||
+            latest.address !== current.address ||
+            latest.windowId !== current.windowId
+          )
+            throw error;
+          access.textContent = 'Could not verify access';
+          showState(
+            status,
+            'blocked',
+            'The current door did not admit this saved pairing. This is not a verified refusal reason. Your saved pairing has not been changed. Inspect access locally with tmt remote devices.',
+          );
+          return;
+        }
+        if (!currentPage()) return;
+        access.textContent = 'Access confirmed';
+        showState(
+          status,
+          'paired',
+          `Checked at ${new Date().toISOString()}. The signed response matches this browser’s saved trust pins. Use your app’s local link in this browser; no work was sent.`,
+        );
+      } catch {
+        if (!currentPage()) return;
+        access.textContent = 'Could not verify access';
+        showState(
+          status,
+          'blocked',
+          'Your saved pairing has not been changed. The door may be unavailable or its reply could not be verified. Inspect access locally with tmt remote devices; no work was sent.',
+        );
+      }
+      // A successful check opens one Session. Do not create more merely to repaint status.
+    }
+  });
+}
+function entryUuid(value: unknown): value is string {
+  return (
+    typeof value === 'string' &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(value)
+  );
+}
+function entryAddress(value: unknown): value is string {
+  return (
+    typeof value === 'string' &&
+    value.startsWith(`${location.origin}/r/`) &&
+    /^[a-z2-7]{16}$/.test(value.slice(`${location.origin}/r/`.length))
+  );
+}
+function validateEntryDoor(current: Door): void {
+  if (
+    !entryAddress(current.address) ||
+    !entryUuid(current.windowId) ||
+    !entryUuid(current.machineId)
+  ) {
+    throw new Error('Invalid door descriptor.');
+  }
 }
 
 /**
@@ -120,7 +359,7 @@ export async function certifyKey(
 
 function element(id: string): HTMLElement {
   const found = document.getElementById(id);
-  if (!found) throw new Error(`The pairing page lacks #${id}.`);
+  if (!found) throw new Error(`The Remote page lacks #${id}.`);
   return found;
 }
 /** Present the ceremony state without coloring its instruction text. */
@@ -130,6 +369,14 @@ function showState(
   text: string,
 ): void {
   status.dataset.state = state;
+  element('notice').dataset.tone = { waiting: 'waiting', paired: 'working', blocked: 'blocked' }[
+    state
+  ];
+  element('state-label').textContent = {
+    waiting: 'Waiting',
+    paired: 'Paired',
+    blocked: 'Unavailable',
+  }[state];
   status.textContent = text;
   element('mark').textContent = { waiting: '◆', paired: '✓', blocked: '✗' }[state];
 }
@@ -156,7 +403,6 @@ export async function pairingPage(link: string): Promise<void> {
     );
     return;
   }
-  button.disabled = false;
   form.addEventListener('submit', (event) => {
     event.preventDefault();
     form.hidden = true;
@@ -169,6 +415,9 @@ export async function pairingPage(link: string): Promise<void> {
       );
     });
   });
+  element('state-label').textContent = 'Ready to pair';
+  status.textContent = 'Name this browser and choose Pair to request terminal confirmation.';
+  button.disabled = false;
 }
 async function ceremony(
   { descriptor, code }: ReturnType<typeof parseLink>,
@@ -180,7 +429,11 @@ async function ceremony(
   const words = element('words');
   words.textContent = indexes.map((i) => WORDS[i]).join(' ');
   element('comparison').hidden = false;
-  showState(status, 'waiting', 'Compare these words with the terminal, then confirm there.');
+  showState(
+    status,
+    'waiting',
+    'Waiting for confirmation in your terminal. Compare these words and confirm only if they match.',
+  );
   const result = await pair({
     descriptor,
     code,
@@ -196,6 +449,7 @@ async function ceremony(
   });
   await openSession(result, key, descriptor.windowId);
   showState(status, 'paired', 'This browser is paired. You can close this page.');
+  element('entry-link').hidden = false;
 }
 
 /** Associate a mounted WebSocket with this tab's verified session, not the shared cookie's tab.

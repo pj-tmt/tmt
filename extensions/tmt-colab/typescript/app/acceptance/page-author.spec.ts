@@ -5,7 +5,7 @@ import { createPage, openPage, run } from './harness/ask.js';
 import { disposeActiveWorlds, withWorld } from './harness/with-world.js';
 
 test.afterEach(disposeActiveWorlds);
-test('original author survives later publishing and owner/reader reload without becoming a recipient', async () => {
+test('original author survives later publishing and owner reload and reads to a reader without becoming a recipient', async () => {
   await withWorld(async (world) => {
     const creator = await world.startAgent('author-creator');
     const publisher = await world.startAgent('author-publisher');
@@ -13,7 +13,18 @@ test('original author survives later publishing and owner/reader reload without 
     const door = await startDoor(world);
     const browser = await pairBrowser(world, 'author-viewer');
     const page = await openPage(door, browser, created);
-    const caption = page.locator('.colab-caption');
+    const caption = page.locator('.tmt-ui-caption');
+    await expect(caption).toHaveText(`Original author: ${creator.name}`);
+    // Browser Save carries no CLI label, so it removes the previous one; the original stays.
+    await page.getByRole('button', { name: 'Source', exact: true }).click();
+    const source = page.locator('.page-drawer[data-panel=source]');
+    await source
+      .getByRole('textbox', { name: 'Source', exact: true })
+      .fill('<h1>Browser source</h1>');
+    await source.getByRole('button', { name: 'Save source' }).click();
+    await expect(
+      page.frameLocator('iframe').getByRole('heading', { name: 'Browser source' }),
+    ).toBeVisible();
     await expect(caption).toHaveText(`Original author: ${creator.name}`);
     const read = JSON.parse(
       run(world, world.binaries.colab, ['page', 'read', created.pageId, '--json']),
@@ -36,16 +47,6 @@ test('original author survives later publishing and owner/reader reload without 
     );
     await expect(
       page.frameLocator('iframe').getByRole('heading', { name: 'Later source' }),
-    ).toBeVisible();
-    await expect(caption).toHaveText(`Original author: ${creator.name}`);
-    await page.getByRole('button', { name: 'Source', exact: true }).click();
-    const source = page.locator('.page-drawer[data-panel=source]');
-    await source
-      .getByRole('textbox', { name: 'Source', exact: true })
-      .fill('<h1>Browser source</h1>');
-    await source.getByRole('button', { name: 'Save source' }).click();
-    await expect(
-      page.frameLocator('iframe').getByRole('heading', { name: 'Browser source' }),
     ).toBeVisible();
     await expect(caption).toHaveText(`Original author: ${creator.name}`);
     await page.reload();
@@ -75,17 +76,13 @@ test('original author survives later publishing and owner/reader reload without 
     const manifest = JSON.parse(readFileSync((await downloaded.path())!, 'utf8'));
     expect(manifest.originalAuthor).toBe(creator.name);
     expect(manifest.publisherAgent).toBe(publisher.name);
-    await page.getByRole('button', { name: 'Close export' }).click();
+    await page.getByRole('button', { name: 'Close export', exact: true }).click();
     run(world, world.binaries.colab, ['share', 'mode', created.pageId, 'link', '--yes', '--json']);
     const link = JSON.parse(
       run(world, world.binaries.colab, ['share', 'link', 'add', created.pageId, '--yes', '--json']),
     );
     const reader = await openReaderLink(world, door, link.readerPath, 'author-reader');
-    await expect(reader.page.locator('.colab-caption')).toHaveText(
-      `Original author: ${creator.name}`,
-    );
-    await reader.page.reload();
-    await expect(reader.page.locator('.colab-caption')).toHaveText(
+    await expect(reader.page.locator('.tmt-ui-caption')).toHaveText(
       `Original author: ${creator.name}`,
     );
     await reader.page.locator('.reader-information summary').click();

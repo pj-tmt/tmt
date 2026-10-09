@@ -71,8 +71,9 @@ processing.
   Unknown or retained enrollment stays terminal. Disabled does not enroll and
   never bypasses the no-paste evidence check.
 - The driver owns the launch plan through `runtime::channel::RuntimeChannel`.
-  `enroll` receives the user's command (selected executable and argv, resume
-  substitution included), the launch directory, the identity and the pane address
+  `enroll` receives the prepared command (selected executable and argv, resume
+  substitution and optional session-only hooks included), the launch directory,
+  the identity and pane address
   of the binding (server incarnation, pane ID and pane process), the `tmt run`
   process as launch owner and the channel directory, and returns a lease
   (`ChannelEnrollment`): the foreground command to spawn verbatim, environment

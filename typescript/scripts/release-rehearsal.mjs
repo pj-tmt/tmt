@@ -33,7 +33,7 @@ const SHARED_PATTERNS = [
   /^rust\/(?:crates\/)?[^/]+\/Cargo\.toml$/,
   /^\.github\/actions\/(?:inject-release-version|setup-tooling|apt-install|warm-xcrun)\//,
   /^scripts\/(?:build-native-artifact|native-cargo|native-bootstrap|run-native-verification|retry-command)\.sh$/,
-  /^typescript\/scripts\/(?:native-artifact-policy|native-bootstrap|native-release-policy|generate-native-bootstrap|release-policy|release-version-injection|release-versions|verify-native-(?:artifact|bootstrap|notices|installation|extension-upgrade|driver-upgrade)|release-upgrade|publication-gates|verify-colab-app-entries|packed-command|cargo-workspace)\.mjs$/,
+  /^typescript\/scripts\/(?:native-application-schema|native-artifact-policy|native-bootstrap|native-release-policy|generate-native-bootstrap|release-policy|release-version-injection|release-versions|verify-native-(?:artifact|bootstrap|notices|installation|extension-upgrade|driver-upgrade)|release-upgrade|publication-gates|verify-colab-app-entries|packed-command|cargo-workspace)\.mjs$/,
 ];
 // Extension manifests belong to one product, so component attribution picks the products.
 const PRODUCT_MANIFEST = /^extensions\/(?:.*\/)?Cargo\.toml$/;

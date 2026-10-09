@@ -1,9 +1,12 @@
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
+import path from 'node:path';
 import { expect, test } from '@playwright/test';
 import { pairBrowser, restartColab, startDoor } from './harness/browser.js';
 import {
   composeChat,
+  composerTrace,
+  composerAssets,
   createPage,
   freePort,
   openChat,
@@ -17,10 +20,15 @@ import { disposeActiveWorlds, withWorld } from './harness/with-world.js';
 test.afterEach(disposeActiveWorlds);
 test('page-visible device Chat threads send exact bytes once, preserve drafts, keep overlay geometry and survive reload/restart', async () => {
   await withWorld(async (world) => {
+    const captureDirectory =
+      process.env.COLAB_1817_CAPTURE_DIR ?? path.join(world.root, 'captures');
+    fs.mkdirSync(captureDirectory, { recursive: true });
     const door = await startDoor(world, await freePort());
     const agent = await world.startAgent('chat-agent', { gated: true });
     const firstBrowser = await pairBrowser(world, 'chat-author');
     const secondBrowser = await pairBrowser(world, 'chat-viewer');
+    await composerTrace(world, firstBrowser, door.address, 'chat-owner');
+    await composerTrace(world, secondBrowser, door.address, 'chat-viewer');
     const source =
       '<script>const every=Array.prototype.every;window.anchorTraffic=[];Array.prototype.every=function(callback,...args){try{window.anchorTraffic.push(JSON.stringify(this))}catch{}return every.call(this,callback,...args)};</script><style>body{margin:0;padding:24px;font:16px/1.6 sans-serif}p{max-width:70ch}</style><h1>Page conversations</h1>' +
       Array.from(
@@ -32,6 +40,12 @@ test('page-visible device Chat threads send exact bytes once, preserve drafts, k
     const created = createPage(world, 'Page conversations', source, agent.pane);
     const first = await openPage(door, firstBrowser, created);
     const second = await openPage(door, secondBrowser, created);
+    await expect(
+      first
+        .frameLocator('iframe')
+        .getByRole('heading', { name: 'Page conversations', exact: true }),
+    ).toBeVisible();
+    await composerAssets(first, 'chat-owner');
     await expect
       .poll(async () => (await first.locator('iframe').boundingBox())?.height ?? 0)
       .toBeGreaterThan(2400);
@@ -49,7 +63,9 @@ test('page-visible device Chat threads send exact bytes once, preserve drafts, k
         )
         .toBe(true);
       await first.evaluate(() => window.scrollTo(0, 0));
-      await first.screenshot({ path: `/tmp/1645-native-${width}-light-long-top.png` });
+      await first.screenshot({
+        path: path.join(captureDirectory, `1645-native-${width}-light-long-top.png`),
+      });
       await first.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
       const windowScrollTop = await first.evaluate(() => document.scrollingElement!.scrollTop);
       const frameScrollTop = await first
@@ -59,7 +75,9 @@ test('page-visible device Chat threads send exact bytes once, preserve drafts, k
       expect(windowScrollTop).toBeGreaterThan(1000);
       expect(frameScrollTop).toBe(0);
       await expect(first.frameLocator('iframe').locator('#scroll-end')).toBeInViewport();
-      await first.screenshot({ path: `/tmp/1645-native-${width}-light-long-scrolled.png` });
+      await first.screenshot({
+        path: path.join(captureDirectory, `1645-native-${width}-light-long-scrolled.png`),
+      });
       console.log(
         JSON.stringify({ width, windowScrollTop, frameScrollTop, marker: 'END OF PAGE' }),
       );
@@ -79,17 +97,17 @@ test('page-visible device Chat threads send exact bytes once, preserve drafts, k
     const before = await first.locator('iframe').boundingBox();
     await openChat(first);
     const panel = first.getByTestId('chat-panel');
-    const input = panel.getByRole('combobox', { name: 'Message to agent' });
-    await expect(input).toHaveValue(`@${agent.name} `);
+    const input = panel.getByRole('combobox', { name: 'Message' });
+    await expect(input).toHaveText(`@${agent.name} `, { useInnerText: true });
     await expect(panel.locator('.annotation-compose details')).toHaveCount(0);
     await expect(panel).toContainText('Visible to everyone with page access.');
     await expect(panel.getByRole('button', { name: 'Delete thread', exact: true })).toHaveCount(0);
     expect(await first.locator('iframe').boundingBox()).toEqual(before);
-    const opening = `@${agent.name} <script>private Chat turn</script> Explain this page.`;
+    const opening = '<script>private Chat turn</script> Explain this page.';
     await input.fill(opening);
     await first.getByRole('button', { name: 'Close Chat', exact: true }).click();
     await openChat(first);
-    await expect(input).toHaveValue(opening);
+    await expect(input).toHaveText(opening, { useInnerText: true });
     expect(agent.received()).toHaveLength(0);
     const draft = await composeChat(
       first,
@@ -103,7 +121,7 @@ test('page-visible device Chat threads send exact bytes once, preserve drafts, k
     const writer = (await own.getAttribute('data-writer'))!;
     await expect(own).toHaveAttribute('data-thread-id', writer);
     await expect(askEntry(first, sent.operationId).getByTestId('ask-state')).toContainText(
-      'waiting',
+      'Waiting for',
     );
     const requestId = agent.received()[0].requestId as string;
     fs.writeFileSync(`${agent.gate}/${requestId}.release`, '');
@@ -111,7 +129,7 @@ test('page-visible device Chat threads send exact bytes once, preserve drafts, k
       'ask-reply:' + createHash('sha256').update(draft.delivered()).digest('hex').slice(0, 16);
     await expect(askEntry(first, sent.operationId).getByTestId('ask-reply')).toHaveText(reply);
     const exchange = askEntry(first, sent.operationId);
-    const userTurn = exchange.locator('.chat-user-turn');
+    const userTurn = exchange.locator('.conversation-turn[data-turn-role=user]');
     await expect(userTurn.locator('header')).toContainText('You · just now');
     await expect(exchange.getByTestId('ask-state')).toHaveCount(0);
     await expect(exchange).toHaveAttribute('data-ledger-state', 'accepted');
@@ -123,9 +141,11 @@ test('page-visible device Chat threads send exact bytes once, preserve drafts, k
     await expect(userTurn.getByRole('menuitem')).toHaveCount(0);
     await expect(userTurn.locator('details')).toHaveCount(0);
     await expect(panel).not.toContainText('Show exactly what');
-    await expect(exchange.locator('.chat-agent-turn')).toHaveCount(1);
+    await expect(exchange.locator('.conversation-turn[data-turn-role=agent]')).toHaveCount(1);
     await expect(exchange.getByTestId('ask-reply-attribution')).toContainText(agent.name);
-    await expect(exchange.locator('.chat-agent-turn details')).toHaveCount(0);
+    await expect(exchange.locator('.conversation-turn[data-turn-role=agent] details')).toHaveCount(
+      0,
+    );
     await openChat(second);
     await expect(
       second.getByTestId('chat-thread').filter({ hasText: 'private Chat turn' }),
@@ -139,11 +159,15 @@ test('page-visible device Chat threads send exact bytes once, preserve drafts, k
       for (const theme of ['light', 'dark']) {
         await first.evaluate((theme) => (document.documentElement.dataset.theme = theme), theme);
         await input.fill(`@${agent.name} A retained follow-up draft.`);
-        await first.screenshot({ path: `/tmp/1645-native-${width}-${theme}-chat.png` });
+        await first.screenshot({
+          path: path.join(captureDirectory, `1645-native-${width}-${theme}-chat.png`),
+        });
         const menu = first.getByRole('button', { name: 'Message actions' }).first();
         await menu.click();
         await expect(first.getByRole('menuitem')).toBeVisible();
-        await first.screenshot({ path: `/tmp/1690-native-${width}-${theme}-menu.png` });
+        await first.screenshot({
+          path: path.join(captureDirectory, `1690-native-${width}-${theme}-menu.png`),
+        });
         await menu.press('Escape');
         await expect(first.getByRole('menuitem')).toHaveCount(0);
         await input.fill('@');
@@ -159,16 +183,33 @@ test('page-visible device Chat threads send exact bytes once, preserve drafts, k
             }),
           )
           .toBe(true);
-        await first.screenshot({ path: `/tmp/1645-native-${width}-${theme}-autocomplete.png` });
+        await first.screenshot({
+          path: path.join(captureDirectory, `1645-native-${width}-${theme}-autocomplete.png`),
+        });
         await option.click();
-        await expect(input).toHaveValue(`@${agent.name} `);
+        await expect(input).toHaveText(`@${agent.name} `, { useInnerText: true });
         await input.fill('@');
         await input.press('Escape');
         await expect(input).toBeVisible();
       }
     }
+    await expect(input).toBeFocused();
+    await expect(input).toHaveText('@', { useInnerText: true });
+    const retainedComposer = await input.elementHandle();
     await first.setViewportSize({ width: 1440, height: 900 });
     await first.evaluate(() => (document.documentElement.dataset.theme = 'light'));
+    await expect
+      .poll(() =>
+        first
+          .locator('.page-drawer[data-panel=chat][open]')
+          .evaluate((node) => node.matches(':modal')),
+      )
+      .toBe(false);
+    await expect(input).toBeFocused();
+    expect(await input.evaluate((node, retained) => node === retained, retainedComposer)).toBe(
+      true,
+    );
+    await expect(input).toHaveText('@', { useInnerText: true });
     const next = await composeChat(first, agent, 'Follow up with the earlier answer.');
     const follow = await sendChat(first, next);
     await until(() => agent.received().length === 2, 'follow-up Chat received');
@@ -205,7 +246,9 @@ test('page-visible device Chat threads send exact bytes once, preserve drafts, k
     await expect(first.getByTestId('annotation-row')).toHaveCount(0);
     await expect(first.getByRole('button', { name: 'Delete thread', exact: true })).toHaveCount(0);
     await first.getByRole('button', { name: '+ Comment on page', exact: true }).click();
-    await first.getByLabel('Post comment', { exact: true }).fill('Ordinary page comment');
+    await first
+      .getByRole('combobox', { name: 'Post comment', exact: true })
+      .fill('Ordinary page comment');
     await first.getByRole('button', { name: 'Post comment', exact: true }).click();
     await expect(first.getByTestId('annotation-row')).toHaveCount(1);
     await first.reload();

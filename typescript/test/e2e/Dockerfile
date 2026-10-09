@@ -6,12 +6,13 @@ COPY extensions/tmt-office/contracts/ ../extensions/tmt-office/contracts/
 COPY skills/ ../skills/
 COPY extensions/tmt-office/skills/ ../extensions/tmt-office/skills/
 # The squad extension: built for its E2E scenarios.
-COPY extensions/tmt-squad/ ../extensions/tmt-squad/
+COPY extensions/tmt-ops/ ../extensions/tmt-ops/
 COPY extensions/tmt-remote/rust/ ../extensions/tmt-remote/rust/
 COPY extensions/tmt-colab/rust/ ../extensions/tmt-colab/rust/
 COPY extensions/tmt-colab/contracts/ ../extensions/tmt-colab/contracts/
 COPY extensions/tmt-colab/skills/ ../extensions/tmt-colab/skills/
 COPY design/tokens/tokens.json ../design/tokens/tokens.json
+COPY design/browser-ui/generated/static.css ../design/browser-ui/generated/static.css
 COPY extensions/tmt-colab/typescript/app/src/colab-header.css ../extensions/tmt-colab/typescript/app/src/colab-header.css
 COPY extensions/tmt-colab/typescript/app/src/reader-style.css ../extensions/tmt-colab/typescript/app/src/reader-style.css
 COPY extensions/tmt-colab/typescript/app/src/notice-card.css ../extensions/tmt-colab/typescript/app/src/notice-card.css
@@ -22,7 +23,7 @@ ARG CARGO_BUILD_JOBS=default
 RUN cargo build --locked --example tmux-probe --example runtime-caller-fixture --example claude-hook-fixture --example codex-channel-fixture \
   && case "$TMT_NATIVE_PROFILE" in dev) native_output=debug ;; release) native_output=release ;; *) exit 2 ;; esac \
   && cargo build --locked --profile "$TMT_NATIVE_PROFILE" -p tmt-cli \
-  && cargo build --locked --profile "$TMT_NATIVE_PROFILE" -p tmt-squad \
+  && cargo build --locked --profile "$TMT_NATIVE_PROFILE" -p tmt-ops \
   && cargo build --locked --profile "$TMT_NATIVE_PROFILE" -p tmt-remote \
   && cargo test --locked --no-run -p tmt-adapters \
   && mkdir /native-artifacts \
@@ -30,7 +31,7 @@ RUN cargo build --locked --example tmux-probe --example runtime-caller-fixture -
   && cp target/debug/examples/runtime-caller-fixture /native-artifacts/codex \
   && cp target/debug/examples/claude-hook-fixture /native-artifacts/claude \
   && cp "target/$native_output/tmt" /native-artifacts/tmt \
-  && cp "target/$native_output/tmt-squad" /native-artifacts/tmt-squad \
+  && cp "target/$native_output/tmt-ops" /native-artifacts/tmt-ops \
   && cp "target/$native_output/tmt-remote" /native-artifacts/tmt-remote \
   && find target/debug/deps -maxdepth 1 -type f -name 'tmt_adapters-*' -executable \
     -exec cp {} /native-artifacts/adapter-tests \;
@@ -44,6 +45,7 @@ RUN apt-get update \
 RUN npm install --global pnpm@10.33.0
 WORKDIR /workspace
 COPY typescript/package.json typescript/pnpm-lock.yaml typescript/pnpm-workspace.yaml typescript/
+COPY design/browser-ui/package.json design/browser-ui/package.json
 COPY extensions/tmt-office/typescript/apps/office/package.json extensions/tmt-office/typescript/apps/office/package.json
 RUN cd typescript && pnpm --filter tmux-team install --frozen-lockfile \
   && test ! -e ../extensions/tmt-office/typescript/apps/office/node_modules/react
@@ -57,7 +59,7 @@ COPY --from=native-tests /native-artifacts/adapter-tests /opt/tmt-tests/adapter-
 # Exercise the same unset-selector path as a native developer checkout.
 # The selected dev/release profile changes bytes, not this fixture location.
 COPY --from=native-tests /native-artifacts/tmt /workspace/rust/target/debug/tmt
-COPY --from=native-tests /native-artifacts/tmt-squad /workspace/rust/target/debug/tmt-squad
+COPY --from=native-tests /native-artifacts/tmt-ops /workspace/rust/target/debug/tmt-ops
 COPY --from=native-tests /native-artifacts/tmt-remote /workspace/rust/target/debug/tmt-remote
 # test/support/cli-process launches native scenarios through this neutral caller fixture.
 COPY --from=native-tests /native-artifacts/codex /workspace/rust/target/debug/examples/runtime-caller-fixture

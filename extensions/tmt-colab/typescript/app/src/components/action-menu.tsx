@@ -26,12 +26,12 @@ export function ActionMenu({
   const entries = useRef<(HTMLButtonElement | null)[]>([]);
   const list = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
-  const [place, setPlace] = useState<{ right: number; flip: boolean }>();
+  const [place, setPlace] = useState<{ right: number; top: number; maxHeight: number }>();
   const enabled = items.flatMap((item, index) => (item.disabled ? [] : [index]));
 
   // The list drops below the row that owns the trigger (never over that row's own content),
-  // right edges aligned with the trigger, and flips above the row only when it would leave
-  // its scrolling container.
+  // right edges aligned with the trigger. When neither side fits, keep the list
+  // inside its scrolling container so stationary headers cannot cover its actions.
   useLayoutEffect(() => {
     if (!open) return setPlace(undefined);
     const row = root.current?.offsetParent,
@@ -39,17 +39,31 @@ export function ActionMenu({
       trigger = root.current?.getBoundingClientRect();
     if (!row || !box || !trigger) return;
     const rowBox = row.getBoundingClientRect();
-    let bottom = innerHeight;
+    let top = 0,
+      bottom = innerHeight;
     for (let parent = row.parentElement; parent; parent = parent.parentElement) {
       if (/(auto|scroll)/.test(getComputedStyle(parent).overflowY)) {
-        bottom = Math.min(bottom, parent.getBoundingClientRect().bottom);
+        const bounds = parent.getBoundingClientRect();
+        top = Math.max(top, bounds.top);
+        bottom = Math.min(bottom, bounds.bottom);
         break;
       }
     }
+    const maxHeight = Math.max(0, bottom - top - 4);
+    const height = Math.min(box.height, maxHeight);
+    const below = rowBox.bottom + 2;
+    const above = rowBox.top - height - 2;
+    const y =
+      below + height <= bottom - 2
+        ? below
+        : above >= top + 2
+          ? above
+          : Math.max(top + 2, bottom - height - 2);
     setPlace({
       // The list is positioned in the row's padding box.
       right: rowBox.left + row.clientLeft + row.clientWidth - trigger.right,
-      flip: rowBox.bottom + 2 + box.height > bottom && rowBox.top - box.height - 2 >= 0,
+      top: y - rowBox.top - row.clientTop,
+      maxHeight,
     });
   }, [open]);
 
@@ -125,8 +139,7 @@ export function ActionMenu({
       {open && (
         <div
           className="tmt-action-menu-list"
-          data-flip={place?.flip ?? false}
-          style={{ right: place?.right ?? 0, visibility: place ? 'visible' : 'hidden' }}
+          style={{ ...place, visibility: place ? 'visible' : 'hidden' }}
           ref={list}
           role="menu"
           id={id}

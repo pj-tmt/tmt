@@ -1,6 +1,6 @@
 # Local attachment storage proposal
 
-**Status: proposed; no object runtime or CLI is shipped by this document.**
+**Status: proposed object runtime/CLI; the [descriptor/manifest byte grammar](attachment-v1.md) is defined separately.**
 Architecture/product primary: Colab. Remote owns generic backend, quota, object channel and originating transport; Colab owns references, content cryptography, membership/history admission, native consumers and UI. This joint contract is reviewed through [#1849](https://github.com/pj-tmt/tmt/issues/1849) under [Storage #1691](https://github.com/pj-tmt/tmt/issues/1691).
 
 The terms MUST, MUST NOT and SHOULD describe requirements for the planned implementation, not claims about current runtime support. [Colab v1](colab-v1.md) retains its current owners and byte/crypto definitions; [Remote's channel contract](../../../contracts/remote-channel-v1.md) retains current Session/grant/mount authority. No core object API/database/attachment field, new credential, cloud implementation, dependency or deployment is authorized here. Remote never imports Colab code or interprets page/epoch/reference types. An object ID or URL grants no authority.
@@ -9,19 +9,19 @@ The terms MUST, MUST NOT and SHOULD describe requirements for the planned implem
 
 Remote supplies one installed-extension-scoped interface and trusted local filesystem implementation, with no provider-specific Colab branches. Its [coordinated carrier contribution](https://github.com/pj-tmt/tmt/issues/1849#issuecomment-5999213383) supplies the proposed private frame/type definitions and origin state machine; the public mappings and authenticated read capture below remain Colab-owned. These cross-squad requirements need exact-head owner review before implementation. The generic Core responsibility direction is settled; a concrete shared/core change still requires its normal owner review.
 
-V1 covers documents, Chat and annotation attachments, archive/retained reads, explicit download/export and admitted native/agent file I/O. Binary bodies stay out of Yjs, agent prompts/preambles/notes and automatic Ask payloads. Names, original-author labels, filenames and user-supplied principal JSON are not authority. Limits are bounded technical owner proposals, not another product questionnaire.
+Local v1 starts with current documents, exact Chat/annotation message revisions and archived non-deleted page reads (#1853). Signed snapshots and retained-reference persistence belong to #1856; download/export and filesystem consumers remain #1854/#1855/#1867. Binary bodies stay out of Yjs, agent prompts/preambles/notes and automatic Ask payloads. Names, original-author labels, filenames and user-supplied principal JSON are not authority. Limits are bounded technical owner proposals, not another product questionnaire.
 
 ## Existing owners and implementation gaps
 
-`Snapshot::capture` verifies the owner log/head, current epoch, device history and pinned cuts, then requires a writable page. Native fold/export and the browser's present admission path consequently do not establish archived/historical attachment reads. `OwnerAdmission::authorize(Read)` and reader policy can permit an archived, non-deleted page, but `Access::Read` alone establishes neither an authenticated attachment reference nor historical-key eligibility. Those distinctions are mandatory implementation work, not a reason to omit archive/history from v1.
+`Snapshot::capture` retains the writable-page fence. Its read purpose verifies the same owner log/head, device history and pinned cuts while allowing archive and refusing delete; frozen historical cuts remain read-only. Attachment capture joins exact decoded references and positive-sequence creation proof before opening an asset. `OwnerAdmission::authorize(Read)` and reader policy can permit an archived, non-deleted page, but `Access::Read` alone establishes neither an authenticated attachment reference nor historical-key eligibility. Those distinctions are mandatory implementation work, not a reason to omit archive/history from v1.
 
-Existing reader Sessions are fixed to the current page epoch and expire/recheck current share/link/device policy. Reader tickets are one-shot upgrade proofs, not general object HTTP bearers. Existing browser wrap processing opens the current key; an earlier wrap's existence is not an implemented historical asset reader. The native server's possession of an epoch secret is not permission to disclose it to a reader.
+Existing reader Sessions are fixed to the current page epoch and expire/recheck current share/link/device policy. Reader tickets are one-shot upgrade proofs, not general object HTTP bearers. Browser Admission opens only verified wraps addressed to the actual device/link, retaining opaque handles within the existing 64-epoch window. The planned historical fetch in the final #1853 slice uses the same Admission/Objects/Worker owners through the object adapter; it does not substitute the current projection. The native server's possession of an epoch secret is not permission to disclose it to a reader.
 
 Reuse the existing owner-log verifier, `page_policy_at`, authenticated cut validation, envelope/header/hash/signature validation, isolated decoder permit/deadline, strict own-record fold and wrap/public-key admission. Add one read capture at that owner. Do not build a second authority reducer or feed arbitrary client JSON into a decoder as proof. Existing writable capture remains the write/restore owner.
 
 ## Attachment read admission
 
-Proposed internal interface, not a shipped Rust type:
+Internal capture interface; Remote callback/peer-generation composition and activation remain planned:
 
 ```text
 capture_attachment_read(actual_origin, exact_selector, request_deadline)
@@ -31,7 +31,7 @@ capture_attachment_read(actual_origin, exact_selector, request_deadline)
 `actual_origin` is constructed by the socket/sync/local owner, never decoded from public JSON. `exact_selector` identifies a reference, not permission. `AdmittedAttachmentRead` contains only bounded internal data needed to verify an exact read:
 
 - Current verified owner-log revision/hash; current page policy/epoch; exact installed bus/origin and sync peer generation or actual root-local request owner.
-- Reference kind and exact document revision/cut or writer/message/revision or snapshot binding; canonical descriptor digest; asset epoch and original object ID, creator/writer provenance and signed membership revision.
+- Reference kind and exact document revision/cut or writer/message/revision or, in #1856, snapshot binding; canonical descriptor digest; asset epoch and original object ID, creator/writer provenance and signed membership revision.
 - Verified serialized-byte SHA-256/length, Colab framed envelope hash and allowed range; opaque namespace/key derived from the admitted descriptor.
 - Historical recipient entitlement, when needed, bound to the current actual principal; no unwrapped key, bearer or caller-selected principal is put into the Remote policy bytes.
 
@@ -41,16 +41,16 @@ This is an ephemeral capture for one callback, not a permit for a stream, later 
 
 The Colab-local selector is a strict tagged union, within the existing 2 KiB opaque policy-input bound after mapping. UUIDs, hashes and decimal revisions use existing canonical validators. Unknown/duplicate fields are rejected.
 
-| Selector                                                                       | Required authenticated source                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
-| ------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `document-current {attachmentId, descriptorHash, contentRevision}`             | Exact descriptor in the current, cut-admitted document metadata projection at that revision. Neither HTML URL nor raw `objectId` is a descriptor. Current changes cannot satisfy an earlier requested revision.                                                                                                                                                                                                                                                                                                                                                                         |
-| `message {writerId,messageId,messageRevision,attachmentId,descriptorHash}`     | Exact immutable own-record message revision admitted by the historical writer/device key and every later membership/device cut. A currently removed writer may have a valid retained record before its cut; a later forged revision cannot extend that cut.                                                                                                                                                                                                                                                                                                                             |
-| `snapshot {snapshotId,attachmentId,descriptorHash,attachmentManifestHash}`     | Exact authenticated snapshot record and its immutable attachment manifest binding, preserving original creator/membership revision/source digest. The current self-contained source snapshot has no implemented attachment manifest: add the binding to its owning signed record and retain the manifest through compaction. The manifest uses the existing encrypted Colab envelope boundary, with at most 128 bounded descriptors; its authenticated hash binds the exact list to that snapshot. Keep the existing sourceDigest meaning and original snapshot source bytes unchanged. |
-| `document-retained {checkpointId,contentRevision,attachmentId,descriptorHash}` | Explicit pinned, authenticated retained document projection containing that descriptor and its verified checkpoint/cut. Compaction must retain that proof or a self-contained manifest binding. Do not reconstruct a removed revision from latest content or return a different descriptor.                                                                                                                                                                                                                                                                                             |
+| Selector                                                                                      | Required authenticated source                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| --------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `document-current {attachmentId, descriptorHash, contentRevision}`                            | Exact descriptor in the current, cut-admitted document metadata projection at that revision. Neither HTML URL nor raw `objectId` is a descriptor. Current changes cannot satisfy an earlier requested revision.                                                                                                                                                                                                                                                                                                                                                                                            |
+| `message {writerId,messageId,messageRevision,attachmentId,descriptorHash}`                    | Exact immutable own-record message revision admitted by the historical writer/device key and every later membership/device cut. A currently removed writer may have a valid retained record before its cut; a later forged revision cannot extend that cut.                                                                                                                                                                                                                                                                                                                                                |
+| Planned #1856: `snapshot {snapshotId,attachmentId,descriptorHash,attachmentManifestHash}`     | Exact authenticated snapshot record and its immutable attachment manifest binding, preserving original creator/membership revision/source digest. No signed snapshot record/store owner is shipped. #1856 must introduce the authenticated record and retain its manifest through compaction; the existing manifest grammar alone is not proof. The manifest uses the existing encrypted Colab envelope boundary, with at most 128 bounded descriptors; its authenticated hash binds the exact list to that snapshot. Keep the existing sourceDigest meaning and original snapshot source bytes unchanged. |
+| Planned #1856: `document-retained {checkpointId,contentRevision,attachmentId,descriptorHash}` | Explicit pinned, authenticated retained document projection containing that descriptor and its verified checkpoint/cut. Compaction must retain that proof or a self-contained manifest binding. Do not reconstruct a removed revision from latest content or return a different descriptor.                                                                                                                                                                                                                                                                                                                |
 
-A descriptor binds object ID, asset epoch, original creator/writer and source provenance, framed envelope hash, serialized digest/length, plaintext length, filename/type and attachment ID. Label/originalAuthor/publisher names have no routing or authority role. Caller-controlled selector or policyInput must resolve to those actual authenticated bytes before a positive callback. The new canonical descriptor/manifest grammar and native/TS byte vectors belong to #1853, with retention/compaction in the existing lifecycle child. No claim is made that today's decoder understands these fields.
+A descriptor binds object ID, asset epoch, original creator/writer and source provenance, framed envelope hash, serialized digest/length, plaintext length, filename/type and attachment ID. Label/originalAuthor/publisher names have no routing or authority role. Caller-controlled selector or policyInput must resolve to those actual authenticated bytes before a positive callback. The canonical descriptor/manifest grammar and native/TS byte vectors are defined in [attachment-v1](attachment-v1.md), the first #1853 slice. Its decoder/Worker understands bounded metadata/comment descriptors and preserves them through baselines. The second #1853 slice supplies ephemeral native/browser reference/read captures and a committed-object publication verifier; the final slice supplies the real channel adapter and callback composition. Snapshot/retained-reference persistence and broader lifecycle policy remain #1856.
 
-Archive preserves references and permits reads under current admission, including eligible retained-reference reads; upload, attach, edit and restore remain prohibited while archived. Delete/revoke denies new acquisition/disclosure immediately; retained physical bytes do not preserve access. Already downloaded plaintext cannot be recalled. Missing proof, key or object is an explicit unavailable attachment, not a successful empty body or an alternative current-version read. Archive, retained document, message revision and snapshot positive cases are required acceptance: unsupported fallback cannot be used to ship those cases as omitted.
+Archive preserves references and permits reads under current admission, including exact immutable message revisions; upload, attach, edit and restore remain prohibited while archived. Delete/revoke denies new acquisition/disclosure immediately; retained physical bytes do not preserve access. Already downloaded plaintext cannot be recalled. Missing proof, key or object is an explicit unavailable attachment, not a successful empty body or an alternative current-version read. Current document, exact message revision and archive positive cases are required for #1853. Snapshot and retained-document persistence/positive cases are deferred to #1856; unsupported fallback cannot satisfy that later gate.
 
 ### Principal and history matrix
 
@@ -130,7 +130,7 @@ Retain the object-safe synchronous `ObjectBackend` and LocalFs sketch in the exi
 
 ### Generic backend interface sketch
 
-The following Remote-owned Rust sketch specifies one service-injected interface. It is a design sketch, not compiled crate exports. Its context/ID types carry opaque installed-extension ownership and immutable intent bindings; only the admitted service invokes it.
+The following signature projection aligns with the reviewed Remote backend library. The object channel, callbacks, configuration and Colab consumers remain proposed and unintegrated. Remote owns the actual types in `objects.rs`; this sketch omits derives and validation helpers. Opaque IDs and immutable input bindings carry no authority; only the admitted service invokes the backend.
 
 ```rust
 use std::sync::atomic::AtomicBool;
@@ -152,6 +152,12 @@ pub struct BeginSpec {
     pub payload_bytes: u64,
     pub binding: Vec<u8>, // service-generated immutable input binding, <=2 KiB
 }
+pub struct OriginalIntent {
+    pub spec: BeginSpec,
+    pub adopted_at_ms: u64,
+    pub expires_at_ms: u64,
+}
+// A receipt attests only committed raw storage bytes.
 pub struct Receipt {
     pub intent: IntentId,
     pub key: BlobKey,
@@ -163,11 +169,17 @@ pub struct Progress { pub intent: IntentId, pub next_index: u32, pub received: u
 pub enum BeginResult { Pending(Progress), Committed(Receipt), Terminal(TransferState) }
 pub enum TransferState { Pending(Progress), Committed(Receipt), Expired,
     Unavailable, Unknown, Discarded, NotObserved }
+pub struct Transfer { pub state: TransferState, pub original: Option<OriginalIntent> }
 pub struct ReadPart { pub offset: u64, pub total_bytes: u64, pub bytes: Vec<u8> }
-pub struct Usage { pub charged_bytes: u64, pub entries: u32, pub active_uploads: u32 }
-pub struct BackendCaps { pub max_payload_bytes: u64, pub max_chunk_bytes: u32 }
+pub struct Usage { pub charged_bytes: u64, pub entries: u32,
+    pub active_uploads: u32, pub retained_identities: u32 }
+pub struct BackendCaps { pub max_payload_bytes: u64, pub chunk_bytes: u32 }
 pub struct IoBudget<'a> { pub deadline: Instant, pub cancelled: &'a AtomicBool }
-pub enum BackendError { Invalid, Conflict, Missing, Unavailable, Cancelled, Deadline }
+pub enum Limit { NamespaceBytes, ExtensionBytes, InstallationBytes,
+    NamespaceEntries, ExtensionEntries, InstallationEntries, ActiveIntents,
+    RetainedExtension, RetainedInstallation }
+pub enum BackendError { Invalid, Conflict, Missing, Unavailable, Cancelled, Deadline,
+    Capacity(Limit) }
 pub type BackendResult<T> = Result<T, BackendError>;
 
 pub trait ObjectBackend: Send + Sync {
@@ -182,7 +194,7 @@ pub trait ObjectBackend: Send + Sync {
     fn commit(&self, intent: IntentId, io: &IoBudget<'_>)
         -> BackendResult<Receipt>;
     fn status(&self, intent: IntentId, io: &IoBudget<'_>)
-        -> BackendResult<TransferState>;
+        -> BackendResult<Transfer>;
     fn stat(&self, key: BlobKey, io: &IoBudget<'_>) -> BackendResult<Receipt>;
     fn read(&self, key: BlobKey, offset: u64, count: u32, io: &IoBudget<'_>)
         -> BackendResult<ReadPart>;
@@ -191,6 +203,12 @@ pub trait ObjectBackend: Send + Sync {
         -> BackendResult<()>;
 }
 ```
+
+One trusted `LocalFs` installation coordinator borrows Remote's held `Serving` lease and shares metadata/accounting and in-flight guards across extension-bound `LocalHandle` values. A validated `ExtensionId` name is not installed identity or admission; #1852 must obtain it from trusted registration and compose one coordinator, not reopen it per request. The trait handle's `usage(None)` means its extension, not the installation. Installation usage stays on the trusted coordinator; configuration readers receive only the admitted namespace projection. Other backends must provide the same shared accounting and trait semantics without Colab provider branches.
+
+`BeginSpec` freezes caller input. `OriginalIntent` adds adoption time and staging expiry once at durable adoption; later requests compare the same frozen input, not a new caller clock or renewed deadline. `status` returns `Transfer`: compare its retained original's exact key/raw digest/length/binding before projecting its state under current original-principal admission. An absent original is `NotObserved`, not proof of no effect. Neither an original record nor a non-committed state is a committed receipt. `Capacity(Limit)` refuses a new adoption; it is not a terminal outcome of a previously adopted uncertain transfer and never permits retry or replacement identity.
+
+`BackendCaps.chunk_bytes` defines canonical parts: exact full parts followed by the final remainder. A zero-byte generic raw payload commits without a part; Colab still supplies and validates its sealed envelope and independent plaintext/media limits. Every successful I/O result, including retained-original and usage fast paths, rechecks its budget after controlled ledger/I/O work before disclosure. Cancellation/deadline preserves any effect, charge and original state. Startup `LocalFs::open` reconciliation and an explicit owning-service `reconcile` call are separate from observational status; consumers do not invoke repair, timers, mutation retries or completed-object GC.
 
 Generic method inputs and semantics remain:
 
@@ -220,7 +238,7 @@ Colab's proposed effective consumer limits are 8 MiB plaintext per file, 12 MiB 
 
 LocalFs adapts existing extension-state private/no-follow publication invariants to a bounded dynamic object tree; the existing fixed `Layout` is not already a blob store. Stage only the immutable original principal/intent, namespace/key, raw digest/length, bounded policy binding and acknowledged chunk checkpoint. Sync payload and checkpoint before acknowledging a part. Startup reconciliation removes unacknowledged partial tails and settles only that original intent before readiness. A status call observes, never performs that reconciliation or a commit.
 
-Commit rereads the bounded serialized payload, verifies SHA-256/length and syncs it. Publish create-only using owned temporary-file/hard-link/directory-sync invariants, then record the matching index/receipt before acknowledgment. An existing destination is success only when its actual original receipt/digest/length agree; otherwise conflict/corruption refuses. File publication before receipt is a possible effect that recovery reconciles by the same original ID, never replacing a file or allocating another intent. Retained intent input binds the original deadline as well as its principal/namespace/policy/bytes; later requests cannot renew it. Changed input under that original ID conflicts.
+Commit rereads the bounded serialized payload, verifies SHA-256/length and syncs it. Publish create-only using owned temporary-file/hard-link/directory-sync invariants, then record the matching index/receipt before acknowledgment. An existing publication name is recoverable only as the original's own admitted device/inode, with the original raw digest/length verified on reconciliation; equal bytes in another inode are not that publication. Unknown distinct bodies remain conservatively charged and are not overwritten or removed. If allocation cannot be examined, measured or recorded, the original stays unsettled and the shared coordinator refuses new adoption; observation of original IDs remains available, and restart must settle or refuse readiness. File publication before receipt remains a possible effect reconciled by the same original ID, never a replacement file or intent. Backend adoption computes/persists staging expiry once; the retained original binds that metadata to the frozen principal/namespace/policy/bytes. Later requests cannot renew it, and changed frozen input conflicts.
 
 Serialize commit/discard and namespace deletion against the original intent/fence. Retain ID/tombstone records outside removable payload trees; deletion cannot make an old ID reusable. Cleanup-pending physical data stays charged until no-follow removal and directory sync confirm it gone. Quota/policy loss can leave an unattached encrypted object; it does not authorize a content reference or stale disclosure. Pending/committed/expired/discarded/unavailable/unknown/not-observed remain distinct; absent, expiry and deadline do not prove a possibly published effect had none.
 
@@ -257,7 +275,7 @@ The private route validates the actual owner and exact reference/history capture
 
 ## Verification and delivery
 
-The implementation MUST include positive current, archived and retained document/message/snapshot reads and actual native/agent reference reads. Unsupported binding or proof denies safely, but MUST NOT be used to omit those required positive cases. Verify forged descriptors/cuts/keys, current-only versus shared-history joins, public/link/owner separation, expiry/revoke/delete/head-change races, Pending/Established/closed origin races, callback correlation/capacity, interrupted original-ID publication and conservative quota/cleanup. Native/TS DTO and envelope vectors must agree. Real process/socket/temp-file/object-URL cleanup, unchanged CSP and durable bytes/state matter alongside test counts.
+#1853 MUST include positive current-document, exact immutable-message and archived-page reads, plus actual root-local native reference admission. Snapshot and retained-reference persistence/positives belong to #1856, and filesystem command/output delivery belongs to #1867. Unsupported binding or proof denies safely; it MUST NOT omit a positive case required by the current slice. Verify forged descriptors/cuts/keys, current-only versus shared-history joins, public/link/owner separation, expiry/revoke/delete/head-change races, Pending/Established/closed origin races, callback correlation/capacity, interrupted original-ID publication and conservative quota/cleanup. Native/TS DTO and envelope vectors must agree. Real process/socket/temp-file/object-URL cleanup, unchanged CSP and durable bytes/state matter alongside test counts.
 
 The planned direct children already exist; no runtime worker or execution slot is reserved by this proposal:
 

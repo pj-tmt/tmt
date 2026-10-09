@@ -147,6 +147,26 @@ pub fn set_sessions_per_device(root: &Path, limit: Option<usize>) -> Result<Remo
 }
 /// Preserve other settings under the same read/write lock.
 fn set(root: &Path, key: &str, value: Value) -> Result<RemoteSettings> {
+    set_observed(root, key, value, |_| Ok(()))
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum WriteStage {
+    BeforeTouch,
+    Truncated,
+    Written,
+    Synced,
+}
+
+/// The callback marks the uncertainty boundary before creation or truncation.
+/// Lock ordering is live Session -> Store transaction -> settings.lock; the callback
+/// must not acquire Session or Store. CLI setters use this same writer.
+pub(crate) fn set_observed(
+    root: &Path,
+    key: &str,
+    value: Value,
+    mut observe: impl FnMut(WriteStage) -> Result<()>,
+) -> Result<RemoteSettings> {
     let layout = Layout::open(root)?;
     let _lock = locked(&layout)?;
     let mut document = match layout.read(FILE, LIMIT) {
@@ -169,10 +189,14 @@ fn set(root: &Path, key: &str, value: Value) -> Result<RemoteSettings> {
             "Settings file is too large.",
         ));
     }
+    observe(WriteStage::BeforeTouch)?;
     let mut file = layout.file(FILE)?;
     file.set_len(0)?;
+    observe(WriteStage::Truncated)?;
     file.write_all(bytes.as_bytes())?;
+    observe(WriteStage::Written)?;
     file.sync_all()?;
+    observe(WriteStage::Synced)?;
     Ok(RemoteSettings::parse(bytes.as_bytes()))
 }
 
@@ -192,5 +216,39 @@ mod tests {
             let parsed = RemoteSettings::parse(bad.as_bytes());
             assert!(parsed.malformed && parsed.open(), "{bad}");
         }
+    }
+}
+
+#[cfg(test)]
+mod write_tests {
+    use super::*;
+    #[test]
+    fn interruption_after_truncation_is_observable_as_malformed_defaults() {
+        let root =
+            std::env::temp_dir().join(format!("t1769-write-{}", crate::store::uuid_v4().unwrap()));
+        set_open(&root, false).unwrap();
+        let mut touched = false;
+        let error = set_observed(&root, "open", json!(true), |stage| {
+            if stage == WriteStage::BeforeTouch {
+                touched = true;
+            }
+            if stage == WriteStage::Truncated {
+                return Err(RemoteError::new("REMOTE_IO", "Injected after truncation."));
+            }
+            Ok(())
+        })
+        .unwrap_err();
+        assert_eq!(error.code, "REMOTE_IO");
+        assert!(touched);
+        assert!(
+            std::fs::read(root.join("remote/settings.json"))
+                .unwrap()
+                .is_empty()
+        );
+        let loaded = read_or_default(&root);
+        assert!(loaded.malformed);
+        assert!(loaded.open());
+        assert_eq!(loaded.source(), "default");
+        std::fs::remove_dir_all(&root).unwrap();
     }
 }

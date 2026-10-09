@@ -1,5 +1,10 @@
 import {
   binary,
+  digest,
+  encodeBinary,
+  frame,
+  streamCut,
+  text,
   decimal,
   decodeHeader,
   Envelope,
@@ -43,6 +48,7 @@ interface Head {
 export class Objects {
   #heads = new Map<string, Head>();
   #ownSigningKeys = new Map<string, Uint8Array>();
+  #ownerWriters = new Map<string, boolean>();
   #seen = new Map<string, Uint8Array>();
   #positions = new Map<
     string,
@@ -50,7 +56,10 @@ export class Objects {
   >();
   #prefixes = new Map<string, { head: Head; checkpoints: Map<Namespace, Uint8Array> }>();
   ownData = false;
-  constructor(readonly admission: Admission) {}
+  constructor(
+    readonly admission: Admission,
+    readonly epoch = admission.epoch,
+  ) {}
   head(stream: string) {
     const h = this.#heads.get(stream);
     return { seq: h?.seq ?? 0n, hash: h?.hash.slice() ?? new Uint8Array(32) };
@@ -60,13 +69,67 @@ export class Objects {
   ownSigningKey(writer: string): Uint8Array | undefined {
     return this.#ownSigningKeys.get(writer)?.slice();
   }
+  /** Whether every own envelope admitted from this writer came from an owner-member device,
+   * the browser's form of native `status_writers`. A bridge's records are visible, but only
+   * an owner device can resolve a thread. */
+  statusWriter(writer: string): boolean {
+    return this.#ownerWriters.get(writer) === true;
+  }
   cursors() {
     return [...this.#positions]
       .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
       .map(([, v]) => ({ ...v }));
   }
+  /** Native page::token parity: namespace order, stream order and exact cuts,
+   * including the empty namespace of a shared per-device author chain. */
+  async revision(): Promise<string> {
+    const a = this.admission,
+      head = a.head;
+    requireValue(head !== null);
+    const cuts = (['content', 'own'] as const).flatMap((namespace) =>
+      [...this.#heads.keys()].sort().map((streamId) => {
+        const prefix = this.#prefixes.get(streamId),
+          checkpointHash = prefix?.checkpoints.get(namespace) ?? null,
+          checkpointSeq = checkpointHash ? prefix!.head.seq.toString() : '0',
+          position = this.#positions.get(`${streamId}:${namespace}`),
+          atCheckpoint =
+            position !== undefined && checkpointHash !== null && position.seq === checkpointSeq;
+        return {
+          pageId: a.page,
+          epoch: this.epoch,
+          namespace,
+          cut: encodeBinary(
+            streamCut.input({
+              streamId,
+              namespace,
+              checkpointHash,
+              checkpointSeq,
+              tailHeadSeq: position?.seq ?? '0',
+              tailHeadHash: atCheckpoint
+                ? prefix!.head.hash
+                : position
+                  ? binary(position.envelopeHash, 32, 32)
+                  : new Uint8Array(32),
+            }),
+          ),
+        };
+      }),
+    );
+    const bytes = await digest(
+      frame(
+        text('tmt-colab-page-revision-v1'),
+        text(a.space),
+        text(a.page),
+        text(head.revision.toString()),
+        head.hash.slice(),
+        text(this.epoch),
+        text(JSON.stringify(cuts)),
+      ),
+    );
+    return `v1:${[...bytes].map((b) => b.toString(16).padStart(2, '0')).join('')}`;
+  }
   finish() {
-    for (const { cut } of this.admission.cuts()) {
+    for (const { cut } of this.admission.cuts(undefined, this.epoch)) {
       const seq = decimal(cut.tailHeadSeq, true);
       if (seq === 0n) continue;
       const exact = this.#seen.get(`${cut.streamId}:${seq}`);
@@ -91,14 +154,15 @@ export class Objects {
     requireValue(
       c.space === a.space &&
         c.page === a.page &&
-        c.epoch === a.epoch &&
+        c.epoch === this.epoch &&
         c.authorDevice === stream &&
         c.streamSeq === entry.seq &&
         c.kind === kind &&
         (namespace === undefined || c.namespace === namespace) &&
         equal(await env.hash(), hash),
     );
-    const key = a.readAuthor(c, hash);
+    const author = a.readAuthor(c, hash),
+      key = author.key;
     requireValue(
       await strictVerify(
         key,
@@ -143,8 +207,7 @@ export class Objects {
       return null;
     }
     requireValue(this.#positions.has(`${stream}:${ns}`) || this.#positions.size < 256);
-    requireValue(a.root !== null);
-    const plaintext = await env.open(c, a.root, key);
+    const plaintext = await env.open(c, a.readRoot(this.epoch), key);
     if (plaintext.length > (kind === 'checkpoint' ? STATE_BYTES : UPDATE_BYTES)) {
       plaintext.fill(0);
       throw new Error('Checkpoint decoder capacity');
@@ -171,6 +234,10 @@ export class Objects {
     if (ns === 'own') {
       this.ownData = true;
       this.#ownSigningKeys.set(stream, key.slice());
+      this.#ownerWriters.set(
+        stream,
+        (this.#ownerWriters.get(stream) ?? true) && author.ownerDevice,
+      );
     }
     return { namespace: ns, writer: stream, update: plaintext };
   }

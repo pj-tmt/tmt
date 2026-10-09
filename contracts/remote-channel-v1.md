@@ -232,12 +232,15 @@ device context, not a second credential model: every request and upgrade recheck
 revocation and expiry, and a state-changing operation still needs a fresh device signature over
 its exact intent. Door sessions live only in the running remote and do not survive restart.
 Revocation, grant expiry/revision change and stop end all device sessions and tokens.
-`limits::SESSION_IDLE` is 12 hours without activity for a session that has had a transport;
-`limits::SESSION_UNATTACHED_IDLE` is 60 seconds without activity for a session that has never
-had one. Traffic and authenticated requests count as activity. Maintenance runs even without new
-requests: the door's existing 100 ms event loop runs session maintenance at most once per
+`limits::SESSION_IDLE` is 12 hours without activity while a session has a live transport;
+`limits::SESSION_UNATTACHED_IDLE` is a 60-second inactivity grace for every session without
+a live transport, including one that previously attached. Last-transport close starts fresh
+grace; traffic and authenticated requests count as activity. Reattaching within the grace
+resumes the same session. Detached sessions still count against the per-device cap until expiry.
+Maintenance runs even without new requests: the door's existing 100 ms event loop runs session maintenance at most once per
 `limits::SESSION_MAINTENANCE_INTERVAL` (one second). Request paths still check session expiry
-themselves; last-transport closure ends authority immediately. Maintenance prunes persisted
+themselves. Explicit end, revoke, grant expiry/revision change, eviction and stop remain immediate.
+Maintenance prunes persisted
 session rows only when an old run or expired end notice needs removal.
 
 The SDK's `transportUrl(session, mountedWebSocketUrl)` adds exactly `?tmt-session=<sessionId>`
@@ -251,17 +254,17 @@ current door's mount space, without other query parameters or fragments. Existin
 without the parameter attach to the cookie's session.
 
 Opening another session leaves existing sessions and tunnels live. The last upgraded transport
-closing (including tab close or a dropped transport while backgrounded/asleep) ends its session;
-other tabs stay live. A failed upgrade is not an established transport. Ending closes remaining
-tunnels while held work survives the session end, bound to the device grant. Only stop, revoke,
+closing (including tab close or a dropped transport while backgrounded/asleep) starts the
+session's reattach grace; other tabs stay live. A failed upgrade is not an established transport.
+Ending closes remaining tunnels while held work survives the session end, bound to the device grant. Only stop, revoke,
 and grant expiry/revision change cancel held work. Dispatching and uncertain work retain their
 original operation IDs, frozen intent and recovery behavior. A limit eviction uses
 `REMOTE_SESSION_EVICTED` with the active positive `limit` and optional `settingsUrl`; the door
 omits the URL until #1769 adds the Remote settings page. The SDK exposes `RefusalError.limit`
 and optional `settingsUrl`, also on send/operation refused states. Absent/null URLs mean
 command-only guidance; when present, Colab shows the settings link plus `tmt remote settings
-sessions-per-device <n>`. The SDK normalizes the URL and requires the door's origin. Transport
-close/idle expiry uses `REMOTE_SESSION_ENDED`. After verifying the device signature and current
+sessions-per-device <n>`. The SDK normalizes the URL and requires the door's origin. Session
+idle expiry uses `REMOTE_SESSION_ENDED`. After verifying the device signature and current
 grant, Remote can sign the distinct end reason for `limits::SESSION_END_NOTICE` (60 seconds);
 afterward admission is the generic 404, also exposed by the SDK as `REMOTE_SESSION_ENDED`.
 Reopening is silent: the page sends another signed `session.open` from its stored device key,
@@ -414,14 +417,18 @@ or the time limit the owner chose at pairing. `revision` is a positive integer; 
 false on issue. Names are presentation only; rename preserves UUID authority, and a retired
 identity's same-name replacement inherits nothing. After pairing, authority may only be narrowed
 or revoked through local management (`tmt remote devices`). The separate
-[planned settings designation](#remote-settings-browser-authority) does not widen this agent grant.
+[settings designation](#remote-settings-browser-authority) does not widen this agent grant.
 
 Default scopes are `agents.read`, `status.read`, `check.read`, `talk` and `results.read`. The owner
 may remove scopes at pairing. Future core capabilities do not silently become remotely callable;
 a new scope needs a revision of this contract.
 
-The shipped `tmt remote serve` runs in the foreground until Ctrl-C, SIGTERM or `tmt remote stop`,
-with no default idle or hard deadline. Without `--port`, it reuses its last successfully bound
+`tmt remote serve` with human output starts a detached owner-device door. Explicit
+`--background` also detaches, including with `--json`; `--foreground` keeps direct terminal
+ownership. The mode flags are mutually exclusive. Bare `serve --json` remains foreground for
+existing supervisors. Foreground runs until Ctrl-C, SIGTERM or `tmt remote stop`; accepted
+background serving has no idle or hard deadline and ends through the existing stop owner.
+Without `--port`, serve reuses its last successfully bound
 IPv4-loopback port; on first use it selects an unused port. If the remembered port is busy, serve
 refuses with `REMOTE_PORT_BUSY`, names the port, tells the owner to stop the process using it to
 retain browser pairing, and offers `--port <n>` to choose a new origin explicitly. Human output is
@@ -429,6 +436,34 @@ an `error:` line and a separate `hint:` line; `--json` joins them as `error.mess
 `--port 0` explicitly selects a random unused port; an explicit nonzero busy port refuses without
 fallback. The actual bound port is remembered for the next run, including after an explicit
 selection. Human startup output puts the full door URL on its own line with no trailing punctuation.
+Background startup uses only an exact native self-exec worker and a private Unix socket pair.
+The launcher performs no core discovery or state initialization. The worker starts its own session,
+uses the same foreground composition, and restores close-on-exec on its private endpoint before
+invocations. Private Ready follows lease/listener/control/event admission; HTTP serving starts only
+following Accept. The launcher's successful one-byte Accept write is its no-kill cutoff. Cancellation
+observed earlier wins; a signal racing that write may lose to acceptance. The worker consumes a
+buffered Accept before later EOF, preserves actual shutdown signals, attempts Accepted once and
+closes the startup endpoint. Lost acknowledgment or publication after Accept is startup unconfirmed,
+not proof the door closed. Inspect `status` and use `stop`; never automatically start again. Partial
+readiness output is never followed by a second JSON error record.
+
+Private records are typed and byte-bounded by `limits::SERVE_RECORD_BYTES`, with one absolute
+`limits::SERVE_STARTUP` admission deadline. Before acceptance, EOF/cancellation/deadline requests
+existing invocation and serving cleanup. The launcher may additionally wait `limits::STOP_WAIT`
+and bounded final reap; the startup deadline is not a total command-duration or filesystem-I/O
+promise. Cleanup needs the exact owned unreaped worker's confirmation and exit. Forced termination,
+crash or inherited invocation lease uncertainty cannot prove every descendant ended. No PID/status
+rediscovery supplies kill authority, and no signal occurs after reap or acceptance.
+
+The background worker admits and clears one private `remote/serve-error.json` only after acquiring
+Serving, before runtime publication. It records at most `limits::SERVE_RECORD_BYTES` of fixed
+sanitized version/phase/code/message on ordinary failure, closes the file before releasing Serving,
+and never appends or retries. Duplicate starts cannot clear it. Foreground preserves terminal
+errors and need not create it. Missing, empty or unwritable diagnostics do not prove a healthy exit.
+`status`/`stop` remain authoritative; run `serve --foreground` for terminal troubleshooting. Launcher
+departure after handoff preserves held work; actual stop/restart cancels pending holds through
+Approval. Frozen dispatching/unknown operation IDs remain recoverable and are never resent.
+
 Remote schema 6 replaces each existing 32-hex-character prefix once with 16 lowercase RFC 4648
 base32 characters (`a-z2-7`, 80 random bits), then keeps it stable. Old links and cookie paths
 stop working. Machine IDs, keys, origin-bound pairings, grants and the remembered port survive;
@@ -448,11 +483,8 @@ original operation, never becomes falsely unsent.
 
 ### Remote settings browser authority
 
-**Planned for [#1769](https://github.com/pj-tmt/tmt/issues/1769), not implemented.**
-This section defines Remote's settings and paired-device page; it does not claim a shipped
-management SDK, route or browser capability. Until implementation lands, the local CLI remains
-the settings/device management path. Current landing, pairing and error-page presentation adoption
-does not implement this feature.
+**[#1769](https://github.com/pj-tmt/tmt/issues/1769) implementation: native/SDK and the shared-presentation settings page.** This section owns authority; the fixed management protocol
+below specifies the native/SDK implementation. The local CLI remains the scripting management path.
 
 A paired channel owner-device is not automatically a settings administrator. Loopback, Host,
 Origin, a route prefix, door cookie, display name or client-supplied owner flag cannot establish
@@ -515,6 +547,190 @@ obey the lifecycle and effect fence above. The actual settings/device page separ
 product native/browser acceptance, UX review and publication evidence; a shared presentation
 package or current-page adoption cannot satisfy those requirements.
 
+### Remote management protocol
+
+The #1769 implementation adds the following fixed operations on the existing signed
+`POST /append` request channel. The settings/device page uses the shared browser presentation and Remote host metrics;
+presentation carries no authority.
+Every read and effect retains ordinary live-grant admission. Only a `browser` grant pinned to the
+door's exact origin may use these cases. Agent scopes and direct/hold mode confer no management
+write capability. Unsupported operations, including `remote.management.recover`, remain refused.
+
+Management payloads are at most 1024 decoded UTF-8 bytes, strict JSON objects without unknown
+fields. Mutation `operationId` is a canonical UUIDv4 equal to the signed envelope ID. Read
+requests use a fresh envelope ID; original-operation lookup never adopts or executes a mutation.
+
+| Operation                     | Exact input                                                                                                      | Result                                                                 |
+| ----------------------------- | ---------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
+| `remote.settings.show`        | `{}`                                                                                                             | Settings view below                                                    |
+| `remote.devices.list`         | `{cursor:null\|string,limit:integer}`                                                                            | Device page below; limit 1–50                                          |
+| `remote.settings.set`         | `{operationId,setting:"open",value:boolean}` or `{operationId,setting:"sessions-per-device",value:string\|null}` | Management outcome below                                               |
+| `remote.devices.rename`       | `{operationId,clientId,name}`                                                                                    | Management outcome; existing 1–64-byte nonblank/control-free name rule |
+| `remote.devices.revoke`       | `{operationId,clientId}`                                                                                         | Management outcome                                                     |
+| `remote.management.operation` | `{operationId}`                                                                                                  | Only the caller's original management outcome, with a live grant       |
+
+A settings value is exactly `{open:boolean,source:"default"|"settings.json",
+sessionsPerDevice:string|null,sessionsPerDeviceSource:"default"|"settings.json",warning:string|null}`.
+The cap uses a canonical positive decimal string checked against the native target's `usize`
+range, without JavaScript rounding; default is `"8"`, null means off/unlimited. This wire encoding
+does not change the JSON file or CLI's numeric representation, validation or supported values.
+Warning is null or `settings.json could not be read; defaults apply`. Malformed/unreadable fallback
+reports default effective values and sources with that warning. A save does not evict current
+Sessions; the existing Session opener applies the cap on the next open.
+
+The settings view is exactly `{settings,capabilities:{settingsWrite:boolean,devicesWrite:boolean},
+readOnlyReason:null|"local_cli_required"}`. Both write capabilities represent the current server
+admission, never authorization for a later effect. With no current designation they are false and
+the reason is `local_cli_required`.
+
+A device summary is exactly `{clientId,name,kind,issuedAtMs,expiresAtMs,revision,revoked}`, where kind
+is `browser`, `addon` or `cli`, expiry is null or a JSON-safe millisecond integer and revision is
+positive and JSON-safe. A list row adds exactly `{thisBrowser:boolean,liveSessionCount:integer,
+lastActivityAtMs:null|integer}`. The page is `{devices:[row],nextCursor:null|string}`. Store performs
+UUID-keyset ordering and SQL limit+one-lookahead before materializing rows. Its 98-character
+base64url cursor encodes only caller UUID and last UUID, is checked against the admitted caller,
+and grants no authority. It is not a snapshot lease; concurrent grant changes may affect later
+pages. The Session owner counts only live current-revision Sessions for the bounded page. Latest
+activity is observed machine wall time minus the smallest monotonic idle duration; no live Session
+means count zero and null activity. These are disposable observations, not persisted presence.
+No keys, fingerprints, cookies, Session identifiers, origins, agent grants or core inventory appear.
+
+A management outcome is one of:
+
+- `{operationId,state:"committed",result:{settings}|{device:summary},sessionEnded:boolean}`;
+- `{operationId,state:"refused",reason:<typed Remote refusal code>}`;
+- `{operationId,state:"unknown",reason:"effect_outcome_unconfirmed"}`.
+
+A setting result contains settings; device mutations contain only the target summary.
+`sessionEnded` means the caller's old Session lost authority through a revision/revoke change,
+not proof that a physical TCP socket has closed. Exact-repeat rename preserves the revision and
+returns false. Repeated local revoke preserves the existing revoked revision. Device effects and
+committed receipts share one immediate SQLite transaction; post-commit cleanup/events reuse the
+existing device and Session owners after releasing live/Store locks. A cleanup, signing or transport
+failure cannot remove that receipt or turn committed work into no effect.
+
+Typed signed errors retain `{error:{code,message,limit?,retryAfterMs?,settingsUrl?}}` admission
+conventions. `REMOTE_MANAGEMENT_READ_ONLY` refuses non-designated effects before management intent
+adoption, with no setting/device effects or management holds; ordinary sequence/budget/audit
+accounting remains. `REMOTE_MANAGEMENT_UNAVAILABLE` means an original receipt is missing,
+other-device or outside its deadline, never proof of no effect. `REMOTE_SETTINGS_UNAVAILABLE` is
+used only for a proved failure before the settings-file first-touch boundary. Existing input,
+rate, live-session, intent-conflict, device-not-found/revoked and state-unavailable codes retain
+relevant meanings. Read refusals are SDK `RefusalError`; mutation signed refusals are refused
+outcomes. Unknown transport, timeout or unverifiable acknowledgment raises `ClientError` with
+original operationId. A verified generic state, ownership or response-publication failure is
+phase-ambiguous after publication: the SDK raises `ClientError("outcome_unconfirmed")`, retaining
+that original ID and unknown outcome. `REMOTE_STATE_UNAVAILABLE`, `REMOTE_MANAGEMENT_UNAVAILABLE`,
+and generic closed/ended/core failures cannot prove that the mutation had no effect. Ordinary
+reads retain `RefusalError`; agent operation behavior is unchanged. Only explicit input, scope,
+rate, intent conflict, management read-only/capacity, device not-found/revoked and proved
+settings-before-touch refusal codes establish a pre-effect management refusal. A post-publication HTTP 404 alone is unknown, not a signed zero-effect
+refusal. A prior ended Session that prevented publication is a refused unsent attempt.
+
+Store persists exact intent digest, original caller UUID, grant revision, immutable adoption time,
+30-day deadline and outcome. Management and agent operation IDs cannot collide. Identical
+retained intent returns only its existing outcome; changed operation/input/caller conflicts.
+No lookup renews the deadline. Expired identity rows remain replay tombstones; capacity is bounded
+at 1000 per caller and 4000 installation-wide, refusing new adoption rather than evicting an
+unknown ID into eligibility. These are cumulative retained-identity limits, not a rolling
+30-day allowance. The 30-day horizon
+only bounds outcome availability: expiry does not physically delete identity/receipt rows or
+make their IDs eligible again. `REMOTE_MANAGEMENT_CAPACITY` is a signed pre-effect refusal with
+no adoption/effect. Existing live original-ID reads remain available at capacity. Show the local
+`tmt remote settings` / `tmt remote devices` path without retrying, resetting the database or
+allocating replacement IDs; preserve any previous unknown outcome. Compaction/reclamation is
+a deferred improvement.
+
+Settings adoption and file publication are not one transaction. Persist the original unknown
+receipt first, then recheck current Session/grant/key/revision/designation at the effect fence.
+Lock order is live Session, Store immediate transaction, then settings.lock; no settings-lock
+holder acquires live/Store. The shared settings writer marks uncertainty before the first
+`Layout::file` creation or truncation. Only durable writer success and receipt settlement report
+committed. A later file write/sync or receipt failure retains unknown. Crash, pending adoption and
+settlement failure never authorize another setter; current values cannot establish that original
+operation's outcome. Explicit original-ID lookup is read-only.
+
+Local owner commands `tmt remote devices designate <client-id>` and
+`tmt remote devices undesignate` select/remove the persisted machine/device/key designation
+through the existing control socket or stopped serve lock. Designation validates a live browser
+and exact current/remembered door origin. It is never automatic or remotely callable. Revoke or
+same-key re-pair clears it; rename retains identity while ending old-revision Sessions. The
+optional pairing-confirmation choice is not implemented; later local designation
+is available without another browser ceremony.
+
+The SDK `management(session)` exposes `settings`, `devices`, `set`, `rename`, `revoke` and
+`operation(originalId)` over the same serialized verified channel as agent operations. It opens
+nothing and never resends a mutation or creates a replacement mutation ID after unknown outcome.
+Freeze the original input/ID independently of subsequent form editing.
+
+After self-rename, a still-live grant may explicitly open a fresh verified Session and read only
+its original receipt by ID, without replay. After a lost self-revoke acknowledgment, make one
+read-only fresh-admission attempt with the same paired identity and the current trusted door
+descriptor. If admitted, read the original operation. If refused, show loss of current access
+separately from an accurate unknown outcome and the local `tmt remote devices` confirmation path;
+do not assert committed revoke, mint an ID, resend or offer a mutation retry. Transport error,
+stale/unavailable descriptor and malformed/unverified response remain unknown/unconfirmed, not
+proof of permanent grant loss or committed revoke. Expiry, local revoke, re-pair and key change
+retain existing refusal semantics. Designation loss with a still-live grant permits only ordinary
+own-receipt reading. No historical/revoked-key admission, capture-based capability, new nonce
+framework, agent/held-work recovery exception or general recovery route exists.
+
+### Remote settings page
+
+`GET /settings` serves the Remote-owned shared-presentation page with the existing page CSP,
+origin checks and no-store policy. `/sdk/settings-v1.js` imports `/sdk/remote-v1.js`; it does not
+embed another signer/channel implementation or add public SDK exports. The three sections are
+Browser opening, Session limit per device and Paired devices. Effective values, sources, warning
+and write capabilities come from admitted server reads. The shared package supplies checked CSS
+and static presentation contracts; Remote owns host layout and native select controls. Shared
+presentation never supplies authority or management outcomes.
+
+An untouched unset/default cap remains unset; explicit off is unlimited and custom positive caps
+remain decimal text. The default option describes the missing key and does not invent a reset
+setter. Existing CLI setters do not remove keys. A custom 8 is explicit configuration, distinct
+from an unset default. Ordinary, effect and recovery refreshes retain the current device-page cursor.
+Device-name forms remain bounded to that page; navigation is refused with the unsent name focused
+until it is saved or explicitly restored to the admitted name, so navigation cannot discard a draft.
+Form drafts survive asynchronous outcomes and read refreshes. Non-designated
+browsers retain visible values and persistent local-CLI read-only guidance with disabled mutation
+controls. Read-only accessibility descriptions follow admitted editability on every render/refresh;
+editable forms and device-name inputs do not reference hidden read-only guidance. Independent
+session-limit help remains associated in both roles. Unknown or capacity outcomes disable further mutation submission without discarding
+original input/ID or unsent draft text; no mutation retry/reset/replacement-ID action exists.
+
+The page keeps current access status separate from committed/refused/unknown outcome. Explicit
+original-outcome reading makes at most one fresh admission attempt, then only the original lookup.
+`reopenSession(previousSession)` binds to the existing paired identity/public trust pins and rejects
+re-pair/key replacement before any descriptor read or admission. The stored machine pin must be a
+32-byte Uint8Array equal in every byte to the verified prior Session pin; empty, shortened or
+overlong pins are terminal current-access refusals before network access. It reads the current door descriptor and, after an
+HTTP admission refusal, rechecks that descriptor without a second admission. Changed/unavailable/
+malformed descriptors and transport/unverified replies remain unconfirmed. A refused admission
+against the unchanged trusted descriptor shows current access loss; it never proves the original
+mutation committed or permanent grant loss. No captured key is persisted as a recovery capability.
+The existing no-argument reopen behavior and ordinary agent operations remain unchanged.
+
+### Browser entry
+
+Human `serve` output links to the same-origin `/` browser entry. JSON readiness, status and SDK
+`address` retain the protocol `/r/<prefix>` base; navigating there still gets the generic refusal.
+The entry initially reads only this origin's saved browser record through the existing SDK owner.
+Absent local data means no saved pairing; validated data means saved pairing with access unchecked.
+Malformed or inaccessible data is unconfirmed. No descriptor, admission, inventory or work request
+runs merely to display that state. Complete identity/origin/address/key-pin validation and the
+existing non-extractable device-key consistency check precede an explicit connection attempt.
+
+Connect makes one fresh `session.open` attempt and verifies its signed result against the
+saved machine pin. A verified response confirms access at the displayed checked time, never
+administrator designation. An opaque404 with an unchanged current descriptor recheck is still
+not a signed refusal reason: access could not be verified, without inferring revocation, eviction
+or another permanent cause. Only a specifically verified refusal may report Access refused. Transport, changed or
+malformed descriptor and unverified response failures remain unconfirmed; a public descriptor
+cannot replace a machine trust pin. Async results and new admission/recheck requests are fenced
+to their page attempt, including after signing. Departure cannot undo an already dispatched request. No automatic
+re-pair, grant repair, work resend or session admission on page load exists. Owner pairing still
+uses the fragment-erasing bootstrap, fingerprint comparison and terminal confirmation.
+
 ### Local CLI discovery
 
 Local extensions such as Colab discover or supervise Remote through these public CLI JSON
@@ -540,7 +756,59 @@ live serve return the standard `{"error":{"code":"REMOTE_…","message":"…"}}`
 nonzero exit. A running serve that predates `status` or `stop` (alpha.1 answered
 `REMOTE_INPUT_INVALID` "Unknown control operation."; later serves answer
 `REMOTE_CONTROL_UNSUPPORTED`) yields `REMOTE_SERVE_OUTDATED` from either command: it must be
-stopped by hand (Ctrl-C in its terminal) and started again, since `stop` cannot reach it. Status contains no other fields, secrets, cookies or device inventory.
+stopped by hand (Ctrl-C in its terminal) and started again, since `stop` cannot reach it.
+Ordinary status contains no other fields, secrets, cookies or device inventory.
+
+`tmt remote status --machine --json` selects an optional root-local observation; `--machine`
+requires `--json`. It sends exactly `{"op":"status","machine":true}` through the same owner-only
+control request, instead of the ordinary exact `{"op":"status"}`. A running supporting serve
+returns exactly:
+
+```text
+{"running":true,"origin":"http://127.0.0.1:<port>","path":"/r/k7qxm4tz2pbwn6rh","machineId":"<canonical non-nil UUIDv4>"}
+```
+
+All four values come from that connected serving owner; `machineId` is the immutable machine
+already captured for this run. Discovery does not open or initialize Store, read a machine key,
+create a pairing offer or acquire an HTTP descriptor/Session. Ordinary parsing remains exactly
+three keys; the opt-in parser requires exactly four, with the same origin/path validation and
+canonical lowercase non-nil UUIDv4/variant validation for `machineId`. Partial, malformed or extra
+fields fail closed. Stopped/absent inspection remains exactly the two-key document above, without
+`machineId` even when stored state remembers one; legacy state is not migrated.
+
+`tmt remote status --objects --json` selects a separate optional running-only observation;
+`--objects` requires `--json` and cannot be combined with `--machine`. It sends exactly
+`{"op":"status","objects":true}` to the same control owner and returns exactly:
+
+```text
+{"running":true,"origin":"http://127.0.0.1:<port>","path":"/r/k7qxm4tz2pbwn6rh","objectChannels":[{"extension":"<installed Local name>","state":"ready"}]}
+```
+
+`objectChannels` contains only static Local declarations, with no credentials, paths or backend
+identities. Each entry has exactly `extension` and `state`; `state` is `ready` while the current
+channel has not ended, or `starting` while its setup is in progress. An `unavailable` entry also
+has exactly `reason`, one of `storage`, `setup`, `channel-ended` or `capacity`. Names must be valid
+extension IDs and unique. This is a best-effort observation, not authority or a promise that the
+next request succeeds; status never activates or retries a channel. The ordinary and machine
+projections remain unchanged. Stopped inspection keeps the two-key stopped shape, without
+`objectChannels`. Unsupported optional requests preserve their original error code/message;
+malformed or silent replies are errors, never proof of stopped or healthy storage.
+
+An old command rejects `--machine` before state work. Against an old live serve, the optional
+projection preserves the standard nonzero error document and its original unsupported code/message:
+`REMOTE_CONTROL_UNSUPPORTED`, or the exact legacy `REMOTE_INPUT_INVALID` / "Unknown control operation."
+It does not rewrite that optional refusal to stop/restart, installation or repair advice.
+Other connected peer errors stay errors; malformed/silent replies and unsafe/unavailable state
+never imply stopped or a machine ID. No preceding ordinary status or second acquisition is required.
+
+This observation uses the invoking executable and inherited core-root context, and grants no
+routing or management authority. A consumer may omit its whole optional machine/identity hint
+when unsupported, stopped, timed out or unavailable; it must not prevent creation, backfill
+historical absence or infer another identity from labels/current agents. A creation hint is not
+an atomic identity-directory/grant proof: use-time routing still requires both stored IDs to match
+the authenticated current machine and a unique admitted agent under the current live grant.
+The first supporting release is recorded after delivery, not inferred from an installed receipt
+or a guessed minimum; a selected new CLI does not prove an old loaded door supports this projection.
 
 `tmt remote stop --json` asks the running serve to shut down through its owner-only control
 socket, then waits up to 40 seconds after acknowledgment for the lifecycle lease to be released
@@ -559,7 +827,9 @@ line on stdout after binding the door and control socket and recording the bound
 {"profile":"local-v1","binding":"loopback-http","state":"ready","address":"http://127.0.0.1:<port>/r/k7qxm4tz2pbwn6rh","machineId":"<uuid>","windowId":"<uuid>","startupCoreCalls":2}
 ```
 
-The stable fields a supervisor reads are `state:"ready"` and `address`. This descriptor has no
+Door readiness does not imply Local object-channel readiness; observe the optional running
+`status --objects --json` projection separately. The stable fields a supervisor reads are
+`state:"ready"` and `address`. This descriptor has no
 separate `origin` or `path` fields: `address` is their concatenation, with no trailing slash.
 `machineId` is the stable machine UUID and `windowId` is the UUID for this serve run. The other
 fields identify the local profile, binding and two startup core calls. A startup failure emits the
@@ -857,10 +1127,10 @@ On a mounted WebSocket upgrade, the door forwards the client's `Sec-WebSocket-Pr
 unchanged, including every offered subprotocol in its original order, and returns the extension's
 selected `Sec-WebSocket-Protocol` value in its `101` response unchanged. These values may carry
 extension-issued bearer tokens; the door never logs, audits or persists them. On every mounted
-request, including upgrades, client-supplied `tmt-device-context`, `tmt-device-event` and `tmt-mount`
+request, including upgrades, client-supplied `tmt-device-context`, `tmt-device-event`, `tmt-mount` and `tmt-origin`
 headers are stripped. Only the door sets these headers: `tmt-mount` identifies the actual mount,
-`tmt-device-context` is added only for an authenticated owner-device session, and `tmt-device-event`
-is reserved for the local callback above.
+`tmt-device-context` is added only for an authenticated owner-device session, `tmt-device-event`
+is reserved for the local callback above, and `tmt-origin` is the origin of an object-channel tunnel, below.
 
 **Relay.** Remote carries opaque, namespaced logs for extensions and never decrypts or interprets
 their payloads. A namespace is `<extension>:<path>` (for example `colab:<space>/<page>/<stream>`).
@@ -901,6 +1171,209 @@ The owner's machine never executes it, and page membership adds no operation sco
 extension records the ask and the reply in the shared resource, attributed to the asking member and
 to the answering agent and machine. Everyone who can see that resource sees them, like comments.
 Visibility is the extension's rule, not a remote grant.
+
+### Object channel frames
+
+**Status:** Remote ships the wire schema, Unix carrier, callback executor and lease-bound backend below.
+The static production registry enables only Colab; no other extension declares objects, and no route, SDK setting
+or user action enables them. Serve may open an empty ledger, but without a Colab adapter's current admission every
+object operation is refused before a ledger effect. Transport-only negative fixtures do not establish Colab routed
+acceptance: #1852 still requires Colab's upload/read proof on shipped binaries. Serve attempts each Local declaration
+before door readiness. Subsequently, a validated Local websocket upgrade with an absent or ended channel joins one
+bounded reactivation attempt; healthy channels are unchanged.
+Failure forwards the upgrade without an origin, preserving page sync. Channel end, assets and status never trigger
+setup. New generations inherit no old origins; no object operation is replayed. On an opened channel it answers `config` after current `acquire` and `disclose`
+admissions, for a local-extension origin (the owner's limits) and for a mounted origin that stands (the reduced browser
+limits, whether or not an owner session is bound). It also answers observational original-ID `status` and bounded raw-byte
+`read` after fresh acquire and disclose admissions, with an exact current-context, metadata, cancellation and absolute
+request-budget fence before disclosure. Original lookup is scoped by installed extension, caller transfer ID and actual
+owner device, local extension or non-owner connection origin; a non-owner reconnect has a new scope. Status never adopts
+or repairs an original. The service also answers `begin`, `part`, `commit` and `discard` through the existing local
+backend algorithm after fresh acquire and effect admissions, then disclose admission for successful results. Later
+upload callbacks use the scoped original's frozen input, and staging work clips its budget to the original expiry,
+without renewal. A connection-scoped upload cannot be recovered after reconnect; its retained row stays charged and
+bounded by staging expiry and quotas. A mounted request whose origin does not stand is answered `denied` without a
+callback before an effect; loss after invoking a mutation is `unknown`. Requests, results
+and admission replies carry no principal, role, permit, retry or scope: `method`, the result tag and the callback
+identifiers are correlation only. An admit `context` states the owner device and grant revision as Remote established
+them, for the extension's own decision; a browser or caller never selects it, and nothing in a context, identifier,
+digest or origin grants authority or proves who may use a value.
+
+**Framing.** A frame is a 4-byte big-endian length (2 to 65,536) and that many bytes of one strict UTF-8 JSON object
+without duplicate member names (compared after decoding escapes), unknown or missing members, trailing bytes, nesting
+deeper than 8, or any number that is not an unsigned integer of at most 2^53-1 without sign, fraction or exponent.
+Counters are canonical decimal strings spanning `u64`. UUIDs are lowercase version 4. Bytes are unpadded base64url
+(canonical: no padding, standard alphabet or nonzero trailing bits), digests 64 lowercase hex digits, and every value
+re-encodes to the same text. Structure faults (unknown or missing member, wrong JSON type, unknown `kind`, `method`,
+origin kind, context kind, disclosure class or result tag) and value faults (a spelling, range or association outside its grammar) are distinct
+classes. Encoding applies the same checks, in the canonical member order shown.
+
+**Carrier handshake.** Remote opens the channel on an extension's owner-only `door.sock` with one HTTP/1.1 request and the
+extension answers with one reply; nothing else is sent before the reply. This is not RFC 6455 and not the extension's
+browser routes.
+
+```http
+GET /.tmt/remote/object-channel-v1 HTTP/1.1
+Host: <the exact admitted mount host>
+Connection: Upgrade
+Upgrade: tmt-object-channel-v1
+Content-Length: 0
+tmt-mount: <the exact selected mount>
+tmt-object-channel: 1
+tmt-object-generation: <lowercase UUIDv4 Remote just generated>
+```
+
+The acceptor requires this method, this exact path (a query is a different path), `HTTP/1.1`, and exactly these seven
+fields, each once in any letter case and in any order, with these values; any other field (a cookie, `Transfer-Encoding`,
+a `Sec-WebSocket-*` field, a device context, an origin), a repeat, a missing field, a nonzero length or bytes after the
+head is refused. A head is at most 8 KiB and 32 fields. The reply is `HTTP/1.1 101 Switching Protocols` with exactly
+`Connection: Upgrade`, `Upgrade: tmt-object-channel-v1` and the same `tmt-object-generation`, and no body; the initiator
+refuses any other status, field or generation, and a refused attempt is closed with no fallback. Every later frame names
+that generation, and a frame of another generation ends the channel. The extension reads the head within 2 s and writes
+the reply within 1 s, both clipped by the setup bound the caller holds.
+An acceptor whose router already read the head, through the blank line and within the router's own bound, to dispatch
+on its path applies the same checks to those bytes and writes the same reply, and bytes the router read after the head
+are refused as pipelined. `Host` and `tmt-mount` are the same values the door sets on every request it sends that
+extension on its owner-only socket: `Host` is the admitted door host, as in the device-events callback, and `tmt-mount`
+is the actual mount name. The acceptor takes both from what the door already gives it, never from the request being
+validated, so both ends compare equal values.
+
+**Frame waits.** A frame is complete 2 s after its first prefix byte, with no renewal for partial progress; the length is
+checked before any allocation. Waiting for a frame to begin has no bound of its own and ends on a byte, the end of the
+stream, a stop request or the caller's deadline. A frame is written within 1 s. A partial prefix or body, an end of the
+stream inside a frame, a stalled write or an invalid frame ends the channel; none is retried.
+
+**Direction and correlation.** The extension sends requests and admissions; Remote sends results, admits and origin
+states. Each end applies every frame, sent or received, to one ledger before it is sent or queued. Request and callback
+identifiers are strictly increasing per issuer against a remembered high-water mark, so none is reused. At most 8
+requests and 8 callbacks are outstanding per channel (32 and 32 per installation, counted by the caller's shared budget
+and returned when a channel ends). A request has at most one callback outstanding and ends only with its result when none
+is. An admit must name an outstanding request with the same method and transfer; an admission must name the outstanding
+callback and its request; a result must repeat the request's method and transfer. A frame the local end may not send, or that the
+ledger refuses, is returned to the caller with nothing written and the channel stays usable. A received frame the ledger
+refuses ends the channel, so a duplicate, stale, mismatched or out-of-order frame never satisfies a successor.
+
+**Bus.** One thread reads while callers wait, and no frame spawns a thread. Received frames wait in a queue of at most 8
+frames and 524,288 bytes; reading pauses while it is full, and the peer's own write bound ends a peer that outruns it.
+Frames received before a fault are delivered before it is reported. The first fault is kept and every later call reports
+it. Closing, or dropping, shuts the socket down, wakes every waiter and joins the thread.
+
+**Origins.** Remote sets `tmt-origin: <originId>` only on a WebSocket upgrade to an extension that declares objects and has
+an active channel, exactly once, as one lowercase canonical UUIDv4 it just generated, and never on any other request. A
+connection without the header never gets object work: the extension denies it and the browser reconnects. An origin is
+Pending while Remote forwards the upgrade, is established only after the owner session is attached, the browser has its
+`101` and the tunnel runs, and ends at the first close: a close that wins is never followed by `established`. Every
+upgrade is a new origin, so a reconnect, including within the session's reload grace, gets a new id, and no object work
+carries across origins. An origin belongs to one channel generation; ending or replacing the channel ends all its origins
+and a successor starts with none. `originId` is not a capability: only the extension, on the private bus, can name it, and
+Remote's registry, not any frame, is authoritative when a request arrives and when its result is about to leave. Origin
+state frames are lifecycle notices written in order by one sender, with a bounded backlog (an `established` and a `closed`
+per tunnel); a write that fails or stalls, or a backlog past its bound, ends the channel and with it every origin, so a
+late `closed` is safe and nothing relies on one. Closing an origin never waits on a socket or on the session owner.
+
+**Mounted origins stand only while Remote says so.** A request naming a mounted origin is answered `denied`, with no
+callback, unless that origin is established on this channel generation in Remote's registry and, when an owner session was
+attached to its upgrade, the session owner confirms that same session is still live with the same device and grant
+revision (not ended, idle-expired, revoked or replaced); an unknown, pending, closed, other-extension or other-generation
+origin, or a session owner that cannot answer within its short bound, denies. The `acquire` and `disclose` callbacks name
+`owner-session` (with that device and grant revision) or `mounted`, never what the browser or the extension chose. The
+origin is checked before `acquire`, again before `disclose`, and once more before the result leaves, so an origin that
+closed or a session that ended meanwhile discloses nothing. Every mounted origin sees the reduced limits.
+
+**Admission outcomes.** Remote asks the extension afresh for every request and remembers no decision for a later one.
+Before an effect, `deny` is answered `denied` and an `unavailable` decision `unavailable`; neither, and no missing
+answer, is ever treated as an allow. After a mutating backend call is invoked, lost authority, cancellation, a spent
+budget or disclose deny/unavailable is bare `unknown` under the normal write bound, and the channel keeps serving.
+There is no rollback, charge release or retry. Mutating backend invalid, conflict and capacity errors pass through
+as their wire classes, without claiming storage is unchanged; missing, unavailable, cancellation and deadline are
+conservatively `unknown` (not-found is read-only). Original-ID status observes the retained outcome. A request whose own 30 s is spent before a callback is sent, whether it waited in the queue or used its time
+between the two admissions, is answered with bare `unavailable` under the normal write bound without that callback,
+and the channel keeps serving. Config and observations share this rule: no late data; a spent pre-admission result write
+also falls back to bare `unavailable`. A frame write failing after admission ends the channel. Only a callback
+that was sent and is left unanswered past 5 s, or past the request's remaining time, ends the channel and sends no result,
+because a result is refused while a callback is outstanding. A request is read by one dispatcher that never waits for a
+decision, so decisions are delivered while workers wait for them.
+
+**Request** `{"version":1,"kind":"request","generation":<uuid>,"requestId":<counter>,"origin":<origin>,"method":<method>,"input":<input>}`,
+with `origin` either `{"kind":"local-extension"}` or `{"kind":"mounted","originId":<uuid>}`.
+
+| `method`          | `input` members, in order                                                                   |
+| ----------------- | ------------------------------------------------------------------------------------------- |
+| `objects.config`  | `namespace`, `policyInput`                                                                  |
+| `objects.begin`   | `transferId`, `namespace`, `opaqueKey`, `policyInput`, `payloadSha256`, `payloadBytes`      |
+| `objects.part`    | `transferId`, `index`, `bytes`                                                              |
+| `objects.commit`  | `transferId`                                                                                |
+| `objects.status`  | `transferId`, `namespace`, `policyInput`                                                    |
+| `objects.read`    | `namespace`, `opaqueKey`, `policyInput`, `payloadSha256`, `payloadBytes`, `offset`, `count` |
+| `objects.discard` | `transferId`                                                                                |
+
+`namespace` and `opaqueKey` are 32 bytes (43 characters). `policyInput` is opaque, at most 2,048 decoded bytes (the
+bound of the backend's policy binding). `payloadBytes` is at most 12,582,912. `bytes` of a part is 1 to 32,768 decoded
+bytes. `index` is any `u32`: it does not depend on the transport ceiling of 32,768 or on a smaller backend part size
+(3,071 or u32 max are valid; 2^32 is not), and the backend alone enforces part order, full parts and the final
+remainder. `count` is 1 to 32,768, and `offset` is below `payloadBytes` (an empty payload reads from 0).
+
+**Result** `{"version":1,"kind":"result","generation":<uuid>,"requestId":<counter>,"method":<method>[,"transferId":<uuid>],"ok":{...}|"error":{...}}`
+has exactly one of `ok` and `error`. `transferId` repeats the original transfer on every result and error of `begin`,
+`part`, `commit`, `status` and `discard`, and is absent for `config` and `read`. `ok` carries a `result` tag:
+
+| `result`    | Further members                                                                                               | Answers                      |
+| ----------- | ------------------------------------------------------------------------------------------------------------- | ---------------------------- |
+| `config`    | `projection` (`browser` or `local`), `backend`, `capabilities`, `limits`                                      | `config`                     |
+| `pending`   | `nextIndex`, `received`, and `expiresAtMs` only for `status`                                                  | `begin`, `status`            |
+| `progress`  | `nextIndex`, `received`                                                                                       | `part`                       |
+| `committed` | `opaqueKey`, `payloadSha256`, `payloadBytes`                                                                  | `begin`, `commit`, `status`  |
+| `state`     | `state`: `expired`, `discarded`, `unavailable`, `unknown`, `notObserved` (`discard` answers only `discarded`) | `begin`, `status`, `discard` |
+| `read`      | `offset`, `totalBytes`, `bytes` (0 to 32,768 decoded bytes, within `totalBytes`)                              | `read`                       |
+
+A pending `status` answer carries the actual stored expiry; a pending `begin` answer has none and never invents one.
+`config` shows the server-selected backend (`{"id","source":"default","editable":false}`), its three boolean
+`capabilities` (`immutableCreate`, `chunkedRead`, `recoverByOriginalId`) and `limits`: `payloadBytes` and `chunkBytes`
+(the backend's canonical part size, never clamped to the transport) for `browser`, plus `namespaceBytes`,
+`extensionBytes` and `installationBytes` for `local`. An empty generic read or payload is valid and is unrelated to a
+consumer's own envelope or authority.
+
+`error` is `{"code":<code>}` with `denied`, `unavailable`, `invalid`, `conflict`, `capacity`, `not-found` or `unknown`,
+and a `limit` member exactly for `capacity`: `namespace-bytes`, `extension-bytes`, `installation-bytes`,
+`namespace-entries`, `extension-entries`, `installation-entries`, `active-intents`, `retained-extension`,
+`retained-installation` or `requests`. `not-found` answers only `read`; `unknown` only `begin`, `part`, `commit` and
+`discard`, where an effect may have happened. No error carries message text, and none proves that a possibly published
+effect did not happen.
+
+**Admit** `{"version":1,"kind":"admit","generation":<uuid>,"callbackId":<counter>,"requestId":<counter>,"boundary":<boundary>,"context":<context>,"operation":<operation>}`
+asks the extension to decide at one boundary of one request; `requestId` is the request's own counter. `boundary` is
+`acquire` (before work starts), `effect` (before a durable change; only `begin`, `part`, `commit` and `discard` have one)
+or `disclose` (before a result leaves). `context` states how the request actually arrived, as the service established it
+and never as a browser selected it: `{"kind":"owner-session","originId":<uuid>,"deviceId":<uuid>,"grantRevision":<n>}`
+(`grantRevision` 1 to 2^53-1), `{"kind":"mounted","originId":<uuid>}` or `{"kind":"local-extension"}`. `operation` is
+`{"method":<method>,"input":<input>[,"disclosure":<disclosure>]}`, and `disclosure` is present exactly at `disclose`.
+
+For `config`, `begin`, `status` and `read` the admit `input` is the request input. For `part` it is
+`{"transferId","index","length","retained"}` with `length` 1 to 32,768, and for `commit` and `discard`
+`{"transferId","retained"}`; `retained` is what the transfer froze, `{"namespace","opaqueKey","policyInput","payloadSha256","payloadBytes"}`.
+No callback carries the bytes of a part or of a read: a `bytes` member is an unknown member.
+
+A `disclosure` names the exact class of result about to be disclosed, with the values but never the bytes. Its `class`
+decides its members and the methods that may produce it, the same association as the result tags above:
+
+| `class`    | Members                                                  | Result it announces | Methods                      |
+| ---------- | -------------------------------------------------------- | ------------------- | ---------------------------- |
+| `config`   | `projection`                                             | `config`            | `config`                     |
+| `status`   | `nextIndex`, `received`, `expiresAtMs` only for `status` | `pending`           | `begin`, `status`            |
+| `progress` | `nextIndex`, `received`                                  | `progress`          | `part`                       |
+| `receipt`  | `opaqueKey`, `payloadSha256`, `payloadBytes`             | `committed`         | `begin`, `commit`, `status`  |
+| `terminal` | `state`                                                  | `state`             | `begin`, `status`, `discard` |
+| `bytes`    | `offset`, `length` (0 to 32,768)                         | `read`              | `read`                       |
+
+`discard` discloses only `terminal` with `discarded`. A disclosure never turns an unknown, expired or unavailable state
+into permission to retry or into proof that no earlier effect happened.
+
+**Admission** `{"version":1,"kind":"admission","generation":<uuid>,"callbackId":<counter>,"requestId":<counter>,"decision":<decision>}`
+answers one admit. `decision` is `allow`, `deny` or `unavailable`, and nothing else: the reply has no permit, principal,
+role, target or scope member, and `unavailable` is neither permission nor a statement that no effect happened.
+
+**Origin state** `{"version":1,"kind":"origin-state","generation":<uuid>,"originId":<uuid>,"state":<state>}` announces that
+an origin is `established` or `closed`.
 
 ## Backends and deploy
 
@@ -1261,7 +1734,8 @@ actual request still requires its proof/signature.
 
 ## Current implementation and migration
 
-Implemented today: a foreground deny-all door, pure `local-v1` canonical envelope framing,
+Implemented today: a loopback door with human background startup and foreground JSON compatibility,
+pure `local-v1` canonical envelope framing,
 `tmt-device-pair-v1` enrollment and possession builders, pairing-code text decoding, four-word
 fingerprints over the pinned list (bitcoin/bips `ce1862ac` `bip-0039/english.txt`, SHA-256
 `2f5eed53a4727b4bf8880d8f3f199efc90e58503646d9ff8eff3a2ed3b24dbda`, committed as

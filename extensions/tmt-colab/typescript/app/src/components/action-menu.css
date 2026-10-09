@@ -34,6 +34,7 @@
   top: calc(100% + 2px);
   right: 0;
   min-width: 160px;
+  overflow-y: auto;
   border: 2px solid var(--c-text);
   background: var(--c-sheet);
   box-shadow: 4px 4px 0 var(--c-text);
@@ -63,11 +64,6 @@
   color: var(--c-muted);
   background: var(--c-paper);
   cursor: default;
-}
-
-.tmt-action-menu-list[data-flip='true'] {
-  top: auto;
-  bottom: calc(100% + 2px);
 }
 
 .tmt-action-menu-trigger .lucide {

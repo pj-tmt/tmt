@@ -1,4 +1,69 @@
-import { expect, test } from '@playwright/test';
+import { expect, test as base } from '@playwright/test';
+
+// Opt-in observation only: unchanged assertions, no cache preparation or app patch.
+const test = base.extend<{ coldObservation: void }>({
+  coldObservation: [
+    async ({ page }, use, info) => {
+      if (process.env.COLAB_FOLD_COLD_OBSERVE !== '1') {
+        await use();
+        return;
+      }
+      const events: unknown[] = [];
+      const session = await page.context().newCDPSession(page);
+      const record = (event: string, data: unknown) =>
+        events.push({ observedAt: new Date().toISOString(), event, data });
+      session.on('Network.requestWillBeSent', (event) =>
+        record('request', {
+          requestId: event.requestId,
+          loaderId: event.loaderId,
+          frameId: event.frameId,
+          timestamp: event.timestamp,
+          type: event.type,
+          url: event.request.url,
+          initiator: event.initiator,
+          redirectStatus: event.redirectResponse?.status,
+        }),
+      );
+      session.on('Network.responseReceived', (event) =>
+        record('response', {
+          requestId: event.requestId,
+          timestamp: event.timestamp,
+          url: event.response.url,
+          status: event.response.status,
+          mimeType: event.response.mimeType,
+        }),
+      );
+      session.on('Network.loadingFailed', (event) => record('loadingFailed', event));
+      session.on('Network.webSocketFrameReceived', (event) => record('webSocketReceived', event));
+      session.on('Page.frameNavigated', (event) => record('frameNavigated', event));
+      session.on('Page.frameRequestedNavigation', (event) => record('navigationRequested', event));
+      session.on('Runtime.executionContextDestroyed', (event) => record('contextDestroyed', event));
+      session.on('Target.attachedToTarget', (event) => record('targetAttached', event));
+      page.on('console', (message) =>
+        record('console', { type: message.type(), text: message.text() }),
+      );
+      page.on('pageerror', (error) => record('pageerror', { message: error.message }));
+      await session.send('Network.enable');
+      await session.send('Page.enable');
+      await session.send('Runtime.enable');
+      await session.send('Target.setAutoAttach', {
+        autoAttach: true,
+        waitForDebuggerOnStart: false,
+        flatten: true,
+      });
+      try {
+        await use();
+      } finally {
+        await info.attach('cold-fold-observation', {
+          body: Buffer.from(JSON.stringify({ title: info.title, events }, null, 2)),
+          contentType: 'application/json',
+        });
+        await session.detach();
+      }
+    },
+    { auto: true },
+  ],
+});
 
 test('Worker folds concurrent independent writers, reload reconstruction and Unicode minimal edits', async ({
   page,
@@ -11,24 +76,30 @@ test('Worker folds concurrent independent writers, reload reconstruction and Uni
       b = new Fold(),
       reloaded = new Fold();
     try {
-      const one = await a.run({ type: 'prepare', source: '<p>😀 café</p>' });
-      await a.run({ type: 'apply', updates: [one.update] });
-      await b.run({ type: 'apply', updates: [one.update] });
-      const two = await a.run({ type: 'prepare', source: '<p>😀 café A</p>' });
-      const three = await b.run({ type: 'prepare', source: '<p>😀 café B</p>' });
-      const mergedA = await a.run({ type: 'apply', updates: [two.update, three.update] });
-      const mergedB = await b.run({ type: 'apply', updates: [two.update, three.update] });
+      const base = (r: { source: string; title: string; own: unknown }) => ({
+        source: r.source,
+        title: r.title,
+        own: r.own,
+      });
+      const one = await a.prepareContent('<p>😀 café</p>', { source: '', title: '', own: {} });
+      const baseA = await a.run({ type: 'apply', updates: one.updates });
+      const baseB = await b.run({ type: 'apply', updates: one.updates });
+      const two = await a.prepareContent('<p>😀 café A</p>', base(baseA));
+      const three = await b.prepareContent('<p>😀 café B</p>', base(baseB));
+      const all = [...two.updates, ...three.updates];
+      const mergedA = await a.run({ type: 'apply', updates: all });
+      const mergedB = await b.run({ type: 'apply', updates: all });
       const restored = await reloaded.run({
         type: 'apply',
-        updates: [one.update, two.update, three.update],
+        updates: [...one.updates, ...all],
       });
       return {
-        one: one.source,
-        two: two.source,
+        one: one.projection.source,
+        two: two.projection.source,
         a: mergedA.source,
         b: mergedB.source,
         restored: restored.source,
-        updateBytes: two.update.length,
+        updateBytes: two.updates.reduce((n: number, u: Uint8Array) => n + u.length, 0),
       };
     } finally {
       a.close();
@@ -54,7 +125,7 @@ test('decoder rejects malformed data and cannot be reused after rejection', asyn
     let errors = 0;
     try {
       await fold.run({ type: 'apply', updates: [new Uint8Array([255])] }).catch(() => errors++);
-      await fold.run({ type: 'prepare', source: 'must not apply' }).catch(() => errors++);
+      await fold.run({ type: 'apply', updates: [] }).catch(() => errors++);
       return errors;
     } finally {
       fold.close();
@@ -138,8 +209,12 @@ test('Worker rejects unknown, mixed and rich-text roots before publishing any pr
     for (const update of invalidUpdates()) {
       const fold = new Fold();
       try {
-        const previous = await fold.run({ type: 'prepare', source: 'previous valid source' });
-        await fold.run({ type: 'apply', updates: [previous.update] });
+        const previous = await fold.prepareContent('previous valid source', {
+          source: '',
+          title: '',
+          own: {},
+        });
+        await fold.run({ type: 'apply', updates: previous.updates });
         await fold.run({ type: 'apply', updates: [update] }).catch(() => rejected++);
       } finally {
         fold.close();
@@ -158,12 +233,17 @@ test('prepared edits never leak through a later committed projection', async ({ 
     const a = new Fold(),
       b = new Fold();
     try {
-      const seed = await a.run({ type: 'prepare', source: 'initial' });
-      await a.run({ type: 'apply', updates: [seed.update] });
-      await b.run({ type: 'apply', updates: [seed.update] });
-      await a.run({ type: 'prepare', source: 'unsaved draft' });
-      const remote = await b.run({ type: 'prepare', source: 'initial saved' });
-      return (await a.run({ type: 'apply', updates: [remote.update] })).source;
+      const snapshot = (r: { source: string; title: string; own: unknown }) => ({
+        source: r.source,
+        title: r.title,
+        own: r.own,
+      });
+      const seed = await a.prepareContent('initial', { source: '', title: '', own: {} });
+      const baseA = await a.run({ type: 'apply', updates: seed.updates });
+      const baseB = await b.run({ type: 'apply', updates: seed.updates });
+      await a.prepareContent('unsaved draft', snapshot(baseA));
+      const remote = await b.prepareContent('initial saved', snapshot(baseB));
+      return (await a.run({ type: 'apply', updates: remote.updates })).source;
     } finally {
       a.close();
       b.close();
@@ -209,9 +289,18 @@ test('baseline vectors reset exact struct identities and reject digest, title an
           two.publisherAgent !== v.publisherAgent
         )
           throw new Error('Baseline vector projection');
-        const edit = await a.run({ type: 'prepare', source: v.source + 'later' });
-        const left = await a.run({ type: 'apply', updates: [edit.update] }),
-          right = await b.run({ type: 'apply', updates: [edit.update] });
+        const edit = await a.prepareContent(v.source + 'later', {
+          source: one.source,
+          title: one.title,
+          own: one.own,
+          ...(one.originalAuthor === undefined ? {} : { originalAuthor: one.originalAuthor }),
+          ...(one.publisherAgent === undefined ? {} : { publisherAgent: one.publisherAgent }),
+          ...(one.creationRecipient === undefined
+            ? {}
+            : { creationRecipient: one.creationRecipient }),
+        });
+        const left = await a.run({ type: 'apply', updates: edit.updates }),
+          right = await b.run({ type: 'apply', updates: edit.updates });
         if (
           left.source !== right.source ||
           left.originalAuthor !== v.originalAuthor ||

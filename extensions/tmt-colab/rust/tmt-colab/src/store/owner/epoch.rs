@@ -168,19 +168,102 @@ impl OwnerTransaction<'_> {
             .collect()
     }
     pub(crate) fn saved_operation(&self, id: &str, digest: &[u8; 32]) -> Result<Option<Vec<u8>>> {
-        let row: Option<(Vec<u8>, Vec<u8>)> = self
+        legacy_operation(self.tx, id, digest)
+    }
+    /// The original key of this operation if this writer's stream recorded it for this page. A
+    /// caller that chose the ID learns the job digest here, which only the preparing side knew.
+    pub(crate) fn publication_key_by_operation(
+        &self,
+        page: &str,
+        stream: &str,
+        operation_id: &str,
+    ) -> Result<Option<crate::publication::JobKey>> {
+        values::generated_id(operation_id)?;
+        let row: Option<(Vec<u8>, String, String)> = self
             .tx
             .query_row(
-                "SELECT digest,outcome FROM owner_operations WHERE id=?",
-                [id],
-                |r| Ok((r.get(0)?, r.get(1)?)),
+                "SELECT digest,space,original_epoch FROM owner_operations
+                 WHERE id=? AND publication_kind='content' AND page=? AND original_stream=?
+                   AND typeof(digest)='blob' AND length(digest)=32
+                   AND typeof(space)='text' AND typeof(original_epoch)='text'",
+                params![operation_id, page, stream],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
             )
             .optional()?;
-        match row {
-            Some((old, result)) if old == *digest => Ok(Some(result)),
-            Some(_) => Err(OwnerFault::Conflict.into()),
-            None => Ok(None),
+        let Some((digest, space, epoch)) = row else {
+            return Ok(None);
+        };
+        let key = crate::publication::JobKey {
+            operation_id: operation_id.into(),
+            job_digest: values::encode_binary(&digest),
+            space_id: space,
+            page_id: page.into(),
+            original_epoch: epoch,
+            stream_id: stream.into(),
+        };
+        key.validate().map_err(|_| OwnerFault::Invalid)?;
+        Ok(Some(key))
+    }
+    pub(crate) fn saved_publication(
+        &self,
+        key: &crate::publication::JobKey,
+        job: Option<&crate::publication::SignedJob>,
+    ) -> Result<Option<Vec<u8>>> {
+        key.validate()?;
+        // Bound every value before copying it, including a colliding legacy row.
+        let shape: Option<(bool, bool)> = self.tx.query_row(
+            "SELECT publication_kind IS NULL AND space IS NULL AND page IS NULL
+                AND original_epoch IS NULL AND original_stream IS NULL,
+             COALESCE(typeof(digest)='blob' AND length(digest)=32
+                AND publication_kind='content' AND typeof(publication_kind)='text'
+                AND typeof(space)='text' AND length(CAST(space AS BLOB))=32
+                AND typeof(page)='text' AND length(CAST(page AS BLOB))=36
+                AND typeof(original_epoch)='text' AND length(CAST(original_epoch AS BLOB)) BETWEEN 1 AND 20
+                AND typeof(original_stream)='text' AND length(CAST(original_stream AS BLOB))=36
+                AND typeof(outcome)='blob' AND length(outcome) BETWEEN 1 AND ?2,0)
+             FROM owner_operations WHERE id=?1",
+            params![key.operation_id, crate::publication::JSON_BYTES as i64], |r| Ok((r.get(0)?,r.get(1)?)),
+        ).optional()?;
+        match shape {
+            None => return Ok(None),
+            Some((true, _)) => return Err(OwnerFault::Conflict.into()),
+            Some((false, false)) => return Err(OwnerFault::Invalid.into()),
+            Some((false, true)) => {}
         }
+        let (digest, space, page, epoch, stream): (Vec<u8>, String, String, String, String) = self.tx.query_row(
+            "SELECT digest,space,page,original_epoch,original_stream FROM owner_operations WHERE id=?",
+            [key.operation_id.as_str()], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?)),
+        )?;
+        let stored = crate::publication::JobKey {
+            operation_id: key.operation_id.clone(),
+            job_digest: values::encode_binary(&digest),
+            space_id: space,
+            page_id: page,
+            original_epoch: epoch,
+            stream_id: stream,
+        };
+        stored.validate().map_err(|_| OwnerFault::Invalid)?;
+        if &stored != key {
+            return Err(OwnerFault::Conflict.into());
+        }
+        let bytes: Vec<u8> = self.tx.query_row(
+            "SELECT outcome FROM owner_operations WHERE id=?",
+            [key.operation_id.as_str()],
+            |r| r.get(0),
+        )?;
+        let outcome = crate::publication::Outcome::from_json(&bytes, key, job)
+            .map_err(|_| OwnerFault::Invalid)?;
+        if matches!(
+            outcome,
+            crate::publication::Outcome::Unknown { .. }
+                | crate::publication::Outcome::Committed {
+                    native_evidence: None,
+                    ..
+                }
+        ) {
+            return Err(OwnerFault::Invalid.into());
+        }
+        Ok(Some(bytes))
     }
     pub(crate) fn baseline(&self, page: &str, epoch: u64) -> Result<Option<StoredBaseline>> {
         read_baseline(self.tx, page, epoch)
@@ -226,6 +309,11 @@ impl OwnerTransaction<'_> {
         if frozen {
             return Err(OwnerFault::Conflict.into());
         }
+        self.read_cuts(page, epoch)
+    }
+    /// Read-only frozen history. A writer still calls cuts(), which refuses a
+    /// frozen epoch; retained old prefixes never become a new publication base.
+    pub(crate) fn read_cuts(&self, page: &str, epoch: u64) -> Result<Vec<Cut>> {
         let mut query = self
             .tx
             .prepare("SELECT stream FROM streams WHERE page=? AND epoch=? ORDER BY stream")?;

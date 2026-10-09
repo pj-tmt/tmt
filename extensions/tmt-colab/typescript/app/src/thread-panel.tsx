@@ -1,6 +1,13 @@
-import { Check, CircleCheck, CircleDot, RotateCcw, X } from 'lucide-react';
+import type { CreationRecipient } from './fold-protocol.js';
+import { Check, CircleCheck, CircleDot, LoaderCircle, RotateCcw, X } from 'lucide-react';
+import { BrowserAction, BrowserIconAction } from '@tmt/browser-ui/react';
+import { MessageComposer } from './components/message-composer.js';
+import type { ComposerEdit } from './components/message-composer-edit.js';
+import { conversationAsks } from './thread-store.js';
+import { ConversationWindow } from './components/conversation-window.js';
+import { MessageText } from './components/message-text.js';
 import { ConversationTurn } from './components/conversation-turn.js';
-import { useEffect, useId, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { AskPanel, type AskBinding, type PageAsk } from './ask-panel.js';
 import { ActionMenu } from './components/action-menu.js';
 import type { ThreadBinding } from './thread-store.js';
@@ -8,6 +15,18 @@ import type { CommentView, QuoteSelector, ThreadView, DiscussionRef } from './th
 import { text } from './strings.js';
 import { relativeTime } from './display-time.js';
 import { AnnotationInput } from './annotation-input.js';
+import {
+  presentationOf,
+  type ThreadPresentation,
+  type ThreadStatusOutcome,
+} from './thread-status-presentation.js';
+
+/** Only an agent's resolution names its actor; a person's stays the plain state. */
+function resolvedLabel(status: ThreadPresentation['status'] | undefined) {
+  return status?.actor === 'agent' && status.actorName
+    ? text.threadResolvedBy(status.actorName)
+    : text.threadResolved;
+}
 
 function Composer({
   label,
@@ -22,7 +41,7 @@ function Composer({
   cancel?(): void;
   blocked: boolean;
 }) {
-  const inputId = useId();
+  const [resetKey, setResetKey] = useState(0);
   const [body, setBody] = useState(''),
     [busy, setBusy] = useState(false),
     [error, setError] = useState(false);
@@ -38,6 +57,7 @@ function Composer({
           .then(
             () => {
               setBody('');
+              setResetKey((key) => key + 1);
               cancel?.();
             },
             () => setError(true),
@@ -46,27 +66,34 @@ function Composer({
       }}
     >
       {quote && <blockquote>{quote}</blockquote>}
-      <label htmlFor={inputId}>{label}</label>
-      <textarea
-        id={inputId}
-        value={body}
+      <p>{label}</p>
+      <MessageComposer
+        label={label}
+        edit={{ value: body }}
+        resetKey={resetKey}
         disabled={busy || blocked}
-        onChange={(event) => setBody(event.target.value)}
+        onChange={(next) => setBody(next.value)}
       />
       <div className="comment-actions">
-        <button type="submit" disabled={busy || blocked || !body.trim()}>
-          {busy ? text.saving : label}
-        </button>
+        <BrowserAction
+          type="submit"
+          variant="primary"
+          label={label}
+          busy={busy}
+          busyMark={<LoaderCircle />}
+          disabled={blocked || !body.trim()}
+          onActivate={() => {}}
+        />
         {cancel && (
-          <button
+          <BrowserAction
             type="button"
-            disabled={busy}
-            onClick={(event) => {
+            variant="text"
+            label={text.commentCancel}
+            busy={busy}
+            onActivate={(event) => {
               if (event.isTrusted) cancel();
             }}
-          >
-            {text.commentCancel}
-          </button>
+          />
         )}
       </div>
       {error && <p role="alert">{text.commentFailed}</p>}
@@ -78,18 +105,19 @@ export function DiscussionComment({
   comment,
   binding,
   blocked,
-  chat = false,
+  allowEdit = true,
+  mentionedNames,
   status,
   delivery,
 }: {
   comment: CommentView;
-  chat?: boolean;
+  allowEdit?: boolean;
+  mentionedNames?: readonly string[];
   status?: ReactNode;
   delivery?: ReactNode;
   binding?: ThreadBinding;
   blocked: boolean;
 }) {
-  const editId = useId();
   const [editing, setEditing] = useState(false),
     [draft, setDraft] = useState(comment.body),
     [editRevision, setEditRevision] = useState(comment.revision);
@@ -97,7 +125,7 @@ export function DiscussionComment({
     [error, setError] = useState(false);
   const owned = binding?.deviceId === comment.ref.writer;
   const menu = [
-    ...(owned && !chat
+    ...(owned && allowEdit
       ? [{ key: 'edit', label: text.commentEdit, disabled: busy || blocked }]
       : []),
     ...(owned
@@ -124,7 +152,6 @@ export function DiscussionComment({
   return (
     <ConversationTurn
       role="user"
-      layout={chat ? 'chat' : 'thread'}
       author={owned ? text.askYou : comment.deviceName || text.commentDevice}
       at={Number(comment.at)}
       authorTitle={comment.ref.writer}
@@ -151,9 +178,9 @@ export function DiscussionComment({
           />
         )
       }
+      status={status}
       delivery={
         <>
-          {status}
           {!busy && delivery}
           {error && <p role="alert">{text.commentFailed}</p>}
         </>
@@ -171,28 +198,38 @@ export function DiscussionComment({
                   action(() => binding!.edit(comment.ref, editRevision, draft));
               }}
             >
-              <label htmlFor={editId}>{text.commentEditBody}</label>
-              <textarea
-                id={editId}
-                value={draft}
-                disabled={busy}
-                onChange={(event) => setDraft(event.target.value)}
+              <MessageComposer
+                label={text.commentEditBody}
+                edit={{ value: draft }}
+                disabled={busy || blocked}
+                autoFocus
+                onChange={(next) => setDraft(next.value)}
               />
               <div className="comment-actions">
-                <button disabled={busy || blocked || !draft.trim()}>{text.commentSave}</button>
-                <button
+                <BrowserAction
+                  type="submit"
+                  variant="primary"
+                  label={text.commentSave}
+                  busy={busy}
+                  busyMark={<LoaderCircle />}
+                  disabled={blocked || !draft.trim()}
+                  onActivate={() => {}}
+                />
+                <BrowserAction
                   type="button"
-                  disabled={busy}
-                  onClick={(event) => {
+                  variant="text"
+                  label={text.commentCancel}
+                  busy={busy}
+                  onActivate={(event) => {
                     if (event.isTrusted) setEditing(false);
                   }}
-                >
-                  {text.commentCancel}
-                </button>
+                />
               </div>
             </form>
           ) : (
-            <p className="comment-body">{comment.body}</p>
+            <p className="comment-body">
+              <MessageText value={comment.body} names={mentionedNames} />
+            </p>
           )}
         </>
       )}
@@ -208,7 +245,7 @@ export function CommentExchange({
   ask,
   asks,
   blocked,
-  chat = false,
+  allowEdit = true,
 }: {
   comment: CommentView;
   thread: ThreadView;
@@ -216,17 +253,18 @@ export function CommentExchange({
   ask?: AskBinding;
   asks: readonly PageAsk[];
   blocked: boolean;
-  chat?: boolean;
+  allowEdit?: boolean;
 }) {
-  const records = asks.filter(
-    (record) => record.thread === thread.threadId && record.messageIds?.includes(comment.messageId),
+  const records = conversationAsks(thread, asks, true).filter((record) =>
+    record.messageIds?.includes(comment.messageId),
   );
   const user = (status?: ReactNode, delivery?: ReactNode) => (
     <DiscussionComment
       comment={comment}
       binding={binding}
       blocked={blocked}
-      chat={chat}
+      allowEdit={allowEdit}
+      mentionedNames={records.map((record) => record.agentName)}
       status={status}
       delivery={delivery}
     />
@@ -234,7 +272,6 @@ export function CommentExchange({
   return records.length ? (
     <AskPanel
       inline
-      chat={chat}
       records={records}
       binding={ask}
       blocked={blocked}
@@ -245,99 +282,261 @@ export function CommentExchange({
   );
 }
 
-function Thread({
-  thread,
-  attached,
-  selection,
-  binding,
-  ask,
-  title,
-  asks,
-  publisher,
-  close,
-  blocked,
-}: {
-  thread: ThreadView;
+export type ThreadWindowProps = {
+  creationRecipient?: CreationRecipient;
+  /** Absent until the first committed turn; the composer stays in this same window. */
+  thread?: ThreadView;
+  anchor?: QuoteSelector;
+  layout?: 'panel' | 'anchored';
   attached: boolean;
+  anchorsChecked: boolean;
   selection: QuoteSelector | null;
   binding?: ThreadBinding;
   ask?: AskBinding;
   title: string;
   asks: readonly PageAsk[];
-  publisher?: string;
   close(): void;
   blocked: boolean;
-}) {
+  observationUnavailable?: boolean;
+  composer?: ReactNode;
+  initialEdit?: ComposerEdit;
+  onDraft?(edit: ComposerEdit): void;
+  onBusy?(busy: boolean): void;
+  /** Presentation inputs for this thread, computed once by the authenticated parent. */
+  status?: ThreadPresentation['status'];
+  /** The parent owns recipient freezing and notification; the window only asks. */
+  onStatusChange?(resolved: boolean): Promise<ThreadStatusOutcome>;
+};
+
+export function ThreadWindow({
+  thread,
+  anchor: initialAnchor,
+  creationRecipient,
+  layout = 'panel',
+  attached,
+  anchorsChecked,
+  selection,
+  binding,
+  ask,
+  title,
+  asks,
+  close,
+  blocked,
+  observationUnavailable,
+  composer,
+  initialEdit,
+  onDraft,
+  onBusy,
+  status,
+  onStatusChange,
+}: ThreadWindowProps) {
   const [busy, setBusy] = useState(false),
-    [error, setError] = useState(false);
-  const owned = binding?.deviceId === thread.ref.writer;
+    [error, setError] = useState(false),
+    [notNotified, setNotNotified] = useState<string[]>([]);
+  const owned = !!thread && binding?.deviceId === thread.ref.writer;
+  const anchor = thread ? thread.anchor : initialAnchor;
+  // A resolved thread leaves the page's marker set, so its attachment is not
+  // observed until Reopen restores the marker.
+  const tracked = !!anchor && !thread?.resolved;
+  const history = useRef<HTMLDivElement>(null);
+  const previousComments = useRef<Set<string>>(undefined);
+  const previousReplies = useRef(new Map<string, string>());
+  const arrival = useRef<{ offset: number; scroll(): void }>(undefined);
+  useEffect(() => {
+    const node = history.current;
+    if (layout !== 'anchored' || !node) return;
+    const observer = new ResizeObserver(() => {
+      const target = arrival.current;
+      if (
+        target &&
+        (Math.abs(node.scrollTop - target.offset) < 1 ||
+          Math.abs(node.scrollTop - Math.max(0, node.scrollHeight - node.clientHeight)) < 1)
+      )
+        target.scroll();
+    });
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [layout]);
+  useEffect(() => {
+    const node = history.current;
+    if (layout !== 'anchored' || !node) return;
+    const comments = new Set(
+      thread?.comments.map((comment) => `${comment.ref.writer}:${comment.messageId}`),
+    );
+    const opened = previousComments.current === undefined;
+    const newComment = [...comments].some((id) => !previousComments.current?.has(id));
+    previousComments.current = comments;
+    const records = conversationAsks(thread, asks, true);
+    const changed = records.filter(
+      (record) =>
+        record.reply !== undefined &&
+        previousReplies.current.get(record.operationId) !== record.reply,
+    );
+    previousReplies.current = new Map(
+      records
+        .filter((record) => record.reply !== undefined)
+        .map((record) => [record.operationId, record.reply!]),
+    );
+    if (!opened && !newComment && !changed.length) return;
+    // A delayed answer may belong to an earlier turn. Scroll this message area,
+    // never the document, so that newly arrived answer is readable too.
+    const latest = changed.at(-1);
+    const reply =
+      latest &&
+      Array.from(node.querySelectorAll<HTMLElement>('[data-operation-id]'))
+        .find((entry) => entry.dataset.operationId === latest.operationId)
+        ?.querySelector<HTMLElement>('[data-testid="ask-reply"]');
+    const scroll = () => {
+      node.scrollTop = node.scrollHeight;
+      if (reply?.isConnected)
+        node.scrollTop +=
+          reply.getBoundingClientRect().bottom - node.getBoundingClientRect().bottom;
+      arrival.current = { offset: node.scrollTop, scroll };
+    };
+    scroll();
+  }, [thread, asks, layout]);
   const [reattach, setReattach] = useState<QuoteSelector | null>(null);
   const action = (change: Parameters<ThreadBinding['updateThread']>[2]) => {
-    if (!binding || busy || blocked) return;
+    if (!thread || !binding || busy || blocked) return;
     setBusy(true);
+    onBusy?.(true);
     setError(false);
-    void binding
-      .updateThread(thread.ref, thread.revision, change)
+    void Promise.resolve()
+      .then(() => binding.updateThread(thread.ref, thread.revision, change))
       .then(
         () => setReattach(null),
         () => setError(true),
       )
-      .finally(() => setBusy(false));
+      .finally(() => {
+        setBusy(false);
+        onBusy?.(false);
+      });
+  };
+  const changeStatus = (resolved: boolean) => {
+    if (!thread || !onStatusChange || busy || blocked) return;
+    setBusy(true);
+    onBusy?.(true);
+    setError(false);
+    setNotNotified([]);
+    let closeAfter = false;
+    void Promise.resolve()
+      .then(() => onStatusChange(resolved))
+      .then(
+        (result) => {
+          const names = (result.warnings ?? []).map((warning) => warning.name);
+          setReattach(null);
+          setNotNotified(names);
+          // Keep the window open while it still has something to tell the person.
+          closeAfter = result.changed && resolved && layout === 'anchored' && !names.length;
+        },
+        () => setError(true),
+      )
+      .finally(() => {
+        setBusy(false);
+        onBusy?.(false);
+        if (closeAfter) close();
+      });
   };
   return (
-    <section
+    <ConversationWindow
       className="comment-thread"
-      data-testid="comment-thread"
-      data-thread-id={thread.threadId}
-      data-writer={thread.ref.writer}
-      data-anchor={thread.deleted || !thread.anchor ? 'page' : attached ? 'attached' : 'detached'}
-    >
-      <header className="thread-bar">
+      data-layout={layout}
+      data-testid={thread ? 'comment-thread' : 'annotation-window'}
+      data-thread-id={thread?.threadId}
+      data-writer={thread?.ref.writer}
+      data-anchor={
+        thread?.deleted || !anchor
+          ? 'page'
+          : thread?.resolved
+            ? 'resolved'
+            : attached
+              ? 'attached'
+              : 'detached'
+      }
+      title={
         <span className="thread-state">
-          {thread.resolved ? <CircleCheck aria-hidden /> : <CircleDot aria-hidden />}
-          <strong>
-            {thread.deleted
-              ? text.threadDeleted
-              : thread.resolved
-                ? text.threadResolved
-                : text.threadOpen}
-          </strong>
-        </span>
-        {thread.anchor && (
-          <span className="comment-status">
-            {attached ? text.commentAnchored : text.commentDetached}
+          {thread?.resolved ? <CircleCheck aria-hidden /> : <CircleDot aria-hidden />}
+          <span>
+            {!thread
+              ? text.annotationTitle
+              : thread.deleted
+                ? text.threadDeleted
+                : thread.resolved
+                  ? resolvedLabel(status)
+                  : text.threadOpen}
           </span>
-        )}
-        <span className="thread-bar-actions">
-          {owned && !thread.deleted && (
-            <button
-              className="thread-action"
-              disabled={blocked || busy}
-              title={thread.resolved ? text.threadReopen : text.threadResolve}
-              aria-label={thread.resolved ? text.threadReopen : text.threadResolve}
-              onClick={(event) => {
-                if (event.isTrusted) action({ resolved: !thread.resolved });
-              }}
-            >
-              {thread.resolved ? <RotateCcw aria-hidden /> : <Check aria-hidden />}
-              {thread.resolved ? text.threadReopen : text.threadResolve}
-            </button>
+        </span>
+      }
+      actions={
+        <>
+          {tracked && thread && (
+            <span className="comment-status">
+              {attached ? text.commentAnchored : text.commentDetached}
+            </span>
           )}
-          <button
-            className="thread-action"
-            title={text.threadClose}
-            aria-label={text.threadClose}
-            onClick={(event) => {
+
+          {thread && onStatusChange && status?.controllable && !thread.deleted && (
+            <BrowserIconAction
+              type="button"
+              variant="text"
+              disabled={blocked}
+              busy={busy}
+              label={thread.resolved ? text.threadReopen : text.threadResolve}
+              icon={thread.resolved ? <RotateCcw /> : <Check />}
+              onActivate={(event) => {
+                if (event.isTrusted) changeStatus(!thread.resolved);
+              }}
+            />
+          )}
+          <BrowserIconAction
+            type="button"
+            variant="text"
+            label={thread ? text.threadClose : text.annotationClose}
+            icon={<X />}
+            busy={busy}
+            onActivate={(event) => {
               if (event.isTrusted) close();
             }}
-          >
-            <X aria-hidden />
-            {text.threadClose}
-          </button>
-        </span>
-      </header>
-      {thread.anchor && <blockquote>{thread.anchor.exact}</blockquote>}
-      {thread.comments.map((comment) => (
+          />
+        </>
+      }
+      notice={
+        observationUnavailable && (
+          <p role="status" className="annotation-hint">
+            {text.askObservationUnavailable}
+          </p>
+        )
+      }
+      historyRef={history}
+      historyClassName="thread-messages"
+      composer={
+        composer !== undefined
+          ? composer
+          : thread &&
+            !thread.deleted &&
+            binding && (
+              <AnnotationInput
+                creationRecipient={creationRecipient}
+                binding={ask}
+                discussion={binding}
+                anchor={thread.anchor}
+                thread={thread}
+                asks={asks}
+                title={title}
+                blocked={blocked || busy}
+                initialEdit={initialEdit}
+                onDraft={(_value, edit) => onDraft?.(edit)}
+                cancel={close}
+                committed={() => {}}
+              />
+            )
+      }
+    >
+      {anchor && <blockquote>{anchor.exact}</blockquote>}
+      {tracked && anchorsChecked && !attached && (
+        <p className="annotation-hint">{text.commentQuoteChanged}</p>
+      )}
+      {thread?.comments.map((comment) => (
         <CommentExchange
           key={`${comment.ref.writer}:${comment.messageId}`}
           comment={comment}
@@ -348,102 +547,105 @@ function Thread({
           blocked={blocked || busy}
         />
       ))}
-      {binding && !thread.deleted && (
+      {binding && thread && !thread.deleted && owned && (
         <div className="comment-actions">
-          {owned && (
-            <>
-              {thread.anchor && !attached && (
-                <button
-                  disabled={blocked || busy || !selection}
-                  onClick={(event) => {
-                    if (event.isTrusted && selection) setReattach(structuredClone(selection));
-                  }}
-                >
-                  {text.commentReattach}
-                </button>
-              )}
-              <button
-                disabled={blocked || busy}
-                onClick={(event) => {
-                  if (event.isTrusted) action({ deleted: true });
-                }}
-              >
-                {text.threadDelete}
-              </button>
-            </>
+          {tracked && !attached && (
+            <BrowserAction
+              type="button"
+              variant="text"
+              label={text.commentReattach}
+              disabled={blocked || busy || !selection}
+              onActivate={(event) => {
+                if (event.isTrusted && selection) setReattach(structuredClone(selection));
+              }}
+            />
           )}
+          <BrowserAction
+            type="button"
+            variant="text"
+            label={text.threadDelete}
+            disabled={blocked}
+            busy={busy}
+            onActivate={(event) => {
+              if (event.isTrusted) action({ deleted: true });
+            }}
+          />
         </div>
       )}
-      {reattach && !thread.deleted && (
+      {reattach && thread && !thread.deleted && (
         <section className="comment-compose">
           <blockquote>{reattach.exact}</blockquote>
           <div className="comment-actions">
-            <button
-              disabled={blocked || busy}
-              onClick={(event) => {
-                if (event.isTrusted) {
-                  action({ anchor: reattach });
-                }
+            <BrowserAction
+              type="button"
+              variant="text"
+              label={text.commentConfirmReattach}
+              disabled={blocked}
+              busy={busy}
+              onActivate={(event) => {
+                if (event.isTrusted) action({ anchor: reattach });
               }}
-            >
-              {text.commentConfirmReattach}
-            </button>
-            <button
-              disabled={busy}
-              onClick={(event) => {
+            />
+            <BrowserAction
+              type="button"
+              variant="text"
+              label={text.commentCancel}
+              busy={busy}
+              onActivate={(event) => {
                 if (event.isTrusted) setReattach(null);
               }}
-            >
-              {text.commentCancel}
-            </button>
+            />
           </div>
         </section>
       )}
-      {!thread.deleted && binding && (
-        <AnnotationInput
-          binding={ask}
-          discussion={binding}
-          anchor={thread.anchor}
-          thread={thread}
-          asks={asks}
-          title={title}
-          publisher={publisher}
-          blocked={blocked || busy}
-          cancel={close}
-          committed={() => {}}
-        />
+      {notNotified.length > 0 && (
+        <p role="status" className="annotation-hint">
+          {text.threadNotNotified(notNotified.join(', '))}
+        </p>
       )}
       {error && <p role="alert">{text.commentFailed}</p>}
-    </section>
+    </ConversationWindow>
   );
 }
 
 export function ThreadPanel({
+  creationRecipient,
   hideHeader = false,
   threads,
   resolved,
+  anchorsChecked,
   selection,
   binding,
   ask,
   asks,
   title,
-  publisher,
   blocked,
   active,
   select,
+  draft,
+  onDraft,
+  presentations,
+  onStatusChange,
+  onBusy,
 }: {
+  creationRecipient?: CreationRecipient;
   hideHeader?: boolean;
   threads: readonly ThreadView[];
   resolved: readonly string[];
+  anchorsChecked: boolean;
   selection: QuoteSelector | null;
   binding?: ThreadBinding;
   ask?: AskBinding;
   asks: readonly PageAsk[];
   title: string;
-  publisher?: string;
   blocked: boolean;
   active: string | null;
   select(ref: DiscussionRef | null): void;
+  draft?(ref: DiscussionRef): ComposerEdit | undefined;
+  onDraft?(ref: DiscussionRef, edit: ComposerEdit): void;
+  presentations?: readonly ThreadPresentation[];
+  onStatusChange?(thread: ThreadView, resolved: boolean): Promise<ThreadStatusOutcome>;
+  onBusy?(busy: boolean): void;
 }) {
   const [compose, setCompose] = useState(false);
   const [now, setNow] = useState(0);
@@ -456,15 +658,15 @@ export function ThreadPanel({
           <span>{threads.filter((value) => !value.deleted).length}</span>
         </header>
       )}
-      <button
-        className="comment-page-action"
+      <BrowserAction
+        type="button"
+        variant="text"
+        label={`+ ${text.commentPage}`}
         disabled={!binding || blocked || compose}
-        onClick={(event) => {
+        onActivate={(event) => {
           if (event.isTrusted) setCompose(true);
         }}
-      >
-        + {text.commentPage}
-      </button>
+      />
       {compose && binding && (
         <Composer
           label={text.commentPost}
@@ -491,6 +693,7 @@ export function ThreadPanel({
             ]),
           ];
           const at = Number(thread.comments.at(-1)?.at ?? thread.at);
+          const status = presentationOf(presentations, thread.ref)?.status;
           return (
             <section className="annotation-list-item" key={id}>
               <button
@@ -518,23 +721,35 @@ export function ThreadPanel({
                   {participants.join(', ')} ·{' '}
                   <time dateTime={new Date(at).toISOString()}>{relativeTime(at, now)}</time>
                 </span>
-                <span>
-                  {thread.resolved ? text.threadResolved : text.threadOpen}
-                  {thread.anchor && !resolved.includes(id) ? ` · ${text.commentDetached}` : ''}
+                <span data-testid="thread-row-status" data-unseen={status?.unseen || undefined}>
+                  {thread.resolved ? <CircleCheck aria-hidden /> : <CircleDot aria-hidden />}
+                  {thread.resolved ? resolvedLabel(status) : text.threadOpen}
+                  {status?.unseen ? ` · ${text.threadUnseen}` : ''}
+                  {thread.anchor && !thread.resolved && !resolved.includes(id)
+                    ? ` · ${text.commentDetached}`
+                    : ''}
                 </span>
               </button>
               {active === id && (
-                <Thread
+                <ThreadWindow
+                  creationRecipient={creationRecipient}
                   thread={thread}
                   attached={resolved.includes(id)}
+                  anchorsChecked={anchorsChecked}
                   selection={selection}
                   binding={binding}
                   ask={ask}
                   asks={asks}
                   title={title}
-                  publisher={publisher}
                   close={() => select(null)}
                   blocked={blocked}
+                  initialEdit={draft?.(thread.ref)}
+                  onDraft={(edit) => onDraft?.(thread.ref, edit)}
+                  onBusy={onBusy}
+                  status={status}
+                  onStatusChange={
+                    onStatusChange && ((resolved) => onStatusChange(thread, resolved))
+                  }
                 />
               )}
             </section>

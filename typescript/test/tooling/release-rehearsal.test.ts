@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vite-plus/test';
 import { componentMap } from '../../scripts/ci-scope.mjs';
+import { readCargoWorkspace } from '../../scripts/cargo-workspace.mjs';
 import {
   activeProducts,
   runReleaseRehearsal,
@@ -11,12 +12,39 @@ import {
 } from '../../scripts/release-rehearsal.mjs';
 
 const map = componentMap();
-const all = ['cli', 'colab', 'remote', 'squad'];
+const all = ['cli', 'colab', 'driver-herdr', 'ops', 'remote'];
 const select = (...paths: string[]) => selectReleaseRehearsal(paths, map);
 
 describe('active products', () => {
+  it('selects active Ops, keeps a blocked fixture excluded and never selects retired Squad', () => {
+    expect(activeProducts(map)).toContain('ops');
+    expect(activeProducts(map)).not.toContain('squad');
+    const blocked = {
+      ...map,
+      components: map.components.map((component) =>
+        component.name === 'ops' ? { ...component, release: false } : component
+      ),
+    };
+    expect(activeProducts(blocked)).not.toContain('ops');
+    expect(selectReleaseRehearsal(['extensions/tmt-ops/rust/tmt-ops/Cargo.toml'], blocked)).toEqual(
+      []
+    );
+    expect(selectReleaseRehearsal(['extensions/tmt-ops/rust/tmt-ops/Cargo.toml'], map)).toEqual([
+      'ops',
+    ]);
+  });
   it('lists released native products from the component map, not parked or private ones', () => {
     expect(activeProducts(map)).toEqual(all);
+  });
+  it('activates the standalone Herdr package and keeps its own executable in Cargo metadata', () => {
+    const workspace = readCargoWorkspace(path.resolve(import.meta.dirname, '../../..'));
+    const driver = workspace.packages.find(({ name }) => name === 'tmt-driver-herdr');
+    expect(driver).toMatchObject({
+      manifest: 'rust/crates/tmt-driver-herdr/Cargo.toml',
+      version: '0.1.0-alpha.0',
+      distMetadata: { dist: true },
+      binTargets: ['tmt-driver-herdr'],
+    });
   });
 });
 
@@ -42,10 +70,12 @@ describe('release rehearsal selection', () => {
     'scripts/run-native-verification.sh',
     'typescript/scripts/verify-native-notices.mjs',
     'typescript/scripts/release-version-injection.mjs',
+    'typescript/scripts/native-application-schema.mjs',
     'typescript/scripts/release-upgrade.mjs',
     'typescript/scripts/publication-gates.mjs',
     'typescript/scripts/verify-native-installation.mjs',
     'typescript/scripts/verify-native-extension-upgrade.mjs',
+    'typescript/scripts/native-artifact-policy.mjs',
     'rust/crates/tmt-core/Cargo.toml',
   ])('rehearses every active product for the shared release input %s', (changed) => {
     expect(select(changed)).toEqual(all);
@@ -54,7 +84,7 @@ describe('release rehearsal selection', () => {
   it.each([
     ['extensions/tmt-colab/rust/tmt-colab/Cargo.toml', ['colab']],
     ['extensions/tmt-remote/rust/Cargo.toml', ['remote']],
-    ['extensions/tmt-squad/Cargo.toml', ['squad']],
+    ['extensions/tmt-ops/Cargo.toml', ['ops']],
   ])('attributes the product manifest %s to its product only', (changed, products) => {
     expect(select(changed)).toEqual(products);
   });

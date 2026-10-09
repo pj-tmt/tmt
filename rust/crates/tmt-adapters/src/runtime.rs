@@ -1,5 +1,6 @@
 //! Registered runtime recognition and exact resume commands.
-//! Explicit launches bypass argument planning entirely: they preserve argv.
+//! Explicit command selection preserves argv. Optional driver-owned launch hooks
+//! compose session settings before the channel's independent enrollment.
 
 use std::{
     ffi::{OsStr, OsString},
@@ -12,6 +13,8 @@ use tmt_core::{
     driver::{ActionResult, DeliveryAcceptance, Driver, HarnessResume, HarnessStart, SendFailure},
 };
 
+pub(crate) mod caller_header;
+pub mod caller_refusals;
 pub mod channel;
 pub mod consumption;
 pub mod driver_state;

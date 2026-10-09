@@ -23,6 +23,16 @@ export function assertNativeTarget(target, message) {
   assert.equal(target, nativeHostTarget(), message);
 }
 
+/** Validate the existing model-free driver declaration without tool or service lookup. */
+export function assertHerdrCapabilities(raw, expectedVersion, subject) {
+  assert.equal(typeof expectedVersion, 'string', 'Herdr proof requires its independent version');
+  const answer = JSON.parse(raw);
+  assert.equal(answer.ok?.name, 'herdr', `${subject} Herdr driver name mismatch`);
+  assert.equal(answer.ok?.kind, 'host', `${subject} Herdr driver kind mismatch`);
+  assert.equal(answer.ok?.version, expectedVersion, `${subject} Herdr driver version mismatch`);
+  assert(answer.ok?.protocols?.includes(1), `${subject} Herdr driver protocol mismatch`);
+}
+
 function macOsTool(name, cwd, inspect = runPackedCommand) {
   // Resolve outside the product's isolated HOME to avoid Xcode shim diagnostics.
   const tool = inspect('/usr/bin/xcrun', ['--find', name], {
@@ -206,6 +216,7 @@ export async function verifyNativeRuntime({
   skill,
   inboxSkill,
   officeSkill,
+  opsSkill,
   squadSkill,
   colabSkill,
   profileContent,
@@ -236,7 +247,7 @@ export async function verifyNativeRuntime({
 
     const run = (args) => runPackedCommand(executable, args, { cwd, env });
     assert(
-      ['cli', 'office', 'squad', 'driver-herdr', 'remote', 'colab'].includes(product),
+      ['cli', 'office', 'ops', 'squad', 'driver-herdr', 'remote', 'colab'].includes(product),
       'Unknown native runtime product'
     );
     const proveHerdr = (driver, expectedVersion) => {
@@ -245,13 +256,11 @@ export async function verifyNativeRuntime({
         'string',
         'Herdr proof requires its independent version'
       );
-      const answer = JSON.parse(
-        runPackedCommand(driver, ['__tmt-driver', '1', 'capabilities'], { cwd, env })
+      assertHerdrCapabilities(
+        runPackedCommand(driver, ['__tmt-driver', '1', 'capabilities'], { cwd, env }),
+        expectedVersion,
+        subject
       );
-      assert.equal(answer.ok?.name, 'herdr', `${subject} Herdr driver name mismatch`);
-      assert.equal(answer.ok?.kind, 'host', `${subject} Herdr driver kind mismatch`);
-      assert.equal(answer.ok?.version, expectedVersion, `${subject} Herdr driver version mismatch`);
-      assert(answer.ok?.protocols?.includes(1), `${subject} Herdr driver protocol mismatch`);
     };
     if (product === 'driver-herdr') {
       proveHerdr(executable, version);
@@ -286,13 +295,16 @@ export async function verifyNativeRuntime({
       await verifyColabApp({ executable, version, expectedApp: colabApp, notices });
       return;
     }
-    if (product === 'squad') {
-      assert.equal(typeof squadSkill, 'string', 'Squad runtime proof requires its skill');
-      assert.equal(run(['--version']), `squad ${version}\n`, `${subject} version mismatch`);
-      assert.equal(run(['skill', 'show']), squadSkill, `${subject} embedded skill mismatch`);
-      assert(!fs.existsSync(xdg), 'Squad proof must not initialize config state');
-      assert.deepEqual(fs.readdirSync(home), [], 'Squad proof must not create home state');
-      assert.deepEqual(fs.readdirSync(cwd), [], 'Squad proof must not create workspace state');
+    // Both current Ops and published predecessor Squad archives use these read-only probes.
+    if (product === 'ops' || product === 'squad') {
+      const productSkill = product === 'ops' ? opsSkill : squadSkill;
+      const name = product === 'ops' ? 'Ops' : 'Squad';
+      assert.equal(typeof productSkill, 'string', `${name} runtime proof requires its skill`);
+      assert.equal(run(['--version']), `${product} ${version}\n`, `${subject} version mismatch`);
+      assert.equal(run(['skill', 'show']), productSkill, `${subject} embedded skill mismatch`);
+      assert(!fs.existsSync(xdg), `${name} proof must not initialize config state`);
+      assert.deepEqual(fs.readdirSync(home), [], `${name} proof must not create home state`);
+      assert.deepEqual(fs.readdirSync(cwd), [], `${name} proof must not create workspace state`);
       return;
     }
     if (product === 'office') {

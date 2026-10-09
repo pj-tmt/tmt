@@ -127,10 +127,11 @@
           "name:Build pinned packaging tools",
           "name:Build release archive and target manifest",
           "name:Verify plan, archive and binary versions against the injected tag",
+          "name:Capture compiled CLI schema from the verified target archive",
           "name:Recheck version-only source after this stage",
           "uses:actions/upload-artifact@v4"
         ],
-        "sha256": "c9cb8b9d3590e797363b6552c6d9c5bf77cd887d1720dd532cd431bcc8c67ea5",
+        "sha256": "7fffec9cb4a4e7c7b15da396f36703401e51999fcf6a1e1a917373207c0c2595",
         "preMerge": [
           {
             "workflow": "ci.yml",
@@ -159,7 +160,7 @@
           "name:Recheck version-only source after this stage",
           "uses:actions/upload-artifact@v4"
         ],
-        "sha256": "2ea7f89b34262a58221fd6250a1b274b49fdbcc2ab35c6d238346fc627b78826",
+        "sha256": "38db5a0573b9a0608fadbf86f55e26725e57c42232091e829e19d958c639c1c3",
         "preMerge": [
           {
             "workflow": "ci.yml",
@@ -181,6 +182,7 @@
           "name:Require candidate Rosetta tooling",
           "name:Set up Node.js and pnpm",
           "name:Install verification dependencies",
+          "name:Install trusted CLI verification dependencies",
           "name:Install pinned Rust for version-only resolution",
           "id:version",
           "uses:actions/download-artifact@v4",
@@ -189,7 +191,7 @@
           "name:Execute final archive and bootstrap with the matching target process",
           "name:Recheck version-only source after this stage"
         ],
-        "sha256": "104a4c7e3d65e40e53751af3a869cd6a24bfaae9c63c2143a4c1363599813f20",
+        "sha256": "d7b1a474a2152f595731fcdfd19d5ad11d921b8b78acca6ab297f5873e4b99b9",
         "preMerge": [
           {
             "workflow": "ci.yml",
@@ -320,7 +322,7 @@
           "name:Recheck version-only source after runtime proof and adapter acceptance",
           "name:Keep the log of a failed proof"
         ],
-        "sha256": "2da118aa2e1e310017232c4e73252b7678c8b147d9d2506e0249fdb9b0820f9d",
+        "sha256": "9a03330fd6fc252359f2251a5ebb2139c04d7359ef8157032aa006282fe24b3c",
         "preMerge": [
           {
             "workflow": "ci.yml",
@@ -778,6 +780,26 @@
         "step": "name:Install from the public release"
       },
       "releaseOnly": "GitHub's public releases/latest pointer and its download redirect exist only after publication and can name the previous alpha for minutes; no pull request can reproduce that propagation. The injected-clock tests cover the bounded lag deadline."
+    },
+    "2197": {
+      "release": {
+        "workflow": "native-release-upgrade.yml",
+        "job": "fetch",
+        "step": "name:Download and check the release assets"
+      },
+      "preMerge": [
+        {
+          "workflow": "ci.yml",
+          "job": "unit-tests",
+          "selection": {
+            "kind": "ci-scope",
+            "output": "native_scope",
+            "value": "full"
+          },
+          "coverage": "policy",
+          "tests": ["typescript/test/tooling/release-upgrade.test.ts"]
+        }
+      ]
     }
   }
 }

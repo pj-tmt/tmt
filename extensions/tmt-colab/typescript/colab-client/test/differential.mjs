@@ -14,6 +14,7 @@ const corpus = (await readFile(new URL('ed25519-829.jsonl', vectors), 'utf8'))
   .map(JSON.parse);
 const fixture = JSON.parse(await readFile(new URL('model-v1.json', vectors), 'utf8'));
 const authority = JSON.parse(await readFile(new URL('authority-v1.json', vectors), 'utf8'));
+const attachments = JSON.parse(await readFile(new URL('attachment-v1.json', vectors), 'utf8'));
 const ownerCases = JSON.parse(
   await readFile(new URL('owner-member-v1.json', vectors), 'utf8'),
 ).cases;
@@ -113,6 +114,7 @@ try {
           authority,
           nativeAuthority,
           ownerCases,
+          attachments,
         }) => {
           const c = window.client;
           const hex = (s) => Uint8Array.from(s.match(/../g) ?? [], (n) => parseInt(n, 16));
@@ -121,6 +123,58 @@ try {
             if (!ok) throw new Error(message);
           };
           await c.probeCapabilities();
+          let attachmentCases = 0;
+          for (const test of attachments.cases) {
+            if (test.operation === 'document' || test.operation === 'comment') continue;
+            let accepted = false;
+            try {
+              const a = c.attachment;
+              if (test.operation === 'publication' || test.operation === 'publication-binding') {
+                const record = a.decodeAttachmentPublication(c.text(test.input));
+                if (test.operation === 'publication-binding')
+                  await a.publicationMatchesDescriptor(
+                    record,
+                    a.decodeAttachment(c.text(test.descriptor)),
+                  );
+                else if (test.admit) assert(JSON.stringify(record) === test.canonical);
+              } else if (test.operation === 'selector') {
+                const selector = a.decodeAttachmentSelector(c.text(test.input));
+                if (test.admit) assert(JSON.stringify(selector) === test.canonical);
+              } else if (test.operation === 'manifest') {
+                const m = a.decodeAttachmentManifest(c.text(test.input));
+                if (test.inputBytes) {
+                  assert(
+                    c.equal(a.attachmentManifestInput(m), c.binary(test.inputBytes, 1024 * 1024)),
+                  );
+                  assert(same(await a.attachmentManifestHash(m), test.hash));
+                }
+              } else {
+                const d = a.decodeAttachment(c.text(test.input));
+                if (test.operation === 'open') {
+                  const plain = await a.openAttachment(
+                    d,
+                    c.binary(test.payload, 1024 * 1024),
+                    { ...a.attachmentContext(d), ...test.context },
+                    c.binary(test.secret ?? attachments.secret, 32, 32),
+                    c.binary(test.publicKey ?? attachments.publicKey, 32, 32),
+                  );
+                  assert(c.equal(plain, c.binary(attachments.plaintext, 1024)));
+                } else if (test.admit) {
+                  assert(c.decodeText(a.attachmentJson(d)) === test.canonical);
+                  assert(c.equal(a.attachmentInput(d), c.binary(test.inputBytes, 1024 * 1024)));
+                  assert(same(await a.attachmentHash(d), test.hash));
+                }
+              }
+              accepted = true;
+            } catch (error) {
+              if (test.admit)
+                throw new Error(`Positive attachment vector failed: ${test.name}`, {
+                  cause: error,
+                });
+            }
+            assert(accepted === test.admit, `Attachment vector: ${test.name}`);
+            attachmentCases++;
+          }
           const root = hex(authority.public);
           assert((await c.deriveSpaceId(root)) === authority.space);
           const genesis = await c.statement.Envelope.fromJson(
@@ -487,6 +541,7 @@ try {
           return {
             rows,
             checks: true,
+            attachmentCases,
             outgoing: [...frozenSeals, a, b].map((e) => ({
               envelope: c.decodeText(e.toJson()),
               public: fixture.public,
@@ -495,7 +550,16 @@ try {
             })),
           };
         },
-        { engine: name, corpus, fixture, nativeEnvelope, authority, nativeAuthority, ownerCases },
+        {
+          engine: name,
+          corpus,
+          fixture,
+          nativeEnvelope,
+          authority,
+          nativeAuthority,
+          ownerCases,
+          attachments,
+        },
       );
       results.push({ engine: name, version: browser.version(), ...result });
     } catch (error) {
@@ -511,6 +575,11 @@ const destination =
   process.env.COLAB_REPORT ?? fileURLToPath(new URL('differential-results.json', root));
 await writeFile(destination, JSON.stringify({ engines, results }, null, 2) + '\n');
 validateReport(results, corpus, engines);
+const expectedAttachmentCases = attachments.cases.filter(
+  (c) => c.operation !== 'document' && c.operation !== 'comment',
+).length;
+if (results.some((r) => r.attachmentCases !== expectedAttachmentCases))
+  throw new Error('Incomplete attachment browser corpus');
 // Keep each engine's four seals within the native example's bounded input batch.
 const opened = results.flatMap((r) =>
   native({

@@ -1,0 +1,42 @@
+.tmt-ui-field {
+  color: var(--tmt-ui-color-text);
+  font-family: var(--tmt-ui-font-body);
+}
+.tmt-ui-field-label {
+  display: block;
+  margin-block-end: calc(var(--tmt-ui-host-focus-offset) + var(--tmt-ui-focus-width));
+  color: var(--tmt-ui-color-secondary);
+  font: var(--tmt-ui-host-field-label-weight)
+    var(--tmt-ui-host-field-label-size)/var(--tmt-ui-host-field-label-line-height)
+    var(--tmt-ui-host-field-label-font);
+}
+.tmt-ui-field-control {
+  box-sizing: border-box;
+  color: var(--tmt-ui-color-text);
+  background: var(--tmt-ui-surface-sheet);
+  border: var(--tmt-ui-field-border-width) solid var(--tmt-ui-color-edge);
+  border-radius: var(--tmt-ui-radius);
+  padding: var(--tmt-ui-host-field-padding);
+  font: var(--tmt-ui-host-field-size)/var(--tmt-ui-host-field-line-height) var(--tmt-ui-font-body);
+  box-shadow: none;
+  opacity: 1;
+}
+.tmt-ui-field-control:focus-visible {
+  border-color: var(--tmt-ui-color-focus);
+  /* The border and adjacent inset pixel form one edge without changing layout. */
+  outline: calc(var(--tmt-ui-focus-width) - var(--tmt-ui-field-border-width)) solid
+    var(--tmt-ui-color-focus);
+  outline-offset: calc(-1 * var(--tmt-ui-focus-width));
+}
+.tmt-ui-field-control:disabled,
+.tmt-ui-field-control[aria-disabled='true'] {
+  color: var(--tmt-ui-color-disabled-text);
+  background: var(--tmt-ui-surface-disabled);
+  opacity: 1;
+}
+.tmt-ui-field-description {
+  color: var(--tmt-ui-color-secondary);
+}
+.tmt-ui-field-error {
+  color: var(--tmt-ui-color-blocked);
+}

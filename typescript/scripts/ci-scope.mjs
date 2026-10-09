@@ -4,6 +4,14 @@ import { fileURLToPath } from 'node:url';
 import { resolve } from 'node:path';
 import { e2eShardFiles } from './e2e-shards.mjs';
 import { runPackedCommand } from './packed-command.mjs';
+import {
+  componentOfProduct,
+  isComponentRetired,
+  isProductRetired,
+  productOfComponent,
+  predecessorOfProduct,
+  releasePolicy,
+} from './native-release-policy.mjs';
 
 const COMPONENT_MAP = new URL('../../.github/components.json', import.meta.url);
 
@@ -126,8 +134,9 @@ function parseGenerated(name, value) {
 /**
  * Parses and validates the component map. A malformed map throws, so the
  * selector job fails visibly instead of selecting the wrong work.
+ * historical preserves activation fields from immutable source snapshots before later product retirement.
  */
-export function parseComponentMap(text) {
+export function parseComponentMap(text, { historical = false } = {}) {
   const map = JSON.parse(text);
   const components = Object.entries(map.components ?? {}).map(([name, component]) => ({
     name,
@@ -138,6 +147,7 @@ export function parseComponentMap(text) {
     bootstrapSha: component.bootstrapSha,
     initialVersion: component.initialVersion,
     requiresCliSha: component.requiresCliSha,
+    predecessor: component.predecessor,
     releaseConsumers:
       component.releaseConsumers === undefined
         ? []
@@ -201,6 +211,33 @@ export function parseComponentMap(text) {
       const consumer = components.find((candidate) => candidate.name === name);
       if (component.release !== false || !consumer?.package || consumer.releaseStatus === 'never')
         throw new Error(`Invalid release consumer ${name} of ${component.name}.`);
+    }
+  }
+  const productMap = { components };
+  for (const component of components) {
+    if (!historical && isComponentRetired(component.name) && component.release !== false)
+      throw new Error(`Retired component ${component.name} must declare release: false.`);
+    if (component.predecessor === undefined) continue;
+    if (!component.package || typeof component.predecessor !== 'string' || !component.predecessor)
+      throw new Error(`Component ${component.name} predecessor needs a package and product key.`);
+    const product = productOfComponent(component.name);
+    componentOfProduct(productMap, product);
+    releasePolicy(component.predecessor);
+    if (component.predecessor === product)
+      throw new Error(`Component ${component.name} cannot be its own predecessor.`);
+    if (!isProductRetired(component.predecessor)) {
+      const predecessor = componentOfProduct(productMap, component.predecessor);
+      if (!predecessor.package || predecessor.release === false)
+        throw new Error(
+          `Predecessor ${component.predecessor} must be a released or retired product.`
+        );
+    }
+    const visited = new Set([product]);
+    let predecessor = component.predecessor;
+    while (predecessor !== undefined) {
+      if (visited.has(predecessor)) throw new Error(`Predecessor cycle for ${component.name}.`);
+      visited.add(predecessor);
+      predecessor = predecessorOfProduct(productMap, predecessor);
     }
   }
   if (components.length === 0) throw new Error('The component map has no components.');
@@ -425,9 +462,35 @@ export function selectColabHarness(paths, map = componentMap()) {
   });
 }
 
+// The app component suite renders the app in Chromium against its own dev server, so it
+// reads the app, the client and design system it imports, and the lockfile; it needs no
+// Rust. Native-fixture specs skip there and stay in the weekly/manual acceptance.
+const COLAB_APP_OWNERS = new Set(['colab-app', 'colab-client', 'browser-ui']);
+
+const COLAB_APP_ROOTS = [
+  'extensions/tmt-colab/typescript/app',
+  'extensions/tmt-colab/typescript/colab-client',
+  'design/browser-ui',
+];
+
+const COLAB_APP_INPUTS = new Set([
+  '.github/workflows/colab-browser.yml',
+  'typescript/pnpm-lock.yaml',
+]);
+
+/** Empty/unknown diffs do not select advisory work; weekly/manual runs cover shared drift. */
+export function selectColabApp(paths, map = componentMap()) {
+  return paths.some(
+    (path) =>
+      COLAB_APP_INPUTS.has(path) ||
+      (COLAB_APP_OWNERS.has(ownerOf(path, map)) &&
+        COLAB_APP_ROOTS.some((root) => within(root, path)))
+  );
+}
+
 /**
  * How much of the native work a change needs. `none`: nothing native is selected.
- * A component name (only `squad` declares `scopedChecks`): every path that selects
+ * A component name (only `ops` declares `scopedChecks`): every path that selects
  * native work is owned by that component, which cannot affect the others, so it
  * runs its own checks. `full`: anything else, and an empty diff, fails closed.
  */
@@ -686,6 +749,7 @@ export function runCiScope(args, { cwd, stdout, stderr, summaryFile }) {
   }
   const officeBrowser = selectOfficeBrowser(selection.paths);
   const colabHarness = !queue && !seed && !full && selectColabHarness(selection.paths);
+  const colabApp = !queue && !seed && !full && selectColabApp(selection.paths);
   const nativeNotices = !seed && (full || selectNativeNotices(selection.paths));
   const evidence =
     (full || seed || fallback
@@ -693,6 +757,7 @@ export function runCiScope(args, { cwd, stdout, stderr, summaryFile }) {
       : renderSelectionEvidence({ base, head, range, ...selection })) +
     `\nOffice browser selection (retired product): ${officeBrowser}.\n` +
     `\nColab browser PR selection (client, model, vectors or harness workflow): ${colabHarness}.\n` +
+    `\nColab app component suite PR selection (app, client, browser UI, workflow or lockfile): ${colabApp}.\n` +
     `\nNative dependency notices selection: ${nativeNotices}.\n`;
   stderr.write(evidence);
   if (summaryFile) appendFileSync(summaryFile, evidence);
@@ -703,6 +768,7 @@ export function runCiScope(args, { cwd, stdout, stderr, summaryFile }) {
     `native=${areas.native}\noffice=${areas.office}\nnative_office=${areas.nativeOffice}\n` +
       `office_browser=${officeBrowser}\n` +
       `colab_harness=${colabHarness}\n` +
+      `colab_app=${colabApp}\n` +
       `native_notices=${nativeNotices}\n` +
       `native_scope=${nativeScope}\n` +
       `scoped_native_tests=${checks.nativeTests.join(' ')}\n` +

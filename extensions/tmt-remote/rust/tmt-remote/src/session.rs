@@ -1,15 +1,16 @@
 //! Door sessions (`session.open`). A paired device opens independent sessions per run
 //! with a signed control envelope; a `browser` device on this door's origin
 //! also receives the door cookie, of which serve keeps only the SHA-256.
-//! Sessions live in serve's memory: they end on stop, authority loss, transport
-//! close, optional-limit eviction or idle expiry, and reopening is a silent
+//! Sessions live in serve's memory: they end on stop, authority loss,
+//! optional-limit eviction or idle expiry. Transport close starts a reattach grace;
+//! reopening an expired session is a silent
 //! signed `session.open` from the device key.
 use crate::{
     admission::{self, BindingAction, MessagePermit, MessageRefusal},
     canonical::{self, Envelope},
     crypto,
     error::RemoteError,
-    mount::{Admitted, DeviceContext, IdleClock, SessionState, Sessions},
+    mount::{Admitted, DeviceContext, IdleClock, OwnerBinding, SessionState, Sessions},
     pairing::now_ms,
     state::MachineKey,
     store::{Grant, Store, uuid_v4},
@@ -32,6 +33,8 @@ pub const COOKIE: &str = "tmt_door";
 pub const CLOCK_SKEW: Duration = Duration::from_secs(60);
 /// A session unused for this long ends; the page reopens it silently.
 pub const IDLE: Duration = crate::limits::SESSION_IDLE;
+/// How long a currentness check waits for the live-session fence before it fails closed.
+const CURRENT_WAIT: Duration = Duration::from_millis(250);
 /// Bound on remembered `session.open` nonces; beyond it opens refuse.
 const NONCES: usize = 4096;
 
@@ -194,6 +197,39 @@ impl DoorSessions {
         })
     }
 
+    pub(crate) fn door_origin(&self) -> &str {
+        &self.door_origin
+    }
+    /// Disposable per-page snapshot. Latest activity is machine wall time minus
+    /// monotonic idle duration, or null when no live current-revision Session exists.
+    pub(crate) fn management_activity(
+        &self,
+        grants: &[Grant],
+        now: u64,
+    ) -> Result<Vec<(usize, Option<u64>)>, RemoteError> {
+        let live = self.live.lock().map_err(crate::store::database)?;
+        Ok(grants
+            .iter()
+            .map(|grant| {
+                let mut count = 0usize;
+                let mut latest = None;
+                if grant.live_at(now) && !live.stopped {
+                    for session in live.by_session.values().filter(|session| {
+                        session.client_id == grant.client_id
+                            && session.grant_revision == grant.revision
+                            && !self.expired(session)
+                    }) {
+                        count += 1;
+                        let time = now.saturating_sub(
+                            u64::try_from(session.state.idle().as_millis()).unwrap_or(u64::MAX),
+                        );
+                        latest = Some(latest.map_or(time, |old: u64| old.max(time)));
+                    }
+                }
+                (count, latest)
+            })
+            .collect())
+    }
     /// End every device session and close its tunnels.
     pub fn end_device(&self, client_id: &str) {
         if let Ok(mut live) = self.live.lock() {
@@ -628,13 +664,14 @@ impl DoorSessions {
 }
 impl DoorSessions {
     fn expired(&self, session: &Session) -> bool {
-        session.state.ended()
-            || session.state.idle()
-                >= if session.state.had_transport() {
-                    self.idle
-                } else {
-                    self.idle.min(crate::limits::SESSION_UNATTACHED_IDLE)
-                }
+        // Read the transport count before idle: last-close touches while holding
+        // that count's lock, so a detached snapshot cannot use pre-close activity.
+        let idle_limit = if session.state.has_transport() {
+            self.idle
+        } else {
+            self.idle.min(crate::limits::SESSION_UNATTACHED_IDLE)
+        };
+        session.state.ended() || session.state.idle() >= idle_limit
     }
     fn remove(
         &self,
@@ -707,6 +744,44 @@ impl DoorSessions {
     }
 }
 impl Sessions for DoorSessions {
+    fn current(&self, binding: &OwnerBinding) -> bool {
+        // A core effect may hold the live fence through its own bounded call; wait for it
+        // no longer than a short bound and fail closed.
+        let limit = Instant::now() + CURRENT_WAIT;
+        let live = loop {
+            match self.live.try_lock() {
+                Ok(live) => break live,
+                Err(std::sync::TryLockError::WouldBlock) if Instant::now() < limit => {
+                    std::thread::yield_now();
+                }
+                Err(_) => return false,
+            }
+        };
+        if live.stopped {
+            return false;
+        }
+        let Some(session) = live
+            .by_session
+            .values()
+            .find(|session| Arc::ptr_eq(&session.state, &binding.session))
+        else {
+            return false;
+        };
+        if session.grant_revision != binding.grant_revision
+            || session.client_id != binding.device_id
+            || self.expired(session)
+        {
+            return false;
+        }
+        let Ok(now) = now_ms() else {
+            return false;
+        };
+        self.store
+            .lock()
+            .ok()
+            .and_then(|store| store.grant(&session.client_id).ok().flatten())
+            .is_some_and(|grant| grant.live_at(now) && grant.revision == binding.grant_revision)
+    }
     fn context(&self, cookie: Option<&str>) -> Option<Admitted> {
         self.context_for(cookie, None)
     }

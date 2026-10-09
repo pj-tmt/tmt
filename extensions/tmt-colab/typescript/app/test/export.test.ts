@@ -10,6 +10,7 @@ const input = (): ExportView => {
   const { signingKeys, ...rest } = structuredClone(fixture.input);
   return {
     ...rest,
+    statusWriters: Object.keys(signingKeys),
     signingKeys: Object.fromEntries(
       Object.entries(signingKeys as Record<string, string>).map(([writer, key]) => [
         writer,
@@ -50,6 +51,11 @@ it('matches the shared native bundle byte for byte, including exact order and la
     statementHash: reordered.membershipHead.statementHash,
     revision: reordered.membershipHead.revision,
   };
+  if (reordered.creationRecipient)
+    reordered.creationRecipient = {
+      agentId: reordered.creationRecipient.agentId,
+      machineId: reordered.creationRecipient.machineId,
+    };
   reordered.own = Object.fromEntries(Object.entries(reordered.own).reverse());
   const other = await prepareExport(reordered);
   for (const name of ['conversations.json', 'conversations.md', 'manifest.json'] as const)
@@ -98,6 +104,8 @@ it('exports only verified, in-scope conversations and keeps display text from fo
 it('copies a committed view before hashing and exposes only immutable files', async () => {
   const value = input(),
     pending = prepareExport(value);
+  if (value.creationRecipient)
+    value.creationRecipient.agentId = '50000000-0000-1000-8000-000000000099';
   value.source = 'new live source';
   value.title = 'new title';
   value.epoch = '7';
@@ -118,6 +126,7 @@ it('copies a committed view before hashing and exposes only immutable files', as
 
 it('exports empty source/title without renderer HTML or unrelated fields', async () => {
   const value = input();
+  delete value.creationRecipient;
   value.source = '';
   value.title = '';
   value.own = {};

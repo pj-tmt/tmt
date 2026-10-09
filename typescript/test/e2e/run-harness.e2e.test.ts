@@ -1,13 +1,24 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import {
+  closeSync,
+  constants,
+  existsSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  writeFileSync,
+  writeSync,
+} from 'node:fs';
 import { writeExecutable } from '../support/executable-fixture.mjs';
 import Database from 'better-sqlite3';
 import { execFileSync } from 'node:child_process';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vite-plus/test';
 import { expectJsonResult } from './cli-assertions.js';
 import { withE2EFixture, type E2EFixture } from './harness.js';
 import { durableState } from './identity-state-oracle.js';
 import { waitForFileContent } from './wait-for-file.js';
+import { processTreeHasOpenFile } from './process-file-oracle.js';
 
 function quote(value: string): string {
   return `'${value.replaceAll("'", "'\\''")}'`;
@@ -40,6 +51,60 @@ function submit(
   fixture.tmux(['send-keys', '-t', pane, 'Enter']);
 }
 
+async function suspendAfterLaunchStorageCloses(
+  fixture: E2EFixture,
+  pane: string,
+  owner: number
+): Promise<void> {
+  // Running is committed before SQLite's final WAL close, which can take an
+  // exclusive file lock. Suspending that close would freeze the next CLI's open.
+  await fixture.waitFor(
+    () => {
+      if (!existsSync(`/proc/${owner}`)) throw new Error('Launcher exited before suspension.');
+      return !processTreeHasOpenFile(owner, path.join(fixture.globalDir, 'tmux-team.db'));
+    },
+    5000,
+    'launcher to close launch storage before suspension'
+  );
+  fixture.tmux(['send-keys', '-t', pane, 'C-z']);
+}
+
+function compileLaunchGate(fixture: E2EFixture): string {
+  const library = path.join(fixture.root, 'sqlite-close-gate.so');
+  execFileSync(
+    'gcc',
+    [
+      '-shared',
+      '-fPIC',
+      '-Wall',
+      '-Wextra',
+      fileURLToPath(new URL('./fixtures/sqlite-close-gate.c', import.meta.url)),
+      '-o',
+      library,
+      '-ldl',
+    ],
+    { timeout: 5000, encoding: 'utf8' }
+  );
+  return library;
+}
+
+function signalOwnedHarness(pid: number, executable: string, signal: NodeJS.Signals): void {
+  try {
+    const argv = readFileSync(`/proc/${pid}/cmdline`, 'utf8').split('\0');
+    if (!argv.includes(executable))
+      throw new Error(`Process ${pid} is no longer the owned harness.`);
+    process.kill(pid, signal);
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      'code' in error &&
+      ['ENOENT', 'ESRCH'].includes(String(error.code))
+    )
+      return;
+    throw error;
+  }
+}
+
 function preferences(fixture: E2EFixture): Record<string, unknown>[] {
   const db = new Database(path.join(fixture.globalDir, 'tmux-team.db'), { readonly: true });
   try {
@@ -59,6 +124,18 @@ function identityId(fixture: E2EFixture, name: string): string {
   } finally {
     db.close();
   }
+}
+
+// Assert the new provider-owned suffix before comparing the user's argv. This
+// keeps the original byte-preservation checks sensitive to drops or additions.
+function userArgsWithLaunchHooks(argv: string[]): string[] {
+  expect(argv.at(-2)).toBe('--settings');
+  const settings = JSON.parse(argv.at(-1)!);
+  const focus = settings.hooks.Stop.flatMap((entry: { hooks: { command: string }[] }) =>
+    entry.hooks.filter((hook) => hook.command.includes(' __focus-hook claude --launch '))
+  );
+  expect(focus).toHaveLength(1);
+  return argv.slice(0, -2);
 }
 
 describe('foreground identity launch', { concurrent: false }, () => {
@@ -96,7 +173,7 @@ describe('foreground identity launch', { concurrent: false }, () => {
       const fake = path.join(fixture.wrapperDir, 'claude');
       const script = `#!/bin/sh
 if [ "$1" = "--resume" ]; then
-  printf '%s\\n' "$@" > ${quote(resumedArgs)}
+  printf '%s\\0' "$@" > ${quote(resumedArgs)}
   exec /opt/tmt-tests/claude ${quote(fixture.executables.cli.executable)} ${quote(resumedScenario)} ${quote(resumedReport)}
 fi
 exec /opt/tmt-tests/claude "$@"
@@ -153,7 +230,9 @@ exec /opt/tmt-tests/claude "$@"
         expect(
           await waitForFileContent(resumeStatus, { description: 'renamed identity resumed' })
         ).toBe('0');
-        expect(readFileSync(resumedArgs, 'utf8').trim().split('\n')).toEqual(['--resume', session]);
+        expect(
+          userArgsWithLaunchHooks(readFileSync(resumedArgs, 'utf8').split('\0').slice(0, -1))
+        ).toEqual(['--resume', session]);
         const resumed = JSON.parse(readFileSync(resumedReport, 'utf8')) as Array<{
           code: number;
           stdout: string;
@@ -253,7 +332,7 @@ exec /opt/tmt-tests/claude "$@"
         readFileSync(callsFile, 'utf8')
           .trim()
           .split('\n')
-          .map((line) => JSON.parse(line) as string[]);
+          .map((line) => userArgsWithLaunchHooks(JSON.parse(line) as string[]));
       await run('initial', ['run', '-s', 'Resume', fake], 0);
       // Nothing remembered: both forms refuse without launching anything.
       await run('no-session', ['resume', 'Resume'], 1);
@@ -311,10 +390,13 @@ exec /opt/tmt-tests/claude "$@"
       );
       expect(listed.identities.find((row) => row.name === 'Resume')?.resume).toEqual(resume);
 
-      // Without the provider's TMT start hook installed, a failure is not trusted.
+      // No persistent setup is needed now: per-launch start hooks make an
+      // unconfirmed failed resume trustworthy enough to mark stale.
       await run('hooks-absent', ['resume', 'Resume'], 31);
       expect(calls()).toEqual([[], ['--resume', session]]);
-      expect(preferences(fixture)).toEqual([row()]);
+      expect(staleAt()).toEqual(expect.any(Number));
+      expect(preferences(fixture)).toEqual([row({ stale_at_ms: staleAt() })]);
+      seed('claude', 'default');
 
       // With it installed, an unconfirmed non-zero exit marks the session stale;
       // a signal exit (128 + n) does not.
@@ -409,7 +491,7 @@ exec /opt/tmt-tests/claude "$@"
         execFileSync('ps', ['-o', 'stat=', '-p', String(pid)], { encoding: 'utf8' })
           .trim()
           .startsWith('T');
-      fixture.tmux(['send-keys', '-t', pane, 'C-z']);
+      await suspendAfterLaunchStorageCloses(fixture, pane, first.owner);
       await fixture.waitFor(
         () => stopped(first.child) && stopped(first.owner),
         5000,
@@ -428,9 +510,10 @@ exec /opt/tmt-tests/claude "$@"
         ['run', 'Signals', '/bin/sh', '-c', `touch ${quote(forbidden)}`],
         rejectedStatus
       );
-      expect(
-        await waitForFileContent(rejectedStatus, { description: 'stopped runtime conflict' })
-      ).toBe('5');
+      const rejectedCode = await waitForFileContent(rejectedStatus, {
+        description: 'stopped runtime conflict',
+      });
+      expect(rejectedCode, fixture.capture(60, pane)).toBe('5');
       expect(existsSync(forbidden)).toBe(false);
       expect(stopped(first.child)).toBe(true);
       fixture.tmux(['send-keys', '-t', pane, '-l', 'fg']);
@@ -480,6 +563,255 @@ exec /opt/tmt-tests/claude "$@"
     });
   });
 
+  it('defers immediate terminal suspension until launch storage releases its close lock', async () => {
+    await withE2EFixture(async (fixture) => {
+      const pane = fixture.createShellPane('run-close-lock').pane;
+      const ready = path.join(fixture.root, 'close-ready.json');
+      const fake = path.join(fixture.wrapperDir, 'close-harness');
+      writeExecutable(
+        fake,
+        `#!${process.execPath}\nrequire('node:fs').writeFileSync(${JSON.stringify(ready)}, JSON.stringify({ child: process.pid, owner: process.ppid }));\nsetInterval(() => {}, 1000);\n`,
+        0o700
+      );
+      const library = compileLaunchGate(fixture);
+      const before = path.join(fixture.root, 'close-before');
+      const held = path.join(fixture.root, 'close-held');
+      const acquire = path.join(fixture.root, 'close-acquire.fifo');
+      const release = path.join(fixture.root, 'close-release.fifo');
+      execFileSync('mkfifo', [acquire, release], { timeout: 5000 });
+      // Owned read/write descriptors let release tokens be queued even on a
+      // failed readiness wait; cleanup cannot block opening an orphaned FIFO.
+      const acquireFd = openSync(acquire, constants.O_RDWR | constants.O_NONBLOCK);
+      const releaseFd = openSync(release, constants.O_RDWR | constants.O_NONBLOCK);
+      const firstStatus = path.join(fixture.root, 'close-launch.status');
+      let first: { child: number; owner: number } | undefined;
+      let acquireReleased = false;
+      let closeReleased = false;
+      const state = () =>
+        durableState(fixture).bindings.find((row) => row.pane_id === pane)?.runtime_state;
+      const stopped = (pid: number) =>
+        execFileSync('ps', ['-o', 'stat=', '-p', String(pid)], { encoding: 'utf8', timeout: 5000 })
+          .trim()
+          .startsWith('T');
+      try {
+        submit(fixture, pane, ['run', '-s', 'CloseLock', fake], firstStatus, {
+          LD_PRELOAD: library,
+          TMT_CLOSE_DATABASE: path.join(fixture.globalDir, 'tmux-team.db'),
+          TMT_CLOSE_BEFORE: before,
+          TMT_CLOSE_HELD: held,
+          TMT_CLOSE_ACQUIRE: acquire,
+          TMT_CLOSE_RELEASE: release,
+        });
+        first = JSON.parse(await waitForFileContent(ready)) as { child: number; owner: number };
+        await waitForFileContent(before, { description: 'launcher entering SQLite close' });
+        expect(state()).toBe('running');
+        expect(
+          processTreeHasOpenFile(first.owner, path.join(fixture.globalDir, 'tmux-team.db'))
+        ).toBe(true);
+        writeSync(acquireFd, Buffer.from('go'));
+        acquireReleased = true;
+        await waitForFileContent(held, { description: 'launcher holding SQLite close lock' });
+        const locked = new Database(path.join(fixture.globalDir, 'tmux-team.db'), { timeout: 0 });
+        try {
+          expect(() => locked.prepare('SELECT * FROM bindings').all()).toThrow(/locked/);
+        } finally {
+          locked.close();
+        }
+        const signalBit = (pid: number, field: string, signal: number) => {
+          const value = readFileSync(`/proc/${pid}/status`, 'utf8').match(
+            new RegExp(`^${field}:\\s*([0-9a-f]+)$`, 'm')
+          )?.[1];
+          if (!value) throw new Error(`Missing ${field} for owned process ${pid}.`);
+          return (BigInt(`0x${value}`) & (1n << BigInt(signal - 1))) !== 0n;
+        };
+        // Linux SIGTSTP is 20. Only the launcher blocks it, with no ignored or
+        // caught disposition; the already-spawned provider retains defaults.
+        expect(signalBit(first.child, 'SigBlk', 20)).toBe(false);
+        for (const pid of [first.owner, first.child]) {
+          expect(signalBit(pid, 'SigIgn', 20)).toBe(false);
+          expect(signalBit(pid, 'SigCgt', 20)).toBe(false);
+        }
+        fixture.tmux(['send-keys', '-t', pane, 'C-z']);
+        await fixture.waitFor(
+          () => stopped(first!.child),
+          5000,
+          'provider receives immediate Ctrl-Z'
+        );
+        // Child stop proves terminal delivery happened. The launcher remains
+        // runnable until its real close finishes; old unmasked code stops here.
+        expect(stopped(first.owner)).toBe(false);
+        expect(signalBit(first.owner, 'SigBlk', 20)).toBe(true);
+        expect(signalBit(first.owner, 'ShdPnd', 20) || signalBit(first.owner, 'SigPnd', 20)).toBe(
+          true
+        );
+        expect(
+          processTreeHasOpenFile(first.owner, path.join(fixture.globalDir, 'tmux-team.db'))
+        ).toBe(true);
+        writeSync(releaseFd, Buffer.from('go'));
+        closeReleased = true;
+        await fixture.waitFor(
+          () => stopped(first!.owner) && stopped(first!.child),
+          5000,
+          'closed-storage launcher and child suspended'
+        );
+        expect(
+          processTreeHasOpenFile(first.owner, path.join(fixture.globalDir, 'tmux-team.db'))
+        ).toBe(false);
+        expect(signalBit(first.owner, 'SigBlk', 20)).toBe(false);
+        expect(signalBit(first.owner, 'SigIgn', 20)).toBe(false);
+        expect(signalBit(first.owner, 'SigCgt', 20)).toBe(false);
+        await waitForFileContent(firstStatus, {
+          description: 'shell continuation after suspension',
+        });
+        const conflict = path.join(fixture.root, 'close-conflict.status');
+        const forbidden = path.join(fixture.root, 'close-must-not-launch');
+        submit(
+          fixture,
+          pane,
+          ['run', 'CloseLock', '/bin/sh', '-c', `touch ${quote(forbidden)}`],
+          conflict
+        );
+        expect(
+          await waitForFileContent(conflict, { description: 'post-close runtime conflict' })
+        ).toBe('5');
+        expect(existsSync(forbidden)).toBe(false);
+        expect(stopped(first.child)).toBe(true);
+      } finally {
+        try {
+          if (!acquireReleased) writeSync(acquireFd, Buffer.from('go'));
+          if (!closeReleased) writeSync(releaseFd, Buffer.from('go'));
+          if (first) {
+            signalOwnedHarness(first.owner, fake, 'SIGCONT');
+            signalOwnedHarness(first.child, fake, 'SIGCONT');
+            // The close release can deliver the pending stop after our first
+            // SIGCONT. Wait for descriptors to close, then resume once more.
+            await fixture.waitFor(
+              () =>
+                !processTreeHasOpenFile(first!.owner, path.join(fixture.globalDir, 'tmux-team.db')),
+              5000,
+              'launch close gate released for cleanup'
+            );
+            signalOwnedHarness(first.owner, fake, 'SIGCONT');
+            signalOwnedHarness(first.child, fake, 'SIGCONT');
+            signalOwnedHarness(first.owner, fake, 'SIGTERM');
+            await fixture.waitFor(
+              () =>
+                state() === 'ended' &&
+                !existsSync(`/proc/${first!.owner}`) &&
+                !existsSync(`/proc/${first!.child}`),
+              5000,
+              'close-lock runtime ended and both processes reaped'
+            );
+            const cleanupStatus = path.join(fixture.root, 'close-cleanup.status');
+            fixture.tmux([
+              'send-keys',
+              '-t',
+              pane,
+              '-l',
+              `printf '%s' "$?" > ${quote(cleanupStatus)}`,
+            ]);
+            fixture.tmux(['send-keys', '-t', pane, 'Enter']);
+            expect(
+              await waitForFileContent(cleanupStatus, { description: 'post-exit shell status' })
+            ).toMatch(/^\d+$/);
+          }
+        } finally {
+          closeSync(acquireFd);
+          closeSync(releaseFd);
+        }
+      }
+    });
+  });
+
+  it('retains a child stopped before admission as Unknown and refuses a duplicate launch', async () => {
+    await withE2EFixture(async (fixture) => {
+      const pane = fixture.createShellPane('run-pre-admission-stop').pane;
+      const ready = path.join(fixture.root, 'stopped-ready.json');
+      const fake = path.join(fixture.wrapperDir, 'stopped-before-admission');
+      writeExecutable(
+        fake,
+        `#!${process.execPath}\nrequire('node:fs').writeFileSync(${JSON.stringify(ready)}, JSON.stringify({ child: process.pid, owner: process.ppid }));\nprocess.kill(process.pid, 'SIGSTOP');\nprocess.exit(23);\n`,
+        0o700
+      );
+      const library = compileLaunchGate(fixture);
+      const admission = path.join(fixture.root, 'admission-ready');
+      const release = path.join(fixture.root, 'admission-release.fifo');
+      execFileSync('mkfifo', [release], { timeout: 5000 });
+      const releaseFd = openSync(release, constants.O_RDWR | constants.O_NONBLOCK);
+      const status = path.join(fixture.root, 'stopped-launch.status');
+      let first: { child: number; owner: number } | undefined;
+      let released = false;
+      const row = () => durableState(fixture).bindings.find((binding) => binding.pane_id === pane);
+      try {
+        submit(fixture, pane, ['run', '-s', 'StoppedBeforeAdmission', fake], status, {
+          LD_PRELOAD: library,
+          TMT_ADMISSION_READY: admission,
+          TMT_ADMISSION_RELEASE: release,
+        });
+        first = JSON.parse(await waitForFileContent(ready)) as { child: number; owner: number };
+        await waitForFileContent(admission, {
+          description: 'real owned-child ps exec held before admission',
+        });
+        await fixture.waitFor(
+          () => readFileSync(`/proc/${first!.child}/status`, 'utf8').includes('State:\tT'),
+          5000,
+          'provider stopped before native admission probe'
+        );
+        writeSync(releaseFd, Buffer.from('go'));
+        released = true;
+        await fixture.waitFor(
+          () => !processTreeHasOpenFile(first!.owner, path.join(fixture.globalDir, 'tmux-team.db')),
+          5000,
+          'stopped-child attachment committed and storage closed'
+        );
+        expect(row()).toMatchObject({
+          runtime_state: 'unknown',
+          runtime_pid: first.child,
+          launch_owner_pid: first.owner,
+          last_transition: 'started',
+          observed_provider_session_id: null,
+        });
+        expect(row()?.runtime_start_identity).toMatch(/^ps-v1:/);
+        expect(row()?.launch_owner_start_identity).toMatch(/^ps-v1:/);
+        // Stop the foreground launcher now that its descriptors are closed so
+        // the shell can submit a second real command in this same pane.
+        fixture.tmux(['send-keys', '-t', pane, 'C-z']);
+        await waitForFileContent(status, {
+          description: 'shell continuation for pre-admission stopped launch',
+        });
+        const forbidden = path.join(fixture.root, 'stopped-must-not-launch');
+        const conflict = path.join(fixture.root, 'stopped-conflict.status');
+        submit(
+          fixture,
+          pane,
+          ['run', 'StoppedBeforeAdmission', '/bin/sh', '-c', `touch ${quote(forbidden)}`],
+          conflict
+        );
+        expect(await waitForFileContent(conflict)).toBe('5');
+        expect(existsSync(forbidden)).toBe(false);
+        expect(row()?.runtime_state).toBe('unknown');
+      } finally {
+        try {
+          if (!released) writeSync(releaseFd, Buffer.from('go'));
+          if (first) {
+            signalOwnedHarness(first.owner, fake, 'SIGCONT');
+            signalOwnedHarness(first.child, fake, 'SIGCONT');
+            await fixture.waitFor(
+              () =>
+                row()?.runtime_state === 'ended' &&
+                !existsSync(`/proc/${first!.owner}`) &&
+                !existsSync(`/proc/${first!.child}`),
+              5000,
+              'stopped launch exited and exact owner and child reaped'
+            );
+          }
+        } finally {
+          closeSync(releaseFd);
+        }
+      }
+    });
+  });
+
   it('preserves argv and TTY, remembers only the claim, and records fast exit before returning to the shell', async () => {
     await withE2EFixture(async (fixture) => {
       const shell = fixture.createShellPane('run-fast');
@@ -518,7 +850,7 @@ process.exit(23);
         tty: boolean[];
         descriptors: string[];
       };
-      expect(first.argv).toEqual(args);
+      expect(userArgsWithLaunchHooks(first.argv)).toEqual(args);
       expect(first.tty).toEqual([true, true, true]);
       expect(first.descriptors.some((fd) => fd.includes('tmux-team.db'))).toBe(false);
       const binding = durableState(fixture).bindings.find((row) => row.pane_id === shell.pane);
@@ -559,7 +891,7 @@ process.exit(23);
         .split('\n')
         .map((line) => JSON.parse(line) as { argv: string[] });
       expect(calls).toHaveLength(2);
-      expect(calls[1]?.argv).toEqual([]);
+      expect(userArgsWithLaunchHooks(calls[1]!.argv)).toEqual([]);
       expect(
         durableState(fixture).identities.find((row) => row.id === binding?.identity_id)?.lifetime
       ).toBe('saved');

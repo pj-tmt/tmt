@@ -613,7 +613,7 @@ describe('public local extension API', () => {
       const refused = await api(sandbox, 'skills.install', {
         owner: 'squad',
         consent: false,
-        skills: [skill('tmt-squad', 'lead playbook')],
+        skills: [skill('tmt-ops', 'lead playbook')],
       });
       expect(refused.status).toBe(1);
       expect(refused.body.error.code).toBe('API_CONSENT_REQUIRED');
@@ -621,7 +621,7 @@ describe('public local extension API', () => {
       const installed = await api(sandbox, 'skills.install', {
         owner: 'squad',
         consent: true,
-        skills: [skill('tmt-squad', 'lead playbook')],
+        skills: [skill('tmt-ops', 'lead playbook')],
       });
       expect(installed.status).toBe(0);
       expect(installed.body.owner).toBe('squad');
@@ -644,14 +644,14 @@ describe('public local extension API', () => {
       const taken = await api(sandbox, 'skills.install', {
         owner: 'other',
         consent: true,
-        skills: [skill('tmt-squad', 'theirs')],
+        skills: [skill('tmt-ops', 'theirs')],
       });
       expect(taken.body.error.code).toBe('SKILL_OWNED_ELSEWHERE');
       expect(taken.body.error.message).toContain('belongs to squad');
       const invalid = await api(sandbox, 'skills.install', {
         owner: 'squad',
         consent: true,
-        skills: [{ name: 'tmt-squad', files: [{ path: '../escape', content: 'x' }] }],
+        skills: [{ name: 'tmt-ops', files: [{ path: '../escape', content: 'x' }] }],
       });
       expect(invalid.body.error.code).toBe('SKILL_INVALID');
       for (const target of targets) {
@@ -675,7 +675,7 @@ describe('public local extension API', () => {
       const installed = await api(sandbox, 'skills.install', {
         owner: 'squad',
         consent: true,
-        skills: [skill('tmt-squad', 'lead'), skill('tmux-squad', 'playbook')],
+        skills: [skill('tmt-ops', 'lead'), skill('tmux-squad', 'playbook')],
       });
       expect(installed.status).toBe(0);
       const targets = (name: string): string[] =>
@@ -699,7 +699,7 @@ describe('public local extension API', () => {
         skills: 'tmux-squad',
       });
       expect(mistyped.body.error.code).toBe('API_INPUT_INVALID');
-      for (const target of [...targets('tmt-squad'), ...targets('tmux-squad')]) {
+      for (const target of [...targets('tmt-ops'), ...targets('tmux-squad')]) {
         expect(existsSync(target)).toBe(true);
       }
 
@@ -710,11 +710,11 @@ describe('public local extension API', () => {
       });
       expect(removed.body).toEqual({ owner: 'squad', removed: targets('tmux-squad'), kept: [] });
       for (const target of targets('tmux-squad')) expect(existsSync(target)).toBe(false);
-      for (const target of targets('tmt-squad')) {
+      for (const target of targets('tmt-ops')) {
         expect(readFileSync(path.join(target, 'SKILL.md'), 'utf8')).toBe('lead');
       }
       const rest = await api(sandbox, 'skills.remove', { owner: 'squad', consent: true });
-      expect(rest.body.removed).toEqual(targets('tmt-squad'));
+      expect(rest.body.removed).toEqual(targets('tmt-ops'));
       expect(existsSync(sandbox.database)).toBe(false);
     });
   });

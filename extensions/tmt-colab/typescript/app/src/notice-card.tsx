@@ -1,10 +1,12 @@
 import { Circle, Diamond, LoaderCircle, X } from 'lucide-react';
 import type { ReactNode } from 'react';
+import { BrowserNotice } from '@tmt/browser-ui/react';
 import './notice-card.css';
 
-/** Shared state presentation; the surrounding screen owns recovery actions. */
+/** Colab owns the state and recovery; browser-ui presents the explicit words. */
 export function NoticeCard({
   state,
+  stateLabel,
   eyebrow,
   title,
   children,
@@ -12,6 +14,7 @@ export function NoticeCard({
   testId,
 }: {
   state: 'opening' | 'waiting' | 'inactive' | 'ended' | 'blocked';
+  stateLabel?: string;
   eyebrow: string;
   title: string;
   children?: ReactNode;
@@ -20,14 +23,15 @@ export function NoticeCard({
 }) {
   const waiting = state === 'opening' || state === 'waiting';
   const muted = state === 'inactive' || state === 'ended';
-  return (
-    <section
-      className={`notice ${waiting ? 'waiting' : muted ? 'ended' : 'blocked'}`}
-      role={waiting || state === 'inactive' ? 'status' : 'alert'}
-      data-testid={testId}
-    >
-      <span className="notice-mark" aria-hidden>
-        {state === 'opening' ? (
+  const notice = (
+    <BrowserNotice
+      tone={waiting ? 'waiting' : muted ? 'muted' : 'blocked'}
+      announcement={waiting || state === 'inactive' ? 'status' : 'alert'}
+      stateLabel={stateLabel ?? (state === 'blocked' ? 'failed' : state)}
+      eyebrow={eyebrow}
+      title={title}
+      mark={
+        state === 'opening' ? (
           <LoaderCircle />
         ) : state === 'waiting' ? (
           <Diamond fill="currentColor" />
@@ -35,12 +39,11 @@ export function NoticeCard({
           <Circle />
         ) : (
           <X />
-        )}
-      </span>
-      <p className="notice-eyebrow">{eyebrow}</p>
-      <h2>{title}</h2>
-      {children}
-      {actions && <div className="notice-actions">{actions}</div>}
-    </section>
+        )
+      }
+      body={children}
+      actions={actions}
+    />
   );
+  return testId ? <div data-testid={testId}>{notice}</div> : notice;
 }

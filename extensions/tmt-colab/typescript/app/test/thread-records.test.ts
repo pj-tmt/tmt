@@ -64,7 +64,13 @@ it('joins foreign replies by verified writer references; substituted scopes and 
   const own: OwnState = {};
   put(own, fixture.thread);
   put(own, fixture.comment);
-  const read = () => readThreads(own, fixture.scope, () => new Uint8Array(32));
+  const read = () =>
+    readThreads(
+      own,
+      fixture.scope,
+      () => new Uint8Array(32),
+      () => true,
+    );
   expect(read()[0].comments[0]).toMatchObject({
     ref: { writer: b, id: fixture.comment.messageId },
     body: fixture.comment.body,
@@ -74,18 +80,35 @@ it('joins foreign replies by verified writer references; substituted scopes and 
   expect(read()[0].resolved).toBe(false);
   put(own, { ...fixture.thread, revision: '2', epoch: '2', resolved: true });
   expect(read()[0].revision).toBe('1');
-  expect(readThreads(own, fixture.scope, () => undefined)).toEqual([]);
+  expect(
+    readThreads(
+      own,
+      fixture.scope,
+      () => undefined,
+      () => true,
+    ),
+  ).toEqual([]);
   // A retained key remains sufficient for display after live authority is lost.
   expect(
-    readThreads(own, fixture.scope, (writer) => (writer === a ? new Uint8Array(32) : undefined))[0]
-      .comments,
+    readThreads(
+      own,
+      fixture.scope,
+      (writer) => (writer === a ? new Uint8Array(32) : undefined),
+      () => true,
+    )[0].comments,
   ).toEqual([]);
 });
 it('projects revisions and terminal tombstones but rejects changed references, missing revisions and resurrection', () => {
   const own: OwnState = {};
   put(own, fixture.thread);
   put(own, fixture.comment);
-  const read = () => readThreads(own, fixture.scope, () => new Uint8Array(32));
+  const read = () =>
+    readThreads(
+      own,
+      fixture.scope,
+      () => new Uint8Array(32),
+      () => true,
+    );
   put(own, { ...fixture.comment, revision: '2', body: 'Edited' });
   expect(read()[0].comments[0].body).toBe('Edited');
   put(own, { ...fixture.comment, revision: '3', body: '', deleted: true });
@@ -122,7 +145,7 @@ function storeFixture() {
   });
   const c = {
     active: true,
-    objects: { ownSigningKey: () => new Uint8Array(32) },
+    objects: { ownSigningKey: () => new Uint8Array(32), statusWriter: () => true },
     admission: {
       head: { revision: 1n },
       root: {},
@@ -174,7 +197,13 @@ it('publishes thread/opening comment atomically, preserves failures, and prevent
   await f.store.create('Opening', fixture.thread.anchor);
   expect(f.batches).toHaveLength(1);
   expect(f.batches[0]).toHaveLength(2);
-  const read = () => readThreads(f.own, fixture.scope, () => new Uint8Array(32));
+  const read = () =>
+    readThreads(
+      f.own,
+      fixture.scope,
+      () => new Uint8Array(32),
+      () => true,
+    );
   const thread = read()[0],
     message = thread.comments[0];
   const edits = await Promise.allSettled([
@@ -187,10 +216,13 @@ it('publishes thread/opening comment atomically, preserves failures, and prevent
   await f.store.reply(thread.ref, 'Other device reply');
   expect(read()[0].comments).toHaveLength(2);
   await expect(f.store.edit(message.ref, '2', 'Foreign edit')).rejects.toThrow();
-  await expect(f.store.updateThread(thread.ref, '1', { resolved: true })).rejects.toThrow();
+  await expect(f.store.updateThread(thread.ref, '1', { deleted: true })).rejects.toThrow();
+  await f.store.setStatus(thread.ref, null, true);
+  expect(read()[0]).toMatchObject({ resolved: true, ref: thread.ref, status: { senderDevice: b } });
   f.device(a);
-  await f.store.updateThread(thread.ref, '1', { resolved: true });
-  expect(read()[0].resolved).toBe(true);
+  const status = read()[0].status!;
+  await f.store.setStatus(thread.ref, status.ref, false);
+  expect(read()[0].resolved).toBe(false);
   f.deny();
   await expect(f.store.reply(thread.ref, 'Revoked')).rejects.toThrow();
   expect(read()[0].comments).toHaveLength(2);
@@ -199,7 +231,13 @@ it('Ask gets exact verified comment context and rejects stale revisions or dupli
   const own: OwnState = {};
   put(own, fixture.thread);
   put(own, fixture.comment);
-  const read = () => readThreads(own, fixture.scope, () => new Uint8Array(32));
+  const read = () =>
+    readThreads(
+      own,
+      fixture.scope,
+      () => new Uint8Array(32),
+      () => true,
+    );
   const thread = read()[0],
     comment = thread.comments[0];
   const context = {
@@ -223,7 +261,13 @@ it('publisher timestamps refresh on every mutation without controlling revision 
   const clock = vi.spyOn(Date, 'now');
   try {
     const f = storeFixture();
-    const read = () => readThreads(f.own, fixture.scope, () => new Uint8Array(32));
+    const read = () =>
+      readThreads(
+        f.own,
+        fixture.scope,
+        () => new Uint8Array(32),
+        () => true,
+      );
     clock.mockReturnValue(1791072000000);
     await f.store.create('Opening', null);
     const thread = read()[0],
@@ -235,8 +279,13 @@ it('publisher timestamps refresh on every mutation without controlling revision 
     await f.store.edit(comment.ref, '1', 'Edited');
     expect(read()[0].comments[0]).toMatchObject({ revision: '2', at: '1000', body: 'Edited' });
     clock.mockReturnValue(2000);
-    await f.store.updateThread(thread.ref, '1', { resolved: true });
-    expect(read()[0]).toMatchObject({ revision: '2', at: '2000', resolved: true });
+    await f.store.setStatus(thread.ref, null, true);
+    expect(read()[0]).toMatchObject({
+      revision: '1',
+      at: '1791072000000',
+      resolved: true,
+      status: { at: '2000' },
+    });
     clock.mockReturnValue(3000);
     await f.store.reply(thread.ref, 'Reply');
     expect(read()[0].comments.find((v) => v.body === 'Reply')?.at).toBe('3000');
@@ -247,7 +296,7 @@ it('publisher timestamps refresh on every mutation without controlling revision 
       deleted: true,
     });
     clock.mockReturnValue(5000);
-    await f.store.updateThread(thread.ref, '2', { deleted: true });
+    await f.store.updateThread(thread.ref, '1', { deleted: true });
     expect(read()[0]).toMatchObject({ at: '5000', deleted: true });
   } finally {
     clock.mockRestore();
@@ -262,7 +311,13 @@ it('freezes prior user turns and verified replies, excludes later arrivals and r
   const { captureConversation, conversationForAsk } = await import('../src/thread-store.js');
   const f = storeFixture();
   const first = await f.store.create('@agent First question', fixture.thread.anchor);
-  const read = () => readThreads(f.own, fixture.scope, () => new Uint8Array(32));
+  const read = () =>
+    readThreads(
+      f.own,
+      fixture.scope,
+      () => new Uint8Array(32),
+      () => true,
+    );
   const reply = {
     thread: first.thread.id,
     messageIds: [first.message.id],
@@ -317,7 +372,12 @@ it('Chat creates one atomic null-anchor thread per writer and page, survives pro
   const f = storeFixture();
   const origin = await f.store.createChat('@agent Hello');
   expect(origin.thread).toEqual({ writer: a, id: a });
-  let threads = readThreads(f.own, fixture.scope, () => new Uint8Array(32));
+  let threads = readThreads(
+    f.own,
+    fixture.scope,
+    () => new Uint8Array(32),
+    () => true,
+  );
   expect(threads[0]).toMatchObject({ anchor: null, comments: [{ body: '@agent Hello' }] });
   expect(threads.filter(isChatThread)).toHaveLength(1);
   const duplicate = await Promise.allSettled([
@@ -330,7 +390,12 @@ it('Chat creates one atomic null-anchor thread per writer and page, survives pro
   await f.store.create('Page-level comment', null);
   f.device(b);
   await f.store.createChat('Other browser');
-  threads = readThreads(f.own, fixture.scope, () => new Uint8Array(32));
+  threads = readThreads(
+    f.own,
+    fixture.scope,
+    () => new Uint8Array(32),
+    () => true,
+  );
   expect(
     threads
       .filter(isChatThread)
@@ -344,7 +409,12 @@ it('Chat creates one atomic null-anchor thread per writer and page, survives pro
       .comments.map((comment) => comment.body),
   ).toEqual(['@agent Hello', 'Follow-up']);
   expect(
-    readThreads(f.own, { ...fixture.scope, pageId: crypto.randomUUID() }, () => new Uint8Array(32)),
+    readThreads(
+      f.own,
+      { ...fixture.scope, pageId: crypto.randomUUID() },
+      () => new Uint8Array(32),
+      () => true,
+    ),
   ).toEqual([]);
 });
 
@@ -354,7 +424,12 @@ it('deleting a Chat message preserves its designated thread and permits a new tu
   await f.store.deleteComment(origin.message, '1');
   const next = await f.store.reply(origin.thread, '@agent Continue', '1');
   expect(next.thread).toEqual(origin.thread);
-  const chats = readThreads(f.own, fixture.scope, () => new Uint8Array(32)).filter(isChatThread);
+  const chats = readThreads(
+    f.own,
+    fixture.scope,
+    () => new Uint8Array(32),
+    () => true,
+  ).filter(isChatThread);
   expect(chats).toHaveLength(1);
   expect(chats[0]).toMatchObject({ deleted: false, revision: '1' });
   expect(chats[0].comments).toEqual([
@@ -365,4 +440,61 @@ it('deleting a Chat message preserves its designated thread and permits a new tu
       body: '@agent Continue',
     }),
   ]);
+});
+
+it('status uses current admission and a causal base, keeps content ownership, and freezes recipients before publication', async () => {
+  const f = storeFixture();
+  const read = () =>
+    readThreads(
+      f.own,
+      fixture.scope,
+      () => new Uint8Array(32),
+      () => true,
+    );
+  const created = await f.store.create('Opening', fixture.thread.anchor);
+  f.device(b);
+  const recipient = {
+    machine: crypto.randomUUID(),
+    agent: crypto.randomUUID(),
+    agentName: 'Mentioned agent',
+    operationId: crypto.randomUUID(),
+  };
+  f.fail(true);
+  await expect(f.store.setStatus(created.thread, null, true, [recipient])).rejects.toThrow();
+  expect(read()[0].resolved).toBe(false);
+  f.fail(false);
+  const changed = await f.store.setStatus(created.thread, null, true, [recipient]);
+  expect(changed.changed).toBe(true);
+  if (!changed.changed) throw new Error('Expected status action');
+  expect(read()[0].status).toMatchObject({ senderDevice: b, recipients: [recipient] });
+  expect(read()[0]).toMatchObject({ revision: '1', ref: created.thread });
+  recipient.agentName = 'Later label';
+  expect(read()[0].status!.recipients[0].agentName).toBe('Mentioned agent');
+  const count = f.batches.length;
+  await expect(f.store.setStatus(created.thread, changed.status.ref, true)).resolves.toEqual({
+    changed: false,
+  });
+  expect(f.batches).toHaveLength(count);
+  await expect(f.store.setStatus(created.thread, null, false)).rejects.toThrow();
+  await expect(
+    f.store.updateThread(created.thread, '1', { anchor: fixture.thread.anchor }),
+  ).rejects.toThrow();
+  await expect(f.store.updateThread(created.thread, '1', { deleted: true })).rejects.toThrow();
+  await f.store.notificationFailed(changed.status, recipient.operationId, 'PREPARATION_FAILED');
+  await f.store.notificationFailed(changed.status, recipient.operationId, 'PREPARATION_FAILED');
+  expect(f.batches).toHaveLength(count + 1);
+  await expect(
+    f.store.notificationFailed(changed.status, crypto.randomUUID(), 'PREPARATION_FAILED'),
+  ).rejects.toThrow();
+  f.deny();
+  await expect(f.store.setStatus(created.thread, changed.status.ref, false)).rejects.toThrow();
+  expect(read()[0].resolved).toBe(true);
+});
+it('designated Chat and deleted threads cannot acquire new status actions', async () => {
+  const f = storeFixture();
+  const chat = await f.store.createChat('Chat');
+  await expect(f.store.setStatus(chat.thread, null, true)).rejects.toThrow();
+  const page = await f.store.create('Page comment', null);
+  await f.store.updateThread(page.thread, '1', { deleted: true });
+  await expect(f.store.setStatus(page.thread, null, true)).rejects.toThrow();
 });

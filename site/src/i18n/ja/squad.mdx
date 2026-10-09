@@ -1,6 +1,6 @@
 ---
 source: site/src/chapters/squad.mdx
-sourceRevision: 8bd1e1392968d4d9d4eba8cfc86b0fb137b48931
+sourceRevision: f4a28d1fb4b1a7aecfda4543ed244641429f72d5
 title: チームを1つの board で見る
 ---
 
@@ -13,7 +13,7 @@ import { BoardDemo, jumpAndTalk, startSquad, updateStatus } from "../../demos/Bo
 import { components as Mdx } from "../../components/mdx";
 
 <Lede>
-  agent が数人を超えると、状況を追うこと自体が仕事になります。Squad は、その仕事を1人の agent
+  agent が数人を超えると、状況を追うこと自体が仕事になります。TMT Ops は、その仕事を1人の agent
   に任せます。
 </Lede>
 
@@ -33,21 +33,21 @@ import { components as Mdx } from "../../components/mdx";
 <MarkLegend />
 
 <Cmd>{`
-$ tmt extension install squad
-$ tmt sq init product            # squad に名前を付ける。確認はありません
-$ tmt sq lead sol                # 任意：sol を lead に指定
-$ tmt sq                         # 端末では board、それ以外ではメンバー一覧
+$ tmt extension install ops
+$ tmt ops sq init product        # squad に名前を付ける。確認はありません
+$ tmt ops sq lead sol            # 任意：sol を lead に指定
+$ tmt ops ui                   # 端末では board、それ以外ではメンバー一覧
 `}</Cmd>
 
-<Waiting /> は、_ユーザー自身_の対応待ちを示します。Squad
-は実行したペインからユーザーを識別します。一度記録しておきたい場合は `tmt sq me ben`
+<Waiting /> は、_ユーザー自身_の対応待ちを示します。Ops
+は実行したペインからユーザーを識別します。一度記録しておきたい場合は `tmt ops sq me ben`
 を使えます。`tmt mv` で名前を変えても、同じ identity を追います。lead が自分のペインで squad
-コマンドを実行するときは、lead 自身として操作します。`tmt sq lead` による lead の選択は、`role` や
-`lead` フィールドとは独立しています。どちらのフィールドを変えても担当の lead は変わらず、新しい lead
-を選んでも各メンバーの role の文章は保たれます。
+コマンドを実行するときは、lead 自身として操作します。`tmt ops sq lead` による lead の選択は、`role`
+や `lead` フィールドとは独立しています。どちらのフィールドを変えても担当の lead は変わらず、新しい
+lead を選んでも各メンバーの role の文章は保たれます。
 
-<Callout title="Squad は agent を起動しません。">
-  worktree やウィンドウも作りません。メンバーの起動方法はユーザーと lead が決めます。Squad
+<Callout title="Ops は agent を起動しません。">
+  worktree やウィンドウも作りません。メンバーの起動方法はユーザーと lead が決めます。Ops
   が提供するのは、チーム共通の board とメンバー一覧です。
 </Callout>
 
@@ -64,7 +64,7 @@ $ tmt sq                         # 端末では board、それ以外ではメン
 
 <Mdx.h3 id="the-board">board</Mdx.h3>
 
-squad タブの既定は **members** です。lead とメンバーを1つの枠付き一覧に表示し、詳細は行の中に開き、lead の notes は下に置きます。従来の側面ペインを持つ **team** view も選べます。`/` を押して入力すると行を絞り込めます。ユーザーを待つメンバーには <Waiting /> が付き、その行を先に表示します。各キーはすでに画面にある情報で動き、PR の状態など時間のかかる取得はバックグラウンドで更新します。メンバー、リクエスト、room の変更や `squad.toml` の編集は約1秒以内に再読み込みし、ほかの情報は設定した間隔（`refresh` または `"off"`）で更新します。検索中やメッセージの入力中でも、**ctrl-r** ですぐに更新できます。`tmt sq ls` はメンバー一覧をテキストで、`--json` を付けると JSON で表示します。端末がないときの `tmt sq` もこの一覧を表示します。`tmt sq board` は対話端末では board を開き、それ以外では同じ一覧を表示します。
+squad タブの既定は **members** です。lead とメンバーを1つの枠付き一覧に表示し、詳細は行の中に開き、lead の notes は下に置きます。従来の側面ペインを持つ **team** view も選べます。`/` を押して入力すると行を絞り込めます。ユーザーを待つメンバーには <Waiting /> が付き、その行を先に表示します。各キーはすでに画面にある情報で動き、PR の状態など時間のかかる取得はバックグラウンドで更新します。メンバー、リクエスト、room の変更や `ops.toml` の編集は約1秒以内に再読み込みし、ほかの情報は設定した間隔（`refresh` または `"off"`）で更新します。検索中やメッセージの入力中でも、**ctrl-r** ですぐに更新できます。`tmt ops sq ls` はメンバー一覧をテキストで、`--json` を付けると JSON で表示します。引数なしの `tmt ops sq` も、この一覧と board を開くためのヒントを表示します。`tmt ops ui` は対話端末では board を開き、それ以外では同じ一覧を表示します。
 
 <BoardSketch />
 
@@ -74,8 +74,9 @@ squad タブの既定は **members** です。lead とメンバーを1つの枠�
 | ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | enter · double-click · ⌫ | tmux では Enter またはダブルクリックでメンバーの画面へ移動し、Backspace で戻ります。通常の端末では Enter またはダブルクリックで行のアクションメニューを開きます。シングルクリックは選択、ペインのクリックはフォーカスです。[メンバー間の移動](/extensions/squad#jumping-between-members)を参照してください。 |
 | a                        | `write`：行に共通の composer を開きます。自分への質問があれば回答し（複数なら先に1つ選択）、なければその行について lead にメモを送ります（lead がいなければ talk）。**Tab** は利用可能な answer、note、talk、status を切り替え、メッセージと status の下書きを保ちます。talk は返信を求めるリクエストです。  |
-| t                        | HOME と同じく返信プレビューを表示／非表示にします。                                                                                                                                                                                                                                                          |
-| e · n                    | lead またはメンバーの詳細を行内に開く · lead の notes を隠す／表示する。                                                                                                                                                                                                                                     |
+| t                        | `talk`：このメンバーに返信を求めるリクエストを送ります。                                                                                                                                                                                                                                                     |
+| e · n                    | 選択した行の詳細をその場で開く／閉じる · lead の notes を隠す／表示する。                                                                                                                                                                                                                                    |
+| v                        | 選択した行の最新の返事を全文で読みます。**Esc** で戻ります。                                                                                                                                                                                                                                                 |
 | ,                        | 設定：**Theme**、**View**、meter 有効時の **Token window** を選びます。                                                                                                                                                                                                                                      |
 | o · y                    | `open` で行の PR または最初のリンクを開きます。`copy` で `auth-fix: rotate session tokens (blocked)` のような状況の1行をコピーします。SSH 越しでもコピーできます。                                                                                                                                           |
 | / · tab · s              | 検索、次のペイン、任意のタブへの切り替えです。                                                                                                                                                                                                                                                               |
@@ -139,15 +140,15 @@ board の先頭行には、squad ごとのタブと2つの組み込みタブが�
 Shift+← と Shift+→ で現在のタブを移動できます。別のタブの位置へドラッグしても移動します。board は新しい順序だけを設定に書き込み、ファイルのほかの部分は変えません。
 
 <Code>{`
-# ~/.config/tmux-team/squad.toml
+# ~/.config/tmux-team/ops.toml
 [tabs]
 order = ["all", "leads", "product"]
-hide  = ["quiet"]                      # still reachable with s, or tmt sq board --squad quiet
+hide  = ["quiet"]                      # still reachable with s, or tmt ops ui --squad quiet
 `}</Code>
 
 <Mdx.h3 id="your-own-tabs">自分用のタブ</Mdx.h3>
 
-ユーザー定義のタブは、lead や非表示の squad も含め、squad をまたいでメンバーを絞り込みます。squad/member/state/task の行プリセットを使います。`squad.toml` で組み込みタブと並べて定義します。
+ユーザー定義のタブは、lead や非表示の squad も含め、squad をまたいでメンバーを絞り込みます。squad/member/state/task の行プリセットを使います。`ops.toml` で組み込みタブと並べて定義します。
 
 <Code>{`
 [tabs]
@@ -173,32 +174,32 @@ squad と区別できるよう、`order`、`pin`、`hide` では `tab:needs-me` 
 
 フィルターは `=`、`!=`、`not`、`and`、`or`、括弧でフィールドを組み合わせます。`waiting_on_you` はユーザーを待つメンバーに一致します。ソートキーの先頭に `-` を付けると逆順になります。section はタブの行を分けます。1行が複数の section に出てもよく、残りは見出しなしで続きます。キー割り当ては section、タブ、グローバルの順に優先します。
 
-`tmt sq ls --tab needs-me` は同じ行を表示し、`--json` は board の完全なドキュメントを返します。名簿や inbox の読み取りに失敗すると、board と一覧は結果が部分的であることを示します。部分的なタブが空でも、誰もユーザーを待っていないとは限りません。
+`tmt ops sq ls --tab needs-me` は同じ行を表示し、`--json` は board の完全なドキュメントを返します。名簿や inbox の読み取りに失敗すると、board と一覧は結果が部分的であることを示します。部分的なタブが空でも、誰もユーザーを待っていないとは限りません。
 
 <Mdx.h3 id="see-your-settings">設定を見る</Mdx.h3>
 
-`,` は現在の squad またはタブの有効な設定を開きます（変更したキーは `?` に表示）。先頭の **Theme**、**View**、meter 有効時の **Token window** は現在値を示します。Theme と View は選択画面を開き、Token window はその行で順に切り替えます。各値にはプリセット、既定値、`squad.toml`（先頭にパス）または tmt のテーマ設定という出所を表示します。コマンド項目は文字として表示するだけで、実行しません。矢印、j/k、PgUp/PgDn、Home/End、ホイールでスクロールし、Esc で閉じます。開いた時点の設定なので、ファイル編集後は開き直してください。
+`,` は現在の squad またはタブの有効な設定を開きます（変更したキーは `?` に表示）。先頭の **Theme**、**View**、meter 有効時の **Token window** は現在値を示します。Theme と View は選択画面を開き、Token window はその行で順に切り替えます。各値にはプリセット、既定値、`ops.toml`（先頭にパス）または tmt のテーマ設定という出所を表示します。コマンド項目は文字として表示するだけで、実行しません。矢印、j/k、PgUp/PgDn、Home/End、ホイールでスクロールし、Esc で閉じます。開いた時点の設定なので、ファイル編集後は開き直してください。
 
-`tmt sq config show` で同じ情報をコマンドラインから表示できます。単独なら board の既定値、`--squad product` なら1つの squad、`--tab all`（または `leads` や自作のタブ名）なら1つのタブです。2つのフラグは同時に使えません。`--json` はすべての値と取得元を返します。
+`tmt ops sq config show` で同じ情報をコマンドラインから表示できます。単独なら board の既定値、`--squad product` なら1つの squad、`--tab all`（または `leads` や自作のタブ名）なら1つのタブです。2つのフラグは同時に使えません。`--json` はすべての値と取得元を返します。
 
 <Mdx.h3 id="change-settings-from-the-command-line">コマンドラインから設定を変える</Mdx.h3>
 
-`tmt sq config set` は設定を検証して `squad.toml` に保存します。
+`tmt ops sq config set` は設定を検証して `ops.toml` に保存します。
 
 <Cmd>{`
-$ tmt sq config set notes.render plain --squad product
-$ tmt sq config set board.refresh 10s --squad product
-$ tmt sq config set board.hidden_columns '["pr_link"]' --squad product
-$ tmt sq config set tabs.hide '["leads"]'
+$ tmt ops sq config set notes.render plain --squad product
+$ tmt ops sq config set board.refresh 10s --squad product
+$ tmt ops sq config set board.hidden_columns '["pr_link"]' --squad product
+$ tmt ops sq config set tabs.hide '["leads"]'
 `}</Cmd>
 
 ほとんどの設定は1つの squad に属するので、`--squad` を付けます。タブの順序と非表示タブ（`tabs.*`）は常にグローバルで、`board.refresh` も squad を指定しなければグローバルです。リストは JSON で書きます。使えない値や、読み取り後にファイルが変更された場合の書き込みは拒否します。コメントとほかの設定は保たれます。分割のペイン、方向、サイズを変えるとレイアウト全体をファイルに保存するため、その後のプリセット変更では上書きされません。入れ子の分割、コマンド、状態パターン、リマインダーはファイルを編集して変更します。
 
-`board.hidden_columns` はグリッドを変えずに列を隠します。複数列にまたがるセルは、表示されている列の範囲に縮みます。セルの全列を隠す設定は拒否されます。`[]` にするとすべて再表示します。`tmt sq ls` でも同じ列が隠れますが、`--json` には全値が含まれます。
+`board.hidden_columns` はグリッドを変えずに列を隠します。複数列にまたがるセルは、表示されている列の範囲に縮みます。セルの全列を隠す設定は拒否されます。`[]` にするとすべて再表示します。`tmt ops sq ls` でも同じ列が隠れますが、`--json` には全値が含まれます。
 
 <Mdx.h3 id="board-views">board の view</Mdx.h3>
 
-view は枠付き一覧またはペインの配置と初期の折りたたみ状態を選びます。squad の状態、行、provider、リマインダー、トークンメーター、テーマは保ちます。標準 view は6つあり、`tmt sq view ls`（または `tmt sq view`）で表示できます。
+view は枠付き一覧またはペインの配置と初期の折りたたみ状態を選びます。squad の状態、行、provider、リマインダー、トークンメーター、テーマは保ちます。標準 view は6つあり、`tmt ops sq view ls`（または `tmt ops sq view`）で表示できます。
 
 | View    | 配置                                                                                                                                       |
 | ------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -210,22 +211,22 @@ view は枠付き一覧またはペインの配置と初期の折りたたみ状
 | wide    | 行、detail/replies、notes を40/30/30の3列に置きます。180列未満で detail/replies を折りたたみます。                                         |
 
 <Cmd>{`
-$ tmt sq view set notes                      # すべての board
-$ tmt sq view set wide --squad product       # この squad
-$ tmt sq view rm --squad product             # 配置を継承する
+$ tmt ops sq view set notes                  # すべての board
+$ tmt ops sq view set wide --squad product   # この squad
+$ tmt ops sq view rm --squad product         # 配置を継承する
 `}</Cmd>
 
 squad に手書きの `board.layout` または `panes` があれば最優先です。その後は squad の `view`、`[board] view`、既定の `members` の順です。view を指定せず direction/sizes だけを設定した既存の squad は、従来のペイン構成を保ちます。`view set` は `view` キーだけを変更し、途中で変更されたファイルへの書き込みを拒否します。`--squad` では手書きの layout も拒否するので先に自分で削除してください。`view rm` は `view` だけを削除し、独自の layout や折りたたみ設定は残します。手動の折りたたみには通常のセッション内のルールが適用されます。
 
 `,` 設定で **View** を選びます。リスト内を移動するとライブプレビューし、**Tab** ですべての board とこの squad を切り替え、**Enter** で保存、**Esc** で何も書かず元に戻します。`default` は継承する配置を表示し、自分の選択だけを削除します。leads と home タブは固定の構成を保ち、view は squad タブに適用されます。
 
-手書きの `board.layout` や `panes` がある squad には `custom` と表示されます。プレビューはできますが、その squad への保存は該当キーを `squad.toml` から削除するまで拒否されます。すべての board 向けの選択は保存でき、独自の layout はそのままです。help は自分で割り当てた view と theme のキーを表示します。
+手書きの `board.layout` や `panes` がある squad には `custom` と表示されます。プレビューはできますが、その squad への保存は該当キーを `ops.toml` から削除するまで拒否されます。すべての board 向けの選択は保存でき、独自の layout はそのままです。help は自分で割り当てた view と theme のキーを表示します。
 
 <Mdx.h3 id="boxed-squad-members">枠付きの squad メンバー一覧</Mdx.h3>
 
 squad タブは既定で1つの枠付き一覧です。先頭は `lead` タグ付きの lead、その後に `── members · N ──` の区切りがあります。メンバーは印・名前・状態・モデル・経過時間の行と作業の行で表示します。待機中（`◆`）は古い質問から先に並び、ほかのやり取りは新しい順、やり取りのないメンバーは名前順です。lead は先頭、作成者が定めた section は元の位置に残ります。
 
-lead またはメンバーで **e** を押すと、作業のプレビューが行内の詳細に変わります。利用できる場合は `◆ waits on you`、作業、リンク、経過時間付きの最新の返事、折りたたみ／書き込み／開く操作を表示します。**e** または **Esc** で閉じ、**a** はその行に共通の answer／note／talk／status composer を開き、**o** は PR またはリンクを開きます。長い詳細は矢印キーや j/k、PgUp/PgDn でスクロールでき、行の選択は動きません。一度に開ける詳細は1つです。読むだけならユーザー登録は不要で、書き込むには `tmt sq me` が必要です。lead の notes は一覧の下にあり、**n** で隠したり表示したりできます。
+行は最初は閉じています。squad タブでも HOME でも、lead やメンバーの行で **e** を押すと、その行のすぐ下に詳細が開きます。`◆ waits on you` の質問、リンク、送信者と経過時間付きの最新の返事を表示し、行にすでに出ている内容は繰り返しません。もう一度 **e** で閉じ、複数の行を同時に開けます。長い返事は最初の数行だけを表示し、**v** で全文を開いて **Esc** で戻ります。**a** はその行に共通の answer／note／talk／status composer を開き、**o** は PR またはリンクを開きます。読むだけならユーザー登録は不要で、書き込むには `tmt ops sq me` が必要です。lead の notes は一覧の下にあり、**n** で隠したり表示したりできます。
 
 従来の detail/replies 側面ペインは **,** 設定の **View** → `team` で選べます。`members` で枠付き一覧に戻ります。独自の `board.layout` や `panes` は設定した構成を保ちます。
 
@@ -241,7 +242,7 @@ notes ペインの行をクリックするとカーソルが付きます。行�
 
 notes のリンクも使えます。Tab と Shift-Tab でリンク間を移動し（Tab に別の操作を割り当てていない場合）、最下行に選択中のリンクと行き先を表示します。Enter で開きます。マウスでは1回目のクリックで選び、2回目で開きます。Esc で選択を解除し、リンクがなければ Tab は通常どおり次のペインへ移ります。Web アドレスと完全な GitHub issue・PR リンクを開けます。絶対ファイルパスはフォルダー内のファイルを表示するだけで、ファイル自体は開きません。相対パス、単独の `#12`、未知の種類のリンクは通常の文字のままです。
 
-notebook には board の操作へのリンクも書けます。`tmt:jump/<member>`、`tmt:open/<member>`、`tmt:copy/<member>`、`tmt:talk/<member>`、`tmt:answer/<member>`、`tmt:annotate/<member>`、`tmt:back` です。`<member>` は表示中の squad のメンバーか lead の名前または ID です。それ以外の名前では何もせず、その旨を伝えます。talk、answer、annotate は通常の入力欄を開き、リンクに `?text=…` があれば初期入力に使います。Enter を押すまで何も送りません。自分のプログラムをリンクから実行するには、`squad.toml` の `[links]` に、たとえば `gh = "run gh issue view {path}"` を追加します。notes の `gh:1234` は `gh issue view 1234` を実行します。tmt は shell を通さず直接実行します。
+notebook には board の操作へのリンクも書けます。`tmt:jump/<member>`、`tmt:open/<member>`、`tmt:copy/<member>`、`tmt:talk/<member>`、`tmt:answer/<member>`、`tmt:annotate/<member>`、`tmt:back` です。`<member>` は表示中の squad のメンバーか lead の名前または ID です。それ以外の名前では何もせず、その旨を伝えます。talk、answer、annotate は通常の入力欄を開き、リンクに `?text=…` があれば初期入力に使います。Enter を押すまで何も送りません。自分のプログラムをリンクから実行するには、`ops.toml` の `[links]` に、たとえば `gh = "run gh issue view {path}"` を追加します。notes の `gh:1234` は `gh issue view 1234` を実行します。tmt は shell を通さず直接実行します。
 
 detail ペインは、フィールドの下に選択したメンバー自身の notebook を読み取り専用で表示します。lead notes と同じ Markdown スタイルを使います。notebook のない保存済みメンバーは `(no notes yet)`、一時的なメンバーは `(temporary identity: no notebook)` と表示します。各メンバーも notebook の先頭に同じ短い **Current state** を置いてください。leads と all タブは行だけの表示を保ちます。
 
@@ -275,7 +276,7 @@ board の表示は固定ではありません。レイアウトのプリセッ�
 ペインと配置を変えたり、見出し、フィルター、並べ替えを持つ独自の **section** を追加したりできます。**列**、色と順序を含む**状態**、リンクの開き方も選べます。キーやクリックの動作も指定できます。割り当ては `o` のようなキーや `click`、`double-click` というイベントと、`jump`、`jump lead`、`back`、`talk`、`reply`、`annotate lead`、`open {pr_link}`、`copy {name}: {task}`、`run <program> {field}…` のような1行の操作です。`{field}` はその行の値で埋めます。section ごとにも割り当てを設定できます。
 
 <Code>{`
-# ~/.config/tmux-team/squad.toml  (the directory keeps tmt's former name)
+# ~/.config/tmux-team/ops.toml  (the directory keeps tmt's former name)
 [squad.product]
 layout = "crew"                        # start from a preset
 
@@ -285,8 +286,8 @@ O = "open {issue_link}" # your own key: open the row's issue
 
 <More summary="詳しい例：分割ペイン、独自の section、列、状態、追加のキー割り当て">
 <Code>{`
-# ~/.config/tmux-team/squad.toml  (the directory keeps tmt's former name)
-me = "ben"                             # written by tmt sq me ben, with ben's ID beside it
+# ~/.config/tmux-team/ops.toml  (the directory keeps tmt's former name)
+me = "ben"                             # written by tmt ops sq me ben, with ben's ID beside it
 
 [squad.product]
 layout = "crew" # start from a preset, then override
@@ -327,10 +328,10 @@ board はどの階層も同じ仕組みで配置するので、1組のルール�
 
 - **列**には幅、または `min`/`max` と残りの幅を分ける `grow`、`align`、`end` または `middle` で省略する `truncate`（パスやリンクに便利）、`priority` を設定します。伸縮する列は `min`（省略時は4セル）から始まり、`max` を超えません。上限に達した列の余りは他の列へ渡ります。狭い画面ではまず `min` まで縮み、それでも収まらなければ `priority` の大きい列から1つずつ隠し、残りが完全に収まるようにします。`priority` のない列はこの対象になりません。最後の列は少なくとも4セルを確保できなければ隠れます。
 - **表示行**は `lines` で数と内容を決めます。各表示行で使う列を指定し、セルは `span` で複数列にまたがれます。たとえば2行目の作業欄の下にユーザー待ちの内容を置けます。後続の表示行に何もなければ省略します。セルには `{ field = "pending", span = 3, token = "waiting" }` のように色のテーマ `token` も指定できます。Team プリセットはこの指定でユーザーへの依頼を waiting の色にします。他のプリセットは token を追加しない限り色を保ちます。セルの token は列の `color` の閾値より優先します。token は色の値ではなくテーマ内の名前です。空の値は淡いままで、選択時には行全体を強調します。
-- **値の取得元**は既定で同名の squad フィールドです。`from` を指定するとメンバー自身の tmt データに結び付けられます。`member`、`presence`、`cwd`、`target`、`session.driver`、`session.model`、`session.usage.tokens`、`session.usage.remaining`（driver がウィンドウを報告する場合、その上限から使用トークン数を引いた値）、`meta.<key>`、`meta.squad.<field>` が使えます。パスは全 driver 共通なので、Claude から Codex に変わっても列を保てます。`format` は `text`、`tokens`（`487k`）、`age`（`5m`）、`count`（`12,345`）です。section、フィルター、ソートも同じ値を使い、数値は数値として並べます。欠損値は「ここにはない」を示す共通の印 `–` です。Squad 自身のフィールド（`member`、`role`、`state`、`pending`、`note`）は結び付けられません。値に応じた色も指定できます。`color = [{ at = 400000, token = "review" }, { at = 600000, token = "blocked" }]` は、値が達した最も高い `at` の token を使います。色は装飾だけで、なくても値は同じです。
+- **値の取得元**は既定で同名の squad フィールドです。`from` を指定するとメンバー自身の tmt データに結び付けられます。`member`、`presence`、`cwd`、`target`、`session.driver`、`session.model`、`session.usage.tokens`、`session.usage.remaining`（driver がウィンドウを報告する場合、その上限から使用トークン数を引いた値）、`meta.<key>`、`meta.squad.<field>` が使えます。パスは全 driver 共通なので、Claude から Codex に変わっても列を保てます。`format` は `text`、`tokens`（`487k`）、`age`（`5m`）、`count`（`12,345`）です。section、フィルター、ソートも同じ値を使い、数値は数値として並べます。欠損値は「ここにはない」を示す共通の印 `–` です。Ops 自身のフィールド（`member`、`role`、`state`、`pending`、`note`）は結び付けられません。値に応じた色も指定できます。`color = [{ at = 400000, token = "review" }, { at = 600000, token = "blocked" }]` は、値が達した最も高い `at` の token を使います。色は装飾だけで、なくても値は同じです。
 - **割合の幅**は CSS と同様です。`width = "30%"` は、固定幅の列を引いた残りではなく、枠と行の印を除いた board の内側の幅に対する割合です。列間の余白は別に加わります。割合の合計は100%以下で、`min` と `max` は引き続きセル単位です。残りを分けるには CSS の `fr` に相当する `grow` を使います。どの表示行にも配置されない末尾の列は幅を取らず、値は別のセルに表示できます。列が隠れると、残った列で割合を再計算します。
 - **既定ではセルを折り返しません。** 収まらない文字は `…` で省略します。端末の描画幅で測るので、中国語や絵文字も揃います。列に `overflow = "wrap"` を設定すると、`max_lines` 行まで折り返します（1〜8、既定は2）。それでも収まらなければ最後の行を `…` で省略します。続きの行はセルの下に揃い、選択、ページ移動、スクロール、クリックも見えている行に従います。複数列にまたがるセルは先頭列の設定を使います。旧形式の `[squad.<name>.columns]` でも割合の幅と `overflow` を指定できます。
-- **`tmt sq ls` は自然な幅を保ちます。** 表示列に割合の幅や `overflow` がなければ、パイプ出力でも列を隠したり切ったりしません。どれかの列で指定すると board と同じ配置ルールに従い、省略、折り返し、非表示になる場合があります。一覧では列間の余白を引いてから割合を計算するため、board と1〜2セル異なることがあります。完全な値は常に detail ペインと `tmt sq ls --json` にあります。
+- **`tmt ops sq ls` は自然な幅を保ちます。** 表示列に割合の幅や `overflow` がなければ、パイプ出力でも列を隠したり切ったりしません。どれかの列で指定すると board と同じ配置ルールに従い、省略、折り返し、非表示になる場合があります。一覧では列間の余白を引いてから割合を計算するため、board と1〜2セル異なることがあります。完全な値は常に detail ペインと `tmt ops sq ls --json` にあります。
 
 <Code>{`
 [squad.product.rows]
@@ -357,9 +358,9 @@ layout = { direction = "left-right", sizes = [60, 40], panes = [
 ] }
 `}</Code>
 
-キー割り当ては自分の設定ファイルだけから読み、agent が board に書いた内容は使いません。`run` は shell を通さずプログラムを直接起動し、各 `{field}` はちょうど1つの引数になります。そのため、行の値に余分なコマンドを紛れ込ませることはできません。引数が `-` で始まる値も拒否し、オプションの混入を防ぎます。`open` は Web リンクだけを開きます。`tmt sq ls` も同じ section を使うので、テキストと JSON は board と一致します。どの section にも一致しないメンバーは見出しなしの section に続き、フィルターで黙って隠れることはありません。
+キー割り当ては自分の設定ファイルだけから読み、agent が board に書いた内容は使いません。`run` は shell を通さずプログラムを直接起動し、各 `{field}` はちょうど1つの引数になります。そのため、行の値に余分なコマンドを紛れ込ませることはできません。引数が `-` で始まる値も拒否し、オプションの混入を防ぎます。`open` は Web リンクだけを開きます。`tmt ops sq ls` も同じ section を使うので、テキストと JSON は board と一致します。どの section にも一致しないメンバーは見出しなしの section に続き、フィルターで黙って隠れることはありません。
 
-**field provider** は、PR の状態など tmt が持たないデータを列に入れます。`run` と同じルールで、ユーザーのプログラムをメンバーごとに実行し、出力の先頭行を同名のフィールドとして表示します。board は処理を待たず、バックグラウンド実行中は前の値を表示し、`every` の間隔で再実行します。失敗時はエラー文ではなく淡い `?` です。`tmt sq ls --refresh-fields` は、実行時期を迎えた provider を動かしてから一覧を表示します。プログラムは `{"value": "#412 open", "color": "review"}` を出力し、セルのテーマ token を提案できます。列自身の `color` 閾値があれば、そちらが優先です。
+**field provider** は、PR の状態など tmt が持たないデータを列に入れます。`run` と同じルールで、ユーザーのプログラムをメンバーごとに実行し、出力の先頭行を同名のフィールドとして表示します。board は処理を待たず、バックグラウンド実行中は前の値を表示し、`every` の間隔で再実行します。失敗時はエラー文ではなく淡い `?` です。`tmt ops sq ls --refresh-fields` は、実行時期を迎えた provider を動かしてから一覧を表示します。プログラムは `{"value": "#412 open", "color": "review"}` を出力し、セルのテーマ token を提案できます。列自身の `color` 閾値があれば、そちらが優先です。
 
 <Code>{`
 [squad.product.fields.pr_state]
@@ -382,7 +383,7 @@ sort = 0                    # optional: 0-999, lower comes first
 ignore_case = true          # optional; off by default
 `}</Code>
 
-完全一致する `states` の項目が最優先です。それ以外はファイル順で最初に一致するパターンを使います。どれにも一致しない状態は色なしで、順位付きの状態の後に並びます。`match` は状態全体に対する glob です。`*` は0文字以上、`?` は1文字に一致し、ほかは文字どおりです。パターンで状態の文章は変わりません。`tmt sq ls` と board は同じ順序を使います。`tmt sq ls --json` の `colors.state` には解決した token が入り、該当しなければ省略します。
+完全一致する `states` の項目が最優先です。それ以外はファイル順で最初に一致するパターンを使います。どれにも一致しない状態は色なしで、順位付きの状態の後に並びます。`match` は状態全体に対する glob です。`*` は0文字以上、`?` は1文字に一致し、ほかは文字どおりです。パターンで状態の文章は変わりません。`tmt ops sq ls` と board は同じ順序を使います。`tmt ops sq ls --json` の `colors.state` には解決した token が入り、該当しなければ省略します。
 
 <Mdx.h3 id="colors-and-themes">色とテーマ</Mdx.h3>
 
@@ -406,35 +407,35 @@ ignore_case = true          # optional; off by default
 
 <Mdx.h3 id="theming-the-board">board のテーマ</Mdx.h3>
 
-board はコマンドライン用に設定した `base` に従い、未設定なら **auto** です。board のテーマでコマンドラインの色は変わりません。`tmt config show` はコマンドラインのテーマと設定ファイルを表示します。board のテーマは `tmt sq theme` で選びます。
+board はコマンドライン用に設定した `base` に従い、未設定なら **auto** です。board のテーマでコマンドラインの色は変わりません。`tmt config show` はコマンドラインのテーマと設定ファイルを表示します。board のテーマは `tmt ops sq theme` で選びます。
 
 <Cmd>{`
-$ tmt sq theme                            # テーマ一覧。● は使用中のテーマと取得元を示します
-$ tmt sq theme set auto                   # すべての board を端末に合わせる
-$ tmt sq theme set tmt-light              # すべての board
-$ tmt sq theme set mono --squad product   # 1つの squad の board
-$ tmt sq theme rm --squad product         # board の設定に再び従う。個別の色調整は残ります
+$ tmt ops sq theme                        # テーマ一覧。● は使用中のテーマと取得元を示します
+$ tmt ops sq theme set auto               # すべての board を端末に合わせる
+$ tmt ops sq theme set tmt-light          # すべての board
+$ tmt ops sq theme set mono --squad product   # 1つの squad の board
+$ tmt ops sq theme rm --squad product     # board の設定に再び従う。個別の色調整は残ります
 `}</Cmd>
 
-または `,` 設定で **Theme** を選びます。↑ と ↓ で各テーマをその場でプレビューし、**Tab** ですべての board とこの squad を切り替え、**Enter** で保存、**Esc** で取り消します。どちらの方法でも `squad.toml` に保存します。全 board は `[board.theme]`、1つの squad は `[squad.<name>.theme]` で、ファイルのほかの部分は保たれます。squad 自身のテーマ、board のテーマ、コマンドラインのテーマの順に優先します。各層で `config.json` と同じキーを使い、個別の token も上書きできます。
+または `,` 設定で **Theme** を選びます。↑ と ↓ で各テーマをその場でプレビューし、**Tab** ですべての board とこの squad を切り替え、**Enter** で保存、**Esc** で取り消します。どちらの方法でも `ops.toml` に保存します。全 board は `[board.theme]`、1つの squad は `[squad.<name>.theme]` で、ファイルのほかの部分は保たれます。squad 自身のテーマ、board のテーマ、コマンドラインのテーマの順に優先します。各層で `config.json` と同じキーを使い、個別の token も上書きできます。
 
-**auto** は board を開くたびに端末に合わせます。多くの端末が設定する `COLORFGBG` を読み、なければ端末に背景色を問い合わせます。明るければ **tmt-light**、暗ければ **tmt**、応答がなければ **tmt** を使います。問い合わせは最大0.1秒で、その間に押したキーは取りこぼします。テーマ一覧では問い合わせません。`tmt sq theme` は `auto` を `matches the terminal when the board opens` と表示し、`COLORFGBG` から分かる場合は `auto (tmt-light)` または `auto (tmt)` と表示します。名前で選んだテーマは常に `auto` より優先します。
+**auto** は board を開くたびに端末に合わせます。多くの端末が設定する `COLORFGBG` を読み、なければ端末に背景色を問い合わせます。明るければ **tmt-light**、暗ければ **tmt**、応答がなければ **tmt** を使います。問い合わせは最大0.1秒で、その間に押したキーは取りこぼします。テーマ一覧では問い合わせません。`tmt ops sq theme` は `auto` を `matches the terminal when the board opens` と表示し、`COLORFGBG` から分かる場合は `auto (tmt-light)` または `auto (tmt)` と表示します。名前で選んだテーマは常に `auto` より優先します。
 
-`auto` は `squad.toml` の両方の層と選択画面で使え、選択画面では先頭です。`config.json` だけは拒否します。そこに `"base": "auto"` があると、`tmt config show` は `error: theme.base auto only works for the board, not in config.json` とヒント `tmt sq theme set auto` を表示し、board はその設定を無視します。
+`auto` は `ops.toml` の両方の層と選択画面で使え、選択画面では先頭です。`config.json` だけは拒否します。そこに `"base": "auto"` があると、`tmt config show` は `error: theme.base auto only works for the board, not in config.json` とヒント `tmt ops sq theme set auto` を表示し、board はその設定を無視します。
 
 行やタブの印の状態色も `blocked = { color = "blocked" }` のように同じ token を使います。旧名の `red`、`amber`、`green`、`blue`、`cyan`、`magenta` も使えます。コマンドラインのテーマに誤りがあれば、board は無視し、要約行で知らせます。
 
 <Mdx.h3 id="skills-for-your-lead">lead 向けの skill</Mdx.h3>
 
-Squad には lead agent 向けの skill が付属します。board を読み、依頼や返事のたびに更新し、ユーザーの設定を探す方法を教えます。ルールが不明なら、lead は推測せず**ユーザーに尋ねます**。使う状態、ユーザー待ちの判断、メンバーの起動方法も対象です。合意した内容を notes に記録するか、ユーザーが適用する設定変更を提案します。勝手に設定を編集しません。
+Ops には lead agent 向けの skill が付属します。board を読み、依頼や返事のたびに更新し、ユーザーの設定を探す方法を教えます。ルールが不明なら、lead は推測せず**ユーザーに尋ねます**。使う状態、ユーザー待ちの判断、メンバーの起動方法も対象です。合意した内容を notes に記録するか、ユーザーが適用する設定変更を提案します。勝手に設定を編集しません。
 
-`tmt extension install squad` は、使っている agent への skill の追加を提案し、先に確認します。
+`tmt extension install ops` は、使っている agent への skill の追加を提案し、先に確認します。
 
-任意の **playbook** は、lead が host 上にチームを配置する方法を示す skill の例です。現在は `tmux-squad` が1つあります。leads セッションと crew セッションを使い、メンバーごとに1つのウィンドウと worktree を用意します。Squad 自身は実行しません。`tmt sq playbook show tmux-squad` で読み、インストールするか、変更するか、使わないかを選べます。
+任意の **playbook** は、lead が host 上にチームを配置する方法を示す skill の例です。現在は `tmux-squad` が1つあります。leads セッションと crew セッションを使い、メンバーごとに1つのウィンドウと worktree を用意します。Ops 自身は実行しません。`tmt ops playbook show tmux-squad` で読み、インストールするか、変更するか、使わないかを選べます。
 
 <Mdx.h3 id="observed-age">観測してからの経過時間</Mdx.h3>
 
-Squad は、メンバーの作業と状態、lead の notes が変わらないままどれだけ経ったかを表示できます。**team** では有効、ほかのレイアウトでは無効です。squad ごとに1分〜24時間の閾値を設定できます。`tmt sq ls` は古くなった行と notes に経過時間を付け、board は古い行を淡くして末尾に経過時間を、notes はペイン見出しに経過時間を表示します。計測は Squad が最初に内容を見た時点からなので、それ以前にどれだけ変わっていなかったかは分かりません。内容が同じなら、設定の編集や無効化・再有効化をしても計測は続きます。
+Ops は、メンバーの作業と状態、lead の notes が変わらないままどれだけ経ったかを表示できます。**team** では有効、ほかのレイアウトでは無効です。squad ごとに1分〜24時間の閾値を設定できます。`tmt ops sq ls` は古くなった行と notes に経過時間を付け、board は古い行を淡くして末尾に経過時間を、notes はペイン見出しに経過時間を表示します。計測は Ops が最初に内容を見た時点からなので、それ以前にどれだけ変わっていなかったかは分かりません。内容が同じなら、設定の編集や無効化・再有効化をしても計測は続きます。
 
 <Code>{`
 [squad.product.reminders]
@@ -442,13 +443,13 @@ enabled = true
 stale_after = "30m"
 `}</Code>
 
-Squad の拡張 hook を有効にし（`tmt extension hooks enable squad`）、`tmt setup` で provider hook を入れると、セッション開始時を含む lead の次のターンに、短い情報提供用の1行を追加できます。古い notes や、その後に関連する活動があった古いメンバー行を示します。`tmt sq ls` または board を開いて観測を始めてください。観測前は何も通知しません。制約は [Squad skill](https://github.com/pj-tmt/tmt/blob/main/extensions/tmt-squad/skills/tmt-squad/SKILL.md#optional-observed-age) にあります。
+Ops の拡張 hook を有効にし（`tmt extension hooks enable ops`）、`tmt setup` で provider hook を入れると、セッション開始時を含む lead の次のターンに、短い情報提供用の1行を追加できます。古い notes や、その後に関連する活動があった古いメンバー行を示します。`tmt ops sq ls` または board を開いて観測を始めてください。観測前は何も通知しません。制約は [Ops skill](https://github.com/pj-tmt/tmt/blob/main/extensions/tmt-ops/skills/tmt-ops/SKILL.md#optional-observed-age) にあります。
 
 これらのキーを有効にしても provider hook はインストールされません。board 内でのリマインダー設定は <Tag kind="planned" /> です。
 
 <Mdx.h3 id="where-state-lives">状態の保存場所</Mdx.h3>
 
-Squad は名簿と board のフィールドを tmt に保存し、任意の経過時間は破棄可能なローカルキャッシュに置きます。squad は `squad-<name>` という tmt の会議 room です。各メンバーの状態、作業、リンクはその tmt identity に保存します。1つの仕事のために起動したメンバーは、ペインが閉じると board から離れます。メンバーが求める判断はユーザーの inbox に届き、board やコマンドラインから回答できます。
+Ops は名簿と board のフィールドを tmt に保存し、任意の経過時間は破棄可能なローカルキャッシュに置きます。squad は `squad-<name>` という tmt の会議 room です。各メンバーの状態、作業、リンクはその tmt identity に保存します。1つの仕事のために起動したメンバーは、ペインが閉じると board から離れます。メンバーが求める判断はユーザーの inbox に届き、board やコマンドラインから回答できます。
 
 <Mdx.h3 id="jumping-between-members">メンバー間の移動</Mdx.h3>
 
@@ -470,9 +471,9 @@ Squad は名簿と board のフィールドを tmt に保存し、任意の経�
 
 <Caption>tmux での操作例です。出力は説明用です。</Caption>
 
-tmux では `prefix S` で board をポップアップとして開き、移動すると閉じます。`prefix B` ならペインとして残します。`tmt sq hotkeys install` は tmux 設定への追加内容を示して先に確認します。`--print` は表示だけで、`tmt sq hotkeys rm` は取り除きます。別のキーは squad.toml の `[tmux] popup = "…"` と `pane = "…"` で選べます。
+tmux では `prefix S` で board をポップアップとして開き、移動すると閉じます。`prefix B` ならペインとして残します。`tmt ops hotkeys install` は tmux 設定への追加内容を示して先に確認します。`--print` は表示だけで、`tmt ops hotkeys rm` は取り除きます。別のキーは ops.toml の `[tmux] popup = "…"` と `pane = "…"` で選べます。
 
-board を開かず lead へ移動するには、`tmt sq jump --lead` を使います。自分が属する squad（または `--squad <name>`）の lead へ移動し、`tmt sq back` で戻ります。`[tmux]` に `lead = "J"` を追加してホットキーを再インストールすると、どのメンバーのペインでも `prefix J` で同じ操作ができます。
+board を開かず lead へ移動するには、`tmt ops sq jump --lead` を使います。自分が属する squad（または `--squad <name>`）の lead へ移動し、`tmt ops sq back` で戻ります。`[tmux]` に `lead = "J"` を追加してホットキーを再インストールすると、どのメンバーのペインでも `prefix J` で同じ操作ができます。
 
 | Host       | 移動と戻る操作                                   | board を開く場所                       |
 | ---------- | ------------------------------------------------ | -------------------------------------- |
@@ -482,24 +483,24 @@ board を開かず lead へ移動するには、`tmt sq jump --lead` を使い�
 
 <More summary="その他のコマンド">
 <Cmd>{`
-$ tmt sq add auth-fix docs-sweep      # 起動方法に関係なく、動作中の agent を追加
-$ tmt sq set auth-fix state=review    # lead が board を更新する操作。field= で消去
-$ tmt sq ls                           # メンバー一覧。スクリプトでは --json
+$ tmt ops sq add auth-fix docs-sweep  # 起動方法に関係なく、動作中の agent を追加
+$ tmt ops sq set auth-fix state=review    # lead が board を更新する操作。field= で消去
+$ tmt ops sq ls                       # メンバー一覧。スクリプトでは --json
 $ tmt talk auth-fix "…" --detach      # the composer's talk mode, from the command line
 $ tmt answer auth-fix "use postgres"  # the composer's answer mode, from the command line
-$ tmt sq annotate auth-fix "split this job"   # the composer's note mode, from the command line
-$ tmt sq jump auth-fix                # tmt sq back で戻る
-$ tmt sq jump --lead                  # 自分の squad の lead
-$ tmt sq rm auth-fix                  # squad から外す。agent は動き続けます
+$ tmt ops sq annotate auth-fix "split this job"   # the composer's note mode, from the command line
+$ tmt ops sq jump auth-fix            # tmt ops sq back で戻る
+$ tmt ops sq jump --lead              # 自分の squad の lead
+$ tmt ops sq rm auth-fix              # squad から外す。agent は動き続けます
 `}</Cmd>
 
-`tmt sq` は `tmt squad` の省略形です。`tmt sq ls` は `--squad <name>` で選ばなければ、すべての squad を表示します。複数の squad がある場合、変更するコマンドには `--squad <name>` が必要です。
+`tmt ops sq` は `tmt ops squad` の省略形です。`tmt ops sq ls` は `--squad <name>` で選ばなければ、すべての squad を表示します。複数の squad がある場合、変更するコマンドには `--squad <name>` が必要です。
 
 </More>
 
 <Mdx.h3 id="reference-tabs-refresh-and-bindings">リファレンス：タブ、更新、キー割り当て</Mdx.h3>
 
-完全な設定の契約は Squad skill にあります。`tmt sq skill show` で表示でき、[リポジトリ](https://github.com/pj-tmt/tmt/blob/main/extensions/tmt-squad/skills/tmt-squad/SKILL.md)でも読めます。ここではよく使う設定を紹介します。
+完全な設定の契約は Ops skill にあります。`tmt ops skill show` で表示でき、[リポジトリ](https://github.com/pj-tmt/tmt/blob/main/extensions/tmt-ops/skills/tmt-ops/SKILL.md)でも読めます。ここではよく使う設定を紹介します。
 
 **タブ。** `order` と `hide` のほかに、`pin` と `colors` でタブ行を調整できます。
 
@@ -514,7 +515,7 @@ blocked = "blocked" # and of one with a blocked member
 
 固定したタブはタブ行がスクロールしても位置を保ち、ほかのタブをその手前へ移動させることはできません。固定対象が非表示か存在しなければ飛ばします。色は `default` またはテーマ token です。`squad:<name>` は、`all` のように組み込みタブと同名の squad を指定します。非表示の squad を名前や切り替え一覧から開くと、タブ行の先頭に `(hidden)` 付きで表示します。
 
-`tmt sq ls --tab leads` または `tmt sq ls --tab all` で同じ行をテキスト表示し、`--json` でタブの完全なドキュメントを取得できます。非表示の squad も含みます。`--tab` は `--squad` や `--refresh-fields` と併用できません。
+`tmt ops sq ls --tab leads` または `tmt ops sq ls --tab all` で同じ行をテキスト表示し、`--json` でタブの完全なドキュメントを取得できます。非表示の squad も含みます。`--tab` は `--squad` や `--refresh-fields` と併用できません。
 
 **更新。** board は既定で5秒ごとに再読み込みします。全 board は `[board]`、1つの squad は `[squad.<name>.board]` の `refresh` で変えられます。`"1s"`〜`"60m"` の整数の秒・分を指定するか、`"off"` で **ctrl-r** と board 自身の操作による再読み込みだけにします。
 

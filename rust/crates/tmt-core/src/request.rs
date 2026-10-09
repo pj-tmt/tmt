@@ -3,6 +3,7 @@
 
 pub mod attention;
 pub mod correlation;
+pub mod focus;
 pub mod history;
 pub mod inbox;
 pub mod notification;
@@ -13,6 +14,43 @@ use crate::endpoint::ServerEvidence;
 use std::{error::Error, fmt};
 
 pub const CLEANUP_BATCH_SIZE: u64 = 100;
+pub const MAX_WITHDRAWAL_REASON_BYTES: usize = 1024;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Withdrawal {
+    pub reason: String,
+    pub withdrawn_at_ms: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WithdrawnRequest {
+    pub request_id: String,
+    pub withdrawal: Withdrawal,
+    pub changed: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WithdrawalRejection {
+    InputInvalid,
+    NotFound,
+    NotOriginator,
+    NotRequired,
+    AlreadyFinal,
+    Conflict,
+}
+
+impl WithdrawalRejection {
+    pub fn code(self) -> &'static str {
+        match self {
+            Self::InputInvalid => "REQUEST_WITHDRAWAL_INPUT_INVALID",
+            Self::NotFound => "REQUEST_NOT_FOUND",
+            Self::NotOriginator => "REQUEST_ORIGINATOR_MISMATCH",
+            Self::NotRequired => "REQUEST_WITHDRAWAL_NOT_REQUIRED",
+            Self::AlreadyFinal => "REQUEST_ALREADY_FINAL",
+            Self::Conflict => "REQUEST_WITHDRAWAL_CONFLICT",
+        }
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RequestEndpoint {
@@ -99,6 +137,9 @@ impl WakeState {
 pub struct WakeClaim {
     pub state: WakeState,
     pub claimed: bool,
+    /// Captured with the held decision; Some(0) denotes a cleared policy whose
+    /// request remains owned by its checklist instead of an individual wake.
+    pub focus_until_ms: Option<u64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -146,6 +187,7 @@ pub struct RequestAttempt {
     pub settled_at_ms: Option<u64>,
     pub wait_released_at_ms: Option<u64>,
     pub response_submitted_at_ms: Option<u64>,
+    pub withdrawal: Option<Withdrawal>,
     pub expires_at_ms: u64,
     pub retention_days: u64,
     pub retention_expires_at_ms: u64,
@@ -165,6 +207,7 @@ pub struct FinalResponse {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ResponseLookup {
     Available(Box<FinalResponse>),
+    Withdrawn(Withdrawal),
     Unavailable,
     NotRequired,
 }
@@ -206,6 +249,7 @@ pub struct PreparedRequest {
     pub request_id: String,
     pub inject_preamble: bool,
     pub previous_request_id: Option<String>,
+    pub focus_until_ms: Option<u64>,
 }
 
 pub struct SubmitResponse {
@@ -257,6 +301,58 @@ pub struct RequestContext {
 /// remain in RequestService, not in SQL adapters.
 pub trait RequestRecords {
     type Error;
+    fn focus_policy(&self, identity_id: &str) -> Result<Option<focus::FocusPolicy>, Self::Error>;
+    fn write_focus_policy(&mut self, policy: &focus::FocusPolicy) -> Result<(), Self::Error>;
+    fn delivery_policy(&self, request_id: &str) -> Result<focus::DeliveryPolicy, Self::Error>;
+    fn write_delivery_policy(
+        &mut self,
+        request_id: &str,
+        policy: &focus::DeliveryPolicy,
+    ) -> Result<(), Self::Error>;
+    fn hold_focus_item(
+        &mut self,
+        identity_id: &str,
+        request_id: &str,
+        kind: focus::FocusKind,
+        source: focus::FocusSource,
+        now_ms: u64,
+    ) -> Result<(), Self::Error>;
+    fn has_focus_item(
+        &self,
+        identity_id: &str,
+        request_id: &str,
+        source: focus::FocusSource,
+    ) -> Result<bool, Self::Error>;
+    fn focus_inventory(
+        &self,
+        identity_id: &str,
+        checklist_id: Option<&str>,
+        after: u64,
+        now_ms: u64,
+    ) -> Result<(u64, u64), Self::Error>;
+    fn focus_items(
+        &self,
+        identity_id: &str,
+        checklist_id: Option<&str>,
+        after: u64,
+        limit: u64,
+        now_ms: u64,
+    ) -> Result<Vec<focus::FocusItem>, Self::Error>;
+    fn focus_checklist(&self, id: &str) -> Result<Option<focus::FocusChecklist>, Self::Error>;
+    fn active_focus_checklist(
+        &self,
+        identity_id: &str,
+    ) -> Result<Option<focus::FocusChecklist>, Self::Error>;
+    fn create_focus_checklist(
+        &mut self,
+        checklist: &focus::FocusChecklist,
+        now_ms: u64,
+    ) -> Result<(), Self::Error>;
+    fn settle_focus_checklist(
+        &mut self,
+        checklist: &focus::FocusChecklist,
+        state: focus::FocusState,
+    ) -> Result<(), Self::Error>;
     fn notification(
         &self,
         request_id: &str,
@@ -374,6 +470,12 @@ pub trait RequestRecords {
     /// Inserts final and completion marker atomically; fails if exactly one
     /// matching previously-uncompleted attempt cannot be marked.
     fn create_response(&mut self, response: &FinalResponse) -> Result<(), Self::Error>;
+    /// Set withdrawal only on an unanswered, not-yet-withdrawn attempt.
+    fn withdraw_request(
+        &mut self,
+        attempt_id: &str,
+        withdrawal: &Withdrawal,
+    ) -> Result<bool, Self::Error>;
     fn update_state(
         &mut self,
         attempt: &RequestAttempt,
@@ -444,6 +546,7 @@ pub trait RequestRepository {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ResponseRejection {
+    Withdrawn,
     NotRequired,
     InputInvalid,
     InputTooLarge,
@@ -459,6 +562,7 @@ pub enum ResponseRejection {
 impl ResponseRejection {
     pub fn code(self) -> &'static str {
         match self {
+            Self::Withdrawn => "REQUEST_WITHDRAWN",
             Self::NotRequired => "RESPONSE_NOT_REQUIRED",
             Self::InputInvalid => "RESPONSE_INPUT_INVALID",
             Self::InputTooLarge => "RESPONSE_INPUT_TOO_LARGE",
@@ -485,9 +589,11 @@ pub enum RequestError<E> {
     CounterExhausted,
     RevisionExhausted,
     Response(ResponseRejection),
+    Withdrawal(WithdrawalRejection),
     Attention(attention::AttentionRejection),
     Answer(inbox::AnswerRejection),
     ResultSelection(ResultSelectionRejection),
+    Focus(focus::FocusRejection),
     Repository(E),
 }
 
@@ -513,6 +619,14 @@ impl<E> fmt::Display for RequestError<E> {
                 f.write_str("Exchange attention revision counter is exhausted.")
             }
             Self::Response(reason) => f.write_str(reason.code()),
+            Self::Withdrawal(reason) => f.write_str(match reason {
+                WithdrawalRejection::InputInvalid => "Withdrawal requires an originator, request ID and reason of 1–1024 UTF-8 bytes.",
+                WithdrawalRejection::NotFound => "Request was not found or is no longer retained.",
+                WithdrawalRejection::NotOriginator => "Only the recorded originator identity may withdraw; anonymous requests cannot be withdrawn.",
+                WithdrawalRejection::NotRequired => "Announcements cannot be withdrawn as requests.",
+                WithdrawalRejection::AlreadyFinal => "Request already has a submitted final response.",
+                WithdrawalRejection::Conflict => "Request was already withdrawn with a different reason.",
+            }),
             Self::Attention(reason) => reason.fmt(f),
             Self::Answer(inbox::AnswerRejection::NotWaiting) => {
                 f.write_str("No open request from this originator is waiting on you.")
@@ -526,6 +640,7 @@ impl<E> fmt::Display for RequestError<E> {
             Self::ResultSelection(ResultSelectionRejection::Ambiguous(_)) => {
                 f.write_str("Request-ID prefix matches several retained requests.")
             }
+            Self::Focus(reason) => f.write_str(reason.code()),
             Self::Repository(_) => f.write_str("Could not access request state."),
         }
     }

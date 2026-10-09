@@ -1,6 +1,6 @@
 //#region src/canonical-bytes.ts
 var encoder = new TextEncoder();
-var UUID$2 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+var UUID$3 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 var ADDON_ORIGIN = /^chrome-extension:\/\/[a-p]{32}$/;
 var DOOR_ORIGIN = /^http:\/\/127\.0\.0\.1:([1-9][0-9]{0,4})$/;
 var BASE32 = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
@@ -40,7 +40,7 @@ function lp(value) {
 }
 var lpText = (value) => lp(text(value));
 function uuid(value) {
-	requireValue$1(value.length === 36 && UUID$2.test(value), "UUIDv4");
+	requireValue$1(value.length === 36 && UUID$3.test(value), "UUIDv4");
 }
 function binary(value, length) {
 	requireValue$1(value instanceof Uint8Array && value.length === length, `binary length ${length}`);
@@ -352,45 +352,57 @@ var PRE_EFFECT = /* @__PURE__ */ new Set([
 	"REMOTE_SESSION_ENDED",
 	"REMOTE_SESSION_EVICTED"
 ]);
-var UUID$1 = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+var MANAGEMENT_PRE_EFFECT = /* @__PURE__ */ new Set([
+	"REMOTE_SCOPE_DENIED",
+	"REMOTE_INPUT_INVALID",
+	"REMOTE_RATE_LIMITED",
+	"REMOTE_INTENT_CONFLICT",
+	"REMOTE_INPUT_TOO_LARGE",
+	"REMOTE_MANAGEMENT_READ_ONLY",
+	"REMOTE_DEVICE_REVOKED",
+	"REMOTE_DEVICE_NOT_FOUND",
+	"REMOTE_SETTINGS_UNAVAILABLE",
+	"REMOTE_MANAGEMENT_CAPACITY"
+]);
+var UUID$2 = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 var V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
-var coreId = (value) => typeof value === "string" && UUID$1.test(value) && value !== "00000000-0000-0000-0000-000000000000";
+var coreId = (value) => typeof value === "string" && UUID$2.test(value) && value !== "00000000-0000-0000-0000-000000000000";
 var requestId = (value) => typeof value === "string" && value.startsWith("req_") && coreId(value.slice(4));
 var utf8$1 = new TextEncoder();
 var strictUtf8$1 = new TextDecoder("utf-8", { fatal: true });
 var MAX_SEQUENCE = 18446744073709551615n;
-function valid(condition) {
+function valid$1(condition) {
 	if (!condition) throw new Error("Invalid operation response.");
 }
-function input(condition) {
+function input$1(condition) {
 	if (!condition) throw new TypeError("Invalid Remote operation input.");
 }
 function record(value) {
-	valid(typeof value === "object" && value !== null && !Array.isArray(value));
+	valid$1(typeof value === "object" && value !== null && !Array.isArray(value));
 	return value;
 }
 function reason(value) {
 	if (value.reason === void 0) return {};
-	valid(typeof value.reason === "string" && utf8$1.encode(value.reason).length <= 256);
+	valid$1(typeof value.reason === "string" && utf8$1.encode(value.reason).length <= 256);
 	return { reason: value.reason };
 }
 function sendState(value, id) {
 	const state = record(value);
-	valid(state.operationId === id);
+	valid$1(state.operationId === id);
 	switch (state.state) {
 		case "held": return {
 			state: "held",
 			operationId: id
 		};
 		case "accepted":
-			valid(requestId(state.requestId));
+			valid$1(requestId(state.requestId));
 			return {
 				state: "accepted",
 				operationId: id,
 				requestId: state.requestId
 			};
 		case "uncertain":
-			valid(state.requestId === void 0 || requestId(state.requestId));
+			valid$1(state.requestId === void 0 || requestId(state.requestId));
 			return {
 				state: "uncertain",
 				operationId: id,
@@ -407,14 +419,14 @@ function sendState(value, id) {
 }
 function resultState(value, id) {
 	const state = record(value);
-	valid(state.requestId === id);
+	valid$1(state.requestId === id);
 	switch (state.state) {
 		case "pending": return {
 			state: "pending",
 			requestId: id
 		};
 		case "replied":
-			valid(typeof state.message === "string");
+			valid$1(typeof state.message === "string");
 			return {
 				state: "replied",
 				requestId: id,
@@ -430,10 +442,10 @@ function resultState(value, id) {
 }
 function agents(value) {
 	const rows = record(value).identities;
-	valid(Array.isArray(rows));
+	valid$1(Array.isArray(rows));
 	return rows.map((value) => {
 		const row = record(value);
-		valid(coreId(row.id) && typeof row.name === "string" && (row.presence === "active" || row.presence === "offline" || row.presence === "unknown"));
+		valid$1(coreId(row.id) && typeof row.name === "string" && (row.presence === "active" || row.presence === "offline" || row.presence === "unknown"));
 		return {
 			id: row.id,
 			name: row.name,
@@ -445,25 +457,31 @@ function agents(value) {
 function remoteError(value, address) {
 	if (!Object.hasOwn(value, "error")) return void 0;
 	const error = record(value.error);
-	valid(typeof error.code === "string" && /^[A-Z][A-Z0-9_]{0,63}$/.test(error.code) && typeof error.message === "string");
+	valid$1(typeof error.code === "string" && /^[A-Z][A-Z0-9_]{0,63}$/.test(error.code) && typeof error.message === "string");
 	const limit = error.limit;
-	valid(limit === void 0 || typeof limit === "number" && Number.isSafeInteger(limit) && limit > 0);
-	valid(error.code !== "REMOTE_SESSION_EVICTED" || limit !== void 0);
+	valid$1(limit === void 0 || typeof limit === "number" && Number.isSafeInteger(limit) && limit > 0);
+	valid$1(error.code !== "REMOTE_SESSION_EVICTED" || limit !== void 0);
 	let settingsUrl;
 	if (error.settingsUrl !== void 0 && error.settingsUrl !== null) {
-		valid(typeof error.settingsUrl === "string" && error.settingsUrl.length > 0 && error.settingsUrl.length <= 2048);
+		valid$1(typeof error.settingsUrl === "string" && error.settingsUrl.length > 0 && error.settingsUrl.length <= 2048);
 		const url = new URL(error.settingsUrl, address);
 		const door = new URL(address);
-		valid(url.origin === door.origin && !url.username && !url.password && ["http:", "https:"].includes(url.protocol));
+		valid$1(url.origin === door.origin && !url.username && !url.password && ["http:", "https:"].includes(url.protocol));
 		settingsUrl = url.href;
 	}
 	const retry = error.retryAfterMs;
-	valid(retry === void 0 || typeof retry === "number" && Number.isSafeInteger(retry) && retry >= 0 && retry <= 6e4);
+	valid$1(retry === void 0 || typeof retry === "number" && Number.isSafeInteger(retry) && retry >= 0 && retry <= 6e4);
 	if (error.code === "REMOTE_REPLAY") return new SequenceMismatch();
-	valid(PRE_EFFECT.has(error.code) || [
+	valid$1(PRE_EFFECT.has(error.code) || [
 		"REMOTE_INPUT_TOO_LARGE",
 		"REMOTE_STATE_UNAVAILABLE",
-		"REMOTE_CORE_UNAVAILABLE"
+		"REMOTE_CORE_UNAVAILABLE",
+		"REMOTE_MANAGEMENT_READ_ONLY",
+		"REMOTE_MANAGEMENT_UNAVAILABLE",
+		"REMOTE_DEVICE_REVOKED",
+		"REMOTE_DEVICE_NOT_FOUND",
+		"REMOTE_SETTINGS_UNAVAILABLE",
+		"REMOTE_MANAGEMENT_CAPACITY"
 	].includes(error.code));
 	return new RefusalError(error.code, retry, limit, settingsUrl);
 }
@@ -473,7 +491,7 @@ function enqueue(channel, action) {
 	return pending;
 }
 /** One attempt; an abandoned fetch can finish without touching live counters. */
-async function attempt(channel, timeoutMs, operation, id, payload, sequence, parse) {
+async function attempt(channel, timeoutMs, operation, id, payload, sequence, parse, mutationOutcome = false) {
 	const abort = new AbortController();
 	let timer;
 	let published = false;
@@ -517,6 +535,7 @@ async function attempt(channel, timeoutMs, operation, id, payload, sequence, par
 			if (abort.signal.aborted) throw new Error("Abandoned response.");
 			if (response.status === 404) {
 				channel.ended = true;
+				if (mutationOutcome) throw new Error("Mutation acknowledgment is unconfirmed.");
 				throw new RefusalError("REMOTE_SESSION_ENDED");
 			}
 			if (response.status !== 200) throw new Error("Unconfirmed transport response.");
@@ -538,6 +557,10 @@ async function attempt(channel, timeoutMs, operation, id, payload, sequence, par
 					"REMOTE_SESSION_ENDED",
 					"REMOTE_SESSION_EVICTED"
 				].includes(error.code)) channel.ended = true;
+				if (mutationOutcome && error instanceof RefusalError && !MANAGEMENT_PRE_EFFECT.has(error.code)) {
+					failure = "outcome_unconfirmed";
+					throw new Error("Signed failure does not establish the management outcome.");
+				}
 				throw error;
 			}
 			return parse(value);
@@ -552,6 +575,7 @@ async function attempt(channel, timeoutMs, operation, id, payload, sequence, par
 		if (error instanceof RefusalError || error instanceof SequenceMismatch) throw error;
 		if (!published) throw new TypeError("Remote operation could not be signed.");
 		throw new ClientError(failure, {
+			outcome_unconfirmed: "Remote management outcome is unconfirmed; observe the original operation.",
 			timeout: "Remote outcome is unknown after timeout; observe the original operation.",
 			transport_failure: "Remote transport outcome is unknown; observe the original operation.",
 			unverifiable_response: "Remote response could not be verified; observe the original operation.",
@@ -572,8 +596,8 @@ async function synchronize(channel, timeoutMs) {
 	const payload = utf8$1.encode("{}");
 	function capabilities(value) {
 		const reply = record(value);
-		valid(reply.version === 1 && reply.profile === "local-v1" && reply.binding === "loopback-http");
-		valid(Array.isArray(reply.operations) && reply.operations.every((value) => typeof value === "string"));
+		valid$1(reply.version === 1 && reply.profile === "local-v1" && reply.binding === "loopback-http");
+		valid$1(Array.isArray(reply.operations) && reply.operations.every((value) => typeof value === "string"));
 		record(reply.limits);
 	}
 	try {
@@ -590,13 +614,13 @@ async function synchronize(channel, timeoutMs) {
 		throw unavailable();
 	}
 }
-async function invoke(channel, timeoutMs, operation, id, payload, parse) {
+async function invoke(channel, timeoutMs, operation, id, payload, parse, mutationOutcome = false) {
 	if (channel.ended || channel.clientSequence > MAX_SEQUENCE) throw new RefusalError("REMOTE_SESSION_ENDED");
 	await synchronize(channel, timeoutMs);
 	if (channel.clientSequence > MAX_SEQUENCE) throw new RefusalError("REMOTE_SESSION_ENDED");
 	const sequence = channel.clientSequence;
 	try {
-		return await attempt(channel, timeoutMs, operation, id, payload, sequence, parse);
+		return await attempt(channel, timeoutMs, operation, id, payload, sequence, parse, mutationOutcome);
 	} catch (error) {
 		if (error instanceof SequenceMismatch) {
 			channel.uncertainSequence = "unavailable";
@@ -606,25 +630,31 @@ async function invoke(channel, timeoutMs, operation, id, payload, parse) {
 		throw error;
 	}
 }
+/** Package-internal primitive shared by agent and Remote management helpers.
+* It retains the verified Session's serialized lane, signer and response correlation.
+*/
+function verifiedSessionRequest(session, options = {}) {
+	const found = channelFor(session);
+	if (!found) throw new TypeError("Use a verified openSession or reopenSession result.");
+	const channel = found;
+	const timeoutMs = options.timeoutMs ?? 4e4;
+	input$1(Number.isSafeInteger(timeoutMs) && timeoutMs > 0 && timeoutMs <= 2147483647);
+	return function call(operation, id, value, parse, mutationOutcome = false) {
+		const payload = utf8$1.encode(JSON.stringify(value));
+		return enqueue(channel, () => invoke(channel, timeoutMs, operation, id, payload, parse, mutationOutcome));
+	};
+}
 /**
 * Constructing this helper opens nothing. Reuse the owner's existing Session;
 * after unknown send outcomes, observe operation(originalId) in that session.
 * Recovery never dispatches, reopens, or automatically allocates a dispatch ID.
 */
 function operations(session, options = {}) {
-	const found = channelFor(session);
-	if (!found) throw new TypeError("Use a verified openSession or reopenSession result.");
-	const channel = found;
-	const timeoutMs = options.timeoutMs ?? 4e4;
-	input(Number.isSafeInteger(timeoutMs) && timeoutMs > 0 && timeoutMs <= 2147483647);
-	function call(operation, id, value, parse) {
-		const payload = utf8$1.encode(JSON.stringify(value));
-		return enqueue(channel, () => invoke(channel, timeoutMs, operation, id, payload, parse));
-	}
+	const call = verifiedSessionRequest(session, options);
 	return {
 		listAgents: () => call("agents.list", crypto.randomUUID(), {}, agents),
 		async send(value) {
-			input(typeof value.operationId === "string" && V4.test(value.operationId) && coreId(value.agentId) && typeof value.message === "string" && strictUtf8$1.decode(utf8$1.encode(value.message)) === value.message);
+			input$1(typeof value.operationId === "string" && V4.test(value.operationId) && coreId(value.agentId) && typeof value.message === "string" && strictUtf8$1.decode(utf8$1.encode(value.message)) === value.message);
 			const { operationId, agentId, message } = value;
 			try {
 				return await call("dispatch.create", operationId, {
@@ -651,7 +681,7 @@ function operations(session, options = {}) {
 			}
 		},
 		async operation(operationId) {
-			input(coreId(operationId));
+			input$1(coreId(operationId));
 			try {
 				return await call("operation.show", crypto.randomUUID(), { operationId }, (value) => sendState(value, operationId));
 			} catch (error) {
@@ -667,8 +697,194 @@ function operations(session, options = {}) {
 			}
 		},
 		async result(id) {
-			input(requestId(id));
+			input$1(requestId(id));
 			return call("result", crypto.randomUUID(), { requestId: id }, (value) => resultState(value, id));
+		}
+	};
+}
+//#endregion
+//#region src/management.ts
+var UUID$1 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+var decimal = (value) => typeof value === "string" && /^[1-9][0-9]{0,19}$/.test(value);
+function valid(condition) {
+	if (!condition) throw new Error("Invalid management response.");
+}
+function input(condition) {
+	if (!condition) throw new TypeError("Invalid management input.");
+}
+function object(value) {
+	valid(typeof value === "object" && value !== null && !Array.isArray(value));
+	return value;
+}
+function exact(value, keys) {
+	valid(Object.keys(value).length === keys.length && keys.every((key) => Object.hasOwn(value, key)));
+}
+var integer = (value) => Number.isSafeInteger(value) && value >= 0;
+function settings(value) {
+	const row = object(value);
+	exact(row, [
+		"open",
+		"source",
+		"sessionsPerDevice",
+		"sessionsPerDeviceSource",
+		"warning"
+	]);
+	valid(typeof row.open === "boolean" && ["default", "settings.json"].includes(row.source));
+	valid(row.sessionsPerDevice === null || decimal(row.sessionsPerDevice));
+	valid(["default", "settings.json"].includes(row.sessionsPerDeviceSource));
+	valid(row.warning === null || row.warning === "settings.json could not be read; defaults apply");
+	return row;
+}
+function device(value, activity = false) {
+	const row = object(value);
+	exact(row, [
+		"clientId",
+		"name",
+		"kind",
+		"issuedAtMs",
+		"expiresAtMs",
+		"revision",
+		"revoked",
+		...activity ? [
+			"thisBrowser",
+			"liveSessionCount",
+			"lastActivityAtMs"
+		] : []
+	]);
+	valid(typeof row.clientId === "string" && UUID$1.test(row.clientId));
+	valid(typeof row.name === "string" && new TextEncoder().encode(row.name).length <= 64 && row.name.trim().length > 0 && ![...row.name].some((char) => char.charCodeAt(0) < 32 || char.charCodeAt(0) === 127));
+	valid([
+		"browser",
+		"addon",
+		"cli"
+	].includes(row.kind) && integer(row.issuedAtMs));
+	valid(row.expiresAtMs === null || integer(row.expiresAtMs));
+	valid(integer(row.revision) && row.revision > 0 && typeof row.revoked === "boolean");
+	if (activity) valid(typeof row.thisBrowser === "boolean" && integer(row.liveSessionCount) && (row.lastActivityAtMs === null || integer(row.lastActivityAtMs)));
+	return row;
+}
+var refusalCodes = /* @__PURE__ */ new Set([
+	"REMOTE_SCOPE_DENIED",
+	"REMOTE_INPUT_INVALID",
+	"REMOTE_RATE_LIMITED",
+	"REMOTE_INTENT_CONFLICT",
+	"REMOTE_CLOSED",
+	"REMOTE_SESSION_ENDED",
+	"REMOTE_SESSION_EVICTED",
+	"REMOTE_INPUT_TOO_LARGE",
+	"REMOTE_STATE_UNAVAILABLE",
+	"REMOTE_MANAGEMENT_READ_ONLY",
+	"REMOTE_MANAGEMENT_UNAVAILABLE",
+	"REMOTE_DEVICE_REVOKED",
+	"REMOTE_DEVICE_NOT_FOUND",
+	"REMOTE_SETTINGS_UNAVAILABLE",
+	"REMOTE_MANAGEMENT_CAPACITY"
+]);
+function outcome(value, operationId) {
+	const row = object(value);
+	valid(row.operationId === operationId);
+	if (row.state === "committed") {
+		exact(row, [
+			"operationId",
+			"state",
+			"result",
+			"sessionEnded"
+		]);
+		valid(typeof row.sessionEnded === "boolean");
+		const result = object(row.result);
+		valid(Object.keys(result).length === 1);
+		if (Object.hasOwn(result, "settings")) settings(result.settings);
+		else device(result.device);
+	} else {
+		exact(row, [
+			"operationId",
+			"state",
+			"reason"
+		]);
+		if (row.state === "unknown") valid(row.reason === "effect_outcome_unconfirmed");
+		else valid(row.state === "refused" && typeof row.reason === "string" && refusalCodes.has(row.reason));
+	}
+	return row;
+}
+/** Constructing this helper opens nothing. Unknown mutations are never resent.
+* After Session loss, explicitly reopen once and read operation(originalId).
+* Failed fresh admission changes access status; it cannot establish mutation outcome.
+*/
+function management(session, options = {}) {
+	const call = verifiedSessionRequest(session, options);
+	async function mutate(operation, value) {
+		const { operationId } = value;
+		input(UUID$1.test(operationId));
+		try {
+			return await call(operation, operationId, value, (reply) => {
+				const parsed = outcome(reply, operationId);
+				if (parsed.state === "committed") {
+					if (operation === "remote.settings.set") valid("settings" in parsed.result);
+					else {
+						valid("device" in parsed.result && parsed.result.device.clientId === value.clientId);
+						if (operation === "remote.devices.rename") valid(parsed.result.device.name === value.name);
+						if (operation === "remote.devices.revoke") valid(parsed.result.device.revoked);
+					}
+				}
+				return parsed;
+			}, true);
+		} catch (error) {
+			if (error instanceof ClientError) throw new ClientError(error.code, error.message, operationId);
+			if (error instanceof RefusalError) return {
+				state: "refused",
+				operationId,
+				reason: error.code
+			};
+			throw error;
+		}
+	}
+	return {
+		settings: () => call("remote.settings.show", crypto.randomUUID(), {}, (value) => {
+			const row = object(value);
+			exact(row, [
+				"settings",
+				"capabilities",
+				"readOnlyReason"
+			]);
+			settings(row.settings);
+			const capabilities = object(row.capabilities);
+			exact(capabilities, ["settingsWrite", "devicesWrite"]);
+			valid(typeof capabilities.settingsWrite === "boolean" && typeof capabilities.devicesWrite === "boolean");
+			valid(row.readOnlyReason === null || row.readOnlyReason === "local_cli_required");
+			valid(capabilities.settingsWrite === capabilities.devicesWrite && capabilities.settingsWrite === (row.readOnlyReason === null));
+			return row;
+		}),
+		devices: (page) => {
+			input(Number.isInteger(page.limit) && page.limit >= 1 && page.limit <= 50 && (page.cursor === null || typeof page.cursor === "string" && /^[A-Za-z0-9_-]{98}$/.test(page.cursor)));
+			return call("remote.devices.list", crypto.randomUUID(), page, (value) => {
+				const row = object(value);
+				exact(row, ["devices", "nextCursor"]);
+				valid(Array.isArray(row.devices) && row.devices.length <= page.limit);
+				const ids = /* @__PURE__ */ new Set();
+				for (const entry of row.devices) {
+					const item = device(entry, true);
+					valid(!ids.has(item.clientId));
+					ids.add(item.clientId);
+				}
+				valid(row.nextCursor === null || typeof row.nextCursor === "string" && /^[A-Za-z0-9_-]{98}$/.test(row.nextCursor));
+				return row;
+			});
+		},
+		set: (change) => {
+			input(change.setting === "open" && typeof change.value === "boolean" || change.setting === "sessions-per-device" && (change.value === null || decimal(change.value)));
+			return mutate("remote.settings.set", { ...change });
+		},
+		rename: (change) => {
+			input(UUID$1.test(change.clientId) && typeof change.name === "string" && change.name.trim().length > 0 && new TextEncoder().encode(change.name).length <= 64 && ![...change.name].some((char) => char.charCodeAt(0) < 32 || char.charCodeAt(0) === 127));
+			return mutate("remote.devices.rename", { ...change });
+		},
+		revoke: (change) => {
+			input(UUID$1.test(change.clientId));
+			return mutate("remote.devices.revoke", { ...change });
+		},
+		operation: (operationId) => {
+			input(UUID$1.test(operationId));
+			return call("remote.management.operation", crypto.randomUUID(), { operationId }, (value) => outcome(value, operationId));
 		}
 	};
 }
@@ -973,15 +1189,146 @@ async function paired() {
 	};
 }
 /** Reopen this browser's door session for the running remote; no owner step. */
-async function reopenSession() {
+async function reopenSession(previous) {
 	const { record, key } = await paired();
+	if (previous) {
+		const old = channelFor(previous);
+		if (!old) throw new TypeError("Use a verified previous Session.");
+		if (record.paired.clientId !== old.paired.clientId || record.paired.machineId !== old.paired.machineId || record.paired.origin !== old.paired.origin || !(record.paired.machinePublicKey instanceof Uint8Array) || record.paired.machinePublicKey.length !== 32 || old.paired.machinePublicKey.length !== 32 || record.paired.machinePublicKey.some((byte, index) => byte !== old.paired.machinePublicKey[index]) || record.publicKey.some((byte, index) => byte !== old.key.publicKey()[index])) throw new RefusalError("REMOTE_SESSION_ENDED");
+	}
 	const current = await door();
+	validateDoor(current, record);
+	let refused = false;
+	try {
+		return await openSession({
+			...record.paired,
+			address: current.address
+		}, key, current.windowId, async (url, init) => {
+			const response = await fetch(url, init);
+			refused = response.status === 404;
+			return response;
+		});
+	} catch (error) {
+		if (!refused || !previous) throw error;
+		const latest = await door();
+		validateDoor(latest, record);
+		if (latest.address !== current.address || latest.windowId !== current.windowId) throw new Error("The door descriptor changed during admission.");
+		throw new RefusalError("REMOTE_SESSION_ENDED");
+	}
+}
+function validateDoor(current, record) {
 	if (current.machineId !== record.paired.machineId) throw new Error("Paired with another machine.");
-	if (!current.address.startsWith(`${location.origin}/r/`) || !/^[a-z2-7]{16}$/.test(current.address.slice(`${location.origin}/r/`.length))) throw new Error("The door advertised an invalid address.");
-	return openSession({
-		...record.paired,
-		address: current.address
-	}, key, current.windowId);
+	if (typeof current.windowId !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(current.windowId) || typeof current.address !== "string" || !current.address.startsWith(`${location.origin}/r/`) || !/^[a-z2-7]{16}$/.test(current.address.slice(`${location.origin}/r/`.length))) throw new Error("The door advertised an invalid descriptor.");
+}
+/** Local evidence only: never read a descriptor or attempt admission to paint the entry. */
+async function entryPairing() {
+	try {
+		const record = await load();
+		if (record === void 0) return { state: "missing" };
+		if (typeof record !== "object" || record === null || Array.isArray(record)) return { state: "unavailable" };
+		const pin = record.paired?.machinePublicKey;
+		if (typeof record.paired !== "object" || record.paired === null || Array.isArray(record.paired) || record.paired.kind !== "browser" || record.paired.origin !== location.origin || !entryUuid(record.paired.machineId) || !entryUuid(record.paired.clientId) || !entryAddress(record.paired.address) || !Number.isSafeInteger(record.paired.grantRevision) || record.paired.grantRevision < 1 || !(record.publicKey instanceof Uint8Array) || record.publicKey.length !== 32 || !(pin instanceof Uint8Array) || pin.length !== 32) return { state: "unavailable" };
+		return {
+			state: "saved",
+			record,
+			key: await DeviceKey.fromHandle(record.handle, record.publicKey)
+		};
+	} catch {
+		return { state: "unavailable" };
+	}
+}
+/** Landing-page projection of existing pairing and signed Session owners; no new authority. */
+async function landingPage() {
+	if (document.readyState === "loading") await new Promise((resolve) => document.addEventListener("DOMContentLoaded", () => resolve(), { once: true }));
+	const status = element("status");
+	const pairing = element("pairing-status");
+	const access = element("access-status");
+	const button = element("check");
+	let attempt = 0;
+	window.addEventListener("pagehide", () => {
+		attempt++;
+	}, { once: true });
+	const renderPairing = (value) => {
+		pairing.textContent = {
+			missing: "No saved pairing",
+			saved: "Pairing saved in this browser",
+			unavailable: "Pairing status unknown"
+		}[value.state];
+		button.disabled = value.state !== "saved";
+		if (value.state === "missing") showState(status, "waiting", "Follow the terminal-confirmed pairing steps below.");
+		else if (value.state === "unavailable") showState(status, "blocked", "The saved pairing could not be read or validated. Access is unconfirmed; no connection was attempted.");
+		element("mark").textContent = "○";
+	};
+	const initial = attempt;
+	const local = await entryPairing();
+	if (attempt !== initial || !button.isConnected) return;
+	renderPairing(local);
+	button.addEventListener("click", async () => {
+		if (button.disabled) return;
+		button.disabled = true;
+		const currentAttempt = ++attempt;
+		const currentPage = () => attempt === currentAttempt && button.isConnected;
+		access.textContent = "Connecting…";
+		showState(status, "waiting", "Connecting using this browser’s saved pairing. No work is sent.");
+		{
+			const local = await entryPairing();
+			if (!currentPage()) return;
+			if (local.state !== "saved") {
+				renderPairing(local);
+				access.textContent = "Could not verify access";
+				return;
+			}
+			let refused = false;
+			try {
+				const current = await door();
+				if (!currentPage()) return;
+				validateEntryDoor(current);
+				if (current.machineId !== local.record.paired.machineId) {
+					pairing.textContent = "Saved pairing does not match this Remote";
+					access.textContent = "Not checked";
+					showState(status, "blocked", "This door names a different machine from the saved pairing. Your saved pairing has not been changed. Confirm the machine in its local terminal.");
+					return;
+				}
+				try {
+					await openSession({
+						...local.record.paired,
+						address: current.address
+					}, local.key, current.windowId, async (url, init) => {
+						if (!currentPage()) throw new Error("Remote page attempt ended.");
+						const response = await fetch(url, init);
+						refused = response.status === 404;
+						return response;
+					});
+				} catch (error) {
+					if (!currentPage()) return;
+					if (!refused) throw error;
+					const latest = await door();
+					if (!currentPage()) return;
+					validateEntryDoor(latest);
+					if (latest.machineId !== current.machineId || latest.address !== current.address || latest.windowId !== current.windowId) throw error;
+					access.textContent = "Could not verify access";
+					showState(status, "blocked", "The current door did not admit this saved pairing. This is not a verified refusal reason. Your saved pairing has not been changed. Inspect access locally with tmt remote devices.");
+					return;
+				}
+				if (!currentPage()) return;
+				access.textContent = "Access confirmed";
+				showState(status, "paired", `Checked at ${(/* @__PURE__ */ new Date()).toISOString()}. The signed response matches this browser’s saved trust pins. Use your app’s local link in this browser; no work was sent.`);
+			} catch {
+				if (!currentPage()) return;
+				access.textContent = "Could not verify access";
+				showState(status, "blocked", "Your saved pairing has not been changed. The door may be unavailable or its reply could not be verified. Inspect access locally with tmt remote devices; no work was sent.");
+			}
+		}
+	});
+}
+function entryUuid(value) {
+	return typeof value === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(value);
+}
+function entryAddress(value) {
+	return typeof value === "string" && value.startsWith(`${location.origin}/r/`) && /^[a-z2-7]{16}$/.test(value.slice(`${location.origin}/r/`.length));
+}
+function validateEntryDoor(current) {
+	if (!entryAddress(current.address) || !entryUuid(current.windowId) || !entryUuid(current.machineId)) throw new Error("Invalid door descriptor.");
 }
 /**
 * Certify a key of the calling page's own extension. The extension comes from
@@ -1000,12 +1347,22 @@ async function certifyKey(purpose, publicKey) {
 }
 function element(id) {
 	const found = document.getElementById(id);
-	if (!found) throw new Error(`The pairing page lacks #${id}.`);
+	if (!found) throw new Error(`The Remote page lacks #${id}.`);
 	return found;
 }
 /** Present the ceremony state without coloring its instruction text. */
 function showState(status, state, text) {
 	status.dataset.state = state;
+	element("notice").dataset.tone = {
+		waiting: "waiting",
+		paired: "working",
+		blocked: "blocked"
+	}[state];
+	element("state-label").textContent = {
+		waiting: "Waiting",
+		paired: "Paired",
+		blocked: "Unavailable"
+	}[state];
 	status.textContent = text;
 	element("mark").textContent = {
 		waiting: "◆",
@@ -1028,7 +1385,6 @@ async function pairingPage(link) {
 		showState(status, "blocked", "This pairing link is unavailable. Run tmt remote pair again for a new link.");
 		return;
 	}
-	button.disabled = false;
 	form.addEventListener("submit", (event) => {
 		event.preventDefault();
 		form.hidden = true;
@@ -1037,6 +1393,9 @@ async function pairingPage(link) {
 			showState(status, "blocked", "Pairing did not complete. Run tmt remote pair again for a new link.");
 		});
 	});
+	element("state-label").textContent = "Ready to pair";
+	status.textContent = "Name this browser and choose Pair to request terminal confirmation.";
+	button.disabled = false;
 }
 async function ceremony({ descriptor, code }, name, status) {
 	const key = await DeviceKey.generate();
@@ -1044,7 +1403,7 @@ async function ceremony({ descriptor, code }, name, status) {
 	const words = element("words");
 	words.textContent = indexes.map((i) => WORDS[i]).join(" ");
 	element("comparison").hidden = false;
-	showState(status, "waiting", "Compare these words with the terminal, then confirm there.");
+	showState(status, "waiting", "Waiting for confirmation in your terminal. Compare these words and confirm only if they match.");
 	const result = await pair({
 		descriptor,
 		code,
@@ -1060,6 +1419,7 @@ async function ceremony({ descriptor, code }, name, status) {
 	});
 	await openSession(result, key, descriptor.windowId);
 	showState(status, "paired", "This browser is paired. You can close this page.");
+	element("entry-link").hidden = false;
 }
 /** Associate a mounted WebSocket with this tab's verified session, not the shared cookie's tab.
 * Use only to construct a transport; never navigate to or log this URL.
@@ -1074,4 +1434,4 @@ function transportUrl(session, value) {
 	return url.href;
 }
 //#endregion
-export { ClientError, RefusalError, certifyKey, operations, pairingPage, reopenSession, transportUrl };
+export { ClientError, RefusalError, certifyKey, landingPage, management, operations, pairingPage, reopenSession, transportUrl };

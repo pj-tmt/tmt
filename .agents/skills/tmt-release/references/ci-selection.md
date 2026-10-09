@@ -23,7 +23,7 @@ contexts must succeed. Held-draft recovery belongs to
   inputs conservatively retain full native verification. Prose with no build or
   runtime consumers selects only Code quality. The selector records owner, rule, selection and map digest
   for each path in the run summary.
-- If every native-selecting path is Squad-owned, scope is `squad`: retain its
+- If every native-selecting path is Ops-owned, scope is `ops`: retain its
   Cargo checks, architecture guard, native tests and E2E file under the existing
   job names, and skip unchanged CLI runtime builds, packed installs and tooling
   unit tests. Any shared, CLI-owned or unknown native input requires full scope.
@@ -40,13 +40,15 @@ contexts must succeed. Held-draft recovery belongs to
 and MSRV workers. MSRV reads `rust/Cargo.toml` and checks all retained workspace
 package targets. Full scope requires the retained workers and exactly a skipped
 Office worker (`native_office=false`). Required-check names stay stable; the
-aggregate reports success only with those results. Squad scope requires its
+aggregate reports success only with those results. Ops scope requires its
 selected workers, and `none` skips the aggregate. Invalid scope or worker results
 fail closed.
 
 Office SPA, local-service and companion producers never run. Native process
 verification excludes Office-owned suites and requires no Office companion;
 core discovery stays nonempty and other fixtures are built independently.
+
+For current small packages, apt acquisition allows three attempts per phase (60 s for update, 120 s for install), with 10 s termination grace and 5/10 s backoff; native-process contracts have a 20 min job budget without changing test deadlines. After the first install timeout, the shared action removes only Azure from the verified runner-image mirror list for remaining attempts; unexpected source/list layouts are logged and left unchanged.
 
 `Docker E2E` gates the two shard jobs selected by
 `typescript/scripts/e2e-shards.mjs` and committed `test/e2e/shard-weights.json`.
@@ -65,14 +67,39 @@ verification still includes macOS. Follow the
 Rosetta process wrapper, exact installed-byte architecture admission and advisory
 native Intel coverage.
 
+The private browser presentation leaf is verified inside `Code quality`: its
+frozen-lock tool install ignores lifecycle scripts, and nonempty filtered check/test
+commands cover generated CSS equality, type/lint/format and package tests. The tooling
+import guard keeps production inside the leaf and the static entry free of React.
+Its component rule retains full native verification; this is not product adoption
+or broader advisory browser coverage. E2E/artifact stages prepare checked CSS, and
+all three native stages retain the actual Rust embedded-input guard. Office receives
+only the manifest required by the existing filtered root install until a real
+native reader needs CSS; Office product execution remains disabled.
+
 ## Cache ownership
 
 Rust dependency caches use the pinned `Swatinem/rust-cache` action with one
 main-only writer per key: workspace tests for shared dev dependencies, MSRV for
-its toolchain, and each runtime target for its own cache. All writers use the
+its toolchain, and each runtime target for its own cache. These CI writers use the
 shared seed-event classification (`verify=false`) and main ref. PRs, merge groups
 and other workers only restore. Dev debug information and incremental compilation
 are disabled in CI; release profiles keep their manifest policy.
+Release build and adapter cache ownership is described in [native release verification](native-release.md#cli-upgrade-proof).
+
+CI cache consumers and `colab-browser.yml` use `scripts/install-ci-rust.sh` to
+retain only the requested host toolchain before restore, preserving components,
+targets and manifest-driven MSRV. The helper removes runner-image extras only in
+disposable Actions jobs. `native-intel.yml` keeps its Intel-host
+`runtime-${TARGET}` setup; `native-release-upgrade-prove.yml` keeps its distinct
+`RUSTUP_TOOLCHAIN` and source-scoped `CARGO_TARGET_DIR` environment.
+`remote-pairing.yml`, `project-release.yml`, `native-release-bundle.yml`, metadata
+gates in `native-release-prepare.yml` and `release.yml` retain their environment
+families without CI's dev-debug setting. Release builds in
+`native-release-prepare.yml` and `release-version-injection.yml` keep separate
+product/target keys. Cache keys retain compiler, platform, environment and
+manifest identities; an exact hit does not certify complete feature/profile
+population.
 
 Main seeding runs on selected Cargo/workflow changes, weekly and manually. It has
 no diff and selects full native scope; the Rust aggregate validates its workers
@@ -95,6 +122,28 @@ runs cover three engines and other shared drift, with no main-push trigger.
 Rust cache restores never save. Browser cache keys include OS, architecture and
 pinned Playwright version; only successful main-ref runs save. Reports are
 primitive-library evidence, not product or publication acceptance.
+
+The same workflow's `colab-app` job runs the app's Playwright component specs
+(`@tmt/colab-app test:browser`: Chromium, one worker, no retries, no Rust). It
+selects `colab_app` for the app, colab-client and browser-ui paths, the workflow and
+the pnpm lockfile, and also runs weekly and manually. The specs that need the native
+Colab executables skip with a named reason there, so the run proves the browser
+components only. It keeps a bounded run log and failure traces for seven days and is
+advisory like the rest of the workflow.
+
+The same workflow runs advisory real-binary Colab acceptance weekly, manually,
+or on a PR carrying `colab-acceptance`. Only adding that exact label can start
+acceptance from a label event; removing a label never starts it. Label edits skip
+the existing selector and interop jobs. Job-level concurrency keeps those edits
+from cancelling in-flight checks; acceptance never cancels an active run.
+The acceptance job checks the default PR merge ref and records both the PR head
+and tested merge SHA in `tested-head.txt`. It builds the app before one build of
+all three executables, and runs Chromium with one worker on Ubuntu x64 within
+30 minutes. It restores Rust dependencies without saving and retains only source,
+build hashes and test outcomes with bounded assertion locations/timeouts for seven
+days, never raw error values, private traces or profiles. Unexpected outcomes also
+print the bounded summary from the private JSON report for triage.
+It remains outside required aggregates and does not authorize publication.
 
 ## Verification
 

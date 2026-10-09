@@ -16,6 +16,7 @@ pub struct ManagedInstallation {
     pub target: String,
     pub(super) prefix: PathBuf,
     pub(super) id: Uuid,
+    pub(super) provenance: Option<super::receipt::Provenance>,
 }
 
 impl ManagedInstallation {
@@ -38,7 +39,7 @@ pub fn inspect(executable: &Path) -> io::Result<ManagedInstallation> {
 pub fn inspect_product(product: Product, executable: &Path) -> io::Result<ManagedInstallation> {
     let executable = fs::canonicalize(executable)?;
     let prefix = executable.ancestors().nth(5).ok_or_else(unmanaged)?;
-    let layout = Layout::existing_product(prefix, product).map_err(|_| unmanaged())?;
+    let layout = installed_layout(prefix, product).map_err(|_| unmanaged())?;
     let installation = inspect_layout(layout)?;
     if executable != installation.active_executable {
         return Err(invalid(
@@ -51,25 +52,74 @@ pub fn inspect_product(product: Product, executable: &Path) -> io::Result<Manage
 /// Strict prefix-based inspection, including a missing or damaged payload.
 /// Does not grant update authority to an arbitrary executing binary.
 pub fn inspect_product_prefix(product: Product, prefix: &Path) -> io::Result<ManagedInstallation> {
-    let layout = Layout::existing_product(prefix, product)?;
-    inspect_layout(layout)
+    inspect_layout(installed_layout(prefix, product)?)
+}
+
+fn installed_layout(prefix: &Path, product: Product) -> io::Result<Layout> {
+    match fs::symlink_metadata(prefix.join(product.namespace())) {
+        Err(error) if error.kind() == io::ErrorKind::NotFound && product.former().is_some() => {
+            Layout::existing_former(prefix, product)
+        }
+        Err(error) => Err(error),
+        Ok(_) => {
+            let layout = Layout::existing_product(prefix, product)?;
+            let empty = match fs::symlink_metadata(layout.root.join("current")) {
+                Err(error) if error.kind() == io::ErrorKind::NotFound => true,
+                Err(error) => return Err(error),
+                Ok(_) => false,
+            };
+            if product.former().is_some() && empty {
+                // Interrupted preparation may leave a valid empty new layout.
+                // Damage or foreign new links must never become fallback authority.
+                layout.check_links(false)?;
+                if inspect_former_product(product, prefix)?.is_some() {
+                    return Layout::existing_former(prefix, product);
+                }
+            }
+            Ok(layout)
+        }
+    }
+}
+
+/// Read-only, strictly verified former installation. Missing is not damage.
+pub fn inspect_former_product(
+    product: Product,
+    prefix: &Path,
+) -> io::Result<Option<ManagedInstallation>> {
+    let Some(former) = product.former() else {
+        return Ok(None);
+    };
+    match fs::symlink_metadata(prefix.join(former.namespace)) {
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(error),
+        Ok(_) => inspect_layout(Layout::existing_former(prefix, product)?).map(Some),
+    }
 }
 
 fn inspect_layout(layout: Layout) -> io::Result<ManagedInstallation> {
     let product = layout.product;
     let current = layout.current()?.ok_or_else(unmanaged)?;
-    layout.check_links(true)?;
+    let former = layout.is_former();
+    if !former {
+        layout.check_links(true)?;
+    }
+    let executable_name = if former {
+        product.former().expect("former layout").executable
+    } else {
+        product.executable()
+    };
     Ok(ManagedInstallation {
-        executable: layout.prefix.join("bin").join(product.executable()),
+        executable: layout.prefix.join("bin").join(executable_name),
         active_executable: layout
             .root
             .join("releases")
             .join(current.id.to_string())
-            .join(product.executable()),
+            .join(executable_name),
         state: current.state,
         target: current.target,
         prefix: layout.prefix,
         id: current.id,
+        provenance: current.provenance,
     })
 }
 
@@ -86,14 +136,16 @@ pub fn with_active_product<T>(
     operation: impl FnOnce(&ManagedInstallation) -> T,
 ) -> io::Result<T> {
     let observed = inspect_product(product, executable)?;
-    let layout = Layout::existing_product(&observed.prefix, product)?;
+    let layout = installed_layout(&observed.prefix, product)?;
     let _lock = crate::file_lock::exclusive(&layout.root.join("install.lock"))?;
     if layout.current()?.map(|receipt| receipt.id) != Some(observed.id) {
         return Err(invalid(
             "The active release changed before the managed operation. Retry from the current native executable.",
         ));
     }
-    layout.check_links(true)?;
+    if !layout.is_former() {
+        layout.check_links(true)?;
+    }
     Ok(operation(&observed))
 }
 
@@ -201,12 +253,24 @@ fn with_release_receipt<T>(
             .active_executable
             .parent()
             .ok_or_else(unmanaged)?;
-        let receipt = super::receipt::Receipt::read_product(
-            product,
-            directory,
-            &installation.prefix,
-            installation.id,
-        )?;
+        let receipt = if product.former().is_some_and(|former| {
+            installation.active_executable.file_name()
+                == Some(std::ffi::OsStr::new(former.executable))
+        }) {
+            super::receipt::Receipt::read_former(
+                product,
+                directory,
+                &installation.prefix,
+                installation.id,
+            )?
+        } else {
+            super::receipt::Receipt::read_product(
+                product,
+                directory,
+                &installation.prefix,
+                installation.id,
+            )?
+        };
         read(directory, &receipt)
     })?
 }

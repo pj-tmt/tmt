@@ -7,6 +7,7 @@ mod modal;
 mod outline;
 mod picker;
 mod scroll;
+mod status;
 pub mod strip;
 pub mod surface;
 
@@ -14,6 +15,7 @@ pub use key_help::{KeyHelp, KeyHelpEntry, KeyHelpSection, KeyHint, footer};
 pub use modal::{Modal, ModalAreas, Placement};
 pub use outline::Outline;
 pub use scroll::{ScrollState, Step};
+pub use status::{StatusLabel, StatusSlot};
 
 pub use collection::Table;
 pub use list::{ListEvent, ListFrame, ListRow, ListState, RowGeometry};

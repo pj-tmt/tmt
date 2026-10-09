@@ -1,0 +1,767 @@
+//! `[bind]` actions: `event = "verb …"`, parsed once when ops.toml loads.
+//! Arguments are split at load time; a `{field}` value later fills (part of)
+//! exactly one argument and is never re-split, re-quoted or shell-parsed.
+
+use crate::template::{DEFAULT_COPY, Template};
+use serde_json::Value;
+use std::collections::BTreeMap;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Verb {
+    Jump,
+    Back,
+    Open,
+    Copy,
+    Notes,
+    Refresh,
+    TokenWindow,
+    PickTab,
+    Theme,
+    Settings,
+    View,
+    Run,
+    NextPane,
+    Toggle,
+    /// The row's action menu (the plain host's Enter).
+    Menu,
+    /// Opens the tab of the row's squad (the `all` tab's Enter).
+    Tab,
+    Talk,
+    AskLead,
+    HomeMessage,
+    ViewReply,
+    HomeWrite,
+    HomePick,
+    Reply,
+    Annotate,
+}
+
+impl Verb {
+    fn parse(name: &str) -> Option<Self> {
+        Some(match name {
+            "jump" => Self::Jump,
+            "back" => Self::Back,
+            "open" => Self::Open,
+            "copy" => Self::Copy,
+            "notes" => Self::Notes,
+            "refresh" => Self::Refresh,
+            "token-window" => Self::TokenWindow,
+            "pick-tab" => Self::PickTab,
+            "theme" => Self::Theme,
+            "settings" => Self::Settings,
+            "view" => Self::View,
+            "run" => Self::Run,
+            "next-pane" => Self::NextPane,
+            "toggle" => Self::Toggle,
+            "menu" => Self::Menu,
+            "tab" => Self::Tab,
+            "talk" => Self::Talk,
+            "ask-lead" => Self::AskLead,
+            "home-message" => Self::HomeMessage,
+            "view-reply" => Self::ViewReply,
+            "home-write" => Self::HomeWrite,
+            "home-pick" => Self::HomePick,
+            "reply" => Self::Reply,
+            "annotate" => Self::Annotate,
+            _ => return None,
+        })
+    }
+
+    /// Verbs that resolve against the selected member row.
+    pub fn acts_on_member(self) -> bool {
+        matches!(
+            self,
+            Self::Jump
+                | Self::Open
+                | Self::Copy
+                | Self::Run
+                | Self::Menu
+                | Self::Tab
+                | Self::Talk
+                | Self::Reply
+                | Self::Annotate
+        )
+    }
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Jump => "jump",
+            Self::Back => "back",
+            Self::Open => "open",
+            Self::Copy => "copy",
+            Self::Notes => "notes",
+            Self::Refresh => "refresh",
+            Self::TokenWindow => "token-window",
+            Self::PickTab => "pick-tab",
+            Self::Theme => "theme",
+            Self::Settings => "settings",
+            Self::View => "view",
+            Self::Run => "run",
+            Self::NextPane => "next-pane",
+            Self::Toggle => "toggle",
+            Self::Menu => "menu",
+            Self::Tab => "tab",
+            Self::Talk => "talk",
+            Self::AskLead => "ask-lead",
+            Self::HomeMessage => "home-message",
+            Self::ViewReply => "view-reply",
+            Self::HomeWrite => "home-write",
+            Self::HomePick => "home-pick",
+            Self::Reply => "reply",
+            Self::Annotate => "annotate",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Action {
+    pub verb: Verb,
+    /// `run`: the program, then its arguments, one template per argument.
+    /// `open`: at most one template. `copy`: one template of free text.
+    /// `annotate`: the addressee, `lead` or `member`.
+    pub args: Vec<Template>,
+    /// The configured line, for help and menus.
+    pub text: String,
+}
+
+/// Splits at whitespace; double quotes group literal text (with `\"`).
+fn tokens(text: &str) -> Result<Vec<String>, String> {
+    let mut out = Vec::new();
+    let mut current = String::new();
+    let mut quoted = false;
+    let mut started = false;
+    let mut chars = text.chars();
+    while let Some(character) = chars.next() {
+        match character {
+            '"' => {
+                quoted = !quoted;
+                started = true;
+            }
+            '\\' if quoted => match chars.next() {
+                Some(escaped @ ('"' | '\\')) => current.push(escaped),
+                _ => return Err("only \\\" and \\\\ escapes are allowed in quotes".into()),
+            },
+            c if c.is_whitespace() && !quoted => {
+                if started {
+                    out.push(std::mem::take(&mut current));
+                    started = false;
+                }
+            }
+            c if c.is_control() => return Err("control characters are not allowed".into()),
+            c => {
+                current.push(c);
+                started = true;
+            }
+        }
+    }
+    if quoted {
+        return Err("unterminated quote".into());
+    }
+    if started {
+        out.push(current);
+    }
+    Ok(out)
+}
+
+/// The board's own `/ search` hint sits right after `back`.
+pub const FOOTER_SEARCH_RANK: u8 = 6;
+/// The last footer rank of a row action; the oldest-waiting label may take
+/// space only if every hint up to here still fits.
+pub const FOOTER_ROW_ACTIONS_END: u8 = 6;
+
+impl Action {
+    /// Where the action sits in a list of choices, by what people do: the
+    /// selected row's actions first, then the board's. It orders the action menu,
+    /// not help, whose sections follow the configured bindings.
+    pub fn order(&self) -> u8 {
+        let lead = self.args.first().and_then(Template::literal) == Some("lead");
+        match self.verb {
+            Verb::Reply => 0,
+            Verb::Talk => 1,
+            Verb::Annotate => 2,
+            Verb::Jump if !lead => 3,
+            Verb::Open => 4,
+            Verb::Copy => 5,
+            Verb::Notes => 6,
+            Verb::Run => 7,
+            Verb::Tab => 8,
+            Verb::AskLead
+            | Verb::HomeMessage
+            | Verb::ViewReply
+            | Verb::HomeWrite
+            | Verb::HomePick => 10,
+            Verb::Jump => 11,
+            Verb::View => 12,
+            Verb::Theme => 13,
+            Verb::Settings => 14,
+            Verb::Refresh => 15,
+            Verb::PickTab => 16,
+            Verb::Toggle => 17,
+            Verb::Back => 18,
+            Verb::Menu | Verb::NextPane | Verb::TokenWindow => 19,
+        }
+    }
+
+    /// Where the action sits in the base footer, which is also the order whole
+    /// hints drop from the end when width runs short: lowest first, `None` for
+    /// actions the footer never lists (they stay bound and appear in `?` help).
+    /// The footer names the way in: open and expand, then search.
+    /// The match is exhaustive so a new verb must choose.
+    pub fn footer_rank(&self) -> Option<u8> {
+        let lead = self.args.first().and_then(Template::literal) == Some("lead");
+        Some(match self.verb {
+            Verb::Jump if !lead => 0,
+            Verb::Menu | Verb::Tab => 0,
+            Verb::Reply => 2,
+            Verb::Talk => 1,
+            Verb::HomeMessage => 4,
+            Verb::ViewReply => 5,
+            // FOOTER_SEARCH_RANK (6) is the board's own `/ search`.
+            Verb::Jump
+            | Verb::Annotate
+            | Verb::AskLead
+            | Verb::Back
+            | Verb::Open
+            | Verb::Copy
+            | Verb::Toggle
+            | Verb::NextPane
+            | Verb::Refresh
+            | Verb::View
+            | Verb::Theme
+            | Verb::TokenWindow
+            | Verb::Notes
+            | Verb::PickTab
+            | Verb::Settings
+            | Verb::Run
+            | Verb::HomeWrite
+            | Verb::HomePick => return None,
+        })
+    }
+
+    /// Plain-language binding wording shared by help and settings. Describing an
+    /// action never fills templates, resolves a member or executes a program.
+    pub fn description(&self) -> String {
+        let target = self.args.first().and_then(Template::literal);
+        match self.verb {
+            Verb::Jump if target == Some("lead") => "go to the squad lead's pane".into(),
+            Verb::Jump => "go to the member's pane".into(),
+            Verb::Back => "go back to the previous pane".into(),
+            Verb::Open => "open the member's link".into(),
+            Verb::Copy => "copy from the selected row".into(),
+            Verb::Notes => "show the lead's notes".into(),
+            Verb::Refresh => "refresh the board now".into(),
+            Verb::TokenWindow => "switch the token time window".into(),
+            Verb::PickTab => "pick or unpick a tab on this board".into(),
+            Verb::Theme => "pick a theme".into(),
+            Verb::Settings => "show settings, theme, view and token window".into(),
+            Verb::View => "pick a pane layout".into(),
+            Verb::Run => "run your program for this member".into(),
+            Verb::NextPane => "move to the next pane".into(),
+            Verb::Toggle => {
+                let panes: Vec<_> = self.args.iter().filter_map(Template::literal).collect();
+                let names = match panes.split_last() {
+                    Some((last, [])) => (*last).to_owned(),
+                    Some((last, rest)) => format!("{} and {last}", rest.join(", ")),
+                    None => String::new(),
+                };
+                format!(
+                    "fold or unfold the {names} {}",
+                    if panes.len() == 1 { "pane" } else { "panes" },
+                )
+            }
+            Verb::Menu => "show actions for this row".into(),
+            Verb::Tab => "open the selected squad".into(),
+            Verb::Talk => "send the member a message".into(),
+            Verb::AskLead => "ask the lead what waits on you".into(),
+            Verb::HomeMessage => "expand or collapse the selected row details".into(),
+            Verb::ViewReply => "view the selected row’s full reply".into(),
+            Verb::HomeWrite => "write to all HOME leads".into(),
+            Verb::HomePick => "pick a HOME lead to write to".into(),
+            Verb::Reply => "answer the member's request, or note its pending decision".into(),
+            Verb::Annotate if target == Some("member") => "send the member a note".into(),
+            Verb::Annotate => "write answer/note/talk; Tab changes mode".into(),
+        }
+    }
+
+    pub fn parse(line: &str) -> Result<Self, String> {
+        let line = line.trim();
+        let (verb_name, rest) = line.split_once(char::is_whitespace).unwrap_or((line, ""));
+        let rest = rest.trim();
+        let verb =
+            Verb::parse(verb_name).ok_or_else(|| format!("'{verb_name}' is not an action"))?;
+        let args = match verb {
+            Verb::Toggle => {
+                let mut panes = Vec::new();
+                for name in rest.split_whitespace() {
+                    let pane = crate::config::Pane::parse(name)
+                        .ok_or("toggle takes literal panes: rows, notes, detail or replies")?;
+                    if panes.contains(&pane) {
+                        return Err(format!("toggle repeats the {} pane", pane.title()));
+                    }
+                    panes.push(pane);
+                }
+                if panes.is_empty() {
+                    return Err(
+                        "toggle needs at least one pane: rows, notes, detail or replies".into(),
+                    );
+                }
+                panes
+                    .into_iter()
+                    .map(|pane| Template::parse(pane.title()))
+                    .collect::<Result<Vec<_>, _>>()?
+            }
+            Verb::Copy => vec![Template::parse(if rest.is_empty() {
+                DEFAULT_COPY
+            } else {
+                rest
+            })?],
+            Verb::Jump => match rest {
+                "" => Vec::new(),
+                "lead" => vec![Template::parse("lead")?],
+                other => return Err(format!("jump takes nothing or lead, not '{other}'")),
+            },
+            Verb::Annotate => match rest {
+                "" | "lead" => vec![Template::parse("lead")?],
+                "member" => vec![Template::parse("member")?],
+                other => return Err(format!("annotate takes lead or member, not '{other}'")),
+            },
+            Verb::Open | Verb::Run => {
+                let args = tokens(rest)?
+                    .iter()
+                    .map(|token| Template::parse(token))
+                    .collect::<Result<Vec<_>, _>>()?;
+                if verb == Verb::Open && args.len() > 1 {
+                    return Err("open takes one link, for example open {pr_link}".into());
+                }
+                if verb == Verb::Run {
+                    let program = args.first().ok_or("run needs a program")?;
+                    match program.literal() {
+                        Some(name) if name.starts_with('/') || !name.contains('/') => {}
+                        _ => {
+                            return Err(
+                                "run's program must be a literal name on PATH or an absolute path"
+                                    .into(),
+                            );
+                        }
+                    }
+                }
+                args
+            }
+            _ if !rest.is_empty() => return Err(format!("{} takes no arguments", verb.name())),
+            _ => Vec::new(),
+        };
+        Ok(Self {
+            verb,
+            args,
+            text: line.to_owned(),
+        })
+    }
+
+    /// `run`: the complete argv. Each template becomes exactly one element,
+    /// and no row value can become an option.
+    pub fn argv(&self, row: &Value) -> Result<Vec<String>, String> {
+        self.args.iter().map(|arg| arg.fill_argument(row)).collect()
+    }
+}
+
+/// Board keys no binding may take: quit, select, search and help.
+const RESERVED: &[&str] = &["q", "j", "k", "/", "?"];
+
+/// Key and mouse events a binding may name. Ctrl-C always quits.
+pub fn valid_event(event: &str) -> bool {
+    if RESERVED.contains(&event) {
+        return false;
+    }
+    const NAMED: &[&str] = &[
+        "enter",
+        "backspace",
+        "tab",
+        "space",
+        "delete",
+        "home",
+        "end",
+        "pageup",
+        "pagedown",
+        "click",
+        "double-click",
+    ];
+    let mut chars = event.chars();
+    let single = matches!((chars.next(), chars.next()), (Some(c), None) if c.is_ascii_graphic());
+    let function = event
+        .strip_prefix('f')
+        .and_then(|n| n.parse::<u8>().ok())
+        .is_some_and(|n| (1..=12).contains(&n));
+    let ctrl = event
+        .strip_prefix("ctrl-")
+        .is_some_and(|key| key.len() == 1 && key.as_bytes()[0].is_ascii_lowercase() && key != "c");
+    NAMED.contains(&event) || single || function || ctrl
+}
+
+/// Parsed bindings, by event.
+pub type Bindings = BTreeMap<String, Action>;
+
+pub fn parse_bindings<'a>(
+    entries: impl Iterator<Item = (&'a str, Option<&'a str>)>,
+    place: &str,
+) -> Result<Bindings, String> {
+    entries
+        .map(|(event, line)| {
+            if !valid_event(event) {
+                return Err(format!(
+                    "`{place}.{event}` is not a bindable key or mouse event"
+                ));
+            }
+            let line = line.ok_or_else(|| format!("`{place}.{event}` must be an action string"))?;
+            let action =
+                Action::parse(line).map_err(|error| format!("`{place}.{event}`: {error}"))?;
+            Ok((event.to_owned(), action))
+        })
+        .collect()
+}
+
+/// Host presets. The tmux host jumps; a plain terminal cannot, so Enter and
+/// double-click open the row's action menu instead. A single click only
+/// selects, so pointing at a row never leaves the board.
+pub fn preset(tmux: bool, panes: &[crate::config::Pane]) -> Bindings {
+    let detail = match (
+        panes.contains(&crate::config::Pane::Detail),
+        panes.contains(&crate::config::Pane::Replies),
+    ) {
+        (true, true) => Some("toggle detail replies"),
+        (true, false) => Some("toggle detail"),
+        (false, true) => Some("toggle replies"),
+        (false, false) => None,
+    };
+    let enter = if tmux { "jump" } else { "menu" };
+    [
+        ("enter", enter),
+        ("double-click", enter),
+        ("backspace", "back"),
+        ("t", "talk"),
+        ("a", "annotate lead"),
+        ("A", "ask-lead"),
+        ("o", "open"),
+        ("y", "copy"),
+        ("n", "notes"),
+        ("e", "home-message"),
+        ("v", "view-reply"),
+        ("tab", "next-pane"),
+        ("ctrl-r", "refresh"),
+        (",", "settings"),
+    ]
+    .into_iter()
+    .chain(detail.map(|action| ("d", action)))
+    .map(|(event, line)| {
+        (
+            event.to_owned(),
+            Action::parse(line).expect("preset action"),
+        )
+    })
+    .collect()
+}
+
+/// Fixtures that press a key the presets no longer bind (`r` reply,
+/// `w` token window, `T` theme, `l` view) bind it as a user would.
+#[cfg(test)]
+pub(crate) fn with_action_keys(mut bindings: Bindings) -> Bindings {
+    for (event, line) in [
+        ("t", "talk"),
+        ("r", "reply"),
+        ("w", "token-window"),
+        ("T", "theme"),
+        ("l", "view"),
+    ] {
+        bindings.insert(event.into(), Action::parse(line).expect("action"));
+    }
+    bindings
+}
+
+/// Overlay a selected section and suppress unavailable meter actions.
+pub fn effective_bindings(
+    mut bindings: Bindings,
+    section: Option<&Bindings>,
+    token_rate: bool,
+) -> Bindings {
+    if let Some(section) = section {
+        bindings.extend(section.clone());
+    }
+    if !token_rate {
+        bindings.retain(|_, action| action.verb != Verb::TokenWindow);
+    }
+    bindings
+}
+
+/// Home actions resolve against the selected attention member or squad.
+pub fn all_preset() -> Bindings {
+    parse_bindings(
+        [
+            ("tab", Some("next-pane")),
+            ("a", Some("annotate lead")),
+            ("t", Some("talk")),
+            ("e", Some("home-message")),
+            ("v", Some("view-reply")),
+            ("A", Some("home-write")),
+            ("@", Some("home-pick")),
+            ("enter", Some("tab")),
+            ("double-click", Some("tab")),
+            ("ctrl-r", Some("refresh")),
+            (",", Some("settings")),
+        ]
+        .into_iter(),
+        "tabs.all",
+    )
+    .expect("the all tab preset")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn binding_descriptions_cover_presets_and_distinguish_action_targets() {
+        for bindings in [preset(true, &[]), preset(false, &[]), all_preset()] {
+            for action in bindings.values() {
+                let description = action.description();
+                assert_ne!(description, action.text);
+                assert!(description.contains(' '), "{description}");
+                for internal in ["next-pane", "token-window", "jump lead", "annotate lead"] {
+                    assert!(!description.contains(internal), "{description}");
+                }
+            }
+        }
+        for (configured, description) in [
+            ("pick-tab", "pick or unpick a tab on this board"),
+            ("jump", "go to the member's pane"),
+            ("jump lead", "go to the squad lead's pane"),
+            ("annotate member", "send the member a note"),
+            ("annotate lead", "write answer/note/talk; Tab changes mode"),
+            ("toggle notes", "fold or unfold the notes pane"),
+            (
+                "toggle detail replies",
+                "fold or unfold the detail and replies panes",
+            ),
+            (
+                "toggle rows notes detail replies",
+                "fold or unfold the rows, notes, detail and replies panes",
+            ),
+            ("run editor {cwd}", "run your program for this member"),
+        ] {
+            let action = Action::parse(configured).unwrap();
+            assert_eq!(action.description(), description);
+            assert_eq!(action.text, configured, "settings retain the literal value");
+        }
+    }
+
+    #[test]
+    fn presets_leave_the_picker_and_composer_keys_to_the_menu_and_the_composer() {
+        for bindings in [preset(true, &[]), preset(false, &[]), all_preset()] {
+            let verbs: Vec<Verb> = bindings.values().map(|action| action.verb).collect();
+            for gone in [Verb::Reply, Verb::Theme, Verb::View, Verb::TokenWindow] {
+                assert!(!verbs.contains(&gone), "{gone:?} has no default key");
+            }
+            assert_eq!(bindings["t"].verb, Verb::Talk, "t is one key everywhere");
+            assert_eq!(bindings[","].verb, Verb::Settings);
+        }
+        // They stay bindable, like every other action.
+        for line in ["talk", "reply", "theme", "view", "token-window"] {
+            assert!(parse_bindings([("x", Some(line))].into_iter(), "bind").is_ok());
+        }
+    }
+
+    fn row() -> Value {
+        json!({
+            "name": "auth-fix", "state": "blocked", "pending": null, "note": "needs a call",
+            "pane": {"id": "%5", "target": "crew:2.0", "cwd": "/w/app 3"},
+            "fields": {
+                "task": "rotate; $(rm -rf ~) `id` \"quoted\" *.rs",
+                "worktree": "-rf /",
+                "pr_link": "https://example.com/pull/412",
+            }
+        })
+    }
+
+    #[test]
+    fn run_fills_each_field_into_exactly_one_argument() {
+        let action =
+            Action::parse(r#"run code --wait "{cwd} (lead)" --task={task} --dir={worktree}"#)
+                .unwrap();
+        assert_eq!(action.verb, Verb::Run);
+        assert_eq!(
+            action.argv(&row()).unwrap(),
+            [
+                "code",
+                "--wait",
+                "/w/app 3 (lead)",
+                "--task=rotate; $(rm -rf ~) `id` \"quoted\" *.rs",
+                "--dir=-rf /",
+            ]
+        );
+        // A value that would start an argument with '-' is refused.
+        assert_eq!(
+            Action::parse("run code --wait {worktree}")
+                .unwrap()
+                .argv(&row())
+                .unwrap_err(),
+            "worktree starts with '-' and would be read as an option; refused"
+        );
+        assert_eq!(
+            Action::parse("run code {pending}")
+                .unwrap()
+                .argv(&row())
+                .unwrap_err(),
+            "pending is empty for this row"
+        );
+    }
+
+    #[test]
+    fn copy_open_and_annotate_take_their_own_argument_shapes() {
+        let copy = Action::parse("copy - [{name}]({pr_link}) {state}").unwrap();
+        assert_eq!(
+            copy.args[0].fill(&row()).unwrap(),
+            "- [auth-fix](https://example.com/pull/412) blocked"
+        );
+        assert_eq!(
+            Action::parse("copy").unwrap().args[0],
+            Template::parse(DEFAULT_COPY).unwrap()
+        );
+        assert_eq!(Action::parse("open {pr_link}").unwrap().args.len(), 1);
+        assert!(Action::parse("open").unwrap().args.is_empty());
+        assert_eq!(
+            Action::parse("annotate member").unwrap().args[0],
+            Template::parse("member").unwrap()
+        );
+        assert_eq!(
+            Action::parse("annotate").unwrap().args[0],
+            Template::parse("lead").unwrap()
+        );
+    }
+
+    #[test]
+    fn malformed_actions_events_and_fields_are_rejected() {
+        for line in [
+            "launch",
+            "jump now",
+            "open {a} {b}",
+            "run",
+            "run {program}",
+            "run ./local",
+            "run code {Bad}",
+            "run code {unclosed",
+            "run code }",
+            "run code \"open",
+            "annotate everyone",
+            "copy {two words}",
+            "refresh please",
+        ] {
+            assert!(Action::parse(line).is_err(), "{line}");
+        }
+        for event in [
+            "enter",
+            "o",
+            "Y",
+            "x",
+            "f5",
+            "ctrl-r",
+            "click",
+            "double-click",
+        ] {
+            assert!(valid_event(event), "{event}");
+        }
+        for event in [
+            "ctrl-c", "ctrl-", "hold", "f13", "", "ab", "é", "q", "j", "k", "/", "?",
+        ] {
+            assert!(!valid_event(event), "{event}");
+        }
+    }
+
+    #[test]
+    fn both_hosts_default_to_ctrl_r_and_leave_f5_unbound() {
+        for tmux in [false, true] {
+            let bindings = preset(tmux, &[]);
+            assert_eq!(bindings["ctrl-r"].verb, Verb::Refresh);
+            assert!(!bindings.contains_key("f5"));
+        }
+    }
+
+    #[test]
+    fn choices_order_the_rows_actions_before_the_boards() {
+        let rank = |line: &str| Action::parse(line).expect(line).order();
+        assert!(rank("jump") < rank("open") && rank("notes") < rank("ask-lead"));
+        assert!(rank("jump lead") > rank("copy") && rank("jump lead") < rank("back"));
+        assert!(rank("reply") < rank("talk") && rank("theme") < rank("settings"));
+    }
+
+    #[test]
+    fn presets_differ_only_where_the_host_cannot_jump() {
+        let (tmux, plain) = (preset(true, &[]), preset(false, &[]));
+        // `jump lead` stays an action users can bind; no preset binds it.
+        assert!(!tmux.contains_key("L") && !plain.contains_key("L"));
+        assert_eq!(
+            Action::parse("jump lead").unwrap().args[0].literal(),
+            Some("lead")
+        );
+        assert_eq!(Action::parse("jump").unwrap().args.len(), 0);
+        assert_eq!(
+            Action::parse("jump member").unwrap_err(),
+            "jump takes nothing or lead, not 'member'"
+        );
+        assert_eq!(tmux["enter"].verb, Verb::Jump);
+        assert_eq!(plain["enter"].verb, Verb::Menu);
+        assert_eq!(plain["double-click"].verb, Verb::Menu);
+        assert_eq!(tmux["double-click"].verb, Verb::Jump);
+        assert!(!tmux.contains_key("click") && !plain.contains_key("click"));
+        assert_eq!(tmux["o"], plain["o"]);
+    }
+    #[test]
+    fn toggle_accepts_unique_literal_panes_and_presets_follow_available_panes() {
+        for pane in ["rows", "notes", "detail", "replies"] {
+            let action = Action::parse(&format!("toggle {pane}")).unwrap();
+            assert_eq!(action.verb, Verb::Toggle);
+            assert_eq!(action.args[0].literal(), Some(pane));
+        }
+        for line in [
+            "toggle",
+            "toggle all",
+            "toggle {pane}",
+            "toggle detail detail",
+            "toggle detail unknown",
+            "toggle \"detail\"",
+        ] {
+            assert!(Action::parse(line).is_err(), "{line}");
+        }
+        for tmux in [false, true] {
+            assert!(!preset(tmux, &[]).contains_key("d"));
+            assert_eq!(
+                preset(tmux, &[crate::config::Pane::Replies])["d"].text,
+                "toggle replies"
+            );
+            assert_eq!(
+                preset(tmux, &[crate::config::Pane::Detail])["d"].text,
+                "toggle detail"
+            );
+            assert_eq!(
+                preset(
+                    tmux,
+                    &[crate::config::Pane::Detail, crate::config::Pane::Replies]
+                )["d"]
+                    .text,
+                "toggle detail replies"
+            );
+        }
+        assert_eq!(
+            Action::parse("toggle detail replies")
+                .unwrap()
+                .args
+                .iter()
+                .map(|arg| arg.literal().unwrap())
+                .collect::<Vec<_>>(),
+            ["detail", "replies"]
+        );
+        assert_eq!(
+            parse_bindings([("d", Some("toggle notes"))].into_iter(), "bind").unwrap()["d"].args[0]
+                .literal(),
+            Some("notes")
+        );
+    }
+}

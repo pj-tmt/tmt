@@ -148,7 +148,7 @@ mod tests {
                 for name in [
                     "tmt-core",
                     "tmt-cli",
-                    "tmt-squad",
+                    "tmt-ops",
                     "tmt-remote",
                     "tmt-colab",
                     "tmt-office",

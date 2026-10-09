@@ -1,4 +1,11 @@
 /** English chrome catalog; page content and fixture text are not UI strings. */
+/** A size as a person reads it, and exactly: 2.5 MiB (2,621,440 bytes). */
+function formatBytes(bytes: number): string {
+  const [value, unit] =
+    bytes >= 1024 * 1024 ? [bytes / (1024 * 1024), 'MiB'] : [bytes / 1024, 'KiB'];
+  return `${value.toFixed(2).replace(/\.?0+$/, '')} ${unit} (${bytes.toLocaleString('en-US')} bytes)`;
+}
+
 export const text = {
   unknownPageTitle: 'Untitled page',
   originalAuthor: 'Original author',
@@ -6,6 +13,33 @@ export const text = {
   latestPublisher: 'Latest publisher',
   authorAttributionNote:
     'Names are publisher-provided labels, not proof of identity or permission.',
+  messageLabel: 'Message',
+  annotationTitle: 'Annotate',
+  annotationClose: 'Close annotation',
+  messagePlaceholder: 'Write a message…',
+  messageUnavailable: 'Sending is unavailable right now.',
+  messageAgentsUnavailable: 'Agents are unavailable.',
+  messageCommentAvailable: 'You can still post a comment.',
+  messageAgentsChecking: 'Checking for agents…',
+  messageAgentsRetry: 'Try again',
+  messageWrite: 'Write a message.',
+  messageSending: 'Sending…',
+  messageComment: 'Posts as a comment.',
+  messageAsks: (audience: string) => `Asks ${audience}.`,
+  messageUnknown: (name: string, audience: string) =>
+    `No agent named @${name}. ${audience ? `Asks ${audience}.` : 'This posts as a comment.'}`,
+  messageAmbiguous: (name: string) => `Several agents are named @${name}. Choose one.`,
+  messageRecipientUnavailable: (name: string) =>
+    `@${name} is unavailable. Remove the mention to post.`,
+  messageRecipientLimit: 'Mention up to 8 agents per message.',
+  messageAgentsEmpty: 'No agents are available. This posts as a comment.',
+  messageAskAgain: (name: string) => `Mention @${name} in a new message to ask again.`,
+  messageRecordedDeliveryFailed: 'Delivery failed. The recorded turn was kept.',
+  messageRecordedUncertain:
+    'The turn was recorded, but delivery is unavailable or uncertain. Check the thread before sending again.',
+  messageRecordFailed: 'The turn could not be recorded.',
+  messageAnother: 'Write another message',
+  messageOpenRecorded: 'Open recorded thread',
   askShort: 'Ask',
   comments: 'Comments',
   commentSelection: 'Comment on selection',
@@ -26,6 +60,7 @@ export const text = {
     'Could not save this change. Your draft is kept. Reconnect and review the latest discussion.',
   commentAnchored: 'Attached',
   commentDetached: 'Detached',
+  commentQuoteChanged: 'This text changed on the page; your note keeps the original quote.',
   commentReattach: 'Reattach to selection',
   commentConfirmReattach: 'Confirm reattach',
   threadOpen: 'Open',
@@ -33,10 +68,18 @@ export const text = {
   threadDeleted: 'Deleted thread',
   threadResolve: 'Resolve',
   threadReopen: 'Reopen',
+  threadResolvedBy: (name: string) => `Resolved by ${name}`,
+  threadUnseen: 'New',
+  threadNotNotified: (names: string) => `Not notified: ${names}`,
   threadClose: 'Close thread',
   threadDelete: 'Delete thread',
   conversationAgent: 'agent',
   reconnect: 'Reconnect',
+  disconnected: 'Disconnected',
+  connectionLost: 'Connection lost',
+  recoveryRequired: 'Reconnect to resume live updates.',
+  reconnecting: 'Reconnecting…',
+  reconnectToSend: 'Reconnect to send.',
   reconnectFailed:
     'Could not reconnect. Open this page from a paired browser, or pair with tmt remote pair.',
   sessionEvicted: (limit: number) =>
@@ -54,7 +97,15 @@ export const text = {
   askRefresh: 'Refresh agents',
   askOffline: 'Your machine or page connection is offline. Reconnect and review a new preview.',
   askExpired: 'This preview has expired. Create a new preview before sending.',
-  askRecheck: 'Re-check delivery',
+  askRecheck: 'Check again',
+  chatVisible: 'Visible to everyone with page access.',
+  askWaiting: (agent: string) => `Waiting for ${agent}`,
+  askNoReply: (agent: string) => `No reply yet from ${agent}`,
+  askApproval: 'Waiting for approval',
+  askNotDelivered: 'Not delivered',
+  askUnconfirmed: 'Delivery unconfirmed',
+  askTrackingAbandoned: 'Tracking abandoned',
+  askResultUnavailable: 'Result unavailable',
   askAbandon: 'Abandon tracking',
   askActionFailed: 'Could not update this ask. Its delivery may still be uncertain.',
   askEmpty: 'No asks on this page yet.',
@@ -72,7 +123,7 @@ export const text = {
   askAbandoned: 'Tracking abandoned. The work may still have been delivered.',
   askExpiredState: 'This ask expired before delivery.',
   askDispatching: 'Sending to your machine…',
-  askObservationUnavailable: 'Could not observe agent results. Re-check delivery to resume.',
+  askObservationUnavailable: 'Could not observe agent results. Check again to resume.',
   askOperationFailed: 'This send failed.',
   askFinalUnavailable: 'The agent result is unavailable.',
   askScopeDenied: 'Your Remote permission does not allow this ask.',
@@ -82,8 +133,8 @@ export const text = {
   askRemoteClosed: 'Remote is closed. Reconnect before writing another message.',
   askSessionEnded: 'Your Remote session ended. Reconnect before writing another message.',
   askInputTooLarge: 'Remote rejected the message size. Write a shorter message.',
-  askStateUnavailable: 'Remote cannot read this operation yet. Re-check delivery later.',
-  askCoreUnavailable: 'The agent service is unavailable. Re-check delivery later.',
+  askStateUnavailable: 'Remote cannot read this operation yet. Check again later.',
+  askCoreUnavailable: 'The agent service is unavailable. Check again later.',
   askPreview: 'Ask agent — preview',
   askMachine: 'Your machine',
   askAgent: 'Agent',
@@ -158,7 +209,17 @@ export const text = {
   saving: 'Saving…',
   editFailed:
     'The edit was not saved. Reopen the page to review the latest source before trying again.',
+  saveTooLarge: (size: number, limit: number) =>
+    `The source is ${formatBytes(size)}, over the ${formatBytes(limit)} one page can hold. Shorten it, then save again.`,
+  saveStale:
+    'The page changed while you were editing, so nothing was saved. Copy your changes, reload to get the latest source, then apply them again.',
+  saveNotSaved: 'Not saved',
+  saveUnconfirmed: 'Unconfirmed',
+  saveNotApplied: 'The save did not reach the page, so nothing changed. Save again.',
+  saveUnknown: (operationId: string) =>
+    `The connection dropped before the save was confirmed. Copy your changes, then reload to see whether they were saved. Reference: ${operationId}`,
   reload: 'Reload',
+  updated: 'Colab has been updated.',
   pages: 'Pages',
   home: 'Space home',
   intro: 'A place for pages you share.',
@@ -177,6 +238,12 @@ export const text = {
   error: 'Page unavailable',
   retry: 'Return to space',
   blocked: 'Preview stopped',
+  failureAccessEnded: 'Your access to this page ended. Open it again to continue.',
+  failurePageGone: 'This page is no longer available. It may have been deleted.',
+  failureSessionEnded: 'The Remote session for this page ended. Reopen the page to continue.',
+  failureTooLarge: 'This change is too large to sync. Reopen the page and make a smaller change.',
+  failureGeneric: 'This page stopped syncing. Reopen it to try again.',
+  failureCodeLabel: 'Code:',
   navigation: 'The page navigated. Reopen it to continue.',
   failed: 'The renderer could not start. Reopen the page to try again.',
   limit: 'This preview accepts pages up to 2 MiB of HTML.',

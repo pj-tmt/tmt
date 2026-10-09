@@ -5,10 +5,12 @@
 
 pub mod attachment;
 pub mod caller;
+mod caller_session;
 pub mod channel;
 pub mod channel_context;
 pub mod channel_hooks;
 pub mod delivery;
+mod focus;
 pub mod lease;
 pub mod pane;
 pub mod queue;
@@ -217,7 +219,7 @@ pub const MODE_EMBEDDED: &str = "embedded";
 
 pub static DRIVER: super::DriverDefinition = super::DriverDefinition {
     descriptor: &tmt_core::driver::descriptor::CODEX,
-    env: &["CODEX_HOME"],
+    env: &["CODEX_HOME", "CODEX_SQLITE_HOME"],
     locate,
     runtime: Some(super::Runtime {
         driver: || Box::new(CodexRuntime),
@@ -385,6 +387,72 @@ pub fn record_client_exit(
 pub struct CodexLifecycle;
 
 impl crate::runtime::lifecycle::RuntimeLifecycle for CodexLifecycle {
+    fn caller_session(&self) -> Option<crate::runtime::lifecycle::CallerSession> {
+        caller_session::coordinates(std::env::var_os("CODEX_THREAD_ID").as_deref())
+    }
+    fn caller_session_observation(
+        &self,
+        coordinates: &crate::runtime::lifecycle::CallerSession,
+        environment: &crate::skill_installation::ProviderEnvironment,
+        deadline: std::time::Instant,
+    ) -> Result<
+        Box<dyn crate::runtime::lifecycle::LifecycleObservation>,
+        crate::runtime::lifecycle::CallerSessionRefusal,
+    > {
+        caller_session::root(coordinates, environment, deadline)?;
+        Ok(Box::new(CodexObservation {
+            session: coordinates.session.clone(),
+            model: None,
+
+            transition: SessionTransition::Started,
+            starting: true,
+        }))
+    }
+    fn observe_main_caller(
+        &self,
+        runner: &dyn crate::process::CommandRunner,
+        caller: u64,
+        pane: u64,
+        deadline: std::time::Instant,
+    ) -> Option<ProcessIncarnation> {
+        let observed = caller::CodexCaller::new(&runner, caller::CallerEnvironment::current())
+            .observe_direct_host(deadline)
+            .ok()??;
+        if observed.0 != tmt_core::driver::caller::HostAttribution::Independent {
+            return None;
+        }
+        crate::runtime::evidence::observe_main_in_pane(&runner, caller, pane, deadline, NAME)
+    }
+
+    fn prepare_launch_hooks(
+        &self,
+        plan: &crate::runtime::hook_protocol::LaunchHooks<'_>,
+    ) -> std::io::Result<Option<crate::runtime::RuntimeCommand>> {
+        focus::prepare(plan).map(Some)
+    }
+    fn decode_focus_turn(&self, bytes: &[u8]) -> Option<ProviderSessionId> {
+        focus::decode(bytes)
+    }
+    fn encode_focus_turn(&self, digest: &str) -> Option<String> {
+        focus::encode(digest)
+    }
+    fn focus_process(
+        &self,
+        current: &BindingSessionState,
+        observed: &ProcessIncarnation,
+        session: &ProviderSessionId,
+        host: crate::runtime::lifecycle::HostEvidence,
+        deadline: std::time::Instant,
+    ) -> Option<ProcessIncarnation> {
+        if host.shared()
+            && (std::env::var_os(channel_context::BINDING_ENV).is_none()
+                || std::env::var_os(channel_context::GENERATION_ENV).is_none())
+        {
+            return None;
+        }
+        channel_hooks::activity_process(current, observed, session, host, deadline)
+    }
+
     fn hook_work_duration(&self) -> Option<std::time::Duration> {
         (std::env::var_os(channel_context::BINDING_ENV).is_some()
             && std::env::var_os(channel_context::GENERATION_ENV).is_some())
@@ -573,16 +641,12 @@ impl crate::runtime::lifecycle::RuntimeLifecycle for CodexLifecycle {
 
     fn observe_in_pane(
         &self,
+        runner: &dyn crate::process::CommandRunner,
         caller: u64,
         pane: u64,
         deadline: std::time::Instant,
     ) -> Option<ProcessIncarnation> {
-        observe_in_pane(
-            &crate::process::SupervisedProbeRunner,
-            caller,
-            pane,
-            deadline,
-        )
+        observe_in_pane(&runner, caller, pane, deadline)
     }
 
     fn mode(

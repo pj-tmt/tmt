@@ -53,11 +53,57 @@ pub struct UpdateBatch<'a> {
     pub baseline: &'a [u8],
     pub updates: &'a [&'a [u8]],
 }
+/// Creation-time routing preference; current Remote admission remains authoritative.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct CreationRecipient {
+    pub machine_id: String,
+    pub agent_id: String,
+}
+impl CreationRecipient {
+    pub fn valid(&self) -> bool {
+        tmt_colab_model::values::generated_id(&self.machine_id).is_ok()
+            && tmt_colab_model::values::core_id(&self.agent_id).is_ok()
+    }
+}
 /// One CLI source replacement, including its optional display-only caller label.
 #[derive(Clone, Copy)]
 pub struct ContentEdit<'a> {
     pub source: &'a str,
     pub publisher_agent: Option<&'a str>,
+}
+/// A bounded plain-data batch for one authenticated writer's own document.
+/// The caller establishes writer/page/epoch scope; only the child touches Yjs.
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct OwnRecord {
+    pub root: String,
+    pub key: String,
+    pub value: Value,
+}
+fn validate_own_records(records: &[OwnRecord]) -> Result<(), DecodeFault> {
+    let mut keys = std::collections::BTreeSet::new();
+    if records.is_empty() || records.len() > crate::limits::OWN_RECORDS {
+        return Err(DecodeFault::InvalidInput);
+    }
+    for record in records {
+        if !matches!(
+            record.root.as_str(),
+            "threads" | "messages" | "intents" | "replies"
+        ) || !keys.insert((&record.root, &record.key))
+            || crate::threads::validate_record(&record.root, &record.key, &record.value).is_err()
+            || crate::ask::validate_record(&record.root, &record.key, &record.value).is_err()
+            || crate::attachments::validate_attachment_record(
+                &record.root,
+                &record.key,
+                &record.value,
+            )
+            .is_err()
+        {
+            return Err(DecodeFault::InvalidInput);
+        }
+    }
+    Ok(())
 }
 /// A publisher-asserted display label, never an identity or authorization claim.
 pub fn valid_publisher_agent(value: &str) -> bool {
@@ -69,10 +115,12 @@ pub fn valid_publisher_agent(value: &str) -> bool {
 /// does not establish log, page or epoch authority.
 pub struct BaselineInput<'a> {
     pub original_author: Option<&'a str>,
+    pub attachments: Option<&'a tmt_colab_model::attachment::DocumentAttachments>,
     pub source: &'a [u8],
     pub title: &'a str,
     pub publisher_agent: Option<&'a str>,
     pub source_digest: [u8; 32],
+    pub creation_recipient: Option<&'a CreationRecipient>,
 }
 /// One fresh struct identity to persist and distribute unchanged to every client.
 /// The caller owns descriptor signing, encryption and atomic epoch admission.
@@ -123,6 +171,54 @@ pub struct Decoded {
     pub projection: Value,
     pub memory_limit: MemoryLimit,
     pub child_pid: u32,
+}
+/// Plaintext causal preparation only; publication remains the caller's responsibility.
+#[derive(Debug, PartialEq, Eq)]
+pub enum ContentBatch {
+    Noop,
+    Updates(Vec<Vec<u8>>),
+}
+pub struct PreparedContent {
+    pub batch: ContentBatch,
+    pub projection: Value,
+    pub memory_limit: MemoryLimit,
+    pub child_pid: u32,
+}
+#[derive(Clone, Copy)]
+enum ChildCommand {
+    ContentDecode,
+    OwnDecode,
+    ContentMerge,
+    OwnMerge,
+    OwnEdit,
+    BaselineProduce,
+    BaselinePage,
+    BaselineVerify,
+    PrepareContent,
+}
+impl ChildCommand {
+    fn decode(namespace: Namespace, edit: bool, merge_only: bool) -> Self {
+        match (namespace, edit, merge_only) {
+            (Namespace::Own, true, _) => Self::OwnEdit,
+            (Namespace::Content, _, true) => Self::ContentMerge,
+            (Namespace::Own, false, true) => Self::OwnMerge,
+            (Namespace::Content, _, false) => Self::ContentDecode,
+            (Namespace::Own, false, false) => Self::OwnDecode,
+        }
+    }
+    fn phase(&self) -> &'static str {
+        match self {
+            Self::ContentDecode => "content.decode",
+            Self::OwnDecode => "own.decode",
+            Self::ContentMerge => "content.merge",
+            Self::OwnMerge => "own.merge",
+            Self::OwnEdit => "own.edit",
+            Self::BaselineProduce => "baseline.produce",
+            Self::BaselinePage => "baseline.page",
+            Self::BaselineVerify => "baseline.verify",
+            Self::PrepareContent => "content.prepare-content",
+        }
+    }
 }
 /// Caller-owned invocation configuration. Production composition uses `new`;
 /// tests can inject a larger deadline without changing caps or cleanup ownership.
@@ -183,14 +279,21 @@ impl Decoder {
     ) -> Result<Decoded, DecodeFault> {
         self.decode_until(batch, role, stop, Instant::now() + self.config.deadline)
     }
-    fn decode_until(
+    pub(crate) fn decode_until(
         &mut self,
         batch: UpdateBatch<'_>,
         role: Role,
         stop: Option<&AtomicBool>,
         deadline: Instant,
     ) -> Result<Decoded, DecodeFault> {
-        self.decode_request(batch, role, None, false, stop, deadline)
+        self.decode_request(
+            batch,
+            role,
+            None,
+            false,
+            stop,
+            deadline.min(Instant::now() + self.config.deadline),
+        )
     }
     /// Merge one device's own updates into a single update-v1 with `merge_updates_v1`, without
     /// building or checking the page: the compaction a device publishes as its checkpoint. Every
@@ -219,7 +322,7 @@ impl Decoder {
         &mut self,
         batch: UpdateBatch<'_>,
         role: Role,
-        edit: Option<ContentEdit<'_>>,
+        records: Option<&[OwnRecord]>,
         merge_only: bool,
         stop: Option<&AtomicBool>,
         deadline: Instant,
@@ -241,27 +344,35 @@ impl Decoder {
         {
             return Err(DecodeFault::InvalidInput);
         }
+        let before_wire = Instant::now();
         let wire = WireBatch {
             version: 1,
             namespace: batch.namespace,
-            source: edit.as_ref().map(|v| v.source.to_owned()),
-            publisher_agent: edit
-                .as_ref()
-                .and_then(|v| v.publisher_agent.map(str::to_owned)),
-            baseline: URL_SAFE_NO_PAD.encode(batch.baseline),
-            updates: batch
-                .updates
-                .iter()
-                .map(|v| URL_SAFE_NO_PAD.encode(v))
-                .collect(),
+            records: records.map(<[OwnRecord]>::to_vec),
+            baseline: EncodedBytes(batch.baseline),
+            updates: batch.updates.iter().map(|v| EncodedBytes(v)).collect(),
             merge_only,
         };
-        let input = serde_json::to_vec(&wire).map_err(|_| DecodeFault::InvalidInput)?;
-        if input.len() > STREAM_BYTES {
+        let after_wire = Instant::now();
+        let input = SerializedInput::serialize(&wire)?;
+        let after_json = Instant::now();
+        if input.bytes.len() > STREAM_BYTES {
             return Err(DecodeFault::InvalidInput);
         }
-        let hash = URL_SAFE_NO_PAD.encode(Sha256::digest(&input));
-        let output = self.invoke(&input, false, stop, deadline)?;
+        let (input, hash) = input.finish();
+        let after_hash = Instant::now();
+        let output = self.invoke(
+            &input,
+            ChildCommand::decode(batch.namespace, records.is_some(), merge_only),
+            stop,
+            deadline,
+            Some(ParentTiming::from_samples([
+                before_wire,
+                after_wire,
+                after_json,
+                after_hash,
+            ])),
+        )?;
         if !output.status.success() {
             return Err(DecodeFault::Rejected);
         }
@@ -282,14 +393,20 @@ impl Decoder {
         } else {
             validate_projection(batch.namespace, &reply.projection)?;
         }
-        if edit.is_some_and(|value| {
-            reply.projection["html"].as_str() != Some(value.source)
-                || reply.projection["meta"]["publisherAgent"].as_str() != value.publisher_agent
-        }) {
+        let wrong_edit = records.is_some_and(|records| {
+            records.iter().any(|record| {
+                reply
+                    .projection
+                    .get(&record.root)
+                    .and_then(|root| root.get(&record.key))
+                    != Some(&record.value)
+            })
+        });
+        if wrong_edit {
             return Err(DecodeFault::InvalidOutput);
         }
         // A prepared edit returns one update; a read returns the merged tail.
-        let merged_limit = if edit.is_some() {
+        let merged_limit = if records.is_some() {
             UPDATE_BYTES
         } else {
             STATE_BYTES
@@ -302,28 +419,77 @@ impl Decoder {
             child_pid: reply.pid,
         })
     }
-    pub fn prepare(
+    /// Prepares one immutable own update without committing it to any stream.
+    pub fn prepare_own(
         &mut self,
         batch: UpdateBatch<'_>,
-        edit: ContentEdit<'_>,
+        records: &[OwnRecord],
         stop: Option<&AtomicBool>,
     ) -> Result<Decoded, DecodeFault> {
-        if edit.source.len() > BASELINE_BYTES
-            || batch.namespace != Namespace::Content
-            || edit
-                .publisher_agent
-                .is_some_and(|v| !valid_publisher_agent(v))
-        {
+        if batch.namespace != Namespace::Own {
             return Err(DecodeFault::InvalidInput);
         }
+        validate_own_records(records)?;
         self.decode_request(
             batch,
-            Role::Editor,
-            Some(edit),
+            Role::Commenter,
+            Some(records),
             false,
             stop,
             Instant::now() + self.config.deadline,
         )
+    }
+    /// Prepare bounded deltas against the exact admitted content projection. The
+    /// parent checks correlation and projection; only the child parses Yjs.
+    pub fn prepare_content_batch(
+        &mut self,
+        batch: UpdateBatch<'_>,
+        expected_base: &Value,
+        edit: ContentEdit<'_>,
+        stop: Option<&AtomicBool>,
+    ) -> Result<PreparedContent, DecodeFault> {
+        if self.blocked {
+            return Err(DecodeFault::CleanupBlocked);
+        }
+        let deadline = Instant::now() + self.config.deadline;
+        if batch.namespace != Namespace::Content
+            || edit.source.len() > BASELINE_BYTES
+            || edit
+                .publisher_agent
+                .is_some_and(|v| !valid_publisher_agent(v))
+            || batch.updates.len() > UPDATES
+            || batch
+                .updates
+                .iter()
+                .map(|v| v.len())
+                .try_fold(batch.baseline.len(), usize::checked_add)
+                .is_none_or(|n| n > STATE_BYTES)
+        {
+            return Err(DecodeFault::InvalidInput);
+        }
+        validate_projection(Namespace::Content, expected_base)
+            .map_err(|_| DecodeFault::InvalidInput)?;
+        let expected = edited_projection(expected_base, edit);
+        let wire = WireContentPreparation {
+            version: 1,
+            baseline: URL_SAFE_NO_PAD.encode(batch.baseline),
+            updates: batch
+                .updates
+                .iter()
+                .map(|v| URL_SAFE_NO_PAD.encode(v))
+                .collect(),
+            expected_base,
+            source: edit.source,
+            publisher_agent: edit.publisher_agent,
+        };
+        let (input, hash) = SerializedInput::serialize(&wire)?.finish();
+        let output = self.invoke(&input, ChildCommand::PrepareContent, stop, deadline, None)?;
+        if !output.status.success() {
+            return Err(DecodeFault::Rejected);
+        }
+        let reply: WirePreparedContent =
+            serde_json::from_slice(&output.stdout).map_err(|_| DecodeFault::InvalidOutput)?;
+        admit_prepared_content(reply, &hash, &expected, expected == *expected_base)
     }
     /// Produces once from a fresh document and checks materialization in the child.
     pub fn produce_baseline(
@@ -370,17 +536,57 @@ impl Decoder {
             stop,
         )
     }
+    pub(crate) fn verify_baseline_until(
+        &mut self,
+        view: BaselineInput<'_>,
+        update: &[u8],
+        commitment: [u8; 32],
+        deadline: Instant,
+    ) -> Result<Baseline, DecodeFault> {
+        if update.len() > BASELINE_UPDATE_BYTES {
+            return Err(DecodeFault::InvalidInput);
+        }
+        self.baseline_until(
+            view,
+            BaselineAction::Verify {
+                update: URL_SAFE_NO_PAD.encode(update),
+                commitment: URL_SAFE_NO_PAD.encode(commitment),
+            },
+            None,
+            deadline,
+        )
+    }
     fn baseline(
         &mut self,
         view: BaselineInput<'_>,
         action: BaselineAction,
         stop: Option<&AtomicBool>,
     ) -> Result<Baseline, DecodeFault> {
-        let deadline = Instant::now() + self.config.deadline;
+        self.baseline_until(view, action, stop, Instant::now() + self.config.deadline)
+    }
+    fn baseline_until(
+        &mut self,
+        view: BaselineInput<'_>,
+        action: BaselineAction,
+        stop: Option<&AtomicBool>,
+        deadline: Instant,
+    ) -> Result<Baseline, DecodeFault> {
+        let deadline = deadline.min(Instant::now() + self.config.deadline);
         if self.blocked {
             return Err(DecodeFault::CleanupBlocked);
         }
         validate_view(view.source, view.title, &view.source_digest)?;
+        if let Some(list) = view.attachments {
+            tmt_colab_model::attachment::validate_attachment_list(
+                list.as_slice(),
+                tmt_colab_model::attachment::DOCUMENT_ATTACHMENTS,
+                None,
+            )
+            .map_err(|_| DecodeFault::InvalidInput)?;
+        }
+        if view.creation_recipient.is_some_and(|v| !v.valid()) {
+            return Err(DecodeFault::InvalidInput);
+        }
         if view
             .original_author
             .is_some_and(|v| !valid_publisher_agent(v))
@@ -399,7 +605,15 @@ impl Decoder {
                 Some((update.clone(), commitment.clone()))
             }
         };
+        let command = match &action {
+            BaselineAction::Produce { chunk_bytes: None } => ChildCommand::BaselineProduce,
+            BaselineAction::Produce {
+                chunk_bytes: Some(_),
+            } => ChildCommand::BaselinePage,
+            BaselineAction::Verify { .. } => ChildCommand::BaselineVerify,
+        };
         let input = serde_json::to_vec(&WireBaseline {
+            attachments: view.attachments.cloned(),
             version: 1,
             source: if matches!(action, BaselineAction::Produce { .. }) {
                 URL_SAFE_NO_PAD.encode(view.source)
@@ -409,11 +623,12 @@ impl Decoder {
             title: view.title.into(),
             publisher_agent: view.publisher_agent.map(str::to_owned),
             original_author: view.original_author.map(str::to_owned),
+            creation_recipient: view.creation_recipient.cloned(),
             source_digest: URL_SAFE_NO_PAD.encode(view.source_digest),
             action,
         })
         .map_err(|_| DecodeFault::InvalidInput)?;
-        let output = self.invoke(&input, true, stop, deadline)?;
+        let output = self.invoke(&input, command, stop, deadline, None)?;
         if !output.status.success() {
             return Err(DecodeFault::Rejected);
         }
@@ -458,17 +673,28 @@ impl Decoder {
     fn invoke(
         &mut self,
         input: &[u8],
-        baseline: bool,
+        command: ChildCommand,
         stop: Option<&AtomicBool>,
         deadline: Instant,
+        parent_timing: Option<ParentTiming>,
     ) -> Result<tmt_invoke::Output, DecodeFault> {
         if input.len() > STREAM_BYTES {
             return Err(DecodeFault::InvalidInput);
         }
         let mut args = vec!["__decoder".into()];
-        if baseline {
-            args.push("baseline".into());
+        match command {
+            ChildCommand::ContentDecode
+            | ChildCommand::OwnDecode
+            | ChildCommand::ContentMerge
+            | ChildCommand::OwnMerge
+            | ChildCommand::OwnEdit => {}
+            ChildCommand::BaselineProduce
+            | ChildCommand::BaselinePage
+            | ChildCommand::BaselineVerify => args.push("baseline".into()),
+            ChildCommand::PrepareContent => args.push("prepare-content".into()),
         }
+        let started = Instant::now();
+        let remaining = deadline.saturating_duration_since(started);
         tmt_invoke::invoke(
             Request {
                 program: &self.config.program,
@@ -484,25 +710,166 @@ impl Decoder {
             stop,
         )
         .map_err(|e| {
-            self.blocked = cleanup_blocks(&e.cleanup);
-            DecodeFault::Invoke(e)
+            invocation_failure(
+                &mut self.blocked,
+                e,
+                InvocationObservation {
+                    command,
+                    input_bytes: input.len(),
+                    remaining,
+                    elapsed: started.elapsed(),
+                    parent_timing,
+                },
+                tmt_cli_style::stream::stderr,
+            )
         })
+    }
+}
+#[derive(Clone, Copy)]
+struct ParentTiming {
+    wire: Duration,
+    json: Duration,
+    hash: Duration,
+}
+impl ParentTiming {
+    fn from_samples([before_wire, after_wire, after_json, after_hash]: [Instant; 4]) -> Self {
+        Self {
+            wire: after_wire.duration_since(before_wire),
+            json: after_json.duration_since(after_wire),
+            hash: after_hash.duration_since(after_json),
+        }
+    }
+}
+struct InvocationObservation {
+    command: ChildCommand,
+    input_bytes: usize,
+    remaining: Duration,
+    elapsed: Duration,
+    parent_timing: Option<ParentTiming>,
+}
+fn invocation_failure<W: std::io::Write>(
+    blocked: &mut bool,
+    error: tmt_invoke::InvokeError,
+    observation: InvocationObservation,
+    writer: impl FnOnce() -> W,
+) -> DecodeFault {
+    *blocked = cleanup_blocks(&error.cleanup);
+    write_invocation_failure(&mut writer(), &error, observation);
+    DecodeFault::Invoke(error)
+}
+fn write_invocation_failure(
+    writer: &mut impl std::io::Write,
+    error: &tmt_invoke::InvokeError,
+    observation: InvocationObservation,
+) {
+    use std::io::{Cursor, Write};
+    use tmt_invoke::{FailureKind, Phase, Stream};
+    let kind = match error.kind {
+        FailureKind::Spawn => "spawn",
+        FailureKind::Deadline => "deadline",
+        FailureKind::Interrupted => "interrupted",
+        FailureKind::OutputLimit(Stream::Stdout) => "stdout-limit",
+        FailureKind::OutputLimit(Stream::Stderr) => "stderr-limit",
+        FailureKind::Io(Phase::OpenPipes) => "io-open-pipes",
+        FailureKind::Io(Phase::Communicate) => "io-communicate",
+        FailureKind::Io(Phase::Wait) => "io-wait",
+    };
+    let cleanup = match &error.cleanup {
+        Cleanup::NotStarted => "not-started",
+        Cleanup::Confirmed => "confirmed",
+        Cleanup::CallerOwned => "caller-owned",
+        Cleanup::Unconfirmed(_) => "unconfirmed",
+    };
+    let mut bytes = [0; 512];
+    let mut record = Cursor::new(bytes.as_mut_slice());
+    // Static labels and numbers only. A record/stream write failure is supplementary.
+    if (|| -> std::io::Result<()> {
+        write!(
+            record,
+            "colab decoder failure phase={} input_bytes={} remaining_ns={} invocation_ns={} kind={} cleanup={}",
+            observation.command.phase(),
+            observation.input_bytes,
+            observation.remaining.as_nanos(),
+            observation.elapsed.as_nanos(),
+            kind,
+            cleanup
+        )?;
+        if let Some(parent) = observation.parent_timing {
+            write!(
+                record,
+                " wire_ns={} json_ns={} hash_ns={}",
+                parent.wire.as_nanos(),
+                parent.json.as_nanos(),
+                parent.hash.as_nanos()
+            )?;
+        }
+        writeln!(record)
+    })()
+    .is_ok()
+    {
+        let length = record.position() as usize;
+        if let Some(record) = bytes.get(..length) {
+            let _ = writer.write_all(record);
+        }
     }
 }
 fn cleanup_blocks(cleanup: &Cleanup) -> bool {
     !matches!(cleanup, Cleanup::NotStarted | Cleanup::Confirmed)
 }
+struct SerializedInput {
+    bytes: Vec<u8>,
+    hash: Sha256,
+}
+impl SerializedInput {
+    fn serialize(value: &(impl Serialize + ?Sized)) -> Result<Self, DecodeFault> {
+        let mut input = Self {
+            bytes: Vec::with_capacity(128),
+            hash: Sha256::new(),
+        };
+        serde_json::to_writer(&mut input, value).map_err(|_| DecodeFault::InvalidInput)?;
+        Ok(input)
+    }
+    fn finish(self) -> (Vec<u8>, String) {
+        (self.bytes, URL_SAFE_NO_PAD.encode(self.hash.finalize()))
+    }
+}
+impl std::io::Write for SerializedInput {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        self.bytes.extend_from_slice(bytes);
+        self.hash.update(bytes);
+        Ok(bytes.len())
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+struct EncodedBytes<'a>(&'a [u8]);
+impl Serialize for EncodedBytes<'_> {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.collect_str(&base64::display::Base64Display::new(
+            self.0,
+            &URL_SAFE_NO_PAD,
+        ))
+    }
+}
+#[derive(Serialize, Deserialize)]
+#[serde(transparent)]
+struct BorrowedWireText<'a>(#[serde(borrow)] std::borrow::Cow<'a, str>);
+impl std::ops::Deref for BorrowedWireText<'_> {
+    type Target = str;
+    fn deref(&self) -> &str {
+        &self.0
+    }
+}
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct WireBatch {
+struct WireBatch<B = String> {
     version: u8,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    source: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    publisher_agent: Option<String>,
+    records: Option<Vec<OwnRecord>>,
     namespace: Namespace,
-    baseline: String,
-    updates: Vec<String>,
+    baseline: B,
+    updates: Vec<B>,
     /// Merge the updates and return them, without projecting the document: a device's own
     /// stream may depend on structs another device wrote, so alone it is not a complete page.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
@@ -510,14 +877,100 @@ struct WireBatch {
 }
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct WireResult {
+struct WireResult<B = String> {
     version: u8,
     namespace: Namespace,
     input_hash: String,
-    merged: String,
+    merged: B,
     projection: Value,
     memory_limit: MemoryLimit,
     pid: u32,
+}
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct WireContentPreparation<S = String, V = Value, B = String> {
+    version: u8,
+    baseline: B,
+    updates: Vec<B>,
+    expected_base: V,
+    source: S,
+    publisher_agent: Option<S>,
+}
+#[derive(Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "lowercase", deny_unknown_fields)]
+enum WireContentBatch<B = String> {
+    Noop,
+    Updates { updates: Vec<B> },
+}
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct WirePreparedContent<B = String> {
+    version: u8,
+    input_hash: String,
+    batch: WireContentBatch<B>,
+    projection: Value,
+    memory_limit: MemoryLimit,
+    pid: u32,
+}
+fn edited_projection(base: &Value, edit: ContentEdit<'_>) -> Value {
+    let mut expected = serde_json::json!({
+        "html": edit.source,
+        "meta": base["meta"].clone(),
+    });
+    let meta = expected["meta"]
+        .as_object_mut()
+        .expect("validated content metadata");
+    if let Some(agent) = edit.publisher_agent {
+        meta.insert("publisherAgent".into(), Value::String(agent.into()));
+    } else {
+        meta.remove("publisherAgent");
+    }
+    expected
+}
+fn admit_prepared_content(
+    reply: WirePreparedContent,
+    input_hash: &str,
+    expected: &Value,
+    noop: bool,
+) -> Result<PreparedContent, DecodeFault> {
+    if reply.version != 1
+        || reply.input_hash != input_hash
+        || reply.pid == 0
+        || reply.memory_limit != memory_limit()
+        || reply.projection != *expected
+        || serde_json::to_vec(&reply.projection)
+            .map_err(|_| DecodeFault::InvalidOutput)?
+            .len()
+            > STATE_BYTES
+    {
+        return Err(DecodeFault::InvalidOutput);
+    }
+    validate_projection(Namespace::Content, &reply.projection)?;
+    let batch = match reply.batch {
+        WireContentBatch::Noop if noop => ContentBatch::Noop,
+        WireContentBatch::Updates { updates } if !noop => {
+            if updates.is_empty() || updates.len() > WRITE_TAIL_UPDATES {
+                return Err(DecodeFault::InvalidOutput);
+            }
+            let updates = updates
+                .iter()
+                .map(|v| binary(v, UPDATE_BYTES).map_err(|_| DecodeFault::InvalidOutput))
+                .collect::<Result<Vec<_>, _>>()?;
+            if updates.iter().any(Vec::is_empty)
+                || updates.iter().map(Vec::len).sum::<usize>() > WRITE_TAIL_BYTES
+            {
+                return Err(DecodeFault::InvalidOutput);
+            }
+            ContentBatch::Updates(updates)
+        }
+        _ => return Err(DecodeFault::InvalidOutput),
+    };
+    Ok(PreparedContent {
+        batch,
+        projection: reply.projection,
+        memory_limit: reply.memory_limit,
+        child_pid: reply.pid,
+    })
 }
 // A full baseline is not a 256 KiB stream update. Allow source, title and
 // bounded update-v1 framing, within the decoder's stream cap.
@@ -528,6 +981,10 @@ pub const BASELINE_UPDATE_BYTES: usize = STATE_BYTES + BASELINE_TITLE_BYTES + 10
 struct WireBaseline {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     original_author: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    attachments: Option<tmt_colab_model::attachment::DocumentAttachments>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    creation_recipient: Option<CreationRecipient>,
     version: u8,
     source: String,
     title: String,
@@ -583,7 +1040,8 @@ fn binary(value: &str, limit: usize) -> Result<Vec<u8>, DecodeFault> {
     let bytes = URL_SAFE_NO_PAD
         .decode(value)
         .map_err(|_| DecodeFault::InvalidInput)?;
-    if bytes.len() > limit || URL_SAFE_NO_PAD.encode(&bytes) != value {
+    // The pinned URL_SAFE_NO_PAD engine rejects padding and nonzero trailing bits.
+    if bytes.len() > limit {
         return Err(DecodeFault::InvalidInput);
     }
     Ok(bytes)
@@ -609,6 +1067,20 @@ fn validate_projection(namespace: Namespace, value: &Value) -> Result<(), Decode
                 "publisherAgent" | "originalAuthor" => {
                     v.as_str().is_none_or(|v| !valid_publisher_agent(v))
                 }
+                "creationRecipient" => {
+                    !serde_json::from_value::<CreationRecipient>(v.clone()).is_ok_and(|v| v.valid())
+                }
+                "attachments" => !serde_json::from_value::<
+                    tmt_colab_model::attachment::DocumentAttachments,
+                >(v.clone())
+                .is_ok_and(|list| {
+                    tmt_colab_model::attachment::validate_attachment_list(
+                        list.as_slice(),
+                        tmt_colab_model::attachment::DOCUMENT_ATTACHMENTS,
+                        None,
+                    )
+                    .is_ok()
+                }),
                 _ => true,
             }) {
                 return Err(DecodeFault::InvalidOutput);
@@ -634,6 +1106,8 @@ fn validate_projection(namespace: Namespace, value: &Value) -> Result<(), Decode
                     crate::threads::validate_record(root, key, value)
                         .map_err(|_| DecodeFault::InvalidOutput)?;
                     crate::ask::validate_record(root, key, value)
+                        .map_err(|_| DecodeFault::InvalidOutput)?;
+                    crate::attachments::validate_attachment_record(root, key, value)
                         .map_err(|_| DecodeFault::InvalidOutput)?;
                 }
             }

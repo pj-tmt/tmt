@@ -67,7 +67,7 @@ Maintained module reference. Commands and admitted spellings are in [development
 - `app` owns base focus, one replaceable modal and top-first event routing:
   unhandled modal keys and mouse are captured, closing events never replay into the
   base, and Ctrl-C returns a quit effect.
-- `components` owns opaque square-border modal chrome, with titles only when nonempty,
+- `components` owns opaque modal chrome, square by default, with titles only when nonempty,
   fixed footer/status/position slots, visual-line scroll/clamp/reveal and typed key-help
   sections. Wrapped fixed text is measured by the
   text owner before the scroll viewport is reserved; nowrap slots keep their one-line default.
@@ -101,9 +101,19 @@ Maintained module reference. Commands and admitted spellings are in [development
   decision. Control characters are shown
   escaped, and the continuation cell of a wide grapheme carries its span's style.
   A strip test keeps the former layout pipeline as an oracle and compares buffers
-  cell for cell over generated lines, areas and buffer origins. `Outline` is the square
-  single-line border with a styled title for panes of a base layer; unlike
-  `Modal` it neither clears nor fills what is inside.
+  cell for cell over generated lines, areas and buffer origins. `Outline` is the
+  single-line frame with a styled title for panes of a base layer; unlike
+  `Modal` it neither clears nor fills what is inside. Both default to square
+  borders. Their explicit `paint_flat` choice shares horizontal rules and blank
+  side slots, retaining every edge reservation, title policy and inner rectangle;
+  Modal also retains its full Clear/opaque mask and fixed slots.
+- `StatusSlot` paints the first row of a caller-reserved rectangle through `strip`,
+  replacing its trailing blanks without changing layout or presenting a terminal
+  frame. `StatusLabel` takes complete caller text or a prefix and elapsed `Duration`;
+  the caller also supplies an optional spinner frame index. Time, refresh acquisition
+  and frame presentation stay with the application. NO_COLOR (`Depth::None`) uses
+  steady `[busy]` text instead of animation. Rows and status can be composed into one
+  completed buffer; collection replacement still computes its own geometry.
 - `Picker` owns bounded grapheme query editing and returns query changes,
   selection changes, confirmation or cancellation. The application filters
   projected data, routes focused fields and owns previews, saves and rollback.

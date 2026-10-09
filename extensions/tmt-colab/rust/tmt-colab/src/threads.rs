@@ -1,9 +1,10 @@
 //! Inert discussion record admission. Envelopes authenticate writers; no DOM,
 //! publication, signing or dispatch authority lives in this codec.
 use crate::limits::{COMMENT_BODY_BYTES, COMMENT_CONTEXT_BYTES, COMMENT_CONTEXT_POINTS};
-use serde::Deserialize;
+use serde::{Deserialize, Deserializer};
 use serde_json::Value;
-use tmt_colab_model::{Invalid, Result, values};
+use tmt_colab_model::{Invalid, Result, attachment, bounded::List, values};
+pub mod status;
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -64,6 +65,13 @@ struct CommentRecord {
     message_id: String,
     thread: ThreadRef,
     body: String,
+    #[serde(default, deserialize_with = "comment_attachments")]
+    attachments: Option<attachment::MessageAttachments>,
+}
+fn comment_attachments<'de, D: Deserializer<'de>>(
+    d: D,
+) -> std::result::Result<Option<attachment::MessageAttachments>, D::Error> {
+    List::deserialize(d).map(Some)
 }
 fn scope(
     version: u8,
@@ -90,6 +98,7 @@ fn require(valid: bool) -> Result<()> {
 }
 pub(crate) fn validate_record(root: &str, key: &str, value: &Value) -> Result<()> {
     match value.get("kind").and_then(Value::as_str) {
+        Some("thread-status" | "thread-notification") => status::validate(root, key, value)?,
         Some("thread") => {
             require(
                 value
@@ -139,10 +148,16 @@ pub(crate) fn validate_record(root: &str, key: &str, value: &Value) -> Result<()
             )?;
             timestamp(&v.at)?;
             require(v.body.len() <= COMMENT_BODY_BYTES)?;
+            let attachments = v.attachments.as_ref().map_or(&[][..], List::as_slice);
+            attachment::validate_attachment_list(
+                attachments,
+                attachment::MESSAGE_ATTACHMENTS,
+                Some((&v.space_id, &v.page_id)),
+            )?;
             require(if v.deleted {
-                v.body.is_empty()
+                v.body.is_empty() && attachments.is_empty()
             } else {
-                !v.body.is_empty()
+                !v.body.is_empty() || !attachments.is_empty()
             })?;
         }
         _ => {}

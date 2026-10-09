@@ -63,6 +63,82 @@ fn set(text: &str, key: &str, value: &str) -> Result<String, PlanError> {
     Ok(result)
 }
 
+/// Compose ephemeral hooks using setup's exact ownership rule. Existing owned
+/// observation hooks at either level remain the sole recorder for their event.
+/// All unrelated JSON, including opaque number spellings, stays raw.
+pub(crate) fn compose_launch_hooks(
+    provider: &DriverDefinition,
+    text: &str,
+    global: &str,
+    observations: &[(String, Value)],
+    focus: &Value,
+) -> Result<String, PlanError> {
+    for document in [text, global] {
+        let root = object(document)?;
+        for key in ["disableAllHooks", "allowManagedHooksOnly"] {
+            if let Some(raw) = field(&root, key) {
+                let enabled: bool =
+                    serde_json::from_str(raw).map_err(|_| PlanError::InvalidSettings)?;
+                if enabled {
+                    return Err(PlanError::UnsupportedProvider);
+                }
+            }
+        }
+    }
+    let root = object(text)?;
+    let mut hooks = field(&root, "hooks").unwrap_or("{}").to_owned();
+    object(&hooks)?;
+    for (event, entry) in observations {
+        // Validate ownership even when it is ambiguous: never double-record an
+        // edited or duplicated setup entry by treating it as merely absent.
+        let local_owned = owned_event(provider, text, event)?;
+        let global_owned = owned_event(provider, global, event)?;
+        if !local_owned && !global_owned {
+            hooks = append_event(&hooks, event, entry)?;
+        }
+    }
+    hooks = append_event(&hooks, "Stop", focus)?;
+    let result = set(text, "hooks", &hooks)?;
+    if result.len() > SETTINGS_LIMIT {
+        return Err(PlanError::TooLarge);
+    }
+    Ok(result)
+}
+
+fn append_event(hooks: &str, event: &str, entry: &Value) -> Result<String, PlanError> {
+    let fields = object(hooks)?;
+    let entries: Vec<&RawValue> = serde_json::from_str(field(&fields, event).unwrap_or("[]"))
+        .map_err(|_| PlanError::InvalidSettings)?;
+    let mut values: Vec<String> = entries.iter().map(|entry| entry.get().to_owned()).collect();
+    values.push(entry.to_string());
+    set(hooks, event, &format!("[{}]", values.join(",")))
+}
+
+pub(crate) fn owned_event(
+    provider: &DriverDefinition,
+    text: &str,
+    event: &str,
+) -> Result<bool, PlanError> {
+    let root = object(text)?;
+    let Some(raw) = field(&root, "hooks") else {
+        return Ok(false);
+    };
+    let hooks = object(raw)?;
+    let Some(raw) = field(&hooks, event) else {
+        return Ok(false);
+    };
+    let entries: Vec<&RawValue> =
+        serde_json::from_str(raw).map_err(|_| PlanError::InvalidSettings)?;
+    let mut count = 0;
+    for entry in entries {
+        count += usize::from(owned(provider, entry)?);
+    }
+    if count > 1 {
+        return Err(PlanError::EditedHook);
+    }
+    Ok(count == 1)
+}
+
 /// Only the exact generated command shape establishes ownership. A matching
 /// marker in user text is not enough; edited entries are never overwritten.
 fn owned(provider: &DriverDefinition, entry: &RawValue) -> Result<bool, PlanError> {

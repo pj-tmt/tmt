@@ -1,27 +1,29 @@
 name: Colab browser verification
 
-# Advisory evidence for L1 acceptance; never part of the required CI aggregates.
+# Advisory evidence for L1 acceptance and the app component specs; never part of the required CI aggregates.
 on:
   pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled]
   schedule:
     - cron: '23 5 * * 1'
   workflow_dispatch:
 
 permissions: {}
 
-concurrency:
-  group: colab-browser-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
-
 jobs:
   changes:
     name: Select affected Colab browser checks
+    if: github.event.action != 'labeled' && github.event.action != 'unlabeled'
+    concurrency:
+      group: colab-browser-changes-${{ github.event.pull_request.number || github.ref }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
       contents: read
     outputs:
       colab_harness: ${{ steps.scope.outputs.colab_harness || 'false' }}
+      colab_app: ${{ steps.scope.outputs.colab_app || 'false' }}
     steps:
       - if: github.event_name == 'pull_request'
         uses: actions/checkout@v4
@@ -41,6 +43,9 @@ jobs:
   colab-browser:
     name: Colab browser (${{ github.event_name == 'pull_request' && 'Chromium' || 'Chromium, Firefox, WebKit' }})
     needs: changes
+    concurrency:
+      group: colab-browser-interop-${{ github.event.pull_request.number || github.ref }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || needs.changes.outputs.colab_harness == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -81,7 +86,7 @@ jobs:
         working-directory: typescript
         run: pnpm --filter @tmt/colab-client exec playwright install --with-deps chromium firefox webkit
       - name: Install pinned Rust toolchain
-        run: rustup toolchain install 1.97.0 --profile minimal
+        run: sh scripts/install-ci-rust.sh 1.97.0 --profile minimal
       - name: Restore shared Rust dependencies
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
@@ -115,3 +120,119 @@ jobs:
         with:
           path: ${{ env.PLAYWRIGHT_BROWSERS_PATH }}
           key: ${{ steps.browsers.outputs.cache-primary-key }}
+
+  colab-app:
+    name: Colab app component specs (Chromium)
+    needs: changes
+    concurrency:
+      group: colab-browser-app-${{ github.event.pull_request.number || github.ref }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || needs.changes.outputs.colab_app == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-tooling
+      - name: Prepare evidence directory
+        run: mkdir -p "$RUNNER_TEMP/colab-app-results"
+      - name: Install frozen app tooling
+        working-directory: typescript
+        run: pnpm --filter @tmt/colab-app... --fail-if-no-match install --frozen-lockfile --ignore-scripts
+      - name: Install Chromium and Linux dependencies
+        working-directory: typescript
+        run: pnpm --filter @tmt/colab-app exec playwright install --with-deps chromium
+      # One worker and no retries, as configured. The native-fixture specs (cli, chrome) skip
+      # with a named reason here; the real-binary job below owns native behavior.
+      - name: Run the app component specs
+        working-directory: typescript
+        shell: bash
+        run: pnpm --filter @tmt/colab-app --fail-if-no-match test:browser --output "$RUNNER_TEMP/colab-app-results/traces" 2>&1 | tee "$RUNNER_TEMP/colab-app-results/run.log"
+      - name: Upload run log and failure traces
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: colab-app-results
+          path: ${{ runner.temp }}/colab-app-results
+          if-no-files-found: warn
+          retention-days: 7
+
+  colab-acceptance:
+    name: Colab real-binary acceptance (Chromium)
+    if: >-
+      github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'pull_request' && github.event.action != 'unlabeled' &&
+       contains(github.event.pull_request.labels.*.name, 'colab-acceptance') &&
+       (github.event.action != 'labeled' || github.event.label.name == 'colab-acceptance'))
+    concurrency:
+      group: colab-acceptance-${{ github.event.pull_request.number || github.ref }}
+      # A label edit must never cancel a running acceptance check.
+      cancel-in-progress: false
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    env:
+      CARGO_PROFILE_DEV_DEBUG: 0
+      CARGO_INCREMENTAL: 0
+      TMT_COLAB_APP_DIR: ${{ github.workspace }}/extensions/tmt-colab/typescript/app/dist
+      TMT_ACCEPTANCE_BIN_DIR: ${{ github.workspace }}/rust/target/debug
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-tooling
+      - uses: ./.github/actions/apt-install
+        with:
+          packages: tmux
+      - name: Prepare public evidence and private browser output
+        run: |
+          mkdir -p "$RUNNER_TEMP/colab-acceptance-results" "$RUNNER_TEMP/colab-acceptance-private"
+          echo "PLAYWRIGHT_JSON_OUTPUT_FILE=$RUNNER_TEMP/colab-acceptance-private/results.json" >> "$GITHUB_ENV"
+      - name: Install frozen app tooling
+        working-directory: typescript
+        run: pnpm --filter @tmt/colab-app... --fail-if-no-match install --frozen-lockfile --ignore-scripts
+      - name: Install Chromium and Linux dependencies
+        working-directory: typescript
+        run: pnpm --filter @tmt/colab-app exec playwright install --with-deps chromium
+      - name: Build the app before embedding it
+        working-directory: typescript
+        run: pnpm --filter @tmt/colab-app --fail-if-no-match build
+      - name: Install pinned Rust toolchain
+        run: sh scripts/install-ci-rust.sh 1.97.0 --profile minimal
+      - name: Restore shared Rust dependencies without saving
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: rust
+          shared-key: native-rust
+          save-if: false
+      - name: Build all three real executables once
+        run: cargo build --locked --manifest-path rust/Cargo.toml -j 2 -p tmt-cli -p tmt-remote -p tmt-colab --bins
+      - name: Record the tested source and exact build hashes
+        shell: bash
+        env:
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          printf 'pr-head: %s\ntested-merge: %s\n' "$PR_HEAD_SHA" "$(git rev-parse HEAD)" > "$RUNNER_TEMP/colab-acceptance-results/tested-head.txt"
+          sha256sum rust/target/debug/tmt rust/target/debug/tmt-remote rust/target/debug/tmt-colab > "$RUNNER_TEMP/colab-acceptance-results/binaries.sha256"
+          find extensions/tmt-colab/typescript/app/dist -type f -print0 | sort -z | xargs -0 sha256sum > "$RUNNER_TEMP/colab-acceptance-results/assets.sha256"
+      - name: Run the complete real-binary suite with one worker
+        working-directory: typescript
+        shell: bash
+        run: pnpm --filter @tmt/colab-app --fail-if-no-match test:acceptance --workers=1 --reporter=list,json --output "$RUNNER_TEMP/colab-acceptance-private/traces"
+      - name: Retain only test outcomes without credentials or trace payloads
+        if: always()
+        shell: bash
+        run: |
+          node typescript/scripts/colab-acceptance-report.mjs
+      - name: Upload public acceptance evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: colab-acceptance-results
+          path: ${{ runner.temp }}/colab-acceptance-results
+          if-no-files-found: warn
+          retention-days: 7

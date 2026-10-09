@@ -8,12 +8,12 @@ case "${1:-}" in
   --rust-notices-only) notices_only=true; frontend_notices=false; shift ;;
 esac
 if [ "$#" -lt 1 ] || [ "$#" -gt 2 ]; then
-  printf '%s\n' 'Usage: scripts/build-native-artifact.sh [--notices-only|--rust-notices-only] <cargo-dist target> [cli|office|squad|driver-herdr|remote|colab]' >&2
+  printf '%s\n' 'Usage: scripts/build-native-artifact.sh [--notices-only|--rust-notices-only] <cargo-dist target> [cli|office|ops|driver-herdr|remote|colab]' >&2
   exit 2
 fi
 target=$1
 product=${2:-cli}
-case "$product" in cli|office|squad|driver-herdr|remote|colab) ;; *) printf '%s\n' 'Unknown native product.' >&2; exit 2 ;; esac
+case "$product" in cli|office|ops|driver-herdr|remote|colab) ;; *) printf '%s\n' 'Unknown native product.' >&2; exit 2 ;; esac
 repo=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd -P)
 if [ "$product" = office ] && [ "$frontend_notices" = true ]; then
   cd "$repo/typescript"
@@ -61,8 +61,8 @@ if [ "$notices_only" = false ]; then
     cli) tag="v$version" ;;
     *) tag="tmt-$product-v$version" ;;
   esac
-  # The CLI carries the independently owned binary through the first standalone
-  # Herdr release. Build it once from its package, then let cargo-dist include it
+  # The CLI retains its independently owned companion until released-package
+  # acquisition (#1084). Build it once from its package, then let cargo-dist include it
   # without a second bin target.
   if [ "$product" = cli ]; then
     cargo build --locked -p tmt-driver-herdr --bin tmt-driver-herdr \

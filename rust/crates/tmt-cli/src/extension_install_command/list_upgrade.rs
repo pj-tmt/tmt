@@ -1,5 +1,6 @@
 //! Managed extension observations and consented upgrades.
 
+use super::post_upgrade::PostUpgradeNotice;
 use super::skills::settle_skills;
 use super::{
     ExtensionListRow, Human, INSTALLABLE_EXTENSIONS, Outcome, ask, extension, extension_list,
@@ -91,9 +92,9 @@ pub(super) fn upgrade_at(
     selected: Option<&str>,
 ) -> Result<Outcome, Failure> {
     let name = product.as_str();
-    let executable = prefix.join("bin").join(product.executable());
-    native_install::inspect_product_prefix(product, prefix)
+    let current = native_install::inspect_product_prefix(product, prefix)
         .map_err(|error| failure("EXTENSION_INSTALLATION_INVALID", error))?;
+    let executable = current.active_executable;
     // The skills the replaced release carried: only those may be pruned.
     let previous = native_install::release_skill_names(product, &executable)
         .map_err(|error| failure("EXTENSION_INSTALLATION_INVALID", error))?;
@@ -112,11 +113,19 @@ pub(super) fn upgrade_at(
         None => native_install::upgrade_product(product, request, verifier, checkpoint),
     }
     .map_err(|error| {
-        failure(
-            "EXTENSION_UPGRADE_FAILED",
-            io::Error::new(error.kind(), error),
-        )
+        let error = io::Error::new(error.kind(), error);
+        let notice = PostUpgradeNotice::after_failure(
+            product,
+            &error,
+            Some(&current.state.version.to_string()),
+        );
+        notice.retain(failure("EXTENSION_UPGRADE_FAILED", error))
     })?;
+    let notice = PostUpgradeNotice::observe(
+        product,
+        &report.installation,
+        Some(&current.state.version.to_string()),
+    );
     let version = report.installation.version.clone();
     let human = if report.skipped_pinned {
         Human::plain(format!(
@@ -132,17 +141,27 @@ pub(super) fn upgrade_at(
         "skippedPinned": report.skipped_pinned,
         "executable": report.installation.executable});
     let mut human = human;
-    if report.installation.changed {
+    // A post-activation settlement failure can leave a verified former install
+    // beside the current release. Retry only that recovery on an unpinned no-op.
+    if report.installation.changed
+        || (!report.skipped_pinned
+            && matches!(
+                native_install::inspect_former_product(product, prefix),
+                Ok(Some(_))
+            ))
+    {
         settle_skills(
             product,
-            &executable,
+            &report.installation.executable,
             &previous,
             false,
             None,
             &mut document,
             &mut human,
-        )?;
+        )
+        .map_err(|error| notice.retain(error))?;
     }
+    notice.record(&mut document, &mut human);
     Ok(Some((document, human)))
 }
 
@@ -435,22 +454,22 @@ pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] = &[
         "move or remove {}, then install the managed one with: tmt extension install {name} --yes --prefix {prefix}",
         &[""],
         &[
-            ("{name}", "squad"),
+            ("{name}", "ops"),
             ("{prefix}", "/tmp/hint-prefix"),
-            ("{}", "/tmp/hint-prefix/bin/tmt-squad"),
+            ("{}", "/tmp/hint-prefix/bin/tmt-ops"),
         ],
     ),
     crate::cli_style_tests::HintSpec::core(
         "remove its commands with: tmt extension rm {name} --yes --prefix {prefix}, then reinstall it",
         &[", then"],
-        &[("{name}", "squad"), ("{prefix}", "/tmp/hint-prefix")],
+        &[("{name}", "ops"), ("{prefix}", "/tmp/hint-prefix")],
     ),
     crate::cli_style_tests::HintSpec::core(
         "tmt extension rm {name} --yes --prefix {}",
         &[""],
         &[
-            ("{name}", "squad"),
-            ("{SUGGESTED_EXTENSION}", "squad"),
+            ("{name}", "ops"),
+            ("{SUGGESTED_EXTENSION}", "ops"),
             ("{}", "/tmp/hint-prefix"),
         ],
     ),
@@ -458,18 +477,18 @@ pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] = &[
         "{name} is not installed. Install it with: tmt extension install {name}",
         &[""],
         &[
-            ("{name}", "squad"),
-            ("{}", "squad"),
-            ("{SUGGESTED_EXTENSION}", "squad"),
+            ("{name}", "ops"),
+            ("{}", "ops"),
+            ("{SUGGESTED_EXTENSION}", "ops"),
         ],
     ),
     crate::cli_style_tests::HintSpec::core(
         "{name} {version} is pinned; nothing changed. Clear the pin with: tmt extension upgrade {name} --unpin",
         &[""],
         &[
-            ("{name}", "squad"),
-            ("{}", "squad"),
-            ("{SUGGESTED_EXTENSION}", "squad"),
+            ("{name}", "ops"),
+            ("{}", "ops"),
+            ("{SUGGESTED_EXTENSION}", "ops"),
         ],
     ),
 ];

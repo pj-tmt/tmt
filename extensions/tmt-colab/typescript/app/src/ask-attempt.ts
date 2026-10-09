@@ -33,12 +33,20 @@ export type DirectoryReadFailure = {
 export type AskDirectoryObservation =
   | { kind: 'ready'; checkedAt: number; snapshot: AskDestinations }
   | DirectoryReadFailure;
+/** Send failed before any durable adoption or Remote write was attempted. */
+export class UnadoptedAskError extends Error {
+  constructor(cause: unknown) {
+    super(cause instanceof Error ? cause.message : 'Ask unavailable', { cause });
+    this.name = 'UnadoptedAskError';
+  }
+}
 export interface AskControllerOptions {
   store: AskRecordStore;
   remote: RemoteClient;
   key: CryptoKey;
   selection(): AdmittedSelection;
   sessionEnded?(error?: SessionEvictedError): void;
+  observationUnavailable?(unavailable: boolean): void;
 }
 /** Trusted parent composition: explicit Send is the only Remote write. All
  * state/result reads operate on the current device's admitted immutable ledger.
@@ -157,8 +165,8 @@ export class AskController {
     }
     const task = this.options.store.exclusive(id, async () => {
       const { remote, store, key } = this.options;
+      let adoptionPhase: 'none' | 'pending' | 'complete' = 'none';
       let started = false,
-        adopted = false,
         sessionEnd = false,
         evicted: SessionEvictedError | null = null;
       try {
@@ -174,8 +182,9 @@ export class AskController {
             (current.expiresAtMs === null || Date.now() < current.expiresAtMs),
         );
         const signed = await preview.signed(key);
+        adoptionPhase = 'pending';
         const adoption = await store.adopt(signed, view);
-        adopted = true;
+        adoptionPhase = 'complete';
         if (adoption === 'existing') return store.view(id);
         await store.state(id, 'dispatching');
         // Publication may outlast preview validity; expiry still has no effect.
@@ -222,7 +231,8 @@ export class AskController {
           sessionEnd = true;
           evicted = error;
         } else if (error instanceof SessionEndedError) sessionEnd = true;
-        if (!adopted) throw error;
+        if (adoptionPhase === 'none') throw new UnadoptedAskError(error);
+        if (adoptionPhase === 'pending') throw error;
         return await store.state(
           id,
           started || sessionEnd ? 'uncertain' : 'failed',
@@ -370,7 +380,11 @@ export class AskController {
               .slice(0, ACTIVATION_READ_LIMIT)
           : views.filter(withinHorizon);
         refreshOlder = false;
-        if (!pending.length) return;
+        if (!pending.length) {
+          if (!signal.aborted && !this.#ended) this.options.observationUnavailable?.(false);
+          return;
+        }
+        let unavailable = false;
         for (const view of pending) {
           if (
             signal.aborted ||
@@ -383,8 +397,15 @@ export class AskController {
             await this.recover(view.intent.operationId);
           } catch {
             // Read/publication failure leaves the original operation for re-check.
+            unavailable = true;
           }
         }
+        if (
+          !signal.aborted &&
+          !this.#ended &&
+          (typeof document === 'undefined' || document.visibilityState !== 'hidden')
+        )
+          this.options.observationUnavailable?.(unavailable);
         if (this.#ended || !(await this.options.store.views()).some(withinHorizon)) return;
         if (!signal.aborted)
           await new Promise<void>((resolve) => {

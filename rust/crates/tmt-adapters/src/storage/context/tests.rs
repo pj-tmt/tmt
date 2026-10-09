@@ -26,6 +26,78 @@ fn fixture() -> (TestDirectory, std::path::PathBuf, String) {
 }
 
 #[test]
+fn caller_precheck_is_storage_only_and_refuses_unbound_retired_or_ambiguous_panes() {
+    let (_directory, path, id) = fixture();
+    let mut caller = crate::host::CallerEnvironment {
+        tmux: Some("/tmp/context-socket,10,0".into()),
+        pane: Some("%1".into()),
+        process_id: 999,
+        driver_env: Default::default(),
+    };
+    let before = fs::read(&path).unwrap();
+    let binding = Storage::caller_session_binding(&path, &caller)
+        .unwrap()
+        .unwrap();
+    assert_eq!(binding.identity_id, id);
+    assert_eq!(binding.pane_pid, 11);
+    assert_eq!(fs::read(&path).unwrap(), before);
+    caller.pane = Some("%2".into());
+    assert!(
+        Storage::caller_session_binding(&path, &caller)
+            .unwrap()
+            .is_none()
+    );
+    caller.pane = None;
+    assert!(
+        Storage::caller_session_binding(&path, &caller)
+            .unwrap()
+            .is_none()
+    );
+    caller.pane = Some("%1".into());
+    caller.tmux = Some("/tmp/foreign-socket,10,0".into());
+    assert!(
+        Storage::caller_session_binding(&path, &caller)
+            .unwrap()
+            .is_none()
+    );
+    caller.tmux = None;
+    let connection = Connection::open(&path).unwrap();
+    connection.execute("INSERT INTO identities (id,name,canonical_name,lifetime,created_at,updated_at) SELECT 'other','Other','other',lifetime,created_at,updated_at FROM identities WHERE id=?", [&id]).unwrap();
+    connection.execute("INSERT INTO bindings (id,identity_id,transport,pane_id,server_id,socket_path,server_pid,server_start_time,pane_pid,bound_at,last_verified_at) VALUES ('other-binding','other','tmux','%1','other-server','/tmp/other-socket',12,'other-start',13,'original','original')", []).unwrap();
+    assert!(
+        Storage::caller_session_binding(&path, &caller)
+            .unwrap()
+            .is_none(),
+        "no server locator means ambiguous same-number panes refuse"
+    );
+    caller.tmux = Some("/tmp/context-socket,10,0".into());
+    connection
+        .execute("UPDATE identities SET retired_at_ms=1 WHERE id=?", [&id])
+        .unwrap();
+    assert!(
+        Storage::caller_session_binding(&path, &caller)
+            .unwrap()
+            .is_none()
+    );
+}
+
+#[test]
+fn discovery_shortcut_is_read_only_and_needs_no_current_binding_observation() {
+    let (_directory, path, id) = fixture();
+    let connection = Connection::open(&path).unwrap();
+    connection.execute("INSERT INTO identity_session_preferences (identity_id, preferred_harness, remembered_harness, runtime_mode, provider_session_id) VALUES (?1, 'claude', 'claude', 'default', 'thread-a')", [&id]).unwrap();
+    let before = fs::read(&path).unwrap();
+    assert!(Storage::remembers_provider_session(&path, "claude", "thread-a").unwrap());
+    assert!(!Storage::remembers_provider_session(&path, "codex", "thread-a").unwrap());
+    assert!(!Storage::remembers_provider_session(&path, "claude", "changed").unwrap());
+    assert_eq!(fs::read(&path).unwrap(), before);
+    connection
+        .execute("UPDATE identities SET retired_at_ms=1", [])
+        .unwrap();
+    assert!(!Storage::remembers_provider_session(&path, "claude", "thread-a").unwrap());
+}
+
+#[test]
 fn enrolled_binding_selection_needs_no_remembered_history_and_is_read_only() {
     let (_directory, path, id) = fixture();
     let before = fs::read(&path).unwrap();

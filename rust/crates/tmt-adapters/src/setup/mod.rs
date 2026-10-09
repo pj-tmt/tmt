@@ -6,6 +6,7 @@ mod publication;
 pub mod record;
 pub mod removal;
 
+pub(crate) use document::{compose_launch_hooks, owned_event};
 pub use environment::{SetupEnvironment, provider_settings};
 pub use publication::{BACKUP_DIRECTORY, apply, backup_directory, backup_warning, read_settings};
 

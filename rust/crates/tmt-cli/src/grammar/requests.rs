@@ -8,11 +8,11 @@ pub(in crate::grammar) fn talk() -> Command {
             general(spec!(
                 "talk",
                 "Send a request and wait for its durable reply",
-                details = "Plain talk attempts live notification. Use --inbox only for intentional queue-only delivery: no live notification is attempted, and the recipient must pull with tmt inbox.",
+                details = "An identity with no binding receives through its inbox: talk waits for its reply (180 seconds unless configured; --timeout overrides it), and the recipient must pull with tmt inbox or tmt x listen. Use --detach to return at once. For a bound recipient, plain talk attempts live notification; --inbox suppresses that notification and requires inbox pull. Focus queues non-owner, non-urgent automatic delivery for one checklist and returns immediately with remaining time; --urgent bypasses only Focus.",
                 [
                     "Send a message and wait for the reply" => "tmt talk worker \"Run the tests\"",
                     "Send and return at once" => "tmt talk --detach worker \"Deploy when green\"",
-                    "Queue for an identity with no pane" => "tmt talk --inbox worker \"Review when free\"",
+                    "Wait for a reply without a host" => "tmt talk worker \"Review this\" --identity coordinator --timeout 30 --json",
                 ]
             )),
             &[
@@ -27,6 +27,8 @@ pub(in crate::grammar) fn talk() -> Command {
             ],
         )
         .visible_alias("send")
+        .arg(clap::Arg::new("urgent").long("urgent").action(clap::ArgAction::SetTrue).help("Bypass Focus only; all delivery guards still apply"))
+        .arg(clap::Arg::new("kind").long("kind").value_parser(["decision", "review", "fyi"]).default_value("fyi").help("Checklist purpose (default: fyi)"))
         .arg(operand("target", true))
         .arg(operand("message", true))
 }
@@ -79,6 +81,21 @@ pub(in crate::grammar) fn exchanges() -> Command {
                 &["identity", "incoming"],
             )
             .arg(option("revision").required(true))
+            .arg(operand("request-id", true)),
+        )
+        .subcommand(
+            with_options(
+                storage(spec!(
+                    "withdraw",
+                    "Withdraw your obsolete unanswered request",
+                    details = "Only the recorded originator can withdraw. A reason of 1–1024 UTF-8 bytes is required. Identical retries preserve the original reason and time; a final response or different reason conflicts. Withdrawal sends no recipient notification and does not cancel work.",
+                    [
+                        "Withdraw an obsolete request" => "tmt x withdraw req_0f8e4b52-3c1d-4a6e-9b7f-2d5c8a1e6f30 --reason \"Already resolved\" --identity lead",
+                    ]
+                )),
+                &["identity"],
+            )
+            .arg(clap::Arg::new("reason").long("reason").required(true).help("Why the request is obsolete (1–1024 UTF-8 bytes)"))
             .arg(operand("request-id", true)),
         )
         .subcommand(with_options(

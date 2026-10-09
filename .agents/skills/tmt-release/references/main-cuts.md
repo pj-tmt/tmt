@@ -47,10 +47,16 @@ cut and skip reason. Missing draft visibility, pagination or history is a
 blocked plan. Allocation is serialized; inspect each tag-specific native pipeline
 independently. Allocate only when the component has releasable commits after its
 newest allocated ancestor cut (in flight or published), excluding drafts with `verification-failed.json`; failed drafts reserve their numbers but allow a new cut, including at the same main SHA. Notes, migrations and breaking authorization still cover
-the newest published ancestor through the captured main commit.
+the newest published ancestor through the captured main commit. A packaged product may declare
+`predecessor` as an exact registered retired or released product key (no self edges or cycles):
+until its own first publication, it inherits the predecessor boundary and advances beyond every
+allocation in both lines. Its own published history then takes over; `requiresCliSha` still gates
+the first successor cut. Registry `retired: true` preserves old tag/archive identity but admits
+no new cut, preparation or publication; retaining a retired map record requires `release: false`.
+Immutable source readers preserve historical activation fields, while cut planning still excludes retired products.
 
 For an owner-authorized explicit version, dispatch `release.yml` on main with
-`product=cli|squad|remote|colab`, `version=<canonical stable or alpha version>` and
+`product=cli|ops|remote|colab`, `version=<canonical stable or alpha version>` and
 `dry_run=true` first. Review the exact cut, notes, tag and native holds before the
 owner chooses `dry_run=false`. Without a version, released alpha products advance
 their current prerelease number. The draft starts tagless at the captured main
@@ -62,7 +68,7 @@ Keep the `release` Environment restricted to main. The cut job uses its scoped
 workflow token for draft visibility, creation and native dispatch; it requires no
 release-PR App token. Normal primary review, pinned-head checks and queue protection remain required.
 
-The persistent `release-version-injection.yml` PR check proves CLI, Squad, Remote and Colab on
+The persistent `release-version-injection.yml` PR check proves CLI, Ops, Remote and Colab on
 four native hosts. Callers provide pinned Node through `setup-tooling`, selecting
 x64 for Intel verification. `.github/actions/inject-release-version` consumes that
 Node without reinstalling it or changing its architecture. The proof reuses the
@@ -105,7 +111,9 @@ versions differ, demonstrate stale-lock rejection with full `cargo metadata
 <checkout> <snapshot>`. Do not rewrite an already-versioned lock. After assembly,
 `manifests <checkout> <snapshot> <plan.json> <build.json>` checks the metadata; after
 archive extraction, `artifact <checkout> <snapshot> <plan.json> <build.json>
-<binary>` additionally checks the binary. Recheck `verify` after each stage.
+<binary>` additionally checks the binary. Herdr reports its compiled version through
+`__tmt-driver 1 capabilities`; the other products retain their `--version` query.
+Both routes require exact tag/plan/build/binary equality. Recheck `verify` after each stage.
 The checkout stays at its captured cut and may differ only in the exact version
 field and implied local lock entries. Never broaden an allowed diff after failure.
 
@@ -116,7 +124,7 @@ owns `bootstrapSha` (the permanent pre-component history boundary), `initialVers
 (the approved first alpha) and `requiresCliSha` (the supporting CLI registration).
 The first-cut planner resolves the newest published CLI tag and requires that
 registration in its ancestry. Missing or older supporting releases produce a
-non-failing blocked row with a clear reason and no product draft; CLI and Squad
+non-failing blocked row with a clear reason and no product draft; CLI and Ops
 cuts continue independently. The hourly minute-17 cut allocates both products
 automatically once a supporting CLI is published; retain its public-smoke
 acceptance before product publication. No manual dispatch is needed.

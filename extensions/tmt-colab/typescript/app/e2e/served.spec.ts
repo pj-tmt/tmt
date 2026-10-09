@@ -1,11 +1,13 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import { once } from 'node:events';
+import { existsSync } from 'node:fs';
 import { mkdtemp, readFile, readdir, rm, writeFile, access, mkdir } from 'node:fs/promises';
 import { createServer, request, type Server } from 'node:http';
 import { type AddressInfo } from 'node:net';
 import { createInterface } from 'node:readline';
 import { fileURLToPath } from 'node:url';
 import { expect, test, type Page } from '@playwright/test';
+import { capturePath } from './captures.js';
 import { writeExecutable } from '../../../../../typescript/test/support/executable-fixture.mjs';
 
 const checkout = fileURLToPath(new URL('../dist/', import.meta.url));
@@ -15,6 +17,13 @@ const binary =
   process.env.COLAB_SERVE_EXECUTABLE ??
   fileURLToPath(new URL('../../../../../rust/target/debug/tmt-colab', import.meta.url));
 const mount = '/r/abcd/x/colab/';
+// The real socket needs the built executable; hosts without it (the CI component job) skip.
+test.beforeEach(() => {
+  test.skip(
+    !existsSync(binary),
+    'Needs the native serve executable: cargo build -p tmt-colab or set COLAB_SERVE_EXECUTABLE',
+  );
+});
 const owner = JSON.stringify({
   owner: true,
   deviceId: '00000000-0000-4000-8000-000000000004',
@@ -146,7 +155,7 @@ async function captureDesign(page: Page, name: string) {
   await mkdir(directory, { recursive: true });
   for (const theme of ['light', 'dark'] as const) {
     await page.emulateMedia({ colorScheme: theme });
-    for (const width of [1440, 390]) {
+    for (const width of [1440, 390, 320]) {
       await page.setViewportSize({ width, height: 900 });
       await page.screenshot({ path: `${directory}/${name}-${theme}-${width}.png`, fullPage: true });
     }
@@ -187,6 +196,7 @@ for (let run = 1; run <= 2; run++) {
       await expect(page.getByRole('alert')).toContainText('Could not open this paired space');
       await expect(page.getByRole('button', { name: 'Reload' })).toBeVisible();
       if (run === 1) await page.screenshot({ path: '/tmp/tmt-1253-mounted.png', fullPage: true });
+      if (run === 1) await captureDesign(page, 'mounted-failure');
       // An inline handler injected into trusted chrome must not execute, while
       // a normal addEventListener is a valid positive control on the same button.
       const injected = await page.evaluate(async () => {
@@ -247,7 +257,9 @@ for (let run = 1; run <= 2; run++) {
       const privatePage = await fetch(server.origin + mount);
       const privateHtml = await privatePage.text();
       expect(privateHtml).toContain('This colab space is private');
-      expect(privateHtml).toContain('<h2>Pair this browser first</h2>');
+      expect(privateHtml).toContain(
+        '<h2 class="tmt-ui-notice-heading">Pair this browser first</h2>',
+      );
       expect(privateHtml).toContain('<code>tmt remote pair</code>');
       expect(privateHtml).toContain('<link rel="stylesheet" href="./assets/chrome.css">');
       expect(privateHtml).toContain('<main class="guidance-main">');
@@ -269,7 +281,7 @@ for (let run = 1; run <= 2; run++) {
         await page
           .locator('.guidance-card')
           .evaluate((element) => getComputedStyle(element).boxShadow),
-      ).not.toBe('none');
+      ).toBe('none');
       expect(requests).toContain(server.origin + mount + 'assets/chrome.css');
       if (run === 1) await captureDesign(page, 'guidance');
       const recoverySdkRequests = requests.filter(
@@ -285,7 +297,7 @@ for (let run = 1; run <= 2; run++) {
       ).toBe('attempted');
       if (run === 1)
         await page.screenshot({
-          path: '/private/tmp/colab-1110-design/colab-guidance.png',
+          path: capturePath('colab-guidance.png'),
           fullPage: true,
         });
       await context.addCookies([{ name: 'owner', value: '1', url: server.origin }]);
@@ -401,7 +413,7 @@ test('public reader entry: exact static bytes, link fragment removed, and no acc
     // A malformed link explains itself, and its fragment leaves the address bar first.
     await page.goto(server.origin + mount + 'read#v=1&seed=not-a-seed');
     await expect(page.getByRole('alert')).toContainText('incomplete or malformed');
-    await expect(page.getByRole('alert').locator('.notice-mark .lucide-x')).toBeVisible();
+    await expect(page.getByRole('alert').locator('.tmt-ui-notice-mark .lucide-x')).toBeVisible();
     expect(await page.evaluate(() => location.hash)).toBe('');
     // A well-formed link for a space this server does not hold has no grant: access ended.
     const seed = Buffer.alloc(32, 7).toString('base64url');
@@ -420,7 +432,9 @@ test('public reader entry: exact static bytes, link fragment removed, and no acc
     await expect(
       page.getByRole('alert').getByRole('heading', { name: 'Access ended' }),
     ).toBeVisible();
-    await expect(page.getByRole('alert').locator('.notice-mark .lucide-circle')).toBeVisible();
+    await expect(
+      page.getByRole('alert').locator('.tmt-ui-notice-mark .lucide-circle'),
+    ).toBeVisible();
     await captureDesign(page, 'reader-access-ended');
     expect(await page.evaluate(() => location.hash)).toBe('');
     // The seed is in no request, and the reader stored nothing in the browser.

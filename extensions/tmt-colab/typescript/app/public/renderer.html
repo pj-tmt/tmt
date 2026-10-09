@@ -242,8 +242,10 @@
                   range = document.createRange();
                 range.setStart(a.node, a.start);
                 range.setEnd(b.node, b.end);
-                ranges.push(range);
                 resolved.push(item.id);
+                // Empty ID is the unsaved composer's quote: resolve without drawing a marker.
+                if (item.id === '') continue;
+                ranges.push(range);
                 anchorRanges.set(item.id, range);
                 const top = Math.max(0, range.getBoundingClientRect().top + scrollY);
                 if (Number.isFinite(top) && top <= 1000000) positions.push({ id: item.id, top });

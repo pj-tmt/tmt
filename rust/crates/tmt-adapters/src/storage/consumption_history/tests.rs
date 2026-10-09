@@ -1,5 +1,100 @@
 use super::*;
 
+// Literal expectations characterize the pre-optimization public projection.
+#[test]
+fn history_empty_and_missing_keep_complete_wire_shape() {
+    let (_directory, path, id) = fixture();
+    let mut storage = Storage::open(&path).unwrap();
+    let response = storage
+        .consumption_history(&[id.clone(), "missing".into()], &[10000], 120, 15001)
+        .unwrap();
+    assert_eq!(
+        response,
+        json!({
+            "asOfMs":15001,"throughMs":15000,"retainedFromMs":0,"resolutionMs":5000,
+            "identities":[
+                {"id":id,"found":true,"reporting":false,"availableFromMs":null,
+                 "lastSampleAtMs":null,"latest":null,"windows":[
+                    {"windowMs":10000,"fromMs":5000,"toMs":15000,"bucketMs":5000,
+                     "buckets":[
+                        {"fromMs":5000,"toMs":10000,"inputTokens":0,"outputTokens":0,
+                         "cachedInputTokens":0,"coveredMs":0,"complete":false,"gap":true,"discontinuous":false},
+                        {"fromMs":10000,"toMs":15000,"inputTokens":0,"outputTokens":0,
+                         "cachedInputTokens":0,"coveredMs":0,"complete":false,"gap":true,"discontinuous":false}
+                     ]}
+                 ]},
+                {"id":"missing","found":false}
+            ]
+        })
+    );
+}
+
+#[test]
+fn history_populated_windows_preserve_gaps_and_exact_boundaries() {
+    let (_directory, path, id) = fixture();
+    let mut storage = Storage::open(&path).unwrap();
+    for (from, input, covered, incomplete, gap, discontinuous) in [
+        (0, 1, 5000, false, false, false),
+        (5000, 2, 5000, false, false, false),
+        (10000, 3, 2000, true, true, false),
+        (15000, 4, 5000, false, false, true),
+        (20000, 99, 5000, false, false, false), // Open bucket is excluded.
+    ] {
+        Bucket {
+            from,
+            input,
+            covered,
+            incomplete,
+            gap,
+            discontinuous,
+            ..Bucket::default()
+        }
+        .write(storage.connection().unwrap(), &id)
+        .unwrap();
+    }
+    let response = storage
+        .consumption_history(std::slice::from_ref(&id), &[15000, 5000], 2, 22500)
+        .unwrap();
+    assert_eq!(
+        response,
+        json!({
+            "asOfMs":22500,"throughMs":20000,"retainedFromMs":0,"resolutionMs":5000,
+            "identities":[{"id":id,"found":true,"reporting":false,"availableFromMs":null,
+            "lastSampleAtMs":null,"latest":null,"windows":[
+                {"windowMs":15000,"fromMs":5000,"toMs":20000,"bucketMs":10000,"buckets":[
+                    {"fromMs":5000,"toMs":15000,"inputTokens":5,"outputTokens":0,"cachedInputTokens":0,
+                     "coveredMs":7000,"complete":false,"gap":true,"discontinuous":false},
+                    {"fromMs":15000,"toMs":20000,"inputTokens":4,"outputTokens":0,"cachedInputTokens":0,
+                     "coveredMs":5000,"complete":true,"gap":false,"discontinuous":true}
+                ]},
+                {"windowMs":5000,"fromMs":15000,"toMs":20000,"bucketMs":5000,"buckets":[
+                    {"fromMs":15000,"toMs":20000,"inputTokens":4,"outputTokens":0,"cachedInputTokens":0,
+                     "coveredMs":5000,"complete":true,"gap":false,"discontinuous":true}
+                ]}
+            ]}]
+        })
+    );
+}
+
+#[test]
+fn history_corrupt_retained_rows_outside_requested_window_still_fail() {
+    let (_directory, path, id) = fixture();
+    let mut storage = Storage::open(&path).unwrap();
+    Bucket {
+        from: 0,
+        sampled: Some(1000),
+        latest: Some("invalid json".into()),
+        ..Bucket::default()
+    }
+    .write(storage.connection().unwrap(), &id)
+    .unwrap();
+    let error = storage
+        .consumption_history(std::slice::from_ref(&id), &[5000], 120, 20000)
+        .unwrap_err();
+    assert_eq!(error.code, StorageErrorCode::Corrupt);
+    assert_eq!(error.message, "Invalid consumption history evidence");
+}
+
 #[test]
 fn shared_seed_fixture_excludes_open_counter() {
     let fixture: Value = serde_json::from_str(include_str!(
@@ -68,6 +163,9 @@ fn latest(input: u64, output: u64, sequence: u64, observed: u64) -> ConsumptionL
             input_tokens: input,
             output_tokens: output,
             cached_input_tokens: 0,
+            cache_write_tokens: None,
+            model_id: None,
+            delta_by_model: None,
             epoch: "33333333-3333-4333-8333-333333333333".into(),
             sequence,
             observed_at_ms: observed,
@@ -355,4 +453,142 @@ fn invalid_cached_delta_creates_gap_instead_of_freezing_future_reads() {
     assert_eq!(rows[2]["inputTokens"], 4);
     assert_eq!(rows[2]["outputTokens"], 2);
     storage.close().unwrap();
+}
+
+fn attributed(
+    input: u64,
+    output: u64,
+    write: u64,
+    sequence: u64,
+    observed: u64,
+    rows: Vec<ModelUsage>,
+) -> ConsumptionLatest {
+    let mut reading = latest(input, output, sequence, observed);
+    reading.consumption.cache_write_tokens = Some(write);
+    reading.consumption.model_id = rows.last().map(|row| row.model_id.clone());
+    reading.consumption.delta_by_model = Some(rows);
+    reading
+}
+fn model_row(model: &str, input: u64, output: u64, write: Option<u64>) -> ModelUsage {
+    ModelUsage {
+        model_id: model.into(),
+        input_tokens: input,
+        output_tokens: output,
+        cached_input_tokens: 0,
+        cache_write_tokens: write,
+    }
+}
+
+#[test]
+fn model_changes_in_one_sample_and_bucket_survive_reopen_aggregation_and_replay() {
+    let (_directory, path, id) = fixture();
+    let mut storage = Storage::open(&path).unwrap();
+    source(&storage, &id);
+    record_sample(
+        storage.connection().unwrap(),
+        &id,
+        Some(attributed(0, 0, 0, 1, 6000, vec![])),
+        6000,
+    )
+    .unwrap();
+    let batch = attributed(
+        30,
+        5,
+        9,
+        2,
+        11000,
+        vec![
+            model_row("a", 10, 2, Some(3)),
+            model_row("b", 20, 3, Some(6)),
+        ],
+    );
+    record_sample(
+        storage.connection().unwrap(),
+        &id,
+        Some(batch.clone()),
+        11000,
+    )
+    .unwrap();
+    record_sample(storage.connection().unwrap(), &id, Some(batch), 11500).unwrap();
+    record_sample(
+        storage.connection().unwrap(),
+        &id,
+        Some(attributed(
+            40,
+            7,
+            12,
+            3,
+            12000,
+            vec![model_row("a", 10, 2, Some(3))],
+        )),
+        12000,
+    )
+    .unwrap();
+    storage.close().unwrap();
+    let mut storage = Storage::open(&path).unwrap();
+    let history = storage
+        .consumption_history(std::slice::from_ref(&id), &[10000], 1, 15000)
+        .unwrap();
+    let bucket = &history["identities"][0]["windows"][0]["buckets"][0];
+    assert_eq!(bucket["inputTokens"], 40);
+    assert_eq!(bucket["outputTokens"], 7);
+    assert_eq!(bucket["cacheWriteTokens"], 12);
+    assert_eq!(
+        bucket["byModel"],
+        json!([
+            {"modelId":"a","inputTokens":20,"outputTokens":4,"cachedInputTokens":0,"cacheWriteTokens":6},
+            {"modelId":"b","inputTokens":20,"outputTokens":3,"cachedInputTokens":0,"cacheWriteTokens":6}
+        ])
+    );
+    assert_eq!(
+        history["identities"][0]["latest"]["consumption"]["modelId"],
+        "a"
+    );
+}
+
+#[test]
+fn unknown_attribution_never_labels_the_whole_mixed_bucket_with_the_last_model() {
+    let (_directory, path, id) = fixture();
+    let mut storage = Storage::open(&path).unwrap();
+    source(&storage, &id);
+    record_sample(
+        storage.connection().unwrap(),
+        &id,
+        Some(latest(0, 0, 1, 6000)),
+        6000,
+    )
+    .unwrap();
+    record_sample(
+        storage.connection().unwrap(),
+        &id,
+        Some(latest(10, 2, 2, 11000)),
+        11000,
+    )
+    .unwrap();
+    record_sample(
+        storage.connection().unwrap(),
+        &id,
+        Some(attributed(
+            20,
+            4,
+            3,
+            3,
+            12000,
+            vec![model_row("a", 10, 2, Some(3))],
+        )),
+        12000,
+    )
+    .unwrap();
+    let history = storage
+        .consumption_history(std::slice::from_ref(&id), &[5000], 120, 15000)
+        .unwrap();
+    let bucket = &history["identities"][0]["windows"][0]["buckets"][0];
+    assert_eq!(bucket["inputTokens"], 20);
+    assert_eq!(bucket["outputTokens"], 4);
+    assert!(bucket.get("byModel").is_none());
+    assert!(bucket.get("cacheWriteTokens").is_none());
+    assert_eq!(
+        history["identities"][0]["latest"]["consumption"]["modelId"],
+        "a"
+    );
 }

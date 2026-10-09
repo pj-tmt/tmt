@@ -1,8 +1,16 @@
 import { readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
-import { expect, test, type BrowserContext, type WebSocketRoute } from '@playwright/test';
+import {
+  expect,
+  test,
+  type BrowserContext,
+  type Locator,
+  type WebSocketRoute,
+} from '@playwright/test';
+import { capturePath } from './captures.js';
 import * as c from '@tmt/colab-client';
 import type { PageView } from '../src/transport.js';
+import { text as copy } from '../src/strings.js';
 import * as Y from 'yjs'; // Test-only producer. Foreign update decoding stays in the app Worker.
 const v = JSON.parse(
   readFileSync(new URL('../../../contracts/vectors/authority-v1.json', import.meta.url), 'utf8'),
@@ -286,7 +294,9 @@ async function wire(
     signer,
     reset ? new Uint8Array([0, 0]) : new Uint8Array(Y.encodeStateAsUpdate(doc)),
   );
-  const contentSnapshot = new Uint8Array(Y.encodeStateAsUpdate(doc));
+  // The content every peer holds, so a save replaces exactly what the browser shows.
+  const liveContent = new Y.Doc();
+  if (!compacted) Y.applyUpdate(liveContent, new Uint8Array(Y.encodeStateAsUpdate(doc)));
   const entry = async (env: c.Envelope) => ({
     seq: c.decodeHeader(env.header()).context.streamSeq,
     envelopeHash: c.encodeBinary(await env.hash()),
@@ -302,6 +312,7 @@ async function wire(
       doc.getText('html').insert(doc.getText('html').length, 'é' + 'x'.repeat(1598));
       const update = new Uint8Array(Y.encodeStateAsUpdate(doc, vector));
       tailBytes += update.length;
+      Y.applyUpdate(liveContent, update);
       const env = await c.Envelope.seal(
         {
           space: v.space,
@@ -340,6 +351,8 @@ async function wire(
     writer.getText('html').insert(writer.getText('html').length, 'x'.repeat(120_000));
     const secondPadding = Y.encodeStateAsUpdate(writer, middle),
       padding = Y.mergeUpdates([firstPadding, secondPadding]);
+    Y.applyUpdate(liveContent, Y.mergeUpdates([c.binary(cp.checkpoint, 256 * 1024), padding]));
+    Y.applyUpdate(liveContent, c.binary(cp.tail, 256 * 1024));
     writer.destroy();
     entries.length = 0;
     let previous = new Uint8Array(32);
@@ -476,7 +489,12 @@ async function wire(
     retries = 0,
     chunked = 0,
     hellos = 0,
-    statementChunks = 0;
+    statementChunks = 0,
+    statusChecks = 0;
+  // Saves the fixture committed, by operation ID, so a lost reply can be settled by status.
+  const saved = new Map<string, string>();
+  // The source of the last save: the next save's base must be exactly that.
+  let lastSource: string | null = null;
   const outgoing = new Map<WebSocketRoute, { frames: string[]; waiting: boolean }>();
   const pump = (socket: WebSocketRoute) => {
     const state = outgoing.get(socket);
@@ -518,6 +536,7 @@ async function wire(
       return;
     }
     let pending: { frame: Record<string, unknown>; parts: Uint8Array[] } | null = null;
+    let upload: { frame: Record<string, unknown>; parts: Uint8Array[] } | null = null;
     outgoing.set(socket, { frames: [], waiting: false });
     socket.onClose(() => {
       peers.delete(socket);
@@ -698,6 +717,36 @@ async function wire(
           peers.add(socket);
           return;
         }
+        if (frame.type === 'save') {
+          expect(upload).toBeNull();
+          if (typeof frame.source === 'string') {
+            await finishSave(socket, frame, c.binary(frame.source, 32768));
+            return;
+          }
+          upload = { frame, parts: [] };
+          return;
+        }
+        if (frame.type === 'savestatus') {
+          statusChecks++;
+          send(socket, 'saveresult', {
+            operationId: frame.operationId,
+            ...(saved.has(frame.operationId)
+              ? { state: 'committed', revision: saved.get(frame.operationId) }
+              : { state: 'absent' }),
+          });
+          return;
+        }
+        if (frame.type === 'chunk' && upload) {
+          expect(frame.objectId).toBe((upload.frame.source as { objectId: string }).objectId);
+          expect(frame.envelopeHash).toBe(upload.frame.sourceSha256);
+          expect(frame.index).toBe(upload.parts.length);
+          upload.parts.push(c.binary(frame.bytes, 32768));
+          if (upload.parts.length !== frame.count) return;
+          const done = upload;
+          upload = null;
+          await finishSave(socket, done.frame, c.concat(...done.parts));
+          return;
+        }
         if (frame.type === 'append' && typeof frame.envelope !== 'string') {
           pending = { frame, parts: [] };
           chunked++;
@@ -716,6 +765,33 @@ async function wire(
         expect(frame.type).toBe('append');
         await append(frame);
       });
+      // A save arrives whole: check its digests, publish it as the one update every peer sees,
+      // then answer the originator, or drop the reply once to model a lost one.
+      async function finishSave(
+        socket: WebSocketRoute,
+        frame: Record<string, unknown>,
+        bytes: Uint8Array,
+      ) {
+        expect(frame.sourceSha256).toBe(c.encodeBinary(await c.digest(bytes)));
+        const source = new TextDecoder().decode(bytes);
+        if (lastSource !== null)
+          expect(frame.baseSha256).toBe(c.encodeBinary(await c.digest(c.text(lastSource))));
+        lastSource = source;
+        await fixture.contentUpdate(source);
+        const operationId = frame.operationId as string;
+        saved.set(operationId, String(entries.length));
+        if (drop) {
+          drop = false;
+          peers.delete(socket);
+          socket.close({ code: 1011 });
+          return;
+        }
+        send(socket, 'saveresult', {
+          operationId,
+          state: 'committed',
+          revision: saved.get(operationId),
+        });
+      }
       async function append(frame: Record<string, unknown>) {
         const row = {
             seq: frame.seq as string,
@@ -756,7 +832,7 @@ async function wire(
       }
     });
   });
-  return {
+  const fixture = {
     head: head.head,
     entries,
     tailBytes,
@@ -778,37 +854,42 @@ async function wire(
       for (const peer of peers) send(peer, 'error', { code: 'RESYNC_REQUIRED' });
     },
     async contentUpdate(source: string) {
-      const writer = new Y.Doc();
-      try {
-        Y.applyUpdate(writer, contentSnapshot);
-        const vector = Y.encodeStateVector(writer);
-        const html = writer.getText('html');
-        writer.transact(() => {
-          html.delete(0, html.length);
-          html.insert(0, source);
-        });
-        const env = await c.Envelope.seal(
-          {
-            space: v.space,
-            page: v.page,
-            epoch,
-            kind: 'update',
-            namespace: 'content',
-            authorDevice: v.device,
-            membershipRevision: String(head.head.revision),
-            streamSeq: String(entries.length + 1),
-            prevHash: c.binary(entries.at(-1)!.envelopeHash, 32, 32),
-          },
-          hex(v.epochKey),
-          signer,
-          new Uint8Array(Y.encodeStateAsUpdate(writer, vector)),
-        );
-        const row = await entry(env);
-        entries.push(row);
-        for (const peer of peers) deliver(peer, 'broadcast', row, { streamId: v.device });
-      } finally {
-        writer.destroy();
-      }
+      const vector = Y.encodeStateVector(liveContent);
+      const html = liveContent.getText('html');
+      // The smallest replaced span, as native preparation publishes it.
+      const old = html.toString();
+      let start = 0;
+      while (start < old.length && start < source.length && old[start] === source[start]) start++;
+      let end = 0;
+      while (
+        end < old.length - start &&
+        end < source.length - start &&
+        old[old.length - 1 - end] === source[source.length - 1 - end]
+      )
+        end++;
+      liveContent.transact(() => {
+        html.delete(start, old.length - start - end);
+        html.insert(start, source.slice(start, source.length - end));
+      });
+      const env = await c.Envelope.seal(
+        {
+          space: v.space,
+          page: v.page,
+          epoch,
+          kind: 'update',
+          namespace: 'content',
+          authorDevice: v.device,
+          membershipRevision: String(head.head.revision),
+          streamSeq: String(entries.length + 1),
+          prevHash: c.binary(entries.at(-1)!.envelopeHash, 32, 32),
+        },
+        hex(v.epochKey),
+        signer,
+        new Uint8Array(Y.encodeStateAsUpdate(liveContent, vector)),
+      );
+      const row = await entry(env);
+      entries.push(row);
+      for (const peer of peers) deliver(peer, 'broadcast', row, { streamId: v.device });
     },
     async ownUpdate() {
       const env = await c.Envelope.seal(
@@ -846,7 +927,11 @@ async function wire(
     async settled() {
       await queue;
     },
+    get statusChecks() {
+      return statusChecks;
+    },
   };
+  return fixture;
 }
 
 async function recoverySdk(context: BrowserContext) {
@@ -918,7 +1003,7 @@ test('authenticated tail past write limits opens and renders exact source', asyn
   await expect(page.getByRole('textbox')).toHaveValue(source);
 });
 
-for (const mode of ['unpaired', 'failed', 'cookie-lost'] as const) {
+for (const mode of ['unpaired', 'failed', 'network', 'cookie-lost'] as const) {
   test(`private guidance ${mode} stays visible without an automatic reopen loop`, async ({
     page,
     context,
@@ -928,6 +1013,7 @@ for (const mode of ['unpaired', 'failed', 'cookie-lost'] as const) {
     let opens = 0;
     await context.route('**/test-recovery-open', (route) => {
       opens++;
+      if (mode === 'network') return route.abort('connectionrefused');
       return route.fulfill({ status: mode === 'cookie-lost' ? 200 : 503, json: {} });
     });
     await context.route(`**${mount}`, (route) =>
@@ -945,7 +1031,7 @@ for (const mode of ['unpaired', 'failed', 'cookie-lost'] as const) {
   });
 }
 
-test('a disconnected active tab explicitly reconnects and reloads without background session reopen', async ({
+test('a disconnected active tab explicitly replaces its session without reload or background reopen', async ({
   page,
   context,
 }) => {
@@ -965,12 +1051,12 @@ test('a disconnected active tab explicitly reconnects and reloads without backgr
   await expect(page.getByRole('button', { name: 'Reconnect', exact: true })).toBeVisible();
   expect(opens).toBe(1);
   await page.screenshot({
-    path: '/private/tmp/colab-1110-design/colab-reconnect.png',
+    path: capturePath('colab-reconnect.png'),
     fullPage: true,
   });
   await page.getByRole('button', { name: 'Reconnect', exact: true }).click();
   await expect(heading).toBeVisible();
-  expect(opens).toBe(3); // Explicit recovery plus normal registration after reload.
+  expect(opens).toBe(2); // One explicit admitted replacement, without a reload.
   await expect.poll(() => f.connections).toBe(1);
   await page.getByRole('link', { name: 'Space home' }).click();
   await expect.poll(() => f.connections).toBe(0);
@@ -979,28 +1065,48 @@ test('a disconnected active tab explicitly reconnects and reloads without backgr
 test('Ask publishes owner own envelopes through production Connection before Remote dispatch', async ({
   page,
   context,
-}) => {
+}, testInfo) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
   const f = await wire(context),
     agentId = '00000000-0000-4000-8000-000000000006',
     requestId = 'req_00000000-0000-4000-8000-000000000007',
     reply = 'Wire reply <script>inert</script>';
   let sends = 0;
   let operationId: string | null = null;
+  let opens = 0;
+  let doorDown = false;
+  let oldSessionEnded = false;
+  let terminalReplacement = false;
+  let pendingOpen: Promise<void> | undefined;
+  let releaseOpen: (() => void) | undefined;
   // Only Remote and the signed sync server are doubles: registration, controller,
   // Worker preparation, Writer, Connection, receipts and projection are production.
   await context.route('**/sdk/remote-v1.js*', (route) =>
     route.fulfill({
       contentType: 'text/javascript',
-      body: `export async function reopenSession(){await window.fixtureKeys;return {sessionId:'fixture-session',serverTimeMs:Date.now(),grantRevision:'1',expiresAtMs:null}}
+      body: `export class RefusalError extends Error {constructor(code){super(code);this.code=code;}}
+export async function reopenSession(){const response=await fetch('/test-wire-reopen',{method:'POST'});if(!response.ok)throw new RefusalError('REMOTE_DEVICE_REVOKED');await window.fixtureKeys;return {sessionId:'fixture-session',serverTimeMs:Date.now(),grantRevision:'1',expiresAtMs:null}}
 export async function certifyKey(purpose,bytes){return {publicKey:btoa(String.fromCharCode(...bytes)).replaceAll('+','-').replaceAll('/','_').replace(/=+$/,''),issuedAtMs:Date.now(),signature:'${c.encodeBinary(new Uint8Array(64))}'}}
 export function transportUrl(_session,url){return String(url);}
 export function operations(){return {
-listAgents:async()=>[{id:'${agentId}',name:'Wire agent',presence:'active'}],
+listAgents:async()=>{const response=await fetch('/test-wire-directory');if(response.status===410)throw new RefusalError('REMOTE_SESSION_ENDED');return [{id:'${agentId}',name:'Wire agent',presence:'active'}]},
 send:async(input)=>(await fetch('/test-wire-send',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(input)})).json(),
 operation:async(operationId)=>({state:'accepted',operationId,requestId:'${requestId}'}),
 result:async()=>({state:'replied',requestId:'${requestId}',message:${JSON.stringify(reply)}})
 }}`,
     }),
+  );
+  await context.route('**/test-wire-reopen', async (route) => {
+    opens++;
+    if (pendingOpen) await pendingOpen;
+    if (terminalReplacement) return route.fulfill({ status: 403, json: {} });
+    if (doorDown) return route.abort('connectionrefused');
+    oldSessionEnded = false;
+    f.resumeSync();
+    return route.fulfill({ json: {} });
+  });
+  await context.route('**/test-wire-directory', (route) =>
+    route.fulfill({ status: oldSessionEnded ? 410 : 200, json: {} }),
   );
   await context.route('**/sdk/mount', (route) =>
     route.fulfill({
@@ -1085,7 +1191,7 @@ result:async()=>({state:'replied',requestId:'${requestId}',message:${JSON.string
     getSelection()!.addRange(range);
   });
   await page.getByTestId('chat-toggle').click();
-  const input = page.getByTestId('chat-panel').getByRole('combobox', { name: 'Message to agent' });
+  const input = page.getByTestId('chat-panel').getByRole('combobox', { name: 'Message' });
   await input.fill('@');
   await page.getByRole('option').click();
   await input.fill('@Wire agent Explain this page.');
@@ -1109,8 +1215,539 @@ result:async()=>({state:'replied',requestId:'${requestId}',message:${JSON.string
   await f.settled();
   expect(sends).toBe(1);
   expect(f.entries).toHaveLength(6);
+  let draft = 'Keep this composer draft while the door is down.';
+  await input.fill(draft);
+  const admittedOpens = opens;
+  doorDown = true;
+  oldSessionEnded = true;
+  f.stopSync();
+  const reconnect = page.getByRole('button', { name: 'Reconnect', exact: true });
+  await expect(reconnect).toBeVisible();
+  await expect.poll(() => opens).toBe(admittedOpens + 1);
+  await expect(page.getByText('Reconnect to resume live updates.', { exact: true })).toBeVisible();
+  await expect(page.getByText('Failed to fetch', { exact: true })).toHaveCount(0);
+  await expect(input).toHaveText(draft);
+  await expect(page.getByTestId('ask-entry')).toHaveAttribute('data-operation-id', operationId!);
+  await expect(page.getByTestId('ask-entry')).toHaveAttribute('data-ledger-state', 'accepted');
+  await expect(page.getByTestId('ask-reply')).toHaveText(reply);
+  expect(sends).toBe(1);
+  expect(f.entries).toHaveLength(6);
+  await expect(page.getByRole('heading', { name: 'Connection lost', exact: true })).toBeVisible();
+  await expect(page.locator('.status')).toHaveText('Connection lost');
+  await expect(page.locator('.tmt-ui-notice')).toHaveAttribute('data-tone', 'waiting');
+  await expect(page.locator('.tmt-ui-notice-mark')).toContainText('Disconnected');
+  await expect(page.getByText('This preview accepts pages up to 2 MiB of HTML.')).toHaveCount(0);
+  await expect(input).toBeFocused(); // Recovery must not take focus from a draft.
+  await expect(input).toHaveAttribute('contenteditable', 'true');
+  draft += ' Still editable.';
+  await input.fill(draft);
+  await expect(page.getByRole('button', { name: 'Send', exact: true })).toBeDisabled();
+  await expect(page.getByText('Reconnect to send.', { exact: true })).toBeVisible();
+  await input.press('Enter');
+  expect(sends).toBe(1);
+  await f.settled();
+  expect(f.entries).toHaveLength(6);
+  async function capture(state: string, keyboardFocus = false) {
+    for (const theme of ['light', 'dark']) {
+      await page.evaluate((theme) => {
+        document.documentElement.dataset.theme = theme;
+      }, theme);
+      for (const width of [1440, 390]) {
+        await page.setViewportSize({ width, height: width === 390 ? 844 : 900 });
+        if (keyboardFocus) {
+          await reconnect.focus();
+          await page.keyboard.press('Tab');
+          await page.keyboard.press('Shift+Tab');
+          await expect(reconnect).toBeFocused();
+        }
+        await page.screenshot({
+          path: testInfo.outputPath(`${state}-${theme}-${width}.png`),
+          fullPage: true,
+        });
+      }
+    }
+  }
+  await capture('recovery-draft');
+  await page.getByRole('button', { name: 'Close Chat', exact: true }).click();
+  await capture('recovery-card');
+  await capture('recovery-focus', true);
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.getByTestId('chat-toggle').click();
+  await expect(input).toHaveText(draft);
+  await expect(page.getByTestId('ask-reply')).toHaveText(reply);
+  await page.getByRole('button', { name: 'Close Chat', exact: true }).click();
+  // Explicit recovery before the door returns stays retryable and read-only.
+  pendingOpen = new Promise<void>((resolve) => {
+    releaseOpen = resolve;
+  });
+  await reconnect.click();
+  await expect.poll(() => opens).toBe(admittedOpens + 2);
+  const busyReconnect = page.getByRole('button', { name: 'Reconnecting…', exact: true });
+  await expect(busyReconnect).toHaveAttribute('aria-busy', 'true');
+  await expect(busyReconnect).toBeDisabled();
+  await capture('recovery-busy');
+  expect(opens).toBe(admittedOpens + 2);
+  releaseOpen!();
+  pendingOpen = undefined;
+  await expect(reconnect).toBeEnabled();
+  await expect(page.locator('.tmt-ui-notice')).toHaveAttribute('data-tone', 'waiting');
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.getByTestId('chat-toggle').click();
+  await expect(input).toHaveText(draft);
+  await expect(page.getByTestId('ask-entry')).toHaveAttribute('data-operation-id', operationId!);
+  await expect(page.getByTestId('ask-reply')).toHaveText(reply);
+  expect(sends).toBe(1);
+  expect(f.entries).toHaveLength(6);
+  doorDown = false;
+  f.resumeSync();
+  await reconnect.click();
+  await expect(heading).toBeVisible();
+  await expect.poll(() => f.connections).toBe(1);
+  await expect(page.getByTestId('chat-panel')).toBeVisible();
+  await expect(page.getByTestId('ask-entry')).toHaveAttribute('data-operation-id', operationId!);
+  await expect(page.getByTestId('ask-entry')).toHaveAttribute('data-ledger-state', 'accepted');
+  await expect(page.getByTestId('ask-reply')).toHaveText(reply);
+  expect(opens).toBe(admittedOpens + 3); // One admitted in-place explicit recovery.
+  await expect(input).toHaveText(draft);
+  await input.fill('A new draft after verified recovery.');
+  await expect(page.getByRole('button', { name: 'Send', exact: true })).toBeEnabled();
+  expect(sends).toBe(1);
+  await f.settled();
+  expect(f.entries).toHaveLength(6);
+  // The anchored composer shares draft editing but cannot publish Ask or Post.
+  await page.getByRole('button', { name: 'Close Chat', exact: true }).click();
+  async function annotate() {
+    await heading.evaluate((node) => {
+      const range = node.ownerDocument.createRange();
+      range.selectNodeContents(node);
+      const selection = node.ownerDocument.getSelection()!;
+      selection.removeAllRanges();
+      selection.addRange(range);
+    });
+    await page.getByTestId('selection-ask').click();
+  }
+  await annotate();
+  const annotation = page.getByRole('dialog', { name: 'Annotate selection' });
+  const annotationInput = annotation.getByRole('combobox', { name: 'Message', exact: true });
+  await annotationInput.fill('Keep this anchored draft. @Wire agent');
+  const post = annotation.getByRole('button', { name: 'Send', exact: true });
+  const askAction = annotation.getByRole('button', { name: 'Send', exact: true });
+  await expect(post).toBeEnabled();
+  await expect(askAction).toBeEnabled();
+  // Successful mounted-session replacement rebinds this same draft to the new
+  // Ask facade. It must not require closing and opening the annotation again.
+  await annotationInput.evaluate((node) => {
+    Object.assign(window, { recoveryDraftNode: node });
+  });
+  const beforeReplacement = opens;
+  pendingOpen = new Promise<void>((resolve) => {
+    releaseOpen = resolve;
+  });
+  oldSessionEnded = true;
+  f.stopSync();
+  f.resumeSync();
+  await expect.poll(() => opens).toBe(beforeReplacement + 1);
+  await expect(askAction).toBeDisabled();
+  await expect(annotationInput).toHaveText('Keep this anchored draft. @Wire agent');
+  releaseOpen!();
+  pendingOpen = undefined;
+  await expect.poll(() => f.connections).toBe(1);
+  await expect(heading).toBeVisible();
+  await expect(post).toBeEnabled();
+  await expect(askAction).toBeEnabled();
+  await expect(annotationInput).toBeFocused();
+  expect(
+    await annotationInput.evaluate(
+      (node) => node === (window as unknown as { recoveryDraftNode: Element }).recoveryDraftNode,
+    ),
+  ).toBe(true);
+  await expect(annotationInput).toHaveText('Keep this anchored draft. @Wire agent');
+
+  doorDown = true;
+  oldSessionEnded = true;
+  f.stopSync();
+  await expect(reconnect).toBeVisible();
+  await expect(annotationInput).toBeFocused();
+  await expect(annotationInput).toHaveAttribute('contenteditable', 'true');
+  await annotationInput.fill('Still editable anchored draft.');
+  await expect(post).toBeDisabled();
+  await expect(askAction).toBeDisabled();
+  await annotationInput.press('Enter');
+  await expect(annotationInput).toHaveText('Still editable anchored draft.');
+  expect(sends).toBe(1);
+  await f.settled();
+  expect(f.entries).toHaveLength(6);
+  doorDown = false;
+  f.resumeSync();
+  await reconnect.click();
+  await expect(heading).toBeVisible();
+  await expect.poll(() => f.connections).toBe(1);
+  await expect(annotationInput).toHaveText('Still editable anchored draft.');
+  await expect(annotationInput).toBeFocused();
+  expect(
+    await annotationInput.evaluate(
+      (node) => node === (window as unknown as { recoveryDraftNode: Element }).recoveryDraftNode,
+    ),
+  ).toBe(true);
+  await expect(post).toBeEnabled();
+  await expect(askAction).toBeEnabled();
+  await annotationInput.press('Escape');
+  // An authority refusal is terminal, with a distinct blocked presentation.
+  terminalReplacement = true;
+  oldSessionEnded = true;
+  f.stopSync();
+  await expect(page.getByRole('heading', { name: 'Preview stopped', exact: true })).toBeVisible();
+  await expect(page.locator('.tmt-ui-notice')).toHaveAttribute('data-tone', 'blocked');
+  // The body is a sentence; the raw token is only the small reference under it.
+  await expect(page.locator('.tmt-ui-notice')).toContainText(copy.failureAccessEnded);
+  await expect(page.locator('[data-failure-reference]')).toHaveText('REMOTE_DEVICE_REVOKED');
+  await expect(page.locator('.failure-reference')).toContainText(copy.failureCodeLabel);
+  await expect(reconnect).toHaveCount(0);
+  await capture('terminal-refusal');
   await page.getByRole('link', { name: 'Space home' }).click();
   await expect.poll(() => f.connections).toBe(0);
+});
+
+/** The mounted/registration/Connection/Worker/Writer path is production; only
+ * the signed server and Remote protocol are fixtures, as in the Ask wire case. */
+async function draftRecoveryWire(context: BrowserContext) {
+  const f = await wire(context);
+  const agent = '00000000-0000-4000-8000-000000000006';
+  let down = false,
+    ended = false,
+    opens = 0,
+    sends = 0;
+  let pending: Promise<void> | undefined, release: (() => void) | undefined;
+  await context.route('**/sdk/remote-v1.js*', (route) =>
+    route.fulfill({
+      contentType: 'text/javascript',
+      body: `export class RefusalError extends Error {constructor(code){super(code);this.code=code;}}
+export async function reopenSession(){const response=await fetch('/test-draft-reopen',{method:'POST'});if(!response.ok)throw new RefusalError('REMOTE_DEVICE_REVOKED');await window.fixtureKeys;return {sessionId:'fixture-session',serverTimeMs:Date.now(),grantRevision:'1',expiresAtMs:null}}
+export async function certifyKey(purpose,bytes){return {publicKey:btoa(String.fromCharCode(...bytes)).replaceAll('+','-').replaceAll('/','_').replace(/=+$/,''),issuedAtMs:Date.now(),signature:'${c.encodeBinary(new Uint8Array(64))}'}}
+export function transportUrl(_session,url){return String(url);}
+export function operations(){return {
+listAgents:async()=>{const response=await fetch('/test-draft-directory');if(response.status===410)throw new RefusalError('REMOTE_SESSION_ENDED');return [{id:'${agent}',name:'Draft agent',presence:'active'}]},
+send:async(input)=>(await fetch('/test-draft-send',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(input)})).json(),
+operation:async(operationId)=>({state:'accepted',operationId,requestId:'req_00000000-0000-4000-8000-000000000007'}),
+result:async()=>({state:'replied',requestId:'req_00000000-0000-4000-8000-000000000007',message:'Draft recovery reply'})
+}}`,
+    }),
+  );
+  await context.route('**/test-draft-reopen', async (route) => {
+    opens++;
+    if (pending) await pending;
+    if (down) return route.abort('connectionrefused');
+    ended = false;
+    f.resumeSync();
+    return route.fulfill({ json: {} });
+  });
+  await context.route('**/test-draft-directory', (route) =>
+    route.fulfill({ status: ended ? 410 : 200, json: {} }),
+  );
+  await context.route('**/sdk/mount', (route) =>
+    route.fulfill({
+      json: {
+        machineId: '00000000-0000-4000-8000-000000000005',
+        windowId: 'fixture',
+        address: 'fixture',
+        extension: 'colab',
+        mount,
+      },
+    }),
+  );
+  await context.route('**/test-draft-send', async (route) => {
+    const input = route.request().postDataJSON();
+    expect(input.agentId).toBe(agent);
+    await f.settled();
+    expect(f.entries.length).toBeGreaterThan(1); // Fresh Writer publication preceded dispatch.
+    sends++;
+    return route.fulfill({
+      json: {
+        state: 'accepted',
+        operationId: input.operationId,
+        requestId: 'req_00000000-0000-4000-8000-000000000007',
+      },
+    });
+  });
+  return {
+    ...f,
+    get connections() {
+      return f.connections;
+    },
+    get opens() {
+      return opens;
+    },
+    get sends() {
+      return sends;
+    },
+    stop() {
+      down = true;
+      ended = true;
+      f.stopSync();
+    },
+    resume() {
+      down = false;
+      f.resumeSync();
+    },
+    hold() {
+      pending = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+    },
+    release() {
+      release!();
+      pending = undefined;
+    },
+  };
+}
+
+for (const width of [1440, 390])
+  for (const surface of ['Chat', 'annotation'] as const)
+    for (const selected of [false, true]) {
+      test(`explicit recovery keeps ${surface} ${selected ? 'selection' : 'caret'} and mounted draft at ${width}`, async ({
+        page,
+        context,
+      }) => {
+        await page.setViewportSize({ width, height: 900 });
+        const f = await draftRecoveryWire(context);
+        await page.goto(mount);
+        await page.locator(`[data-page-id="${v.page}"] a`).click();
+        const heading = page.frameLocator('iframe').getByRole('heading', { name: 'Live fixture' });
+        await expect(heading).toBeVisible();
+        async function openChat() {
+          if (await page.locator('.page-drawer[data-panel=chat][open]').isVisible()) return;
+          const toggle = page.getByTestId('chat-toggle');
+          if (!(await toggle.isVisible()))
+            await page.getByRole('button', { name: 'More page actions' }).click();
+          await toggle.click();
+        }
+        if (surface === 'Chat') await openChat();
+        else {
+          await heading.evaluate((node) => {
+            const range = document.createRange();
+            range.selectNodeContents(node);
+            const selection = getSelection()!;
+            selection.removeAllRanges();
+            selection.addRange(range);
+          });
+          await page.getByTestId('selection-ask').click();
+        }
+        const container =
+          surface === 'Chat'
+            ? page.getByTestId('chat-panel')
+            : page.getByRole('dialog', { name: 'Annotate selection' });
+        const input = container.getByRole('combobox', { name: 'Message', exact: true });
+        const action = container.getByRole('button', {
+          name: 'Send',
+          exact: true,
+          includeHidden: true,
+        });
+        await input.pressSequentially('@');
+        await page.getByRole('option').filter({ hasText: '@Draft agent ·' }).click();
+        const draft = 'Keep this exact recovery draft. @Draft agent';
+        await input.fill(draft);
+        await input.press('Home');
+        for (let i = 0; i < 5; i++) await input.press('ArrowRight');
+        if (selected) for (let i = 0; i < 4; i++) await input.press('Shift+ArrowRight');
+        await input.evaluate((node) => {
+          Object.assign(window, { recoveryDraftNode: node });
+        });
+        const selection = () =>
+          input.evaluate((node) => {
+            const selection = getSelection()!;
+            return {
+              anchor: selection.anchorOffset,
+              focus: selection.focusOffset,
+              text: selection.toString(),
+              inside: node.contains(selection.anchorNode) && node.contains(selection.focusNode),
+            };
+          });
+        const before = await selection();
+        expect(before).toEqual({
+          anchor: 5,
+          focus: selected ? 9 : 5,
+          text: selected ? draft.slice(5, 9) : '',
+          inside: true,
+        });
+        f.stop();
+        const reconnect = page.getByRole('button', { name: 'Reconnect', exact: true });
+        await expect(reconnect).toHaveCount(1);
+        await expect(input).toHaveText(draft);
+        await expect(action).toBeDisabled();
+        if (surface === 'annotation')
+          await expect(container.getByRole('button', { name: 'Send', exact: true })).toBeDisabled();
+        const admittedOpens = f.opens;
+        const navigations: string[] = [];
+        page.on('framenavigated', (frame) => {
+          if (frame === page.mainFrame()) navigations.push(frame.url());
+        });
+        async function clickRecovery() {
+          if (surface === 'Chat' && width === 390)
+            await page.getByRole('button', { name: 'Close Chat', exact: true }).click();
+          await reconnect.click();
+          await expect(
+            page.getByRole('button', { name: 'Reconnecting…', exact: true }),
+          ).toBeDisabled();
+          await expect.poll(() => f.opens).toBe(admittedOpens + 1);
+        }
+        // A failed explicit attempt is one fetch and preserves the same read-only draft.
+        f.hold();
+        await clickRecovery();
+        f.release();
+        await expect(reconnect).toBeEnabled();
+        if (surface === 'Chat') await openChat();
+        await input.focus();
+        await expect.poll(selection).toEqual(before);
+        await expect(input).toHaveText(draft);
+        await expect(action).toBeDisabled();
+        expect(f.sends).toBe(0);
+        await f.settled();
+        expect(f.entries).toHaveLength(1);
+        // A fresh admitted replacement has no navigation and rebinds the original nodes.
+        f.resume();
+        f.hold();
+        if (surface === 'Chat' && width === 390)
+          await page.getByRole('button', { name: 'Close Chat', exact: true }).click();
+        await reconnect.click();
+        await expect(
+          page.getByRole('button', { name: 'Reconnecting…', exact: true }),
+        ).toBeDisabled();
+        await expect(action).toBeDisabled();
+        await expect.poll(() => f.opens).toBe(admittedOpens + 2);
+        f.release();
+        await expect(reconnect).toHaveCount(0);
+        await expect(page.locator('.status.live .status-label')).toHaveText('Live preview');
+        await expect(heading).toBeVisible();
+        if (surface === 'Chat') await openChat();
+        await input.focus();
+        await expect.poll(selection).toEqual(before);
+        expect(
+          await input.evaluate(
+            (node) =>
+              node === (window as unknown as { recoveryDraftNode: Element }).recoveryDraftNode,
+          ),
+        ).toBe(true);
+        await expect(input).toHaveText(draft);
+        await expect(action).toBeEnabled();
+        expect(navigations).toEqual([]);
+        expect(f.sends).toBe(0);
+        await f.settled();
+        expect(f.entries).toHaveLength(1);
+        await input.press('X');
+        const edited = draft.slice(0, 5) + 'X' + draft.slice(selected ? 9 : 5);
+        await expect(input).toHaveText(edited);
+        if (surface === 'annotation') {
+          const post = container.getByRole('button', { name: 'Send', exact: true });
+          await expect(post).toBeEnabled();
+          const plain = edited.replace(' @Draft agent', '');
+          await input.fill(plain);
+          await post.click();
+          await expect(input).toHaveText('');
+          await expect(container.getByText(plain, { exact: true })).toBeVisible();
+          expect(f.sends).toBe(0);
+          await input.fill('@Draft agent Explicit Ask after verified recovery.');
+        }
+        await action.click();
+        await expect.poll(() => f.sends).toBe(1);
+        await expect(input).toHaveText('');
+        await expect(page.getByTestId('ask-reply')).toHaveText('Draft recovery reply');
+        if (surface === 'Chat' && width === 390)
+          await page.getByRole('button', { name: 'Close Chat', exact: true }).click();
+        await page.getByRole('link', { name: 'Space home' }).click();
+        await expect.poll(() => f.connections).toBe(0);
+      });
+    }
+
+/** The control is the topmost element at its own center: nothing sits over it. */
+async function expectUncovered(control: Locator) {
+  await expect(control).toBeVisible();
+  const covered = await control.evaluate((node) => {
+    const box = node.getBoundingClientRect();
+    const top = document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2);
+    return !top || !(node === top || node.contains(top));
+  });
+  expect(covered).toBe(false);
+}
+
+// A tab that outlives an upgrade shows one row directly under the fixed header; the page
+// moves down by its height, so no control (Chat composer, annotate window) is covered.
+test('an upgraded server shows the update row under the header without covering page controls', async ({
+  page,
+  context,
+}, testInfo) => {
+  const built = (hash: string) => `/assets/index-${hash}.js`;
+  const [oldEntry, newEntry] = [built('OLDOLD12'), built('NEWNEW34')];
+  await draftRecoveryWire(context);
+  let loaded = false;
+  await context.route(`**${mount}`, async (route) => {
+    const first = route.request().isNavigationRequest() && !loaded;
+    loaded ||= route.request().isNavigationRequest();
+    const response = await route.fetch();
+    const html = await response.text();
+    await route.fulfill({
+      response,
+      body: html.replace('/src/main.tsx', first ? oldEntry : newEntry),
+    });
+  });
+  for (const entry of [oldEntry, newEntry])
+    await context.route(`**${entry}`, (route) =>
+      route.fulfill({ contentType: 'text/javascript', body: "import '/src/main.tsx';" }),
+    );
+  await page.goto(mount);
+  await page.locator(`[data-page-id="${v.page}"] a`).click();
+  const heading = page.frameLocator('iframe').getByRole('heading', { name: 'Live fixture' });
+  await expect(heading).toBeVisible();
+  const row = page.locator('[data-update-notice]');
+  await expect(row).toHaveText(`${copy.updated}${copy.reload}`);
+  await expect(row).toHaveAttribute('role', 'status');
+  for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 900 });
+    const rowBox = (await row.boundingBox())!;
+    const headerBox = (await page.locator('header.tmt-ui-header').boundingBox())!;
+    // Directly under the header bar, full width, one line, pushing the page down.
+    expect(rowBox.y).toBeCloseTo(headerBox.y + headerBox.height, 0);
+    expect(rowBox.width).toBeCloseTo(width, 0);
+    expect(rowBox.height).toBe(40);
+    const mainBox = (await page.locator('main').boundingBox())!;
+    expect(mainBox.y).toBeGreaterThanOrEqual(rowBox.y + rowBox.height - 1);
+    // Chat open: the composer's actions stay reachable, not under the row.
+    const toggle = page.getByTestId('chat-toggle');
+    if (!(await page.locator('.page-drawer[data-panel=chat][open]').isVisible())) {
+      if (!(await toggle.isVisible()))
+        await page.getByRole('button', { name: 'More page actions' }).click();
+      await toggle.click();
+    }
+    const panel = page.getByTestId('chat-panel');
+    await expect(panel).toBeVisible();
+    // At 390 the drawer is a full-screen modal above header and row alike.
+    if (width === 1440)
+      expect((await panel.boundingBox())!.y).toBeGreaterThanOrEqual(rowBox.y + rowBox.height - 1);
+    await expectUncovered(panel.getByRole('button', { name: 'Send', exact: true }));
+    for (const theme of ['light', 'dark']) {
+      await page.evaluate((value) => (document.documentElement.dataset.theme = value), theme);
+      await page.screenshot({ path: testInfo.outputPath(`update-chat-${theme}-${width}.png`) });
+    }
+    await page.getByRole('button', { name: 'Close Chat', exact: true }).click();
+    // The annotate window opens below the row as well.
+    await heading.evaluate((node) => {
+      const range = document.createRange();
+      range.selectNodeContents(node);
+      const selection = getSelection()!;
+      selection.removeAllRanges();
+      selection.addRange(range);
+    });
+    await page.getByTestId('selection-ask').click();
+    const dialog = page.getByRole('dialog', { name: 'Annotate selection' });
+    await expect(dialog).toBeVisible();
+    if (width === 1440)
+      expect((await dialog.boundingBox())!.y).toBeGreaterThanOrEqual(rowBox.y + rowBox.height - 1);
+    await expectUncovered(dialog.getByRole('button', { name: 'Send', exact: true }));
+    for (const theme of ['light', 'dark']) {
+      await page.evaluate((value) => (document.documentElement.dataset.theme = value), theme);
+      await page.screenshot({ path: testInfo.outputPath(`update-annotate-${theme}-${width}.png`) });
+    }
+    await page.keyboard.press('Escape');
+  }
 });
 
 test('same-device tabs stay connected and exchange source edits without reopening', async ({
@@ -1229,13 +1866,21 @@ test('paired checkpoints precede an authenticated interleaved tail, preserve edi
     page.frameLocator('iframe').getByRole('heading', { name: 'After compacted reload' }),
   ).toBeVisible();
   expect(f.entries.at(-1)!.seq).toBe('9');
+  // The reply to this save is lost: the page reconnects and one status request settles it,
+  // with the save committed exactly once and never sent again.
   f.dropNext();
-  await page.getByRole('textbox').fill('<h1>Frozen retry after prune</h1>');
+  await page.getByRole('textbox').fill('<h1>Lost reply settled</h1>');
   await page.getByRole('button', { name: 'Save source' }).click();
-  await expect(page.getByRole('alert')).toContainText('edit was not saved');
+  await expect(
+    page.frameLocator('iframe').getByRole('heading', { name: 'Lost reply settled' }),
+  ).toBeVisible();
+  await expect(page.getByRole('alert')).toHaveCount(0);
+  await f.settled();
+  expect(f.statusChecks).toBe(1);
+  expect(f.entries.at(-1)!.seq).toBe('10');
   await page.reload();
   await page.getByRole('button', { name: 'Source', exact: true }).click();
-  await expect(page.getByRole('textbox')).toHaveValue('<h1>Frozen retry after prune</h1>');
+  await expect(page.getByRole('textbox')).toHaveValue('<h1>Lost reply settled</h1>');
   await page.getByRole('textbox').fill('<h1>After compacted reload</h1>');
   await page.getByRole('button', { name: 'Save source' }).click();
   await expect(
@@ -1243,7 +1888,7 @@ test('paired checkpoints precede an authenticated interleaved tail, preserve edi
   ).toBeVisible();
   await expect(page.getByRole('button', { name: 'Save source' })).toBeDisabled();
   await f.settled();
-  expect(f.retries).toBe(1);
+  expect(f.statusChecks).toBe(1);
   expect(f.entries.at(-1)!.seq).toBe('11');
   const before = f.hellos;
   f.resync();
@@ -1417,11 +2062,11 @@ test('parent export downloads exact frozen baseline files, ignores drafts and re
     .getByRole('button', { name: 'Download page.html' })
     .evaluate((button: HTMLButtonElement) => button.click());
   expect(requested).toBe(0);
-  await page.screenshot({ path: '/private/tmp/1309-export-light.png', fullPage: true });
+  await page.screenshot({ path: capturePath('export-light.png'), fullPage: true });
   await page.getByRole('button', { name: 'Change color theme' }).click();
-  await page.screenshot({ path: '/private/tmp/1309-export-dark.png', fullPage: true });
+  await page.screenshot({ path: capturePath('export-dark.png'), fullPage: true });
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.screenshot({ path: '/private/tmp/1309-export-mobile.png', fullPage: true });
+  await page.screenshot({ path: capturePath('export-mobile.png'), fullPage: true });
   await page.setViewportSize({ width: 1280, height: 720 });
   async function download(name: string) {
     const pending = page.waitForEvent('download');

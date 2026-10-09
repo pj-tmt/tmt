@@ -1,0 +1,74 @@
+{
+  "repository": {
+    "id": 7001,
+    "full_name": "pj-tmt/tmt"
+  },
+  "pull": {
+    "number": 234,
+    "state": "open",
+    "head": {
+      "sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "repo": {
+        "id": 7001,
+        "full_name": "pj-tmt/tmt"
+      }
+    },
+    "base": {
+      "repo": {
+        "id": 7001
+      }
+    },
+    "labels": [
+      {
+        "id": 6101,
+        "name": "rc-build"
+      }
+    ]
+  },
+  "producer_run": {
+    "id": 9001,
+    "run_attempt": 1,
+    "workflow_id": 701,
+    "path": ".github/workflows/pr-rc.yml",
+    "event": "workflow_dispatch",
+    "head_branch": "main",
+    "head_sha": "cccccccccccccccccccccccccccccccccccccccc",
+    "status": "completed",
+    "conclusion": "success",
+    "repository": {
+      "id": 7001
+    },
+    "head_repository": {
+      "id": 7001
+    }
+  },
+  "catalog_artifact": {
+    "id": 8201,
+    "name": "tmt-pr-rc-catalog-v2-pr234",
+    "expired": false,
+    "digest": "sha256:8888888888888888888888888888888888888888888888888888888888888888",
+    "size_in_bytes": 14000,
+    "workflow_run": {
+      "id": 9001,
+      "repository_id": 7001,
+      "head_repository_id": 7001,
+      "head_branch": "main",
+      "head_sha": "cccccccccccccccccccccccccccccccccccccccc"
+    }
+  },
+  "eligibility_timeline": {
+    "route": "/repos/pj-tmt/tmt/issues/234/timeline?per_page=100&page=1",
+    "next_page": false,
+    "events": [
+      {
+        "id": 6201,
+        "event": "labeled",
+        "created_at": "2026-10-06T12:58:20Z",
+        "label": {
+          "name": "rc-build",
+          "color": "abcdef"
+        }
+      }
+    ]
+  }
+}

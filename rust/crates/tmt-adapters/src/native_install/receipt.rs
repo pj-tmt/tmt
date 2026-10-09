@@ -19,7 +19,7 @@ pub(super) struct Receipt {
     pub archive_sha256: String,
     pub target: String,
     pub file_hashes: BTreeMap<String, String>,
-    pub provenance: Option<GitHubProvenance>,
+    pub provenance: Option<Provenance>,
 }
 
 fn inventory_changed() -> io::Error {
@@ -84,10 +84,58 @@ fn verify_skills(
     Ok(())
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(super) struct GitHubProvenance {
     pub release_id: u64,
     pub manifest_sha256: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(tag = "kind", content = "evidence", deny_unknown_fields)]
+pub(super) enum Provenance {
+    #[serde(rename = "github-release")]
+    Release(GitHubProvenance),
+    #[serde(rename = "github-actions")]
+    Pr(Box<super::pr_receipt::PrProvenance>),
+}
+
+impl From<GitHubProvenance> for Provenance {
+    fn from(source: GitHubProvenance) -> Self {
+        Self::Release(source)
+    }
+}
+
+impl Provenance {
+    pub fn release(&self) -> Option<&GitHubProvenance> {
+        match self {
+            Self::Release(source) => Some(source),
+            Self::Pr(_) => None,
+        }
+    }
+    pub fn manifest_sha256(&self) -> &str {
+        match self {
+            Self::Release(source) => &source.manifest_sha256,
+            Self::Pr(source) => source.manifest_sha256(),
+        }
+    }
+    pub fn pr_identity(&self) -> io::Result<Option<tmt_core::native_install::PrCandidateIdentity>> {
+        match self {
+            Self::Release(_) => Ok(None),
+            Self::Pr(source) => source.identity().map(Some),
+        }
+    }
+    fn encode(&self) -> Value {
+        match self {
+            Self::Release(source) => json!({
+                "kind": "github-release", "repository": super::OFFICIAL_REPOSITORY,
+                "release_id": source.release_id, "manifest_sha256": source.manifest_sha256,
+            }),
+            Self::Pr(source) => {
+                json!({"kind": "github-actions", "repository": super::OFFICIAL_REPOSITORY, "evidence": source})
+            }
+        }
+    }
 }
 
 impl Receipt {
@@ -113,10 +161,7 @@ impl Receipt {
             "pinned_version": self.state.pinned_version.as_ref().map(ToString::to_string),
             "archive": self.archive_name, "archive_sha256": self.archive_sha256,
             "target": self.target, "file_sha256": self.file_hashes,
-            "source": self.provenance.as_ref().map_or_else(|| json!("local-archive"), |source| json!({
-                "kind": "github-release", "repository": super::OFFICIAL_REPOSITORY,
-                "release_id": source.release_id, "manifest_sha256": source.manifest_sha256,
-            }))
+            "source": self.provenance.as_ref().map_or_else(|| json!("local-archive"), Provenance::encode)
         }))
         .map_err(io::Error::other)
     }
@@ -136,6 +181,32 @@ impl Receipt {
         receipt.verify(product, directory).map_err(|cause| {
             super::repair::required(product, directory, prefix, &receipt, cause)
         })?;
+        Ok(receipt)
+    }
+
+    pub(super) fn read_former(
+        product: Product,
+        directory: &Path,
+        prefix: &Path,
+        id: Uuid,
+    ) -> io::Result<Self> {
+        let former = product
+            .former()
+            .ok_or_else(|| invalid("Product has no former installation."))?;
+        let bytes = bounded_file::read_no_follow(
+            &directory.join("receipt.json"),
+            skills_tree::receipt_limit(product),
+        )
+        .map_err(io::Error::other)?;
+        let receipt = Self::parse_metadata_identity(product, &bytes, prefix, id, Some(former))?;
+        if receipt
+            .provenance
+            .as_ref()
+            .is_some_and(|source| matches!(source, Provenance::Pr(_)))
+        {
+            return Err(invalid("Former product cannot carry PR provenance."));
+        }
+        receipt.verify_identity(product, directory, Some(former))?;
         Ok(receipt)
     }
 
@@ -160,7 +231,18 @@ impl Receipt {
         prefix: &Path,
         id: Uuid,
     ) -> io::Result<Self> {
-        let value: Value = serde_json::from_slice(bytes).map_err(io::Error::other)?;
+        Self::parse_metadata_identity(product, bytes, prefix, id, None)
+    }
+
+    fn parse_metadata_identity(
+        product: Product,
+        bytes: &[u8],
+        prefix: &Path,
+        id: Uuid,
+        former: Option<&tmt_core::native_install::FormerProduct>,
+    ) -> io::Result<Self> {
+        let files = former.map_or_else(|| product.files(), |former| former.files());
+        let value: Value = super::pr_json::parse(bytes, skills_tree::receipt_limit(product))?;
         let text = |key: &str| {
             value[key]
                 .as_str()
@@ -198,6 +280,24 @@ impl Receipt {
         state.validate().map_err(io::Error::other)?;
         let provenance = if value["source"] == "local-archive" {
             None
+        } else if value["source"]["kind"] == "github-actions" {
+            let source = &value["source"];
+            if source.as_object().is_none_or(|fields| fields.len() != 3)
+                || source["repository"] != super::OFFICIAL_REPOSITORY
+            {
+                return Err(invalid("Invalid native PR provenance."));
+            }
+            let evidence: super::pr_receipt::PrProvenance =
+                serde_json::from_value(source["evidence"].clone())
+                    .map_err(|_| invalid("Invalid native PR provenance."))?;
+            evidence.validate(
+                product,
+                text("target")?,
+                &state,
+                text("archive")?,
+                text("archive_sha256")?,
+            )?;
+            Some(Provenance::Pr(Box::new(evidence)))
         } else {
             let source = &value["source"];
             if source.as_object().is_none_or(|fields| fields.len() != 4)
@@ -215,11 +315,18 @@ impl Receipt {
                 .filter(|hash| tmt_core::content_digest::is_sha256(hash))
                 .ok_or_else(|| invalid("Invalid native release provenance."))?
                 .into();
-            Some(GitHubProvenance {
+            Some(Provenance::Release(GitHubProvenance {
                 release_id,
                 manifest_sha256,
-            })
+            }))
         };
+        if matches!(state.channel, Channel::Pr(_))
+            != matches!(provenance.as_ref(), Some(Provenance::Pr(_)))
+        {
+            return Err(invalid(
+                "Native PR channel requires matching Actions provenance.",
+            ));
+        }
         let hashes = value["file_sha256"]
             .as_object()
             .ok_or_else(|| invalid("Missing installed file digests."))?;
@@ -241,15 +348,12 @@ impl Receipt {
             .copied()
             .filter(|name| hashes.contains_key(*name))
             .collect::<Vec<_>>();
-        if hashes.len()
-            != product.files().len() + skill_hashes.len() + companions.len() + optional.len()
-        {
+        if hashes.len() != files.len() + skill_hashes.len() + companions.len() + optional.len() {
             return Err(invalid("Unexpected installed file digest inventory."));
         }
         skills_tree::validate(product, skill_hashes.iter().copied())?;
         let mut file_hashes = BTreeMap::new();
-        for name in product
-            .files()
+        for name in files
             .into_iter()
             .chain(skill_hashes.iter().copied())
             .chain(companions.iter().copied())
@@ -274,6 +378,17 @@ impl Receipt {
     }
 
     pub(super) fn verify(&self, product: Product, directory: &Path) -> io::Result<()> {
+        self.verify_identity(product, directory, None)
+    }
+
+    fn verify_identity(
+        &self,
+        product: Product,
+        directory: &Path,
+        former: Option<&tmt_core::native_install::FormerProduct>,
+    ) -> io::Result<()> {
+        let files = former.map_or_else(|| product.files(), |former| former.files());
+        let executable_name = files[0];
         let companions = product
             .companions()
             .iter()
@@ -287,12 +402,7 @@ impl Receipt {
             .filter(|name| self.file_hashes.contains_key(*name))
             .collect::<Vec<_>>();
         let mut inventory = fs::read_dir(directory)?
-            .take(
-                product.files().len()
-                    + product.companions().len()
-                    + product.optional_files().len()
-                    + 3,
-            )
+            .take(files.len() + product.companions().len() + product.optional_files().len() + 3)
             .map(|entry| entry.map(|entry| entry.file_name()))
             .collect::<io::Result<Vec<_>>>()?;
         inventory.sort();
@@ -300,8 +410,7 @@ impl Receipt {
         // predates it fails closed here with the same error.
         let has_skills =
             product != Product::Cli && inventory.iter().any(|name| name == skills_tree::ROOT);
-        let mut expected = product
-            .files()
+        let mut expected = files
             .into_iter()
             .chain(["receipt.json"])
             .chain(companions.iter().copied())
@@ -322,15 +431,14 @@ impl Receipt {
         if has_skills == skill_hashes.is_empty() {
             return Err(inventory_changed());
         }
-        for name in product
-            .files()
+        for name in files
             .into_iter()
             .chain(companions.iter().copied())
             .chain(optional.iter().copied())
         {
             let metadata = fs::symlink_metadata(directory.join(name))?;
             let mode = metadata.permissions().mode();
-            let executable = name == product.executable() || companions.contains(&name);
+            let executable = name == executable_name || companions.contains(&name);
             if !metadata.file_type().is_file()
                 || mode & 0o7000 != 0
                 || (executable && mode & 0o111 == 0)

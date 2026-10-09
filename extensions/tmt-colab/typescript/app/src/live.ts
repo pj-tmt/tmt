@@ -1,6 +1,10 @@
 import { shortPageId } from './short-links.js';
 import { ThreadStore, commentForAsk, conversationForAsk } from './thread-store.js';
-import { readThreads } from './thread-records.js';
+import { readThreads, type DiscussionRef } from './thread-records.js';
+import { ThreadStatusCoordinator } from './thread-status-coordinator.js';
+import { statusNotificationForAsk } from './thread-status-notification.js';
+import { projectThreadPresentation } from './thread-status-presentation.js';
+import { ThreadStatusSeen } from './thread-status-view.js';
 import { LiveAsk, pageAsks } from './live-ask.js';
 import { requireValue } from '@tmt/colab-client';
 import type { Bootstrap, PageInfo } from './bootstrap.js';
@@ -10,8 +14,13 @@ import { SessionEndedError, SessionEvictedError, type RemoteClient } from './ask
 import { Admission } from './admission.js';
 import { Connection } from './connection.js';
 import { Writer } from './writer.js';
+import { SaveOutcomeUnknown, SaveTooLarge, settled, type SaveResult } from './save.js';
 import { prepareExport, hex, type ExportBundle } from './export.js';
 import { text } from './strings.js';
+import { RecoveryRequiredError } from './session-recovery.js';
+
+/** How long a lost save waits for the page to reopen, and for the saved source to show. */
+const SAVE_REOPEN_MS = 20_000;
 
 export interface LiveSession {
   registration: Registration;
@@ -23,28 +32,39 @@ export interface LiveSessionOwner {
   reconnect(previous: Registration): Promise<LiveSession>;
 }
 
+interface LiveOpen {
+  replaceSession: boolean;
+  pending: boolean;
+  registration: Registration;
+  remote: RemoteClient | null;
+  connection: Connection | null;
+}
+
 /** Mounted update-only page binding. A fresh reconnect reconstructs from seq 1;
  * unsupported history is a blocking failure rather than a partial projection. */
 export class Live implements PageBinding {
   ask?: LiveAsk;
   readonly discussion: ThreadStore;
+  readonly status: ThreadStatusCoordinator;
   #remote: RemoteClient | null = null;
+  #seen?: { deviceId: string; value: ThreadStatusSeen };
   #observation: AbortController | null = null;
   #refreshOlderAsks = true;
   #views = Promise.resolve();
   #processingViews = false;
-  #pendingView: { value: PageView; admission: Admission } | null = null;
+  #pendingView: { value: PageView; admission: Admission; open: LiveOpen } | null = null;
   #admitted: PageView = { source: '', title: '' };
   #connection: Connection | null = null;
   #current: Promise<Connection>;
   #writer: Writer;
   #closed = false;
-  #connecting = false;
+  #opening: LiveOpen | null = null;
   #attempts = 0;
-  #diagnosing = false;
+  #diagnosing: LiveOpen | null = null;
   #projection: PageView = { source: '', title: '' };
   #listeners = new Set<{ publish(value: PageView): void; failed(error: Error): void }>();
   #error: Error | null = null;
+  #recovering: Promise<boolean> | null = null;
   constructor(
     readonly mount: URL,
     readonly bootstrap: Bootstrap,
@@ -54,7 +74,8 @@ export class Live implements PageBinding {
     remote: RemoteClient | null = null,
     private sessionOwner?: LiveSessionOwner,
   ) {
-    this.#current = this.#open();
+    this.#remote = remote;
+    this.#current = this.#startOpen();
     this.#writer = new Writer(
       `writer:${bootstrap.space}:${page.pageId}:${page.epoch}:${registration.deviceId}`,
       () => this.#current,
@@ -69,7 +90,20 @@ export class Live implements PageBinding {
       own: () => this.#admitted.own ?? {},
       connection: () => this.#current,
       publish: (records) => this.#writer.submitOwnRecords(records),
-      available: () => !this.#closed && !this.#error && !this.#connecting,
+      available: () => !this.#closed && !this.#error && !this.#opening?.pending,
+    });
+    this.status = new ThreadStatusCoordinator({
+      binding: this.discussion,
+      asks: () => this.#projection.asks ?? [],
+      destinations: async () => (this.ask ? this.ask.destinations() : []),
+      notify: async (status, recipient, thread) =>
+        this.ask
+          ? this.ask.notifyStatus(
+              { status: status.ref, recipient, thread },
+              this.#admitted.title,
+              this.mount.href,
+            )
+          : { adopted: false, reason: 'RECIPIENT_UNAVAILABLE' },
     });
     this.#replaceAsk(remote);
     if (typeof document !== 'undefined')
@@ -82,7 +116,7 @@ export class Live implements PageBinding {
     this.#remote = remote;
     this.ask?.close();
     const { bootstrap, page, registration } = this;
-    this.ask = remote
+    const facade: LiveAsk | undefined = remote
       ? new LiveAsk({
           remote,
           space: bootstrap.space,
@@ -104,6 +138,7 @@ export class Live implements PageBinding {
               own,
               { spaceId: bootstrap.space, pageId: page.pageId, epoch: page.epoch },
               (writer) => connection.objects.ownSigningKey(writer),
+              (writer) => connection.objects.statusWriter(writer),
             );
             if (!context.conversation) return commentForAsk(threads, context);
             const asks = await pageAsks(own, connection.admission, (writer) =>
@@ -111,15 +146,41 @@ export class Live implements PageBinding {
             );
             return conversationForAsk(threads, context, asks);
           },
+          statusContext: (context) => {
+            const connection = this.#connection;
+            requireValue(connection !== null);
+            const threads = readThreads(
+              this.#admitted.own ?? {},
+              { spaceId: bootstrap.space, pageId: page.pageId, epoch: page.epoch },
+              (writer) => connection.objects.ownSigningKey(writer),
+              (writer) => connection.objects.statusWriter(writer),
+            );
+            return statusNotificationForAsk(threads, context, registration.deviceId);
+          },
           publish: (root, key, value) => this.#writer.submitOwn(root, key, value),
           connection: () => this.#current,
           observe: () => this.#observe(),
+          observationUnavailable: (unavailable) => {
+            if (
+              this.#closed ||
+              this.#error ||
+              this.ask !== facade ||
+              this.registration !== registration ||
+              !this.#observation ||
+              this.#observation.signal.aborted
+            )
+              return;
+            if (this.#projection.askUnavailable === unavailable) return;
+            this.#projection = { ...this.#projection, askUnavailable: unavailable };
+            this.#listeners.forEach((value) => value.publish(structuredClone(this.#projection)));
+          },
           sessionEnded: (error) => {
-            if (!this.#connecting && !this.#closed && !this.#error)
+            if (this.ask === facade && this.registration === registration)
               this.#failed(error ?? new SessionEndedError('REMOTE_SESSION_ENDED'));
           },
         })
       : undefined;
+    this.ask = facade;
   }
   #abort = () => this.close();
   #visibility = () => {
@@ -133,7 +194,7 @@ export class Live implements PageBinding {
   #observe() {
     if (
       this.#closed ||
-      this.#connecting ||
+      this.#opening?.pending ||
       !this.ask ||
       this.#error ||
       this.#observation ||
@@ -145,7 +206,6 @@ export class Live implements PageBinding {
     const refreshOlder = this.#refreshOlderAsks;
     this.#refreshOlderAsks = false;
     this.#observation = controller;
-    this.#projection = { ...this.#projection, askUnavailable: false };
     void this.ask
       .observe(controller.signal, refreshOlder)
       .catch(() => {
@@ -164,13 +224,47 @@ export class Live implements PageBinding {
           this.#observe();
       });
   }
-  async #open(replaceSession = false): Promise<Connection> {
-    this.#connecting = true;
+  #owns(open: LiveOpen) {
+    // #block clears #opening before closing the Connection, so even an
+    // in-flight blocked attempt loses ownership before its callbacks run.
+    // A retained recovery error fences writes, not the fresh replacement read.
+    return (
+      !this.#closed &&
+      this.#opening === open &&
+      this.registration === open.registration &&
+      this.#remote === open.remote
+    );
+  }
+  #startOpen(replaceSession = false) {
+    const open: LiveOpen = {
+      replaceSession,
+      pending: true,
+      registration: this.registration,
+      remote: this.#remote,
+      connection: null,
+    };
+    this.#opening = open;
+    const current = this.#open(open);
+    void current.catch((error) => {
+      // Connection.close rejects ready before its failure callback starts the
+      // exact old-session diagnosis. That one read owns the pending outcome.
+      if (this.#owns(open) && this.#diagnosing !== open)
+        this.#block(error instanceof Error ? error : new Error('Sync unavailable'));
+    });
+    return current;
+  }
+  async #open(open: LiveOpen): Promise<Connection> {
+    let ready = false;
     try {
-      if (replaceSession && this.sessionOwner) {
-        const session = await this.sessionOwner.reconnect(this.registration);
-        if (this.#closed) throw new Error('Page closed');
-        this.registration = session.registration;
+      if (open.replaceSession) {
+        if (!this.sessionOwner) throw new Error('Session replacement unavailable');
+        const session = await this.sessionOwner.reconnect(open.registration).catch((error) => {
+          if (error instanceof TypeError) throw new RecoveryRequiredError(error);
+          throw error;
+        });
+        requireValue(this.#owns(open));
+        this.registration = open.registration = session.registration;
+        open.remote = session.remote;
         this.#replaceAsk(session.remote);
       }
       const a = new Admission(
@@ -178,33 +272,38 @@ export class Live implements PageBinding {
         this.page.pageId,
         this.page.epoch,
         this.bootstrap.owner,
-        this.registration,
+        open.registration,
       );
       await a.restore();
-      if (this.#closed) throw new Error('Page closed');
-      const c = (this.#connection = new Connection(
+      requireValue(this.#owns(open));
+      const c = new Connection(
         a,
         this.mount,
         this.page.sharing,
         (value) => {
-          if (this.#closed) return;
+          if (!this.#owns(open)) return;
           this.#admitted = structuredClone(value);
-          this.#pendingView = { value: this.#admitted, admission: a };
+          this.#pendingView = { value: this.#admitted, admission: a, open };
           if (!this.#processingViews) {
             this.#processingViews = true;
             this.#views = Promise.resolve().then(() => this.#publishViews());
           }
         },
         (error) => {
-          if (this.#connection === c) this.#failed(error);
+          if (this.#owns(open) && open.connection === c) this.#failed(error);
         },
-      ));
+      );
+      this.#connection = open.connection = c;
       await c.ready;
+      requireValue(this.#owns(open));
       this.#attempts = 0;
+      ready = true;
       return c;
     } finally {
-      this.#connecting = false;
-      this.#observe();
+      if (ready && this.#owns(open)) {
+        open.pending = false;
+        this.#observe();
+      }
     }
   }
   async #publishViews(): Promise<void> {
@@ -212,108 +311,149 @@ export class Live implements PageBinding {
       // At most one active and one latest pending snapshot: slow crypto never
       // builds an unbounded queue of detached own documents.
       while (this.#pendingView && !this.#closed) {
-        const { value, admission } = this.#pendingView;
+        const { value, admission, open } = this.#pendingView;
         this.#pendingView = null;
-        const connection = this.#connection;
-        if (!connection || connection.admission !== admission) continue;
-        const asks = await pageAsks(value.own ?? {}, admission, (writer) =>
-          connection.objects.ownSigningKey(writer),
-        );
-        if (this.#closed || this.#connection?.admission !== admission || this.#pendingView)
-          continue;
-        await this.sessionOwner?.rememberTitle?.(
-          this.page.pageId,
-          value.title,
-          admission.registration,
-        );
-        if (this.#closed || this.#connection?.admission !== admission || this.#pendingView)
-          continue;
-        const threads = readThreads(
-          value.own ?? {},
-          {
-            spaceId: admission.space,
-            pageId: admission.page,
-            epoch: admission.epoch,
-          },
-          (writer) => connection.objects.ownSigningKey(writer),
-        );
-        this.#projection = { ...value, asks, threads };
-        this.#listeners.forEach((v) => v.publish(structuredClone(this.#projection)));
-        this.#observe();
+        const connection = open.connection;
+        if (!this.#owns(open) || !connection || connection.admission !== admission) continue;
+        try {
+          const asks = await pageAsks(value.own ?? {}, admission, (writer) =>
+            connection.objects.ownSigningKey(writer),
+          );
+          if (!this.#owns(open) || this.#pendingView) continue;
+          await this.sessionOwner?.rememberTitle?.(
+            this.page.pageId,
+            value.title,
+            open.registration,
+          );
+          if (!this.#owns(open) || this.#pendingView) continue;
+          const threads = readThreads(
+            value.own ?? {},
+            { spaceId: admission.space, pageId: admission.page, epoch: admission.epoch },
+            (writer) => connection.objects.ownSigningKey(writer),
+            (writer) => connection.objects.statusWriter(writer),
+          );
+          this.#projection = {
+            ...value,
+            asks,
+            threads,
+            threadPresentations: threads.map((thread) =>
+              projectThreadPresentation(
+                thread,
+                asks,
+                this.#statusSeen(),
+                admission.ownerDevice(this.registration.deviceId),
+              ),
+            ),
+            askUnavailable: this.#projection.askUnavailable ?? false,
+          };
+          this.#listeners.forEach((v) => v.publish(structuredClone(this.#projection)));
+          this.#observe();
+        } catch (error) {
+          if (this.#owns(open))
+            this.#block(error instanceof Error ? error : new Error('Ask data unavailable'));
+        }
       }
-    } catch (error) {
-      if (!this.#closed)
-        this.#block(error instanceof Error ? error : new Error('Ask data unavailable'));
     } finally {
       this.#processingViews = false;
     }
   }
   #failed(error: Error) {
-    if (this.#closed || this.#error) return;
+    const open = this.#opening;
+    if (!open || !this.#owns(open)) return;
     // Mounted WebSocket close does not carry Remote's signed reason. Read once
     // against the old session before deciding whether to reopen or show eviction.
+    const remote = open.remote;
     if (
       error.message === 'Sync disconnected' &&
-      this.#remote &&
-      typeof this.#remote.listAgents === 'function' &&
-      !this.#connecting
+      remote &&
+      typeof remote.listAgents === 'function' &&
+      !(open.pending && open.replaceSession)
     ) {
-      if (this.#diagnosing) return;
-      this.#diagnosing = true;
-      void this.#remote
+      if (this.#diagnosing === open) return;
+      this.#diagnosing = open;
+      void remote
         .listAgents()
         .then(
-          () => this.#recoverFailure(error),
-          (reason: unknown) =>
-            this.#recoverFailure(
-              reason instanceof SessionEvictedError || reason instanceof SessionEndedError
-                ? reason
-                : error,
-            ),
+          () => {
+            if (this.#owns(open)) this.#recoverFailure(error);
+          },
+          (reason: unknown) => {
+            if (this.#owns(open))
+              this.#recoverFailure(
+                reason instanceof SessionEvictedError || reason instanceof SessionEndedError
+                  ? reason
+                  : error,
+              );
+          },
         )
         .finally(() => {
-          this.#diagnosing = false;
+          if (this.#diagnosing === open) this.#diagnosing = null;
         });
       return;
     }
     this.#recoverFailure(error);
   }
   #recoverFailure(error: Error) {
-    if (this.#closed || this.#error) return;
-    if (error instanceof SessionEvictedError) {
-      this.#block(error);
-      return;
-    }
+    const open = this.#opening;
+    if (!open || !this.#owns(open)) return;
     const sessionEnded =
       error instanceof SessionEndedError || error.message === 'Remote session ended';
     if (
-      !this.#connecting &&
+      error instanceof SessionEvictedError ||
+      (sessionEnded && (!this.sessionOwner || (open.pending && open.replaceSession))) ||
+      (open.pending && !sessionEnded)
+    ) {
+      this.#block(error);
+      return;
+    }
+    if (
       this.#attempts++ < 3 &&
       (sessionEnded ||
         ['Sync disconnected', 'RESYNC_REQUIRED', 'Fresh membership catchup required'].includes(
           error.message,
         ))
     ) {
+      // Retire this attempt before close callbacks or late readiness can run.
+      this.#opening = null;
       this.#observation?.abort();
       this.#observation = null;
       this.ask?.close();
       this.ask = undefined;
+      this.#pendingView = null;
       this.#listeners.forEach((v) => v.publish(structuredClone(this.#projection)));
-      const previous = this.#connection;
       this.#connection = null;
-      previous?.close();
+      open.connection?.close();
       // A tunnel resync retains the verified Session and Remote port. Only a
       // session fault may replace them and end other mounted tunnels.
       if (!sessionEnded) this.#replaceAsk(this.#remote);
-      this.#current = this.#open(sessionEnded);
-      void this.#current.catch((next) => this.#block(next instanceof Error ? next : error));
+      this.#current = this.#startOpen(sessionEnded);
     } else this.#block(error);
   }
   #block(error: Error) {
-    this.#observation?.abort();
-    this.ask?.close();
-    this.#writer.close();
+    const failure = error;
+    // Connection's single socket.onerror/onclose handler owns this opaque
+    // message; keep its normalization here while the sync socket owner evolves.
+    if (
+      error.message === 'Sync disconnected' ||
+      (error instanceof SessionEndedError &&
+        this.#recovering &&
+        this.#opening?.pending &&
+        this.#opening.replaceSession)
+    )
+      // An explicit fresh-session refusal keeps the waiting card while its
+      // bounded reload fallback runs; other non-network faults stay terminal.
+      error = new RecoveryRequiredError(error);
+    const connection = this.#connection;
+    this.#opening = null;
+    this.#connection = null;
+    this.#pendingView = null;
     this.#error = error;
+    this.#observation?.abort();
+    this.#observation = null;
+    this.ask?.close();
+    this.ask = undefined;
+    this.#writer.close();
+    connection?.close(failure);
     this.#listeners.forEach((v) => v.failed(error));
   }
   async snapshot(): Promise<PageSnapshot> {
@@ -353,14 +493,17 @@ export class Live implements PageBinding {
       requireValue(a.head !== null && a.root !== null);
       const own = this.#admitted.own ?? {};
       const signingKeys: Record<string, Uint8Array> = {};
+      const statusWriters: string[] = [];
       for (const writer of Object.keys(own)) {
         const key = c.objects.ownSigningKey(writer);
         if (key) signingKeys[writer] = key;
+        if (key && c.objects.statusWriter(writer)) statusWriters.push(writer);
       }
       return {
         ...this.#admitted,
         own,
         signingKeys,
+        statusWriters,
         spaceId: a.space,
         pageId: a.page,
         epoch: a.epoch,
@@ -370,28 +513,149 @@ export class Live implements PageBinding {
     });
     return prepareExport(view);
   }
-  async reconnect(): Promise<boolean> {
-    if (!this.sessionOwner?.recover || this.#closed) return false;
-    // Stop the page's socket, Ask and observer before any new Remote session.
-    this.close();
-    return this.sessionOwner.recover();
+  #statusSeen() {
+    const deviceId = this.registration.deviceId;
+    if (this.#seen?.deviceId === deviceId) return this.#seen.value;
+    let storage: Pick<Storage, 'getItem' | 'setItem'>;
+    try {
+      storage = globalThis.localStorage;
+      requireValue(storage !== undefined);
+    } catch {
+      storage = { getItem: () => null, setItem: () => {} };
+    }
+    const value = new ThreadStatusSeen(
+      { spaceId: this.bootstrap.space, pageId: this.page.pageId, epoch: this.page.epoch },
+      deviceId,
+      storage,
+    );
+    this.#seen = { deviceId, value };
+    return value;
   }
+  /** Called only by the trusted parent open handler, never from rendering. */
+  markThreadStatusSeen(ref: DiscussionRef) {
+    if (this.#closed) return;
+    const threads = this.#projection.threads ?? [];
+    const matches = threads.filter(
+      (thread) => thread.ref.writer === ref.writer && thread.ref.id === ref.id,
+    );
+    if (matches.length !== 1) return;
+    const seen = this.#statusSeen();
+    seen.opened(matches[0]);
+    this.#projection = {
+      ...this.#projection,
+      threadPresentations: threads.map((thread) =>
+        projectThreadPresentation(
+          thread,
+          this.#projection.asks ?? [],
+          seen,
+          this.#connection?.admission.ownerDevice(this.registration.deviceId) ?? false,
+        ),
+      ),
+    };
+    this.#listeners.forEach((listener) => listener.publish(structuredClone(this.#projection)));
+  }
+  reconnect(): Promise<boolean> {
+    if (this.#recovering) return this.#recovering;
+    if (
+      !this.sessionOwner ||
+      this.#closed ||
+      (this.#error && !(this.#error instanceof RecoveryRequiredError))
+    )
+      return Promise.resolve(false);
+    // Keep this binding's projection, composers and write fence until a fresh
+    // same-device Session and Connection have admitted the replacement view.
+    if (!this.#error) this.#block(new RecoveryRequiredError(new Error('Sync disconnected')));
+    const stopped = this.#error;
+    this.#recovering = Promise.resolve()
+      .then(async () => {
+        if (this.#closed) return false;
+        this.#current = this.#startOpen(true);
+        const open = this.#opening!;
+        try {
+          await this.#current;
+          await this.#views;
+          if (!this.#owns(open) || this.#error !== stopped) return false;
+          // #block retired the old writer. Its existing lock/staging owner keeps
+          // exact pending envelopes; replacement itself submits nothing.
+          this.#writer = new Writer(this.#writer.key, () => this.#current);
+          this.#error = null;
+          this.#listeners.forEach((listener) =>
+            listener.publish(structuredClone(this.#projection)),
+          );
+          this.#observe();
+          return this.#owns(open) && !this.#error;
+        } catch (error) {
+          if (this.#closed) return false;
+          if (this.#owns(open))
+            this.#block(error instanceof Error ? error : new Error(text.reconnectFailed));
+          // Only a verified refusal of the fresh Session permits the bounded
+          // guidance/reload fallback. Network and admission failures do not.
+          if (!(error instanceof SessionEndedError) || !this.sessionOwner?.recover) return false;
+          try {
+            const recovered = await this.sessionOwner.recover();
+            if (this.#closed) return false;
+            if (!recovered) this.#block(new Error(text.reconnectFailed));
+            this.close();
+            return recovered;
+          } catch (fallback) {
+            if (!this.#closed)
+              this.#block(fallback instanceof Error ? fallback : new Error(text.reconnectFailed));
+            return false;
+          }
+        }
+      })
+      .finally(() => {
+        this.#recovering = null;
+      });
+    return this.#recovering;
+  }
+  /** Save the whole source through native publication. A lost reply is settled by exactly one
+   * status request on the reopened connection; the save is never sent again. */
   async edit(source: string, base: string) {
     if (this.#closed || this.#error) throw new Error('Page editing unavailable');
     const c = await this.#current;
-    const prepared = await c.run(() => {
-      requireValue(base === this.#admitted.source);
-      return c.fold.run({ type: 'prepare', source, base });
-    });
+    requireValue(base === this.#admitted.source);
+    const operationId = crypto.randomUUID();
+    let result: SaveResult;
     try {
-      await this.#writer.submit(prepared.update);
-    } finally {
-      prepared.update.fill(0);
+      result = await c.save(operationId, base, source);
+    } catch (error) {
+      if (!(error instanceof Error) || error instanceof SaveTooLarge || c.active) throw error;
+      result = await this.#settleLost(c, operationId);
+    }
+    settled(result);
+    await this.#shows(source);
+  }
+  async #settleLost(lost: Connection, operationId: string): Promise<SaveResult> {
+    try {
+      const next = await this.#reopened(lost);
+      return await next.saveStatus(operationId);
+    } catch {
+      throw new SaveOutcomeUnknown(operationId);
+    }
+  }
+  /** The connection Live reopens after `lost` failed, once it is caught up. */
+  async #reopened(lost: Connection): Promise<Connection> {
+    const deadline = Date.now() + SAVE_REOPEN_MS;
+    while (!this.#closed && !this.#error && Date.now() < deadline) {
+      const next = await this.#current.catch(() => null);
+      if (next && next !== lost && next.active) return next;
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    throw new Error('Page connection unavailable');
+  }
+  /** The admitted page shows the saved source, so the editor's base moves with it. */
+  async #shows(source: string) {
+    const deadline = Date.now() + SAVE_REOPEN_MS;
+    while (this.#admitted.source !== source && !this.#closed && !this.#error) {
+      if (Date.now() >= deadline) return;
+      await new Promise((resolve) => setTimeout(resolve, 25));
     }
   }
   close() {
     if (this.#closed) return;
     this.#closed = true;
+    this.#opening = null;
     this.#observation?.abort();
     if (typeof document !== 'undefined')
       document.removeEventListener('visibilitychange', this.#visibility);

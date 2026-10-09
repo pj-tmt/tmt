@@ -1,119 +1,113 @@
+/* Colab owns viewport placement and metric inputs; browser-ui owns presentation. */
 :root {
-  --page-bar-size: var(--colab-header-height);
-  --reader-bar-size: var(--colab-header-height);
+  --c-text: var(--tmt-ui-color-text);
+  --c-muted: var(--tmt-ui-color-secondary);
+  --c-accent: var(--tmt-ui-color-link);
+  --c-accent-soft: var(--tmt-ui-surface-selection);
+  --c-working: var(--tmt-ui-color-working);
+  --c-waiting: var(--tmt-ui-color-waiting);
+  --c-blocked: var(--tmt-ui-color-blocked);
+  --c-paper: var(--tmt-ui-surface-paper);
+  --c-sheet: var(--tmt-ui-surface-sheet);
+  --c-rule: var(--tmt-ui-surface-rule);
+  --f-display: var(--tmt-ui-font-display);
+  --f-body: var(--tmt-ui-font-body);
+  --f-mono: var(--tmt-ui-font-mono);
+  /* The update notice row sits under the header and pushes content down by its height. */
+  --colab-update-height: 0px;
+  --colab-header-height: calc(var(--tmt-ui-header-height) + var(--colab-update-height));
+  --colab-header-icon-size: var(--tmt-ui-header-icon-size);
+  --colab-header-icon-stroke: var(--tmt-ui-header-icon-stroke);
+  --page-bar-size: calc(var(--tmt-ui-header-height) + var(--colab-update-height));
+  --reader-bar-size: var(--tmt-ui-header-height);
+  --tmt-ui-host-header-action-gap: 6px;
+  --tmt-ui-host-focus-offset: 3px;
+  --tmt-ui-host-toggle-focus-offset: 2px;
+  --tmt-ui-host-toggle-padding: 7px 8px 7px 0;
+  --tmt-ui-host-notice-mark-size: 18px;
+  --tmt-ui-host-eyebrow-line-height: 1.55;
+  --tmt-ui-host-notice-heading-size: clamp(26px, 4vw, 36px);
+  --tmt-ui-host-notice-heading-weight: 700;
+  --tmt-ui-host-notice-heading-tracking: -0.03em;
+  --tmt-ui-host-notice-body-size: 16px;
+  --tmt-ui-host-notice-body-line-height: 1.55;
+  --tmt-ui-host-notice-action-gap: 12px;
+  --tmt-ui-host-notice-action-margin: 24px;
+  --tmt-ui-host-action-padding: 7px 12px;
+  --tmt-ui-host-action-min-height: 24px;
+  --tmt-ui-host-action-size: 14px;
+  --tmt-ui-host-action-weight: 400;
+  --tmt-ui-host-action-line-height: 1.5;
+  --tmt-ui-host-action-font: var(--tmt-ui-font-body);
+  --tmt-ui-host-action-gap: 6px;
+  --tmt-ui-host-action-underline-offset: 4px;
+  --tmt-ui-host-icon-action-size: 34px;
+  --tmt-ui-host-field-padding: 8px;
+  --tmt-ui-host-field-size: 14px;
+  --tmt-ui-host-field-line-height: 1.5;
+  --tmt-ui-host-field-label-size: 12px;
+  --tmt-ui-host-field-label-weight: 400;
+  --tmt-ui-host-field-label-line-height: 1.5;
+  --tmt-ui-host-field-label-font: var(--tmt-ui-font-body);
+  color-scheme: light;
+}
+:root[data-colab-update] {
+  --colab-update-height: 40px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    color-scheme: dark;
+  }
+}
+:root[data-theme='dark'] {
+  color-scheme: dark;
 }
 body {
   padding-top: calc(var(--colab-header-height) + env(safe-area-inset-top, 0px));
 }
-.colab-header {
+.tmt-ui-header {
   position: fixed;
   top: env(safe-area-inset-top, 0px);
   left: 0;
   right: 0;
   z-index: 30;
-  display: flex;
   flex-wrap: nowrap;
-  align-items: center;
-  height: var(--colab-header-height);
-  gap: var(--colab-header-gap);
-  padding: 0 var(--colab-header-padding-inline);
-  border-bottom: 1px solid var(--c-rule);
-  background: var(--c-paper);
-  color: var(--c-text);
-  box-sizing: border-box;
+  --tmt-ui-host-action-padding: 7px 8px;
+  --tmt-ui-host-action-size: var(--tmt-ui-header-action-size);
+  --tmt-ui-host-action-weight: var(--tmt-ui-header-action-weight);
+  --tmt-ui-host-action-line-height: var(--tmt-ui-header-action-line-height);
 }
-.colab-brand {
-  display: inline-flex;
-  flex: none;
-  align-items: center;
-  gap: var(--colab-header-gap);
-  color: var(--c-muted);
-  text-decoration: none;
+.tmt-ui-actions {
+  font: var(--tmt-ui-header-action-weight) var(--tmt-ui-header-action-size) /
+    var(--tmt-ui-header-action-line-height) var(--tmt-ui-font-body);
 }
-.colab-mark {
-  font: var(--colab-header-mark-weight) var(--colab-header-mark-size) /
-    var(--colab-header-mark-line-height) var(--f-mono);
-}
-.colab-wordmark {
-  font: var(--colab-header-wordmark-weight) var(--colab-header-wordmark-size) /
-    var(--colab-header-wordmark-line-height) var(--f-display);
-}
-.colab-heading,
-.colab-header > .colab-title {
-  flex: 1;
-  min-width: 0;
-  padding-left: var(--colab-header-gap);
-  border-left: 1px solid var(--c-rule);
-}
-.colab-title {
-  min-width: 0;
-  overflow: hidden;
-  margin: 0;
-  color: var(--c-text);
-  font: var(--colab-header-title-weight) var(--colab-header-title-size) /
-    var(--colab-header-title-line-height) var(--f-display);
-  text-overflow: ellipsis;
+.tmt-ui-header button,
+.tmt-ui-header summary {
   white-space: nowrap;
 }
-.colab-actions {
-  display: flex;
-  flex: none;
-  align-items: center;
-  gap: var(--colab-header-gap);
-  font: var(--colab-header-action-weight) var(--colab-header-action-size) /
-    var(--colab-header-action-line-height) var(--f-body);
-}
-.colab-header button,
-.colab-header summary {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 7px 8px;
-  border: 0;
-  border-radius: 0;
-  box-shadow: none;
-  background: transparent;
-  color: var(--c-text);
-  font: var(--colab-header-action-weight) var(--colab-header-action-size) /
-    var(--colab-header-action-line-height) var(--f-body);
-  white-space: nowrap;
-  cursor: pointer;
+.tmt-ui-header summary {
   list-style: none;
 }
-.colab-header summary::-webkit-details-marker {
+.tmt-ui-header summary::-webkit-details-marker {
   display: none;
 }
-.colab-header button:hover:not(:disabled),
-.colab-header summary:hover,
-.colab-header button[aria-expanded='true'],
-.colab-header button[aria-pressed='true'],
-.colab-header details[open] > summary {
-  background: transparent;
-  text-decoration: underline;
-  text-underline-offset: 4px;
-}
 .lucide {
-  width: var(--colab-header-icon-size);
-  height: var(--colab-header-icon-size);
+  width: var(--tmt-ui-header-icon-size);
+  height: var(--tmt-ui-header-icon-size);
   flex: none;
   vertical-align: middle;
-  stroke-width: var(--colab-header-icon-stroke);
+  stroke-width: var(--tmt-ui-header-icon-stroke);
   stroke-linecap: square;
   stroke-linejoin: miter;
 }
-
-/* The live dot is the size of the status text, not of a header icon. */
 .status .lucide.status-dot {
   width: 8px;
   height: 8px;
 }
-
-.colab-caption {
-  overflow: hidden;
-  color: var(--c-muted);
-  font: 11px/1.2 var(--f-body);
-  text-overflow: ellipsis;
-  white-space: nowrap;
+@media (prefers-reduced-motion: reduce) {
+  .lucide-loader-circle {
+    animation: none;
+  }
 }
 .page-attribution {
   margin: 0 0 12px;

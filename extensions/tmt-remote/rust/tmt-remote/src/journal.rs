@@ -268,6 +268,19 @@ impl Store {
             return Err(database("invalid adoption"));
         }
         let tx = self.authorized(grant, now)?;
+        if tx
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM management_receipts WHERE id=?1)",
+                [input.id],
+                |row| row.get::<_, bool>(0),
+            )
+            .map_err(database)?
+        {
+            return Err(RemoteError::new(
+                "REMOTE_INTENT_CONFLICT",
+                "Request ID belongs to a management intent.",
+            ));
+        }
         if let Some(Stored {
             client,
             digest: old,

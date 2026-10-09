@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/tmt-sys", "crates/tmt-core", "crates/tmt-adapters", "crates/tmt-cli-style", "crates/tmt-tui", "crates/tmt-invoke", "crates/tmt-extension-state", "crates/tmt-command-output", "crates/tmt-driver-protocol", "crates/tmt-driver-herdr", "crates/tmt-host-grammar", "crates/tmt-cli", "../extensions/tmt-office/rust/tmt-office", "../extensions/tmt-office/rust/tmt-office-model", "../extensions/tmt-office/rust/tmt-office-command", "../extensions/tmt-office/rust/tmt-office-storage", "../extensions/tmt-office/rust/tmt-office-pairing", "../extensions/tmt-office/rust/tmt-office-service", "../extensions/tmt-squad/rust/tmt-squad", "../extensions/tmt-remote/rust/tmt-remote", "../extensions/tmt-colab/rust/tmt-colab", "../extensions/tmt-colab/rust/tmt-colab-model", "crates/tmt-test-support", "crates/tmt-release-tool"]
+members = ["crates/tmt-sys", "crates/tmt-core", "crates/tmt-adapters", "crates/tmt-cli-style", "crates/tmt-tui", "crates/tmt-invoke", "crates/tmt-extension-state", "crates/tmt-extension-objects", "crates/tmt-command-output", "crates/tmt-driver-protocol", "crates/tmt-driver-herdr", "crates/tmt-host-grammar", "crates/tmt-cli", "../extensions/tmt-office/rust/tmt-office", "../extensions/tmt-office/rust/tmt-office-model", "../extensions/tmt-office/rust/tmt-office-command", "../extensions/tmt-office/rust/tmt-office-storage", "../extensions/tmt-office/rust/tmt-office-pairing", "../extensions/tmt-office/rust/tmt-office-service", "../extensions/tmt-ops/rust/tmt-ops", "../extensions/tmt-remote/rust/tmt-remote", "../extensions/tmt-colab/rust/tmt-colab", "../extensions/tmt-colab/rust/tmt-colab-model", "crates/tmt-test-support", "crates/tmt-release-tool"]
 resolver = "3"
 
 [workspace.package]
@@ -42,6 +42,7 @@ rcgen = { version = "=0.14.10", default-features = false, features = ["crypto", 
 semver = "=1.0.28"
 tar = { version = "=0.4.46", default-features = false }
 flate2 = { version = "=1.1.10", default-features = false, features = ["rust_backend"] }
+zip = { version = "=8.6.0", default-features = false, features = ["deflate-flate2"] }
 tmt-core = { path = "crates/tmt-core" }
 tmt-host-grammar = { path = "crates/tmt-host-grammar" }
 tmt-office-model = { path = "../extensions/tmt-office/rust/tmt-office-model" }
@@ -54,6 +55,7 @@ tmt-cli-style = { path = "crates/tmt-cli-style" }
 tmt-tui = { path = "crates/tmt-tui" }
 tmt-invoke = { path = "crates/tmt-invoke" }
 tmt-extension-state = { path = "crates/tmt-extension-state" }
+tmt-extension-objects = { path = "crates/tmt-extension-objects" }
 tmt-office-command = { path = "../extensions/tmt-office/rust/tmt-office-command" }
 tmt-office-storage = { path = "../extensions/tmt-office/rust/tmt-office-storage" }
 tmt-office-pairing = { path = "../extensions/tmt-office/rust/tmt-office-pairing" }
@@ -82,6 +84,10 @@ toml_edit = { version = "=0.25.15", default-features = false, features = ["parse
 
 [workspace.lints.rust]
 unsafe_code = "forbid"
+
+# Tests exercising product deadlines need optimized dependencies; workspace crates retain the dev opt-level.
+[profile.dev.package."*"]
+opt-level = 2
 
 [profile.release]
 lto = "thin"

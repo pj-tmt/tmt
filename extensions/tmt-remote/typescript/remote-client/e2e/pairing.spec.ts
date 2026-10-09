@@ -3,7 +3,7 @@ import { spawn, execFileSync, type ChildProcessWithoutNullStreams } from 'node:c
 import { createHash, createPublicKey, verify } from 'node:crypto';
 import { extCertSigningBytes } from '../src/canonical-bytes.js';
 import type { ExtCertificate } from '../src/device.js';
-import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { appendFile, chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { createServer, type Server } from 'node:net';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline';
@@ -16,36 +16,92 @@ import { fileURLToPath } from 'node:url';
  * colab served on its owner-only socket. Build the binary first with
  * `cargo build -p tmt-remote`, or point TMT_REMOTE_BINARY at one.
  */
-// The shared header tokens, the same metrics Colab's header reads.
-const { header: headerTokens } = JSON.parse(
+// Expected computed presentation comes from main's current browser roles, not a local palette.
+const { header: headerTokens, browser: browserTokens } = JSON.parse(
   await readFile(
     fileURLToPath(new URL('../../../../../design/tokens/tokens.json', import.meta.url)),
     'utf8',
   ),
-) as { header: Record<string, string> };
-
-// The state colors (design tokens `waiting`, `blocked`, `working`) of the mark and the sheet's
-// hard shadow, as in Colab's notice card.
-const STATE_COLORS = {
-  light: { waiting: 'rgb(150, 80, 39)', blocked: 'rgb(182, 44, 59)', working: 'rgb(79, 106, 51)' },
-  dark: {
-    waiting: 'rgb(255, 158, 100)',
-    blocked: 'rgb(247, 118, 142)',
-    working: 'rgb(158, 206, 106)',
-  },
+) as {
+  header: Record<string, string>;
+  browser: {
+    color: Record<string, Record<string, string>>;
+    surface: Record<string, Record<string, string>>;
+  };
 };
+function tokenRgb(group: 'color' | 'surface', name: string, theme: 'light' | 'dark'): string {
+  const hex = browserTokens[group][name]![theme]!;
+  return `rgb(${[1, 3, 5].map((start) => parseInt(hex.slice(start, start + 2), 16)).join(', ')})`;
+}
 async function expectStateColor(
   page: Page,
   scheme: 'light' | 'dark',
   state: 'waiting' | 'blocked' | 'working',
 ) {
-  const color = await page.evaluate(() => ({
-    mark: getComputedStyle(document.querySelector('.state-mark')!).color,
-    shadow: /^rgb\([^)]*\)/.exec(
-      getComputedStyle(document.querySelector('.sheet')!).boxShadow,
-    )?.[0],
-  }));
-  expect(color).toEqual({ mark: STATE_COLORS[scheme][state], shadow: STATE_COLORS[scheme][state] });
+  expect(await page.locator('.state-mark').evaluate((mark) => getComputedStyle(mark).color)).toBe(
+    tokenRgb('color', state, scheme),
+  );
+  expect(
+    await page
+      .locator('.sheet')
+      .first()
+      .evaluate((sheet) => getComputedStyle(sheet).boxShadow),
+  ).toBe('none');
+}
+
+/** Capture the real served state; media and viewport changes never activate it. */
+async function captureState(page: Page, state: string, lookAt: string): Promise<void> {
+  const theme = await page.evaluate(() =>
+    matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light',
+  );
+  const controls = await page.locator('button.tmt-ui-action:disabled').evaluateAll((buttons) =>
+    buttons.map((button) => {
+      const style = getComputedStyle(button);
+      return {
+        color: style.color,
+        background: style.backgroundColor,
+        opacity: style.opacity,
+        shadow: style.boxShadow,
+      };
+    }),
+  );
+  for (const control of controls)
+    expect(control).toEqual({
+      color: tokenRgb('color', 'disabled-text', theme),
+      background: tokenRgb('surface', 'disabled', theme),
+      opacity: '1',
+      shadow: 'none',
+    });
+  const directory = process.env.TMT_REMOTE_CAPTURE_DIR;
+  if (!directory) return;
+  await mkdir(directory, { recursive: true });
+  const viewport = page.viewportSize();
+  const position = await page.evaluate(() => ({ x: scrollX, y: scrollY }));
+  const originalTheme = await page.evaluate(() =>
+    matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light',
+  );
+  try {
+    for (const theme of ['light', 'dark'] as const) {
+      await page.emulateMedia({ colorScheme: theme });
+      for (const width of [1440, 390, 320]) {
+        await page.setViewportSize({ width, height: 900 });
+        expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
+          true,
+        );
+        const path = join(directory, `${state}-${width}-${theme}.png`);
+        await page.evaluate(() => scrollTo(0, 0));
+        await page.screenshot({ path, fullPage: true });
+        await appendFile(
+          join(directory, 'index.jsonl'),
+          JSON.stringify({ state, viewport: `${width}x900`, theme, path, lookAt }) + '\n',
+        );
+      }
+    }
+  } finally {
+    await page.emulateMedia({ colorScheme: originalTheme });
+    if (viewport) await page.setViewportSize(viewport);
+    await page.evaluate(({ x, y }) => scrollTo(x, y), position);
+  }
 }
 
 const BINARY =
@@ -159,6 +215,182 @@ test.afterEach(async () => {
   await new Promise((resolve) => fixture.close(resolve));
   await rm(root, { recursive: true, force: true });
 });
+
+/** Hold an actual route until the test has exercised the pre-readiness page. */
+function routeBarrier() {
+  let arrive!: () => void;
+  let release!: () => void;
+  const reached = new Promise<void>((resolve) => {
+    arrive = resolve;
+  });
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  return { reached, held, arrive, release };
+}
+
+/** Observe native form refusal before any bootstrap/SDK script runs. */
+async function watchPairing(page: Page) {
+  const posts: string[] = [];
+  page.on('request', (request) => {
+    if (request.method() === 'POST' && new URL(request.url()).pathname.endsWith('/pair'))
+      posts.push(request.postData()!);
+  });
+  await page.addInitScript(() => {
+    const violations: string[] = [];
+    Object.assign(window, { pairingViolations: violations });
+    document.addEventListener('securitypolicyviolation', (event) => {
+      violations.push(event.violatedDirective);
+    });
+  });
+  return {
+    posts,
+    violations: () =>
+      page.evaluate(() => (window as unknown as { pairingViolations: string[] }).pairingViolations),
+  };
+}
+
+/** Raw click deliberately avoids Playwright's enabled-control auto-wait. */
+async function earlyPairingAttempt(page: Page) {
+  await page.locator('#name').fill('Readiness browser');
+  const box = await page.getByRole('button', { name: 'Pair', exact: true }).boundingBox();
+  if (!box) throw new Error('No pairing control.');
+  await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+  // Native submission in the broken page can leave navigation pending; do not auto-wait it.
+  await page.evaluate(() => document.getElementById('name')!.focus());
+  await page.keyboard.press('Enter');
+}
+
+for (const phase of ['SDK import', 'offer response']) {
+  test(`pairing stays unavailable during ${phase} and preserves the deliberate attempt`, async () => {
+    pair = spawn(BINARY, ['pair', '--json'], { env });
+    const events = lines(pair);
+    const offer = await events.next();
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    const observed = await watchPairing(page);
+    const gate = routeBarrier();
+    const firstPost = routeBarrier();
+    await page.route(
+      phase === 'SDK import' ? '**/sdk/remote-v1.js' : '**/sdk/pair-offer',
+      async (route) => {
+        gate.arrive();
+        await gate.held;
+        await route.continue();
+      },
+    );
+    await page.route('**/r/*/pair', async (route) => {
+      if (observed.posts.length === 1) {
+        firstPost.arrive();
+        await firstPost.held;
+      }
+      await route.continue();
+    });
+    try {
+      await page.goto(offer.link as string, { waitUntil: 'domcontentloaded' });
+      await gate.reached;
+      await earlyPairingAttempt(page);
+      await expect(page.getByRole('button', { name: 'Pair', exact: true })).toBeDisabled();
+      await expect(page.locator('#pair')).toBeVisible();
+      await expect(page.locator('#name')).toHaveValue('Readiness browser');
+      expect(page.url()).toBe(`${origin}/pair`);
+      expect(observed.posts).toEqual([]);
+      expect(await observed.violations()).toEqual([]);
+      await captureState(
+        page,
+        `pair-initializing-${phase === 'SDK import' ? 'sdk' : 'offer'}`,
+        'Disabled Pair, retained name, visible reason, shared header',
+      );
+      gate.release();
+      await expect(page.getByRole('button', { name: 'Pair', exact: true })).toBeEnabled();
+      await captureState(page, 'pair-ready', 'Ready label, field association, enabled action');
+      await page.locator('#name').focus();
+      await captureState(page, 'pair-field-focus', 'Field keyboard focus, no clipping');
+      await page.keyboard.press('Tab');
+      await expect(page.getByRole('button', { name: 'Pair', exact: true })).toBeFocused();
+      await captureState(page, 'pair-action-focus', 'Pair keyboard focus, retained name');
+      await page.keyboard.press('Enter');
+      await firstPost.reached;
+      expect(observed.posts).toHaveLength(1);
+      expect(JSON.parse(observed.posts[0]!).name).toBe('Readiness browser');
+      firstPost.release();
+      const candidate = await events.next();
+      expect(candidate.event).toBe('candidate');
+      await expect(page.locator('#words')).toHaveText((candidate.words as string[]).join(' '));
+      await captureState(page, 'pair-waiting', 'Terminal words, explicit Waiting, retained header');
+      pair.stdin.write('confirm\n');
+      expect((await events.next()).reason).toBe('paired');
+      await expect(page.locator('#status')).toHaveText(
+        'This browser is paired. You can close this page.',
+      );
+      await captureState(page, 'pair-paired', 'Success word/mark and ordinary return link');
+      await page.keyboard.press('Tab');
+      await expect(page.getByRole('link', { name: 'Return to Remote and connect' })).toBeFocused();
+      await captureState(
+        page,
+        'pair-return-focus',
+        'Return link keyboard focus, native navigation ownership',
+      );
+      // Pending polls repeat this exact enrollment; there was only one initial submission.
+      expect(new Set(observed.posts).size).toBe(1);
+      expect(await observed.violations()).toEqual([]);
+    } finally {
+      gate.release();
+      firstPost.release();
+      await context.close();
+    }
+  });
+}
+
+for (const failure of ['SDK abort', 'offer abort', 'offer refused', 'offer malformed']) {
+  test(`pairing remains unavailable after ${failure}`, async () => {
+    pair = spawn(BINARY, ['pair', '--json'], { env });
+    const events = lines(pair);
+    const offer = await events.next();
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    const observed = await watchPairing(page);
+    const failed = routeBarrier();
+    await page.route(
+      failure === 'SDK abort' ? '**/sdk/remote-v1.js' : '**/sdk/pair-offer',
+      async (route) => {
+        if (failure.endsWith('abort')) await route.abort('failed');
+        else
+          await route.fulfill({
+            status: failure === 'offer refused' ? 404 : 200,
+            contentType: 'application/json',
+            body: '{}',
+          });
+        failed.arrive();
+      },
+    );
+    try {
+      await page.goto(offer.link as string);
+      await failed.reached;
+      if (failure !== 'SDK abort') {
+        await expect(page.locator('#status')).toHaveAttribute('data-state', 'blocked');
+        await expect(page.locator('#pair')).toBeHidden();
+      } else {
+        await earlyPairingAttempt(page);
+      }
+      await captureState(
+        page,
+        `pair-${failure.replaceAll(' ', '-').toLowerCase()}`,
+        'Failed initialization remains unavailable; zero submissions',
+      );
+      // Hidden controls still retain the disabled property.
+      expect(
+        await page
+          .locator('#pair button')
+          .evaluate((button) => (button as HTMLButtonElement).disabled),
+      ).toBe(true);
+      expect(observed.posts).toEqual([]);
+      expect(await observed.violations()).toEqual([]);
+    } finally {
+      await context.close();
+    }
+  });
+}
 
 test('a browser pairs, gets a door session and certifies only its own extension', async () => {
   pair = spawn(BINARY, ['pair', '--json'], { env });
@@ -275,6 +507,8 @@ test('a browser pairs, gets a door session and certifies only its own extension'
     'ClientError',
     'RefusalError',
     'certifyKey',
+    'landingPage',
+    'management',
     'operations',
     'pairingPage',
     'reopenSession',
@@ -328,12 +562,15 @@ test('a browser pairs, gets a door session and certifies only its own extension'
   // Two pages of one context share the device cookie but retain independent transports/lanes.
   const otherTab = await context.newPage();
   await otherTab.goto(`${mounts}colab/other`);
-  const attach = async (tab: Page) =>
-    tab.evaluate(async () => {
+  const attach = async (tab: Page, reuseSession = false) =>
+    tab.evaluate(async (reuseSession) => {
       const sdk = (await import(
         '/sdk/remote-v1.js' as string
       )) as typeof import('../src/browser.js');
-      const session = await sdk.reopenSession();
+      const session = reuseSession
+        ? (window as unknown as { remoteTest: { session: import('../src/device.js').Session } })
+            .remoteTest.session
+        : await sdk.reopenSession();
       const url = sdk.transportUrl(
         session,
         location.href.replace('http:', 'ws:').replace(/\/[^/]*$/, '/sync'),
@@ -345,7 +582,7 @@ test('a browser pairs, gets a door session and certifies only its own extension'
       });
       Object.assign(window, { remoteTest: { session, socket, remote: sdk.operations(session) } });
       return session.sessionId;
-    });
+    }, reuseSession);
   const firstSession = await attach(app);
   const secondSession = await attach(otherTab);
   expect(firstSession).not.toBe(secondSession);
@@ -359,33 +596,26 @@ test('a browser pairs, gets a door session and certifies only its own extension'
       return state.remote.listAgents();
     });
   expect(await list(app)).toEqual(await list(otherTab));
-  // Simulate transport loss while the tab remains mounted (background/sleep recovery).
-  await app.evaluate(async () => {
-    const state = (window as unknown as { remoteTest: { socket: WebSocket } }).remoteTest;
-    await new Promise<void>((resolve) => {
-      state.socket.onclose = () => resolve();
-      state.socket.close();
+  // Last-close keeps the same session usable inside the inactivity grace.
+  const closeTransport = async () =>
+    app.evaluate(async () => {
+      const state = (window as unknown as { remoteTest: { socket: WebSocket } }).remoteTest;
+      await new Promise<void>((resolve) => {
+        state.socket.onclose = () => resolve();
+        state.socket.close();
+      });
     });
-  });
-  await expect
-    .poll(async () =>
-      app.evaluate(async () => {
-        const state = (
-          window as unknown as {
-            remoteTest: { remote: import('../src/operations.js').RemoteOperations };
-          }
-        ).remoteTest;
-        try {
-          await state.remote.listAgents();
-          return 'live';
-        } catch (error) {
-          return (error as { code?: string }).code;
-        }
-      }),
-    )
-    .toBe('REMOTE_SESSION_ENDED');
+  await closeTransport();
+  expect(await list(app)).toHaveLength(1);
   expect(await list(otherTab)).toHaveLength(1);
-  await attach(app);
+  expect(await attach(app, true)).toBe(firstSession);
+  expect(await list(app)).toHaveLength(1);
+  expect(await list(otherTab)).toHaveLength(1);
+  // Explicit reopen still creates an independent session; no send is retried.
+  await closeTransport();
+  const reopenedSession = await attach(app);
+  expect(reopenedSession).not.toBe(firstSession);
+  expect(reopenedSession).not.toBe(secondSession);
   expect(await list(app)).toHaveLength(1);
   // Closing one tab drops its transport; the surviving tab remains usable.
   await otherTab.close();
@@ -461,7 +691,7 @@ test('a browser pairs, gets a door session and certifies only its own extension'
     'python3',
     [
       '-c',
-      "import sqlite3,sys; db=sqlite3.connect(sys.argv[1]); db.execute('UPDATE machine SET route_prefix=?', (sys.argv[2],)); db.execute('DELETE FROM _migrations WHERE version>=6'); db.execute('DROP TABLE sessions'); db.execute('CREATE TABLE sessions(client_id TEXT PRIMARY KEY REFERENCES grants(client_id),session_id TEXT NOT NULL UNIQUE,window_id TEXT NOT NULL,grant_revision INTEGER NOT NULL,next_client_sequence TEXT NOT NULL,next_server_sequence TEXT NOT NULL)'); db.execute('ALTER TABLE operations DROP COLUMN grant_revision'); db.execute('ALTER TABLE operations DROP COLUMN session_id'); db.commit(); db.close()",
+      "import sqlite3,sys; db=sqlite3.connect(sys.argv[1]); db.execute('UPDATE machine SET route_prefix=?', (sys.argv[2],)); db.execute('DELETE FROM _migrations WHERE version>=6'); db.execute('DROP TABLE settings_designation'); db.execute('DROP TABLE management_receipts'); db.execute('DROP TABLE sessions'); db.execute('CREATE TABLE sessions(client_id TEXT PRIMARY KEY REFERENCES grants(client_id),session_id TEXT NOT NULL UNIQUE,window_id TEXT NOT NULL,grant_revision INTEGER NOT NULL,next_client_sequence TEXT NOT NULL,next_server_sequence TEXT NOT NULL)'); db.execute('ALTER TABLE operations DROP COLUMN grant_revision'); db.execute('ALTER TABLE operations DROP COLUMN session_id'); db.commit(); db.close()",
       join(root, 'state/remote/remote.db'),
       legacyPrefix,
     ],
@@ -526,7 +756,7 @@ test('a browser pairs, gets a door session and certifies only its own extension'
 
 // Optional exported evidence uses the same real-door fixture as the pairing smoke.
 // No mocked HTML or network responses enter the captures.
-test('browser pages use local tokens in both schemes and fit desktop and mobile', async () => {
+test('browser pages consume shared presentation in both schemes and fit desktop and mobile', async () => {
   const captures = process.env.TMT_REMOTE_CAPTURE_DIR;
   if (captures) await mkdir(captures, { recursive: true });
   for (const colorScheme of ['light', 'dark'] as const) {
@@ -550,7 +780,11 @@ test('browser pages use local tokens in both schemes and fit desktop and mobile'
         });
         const inspect = async (state: 'landing' | 'pairing' | 'confirmation' | 'error') => {
           await expect(page.locator('.header-title')).toHaveText(
-            state === 'error' ? 'Page unavailable' : 'Pair a browser',
+            state === 'error'
+              ? 'Page unavailable'
+              : state === 'landing'
+                ? 'Remote connection'
+                : 'Pair a browser',
           );
           await expect(page.locator('.state-mark')).toHaveText(
             { landing: '○', pairing: '◆', confirmation: '◆', error: '✗' }[state]!,
@@ -587,13 +821,15 @@ test('browser pages use local tokens in both schemes and fit desktop and mobile'
                 };
               })(),
               markAboveEyebrow:
-                document.querySelector('.state-mark')!.getBoundingClientRect().bottom <=
+                document.querySelector('.tmt-ui-notice-mark')!.getBoundingClientRect().bottom <=
                 document.querySelector('.eyebrow')!.getBoundingClientRect().top,
               paper: getComputedStyle(document.body).backgroundColor,
               sheet: style.backgroundColor,
               text: getComputedStyle(document.body).color,
               shadow: style.boxShadow,
               radius: style.borderRadius,
+              border: style.borderTopWidth,
+              opacity: style.opacity,
               overflow: document.documentElement.scrollWidth > innerWidth,
               // Playwright restores the input caret with an empty style attribute.
               inline: document.querySelectorAll('[style]:not([style=""]), style, script:not([src])')
@@ -601,15 +837,17 @@ test('browser pages use local tokens in both schemes and fit desktop and mobile'
             };
           });
           expect(look).toMatchObject({
-            paper: colorScheme === 'light' ? 'rgb(244, 246, 251)' : 'rgb(26, 27, 38)',
-            sheet: colorScheme === 'light' ? 'rgb(255, 255, 255)' : 'rgb(22, 22, 30)',
-            text: colorScheme === 'light' ? 'rgb(52, 59, 88)' : 'rgb(192, 202, 245)',
+            paper: tokenRgb('surface', 'paper', colorScheme),
+            sheet: tokenRgb('surface', 'sheet', colorScheme),
+            text: tokenRgb('color', 'text', colorScheme),
             markAboveEyebrow: true,
             radius: '0px',
+            border: '1px',
+            opacity: '1',
             overflow: false,
             inline: 0,
           });
-          expect(look.shadow).toContain('6px 6px 0px 0px');
+          expect(look.shadow).toBe('none');
           await expectStateColor(page, colorScheme, state === 'error' ? 'blocked' : 'waiting');
           // Colab's header, from the same tokens: mark, product, then the page title.
           const header = look.header;
@@ -619,7 +857,7 @@ test('browser pages use local tokens in both schemes and fit desktop and mobile'
             top: 0,
             position: 'fixed',
             rule: '1px',
-            background: look.paper,
+            background: tokenRgb('surface', 'sheet', colorScheme),
             markText: 'tmt',
             wordmarkText: 'Remote',
             headings: 1,
@@ -638,6 +876,11 @@ test('browser pages use local tokens in both schemes and fit desktop and mobile'
           });
           expect(header.mark.left).toBeLessThan(header.wordmark.left);
           expect(header.wordmark.left).toBeLessThan(header.title.left);
+          await captureState(
+            page,
+            state,
+            'Shared header/notice, current roles, one window scrollbar',
+          );
           if (captures) {
             await page.screenshot({
               path: join(captures, `${state}-${width}-${colorScheme}.png`),
@@ -655,10 +898,10 @@ test('browser pages use local tokens in both schemes and fit desktop and mobile'
         const events = lines(pair);
         const offer = await events.next();
         await page.goto(offer.link as string);
-        await expect(page.locator('#pair')).toBeVisible();
+        await expect(page.getByRole('button', { name: 'Pair', exact: true })).toBeEnabled();
         await inspect('pairing');
         expect(await page.locator('#mark').evaluate((mark) => getComputedStyle(mark).color)).toBe(
-          colorScheme === 'light' ? 'rgb(150, 80, 39)' : 'rgb(255, 158, 100)',
+          tokenRgb('color', 'waiting', colorScheme),
         );
         // Keyboard-only submission exercises the visible focus and form behavior.
         await page.locator('#name').focus();
@@ -671,7 +914,7 @@ test('browser pages use local tokens in both schemes and fit desktop and mobile'
         await expect(page.locator('#status')).toHaveAttribute('data-state', 'waiting');
         await expect(page.locator('.words-label')).toHaveText('Words');
         await expect(page.locator('#status')).toHaveText(
-          'Compare these words with the terminal, then confirm there.',
+          'Waiting for confirmation in your terminal. Compare these words and confirm only if they match.',
         );
         const confirmation = await page.evaluate(() => ({
           instruction: getComputedStyle(document.getElementById('status')!).color,
@@ -683,9 +926,7 @@ test('browser pages use local tokens in both schemes and fit desktop and mobile'
             .contains(document.querySelector('.words-label')),
         }));
         expect(confirmation.instruction).toBe(confirmation.body);
-        expect(confirmation.mark).toBe(
-          colorScheme === 'light' ? 'rgb(150, 80, 39)' : 'rgb(255, 158, 100)',
-        );
+        expect(confirmation.mark).toBe(tokenRgb('color', 'waiting', colorScheme));
         expect(confirmation.wordsSize).toBeGreaterThanOrEqual(24);
         expect(confirmation.labelInside).toBe(false);
         await inspect('confirmation');
@@ -699,10 +940,12 @@ test('browser pages use local tokens in both schemes and fit desktop and mobile'
         );
         await expect(page.locator('#mark')).toHaveText('✗');
         await expectStateColor(page, colorScheme, 'blocked');
+        await captureState(page, 'pair-failed', 'Failure words, no retry action');
         expect((await page.goto(`${origin}/pair/abc`))?.status()).toBe(404);
         await page.goto(`${origin}/pair#BAD`);
         await expect(page.locator('#status')).toHaveAttribute('data-state', 'blocked');
         await expect(page.locator('#pair')).toBeHidden();
+        await captureState(page, 'pair-offer-unavailable', 'Unavailable offer, hidden form');
         expect(requests.every((url) => new URL(url).origin === origin)).toBe(true);
         expect(violations).toEqual([]);
       } finally {
@@ -720,4 +963,902 @@ test('browser pages use local tokens in both schemes and fit desktop and mobile'
     'storage.root',
     ...Array<string>(4).fill('storage.root'),
   ]);
+});
+
+test('the native entry separates saved pairing from explicit verified access and never sends work', async () => {
+  const context = await browser.newContext();
+  const page = await context.newPage();
+  const captureEntry = async (state: string): Promise<void> => {
+    await captureState(
+      page,
+      `entry-${state}`,
+      'Saved pairing vs verified access, reason and Connect',
+    );
+    const captures = process.env.TMT_REMOTE_CAPTURE_DIR;
+    for (const colorScheme of ['light', 'dark'] as const) {
+      await page.emulateMedia({ colorScheme });
+      for (const width of [1440, 390]) {
+        await page.setViewportSize({ width, height: 900 });
+        expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
+          true,
+        );
+        if (captures) {
+          await mkdir(captures, { recursive: true });
+          await page.screenshot({
+            path: join(captures, `entry-${state}-${width}-${colorScheme}.png`),
+            fullPage: true,
+          });
+        }
+      }
+    }
+    await page.setViewportSize({ width: 320, height: 900 });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
+      true,
+    );
+  };
+  let mountsRead = 0,
+    admissions = 0;
+  const requests: string[] = [];
+  page.on('request', (request) => requests.push(request.url()));
+  const readCounts = () => ({ mounts: mountsRead, admissions });
+  page.on('request', (request) => {
+    if (new URL(request.url()).pathname === '/sdk/mount') mountsRead++;
+    const body = request.postData();
+    if (body && request.url().endsWith('/append') && JSON.parse(body).operation === 'session.open')
+      admissions++;
+  });
+  await page.goto(origin);
+  await expect(page.locator('#pairing-status')).toHaveText('No saved pairing');
+  await expect(page.locator('#access-status')).toHaveText('Not checked');
+  await expect(page.getByRole('button', { name: 'Connect' })).toBeDisabled();
+  expect(readCounts()).toEqual({ mounts: 0, admissions: 0 });
+  await expect(page.locator('.entry-help')).toContainText('confirm in the terminal');
+  await captureEntry('unpaired');
+
+  pair = spawn(BINARY, ['pair', '--json'], { env });
+  const events = lines(pair);
+  const offer = await events.next();
+  const code = (offer.link as string).split('#')[1]!;
+  await page.goto(offer.link as string);
+  await page.fill('#name', 'Entry browser');
+  await page.getByRole('button', { name: 'Pair', exact: true }).click();
+  const candidate = await events.next();
+  await expect(page.locator('#words')).toHaveText((candidate.words as string[]).join(' '));
+  pair.stdin.write('confirm\n');
+  const paired = await events.next();
+  expect(paired.reason).toBe('paired');
+  await exited(pair);
+  expect(pair.exitCode).toBe(0);
+  await expect(page.locator('#entry-link')).toBeVisible();
+  expect(requests.some((url) => url.includes(code))).toBe(false);
+  const original = await page.evaluate(async () => {
+    const database = await new Promise<IDBDatabase>((resolve) => {
+      const request = indexedDB.open('tmt-remote', 1);
+      request.onsuccess = () => resolve(request.result);
+    });
+    const record = await new Promise<{
+      paired: { clientId: string; machineId: string; machinePublicKey: Uint8Array };
+    }>((resolve) => {
+      const request = database.transaction('device').objectStore('device').get('device');
+      request.onsuccess = () => resolve(request.result);
+    });
+    database.close();
+    return {
+      clientId: record.paired.clientId,
+      machineId: record.paired.machineId,
+      machinePublicKey: Array.from(record.paired.machinePublicKey),
+    };
+  });
+  async function changePin(machineId: string, pin: number[]): Promise<void> {
+    await page.evaluate(
+      async ({ machineId, pin }) => {
+        const database = await new Promise<IDBDatabase>((resolve) => {
+          const request = indexedDB.open('tmt-remote', 1);
+          request.onsuccess = () => resolve(request.result);
+        });
+        const transaction = database.transaction('device', 'readwrite');
+        const store = transaction.objectStore('device');
+        const request = store.get('device');
+        request.onsuccess = () => {
+          const record = request.result;
+          record.paired.machineId = machineId;
+          record.paired.machinePublicKey = new Uint8Array(pin);
+          store.put(record, 'device');
+        };
+        await new Promise<void>((resolve, reject) => {
+          transaction.oncomplete = () => resolve();
+          transaction.onerror = () => reject(transaction.error);
+        });
+        database.close();
+      },
+      { machineId, pin },
+    );
+  }
+  async function saved(): Promise<void> {
+    mountsRead = 0;
+    admissions = 0;
+    await page.goto(origin);
+    await expect(page.locator('#pairing-status')).toHaveText('Pairing saved in this browser');
+    await expect(page.locator('#access-status')).toHaveText('Not checked');
+    expect(readCounts()).toEqual({ mounts: 0, admissions: 0 });
+  }
+  await page.getByRole('link', { name: 'Return to Remote and connect' }).click();
+  await saved();
+  await captureEntry('saved');
+  // Keyboard activation exposes visible focus before connecting.
+  await page.keyboard.press('Tab');
+  await expect(page.getByRole('button', { name: 'Connect' })).toBeFocused();
+  if (process.env.TMT_REMOTE_CAPTURE_DIR) {
+    await page.setViewportSize({ width: 320, height: 900 });
+    await page.screenshot({
+      path: join(process.env.TMT_REMOTE_CAPTURE_DIR, 'entry-connect-focus-320-dark.png'),
+      fullPage: true,
+    });
+  }
+  await captureState(
+    page,
+    'entry-connect-focus',
+    'Connect keyboard focus remains visible at all widths',
+  );
+  const connecting = routeBarrier();
+  const continued = routeBarrier();
+  let mountHeld = false;
+  const holdMount = async (route: import('@playwright/test').Route) => {
+    mountHeld = true;
+    connecting.arrive();
+    try {
+      await connecting.held;
+      await route.continue();
+    } finally {
+      continued.arrive();
+    }
+  };
+  await page.route('**/sdk/mount', holdMount);
+  try {
+    await page.keyboard.press('Enter');
+    await connecting.reached;
+    await expect(page.locator('#access-status')).toHaveText('Connecting…');
+    await expect(page.locator('#check')).toBeDisabled();
+    await captureState(
+      page,
+      'entry-connecting',
+      'Explicit Connect in flight; disabled action, no work sent',
+    );
+  } finally {
+    connecting.release();
+    // Removing a route resumes pending handlers; join ours before unregistering it.
+    if (mountHeld) await continued.reached;
+    await page.unroute('**/sdk/mount', holdMount);
+  }
+  await expect(page.locator('#access-status')).toHaveText('Access confirmed');
+  expect(readCounts()).toEqual({ mounts: 1, admissions: 1 });
+  await expect(page.locator('#status')).toContainText('no work was sent');
+  await captureEntry('verified');
+  const beforeGrants = execFileSync(
+    'python3',
+    [
+      '-c',
+      'import sqlite3,sys,json;d=sqlite3.connect(sys.argv[1]);print(json.dumps(d.execute("select * from grants").fetchall(),default=lambda value: value.hex()))',
+      join(root, 'state/remote/remote.db'),
+    ],
+    { encoding: 'utf8' },
+  );
+
+  await changePin(crypto.randomUUID(), original.machinePublicKey);
+  await saved();
+  await page.click('#check');
+  await expect(page.locator('#pairing-status')).toHaveText(
+    'Saved pairing does not match this Remote',
+  );
+  expect(readCounts()).toEqual({ mounts: 1, admissions: 0 });
+
+  await changePin(original.machineId, original.machinePublicKey.slice(0, 31));
+  mountsRead = 0;
+  admissions = 0;
+  await page.goto(origin);
+  await expect(page.locator('#pairing-status')).toHaveText('Pairing status unknown');
+  expect(readCounts()).toEqual({ mounts: 0, admissions: 0 });
+
+  const changed = [...original.machinePublicKey];
+  changed[0] = changed[0]! ^ 1;
+  await changePin(original.machineId, changed);
+  await saved();
+  await page.click('#check');
+  await expect(page.locator('#access-status')).toHaveText('Could not verify access');
+  expect(readCounts()).toEqual({ mounts: 1, admissions: 1 });
+  await expect(page.locator('#pairing-status')).toHaveText('Pairing saved in this browser');
+  await captureEntry('unconfirmed');
+
+  await changePin(original.machineId, original.machinePublicKey);
+  await saved();
+  await page.route('**/sdk/mount', (route) => route.abort('failed'));
+  await page.click('#check');
+  await expect(page.locator('#access-status')).toHaveText('Could not verify access');
+  expect(readCounts()).toEqual({ mounts: 1, admissions: 0 });
+  await page.unroute('**/sdk/mount');
+  expect(
+    execFileSync(
+      'python3',
+      [
+        '-c',
+        'import sqlite3,sys,json;d=sqlite3.connect(sys.argv[1]);print(json.dumps(d.execute("select * from grants").fetchall(),default=lambda value: value.hex()))',
+        join(root, 'state/remote/remote.db'),
+      ],
+      { encoding: 'utf8' },
+    ),
+  ).toBe(beforeGrants);
+
+  const revoke = spawn(BINARY, ['devices', 'revoke', original.clientId, '--json'], { env });
+  expect((await lines(revoke).next()).device).toMatchObject({
+    clientId: original.clientId,
+    revoked: true,
+  });
+  await exited(revoke);
+  expect(revoke.exitCode).toBe(0);
+  await saved();
+  await page.click('#check');
+  await expect(page.locator('#access-status')).toHaveText('Could not verify access');
+  expect(readCounts()).toEqual({ mounts: 2, admissions: 1 });
+  await expect(page.locator('#status')).toContainText('not a verified refusal reason');
+  await captureEntry('refused');
+  await context.close();
+
+  const unavailable = await browser.newContext();
+  await unavailable.addInitScript(() => {
+    indexedDB.open = () => {
+      throw new Error('private storage diagnostic');
+    };
+  });
+  const unavailablePage = await unavailable.newPage();
+  await unavailablePage.goto(origin);
+  await expect(unavailablePage.locator('#pairing-status')).toHaveText('Pairing status unknown');
+  await expect(unavailablePage.locator('#status')).not.toContainText('private storage diagnostic');
+  await unavailable.close();
+  const coreCalls = (await readFile(join(root, 'core-calls.jsonl'), 'utf8'))
+    .trim()
+    .split('\n')
+    .map((line) => JSON.parse(line).operation);
+  expect(coreCalls.every((operation) => ['capabilities', 'storage.root'].includes(operation))).toBe(
+    true,
+  );
+  expect(
+    execFileSync(
+      'python3',
+      [
+        '-c',
+        'import sqlite3,sys;d=sqlite3.connect(sys.argv[1]);print(d.execute("select count(*) from operations").fetchone()[0])',
+        join(root, 'state/remote/remote.db'),
+      ],
+      { encoding: 'utf8' },
+    ).trim(),
+  ).toBe('0');
+});
+
+test('settings draft preserves authority, exact values, drafts and unknown self-change outcomes', async () => {
+  pair = spawn(BINARY, ['pair', '--json'], { env });
+  const events = lines(pair);
+  const offer = await events.next();
+  const context = await browser.newContext();
+  const page = await context.newPage();
+  await page.goto(offer.link as string);
+  await page.fill('#name', 'Settings browser');
+  await page.click('button');
+  await expect(page.locator('#words')).toBeVisible();
+  await events.next();
+  pair.stdin.write('confirm\n');
+  expect((await events.next()).reason).toBe('paired');
+  await expect(page.locator('#status')).toContainText('This browser is paired.');
+  await exited(pair);
+  const inventory = JSON.parse(
+    execFileSync(BINARY, ['devices', '--json'], { env, encoding: 'utf8' }),
+  ) as { devices: { clientId: string }[] };
+  const clientId = inventory.devices[0]!.clientId;
+  async function descriptions(editable: boolean): Promise<void> {
+    await expect(page.locator('.device-summary').first()).toContainText(
+      ' · This device · browser · Paired · ',
+    );
+    const guidance =
+      'Read-only in this browser. Change Remote settings or manage devices with the local CLI.';
+    const help = 'Default is 8. Off means unlimited. Changes apply at the next session open.';
+    await expect(page.locator(`#name-${clientId}`)).toHaveAccessibleDescription(
+      editable ? '' : guidance,
+    );
+    await expect(page.locator('#opening-form')).toHaveAccessibleDescription(
+      editable ? '' : guidance,
+    );
+    await expect(page.locator('#limit-form')).toHaveAccessibleDescription(
+      editable ? help : `${help} ${guidance}`,
+    );
+  }
+
+  const loading = routeBarrier();
+  const joined = routeBarrier();
+  const holdSettings = async (route: import('@playwright/test').Route) => {
+    loading.arrive();
+    try {
+      await loading.held;
+      await route.continue();
+    } finally {
+      joined.arrive();
+    }
+  };
+  await page.route('**/sdk/settings-v1.js', holdSettings);
+  try {
+    await page.goto(`${origin}/settings`, { waitUntil: 'commit' });
+    await loading.reached;
+    await expect(page.locator('header')).toHaveClass('header tmt-ui-header');
+    await captureState(
+      page,
+      'settings-loading',
+      'Real served initial controls while SDK entry is held',
+    );
+  } finally {
+    loading.release();
+    await joined.reached;
+    await page.unroute('**/sdk/settings-v1.js', holdSettings);
+  }
+  await expect(page.locator('#access')).toContainText('confirmed');
+  await expect(page.locator('#read-only')).toBeVisible();
+  await expect(page.locator('#opening')).toBeDisabled();
+  await descriptions(false);
+  await captureState(
+    page,
+    'settings-read-only',
+    'Non-designated browser, visible local CLI and disabled reasons',
+  );
+  await expect(page.locator('#limit-value')).toHaveText('8 · default');
+  execFileSync(BINARY, ['devices', 'designate', clientId, '--json'], { env });
+  await page.click('#refresh');
+  await expect(page.locator('#opening')).toBeEnabled();
+  await expect(page.locator('#read-only')).toBeHidden();
+  await descriptions(true);
+  for (const theme of ['light', 'dark'] as const) {
+    await page.emulateMedia({ colorScheme: theme });
+    const computed = await page.locator(`#name-${clientId}`).evaluate((input) => {
+      const css = getComputedStyle(input);
+      return {
+        color: css.color,
+        background: css.backgroundColor,
+        shadow: css.boxShadow,
+        opacity: css.opacity,
+      };
+    });
+    expect(computed).toEqual({
+      color: tokenRgb('color', 'text', theme),
+      background: tokenRgb('surface', 'sheet', theme),
+      shadow: 'none',
+      opacity: '1',
+    });
+    await expect(page.locator(`#name-${clientId}`)).toHaveAccessibleName('Device name');
+    await expect(page.locator('#opening')).toHaveAccessibleName('Open a browser when pairing');
+  }
+  await page.emulateMedia({ colorScheme: 'light' });
+  await page.locator(`#name-${clientId}`).focus();
+  await page.keyboard.press('ArrowLeft');
+  expect(
+    await page
+      .locator(`#name-${clientId}`)
+      .evaluate((control) => control.matches(':focus-visible')),
+  ).toBe(true);
+  await captureState(
+    page,
+    'settings-device-keyboard-focus',
+    'Shared field focus outline and stable native device control',
+  );
+  await page.locator('#opening').focus();
+  await page.keyboard.press('Tab');
+  await expect(page.locator('#opening-form button')).toBeFocused();
+  expect(
+    await page
+      .locator('#opening-form button')
+      .evaluate((control) => control.matches(':focus-visible')),
+  ).toBe(true);
+  await captureState(
+    page,
+    'settings-action-keyboard-focus',
+    'Shared Action keyboard focus; native submit ownership',
+  );
+  await captureState(
+    page,
+    'settings-designated-default',
+    'Designated browser; unset default8 and admitted controls',
+  );
+  // Refresh preserves the unset source and never turns default 8 into an explicit cap.
+  await page.click('#refresh');
+  await expect(page.locator('#refresh')).toBeEnabled();
+  await descriptions(true);
+  expect(
+    JSON.parse(execFileSync(BINARY, ['settings', '--json'], { env, encoding: 'utf8' }))
+      .sessionsPerDeviceSource,
+  ).toBe('default');
+  await page.selectOption('#limit-mode', 'custom');
+  await page.fill('#limit-custom', '8');
+  await page.click('#limit-form button');
+  await expect(page.locator('#limit-value')).toHaveText('8 · settings.json');
+  await captureState(
+    page,
+    'settings-explicit-custom',
+    'Explicit custom8 differs from default source',
+  );
+  await page.selectOption('#opening', 'off');
+  await page.click('#opening-form button');
+  await expect(page.locator('#outcome')).toContainText('committed');
+  await expect(page.locator('#opening-value')).toHaveText('Off · settings.json');
+  await page.selectOption('#limit-mode', 'custom');
+  await page.fill('#limit-custom', '18446744073709551615');
+  await page.click('#limit-form button');
+  await expect(page.locator('#limit-value')).toHaveText('18446744073709551615 · settings.json');
+  expect(execFileSync(BINARY, ['settings', '--json'], { env, encoding: 'utf8' })).toContain(
+    '18446744073709551615',
+  );
+  await page.selectOption('#limit-mode', 'off');
+  await page.click('#limit-form button');
+  await expect(page.locator('#limit-value')).toHaveText('Off (unlimited) · settings.json');
+  // Role removal fences stale admitted capabilities and keeps unsent text.
+  await page.selectOption('#limit-mode', 'custom');
+  await page.fill('#limit-custom', '19');
+  execFileSync(BINARY, ['devices', 'undesignate', '--json'], { env });
+  await page.click('#limit-form button');
+  await expect(page.locator('#outcome')).toContainText('refused');
+  await expect(page.locator('#limit-custom')).toHaveValue('19');
+  await page.click('#refresh');
+  await expect(page.locator('#read-only')).toBeVisible();
+  await descriptions(false);
+  await captureState(
+    page,
+    'settings-role-removed-draft',
+    'Role removed; unsent19 draft and historical refused outcome retained',
+  );
+  expect(
+    JSON.parse(execFileSync(BINARY, ['settings', '--json'], { env, encoding: 'utf8' }))
+      .sessionsPerDevice,
+  ).toBe(null);
+  execFileSync(BINARY, ['devices', 'designate', clientId, '--json'], { env });
+  await page.click('#refresh');
+  await expect(page.locator('#read-only')).toBeHidden();
+  await descriptions(true);
+  await captureState(
+    page,
+    'settings-restored-draft',
+    'Restored current access remains separate from prior refusal and unsent draft',
+  );
+  const captures = process.env.TMT_REMOTE_CAPTURE_DIR;
+  for (const colorScheme of ['light', 'dark'] as const) {
+    await page.emulateMedia({ colorScheme });
+    for (const width of [1440, 390, 320]) {
+      await page.setViewportSize({ width, height: 1000 });
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
+        true,
+      );
+      await page.evaluate(() => scrollTo(0, 0));
+      if (captures && width !== 320) {
+        await mkdir(captures, { recursive: true });
+        await page.screenshot({
+          path: join(captures, `settings-${colorScheme}-${width}.png`),
+          fullPage: true,
+        });
+      }
+    }
+  }
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  let renameCalls = 0,
+    revokeCalls = 0,
+    opens = 0;
+  let recorded!: () => void, release!: () => void;
+  const published = new Promise<void>((resolve) => {
+    recorded = resolve;
+  });
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const recovery = routeBarrier();
+  const recoveryJoined = routeBarrier();
+  let recoveryHeld = false,
+    holdRecovery = true;
+  await page.route('**/append', async (route) => {
+    const body = route.request().postDataJSON() as { operation: string };
+    if (body.operation === 'session.open') {
+      opens++;
+      if (holdRecovery) {
+        recoveryHeld = true;
+        recovery.arrive();
+        try {
+          await recovery.held;
+          await route.continue();
+        } finally {
+          recoveryJoined.arrive();
+        }
+        return;
+      }
+    }
+    if (body.operation === 'remote.devices.rename') {
+      renameCalls++;
+      expect((await route.fetch()).status()).toBe(200);
+      recorded();
+      await held;
+      await route.abort();
+    } else if (body.operation === 'remote.devices.revoke') {
+      revokeCalls++;
+      expect((await route.fetch()).status()).toBe(200);
+      await route.abort();
+    } else await route.continue();
+  });
+  const name = page.locator(`#name-${clientId}`);
+  await name.fill('Renamed browser');
+  await page.locator('.device button[type=submit]').click();
+  await published;
+  try {
+    await captureState(
+      page,
+      'settings-saving-self-rename',
+      'Actual native effect with acknowledgement held; saving and disabled actions',
+    );
+    await name.fill('Unsent next name');
+    await name.evaluate((input) => {
+      (input as HTMLInputElement).setSelectionRange(2, 2);
+    });
+  } finally {
+    release();
+  }
+  await expect(page.locator('#outcome')).toHaveText(
+    'Outcome unknown. Read the original operation; do not submit it again.',
+  );
+  await expect(name).toHaveValue('Unsent next name');
+  expect(await name.evaluate((input) => (input as HTMLInputElement).selectionStart)).toBe(2);
+  await expect(name).toBeFocused();
+  await captureState(
+    page,
+    'settings-unknown-name-focus',
+    'Unknown original rename, retained next-name draft/caret/focus; no resend',
+  );
+  await name.press('Enter');
+  expect(renameCalls).toBe(1);
+  const original = await page.locator('#original').textContent();
+  try {
+    await page.click('#recover');
+    await recovery.reached;
+    await captureState(
+      page,
+      'settings-recovery-pending',
+      'One fresh live admission in progress; original ID and draft are frozen, no resend',
+    );
+  } finally {
+    holdRecovery = false;
+    recovery.release();
+    if (recoveryHeld) await recoveryJoined.reached;
+  }
+  await expect(page.locator('#outcome')).toContainText('committed');
+  await expect(page.locator('#original')).toHaveText(original!);
+  await expect(name).toHaveValue('Unsent next name');
+  expect(renameCalls).toBe(1);
+  expect(opens).toBe(1);
+  await captureState(
+    page,
+    'settings-rename-recovered',
+    'Fresh live Session reads committed original; next-name draft retained',
+  );
+  // Lost self-revoke acknowledgement: one fresh read-only admission, accurate access loss + unknown.
+  const confirmation = page.waitForEvent('dialog');
+  const revokeClick = page.locator('.device button[type=button]').click();
+  const dialog = await confirmation;
+  try {
+    expect(dialog.type()).toBe('confirm');
+    expect(dialog.message()).toBe('Revoke Renamed browser (this device)?');
+  } finally {
+    await dialog.accept();
+  }
+  await revokeClick;
+  await expect(page.locator('#outcome')).toContainText('unknown');
+  await page.click('#recover');
+  await expect(page.locator('#access')).toContainText('refused');
+  await expect(page.locator('#outcome')).toContainText('unknown');
+  await expect(page.locator('#recover')).toBeHidden();
+  await expect(page.locator('#opening')).toBeDisabled();
+  await captureState(
+    page,
+    'settings-self-revoke-access-lost',
+    'Self-revoke lost ack; current access loss and historical unknown stay separate',
+  );
+  expect(revokeCalls).toBe(1);
+  expect(opens).toBe(2);
+  await page.click('#refresh');
+  await expect(page.locator('#outcome')).toContainText('unknown');
+  expect(opens).toBe(2);
+  const calls = (await readFile(join(root, 'core-calls.jsonl'), 'utf8'))
+    .split('\n')
+    .filter(Boolean)
+    .map((line) => JSON.parse(line) as { operation: string });
+  expect(calls.filter((call) => call.operation === 'dispatch.create')).toHaveLength(0);
+  await context.close();
+});
+
+test('settings pagination retains later-page drafts across refresh and guards navigation', async () => {
+  pair = spawn(BINARY, ['pair', '--json'], { env });
+  const events = lines(pair);
+  const offer = await events.next();
+  const context = await browser.newContext();
+  const page = await context.newPage();
+  await page.goto(offer.link as string);
+  await page.fill('#name', 'Pagination browser');
+  await page.click('button');
+  await expect(page.locator('#words')).toBeVisible();
+  await events.next();
+  pair.stdin.write('confirm\n');
+  expect((await events.next()).reason).toBe('paired');
+  await expect(page.locator('#status')).toContainText('This browser is paired.');
+  await exited(pair);
+  const inventory = JSON.parse(
+    execFileSync(BINARY, ['devices', '--json'], { env, encoding: 'utf8' }),
+  ) as { devices: { clientId: string }[] };
+  execFileSync(BINARY, ['devices', 'designate', inventory.devices[0]!.clientId, '--json'], { env });
+  // Populate only the disposable fixture's Store with 52 distinct live grants.
+  // The paired browser still supplies every signed read/effect; no authority is mocked.
+  execFileSync('python3', [
+    '-c',
+    "import sqlite3,sys; db=sqlite3.connect(sys.argv[1]); db.executemany('INSERT INTO grants VALUES (?,?,?,?,?,?,?,?,?,?,?,?)', [('00000000-0000-4000-8000-%012d'%i, i.to_bytes(32,'big'),'browser',sys.argv[2],'Device %d'%i,'all','capabilities','direct',0,None,1,0) for i in range(1,53)]); db.commit(); db.close()",
+    join(root, 'state/remote/remote.db'),
+    origin,
+  ]);
+  await page.goto(`${origin}/settings`);
+  await expect(page.locator('.device')).toHaveCount(25);
+  await page.click('#more');
+  const name = page.locator('#name-00000000-0000-4000-8000-000000000026');
+  await expect(name).toBeVisible();
+  await name.fill('Unsent later-page name');
+  await name.evaluate((input) => (input as HTMLInputElement).setSelectionRange(3, 3));
+  await page.click('#refresh');
+  await expect(page.locator('#refresh')).toBeEnabled();
+  await expect(name).toHaveValue('Unsent later-page name');
+  expect(await name.evaluate((input) => (input as HTMLInputElement).selectionStart)).toBe(3);
+  // A different committed effect also refreshes this page without resetting its forms.
+  await page.selectOption('#opening', 'off');
+  await page.click('#opening-form button');
+  await expect(page.locator('#opening-value')).toHaveText('Off · settings.json');
+  await expect(name).toHaveValue('Unsent later-page name');
+  // Original-receipt recovery refresh also stays on this page after a real lost ack.
+  let settingCalls = 0;
+  await page.route('**/append', async (route) => {
+    if (route.request().postDataJSON().operation === 'remote.settings.set') {
+      settingCalls++;
+      expect((await route.fetch()).status()).toBe(200);
+      await route.abort();
+    } else await route.continue();
+  });
+  await page.selectOption('#opening', 'on');
+  await page.click('#opening-form button');
+  await expect(page.locator('#outcome')).toContainText('unknown');
+  const original = await page.locator('#original').textContent();
+  await page.click('#recover');
+  await expect(page.locator('#opening-value')).toHaveText('On · settings.json');
+  await expect(page.locator('#outcome')).toContainText('committed');
+  await expect(page.locator('#original')).toHaveText(original!);
+  await expect(name).toHaveValue('Unsent later-page name');
+  expect(settingCalls).toBe(1);
+  // Both directions refuse to discard a dirty UUID-bound form, keeping it focused.
+  await page.click('#more');
+  await expect(page.locator('#outcome')).toContainText('Save or restore');
+  await expect(name).toHaveValue('Unsent later-page name');
+  await expect(name).toBeFocused();
+  await captureState(
+    page,
+    'settings-pagination-draft-guard',
+    'Real bounded25-device page; unsent draft blocks navigation without discarding focus',
+  );
+  await page.click('#first');
+  await expect(name).toHaveValue('Unsent later-page name');
+  await expect(name).toBeFocused();
+  await expect(page.locator('.device')).toHaveCount(25);
+  // Explicit restoration permits bounded navigation; return still uses server metadata.
+  await name.fill('Device 26');
+  await page.click('#first');
+  await expect(page.locator('#name-00000000-0000-4000-8000-000000000001')).toBeVisible();
+  await page.click('#more');
+  await expect(name).toHaveValue('Device 26');
+  await expect(page.locator('.device')).toHaveCount(25);
+  // Real non-self mutations exercise the presentation without changing the browser's authority.
+  await page.unroute('**/append');
+  await page.click('#first');
+  const target = page
+    .locator('.device')
+    .filter({ has: page.locator('#name-00000000-0000-4000-8000-000000000001') });
+  await target.locator('input').fill('Reviewed device');
+  await target.locator('button[type=submit]').click();
+  await expect(page.locator('#outcome')).toContainText('committed');
+  await expect(target.locator('.device-summary')).toContainText('Reviewed device');
+  await captureState(
+    page,
+    'settings-other-device-renamed',
+    'Committed non-self rename; unchanged current browser authority',
+  );
+  page.once('dialog', async (dialog) => {
+    expect(dialog.type()).toBe('confirm');
+    expect(dialog.message()).toBe('Revoke Reviewed device?');
+    await dialog.accept();
+  });
+  await captureState(
+    page,
+    'settings-revoke-ready',
+    'Native revoke action; confirm text is asserted separately, not rasterized by headless Chromium',
+  );
+  await target.locator('button[type=button]').click();
+  await expect(target.locator('.device-summary')).toContainText('Revoked');
+  await expect(target.locator('button[type=button]')).toBeDisabled();
+  await expect(target.locator('button[type=button]')).toHaveAccessibleDescription(
+    'This device is revoked.',
+  );
+  await captureState(
+    page,
+    'settings-other-device-revoked',
+    'Revoked row stays read-only with an explicit associated disabled reason',
+  );
+  // Saturate the actual retained-identity quota in this disposable Store only.
+  execFileSync('python3', [
+    '-c',
+    "import sqlite3,sys,uuid,json;d=sqlite3.connect(sys.argv[1]);client=sys.argv[2];n=d.execute('select count(*) from management_receipts where client_id=?',(client,)).fetchone()[0];d.executemany('insert into management_receipts values(?,?,?,?,?,?,?,?)',[(str(uuid.uuid4()),client,'remote.settings.set',bytes(32),1,0,0,json.dumps({'state':'unknown','reason':'effect_outcome_unconfirmed'})) for _ in range(1000-n)]);d.commit();d.close()",
+    join(root, 'state/remote/remote.db'),
+    inventory.devices[0]!.clientId,
+  ]);
+  await page.selectOption('#opening', 'off');
+  await page.click('#opening-form button');
+  await expect(page.locator('#outcome')).toContainText('refused');
+  await expect(page.locator('#controls-reason')).toContainText('operation limit reached');
+  await expect(page.locator('#opening-form button')).toBeDisabled();
+  await captureState(
+    page,
+    'settings-capacity-refused',
+    'Actual signed cumulative-capacity refusal; local CLI, no retry/reset/new-ID workaround',
+  );
+  // Malformed file read stays observational and reports default source plus warning.
+  await writeFile(join(root, 'state/remote/settings.json'), '{');
+  await page.click('#refresh');
+  await expect(page.locator('#warning')).toHaveText(
+    'settings.json could not be read; defaults apply',
+  );
+  await expect(page.locator('#limit-value')).toHaveText('8 · default');
+  await captureState(
+    page,
+    'settings-malformed-warning',
+    'Actual unreadable settings projection; default values/source, warning, previous refusal retained',
+  );
+  await context.close();
+});
+
+test('committed signed management survives owned serve SIGKILL and fresh original-ID read', async () => {
+  pair = spawn(BINARY, ['pair', '--json'], { env });
+  const events = lines(pair);
+  const offer = await events.next();
+  const context = await browser.newContext();
+  const page = await context.newPage();
+  await page.goto(offer.link as string);
+  await page.fill('#name', 'Crash browser');
+  await page.click('button');
+  await expect(page.locator('#words')).toBeVisible();
+  await events.next();
+  pair.stdin.write('confirm\n');
+  expect((await events.next()).reason).toBe('paired');
+  await expect(page.locator('#status')).toContainText('This browser is paired.');
+  await exited(pair);
+  const inventory = JSON.parse(
+    execFileSync(BINARY, ['devices', '--json'], { env, encoding: 'utf8' }),
+  ) as { devices: { clientId: string }[] };
+  execFileSync(BINARY, ['devices', 'designate', inventory.devices[0]!.clientId, '--json'], { env });
+  await page.goto(`${origin}/settings`);
+  await expect(page.locator('#opening')).toBeEnabled();
+  const startupCalls = (await readFile(join(root, 'core-calls.jsonl'), 'utf8'))
+    .split('\n')
+    .filter(Boolean).length;
+  let effectCalls = 0;
+  let opens = 0;
+  let originalId = '';
+  let durable!: Record<string, unknown>;
+  const beforeMount = await page.evaluate(() =>
+    fetch('/sdk/mount', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path: location.pathname }),
+    }).then((reply) => reply.json()),
+  );
+  await page.route('**/append', async (route) => {
+    const body = route.request().postDataJSON() as { operation: string; id: string };
+    if (body.operation === 'session.open') opens++;
+    if (body.operation === 'remote.settings.set') {
+      effectCalls++;
+      originalId = body.id;
+      const reply = await route.fetch();
+      expect(reply.status()).toBe(200);
+      // This real effect+settlement and native response is the deterministic
+      // milestone. The browser still has not received its acknowledgement.
+      const response = await reply.json();
+      expect(JSON.parse(Buffer.from(response.payload, 'base64url').toString('utf8')).state).toBe(
+        'committed',
+      );
+      durable = JSON.parse(
+        execFileSync(
+          'python3',
+          [
+            '-c',
+            "import sqlite3,sys,json; db=sqlite3.connect(sys.argv[1]); row=db.execute('SELECT id,adopted_ms,deadline_ms,outcome FROM management_receipts WHERE id=?',(sys.argv[2],)).fetchone(); print(json.dumps(dict(zip(['id','adopted','deadline','outcome'],row)))); db.close()",
+            join(root, 'state/remote/remote.db'),
+            originalId,
+          ],
+          { encoding: 'utf8' },
+        ),
+      );
+      expect(JSON.parse(durable.outcome as string).state).toBe('committed');
+      expect(serve.kill('SIGKILL')).toBe(true);
+      await exited(serve);
+      expect(serve.signalCode).toBe('SIGKILL');
+      await route.abort();
+    } else await route.continue();
+  });
+  await page.selectOption('#opening', 'off');
+  await page.click('#opening-form button');
+  await expect(page.locator('#outcome')).toContainText('unknown');
+  await captureState(
+    page,
+    'settings-crash-unknown',
+    'Actual joined serve SIGKILL with original unknown; no resubmission',
+  );
+  await expect(page.locator('#original')).toHaveText(`Original operation ${originalId}`);
+  // The killed task is joined above. Only this disposable root/owned serve restarts.
+  serve = spawn(BINARY, ['serve', '--json'], { env });
+  const restarted = await lines(serve).next();
+  expect(new URL(restarted.address as string).origin).toBe(origin);
+  const afterMount = await page.evaluate(() =>
+    fetch('/sdk/mount', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path: location.pathname }),
+    }).then((reply) => reply.json()),
+  );
+  expect(afterMount.machineId).toBe(beforeMount.machineId);
+  expect(afterMount.windowId).not.toBe(beforeMount.windowId);
+  await page.click('#recover');
+  await expect(page.locator('#outcome')).toContainText('committed');
+  await expect(page.locator('#opening-value')).toHaveText('Off · settings.json');
+  await expect(page.locator('#opening')).toBeEnabled(); // designation survived process death.
+  await expect(page.locator('#original')).toHaveText(`Original operation ${originalId}`);
+  expect(effectCalls).toBe(1);
+  expect(opens).toBe(1);
+  const after = JSON.parse(
+    execFileSync(
+      'python3',
+      [
+        '-c',
+        "import sqlite3,sys,json; db=sqlite3.connect(sys.argv[1]); row=db.execute('SELECT id,adopted_ms,deadline_ms,outcome FROM management_receipts WHERE id=?',(sys.argv[2],)).fetchone(); print(json.dumps(dict(zip(['id','adopted','deadline','outcome'],row)))); db.close()",
+        join(root, 'state/remote/remote.db'),
+        originalId,
+      ],
+      { encoding: 'utf8' },
+    ),
+  );
+  expect(after).toEqual(durable);
+  const calls = (await readFile(join(root, 'core-calls.jsonl'), 'utf8'))
+    .split('\n')
+    .filter(Boolean)
+    .map((line) => JSON.parse(line) as { operation: string });
+  expect(
+    calls
+      .slice(startupCalls)
+      .map((call) => call.operation)
+      .sort(),
+  ).toEqual(['capabilities', 'storage.root']);
+  expect(calls.filter((call) => call.operation === 'dispatch.create')).toHaveLength(0);
+  await context.close();
+});
+
+test('settings shared presentation keeps unavailable initialization read-only', async () => {
+  const context = await browser.newContext();
+  const page = await context.newPage();
+  await page.goto(`${origin}/settings`);
+  await expect(page.locator('#access')).toContainText('unconfirmed');
+  await expect(page.locator('#opening')).toBeDisabled();
+  await expect(page.locator('#refresh')).toBeDisabled();
+  await expect(page.locator('#controls-reason')).toBeVisible();
+  await captureState(
+    page,
+    'settings-unavailable-initialization',
+    'No saved pairing; access unconfirmed, native controls remain unavailable',
+  );
+  await context.close();
 });

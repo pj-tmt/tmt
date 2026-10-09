@@ -1,9 +1,11 @@
+import type { ComponentMap } from './ci-scope.mjs';
 import type { DraftAsset, DraftRelease } from './release-draft-assets.mjs';
 
 export function selectPrevious(input: {
   releases: readonly DraftRelease[];
   product: string;
   candidateTag: string;
+  map?: ComponentMap;
 }): DraftRelease | null;
 export function selectSupportFloor(input: {
   releases: readonly DraftRelease[];
@@ -29,6 +31,11 @@ export interface UpgradePlan {
   previous: string | null;
   floor: string | null;
   driver: string | null;
+  /** Present only when the selected previous release is a declared predecessor. */
+  previousDriver?: string;
+  previousDriverSha?: string;
+  driverSha?: string;
+  requiresCliSha?: string;
   files: Record<string, string>;
 }
 export interface LocalCandidate {
@@ -48,6 +55,11 @@ export function fetchUpgrade(input: {
   directory: string;
   /** A rehearsal's verified local bundle replaces the candidate release. */
   local?: LocalCandidate;
+  map?: ComponentMap;
+  observeCli?: (
+    release: DraftRelease,
+    registration: string
+  ) => { sha: string; status: 'ahead' | 'behind' | 'identical' | 'diverged' };
 }): UpgradePlan;
 export function proveStaged(input: {
   directory: string;
@@ -57,6 +69,7 @@ export function proveStaged(input: {
   run: (script: string, args: string[]) => void;
   skill?: string;
   sourceRoot?: string;
+  map?: ComponentMap;
 }): { previous: string | null };
 export const ACCEPTANCE_TEST: string;
 export function acceptanceApplicability(sourceRoot: string): 'applicable' | 'predates';
@@ -73,6 +86,8 @@ export function proveArchiveAcceptance(input: {
   ) => string;
   environment?: NodeJS.ProcessEnv;
   report?: (message: string) => void;
+  /** Monotonic milliseconds for passive stderr diagnostics only. */
+  clock?: () => number;
 }): { outcome: 'nothing' | 'predates' | 'proved' };
 export const PROOF_FILES: readonly string[];
 export function assessUpgrade(input: {
@@ -86,11 +101,24 @@ export function releaseCommit(input: {
 export function ghAssetDownloader(input: {
   repository: string;
   env?: NodeJS.ProcessEnv;
+  sleep?: (milliseconds: number) => void;
   spawn?: (
     command: string,
     args: string[],
     options: object
   ) => { error?: Error; status: number | null; stdout: Buffer; stderr: Buffer };
 }): (asset: DraftAsset, file: string) => void;
+export function ghCliAncestry(input: {
+  repository: string;
+  env?: NodeJS.ProcessEnv;
+  spawn?: (
+    command: string,
+    args: string[],
+    options: object
+  ) => { error?: Error; status: number | null; stdout: string; stderr?: string };
+}): (
+  release: DraftRelease,
+  registration: string
+) => { sha: string; status: 'ahead' | 'behind' | 'identical' | 'diverged' };
 export function failureCause(log: string): string;
 export function combineFailures(failures: readonly { target: string; log: string }[]): string;

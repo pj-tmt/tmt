@@ -2,6 +2,9 @@ import * as Y from 'yjs';
 import { digest, equal, frame, text } from '@tmt/colab-client';
 import {
   BASELINE_UPDATE_BYTES,
+  CONTENT_CHUNK_BYTES,
+  sameContent,
+  validateContentUpdates,
   READ_TAIL_UPDATES,
   STATE_BYTES,
   UPDATE_BYTES,
@@ -9,7 +12,9 @@ import {
   WRITE_TAIL_UPDATES,
   validateProjection,
   validateOwn,
-  type FoldCommand,
+  type DecoderCommand,
+  type ContentPreparation,
+  type Projection,
 } from './fold-protocol.js';
 
 // One shared content document and one own document per admitted writer; only this module imports/decodes Yjs.
@@ -91,7 +96,12 @@ function project(doc: Y.Doc, complete = true) {
           typeof part.insert !== 'string' || part.attributes,
       ) ||
     [...meta.keys()].some(
-      (key) => key !== 'title' && key !== 'publisherAgent' && key !== 'originalAuthor',
+      (key) =>
+        key !== 'title' &&
+        key !== 'publisherAgent' &&
+        key !== 'originalAuthor' &&
+        key !== 'creationRecipient' &&
+        key !== 'attachments',
     ) ||
     (meta.has('title') && typeof meta.get('title') !== 'string')
   )
@@ -101,11 +111,60 @@ function project(doc: Y.Doc, complete = true) {
     title: (meta.get('title') ?? '') as string,
     ...(meta.has('originalAuthor') ? { originalAuthor: meta.get('originalAuthor') as string } : {}),
     ...(meta.has('publisherAgent') ? { publisherAgent: meta.get('publisherAgent') as string } : {}),
+    ...(meta.has('creationRecipient') ? { creationRecipient: meta.get('creationRecipient') } : {}),
+    ...(meta.has('attachments') ? { attachments: meta.get('attachments') } : {}),
   };
   validateProjection(projection);
   return projection;
 }
-self.onmessage = async (event: MessageEvent<{ id: number; command: FoldCommand }>) => {
+/** Bound UTF-8 bytes while retaining Y.Text's UTF-16 indices. */
+function* contentPieces(source: string) {
+  let start = 0;
+  while (start < source.length) {
+    let end = start,
+      bytes = 0;
+    while (end < source.length) {
+      const point = source.codePointAt(end)!;
+      const size = point <= 0x7f ? 1 : point <= 0x7ff ? 2 : point <= 0xffff ? 3 : 4;
+      if (bytes + size > CONTENT_CHUNK_BYTES) break;
+      bytes += size;
+      end += point > 0xffff ? 2 : 1;
+    }
+    yield source.slice(start, end);
+    start = end;
+  }
+}
+function contentDiff(old: string, next: string) {
+  let start = 0,
+    end = 0;
+  while (start < old.length && start < next.length && old[start] === next[start]) start++;
+  if (start && /[\uD800-\uDBFF]/.test(old[start - 1])) start--;
+  while (
+    end < old.length - start &&
+    end < next.length - start &&
+    old[old.length - end - 1] === next[next.length - end - 1]
+  )
+    end++;
+  if (end && /[\uDC00-\uDFFF]/.test(old[old.length - end])) end--;
+  return { start, remove: old.length - start - end, insert: next.slice(start, next.length - end) };
+}
+/** Worker-owned replay guard; the authority-holding parent never parses these bytes. */
+export function replayContent(base: Y.Doc, updates: Uint8Array[], expected: Projection) {
+  const replay = new Y.Doc();
+  declare(replay);
+  try {
+    clone(base, replay);
+    for (const bytes of updates) {
+      Y.applyUpdate(replay, bytes);
+      project(replay); // Each causal prefix must resolve against the exact admitted base.
+    }
+    if (!sameContent({ ...project(replay), own: {} }, { ...expected, own: {} }))
+      throw new Error('Content replay mismatch');
+  } finally {
+    replay.destroy();
+  }
+}
+self.onmessage = async (event: MessageEvent<{ id: number; command: DecoderCommand }>) => {
   const { id, command } = event.data;
   const candidate = new Y.Doc();
   declare(candidate);
@@ -125,6 +184,7 @@ self.onmessage = async (event: MessageEvent<{ id: number; command: FoldCommand }
   try {
     clone(committed, candidate);
     let update = new Uint8Array();
+    let prepared: ContentPreparation | undefined;
     if (command.type === 'baseline') {
       if (initialized || command.update.length > BASELINE_UPDATE_BYTES)
         throw new Error('Invalid baseline state or capacity');
@@ -162,32 +222,45 @@ self.onmessage = async (event: MessageEvent<{ id: number; command: FoldCommand }
       }
       update = new Uint8Array(Y.encodeStateAsUpdate(doc, vector));
       if (update.length > UPDATE_BYTES) throw new Error('Own record exceeds update capacity');
-    } else if (command.type === 'prepare') {
+    } else if (command.type === 'prepare-content') {
       validateProjection({ source: command.source, title: '' });
-      if (command.base !== undefined && command.base !== committed.getText('html').toString())
-        throw new Error('Source changed before preparing the edit');
-      const html = candidate.getText('html'),
-        old = html.toString(),
-        next = command.source;
-      let start = 0,
-        end = 0;
-      while (start < old.length && start < next.length && old[start] === next[start]) start++;
-      // Never split a UTF-16 surrogate pair at the diff boundary.
-      if (start && /[\uD800-\uDBFF]/.test(old[start - 1])) start--;
-      while (
-        end < old.length - start &&
-        end < next.length - start &&
-        old[old.length - end - 1] === next[next.length - end - 1]
-      )
-        end++;
-      if (end && /[\uDC00-\uDFFF]/.test(old[old.length - end])) end--;
-      const vector = Y.encodeStateVector(candidate);
-      candidate.transact(() => {
-        html.delete(start, old.length - start - end);
-        html.insert(start, next.slice(start, next.length - end));
-      });
-      update = new Uint8Array(Y.encodeStateAsUpdate(candidate, vector));
-      if (update.length > UPDATE_BYTES) throw new Error('Edit exceeds update capacity');
+      validateProjection(command.base);
+      validateOwn(command.base.own);
+      const admittedOwn = Object.fromEntries(
+        [...own].map(([writer, doc]) => [writer, projectOwn(doc, true)]),
+      );
+      validateOwn(admittedOwn);
+      const before = { ...project(committed), own: admittedOwn };
+      if (!sameContent(before, command.base)) throw new Error('Stale content preparation base');
+      const diff = contentDiff(before.source, command.source);
+      const updates: Uint8Array[] = [];
+      const capture = (bytes: Uint8Array) => updates.push(new Uint8Array(bytes));
+      candidate.on('update', capture);
+      try {
+        const html = candidate.getText('html');
+        const pieces = [...contentPieces(diff.insert)];
+        if (diff.remove || pieces.length) {
+          let offset = diff.start;
+          for (let index = 0; index < Math.max(1, pieces.length); index++) {
+            const piece = pieces[index] ?? '';
+            candidate.transact(() => {
+              if (index === 0 && diff.remove) html.delete(diff.start, diff.remove);
+              if (piece) html.insert(offset, piece);
+            });
+            offset += piece.length;
+          }
+          validateContentUpdates(updates);
+        }
+      } finally {
+        candidate.off('update', capture);
+      }
+      const expected = { ...before, source: command.source };
+      if (!sameContent({ ...project(candidate), own: before.own }, expected))
+        throw new Error('Content preparation projection mismatch');
+      replayContent(committed, updates, expected);
+      prepared = updates.length
+        ? { kind: 'updates', projection: expected, updates }
+        : { kind: 'noop', projection: expected };
     } else throw new Error('Invalid decoder command');
     // A writer checkpoint may depend on another writer's checkpoint. Final tail
     // admission requires complete resolution before the parent publishes anything.
@@ -217,11 +290,20 @@ self.onmessage = async (event: MessageEvent<{ id: number; command: FoldCommand }
       const previous = own.get(writer);
       if (!previous) continue;
       const roots = projectOwn(previous, false);
-      for (const root of ['threads', 'messages'])
+      for (const root of ['threads', 'intents', 'messages'])
         for (const [key, value] of Object.entries(roots[root])) {
-          if (value?.kind !== 'thread' && value?.kind !== 'comment') continue;
+          if (
+            ![
+              'thread',
+              'comment',
+              'thread-status',
+              'thread-notification',
+              'attachment-publication',
+            ].includes(value?.kind)
+          )
+            continue;
           if (JSON.stringify(value) !== JSON.stringify(ownProjection[writer][root][key]))
-            throw new Error('Discussion record is immutable');
+            throw new Error('Own record is immutable');
         }
     }
 
@@ -245,7 +327,8 @@ self.onmessage = async (event: MessageEvent<{ id: number; command: FoldCommand }
       candidate.destroy();
       changed.forEach((doc) => doc.destroy());
     }
-    self.postMessage({ id, ...projection, own: ownProjection, update });
+    if (prepared) self.postMessage({ id, type: 'prepared-content', ...prepared });
+    else self.postMessage({ id, ...projection, own: ownProjection, update });
   } catch {
     candidate.destroy();
     changed.forEach((doc) => doc.destroy());

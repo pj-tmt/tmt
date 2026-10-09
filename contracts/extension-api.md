@@ -210,6 +210,34 @@ coveredMs,complete,gap,discontinuous}`. Token fields are normalized **deltas**,
   delta from it without claiming coverage across the gap. Zero tokens with full
   coverage is a measured zero; zero tokens without coverage is unknown.
 
+Optional attribution extends these existing observations; it is not a separate
+ledger. Missing (or null) new fields mean unknown, never a measured zero:
+
+- `consumption.cacheWriteTokens` is a cumulative cache-write counter in the
+  same token units and epoch as input. Cache-write and cache-read are subsets
+  of the existing input count; neither is added to input or total again.
+- `consumption.modelId` is the model on the last accepted completed request or
+  turn, not the starting-hook `resume.model` used to relaunch a conversation.
+  Claude reads `message.model`; Codex reads the preceding `turn_context.model`.
+  A new Codex turn marker requires its own matching or subsequent context;
+  an older turn's model is never carried into a turn with missing evidence.
+  Missing/changed provider shapes, a missing bounded turn context or a model
+  alias in rate-limit metadata cannot establish a model.
+- `consumption.deltaByModel` groups the increments accepted since the preceding
+  sequence as `{modelId,inputTokens,outputTokens,cachedInputTokens,
+cacheWriteTokens?}`. It preserves model changes within a single read; it is
+  **not cumulative** and must not be applied twice on a repeated sequence.
+  Historical requests are not attributed on initial baseline. At most four
+  distinct model IDs are retained per increment; unavailable evidence or the
+  existing opaque-state size bound omits attribution while retaining totals.
+- History buckets optionally add `cacheWriteTokens` and `byModel` with the same
+  entry shape, containing **deltas for that bucket**, including all accepted
+  model changes. Attribution is emitted only when it covers the whole counted
+  delta. Unknown portions, skipped sequences or aggregation beyond four models
+  omit `byModel`; they never relabel a mixed bucket with its latest model.
+  Unknown cache-write evidence omits that counter without altering legacy
+  totals, coverage, gaps or retention. Existing stored rows are not backfilled.
+
 Core retains 5-second buckets for two hours: at most 1,440 closed buckets plus
 one open bucket per identity. Expired history is excluded immediately on reads;
 accepted writes prune the identity and opportunistically prune expired inactive
@@ -423,6 +451,10 @@ Ordinary recipient/room history lists default to 20 items (maximum 50). Pass `ne
 unchanged as the next request's `before`. Concurrent new requests above that cursor
 will appear on a fresh first page; final-state changes can appear when detail is
 reread. This is not a live change feed. Reads never mark incoming work as read.
+Ordinary history and detail include `final:{status:"withdrawn",reason,withdrawnAtMs}`
+after [originator withdrawal](request-response-v1.md#originator-withdrawal).
+This terminal state is not a recipient final or approval; consumers waiting on
+a person exclude it. Original prompt/history and delivery status remain intact.
 For submitted replies across rooms and recipients, call `requests.list` with
 `{"originatorId":"<canonical UUID>","view":"results"}`. Both fields are required
 and cannot be combined with `recipientId` or `roomId`. The default limit is 8;
@@ -616,7 +648,8 @@ must use this public projection rather than inspect core state.
 
 Public `ls --json` also exposes the remembered driver's optional
 `resume.consumption`: cumulative completed-request input/output, cached input as
-a subset, epoch/sequence, observation time and explicit completeness/gap.
+a subset, optional cache-write and request/turn model attribution, epoch/sequence,
+observation time and explicit completeness/gap.
 It is separate from `resume.usage` (context size). Consumers baseline on first,
 epoch-change, gap or decreasing-counter observations; absent evidence is
 unavailable. Counter times are not heartbeats. Foreground sampling can expose accepted
@@ -656,3 +689,51 @@ status never affects the command. All observers of one command share a 500 ms
 deadline. Calls to `tmt` made while `TMT_HOOK_DELIVERY` is set emit no further
 observations. Replacing or re-permissioning the executable suspends delivery
 until it is enabled again.
+
+## Focus policy and checklist
+
+All operations below use version 1 and name neither envelope `identity` nor
+`originator`. This is a trusted same-user process seam, not authentication.
+Squad owns user/lead authorization and duration syntax; it passes the recorded
+owner UUID. Provider adapters must admit their exact launch's turn boundary before
+claiming. Core never reads Squad configuration or installs provider-global hooks.
+
+| Operation                | Input                                                                                                 | Result                                                         |
+| ------------------------ | ----------------------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
+| `focus.policy.set`       | `identityId`, `ownerIdentityId`, `setterIdentityId`, `expectedRevision`, `untilMs`                    | policy view                                                    |
+| `focus.policy.clear`     | same UUID/revision fields, without `untilMs`                                                          | cleared policy view                                            |
+| `focus.policy.show`      | `identities`: 1–256 active UUIDs                                                                      | `policies`: views in input order                               |
+| `focus.checklist.read`   | `identityId`, optional `checklistId`, `limit` (default 32, 1–128), `after` (default 0)                | bounded ordered page                                           |
+| `focus.checklist.claim`  | `identityId`, `opportunity`: `turn_boundary` or `idle`                                                | `claimed:false` or a sealed checklist, page and bounded `text` |
+| `focus.checklist.settle` | `identityId`, `checklistId`, `attemptToken`, `outcome`: `delivered`, `definitely_unsent`, `uncertain` | `changed`, `state`                                             |
+
+UUIDs must be canonical and active; revision/expiry/cursors are nonnegative JS-safe
+integers, a set expiry is strictly future, absent revision is 0. A clear advances
+the revision and stores expiry 0. Unknown fields (including `everyMs`) are refused.
+Views contain `identityId`, `revision`, `active`, `focusUntilMs`, `remainingMs`,
+`heldCount`, pinned `ownerIdentityId` and `setterIdentityId`, and `activeChecklist`
+(null or an unsettled claim). Held count includes that active sealed membership.
+Policy conflicts return `FOCUS_REVISION_CONFLICT`; refresh before another write.
+
+A read without a checklist ID shows unclaimed references. A sealed read includes
+its retained membership regardless of settlement; later arrivals stay outside it.
+Each item includes `sequence`, `requestId`, `kind`, `source`, `createdAtMs`, sender
+UUID/name, `urgent`, bounded `preview`, optional `replyCommand`/`inspectCommand`,
+and a bounded `resultPreview` for finals. Page fields are `identityId`,
+`checklistId`, `activeChecklist`, `items`, `total` (remaining from this cursor),
+`remaining`, `nextAfter` (null at the end). Continue with the same scope and the
+returned sequence cursor. Canonical retention still applies.
+
+A successful claim returns `{claimed:true,checklist,page,text}`; the checklist
+contains `checklistId`, `identityId`, `attemptToken`, `throughSequence`, `state`,
+`createdAtMs`. A competing or empty claim returns no transport permission. The
+`idle` path verifies actual live idle evidence and refuses while Focus is active;
+`turn_boundary` relies on the admitted provider adapter. No core scheduler exists.
+Settlement is exact-token and idempotent; an opposite terminal outcome returns
+`FOCUS_STATE_INVALID`, a wrong scope/token `FOCUS_ATTEMPT_MISMATCH`.
+Existing request housekeeping prunes empty delivered/definitely-unsent checklist
+records after the metadata age floor; retained member links follow canonical
+request retention. Settlement idempotency lasts while the record is retained.
+Claimed and uncertain records remain discoverable even after members expire.
+A crash after claim remains unknown until inspected; no elapsed time reopens it.
+See the [delivery contract](request-response-v1.md#focus-delivery-windows).

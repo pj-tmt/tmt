@@ -84,7 +84,7 @@ fn prop_bound_upgrade_preserves_content_and_rolls_back_on_history_failure() {
     observer.close().unwrap();
 
     let mut upgraded = Storage::open(&path).unwrap();
-    assert_eq!(upgraded.health().unwrap().schema_version, 47);
+    assert_eq!(upgraded.health().unwrap().schema_version, 50);
     let connection = upgraded.connection().unwrap();
     let row: (String, Vec<u8>, i64, i64, i64) = connection.query_row(
         "SELECT digest, bytes, prop_count, installed_revision, installed_at_ms FROM office_prop_packs",

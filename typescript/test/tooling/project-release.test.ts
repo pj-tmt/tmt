@@ -28,12 +28,19 @@ import {
 } from '../../scripts/project-release.mjs';
 
 const repository = 'pj-tmt/tmt';
-const map = parseComponentMap(
+const actualMap = parseComponentMap(
   readFileSync(new URL('../../../.github/components.json', import.meta.url), 'utf8')
 );
+// Most cases model an explicitly activated, published Ops line in isolated fixtures.
+const map = {
+  ...actualMap,
+  components: actualMap.components.map((component) =>
+    component.name === 'ops' ? { ...component, release: true } : component
+  ),
+};
 const workspace = readCargoWorkspace(fileURLToPath(new URL('../../../', import.meta.url)));
 // Synthetic files live only in temporary repositories; derive the product root from the map.
-const squadRoot = map.components.find((component) => component.name === 'squad')!.owns[0];
+const opsRoot = map.components.find((component) => component.name === 'ops')!.owns[0];
 const connection = (nodes: unknown[], cursor: string | null = null) => ({
   nodes,
   pageInfo: { hasNextPage: !!cursor, endCursor: cursor },
@@ -261,11 +268,11 @@ describe('full repository-state release sweep', () => {
     history(({ directory, git, commit }) => {
       const docs = commit(['docs/fixture.md']);
       git(['tag', 'v5.0.0-alpha.1']);
-      const squad = commit([`${squadRoot}/input`]);
-      git(['tag', 'tmt-squad-v0.1.0-alpha.1']);
-      const mixed = commit(['rust/input', `${squadRoot}/input`]);
-      git(['tag', 'tmt-squad-v0.1.0-alpha.2']);
-      const releases = [release('v5.0.0-alpha.1'), release('tmt-squad-v0.1.0-alpha.1', 1)];
+      const ops = commit([`${opsRoot}/input`]);
+      git(['tag', 'tmt-ops-v0.1.0-alpha.1']);
+      const mixed = commit(['rust/input', `${opsRoot}/input`]);
+      git(['tag', 'tmt-ops-v0.1.0-alpha.2']);
+      const releases = [release('v5.0.0-alpha.1'), release('tmt-ops-v0.1.0-alpha.1', 1)];
       for (let i = 2; i <= 15; i++) {
         git(['tag', `v5.0.0-alpha.${i}`]);
         releases.push(release(`v5.0.0-alpha.${i}`, i));
@@ -284,7 +291,7 @@ describe('full repository-state release sweep', () => {
       p.items.get('issue-6')!.content.state = 'OPEN';
       const prs = new Map([
         ['issue-1', [closingPr(101, docs)]],
-        ['issue-2', [closingPr(102, squad)]],
+        ['issue-2', [closingPr(102, ops)]],
         ['issue-3', [closingPr(103, mixed)]],
         ['issue-5', [closingPr(105, pending)]],
       ]);
@@ -296,7 +303,7 @@ describe('full repository-state release sweep', () => {
         preview.changed.map(({ issue, status, text }) => [issue.split('/').pop(), status, text])
       ).toEqual([
         ['1', 'Released', 'tmt-cli 5.0.0-alpha.1'],
-        ['2', 'Released', 'tmt-squad 0.1.0-alpha.1'],
+        ['2', 'Released', 'tmt-ops 0.1.0-alpha.1'],
         ['3', 'Merged', 'tmt-cli 5.0.0-alpha.2'],
         ['4', 'Done', ''],
       ]);
@@ -317,9 +324,9 @@ describe('full repository-state release sweep', () => {
         'Released',
         'Done',
       ]);
-      releases.push(release('tmt-squad-v0.1.0-alpha.2', 31));
+      releases.push(release('tmt-ops-v0.1.0-alpha.2', 31));
       expect(reconcile({ ...input, dryRun: false }).changed).toMatchObject([
-        { status: 'Released', text: 'tmt-cli 5.0.0-alpha.2\ntmt-squad 0.1.0-alpha.2' },
+        { status: 'Released', text: 'tmt-cli 5.0.0-alpha.2\ntmt-ops 0.1.0-alpha.2' },
       ]);
       expect(p.items.get('issue-5')!.status!.name).toBe('Merged');
     }));
@@ -367,11 +374,11 @@ describe('full repository-state release sweep', () => {
 
   it('does not count another product or an unpublished tag; multiple closing PRs must all be contained', () =>
     history(({ directory, git, commit }) => {
-      const a = commit([`${squadRoot}/input`]);
+      const a = commit([`${opsRoot}/input`]);
       git(['tag', 'v5.0.0-alpha.1']);
-      git(['tag', 'tmt-squad-v0.1.0-alpha.1']);
-      const b = commit([`${squadRoot}/input`]);
-      git(['tag', 'tmt-squad-v0.1.0-alpha.2']);
+      git(['tag', 'tmt-ops-v0.1.0-alpha.1']);
+      const b = commit([`${opsRoot}/input`]);
+      git(['tag', 'tmt-ops-v0.1.0-alpha.2']);
       const p = project();
       const releases = [release('v5.0.0-alpha.1')];
       const api = stateApi(p, releases, new Map([['issue-1', [closingPr(1, a), closingPr(2, b)]]]));
@@ -379,14 +386,14 @@ describe('full repository-state release sweep', () => {
       expect(reconcile(input).rows[0]).toMatchObject({
         status: 'Merged',
         text: '',
-        waiting: ['Awaiting squad'],
+        waiting: ['Awaiting ops'],
       });
-      releases.push(release('tmt-squad-v0.1.0-alpha.1'));
+      releases.push(release('tmt-ops-v0.1.0-alpha.1'));
       expect(reconcile(input).rows[0].status).toBe('Merged');
-      releases.push(release('tmt-squad-v0.1.0-alpha.2', 1));
+      releases.push(release('tmt-ops-v0.1.0-alpha.2', 1));
       expect(reconcile(input).rows[0]).toMatchObject({
         status: 'Released',
-        text: 'tmt-squad 0.1.0-alpha.2',
+        text: 'tmt-ops 0.1.0-alpha.2',
       });
     }));
 
@@ -462,14 +469,14 @@ describe('full repository-state release sweep', () => {
       const evidence = gitEvidence({ cwd: directory });
       expect(evidence.containingTags(merged).has('v5.0.0-alpha.1')).toBe(false);
       expect(evidence.containingTags(unrelated).has('v5.0.0-alpha.1')).toBe(true);
-      mkdirSync(path.join(directory, squadRoot), { recursive: true });
-      git(['mv', 'docs/fixture.md', `${squadRoot}/renamed.md`]);
+      mkdirSync(path.join(directory, opsRoot), { recursive: true });
+      git(['mv', 'docs/fixture.md', `${opsRoot}/renamed.md`]);
       git(['rm', 'initial']);
       const rename = commit(['additional']);
       expect(evidence.paths(rename)).toEqual(
-        expect.arrayContaining(['docs/fixture.md', `${squadRoot}/renamed.md`, 'initial'])
+        expect.arrayContaining(['docs/fixture.md', `${opsRoot}/renamed.md`, 'initial'])
       );
-      expect(affectedProducts(evidence.paths(rename), map).products).toEqual(['cli', 'squad']);
+      expect(affectedProducts(evidence.paths(rename), map).products).toEqual(['cli', 'ops']);
     }));
 
   it.each(['tmt-cli-style', 'tmt-invoke'])(
@@ -482,7 +489,10 @@ describe('full repository-state release sweep', () => {
       };
       expect(affectedProducts([file], before)).toEqual({ products: ['cli'], unpublished: [] });
       expect(affectedProducts([file], map, workspace)).toEqual({
-        products: ['cli', 'colab', 'remote', 'squad'],
+        products:
+          leaf === 'tmt-invoke'
+            ? ['cli', 'colab', 'driver-herdr', 'ops', 'remote']
+            : ['cli', 'colab', 'ops', 'remote'],
         unpublished: [],
       });
       expect(affectedProducts([`rust/crates/${leaf}-other/src/lib.rs`], map)).toEqual({
@@ -492,9 +502,13 @@ describe('full repository-state release sweep', () => {
     }
   );
 
-  it('keeps the explicitly excluded TUI leaf attributed only to Squad', () => {
-    expect(affectedProducts(['rust/crates/tmt-tui/src/lib.rs'], map, workspace)).toEqual({
-      products: ['squad'],
+  it('requires activated Ops publication for shared leaves and attributes TUI only to Ops', () => {
+    expect(affectedProducts(['rust/crates/tmt-invoke/src/lib.rs'], actualMap, workspace)).toEqual({
+      products: ['cli', 'colab', 'driver-herdr', 'ops', 'remote'],
+      unpublished: [],
+    });
+    expect(affectedProducts(['rust/crates/tmt-tui/src/lib.rs'], actualMap, workspace)).toEqual({
+      products: ['ops'],
       unpublished: [],
     });
   });
@@ -505,8 +519,8 @@ describe('full repository-state release sweep', () => {
       history(({ directory, git, commit }) => {
         const sha = commit([`rust/crates/${leaf}/src/lib.rs`]);
         git(['tag', 'v5.0.0-alpha.2']);
-        git(['tag', 'tmt-squad-v0.1.0-alpha.1']);
-        const releases = [release('tmt-squad-v0.1.0-alpha.1')];
+        git(['tag', 'tmt-ops-v0.1.0-alpha.1']);
+        const releases = [release('tmt-ops-v0.1.0-alpha.1')];
         const api = stateApi(project(), releases, new Map([['issue-1', [closingPr(1, sha)]]]));
         const input = {
           api,
@@ -518,23 +532,39 @@ describe('full repository-state release sweep', () => {
         };
         expect(reconcile(input).rows[0]).toMatchObject({
           status: 'Merged',
-          text: 'tmt-squad 0.1.0-alpha.1',
-          waiting: ['Awaiting cli', 'Awaiting colab', 'Awaiting remote'],
+          text: 'tmt-ops 0.1.0-alpha.1',
+          waiting:
+            leaf === 'tmt-invoke'
+              ? ['Awaiting cli', 'Awaiting colab', 'Awaiting driver-herdr', 'Awaiting remote']
+              : ['Awaiting cli', 'Awaiting colab', 'Awaiting remote'],
         });
         releases.push(release('v5.0.0-alpha.2', 1));
         expect(reconcile(input).rows[0]).toMatchObject({
           status: 'Merged',
-          waiting: ['Awaiting colab', 'Awaiting remote'],
+          waiting:
+            leaf === 'tmt-invoke'
+              ? ['Awaiting colab', 'Awaiting driver-herdr', 'Awaiting remote']
+              : ['Awaiting colab', 'Awaiting remote'],
         });
         for (const product of ['remote', 'colab']) {
           const tag = `tmt-${product}-v0.1.0-alpha.1`;
           git(['tag', tag]);
           releases.push(release(tag, 2));
         }
+        if (leaf === 'tmt-invoke') {
+          expect(reconcile(input).rows[0]).toMatchObject({
+            status: 'Merged',
+            waiting: ['Awaiting driver-herdr'],
+          });
+          const tag = 'tmt-driver-herdr-v0.1.0-alpha.1';
+          git(['tag', tag]);
+          releases.push(release(tag, 3));
+        }
         const row = reconcile(input).rows[0];
         expect(row.status).toBe('Released');
+        if (leaf === 'tmt-invoke') expect(row.text).toContain('tmt-driver-herdr 0.1.0-alpha.1');
         expect(row.text).toContain('tmt-cli 5.0.0-alpha.2');
-        expect(row.text).toContain('tmt-squad 0.1.0-alpha.1');
+        expect(row.text).toContain('tmt-ops 0.1.0-alpha.1');
         expect(row.waiting).toEqual([]);
         expect(writes(api)).toHaveLength(0);
       })
@@ -586,17 +616,17 @@ describe('full repository-state release sweep', () => {
   it('uses the owner map, selected paths and private consumers without silently releasing private components', () => {
     expect(
       affectedProducts(
-        ['docs/fixture.md', 'typescript/test/native/squad.test.ts', 'rust/crates/tmt-tui/a.rs'],
+        ['docs/fixture.md', 'typescript/test/native/ops.test.ts', 'rust/crates/tmt-tui/a.rs'],
         map,
         workspace
       )
-    ).toEqual({ products: ['cli', 'squad'], unpublished: [] });
+    ).toEqual({ products: ['cli', 'ops'], unpublished: [] });
     expect(affectedProducts(['extensions/tmt-office/a.rs'], map).products).toEqual(['office']);
     expect(affectedProducts(['extensions/tmt-colab/rust/a.rs'], map)).toEqual({
       products: ['colab'],
       unpublished: [],
     });
-    expect(releaseIdentity('tmt-squad-v0.1.0-alpha.9')?.product).toBe('squad');
+    expect(releaseIdentity('tmt-ops-v0.1.0-alpha.9')?.product).toBe('ops');
     expect(affectedProducts(['rust/crates/tmt-driver-herdr/src/main.rs'], map)).toEqual({
       products: ['driver-herdr'],
       unpublished: [],

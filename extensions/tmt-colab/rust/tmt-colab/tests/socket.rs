@@ -67,7 +67,11 @@ fn registration_body(id: &str) -> Vec<u8> {
 const UPGRADE: &str = "Connection: Upgrade\r\nUpgrade: websocket\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Protocol: colab-sync-v1\r\n";
 
 static NEXT: AtomicUsize = AtomicUsize::new(0);
+/// A test parks a save's preparation here, with the sync lock free, until it releases it.
+type SaveGate = Arc<Mutex<Option<(std::sync::mpsc::Sender<()>, std::sync::mpsc::Receiver<()>)>>>;
 struct Running {
+    save_gate: SaveGate,
+    registration: Arc<Mutex<Registration>>,
     root: PathBuf,
     path: PathBuf,
     space: String,
@@ -91,20 +95,34 @@ impl Running {
         let space = key.space_id.clone();
         let store = Store::open(&layout).unwrap();
         store.create_page(PAGE).unwrap();
+        let save_gate: SaveGate = Arc::default();
+        let gate = Arc::clone(&save_gate);
+        let save_root = root.clone();
         let mut registration = Registration::with_decoder_config(
             store,
             key,
             support::decoder_config(env!("CARGO_BIN_EXE_tmt-colab").into()),
         )
-        .unwrap();
+        .unwrap()
+        .with_save_source(Arc::new(move || {
+            if let Some((entered, release)) = gate.lock().unwrap().take() {
+                entered.send(()).unwrap();
+                release.recv_timeout(Duration::from_secs(30)).unwrap();
+            }
+            tmt_colab::page::save::open_source(
+                &save_root,
+                support::decoder_config(env!("CARGO_BIN_EXE_tmt-colab").into()),
+            )
+        }));
         for id in [DEVICE, OTHER] {
             registration
                 .register(Some(&context(id)), &registration_body(id), now())
                 .unwrap();
         }
+        let registration = Arc::new(Mutex::new(registration));
         let socket = MountSocket::bind(&layout, &space, tunnels)
             .unwrap()
-            .with_registration(&layout, Arc::new(Mutex::new(registration)))
+            .with_registration(&layout, Arc::clone(&registration))
             .unwrap()
             .with_app(app);
         let path = socket.path.clone();
@@ -116,6 +134,8 @@ impl Running {
         let flag = Arc::clone(&stop);
         let worker = std::thread::spawn(move || socket.run(&flag).unwrap());
         Self {
+            save_gate,
+            registration,
             root,
             path,
             space,
@@ -275,20 +295,40 @@ fn chrome_browser_responses() {
     drop(server);
 }
 
+// A tab that outlives an upgrade must be able to read the served build uncached, and a
+// reload must fetch it: the app root and the bundles it names are never cached.
+#[test]
+fn app_root_and_assets_are_served_uncached() {
+    let server = Running::start(Tunnels::PRODUCT);
+    let admitted = format!("{}\r\n", owner(DEVICE));
+    for path in ["/", "/assets/chrome.css"] {
+        let response = server.request(&Running::get(path, &admitted));
+        assert!(response.starts_with("HTTP/1.1 200"), "{path}: {response}");
+        assert!(
+            response.contains("Cache-Control: no-store"),
+            "{path}: {response}"
+        );
+    }
+}
+
 #[test]
 fn pages_follow_the_forwarded_owner_context_within_the_door_bounds() {
     let server = Running::start(Tunnels::PRODUCT);
     let private = server.request(&Running::get("/", ""));
     assert!(private.starts_with("HTTP/1.1 200"));
     assert!(private.contains("<title>Colab</title>"));
-    assert!(private.contains("<h2>Pair this browser first</h2>"));
+    assert!(private.contains("<h2 class=\"tmt-ui-notice-heading\">Pair this browser first</h2>"));
     assert!(private.contains("This colab space is private. Pair this browser with"));
     assert!(private.contains("<code>tmt remote pair</code>"));
     assert!(private.contains("or open a share link."));
     assert!(private.contains("<main class=\"guidance-main\">"));
     assert!(!private.contains("./assets/reader.css"));
     assert!(private.contains("./assets/chrome.css"));
-    assert!(private.contains("class=\"colab-header\""));
+    assert!(!private.contains("colab-recovery-status"));
+    assert!(!private.contains("./assets/recovery.js"));
+    assert!(!private.contains("class=\"guidance-detail\" hidden"));
+    assert!(private.contains("data-tone=\"waiting\""));
+    assert!(private.contains("class=\"tmt-ui-header\""));
     let chrome = server.request(&Running::get("/assets/chrome.css", ""));
     assert!(chrome.starts_with("HTTP/1.1 200"));
     assert!(chrome.contains("Content-Type: text/css; charset=utf-8"));
@@ -299,8 +339,8 @@ fn pages_follow_the_forwarded_owner_context_within_the_door_bounds() {
     assert!(chrome.contains("Referrer-Policy: no-referrer"));
     assert!(chrome.contains("X-Content-Type-Options: nosniff"));
     assert!(chrome.contains("Cache-Control: no-store"));
-    assert!(chrome.contains("--colab-header-height:56px"));
-    assert!(chrome.contains(".colab-header"));
+    assert!(chrome.contains("--tmt-ui-header-height: 56px"));
+    assert!(chrome.contains(".tmt-ui-header"));
     assert_eq!(
         tmt_colab::assets::anonymous_file("/assets/chrome.css"),
         Some("/assets/chrome.css")
@@ -1791,9 +1831,9 @@ fn owner_static_assets_have_exact_bytes_types_and_no_filesystem_path_resolution(
     }
     let guidance = server.request(&Running::get("/", ""));
     assert!(guidance.contains("This colab space is private"));
-    assert!(guidance.contains("<span class=\"colab-brand\"><span class=\"colab-mark\">tmt</span><span class=\"colab-wordmark\">Colab</span></span>"));
+    assert!(guidance.contains("<span class=\"tmt-ui-brand\"><span class=\"tmt-ui-mark\" aria-hidden=\"true\">▚</span><span class=\"tmt-ui-wordmark\">Colab</span></span>"));
     assert!(guidance.contains("<svg class=\"guidance-mark lucide\""));
-    assert!(guidance.contains("<h2>Pair this browser first</h2>"));
+    assert!(guidance.contains("<h2 class=\"tmt-ui-notice-heading\">Pair this browser first</h2>"));
     assert!(guidance.contains("<code>tmt remote pair</code>"));
     assert!(guidance.contains("<link rel=\"stylesheet\" href=\"./assets/chrome.css\">"));
     assert!(guidance.contains("<main class=\"guidance-main\">"));
@@ -2587,9 +2627,13 @@ fn management_root_ipc_rejects_forwarded_headers_before_parsing_without_effects(
     management_response(&server, &server.event(path, "", &body), "2");
 }
 
-#[test]
-fn root_local_page_write_broadcasts_chain_chunks_and_replays_without_fanout() {
-    use tmt_colab::{decoder::Decoder, page};
+/// A running server, its page key, and one subscribed browser-style peer.
+fn publish_fixture() -> (
+    Running,
+    tmt_colab::keyring::Layout,
+    Keyring,
+    WebSocket<UnixStream>,
+) {
     let server = Running::start(Tunnels::PRODUCT);
     let layout = Layout::existing(&server.root).unwrap().unwrap();
     let key = Keyring::read(&layout).unwrap();
@@ -2605,31 +2649,28 @@ fn root_local_page_write_broadcasts_chain_chunks_and_replays_without_fanout() {
     assert!(head.starts_with("HTTP/1.1 101"));
     let mut peer = WebSocket::from_raw_socket(socket, Role::Client, None);
     hello(&server, &mut peer, DEVICE);
-    let store = Store::read(&layout).unwrap();
+    (server, layout, key, peer)
+}
+fn prepare_write(
+    layout: &tmt_colab::keyring::Layout,
+    key: &Keyring,
+    source: &str,
+) -> tmt_colab::page::FrozenPublication {
+    use tmt_colab::{
+        decoder::{ContentEdit, Decoder},
+        page::{self, PublicationPreparation},
+    };
+    let store = Store::read(layout).unwrap();
     let mut decoder = Decoder::with_config(support::decoder_config(
         env!("CARGO_BIN_EXE_tmt-colab").into(),
     ))
     .unwrap();
-    let source = "source 🐈\r\n".repeat(6000);
-    let prepared = page::prepare(
+    let prepared = page::prepare_publication(
         &store,
-        &key,
+        key,
         PAGE,
-        tmt_colab::decoder::ContentEdit {
-            source: &source,
-            publisher_agent: None,
-        },
-        None,
-        &mut decoder,
-        now(),
-    )
-    .unwrap();
-    let base = page::prepare(
-        &store,
-        &key,
-        PAGE,
-        tmt_colab::decoder::ContentEdit {
-            source: "stale",
+        ContentEdit {
+            source,
             publisher_agent: None,
         },
         None,
@@ -2638,7 +2679,44 @@ fn root_local_page_write_broadcasts_chain_chunks_and_replays_without_fanout() {
     )
     .unwrap();
     store.close().unwrap();
-    let body = serde_json::to_string(&prepared).unwrap();
+    match prepared {
+        PublicationPreparation::Write(frozen) => frozen,
+        PublicationPreparation::Noop { .. } => panic!("expected a write"),
+    }
+}
+fn author_key(frozen: &tmt_colab::page::FrozenPublication) -> [u8; 32] {
+    *tmt_colab_model::certificate::Chain::from_json(frozen.chain())
+        .unwrap()
+        .certificate()
+        .unwrap()
+        .signing_key
+}
+
+#[test]
+fn root_local_page_publish_broadcasts_each_entry_in_order_and_replays_without_fanout() {
+    use tmt_colab::{
+        decoder::Decoder,
+        page,
+        publication::{LocalWrite, Outcome, Rejection, WriteAction},
+    };
+    let (server, layout, key, mut peer) = publish_fixture();
+    // Two updates, each over one chunk, so ordering and chunk transfer are both observable.
+    let source = "source 🐈\r\n".repeat(20_000);
+    let frozen = prepare_write(&layout, &key, &source);
+    let base = prepare_write(&layout, &key, "stale");
+    let entries = frozen.job().manifest.entries.len();
+    assert!((2..=4).contains(&entries), "{entries}");
+    let author = author_key(&frozen);
+    let body = LocalWrite {
+        version: 2,
+        action: WriteAction::Write,
+        signed_job: frozen.job().clone(),
+        packet: values::encode_binary(frozen.packet()),
+        chain: values::encode_binary(frozen.chain()),
+    }
+    .to_json(&author)
+    .unwrap();
+    let body = String::from_utf8(body).unwrap();
     assert!(body.len() > limits::HTTP_BODY_BYTES);
     assert!(body.len() < limits::http_body_bytes(page::ipc::PATH));
     let before = fs::read(layout.directory.join("space.db")).unwrap();
@@ -2650,56 +2728,387 @@ fn root_local_page_write_broadcasts_chain_chunks_and_replays_without_fanout() {
         assert!(denied.contains("COLAB_DENIED"));
         assert_eq!(fs::read(layout.directory.join("space.db")).unwrap(), before);
     }
-    let receipt = page::ipc::write(&layout, &prepared).unwrap();
-    let broadcast = receive(&mut peer);
-    assert_eq!(broadcast["type"], "broadcast");
-    assert_eq!(broadcast["streamId"], receipt.stream_id);
-    assert_eq!(broadcast["chains"][0]["chain"], prepared.chain);
-    assert!(broadcast["envelope"].is_object());
-    let mut assembled = Vec::new();
-    loop {
-        let chunk = receive(&mut peer);
-        assert_eq!(chunk["type"], "chunk");
-        assembled
-            .extend(values::binary(chunk["bytes"].as_str().unwrap(), limits::CHUNK_BYTES).unwrap());
-        if chunk["index"].as_u64().unwrap() + 1 == chunk["count"].as_u64().unwrap() {
-            break;
+    // A body that names another write version, or a later shape of one, is refused by name
+    // before it is read as this build's: another build wrote it, and nothing changes.
+    for version in [1, 3] {
+        let mut other: Value = serde_json::from_str(&body).unwrap();
+        other["version"] = json!(version);
+        other["fieldOfALaterBuild"] = json!(true);
+        let refused = server.event(page::ipc::PATH, "", &other.to_string());
+        assert!(refused.contains("409"), "{refused}");
+        assert!(refused.contains("COLAB_SERVER_MISMATCH"), "{refused}");
+        assert_eq!(fs::read(layout.directory.join("space.db")).unwrap(), before);
+    }
+    let published = page::ipc::publish(&layout, &key, &frozen)
+        .unwrap()
+        .expect("the server answered");
+    // The revision rides the reply, read under the lock that excludes every other writer.
+    let store = Store::read(&layout).unwrap();
+    assert_eq!(
+        published.revision.as_deref(),
+        Some(page::revision(&store, &key, PAGE).unwrap().as_str())
+    );
+    store.close().unwrap();
+    let record = published.record;
+    let Outcome::Committed { count, .. } = &record.outcome else {
+        panic!("{:?}", record.outcome)
+    };
+    assert_eq!(*count, entries);
+    // One broadcast per entry, carrying the author's chain; envelopes over a chunk follow as chunks.
+    let verified = frozen
+        .job()
+        .verify_packet(frozen.packet(), &author)
+        .unwrap();
+    let chunked = verified
+        .iter()
+        .filter(|entry| entry.bytes.len() > limits::CHUNK_BYTES)
+        .map(|entry| entry.bytes.len().div_ceil(limits::CHUNK_BYTES))
+        .sum::<usize>();
+    // The server keeps at most one send queue of frames unacknowledged, as a browser acks them.
+    let mut frames = Vec::new();
+    let mut outstanding = 0;
+    for _ in 0..entries + chunked {
+        frames.push(receive(&mut peer));
+        outstanding += 1;
+        if outstanding == limits::SEND_QUEUE_FRAMES {
+            for _ in 0..outstanding {
+                send(&mut peer, server.frame("ack", json!({"cursors":[]})));
+            }
+            outstanding = 0;
         }
     }
-    assert_eq!(
-        assembled,
-        values::binary(&prepared.envelope, limits::UPDATE_BYTES).unwrap()
-    );
+    let broadcasts = frames
+        .iter()
+        .filter(|frame| frame["type"] == "broadcast")
+        .collect::<Vec<_>>();
+    assert_eq!(broadcasts.len(), entries);
+    for (broadcast, entry) in broadcasts.iter().zip(&verified) {
+        assert_eq!(broadcast["seq"], entry.header.context.stream_seq);
+        assert_eq!(broadcast["streamId"], entry.header.context.author_device);
+        assert_eq!(
+            broadcast["chains"][0]["chain"],
+            values::encode_binary(frozen.chain())
+        );
+        if entry.bytes.len() > limits::CHUNK_BYTES {
+            let mut assembled = Vec::new();
+            for chunk in frames.iter().filter(|f| {
+                f["type"] == "chunk" && f["objectId"] == broadcast["envelope"]["objectId"]
+            }) {
+                assembled.extend(
+                    values::binary(chunk["bytes"].as_str().unwrap(), limits::CHUNK_BYTES).unwrap(),
+                );
+            }
+            assert_eq!(assembled, entry.bytes);
+        } else {
+            assert_eq!(
+                values::binary(
+                    broadcast["envelope"].as_str().unwrap(),
+                    limits::UPDATE_BYTES
+                )
+                .unwrap(),
+                entry.bytes
+            );
+        }
+    }
     let before = fs::read(layout.directory.join("space.db")).unwrap();
-    let replay = page::ipc::write(&layout, &prepared).unwrap();
-    assert_eq!(
-        serde_json::to_value(replay).unwrap(),
-        serde_json::to_value(&receipt).unwrap()
-    );
+    let replay = page::ipc::publish(&layout, &key, &frozen).unwrap().unwrap();
+    assert_eq!(replay.record.bytes, record.bytes);
     assert_eq!(fs::read(layout.directory.join("space.db")).unwrap(), before);
     peer.send(Message::Ping(vec![1].into())).unwrap();
     assert!(
         matches!(peer.read().unwrap(), Message::Pong(_)),
         "replay broadcast again"
     );
-    let stale = page::ipc::write(&layout, &base).err().unwrap();
+    // A write prepared on the old base is a terminal refusal that publishes nothing.
+    let stale = page::ipc::publish(&layout, &key, &base).unwrap().unwrap();
+    assert_eq!(stale.revision, None);
+    let stale = stale.record;
+    assert!(matches!(
+        stale.outcome,
+        Outcome::Rejected {
+            code: Rejection::StaleBase,
+            ..
+        }
+    ));
     assert_eq!(
-        stale
-            .downcast_ref::<page::ipc::WriteError>()
+        page::publication_receipt(base.job(), &stale)
+            .err()
             .unwrap()
-            .code(),
-        "COLAB_STALE_BASE"
+            .downcast_ref::<page::Fault>(),
+        Some(&page::Fault::StaleBase)
     );
-    assert_eq!(fs::read(layout.directory.join("space.db")).unwrap(), before);
+    peer.send(Message::Ping(vec![2].into())).unwrap();
+    assert!(
+        matches!(peer.read().unwrap(), Message::Pong(_)),
+        "a refused write was broadcast"
+    );
     let store = Store::read(&layout).unwrap();
+    let mut decoder = Decoder::with_config(support::decoder_config(
+        env!("CARGO_BIN_EXE_tmt-colab").into(),
+    ))
+    .unwrap();
     assert_eq!(
         page::read(&store, &key, PAGE, &mut decoder).unwrap().source,
         source
     );
-    // A failed local request never switches writers; removing the socket rejects.
+    // An unfinished original operation resolves by status, never by another writer.
+    let status = page::publication_status(
+        &store,
+        &key,
+        &frozen.job().key().unwrap(),
+        frozen.chain(),
+        now(),
+    )
+    .unwrap();
+    assert_eq!(status.bytes, record.bytes);
+    drop(store);
+    // A failed local request never switches writers; removing the socket refuses without sending.
     drop(peer);
     drop(server);
-    assert!(page::ipc::write(&layout, &prepared).is_err());
+    assert_eq!(
+        page::ipc::publish(&layout, &key, &frozen)
+            .err()
+            .unwrap()
+            .downcast_ref::<page::Fault>(),
+        Some(&page::Fault::Unavailable)
+    );
+}
+
+#[test]
+fn root_local_page_publish_carries_an_own_status_job_to_peers_and_later_readers() {
+    use tmt_colab::{
+        decoder::{Decoder, OwnRecord},
+        discussion::{self, StatusEdit},
+        page,
+        publication::Outcome,
+    };
+    const THREAD: &str = "40000000-0000-4000-8000-000000000001";
+    let (server, layout, key, mut peer) = publish_fixture();
+    let mut decoder = Decoder::with_config(support::decoder_config(
+        env!("CARGO_BIN_EXE_tmt-colab").into(),
+    ))
+    .unwrap();
+    // The local writer authors every record below; its stream ID is the one a content job names.
+    let stream = prepare_write(&layout, &key, "unused")
+        .job()
+        .manifest
+        .stream_id
+        .clone();
+    // Seed one anchored thread by the same own-kind route, then resolve it.
+    let thread = json!({"version":1,"kind":"thread","spaceId":key.space_id,"pageId":PAGE,
+        "epoch":"1","senderDevice":stream,"revision":"1","deleted":false,
+        "deviceName":"Local CLI","at":now().to_string(),"threadId":THREAD,
+        "anchor":{"exact":"x","prefix":"","suffix":""},"resolved":false});
+    let store = Store::read(&layout).unwrap();
+    let seed = page::prepare_own_records(
+        &store,
+        &key,
+        PAGE,
+        &[OwnRecord {
+            root: "threads".into(),
+            key: format!("{THREAD}:1"),
+            value: thread,
+        }],
+        &mut decoder,
+        now(),
+    )
+    .unwrap();
+    store.close().unwrap();
+    let seeded = page::ipc::publish(&layout, &key, &seed).unwrap().unwrap();
+    assert!(matches!(
+        seeded.record.outcome,
+        Outcome::Committed { count: 1, .. }
+    ));
+    let own_broadcast = |peer: &mut WebSocket<UnixStream>, frozen: &page::FrozenPublication| {
+        let frame = receive(peer);
+        assert_eq!(frame["type"], "broadcast");
+        assert_eq!(frame["streamId"], stream);
+        let entry = &frozen
+            .job()
+            .verify_packet(frozen.packet(), &author_key(frozen))
+            .unwrap()[0];
+        assert_eq!(frame["seq"], entry.header.context.stream_seq);
+        assert_eq!(
+            frame["envelopeHash"],
+            values::encode_binary(&entry.envelope.hash().unwrap())
+        );
+        // The broadcast names no namespace: the sealed header the peer authenticates does.
+        let sent =
+            values::binary(frame["envelope"].as_str().unwrap(), limits::UPDATE_BYTES).unwrap();
+        let header =
+            object::Header::decode(object::Envelope::from_json(&sent).unwrap().header()).unwrap();
+        assert_eq!(header.context.namespace, "own");
+        entry.envelope.hash().unwrap()
+    };
+    own_broadcast(&mut peer, &seed);
+    let store = Store::read(&layout).unwrap();
+    let before = discussion::read(&store, &key, PAGE, &mut decoder).unwrap();
+    assert!(!before.conversations.threads[0].resolved);
+    let (status, action) = discussion::prepare_status(
+        &store,
+        &key,
+        PAGE,
+        StatusEdit {
+            thread: THREAD,
+            resolved: true,
+            agent_name: Some("Review agent"),
+        },
+        &mut decoder,
+        now(),
+    )
+    .unwrap()
+    .unwrap();
+    store.close().unwrap();
+    let published = page::ipc::publish(&layout, &key, &status).unwrap().unwrap();
+    let Outcome::Committed {
+        count,
+        final_position,
+        ..
+    } = &published.record.outcome
+    else {
+        panic!("{:?}", published.record.outcome)
+    };
+    assert_eq!((*count, final_position.seq.as_str()), (1, "2"));
+    let hash = own_broadcast(&mut peer, &status);
+    // An exact replay answers with the retained bytes and broadcasts nothing.
+    let replay = page::ipc::publish(&layout, &key, &status).unwrap().unwrap();
+    assert_eq!(replay.record.bytes, published.record.bytes);
+    peer.send(Message::Ping(vec![3].into())).unwrap();
+    assert!(
+        matches!(peer.read().unwrap(), Message::Pong(_)),
+        "a replay was broadcast again"
+    );
+    // A later native reader sees the authenticated resolved state and the agent's label.
+    let store = Store::read(&layout).unwrap();
+    let after = discussion::read(&store, &key, PAGE, &mut decoder).unwrap();
+    let row = &after.conversations.threads[0];
+    assert!(row.resolved);
+    assert_eq!(row.status.as_ref().unwrap().reference.id, action.action_id);
+    assert_eq!(
+        row.status.as_ref().unwrap().action.agent_name.as_deref(),
+        Some("Review agent")
+    );
+    assert_eq!(
+        page::publication_receipt(status.job(), &published.record)
+            .unwrap()
+            .publication
+            .unwrap()
+            .envelope_hash,
+        values::encode_binary(&hash)
+    );
+    store.close().unwrap();
+    // A second browser peer that joins afterwards catches up with the status envelope.
+    let mut reader = server.peer(OTHER);
+    let pages = hello(&server, &mut reader, OTHER);
+    assert!(
+        pages
+            .iter()
+            .flat_map(|p| p["streams"].as_array().unwrap())
+            .flat_map(|s| s["tail"].as_array().unwrap())
+            .any(|t| t["envelopeHash"] == values::encode_binary(&hash)),
+        "{pages:?}"
+    );
+}
+
+fn checkpoint_rows(server: &Running) -> i64 {
+    server
+        .oracle()
+        .query_row("SELECT count(*) FROM checkpoints", [], |r| r.get(0))
+        .unwrap()
+}
+/// A write whose own tail passes the combine trigger (1 MiB of updates).
+fn combinable_source() -> String {
+    "wide 🐈\r\n".repeat(110_000)
+}
+
+#[test]
+fn a_publish_combines_before_it_replies() {
+    use tmt_colab::{page, publication::Outcome};
+    let (server, layout, key, _peer) = publish_fixture();
+    let frozen = prepare_write(&layout, &key, &combinable_source());
+    let published = page::ipc::publish(&layout, &key, &frozen).unwrap().unwrap();
+    assert!(matches!(
+        published.record.outcome,
+        Outcome::Committed { .. }
+    ));
+    assert!(
+        checkpoint_rows(&server) > 0,
+        "the control combine did not run"
+    );
+}
+
+#[test]
+fn a_publish_that_starts_after_its_combine_window_commits_but_never_combines() {
+    use tmt_colab::{page, publication::Outcome};
+    let (server, layout, key, _peer) = publish_fixture();
+    let frozen = prepare_write(&layout, &key, &combinable_source());
+    // The serve is busy past the combine window after it has read the request.
+    let registration = Arc::clone(&server.registration);
+    let hold = limits::PUBLISH_COMBINE + Duration::from_millis(500);
+    let (held, wait) = std::sync::mpsc::channel();
+    let holder = std::thread::spawn(move || {
+        let _guard = registration.lock().unwrap();
+        held.send(()).unwrap();
+        std::thread::sleep(hold);
+    });
+    wait.recv().unwrap();
+    let published = page::ipc::publish(&layout, &key, &frozen).unwrap().unwrap();
+    holder.join().unwrap();
+    assert!(matches!(
+        published.record.outcome,
+        Outcome::Committed { .. }
+    ));
+    assert_eq!(
+        checkpoint_rows(&server),
+        0,
+        "a combine published after its window"
+    );
+    // The reply still names the revision of the page it reports, and the page stays put.
+    let store = Store::read(&layout).unwrap();
+    assert_eq!(
+        published.revision.as_deref(),
+        Some(page::revision(&store, &key, PAGE).unwrap().as_str())
+    );
+    store.close().unwrap();
+    std::thread::sleep(Duration::from_secs(3));
+    assert_eq!(checkpoint_rows(&server), 0, "a late combine published");
+}
+
+#[test]
+fn a_batch_wider_than_the_send_queue_commits_and_tells_the_live_peer_to_resync() {
+    use tmt_colab::{decoder::Decoder, page, publication::Outcome};
+    let (_server, layout, key, mut peer) = publish_fixture();
+    let source = "wide 🐈\r\n".repeat(150_000);
+    let frozen = prepare_write(&layout, &key, &source);
+    let entries = frozen.job().manifest.entries.len();
+    // Each over-chunk entry takes two queue slots; the existing slow-peer rule applies.
+    assert!(entries * 2 > limits::SEND_QUEUE_FRAMES, "{entries}");
+    let record = page::ipc::publish(&layout, &key, &frozen)
+        .unwrap()
+        .unwrap()
+        .record;
+    assert!(matches!(record.outcome, Outcome::Committed { .. }));
+    let mut closed = None;
+    for _ in 0..64 {
+        match peer.read() {
+            Ok(Message::Close(frame)) => {
+                closed = frame.map(|f| f.reason.to_string());
+                break;
+            }
+            Ok(_) => {}
+            Err(_) => break,
+        }
+    }
+    assert_eq!(closed.as_deref(), Some("RESYNC_REQUIRED"));
+    let store = Store::read(&layout).unwrap();
+    let mut decoder = Decoder::with_config(support::decoder_config(
+        env!("CARGO_BIN_EXE_tmt-colab").into(),
+    ))
+    .unwrap();
+    assert_eq!(
+        page::read(&store, &key, PAGE, &mut decoder).unwrap().source,
+        source
+    );
 }
 
 impl Running {
@@ -2974,4 +3383,419 @@ fn archived_owner_pages_remain_readable_but_deny_all_publication() {
             .unwrap(),
         0
     );
+}
+
+// ---- Browser Save over the owner-authenticated sync socket (#2032) ----
+
+fn sha(bytes: &[u8]) -> String {
+    values::encode_binary(&tmt_colab_model::crypto::digest(bytes))
+}
+/// A source no compressor can shrink, so a size really is that size on the wire.
+fn distinct(bytes: usize, seed: &str) -> String {
+    let mut out = String::new();
+    let mut counter = 0u64;
+    while out.len() < bytes {
+        out.push_str(&sha(format!("{seed}:{counter}").as_bytes()).replace(['-', '_'], "a"));
+        counter += 1;
+    }
+    out.truncate(bytes);
+    out
+}
+impl Running {
+    /// The frames of one save: inline when it fits one frame, else a reference and its chunks.
+    fn save_frames(&self, operation: &str, base: &str, source: &str) -> Vec<Value> {
+        let bytes = source.as_bytes();
+        let hash = sha(bytes);
+        let fields = |source: Value| {
+            json!({"operationId":operation,"baseSha256":sha(base.as_bytes()),
+                "sourceSha256":hash,"source":source})
+        };
+        if bytes.len() <= limits::CHUNK_BYTES {
+            return vec![self.frame("save", fields(json!(values::encode_binary(bytes))))];
+        }
+        let object = hash_hex(bytes);
+        let count = bytes.len().div_ceil(limits::CHUNK_BYTES);
+        let mut frames = vec![self.frame("save", fields(json!({"objectId":object})))];
+        for (index, chunk) in bytes.chunks(limits::CHUNK_BYTES).enumerate() {
+            frames.push(self.frame(
+                "chunk",
+                json!({"objectId":object,"envelopeHash":hash,"index":index,"count":count,
+                    "bytes":values::encode_binary(chunk)}),
+            ));
+        }
+        frames
+    }
+    fn save(
+        &self,
+        peer: &mut WebSocket<UnixStream>,
+        operation: &str,
+        base: &str,
+        source: &str,
+    ) -> (Value, Vec<Value>) {
+        for frame in self.save_frames(operation, base, source) {
+            send(peer, frame);
+        }
+        receive_until(peer, "saveresult")
+    }
+}
+fn hash_hex(bytes: &[u8]) -> String {
+    tmt_colab_model::crypto::digest(bytes)
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect()
+}
+/// The first frame of `kind`, and every other frame that came before it.
+fn receive_until(peer: &mut WebSocket<UnixStream>, kind: &str) -> (Value, Vec<Value>) {
+    let mut others = Vec::new();
+    loop {
+        let frame = receive(peer);
+        if frame["type"] == kind {
+            return (frame, others);
+        }
+        others.push(frame);
+    }
+}
+fn native_source(layout: &tmt_colab::keyring::Layout, key: &Keyring) -> String {
+    let store = Store::read(layout).unwrap();
+    let mut decoder = tmt_colab::decoder::Decoder::with_config(support::decoder_config(
+        env!("CARGO_BIN_EXE_tmt-colab").into(),
+    ))
+    .unwrap();
+    let source = tmt_colab::page::read(&store, key, PAGE, &mut decoder)
+        .unwrap()
+        .source;
+    store.close().unwrap();
+    source
+}
+const SAVE_ONE: &str = "50000000-0000-4000-8000-000000000001";
+const SAVE_TWO: &str = "50000000-0000-4000-8000-000000000002";
+const SAVE_THREE: &str = "50000000-0000-4000-8000-000000000003";
+
+#[test]
+fn a_browser_save_commits_as_the_root_local_writer_fans_out_replays_and_answers_status() {
+    let (server, layout, key, mut first) = publish_fixture();
+    let mut second = server.peer(OTHER);
+    hello(&server, &mut second, OTHER);
+    let source = "<p>Saved by the browser 🐈</p>";
+    let (result, before) = server.save(&mut first, SAVE_ONE, "", source);
+    assert!(before.is_empty(), "{before:?}");
+    assert_eq!(result["state"], "committed", "{result}");
+    assert_eq!(result["operationId"], SAVE_ONE);
+    let revision = result["revision"].as_str().unwrap().to_owned();
+    // Every subscriber gets the broadcast; its author is the root-local writer, not a browser.
+    let broadcast = receive(&mut second);
+    assert_eq!(broadcast["type"], "broadcast");
+    // The author is the root-local writer's stream, never one of the browser devices.
+    let author = broadcast["streamId"].as_str().unwrap();
+    assert!(author != DEVICE && author != OTHER, "{broadcast}");
+    assert_eq!(
+        broadcast["chains"][0]["deviceId"].as_str(),
+        Some(author),
+        "{broadcast}"
+    );
+    assert_eq!(receive(&mut first)["type"], "broadcast");
+    assert_eq!(native_source(&layout, &key), source);
+    let store = Store::read(&layout).unwrap();
+    assert_eq!(
+        tmt_colab::page::revision(&store, &key, PAGE).unwrap(),
+        revision
+    );
+    store.close().unwrap();
+    // The same source again is a no-op under a fresh operation ID: nothing is published.
+    let (again, _) = server.save(&mut first, SAVE_TWO, source, source);
+    assert_eq!(again["state"], "unchanged", "{again}");
+    // An operation ID that already committed refuses different bytes, with no state change.
+    let (reused, _) = server.save(&mut first, SAVE_ONE, source, "<p>Another source</p>");
+    assert_eq!(reused["state"], "rejected", "{reused}");
+    assert_eq!(reused["code"], "COLAB_OPERATION_CONFLICT", "{reused}");
+    assert_eq!(native_source(&layout, &key), source);
+    // A lost reply is resolved by one status request on the original operation.
+    for (operation, state) in [(SAVE_ONE, "committed"), (SAVE_THREE, "absent")] {
+        send(
+            &mut first,
+            server.frame("savestatus", json!({"operationId":operation})),
+        );
+        let (status, _) = receive_until(&mut first, "saveresult");
+        assert_eq!(status["state"], state, "{status}");
+        assert_eq!(status["operationId"], operation);
+        if state == "committed" {
+            assert_eq!(status["revision"], revision.as_str());
+        }
+    }
+    // Exactly one commit's broadcast reached the other tab.
+    second.send(Message::Ping(vec![1].into())).unwrap();
+    assert!(matches!(second.read().unwrap(), Message::Pong(_)));
+}
+
+impl Running {
+    /// What a browser sees of a save: the reply on its live connection or, when a wide fan-out
+    /// made the server ask it to resync first, the answer to one status request after it
+    /// reconnects. Either way the original operation is answered exactly once.
+    fn saved_or_resynced(
+        &self,
+        peer: &mut WebSocket<UnixStream>,
+        operation: &str,
+        base: &str,
+        source: &str,
+    ) -> (Value, bool) {
+        for frame in self.save_frames(operation, base, source) {
+            send(peer, frame);
+        }
+        loop {
+            match peer.read() {
+                Ok(Message::Text(text)) => {
+                    let frame: Value = serde_json::from_str(&text).unwrap();
+                    if frame["type"] == "saveresult" {
+                        return (frame, false);
+                    }
+                }
+                Ok(Message::Close(_)) | Err(_) => break,
+                Ok(_) => {}
+            }
+        }
+        let mut again = self.peer(DEVICE);
+        again
+            .get_ref()
+            .set_read_timeout(Some(Duration::from_secs(60)))
+            .unwrap();
+        send(
+            &mut again,
+            self.frame("savestatus", json!({"operationId":operation})),
+        );
+        (receive_until(&mut again, "saveresult").0, true)
+    }
+}
+
+#[test]
+fn a_one_and_a_half_mib_browser_save_uploads_in_chunks_and_every_peer_follows() {
+    let (server, layout, key, mut first) = publish_fixture();
+    let mut second = server.peer(OTHER);
+    hello(&server, &mut second, OTHER);
+    // A large preparation in a debug build outlasts the fixture's three-second read timeout.
+    for peer in [&first, &second] {
+        peer.get_ref()
+            .set_read_timeout(Some(Duration::from_secs(60)))
+            .unwrap();
+    }
+    let source = distinct(1_572_864, "a");
+    let started = std::time::Instant::now();
+    let (result, resynced) = server.saved_or_resynced(&mut first, SAVE_ONE, "", &source);
+    println!(
+        "1.5 MiB browser save took {:?} (resync first: {resynced})",
+        started.elapsed()
+    );
+    assert_eq!(result["state"], "committed", "{result}");
+    assert_eq!(result["operationId"], SAVE_ONE);
+    // The other subscribed tab either follows the broadcasts or is told to resync, the same
+    // slow-peer rule every wide write has.
+    let mut told = false;
+    for _ in 0..200 {
+        match second.read() {
+            Ok(Message::Text(text)) => {
+                let frame: Value = serde_json::from_str(&text).unwrap();
+                told |= frame["type"] == "broadcast";
+            }
+            Ok(Message::Close(frame)) => {
+                told |= frame.is_some_and(|f| f.reason.to_lowercase().contains("resync"));
+                break;
+            }
+            Err(_) => break,
+            Ok(_) => {}
+        }
+        if told {
+            break;
+        }
+    }
+    assert!(told, "the other tab saw neither a broadcast nor a resync");
+    assert!(native_source(&layout, &key) == source);
+    // A second distinct source replaces the first, from the first's digest, on a connection
+    // that is not subscribed to the fan-out.
+    let mut quiet = server.peer(DEVICE);
+    quiet
+        .get_ref()
+        .set_read_timeout(Some(Duration::from_secs(60)))
+        .unwrap();
+    let next = distinct(1_572_864, "b");
+    let (result, _) = server.save(&mut quiet, SAVE_TWO, &source, &next);
+    assert_eq!(result["state"], "committed", "{result}");
+    assert!(native_source(&layout, &key) == next);
+}
+
+#[test]
+fn a_save_that_breaks_the_upload_rules_is_refused_and_leaves_the_page_alone() {
+    let (server, layout, key, mut peer) = publish_fixture();
+    let big = distinct(100_000, "c");
+    let frames = server.save_frames(SAVE_ONE, "", &big);
+    assert!(frames.len() > 2);
+    // A second upload while one assembles is a protocol error that drops the first.
+    send(&mut peer, frames[0].clone());
+    send(&mut peer, frames[0].clone());
+    assert_eq!(receive(&mut peer)["type"], "error");
+    // Chunks out of order, a wrong digest and an over-long count are refused the same way.
+    let mut skipped = frames.clone();
+    skipped.remove(1);
+    for broken in [skipped, {
+        let mut frames = frames.clone();
+        frames[1]["envelopeHash"] = json!(sha(b"something else"));
+        frames
+    }] {
+        for frame in broken {
+            send(&mut peer, frame);
+        }
+        assert_eq!(receive_until(&mut peer, "error").0["type"], "error");
+    }
+    let mut counted = frames.clone();
+    counted[1]["count"] = json!(limits::SAVE_CHUNKS + 1);
+    for frame in counted.iter().take(2) {
+        send(&mut peer, frame.clone());
+    }
+    assert_eq!(receive_until(&mut peer, "error").0["type"], "error");
+    // A source whose bytes do not match the digest bound to it never commits.
+    let mut lying = server.save_frames(SAVE_TWO, "", "<p>small</p>");
+    lying[0]["sourceSha256"] = json!(sha(b"another"));
+    send(&mut peer, lying.remove(0));
+    assert_eq!(receive_until(&mut peer, "error").0["type"], "error");
+    assert_eq!(native_source(&layout, &key), "");
+    // A status request while an upload assembles is refused too.
+    send(&mut peer, frames[0].clone());
+    send(
+        &mut peer,
+        server.frame("savestatus", json!({"operationId":SAVE_THREE})),
+    );
+    assert_eq!(receive_until(&mut peer, "error").0["type"], "error");
+}
+
+#[test]
+fn a_public_reader_cannot_save_or_ask_about_a_save() {
+    let server = Running::start(Tunnels::PRODUCT);
+    server.publish();
+    let session = server.reader_session();
+    let mut reader = server.reader_peer(&session);
+    for frame in [
+        server.reader_frame(
+            &session,
+            "save",
+            json!({"operationId":SAVE_ONE,"baseSha256":sha(b""),
+                "sourceSha256":sha(b"x"),"source":values::encode_binary(b"x")}),
+        ),
+        server.reader_frame(&session, "savestatus", json!({"operationId":SAVE_ONE})),
+    ] {
+        send(&mut reader, frame);
+        assert_eq!(receive_until(&mut reader, "error").0["type"], "error");
+    }
+}
+
+#[test]
+fn a_concurrent_edit_is_not_blocked_by_a_large_prepare_and_the_save_then_reports_a_stale_base() {
+    let (server, layout, key, mut peer) = publish_fixture();
+    let (entered, parked) = std::sync::mpsc::channel();
+    let (release, wait) = std::sync::mpsc::channel();
+    *server.save_gate.lock().unwrap() = Some((entered, wait));
+    let source = distinct(1_572_864, "d");
+    for frame in server.save_frames(SAVE_ONE, "", &source) {
+        send(&mut peer, frame);
+    }
+    // The save is parked in its preparation, holding no sync lock...
+    parked.recv_timeout(Duration::from_secs(10)).unwrap();
+    // ...so another writer commits meanwhile, through the same serve. It is the first publisher,
+    // so it also issues the root-local writer's certificate, a few milliseconds after the save
+    // started: the save must not read that certificate as issued in its own future.
+    std::thread::sleep(Duration::from_millis(5));
+    let small = prepare_write(&layout, &key, "<p>Someone else's edit</p>");
+    let published = tmt_colab::page::ipc::publish(&layout, &key, &small)
+        .unwrap()
+        .expect("the server answered while a save was preparing");
+    assert!(matches!(
+        published.record.outcome,
+        tmt_colab::publication::Outcome::Committed { .. }
+    ));
+    release.send(()).unwrap();
+    // The save was prepared from the page it saw, so it refuses to overwrite the other edit.
+    let (result, _) = receive_until(&mut peer, "saveresult");
+    assert_eq!(result["state"], "rejected", "{result}");
+    assert_eq!(result["code"], "COLAB_STALE_BASE", "{result}");
+    assert_eq!(native_source(&layout, &key), "<p>Someone else's edit</p>");
+}
+
+#[test]
+fn a_status_request_while_a_dropped_save_still_prepares_is_pending_never_absent() {
+    let (server, layout, key, mut peer) = publish_fixture();
+    let (entered, parked) = std::sync::mpsc::channel();
+    let (release, wait) = std::sync::mpsc::channel();
+    *server.save_gate.lock().unwrap() = Some((entered, wait));
+    let source = distinct(100_000, "p");
+    for frame in server.save_frames(SAVE_ONE, "", &source) {
+        send(&mut peer, frame);
+    }
+    parked.recv_timeout(Duration::from_secs(10)).unwrap();
+    // The originator is gone while its save is still preparing on the serve.
+    drop(peer);
+    let mut again = server.peer(DEVICE);
+    again
+        .get_ref()
+        .set_read_timeout(Some(Duration::from_secs(60)))
+        .unwrap();
+    for _ in 0..3 {
+        send(
+            &mut again,
+            server.frame("savestatus", json!({"operationId":SAVE_ONE})),
+        );
+        let (result, _) = receive_until(&mut again, "saveresult");
+        assert_eq!(result["state"], "pending", "{result}");
+    }
+    assert_eq!(native_source(&layout, &key), "");
+    release.send(()).unwrap();
+    // Once the preparation finishes the answer is final, and it is never "absent" on the way.
+    let mut settled = Value::Null;
+    for _ in 0..200 {
+        send(
+            &mut again,
+            server.frame("savestatus", json!({"operationId":SAVE_ONE})),
+        );
+        let (result, _) = receive_until(&mut again, "saveresult");
+        assert_ne!(result["state"], "absent", "{result}");
+        if result["state"] != "pending" {
+            settled = result;
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    assert_eq!(settled["state"], "committed", "{settled}");
+    assert_eq!(native_source(&layout, &key), source);
+}
+
+#[test]
+fn a_save_reads_the_clock_after_its_snapshot_so_a_later_certificate_cannot_deny_it() {
+    let (server, layout, key, _peer) = publish_fixture();
+    let root = server.root.clone();
+    let open: tmt_colab::page::save::SourceOpener = Arc::new(move || {
+        tmt_colab::page::save::open_source(
+            &root,
+            support::decoder_config(env!("CARGO_BIN_EXE_tmt-colab").into()),
+        )
+    });
+    let save = tmt_colab::page::save::Save {
+        page: PAGE.into(),
+        operation_id: SAVE_ONE.into(),
+        base_sha256: tmt_colab_model::crypto::digest(b""),
+        source: "<p>Late clock</p>".into(),
+    };
+    // The reading is taken now, and then another writer commits as the page's first publisher,
+    // which issues the root-local certificate a few milliseconds after that reading. If the clock
+    // were read before the snapshot, the snapshot would hold a certificate from the save's own
+    // future and the save would be denied. Read after it, that certificate is simply not in the
+    // snapshot, and preparation succeeds.
+    let calls = std::cell::Cell::new(0);
+    let prepared = tmt_colab::page::save::prepare(&open, &save, &|| {
+        calls.set(calls.get() + 1);
+        let reading = now();
+        std::thread::sleep(Duration::from_millis(5));
+        let small = prepare_write(&layout, &key, "<p>Someone else's edit</p>");
+        tmt_colab::page::ipc::publish(&layout, &key, &small)
+            .unwrap()
+            .expect("the server answered");
+        Ok(reading)
+    });
+    assert!(prepared.is_ok(), "{:?}", prepared.err());
+    assert_eq!(calls.get(), 1, "the clock is read exactly once");
 }

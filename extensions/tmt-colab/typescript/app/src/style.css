@@ -28,11 +28,11 @@ button {
   border-radius: 0;
   cursor: pointer;
 }
-button:hover,
-a:hover {
+button:not(.tmt-ui-action):not(.tmt-ui-toggle):hover,
+a:not(.tmt-ui-action):hover {
   color: var(--c-accent);
 }
-button[aria-pressed='true'] {
+button:not(.tmt-ui-action):not(.tmt-ui-toggle)[aria-pressed='true'] {
   border-color: var(--c-accent);
   background: var(--c-accent-soft);
 }
@@ -124,12 +124,8 @@ footer {
 .page-card-actions summary {
   cursor: pointer;
 }
-.page-card-actions button {
-  padding: 0;
-  border: 0;
-  box-shadow: none;
-  background: transparent;
-  white-space: nowrap;
+.page-card-actions {
+  --tmt-ui-host-action-padding: 0;
 }
 .page-mark {
   color: var(--c-muted);
@@ -184,39 +180,18 @@ footer {
   color: var(--c-muted);
   font: 11px var(--f-mono);
 }
-.drawer-bar button {
-  color: var(--c-text);
-  background: transparent;
-  border: 0;
-  box-shadow: none;
-  white-space: nowrap;
-  padding: 7px 8px;
-}
-.drawer-bar button:hover {
-  text-decoration: underline;
-  text-underline-offset: 4px;
-}
-.colab-header .export-control {
+.tmt-ui-header .export-control {
   margin: 0;
-}
-.colab-header .export-control button:disabled {
-  opacity: 1;
-  color: var(--c-muted);
-  cursor: default;
 }
 .theme-label,
 .info-label,
 .page-menu-meta {
   display: none;
 }
-/* `.colab-header button` sets display, so these need its specificity to stay hidden at desktop. */
-.colab-header .page-menu-close,
-.colab-header .page-overflow-toggle {
+/* Keep shared action controls hidden until the product overflow menu is needed. */
+.tmt-ui-header .page-menu-close,
+.tmt-ui-header .page-overflow-toggle {
   display: none;
-}
-.drawer-bar button {
-  font-size: 20px;
-  line-height: 1;
 }
 .status {
   color: var(--c-muted);
@@ -270,7 +245,7 @@ footer {
   color: var(--c-text);
   background: var(--c-paper);
   border: 1px solid var(--c-text);
-  box-shadow: 6px 6px 0 var(--c-text);
+  box-shadow: none;
   overflow: hidden;
 }
 .page-drawer[open] {
@@ -280,12 +255,15 @@ footer {
 .page-drawer[data-panel='source'] {
   width: min(660px, 100vw);
 }
-.page-drawer button:not([data-testid='ask-send']) {
+.page-drawer button:not(.tmt-ui-action):not([data-testid='ask-send']) {
   background: transparent;
   border: 0;
   box-shadow: none;
 }
-.page-drawer button:not([data-testid='ask-send']):hover:not(:disabled) {
+.page-drawer
+  button:not(.tmt-ui-action):not([data-testid='ask-send']):not(.annotation-row):hover:not(
+    :disabled
+  ) {
   text-decoration: underline;
   text-underline-offset: 4px;
 }
@@ -328,13 +306,13 @@ footer {
   margin-top: 24px;
 }
 @media (max-width: 1100px) {
-  .colab-header .page-overflow-toggle {
+  .tmt-ui-header .page-overflow-toggle {
     display: inline-flex;
   }
   .page-secondary {
     display: none;
   }
-  .colab-header[data-menu-open='true'] .page-secondary {
+  .tmt-ui-header[data-menu-open='true'] .page-secondary {
     display: flex;
     position: fixed;
     top: calc(var(--page-bar-size) + env(safe-area-inset-top, 0px));
@@ -348,9 +326,9 @@ footer {
     padding: 4px 12px;
     background: var(--c-sheet);
     border: 1px solid var(--c-text);
-    box-shadow: 6px 6px 0 var(--c-text);
+    box-shadow: none;
   }
-  .page-secondary button,
+  .page-secondary > button,
   .page-secondary .page-information summary {
     width: 100%;
     text-align: left;
@@ -370,28 +348,29 @@ footer {
     background: transparent;
   }
   .page-secondary .page-menu-close {
-    display: block;
-    text-align: right;
-    font-size: 20px;
-    border: 0;
-    padding: 6px 0;
+    display: flex;
+    justify-content: flex-end;
+    align-self: flex-end;
   }
   .page-secondary .theme-label,
   .page-secondary .info-label {
     display: inline;
   }
   .page-secondary .theme {
+    display: flex;
+    align-items: center;
+    gap: 8px;
     margin: 0;
   }
-  .colab-header .chip {
+  .tmt-ui-header .chip {
     padding: 3px 5px;
     font-size: 10px;
   }
 }
 @media (max-width: 640px) {
-  .colab-actions > .page-backend,
-  .colab-actions > .page-sharing,
-  .colab-actions > .status {
+  .tmt-ui-actions > .page-backend,
+  .tmt-ui-actions > .page-sharing,
+  .tmt-ui-actions > .status {
     display: none;
   }
   .page-menu-meta {
@@ -457,6 +436,18 @@ footer {
   background: var(--c-sheet);
   border-bottom: 1px solid var(--c-rule);
 }
+.source-notice {
+  padding: 12px 16px 0;
+}
+.source-notice .tmt-ui-notice {
+  width: auto;
+  margin: 0;
+}
+.source-notice .tmt-ui-notice-heading {
+  margin: 6px 0 0;
+  font: 400 13px/1.5 var(--tmt-ui-font-body);
+  letter-spacing: 0;
+}
 .source textarea {
   width: 100%;
   height: 100%;
@@ -474,7 +465,7 @@ footer {
   max-width: 880px;
   margin: 16px 0 0;
 }
-.canvas .notice {
+.canvas .tmt-ui-notice {
   position: absolute;
   top: 100px;
   left: 20px;
@@ -520,17 +511,6 @@ footer {
 }
 .ask-preview summary {
   cursor: pointer;
-}
-.ask-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 16px;
-  margin-top: 20px;
-}
-.ask-actions button:disabled {
-  cursor: default;
-  opacity: 0.6;
-  box-shadow: none;
 }
 
 .export-control {
@@ -641,8 +621,7 @@ footer {
   min-width: 0;
   padding: 0;
 }
-.comments-panel > header,
-.comment-thread > header {
+.comments-panel > header {
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
@@ -689,16 +668,6 @@ footer {
   flex-wrap: wrap;
   gap: 8px;
   margin: 12px 0;
-}
-.comments-panel button {
-  font-size: 12px;
-  padding: 5px 8px;
-  box-shadow: 2px 2px 0 var(--c-text);
-}
-.comments-panel button:disabled {
-  cursor: default;
-  opacity: 0.6;
-  box-shadow: none;
 }
 .comments-panel textarea {
   display: block;
@@ -793,13 +762,14 @@ footer {
   z-index: 40;
 }
 .annotation-popover {
+  height: auto;
+  display: flex;
   width: min(380px, calc(100vw - 24px));
-  max-height: calc(100vh - 80px);
-  overflow-y: auto;
-  padding: 12px;
+  overflow: hidden;
+  padding: 0;
   border: 1px solid var(--c-text);
   background: var(--c-sheet);
-  box-shadow: 5px 5px 0 var(--c-accent);
+  box-shadow: none;
 }
 .annotation-popover blockquote {
   margin: 0 0 10px;
@@ -809,11 +779,6 @@ footer {
 }
 .selection-ask {
   margin: 0;
-  border: 1px solid var(--c-text);
-  padding: 7px 12px;
-  background: var(--c-sheet);
-  color: var(--c-text);
-  box-shadow: 3px 3px 0 var(--c-accent);
 }
 .annotation-row {
   display: flex;
@@ -840,6 +805,20 @@ footer {
   color: var(--c-muted);
   font-size: 12px;
 }
+.annotation-row [data-testid='thread-row-status'] {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.annotation-row [data-testid='thread-row-status'] svg {
+  width: 14px;
+  height: 14px;
+  flex: none;
+}
+.annotation-row [data-testid='thread-row-status'][data-unseen] {
+  color: var(--c-text);
+  font-weight: 600;
+}
 .annotation-row:hover strong {
   text-decoration: underline;
 }
@@ -856,8 +835,7 @@ footer {
   padding: 10px;
   font: inherit;
 }
-.annotation-compose summary,
-.comment-page-action {
+.annotation-compose summary {
   font-size: 12px;
 }
 .annotation-compose pre {
@@ -865,16 +843,6 @@ footer {
   overflow-wrap: anywhere;
   max-height: 200px;
   overflow: auto;
-}
-.comments-panel .comment-page-action {
-  border: 0;
-  background: transparent;
-  padding: 8px 0;
-  color: var(--c-text);
-  box-shadow: none;
-}
-.comments-panel .comment-page-action:hover {
-  text-decoration: underline;
 }
 .comment .ask-panel {
   padding: 0;
@@ -894,32 +862,67 @@ footer {
   padding: 0;
   overflow: hidden;
 }
-.chat-panel {
+/* Chat, existing threads and the first annotation share one presentation shell. */
+.conversation-window {
   display: flex;
   flex-direction: column;
   flex: 1;
   min-width: 0;
   min-height: 0;
+  max-height: 100%;
+  width: 100%;
+  box-shadow: none;
+  border-radius: 0;
 }
-.chat-visibility {
-  margin: 0;
-  padding: 12px 20px;
-  color: var(--c-muted);
-  font-size: 12px;
+.conversation-window-bar {
+  display: flex;
+  align-items: center;
+  flex: none;
+  gap: 8px;
+  padding: 10px 14px;
   border-bottom: 1px solid var(--c-rule);
 }
-.chat-messages {
+.conversation-heading {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
   flex: 1;
+}
+.conversation-window .conversation-title {
+  margin: 0;
+  min-width: 0;
+  font: 600 14px/1.5 var(--f-body);
+}
+.conversation-caption {
+  color: var(--c-muted);
+  font: 11px/1.5 var(--f-body);
+}
+.conversation-messages {
+  flex: 1 1 auto;
   min-height: 0;
   overflow: auto;
-  padding: 0 20px;
+  overscroll-behavior: contain;
+  padding: 0;
 }
-.chat-panel > .annotation-compose {
-  flex: none;
-  max-height: 45%;
+.conversation-messages > blockquote,
+.conversation-messages > .annotation-hint,
+.conversation-messages > .isolation-note,
+.conversation-window > .annotation-hint {
+  margin: 10px 14px;
+}
+.conversation-messages > .comment-actions {
+  margin: 10px 2px;
+}
+.conversation-composer {
+  flex: 0 1 auto;
+  min-height: 0;
   overflow: auto;
   border-top: 1px solid var(--c-rule);
-  padding: 12px 20px;
+  padding: 10px 14px;
+}
+.annotation-popover .conversation-composer {
+  flex-shrink: 0;
 }
 .ask-panel {
   margin: 0;
@@ -928,49 +931,20 @@ footer {
   background: transparent;
 }
 .conversation-turn {
-  margin: 20px 0;
-  padding: 0;
+  width: 100%;
+  max-width: none;
+  margin: 0;
+  padding: 10px 14px;
   border: 0;
+  border-bottom: 1px solid var(--c-rule);
+  border-radius: 0;
+  box-shadow: none;
   background: transparent;
+  text-align: start;
 }
-.conversation-turn[data-turn-layout='thread'] {
-  display: grid;
-  grid-template-columns: 32px minmax(0, 1fr);
-  gap: 12px;
-}
-.conversation-turn[data-turn-layout='chat'] {
-  width: fit-content;
-  max-width: 88%;
-  padding: 12px;
-  border: 1px solid var(--c-rule);
-  background: color-mix(in srgb, var(--c-text) 6%, var(--c-paper));
-}
-.conversation-turn[data-turn-layout='chat'][data-turn-role='user'] {
-  margin-left: auto;
-  border-color: var(--c-accent);
-  background: var(--c-accent-soft);
-}
-.conversation-turn[data-turn-layout='chat'][data-turn-role='agent'] {
-  margin-right: auto;
-}
-.conversation-meta-mark {
-  vertical-align: middle;
-  margin-right: 6px;
-  color: var(--c-text);
-}
-.conversation-avatar {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 32px;
-  height: 32px;
-  border: 1px solid var(--c-accent);
-  color: var(--c-accent);
-}
-.conversation-turn[data-turn-role='agent'] .conversation-avatar {
-  border-color: var(--c-text);
-  background: var(--c-text);
-  color: var(--c-paper);
+.conversation-turn[data-turn-role='agent'] {
+  border-left: 3px solid var(--c-text);
+  padding-left: 11px;
 }
 .conversation-main {
   min-width: 0;
@@ -979,7 +953,7 @@ footer {
   margin: 0;
 }
 .conversation-body {
-  margin-top: 8px;
+  margin-top: 0;
 }
 .conversation-body > :first-child {
   margin-top: 0;
@@ -993,10 +967,6 @@ footer {
   unicode-bidi: plaintext;
   font: inherit;
 }
-.conversation-turn[data-turn-layout='thread'][data-turn-role='agent'] .conversation-body {
-  border-left: 3px solid var(--c-text);
-  padding-left: 12px;
-}
 .conversation-delivery {
   color: var(--c-muted);
   font-size: 12px;
@@ -1004,38 +974,27 @@ footer {
 .conversation-delivery:empty {
   display: none;
 }
-.conversation-delivery > [role='status'] {
-  display: block;
-  margin-top: 8px;
-}
-.thread-bar .thread-state,
+.thread-state,
 .thread-bar-actions {
   display: flex;
   align-items: center;
   gap: 8px;
 }
+.thread-state > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .thread-bar-actions {
+  flex: none;
   margin-left: auto;
 }
-.comments-panel .thread-action {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 4px;
-  padding: 4px;
-  border: 0;
-  background: transparent;
-  box-shadow: none;
-}
-.thread-action:hover {
-  color: var(--c-accent);
-}
-
 .comment-main > header {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  gap: 4px 8px;
   flex-wrap: wrap;
   color: var(--c-muted);
   font-size: 12px;
@@ -1044,6 +1003,43 @@ footer {
   display: inline-flex;
   align-items: center;
   gap: 8px;
+  max-width: 100%;
+  margin-left: auto;
+}
+.conversation-status {
+  min-width: 0;
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+}
+.conversation-status > [role='status'] {
+  min-width: 0;
+  max-width: 100%;
+}
+.conversation-status .ask-status-action {
+  padding: 0;
+  margin: 0;
+  border: 0;
+  background: transparent;
+  color: var(--c-text);
+  font: inherit;
+  box-shadow: none;
+  white-space: nowrap;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.conversation-status .ask-status-action:hover {
+  color: var(--c-text);
+}
+.ask-supporting {
+  margin: 0;
+}
+.message-mention {
+  background: var(--tmt-ui-surface-selection);
+  padding: 0 4px;
+  border: 0;
+  border-radius: 0;
 }
 
 /* The menu list drops below this block: the message itself, not the asks and replies after it. */
@@ -1100,90 +1096,69 @@ footer {
 
 .annotation-new {
   position: relative;
+  min-height: 0;
+  display: flex;
+  max-height: 100%;
+  width: 100%;
 }
-.annotation-new blockquote {
-  margin-right: 28px;
-}
-/* The same × as the Comments, Chat and Source overlays. */
-.annotation-popover .annotation-close {
-  position: absolute;
-  top: -6px;
-  right: -6px;
+.comment-thread[data-layout='anchored'] {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  max-height: 100%;
+  width: 100%;
   margin: 0;
+  padding: 0;
   border: 0;
-  padding: 7px 8px;
-  background: transparent;
-  color: var(--c-text);
+}
+.annotation-reply-label {
+  flex: none;
+  margin: 12px 0 8px;
+  font-weight: 600;
+}
+.comment-thread[data-layout='anchored'] .tmt-action-menu-list {
+  border-width: 1px;
   box-shadow: none;
-  font-size: 20px;
-  line-height: 1;
 }
-.annotation-popover .annotation-close:hover {
-  text-decoration: underline;
-  text-underline-offset: 4px;
-}
-
 /* A state is a mark plus a word; the mark takes the state's role color, the word stays muted text. */
 .ask-state {
+  max-width: 100%;
+  overflow-wrap: anywhere;
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  color: var(--c-muted);
 }
 .ask-state-mark {
+  flex: none;
   display: inline-flex;
 }
 .ask-state-mark .lucide {
   width: 14px;
   height: 14px;
 }
-.ask-state[data-tone='done'] .ask-state-mark {
-  color: var(--c-working);
-}
-.ask-state[data-tone='waiting'] .ask-state-mark {
-  color: var(--c-waiting);
-}
-.ask-state[data-tone='held'] .ask-state-mark {
-  color: var(--c-muted);
-}
-.ask-state[data-tone='problem'] .ask-state-mark {
+.ask-state[data-tone='problem'] {
   color: var(--c-blocked);
 }
 
-/* A light text toggle like the header actions: the square before the word carries on/off. */
-.archive-toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
+.home > .tmt-ui-toggle {
   margin: 0 0 16px;
-  border: 0;
-  padding: 7px 8px 7px 0;
-  background: transparent;
-  color: var(--c-text);
-  box-shadow: none;
 }
-.archive-toggle:hover,
-.archive-toggle[aria-pressed='true'] {
-  color: var(--c-text);
-  border: 0;
-  background: transparent;
+.annotation-status-row {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  column-gap: 8px;
 }
-.archive-toggle:hover {
-  text-decoration: underline;
-  text-underline-offset: 4px;
+.annotation-status-row > p {
+  flex: 0 1 auto;
+  min-width: 0;
 }
-.archive-toggle:focus-visible {
-  outline: 2px solid var(--c-accent);
-  outline-offset: 2px;
-}
-.toggle-box {
+.annotation-status-row > [data-agent-retry] {
   flex: none;
-  box-sizing: border-box;
-  width: 14px;
-  height: 14px;
-  border: 2px solid var(--c-text);
-  background: transparent;
 }
-.archive-toggle[aria-pressed='true'] .toggle-box {
-  background: var(--c-accent);
-  border-color: var(--c-accent);
+
+.annotation-status-row > .tmt-ui-action {
+  margin-inline-start: auto;
+  flex: none;
 }

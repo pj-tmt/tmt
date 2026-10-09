@@ -78,7 +78,11 @@ impl Plan {
         );
         for (kind, product) in &self.products {
             rows.extend(product.removed.iter().map(|path| {
-                let label = if path.ends_with(kind.namespace()) {
+                let label = if path.ends_with(kind.namespace())
+                    || kind
+                        .former()
+                        .is_some_and(|former| path.ends_with(former.namespace))
+                {
                     "files"
                 } else {
                     "command"

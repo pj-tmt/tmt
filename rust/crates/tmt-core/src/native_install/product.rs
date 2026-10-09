@@ -1,21 +1,71 @@
 //! Fixed artifact identities for the CLI and its official extensions (Office,
-//! Squad, Remote and Colab). The table is reviewed code; archive data never adds a product.
+//! Ops, Remote and Colab). The table is reviewed code; archive data never adds a product.
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Product {
     Cli,
     Office,
-    Squad,
+    Ops,
     Remote,
     Colab,
 }
 
+/// Optional observation after a replaced release is active. The adapter owns
+/// the bounded process effect; a notice never authorizes a lifecycle mutation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PostUpgradeCheck {
+    RemoteDoor,
+}
+
+/// Read-only installation identity before a product rename. This is never a
+/// selectable product, a dispatch alias or a completion candidate.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FormerProduct {
+    pub name: &'static str,
+    pub executable: &'static str,
+    pub namespace: &'static str,
+    pub tag_prefix: &'static str,
+    pub links: &'static [&'static str],
+    pub renamed_skills: &'static [(&'static str, &'static str)],
+}
+
+impl FormerProduct {
+    pub const fn files(self) -> [&'static str; 4] {
+        [
+            self.executable,
+            "LICENSE",
+            "NATIVE-INSTALL.md",
+            "THIRD-PARTY-NOTICES.txt",
+        ]
+    }
+}
+
 impl Product {
+    pub const fn post_upgrade_check(self) -> Option<PostUpgradeCheck> {
+        match self {
+            Self::Remote => Some(PostUpgradeCheck::RemoteDoor),
+            _ => None,
+        }
+    }
+
+    pub const fn former(self) -> Option<&'static FormerProduct> {
+        match self {
+            Self::Ops => Some(&FormerProduct {
+                name: "squad",
+                executable: "tmt-squad",
+                namespace: "lib/tmt-squad",
+                tag_prefix: "tmt-squad-v",
+                links: &["tmt-squad", "tmt-sq"],
+                renamed_skills: &[("tmt-squad", "tmt-ops")],
+            }),
+            _ => None,
+        }
+    }
     pub const fn tag_prefix(self) -> &'static str {
         match self {
             Self::Cli => "v",
             Self::Office => "tmt-office-v",
-            Self::Squad => "tmt-squad-v",
+            Self::Ops => "tmt-ops-v",
             Self::Remote => "tmt-remote-v",
             Self::Colab => "tmt-colab-v",
         }
@@ -31,14 +81,14 @@ impl Product {
         let pre_release = !version.pre.is_empty();
         match self {
             Self::Cli => pre_release || !flagged,
-            Self::Office | Self::Squad | Self::Remote | Self::Colab => flagged == pre_release,
+            Self::Office | Self::Ops | Self::Remote | Self::Colab => flagged == pre_release,
         }
     }
 
     pub const ALL: [Self; 5] = [
         Self::Cli,
         Self::Office,
-        Self::Squad,
+        Self::Ops,
         Self::Remote,
         Self::Colab,
     ];
@@ -47,7 +97,7 @@ impl Product {
         match self {
             Self::Cli => "cli",
             Self::Office => "office",
-            Self::Squad => "squad",
+            Self::Ops => "ops",
             Self::Remote => "remote",
             Self::Colab => "colab",
         }
@@ -63,7 +113,7 @@ impl Product {
         match self {
             Self::Cli => "tmt",
             Self::Office => "tmt-office",
-            Self::Squad => "tmt-squad",
+            Self::Ops => "tmt-ops",
             Self::Remote => "tmt-remote",
             Self::Colab => "tmt-colab",
         }
@@ -73,7 +123,7 @@ impl Product {
         match self {
             Self::Cli => "tmt-cli",
             Self::Office => "tmt-office",
-            Self::Squad => "tmt-squad",
+            Self::Ops => "tmt-ops",
             Self::Remote => "tmt-remote",
             Self::Colab => "tmt-colab",
         }
@@ -83,7 +133,7 @@ impl Product {
         match self {
             Self::Cli => "lib/tmux-team",
             Self::Office => "lib/tmt-office",
-            Self::Squad => "lib/tmt-squad",
+            Self::Ops => "lib/tmt-ops",
             Self::Remote => "lib/tmt-remote",
             Self::Colab => "lib/tmt-colab",
         }
@@ -93,7 +143,7 @@ impl Product {
         match self {
             Self::Cli => &["tmt", "tmux-team"],
             Self::Office => &["tmt-office"],
-            Self::Squad => &["tmt-squad", "tmt-sq"],
+            Self::Ops => &["tmt-ops"],
             Self::Remote => &["tmt-remote"],
             Self::Colab => &["tmt-colab"],
         }
@@ -107,7 +157,7 @@ impl Product {
     /// publication. Native installation refuses such a product without one.
     pub const fn requires_release_verifier(self) -> bool {
         match self {
-            Self::Cli | Self::Squad | Self::Remote | Self::Colab => false,
+            Self::Cli | Self::Ops | Self::Remote | Self::Colab => false,
             Self::Office => true,
         }
     }
@@ -119,7 +169,7 @@ impl Product {
     pub const fn companions(self) -> &'static [&'static str] {
         match self {
             Self::Cli => &["tmt-driver-herdr"],
-            Self::Office | Self::Squad | Self::Remote | Self::Colab => &[],
+            Self::Office | Self::Ops | Self::Remote | Self::Colab => &[],
         }
     }
 
@@ -130,7 +180,7 @@ impl Product {
     pub const fn optional_files(self) -> &'static [&'static str] {
         match self {
             Self::Cli | Self::Office => &[],
-            Self::Squad | Self::Remote | Self::Colab => &["TMT-USES.json"],
+            Self::Ops | Self::Remote | Self::Colab => &["TMT-USES.json"],
         }
     }
 

@@ -3,8 +3,8 @@ name: Native release upgrade proof stages
 # The four-host proof of a staged candidate and the conclusion that names why it failed or could
 # not run. Called by `native-release-upgrade.yml` for a draft or published release (after its
 # write-token fetch) and by `native-release-prepare.yml` for a rehearsal candidate (after its
-# read-only local fetch), so both prove with the same jobs. It is read-only with no token in the
-# environment; it never reaches GitHub for release state.
+# read-only local fetch), so both prove with the same jobs. Only successful main Darwin CLI proofs
+# save adapter dependencies; release-state proof has no release token and never reads release state.
 on:
   workflow_call:
     inputs:
@@ -59,7 +59,7 @@ jobs:
           - target: x86_64-unknown-linux-musl
             runner: ubuntu-24.04
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 10
+    timeout-minutes: 13
     permissions:
       contents: read
     env:
@@ -110,8 +110,8 @@ jobs:
           CARGO_INCREMENTAL: 0
         with:
           workspaces: release-source/rust
-          shared-key: native-rust
-          save-if: false
+          shared-key: ${{ inputs.product == 'cli' && runner.os == 'macOS' && 'native-upgrade-adapter' || 'native-rust' }}
+          save-if: ${{ github.ref == 'refs/heads/main' && inputs.product == 'cli' && runner.os == 'macOS' }}
       - name: Inject the reviewed draft version for upgrade proof and #575 acceptance
         uses: ./.github/actions/inject-release-version
         with:

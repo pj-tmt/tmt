@@ -2,12 +2,11 @@
 source: crates/tmt-cli/src/uninstall_command.rs
 expression: "String::from_utf8(output).unwrap()"
 ---
-REMOVE 12
+REMOVE 11
   command  /prefix/bin/tmt-office
   files    /prefix/lib/tmt-office
-  command  /prefix/bin/tmt-squad
-  command  /prefix/bin/tmt-sq
-  files    /prefix/lib/tmt-squad
+  command  /prefix/bin/tmt-ops
+  files    /prefix/lib/tmt-ops
   command  /prefix/bin/tmt-remote
   files    /prefix/lib/tmt-remote
   command  /prefix/bin/tmt-colab

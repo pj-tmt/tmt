@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="en" data-tmt-page="settings">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Remote settings and devices</title>
+    <link rel="stylesheet" href="/sdk/pages.css" />
+    <link rel="stylesheet" href="/sdk/settings.css" />
+    <script type="module" src="/sdk/settings-v1.js"></script>
+  </head>
+  <body>
+    <header class="header tmt-ui-header">
+      <span class="header-brand tmt-ui-brand"
+        ><span class="header-mark tmt-ui-mark">tmt</span
+        ><span class="header-wordmark tmt-ui-wordmark">Remote</span></span
+      >
+      <h1 class="header-title tmt-ui-title">Settings and devices</h1>
+    </header>
+    <main class="page settings-page">
+      <section
+        id="access-notice"
+        class="tmt-ui-notice"
+        data-tone="waiting"
+        aria-labelledby="access"
+      >
+        <p class="eyebrow tmt-ui-notice-eyebrow">Owner-device settings</p>
+        <div class="tmt-ui-notice-mark">
+          <span aria-hidden="true">◆</span>
+          <p id="access" role="status">Checking current access…</p>
+        </div>
+        <p id="read-only">
+          Read-only in this browser. Change Remote settings or manage devices with the local CLI.
+        </p>
+        <p><code>tmt remote settings</code> · <code>tmt remote devices</code></p>
+        <p id="warning" class="tmt-ui-field-error" role="alert" hidden></p>
+        <p id="controls-reason">Checking current access before changes are available.</p>
+      </section>
+      <section class="sheet tmt-ui-notice" data-tone="review" aria-labelledby="opening-title">
+        <div class="sheet-body tmt-ui-notice-body">
+          <h2 id="opening-title" class="tmt-ui-notice-heading">Browser opening</h2>
+          <p id="opening-value">Loading…</p>
+          <form id="opening-form" aria-describedby="read-only">
+            <label id="opening-label" class="tmt-ui-field-label" for="opening"
+              >Open a browser when pairing</label
+            >
+            <select id="opening" class="settings-select" aria-labelledby="opening-label" disabled>
+              <option value="on">On</option>
+              <option value="off">Off</option>
+            </select>
+            <button class="tmt-ui-action" aria-describedby="controls-reason" type="submit" disabled>
+              <span class="tmt-ui-action-label">Save browser opening</span>
+            </button>
+          </form>
+        </div>
+      </section>
+      <section class="sheet tmt-ui-notice" data-tone="review" aria-labelledby="limit-title">
+        <div class="sheet-body tmt-ui-notice-body">
+          <h2 id="limit-title" class="tmt-ui-notice-heading">Session limit per device</h2>
+          <p id="limit-value">Loading…</p>
+          <p id="limit-help">
+            Default is 8. Off means unlimited. Changes apply at the next session open.
+          </p>
+          <form id="limit-form" aria-describedby="limit-help read-only">
+            <label id="limit-mode-label" class="tmt-ui-field-label" for="limit-mode"
+              >Session limit</label
+            >
+            <select
+              id="limit-mode"
+              class="settings-select"
+              aria-labelledby="limit-mode-label"
+              disabled
+            >
+              <option value="default" disabled>Default (8, not configured)</option>
+              <option value="off">Off (unlimited)</option>
+              <option value="custom">Custom</option>
+            </select>
+            <div class="tmt-ui-field">
+              <label id="limit-custom-label" class="tmt-ui-field-label" for="limit-custom"
+                >Positive integer</label
+              >
+              <input
+                id="limit-custom"
+                class="tmt-ui-field-control"
+                aria-labelledby="limit-custom-label"
+                type="text"
+                inputmode="numeric"
+                pattern="[1-9][0-9]*"
+                autocomplete="off"
+                disabled
+              />
+            </div>
+            <button class="tmt-ui-action" aria-describedby="controls-reason" type="submit" disabled>
+              <span class="tmt-ui-action-label">Save session limit</span>
+            </button>
+          </form>
+        </div>
+      </section>
+      <section class="sheet tmt-ui-notice" data-tone="review" aria-labelledby="devices-title">
+        <div class="sheet-body tmt-ui-notice-body">
+          <h2 id="devices-title" class="tmt-ui-notice-heading">Paired devices</h2>
+          <p>“This device” identifies a pairing. It does not grant settings authority.</p>
+          <div id="devices"></div>
+          <button
+            class="tmt-ui-action"
+            aria-describedby="controls-reason"
+            id="first"
+            type="button"
+            hidden
+          >
+            <span class="tmt-ui-action-label">First devices</span>
+          </button>
+          <button
+            class="tmt-ui-action"
+            aria-describedby="controls-reason"
+            id="more"
+            type="button"
+            hidden
+          >
+            <span class="tmt-ui-action-label">Next devices</span>
+          </button>
+        </div>
+      </section>
+      <section
+        id="outcome-notice"
+        class="outcome tmt-ui-notice"
+        data-tone="review"
+        aria-labelledby="outcome-title"
+      >
+        <h2 id="outcome-title" class="tmt-ui-notice-heading">Last change</h2>
+        <p id="outcome" role="status">No change submitted.</p>
+        <p id="original"></p>
+        <button
+          class="tmt-ui-action"
+          aria-describedby="controls-reason"
+          id="recover"
+          type="button"
+          hidden
+        >
+          <span class="tmt-ui-action-label">Read original outcome</span>
+        </button>
+        <button
+          class="tmt-ui-action"
+          aria-describedby="controls-reason"
+          id="refresh"
+          type="button"
+          disabled
+        >
+          <span class="tmt-ui-action-label">Refresh values</span>
+        </button>
+      </section>
+    </main>
+  </body>
+</html>

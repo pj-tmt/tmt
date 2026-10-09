@@ -1,69 +1,20 @@
-.notice {
-  --notice-color: var(--c-blocked);
+.tmt-ui-notice {
   width: min(680px, calc(100% - 48px));
   margin: clamp(44px, 11vh, 104px) auto 64px;
-  border: 2px solid var(--c-text);
-  padding: clamp(24px, 5vw, 44px);
-  background: var(--c-sheet);
-  color: var(--c-text);
-  box-shadow: 6px 6px 0 var(--notice-color);
-  font: 16px/1.55 var(--f-body);
+  font-size: var(--tmt-ui-host-notice-body-size);
+  line-height: var(--tmt-ui-host-notice-body-line-height);
 }
-.notice.waiting {
-  --notice-color: var(--c-waiting);
-}
-.notice.ended {
-  --notice-color: var(--c-muted);
-}
-.notice.live {
-  --notice-color: var(--c-working);
-}
-.notice-mark,
-.guidance-mark {
-  display: block;
-  height: var(--colab-header-icon-size);
-  margin-bottom: 12px;
-  color: var(--notice-color);
-}
-.notice-eyebrow,
-.guidance-eyebrow {
-  margin: 0 0 8px;
-  color: var(--c-muted);
-  font: 600 11px var(--f-mono);
-  letter-spacing: 0.09em;
-  text-transform: uppercase;
-}
-.notice h2 {
-  margin: 0 0 16px;
-  font: 700 clamp(26px, 4vw, 36px)/1.15 var(--f-display);
-  letter-spacing: -0.03em;
-}
-.notice p:last-child {
+.tmt-ui-notice-body p:last-child {
   margin-bottom: 0;
 }
-.notice-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
-  margin-top: 24px;
-}
-.notice-actions button,
-.notice-action {
-  display: inline-block;
-  border: 1px solid var(--c-text);
-  padding: 9px 14px;
-  border-radius: 0;
-  background: var(--c-sheet);
-  color: var(--c-text);
-  box-shadow: 3px 3px 0 var(--notice-color);
-  font: 14px var(--f-body);
-  text-decoration: none;
-  cursor: pointer;
-}
 @media (max-width: 600px) {
-  .notice {
+  .tmt-ui-notice {
     width: calc(100% - 40px);
     margin-top: 48px;
-    box-shadow: 4px 4px 0 var(--notice-color);
   }
+}
+.failure-reference {
+  color: var(--c-muted);
+  font-size: 0.875em;
+  overflow-wrap: anywhere;
 }

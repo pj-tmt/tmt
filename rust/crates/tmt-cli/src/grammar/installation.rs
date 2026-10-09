@@ -22,7 +22,7 @@ pub(in crate::grammar) fn extension() -> Command {
             "Manage lifecycle hooks for trusted extensions",
             [
                 "List extensions with hooks enabled" => "tmt extension hooks ls",
-                "Deliver lifecycle hooks to Squad" => "tmt extension hooks enable squad",
+                "Deliver lifecycle hooks to Ops" => "tmt extension hooks enable ops",
             ]
         ))
         .subcommand_required(true)
@@ -31,7 +31,7 @@ pub(in crate::grammar) fn extension() -> Command {
                 "enable",
                 "Trust tmt-<name> on PATH to receive lifecycle observations",
                 [
-                    "Deliver lifecycle hooks to Squad" => "tmt extension hooks enable squad",
+                    "Deliver lifecycle hooks to Ops" => "tmt extension hooks enable ops",
                 ]
             ))
             .arg(operand("name", true)),
@@ -41,7 +41,7 @@ pub(in crate::grammar) fn extension() -> Command {
                 "disable",
                 "Stop delivering hooks to an extension",
                 [
-                    "Stop hooks for Squad" => "tmt extension hooks disable squad",
+                    "Stop hooks for Ops" => "tmt extension hooks disable ops",
                 ]
             ))
             .arg(operand("name", true)),
@@ -60,9 +60,9 @@ pub(in crate::grammar) fn extension() -> Command {
     .subcommand(
         extension_target(general(spec!(
             "install",
-            "Install an official extension (squad, remote, colab)",
+            "Install an official extension (ops, remote, colab)",
             [
-                "Install Squad" => "tmt extension install squad --yes",
+                "Install Ops" => "tmt extension install ops --yes",
                 "Install Remote" => "tmt extension install remote --yes",
                 "Install Colab" => "tmt extension install colab --yes",
             ]
@@ -99,8 +99,8 @@ pub(in crate::grammar) fn extension() -> Command {
             "upgrade",
             "Update an installed official extension",
             [
-                "Update Squad" => "tmt extension upgrade squad --yes",
-                "Install an exact version" => "tmt extension upgrade squad --to 0.1.0-alpha.2 --yes",
+                "Update Ops" => "tmt extension upgrade ops --yes",
+                "Install an exact version" => "tmt extension upgrade ops --to 0.1.0-alpha.2 --yes",
             ]
         )))
         .arg(channel_option())
@@ -112,7 +112,7 @@ pub(in crate::grammar) fn extension() -> Command {
             "rm",
             "Remove an extension's commands; releases and data are kept",
             [
-                "Remove Squad's commands" => "tmt extension rm squad --yes",
+                "Remove Ops' commands" => "tmt extension rm ops --yes",
             ]
         ))
         .alias("uninstall"),
@@ -199,8 +199,25 @@ pub(in crate::grammar) fn setup(hooked: Vec<&'static str>) -> Command {
 }
 
 pub(in crate::grammar) fn hook(hooked: Vec<&'static str>) -> Command {
+    lifecycle_callback(hooked).arg(
+        Arg::new("caller-session")
+            .long("caller-session")
+            .hide(true)
+            .requires("worker")
+            .conflicts_with("activity-only")
+            .action(ArgAction::SetTrue),
+    )
+}
+
+fn lifecycle_callback(hooked: Vec<&'static str>) -> Command {
     internal("__hook", "Internal bounded provider lifecycle callback")
         .hide(true)
+        .arg(
+            Arg::new("activity-only")
+                .long("activity-only")
+                .hide(true)
+                .action(ArgAction::SetTrue),
+        )
         .arg(operand("provider", true).value_parser(hooked))
         .arg(
             Arg::new("worker")
@@ -228,6 +245,26 @@ pub(in crate::grammar) fn hook(hooked: Vec<&'static str>) -> Command {
         )
 }
 
+pub(in crate::grammar) fn focus_hook(hooked: Vec<&'static str>) -> Command {
+    lifecycle_callback(hooked)
+        .name("__focus-hook")
+        .mut_arg("activity-only", |arg| arg.conflicts_with("launch"))
+        .about("Internal launch-admitted Focus continuation")
+        .arg(Arg::new("launch").long("launch").hide(true))
+        .arg(
+            Arg::new("discover-launch")
+                .long("discover-launch")
+                .action(ArgAction::SetTrue)
+                .hide(true)
+                .conflicts_with("activity-only"),
+        )
+        .group(
+            clap::ArgGroup::new("launch-source")
+                .args(["launch", "discover-launch"])
+                .required(true),
+        )
+}
+
 pub(in crate::grammar) fn upgrade() -> Command {
     general(spec!(
         "upgrade",
@@ -243,6 +280,9 @@ pub(in crate::grammar) fn upgrade() -> Command {
     .arg(channel_option())
     .arg(option("to"))
     .arg(option("unpin"))
+    .arg(Arg::new("allow-schema-ahead").long("allow-schema-ahead")
+        .action(ArgAction::SetTrue)
+        .help("Allow a PR schema ahead of latest alpha; newer local data still refuses downgrades"))
 }
 
 pub(in crate::grammar) fn uninstall() -> Command {
@@ -305,7 +345,7 @@ pub(in crate::grammar) fn native_install() -> Command {
         .arg(
             Arg::new("handoff-version")
                 .long("handoff-version")
-                .value_parser(["1"])
+                .value_parser(["1", "2"])
                 .conflicts_with_all([
                     "archive", "manifest", "prefix", "channel", "pin", "unpin", "product",
                 ]),
@@ -339,14 +379,7 @@ pub(in crate::grammar) fn native_install() -> Command {
                 .long("prefix")
                 .required_unless_present("handoff-version"),
         )
-        .arg(
-            Arg::new("channel")
-                .long("channel")
-                .required_unless_present("handoff-version")
-                .value_parser(
-                    tmt_core::native_install::Channel::ALL.map(|channel| channel.as_str()),
-                ),
-        )
+        .arg(channel_option().required_unless_present("handoff-version"))
         .arg(
             Arg::new("pin")
                 .long("pin")
@@ -354,6 +387,31 @@ pub(in crate::grammar) fn native_install() -> Command {
                 .conflicts_with("unpin"),
         )
         .arg(Arg::new("unpin").long("unpin").action(ArgAction::SetTrue))
+}
+
+pub(in crate::grammar) fn native_schema() -> Command {
+    internal(
+        "__native-schema",
+        "Internal compiled application-schema export",
+    )
+    .hide(true)
+    .mut_arg("json", |argument| argument.required(true))
+    .arg(
+        Arg::new("source-sha")
+            .long("source-sha")
+            .required(true)
+            .value_parser(|value: &str| {
+                if value.len() == 40
+                    && value
+                        .bytes()
+                        .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+                {
+                    Ok(value.to_owned())
+                } else {
+                    Err("Select an exact lowercase source SHA.".to_owned())
+                }
+            }),
+    )
 }
 
 pub(in crate::grammar) fn learn() -> Command {

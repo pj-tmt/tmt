@@ -61,6 +61,10 @@ const WORKSPACE_MANIFESTS: &[(&str, &str)] = &[
         "tmt-extension-state",
         "rust/crates/tmt-extension-state/Cargo.toml",
     ),
+    (
+        "tmt-extension-objects",
+        "rust/crates/tmt-extension-objects/Cargo.toml",
+    ),
     ("tmt-tui", "rust/crates/tmt-tui/Cargo.toml"),
     (
         "tmt-command-output",
@@ -102,10 +106,7 @@ const WORKSPACE_MANIFESTS: &[(&str, &str)] = &[
         "tmt-office-storage",
         "extensions/tmt-office/rust/tmt-office-storage/Cargo.toml",
     ),
-    (
-        "tmt-squad",
-        "extensions/tmt-squad/rust/tmt-squad/Cargo.toml",
-    ),
+    ("tmt-ops", "extensions/tmt-ops/rust/tmt-ops/Cargo.toml"),
     (
         "tmt-colab-model",
         "extensions/tmt-colab/rust/tmt-colab-model/Cargo.toml",
@@ -271,7 +272,7 @@ fn workspace_obeys_native_architecture() {
     // The extensions outside the workspace draw too; they obey the same rule.
     let mut drawn = sources;
     for (package, root) in [
-        ("tmt-squad", "tmt-squad/rust/tmt-squad/src/main.rs"),
+        ("tmt-ops", "tmt-ops/rust/tmt-ops/src/main.rs"),
         ("tmt-remote", "tmt-remote/rust/tmt-remote/src/lib.rs"),
         ("tmt-remote", "tmt-remote/rust/tmt-remote/src/main.rs"),
     ] {
@@ -283,7 +284,7 @@ fn workspace_obeys_native_architecture() {
     assert!(
         drawn
             .iter()
-            .any(|s| s.package == "tmt-squad" && s.file.ends_with("view.rs")),
+            .any(|s| s.package == "tmt-ops" && s.file.ends_with("view.rs")),
         "the color guard reads the Squad board"
     );
     violations.extend(colors::violations(&drawn));

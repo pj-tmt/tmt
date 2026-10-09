@@ -176,12 +176,21 @@ fn upgraded(product: Product, document: Value) -> Value {
     } else {
         "unchanged"
     };
-    json!({
+    let mut row = json!({
         "product": product.as_str(),
         "status": status,
         "version": document["version"],
         "details": document,
-    })
+    });
+    if let Some(count) = document["boardSwitch"]["switched"].as_u64() {
+        row["message"] = json!(format!("switched {count} boards to Ops"));
+        if let Some(command) = document["boardSwitch"]["command"].as_str() {
+            row["hint"] = json!(command);
+            // The root renderer prints a hint only when no message is present.
+            row.as_object_mut().expect("row object").remove("message");
+        }
+    }
+    row
 }
 
 fn failed(product: Product, error: Failure) -> Value {
@@ -219,9 +228,9 @@ pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] = &[
         "tmt extension upgrade {name} --unpin",
         &[""],
         &[
-            ("{name}", "squad"),
-            ("{}", "squad"),
-            ("{SUGGESTED_EXTENSION}", "squad"),
+            ("{name}", "ops"),
+            ("{}", "ops"),
+            ("{SUGGESTED_EXTENSION}", "ops"),
         ],
     ),
     crate::cli_style_tests::HintSpec::core("tmt upgrade --yes", &[""], &[]),

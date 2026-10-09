@@ -42,6 +42,11 @@ test('a 1.5 MiB page creates, opens in the browser and takes edits from both sid
       el.dispatchEvent(new Event('input', { bubbles: true }));
     }, browserEdit);
     await page.getByRole('button', { name: 'Save source', exact: true }).click();
+    // The save is done when the editor leaves "Saving…": the serve then has combined the new tail,
+    // so the CLI write below starts from the page as it will stay.
+    await expect(page.getByRole('button', { name: 'Saving…', exact: true })).toHaveCount(0, {
+      timeout: 120_000,
+    });
     await expect(page.getByRole('alert')).toHaveCount(0);
     await expect.poll(() => read(created.pageId).source === browserEdit).toBe(true);
 
@@ -60,23 +65,45 @@ test('a 1.5 MiB page creates, opens in the browser and takes edits from both sid
 test('creating past the 2 MiB source limit refuses by name and creates nothing', async () => {
   test.setTimeout(120_000);
   await withWorld(async (world) => {
-    const atLimit = createPage(world, 'At the limit', text(2 * MIB));
+    const atLimitSource = text(2 * MIB);
+    const atLimit = createPage(world, 'At the limit', atLimitSource);
     expect(atLimit.pageId).toBeTruthy();
-    // One change is still one update: replacing a small page by 1.5 MiB at once names that limit.
+    // Native publication batches a large replacement into bounded updates.
     const small = createPage(world, 'Small', '<p>small</p>');
+    const replacement = text(1.5 * MIB);
+    run(
+      world,
+      world.binaries.colab,
+      ['page', 'write', small.pageId, '--file', '-', '--json'],
+      replacement,
+    );
+    const read = (id: string) =>
+      JSON.parse(run(world, world.binaries.colab, ['page', 'read', id, '--json'])) as {
+        source: string;
+        revision: string;
+      };
+    expect(read(small.pageId).source).toBe(replacement);
+
+    // A fresh 2 MiB tail plus a fully different 2 MiB replacement exceeds the
+    // retained 4 MiB budget. Refusal preserves both exact source and revision.
+    const before = read(atLimit.pageId);
     let replace = '';
     try {
       run(
         world,
         world.binaries.colab,
-        ['page', 'write', small.pageId, '--file', '-', '--json'],
-        text(1.5 * MIB),
+        ['page', 'write', atLimit.pageId, '--file', '-', '--json'],
+        'z'.repeat(2 * MIB),
       );
     } catch (error) {
       replace = (error as Error).message;
     }
     expect(replace).toContain('COLAB_CAPACITY');
-    expect(replace).toContain('256 KiB one change can carry');
+    expect(replace).toContain(atLimit.pageId);
+    expect(replace).toContain('4 MiB');
+    expect(replace).toContain('tmt colab export');
+    expect(read(atLimit.pageId)).toEqual(before);
+    expect(before.source).toBe(atLimitSource);
     let refusal = '';
     try {
       createPage(world, 'Over the limit', text(2 * MIB + 1));
@@ -84,7 +111,9 @@ test('creating past the 2 MiB source limit refuses by name and creates nothing',
       refusal = (error as Error).message;
     }
     expect(refusal).toContain('COLAB_CAPACITY');
-    expect(refusal).toContain('larger than the 2 MiB');
+    expect(refusal).toContain('2097153 bytes (2 MiB)');
+    expect(refusal).toContain('at most 2097152 bytes (2 MiB)');
+    expect(refusal).toContain('Nothing was written.');
     const listed = JSON.parse(run(world, world.binaries.colab, ['ls', '--json'])) as {
       pages: { title: string | null }[];
     };

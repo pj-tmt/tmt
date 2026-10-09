@@ -105,7 +105,10 @@ impl LaunchOptions {
         }
         args = &args[1..];
         let mut options = Vec::new();
-        if args.first().is_some_and(|arg| arg == "-m") {
+        while args
+            .first()
+            .is_some_and(|arg| arg == "-m" || arg == "--model" || arg == "-c" || arg == "--config")
+        {
             if args.len() < 3 {
                 return Err(invalid());
             }
@@ -131,7 +134,7 @@ impl LaunchOptions {
     pub fn thread_resume_params(&self, session: &ProviderSessionId) -> serde_json::Value {
         let mut params =
             serde_json::json!({"threadId": session.as_str(), "cwd": self.working_directory});
-        // The generated resume grammar carries at most one explicit model.
+        // Preserve the selected explicit model; invocation-only hooks are server config.
         if let Some(model) = self
             .foreground
             .windows(2)

@@ -11,3 +11,4 @@ export * as certificate from './certificate.js';
 export * as wrap from './wrap.js';
 export * as streamCut from './stream-cut.js';
 export * as link from './link.js';
+export * as attachment from './attachment.js';

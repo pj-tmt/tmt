@@ -1,3 +1,4 @@
+import type { CreationRecipient } from './fold-protocol.js';
 import { decimal, digest, generatedId, requireValue, spaceId, text, time } from '@tmt/colab-client';
 import {
   projectConversations,
@@ -18,6 +19,7 @@ export const EXPORT_FILES: readonly ExportFile[] = [
 /** One bundle never exceeds this many bytes of conversations (both files together). */
 export const CONVERSATIONS_BYTES = 8 * 1024 * 1024;
 export interface ExportView {
+  creationRecipient?: CreationRecipient;
   spaceId: string;
   pageId: string;
   source: string;
@@ -30,6 +32,8 @@ export interface ExportView {
   /** The admitted per-writer discussion state and each writer's historical signing key. */
   own: OwnState;
   signingKeys: Record<string, Uint8Array>;
+  /** Writers that may resolve threads (owner-member devices); other keyed writers stay readable. */
+  statusWriters: readonly string[];
 }
 export interface FileInfo {
   readonly name: ExportFile;
@@ -43,11 +47,23 @@ export function hex(bytes: Uint8Array): string {
 /** Caller admission supplies the view. Copy everything before the first await;
  * hashing cannot mix a later projection/head into this plaintext bundle. */
 export async function prepareExport(input: ExportView): Promise<ExportBundle> {
-  const view = { ...input, membershipHead: { ...input.membershipHead } };
+  const view = {
+    ...input,
+    ...(input.creationRecipient === undefined
+      ? {}
+      : {
+          creationRecipient: {
+            machineId: input.creationRecipient.machineId,
+            agentId: input.creationRecipient.agentId,
+          },
+        }),
+    membershipHead: { ...input.membershipHead },
+  };
   const own = structuredClone(input.own);
   const keys = new Map(
     Object.entries(input.signingKeys).map(([writer, key]) => [writer, key.slice()]),
   );
+  const statusWriters = new Set(input.statusWriters);
   spaceId(view.spaceId);
   generatedId(view.pageId);
   decimal(view.epoch);
@@ -67,6 +83,7 @@ export async function prepareExport(input: ExportView): Promise<ExportBundle> {
     membershipHead: view.membershipHead,
     own,
     signingKey: (writer) => keys.get(writer)?.slice(),
+    statusWriter: (writer) => statusWriters.has(writer),
   });
   const html = text(view.source);
   const json = text(serializeConversations(conversations));
@@ -89,6 +106,9 @@ export async function prepareExport(input: ExportView): Promise<ExportBundle> {
       title: view.title,
       ...(view.originalAuthor === undefined ? {} : { originalAuthor: view.originalAuthor }),
       ...(view.publisherAgent === undefined ? {} : { publisherAgent: view.publisherAgent }),
+      ...(view.creationRecipient === undefined
+        ? {}
+        : { creationRecipient: view.creationRecipient }),
       exportedAtMs: view.exportedAtMs,
       membershipHead: {
         revision: view.membershipHead.revision,

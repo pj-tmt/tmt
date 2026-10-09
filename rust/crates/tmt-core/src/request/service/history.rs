@@ -36,13 +36,18 @@ fn valid_query(query: &HistoryQuery) -> bool {
         })
 }
 
-fn item<T>(record: AttentionRecord, final_state: FinalState<T>) -> HistoryItem<T> {
+fn item<T>(
+    record: AttentionRecord,
+    final_state: FinalState<T>,
+    delivery_policy: super::super::focus::DeliveryPolicy,
+) -> HistoryItem<T> {
     let acknowledged = matches!(record.attempt.route, RequestRoute::Inbox { .. }).then_some(
         record.revision > 0
             && (record.acknowledged_revision >= record.revision
                 || record.acknowledged_through >= record.revision),
     );
     HistoryItem {
+        delivery_policy,
         request_id: record.attempt.request_id,
         room_id: record.attempt.room_id,
         recipient_identity_id: record.attempt.recipient_identity_id,
@@ -88,9 +93,11 @@ impl<R: RequestRepository, C: Fn() -> u64> RequestService<'_, R, C> {
             let items = rows
                 .into_iter()
                 .map(|row| {
+                    let delivery_policy =
+                        records.delivery_policy(&row.attention.attempt.request_id)?;
                     let final_state = attention::final_state(&row.attention, now, Some(()))?;
                     Ok(HistorySummary {
-                        item: item(row.attention, final_state),
+                        item: item(row.attention, final_state, delivery_policy),
                         preview: row.preview,
                         response_preview: row.response_preview,
                     })
@@ -118,6 +125,7 @@ impl<R: RequestRepository, C: Fn() -> u64> RequestService<'_, R, C> {
                 .find_request_history(request_id)?
                 .filter(|record| now < record.attempt.retention_expires_at_ms)
                 .ok_or(RequestError::NotFound)?;
+            let delivery_policy = records.delivery_policy(request_id)?;
             let context = context(records, request_id, now)?.ok_or(RequestError::NotFound)?;
             let response = records
                 .find_response(request_id)?
@@ -125,7 +133,7 @@ impl<R: RequestRepository, C: Fn() -> u64> RequestService<'_, R, C> {
             let final_state =
                 attention::final_state(&record, now, response.map(|response| response.body))?;
             Ok(HistoryDetail {
-                item: item(record, final_state),
+                item: item(record, final_state, delivery_policy),
                 prompt: context.prompt,
             })
         })

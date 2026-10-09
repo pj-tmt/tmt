@@ -44,7 +44,7 @@ on:
         options:
           - cli
           - office
-          - squad
+          - ops
           - driver-herdr
           - remote
           - colab

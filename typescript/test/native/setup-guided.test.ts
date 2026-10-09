@@ -121,7 +121,7 @@ describe('guided tmt setup', () => {
       expect(again.status, again.stderr).toBe(0);
       expect(again.stdout).toContain('✓ Everything is set up');
       expect(again.stdout).not.toContain('CHANGES');
-      expect(again.stdout).toContain('hint: tmt extension install squad');
+      expect(again.stdout).toContain('hint: tmt extension install ops');
       expect(tree(sandbox.root)).toEqual(settled);
       const json = parseWholeStdout(await runCli(sandbox, ['setup', '--json']));
       expect(json).toMatchObject({ applied: false, plan: [] });

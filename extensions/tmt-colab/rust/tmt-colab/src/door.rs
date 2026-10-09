@@ -32,6 +32,85 @@ fn remote_call(words: &[&str]) -> Option<(bool, String)> {
         String::from_utf8(output.stdout).ok()?,
     ))
 }
+/// One creation snapshot reused for recipient provenance and link presentation.
+pub struct CreationObservation {
+    pub lookup: Lookup,
+    pub machine_id: Option<String>,
+}
+pub fn creation_observation() -> CreationObservation {
+    let result = remote_call(&["status", "--machine", "--json"]);
+    result
+        .and_then(|(ok, reply)| ok.then(|| creation_observation_from_reply(&reply)))
+        .unwrap_or(CreationObservation {
+            lookup: Lookup::Unknown,
+            machine_id: None,
+        })
+}
+fn creation_observation_from_reply(reply: &str) -> CreationObservation {
+    let unknown = || CreationObservation {
+        lookup: Lookup::Unknown,
+        machine_id: None,
+    };
+    #[derive(serde::Deserialize)]
+    #[serde(deny_unknown_fields, rename_all = "camelCase")]
+    struct Stopped {
+        running: bool,
+        #[serde(deserialize_with = "required_port")]
+        last_port: Option<u16>,
+    }
+    fn required_port<'de, D: serde::Deserializer<'de>>(
+        deserializer: D,
+    ) -> Result<Option<u16>, D::Error> {
+        serde::Deserialize::deserialize(deserializer)
+    }
+    #[derive(serde::Deserialize)]
+    #[serde(deny_unknown_fields, rename_all = "camelCase")]
+    struct Running {
+        running: bool,
+        origin: String,
+        path: String,
+        machine_id: String,
+    }
+    // Typed documents reject missing, unknown and duplicate fields before interpretation.
+    if let Ok(stopped) = serde_json::from_str::<Stopped>(reply)
+        && !stopped.running
+        && stopped.last_port != Some(0)
+    {
+        return CreationObservation {
+            lookup: Lookup::Stopped(stopped.last_port.map(u64::from)),
+            machine_id: None,
+        };
+    }
+    let parsed = (|| {
+        let running = serde_json::from_str::<Running>(reply).ok()?;
+        if !running.running {
+            return None;
+        }
+        let origin = &running.origin;
+        let port = origin
+            .strip_prefix("http://127.0.0.1:")?
+            .parse::<u16>()
+            .ok()?;
+        if port == 0 || origin != &format!("http://127.0.0.1:{port}") {
+            return None;
+        }
+        let prefix = running.path.strip_prefix("/r/")?;
+        if prefix.len() != 16
+            || !prefix
+                .bytes()
+                .all(|c| c.is_ascii_lowercase() || (b'2'..=b'7').contains(&c))
+        {
+            return None;
+        }
+        let door = Door::from_parts(origin, &running.path)?;
+        tmt_colab_model::values::generated_id(&running.machine_id).ok()?;
+        Some(CreationObservation {
+            lookup: Lookup::Running(door),
+            machine_id: Some(running.machine_id),
+        })
+    })();
+    parsed.unwrap_or_else(unknown)
+}
 /// The answer of a call that succeeded; anything else is no answer.
 fn remote_json(words: &[&str]) -> Option<String> {
     remote_call(words).and_then(|(ok, text)| ok.then_some(text))
@@ -200,6 +279,49 @@ impl Door {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn creation_observation_requires_exact_complete_documents() {
+        use super::creation_observation_from_reply as parse;
+        for (reply, port) in [
+            (r#"{"running":false,"lastPort":null}"#, None),
+            (r#"{"running":false,"lastPort":53253}"#, Some(53253)),
+        ] {
+            let observed = parse(reply);
+            assert_eq!(observed.lookup, Lookup::Stopped(port));
+            assert_eq!(observed.machine_id, None);
+        }
+        let running = r#"{"running":true,"origin":"http://127.0.0.1:53253","path":"/r/abcdefghijkl2345","machineId":"40000000-0000-4000-8000-000000000001"}"#;
+        let observed = parse(running);
+        assert!(matches!(observed.lookup, Lookup::Running(_)));
+        assert_eq!(
+            observed.machine_id.as_deref(),
+            Some("40000000-0000-4000-8000-000000000001")
+        );
+        for bad in [
+            r#"{"running":false,"unexpected":1}"#.to_owned(),
+            r#"{"running":false}"#.to_owned(),
+            r#"{"running":false,"running":false,"lastPort":null}"#.to_owned(),
+            r#"{"running":false,"lastPort":null,"lastPort":null}"#.to_owned(),
+            r#"{"running":false,"lastPort":0}"#.to_owned(),
+            r#"{"running":false,"lastPort":65536}"#.to_owned(),
+            r#"{"running":false,"lastPort":null,"extra":1}"#.to_owned(),
+            running.replace("true,", "true,\"running\":true,"),
+            running.replace(
+                "\"machineId\":",
+                "\"machineId\":\"40000000-0000-4000-8000-000000000001\",\"machineId\":",
+            ),
+            running.replace("abcdefghijkl2345", "abcdefghijkl2340"),
+            running.replace("abcdefghijkl2345", "abc"),
+            running.replace(":53253", ":053253"),
+            running.replace("40000000-0000-4000", "40000000-0000-1000"),
+            r#"{"running":true,"origin":"http://127.0.0.1:53253","path":"/r/abcdefghijkl2345"}"#
+                .to_owned(),
+        ] {
+            let observed = parse(&bad);
+            assert_eq!(observed.lookup, Lookup::Unknown, "{bad}");
+            assert_eq!(observed.machine_id, None, "{bad}");
+        }
+    }
     #[test]
     fn the_hint_names_the_link_or_the_reason_there_is_none() {
         let door = Door::parse(r#"{"running":true,"origin":"http://127.0.0.1:1","path":"/r/ab"}"#)

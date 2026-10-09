@@ -15,6 +15,166 @@ const bundle = read('.github/workflows/native-release-bundle.yml');
 const prepare = read('.github/workflows/native-release-prepare.yml');
 const smokeWorkflow = read('.github/workflows/native-release-smoke.yml');
 
+describe('compiled CLI schema preparation order', () => {
+  const blocks = (source: string) => ({
+    build: source.split('  build:\n')[1].split('  assemble:\n')[0],
+    assemble: source.split('  assemble:\n')[1].split('  verify:\n')[0],
+    verify: source.split('  verify:\n')[1].split('  upgrade-fetch:\n')[0],
+  });
+  const trustedInstallName = 'name: Install trusted CLI verification dependencies';
+  const trustedInstallCommand =
+    'pnpm --filter tmux-team --fail-if-no-match install --frozen-lockfile --ignore-scripts';
+  function requireTrustedCliPreparation(source: string) {
+    const { verify } = blocks(source);
+    const steps = verify.split(/\n      - /).slice(1);
+    const installs = steps.filter((step) => step.startsWith(trustedInstallName + '\n'));
+    expect(installs).toHaveLength(1);
+    const install = installs[0];
+    expect(install.split('\n')).toContain("        if: inputs.product == 'cli'");
+    expect(install.split('\n')).toContain('        working-directory: typescript');
+    expect(install.split('\n')).toContain(`        run: ${trustedInstallCommand}`);
+    const setup = steps.findIndex((step) => step.startsWith('name: Set up Node.js and pnpm\n'));
+    const preparation = steps.indexOf(install);
+    const final = steps.findIndex((step) =>
+      step.startsWith(
+        'name: Execute final archive and bootstrap with the matching target process\n'
+      )
+    );
+    expect(setup).toBeGreaterThanOrEqual(0);
+    expect(preparation).toBeGreaterThan(setup);
+    expect(final).toBeGreaterThan(preparation);
+    expect(steps[final]).toContain(
+      'node "$GITHUB_WORKSPACE/typescript/scripts/verify-native-artifact.mjs"'
+    );
+    const candidate = steps.find((step) =>
+      step.startsWith('name: Install verification dependencies\n')
+    );
+    expect(candidate?.split('\n')).toContain(
+      '        working-directory: release-source/typescript'
+    );
+    expect(candidate?.split('\n')).toContain(
+      '        run: pnpm install --frozen-lockfile --ignore-scripts'
+    );
+    const activation = read('.github/actions/setup-tooling/action.yml');
+    expect(activation).toContain('default: 22.23.2');
+    expect(activation).toContain('default: 10.33.0');
+  }
+  function requireSchemaOrder(source: string) {
+    const { build, assemble, verify } = blocks(source);
+    expect(build).toContain(
+      "inputs.product == 'cli' && matrix.target == 'x86_64-apple-darwin' && 'x64'"
+    );
+    const capture = build.indexOf('name: Capture compiled CLI schema');
+    expect(capture).toBeGreaterThan(
+      build.indexOf('name: Verify plan, archive and binary versions')
+    );
+    expect(build.indexOf('scripts/run-native-verification.sh "$TARGET"', capture)).toBeGreaterThan(
+      capture
+    );
+    expect(build.indexOf('native-application-schema.mjs" capture', capture)).toBeGreaterThan(
+      capture
+    );
+    expect(capture).toBeLessThan(build.indexOf('name: Recheck version-only source'));
+    expect(build).toContain('release-source/target/distrib/*-application-schema.json');
+    const merge = assemble.indexOf('dist build --tag');
+    const attach = assemble.indexOf('native-application-schema.mjs" assemble');
+    expect(attach).toBeGreaterThan(merge);
+    expect(attach).toBeLessThan(assemble.indexOf('generate-native-bootstrap.mjs'));
+    expect(attach).toBeLessThan(assemble.indexOf('uses: actions/upload-artifact@v4'));
+    expect(assemble).toContain('release-source/target/distrib/*-application-schema.json');
+    expect(verify).toContain(
+      'node "$GITHUB_WORKSPACE/typescript/scripts/verify-native-artifact.mjs"'
+    );
+    expect(verify).toContain('--schema-snapshot "$RUNNER_TEMP/release-version-state.json"');
+    expect(verify).toContain('--schema-evidence "target/distrib/$TARGET-application-schema.json"');
+    expect(verify).toContain('--source-root "$PWD"');
+    expect(verify.indexOf('scripts/run-native-verification.sh "$TARGET"')).toBeLessThan(
+      verify.indexOf('--schema-snapshot')
+    );
+    expect(verify).not.toContain('native-application-schema.mjs" assemble');
+  }
+  it('captures on matching hosts, inserts after cargo-dist merge and verifies without rewriting', () => {
+    requireSchemaOrder(prepare);
+    const source = read('typescript/scripts/verify-native-artifact.mjs');
+    expect(source).toContain('verifyApplicationSchema({');
+    expect(source).toContain('Final schema manifest changed during verification');
+    expect(source.indexOf('verifyApplicationSchema({')).toBeLessThan(
+      source.indexOf('await verifyNativeRuntime({')
+    );
+    expect(source.indexOf('Final schema manifest changed during verification')).toBeGreaterThan(
+      source.indexOf('await verifyNativeRuntime({')
+    );
+    expect(source).toContain("'schema-snapshot': { type: 'string' }");
+  });
+  it('prepares pinned trusted tooling for CLI verification while retaining candidate dependencies', () => {
+    requireTrustedCliPreparation(prepare);
+  });
+  it.each(['missing', 'wrong-checkout', 'late', 'condition', 'filter', 'frozen', 'scripts'])(
+    'detects %s trusted CLI dependency preparation',
+    (mutation) => {
+      const { verify } = blocks(prepare);
+      const step = verify
+        .split(/\n      - /)
+        .find((entry) => entry.startsWith(trustedInstallName + '\n'))!;
+      const declaration = '      - ' + step;
+      let changed: string;
+      if (mutation === 'missing') changed = verify.replace(declaration, '');
+      else if (mutation === 'late') {
+        changed = verify
+          .replace(declaration, '')
+          .replace(
+            '      - name: Recheck version-only source after this stage\n',
+            declaration + '      - name: Recheck version-only source after this stage\n'
+          );
+      } else {
+        const [before, after] = {
+          'wrong-checkout': [
+            'working-directory: typescript',
+            'working-directory: release-source/typescript',
+          ],
+          condition: ["inputs.product == 'cli'", "inputs.product == 'colab'"],
+          filter: ['--filter tmux-team', '--filter @tmt/colab-app'],
+          frozen: ['--frozen-lockfile', '--no-frozen-lockfile'],
+          scripts: ['--ignore-scripts', '--enable-scripts'],
+        }[mutation]!;
+        changed = verify.replace(declaration, declaration.replace(before, after));
+      }
+      expect(changed).not.toBe(verify);
+      expect(() => requireTrustedCliPreparation(prepare.replace(verify, changed))).toThrow();
+    }
+  );
+  it.each(['capture', 'carrier', 'evidence', 'snapshot', 'source', 'rosetta'])(
+    'detects removal of the %s obligation',
+    (guard) => {
+      const changed = prepare.replace(
+        {
+          capture: 'name: Capture compiled CLI schema',
+          carrier: 'native-application-schema.mjs" assemble',
+          evidence: '--schema-evidence',
+          snapshot: '--schema-snapshot',
+          source: '--source-root "$PWD"',
+          rosetta: "inputs.product == 'cli' && matrix.target == 'x86_64-apple-darwin' && 'x64'",
+        }[guard]!,
+        'REMOVED'
+      );
+      expect(changed).not.toBe(prepare);
+      expect(() => requireSchemaOrder(changed)).toThrow();
+    }
+  );
+  it('refuses a carrier inserted after bootstrap generation', () => {
+    const line =
+      'node "$GITHUB_WORKSPACE/typescript/scripts/native-application-schema.mjs" assemble';
+    const changed = prepare
+      .replace(line, 'REMOVED')
+      .replace(
+        'node typescript/scripts/generate-native-bootstrap.mjs',
+        `node typescript/scripts/generate-native-bootstrap.mjs\n          ${line}`
+      );
+    expect(changed).not.toBe(prepare);
+    expect(() => requireSchemaOrder(changed)).toThrow();
+  });
+});
+
 describe('independent release-tag concurrency guard', () => {
   it('keys every publishing pipeline concurrency group on the allocated tag', () => {
     const directory = path.join(repository, '.github/workflows');
@@ -167,7 +327,15 @@ describe('release version gate workflow boundaries', () => {
   it('keeps native injection on pinned PR heads and all four hosts, with no publishing privileges', () => {
     const injection = read('.github/workflows/release-version-injection.yml');
     expect(injection).toContain('github.event.pull_request.head.sha || github.sha');
-    expect(injection).toContain('product: [cli, squad, remote, colab]');
+    expect(injection).toContain('product: [cli, ops, remote, colab]');
+    const products = /product: \[([^\]]+)\]/
+      .exec(injection)?.[1]
+      .split(',')
+      .map((product) => product.trim());
+    const map = JSON.parse(read('.github/components.json'));
+    expect(products?.includes('ops')).toBe(
+      !!map.components.ops && map.components.ops.release !== false
+    );
     for (const host of ['macos-15', 'macos-15-intel', 'ubuntu-24.04-arm', 'ubuntu-24.04'])
       expect(injection).toContain(`runner: ${host}`);
     const action = read('.github/actions/inject-release-version/action.yml');
@@ -236,7 +404,7 @@ describe('per-tag release run (native-release.yml)', () => {
     expect(job(run, 'plan')).toContain('retry, hold and rerun need prepare turned off.');
   });
 
-  it('refuses parked Office and Herdr before preparation or draft planning, retaining released products', () => {
+  it('refuses parked Office before preparation or draft planning, retaining released products', () => {
     const plan = job(run, 'plan');
     expect(plan).toContain(
       'node typescript/scripts/native-release-policy.mjs require-released "$PRODUCT"'
@@ -247,7 +415,7 @@ describe('per-tag release run (native-release.yml)', () => {
       .split('\n')
       .map((line) => line.replace(/^ {10}/, ''))
       .join('\n');
-    expect(run).toMatch(/options:\n {10}- cli\n {10}- squad/);
+    expect(run).toMatch(/options:\n {10}- cli\n {10}- ops/);
     const directory = mkdtempSync(path.join(os.tmpdir(), 'release-product-'));
     try {
       const gh = path.join(directory, 'gh');
@@ -257,7 +425,7 @@ describe('per-tag release run (native-release.yml)', () => {
         0o700
       );
       const search = `${directory}${path.delimiter}${process.env.PATH ?? ''}`;
-      for (const [product, prepare] of ['office', 'driver-herdr'].flatMap((product) =>
+      for (const [product, prepare] of ['office', 'squad'].flatMap((product) =>
         ['true', 'false'].map((prepare) => [product, prepare])
       )) {
         const result = spawnSync('/bin/sh', ['-eu', '-c', shell], {
@@ -273,7 +441,7 @@ describe('per-tag release run (native-release.yml)', () => {
           `${product} is not released (release: false in .github/components.json).`
         );
       }
-      for (const product of ['cli', 'squad', 'remote', 'colab']) {
+      for (const product of ['cli', 'ops', 'driver-herdr', 'remote', 'colab']) {
         const output = path.join(directory, product);
         const result = spawnSync('/bin/sh', ['-eu', '-c', shell], {
           cwd: repository,
@@ -388,7 +556,7 @@ describe('release bundle pipeline (native-release-bundle.yml)', () => {
 
   it('builds Colab with frozen embedded assets and verifies outside the checkout fallback', () => {
     expect(run).toMatch(
-      /options:\n {10}- cli\n {10}- squad\n {10}- driver-herdr\n {10}- remote\n {10}- colab/
+      /options:\n {10}- cli\n {10}- ops\n {10}- driver-herdr\n {10}- remote\n {10}- colab/
     );
     expect(job(prepare, 'build')).toMatch(
       /- name: Set up Node.js and pnpm\n {8}uses: \.\/\.github\/actions\/setup-tooling/
@@ -533,9 +701,9 @@ describe('live main release cuts (release.yml)', () => {
     );
   });
   it('keeps owner versions explicit and parked products out of manual selection', () => {
-    expect(release).toContain('options: [all, cli, squad, remote, colab]');
+    expect(release).toContain('options: [all, cli, ops, driver-herdr, remote, colab]');
     expect(release).toContain('VERSION: ${{ inputs.version }}');
-    expect(release).not.toContain('driver-herdr');
+    expect(release).toContain('driver-herdr');
     expect(release).toContain('release-cut-plan.json');
     expect(release).toContain('if: always()');
   });
@@ -557,7 +725,7 @@ describe('release upgrade proof (native-release-upgrade.yml)', () => {
     for (const input of ['product', 'tag', 'sha']) {
       expect(upgrade.match(new RegExp(`^ {6}${input}:$`, 'gm')), input).toHaveLength(2);
     }
-    expect(upgrade).toMatch(/type: choice\n {8}options:\n {10}- cli\n {10}- office\n {10}- squad/);
+    expect(upgrade).toMatch(/type: choice\n {8}options:\n {10}- cli\n {10}- office\n {10}- ops/);
     // The publication run reads the outcome and the reason, whatever the run's own result is.
     expect(upgrade).toMatch(
       /^ {4}outputs:\n {6}outcome:\n(?: {8}[^\n]*\n)* {8}value: \$\{\{ jobs\.fetch\.outputs\.outcome \}\}\n {6}reason:\n(?: {8}[^\n]*\n)* {8}value: \$\{\{ jobs\.prove\.outputs\.reason \}\}\n/m
@@ -664,15 +832,19 @@ describe('release upgrade proof (native-release-upgrade.yml)', () => {
     expect(prove.indexOf('warm-xcrun')).toBeLessThan(prove.indexOf('release-upgrade.mjs" prove'));
   });
 
-  it('requires CLI adapter acceptance after the existing proof on every host, with bounded compilation and read-only caching', () => {
+  it('requires CLI adapter acceptance after the existing proof on every host, with bounded compilation and a Darwin adapter cache', () => {
     const prove = job(proveWf, 'prove');
-    expect(prove).toContain('timeout-minutes: 10');
+    expect(prove).toContain('timeout-minutes: 13');
     expect(prove).toMatch(/name: Install Rust for version-only resolution and adapter acceptance/);
     expect(prove).toMatch(
       /name: Restore Rust dependencies for version-only resolution and adapter acceptance/
     );
-    expect(prove).toContain('shared-key: native-rust');
-    expect(prove).toContain('save-if: false');
+    expect(prove).toContain(
+      "shared-key: ${{ inputs.product == 'cli' && runner.os == 'macOS' && 'native-upgrade-adapter' || 'native-rust' }}"
+    );
+    expect(prove).toContain(
+      "save-if: ${{ github.ref == 'refs/heads/main' && inputs.product == 'cli' && runner.os == 'macOS' }}"
+    );
     expect(prove).toMatch(
       /name: Prove the real-archive CLI upgrade adapter\n {8}if: inputs.product == 'cli'/
     );
@@ -826,9 +998,57 @@ describe('rehearsal upgrade proof and the publishing upgrade call', () => {
           /\bneeds\.([\w-]+)\.(result|outputs\.\w+)/g,
           (_, name, path) => `ctx.needs['${name}'].${path}`
         )
-        .replace(/\binputs\.([\w-]+)/g, "ctx.inputs['$1']")}) `
+        .replace(/\b(inputs|github|runner)\.([\w-]+)/g, "ctx['$1']['$2']")}) `
     )({ cancelled: false, ...context });
   const ifOf = (text: string) => /^ {4}if: (.+)$/m.exec(text)?.[1] ?? '';
+
+  it('seeds adapter dependencies only from main Darwin CLI proofs without adding compilation', () => {
+    const prove = job(proveWf, 'prove');
+    const caches = prove
+      .split('\n      - ')
+      .filter((step) =>
+        step.startsWith(
+          'name: Restore Rust dependencies for version-only resolution and adapter acceptance\n'
+        )
+      );
+    expect(caches).toHaveLength(1);
+    const cache = caches[0];
+    expect(cache).toContain('uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6');
+    expect(cache).toContain('workspaces: release-source/rust');
+    expect(cache).toContain('CARGO_PROFILE_DEV_DEBUG: 0');
+    expect(cache).toContain('CARGO_INCREMENTAL: 0');
+    expect(prove).toContain('RUSTUP_TOOLCHAIN: 1.97.0');
+    expect(prove).toContain('run: rustup toolchain install 1.97.0 --profile minimal');
+    expect(prove).not.toMatch(
+      /add-rust-environment-hash-key:|cache-on-failure:|cache-workspace-crates:/
+    );
+    const key = /^ {10}shared-key: (.+)$/m.exec(cache)?.[1];
+    const save = /^ {10}save-if: (.+)$/m.exec(cache)?.[1];
+    expect(key).toBeDefined();
+    expect(save).toBeDefined();
+    for (const ref of [
+      'refs/heads/main',
+      'refs/pull/42/merge',
+      'refs/heads/gh-readonly-queue/main/pr-42',
+      'refs/tags/v5.0.0-alpha.1',
+      'refs/heads/feature',
+    ]) {
+      for (const product of ['cli', 'ops', 'remote', 'colab']) {
+        for (const os of ['macOS', 'Linux']) {
+          const context = { github: { ref }, inputs: { product }, runner: { os } };
+          const adapter = product === 'cli' && os === 'macOS';
+          const label = `${ref}/${product}/${os}`;
+          expect(evaluate(key!, context), label).toBe(
+            adapter ? 'native-upgrade-adapter' : 'native-rust'
+          );
+          expect(evaluate(save!, context), label).toBe(adapter && ref === 'refs/heads/main');
+        }
+      }
+    }
+    expect(prove.match(/name: Prove the real-archive CLI upgrade adapter/g)).toHaveLength(1);
+    expect(prove.match(/release-upgrade\.mjs" acceptance --product cli/g)).toHaveLength(1);
+    expect(prove).not.toContain('cargo test');
+  });
 
   it('keeps the same jobs running and the same outputs consumed on the publication path', () => {
     const call = ifOf(job(upgradeWf, 'prove'));
@@ -1047,7 +1267,7 @@ describe('public install smoke (native-release-smoke.yml)', () => {
       expect(smokeWorkflow.match(new RegExp(`^ {6}${input}:$`, 'gm')), input).toHaveLength(2);
     }
     expect(smokeWorkflow).toMatch(
-      /type: choice\n {8}options:\n {10}- cli\n {10}- office\n {10}- squad/
+      /type: choice\n {8}options:\n {10}- cli\n {10}- office\n {10}- ops/
     );
   });
 

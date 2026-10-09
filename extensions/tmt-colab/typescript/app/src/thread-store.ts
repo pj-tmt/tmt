@@ -15,6 +15,15 @@ import {
   type QuoteSelector,
   type ThreadView,
 } from './thread-records.js';
+import {
+  discussionRefKey,
+  type ThreadRecipient,
+  type ThreadStatusRecord,
+  type ThreadStatusView,
+  type ThreadNotificationRecord,
+} from './thread-status.js';
+
+export type StatusChange = { changed: false } | { changed: true; status: ThreadStatusView };
 
 export interface CommentContext {
   thread: DiscussionRef;
@@ -33,10 +42,21 @@ export interface ThreadBinding {
   reply(thread: DiscussionRef, body: string, expectedRevision?: string): Promise<CommentContext>;
   edit(message: DiscussionRef, revision: string, body: string): Promise<void>;
   deleteComment(message: DiscussionRef, revision: string): Promise<void>;
+  setStatus(
+    thread: DiscussionRef,
+    previous: DiscussionRef | null,
+    resolved: boolean,
+    recipients?: readonly ThreadRecipient[],
+  ): Promise<StatusChange>;
+  notificationFailed(
+    status: ThreadStatusView,
+    operationId: string,
+    reason: ThreadNotificationRecord['reason'],
+  ): Promise<void>;
   updateThread(
     thread: DiscussionRef,
     revision: string,
-    change: { resolved: boolean } | { anchor: QuoteSelector } | { deleted: true },
+    change: { anchor: QuoteSelector } | { deleted: true },
   ): Promise<void>;
 }
 export interface ThreadStoreOptions extends DiscussionScope {
@@ -68,8 +88,11 @@ export class ThreadStore implements ThreadBinding {
     return c;
   }
   #views(c: Connection) {
-    return readThreads(this.options.own(), this.options, (writer) =>
-      c.objects.ownSigningKey(writer),
+    return readThreads(
+      this.options.own(),
+      this.options,
+      (writer) => c.objects.ownSigningKey(writer),
+      (writer) => c.objects.statusWriter(writer),
     );
   }
   #thread(c: Connection, ref: DiscussionRef) {
@@ -98,17 +121,25 @@ export class ThreadStore implements ThreadBinding {
       deviceName: this.options.deviceName(),
     };
   }
-  async #write(records: (Omit<ThreadRecord, 'at'> | Omit<CommentRecord, 'at'>)[]) {
+  async #write(
+    records: (
+      | Omit<ThreadRecord, 'at'>
+      | Omit<CommentRecord, 'at'>
+      | Omit<ThreadStatusRecord, 'at'>
+      | Omit<ThreadNotificationRecord, 'at'>
+    )[],
+  ) {
     requireValue(this.options.available());
     const at = String(Date.now());
-    const entries = records.map((record) => {
-      const value = { ...record, at };
+    const values = records.map((record) => ({ ...record, at }));
+    const entries = values.map((value) => {
       const root = value.kind === 'thread' ? ('threads' as const) : ('messages' as const);
       const key = discussionKey(value);
       validateDiscussionRecord(root, key, value);
       return { root, key, value: structuredClone(value) as unknown as JsonValue };
     });
     await this.options.publish(entries);
+    return values;
   }
   async #exclusive(action: (connection: Connection) => Promise<void>) {
     const { spaceId, pageId, epoch } = this.options;
@@ -214,14 +245,122 @@ export class ThreadStore implements ThreadBinding {
       captured = structuredClone(change);
     await this.#exclusive(async (c) => {
       const previous = this.#thread(c, ref);
-      requireValue(ref.writer === this.deviceId && previous.revision === revision);
-      const { ref: _ref, comments: _comments, ...record } = previous;
+      requireValue(previous.revision === revision);
+      // Anchor/deletion stay restricted to the originating stream and never copy
+      // folded metadata. Status has its own action: setStatus.
+      requireValue(ref.writer === this.deviceId);
+      const record: unknown = this.options.own()[this.deviceId]?.threads[`${ref.id}:${revision}`];
+      validateDiscussionRecord('threads', `${ref.id}:${revision}`, record);
+      requireValue(record.kind === 'thread');
       await this.#write([
         {
           ...record,
           ...captured,
           revision: String(BigInt(revision) + 1n),
           ...('deleted' in captured ? { anchor: null } : {}),
+        },
+      ]);
+    });
+  }
+  async #status(
+    previous: ThreadView,
+    resolved: boolean,
+    recipients: readonly ThreadRecipient[],
+  ): Promise<StatusChange> {
+    requireValue(!(previous.threadId === previous.ref.writer && previous.anchor === null));
+    if (previous.resolved === resolved) return { changed: false };
+    const actionId = crypto.randomUUID();
+    const record = {
+      ...this.#scope(),
+      kind: 'thread-status' as const,
+      actionId,
+      thread: { ...previous.ref },
+      previous: previous.status?.ref ?? null,
+      revision: '1',
+      deleted: false,
+      resolved,
+      actor: 'person' as const,
+      agentName: null,
+      recipients: structuredClone([...recipients]),
+    };
+    const [value] = await this.#write([record]);
+    validateDiscussionRecord('messages', `${actionId}:thread-status`, value);
+    requireValue(value.kind === 'thread-status');
+    return {
+      changed: true,
+      status: {
+        ...value,
+        ref: { writer: this.deviceId, id: actionId },
+        depth: (previous.status?.depth ?? 0) + 1,
+      },
+    };
+  }
+  async setStatus(
+    thread: DiscussionRef,
+    previous: DiscussionRef | null,
+    resolved: boolean,
+    recipients: readonly ThreadRecipient[] = [],
+  ): Promise<StatusChange> {
+    const captured = structuredClone({ thread, previous, recipients });
+    let result: StatusChange = { changed: false };
+    await this.#exclusive(async (c) => {
+      const view = this.#thread(c, captured.thread);
+      const current = view.status?.ref ?? null;
+      requireValue(
+        current === null
+          ? captured.previous === null
+          : captured.previous !== null &&
+              discussionRefKey(current) === discussionRefKey(captured.previous),
+      );
+      result = await this.#status(view, resolved, captured.recipients);
+    });
+    return result;
+  }
+  async notificationFailed(
+    status: ThreadStatusView,
+    operationId: string,
+    reason: ThreadNotificationRecord['reason'],
+  ) {
+    const captured = structuredClone(status);
+    await this.#exclusive(async () => {
+      requireValue(
+        captured.senderDevice === this.deviceId &&
+          captured.ref.writer === this.deviceId &&
+          captured.ref.id === captured.actionId &&
+          captured.recipients.some((recipient) => recipient.operationId === operationId),
+      );
+      const stored =
+        this.options.own()[this.deviceId]?.messages[`${captured.actionId}:thread-status`];
+      requireValue(stored !== undefined);
+      validateDiscussionRecord('messages', `${captured.actionId}:thread-status`, stored);
+      requireValue(
+        stored.kind === 'thread-status' &&
+          stored.senderDevice === this.deviceId &&
+          stored.spaceId === this.options.spaceId &&
+          stored.pageId === this.options.pageId &&
+          stored.epoch === this.options.epoch &&
+          stored.recipients.some((recipient) => recipient.operationId === operationId),
+      );
+      const existing: unknown =
+        this.options.own()[this.deviceId]?.messages[`${operationId}:thread-notification`];
+      if (existing !== undefined) {
+        validateDiscussionRecord('messages', `${operationId}:thread-notification`, existing);
+        requireValue(
+          existing.kind === 'thread-notification' &&
+            discussionRefKey(existing.status) === discussionRefKey(captured.ref) &&
+            existing.reason === reason,
+        );
+        return;
+      }
+      await this.#write([
+        {
+          ...this.#scope(),
+          kind: 'thread-notification',
+          operationId,
+          status: { ...captured.ref },
+          reason,
+          revision: '1',
+          deleted: false,
         },
       ]);
     });
@@ -328,6 +467,21 @@ export function conversationText(
     : body;
 }
 
+/** One admitted comment/Ask association used by display, reply routing and immutable context capture. */
+export function conversationAsks(
+  thread: ThreadView | undefined,
+  asks: readonly PageAsk[],
+  includeDeleted = false,
+) {
+  if (!thread) return [];
+  const comments = thread.comments.filter((comment) => includeDeleted || !comment.deleted);
+  return asks.filter(
+    (ask) =>
+      ask.thread === thread.threadId &&
+      ask.messageIds?.some((id) => comments.some((comment) => comment.messageId === id)),
+  );
+}
+
 export function captureConversation(
   thread: ThreadView | undefined,
   asks: readonly PageAsk[],
@@ -340,13 +494,8 @@ export function captureConversation(
       body: value.body,
       deviceName: value.deviceName,
     })),
-    replies: asks
-      .filter(
-        (value) =>
-          value.thread === thread?.threadId &&
-          value.reply !== undefined &&
-          value.messageIds?.some((id) => comments.some((comment) => comment.messageId === id)),
-      )
+    replies: conversationAsks(thread, asks)
+      .filter((value) => value.reply !== undefined)
       .map((value) => ({
         writer: value.writer,
         operationId: value.operationId,

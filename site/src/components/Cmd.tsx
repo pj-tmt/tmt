@@ -9,7 +9,7 @@ export function Cmd({ children }: { children: string }) {
     .filter((line) => line.startsWith("$ "))
     .map((line) => stripComment(line.slice(2)).trimEnd());
   return (
-    <div className="group relative my-4 w-full border-2 border-text bg-sheet text-text shadow-[5px_5px_0_var(--c-text)]">
+    <div className="group relative my-4 w-full border border-rule bg-sheet text-text">
       <pre className="term-scroll m-0 px-4 py-3.5 font-mono text-[13px] leading-[1.65] sm:text-sm">
         {lines.map((line, index) => (
           <div key={index}>{renderLine(line)}</div>
@@ -59,7 +59,7 @@ function CopyButton({ text, plural }: { text: string; plural: boolean }) {
       type="button"
       onClick={copy}
       aria-label={plural ? "Copy commands" : "Copy command"}
-      className={`absolute top-1.5 right-1.5 cursor-pointer border bg-sheet px-2 py-1 font-mono text-[11px] leading-none opacity-100 transition-opacity sm:opacity-60 sm:group-hover:opacity-100 ${
+      className={`absolute top-1.5 right-1.5 cursor-pointer border bg-sheet px-2 py-1 font-mono text-[11px] leading-none ${
         copied ? "border-working text-working" : "border-rule text-muted hover:text-text"
       }`}
     >
@@ -72,7 +72,7 @@ function CopyButton({ text, plural }: { text: string; plural: boolean }) {
 export function Code({ children }: { children: string }) {
   const lines = children.replace(/^\n+|\n+$/g, "").split("\n");
   return (
-    <pre className="term-scroll my-4 w-full border-2 border-text bg-sheet px-4 py-3.5 font-mono text-[13px] leading-[1.65] text-text shadow-[5px_5px_0_var(--c-text)] sm:text-sm">
+    <pre className="term-scroll my-4 w-full border border-rule bg-sheet px-4 py-3.5 font-mono text-[13px] leading-[1.65] text-text sm:text-sm">
       {lines.map((line, index) => {
         const at = line.search(/(^|\s)#(\s|$)/);
         return (

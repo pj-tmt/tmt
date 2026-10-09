@@ -254,7 +254,7 @@ describe('packed command verifier', () => {
     const root = createFixture();
     try {
       const script =
-        'process.stdout.write(\'{"error":{"message":"unrecognized subcommand squad"}}\'); process.exitCode = 2;';
+        'process.stdout.write(\'{"error":{"message":"unrecognized subcommand ops"}}\'); process.exitCode = 2;';
       let message = '';
       try {
         runNode(root, script);
@@ -264,11 +264,11 @@ describe('packed command verifier', () => {
       const [first, ...rest] = message.split('\n');
       // The first line alone says what ran, how it ended and what it said.
       expect(first).toBe(
-        'Packed command failed (exited 2, expected 0): node: unrecognized subcommand squad'
+        'Packed command failed (exited 2, expected 0): node: unrecognized subcommand ops'
       );
       expect(rest.join('\n')).toContain(`command: ${process.execPath} --eval`);
       expect(rest.join('\n')).toContain(
-        'stdout: {"error":{"message":"unrecognized subcommand squad"}}'
+        'stdout: {"error":{"message":"unrecognized subcommand ops"}}'
       );
       expect(rest.join('\n')).toContain('stderr: ');
       expect(() => runNode(root, "process.stderr.write('a diagnostic\\n');")).toThrow(

@@ -123,7 +123,7 @@ fn session_upgrade_preserves_binding_and_rolls_back_observations_with_history() 
         .execute_batch("DROP TRIGGER reject_session_migration;")
         .unwrap();
     let mut storage = Storage::open(&path).unwrap();
-    assert_eq!(storage.health().unwrap().schema_version, 47);
+    assert_eq!(storage.health().unwrap().schema_version, 50);
     let row = oracle.query_row(
         "SELECT id, identity_id, pane_id, bound_at, last_verified_at, runtime_state, last_transition FROM bindings",
         [], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?, row.get::<_, String>(3)?, row.get::<_, String>(4)?, row.get::<_, String>(5)?, row.get::<_, Option<String>>(6)?)),
@@ -180,7 +180,7 @@ fn driver_state_upgrade_keeps_remembered_sessions_without_state() {
     .unwrap();
     old.close().unwrap();
     let mut storage = Storage::open(&path).unwrap();
-    assert_eq!(storage.health().unwrap().schema_version, 47);
+    assert_eq!(storage.health().unwrap().schema_version, 50);
     storage.close().unwrap();
     let oracle = Connection::open(&path).unwrap();
     let row: (String, Option<String>, Option<i64>, Option<i64>) = oracle
@@ -253,5 +253,38 @@ fn channel_upgrade_preserves_legacy_state_and_validates_preference() {
         .execute("UPDATE identity_session_preferences SET channel=1", [])
         .unwrap();
     assert_eq!(cursor(), before + 1);
+    storage.close().unwrap();
+}
+
+#[test]
+fn consumption_attribution_migration_preserves_legacy_bucket_without_backfill() {
+    let directory = TestDirectory::new();
+    let path = directory.path.join("schema49.db");
+    let mut old = Connection::open(&path).unwrap();
+    apply_through(&mut old, 49).unwrap();
+    old.execute_batch("INSERT INTO identities(id,name,canonical_name,created_at,updated_at,lifetime) VALUES('meter','Meter','meter','t','t','saved');
+      INSERT INTO consumption_buckets(identity_id,from_ms,input_tokens,output_tokens,cached_input_tokens,covered_ms,complete,gap,discontinuous) VALUES('meter',10000,10,3,5,5000,1,0,0);
+      CREATE TRIGGER refuse_attribution BEFORE INSERT ON _migrations WHEN NEW.version=50 BEGIN SELECT RAISE(ABORT,'injected migration failure'); END;").unwrap();
+    old.close().unwrap();
+    assert_eq!(
+        Storage::open(&path).err().unwrap().migration_version,
+        Some(50)
+    );
+    let oracle = Connection::open(&path).unwrap();
+    assert_eq!(oracle.query_row("SELECT COUNT(*) FROM pragma_table_info('consumption_buckets') WHERE name='details'",[],|row| row.get::<_,i64>(0)).unwrap(),0);
+    oracle
+        .execute_batch("DROP TRIGGER refuse_attribution;")
+        .unwrap();
+    let mut storage = Storage::open(&path).unwrap();
+    assert_eq!(oracle.query_row("SELECT input_tokens,output_tokens,cached_input_tokens,details FROM consumption_buckets",[],|row| Ok((row.get::<_,i64>(0)?,row.get::<_,i64>(1)?,row.get::<_,i64>(2)?,row.get::<_,Option<String>>(3)?))).unwrap(),(10,3,5,None));
+    let response = storage
+        .consumption_history(&["meter".into()], &[5000], 120, 15000)
+        .unwrap();
+    let bucket = &response["identities"][0]["windows"][0]["buckets"][0];
+    assert_eq!(bucket["inputTokens"], 10);
+    assert_eq!(bucket["cachedInputTokens"], 5);
+    assert_eq!(bucket["complete"], true);
+    assert!(bucket.get("cacheWriteTokens").is_none());
+    assert!(bucket.get("byModel").is_none());
     storage.close().unwrap();
 }

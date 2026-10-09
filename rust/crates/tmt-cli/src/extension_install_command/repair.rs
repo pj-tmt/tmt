@@ -57,5 +57,6 @@ pub(super) fn repair_extension(
         executable: report.executable,
         previous: Vec::new(),
         changed: report.changed,
+        notice: super::post_upgrade::PostUpgradeNotice::default(),
     })
 }

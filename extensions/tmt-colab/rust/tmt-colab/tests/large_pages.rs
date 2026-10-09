@@ -1,17 +1,19 @@
 //! A page whose update tail grew far past the old 256 KiB / 200-object read caps (browser saves
 //! and many small appends) must read back byte-exact through every root-local reader, and a page
 //! that cannot be read must not hide the others (#1627).
+#[path = "support/core_fixture.rs"]
+mod core_fixture;
 mod support;
 
 use ed25519_dalek::{Signer, SigningKey};
 use serde_json::{Value, json};
 use std::{
     fs,
-    os::unix::fs::PermissionsExt,
     path::PathBuf,
     process::Command,
     sync::atomic::{AtomicUsize, Ordering},
 };
+use tmt_colab::page::PublicationPreparation;
 use tmt_colab::{
     decoder::{ContentEdit, Decoder},
     export::Bundle,
@@ -121,20 +123,13 @@ impl Fixture {
         self.next.insert(page, (seq + 1, hash));
     }
     fn cli(&self, args: &[&str]) -> (bool, Value, String) {
-        let core = self.root.join("core");
-        if !core.exists() {
-            fs::write(
-                &core,
-                format!(
-                    "#!/bin/sh\ncat >/dev/null\nprintf '%s\\n' '{}'\n",
-                    json!({"dataRoot":self.root})
-                ),
-            )
-            .unwrap();
-            fs::set_permissions(&core, fs::Permissions::from_mode(0o700)).unwrap();
-        }
+        let core = core_fixture::link(&self.root, "core", core_fixture::Program::DataRoot);
         let output = Command::new(BINARY)
             .env("TMT_EXECUTABLE", core)
+            .env(
+                "TMT_COLAB_TEST_REPLY",
+                json!({"dataRoot":self.root}).to_string(),
+            )
             .current_dir(&self.root)
             .args(args)
             .output()
@@ -246,9 +241,9 @@ fn edit(source: &str) -> ContentEdit<'_> {
     }
 }
 
-fn edit_fault(f: &Fixture, source: &str) -> String {
+fn prepare(f: &Fixture, source: &str) -> tmt_colab::Result<PublicationPreparation> {
     let mut decoder = Decoder::with_config(support::decoder_config(BINARY.into())).unwrap();
-    let error = tmt_colab::page::prepare(
+    tmt_colab::page::prepare_publication(
         &f.store,
         &f.key,
         PAGE,
@@ -257,8 +252,10 @@ fn edit_fault(f: &Fixture, source: &str) -> String {
         &mut decoder,
         1000,
     )
-    .err()
-    .expect("the write must be refused");
+}
+
+fn edit_fault(f: &Fixture, source: &str) -> String {
+    let error = prepare(f, source).err().expect("the write must be refused");
     match error.downcast_ref::<OwnerFault>() {
         Some(OwnerFault::PageCapacity(c)) if c.edit => error.to_string(),
         other => panic!("not a page edit capacity fault: {other:?} / {error}"),
@@ -273,16 +270,7 @@ fn a_write_past_the_browsers_tail_limit_refuses_while_the_page_stays_readable() 
     assert_eq!(objects, 199);
     let mut decoder = Decoder::with_config(support::decoder_config(BINARY.into())).unwrap();
     let edited = format!("{source}<i>ok</i>");
-    tmt_colab::page::prepare(
-        &f.store,
-        &f.key,
-        PAGE,
-        edit(&edited),
-        None,
-        &mut decoder,
-        1000,
-    )
-    .unwrap();
+    prepare(&f, &edited).unwrap();
     // A 201st update is one the browser cannot open, so the write refuses and names the way out.
     let mut f = Fixture::new(&[PAGE, OTHER]);
     let (source, objects, _) = grow(&mut f, PAGE, 199, false);
@@ -291,7 +279,7 @@ fn a_write_past_the_browsers_tail_limit_refuses_while_the_page_stays_readable() 
     assert!(message.contains(PAGE), "{message}");
     assert!(
         message.contains(
-            "is full: it has 200 changes, the most one page can hold. Nothing was deleted."
+            "is full: this edit would take its changes to 201, more than the 200 one page can hold. Nothing was deleted."
         ),
         "{message}"
     );
@@ -314,31 +302,40 @@ fn a_write_onto_a_tail_past_256_kib_goes_through_up_to_the_write_tail_bytes() {
     let mut f = Fixture::new(&[PAGE, OTHER]);
     let (source, _, tail) = grow(&mut f, PAGE, 5, true);
     assert!(tail > 256 * 1024);
-    let mut decoder = Decoder::with_config(support::decoder_config(BINARY.into())).unwrap();
     let edited = format!("{source}<i>ok</i>");
-    tmt_colab::page::prepare(
-        &f.store,
-        &f.key,
-        PAGE,
-        edit(&edited),
-        None,
-        &mut decoder,
-        1000,
-    )
-    .unwrap();
+    prepare(&f, &edited).unwrap();
 }
 
 #[test]
 fn a_write_onto_a_tail_at_the_write_tail_bytes_refuses_with_the_size() {
     let mut f = Fixture::new(&[PAGE, OTHER]);
-    // Plaintext past the write tail; the size check runs before any decoding.
-    let chunk = vec![b'x'; 255 * 1024];
-    for _ in 0..(tmt_colab::decoder::WRITE_TAIL_BYTES / chunk.len() + 1) {
-        f.append(PAGE, &chunk);
+    // Real whole-source saves of 250 KiB until the retained changes pass the write tail.
+    let doc = Doc::with_client_id(57);
+    let html = doc.get_or_insert_text("html");
+    let meta = doc.get_or_insert_map("meta");
+    let mut txn = doc.transact_mut();
+    meta.insert(&mut txn, "title", "Large page");
+    let first = txn.encode_update_v1();
+    drop(txn);
+    f.append(PAGE, &first);
+    let mut tail = first.len();
+    let mut round = 0u8;
+    while tail <= tmt_colab::decoder::WRITE_TAIL_BYTES {
+        let mut txn = doc.transact_mut();
+        let before = html.len(&txn);
+        html.remove_range(&mut txn, 0, before);
+        let tag = char::from(b'a' + round % 26);
+        html.insert(&mut txn, 0, &tag.to_string().repeat(250 * 1024));
+        let update = txn.encode_update_v1();
+        drop(txn);
+        tail += update.len();
+        f.append(PAGE, &update);
+        round += 1;
     }
     let message = edit_fault(&f, "<p>no</p>");
     assert!(
-        message.contains("its changes add up to 4.2 MiB; one page holds at most 4 MiB"),
+        message.contains("this edit would take its changes to 4.")
+            && message.contains("more than the 4 MiB (4194304 bytes) one page can hold"),
         "{message}"
     );
 }
@@ -413,6 +410,10 @@ fn a_page_that_cannot_open_names_itself_and_does_not_hide_the_others() {
     // Human output keeps the list and explains the page on stderr.
     let human = Command::new(BINARY)
         .env("TMT_EXECUTABLE", f.root.join("core"))
+        .env(
+            "TMT_COLAB_TEST_REPLY",
+            json!({"dataRoot":f.root}).to_string(),
+        )
         .current_dir(&f.root)
         .arg("ls")
         .output()
@@ -427,14 +428,20 @@ fn a_page_that_cannot_open_names_itself_and_does_not_hide_the_others() {
 }
 
 #[test]
-fn replacing_a_small_page_with_a_source_bigger_than_one_change_refuses_by_name() {
+fn replacing_a_small_page_with_a_source_bigger_than_one_change_publishes_an_ordered_batch() {
     let mut f = Fixture::new(&[PAGE, OTHER]);
     let (_, _, _) = grow(&mut f, PAGE, 1, false);
     let big = "x".repeat(1_500_000);
-    let message = edit_fault(&f, &big);
+    let PublicationPreparation::Write(frozen) = prepare(&f, &big).unwrap() else {
+        panic!("a different source must be written")
+    };
+    assert!(frozen.job().manifest.entries.len() > 1);
     assert!(
-        message.contains("this edit changes more than the 256 KiB one change can carry"),
-        "{message}"
+        frozen
+            .job()
+            .manifest
+            .entries
+            .iter()
+            .all(|entry| entry.envelope_bytes <= tmt_colab::limits::UPDATE_BYTES)
     );
-    assert!(message.contains("make it in smaller steps"), "{message}");
 }

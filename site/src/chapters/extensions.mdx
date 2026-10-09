@@ -4,9 +4,9 @@ import { St } from "../components/marks";
 Any program named `tmt-<name>` on your PATH becomes `tmt <name>`, the way components add commands to gcloud. Built-in commands always win, so an extension can't replace `talk` or `run`. Extensions reach tmt through its commands, JSON output and hooks, the same doors any other program uses.
 
 <Cmd>{`
-$ tmt sq board         # runs tmt-squad board
+$ tmt ops ui           # runs tmt-ops ui
 $ tmt help             # lists extensions it found
-$ tmt sq <Tab>         # completion comes from the extension
+$ tmt ops sq <Tab>     # completion comes from the extension
 `}</Cmd>
 
 ### Install, update and remove
@@ -14,11 +14,11 @@ $ tmt sq <Tab>         # completion comes from the extension
 The extensions below are installed the same way. Each one has its own version and updates on its own schedule. Removing one takes out its commands and skills and keeps its data.
 
 <Cmd>{`
-$ tmt extension install squad     # asks before changing anything
+$ tmt extension install ops       # asks before changing anything
 $ tmt extension ls                # what's installed and its version; --check looks for updates
 $ tmt upgrade                     # CLI, skills and installed official extensions
-$ tmt extension upgrade squad     # just Squad
-$ tmt extension rm squad          # your data stays
+$ tmt extension upgrade ops       # just Ops
+$ tmt extension rm ops            # your data stays
 `}</Cmd>
 
 `tmt upgrade` also updates the official extensions you installed, each on its own channel and pin, and asks once for all of them; `--yes` skips the question. It never installs a missing extension, and one that fails doesn't undo the others. `tmt extension upgrade <name> --unpin` clears a pin.
@@ -27,9 +27,9 @@ If an extension comes with skills for your agents, install asks once whether to 
 
 ### Known extensions
 
-| Command        | What it is                                                                                                    | State                           |
-| -------------- | ------------------------------------------------------------------------------------------------------------- | ------------------------------- |
-| tmt squad · sq | Leads, members in their own worktrees, and a board to see and jump between them. [Squad →](/extensions/squad) | <St kind="done">Alpha</St>      |
-| tmt colab      | One shared page for a team's plan, notes and decisions. [Colab →](/extensions/colab)                          | <St kind="now">In progress</St> |
-| tmt meet       | A text meeting for you and your agents, built into Squad. [Meet →](/extensions/meet)                          | <St kind="next">Planned</St>    |
-| tmt remote     | Talk to and control agents on your other machines, over a backend you own. [Remote →](/extensions/remote)     | <St kind="next">Designing</St>  |
+| Command            | What it is                                                                                                  | State                           |
+| ------------------ | ----------------------------------------------------------------------------------------------------------- | ------------------------------- |
+| tmt ops squad · sq | Leads, members in their own worktrees, and a board to see and jump between them. [Ops →](/extensions/squad) | <St kind="done">Alpha</St>      |
+| tmt colab          | One shared page for a team's plan, notes and decisions. [Colab →](/extensions/colab)                        | <St kind="now">In progress</St> |
+| tmt meet           | A text meeting for you and your agents, built into Ops. [Meet →](/extensions/meet)                          | <St kind="next">Planned</St>    |
+| tmt remote         | Talk to and control agents on your other machines, over a backend you own. [Remote →](/extensions/remote)   | <St kind="next">Designing</St>  |

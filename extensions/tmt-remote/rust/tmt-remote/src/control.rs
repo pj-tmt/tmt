@@ -5,6 +5,7 @@ use crate::{
     canonical,
     devices::{Devices, device_json},
     error::RemoteError,
+    object_service::ObjectReadiness,
     pairing::{End, Pairing, PairingEvent},
     state::Serving,
 };
@@ -40,6 +41,10 @@ pub struct Door {
     pub origin: String,
     pub prefix: String,
 }
+struct RemoteControlContext {
+    door: Door,
+    objects: ObjectReadiness,
+}
 pub struct Control {
     path: PathBuf,
     stop: Arc<AtomicBool>,
@@ -55,6 +60,26 @@ impl Control {
         door: Door,
         approval: Option<Arc<crate::approval::Approval>>,
         serve_stop: Arc<AtomicBool>,
+    ) -> Result<Self, RemoteError> {
+        Self::start_with_objects(
+            serving,
+            pairing,
+            devices,
+            door,
+            approval,
+            serve_stop,
+            ObjectReadiness::default(),
+        )
+    }
+    /// Attach the observational service view without changing ordinary discovery.
+    pub fn start_with_objects(
+        serving: &Serving,
+        pairing: Arc<Pairing>,
+        devices: Arc<Devices>,
+        door: Door,
+        approval: Option<Arc<crate::approval::Approval>>,
+        serve_stop: Arc<AtomicBool>,
+        objects: ObjectReadiness,
     ) -> Result<Self, RemoteError> {
         let path = serving.layout().directory.join(SOCKET);
         match fs::symlink_metadata(&path) {
@@ -83,7 +108,7 @@ impl Control {
         listener.set_nonblocking(true).map_err(io_error)?;
         let stop = Arc::new(AtomicBool::new(false));
         let flag = Arc::clone(&stop);
-        let door = Arc::new(door);
+        let door = Arc::new(RemoteControlContext { door, objects });
         let accept = thread::Builder::new()
             .name("remote-control".into())
             .spawn(move || {
@@ -129,7 +154,7 @@ fn accept_loop(
     stop: &AtomicBool,
     pairing: &Arc<Pairing>,
     devices: &Arc<Devices>,
-    door: &Arc<Door>,
+    door: &Arc<RemoteControlContext>,
     approval: Option<&crate::approval::Approval>,
     serve_stop: &AtomicBool,
 ) {
@@ -159,7 +184,7 @@ fn session(
     stop: &AtomicBool,
     pairing: &Pairing,
     devices: &Devices,
-    door: &Door,
+    door: &RemoteControlContext,
     approval: Option<&crate::approval::Approval>,
     serve_stop: &AtomicBool,
 ) {
@@ -214,9 +239,30 @@ fn session(
     let answer =
         match request.get("op").and_then(Value::as_str) {
             Some("status") if request == json!({"op":"status"}) => Some(Ok(json!({
-                "running":true, "origin":door.origin, "path":door.prefix,
+                "running":true, "origin":door.door.origin, "path":door.door.prefix,
+            }))),
+            Some("status") if request == json!({"op":"status","objects":true}) => Some(Ok(json!({
+                "running":true, "origin":door.door.origin, "path":door.door.prefix,
+                "objectChannels":door.objects.snapshot(),
+            }))),
+            Some("status") if request == json!({"op":"status","machine":true}) => Some(Ok(json!({
+                "running":true, "origin":door.door.origin, "path":door.door.prefix,
+                "machineId":pairing.machine_id(),
             }))),
             Some("pair") => None,
+            Some("designate") if request.as_object().is_some_and(|o| o.len() == 2) => {
+                Some(match request["clientId"].as_str() {
+                    Some(client) => devices
+                        .designate(client, &door.door.origin)
+                        .map(|grant| json!({"designatedClientId":grant.client_id})),
+                    None => Err(crate::operations::invalid()),
+                })
+            }
+            Some("undesignate") if request == json!({"op":"undesignate"}) => Some(
+                devices
+                    .undesignate()
+                    .map(|()| json!({"designatedClientId":null})),
+            ),
             Some("devices") => Some(devices.list().map(
                 |grants| json!({"devices": grants.iter().map(device_json).collect::<Vec<_>>()}),
             )),
@@ -265,11 +311,13 @@ fn session(
         }
     };
     let offer_id = offered.offer_id.clone();
-    let descriptor =
-        pairing.offered_descriptor(&offered, &format!("{}{}", door.origin, door.prefix));
+    let descriptor = pairing.offered_descriptor(
+        &offered,
+        &format!("{}{}", door.door.origin, door.door.prefix),
+    );
     let code = canonical::pairing_code_text(&offered.code);
     // The code travels only in the link's fragment, never in its path.
-    let link = format!("{}/pair#{}", door.origin, code.replace('-', ""));
+    let link = format!("{}/pair#{}", door.door.origin, code.replace('-', ""));
     let opened = json!({
         "event": "offer",
         "link": link,
@@ -419,8 +467,25 @@ fn socket_path(remote_directory: &Path) -> Result<PathBuf, RemoteError> {
 
 /// Bounded read-only discovery. The live address comes from this run, never
 /// from remembered state. Malformed or silent peers cannot become stopped status.
-pub fn status(remote_directory: &Path) -> Result<Option<Value>, RemoteError> {
-    let Some(answer) = request_operation(remote_directory, "status")? else {
+pub fn status(remote_directory: &Path, machine: bool) -> Result<Option<Value>, RemoteError> {
+    status_with_objects(remote_directory, machine, false)
+}
+/// Optional object-channel observation; never starts or retries an activation.
+pub fn status_with_objects(
+    remote_directory: &Path,
+    machine: bool,
+    objects: bool,
+) -> Result<Option<Value>, RemoteError> {
+    // Optional discovery preserves peer errors: unsupported is absence of this
+    // projection, not a reason to repair or restart an otherwise usable door.
+    let response = if objects {
+        request(remote_directory, &json!({"op":"status","objects":true}))
+    } else if machine {
+        request(remote_directory, &json!({"op":"status","machine":true}))
+    } else {
+        request_operation(remote_directory, "status")
+    };
+    let Some(answer) = response? else {
         return Ok(None);
     };
     let origin = answer["origin"].as_str().unwrap_or("");
@@ -430,7 +495,15 @@ pub fn status(remote_directory: &Path) -> Result<Option<Value>, RemoteError> {
         .filter(|port| *port != 0);
     let origin_valid = port.is_some_and(|port| origin == format!("http://127.0.0.1:{port}"));
     let path_valid = answer["path"].as_str().is_some_and(canonical::route_prefix);
-    if answer.as_object().is_none_or(|fields| fields.len() != 3)
+    let machine_valid = !machine
+        || answer["machineId"]
+            .as_str()
+            .is_some_and(|id| canonical::uuid(id).is_ok());
+    if answer
+        .as_object()
+        .is_none_or(|fields| fields.len() != if machine || objects { 4 } else { 3 })
+        || (objects && !ObjectReadiness::validate(&answer["objectChannels"]))
+        || !machine_valid
         || answer["running"] != true
         || !origin_valid
         || !path_valid

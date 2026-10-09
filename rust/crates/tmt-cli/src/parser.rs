@@ -219,7 +219,15 @@ fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
             yes: flag(m, "yes"),
         },
         ["__consumption-sample"] => Invocation::ConsumptionSample,
+        ["__focus-hook"] => Invocation::FocusHook {
+            provider: text(m, "provider").expect("required provider"),
+            launch: text(m, "launch"),
+            worker: flag(m, "worker"),
+            work_budget_ms: m.get_one::<u64>("work-budget-ms").copied(),
+        },
         ["__hook"] => Invocation::ProviderHook {
+            caller_session: flag(m, "caller-session"),
+            activity_only: flag(m, "activity-only"),
             provider: text(m, "provider").expect("required provider"),
             worker: flag(m, "worker"),
             work_budget_ms: m.get_one::<u64>("work-budget-ms").copied(),
@@ -305,6 +313,7 @@ fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
             exact: text(m, "to"),
             unpin: flag(m, "unpin"),
             yes: flag(m, "yes"),
+            allow_schema_ahead: flag(m, "allow-schema-ahead"),
         },
         ["office", ..] => Invocation::Office {
             prefix: text(m, "prefix"),
@@ -321,9 +330,15 @@ fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
             yes: flag(m, "yes"),
             prefix: text(m, "prefix"),
         },
+        ["__native-schema"] => Invocation::NativeSchema {
+            source_sha: required(m, "source-sha"),
+        },
         ["__native-install"] if text(m, "handoff-version").is_some() => {
             Invocation::NativeInstallHandoff {
                 probe: flag(m, "probe"),
+                version: required(m, "handoff-version")
+                    .parse()
+                    .expect("typed handoff version"),
             }
         }
         ["__native-install"] => Invocation::NativeInstall {
@@ -419,6 +434,9 @@ fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
                 message: required(m, "message"),
                 originator: text(m, "identity"),
                 options: TalkOptions {
+                    urgent: flag(m, "urgent"),
+                    focus_kind: tmt_core::request::focus::FocusKind::parse(&required(m, "kind"))
+                        .expect("validated purpose"),
                     room: text(m, "room"),
                     inbox: flag(m, "inbox"),
                     force: flag(m, "force"),
@@ -609,6 +627,13 @@ fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
             operation: ExchangeOperation::Show {
                 request_id: required(m, "request-id"),
                 incoming: flag(m, "incoming"),
+            },
+        },
+        ["x", "withdraw"] => Invocation::Exchange {
+            identity: text(m, "identity"),
+            operation: ExchangeOperation::Withdraw {
+                request_id: required(m, "request-id"),
+                reason: required(m, "reason"),
             },
         },
         ["x", "ackall"] => Invocation::Exchange {

@@ -3,7 +3,7 @@ source: crates/tmt-cli/src/extension_install_command.rs
 expression: "render(extension_list(&mixed_extensions(), Some(Path::new(\"/home/ada\"))),\ntmt_cli_style::Terminal::PLAIN)"
 ---
 EXTENSIONS 2
-  office  not installed                                     update: available
-  squad   0.1.0-alpha.1 (pinned 0.1.0-alpha.1)              update: current
-          shadowed on PATH by ~/.local/other/bin/tmt-squad
-          shadowed on PATH by /opt/other/bin/tmt-sq
+  office  not installed                                   update: available
+  ops     0.1.0-alpha.1 (pinned 0.1.0-alpha.1)            update: current
+          shadowed on PATH by ~/.local/other/bin/tmt-ops
+          shadowed on PATH by /opt/other/bin/tmt-ops

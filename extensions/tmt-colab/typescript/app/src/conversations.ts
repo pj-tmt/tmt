@@ -2,6 +2,7 @@ import { requireValue } from '@tmt/colab-client';
 import { readAskRecords } from './ask-records.js';
 import type { OwnState } from './fold-protocol.js';
 import { readThreads } from './thread-records.js';
+import type { ThreadNotificationRecord, ThreadStatusView } from './thread-status.js';
 
 /** The authorized discussion view of one captured page snapshot: verified threads,
  * comments and Ask conversations, as plain data. Native `export/conversations.rs`
@@ -27,6 +28,8 @@ export interface ConversationThread {
   deviceName: string;
   at: string;
   comments: ConversationComment[];
+  status?: ThreadStatusView;
+  notifications?: ThreadNotificationRecord[];
 }
 export interface ConversationAsk {
   writer: string;
@@ -65,17 +68,71 @@ export interface ConversationsInput {
   own: OwnState;
   /** Historical signing key per writer, taken from cut-admitted envelopes. */
   signingKey: (writer: string) => Uint8Array | undefined;
+  /** Whether a writer may resolve threads: owner-member provenance, native `status_writers`. */
+  statusWriter: (writer: string) => boolean;
 }
 
 // Identifiers are ASCII, so UTF-16 order is byte order; never a locale comparison.
 const byOrder = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
 const ref = (writer: string, id: string) => `${writer}:${id}`;
 
+function captureNotification(value: ThreadNotificationRecord): ThreadNotificationRecord {
+  return {
+    version: value.version,
+    kind: value.kind,
+    spaceId: value.spaceId,
+    pageId: value.pageId,
+    epoch: value.epoch,
+    senderDevice: value.senderDevice,
+    revision: value.revision,
+    deleted: value.deleted,
+    deviceName: value.deviceName,
+    at: value.at,
+    operationId: value.operationId,
+    status: { writer: value.status.writer, id: value.status.id },
+    reason: value.reason,
+  };
+}
+// Native status::Action serializes this declared order; never inherit map insertion order.
+function captureStatus(status: ThreadStatusView): ThreadStatusView {
+  return {
+    version: status.version,
+    kind: status.kind,
+    spaceId: status.spaceId,
+    pageId: status.pageId,
+    epoch: status.epoch,
+    senderDevice: status.senderDevice,
+    revision: status.revision,
+    deleted: status.deleted,
+    deviceName: status.deviceName,
+    at: status.at,
+    actionId: status.actionId,
+    thread: { writer: status.thread.writer, id: status.thread.id },
+    previous: status.previous ? { writer: status.previous.writer, id: status.previous.id } : null,
+    resolved: status.resolved,
+    actor: status.actor,
+    agentName: status.agentName,
+    recipients: status.recipients.map((recipient) => ({
+      machine: recipient.machine,
+      agent: recipient.agent,
+      agentName: recipient.agentName,
+      operationId: recipient.operationId,
+    })),
+    ref: { writer: status.ref.writer, id: status.ref.id },
+    depth: status.depth,
+  };
+}
+
 /** Reads only the admitted per-writer projections; a claimed writer in a body never
  * selects another stream. Everything is copied before it is returned. */
 export async function projectConversations(input: ConversationsInput): Promise<Conversations> {
   const { spaceId, pageId, epoch } = input;
-  const threads = readThreads(input.own, { spaceId, pageId, epoch }, input.signingKey)
+  const threads = readThreads(
+    input.own,
+    { spaceId, pageId, epoch },
+    input.signingKey,
+    input.statusWriter,
+  )
     .map((thread): ConversationThread => ({
       writer: thread.ref.writer,
       id: thread.ref.id,
@@ -96,6 +153,25 @@ export async function projectConversations(input: ConversationsInput): Promise<C
           at: comment.at,
         }))
         .sort((a, b) => byOrder(ref(a.writer, a.id), ref(b.writer, b.id))),
+      ...(thread.status ? { status: captureStatus(thread.status) } : {}),
+      ...(thread.notifications?.some(
+        (value) =>
+          thread.status &&
+          ref(value.status.writer, value.status.id) ===
+            ref(thread.status.ref.writer, thread.status.ref.id),
+      )
+        ? {
+            notifications: thread.notifications
+              .filter(
+                (value) =>
+                  thread.status &&
+                  ref(value.status.writer, value.status.id) ===
+                    ref(thread.status.ref.writer, thread.status.ref.id),
+              )
+              .map(captureNotification)
+              .sort((a, b) => byOrder(a.operationId, b.operationId)),
+          }
+        : {}),
     }))
     .sort((a, b) => byOrder(ref(a.writer, a.id), ref(b.writer, b.id)));
   const asks = (await readAskRecords(input.own, { space: spaceId, page: pageId }, input.signingKey))
@@ -232,6 +308,16 @@ export function renderConversationsMarkdown(conversations: Conversations): strin
       `- Started by: ${codeSpan(thread.deviceName)} at ${time(thread.at)}`,
       '',
     );
+    if (thread.status) {
+      const status = thread.status;
+      const actor = status.actor === 'agent' ? (status.agentName ?? 'Agent') : status.deviceName;
+      lines.push(
+        `- ${status.resolved ? 'Resolved' : 'Reopened'} by: ${codeSpan(actor)} at ${time(status.at)}`,
+        '',
+      );
+      for (const notification of thread.notifications ?? [])
+        lines.push(`- Notification ${notification.operationId}: ${notification.reason}`, '');
+    }
     if (thread.anchor) lines.push('Quoted text:', '', fence(thread.anchor.exact), '');
     else lines.push('Quoted text: none', '');
     const comments = [...thread.comments].sort(

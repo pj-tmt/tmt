@@ -30,20 +30,24 @@ pub(super) fn observe(
     runtime: &impl ObserverRuntime,
 ) -> Result<FinalResponse, Failure> {
     let timed_out = || {
-        correlation
-            .error(
-                "TIMEOUT",
-                format!(
-                    "Timed out waiting for {} after {timeout}s{}",
-                    correlation.target,
-                    if correlation.delivery_uncertain {
-                        "; delivery was uncertain (the channel gave no receipt), so do not resend"
-                    } else {
-                        ""
-                    }
-                ),
-                4,
+        let message = if correlation.unbound {
+            format!(
+                "{} has not responded within {timeout}s; the request is still queued for inbox pull",
+                correlation.target
             )
+        } else {
+            format!(
+                "Timed out waiting for {} after {timeout}s{}",
+                correlation.target,
+                if correlation.delivery_uncertain {
+                    "; delivery was uncertain (the channel gave no receipt), so do not resend"
+                } else {
+                    ""
+                }
+            )
+        };
+        correlation
+            .error("TIMEOUT", message, 4)
             .with_request(correlation.request_id.clone(), Some("timeout"))
             .suggestion(correlation.inspection())
     };

@@ -2,6 +2,42 @@ use super::*;
 use crate::{storage::Storage, test_support::TestDirectory};
 
 #[test]
+fn withdrawal_migration_rolls_back_columns_and_cursor_trigger_together() {
+    let directory = TestDirectory::new();
+    let path = directory.path.join("schema47.db");
+    let mut old = Connection::open(&path).unwrap();
+    apply_through(&mut old, 47).unwrap();
+    old.execute_batch(
+        "CREATE TRIGGER reject_withdrawal BEFORE INSERT ON _migrations WHEN NEW.version=48
+        BEGIN SELECT RAISE(ABORT, 'injected withdrawal migration failure'); END;",
+    )
+    .unwrap();
+    let before: String = old.query_row("SELECT sql FROM sqlite_schema WHERE name='request_attempts_advances_change_cursor_on_update'", [], |row| row.get(0)).unwrap();
+    old.close().unwrap();
+    assert_eq!(
+        Storage::open(&path).err().unwrap().migration_version,
+        Some(48)
+    );
+    let oracle = Connection::open(&path).unwrap();
+    assert_eq!(
+        oracle
+            .query_row("SELECT MAX(version) FROM _migrations", [], |row| row
+                .get::<_, i64>(0))
+            .unwrap(),
+        47
+    );
+    assert_eq!(oracle.query_row("SELECT COUNT(*) FROM pragma_table_info('request_attempts') WHERE name IN ('withdrawn_at_ms','withdrawal_reason')", [], |row| row.get::<_, i64>(0)).unwrap(), 0);
+    assert_eq!(oracle.query_row("SELECT sql FROM sqlite_schema WHERE name='request_attempts_advances_change_cursor_on_update'", [], |row| row.get::<_, String>(0)).unwrap(), before);
+    oracle
+        .execute_batch("DROP TRIGGER reject_withdrawal")
+        .unwrap();
+    let mut storage = Storage::open(&path).unwrap();
+    assert_eq!(storage.health().unwrap().schema_version, 50);
+    assert_eq!(oracle.query_row("SELECT COUNT(*) FROM pragma_table_info('request_attempts') WHERE name IN ('withdrawn_at_ms','withdrawal_reason')", [], |row| row.get::<_, i64>(0)).unwrap(), 2);
+    storage.close().unwrap();
+}
+
+#[test]
 fn request_history_indexes_commit_together_without_rewriting_requests() {
     let directory = TestDirectory::new();
     let path = directory.path.join("schema26.db");
@@ -41,7 +77,7 @@ fn request_history_indexes_commit_together_without_rewriting_requests() {
         .execute_batch("DROP TRIGGER reject_history_indexes;")
         .unwrap();
     let mut storage = Storage::open(&path).unwrap();
-    assert_eq!(storage.health().unwrap().schema_version, 47);
+    assert_eq!(storage.health().unwrap().schema_version, 50);
     assert_eq!(indexes(), 3);
     assert_eq!(oracle.query_row("SELECT message_text,room_id FROM request_attempts WHERE request_id='history-request'", [],
         |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?))).unwrap(), ("old prompt".into(), None));
@@ -83,7 +119,7 @@ fn originator_results_index_migration_rolls_back_and_preserves_existing_requests
         .execute_batch("DROP TRIGGER reject_results_index")
         .unwrap();
     let mut storage = Storage::open(&path).unwrap();
-    assert_eq!(storage.health().unwrap().schema_version, 47);
+    assert_eq!(storage.health().unwrap().schema_version, 50);
     assert_eq!(
         oracle
             .query_row("SELECT value FROM change_cursor", [], |row| row

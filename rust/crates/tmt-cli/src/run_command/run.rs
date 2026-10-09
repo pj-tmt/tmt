@@ -250,18 +250,35 @@ pub(super) fn run_bound(
     {
         diagnostic("identity bound, but its cosmetic badge could not be updated.");
     }
-    // Mark the resumed session pending before the child can start, so its
-    // first provider start (which clears the mark) cannot race ahead of it.
-    let hooks_installed = match &launch.resumed {
-        Some(session) => {
-            mark_resume_pending(storage, &binding.identity_id, session)?;
-            Registry::builtin()
-                .find(session.harness.as_str())
-                .is_some_and(start_hook_installed)
-        }
+    let mut hooks_installed = match &launch.resumed {
+        Some(session) => Registry::builtin()
+            .find(session.harness.as_str())
+            .is_some_and(start_hook_installed),
         None => false,
     };
     let owner = incarnation(std::process::id());
+    let hook_command = match prepare_launch_hooks(
+        lifecycle,
+        &launch.command,
+        binding,
+        owner.as_ref(),
+    ) {
+        Ok(command) => command,
+        Err(error) => {
+            let reason = error.to_string().replace(['\r', '\n'], " ");
+            diagnostic(&format!(
+                "session-only Focus hooks unavailable for this launch: {reason}; continuing with the original command."
+            ));
+            None
+        }
+    };
+    // Both composed and original commands are real launch attempts. Mark the
+    // exact resume pending before either can start.
+    if let Some(session) = &launch.resumed {
+        mark_resume_pending(storage, &binding.identity_id, session)?;
+    }
+    hooks_installed |= hook_command.is_some();
+    let launch_command = hook_command.as_ref().unwrap_or(&launch.command);
     // Held for the child's whole lifetime. It is retired only for a failed spawn
     // (`never_spawned`) or a wait that returned (`settle_wait`); on every other path
     // out of here it is dropped and the driver's record stays. Declared before the
@@ -303,7 +320,7 @@ pub(super) fn run_bound(
                     pane_pid: binding.pane_pid,
                 },
                 owner,
-                command: &launch.command,
+                command: launch_command,
                 resume_session: launch
                     .resumed
                     .as_ref()
@@ -335,7 +352,7 @@ pub(super) fn run_bound(
             if save { "Saved" } else { "Temporary" }
         );
     }
-    let planned = lease.command(&launch.command);
+    let planned = lease.command(launch_command);
     let child =
         InteractiveChild::start_with(&planned.executable, &planned.args, lease.environment())
             .map_err(|error| {
@@ -352,12 +369,13 @@ pub(super) fn run_bound(
         .observe_runtime(Instant::now() + Duration::from_secs(3))
         .unwrap_or(ProcessObservation::Unknown);
     let child_incarnation = match &child_evidence {
-        ProcessObservation::Live(value) | ProcessObservation::UnreapedZombie(value) => {
-            Some(value.clone())
-        }
+        ProcessObservation::Live(value)
+        | ProcessObservation::Stopped(value)
+        | ProcessObservation::UnreapedZombie(value) => Some(value.clone()),
         _ => None,
     };
     let already_exited = matches!(child_evidence, ProcessObservation::UnreapedZombie(_));
+    let already_stopped = matches!(child_evidence, ProcessObservation::Stopped(_));
     // The driver records the exact foreground before admission; if it cannot, the
     // enrollment stays unconfirmed (never "ended") and the child keeps running.
     if let Some(note) = lease.foreground_started(child_incarnation.as_ref()) {
@@ -411,6 +429,18 @@ pub(super) fn run_bound(
             };
             let next = if already_exited {
                 lifecycle.client_exit(&current.session, key, owner.clone(), &preferences)
+            } else if already_stopped {
+                // Keep exact ownership for duplicate refusal, without treating
+                // a stopped child as live evidence or authorizing delivery.
+                current.session.record_stopped_launch(
+                    key,
+                    owner.clone(),
+                    if launch.resumed.is_some() {
+                        SessionTransition::Resumed
+                    } else {
+                        SessionTransition::Started
+                    },
+                )
             } else {
                 current.session.admit_launched(
                     key,
@@ -443,7 +473,13 @@ pub(super) fn run_bound(
             "command started, but runtime ownership could not be recorded; automatic delivery is not established.",
         );
     }
-    let storage_closed = storage.close().is_ok();
+    let (closed, signal_result) = child.with_deferred_suspend(|| storage.close());
+    let storage_closed = closed.is_ok();
+    if signal_result.is_err() {
+        diagnostic(
+            "could not preserve terminal suspension during launch-state close; the command will not be restarted.",
+        );
+    }
     if !storage_closed {
         diagnostic(
             "could not close launch state before waiting; the command will not be restarted.",
@@ -654,3 +690,29 @@ pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] = &[
         &[],
     ),
 ];
+
+/// Provider-owned session settings are composed before enrollment or spawn.
+fn prepare_launch_hooks(
+    lifecycle: &dyn RuntimeLifecycle,
+    command: &tmt_adapters::runtime::RuntimeCommand,
+    binding: &Binding,
+    owner: Option<&ProcessIncarnation>,
+) -> std::io::Result<Option<tmt_adapters::runtime::RuntimeCommand>> {
+    let Some(owner) = owner else {
+        return Ok(None);
+    };
+    let environment = tmt_adapters::skill_installation::ProviderEnvironment::capture()?;
+    let tmt = tmt_adapters::core_executable::selected()?;
+    let launch = tmt_adapters::runtime::hook_protocol::HookLaunch {
+        identity_id: binding.identity_id.clone(),
+        binding_id: binding.id.clone(),
+        owner_pid: owner.pid(),
+        owner_start: owner.start_identity().to_owned(),
+    };
+    lifecycle.prepare_launch_hooks(&tmt_adapters::runtime::hook_protocol::LaunchHooks {
+        command,
+        launch: &launch,
+        tmt: &tmt,
+        environment: &environment,
+    })
+}

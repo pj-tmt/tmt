@@ -141,10 +141,7 @@ export function BoardDemo({ steps, label }: { steps: Step[]; label: string }) {
   }
   return (
     <div ref={root} className="my-6 w-full" aria-label={label} role="group">
-      <div
-        aria-hidden="true"
-        className="overflow-hidden border border-term-edge bg-term shadow-[6px_6px_0_var(--c-accent)]"
-      >
+      <div aria-hidden="true" className="overflow-hidden border border-term-edge bg-term">
         <FitWidth width={620}>
           <div
             style={{ height: step.height ?? 340 }}
@@ -155,9 +152,7 @@ export function BoardDemo({ steps, label }: { steps: Step[]; label: string }) {
             </div>
             <div
               className={`absolute overflow-hidden bg-term px-3 py-2 whitespace-pre transition-[opacity,transform] duration-200 motion-reduce:transition-none ${
-                step.full
-                  ? "inset-0"
-                  : "inset-[5%] border border-t-accent shadow-[0_10px_40px_rgba(0,0,0,.45)]"
+                step.full ? "inset-0" : "inset-[5%] border border-t-accent"
               } ${frame.pop ? "opacity-100" : "pointer-events-none translate-y-1.5 scale-[.985] opacity-0"}`}
             >
               {frame.pop &&
@@ -206,8 +201,11 @@ export function BoardDemo({ steps, label }: { steps: Step[]; label: string }) {
 }
 
 // Demo 1: start a squad, talk to the lead from the board.
-const s1: Line[] = [sh("tmt sq init product"), dm("✓ Created squad product (room squad-product)")];
-const s2: Line[] = [...s1, sh("tmt sq lead sol"), dm("✓ sol leads squad product")];
+const s1: Line[] = [
+  sh("tmt ops sq init product"),
+  dm("✓ Created squad product (room squad-product)"),
+];
+const s2: Line[] = [...s1, sh("tmt ops sq lead sol"), dm("✓ sol leads squad product")];
 const W1 = ["0:shell", "1:sol"];
 
 export const startSquad: Step[] = [
@@ -217,7 +215,7 @@ export const startSquad: Step[] = [
     windows: W1,
     on: 0,
     right: "squad-product",
-    type: "tmt sq init product",
+    type: "tmt ops sq init product",
     out: [dm("✓ Created squad product (room squad-product)")],
   },
   {
@@ -227,17 +225,17 @@ export const startSquad: Step[] = [
     on: 0,
     right: "squad-product",
     pre: s1,
-    type: "tmt sq lead sol",
+    type: "tmt ops sq lead sol",
     out: [dm("✓ sol leads squad product")],
   },
   {
-    cap: "tmt sq opens the board full screen. Press a on the lead, then Tab to talk mode. Send your request, then press e to read the reply inside the row.",
+    cap: "tmt ops ui opens the board full screen. Press t on the lead to talk. Send your request, then press e to read the reply inside the row.",
     sess: "leads",
     windows: W1,
     on: 0,
     right: "squad-product",
     pre: s2,
-    type: "tmt sq",
+    type: "tmt ops ui",
     out: [],
     full: true,
     hold: 2200,

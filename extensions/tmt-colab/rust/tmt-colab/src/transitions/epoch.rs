@@ -31,12 +31,19 @@ impl Prepared {
         decoder: &mut Decoder,
     ) -> Result<Self> {
         let view = snapshot.materialize(key, page, decoder)?;
+        let attachments = view
+            .meta
+            .get("attachments")
+            .map(|value| serde_json::from_value(value.clone()))
+            .transpose()?;
         let baseline = decoder.produce_baseline(
             BaselineInput {
                 original_author: view.original_author.as_deref(),
+                attachments: attachments.as_ref(),
                 source: view.source.as_bytes(),
                 title: &view.title,
                 publisher_agent: view.publisher_agent.as_deref(),
+                creation_recipient: view.creation_recipient.as_ref(),
                 source_digest: crypto::digest(view.source.as_bytes()),
             },
             None,

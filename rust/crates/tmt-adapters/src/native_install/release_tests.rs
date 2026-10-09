@@ -275,7 +275,7 @@ fn update_manifest_asset(release: &mut Value, manifest: &[u8]) {
 fn extension_discovery_ignores_cli_versions_and_uses_its_own_exact_tags() {
     for product in [
         Product::Office,
-        Product::Squad,
+        Product::Ops,
         Product::Remote,
         Product::Colab,
     ] {
@@ -341,8 +341,8 @@ fn cli_only_releases_are_not_an_extension_installation_candidate() {
             "No published office release yet in the alpha channel.",
         ),
         (
-            Product::Squad,
-            "No published squad release yet in the alpha channel.",
+            Product::Ops,
+            "No published ops release yet in the alpha channel.",
         ),
         (
             Product::Remote,
@@ -507,7 +507,7 @@ fn a_cli_alpha_may_be_a_normal_release_but_extensions_stay_flagged() {
     assert!(download_flagged(Product::Cli, "5.0.0", true).is_err());
     for extension in [
         Product::Office,
-        Product::Squad,
+        Product::Ops,
         Product::Remote,
         Product::Colab,
     ] {
@@ -526,7 +526,7 @@ fn the_publication_policy_publishes_flags_the_updater_accepts() {
     for (product, published) in [
         (Product::Cli, false),
         (Product::Office, true),
-        (Product::Squad, true),
+        (Product::Ops, true),
         (Product::Remote, true),
         (Product::Colab, true),
     ] {
@@ -901,7 +901,7 @@ fn ref_and_pagination_uncertainty_fails_before_release_or_asset_requests() {
         b"{".to_vec(),
         b"{}".to_vec(),
         serde_json::to_vec(&json!([{}])).unwrap(),
-        serde_json::to_vec(&json!([{"ref":"refs/tags/tmt-squad-v1.0.0"}])).unwrap(),
+        serde_json::to_vec(&json!([{"ref":"refs/tags/tmt-ops-v1.0.0"}])).unwrap(),
         serde_json::to_vec(&json!([{"ref":"refs/tags/v1.0.0"},{"ref":"refs/tags/v1.0.0"}]))
             .unwrap(),
         vec![b' '; super::METADATA_LIMIT + 1],

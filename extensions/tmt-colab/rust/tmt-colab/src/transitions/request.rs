@@ -47,6 +47,7 @@ pub enum OwnerAction<'a> {
         title: &'a str,
         source: &'a str,
         publisher_agent: Option<&'a str>,
+        creation_recipient: Option<&'a crate::decoder::CreationRecipient>,
     },
     EpochAdvance {
         page: &'a str,
@@ -184,6 +185,7 @@ impl Engine {
                 title,
                 source,
                 publisher_agent,
+                creation_recipient,
             } => self.create_page(
                 store,
                 key,
@@ -193,6 +195,7 @@ impl Engine {
                     title,
                     source,
                     publisher_agent,
+                    creation_recipient,
                 },
                 now,
             )?,

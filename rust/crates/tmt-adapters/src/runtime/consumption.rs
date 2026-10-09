@@ -2,6 +2,9 @@
 //! not context growth; Codex reports cumulative counters itself. The source
 //! formats are unofficial, and evidence loss establishes a new baseline.
 use super::transcript;
+mod attribution;
+pub use attribution::ModelUsage;
+pub(crate) const MAX_MODELS: usize = 4;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
@@ -48,6 +51,14 @@ pub struct Consumption {
     pub input_tokens: u64,
     pub output_tokens: u64,
     pub cached_input_tokens: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cache_write_tokens: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_id: Option<String>,
+    /// Normalized increments since the preceding sequence, grouped by the
+    /// model actually recorded for each accepted request/turn, not launch model.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub delta_by_model: Option<Vec<ModelUsage>>,
     pub epoch: String,
     pub sequence: u64,
     pub observed_at_ms: u64,
@@ -61,6 +72,9 @@ impl Consumption {
             input_tokens: 0,
             output_tokens: 0,
             cached_input_tokens: 0,
+            cache_write_tokens: None,
+            model_id: None,
+            delta_by_model: None,
             epoch: uuid::Uuid::new_v4().to_string(),
             sequence: 1,
             observed_at_ms: now,
@@ -97,6 +111,17 @@ impl Consumption {
 
     pub(crate) fn valid(&self) -> bool {
         self.counts().valid()
+            && self
+                .cache_write_tokens
+                .is_none_or(|n| n <= self.input_tokens)
+            && self
+                .model_id
+                .as_deref()
+                .is_none_or(attribution::valid_model)
+            && self
+                .delta_by_model
+                .as_ref()
+                .is_none_or(|rows| attribution::valid(rows, self.counts()))
             && uuid::Uuid::parse_str(&self.epoch).is_ok()
             && self.sequence > 0
             && is_valid_js_safe_integer(self.sequence)
@@ -139,7 +164,23 @@ pub struct State {
 
 impl State {
     pub fn read(value: &Value) -> Option<Self> {
-        let state: Self = serde_json::from_value(value.clone()).ok()?;
+        let mut value = value.clone();
+        if let Some(rows) = value
+            .pointer_mut("/value/deltaByModel")
+            .and_then(Value::as_array_mut)
+        {
+            // The opaque cursor stores tuples to stay under its existing cap;
+            // public projections always use named fields.
+            for row in rows {
+                if let Value::Array(tuple) = row {
+                    if tuple.len() != 5 {
+                        return None;
+                    }
+                    *row = json!({"modelId":tuple[0],"inputTokens":tuple[1],"outputTokens":tuple[2],"cachedInputTokens":tuple[3],"cacheWriteTokens":tuple[4]});
+                }
+            }
+        }
+        let state: Self = serde_json::from_value(value).ok()?;
         let hash = |hash: &str| hash.len() == 64 && hash.bytes().all(|b| b.is_ascii_hexdigit());
         (state.value.valid()
             && state.cursor.as_ref().is_none_or(|cursor| {
@@ -153,7 +194,21 @@ impl State {
     }
 
     pub fn document(&self) -> Value {
-        json!(self)
+        let mut value = json!(self);
+        if let Some(rows) = self.value.delta_by_model.as_ref() {
+            value["value"]["deltaByModel"] = json!(
+                rows.iter()
+                    .map(|row| json!([
+                        row.model_id,
+                        row.input_tokens,
+                        row.output_tokens,
+                        row.cached_input_tokens,
+                        row.cache_write_tokens
+                    ]))
+                    .collect::<Vec<_>>()
+            );
+        }
+        value
     }
 }
 
@@ -180,6 +235,8 @@ struct Message {
     id: String,
     request: Option<String>,
     counts: Counts,
+    cache_write: Option<u64>,
+    model: Option<String>,
 }
 
 /// Ok(None) is a foreign, sidechain or synthetic record; Err means a main
@@ -230,6 +287,10 @@ fn claude_message(line: &str) -> Result<Option<Message>, ()> {
         id,
         request,
         counts,
+        cache_write: usage["cache_creation_input_tokens"]
+            .as_u64()
+            .filter(|n| *n <= counts.input),
+        model: attribution::model(&message["model"]),
     }))
 }
 
@@ -280,7 +341,10 @@ fn claude_until(
     };
     let Some(previous) = previous else {
         if end == 0 {
-            return Some(baseline(false));
+            let mut next = baseline(false);
+            next.value.cache_write_tokens = Some(0);
+            next.value.delta_by_model = Some(Vec::new());
+            return Some(next);
         }
         // Absorb the last historical group if later content-block records
         // for it are appended. IDs absent from legacy fixtures mean no counter.
@@ -288,6 +352,9 @@ fn claude_until(
             transcript::latest_at(&mut file, end, |line| claude_message(line).ok().flatten())?;
         let mut next = baseline(false);
         next.value.complete = boundary;
+        next.value.cache_write_tokens = Some(0);
+        next.value.model_id = message.model;
+        next.value.delta_by_model = Some(Vec::new());
         let cursor = next.cursor.as_mut()?;
         cursor.last = Some(message.id);
         cursor.request = message.request;
@@ -314,6 +381,7 @@ fn claude_until(
     // establishes a gap above, without replaying the old prefix.
     let mut raw = Vec::with_capacity(transcript::TAIL_LIMIT as usize);
     let mut next = previous.clone();
+    next.value.delta_by_model = Some(Vec::new());
     let mut consumed = 0u64;
     let mut read = 0u64;
     let complete = loop {
@@ -387,6 +455,18 @@ fn claude_until(
             return Some(baseline(true));
         };
         next.value.set_counts(counts);
+        next.value.cache_write_tokens = next
+            .value
+            .cache_write_tokens
+            .zip(message.cache_write)
+            .and_then(|(a, b)| a.checked_add(b));
+        next.value.model_id = message.model.clone();
+        attribution::add(
+            &mut next.value.delta_by_model,
+            message.model,
+            message.counts,
+            message.cache_write,
+        );
         cursor.last = Some(message.id);
         cursor.request = message.request;
         cursor.counts = Some(message.counts);
@@ -444,6 +524,10 @@ pub fn codex(root: &Path, path: &Path, previous: Option<&State>, now: u64) -> Op
         let mut value = Consumption::baseline(now, false);
         value.set_counts(counts);
         value.complete = complete;
+        if let Some(details) = attribution::codex(&mut file, metadata.len(), None) {
+            value.cache_write_tokens = details.0;
+            value.model_id = details.1;
+        }
         return Some(State {
             value,
             cursor: Some(cursor),
@@ -460,6 +544,7 @@ pub fn codex(root: &Path, path: &Path, previous: Option<&State>, now: u64) -> Op
     if counts == old && cursor == *old_cursor {
         return Some(previous.clone());
     }
+    let details = attribution::codex(&mut file, metadata.len(), Some(previous));
     let decreased = replaced
         || counts.input < old.input
         || counts.output < old.output
@@ -470,6 +555,13 @@ pub fn codex(root: &Path, path: &Path, previous: Option<&State>, now: u64) -> Op
         previous.value.clone()
     };
     value.set_counts(counts);
+    value.cache_write_tokens = details.as_ref().and_then(|details| details.0);
+    value.model_id = details.as_ref().and_then(|details| details.1.clone());
+    value.delta_by_model = if decreased {
+        None
+    } else {
+        details.and_then(|details| details.2)
+    };
     if !decreased {
         value.gap = false;
         value.complete = complete;

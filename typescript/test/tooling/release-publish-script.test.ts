@@ -176,9 +176,17 @@ describe('release-publish.mjs publish', () => {
   });
 
   it('publishes an extension as a prerelease that is never the latest release', () => {
-    const tag = 'tmt-squad-v0.1.0-alpha.2';
-    const { run, calls } = scenario({ drafts: [draft(tag, ASSETS)] });
-    expect(run(['publish', '--product', 'squad', '--tag', tag]).status).toBe(0);
+    const tag = 'tmt-ops-v0.1.0-alpha.2';
+    const { run, calls, directory } = scenario({ drafts: [draft(tag, ASSETS)] });
+    const map = JSON.parse(readFileSync(componentMap, 'utf8'));
+    map.components.ops.release = false;
+    const blocked = path.join(directory, 'blocked-components.json');
+    writeFileSync(blocked, JSON.stringify(map));
+    expect(run(['publish', '--product', 'ops', '--tag', tag, '--components', blocked]).status).toBe(
+      1
+    );
+    expect(calls().some(([, sub]) => sub === 'edit')).toBe(false);
+    expect(run(['publish', '--product', 'ops', '--tag', tag]).status).toBe(0);
     expect(calls().find(([, sub]) => sub === 'edit')).toEqual([
       'release',
       'edit',

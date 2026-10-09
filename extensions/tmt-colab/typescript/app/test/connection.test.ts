@@ -1,8 +1,9 @@
 import { afterEach, expect, it, vi } from 'vite-plus/test';
-import { encodeBinary } from '@tmt/colab-client';
+import { binary, concat, digest, encodeBinary, text } from '@tmt/colab-client';
 import type { Admission } from '../src/admission.js';
 import { Connection } from '../src/connection.js';
 import type { OwnState } from '../src/fold-protocol.js';
+import { SAVE_SOURCE_BYTES, SaveTooLarge } from '../src/save.js';
 
 const calls = vi.hoisted(() => [] as string[]);
 const projection = vi.hoisted(() => ({ own: undefined as OwnState | undefined }));
@@ -75,6 +76,7 @@ async function open(rejectChain = false) {
   const admission = {
     ...scope,
     root: new Uint8Array(32),
+    closeKeys() {},
     registration: {
       deviceId: author,
       syncUrl: 'wss://example.test/colab/sync?tmt-session=fixture',
@@ -195,4 +197,165 @@ it('bounds own publication catchup and closes the unavailable connection', async
   expect(failed).toHaveBeenCalledWith(new Error('Own publication catchup timed out'));
   expect(socket.close).toHaveBeenCalledOnce();
   expect(publish).toHaveBeenCalledTimes(1);
+});
+
+const operation = '40000000-0000-4000-8000-000000000001';
+/** Frames the page asked for; acknowledgements of what it received are not requests. */
+const sent = (socket: Socket) =>
+  socket.send.mock.calls
+    .map(([raw]) => JSON.parse(raw as string) as Record<string, unknown>)
+    .filter((frame) => frame.type !== 'ack');
+const savedFrame = (state: Record<string, unknown>) => ({
+  ...scope,
+  type: 'saveresult',
+  operationId: operation,
+  ...state,
+});
+const awaitSent = (socket: Socket, count: number) =>
+  vi.waitFor(() => expect(sent(socket).length).toBeGreaterThanOrEqual(count));
+
+it('saves a small source inline, bound to the base and source digests, and resolves on the reply', async () => {
+  const { connection, socket, failed } = await open();
+  try {
+    const pending = connection.save(operation, '<p>old</p>', '<p>new</p>');
+    await awaitSent(socket, 1);
+    expect(sent(socket)).toEqual([
+      {
+        ...scope,
+        type: 'save',
+        operationId: operation,
+        baseSha256: encodeBinary(await digest(text('<p>old</p>'))),
+        sourceSha256: encodeBinary(await digest(text('<p>new</p>'))),
+        source: encodeBinary(text('<p>new</p>')),
+      },
+    ]);
+    socket.receive(savedFrame({ state: 'committed', revision: 'v1:00ff' }));
+    await expect(pending).resolves.toEqual({
+      operationId: operation,
+      state: 'committed',
+      revision: 'v1:00ff',
+    });
+    expect(failed).not.toHaveBeenCalled();
+  } finally {
+    connection.close();
+  }
+});
+
+it('uploads a large source as a reference and ordered 32 KiB chunks that rebuild it exactly', async () => {
+  const { connection, socket } = await open();
+  try {
+    const source = 'é'.repeat(100_000) + '<p>end</p>';
+    const bytes = text(source);
+    const pending = connection.save(operation, 'old', source);
+    const count = Math.ceil(bytes.length / (32 * 1024));
+    await awaitSent(socket, 1 + count);
+    const [save, ...chunks] = sent(socket);
+    const hash = encodeBinary(await digest(bytes));
+    expect(save).toMatchObject({ type: 'save', sourceSha256: hash });
+    const objectId = (save.source as { objectId: string }).objectId;
+    expect(objectId).toMatch(/^[0-9a-f]{64}$/);
+    expect(chunks).toHaveLength(count);
+    chunks.forEach((chunk, index) =>
+      expect(chunk).toMatchObject({ type: 'chunk', objectId, envelopeHash: hash, index, count }),
+    );
+    expect(concat(...chunks.map((chunk) => binary(chunk.bytes as string, 32 * 1024)))).toEqual(
+      bytes,
+    );
+    socket.receive(savedFrame({ state: 'unchanged', revision: 'v1:3a3a' }));
+    await expect(pending).resolves.toMatchObject({ state: 'unchanged', revision: 'v1:3a3a' });
+  } finally {
+    connection.close();
+  }
+});
+
+it('refuses a source over the page limit before sending anything, naming both numbers', async () => {
+  const { connection, socket } = await open();
+  try {
+    const rejected = await connection
+      .save(operation, 'old', 'x'.repeat(SAVE_SOURCE_BYTES + 1))
+      .catch((error) => error);
+    expect(rejected).toBeInstanceOf(SaveTooLarge);
+    expect(rejected).toMatchObject({ size: SAVE_SOURCE_BYTES + 1, limit: SAVE_SOURCE_BYTES });
+    expect(sent(socket)).toEqual([]);
+  } finally {
+    connection.close();
+  }
+});
+
+it('carries every refusal reply with its stable code and message', async () => {
+  const { connection, socket } = await open();
+  try {
+    const pending = connection.save(operation, 'old', 'new');
+    await awaitSent(socket, 1);
+    socket.receive(savedFrame({ state: 'rejected', code: 'COLAB_STALE_BASE', message: 'Moved.' }));
+    await expect(pending).resolves.toEqual({
+      operationId: operation,
+      state: 'rejected',
+      code: 'COLAB_STALE_BASE',
+      message: 'Moved.',
+    });
+  } finally {
+    connection.close();
+  }
+});
+
+it('allows one save or status request at a time per connection', async () => {
+  const { connection, socket } = await open();
+  try {
+    const first = connection.save(operation, 'old', 'new');
+    await awaitSent(socket, 1);
+    await expect(connection.saveStatus(operation)).rejects.toThrow();
+    socket.receive(savedFrame({ state: 'committed', revision: '1' }));
+    await first;
+    const status = connection.saveStatus(operation);
+    await awaitSent(socket, 2);
+    expect(sent(socket).at(-1)).toEqual({ ...scope, type: 'savestatus', operationId: operation });
+    socket.receive(savedFrame({ state: 'absent' }));
+    await expect(status).resolves.toEqual({ operationId: operation, state: 'absent' });
+  } finally {
+    connection.close();
+  }
+});
+
+it('closes on a reply for another operation or one nobody asked for', async () => {
+  for (const reply of [
+    savedFrame({
+      state: 'committed',
+      revision: '1',
+      operationId: '40000000-0000-4000-8000-000000000002',
+    }),
+    savedFrame({ state: 'committed' }),
+    savedFrame({ state: 'rejected', code: 'lowercase' }),
+  ]) {
+    const { connection, socket, failed } = await open();
+    const pending = connection.save(operation, 'old', 'new');
+    const rejected = expect(pending).rejects.toThrow();
+    await awaitSent(socket, 1);
+    socket.receive(reply);
+    await rejected;
+    expect(failed).toHaveBeenCalledOnce();
+    expect(connection.active).toBe(false);
+  }
+  const { connection, socket, failed } = await open();
+  socket.receive(savedFrame({ state: 'committed', revision: '1' }));
+  await vi.waitFor(() => expect(failed).toHaveBeenCalledOnce());
+  connection.close();
+});
+
+it('rejects an unanswered save when the connection closes and when the reply budget runs out', async () => {
+  const lost = await open();
+  const pending = lost.connection.save(operation, 'old', 'new');
+  const rejected = expect(pending).rejects.toThrow('Sync disconnected');
+  await awaitSent(lost.socket, 1);
+  lost.connection.close(new Error('Sync disconnected'));
+  await rejected;
+
+  vi.useFakeTimers();
+  const slow = await open();
+  const waiting = slow.connection.save(operation, 'old', 'new');
+  const timedOut = expect(waiting).rejects.toThrow('Save reply timed out');
+  await awaitSent(slow.socket, 1);
+  await vi.advanceTimersByTimeAsync(30_000);
+  await timedOut;
+  expect(slow.connection.active).toBe(false);
 });

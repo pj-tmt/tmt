@@ -68,6 +68,20 @@ impl Devices {
         }
         Ok(grant)
     }
+    pub fn designate(&self, client_id: &str, origin: &str) -> Result<Grant, RemoteError> {
+        self.store()?
+            .designate(client_id, origin, crate::pairing::now_ms()?)
+    }
+    pub fn undesignate(&self) -> Result<(), RemoteError> {
+        self.store()?.undesignate()
+    }
+    /// Effects and receipts are already committed; release Store/live locks first.
+    pub(crate) fn committed_change(&self, client_id: &str) {
+        if let Some(sessions) = &self.sessions {
+            sessions.end_device(client_id);
+        }
+        self.wake();
+    }
     fn wake(&self) {
         if let Ok(mut changed) = self.changed.lock() {
             *changed = true;

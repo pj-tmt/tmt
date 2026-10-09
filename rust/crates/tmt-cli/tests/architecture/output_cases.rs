@@ -51,12 +51,12 @@ fn escape_sequences_are_caught_in_literals_and_macro_arguments() {
         mod tests { fn fixture() -> &'static str { "\x1b[2J" } }
     "#;
     assert_eq!(
-        check(&[syntax("tmt-squad", "status.rs", text)], &[], &[]),
+        check(&[syntax("tmt-ops", "status.rs", text)], &[], &[]),
         [
-            "tmt-squad/status.rs: an escape sequence literal in <module> bypasses the style layer",
-            "tmt-squad/status.rs: an escape sequence literal in bold bypasses the style layer",
-            "tmt-squad/status.rs: an escape sequence literal in bytes bypasses the style layer",
-            "tmt-squad/status.rs: an escape sequence literal in one bypasses the style layer",
+            "tmt-ops/status.rs: an escape sequence literal in <module> bypasses the style layer",
+            "tmt-ops/status.rs: an escape sequence literal in bold bypasses the style layer",
+            "tmt-ops/status.rs: an escape sequence literal in bytes bypasses the style layer",
+            "tmt-ops/status.rs: an escape sequence literal in one bypasses the style layer",
         ]
     );
 }
@@ -75,7 +75,7 @@ fn only_the_cli_crates_are_guarded() {
             [] as [String; 0]
         );
     }
-    for package in ["tmt-cli", "tmt-office-command", "tmt-squad"] {
+    for package in ["tmt-cli", "tmt-office-command", "tmt-ops"] {
         assert_eq!(check(&[syntax(package, "lib.rs", text)], &[], &[]).len(), 2);
     }
 }

@@ -59,7 +59,7 @@ $ tmt completion zsh             # the same for zsh
 
 Add that line to the file it names yourself; tmt never edits your shell's startup files. For zsh, put it after completion is set up, whether by `compinit` or by a framework such as oh-my-zsh. If the line is there twice, tmt says so. Open a new shell afterwards. `tmt completion --json` gives the same check for scripts, and tmt's main help (`tmt --help`) shows a reminder in a terminal while completion isn't set up.
 
-Names complete from your saved and temporary identities, saved ones first, without starting tmux. `tmt resume` offers only identities with a remembered session. After the name, `tmt run` hands over to the agent's own completion, so Tab completes the agent's flags too; tmt doesn't install those scripts. Extensions complete their own words, such as `tmt sq <Tab>`.
+Names complete from your saved and temporary identities, saved ones first, without starting tmux. `tmt resume` offers only identities with a remembered session. After the name, `tmt run` hands over to the agent's own completion, so Tab completes the agent's flags too; tmt doesn't install those scripts. Extensions complete their own words, such as `tmt ops sq <Tab>`.
 
 ### The pane badge, a few extras
 

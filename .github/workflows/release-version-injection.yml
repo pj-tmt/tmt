@@ -37,7 +37,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        product: [cli, squad, remote, colab]
+        product: [cli, ops, remote, colab]
         target:
           [
             aarch64-apple-darwin,

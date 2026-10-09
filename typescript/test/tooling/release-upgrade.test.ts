@@ -1,12 +1,13 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { writeExecutable } from '../support/executable-fixture.mjs';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { afterAll, beforeAll, describe, expect, it } from 'vite-plus/test';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vite-plus/test';
 import type { DraftAsset, DraftRelease } from '../../scripts/release-draft-assets.mjs';
+import { checkReleaseParity } from '../../scripts/release-parity.mjs';
 import {
   PROOF_FILES,
   ACCEPTANCE_TEST,
@@ -17,6 +18,7 @@ import {
   failureCause,
   fetchUpgrade,
   ghAssetDownloader,
+  ghCliAncestry,
   localCandidate,
   proveStaged,
   proveArchiveAcceptance,
@@ -31,6 +33,87 @@ import {
   publishedReleases,
   versionOfTag,
 } from '../../scripts/release-versions.mjs';
+
+const { extensionUpgradeOptions, assertOpsReplacement } = (await import(
+  new URL('../../scripts/verify-native-extension-upgrade.mjs', import.meta.url).href
+)) as {
+  extensionUpgradeOptions: (args: string[]) => Record<string, string>;
+  assertOpsReplacement: (report: Record<string, unknown>, prefix: string, version: string) => void;
+};
+
+// Literal consumer-contract controls; these never run a native CLI or claim a replacement happened.
+describe('extension verifier replacement contract', () => {
+  const base = [
+    'product',
+    'archive',
+    'manifest',
+    'previous-archive',
+    'previous-manifest',
+    'driver-archive',
+    'driver-manifest',
+    'target',
+  ].flatMap((name) => [`--${name}`, name === 'product' ? 'ops' : name]);
+  const pair = [
+    '--previous-product',
+    'squad',
+    '--previous-driver-archive',
+    'old-cli.tar.gz',
+    '--previous-driver-manifest',
+    'old.json',
+  ];
+  it('keeps same-product options and admits only a complete squad -> ops pair', () => {
+    expect(extensionUpgradeOptions(base)).not.toHaveProperty('previous-product');
+    expect(extensionUpgradeOptions([...base, ...pair])).toHaveProperty('previous-product', 'squad');
+    for (let index = 0; index < pair.length; index += 2) {
+      expect(() =>
+        extensionUpgradeOptions([...base, ...pair.slice(0, index), ...pair.slice(index + 2)])
+      ).toThrow('is required for replacement');
+    }
+    for (const product of ['remote', 'colab', 'office']) {
+      const args = [...base];
+      args[1] = product;
+      expect(() => extensionUpgradeOptions([...args, ...pair])).toThrow('Only squad -> ops');
+    }
+    for (const previous of ['ops', 'remote', 'cli', 'driver-herdr']) {
+      const args = [...pair];
+      args[1] = previous;
+      expect(() => extensionUpgradeOptions([...base, ...args])).toThrow('Only squad -> ops');
+    }
+  });
+  const prefix = '/private/fixture prefix';
+  const literal = () => ({
+    extension: 'ops',
+    installed: true,
+    changed: true,
+    version: '0.1.0-alpha.51',
+    executable: `${prefix}/bin/tmt-ops`,
+    replaced: 'squad',
+    removed: [`${prefix}/bin/tmt-squad`, `${prefix}/bin/tmt-sq`, `${prefix}/lib/tmt-squad`],
+    kept: [],
+  });
+  it('pins replacement output, exact removed order and no kept entries', () => {
+    expect(() => assertOpsReplacement(literal(), prefix, '0.1.0-alpha.51')).not.toThrow();
+    for (const field of Object.keys(literal())) {
+      const report: Record<string, unknown> = literal();
+      delete report[field];
+      expect(() => assertOpsReplacement(report, prefix, '0.1.0-alpha.51'), field).toThrow();
+    }
+    for (const change of [
+      { replaced: 'ops' },
+      { changed: false },
+      { installed: false },
+      { extension: 'squad' },
+      { version: '0.1.0-alpha.50' },
+      { executable: '/wrong/tmt-ops' },
+      { removed: [...literal().removed].reverse() },
+      { removed: literal().removed.slice(0, 2) },
+      { kept: [literal().removed[0]] },
+    ])
+      expect(() =>
+        assertOpsReplacement({ ...literal(), ...change }, prefix, '0.1.0-alpha.51')
+      ).toThrow();
+  });
+});
 
 const script = fileURLToPath(new URL('../../scripts/release-upgrade.mjs', import.meta.url));
 const TARGET = 'aarch64-apple-darwin';
@@ -67,8 +150,8 @@ function release(
 ): DraftRelease {
   const product = tag.startsWith('tmt-office-v')
     ? 'office'
-    : tag.startsWith('tmt-squad-v')
-      ? 'squad'
+    : tag.startsWith('tmt-ops-v')
+      ? 'ops'
       : tag.startsWith('tmt-driver-herdr-v')
         ? 'driver-herdr'
         : 'cli';
@@ -119,7 +202,7 @@ describe('versions', () => {
   it("names a tag's version by its product and refuses another product's tag", () => {
     expect(versionOfTag('v5.0.0-alpha.9', 'cli')).toBe('5.0.0-alpha.9');
     expect(versionOfTag('tmt-office-v0.1.0-alpha.4', 'office')).toBe('0.1.0-alpha.4');
-    expect(versionOfTag('tmt-squad-v0.1.0-alpha.2', 'squad')).toBe('0.1.0-alpha.2');
+    expect(versionOfTag('tmt-ops-v0.1.0-alpha.2', 'ops')).toBe('0.1.0-alpha.2');
     expect(() => versionOfTag('tmt-office-v0.1.0', 'cli')).toThrow('not a cli tag');
   });
 
@@ -136,7 +219,7 @@ describe('versions', () => {
       'v5.0.0-alpha.8',
       'v5.0.0-alpha.7',
     ]);
-    expect(publishedReleases(releases, 'squad')).toEqual([]);
+    expect(publishedReleases(releases, 'ops')).toEqual([]);
   });
 });
 
@@ -148,7 +231,7 @@ describe('selectPrevious', () => {
     release('v5.0.0-alpha.10', { draft: true }),
     release('tmt-office-v0.1.0-alpha.3'),
     release('tmt-office-v0.1.0-alpha.4', { draft: true }),
-    release('tmt-squad-v0.1.0-alpha.1'),
+    release('tmt-ops-v0.1.0-alpha.1'),
   ];
   const previous = (product: string, candidateTag: string) =>
     selectPrevious({ releases, product, candidateTag })?.tag_name ?? null;
@@ -163,8 +246,8 @@ describe('selectPrevious', () => {
     expect(previous('cli', 'v5.0.0-alpha.8')).toBe('v5.0.0-alpha.7');
     expect(previous('cli', 'v5.0.0-alpha.7')).toBeNull();
     expect(previous('cli', 'v4.9.0')).toBeNull();
-    expect(previous('squad', 'tmt-squad-v0.1.0-alpha.2')).toBe('tmt-squad-v0.1.0-alpha.1');
-    expect(previous('squad', 'tmt-squad-v0.1.0-alpha.1')).toBeNull();
+    expect(previous('ops', 'tmt-ops-v0.1.0-alpha.2')).toBe('tmt-ops-v0.1.0-alpha.1');
+    expect(previous('ops', 'tmt-ops-v0.1.0-alpha.1')).toBeNull();
   });
 
   it('refuses a candidate tag of another product', () => {
@@ -174,7 +257,7 @@ describe('selectPrevious', () => {
   it('never treats a dev candidate as newer than a published alpha with the same core', () => {
     expect(previous('cli', 'v5.0.0-dev')).toBeNull();
     expect(previous('office', 'tmt-office-v0.1.0-dev')).toBeNull();
-    expect(previous('squad', 'tmt-squad-v0.1.0-dev')).toBeNull();
+    expect(previous('ops', 'tmt-ops-v0.1.0-dev')).toBeNull();
   });
 });
 
@@ -183,7 +266,7 @@ describe('selectAssets and stageRelease', () => {
     for (const [tag, product] of [
       ['v5.0.0-alpha.8', 'cli'],
       ['tmt-office-v0.1.0-alpha.3', 'office'],
-      ['tmt-squad-v0.1.0-alpha.1', 'squad'],
+      ['tmt-ops-v0.1.0-alpha.1', 'ops'],
     ]) {
       const assets = selectAssets({ release: release(tag), product, target: TARGET });
       expect(assets.archive.name).toBe(`${prefixOf(product)}-${TARGET}.tar.gz`);
@@ -259,7 +342,7 @@ describe('fetchUpgrade and proveStaged', () => {
     release('v5.0.0-alpha.9', { draft: true, targets: TARGETS }),
     release('tmt-office-v0.1.0-alpha.3', { targets: TARGETS }),
     release('tmt-office-v0.1.0-alpha.4', { draft: true, targets: TARGETS }),
-    release('tmt-squad-v0.1.0-alpha.1', { draft: true, targets: TARGETS }),
+    release('tmt-ops-v0.1.0-alpha.1', { draft: true, targets: TARGETS }),
     release('tmt-driver-herdr-v0.1.0-alpha.1', { targets: TARGETS }),
     release('tmt-driver-herdr-v0.1.0-alpha.2', { draft: true, targets: TARGETS }),
   ];
@@ -433,7 +516,7 @@ describe('fetchUpgrade and proveStaged', () => {
     });
 
     it('reports a first product release as nothing to upgrade from', () => {
-      const { plan, downloads } = stageLocal('squad', 'tmt-squad-v0.1.0-alpha.999999', {
+      const { plan, downloads } = stageLocal('ops', 'tmt-ops-v0.1.0-alpha.999999', {
         releases: [],
       });
       expect(plan.previous).toBeNull();
@@ -463,8 +546,8 @@ describe('fetchUpgrade and proveStaged', () => {
         })
       ).toThrow('announces v5.0.0-alpha.1');
       expect(() =>
-        localCandidate({ directory: bundle('cli', SYNTHETIC), product: 'squad', tag: SYNTHETIC })
-      ).toThrow('has no squad archive');
+        localCandidate({ directory: bundle('cli', SYNTHETIC), product: 'ops', tag: SYNTHETIC })
+      ).toThrow('has no ops archive');
       const corrupted = bundle('cli', SYNTHETIC);
       writeFileSync(path.join(corrupted, `tmt-cli-${TARGET}.tar.gz`), 'tampered');
       expect(() =>
@@ -599,7 +682,7 @@ describe('fetchUpgrade and proveStaged', () => {
       selectSupportFloor({ ...input, candidateTag: 'v5.0.0-alpha.36', releases: [] })
     ).toBeNull();
     expect(
-      selectSupportFloor({ product: 'squad', candidateTag: 'tmt-squad-v1.0.0', releases: [] })
+      selectSupportFloor({ product: 'ops', candidateTag: 'tmt-ops-v1.0.0', releases: [] })
     ).toBeNull();
   });
 
@@ -639,11 +722,11 @@ describe('fetchUpgrade and proveStaged', () => {
   });
 
   it('has nothing to fetch for the first release of a product', () => {
-    const { plan, directory, downloads } = fetchInto('squad', 'tmt-squad-v0.1.0-alpha.1');
+    const { plan, directory, downloads } = fetchInto('ops', 'tmt-ops-v0.1.0-alpha.1');
     expect(plan.previous).toBeNull();
     expect(plan.files).toEqual({});
     expect(downloads).toEqual([]);
-    expect(prove(directory, { product: 'squad', tag: 'tmt-squad-v0.1.0-alpha.1' })).toEqual({
+    expect(prove(directory, { product: 'ops', tag: 'tmt-ops-v0.1.0-alpha.1' })).toEqual({
       result: { previous: null },
       calls: [],
     });
@@ -785,6 +868,183 @@ describe('fetchUpgrade and proveStaged', () => {
         })
       ).toEqual({ outcome: 'proved' });
       expect(jobs).toEqual(['2', '2', '2']);
+    });
+
+    it('logs exact ordered phase durations only on stderr without changing proof reports', () => {
+      const stderr: string[] = [];
+      const writer = vi.spyOn(process.stderr, 'write').mockImplementation((line) => {
+        stderr.push(String(line));
+        return true;
+      });
+      const fixture = input();
+      const reports: string[] = [];
+      let clock = 10_000;
+      let call = 0;
+      try {
+        const result = proveArchiveAcceptance({
+          ...fixture,
+          clock: () => clock,
+          report: (line) => reports.push(line),
+          execute: (_executable, _args, options) => {
+            expect(stderr.at(-1)).toBe(
+              `Adapter phase timing: target=${TARGET} phase=${['compile', 'discovery', 'run-previous'][call]} status=started\n`
+            );
+            expect(options.timeoutMs).toBe(call === 0 ? 600_000 : 120_000);
+            clock += [187_125, 25, 12_500][call];
+            return [compiled, listed, passed][call++];
+          },
+        });
+        expect(result).toEqual({ outcome: 'proved' });
+        expect(call).toBe(3);
+        expect(stderr).toEqual([
+          `Adapter phase timing: target=${TARGET} phase=compile status=started\n`,
+          `Adapter phase timing: target=${TARGET} phase=compile status=returned seconds=187.125\n`,
+          `Adapter phase timing: target=${TARGET} phase=discovery status=started\n`,
+          `Adapter phase timing: target=${TARGET} phase=discovery status=returned seconds=0.025\n`,
+          `Adapter phase timing: target=${TARGET} phase=run-previous status=started\n`,
+          `Adapter phase timing: target=${TARGET} phase=run-previous status=returned seconds=12.500\n`,
+        ]);
+        expect(reports).toHaveLength(3);
+        expect(reports[0]).toMatch(/^Real-archive adapter acceptance compile: \d+ seconds\.$/);
+        expect(reports[1]).toBe(passed.trim());
+        expect(reports[2]).toMatch(/^Real-archive adapter acceptance: passed /);
+        expect(reports.join('\n')).not.toContain('Adapter phase timing');
+      } finally {
+        writer.mockRestore();
+      }
+    });
+
+    it.each(['compile', 'discovery', 'run-previous'])(
+      'logs elapsed %s failure and preserves the original error without later commands',
+      (phase) => {
+        const stderr: string[] = [];
+        const writer = vi.spyOn(process.stderr, 'write').mockImplementation((line) => {
+          stderr.push(String(line));
+          return true;
+        });
+        const error = new Error('owned process failed');
+        const failingCall = ['compile', 'discovery', 'run-previous'].indexOf(phase);
+        let clock = 1_000;
+        let call = 0;
+        try {
+          let caught: unknown;
+          try {
+            proveArchiveAcceptance({
+              ...input(),
+              clock: () => clock,
+              execute: () => {
+                clock += 2_750;
+                if (call++ === failingCall) throw error;
+                return [compiled, listed][call - 1];
+              },
+            });
+          } catch (failure) {
+            caught = failure;
+          }
+          expect(caught).toBe(error);
+          expect(call).toBe(failingCall + 1);
+          expect(stderr.slice(-2)).toEqual([
+            `Adapter phase timing: target=${TARGET} phase=${phase} status=started\n`,
+            `Adapter phase timing: target=${TARGET} phase=${phase} status=failed seconds=2.750\n`,
+          ]);
+          expect(stderr).toHaveLength(2 * call);
+        } finally {
+          writer.mockRestore();
+        }
+      }
+    );
+
+    it.each([false, true])('times the separate floor run, including failure=%s', (fail) => {
+      const entries = [
+        release('v5.0.0-alpha.36', { targets: TARGETS }),
+        release('v5.0.0-alpha.45', { targets: TARGETS }),
+        release('v5.0.0-alpha.46', { draft: true, targets: TARGETS }),
+      ];
+      const asset = { id: nextId++, name: 'install.sh', digest: digestOf('bootstrap') };
+      contents.set(asset.id, 'bootstrap');
+      entries[2] = { ...entries[2], assets: [...(entries[2].assets ?? []), asset] };
+      const { directory } = fetchInto('cli', entries[2].tag_name, { releases: entries });
+      const stderr: string[] = [];
+      const writer = vi.spyOn(process.stderr, 'write').mockImplementation((line) => {
+        stderr.push(String(line));
+        return true;
+      });
+      const error = new Error('original floor failure');
+      let clock = 0;
+      let call = 0;
+      let caught: unknown;
+      try {
+        try {
+          const result = proveArchiveAcceptance({
+            ...input(),
+            directory,
+            tag: entries[2].tag_name,
+            clock: () => clock,
+            execute: (_executable, _args, options) => {
+              clock += [187_000, 50, 12_000, 11_000][call];
+              if (call === 3) {
+                expect(options.env.TMT_UPGRADE_OLD_ARCHIVE).toContain('/floor/');
+                expect(options.timeoutMs).toBe(120_000);
+                if (fail) {
+                  call++;
+                  throw error;
+                }
+              }
+              return [compiled, listed, passed, passed][call++];
+            },
+          });
+          expect(result).toEqual({ outcome: 'proved' });
+        } catch (failure) {
+          caught = failure;
+        }
+        expect(caught).toBe(fail ? error : undefined);
+        expect(call).toBe(4);
+        expect(stderr).toEqual([
+          `Adapter phase timing: target=${TARGET} phase=compile status=started\n`,
+          `Adapter phase timing: target=${TARGET} phase=compile status=returned seconds=187.000\n`,
+          `Adapter phase timing: target=${TARGET} phase=discovery status=started\n`,
+          `Adapter phase timing: target=${TARGET} phase=discovery status=returned seconds=0.050\n`,
+          `Adapter phase timing: target=${TARGET} phase=run-previous status=started\n`,
+          `Adapter phase timing: target=${TARGET} phase=run-previous status=returned seconds=12.000\n`,
+          `Adapter phase timing: target=${TARGET} phase=run-floor status=started\n`,
+          `Adapter phase timing: target=${TARGET} phase=run-floor status=${fail ? 'failed' : 'returned'} seconds=11.000\n`,
+        ]);
+      } finally {
+        writer.mockRestore();
+      }
+    });
+
+    it('does not let diagnostic output failure change success or the original process error', () => {
+      const writer = vi.spyOn(process.stderr, 'write').mockImplementation(() => {
+        throw new Error('diagnostic stream unavailable');
+      });
+      try {
+        let call = 0;
+        expect(
+          proveArchiveAcceptance({
+            ...input(),
+            clock: () => 0,
+            execute: () => [compiled, listed, passed][call++],
+          })
+        ).toEqual({ outcome: 'proved' });
+        expect(call).toBe(3);
+        const error = new Error('original compiler error');
+        let caught: unknown;
+        try {
+          proveArchiveAcceptance({
+            ...input(),
+            clock: () => 0,
+            execute: () => {
+              throw error;
+            },
+          });
+        } catch (failure) {
+          caught = failure;
+        }
+        expect(caught).toBe(error);
+      } finally {
+        writer.mockRestore();
+      }
     });
 
     it('compiles and executes the release adapter from sourceRoot on a rerun', () => {
@@ -1091,14 +1351,166 @@ describe('ghAssetDownloader', () => {
     expect([...readFileSync(file)]).toEqual([0, 255, 10, 65]);
   });
 
-  it('reports the status and stderr of a failed download', () => {
-    const spawn = () => ({ status: 1, stdout: Buffer.from(''), stderr: Buffer.from('HTTP 404') });
+  it('retries failed reads by the same id, keeps their errors and writes only successful bytes', () => {
+    const file = path.join(mkdtempSync(path.join(root, 'download-')), 'archive');
+    const env = { GH_TOKEN: 'inert-fixture' };
+    const errors = ['HTTP 503', 'unexpected end of JSON input'];
+    const waits: number[] = [];
+    const lines: string[] = [];
+    const writer = vi.spyOn(process.stderr, 'write').mockImplementation((line) => {
+      lines.push(String(line));
+      return true;
+    });
+    let calls = 0;
+    const spawn = vi.fn((_command: string, _args: string[], _options: object) => {
+      expect(existsSync(file)).toBe(false);
+      const error = errors[calls++];
+      return error
+        ? { status: 1, stdout: Buffer.from('partial discarded'), stderr: Buffer.from(error) }
+        : { status: 0, stdout: Buffer.from([0, 255, 10, 65]), stderr: Buffer.from('') };
+    });
+    try {
+      ghAssetDownloader({ repository: 'wkh237/tmt', env, spawn, sleep: (ms) => waits.push(ms) })(
+        { id: 42, name: 'a.tar.gz' },
+        file
+      );
+      expect(spawn.mock.calls).toEqual(
+        Array.from({ length: 3 }, () => [
+          'gh',
+          ['api', '-H', 'Accept: application/octet-stream', 'repos/wkh237/tmt/releases/assets/42'],
+          { env, encoding: 'buffer', timeout: 300_000, maxBuffer: 80 * 1024 * 1024 },
+        ])
+      );
+      expect(waits).toEqual([1000, 2000]);
+      expect(lines).toEqual([
+        'Asset download attempt 1/3 failed: gh could not download a.tar.gz (1): HTTP 503\nRetrying in 1000 ms.\n',
+        'Asset download attempt 2/3 failed: gh could not download a.tar.gz (1): unexpected end of JSON input\nRetrying in 2000 ms.\n',
+      ]);
+      expect([...readFileSync(file)]).toEqual([0, 255, 10, 65]);
+    } finally {
+      writer.mockRestore();
+    }
+  });
+
+  it('exhausts three failed reads and preserves the last status and stderr', () => {
+    const file = path.join(root, 'failed-download');
+    const waits: number[] = [];
+    const lines: string[] = [];
+    let calls = 0;
+    const spawn = vi.fn(() => {
+      calls += 1;
+      return {
+        status: calls,
+        stdout: Buffer.from('partial discarded'),
+        stderr: Buffer.from(`failure ${calls}`),
+      };
+    });
+    const writer = vi.spyOn(process.stderr, 'write').mockImplementation((line) => {
+      lines.push(String(line));
+      return true;
+    });
+    try {
+      let caught: unknown;
+      try {
+        ghAssetDownloader({ repository: 'wkh237/tmt', spawn, sleep: (ms) => waits.push(ms) })(
+          { id: 1, name: 'x' },
+          file
+        );
+      } catch (failure) {
+        caught = failure;
+      }
+      expect(caught).toBeInstanceOf(Error);
+      expect(caught).toHaveProperty('message', 'gh could not download x (3): failure 3');
+      expect(spawn).toHaveBeenCalledTimes(3);
+      expect(waits).toEqual([1000, 2000]);
+      expect(lines).toEqual([
+        'Asset download attempt 1/3 failed: gh could not download x (1): failure 1\nRetrying in 1000 ms.\n',
+        'Asset download attempt 2/3 failed: gh could not download x (2): failure 2\nRetrying in 2000 ms.\n',
+      ]);
+      expect(existsSync(file)).toBe(false);
+    } finally {
+      writer.mockRestore();
+    }
+  });
+
+  it('preserves the original last spawn error object after exhausting acquisition retries', () => {
+    const error = new Error('spawn ETIMEDOUT');
+    const spawn = vi.fn(() => ({
+      error,
+      status: null,
+      stdout: Buffer.from(''),
+      stderr: Buffer.from(''),
+    }));
+    const sleep = vi.fn();
+    const writer = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    let caught: unknown;
+    try {
+      try {
+        ghAssetDownloader({ repository: 'wkh237/tmt', spawn, sleep })(
+          { id: 1, name: 'x' },
+          path.join(root, 'spawn-error')
+        );
+      } catch (failure) {
+        caught = failure;
+      }
+      expect(caught).toBe(error);
+      expect(spawn).toHaveBeenCalledTimes(3);
+      expect(sleep.mock.calls).toEqual([[1000], [2000]]);
+    } finally {
+      writer.mockRestore();
+    }
+  });
+
+  it('does not retry successful acquisition whose bytes fail the staged digest', () => {
+    const cli = release('v5.0.0-alpha.8');
+    const spawn = vi.fn(() => ({
+      status: 0,
+      stdout: Buffer.from('wrong bytes'),
+      stderr: Buffer.from(''),
+    }));
+    const sleep = vi.fn();
+    const directory = mkdtempSync(path.join(root, 'wrong-download-'));
     expect(() =>
-      ghAssetDownloader({ repository: 'wkh237/tmt', spawn })(
-        { id: 1, name: 'x' },
-        path.join(root, 'x')
-      )
-    ).toThrow('could not download x (1): HTTP 404');
+      stageRelease({
+        download: ghAssetDownloader({ repository: 'wkh237/tmt', spawn, sleep }),
+        release: cli,
+        product: 'cli',
+        target: TARGET,
+        directory,
+      })
+    ).toThrow(`tmt-cli-${TARGET}.tar.gz of v5.0.0-alpha.8 does not match its recorded digest.`);
+    expect(spawn).toHaveBeenCalledTimes(1);
+    expect(sleep).not.toHaveBeenCalled();
+    expect(readFileSync(path.join(directory, `tmt-cli-${TARGET}.tar.gz`), 'utf8')).toBe(
+      'wrong bytes'
+    );
+  });
+
+  it('records #2197 download retry policy coverage in the pre-merge tooling suite', () => {
+    const read = (file: string) =>
+      readFileSync(new URL(`../../../${file}`, import.meta.url), 'utf8');
+    const manifest = JSON.parse(read('.github/release-parity.json'));
+    expect(manifest.incidents['2197']).toEqual({
+      release: {
+        workflow: 'native-release-upgrade.yml',
+        job: 'fetch',
+        step: 'name:Download and check the release assets',
+      },
+      preMerge: [
+        {
+          workflow: 'ci.yml',
+          job: 'unit-tests',
+          selection: { kind: 'ci-scope', output: 'native_scope', value: 'full' },
+          coverage: 'policy',
+          tests: ['typescript/test/tooling/release-upgrade.test.ts'],
+        },
+      ],
+    });
+    expect(() => checkReleaseParity(manifest, { read })).not.toThrow();
+    delete manifest.incidents['2197'];
+    expect(() => checkReleaseParity(manifest, { read })).toThrow(
+      'release incidents: unmapped 2197'
+    );
   });
 });
 
@@ -1113,11 +1525,11 @@ describe('failureCause and combineFailures', () => {
     expect(
       failureCause(
         trace(
-          'AssertionError [ERR_ASSERTION]: Packed command failed (exited 1, expected 0): tmt extension install squad: unrecognized subcommand squad\ncommand: x'
+          'AssertionError [ERR_ASSERTION]: Packed command failed (exited 1, expected 0): tmt extension install ops: unrecognized subcommand ops\ncommand: x'
         )
       )
     ).toBe(
-      'Packed command failed (exited 1, expected 0): tmt extension install squad: unrecognized subcommand squad'
+      'Packed command failed (exited 1, expected 0): tmt extension install ops: unrecognized subcommand ops'
     );
   });
 
@@ -1136,15 +1548,15 @@ describe('failureCause and combineFailures', () => {
   });
 
   it('names each distinct cause once, with the hosts it happened on, sorted', () => {
-    const squad = trace('Error: no squad command');
+    const ops = trace('Error: no ops command');
     expect(
       combineFailures([
-        { target: 'x86_64-unknown-linux-musl', log: squad },
-        { target: 'aarch64-apple-darwin', log: squad },
+        { target: 'x86_64-unknown-linux-musl', log: ops },
+        { target: 'aarch64-apple-darwin', log: ops },
         { target: 'x86_64-apple-darwin', log: trace('Error: a downgrade was accepted') },
       ])
     ).toBe(
-      'no squad command (aarch64-apple-darwin, x86_64-unknown-linux-musl); a downgrade was accepted (x86_64-apple-darwin)'
+      'no ops command (aarch64-apple-darwin, x86_64-unknown-linux-musl); a downgrade was accepted (x86_64-apple-darwin)'
     );
     const many = combineFailures(
       Array.from({ length: 8 }, (_, index) => ({
@@ -1200,21 +1612,19 @@ describe('release-upgrade.mjs', () => {
   });
 
   it('fetches nothing for a first release, and proves offline without gh or a repository', () => {
-    const run = fakeGh([release('tmt-squad-v0.1.0-alpha.1', { draft: true })]);
+    const run = fakeGh([release('tmt-ops-v0.1.0-alpha.1', { draft: true })]);
     const directory = path.join(root, 'none');
     const fetched = run([
       'fetch',
       '--product',
-      'squad',
+      'ops',
       '--tag',
-      'tmt-squad-v0.1.0-alpha.1',
+      'tmt-ops-v0.1.0-alpha.1',
       '--directory',
       directory,
     ]);
     expect(fetched.status).toBe(0);
-    expect(fetched.stderr).toContain(
-      'No published squad release precedes tmt-squad-v0.1.0-alpha.1'
-    );
+    expect(fetched.stderr).toContain('No published ops release precedes tmt-ops-v0.1.0-alpha.1');
     expect(JSON.parse(readFileSync(path.join(directory, 'plan.json'), 'utf8')).previous).toBeNull();
 
     // `prove` runs the release's own code: it must not need gh, a token or a repository.
@@ -1222,9 +1632,9 @@ describe('release-upgrade.mjs', () => {
       [
         'prove',
         '--product',
-        'squad',
+        'ops',
         '--tag',
-        'tmt-squad-v0.1.0-alpha.1',
+        'tmt-ops-v0.1.0-alpha.1',
         '--target',
         TARGET,
         '--directory',
@@ -1265,5 +1675,143 @@ describe('release-upgrade.mjs', () => {
     expect(run(['bogus']).stderr).toContain(
       'Usage: release-upgrade.mjs resolve|fetch|assess|prove|acceptance|reason'
     );
+  });
+});
+
+describe('REST evidence for a published CLI tag', () => {
+  const registration = '3'.repeat(40);
+  const driverSha = '8'.repeat(40);
+  const published = release('v5.0.0-alpha.84', { sha: '9'.repeat(40) });
+  const comparison = (status: string, mergeBase = registration) => ({
+    status,
+    base_commit: { sha: registration },
+    merge_base_commit: { sha: mergeBase },
+  });
+  it.each([
+    ['ahead', driverSha, registration],
+    ['identical', registration, registration],
+    ['behind', driverSha, driverSha],
+    ['diverged', driverSha, '2'.repeat(40)],
+  ])('reads exact tag commit then checks %s comparison evidence', (status, sha, mergeBase) => {
+    const calls: { command: string; args: string[]; options: object }[] = [];
+    const observe = ghCliAncestry({
+      repository: 'fixture/repository',
+      spawn: (command, args, options) => {
+        calls.push({ command, args, options });
+        return {
+          status: 0,
+          stdout: JSON.stringify(calls.length === 1 ? { sha } : comparison(status, mergeBase)),
+        };
+      },
+    });
+    expect(observe(published, registration)).toEqual({ sha, status });
+    expect(calls.map((c) => [c.command, ...c.args])).toEqual([
+      ['gh', 'api', 'repos/fixture/repository/commits/v5.0.0-alpha.84', '--jq', '{sha: .sha}'],
+      [
+        'gh',
+        'api',
+        `repos/fixture/repository/compare/${registration}...${sha}`,
+        '--jq',
+        '{status: .status, base_commit: {sha: .base_commit.sha}, merge_base_commit: {sha: .merge_base_commit.sha}}',
+      ],
+    ]);
+    expect(calls.map((c) => c.options)).toEqual([
+      expect.objectContaining({ timeout: 60_000, maxBuffer: 4 * 1024 * 1024 }),
+      expect.objectContaining({ timeout: 60_000, maxBuffer: 4 * 1024 * 1024 }),
+    ]);
+  });
+  it('requests compact evidence when unrelated REST patches exceed the output bound', () => {
+    const patch = 'x'.repeat(4 * 1024 * 1024 + 1);
+    const bodies = [
+      { sha: driverSha, files: [{ patch }] },
+      { ...comparison('ahead'), files: [{ patch }] },
+    ];
+    const filters = [
+      '{sha: .sha}',
+      '{status: .status, base_commit: {sha: .base_commit.sha}, merge_base_commit: {sha: .merge_base_commit.sha}}',
+    ];
+    let calls = 0;
+    const observe = ghCliAncestry({
+      repository: 'fixture/repository',
+      spawn: (_, args, options) => {
+        const index = calls++;
+        expect(args.slice(-2)).toEqual(['--jq', filters[index]]);
+        const bound = (options as { maxBuffer: number }).maxBuffer;
+        expect(Buffer.byteLength(JSON.stringify(bodies[index]))).toBeGreaterThan(bound);
+        // Fake gh emits the requested fields, never its large files/patches payload.
+        const stdout = JSON.stringify(index === 0 ? { sha: driverSha } : comparison('ahead'));
+        expect(Buffer.byteLength(stdout)).toBeLessThan(bound);
+        return { status: 0, stdout };
+      },
+    });
+    expect(observe(published, registration)).toEqual({ sha: driverSha, status: 'ahead' });
+    expect(calls).toBe(2);
+  });
+  it.each([
+    ['unknown status', comparison('unknown')],
+    ['wrong base', { ...comparison('ahead'), base_commit: { sha: driverSha } }],
+    ['wrong merge base', comparison('ahead', driverSha)],
+    ['ancestor evidence absent', { status: 'behind', base_commit: { sha: registration } }],
+    ['identical mismatch', comparison('identical')],
+  ])('refuses %s', (_, response) => {
+    let calls = 0;
+    const observe = ghCliAncestry({
+      repository: 'fixture/repository',
+      spawn: () => ({
+        status: 0,
+        stdout: JSON.stringify(++calls === 1 ? { sha: driverSha } : response),
+      }),
+    });
+    expect(() => observe(published, registration)).toThrow('Unknown REST CLI ancestry');
+    expect(calls).toBe(2);
+  });
+  it.each(['tag', 'compare'])('refuses %s REST failure without a fallback', (phase) => {
+    let calls = 0;
+    const observe = ghCliAncestry({
+      repository: 'fixture/repository',
+      spawn: () => {
+        calls += 1;
+        return phase === 'tag' || calls === 2
+          ? { status: 1, stdout: '' }
+          : { status: 0, stdout: JSON.stringify({ sha: driverSha }) };
+      },
+    });
+    expect(() => observe(published, registration)).toThrow('REST read failed');
+    expect(calls).toBe(phase === 'tag' ? 1 : 2);
+  });
+  it.each(['main', [driverSha], null])(
+    'refuses invalid tag commit %j and never asks compare',
+    (sha) => {
+      let calls = 0;
+      const observe = ghCliAncestry({
+        repository: 'fixture/repository',
+        spawn: () => {
+          calls += 1;
+          return { status: 0, stdout: JSON.stringify({ sha }) };
+        },
+      });
+      expect(() => observe(published, registration)).toThrow('no resolved commit');
+      expect(calls).toBe(1);
+    }
+  );
+  it('refuses draft/unknown publication and malformed registration before REST', () => {
+    const observe = ghCliAncestry({
+      repository: 'fixture/repository',
+      spawn: () => {
+        throw new Error('must not call REST');
+      },
+    });
+    expect(() => observe({ ...published, draft: true }, registration)).toThrow('published release');
+    expect(() =>
+      observe({ ...published, draft: undefined } as unknown as DraftRelease, registration)
+    ).toThrow('published release');
+    expect(() => observe(published, 'main')).toThrow('registration SHA');
+  });
+  it('retains a subprocess error as unknown ancestry rather than using target_commitish', () => {
+    const observe = ghCliAncestry({
+      repository: 'fixture/repository',
+      spawn: () => ({ error: new Error('request unavailable'), status: null, stdout: '' }),
+    });
+    expect(() => observe(published, registration)).toThrow('request unavailable');
   });
 });

@@ -9,6 +9,7 @@ import { parseComponentMap } from '../../scripts/ci-scope.mjs';
 import {
   captureVersionState,
   injectVersion,
+  verifyDistArtifact,
   verifyDistVersions,
   verifyVersionState,
   type InjectionMetadata,
@@ -21,7 +22,7 @@ afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 
-function fixture(product = 'cli') {
+function fixture(product = 'cli', releaseHerdr = false) {
   const root = mkdtempSync(join(tmpdir(), 'tmt-injection-test-'));
   roots.push(root);
   const files: Record<string, string> = {
@@ -32,9 +33,9 @@ function fixture(product = 'cli') {
     // #1278's private independent boundary; activation belongs to owner-authorized #1418.
     'rust/crates/tmt-driver-herdr/Cargo.toml':
       '[package]\nname = "tmt-driver-herdr"\nversion = "0.1.0-dev"\n',
-    'extensions/squad/Cargo.toml': '[package]\nname = "tmt-squad"\nversion = "0.1.0-dev"\n',
+    'extensions/ops/Cargo.toml': '[package]\nname = "tmt-ops"\nversion = "0.1.0-dev"\n',
     'rust/Cargo.lock':
-      'version = 4\n\n[[package]]\nname = "tmt-cli"\nversion = "5.0.0-dev"\ndependencies = ["tmt-core 5.0.0-dev", "tmt-driver-herdr"]\n\n[[package]]\nname = "tmt-core"\nversion = "5.0.0-dev"\n\n[[package]]\nname = "tmt-driver-herdr"\nversion = "0.1.0-dev"\n\n[[package]]\nname = "tmt-squad"\nversion = "0.1.0-dev"\n\n[[package]]\nname = "external"\nversion = "1.0.0"\nsource = "registry+https://example.test"\nchecksum = "safe"\n',
+      'version = 4\n\n[[package]]\nname = "tmt-cli"\nversion = "5.0.0-dev"\ndependencies = ["tmt-core 5.0.0-dev", "tmt-driver-herdr"]\n\n[[package]]\nname = "tmt-core"\nversion = "5.0.0-dev"\n\n[[package]]\nname = "tmt-driver-herdr"\nversion = "0.1.0-dev"\n\n[[package]]\nname = "tmt-ops"\nversion = "0.1.0-dev"\n\n[[package]]\nname = "external"\nversion = "1.0.0"\nsource = "registry+https://example.test"\nchecksum = "safe"\n',
     'rust/crates/tmt-cli/src/main.rs': 'fn main() {}\n',
   };
   for (const extension of ['remote', 'colab']) {
@@ -46,14 +47,7 @@ function fixture(product = 'cli') {
     mkdirSync(dirname(join(root, file)), { recursive: true });
     writeFileSync(join(root, file), value);
   }
-  const crates = [
-    'tmt-cli',
-    'tmt-core',
-    'tmt-driver-herdr',
-    'tmt-squad',
-    'tmt-remote',
-    'tmt-colab',
-  ];
+  const crates = ['tmt-cli', 'tmt-core', 'tmt-driver-herdr', 'tmt-ops', 'tmt-remote', 'tmt-colab'];
   const metadata: InjectionMetadata = {
     workspace_members: crates,
     packages: crates.map((name) => ({
@@ -62,8 +56,8 @@ function fixture(product = 'cli') {
       version: name === 'tmt-cli' || name === 'tmt-core' ? '5.0.0-dev' : '0.1.0-dev',
       manifest_path: join(
         root,
-        name === 'tmt-squad'
-          ? 'extensions/squad/Cargo.toml'
+        name === 'tmt-ops'
+          ? 'extensions/ops/Cargo.toml'
           : ['tmt-remote', 'tmt-colab'].includes(name)
             ? `extensions/${name}/rust/${name}/Cargo.toml`
             : `rust/crates/${name}/Cargo.toml`
@@ -74,13 +68,13 @@ function fixture(product = 'cli') {
     JSON.stringify({
       components: {
         cli: { package: 'tmt-cli', owns: ['.'] },
-        squad: { package: 'tmt-squad', owns: ['extensions/squad'] },
+        ops: { package: 'tmt-ops', owns: ['extensions/ops'] },
         'tmt-remote': { package: 'tmt-remote', owns: ['extensions/tmt-remote'] },
         'tmt-colab': { package: 'tmt-colab', owns: ['extensions/tmt-colab'] },
         'driver-herdr': {
           package: 'tmt-driver-herdr',
           owns: ['rust/crates/tmt-driver-herdr'],
-          release: false,
+          release: releaseHerdr,
           bootstrapSha: 'a'.repeat(40),
         },
       },
@@ -221,7 +215,7 @@ describe('mechanical version injection', () => {
       expect(readFileSync(join(f.root, f.snapshot.manifest), 'utf8')).toBe(f.snapshot.source);
     }
   );
-  it.each(['cli', 'squad', 'remote', 'colab'])(
+  it.each(['cli', 'ops', 'remote', 'colab'])(
     'injects a synthetic alpha for tagless %s preparation through the unchanged source gate',
     (product) => {
       const f = fixture(product);
@@ -284,7 +278,7 @@ describe('mechanical version injection', () => {
       'Source differs'
     );
   });
-  it.each(['cli', 'squad', 'remote', 'colab'])(
+  it.each(['cli', 'ops', 'remote', 'colab'])(
     'injects %s while preserving private independently versioned Herdr',
     (product) => {
       const f = fixture(product);
@@ -396,7 +390,7 @@ describe('mechanical version injection', () => {
 });
 
 describe('dist and binary version agreement', () => {
-  it.each(['cli', 'squad', 'remote', 'colab'])(
+  it.each(['cli', 'ops', 'remote', 'colab'])(
     'accepts only %s tag/plan/build/binary agreement',
     (product) => {
       const { snapshot } = fixture(product);
@@ -419,4 +413,100 @@ describe('dist and binary version agreement', () => {
       );
     }
   );
+});
+
+describe('Herdr archive version protocol', () => {
+  function artifact(product = 'driver-herdr') {
+    const { root, snapshot } = fixture(product, true);
+    const manifest = {
+      announcement_tag: snapshot.tag,
+      releases: [{ app_name: `tmt-${product}`, app_version: snapshot.version }],
+    };
+    const declaration = { name: 'herdr', kind: 'host', version: snapshot.version, protocols: [1] };
+    return { root, snapshot, manifest, declaration };
+  }
+
+  it('requires the exact compiled capability version and retains tag/plan/build equality', () => {
+    const { snapshot, manifest, declaration } = artifact();
+    const raw = JSON.stringify({ ok: declaration });
+    expect(() => verifyDistVersions(snapshot, manifest, manifest, raw)).not.toThrow();
+    for (const mutation of [
+      { name: 'other' },
+      { kind: 'provider' },
+      { version: '0.1.0-dev' },
+      { protocols: [2] },
+    ]) {
+      expect(() =>
+        verifyDistVersions(
+          snapshot,
+          manifest,
+          manifest,
+          JSON.stringify({ ok: { ...declaration, ...mutation } })
+        )
+      ).toThrow('Herdr driver');
+    }
+    for (const rejected of ['not JSON', '{}', JSON.stringify({ error: { code: 'invalid' } })]) {
+      expect(() => verifyDistVersions(snapshot, manifest, manifest, rejected)).toThrow();
+    }
+    for (const wrong of [
+      { ...manifest, announcement_tag: 'tmt-driver-herdr-v9.0.0' },
+      { ...manifest, releases: [{ app_name: 'tmt-cli', app_version: snapshot.version }] },
+      { ...manifest, releases: [{ app_name: 'tmt-driver-herdr', app_version: '0.1.0-dev' }] },
+      { ...manifest, releases: [...manifest.releases, ...manifest.releases] },
+    ]) {
+      expect(() => verifyDistVersions(snapshot, wrong, manifest, raw)).toThrow();
+      expect(() => verifyDistVersions(snapshot, manifest, wrong, raw)).toThrow();
+    }
+  });
+
+  it.each(['driver-herdr', 'cli', 'ops', 'remote', 'colab'])(
+    'uses the existing %s query ABI with unchanged command bounds',
+    (product) => {
+      const { root, snapshot, manifest, declaration } = artifact(product);
+      const stdout =
+        product === 'driver-herdr'
+          ? JSON.stringify({ ok: declaration })
+          : product === 'cli'
+            ? snapshot.version
+            : `${product} ${snapshot.version}`;
+      const spawn = vi.spyOn(childProcess, 'spawnSync').mockReturnValueOnce({
+        pid: 0,
+        output: [],
+        stdout: `${stdout}\n`,
+        stderr: '',
+        status: 0,
+        signal: null,
+      });
+      syncBuiltinESMExports();
+      verifyDistArtifact(root, snapshot, manifest, manifest, '/archive/binary');
+      expect(spawn).toHaveBeenCalledExactlyOnceWith(
+        '/archive/binary',
+        product === 'driver-herdr' ? ['__tmt-driver', '1', 'capabilities'] : ['--version'],
+        {
+          cwd: root,
+          env: process.env,
+          encoding: 'utf8',
+          timeout: 60_000,
+          maxBuffer: 64 * 1024 * 1024,
+        }
+      );
+    }
+  );
+
+  it.each(['timeout', 'exit', 'signal'])('refuses an unsuccessful Herdr query: %s', (failure) => {
+    const { root, snapshot, manifest, declaration } = artifact();
+    vi.spyOn(childProcess, 'spawnSync').mockReturnValueOnce({
+      pid: 0,
+      output: [],
+      stdout: JSON.stringify({ ok: declaration }),
+      stderr: '',
+      status: failure === 'exit' ? 2 : null,
+      signal: failure === 'signal' ? 'SIGTERM' : null,
+      ...(failure === 'timeout' ? { error: new Error('ETIMEDOUT') } : {}),
+    });
+    syncBuiltinESMExports();
+    expect(() =>
+      verifyDistArtifact(root, snapshot, manifest, manifest, '/archive/binary')
+    ).toThrow();
+  });
 });

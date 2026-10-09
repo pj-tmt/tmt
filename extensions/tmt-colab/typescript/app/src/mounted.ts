@@ -127,6 +127,7 @@ export async function mountedTransport(signal?: AbortSignal): Promise<{
     recover: () =>
       owned(() =>
         recoverSession({
+          explicit: true,
           mount,
           storage: sessionStorage,
           reopen: () => pairedSdk.reopenSession(),

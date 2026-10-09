@@ -1,6 +1,30 @@
 use super::*;
 use std::cell::Cell;
 
+#[test]
+fn bulk_protocol_retains_one_notice_on_success_and_partial_failure() {
+    let success = upgraded(
+        Product::Remote,
+        json!({"changed":true,"version":"0.1.0-alpha.2","restartHint":"one restart notice"}),
+    );
+    let failed = failed(
+        Product::Remote,
+        Failure::new("EXTENSION_SKILLS_FAILED", "release active", 1)
+            .suggestion("one restart notice".into()),
+    );
+    for row in [success, failed] {
+        let bytes = serde_json::to_vec(&json!({"products":[row]})).unwrap();
+        assert_eq!(
+            String::from_utf8(bytes.clone())
+                .unwrap()
+                .matches("one restart notice")
+                .count(),
+            1
+        );
+        assert_eq!(parse_results(&bytes).unwrap(), vec![row]);
+    }
+}
+
 fn pending(product: Product) -> (Product, String, String) {
     (product, "1.0.0".into(), "1.1.0".into())
 }
@@ -13,14 +37,14 @@ fn one_consent_lists_all_versions_and_failure_does_not_stop_other_products() {
         vec![],
         vec![
             pending(Product::Office),
-            pending(Product::Squad),
+            pending(Product::Ops),
             pending(Product::Remote),
             pending(Product::Colab),
         ],
         |question| {
             asked.set(asked.get() + 1);
             assert!(question.contains("office 1.0.0 -> 1.1.0"));
-            assert!(question.contains("squad 1.0.0 -> 1.1.0"));
+            assert!(question.contains("ops 1.0.0 -> 1.1.0"));
             assert!(question.contains("remote 1.0.0 -> 1.1.0"));
             assert!(question.contains("colab 1.0.0 -> 1.1.0"));
             Ok(true)
@@ -42,7 +66,7 @@ fn one_consent_lists_all_versions_and_failure_does_not_stop_other_products() {
         applied,
         vec![
             Product::Office,
-            Product::Squad,
+            Product::Ops,
             Product::Remote,
             Product::Colab
         ]
@@ -58,7 +82,7 @@ fn one_consent_lists_all_versions_and_failure_does_not_stop_other_products() {
 fn missing_consent_changes_no_extension_and_returns_exact_rerun_hint() {
     let rows = settle(
         vec![],
-        vec![pending(Product::Squad)],
+        vec![pending(Product::Ops)],
         |_| Ok(false),
         |_, _| panic!("must not mutate"),
     );
@@ -82,7 +106,7 @@ fn child_protocol_rejects_duplicate_products_unknown_fields_and_unbounded_report
     let valid = Plan {
         products: Vec::new(),
         pending: vec![
-            pending(Product::Squad),
+            pending(Product::Ops),
             pending(Product::Remote),
             pending(Product::Colab),
         ],
@@ -102,9 +126,30 @@ fn child_protocol_rejects_duplicate_products_unknown_fields_and_unbounded_report
     wrong_product["pending"][0]["product"] = "cli".into();
     assert!(Plan::parse(&serde_json::to_vec(&wrong_product).unwrap()).is_none());
     assert!(Plan::parse(&vec![b' '; LIMIT + 1]).is_none());
-    assert!(Plan::parse(br#"{"products":[{"product":"squad","status":"changed","version":"1.1.0"}],"pending":[]}"#).is_none());
+    assert!(Plan::parse(br#"{"products":[{"product":"ops","status":"changed","version":"1.1.0"}],"pending":[]}"#).is_none());
     assert!(
-        parse_results(br#"{"products":[{"product":"squad","status":"failed","error":{}}]}"#)
+        parse_results(br#"{"products":[{"product":"ops","status":"failed","error":{}}]}"#)
+            .is_none()
+    );
+}
+
+#[test]
+fn root_upgrade_keeps_ops_switch_summary_and_deferred_recovery_command() {
+    let complete = upgraded(
+        Product::Ops,
+        json!({"changed":true,"version":"1.1.0","boardSwitch":{"complete":true,"switched":3}}),
+    );
+    assert_eq!(complete["message"], "switched 3 boards to Ops");
+    assert!(parse_results(&serde_json::to_vec(&json!({"products":[complete]})).unwrap()).is_some());
+    let deferred = upgraded(
+        Product::Ops,
+        json!({"changed":true,"version":"1.1.0","boardSwitch":{"complete":false,"switched":0,"command":"tmt ops migration switch --yes"}}),
+    );
+    assert_eq!(deferred["hint"], "tmt ops migration switch --yes");
+    assert!(deferred.get("message").is_none());
+    assert!(
+        upgraded(Product::Remote, json!({"changed":true,"version":"1.1.0"}))
+            .get("message")
             .is_none()
     );
 }

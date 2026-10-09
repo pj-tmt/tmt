@@ -2,6 +2,34 @@ use super::*;
 use std::cell::Cell;
 use tmt_adapters::process::{CommandError, CommandOutput};
 
+#[test]
+fn root_human_output_keeps_one_restart_notice_for_success_and_partial_failure() {
+    let rows = [
+        json!({"product":"remote","status":"changed","version":"0.1.0-alpha.2","details":{"restartHint":"one restart notice"}}),
+        json!({"product":"remote","status":"failed","error":{"code":"EXTENSION_SKILLS_FAILED","message":"release active","suggestion":"one restart notice"}}),
+    ];
+    for row in rows {
+        let mut bytes = Vec::new();
+        write_extension_product(&mut bytes, tmt_cli_style::Terminal::PLAIN, &row).unwrap();
+        let text = String::from_utf8(bytes).unwrap();
+        assert_eq!(text.matches("one restart notice").count(), 1);
+        if row["status"] == "failed" {
+            assert!(text.contains("EXTENSION_SKILLS_FAILED: release active"));
+        }
+    }
+    let mut bytes = Vec::new();
+    write_extension_product(
+        &mut bytes,
+        tmt_cli_style::Terminal::PLAIN,
+        &json!({"product":"remote","status":"unchanged","version":"0.1.0-alpha.2"}),
+    )
+    .unwrap();
+    assert_eq!(
+        String::from_utf8(bytes).unwrap(),
+        "remote: unchanged (0.1.0-alpha.2)\n"
+    );
+}
+
 struct Runner {
     calls: Cell<usize>,
     bytes: &'static [u8],

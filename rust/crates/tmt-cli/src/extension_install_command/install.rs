@@ -1,6 +1,8 @@
 //! Verified extension installation through the existing native installer.
 
-use super::{Human, InstalledExtension, failure, installed, interruptible};
+use super::{
+    Human, InstalledExtension, failure, installed, interruptible, post_upgrade::PostUpgradeNotice,
+};
 use crate::output::Failure;
 use serde_json::json;
 use std::{env, io, path::Path};
@@ -24,7 +26,6 @@ pub(super) fn install(
                 1,
             )
         })?;
-    let executable = prefix.join("bin").join(product.executable());
     let current = if installed(product, prefix)? {
         Some(
             native_install::inspect_product_prefix(product, prefix)
@@ -33,6 +34,10 @@ pub(super) fn install(
     } else {
         None
     };
+    let executable = current.as_ref().map_or_else(
+        || prefix.join("bin").join(product.executable()),
+        |current| current.active_executable.clone(),
+    );
     // The skills the replaced release carried: only those may be pruned.
     let previous = match &current {
         Some(_) => native_install::release_skill_names(product, &executable)
@@ -86,7 +91,14 @@ pub(super) fn install(
             ));
         }
     };
-    let report = result.map_err(installation_failure)?;
+    let previous_version = current
+        .as_ref()
+        .map(|current| current.state.version.to_string());
+    let report = result.map_err(|error| {
+        let notice = PostUpgradeNotice::after_failure(product, &error, previous_version.as_deref());
+        notice.retain(installation_failure(error))
+    })?;
+    let notice = PostUpgradeNotice::observe(product, &report, previous_version.as_deref());
     let human = if report.changed {
         Human::done(format!(
             "Installed {name} {} at {}.",
@@ -103,6 +115,7 @@ pub(super) fn install(
         executable: report.executable,
         previous,
         changed: report.changed,
+        notice,
     })
 }
 

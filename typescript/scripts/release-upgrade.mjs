@@ -10,7 +10,7 @@
 //   prove  (read-only, the release's commit) re-checks those digests and runs the verifier of
 //          the product over one target's staged files; it never reaches GitHub
 //   node release-upgrade.mjs resolve --tag TAG      the commit of the release
-//   node release-upgrade.mjs fetch --product cli|office|squad --tag TAG --directory DIR
+//   node release-upgrade.mjs fetch --product cli|office|ops --tag TAG --directory DIR
 //        [--candidate-directory BUNDLE]   stage a rehearsal's verified bundle as the candidate
 //   node release-upgrade.mjs assess --directory DIR --sha SHA   proved, nothing or predates
 //   node release-upgrade.mjs prove --product P --tag TAG --target T --directory DIR [--skill S]
@@ -34,7 +34,14 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { runPackedCommand } from './packed-command.mjs';
-import { archivePrefix, upgradeSupportFloor } from './native-release-policy.mjs';
+import {
+  archivePrefix,
+  componentOfProduct,
+  predecessorOfProduct,
+  productOfTag,
+  upgradeSupportFloor,
+} from './native-release-policy.mjs';
+import { componentMap } from './ci-scope.mjs';
 import { ghApi } from './release-draft-assets.mjs';
 import { compareVersions, publishedReleases, versionOfTag } from './release-versions.mjs';
 
@@ -51,14 +58,69 @@ const MANIFEST = 'dist-manifest.json';
 const PLAN = 'plan.json';
 const ASSET_LIMIT = 80 * 1024 * 1024;
 
+/** Published tag ancestry relative to the successor's CLI registration, not release dates. */
+function cliAncestry(release, registration, observeCli) {
+  if (!observeCli) throw new Error('Cross-product proof needs published CLI tag ancestry.');
+  const observation = observeCli(release, registration);
+  if (
+    typeof observation?.sha !== 'string' ||
+    !COMMIT.test(observation.sha) ||
+    !['ahead', 'behind', 'identical', 'diverged'].includes(observation?.status) ||
+    (observation.status === 'identical') !== (observation.sha === registration)
+  )
+    throw new Error(`Unknown CLI ancestry for ${release.tag_name}.`);
+  return observation;
+}
+
+/** The newest CLI drives the candidate; a rename also needs the newest strict older ancestor. */
+function upgradeDrivers({ releases, product, previousProduct, map, observeCli }) {
+  const published = publishedReleases(releases, 'cli');
+  const [driver] = published;
+  if (!driver)
+    throw new Error('An extension or driver upgrade proof needs a published CLI release.');
+  if (previousProduct === product) return { driver, previousDriver: null, provenance: {} };
+  if (predecessorOfProduct(map, product) !== previousProduct)
+    throw new Error('Cross-product proof requires the declared immediate predecessor.');
+  const requiresCliSha = componentOfProduct(map, product).requiresCliSha;
+  if (!COMMIT.test(requiresCliSha ?? ''))
+    throw new Error('Cross-product proof needs the exact requiresCliSha registration.');
+  const current = cliAncestry(driver, requiresCliSha, observeCli);
+  if (!['ahead', 'identical'].includes(current.status))
+    throw new Error(`Newest published CLI ${driver.tag_name} does not contain registration.`);
+  for (const release of published.slice(1)) {
+    const observation = cliAncestry(release, requiresCliSha, observeCli);
+    if (observation.status !== 'behind') continue;
+    return {
+      driver,
+      previousDriver: release,
+      provenance: {
+        previousDriver: release.tag_name,
+        previousDriverSha: observation.sha,
+        driverSha: current.sha,
+        requiresCliSha,
+      },
+    };
+  }
+  throw new Error('No published CLI is a strict pre-registration ancestor.');
+}
+
 /** The newest published release of a product below the candidate's version, or null. */
-export function selectPrevious({ releases, product, candidateTag }) {
+export function selectPrevious({ releases, product, candidateTag, map = componentMap() }) {
   const candidate = versionOfTag(candidateTag, product);
-  return (
-    publishedReleases(releases, product).find(
-      (release) => compareVersions(versionOfTag(release.tag_name, product), candidate) < 0
-    ) ?? null
+  const own = publishedReleases(releases, product).find(
+    (release) => compareVersions(versionOfTag(release.tag_name, product), candidate) < 0
   );
+  if (own) return own;
+  let predecessor = predecessorOfProduct(map, product);
+  while (predecessor) {
+    const previous = publishedReleases(releases, predecessor).find(
+      (release) => compareVersions(versionOfTag(release.tag_name, predecessor), candidate) < 0
+    );
+    if (previous) return previous;
+    if (publishedReleases(releases, predecessor).length) return null;
+    predecessor = predecessorOfProduct(map, predecessor);
+  }
+  return null;
 }
 
 /** Historical candidates at/below the floor retain their original single-source proof. */
@@ -167,7 +229,16 @@ export function localCandidate({ directory, product, tag }) {
  * `plan.json` with the tags and the digests. A product with no earlier published release stages
  * nothing: there is nothing to upgrade from.
  */
-export function fetchUpgrade({ releases, download, product, tag, directory, local }) {
+export function fetchUpgrade({
+  releases,
+  download,
+  product,
+  tag,
+  directory,
+  local,
+  map = componentMap(),
+  observeCli,
+}) {
   const candidate = local ? local.release : releases.find((release) => release.tag_name === tag);
   if (!candidate) throw new Error(`There is no release ${tag}.`);
   if (local) {
@@ -181,7 +252,7 @@ export function fetchUpgrade({ releases, download, product, tag, directory, loca
         `The synthetic candidate ${tag} is not newer than the published ${newest.tag_name}.`
       );
   }
-  const previous = selectPrevious({ releases, product, candidateTag: tag });
+  const previous = selectPrevious({ releases, product, candidateTag: tag, map });
   const floor = selectSupportFloor({ releases, product, candidateTag: tag });
   const plan = {
     product,
@@ -196,11 +267,19 @@ export function fetchUpgrade({ releases, download, product, tag, directory, loca
     const targets = archiveTargets({ release: candidate, product });
     if (targets.length === 0) throw new Error(`Release ${tag} has no archive to upgrade to.`);
     let driverRelease = null;
+    let previousDriverRelease = null;
     if (product !== 'cli') {
-      [driverRelease] = publishedReleases(releases, 'cli');
-      if (!driverRelease)
-        throw new Error('An extension or driver upgrade proof needs a published CLI release.');
+      const drivers = upgradeDrivers({
+        releases,
+        product,
+        previousProduct: productOfTag(previous.tag_name),
+        map,
+        observeCli,
+      });
+      driverRelease = drivers.driver;
+      previousDriverRelease = drivers.previousDriver;
       plan.driver = driverRelease.tag_name;
+      Object.assign(plan, drivers.provenance);
     }
     for (const target of targets) {
       const stage = (release, kind, releaseProduct, source = download) => {
@@ -216,7 +295,7 @@ export function fetchUpgrade({ releases, download, product, tag, directory, loca
         }
       };
       stage(candidate, 'candidate', product, local?.download);
-      stage(previous, 'previous', product);
+      stage(previous, 'previous', productOfTag(previous.tag_name));
       if (floor && floor.tag_name !== previous.tag_name) stage(floor, 'floor', product);
       if (floor) {
         const bootstraps = candidate.assets.filter(({ name }) => name === 'install.sh');
@@ -231,6 +310,7 @@ export function fetchUpgrade({ releases, download, product, tag, directory, loca
         plan.files[name] = asset.digest;
       }
       if (driverRelease) stage(driverRelease, 'driver', 'cli');
+      if (previousDriverRelease) stage(previousDriverRelease, 'previous-driver', 'cli');
     }
   }
   writeFileSync(path.join(directory, PLAN), `${JSON.stringify(plan, null, 2)}\n`);
@@ -238,7 +318,7 @@ export function fetchUpgrade({ releases, download, product, tag, directory, loca
 }
 
 /** Both proofs recheck fetch's staged digests before consuming matching-host archives. */
-function stagedUpgrade({ directory, product, tag, target }) {
+function stagedUpgrade({ directory, product, tag, target, map = componentMap() }) {
   const plan = JSON.parse(readFileSync(path.join(directory, PLAN), 'utf8'));
   if (plan.product !== product || plan.tag !== tag) {
     throw new Error(`The staged assets are for ${plan.tag}, not for ${tag}.`);
@@ -252,6 +332,31 @@ function stagedUpgrade({ directory, product, tag, target }) {
       throw new Error('Staged plan is missing the declared support floor.');
   }
   if (!plan.previous) return { previous: null };
+  const previousProduct = productOfTag(plan.previous);
+  const crossProduct = previousProduct !== product;
+  const provenanceFields = ['previousDriver', 'previousDriverSha', 'driverSha', 'requiresCliSha'];
+  if (crossProduct) {
+    if (
+      product === 'cli' ||
+      predecessorOfProduct(map, product) !== previousProduct ||
+      typeof plan.previousDriverSha !== 'string' ||
+      !COMMIT.test(plan.previousDriverSha) ||
+      typeof plan.driverSha !== 'string' ||
+      !COMMIT.test(plan.driverSha) ||
+      typeof plan.requiresCliSha !== 'string' ||
+      !COMMIT.test(plan.requiresCliSha) ||
+      componentOfProduct(map, product).requiresCliSha !== plan.requiresCliSha ||
+      plan.previousDriverSha === plan.driverSha ||
+      plan.previousDriverSha === plan.requiresCliSha ||
+      typeof plan.previousDriver !== 'string' ||
+      typeof plan.driver !== 'string' ||
+      compareVersions(versionOfTag(plan.previousDriver, 'cli'), versionOfTag(plan.driver, 'cli')) >=
+        0
+    )
+      throw new Error('Staged cross-product plan has invalid CLI registration provenance.');
+  } else if (provenanceFields.some((field) => Object.hasOwn(plan, field))) {
+    throw new Error('Same-product plan must not carry cross-product driver provenance.');
+  }
   const prefix = `${target}/`;
   const files = Object.entries(plan.files).filter(([name]) => name.startsWith(prefix));
   if (files.length === 0) throw new Error(`The staged assets have no files for ${target}.`);
@@ -273,7 +378,7 @@ function stagedUpgrade({ directory, product, tag, target }) {
     };
   };
   const now = staged('candidate', product);
-  const before = staged('previous', product);
+  const before = staged('previous', productOfTag(plan.previous));
   if (plan.floor && !Object.hasOwn(plan.files, path.posix.join(target, 'candidate', 'install.sh')))
     throw new Error('Staged candidate install.sh has no recorded digest.');
   return {
@@ -281,19 +386,23 @@ function stagedUpgrade({ directory, product, tag, target }) {
     now,
     before,
     driver: product === 'cli' ? null : staged('driver', 'cli'),
+    previousProduct,
+    previousDriver: crossProduct ? staged('previous-driver', 'cli') : null,
     floor: plan.floor && plan.floor !== plan.previous ? staged('floor', product) : null,
     bootstrap: plan.floor ? path.join(directory, target, 'candidate', 'install.sh') : null,
   };
 }
 
 /** Run the existing installer/migration verifier; return null for the first product release. */
-export function proveStaged({ directory, product, tag, target, run, skill, sourceRoot }) {
-  const { previous, now, before, driver, floor, bootstrap } = stagedUpgrade({
-    directory,
-    product,
-    tag,
-    target,
-  });
+export function proveStaged({ directory, product, tag, target, run, skill, sourceRoot, map }) {
+  const { previous, now, before, driver, previousProduct, previousDriver, floor, bootstrap } =
+    stagedUpgrade({
+      directory,
+      product,
+      tag,
+      target,
+      map,
+    });
   if (!previous) return { previous: null };
   const common = [
     '--archive',
@@ -348,6 +457,16 @@ export function proveStaged({ directory, product, tag, target, run, skill, sourc
         driver.archive,
         '--driver-manifest',
         driver.manifest,
+        ...(previousDriver
+          ? [
+              '--previous-product',
+              previousProduct,
+              '--previous-driver-archive',
+              previousDriver.archive,
+              '--previous-driver-manifest',
+              previousDriver.manifest,
+            ]
+          : []),
       ]
     );
   }
@@ -381,6 +500,7 @@ export function proveArchiveAcceptance({
   execute = runPackedCommand,
   environment = process.env,
   report = () => {},
+  clock = () => performance.now(),
 }) {
   if (product !== 'cli') throw new Error('The adapter archive acceptance proof is CLI-only.');
   const { previous, now, before, floor } = stagedUpgrade({ directory, product, tag, target });
@@ -406,8 +526,32 @@ export function proveArchiveAcceptance({
     TMT_UPGRADE_NEW_MANIFEST: now.manifest,
     TMT_UPGRADE_TARGET: target,
   };
+  const executePhase = (phase, executable, args, options) => {
+    const started = clock();
+    const log = (status) => {
+      try {
+        const elapsed =
+          status === 'started' ? '' : ` seconds=${((clock() - started) / 1000).toFixed(3)}`;
+        process.stderr.write(
+          `Adapter phase timing: target=${target} phase=${phase} status=${status}${elapsed}\n`
+        );
+      } catch {
+        // Passive diagnostics cannot replace a proof result or its original error.
+      }
+    };
+    log('started');
+    try {
+      const output = execute(executable, args, options);
+      log('returned');
+      return output;
+    } catch (error) {
+      log('failed');
+      throw error;
+    }
+  };
   const started = performance.now();
-  const compiled = execute(
+  const compiled = executePhase(
+    'compile',
     'cargo',
     [
       'test',
@@ -442,21 +586,31 @@ export function proveArchiveAcceptance({
   if (binaries.length !== 1)
     throw new Error('Expected exactly one tmt-adapters lib-test executable.');
   const options = { cwd: rustRoot, env, timeoutMs: 120_000 };
-  const listed = execute(binaries[0], [ACCEPTANCE_TEST, '--exact', '--ignored', '--list'], options);
+  const listed = executePhase(
+    'discovery',
+    binaries[0],
+    [ACCEPTANCE_TEST, '--exact', '--ignored', '--list'],
+    options
+  );
   const tests = listed.split('\n').filter((line) => line.endsWith(': test'));
   if (tests.length !== 1 || tests[0] !== `${ACCEPTANCE_TEST}: test`) {
     throw new Error('Expected exactly one discovered real-archive upgrade acceptance test.');
   }
   for (const source of [before, ...(floor ? [floor] : [])]) {
     const started = performance.now();
-    const output = execute(binaries[0], [ACCEPTANCE_TEST, '--exact', '--ignored', '--nocapture'], {
-      ...options,
-      env: {
-        ...env,
-        TMT_UPGRADE_OLD_ARCHIVE: source.archive,
-        TMT_UPGRADE_OLD_MANIFEST: source.manifest,
-      },
-    });
+    const output = executePhase(
+      source === before ? 'run-previous' : 'run-floor',
+      binaries[0],
+      [ACCEPTANCE_TEST, '--exact', '--ignored', '--nocapture'],
+      {
+        ...options,
+        env: {
+          ...env,
+          TMT_UPGRADE_OLD_ARCHIVE: source.archive,
+          TMT_UPGRADE_OLD_MANIFEST: source.manifest,
+        },
+      }
+    );
     report(output.trim());
     if (
       !/^test result: ok\. 1 passed; 0 failed; 0 ignored; 0 measured; \d+ filtered out;/m.test(
@@ -547,28 +701,86 @@ export function releaseCommit({ release, commitOfTag }) {
   return commit;
 }
 
-/** Downloads one release asset by id, which also works for the assets of a draft. */
-export function ghAssetDownloader({ repository, env = process.env, spawn = spawnSync }) {
+/** Downloads one immutable release asset by id; only acquisition failures get bounded retries. */
+export function ghAssetDownloader({
+  repository,
+  env = process.env,
+  spawn = spawnSync,
+  sleep = (milliseconds) =>
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, milliseconds),
+}) {
   return (asset, file) => {
-    const result = spawn(
-      'gh',
-      [
-        'api',
-        '-H',
-        'Accept: application/octet-stream',
-        `repos/${repository}/releases/assets/${asset.id}`,
-      ],
-      { env, encoding: 'buffer', timeout: 300_000, maxBuffer: ASSET_LIMIT }
-    );
-    if (result.error) throw result.error;
-    if (result.status !== 0) {
-      throw new Error(`gh could not download ${asset.name} (${result.status}): ${result.stderr}`);
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      const result = spawn(
+        'gh',
+        [
+          'api',
+          '-H',
+          'Accept: application/octet-stream',
+          `repos/${repository}/releases/assets/${asset.id}`,
+        ],
+        { env, encoding: 'buffer', timeout: 300_000, maxBuffer: ASSET_LIMIT }
+      );
+      const failure =
+        result.error ??
+        (result.status !== 0
+          ? new Error(`gh could not download ${asset.name} (${result.status}): ${result.stderr}`)
+          : null);
+      if (failure) {
+        if (attempt === 3) throw failure;
+        const delay = 1000 * 2 ** (attempt - 1);
+        process.stderr.write(
+          `Asset download attempt ${attempt}/3 failed: ${failure.message}\nRetrying in ${delay} ms.\n`
+        );
+        sleep(delay);
+        continue;
+      }
+      // File writes and the caller's byte verification are never retried.
+      writeFileSync(file, result.stdout);
+      return;
     }
-    writeFileSync(file, result.stdout);
   };
 }
 
 const here = path.dirname(fileURLToPath(import.meta.url));
+
+/** REST-only tag/ancestry evidence: fetching draft-visible assets never executes release code. */
+export function ghCliAncestry({ repository, env = process.env, spawn = spawnSync }) {
+  const read = (endpoint, filter) => {
+    const result = spawn('gh', ['api', `repos/${repository}/${endpoint}`, '--jq', filter], {
+      env,
+      encoding: 'utf8',
+      timeout: 60_000,
+      maxBuffer: 4 * 1024 * 1024,
+    });
+    if (result.error) throw result.error;
+    if (result.status !== 0)
+      throw new Error(`CLI ancestry REST read failed for ${endpoint} (${result.status}).`);
+    return JSON.parse(result.stdout);
+  };
+  return (release, registration) => {
+    if (release.draft !== false || !COMMIT.test(registration))
+      throw new Error('CLI ancestry requires a published release and registration SHA.');
+    // target_commitish may describe the historical release branch, not its actual tag.
+    const sha = read(`commits/${encodeURIComponent(release.tag_name)}`, '{sha: .sha}')?.sha;
+    if (typeof sha !== 'string' || !COMMIT.test(sha))
+      throw new Error(`Published CLI tag ${release.tag_name} has no resolved commit.`);
+    const comparison = read(
+      `compare/${registration}...${sha}`,
+      '{status: .status, base_commit: {sha: .base_commit.sha}, merge_base_commit: {sha: .merge_base_commit.sha}}'
+    );
+    if (
+      comparison?.base_commit?.sha !== registration ||
+      !['ahead', 'behind', 'identical', 'diverged'].includes(comparison.status) ||
+      (comparison.status === 'identical') !== (sha === registration) ||
+      (comparison.status === 'behind' && comparison.merge_base_commit?.sha !== sha) ||
+      (['ahead', 'identical'].includes(comparison.status) &&
+        comparison.merge_base_commit?.sha !== registration)
+    )
+      throw new Error(`Unknown REST CLI ancestry for ${release.tag_name}.`);
+    return { sha, status: comparison.status };
+  };
+}
 
 function main(argv, environment) {
   const [command, ...rest] = argv;
@@ -689,6 +901,7 @@ function main(argv, environment) {
     const plan = fetchUpgrade({
       releases,
       download: ghAssetDownloader({ repository }),
+      observeCli: ghCliAncestry({ repository }),
       product: values.product,
       tag: values.tag,
       directory: values.directory,
