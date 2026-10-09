@@ -92,7 +92,8 @@ describe('native installation process contract', () => {
         expect(moved.stderr).toBe(
           `tmt: moved Core data directory ${JSON.stringify(former)} to ${JSON.stringify(sandbox.globalDir)}\n`
         );
-        expect(parseWholeStdout(moved)).toMatchObject({
+        expect(moved.signal).toBe(null);
+        expect(JSON.parse(moved.stdout)).toMatchObject({
           paths: { global: path.join(sandbox.globalDir, 'config.json') },
         });
         expect(readFileSync(sandbox.globalConfig, 'utf8')).toBe(settings);
