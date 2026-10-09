@@ -429,12 +429,12 @@ fn deploy_firestore_command(matches: &clap::ArgMatches) -> Result<(), RemoteErro
         deploy_cli::DeployCliError::Tool(deploy_tools::ToolDiscoveryError::NodeMissing) => RemoteError::new("REMOTE_DEPLOY_NODE_MISSING", "Node.js could not be found for the installed Firebase CLI. Install Node.js, then try again."),
         deploy_cli::DeployCliError::Tool(deploy_tools::ToolDiscoveryError::Unsupported) => RemoteError::new("REMOTE_DEPLOY_TOOL_UNSUPPORTED", &deploy_firestore::DeploySetupError::UnsupportedTool.to_string()),
         deploy_cli::DeployCliError::Setup(error) => RemoteError::new("REMOTE_DEPLOY_SETUP_UNAVAILABLE", &error.to_string()),
-        deploy_cli::DeployCliError::Local(error) | deploy_cli::DeployCliError::Command(tmt_remote::deploy_command::DeployCommandError::Record(error)) => error,
+        deploy_cli::DeployCliError::Local(error) | deploy_cli::DeployCliError::Command(tmt_remote::deploy_command::DeployCommandError::Record(error), _) => error,
         deploy_cli::DeployCliError::Discovery(_) => RemoteError::new("REMOTE_DEPLOY_DECLARATION_UNAVAILABLE", "Could not read what the installed extensions need from Firestore. Nothing changed in your Firebase project."),
-        deploy_cli::DeployCliError::Provider(error) => RemoteError::new(match error { tmt_remote::deploy_run::DeployProviderError::Rejected(fault) => fault.code(), _ => "REMOTE_DEPLOY_UNAVAILABLE" }, "Firebase refused to list the project's current setup. Nothing changed in your Firebase project."),
-        deploy_cli::DeployCliError::Command(tmt_remote::deploy_command::DeployCommandError::Refused(reason)) => RemoteError::new(reason.code(), "The plan or its authorization was refused. Nothing changed in your Firebase project. Run without --authorize to read the current plan, then authorize its digest."),
-        deploy_cli::DeployCliError::Uncertain(path) => RemoteError::new("REMOTE_DEPLOY_UNAVAILABLE", &deploy_cli::uncertain_message(&path)),
-        _ => RemoteError::new("USAGE_ERROR", "Use --project, --region and --sign-in; --authorize needs the first 12 or more lowercase hex characters of the plan digest. --replace-rules also needs --authorize and the full digest of the existing Rules."),
+        deploy_cli::DeployCliError::Provider(error) => RemoteError::new(match error { tmt_remote::deploy_run::DeployProviderError::Rejected(fault) => fault.code(), tmt_remote::deploy_run::DeployProviderError::Unknown => "REMOTE_DEPLOY_UNAVAILABLE" }, "Firebase refused to list the project's current setup. Nothing changed in your Firebase project."),
+        deploy_cli::DeployCliError::Command(tmt_remote::deploy_command::DeployCommandError::Refused(reason), _) => RemoteError::new(reason.code(), "The plan or its authorization was refused. Nothing changed in your Firebase project. Run without --authorize to read the current plan, then authorize its digest."),
+        deploy_cli::DeployCliError::Command(tmt_remote::deploy_command::DeployCommandError::Run(_), path) => RemoteError::new("REMOTE_DEPLOY_UNAVAILABLE", &deploy_cli::uncertain_message(&path)),
+        deploy_cli::DeployCliError::Usage => RemoteError::new("USAGE_ERROR", "Use --project, --region and --sign-in; --authorize needs the first 12 or more lowercase hex characters of the plan digest. --replace-rules also needs --authorize and the full digest of the existing Rules."),
     })?;
     let mut output = tmt_cli_style::stream::stdout(args.json);
     if args.json {

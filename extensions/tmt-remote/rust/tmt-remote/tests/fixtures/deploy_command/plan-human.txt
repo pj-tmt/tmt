@@ -4,14 +4,14 @@ Project: demo-remote-1
 Deployment: 3f2b8c1e-5d4a-4e7b-9c1d-2a6f8e0b4c11
 Database: (default) (standard), asia-east1
 Sign-in: anonymous, google.com
-Rules: d84fe141967e7e8601d4990de08339d5d37c949270ad8621ba2107e8fe019014 (no existing Rules)
+Rules: d84fe141967e (no existing Rules)
 Index configs: 3
 Roles: none created
 TTL: not set up
 Plan digest: ab962f17ab18
 Extensions and resources:
-colab (declaration 514e860548d9f62187bfd240113d4915b838fd3473a9f54c7c8ba9fa724982ed)
-  Admission: colabAdmitted (artifact f055b672317c370949655803a7c3e1f9463db29f561ca11a3b2baeebc32c9edd)
+colab (declaration 514e860548d9)
+  Admission: colabAdmitted (artifact f055b672317c)
   page-blob: blob at x/colab/attachments/default/blobs; object 12 MiB, namespace 64 MiB, entries 256, TTL: none
   page-checkpoint: checkpoint at x/colab/checkpoints; object 4 MiB, namespace 32 MiB, entries 64, TTL: not set up
     Index: epoch desc
@@ -19,8 +19,8 @@ colab (declaration 514e860548d9f62187bfd240113d4915b838fd3473a9f54c7c8ba9fa72498
     Index: expiresAt asc
     Index: sequence asc
   presence: awareness at x/colab/presence; object 4 KiB, namespace 64 KiB, entries 64, TTL: none
-notes (declaration 7fd3251ea3ac4023bd35aec540e8ca20aa72ceaf2cc7492d6027d3220fb0d716)
-  Admission: notesAdmitted (artifact abbe87356770ded6e0176d1bc4fe32f855a22c61d6404505901bc1a8fbb78d5f)
+notes (declaration 7fd3251ea3ac)
+  Admission: notesAdmitted (artifact abbe87356770)
   note-log: log at x/notes/log; object 64 KiB, namespace 1 MiB, entries 512, TTL: none
 Not authorized; nothing changed in your Firebase project.
-To deploy this plan, run the same command with --authorize <12-hex>.
+To deploy this plan, run the same command with --authorize ab962f17ab18

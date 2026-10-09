@@ -104,7 +104,7 @@ pub fn execute(
         plan.view().database.edition,
         input.location,
         plan.view().sign_in.join(", "),
-        plan.view().rules.digest,
+        &plan.view().rules.digest[..12],
         if plan.view().rules.replaces == "none" {
             "no existing Rules"
         } else {
@@ -124,13 +124,15 @@ pub fn execute(
         writeln!(
             human,
             "{} (declaration {})",
-            extension.name, extension.declaration_digest
+            extension.name,
+            &extension.declaration_digest[..12]
         )
         .expect("String write");
         writeln!(
             human,
             "  Admission: {} (artifact {})",
-            extension.admission.entry_point, extension.admission.artifact_digest
+            extension.admission.entry_point,
+            &extension.admission.artifact_digest[..12]
         )
         .expect("String write");
         for resource in &extension.resources {
@@ -167,7 +169,7 @@ pub fn execute(
     if authorized {
         describe_record(&mut human, &record);
     } else {
-        human.push_str("Not authorized; nothing changed in your Firebase project.\nTo deploy this plan, run the same command with --authorize <12-hex>.\n");
+        writeln!(human, "Not authorized; nothing changed in your Firebase project.\nTo deploy this plan, run the same command with --authorize {}", &plan.digest()[..12]).expect("String write");
     }
     Ok(DeployCommandOutput { json, human })
 }

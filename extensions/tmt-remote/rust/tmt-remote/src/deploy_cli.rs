@@ -24,10 +24,9 @@ pub enum DeployCliError {
     Tool(crate::deploy_tools::ToolDiscoveryError),
     Setup(crate::deploy_firestore::DeploySetupError),
     Local(crate::error::RemoteError),
-    Uncertain(std::path::PathBuf),
     Discovery(DiscoveryRefusal),
     Provider(DeployProviderError),
-    Command(deploy_command::DeployCommandError),
+    Command(deploy_command::DeployCommandError, std::path::PathBuf),
 }
 /// Live Rules are an observation; the engine retains all mutation ownership.
 pub trait FirestoreCommandPort: DeployPort {
@@ -136,13 +135,7 @@ pub fn execute<P: FirestoreCommandPort>(
     let layout = layout_factory()?;
     let mut store = DeployRecordStore::open(&layout).map_err(DeployCliError::Local)?;
     let path = layout.directory.join("deploy.json");
-    let mut output = execute_prepared(args, &discovered, &mut provider, &mut store, now()?)
-        .map_err(|error| match error {
-            DeployCliError::Command(deploy_command::DeployCommandError::Run(_)) => {
-                DeployCliError::Uncertain(path.clone())
-            }
-            other => other,
-        })?;
+    let mut output = execute_prepared(args, &discovered, &mut provider, &mut store, now()?, &path)?;
     if output.json["record"]["run"]["state"] == "partial" {
         output.human.push_str(&uncertain_message(&path));
         output.human.push('\n');
@@ -167,6 +160,7 @@ fn execute_prepared(
     provider: &mut dyn FirestoreCommandPort,
     store: &mut DeployRecordStore<'_>,
     now_ms: u64,
+    record_path: &std::path::Path,
 ) -> Result<DeployCommandOutput, DeployCliError> {
     provider
         .check_index_budget(&args.project, &discovered.extensions)
@@ -191,5 +185,5 @@ fn execute_prepared(
         provider,
         now_ms,
     )
-    .map_err(DeployCliError::Command)
+    .map_err(|error| DeployCliError::Command(error, record_path.to_path_buf()))
 }

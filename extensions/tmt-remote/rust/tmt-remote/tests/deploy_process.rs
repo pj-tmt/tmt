@@ -209,7 +209,10 @@ fn available_binary_plan_is_read_only_and_authorization_completes_the_saved_orig
     let human = String::from_utf8(human.stdout).unwrap();
     let digest = preview["planDigest"].as_str().unwrap();
     assert!(human.contains(&format!("Plan digest: {}", &digest[..12])));
-    assert!(human.contains("To deploy this plan, run the same command with --authorize <12-hex>."));
+    assert!(human.contains(&format!(
+        "To deploy this plan, run the same command with --authorize {}",
+        &digest[..12]
+    )));
     assert!(human.contains("object 256 KiB"));
     assert!(human.contains("TTL: not set up"));
     assert_eq!(fs::read(root.remote().join("deploy.json")).unwrap(), before);
