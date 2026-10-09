@@ -230,11 +230,19 @@ same-origin `settingsUrl`; recipient allowlist refusals do not claim talk is mis
 ## Remote management
 
 `management(session)` uses the same verified serialized Session channel as `operations(session)`.
-It exposes `settings()`, `devices({cursor,limit})`, `set`, `rename`, `talk`, `revoke` and
+It exposes `settings()` (unchanged) or `settings({firestore:true})`, `devices({cursor,limit})`, `set`, `rename`, `talk`, `revoke` and
 `operation(originalOperationId)`. Every read and effect retains live-grant admission. The [owning protocol](../../../../contracts/remote-channel-v1.md#remote-management-protocol)
 specifies exact shapes and bounds. Session caps are positive decimal **strings** or null, preserving
 native values beyond JavaScript safe integers; default reads as `"8"` and null means unlimited.
 Values/sources, malformed/default warning and management capabilities come from server admission.
+
+The explicit Firestore read adds `firestoreLayers` and `firestoreBudget` with the optional
+status projections' exact schemas. It reads recorded setup and dated published limits, never
+provider health or actual usage, and shares the same verified Session lane. Invalid optional
+views are rejected; an old serve may refuse the new input. The settings page isolates this
+optional observation from management access, drafts and original outcomes. `budget` also
+exports `parsePublishedLimits` and `publishedLimitRows` for the dated member; arithmetic and
+per-device estimated counters remain unchanged.
 
 Freeze a UUIDv4 and input before a mutation. A verified refusal, committed result and unknown
 outcome are distinct. `ClientError` after publication retains the original operationId; no helper

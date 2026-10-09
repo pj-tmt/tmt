@@ -164,6 +164,7 @@ pub struct Operations {
     /// Unconfirmed cleanup forbids another write until restart acquires the child-held lease.
     retry_safe: AtomicBool,
     management: Option<Arc<crate::devices::Devices>>,
+    firestore: Arc<dyn crate::readiness::FirestoreEvidenceSource>,
 }
 impl Operations {
     pub fn new(core: CoreClient, stop: Arc<AtomicBool>, input_limit: usize) -> Self {
@@ -173,10 +174,19 @@ impl Operations {
             input_limit,
             retry_safe: AtomicBool::new(true),
             management: None,
+            firestore: Arc::new(crate::readiness::NotConfigured),
         }
     }
     pub fn with_management(mut self, devices: Arc<crate::devices::Devices>) -> Self {
         self.management = Some(devices);
+        self
+    }
+    /// Shares the same recorded-evidence owner as the optional control status view.
+    pub fn with_firestore(
+        mut self,
+        evidence: Arc<dyn crate::readiness::FirestoreEvidenceSource>,
+    ) -> Self {
+        self.firestore = evidence;
         self
     }
     fn api(&self, input: &[u8]) -> Result<Value, RemoteError> {
@@ -195,6 +205,7 @@ impl Operations {
             return crate::management::append(
                 permit,
                 self.management.as_deref().ok_or_else(invalid)?,
+                self.firestore.as_ref(),
             );
         }
         if operation == "capabilities" {

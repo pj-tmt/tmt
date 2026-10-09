@@ -7,11 +7,8 @@
 #[path = "support/door.rs"]
 mod door;
 
+use door::core_fixture::Core;
 use door::*;
-#[allow(dead_code)]
-#[path = "support/core.rs"]
-mod core_fixture;
-use core_fixture::Core;
 use ed25519_dalek::{Signer, SigningKey};
 use serde_json::{Value, json};
 use std::{

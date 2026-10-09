@@ -1,3 +1,5 @@
+import { parseFirestoreLayers, type FirestoreLayerView } from './firestore.js';
+import { parsePublishedLimits, type FirestoreBudgetView } from './budget.js';
 import type { Session } from './device.js';
 import {
   ClientError,
@@ -36,6 +38,10 @@ export interface SettingsView {
   capabilities: { settingsWrite: boolean; devicesWrite: boolean };
   readOnlyReason: 'local_cli_required' | null;
 }
+export interface FirestoreSettingsView extends SettingsView {
+  firestoreLayers: FirestoreLayerView[];
+  firestoreBudget: FirestoreBudgetView;
+}
 export type ManagementOutcome =
   | {
       operationId: string;
@@ -50,6 +56,7 @@ export type SettingChange =
   | { operationId: string; setting: 'sessions-per-device'; value: string | null };
 export interface RemoteManagement {
   settings(): Promise<SettingsView>;
+  settings(options: { firestore: true }): Promise<FirestoreSettingsView>;
   devices(input: { cursor: string | null; limit: number }): Promise<DevicePage>;
   set(input: SettingChange): Promise<ManagementOutcome>;
   rename(input: {
@@ -214,10 +221,19 @@ export function management(
     }
   }
   return {
-    settings: () =>
-      call('remote.settings.show', crypto.randomUUID(), {}, (value) => {
+    settings: ((options?: { firestore: true }) =>
+      call('remote.settings.show', crypto.randomUUID(), options ?? {}, (value) => {
         const row = object(value);
-        exact(row, ['settings', 'capabilities', 'readOnlyReason']);
+        exact(row, [
+          'settings',
+          'capabilities',
+          'readOnlyReason',
+          ...(options ? ['firestoreLayers', 'firestoreBudget'] : []),
+        ]);
+        if (options) {
+          parseFirestoreLayers(row.firestoreLayers);
+          parsePublishedLimits(row.firestoreBudget);
+        }
         settings(row.settings);
         const capabilities = object(row.capabilities);
         exact(capabilities, ['settingsWrite', 'devicesWrite']);
@@ -231,7 +247,7 @@ export function management(
             capabilities.settingsWrite === (row.readOnlyReason === null),
         );
         return row as unknown as SettingsView;
-      }),
+      })) as RemoteManagement['settings'],
     devices: (page) => {
       input(
         Number.isInteger(page.limit) &&

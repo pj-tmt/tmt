@@ -39,9 +39,9 @@
   width: 100%;
   max-height: min(248px, 45vh);
   overflow-y: auto;
-  border: 2px solid var(--c-text);
+  border: var(--tmt-ui-rule-width) solid var(--tmt-ui-color-edge);
   background: var(--c-sheet);
-  box-shadow: 4px 4px 0 var(--c-text);
+  box-shadow: none;
 }
 .tmt-listbox-options[hidden] {
   display: none;

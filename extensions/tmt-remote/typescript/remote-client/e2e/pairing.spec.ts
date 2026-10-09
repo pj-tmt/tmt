@@ -2204,3 +2204,326 @@ test('settings shared presentation keeps unavailable initialization read-only', 
   );
   await context.close();
 });
+
+/** Exactly the UX-approved Firestore matrix: ten state shots and one focus shot. */
+async function captureFirestore(
+  page: Page,
+  state: string,
+  width: number,
+  theme: 'light' | 'dark',
+  evidence: string,
+): Promise<void> {
+  await page.emulateMedia({ colorScheme: theme });
+  await page.setViewportSize({ width, height: 900 });
+  if (width === 390 && (state === 'observable-enabled-fixture' || state === 'partial-record')) {
+    await page.locator('#firestore-budget').evaluate((element) => {
+      (element as HTMLDetailsElement).open = true;
+    });
+  }
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  const directory = process.env.TMT_REMOTE_CAPTURE_DIR;
+  if (!directory) return;
+  await mkdir(directory, { recursive: true });
+  const path = join(directory, `firestore-${state}-${width}-${theme}.png`);
+  await page.evaluate(() => scrollTo(0, 0));
+  await page.screenshot({ path, fullPage: true });
+  await appendFile(
+    join(directory, 'index.jsonl'),
+    JSON.stringify({
+      state,
+      viewport: `${width}x900`,
+      theme,
+      path,
+      evidence,
+      lookAt:
+        'Read-only recorded readiness, unsupported-layer one-liners; dated budget is not actual usage',
+    }) + '\n',
+  );
+}
+test('Firestore settings show recorded prerequisites and the approved fixture capture matrix without effects', async () => {
+  pair = spawn(BINARY, ['pair', '--json'], { env });
+  const events = lines(pair);
+  const offer = await events.next();
+  const context = await browser.newContext();
+  const page = await context.newPage();
+  await page.goto(offer.link as string);
+  await page.fill('#name', 'Firestore browser');
+  await page.click('button');
+  await expect(page.locator('#words')).toBeVisible();
+  await events.next();
+  pair.stdin.write('confirm\n');
+  expect((await events.next()).reason).toBe('paired');
+  await expect(page.locator('#status')).toContainText('This browser is paired.');
+  await exited(pair);
+  const observed: string[] = [];
+  page.on('request', (request) => {
+    if (request.method() === 'POST' && new URL(request.url()).pathname.endsWith('/append'))
+      observed.push(JSON.parse(request.postData()!).operation);
+  });
+  async function recorded(): Promise<{ firestoreLayers: unknown; firestoreBudget: unknown }> {
+    return {
+      firestoreLayers: JSON.parse(
+        execFileSync(BINARY, ['status', '--layers', '--json'], { env, encoding: 'utf8' }),
+      ).firestoreLayers,
+      firestoreBudget: JSON.parse(
+        execFileSync(BINARY, ['status', '--budget', '--json'], { env, encoding: 'utf8' }),
+      ).firestoreBudget,
+    };
+  }
+  // Hold the optional signed reply, not the base management reads or page assets.
+  const inventory = JSON.parse(
+    execFileSync(BINARY, ['devices', '--json'], { env, encoding: 'utf8' }),
+  );
+  execFileSync(BINARY, ['devices', 'designate', inventory.devices[0].clientId, '--json'], { env });
+  const optional = routeBarrier();
+  const optionalJoined = routeBarrier();
+  const holdOptional = async (route: import('@playwright/test').Route) => {
+    const wire = route.request().postDataJSON();
+    const input = JSON.parse(Buffer.from(wire.payload, 'base64url').toString('utf8'));
+    if (wire.operation !== 'remote.settings.show' || input.firestore !== true) {
+      await route.continue();
+      return;
+    }
+    const response = await route.fetch();
+    optional.arrive();
+    try {
+      await optional.held;
+      await route.fulfill({ response });
+    } finally {
+      optionalJoined.arrive();
+    }
+  };
+  await page.route('**/append', holdOptional);
+  try {
+    await page.goto(`${origin}/settings`);
+    await optional.reached;
+    await expect(page.locator('#access')).toHaveText('Current browser access confirmed.');
+    await expect(page.locator('#opening')).toBeEnabled();
+    await expect(page.locator('#refresh')).toBeEnabled();
+    await expect(page.locator('.device-summary')).toContainText('Firestore browser');
+    await expect(page.locator('#firestore-content')).toHaveText(
+      'Checking recorded Firestore setup…',
+    );
+  } finally {
+    optional.release();
+    await optionalJoined.reached;
+    await page.unroute('**/append', holdOptional);
+  }
+  const failOptional = async (route: import('@playwright/test').Route) => {
+    const wire = route.request().postDataJSON();
+    const input = JSON.parse(Buffer.from(wire.payload, 'base64url').toString('utf8'));
+    if (wire.operation === 'remote.settings.show' && input.firestore === true) {
+      // Admit the read before losing its reply, preserving the signed sequence.
+      const response = await route.fetch();
+      await route.fulfill({ response, status: 502, body: 'optional fixture unavailable' });
+    } else await route.continue();
+  };
+  await expect(page.locator('#firestore-content')).toContainText('Firestore is not configured.');
+  await page.route('**/append', failOptional);
+  try {
+    await page.click('#refresh');
+    await expect(page.locator('#firestore-content')).toContainText(
+      'Firestore setup could not be confirmed.',
+    );
+    await expect(page.locator('#access')).toHaveText('Current browser access confirmed.');
+    await expect(page.locator('#opening')).toBeEnabled();
+    await expect(page.locator('#refresh')).toBeEnabled();
+    await expect(page.locator('.device-summary')).toContainText('Firestore browser');
+  } finally {
+    await page.unroute('**/append', failOptional);
+  }
+  execFileSync(BINARY, ['devices', 'undesignate', '--json'], { env });
+  await page.click('#refresh');
+  await expect(page.locator('#firestore-content')).toContainText('Firestore is not configured.');
+  expect((await recorded()).firestoreLayers).toEqual([]);
+  await captureFirestore(
+    page,
+    'not-configured',
+    1440,
+    'light',
+    'real binary; no deployment record',
+  );
+  await captureFirestore(page, 'not-configured', 390, 'light', 'real binary; no deployment record');
+
+  // Visual fixture only: the native signed/control matrix and SDK validator tests own policy proof.
+  // Production records cannot establish tier/quota; never label this as provider evidence.
+  const enabled = [
+    {
+      layer: 'sharing',
+      state: 'enabled',
+      prerequisites: ['project', 'sign-in', 'rules', 'plan-tier', 'quota'].map((item) => ({
+        item,
+        state: 'enabled',
+      })),
+    },
+    {
+      layer: 'operations',
+      state: 'not-enabled',
+      prerequisites: [
+        { item: 'plan-tier', state: 'enabled' },
+        { item: 'support', state: 'not-enabled', reason: 'not-implemented' },
+      ],
+    },
+    {
+      layer: 'attachments',
+      state: 'not-enabled',
+      prerequisites: [
+        { item: 'support', state: 'not-enabled', reason: 'not-implemented' },
+        ...['project', 'rules', 'quota'].map((item) => ({ item, state: 'enabled' })),
+      ],
+    },
+  ];
+  await page.route('**/sdk/firestore-fixture.js', (route) =>
+    route.fulfill({
+      contentType: 'text/javascript',
+      body: `import * as sdk from '/sdk/remote-v1.js'; export * from '/sdk/remote-v1.js'; export function management(session) { const original=sdk.management(session); return {...original, settings:async(options)=>{const view=await original.settings(options);return options?{...view,firestoreLayers:${JSON.stringify(enabled)}}:view;}}; }`,
+    }),
+  );
+  const fixtureModule = async (route: import('@playwright/test').Route) => {
+    const response = await route.fetch();
+    await route.fulfill({
+      response,
+      body: (await response.text()).replaceAll('/sdk/remote-v1.js', '/sdk/firestore-fixture.js'),
+    });
+  };
+  await page.route('**/sdk/settings-v1.js', fixtureModule);
+  await page.goto(`${origin}/settings`);
+  await expect(page.locator('[data-layer="sharing"]')).toContainText('Enabled');
+  for (const layer of ['operations', 'attachments']) {
+    await expect(page.locator(`[data-layer="${layer}"]`)).toContainText(
+      'Not available in this release.',
+    );
+    expect(await page.locator(`[data-layer="${layer}"] li`).count()).toBe(0);
+    expect(await page.locator(`[data-layer="${layer}"] code`).count()).toBe(0);
+  }
+  await captureFirestore(
+    page,
+    'observable-enabled-fixture',
+    1440,
+    'light',
+    'all observable prerequisites enabled (fixture); support not implemented; served binary page with test-only SDK projection',
+  );
+  await captureFirestore(
+    page,
+    'observable-enabled-fixture',
+    390,
+    'light',
+    'same explicit visual fixture; published budget is real binary status --budget',
+  );
+  await captureFirestore(
+    page,
+    'observable-enabled-fixture',
+    1440,
+    'dark',
+    'same explicit visual fixture; no provider evidence',
+  );
+  await page.unroute('**/sdk/settings-v1.js', fixtureModule);
+  await page.unroute('**/sdk/firestore-fixture.js');
+
+  const partial = {
+    version: 1,
+    record: {
+      deploymentId: '3f2b8c1e-5d4a-4e7b-9c1d-2a6f8e0b4c11',
+      binding: null,
+      run: {
+        planDigest: 'a'.repeat(64),
+        account: 'fixture@example.test',
+        authorizedAtMs: 1,
+        state: 'partial',
+        rulesAttempted: true,
+        steps: [
+          { id: 'database', state: 'done' },
+          { id: 'sign-in:anonymous', state: 'unknown' },
+          { id: 'rules', state: 'unknown' },
+          { id: 'verify', state: 'pending' },
+        ],
+      },
+    },
+  };
+  await writeFile(join(root, 'state/remote/deploy.json'), JSON.stringify(partial), { mode: 0o600 });
+  await page.goto(`${origin}/settings`);
+  await expect(page.locator('[data-item="rules"]')).toContainText(
+    'Firestore rules are only partly deployed.',
+  );
+  await expect(page.locator('[data-item="sign-in"]')).toContainText('Not checked');
+  await expect(page.locator('[data-item="rules"] code')).toHaveText('tmt remote deploy firestore');
+  const actual = await recorded();
+  expect((actual.firestoreLayers as { state: string }[])[0]!.state).toBe('not-enabled');
+  await captureFirestore(
+    page,
+    'partial-record',
+    1440,
+    'light',
+    'real binary; private partial fixture record; signed read and status agree',
+  );
+  await captureFirestore(
+    page,
+    'partial-record',
+    390,
+    'light',
+    'same private record; budget expanded, no horizontal scroll',
+  );
+  await captureFirestore(
+    page,
+    'partial-record',
+    1440,
+    'dark',
+    'same private fixture record, not provider currentness',
+  );
+
+  await writeFile(join(root, 'state/remote/deploy.json'), 'damaged fixture', { mode: 0o600 });
+  await page.goto(`${origin}/settings`);
+  await expect(page.locator('[data-layer="sharing"]')).toContainText('Not checked');
+  expect((await recorded()).firestoreLayers).toEqual(
+    expect.arrayContaining([expect.objectContaining({ layer: 'sharing', state: 'unknown' })]),
+  );
+  expect(await page.locator('[data-layer="sharing"] li').count()).toBe(5);
+  for (const item of ['project', 'sign-in', 'rules', 'plan-tier', 'quota'])
+    await expect(page.locator(`[data-item="${item}"]`)).toContainText('Not checked');
+  await captureFirestore(
+    page,
+    'unknown-record',
+    1440,
+    'light',
+    'damaged private record; all observable prerequisites not checked; support unchanged',
+  );
+  await captureFirestore(
+    page,
+    'unknown-record',
+    390,
+    'light',
+    'same damaged private record; no repair or provider call',
+  );
+  const details = page.locator('#firestore-budget');
+  await details.evaluate((element) => {
+    (element as HTMLDetailsElement).open = false;
+  });
+  const summary = details.locator('summary');
+  await summary.focus();
+  await expect(summary).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(details).toHaveAttribute('open', '');
+  await captureFirestore(
+    page,
+    'keyboard-focus',
+    390,
+    'light',
+    'native Details summary focused and expanded by keyboard',
+  );
+  await expect(page.locator('#firestore-budget')).toContainText(
+    "Remote can't see your actual usage",
+  );
+  await expect(page.locator('#firestore-budget')).toContainText('70%');
+  await expect(page.locator('#firestore-budget')).toContainText('90%');
+  expect(observed).toEqual(expect.arrayContaining(['remote.settings.show', 'remote.devices.list']));
+  expect(
+    // A lost read reply invokes the SDK's scope-free sequence recovery read.
+    observed.every((op) =>
+      ['session.open', 'capabilities', 'remote.settings.show', 'remote.devices.list'].includes(op),
+    ),
+    `Observed signed operations: ${JSON.stringify(observed)}`,
+  ).toBe(true);
+  // The damaged fixture is never repaired by inspection.
+  expect(await readFile(join(root, 'state/remote/deploy.json'), 'utf8')).toBe('damaged fixture');
+  await context.close();
+});

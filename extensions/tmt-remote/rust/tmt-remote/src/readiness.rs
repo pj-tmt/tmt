@@ -87,7 +87,7 @@ const ROWS: [Row; 16] = [
         I::Project,
         R::AccessLost,
         "access-lost",
-        "TMT can no longer reach the Firebase project.",
+        "tmt can no longer reach the Firebase project.",
         Some(DEPLOY),
     ),
     row(
@@ -545,6 +545,26 @@ pub fn human_lines(value: &Value, layers: &[LayerSpec]) -> Vec<HumanLine> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn readiness_fixture_equals_the_native_policy_tables() {
+        let actual = json!({
+            "layers": LAYERS.iter().map(|spec| json!({
+                "layer": spec.layer.name(),
+                "items": spec.items.iter().map(|item| item.name()).collect::<Vec<_>>(),
+                "requiresPaidPlan": spec.requires_paid_plan,
+            })).collect::<Vec<_>>(),
+            "reasons": ROWS.iter().map(|row| json!({
+                "item": row.item.name(), "reason": row.code,
+                "sentence": row.sentence, "next": row.next,
+            })).collect::<Vec<_>>(),
+        });
+        let fixture: Value = serde_json::from_str(include_str!(
+            "../tests/fixtures/firestore_readiness/table.json"
+        ))
+        .unwrap();
+        assert_eq!(actual, fixture);
+    }
 
     #[test]
     fn the_table_has_one_row_per_item_and_reason() {

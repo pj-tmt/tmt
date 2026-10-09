@@ -231,3 +231,57 @@ export function classifyProviderExhausted(
 export function exhaustedIsCurrent(evidence: ExhaustedEvidence, nowMs: number): boolean {
   return nowMs < evidence.resetAtMs;
 }
+
+/** Dated published limits from the serving door, never measured project usage. */
+export interface FirestoreBudgetView {
+  plan: 'no-cost';
+  readOn: string;
+  resetsAt: 'pacific-midnight';
+  limits: Record<string, number>;
+  guard: { warnPercent: number; refusePercent: number };
+}
+export const publishedLimitRows = [
+  ['readsPerDay', 'Document reads', 'day', false],
+  ['writesPerDay', 'Document writes', 'day', false],
+  ['deletesPerDay', 'Document deletes', 'day', false],
+  ['storedBytes', 'Stored data', '', true],
+  ['egressBytesPerMonth', 'Data sent out', 'month', true],
+  ['databases', 'Free databases per project', '', false],
+  ['compositeIndexes', 'Composite indexes', '', false],
+  ['singleFieldIndexConfigs', 'Single-field index configs', '', false],
+  ['documentBytes', 'Document size', '', true],
+  ['rulesLookupsPerRequest', 'Rules document lookups per request', '', false],
+] as const;
+export function parsePublishedLimits(value: unknown): FirestoreBudgetView {
+  const object = (v: unknown): v is Record<string, unknown> =>
+    typeof v === 'object' && v !== null && !Array.isArray(v);
+  const keys = (v: Record<string, unknown>, expected: readonly string[]) =>
+    Object.keys(v).length === expected.length && expected.every((key) => Object.hasOwn(v, key));
+  if (
+    !object(value) ||
+    !keys(value, ['plan', 'readOn', 'resetsAt', 'limits', 'guard']) ||
+    value.plan !== 'no-cost' ||
+    value.resetsAt !== 'pacific-midnight' ||
+    typeof value.readOn !== 'string' ||
+    !/^\d{4}-\d{2}-\d{2}$/.test(value.readOn) ||
+    !object(value.limits) ||
+    !keys(
+      value.limits,
+      publishedLimitRows.map((row) => row[0]),
+    ) ||
+    !Object.values(value.limits).every(
+      (n) => typeof n === 'number' && Number.isSafeInteger(n) && n > 0,
+    ) ||
+    !object(value.guard) ||
+    !keys(value.guard, ['warnPercent', 'refusePercent']) ||
+    !Number.isSafeInteger(value.guard.warnPercent) ||
+    !Number.isSafeInteger(value.guard.refusePercent) ||
+    !(
+      (value.guard.warnPercent as number) > 0 &&
+      (value.guard.warnPercent as number) < (value.guard.refusePercent as number) &&
+      (value.guard.refusePercent as number) <= 100
+    )
+  )
+    throw new Error('Invalid Firestore budget response.');
+  return value as unknown as FirestoreBudgetView;
+}
