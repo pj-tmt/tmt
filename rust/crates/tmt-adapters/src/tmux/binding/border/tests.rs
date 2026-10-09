@@ -34,6 +34,7 @@ fn inherited_format_is_preserved_and_ownership_follows_successful_pane_only_writ
     tmux.update_badge_border(
         &binding(),
         true,
+        true,
         OperationOptions {
             deadline: Some(deadline),
             pane_ids: None,
@@ -67,7 +68,7 @@ fn inherited_format_is_preserved_and_ownership_follows_successful_pane_only_writ
 fn user_local_empty_or_nonempty_and_existing_badge_formats_are_not_written() {
     for local in ["\n", "user content\n", "#{?@tmux-team.badge,label,}\n"] {
         let tmux = Tmux::new(ScriptedRunner::new([Ok(local), Ok("bottom\n")]));
-        tmux.update_badge_border(&binding(), true, OperationOptions::default())
+        tmux.update_badge_border(&binding(), true, true, OperationOptions::default())
             .unwrap();
         assert!(
             tmux.runner
@@ -82,7 +83,7 @@ fn user_local_empty_or_nonempty_and_existing_badge_formats_are_not_written() {
         Ok("before #{@tmux-team.badge} after\n"),
         Ok("top\n"),
     ]));
-    tmux.update_badge_border(&binding(), true, OperationOptions::default())
+    tmux.update_badge_border(&binding(), true, true, OperationOptions::default())
         .unwrap();
     assert_eq!(tmux.runner.calls.borrow().len(), 3);
     assert!(
@@ -98,7 +99,7 @@ fn user_local_empty_or_nonempty_and_existing_badge_formats_are_not_written() {
 fn cleanup_is_server_fenced_and_refuses_missing_or_foreign_ownership() {
     for owner in ["", "not-owned\n"] {
         let tmux = Tmux::new(ScriptedRunner::new([Ok(owner)]));
-        tmux.update_badge_border(&binding(), false, OperationOptions::default())
+        tmux.update_badge_border(&binding(), false, false, OperationOptions::default())
             .unwrap();
         assert_eq!(tmux.runner.calls.borrow().len(), 1);
     }
@@ -106,7 +107,7 @@ fn cleanup_is_server_fenced_and_refuses_missing_or_foreign_ownership() {
     runner.push_output(format!("{BADGE}user\n").into_bytes(), Vec::new());
     runner.push_output(Vec::new(), Vec::new());
     let tmux = Tmux::new(runner);
-    tmux.update_badge_border(&binding(), false, OperationOptions::default())
+    tmux.update_badge_border(&binding(), false, false, OperationOptions::default())
         .unwrap();
     let calls = tmux.runner.calls.borrow();
     assert_eq!(calls[1].args[2..6], ["if-shell", "-F", "-t", "%9"]);
@@ -125,7 +126,7 @@ fn failed_set_only_if_unset_never_publishes_ownership_and_spent_budget_spawns_no
         Err(failure(false)),
     ]));
     assert!(
-        tmux.update_badge_border(&binding(), true, OperationOptions::default())
+        tmux.update_badge_border(&binding(), true, true, OperationOptions::default())
             .is_err()
     );
     assert_eq!(tmux.runner.calls.borrow().len(), 3);
@@ -142,6 +143,7 @@ fn failed_set_only_if_unset_never_publishes_ownership_and_spent_budget_spawns_no
         tmux.update_badge_border(
             &binding(),
             true,
+            true,
             OperationOptions {
                 deadline: Some(Instant::now()),
                 pane_ids: None
@@ -156,12 +158,28 @@ fn failed_set_only_if_unset_never_publishes_ownership_and_spent_budget_spawns_no
 fn malformed_option_output_refuses_and_hint_names_selected_window_without_changing_it() {
     let tmux = Tmux::new(ScriptedRunner::new([Ok("unterminated")]));
     assert!(
-        tmux.update_badge_border(&binding(), true, OperationOptions::default())
+        tmux.update_badge_border(&binding(), true, true, OperationOptions::default())
             .is_err()
     );
     assert_eq!(tmux.runner.calls.borrow().len(), 1);
     assert_eq!(
         border_hint(&binding()),
         "hint: pane borders are off; enable them with tmux -S '/tmp/private.sock' set-option -w -t %9 pane-border-status top"
+    );
+}
+
+#[test]
+fn automatic_refresh_publishes_the_format_without_querying_hint_status() {
+    let tmux = Tmux::new(ScriptedRunner::new([Ok(""), Ok("user\n"), Ok(""), Ok("")]));
+    tmux.update_badge_border(&binding(), true, false, OperationOptions::default())
+        .unwrap();
+    let calls = tmux.runner.calls.borrow();
+    assert_eq!(calls.len(), 4);
+    assert_eq!(calls[2].args[2], "set-option");
+    assert_eq!(calls[3].args[6], OWNER);
+    assert!(
+        !calls
+            .iter()
+            .any(|call| call.args.iter().any(|arg| arg == "pane-border-status"))
     );
 }

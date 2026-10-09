@@ -14,6 +14,7 @@ impl<R: CommandRunner> Tmux<R> {
         &self,
         binding: &Binding,
         enabled: bool,
+        hint_requested: bool,
         options: OperationOptions<'_>,
     ) -> Result<(), TmuxError> {
         if !enabled {
@@ -62,10 +63,11 @@ impl<R: CommandRunner> Tmux<R> {
                 self.set_border_option(binding, OWNER, &format, false, options)?;
             }
         }
-        if self
-            .border_option(binding, "-wA", "pane-border-status", options)?
-            .as_deref()
-            == Some("off")
+        if hint_requested
+            && self
+                .border_option(binding, "-wA", "pane-border-status", options)?
+                .as_deref()
+                == Some("off")
         {
             BORDER_HINT.call_once(|| {
                 let _ = writeln!(std::io::stderr().lock(), "{}", border_hint(binding));

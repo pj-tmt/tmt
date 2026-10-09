@@ -54,8 +54,9 @@ channels and the driver protocol. The owner map is in
   cleanup compares it on the server before unsetting only that unchanged pane override.
   Creation uses set-only-if-unset, and publishes ownership after successful format writing;
   failed ownership publication conservatively leaves the format unowned. No shared option or
-  configuration file is changed. An off window border status produces one stderr enable-command
-  hint per invocation and remains off. External hosts refresh only the marker's name.
+  configuration file is changed. Only explicit binding/launch callers request the off-border
+  enable-command hint; delivery, hooks and automatic refreshes remain silent. The copied
+  inherited format stays fixed until unbind and rebind. External hosts refresh only the marker's name.
 
 ## External host drivers
 

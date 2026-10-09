@@ -939,12 +939,15 @@ title, colors and border position stay unchanged; no global, session or window
 option or `~/.tmux.conf` is written. A user-owned pane override or a format already
 referencing the badge is preserved. The pane-local `@tmux-team.border` records the
 exact installed format. Unbind or the next refresh with `off` removes only an
-unchanged TMT-owned override; later user edits remain intact.
+unchanged TMT-owned override; later user edits remain intact. The override snapshots
+the inherited format when installed. After a theme reload, unbind and bind again
+to inherit the updated format.
 
 The label is visible when the window already has pane borders enabled. If
-`pane-border-status` is `off`, TMT prints one stderr hint per invocation with a
-command to enable it, and leaves it off. This hint may accompany successful JSON
-output. An optional custom theme may insert the fragment elsewhere or choose its
+`pane-border-status` is `off`, an explicit `this`/`name`/`add` binding or `run`
+launch prints one stderr hint with a command to enable it, and leaves it off.
+Delivery, provider hooks and automatic refreshes stay silent. The hint may
+accompany successful JSON output. An optional custom theme may insert the fragment elsewhere or choose its
 own narrow-pane policy. Display labels neutralize `#` and control characters and
 cap names at 48 Unicode code points; identity names are unchanged. Previously
 overwritten titles/layouts require restoration from the user's saved theme; do
