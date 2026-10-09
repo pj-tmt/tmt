@@ -11,6 +11,9 @@ import { BrowserAction } from '@tmt/browser-ui/react';
 import { text } from '../strings.js';
 
 const bottomThreshold = 24;
+function atBottom(node: HTMLDivElement) {
+  return node.scrollHeight - node.clientHeight - node.scrollTop <= bottomThreshold;
+}
 /** Display identities distinguish comments/user turns from admitted agent replies. */
 export function conversationRecordKey(
   kind: 'comment' | 'ask' | 'reply',
@@ -82,7 +85,8 @@ export function ConversationWindow({
     const observer = new ResizeObserver(() => {
       // Chat keeps its drawer mounted while closed. A hidden history has no
       // reading position to retain; its next visible size opens at latest.
-      if (!history.current?.clientHeight) following.current = true;
+      const node = history.current;
+      if (node && (!node.clientHeight || atBottom(node))) following.current = true;
       if (following.current) latest();
     });
     if (history.current) observer.observe(history.current);
@@ -115,8 +119,7 @@ export function ConversationWindow({
             // offset is not a reader leaving the bottom.
             if (node.scrollTop === position.current) return;
             position.current = node.scrollTop;
-            following.current =
-              node.scrollHeight - node.clientHeight - node.scrollTop <= bottomThreshold;
+            following.current = atBottom(node);
             if (following.current) clearPending();
           }}
         >

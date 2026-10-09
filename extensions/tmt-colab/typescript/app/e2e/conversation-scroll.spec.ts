@@ -228,5 +228,14 @@ for (const surface of ['chat', 'thread'] as const) {
     await expect(window).toBeVisible();
     await expect.poll(() => distance(history)).toBeLessThanOrEqual(1);
     await expect(jump).toHaveCount(0);
+    // If the viewport now fits the entire history, every turn is already latest.
+    await scroll(history, 0);
+    await page.setViewportSize({ width: 1440, height: 7000 });
+    await expect.poll(() => distance(history)).toBeLessThanOrEqual(1);
+    await run(page, 'scrollArrival');
+    await expect(window.getByTestId('comment-entry').last()).toContainText('A new turn');
+    await expect(jump).toHaveCount(0);
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await expect.poll(() => distance(history)).toBeLessThanOrEqual(1);
   });
 }

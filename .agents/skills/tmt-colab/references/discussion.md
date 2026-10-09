@@ -56,8 +56,9 @@ owns record fields, limits, revision semantics and trust boundaries.
   bottom edge. Activating it or manually returning to the bottom clears it.
   New comments from this device's writer always follow latest, before Remote delivery;
   agent replies have separate identities and do not count as an own Send.
-  Cloned publications, edits and size changes are not arrivals; size changes follow
-  only while already following. The shared owner disconnects size observation on
+  Cloned publications, edits and size changes are not arrivals. Size changes retain
+  following; reaching the bottom after resizing also clears pending state, including
+  when every message fits. The shared owner disconnects size observation on
   unmount and retains composer focus, draft and caret. Hiding a focused jump action
   returns focus to the named history region. `components/conversation-turn.tsx` owns their
   shared flat message markup: neutral 1px row rules, muted author/time and an agent
