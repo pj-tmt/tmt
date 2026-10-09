@@ -1176,10 +1176,12 @@ fn saturated_device_keeps_live_reads_without_changing_its_journal() {
     assert_eq!(append(&owner, Arc::clone(&operations), &query), accepted);
     let after_recovery = journal_snapshot(&owner);
     assert_eq!(
-        after_recovery[..2],
-        before_recovery[..2],
-        "full journal cannot gain a notification"
+        after_recovery[0].len(),
+        1000,
+        "a full stream drops its oldest entry to hold the notification"
     );
+    assert_ne!(after_recovery[0][0], before_recovery[0][0]);
+    assert_ne!(after_recovery[0][999], before_recovery[0][999]);
     let owned = owner
         .store
         .lock()
@@ -1201,20 +1203,39 @@ fn saturated_device_keeps_live_reads_without_changing_its_journal() {
         after_recovery,
         "settled poll must not write"
     );
+    // 1000 records, now one of them finished: it is dropped, the live ones are not.
+    fs::remove_file(core.root.join("receipt")).unwrap();
     let effect = wire(
         &owner,
         &session,
         14,
         &uuid_v4().unwrap(),
         &agent,
-        "capacity refusal",
+        "admitted by dropping finished work",
     );
     assert_eq!(
-        append(&owner, operations, &effect)["error"]["code"],
-        "REMOTE_STATE_UNAVAILABLE"
+        append(&owner, operations, &effect)["state"],
+        "accepted",
+        "a send is admitted once finished work can be dropped"
     );
-    assert_eq!(core.sends(), 0);
-    assert_eq!(journal_snapshot(&owner)[..3], after_recovery[..3]);
+    assert_eq!(core.sends(), 1);
+    assert!(
+        owner
+            .store
+            .lock()
+            .unwrap()
+            .owned(&owner.grant, recovery, now)
+            .is_err(),
+        "the finished record was dropped"
+    );
+    let live: i64 = connection
+        .query_row(
+            "SELECT COUNT(*) FROM operations WHERE phase='held'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(live, 999, "live records are never dropped");
     assert_eq!(before[0].len(), 1000);
     assert_eq!(before[2].len(), 1000);
 }
@@ -1235,4 +1256,248 @@ fn classified_read_cannot_be_adopted_into_the_journal() {
         "REMOTE_STATE_UNAVAILABLE"
     );
     assert_eq!(journal_snapshot(&owner), before);
+}
+
+fn raw(owner: &OwnerDoor) -> rusqlite::Connection {
+    rusqlite::Connection::open(owner._serving.layout().directory.join("remote.db")).unwrap()
+}
+fn fill_stream(connection: &rusqlite::Connection, client: &str, entries: i64, now: u64) {
+    connection.execute("INSERT INTO streams(client_id,incarnation,key,tip,last_ms) VALUES (?1,?2,zeroblob(32),?3,?4)", rusqlite::params![client,uuid_v4().unwrap(),entries,now as i64]).unwrap();
+    connection.execute("WITH RECURSIVE n(x) AS (VALUES(1) UNION ALL SELECT x+1 FROM n WHERE x<?2) INSERT INTO entries(client_id,position,envelope,at_ms) SELECT ?1,x,CAST('{}' AS BLOB),?3 FROM n", rusqlite::params![client,entries,now as i64]).unwrap();
+}
+// Rows x = first..first+count-1; the older the row, the smaller updated_ms.
+fn fill_operations(
+    connection: &rusqlite::Connection,
+    client: &str,
+    (first, count): (i64, i64),
+    (operation, phase): (&str, &str),
+    base_ms: i64,
+) {
+    connection.execute("WITH RECURSIVE n(x) AS (VALUES(?2) UNION ALL SELECT x+1 FROM n WHERE x<?3) INSERT INTO operations(id,client_id,operation,digest,phase,receipt,updated_ms,references_json) SELECT printf('00000000-0000-4000-8000-%012x',x),?1,?4,zeroblob(32),?5,'{}',?6+x,'[]' FROM n", rusqlite::params![client,first,first+count-1,operation,phase,base_ms]).unwrap();
+}
+fn count(connection: &rusqlite::Connection, sql: &str) -> i64 {
+    connection.query_row(sql, [], |row| row.get(0)).unwrap()
+}
+const DAY_MS: i64 = 86_400_000;
+
+#[test]
+fn a_full_stream_drops_its_oldest_entries_and_never_refuses_a_send() {
+    let owner = OwnerDoor::new();
+    let core = Core::new();
+    let operations = core.operations();
+    let now = tmt_remote::pairing::now_ms().unwrap();
+    let connection = raw(&owner);
+    fill_stream(&connection, &owner.grant.client_id, 1000, now);
+    let session = owner.open();
+    let sent = wire(
+        &owner,
+        &session,
+        1,
+        &uuid_v4().unwrap(),
+        &uuid_v4().unwrap(),
+        "stream over its limit",
+    );
+    assert_eq!(append(&owner, operations, &sent)["state"], "accepted");
+    assert_eq!(core.sends(), 1);
+    // The adoption and its settlement each dropped one entry, oldest first.
+    assert_eq!(count(&connection, "SELECT COUNT(*) FROM entries"), 1000);
+    assert_eq!(count(&connection, "SELECT MIN(position) FROM entries"), 3);
+    assert_eq!(
+        count(&connection, "SELECT MAX(position) FROM entries"),
+        1002
+    );
+    assert_eq!(count(&connection, "SELECT floor FROM streams"), 2);
+    // A subscriber starting from the beginning still reads the retained entries.
+    let page = owner
+        .store
+        .lock()
+        .unwrap()
+        .page(&owner.grant, None, 50, now)
+        .unwrap();
+    assert_eq!(page["entries"].as_array().unwrap().len(), 50);
+}
+
+#[test]
+fn read_leftovers_and_expired_finished_records_make_room_and_live_work_does_not() {
+    let owner = OwnerDoor::new();
+    let core = Core::new();
+    let operations = core.operations();
+    let now = tmt_remote::pairing::now_ms().unwrap();
+    let client = owner.grant.client_id.clone();
+    let connection = raw(&owner);
+    fill_operations(
+        &connection,
+        &client,
+        (1, 400),
+        ("agents.list", "observed"),
+        now as i64,
+    );
+    fill_operations(
+        &connection,
+        &client,
+        (401, 300),
+        ("dispatch.create", "accepted"),
+        now as i64 - 31 * DAY_MS,
+    );
+    fill_operations(
+        &connection,
+        &client,
+        (701, 300),
+        ("dispatch.create", "held"),
+        now as i64,
+    );
+    assert_eq!(count(&connection, "SELECT COUNT(*) FROM operations"), 1000);
+    let session = owner.open();
+    let sent = wire(
+        &owner,
+        &session,
+        1,
+        &uuid_v4().unwrap(),
+        &uuid_v4().unwrap(),
+        "device that was locked out",
+    );
+    assert_eq!(append(&owner, operations, &sent)["state"], "accepted");
+    assert_eq!(core.sends(), 1);
+    assert_eq!(
+        count(
+            &connection,
+            "SELECT COUNT(*) FROM operations WHERE operation<>'dispatch.create'"
+        ),
+        0
+    );
+    assert_eq!(
+        count(
+            &connection,
+            "SELECT COUNT(*) FROM operations WHERE phase='held'"
+        ),
+        300
+    );
+    // Only the 300 live records and the new, finished one remain.
+    assert_eq!(count(&connection, "SELECT COUNT(*) FROM operations"), 301);
+}
+
+#[test]
+fn over_the_limit_the_oldest_finished_record_goes_first_and_live_work_stays() {
+    let owner = OwnerDoor::new();
+    let core = Core::new();
+    let operations = core.operations();
+    let now = tmt_remote::pairing::now_ms().unwrap();
+    let client = owner.grant.client_id.clone();
+    let connection = raw(&owner);
+    let base = now as i64 - DAY_MS;
+    fill_operations(
+        &connection,
+        &client,
+        (1, 10),
+        ("dispatch.create", "accepted"),
+        base,
+    );
+    fill_operations(
+        &connection,
+        &client,
+        (11, 990),
+        ("dispatch.create", "held"),
+        base,
+    );
+    let session = owner.open();
+    let sent = wire(
+        &owner,
+        &session,
+        1,
+        &uuid_v4().unwrap(),
+        &uuid_v4().unwrap(),
+        "one over the limit",
+    );
+    assert_eq!(append(&owner, operations, &sent)["state"], "accepted");
+    assert_eq!(count(&connection, "SELECT COUNT(*) FROM operations"), 1000);
+    assert_eq!(
+        count(
+            &connection,
+            "SELECT COUNT(*) FROM operations WHERE phase='held'"
+        ),
+        990
+    );
+    let oldest = "00000000-0000-4000-8000-000000000001";
+    let next = "00000000-0000-4000-8000-000000000002";
+    assert_eq!(
+        count(
+            &connection,
+            &format!("SELECT COUNT(*) FROM operations WHERE id='{oldest}'")
+        ),
+        0
+    );
+    assert_eq!(
+        count(
+            &connection,
+            &format!("SELECT COUNT(*) FROM operations WHERE id='{next}'")
+        ),
+        1
+    );
+}
+
+#[test]
+fn only_live_work_refuses_a_send_and_changes_nothing() {
+    let owner = OwnerDoor::new();
+    let core = Core::new();
+    let operations = core.operations();
+    let now = tmt_remote::pairing::now_ms().unwrap();
+    let client = owner.grant.client_id.clone();
+    let connection = raw(&owner);
+    fill_stream(&connection, &client, 1000, now);
+    fill_operations(
+        &connection,
+        &client,
+        (1, 1000),
+        ("dispatch.create", "held"),
+        now as i64,
+    );
+    let session = owner.open();
+    let before = journal_snapshot(&owner);
+    let sent = wire(
+        &owner,
+        &session,
+        1,
+        &uuid_v4().unwrap(),
+        &uuid_v4().unwrap(),
+        "everything is live",
+    );
+    assert_eq!(
+        append(&owner, operations, &sent)["error"]["code"],
+        "REMOTE_STATE_UNAVAILABLE"
+    );
+    assert_eq!(core.sends(), 0);
+    // The refusal is audited as before; entries, streams and records are rolled back.
+    assert_eq!(
+        journal_snapshot(&owner)[..3],
+        before[..3],
+        "the refusal rolled back"
+    );
+}
+
+#[test]
+fn a_send_under_a_dropped_id_asks_core_first_and_never_resends() {
+    let owner = OwnerDoor::new();
+    let core = Core::new();
+    let operations = core.operations();
+    let session = owner.open();
+    let id = uuid_v4().unwrap();
+    let recipient = uuid_v4().unwrap();
+    let first = wire(&owner, &session, 1, &id, &recipient, "delivered once");
+    let accepted = append(&owner, Arc::clone(&operations), &first);
+    assert_eq!(accepted["state"], "accepted");
+    assert_eq!(core.sends(), 1);
+    // The finished record is dropped (as eviction does), then the same intent is sent again.
+    raw(&owner)
+        .execute("DELETE FROM operations WHERE id=?1", [&id])
+        .unwrap();
+    let again = wire(&owner, &session, 2, &id, &recipient, "delivered once");
+    assert_eq!(append(&owner, operations, &again), accepted);
+    assert_eq!(core.sends(), 1, "core's receipt answered; nothing was sent");
+    assert!(
+        core.calls()
+            .iter()
+            .filter(|call| call["operation"] == "dispatch.show")
+            .count()
+            >= 1
+    );
 }
