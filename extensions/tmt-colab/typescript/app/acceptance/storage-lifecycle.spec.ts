@@ -13,6 +13,7 @@ import {
   clientId,
   createPage,
   freePort,
+  openChat,
   openPage,
   run,
   selectInRenderer,
@@ -99,7 +100,7 @@ test('annotation attachments: PNG, JPEG and WebP preview, video is download-only
     await expect(composer.getByTestId('attachment-chip')).toHaveCount(4);
     await input.press('Enter');
 
-    await second.getByTestId('comments-toggle').click();
+    await (await pageAction(second, 'Comments')).click();
     await second.getByTestId('annotation-row').click();
     const thread = second.getByTestId('comment-thread').first();
     const rows = thread.getByTestId('message-attachment');
@@ -185,7 +186,7 @@ test('principals: owner, a second paired device and a read-only link read; a rev
 
     await expect(panel.getByText(text.filesAdding)).toHaveCount(0, { timeout: 30_000 });
     await captureResponsive(first, 'files');
-    await first.getByRole('button', { name: 'Export page', exact: true }).click();
+    await (await pageAction(first, 'Export page')).click();
     await expect(
       first
         .getByRole('region', { name: 'Export page' })
@@ -271,7 +272,7 @@ test('cross-resource refusal and deletion: another page, a forged hash and a del
       await (await chooser).setFiles([note]);
       await panel.getByRole('button', { name: text.filesAdd, exact: true }).click();
       await expect(panel.getByTestId('file-row')).toHaveCount(1, { timeout: 30_000 });
-      await first.getByTestId('chat-toggle').click();
+      await openChat(first);
       const chatPanel = first.getByTestId('chat-panel');
       await chatPanel.getByRole('combobox', { name: 'Message', exact: true }).fill('One file');
       const pick = first.waitForEvent('filechooser');
