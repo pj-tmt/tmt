@@ -41,14 +41,10 @@ export function ConversationTurn({
             </time>
             {meta}
           </p>
-          {(status || actions) && (
-            <span className="comment-header-end">
-              {status}
-              {actions}
-            </span>
-          )}
+          {actions && <span className="comment-header-end">{actions}</span>}
         </header>
         <div className="conversation-body">{children}</div>
+        {status && <div className="conversation-turn-status">{status}</div>}
         {delivery && <div className="conversation-delivery">{delivery}</div>}
       </div>
     </article>
