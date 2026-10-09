@@ -237,3 +237,19 @@ it('a status question that cannot be answered leaves the original unknown, not r
   expect(failure.failure.kind).toBe('unknown');
   expect(failure.failure.original).toBe(stored.original);
 });
+
+it('a status state of unavailable keeps the original unknown; expired, discarded and not-observed are gone', async () => {
+  let state = 'unavailable';
+  const { service } = await fixture({
+    script: (request) =>
+      request.method === 'status' ? { ok: { result: 'state', state } } : undefined,
+  });
+  const stored = await service.upload(input(10), messageId, () => {});
+  const ask = () =>
+    service
+      .resume(stored.original, { filename: 'notes.bin', size: 10 }, () => {})
+      .catch((e) => e.failure);
+  expect(await ask()).toMatchObject({ kind: 'unknown', original: stored.original });
+  for (state of ['expired', 'discarded', 'not-observed'])
+    expect(await ask()).toEqual({ kind: 'gone' });
+});

@@ -229,7 +229,11 @@ export class AttachmentService implements AttachmentBinding {
         ? channel.begin(original, this.#bound())
         : channel.status(original, this.#bound()),
     );
-    if (state.result === 'state') throw new AttachmentUploadError({ kind: 'gone' });
+    if (state.result === 'state') {
+      // `unavailable` says nothing about the original: it stays unknown, never gone.
+      if (state.state === 'unavailable') throw unknown();
+      throw new AttachmentUploadError({ kind: 'gone' });
+    }
     if (state.result === 'pending') {
       for (let index = state.nextIndex as number; index < total; index++) {
         progress(index, total);

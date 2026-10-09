@@ -95,8 +95,9 @@ leaves the text and the other chips as they are. `refused` outcomes (including a
 backend limit) never took effect and are retried only by an explicit action. A thrown
 request or an `unknown` answer once the first request has left makes the chip
 `unconfirmed`: Send is blocked until the user asks status of that same frozen original
-(a pending transfer continues, never replays) or removes it; a status answer that the
-original is gone attaches it again from the local bytes. Removing, or leaving the
+(a pending transfer continues, never replays) or removes it. A status answer of
+`expired`, `discarded` or `not-observed` attaches it again from the local bytes;
+`unavailable` says nothing about the original and leaves it unconfirmed. Removing, or leaving the
 composer unsent, releases stored originals best effort; the bytes are not kept in saved
 drafts.
 
