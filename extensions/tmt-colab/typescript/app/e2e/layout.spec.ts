@@ -48,7 +48,8 @@ for (const width of [1440, 390])
       await expect(bar).toHaveCSS('flex-wrap', 'nowrap');
       await page.screenshot({ path: `/tmp/1586-${width}-${theme}-short.png` });
       await expect(page.getByRole('heading', { name: 'Release notes', exact: true })).toBeVisible();
-      await expect(bar.locator('.page-backend')).toHaveText('local · Browser');
+      await expect(bar.locator('.page-backend')).toHaveText('local · Studio Mac');
+      await expect(bar.locator('.page-backend')).toHaveAttribute('title', 'local · Studio Mac');
       await expect(bar.locator('.page-sharing')).toHaveText('Private · Live');
       expect(
         await bar.locator('.page-sharing').evaluate((node) => node.scrollWidth <= node.clientWidth),

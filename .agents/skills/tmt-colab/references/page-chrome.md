@@ -35,7 +35,8 @@ labels supply hover and keyboard-focus tooltips. Counts come from the existing p
 headers; keyboard navigation skips disabled entries, Escape returns focus, and selection
 returns focus before opening a portal. Open header menus sit above the update row and
 selection controls. Explicit theme choices are radio menu items.
-The display-only `local · Browser` environment slot (backend name in its tooltip) and
+The display-only `local · <backendName>` environment slot (`local` when absent;
+truncated labels retain their full tooltip) and
 one sharing/live-state chip remain outside menus. At 390px, brand/title occupies the
 first row and metadata plus the same five controls the second; at 320px actions get a
 third row. Colab owns these extra header heights and update-notice offsets. Other

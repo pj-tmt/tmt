@@ -352,7 +352,8 @@ for (const width of [1440, 390, 320])
         await (await import(path)).mount('page');
       });
       const header = page.locator('#chrome-fixture .tmt-ui-header');
-      await expect(header.locator('.page-backend')).toHaveText('local · Browser');
+      await expect(header.locator('.page-backend')).toHaveText('local · Studio Mac');
+      await expect(header.locator('.page-backend')).toHaveAttribute('title', 'local · Studio Mac');
       await expect(header.locator('.page-sharing')).toHaveText('Private · Live');
       expect(
         await header

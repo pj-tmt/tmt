@@ -82,12 +82,12 @@ export function PageHeaderActions({
 }) {
   const choice = useSyncExternalStore(subscribeTheme, getThemeChoice);
   return (
-    <nav className="page-header-actions" aria-label="Page actions">
+    <nav className="page-header-actions" aria-label={text.pageHeaderActions}>
       <ActionMenu
-        label={`Discussion (${comments})${unseen ? ` · ${text.threadUnseen}` : ''}`}
+        label={`${text.discussion} (${comments})${unseen ? ` · ${text.threadUnseen}` : ''}`}
         icon={<PageHeaderIcon name="discussion" count={comments} unseen={unseen} />}
         items={[
-          { key: 'chat', label: 'Chat' },
+          { key: 'chat', label: text.chat },
           {
             key: 'comments',
             label: `${text.comments} ${comments}${unseen ? ` · ${text.threadUnseen}` : ''}`,
@@ -119,7 +119,7 @@ export function PageHeaderActions({
         }}
       />
       <ActionMenu
-        label="Source and export"
+        label={text.sourceAndExport}
         icon={<PageHeaderIcon name="source" />}
         items={[
           { key: 'source', label: text.source },
@@ -128,16 +128,16 @@ export function PageHeaderActions({
         onSelect={(key) => onSelect(key as 'source' | 'export')}
       />
       <ActionMenu
-        label="More"
+        label={text.more}
         icon={<PageHeaderIcon name="more" />}
         items={[
-          { key: 'manage', label: 'Manage page', disabled: !canManage },
+          { key: 'manage', label: text.managePage, disabled: !canManage },
           ...(['light', 'dark', 'system'] as const).map((theme) => ({
             key: theme,
-            label: `Theme: ${theme[0].toUpperCase()}${theme.slice(1)}`,
+            label: text.themeChoice[theme],
             checked: choice === theme,
           })),
-          { key: 'about', label: 'About this page' },
+          { key: 'about', label: text.aboutPage },
         ]}
         onSelect={(key) => {
           if (key === 'manage' || key === 'about') onSelect(key);

@@ -465,7 +465,7 @@ function ManageButton({ pageId, title }: { pageId: string; title: string }) {
       <BrowserAction
         type="button"
         variant="text"
-        label="Manage page"
+        label={text.managePage}
         onActivate={(event) => {
           if (event.isTrusted) setOpen(true);
         }}
@@ -1056,7 +1056,7 @@ function Page() {
         status={
           <div className="page-header-meta">
             <span className="page-backend" title={backendLabel}>
-              local · Browser
+              {backendLabel}
             </span>
             <span
               className={`chip page-sharing status ${state === 'ready' ? 'live' : ''}`}
@@ -1075,7 +1075,7 @@ function Page() {
                 {recoveryRequired
                   ? text.connectionLost
                   : state === 'ready'
-                    ? 'Live'
+                    ? text.live
                     : state === 'loading'
                       ? text.loading
                       : text.blocked}
@@ -1116,7 +1116,7 @@ function Page() {
       />
       <PageDrawer
         open={panel === 'about'}
-        title="About this page"
+        title={text.aboutPage}
         kind="about"
         close={() => setPanel(null)}
       >

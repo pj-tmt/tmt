@@ -165,11 +165,15 @@ body:has(.page-header-actions) {
   min-width: 0;
 }
 .page-backend {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
   color: var(--c-muted);
   font: 11px var(--f-mono);
   white-space: nowrap;
 }
 .page-sharing {
+  flex-shrink: 0;
   border-width: var(--tmt-ui-rule-width);
   min-width: 0;
   overflow: hidden;
