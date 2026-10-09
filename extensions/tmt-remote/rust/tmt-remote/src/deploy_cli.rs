@@ -1,0 +1,164 @@
+//! Deployment argv and composition through the installed adapter seam;
+//! fixtures inject declaration/provider ports, never an alternate deploy algorithm.
+use crate::{
+    deploy_command::{self, DeployCommandInput, DeployCommandOptions, DeployCommandOutput},
+    deploy_discovery::{self, DeclarationSource, DiscoveryRefusal},
+    deploy_record::DeployRecordStore,
+    deploy_run::{DeployPort, DeployProviderError, SignInProvider},
+};
+use clap::{Arg, ArgAction, ArgMatches, Command};
+use serde_json::json;
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct FirestoreArgs {
+    pub project: String,
+    pub region: String,
+    pub sign_in: Vec<SignInProvider>,
+    pub authorize: Option<String>,
+    pub replace_rules: Option<String>,
+    pub json: bool,
+}
+#[derive(Debug)]
+pub enum DeployCliError {
+    Usage,
+    Discovery(DiscoveryRefusal),
+    Provider(DeployProviderError),
+    Command(deploy_command::DeployCommandError),
+}
+/// Live Rules are an observation; the engine retains all mutation ownership.
+pub trait FirestoreCommandPort: DeployPort {
+    fn check_index_budget(
+        &mut self,
+        project: &str,
+        plan: &crate::deploy_plan::Plan,
+    ) -> Result<(), DeployProviderError>;
+    fn live_rules(&mut self, project: &str) -> Result<Option<Vec<u8>>, DeployProviderError>;
+}
+impl FirestoreCommandPort for crate::deploy_firestore::DeployFirestore<'_> {
+    fn check_index_budget(
+        &mut self,
+        project: &str,
+        plan: &crate::deploy_plan::Plan,
+    ) -> Result<(), DeployProviderError> {
+        self.check_index_budget(project, plan)
+    }
+    fn live_rules(&mut self, project: &str) -> Result<Option<Vec<u8>>, DeployProviderError> {
+        self.live_rules(project)
+    }
+}
+/// Nested under deploy by the main command owner once concrete discovery is wired.
+pub fn command() -> Command {
+    tmt_cli_style::command(&tmt_cli_style::CommandSpec {
+        name: "firestore", summary: "Plan or explicitly authorize Firestore sharing deployment",
+        examples: &[tmt_cli_style::Example { command: "tmt remote deploy firestore --project <project-id> --region <region> --sign-in anonymous --json", note: "Read the exact plan without changing your Firebase project" }],
+        outputs: tmt_cli_style::OutputModes::HumanAndJson,
+        details: "Needs the installed Firebase CLI and your own firebase login. Without --authorize, only reads the exact plan. --authorize takes at least 12 lowercase hex characters of the whole-envelope plan digest; login is never deployment authorization. --replace-rules also requires --authorize and the exact foreign Rules digest. Uses the Spark sharing profile; paid features and sharing-readiness enablement are not provided.",
+    })
+        .arg(Arg::new("project").long("project").required(true))
+        .arg(Arg::new("region").long("region").required(true))
+        .arg(
+            Arg::new("sign-in")
+                .long("sign-in")
+                .required(true)
+                .value_delimiter(',')
+                .action(ArgAction::Append)
+                .value_parser(["anonymous", "google.com"]),
+        )
+        .arg(Arg::new("authorize").long("authorize"))
+        .arg(Arg::new("replace-rules").long("replace-rules"))
+}
+pub fn arguments(matches: &ArgMatches) -> Result<FirestoreArgs, DeployCliError> {
+    let authorize = matches.get_one::<String>("authorize").cloned();
+    let replace_rules = matches.get_one::<String>("replace-rules").cloned();
+    if replace_rules.is_some() && authorize.is_none()
+        || authorize.as_ref().is_some_and(|s| !digest(s, 12))
+        || replace_rules
+            .as_ref()
+            .is_some_and(|s| s.len() != 64 || !digest(s, 64))
+    {
+        return Err(DeployCliError::Usage);
+    }
+    let sign_in = matches
+        .get_many::<String>("sign-in")
+        .ok_or(DeployCliError::Usage)?
+        .map(|s| match s.as_str() {
+            "anonymous" => Ok(SignInProvider::Anonymous),
+            "google.com" => Ok(SignInProvider::Google),
+            _ => Err(DeployCliError::Usage),
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(FirestoreArgs {
+        project: matches
+            .get_one::<String>("project")
+            .ok_or(DeployCliError::Usage)?
+            .clone(),
+        region: matches
+            .get_one::<String>("region")
+            .ok_or(DeployCliError::Usage)?
+            .clone(),
+        sign_in,
+        authorize,
+        replace_rules,
+        json: matches.get_flag("json"),
+    })
+}
+fn digest(s: &str, minimum: usize) -> bool {
+    s.len() >= minimum
+        && s.len() <= 64
+        && s.bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+}
+/// Read the exact installed snapshot once. A missing declaration never substitutes a
+/// fixture or calls the provider; the existing binding/record remain untouched.
+pub fn execute(
+    args: &FirestoreArgs,
+    source: &mut dyn DeclarationSource,
+    enabled: &[&str],
+    provider: &mut dyn FirestoreCommandPort,
+    store: &mut DeployRecordStore<'_>,
+    now_ms: u64,
+) -> Result<DeployCommandOutput, DeployCliError> {
+    let discovered =
+        deploy_discovery::discover(source, enabled).map_err(DeployCliError::Discovery)?;
+    if let Some(output) = unavailable(&discovered) {
+        return Ok(output);
+    }
+    execute_prepared(args, &discovered, provider, store, now_ms)
+}
+/// No declaration means no provider setup, credential read or record change.
+pub fn unavailable(discovered: &deploy_discovery::DiscoveredPlan) -> Option<DeployCommandOutput> {
+    discovered.extensions.view().extensions.is_empty().then(|| DeployCommandOutput { json: json!({"available": false, "reason":"no-declaration", "extensions": discovered.extensions.view()}), human: "Firestore sharing is unavailable: no enabled extension supplies a Firestore declaration.\nNothing changed in your Firebase project.\n".into() })
+}
+/// Execute only the already captured declaration snapshot, without rediscovery.
+pub fn execute_prepared(
+    args: &FirestoreArgs,
+    discovered: &deploy_discovery::DiscoveredPlan,
+    provider: &mut dyn FirestoreCommandPort,
+    store: &mut DeployRecordStore<'_>,
+    now_ms: u64,
+) -> Result<DeployCommandOutput, DeployCliError> {
+    provider
+        .check_index_budget(&args.project, &discovered.extensions)
+        .map_err(DeployCliError::Provider)?;
+    let live_rules = provider
+        .live_rules(&args.project)
+        .map_err(DeployCliError::Provider)?;
+    deploy_command::execute(
+        &DeployCommandInput {
+            extensions: &discovered.extensions,
+            project: &args.project,
+            location: &args.region,
+            sign_in: &args.sign_in,
+            rules_body: discovered.artifacts.rules.as_bytes(),
+            live_rules: live_rules.as_deref(),
+        },
+        &DeployCommandOptions {
+            authorize: args.authorize.as_deref(),
+            replace_rules: args.replace_rules.as_deref(),
+        },
+        store,
+        provider,
+        now_ms,
+    )
+    .map_err(DeployCliError::Command)
+}

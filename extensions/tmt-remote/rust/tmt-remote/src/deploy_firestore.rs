@@ -86,6 +86,40 @@ impl<'a> DeployFirestore<'a> {
             .map_err(provider_error)?;
         rules_bytes(&value)
     }
+    /// Read-only live+planned field-config ceiling, including unrelated configurations.
+    pub fn check_index_budget(
+        &mut self,
+        project: &str,
+        plan: &crate::deploy_plan::Plan,
+    ) -> Result<(), DeployProviderError> {
+        let fields: std::collections::BTreeSet<_> = plan
+            .view()
+            .extensions
+            .iter()
+            .flat_map(|extension| &extension.resources)
+            .flat_map(|resource| {
+                resource.indexes.iter().map(move |index| {
+                    format!(
+                        "{}/{}",
+                        resource.path.rsplit('/').next().expect("validated path"),
+                        index.field
+                    )
+                })
+            })
+            .collect();
+        let value = self
+            .exchange(
+                "index-budget",
+                json!({"project": project, "fields": fields}),
+                None,
+                Instant::now() + limits::DEPLOY_PROVIDER_CALL,
+            )
+            .map_err(provider_error)?;
+        if value != "within-budget" {
+            return Err(unknown());
+        }
+        Ok(())
+    }
     pub fn login_account(&mut self) -> Result<String, DeploySetupError> {
         let value = self
             .exchange(
@@ -132,6 +166,7 @@ impl<'a> DeployFirestore<'a> {
                 max_stream_bytes: limits::DEPLOY_PROVIDER_BYTES,
                 launch: LaunchOptions {
                     environment: EnvironmentPolicy::ClearAllowlist(&env),
+                    current_dir: Some(PathBuf::from("/")),
                     ..LaunchOptions::default()
                 },
             },

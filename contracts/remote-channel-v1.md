@@ -1744,8 +1744,9 @@ Records carry fixed reason codes, never provider text, and Remote fixes the owne
   `_PROVIDER_REJECTED`, `_DATABASE_MISMATCH`, `_RULES_FOREIGN`, `_VERIFY_FAILED`.
 - Owner steps: `REMOTE_DEPLOY_OWNER_INITIALIZE_AUTH`, `_ENABLE_GOOGLE_SIGN_IN`.
 
-**Current implementation.** The deployment command owner is library-only, with approved
-extension inputs and the provider injected. It defaults to a plan with no provider effects;
+**Current implementation.** `tmt remote deploy firestore` composes captured installed
+extension inputs through the existing deployment owner and real provider port. It defaults
+to a plan with no provider effects;
 only an explicit digest authorization can run it. A private deployment record preserves the
 draft identity and saves run outcomes under a separate writer lock, publishing complete files
 by atomic rename. Readers never take that lock, so status need not wait for a deployment run.
@@ -1755,10 +1756,17 @@ the old binding and reports partial Rules. Plan tier and quota stay unknown: the
 cannot observe them, and layer-1 traffic goes from the browser to Firestore, so sharing stays
 unknown even after a complete recorded deployment. Enabling that projection needs a later
 readiness decision. A checked emulator artifact is byte-bound to the real deployment output;
-it proves Rules behavior, not provisioning or quota. Installed declaration discovery and
-CLI registration remain later prerequisites. The real provider adapter is library-only and
-not reachable from the CLI; it uses a version-gated firebase-tools login in an owned bounded
-child, emits only fixed diagnostics and never automatically retries mutations. Rules switching
+it proves Rules behavior, not provisioning or quota. Installed declarations arrive only through
+fixed public extension commands dispatched by the supplied TMT executable, as bounded strict
+JSON containing exact declaration/artifact UTF-8 bytes and the declaration digest. The
+artifact digest is verified from the declaration; no installed asset path or cwd module is
+read. Missing declarations are unavailable, never substituted. Colab's embedded declaration
+command remains planned, so its installed end-to-end acceptance and real-project proof wait
+for that delivery and separate owner authorization. The adapter resolves firebase-tools from
+the installed `firebase` executable's realpath and Node from its supported launcher; both
+that embedded helper and declaration children start in a fixed neutral cwd. It uses a
+version-gated firebase-tools login, emits only fixed diagnostics and never automatically
+retries mutations. Rules switching
 requires a single-writer project because no atomic provider precondition exists: re-read before
 the final switch and exact read-back after it detect visible drift or report unknown without
 a binding; they cannot exclude an interleaving writer.

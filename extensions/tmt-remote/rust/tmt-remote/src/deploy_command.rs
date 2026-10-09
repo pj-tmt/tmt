@@ -1,5 +1,5 @@
-//! Library-only deployment command owner. Installed declaration discovery and the real
-//! provider adapter are later prerequisites; no command, help or dispatch is registered.
+//! Deployment plan/authorization/output owner over captured inputs and a provider port.
+//! The CLI composition owns installed discovery; this owner never retries an effect.
 use crate::{
     deploy_plan::Plan,
     deploy_record::DeployRecordStore,
@@ -115,12 +115,47 @@ pub fn execute(
     for item in &plan.view().destructive {
         writeln!(human, "Destructive change: {item}").expect("String write");
     }
-    writeln!(
-        human,
-        "Extensions and resources:\n{}",
-        serde_json::to_string_pretty(input.extensions.view()).expect("plan serialization")
-    )
-    .expect("String write");
+    human.push_str("Extensions and resources:\n");
+    for extension in &input.extensions.view().extensions {
+        writeln!(
+            human,
+            "{} (declaration {})",
+            extension.name, extension.declaration_digest
+        )
+        .expect("String write");
+        writeln!(
+            human,
+            "  Admission: {} (artifact {})",
+            extension.admission.entry_point, extension.admission.artifact_digest
+        )
+        .expect("String write");
+        for resource in &extension.resources {
+            writeln!(
+                human,
+                "  {}: {} at {}; object {} B, namespace {} B, entries {}, TTL {}",
+                resource.name,
+                resource.kind,
+                resource.path,
+                resource.limits.max_object_bytes,
+                resource.limits.max_namespace_bytes,
+                resource.limits.max_entries,
+                resource.ttl
+            )
+            .expect("String write");
+            for index in &resource.indexes {
+                writeln!(human, "    Index: {} {}", index.field, index.direction)
+                    .expect("String write");
+            }
+        }
+    }
+    for unavailable in &input.extensions.view().unavailable {
+        writeln!(
+            human,
+            "{}: unavailable ({})",
+            unavailable.name, unavailable.reason
+        )
+        .expect("String write");
+    }
     if authorized {
         describe_record(&mut human, &record);
     } else {

@@ -258,3 +258,64 @@ fn helper_protocol_and_provider_contract_fixtures_run_in_the_native_gate() {
         String::from_utf8_lossy(&output.stdout)
     );
 }
+
+#[test]
+fn plan_inventory_counts_unrelated_live_configs_before_any_provider_mutation() {
+    use tmt_remote::{
+        deploy_plan::{self, CloudBackend, Enabled, Supplied, Target},
+        deploy_run::{DeployFault, DeployProviderError},
+    };
+    let root = Root::new();
+    let stop = AtomicBool::new(false);
+    let read = |name: &str| {
+        fs::read(
+            PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("tests/fixtures/rules")
+                .join(name),
+        )
+        .unwrap()
+    };
+    let declaration = read("colab.json");
+    let artifact = read("colab.rules");
+    let plan = deploy_plan::compose(
+        Target {
+            backend: CloudBackend::Firestore,
+            physical_ttl: false,
+        },
+        &[Enabled {
+            name: "colab",
+            supplied: Some(Supplied {
+                declaration: &declaration,
+                artifact: &artifact,
+            }),
+        }],
+    )
+    .unwrap();
+    let package = installed_stub(&root, "", "normal");
+    let mut state: serde_json::Value =
+        serde_json::from_slice(&fs::read(package.join("state.json")).unwrap()).unwrap();
+    state["configs"]=serde_json::json!((0..200).map(|n|serde_json::json!({"name":format!("projects/demo-remote-1/databases/(default)/collectionGroups/unrelated/fields/field{n}")})).collect::<Vec<_>>());
+    fs::write(
+        package.join("state.json"),
+        serde_json::to_vec(&state).unwrap(),
+    )
+    .unwrap();
+    let mut adapter = DeployFirestore::at(node(), package.clone(), &stop).unwrap();
+    assert_eq!(
+        adapter.check_index_budget("demo-remote-1", &plan),
+        Err(DeployProviderError::Rejected(DeployFault::QuotaExceeded))
+    );
+    state["configs"] = serde_json::json!([]);
+    fs::write(
+        package.join("state.json"),
+        serde_json::to_vec(&state).unwrap(),
+    )
+    .unwrap();
+    adapter.check_index_budget("demo-remote-1", &plan).unwrap();
+    let calls = fs::read_to_string(package.join("calls.jsonl")).unwrap();
+    assert!(
+        calls.lines().all(
+            |line| serde_json::from_str::<serde_json::Value>(line).unwrap()["method"] == "GET"
+        )
+    );
+}

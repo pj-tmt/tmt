@@ -6,7 +6,13 @@ pub mod open;
 mod process;
 
 pub use discovery::{DiscoveryError, find_executable, invoking_tmt, is_executable};
-use std::{ffi::OsString, fmt, io, path::Path, sync::atomic::AtomicBool, time::Instant};
+use std::{
+    ffi::OsString,
+    fmt, io,
+    path::{Path, PathBuf},
+    sync::atomic::AtomicBool,
+    time::Instant,
+};
 
 #[derive(Debug)]
 pub struct Request<'a> {
@@ -21,8 +27,11 @@ pub struct Request<'a> {
 }
 
 /// Controls applied through the existing invocation entry point.
-#[derive(Debug, Default, Clone, Copy)]
+#[derive(Debug, Default, Clone)]
 pub struct LaunchOptions<'a> {
+    /// Absolute child working directory, applied before exec; None inherits unchanged.
+    /// Relative paths refuse before spawn. The parent directory is never changed.
+    pub current_dir: Option<PathBuf>,
     pub environment: EnvironmentPolicy<'a>,
     pub process_group: ProcessGroup,
 }

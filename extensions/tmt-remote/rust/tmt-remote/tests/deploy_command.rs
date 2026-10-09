@@ -1,5 +1,5 @@
 //! The library command owner, driven by injected inputs/provider and real atomic files.
-//! No shipped command or real credential/provider exists in this slice.
+//! All provider/declaration bytes here are fixtures; no real credential or account is read.
 #[path = "support/deploy_fixture.rs"]
 mod deploy_fixture;
 #[path = "support/deploy_port.rs"]
@@ -618,4 +618,196 @@ fn owner_action_and_building_are_reported_without_a_usable_binding() {
             .usable_binding()
             .is_none()
     );
+}
+
+mod cli_composition {
+    use super::*;
+    use serde_json::json;
+    use sha2::{Digest, Sha256};
+    use tmt_remote::{
+        deploy_cli::{self, DeployCliError, FirestoreCommandPort},
+        deploy_discovery::{DeclarationSource, DiscoveryRefusal},
+        deploy_record::{self, DeployRecordStore},
+        deploy_run::{
+            DeployApplied, DeployObserved, DeployPlan, DeployPort, DeployProviderError,
+            DeployRecord, DeployStep,
+        },
+    };
+    struct DeployCliSource(usize, bool);
+    impl DeclarationSource for DeployCliSource {
+        fn declaration(&mut self, extension: &str) -> Result<Option<Vec<u8>>, DiscoveryRefusal> {
+            self.0 += 1;
+            assert_eq!(extension, "colab");
+            if !self.1 {
+                return Ok(None);
+            }
+            let read = |path: &str| {
+                fs::read_to_string(
+                    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                        .join("tests/fixtures/rules")
+                        .join(path),
+                )
+                .unwrap()
+            };
+            let declaration = read("colab.json");
+            let digest: String = Sha256::digest(declaration.as_bytes())
+                .iter()
+                .map(|b| format!("{b:02x}"))
+                .collect();
+            Ok(Some(serde_json::to_vec(&json!({"version":1,"extension":"colab","backend":"firestore","declaration":declaration,"declarationDigest":digest,"artifact":read("colab.rules")})).unwrap()))
+        }
+    }
+    struct DeployCliProvider(deploy_port::Fake, usize);
+    impl DeployPort for DeployCliProvider {
+        fn account(&mut self) -> Result<String, DeployProviderError> {
+            self.1 += 1;
+            self.0.account()
+        }
+        fn observe(
+            &mut self,
+            plan: &DeployPlan,
+            step: &DeployStep,
+        ) -> Result<DeployObserved, DeployProviderError> {
+            self.0.observe(plan, step)
+        }
+        fn apply(
+            &mut self,
+            plan: &DeployPlan,
+            step: &DeployStep,
+        ) -> Result<DeployApplied, DeployProviderError> {
+            self.0.apply(plan, step)
+        }
+    }
+    impl FirestoreCommandPort for DeployCliProvider {
+        fn check_index_budget(
+            &mut self,
+            _: &str,
+            _: &tmt_remote::deploy_plan::Plan,
+        ) -> Result<(), DeployProviderError> {
+            self.1 += 1;
+            Ok(())
+        }
+        fn live_rules(&mut self, _: &str) -> Result<Option<Vec<u8>>, DeployProviderError> {
+            self.1 += 1;
+            Ok(self.0.rules.clone())
+        }
+    }
+    fn args(extra: &[&str]) -> Result<deploy_cli::FirestoreArgs, DeployCliError> {
+        let mut words = vec![
+            "firestore",
+            "--project",
+            "demo-remote-1",
+            "--region",
+            "asia-east1",
+            "--sign-in",
+            "anonymous",
+        ];
+        words.extend_from_slice(extra);
+        let matches = deploy_cli::command().try_get_matches_from(words).unwrap();
+        deploy_cli::arguments(&matches)
+    }
+    #[test]
+    fn authorization_shape_is_usage_before_discovery_or_setup() {
+        for extra in [
+            vec![
+                "--replace-rules",
+                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            ],
+            vec!["--authorize", "abc"],
+            vec!["--authorize", "ABCDEF012345"],
+            vec!["--authorize", "not-a-digest"],
+        ] {
+            assert!(matches!(args(&extra), Err(DeployCliError::Usage)));
+        }
+        assert!(args(&["--authorize", "abcdef012345"]).is_ok());
+        assert!(
+            deploy_cli::command()
+                .try_get_matches_from([
+                    "firestore",
+                    "--project",
+                    "demo-remote-1",
+                    "--region",
+                    "asia-east1"
+                ])
+                .is_err()
+        );
+        assert!(
+            deploy_cli::command()
+                .try_get_matches_from([
+                    "firestore",
+                    "--project",
+                    "demo-remote-1",
+                    "--region",
+                    "asia-east1",
+                    "--sign-in",
+                    "anonymous",
+                    "--yes"
+                ])
+                .is_err()
+        );
+    }
+    #[test]
+    fn no_declaration_reports_unavailable_without_provider_or_record_effect() {
+        let root = Root::new();
+        let layout = root.layout();
+        let mut store = DeployRecordStore::open(&layout).unwrap();
+        let before = deploy_record::read(&layout).unwrap();
+        let mut source = DeployCliSource(0, false);
+        let mut provider = DeployCliProvider(deploy_port::Fake::new("owner@example.test"), 0);
+        let out = deploy_cli::execute(
+            &args(&[]).unwrap(),
+            &mut source,
+            &["colab"],
+            &mut provider,
+            &mut store,
+            1,
+        )
+        .unwrap();
+        assert_eq!(out.json["available"], false);
+        assert_eq!(out.json["extensions"]["unavailable"][0]["name"], "colab");
+        assert_eq!(provider.1, 0);
+        assert!(provider.0.calls.is_empty());
+        assert!(provider.0.effects.is_empty());
+        assert_eq!(source.0, 1);
+        assert_eq!(deploy_record::read(&layout).unwrap(), before);
+    }
+    #[test]
+    fn discovered_plan_authorizes_whole_envelope_and_recovers_without_resending() {
+        let root = Root::new();
+        let layout = root.layout();
+        let mut store = DeployRecordStore::open(&layout).unwrap();
+        store.persist(&DeployRecord::new(ID)).unwrap();
+        let mut source = DeployCliSource(0, true);
+        let mut provider = DeployCliProvider(deploy_port::Fake::new("owner@example.test"), 0);
+        let preview = deploy_cli::execute(
+            &args(&["--json"]).unwrap(),
+            &mut source,
+            &["colab"],
+            &mut provider,
+            &mut store,
+            1,
+        )
+        .unwrap();
+        assert!(provider.0.effects.is_empty());
+        assert_eq!(source.0, 1);
+        assert_eq!(preview.json["authorized"], false);
+        assert!(preview.human.contains("Not authorized; nothing changed"));
+        let digest = preview.json["planDigest"].as_str().unwrap();
+        let opts = args(&["--authorize", &digest[..12]]).unwrap();
+        provider
+            .0
+            .faults
+            .insert("rules".into(), deploy_port::When::AfterEffectUnknown);
+        let partial =
+            deploy_cli::execute(&opts, &mut source, &["colab"], &mut provider, &mut store, 2)
+                .unwrap();
+        assert!(partial.human.contains("rules: unknown"));
+        assert!(partial.json["record"]["binding"].is_null());
+        let done =
+            deploy_cli::execute(&opts, &mut source, &["colab"], &mut provider, &mut store, 3)
+                .unwrap();
+        assert_eq!(done.json["record"]["run"]["state"], "complete");
+        assert_eq!(provider.0.effects_of("rules"), 1);
+        assert_eq!(source.0, 3);
+    }
 }

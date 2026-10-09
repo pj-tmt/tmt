@@ -1,6 +1,8 @@
 // Test-only login and fixed Google responses. Never loads a real credential store.
 const fs = require('node:fs');
 const path = require('node:path');
+// The helper must reach auth from its neutral cwd, never a caller project.
+if (process.cwd() !== '/') throw new Error('TOKEN_CANARY_UNSAFE_CWD');
 fs.writeFileSync(path.join(__dirname, '../auth-loaded'), 'loaded');
 const state = () => JSON.parse(fs.readFileSync(path.join(__dirname, '../state.json')));
 exports.selectAccount = () => {
@@ -38,6 +40,7 @@ global.fetch = async (url, options) => {
     result = { rulesetName: `projects/${value.project}/rulesets/exact` };
   else if (url.includes('/rulesets/'))
     result = { source: { files: [{ name: 'firestore.rules', content: value.source }] } };
+  else if (url.includes('/collectionGroups/-/fields?')) result = { fields: value.configs ?? [] };
   else if (url.includes('/fields/')) {
     const name = new URL(url).pathname.slice(4),
       field = name.split('/').at(-1);

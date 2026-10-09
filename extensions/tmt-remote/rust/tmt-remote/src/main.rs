@@ -219,6 +219,10 @@ fn grammar() -> Command {
                         ),
                 ),
         )
+        .subcommand(tmt_cli_style::command(&tmt_cli_style::CommandSpec {
+            name: "deploy", summary: "Plan and authorize cloud sharing deployment", examples: &[Example { command: "tmt remote deploy firestore --help", note: "Inspect the Firestore deployment inputs and authorization" }],
+            outputs: OutputModes::Human, details: "Only Firestore sharing is supported. Deployment requires explicit exact-plan authorization.",
+        }).subcommand_required(true).subcommand(tmt_remote::deploy_cli::command()))
         .subcommand(tmt_cli_style::command(&STOP))
         .subcommand(
             tmt_cli_style::command(&STATUS)
@@ -341,6 +345,9 @@ fn grammar() -> Command {
 }
 fn run(matches: &clap::ArgMatches) -> Result<(), RemoteError> {
     let (name, arguments) = matches.subcommand().expect("required subcommand");
+    if name == "deploy" {
+        return deploy_firestore_command(arguments);
+    }
     if matches!(name, "approve" | "cancel") {
         return approval_command(name, arguments);
     }
@@ -385,6 +392,66 @@ fn run(matches: &clap::ArgMatches) -> Result<(), RemoteError> {
         return devices(arguments);
     }
     serve::run(arguments)
+}
+fn deploy_firestore_command(matches: &clap::ArgMatches) -> Result<(), RemoteError> {
+    use tmt_remote::{deploy_cli, deploy_discovery, deploy_firestore, deploy_record, deploy_tools};
+    let (_, matches) = matches.subcommand().expect("required backend");
+    // Grammar/authorization shape is checked before tool discovery or provider setup.
+    let args = deploy_cli::arguments(matches).map_err(|_| RemoteError::new("USAGE_ERROR", "Use explicit --project, --region and --sign-in; --authorize needs at least 12 lowercase hex characters of the whole-envelope digest. --replace-rules requires --authorize and a full Rules digest."))?;
+    let stop = Arc::new(AtomicBool::new(false));
+    let _signals = [signal_hook::consts::SIGINT, signal_hook::consts::SIGTERM]
+        .into_iter()
+        .map(|signal| signal_hook::flag::register(signal, stop.clone()))
+        .collect::<Result<Vec<_>, _>>()?;
+    let mut declarations = deploy_discovery::InstalledDeclarations::new(&stop).map_err(|_| {
+        RemoteError::new(
+            "REMOTE_DEPLOY_DECLARATION_UNAVAILABLE",
+            "Installed declarations could not be confirmed.",
+        )
+    })?;
+    let enabled: Vec<_> = tmt_remote::mount::EXTENSIONS
+        .iter()
+        .map(|e| e.name)
+        .collect();
+    let discovered = deploy_discovery::discover(&mut declarations, &enabled).map_err(|_| {
+        RemoteError::new(
+            "REMOTE_DEPLOY_DECLARATION_UNAVAILABLE",
+            "Installed declarations could not be confirmed; no provider effect was attempted.",
+        )
+    })?;
+    let result = if let Some(output) = deploy_cli::unavailable(&discovered) {
+        output
+    } else {
+        let search = std::env::var_os("PATH").unwrap_or_default();
+        let tools = deploy_tools::discover(&search).map_err(|error| match error {
+            deploy_tools::ToolDiscoveryError::FirebaseMissing => RemoteError::new("REMOTE_DEPLOY_TOOL_MISSING", "Firebase CLI is not installed. Install it with: npm install -g firebase-tools@15.29.0"),
+            deploy_tools::ToolDiscoveryError::NodeMissing => RemoteError::new("REMOTE_DEPLOY_NODE_MISSING", "Node.js could not be found for the installed Firebase CLI. Install Node.js, then try again."),
+            deploy_tools::ToolDiscoveryError::Unsupported => RemoteError::new("REMOTE_DEPLOY_TOOL_UNSUPPORTED", &deploy_firestore::DeploySetupError::UnsupportedTool.to_string()),
+        })?;
+        let mut provider = deploy_firestore::DeployFirestore::at(tools.node, tools.package, &stop)
+            .map_err(|error| {
+                RemoteError::new("REMOTE_DEPLOY_SETUP_UNAVAILABLE", &error.to_string())
+            })?;
+        provider.login_account().map_err(|error| {
+            RemoteError::new("REMOTE_DEPLOY_SETUP_UNAVAILABLE", &error.to_string())
+        })?;
+        let root = CoreClient::discover()?.storage_root(&stop)?;
+        let layout = Layout::open(&root)?;
+        let mut record = deploy_record::DeployRecordStore::open(&layout)?;
+        deploy_cli::execute_prepared(&args, &discovered, &mut provider, &mut record, tmt_remote::pairing::now_ms()?).map_err(|error| match error {
+            deploy_cli::DeployCliError::Provider(tmt_remote::deploy_run::DeployProviderError::Rejected(fault)) => RemoteError::new(fault.code(), "Provider inventory refused; no deployment effect was attempted."),
+            deploy_cli::DeployCliError::Command(tmt_remote::deploy_command::DeployCommandError::Record(error)) => error,
+            deploy_cli::DeployCliError::Command(tmt_remote::deploy_command::DeployCommandError::Refused(reason)) => RemoteError::new(reason.code(), "Deployment plan or authorization refused; inspect the exact plan before authorizing."),
+            _ => RemoteError::new("REMOTE_DEPLOY_UNAVAILABLE", "Deployment could not be confirmed. Inspect the saved outcome before resuming the same exact plan."),
+        })?
+    };
+    let mut output = tmt_cli_style::stream::stdout(args.json);
+    if args.json {
+        writeln!(output, "{}", result.json)?;
+    } else {
+        write!(output, "{}", result.human)?;
+    }
+    Ok(())
 }
 fn discovery_root() -> Result<std::path::PathBuf, RemoteError> {
     CoreClient::discover()?
