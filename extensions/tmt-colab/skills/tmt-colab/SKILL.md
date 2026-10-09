@@ -115,6 +115,136 @@ Exports are unencrypted and include discussions; keep those files private to the
 requested task. The new page has a new identity and does not inherit the old
 page's discussions or sharing. Do not delete the original to clear a limit.
 
+## Page look
+
+Use the TMT browser style: square, flat, shadow-free surfaces; neutral greys;
+system fonts; and a mark plus a word for every state (for example, "◆ Waiting").
+Never use colour alone to communicate a state. Keep content full-width and
+readable at narrow widths. Start with the inline content styles below; do not
+paste the browser leaf's whole static.css.
+
+Colab already shows the brand, page title and actions. Do not add a site header,
+top navigation, product mark or wordmark, or any sticky or fixed bar. Begin with
+the page's content so the user sees one Colab header.
+
+The starter has light and dark palettes. Its default uses prefers-color-scheme;
+an explicit data-theme="light" or data-theme="dark" on the author html element
+overrides it. Colab's theme action changes its chrome, not the author's media preference.
+The starter follows the operating system; use an explicit author data-theme when
+needed. Do not assume the parent theme reaches the page.
+
+<!-- BEGIN generated page style -->
+
+```html
+<style>
+  :root {
+    --ink: #343434;
+    --muted: #626262;
+    --paper: #fafafa;
+    --sheet: #ffffff;
+    --edge: #d0d0d0;
+    --body: system-ui, -apple-system, 'Segoe UI', sans-serif;
+    --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+    --size: 14px;
+    --heading: 16px;
+    --rule: 1px;
+    --gap: 16px;
+    --small-gap: 8px;
+    color-scheme: light dark;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme='light']) {
+      --ink: #b0b0b0;
+      --muted: #b0b0b0;
+      --paper: #080808;
+      --sheet: #101010;
+      --edge: #303030;
+    }
+  }
+  :root[data-theme='light'] {
+    --ink: #343434;
+    --muted: #626262;
+    --paper: #fafafa;
+    --sheet: #ffffff;
+    --edge: #d0d0d0;
+    color-scheme: light;
+  }
+  :root[data-theme='dark'] {
+    --ink: #b0b0b0;
+    --muted: #b0b0b0;
+    --paper: #080808;
+    --sheet: #101010;
+    --edge: #303030;
+    color-scheme: dark;
+  }
+  * {
+    box-sizing: border-box;
+  }
+  body {
+    margin: 0;
+    padding: var(--gap);
+    background: var(--paper);
+    color: var(--ink);
+    font: var(--size)/1.5 var(--body);
+    overflow-wrap: anywhere;
+  }
+  h1,
+  h2,
+  h3 {
+    margin: 0 0 var(--small-gap);
+    font-size: var(--heading);
+    line-height: 1.2;
+  }
+  p,
+  ul,
+  ol,
+  table,
+  pre {
+    margin: 0 0 var(--gap);
+  }
+  ul,
+  ol {
+    padding-left: calc(var(--gap) * 2);
+  }
+  a {
+    color: inherit;
+    text-decoration: underline;
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+  }
+  th,
+  td {
+    padding: var(--small-gap);
+    border-bottom: var(--rule) solid var(--edge);
+    text-align: left;
+    vertical-align: top;
+  }
+  code,
+  pre {
+    font-family: var(--mono);
+  }
+  pre {
+    padding: var(--gap);
+    background: var(--sheet);
+    border: var(--rule) solid var(--edge);
+    white-space: pre-wrap;
+  }
+  section {
+    margin: 0 0 var(--gap);
+    padding: var(--gap);
+    background: var(--sheet);
+    border: var(--rule) solid var(--edge);
+  }
+  .muted {
+    color: var(--muted);
+  }
+</style>
+```
+
+<!-- END generated page style -->
+
 ## HTML that renders
 
 Use inline styles and scripts, system fonts and `data:` images. The opaque

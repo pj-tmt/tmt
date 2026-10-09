@@ -8,6 +8,14 @@ Run from the repository root; `(cd rust && ...)` runs from `rust/`. Use
 `extensions/tmt-colab/skills/tmt-colab/SKILL.md` is the canonical user-facing agent
 skill; this development skill remains the repository guide. The executable embeds
 it, and `tmt colab skill` prints its exact bytes without core discovery or storage.
+Its Page look starter is generated from `design/tokens/tokens.json`. After changing
+those tokens or the starter generator, run
+`node extensions/tmt-colab/scripts/generate-page-style.mjs --write`, then `--check`.
+The generator replaces only the marked style block; the surrounding prose stays
+handwritten. It is a development command, never a Cargo, serve or install hook.
+The app's `page-style.test.ts` checks token equality, forbidden chrome and effects,
+non-writing failures, and budgets of 3,000 bytes for the starter and 12,000 bytes /
+500 lines for the complete skill.
 `tests/cli.rs` verifies a relocated executable with no core or checkout. Its
 fixture publishes the exact binary bytes and mode through the existing dev-only
 `tmt-test-support::write_executable` boundary before execution; the test process

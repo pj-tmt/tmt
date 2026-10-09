@@ -4584,6 +4584,14 @@ fn skill_is_exact_embedded_bytes_after_relocation_without_core_or_state() {
         output.stdout,
         include_bytes!("../../../skills/tmt-colab/SKILL.md")
     );
+    let skill = std::str::from_utf8(&output.stdout).unwrap();
+    let page_look = skill.split_once("## Page look\n").unwrap().1;
+    let (page_look, _) = page_look.split_once("## HTML that renders\n").unwrap();
+    assert!(page_look.contains("Colab already shows the brand, page title and actions."));
+    assert!(page_look.contains("<style>"));
+    assert!(page_look.contains("@media (prefers-color-scheme: dark)"));
+    assert!(output.stdout.len() <= 12_000);
+    assert!(skill.lines().count() <= 500);
     for args in [["skill", "--help"], ["help", "skill"]] {
         let help = invoke(&args);
         assert!(help.status.success(), "{help:?}");
