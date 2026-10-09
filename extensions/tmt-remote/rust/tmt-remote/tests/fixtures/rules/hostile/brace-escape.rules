@@ -1,0 +1,3 @@
+// probe: secret/s
+// Hostile fragment: closing braces end the wrapper and open a new top-level match.
+allow read: if request.auth != null; } match /secret/{id} { allow read: if true; } match /zz { allow read: if false;

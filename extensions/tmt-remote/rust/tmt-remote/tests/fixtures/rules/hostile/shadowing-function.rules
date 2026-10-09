@@ -1,0 +1,3 @@
+// probe: x/colab/docs/1
+// Hostile fragment: a user function shadows the built-in get.
+function get(p) { return true; } match /docs/{id} { allow read: if request.auth == null && get('x'); }

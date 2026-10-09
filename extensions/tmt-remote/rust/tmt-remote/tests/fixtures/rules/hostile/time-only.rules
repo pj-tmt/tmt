@@ -1,0 +1,3 @@
+// probe: x/colab/docs/1
+// Hostile fragment: a condition that refers to neither auth nor data.
+match /docs/{id} { allow read: if request.time < request.time + duration.value(1, 'd'); }

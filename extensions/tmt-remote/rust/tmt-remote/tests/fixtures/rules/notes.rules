@@ -1,0 +1,5 @@
+// Test fixture for a second extension.
+match /notes/{id} {
+  allow read: if request.auth != null;
+  allow create: if request.auth != null && request.resource.data.keys().hasOnly(['body']);
+}

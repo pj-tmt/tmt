@@ -108,6 +108,7 @@ export function selectCiAreas(paths: readonly string[], map?: ComponentMap): CiA
 export function selectOfficeBrowser(paths: readonly string[], map?: ComponentMap): boolean;
 export function selectColabHarness(paths: readonly string[], map?: ComponentMap): boolean;
 export function selectColabApp(paths: readonly string[], map?: ComponentMap): boolean;
+export function selectRemoteFirestore(paths: readonly string[]): boolean;
 export function selectNativeNotices(paths: readonly string[]): boolean;
 export function selectNativeScope(paths: readonly string[], map?: ComponentMap): string;
 export function scopedChecks(

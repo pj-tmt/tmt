@@ -1489,6 +1489,18 @@ credential reaches a client. The deploy plan accounts for required service acces
 claiming Rules protect privileged code. A refresh failure stops transport; reconnect recovers
 owned state through a fresh signed session, without resending work.
 
+**Layer-1 composition (`sharing` profile).** Remote builds `firestore.rules` from text it owns (`rules_version`, one
+`match /x/<extension>` wrapper per extension of the plan, a default deny) and each extension's admission fragment, which
+it tokenizes and rebuilds, never splices. A fragment holds only nested `match` and `allow <methods>: if <condition>`
+statements over an allow-list of request and document fields, operators and methods. `function`, `let`, `path()`, bare
+`get`/`exists`/`getAfter`/`existsAfter` and absolute path literals are refused: Rules can reach outside the wrapper through
+interpolated or concatenated path strings, and a user function can shadow a built-in. Reads of the extension's own
+documents use the macros `ext.get`, `ext.exists`, `ext.getAfter` and `ext.existsAfter`, which expand to a fixed
+`x/<extension>` prefix. A condition must refer to `request.auth` or document data: `if true`, constants and time-only
+conditions are refused. A recursive wildcard is allowed only inside the wrapper. Indexes come from the plan as
+per-collection field overrides, and a TTL policy is written only when the target provisions it. The device inbox,
+permit, chunk, response and checkpoint Rules above wait for the admission service.
+
 ### Proposal: Cloudflare Worker and Durable Objects
 
 Only the Worker is publicly reachable. It checks exact route/framing, byte and rate bounds,
