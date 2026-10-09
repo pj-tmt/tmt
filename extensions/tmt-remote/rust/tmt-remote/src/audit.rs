@@ -50,11 +50,12 @@ pub(crate) fn append(tx: &Transaction<'_>, event: AuditMetadata<'_>) -> Result<(
     )
     .map_err(database)?;
     tx.execute("DELETE FROM audit WHERE position IN (SELECT position FROM audit ORDER BY position DESC LIMIT -1 OFFSET ?1)",[RECORDS-1]).map_err(database)?;
-    let operation = if admission::scope(event.operation).is_some() {
-        event.operation
-    } else {
-        "unsupported"
-    };
+    let operation =
+        if admission::scope(event.operation).is_some() || event.operation == "remote.pair" {
+            event.operation
+        } else {
+            "unsupported"
+        };
     let code = if event.code.len() <= 64
         && event
             .code

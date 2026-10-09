@@ -378,3 +378,62 @@ fn stopping_serve_cancels_a_pending_offer() {
         .unwrap(),
     );
 }
+
+#[test]
+fn owner_talk_policy_narrows_agents_and_hold_in_the_signed_receipt_and_atomic_audit() {
+    use std::io::Write;
+    let h = Harness::new(FAST);
+    let Offered {
+        mut owner,
+        code,
+        descriptor,
+        ..
+    } = open(&h);
+    let device = Device::browser(&h, 7);
+    let pending = submit(
+        &h,
+        device.body(&descriptor, &code, &device.key),
+        Some(device.origin.clone()),
+    );
+    assert_eq!(owner.next()["event"], "candidate");
+    let agent = uuid_v4().unwrap();
+    writeln!(
+        owner.stream,
+        "{}",
+        json!({"op":"confirm","policy":{"talk":true,"agents":[agent],"hold":true}})
+    )
+    .unwrap();
+    let ended = owner.next();
+    assert_eq!(ended["reason"], "paired");
+    let (status, reply) = pending.join().unwrap();
+    assert_eq!(status, 200);
+    let receipt = canonical::base64url_decode(reply["receipt"].as_str().unwrap()).unwrap();
+    let enrollment = device.enrollment(&descriptor);
+    let key = crypto::response_key(&code, &enrollment).unwrap();
+    crypto::verify_server_proof(
+        &key,
+        &receipt,
+        &canonical::base64url_bytes(reply["serverProof"].as_str().unwrap(), 32).unwrap(),
+    )
+    .unwrap();
+    let result: Value = serde_json::from_slice(&receipt).unwrap();
+    assert_eq!(result["grant"]["agents"], json!([agent]));
+    assert_eq!(result["grant"]["mode"], "hold");
+    let stored = h
+        .store
+        .lock()
+        .unwrap()
+        .grant(ended["clientId"].as_str().unwrap())
+        .unwrap()
+        .unwrap();
+    assert!(stored.permits_scope("talk"));
+    let oracle = rusqlite::Connection::open(h.root.join("remote/remote.db")).unwrap();
+    let count: i64 = oracle
+        .query_row(
+            "SELECT COUNT(*) FROM audit WHERE operation='remote.pair' AND decision='committed'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(count, 1);
+}

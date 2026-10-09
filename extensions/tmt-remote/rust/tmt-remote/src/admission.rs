@@ -170,6 +170,7 @@ pub(crate) enum RemoteOperation {
     DevicesList,
     DevicesRename,
     DevicesRevoke,
+    DevicesTalk,
     ManagementOperation,
     AgentsList,
     IdentitiesStatus,
@@ -190,6 +191,7 @@ impl RemoteOperation {
         ("remote.devices.list", Self::DevicesList),
         ("remote.devices.rename", Self::DevicesRename),
         ("remote.devices.revoke", Self::DevicesRevoke),
+        ("remote.devices.talk", Self::DevicesTalk),
         ("remote.management.operation", Self::ManagementOperation),
         ("agents.list", Self::AgentsList),
         ("identities.status", Self::IdentitiesStatus),
@@ -216,6 +218,7 @@ impl RemoteOperation {
             Self::DevicesList => OperationClass::Read,
             Self::DevicesRename => OperationClass::Effect,
             Self::DevicesRevoke => OperationClass::Effect,
+            Self::DevicesTalk => OperationClass::Effect,
             Self::ManagementOperation => OperationClass::Read,
             Self::AgentsList => OperationClass::Read,
             Self::IdentitiesStatus => OperationClass::Read,
@@ -237,6 +240,7 @@ impl RemoteOperation {
             Self::DevicesList => None,
             Self::DevicesRename => None,
             Self::DevicesRevoke => None,
+            Self::DevicesTalk => None,
             Self::ManagementOperation => None,
             Self::AgentsList => Some("agents.read"),
             Self::IdentitiesStatus => Some("status.read"),
@@ -267,7 +271,32 @@ pub(crate) fn refusal_with_limit(
     text: &str,
     limit: Option<usize>,
 ) -> MessageRefusal {
-    let mut payload = json!({"error":{"code":code,"message":text}});
+    signed_refusal(
+        sessions,
+        message,
+        json!({"code":code,"message":text}),
+        limit,
+    )
+}
+
+pub(crate) fn missing_talk(sessions: &DoorSessions, message: &SignedMessage) -> MessageRefusal {
+    signed_refusal(
+        sessions,
+        message,
+        json!({"code":"REMOTE_SCOPE_DENIED",
+        "message":"Device scope does not admit this operation.","scope":"talk",
+        "settingsUrl":format!("{}/settings", sessions.door_origin())}),
+        None,
+    )
+}
+
+fn signed_refusal(
+    sessions: &DoorSessions,
+    message: &SignedMessage,
+    error: Value,
+    limit: Option<usize>,
+) -> MessageRefusal {
+    let mut payload = json!({"error":error});
     if let Some(limit) = limit {
         payload["error"]["limit"] = json!(limit);
     }

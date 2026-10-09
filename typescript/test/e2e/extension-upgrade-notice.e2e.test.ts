@@ -50,7 +50,7 @@ describe('post-upgrade Remote notice', () => {
         const owner = new RemoteOwner(fixture);
         try {
           await owner.start();
-          const { device, paired } = await owner.pair();
+          const { device, paired } = await owner.pair(undefined, { talk: true });
           await owner.stop();
           owner.seedGrant(paired.clientId, { mode: 'hold' });
           await owner.start();

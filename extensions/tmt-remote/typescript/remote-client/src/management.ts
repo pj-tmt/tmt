@@ -21,6 +21,7 @@ export interface ManagementDevice {
   expiresAtMs: number | null;
   revision: number;
   revoked: boolean;
+  talkEnabled: boolean;
 }
 export interface DevicePage {
   devices: (ManagementDevice & {
@@ -55,6 +56,11 @@ export interface RemoteManagement {
     operationId: string;
     clientId: string;
     name: string;
+  }): Promise<ManagementOutcome>;
+  talk(input: {
+    operationId: string;
+    clientId: string;
+    enabled: boolean;
   }): Promise<ManagementOutcome>;
   revoke(input: { operationId: string; clientId: string }): Promise<ManagementOutcome>;
   operation(operationId: string): Promise<ManagementOutcome>;
@@ -99,6 +105,7 @@ function device(value: unknown, activity = false): ManagementDevice {
     'expiresAtMs',
     'revision',
     'revoked',
+    'talkEnabled',
     ...(activity ? ['thisBrowser', 'liveSessionCount', 'lastActivityAtMs'] : []),
   ]);
   valid(typeof row.clientId === 'string' && UUID.test(row.clientId));
@@ -110,7 +117,12 @@ function device(value: unknown, activity = false): ManagementDevice {
   );
   valid(['browser', 'addon', 'cli'].includes(row.kind as string) && integer(row.issuedAtMs));
   valid(row.expiresAtMs === null || integer(row.expiresAtMs));
-  valid(integer(row.revision) && (row.revision as number) > 0 && typeof row.revoked === 'boolean');
+  valid(
+    integer(row.revision) &&
+      (row.revision as number) > 0 &&
+      typeof row.revoked === 'boolean' &&
+      typeof row.talkEnabled === 'boolean',
+  );
   if (activity)
     valid(
       typeof row.thisBrowser === 'boolean' &&
@@ -167,7 +179,7 @@ export function management(
   const call = verifiedSessionRequest(session, options);
   async function mutate(
     operation: string,
-    value: { operationId: string; clientId?: string; name?: string },
+    value: { operationId: string; clientId?: string; name?: string; enabled?: boolean },
   ): Promise<ManagementOutcome> {
     const { operationId } = value;
     input(UUID.test(operationId));
@@ -185,6 +197,8 @@ export function management(
               if (operation === 'remote.devices.rename')
                 valid(parsed.result.device.name === value.name);
               if (operation === 'remote.devices.revoke') valid(parsed.result.device.revoked);
+              if (operation === 'remote.devices.talk')
+                valid(parsed.result.device.talkEnabled === value.enabled);
             }
           }
           return parsed;
@@ -260,6 +274,10 @@ export function management(
           ![...change.name].some((char) => char.charCodeAt(0) < 32 || char.charCodeAt(0) === 127),
       );
       return mutate('remote.devices.rename', { ...change });
+    },
+    talk: (change) => {
+      input(UUID.test(change.clientId) && typeof change.enabled === 'boolean');
+      return mutate('remote.devices.talk', { ...change });
     },
     revoke: (change) => {
       input(UUID.test(change.clientId));

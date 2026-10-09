@@ -68,6 +68,18 @@ impl Devices {
         }
         Ok(grant)
     }
+    pub fn talk(&self, client_id: &str, enabled: bool) -> Result<Grant, RemoteError> {
+        let mut store = self.store()?;
+        let before = store.grant(client_id)?;
+        let grant = store.talk(client_id, enabled)?.ok_or_else(|| {
+            RemoteError::new("REMOTE_DEVICE_NOT_FOUND", "No paired device has that ID.")
+        })?;
+        drop(store);
+        if before.is_some_and(|g| g.revision != grant.revision) {
+            self.committed_change(client_id);
+        }
+        Ok(grant)
+    }
     pub fn designate(&self, client_id: &str, origin: &str) -> Result<Grant, RemoteError> {
         self.store()?
             .designate(client_id, origin, crate::pairing::now_ms()?)

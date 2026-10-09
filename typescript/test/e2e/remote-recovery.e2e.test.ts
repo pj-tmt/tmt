@@ -19,7 +19,7 @@ describe('Remote same-ID crash recovery (#1055 bullet 5)', () => {
           const trace = installTmuxTrace(fixture);
           try {
             await owner.start();
-            const { device, paired } = await owner.pair();
+            const { device, paired } = await owner.pair(undefined, { talk: true });
             const session = await owner.session(device, paired);
             const operationId = randomUUID();
             const message = `Original intent across ${phase}-acceptance crash`;

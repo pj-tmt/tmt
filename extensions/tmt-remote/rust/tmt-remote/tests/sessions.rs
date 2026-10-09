@@ -1369,3 +1369,77 @@ fn held_work_remains_approvable_after_last_transport_close_and_visible_to_later_
         assert_eq!(core.sends(), 1);
     }
 }
+
+#[test]
+fn missing_talk_scope_is_a_signed_real_door_refusal_before_send_ownership() {
+    let h = Harness::new(FAST);
+    let device = Device::browser(&h, 7);
+    let client = paired(&h, &device);
+    let narrowed = h.devices.talk(&client, false).unwrap();
+    assert!(!narrowed.permits_scope("talk"));
+    let opened = payload(&open_session(
+        &h,
+        &Opening::new(&h, &client, &device.key).wire(),
+    ));
+    let session = opened["sessionId"].as_str().unwrap();
+    let mut wire = Opening::new(&h, &client, &device.key).wire();
+    wire["kind"] = json!("request");
+    wire["sessionId"] = json!(session);
+    wire["sequence"] = json!("1");
+    wire["operation"] = json!("dispatch.create");
+    wire["payload"] = json!(canonical::base64url(b"{}"));
+    let signed = canonical::envelope(&Envelope {
+        kind: "request",
+        id: wire["id"].as_str().unwrap(),
+        correlation_id: None,
+        machine_id: &h.machine_id,
+        window_id: &h.window_id,
+        client_id: &client,
+        session_id: session,
+        sequence: "1",
+        timestamp_ms: wire["timestampMs"].as_u64().unwrap(),
+        origin: &h.origin,
+        operation: "dispatch.create",
+        payload: b"{}",
+    })
+    .unwrap();
+    wire["signature"] = json!(canonical::base64url(&device.key.sign(&signed).to_bytes()));
+    let reply = open_session(&h, &wire);
+    let error = payload(&reply);
+    assert_eq!(error["error"]["code"], "REMOTE_SCOPE_DENIED");
+    assert_eq!(error["error"]["scope"], "talk");
+    assert_eq!(
+        error["error"]["settingsUrl"],
+        format!("{}/settings", h.origin)
+    );
+    let response: Value = serde_json::from_str(&reply.body).unwrap();
+    assert_eq!(response["correlationId"], wire["id"]);
+    let bytes = canonical::base64url_decode(response["payload"].as_str().unwrap()).unwrap();
+    let text = |name: &str| response[name].as_str().unwrap();
+    let signed = canonical::envelope(&Envelope {
+        kind: "response",
+        id: text("id"),
+        correlation_id: Some(text("correlationId")),
+        machine_id: text("machineId"),
+        window_id: text("windowId"),
+        client_id: text("clientId"),
+        session_id: text("sessionId"),
+        sequence: text("sequence"),
+        timestamp_ms: response["timestampMs"].as_u64().unwrap(),
+        origin: text("origin"),
+        operation: text("operation"),
+        payload: &bytes,
+    })
+    .unwrap();
+    crypto::verify_signature(
+        &h.machine_public,
+        &signed,
+        &canonical::base64url_bytes(text("signature"), 64).unwrap(),
+    )
+    .unwrap();
+    let oracle = rusqlite::Connection::open(h.root.join("remote/remote.db")).unwrap();
+    let rows: i64 = oracle
+        .query_row("SELECT COUNT(*) FROM operations", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(rows, 0, "missing sending scope never adopts a send");
+}

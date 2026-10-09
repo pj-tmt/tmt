@@ -223,10 +223,14 @@ transport; other tabs remain live. Recover previously unknown send outcomes by o
 the original operation ID after reopening. Never retry a send automatically because its
 transport closed.
 
+A signed missing-sending refusal keeps `REMOTE_SCOPE_DENIED` and exposes
+`RefusalError.scope === "talk"` (also on refused send/operation states), with the optional
+same-origin `settingsUrl`; recipient allowlist refusals do not claim talk is missing.
+
 ## Remote management
 
 `management(session)` uses the same verified serialized Session channel as `operations(session)`.
-It exposes `settings()`, `devices({cursor,limit})`, `set`, `rename`, `revoke` and
+It exposes `settings()`, `devices({cursor,limit})`, `set`, `rename`, `talk`, `revoke` and
 `operation(originalOperationId)`. Every read and effect retains live-grant admission. The [owning protocol](../../../../contracts/remote-channel-v1.md#remote-management-protocol)
 specifies exact shapes and bounds. Session caps are positive decimal **strings** or null, preserving
 native values beyond JavaScript safe integers; default reads as `"8"` and null means unlimited.
@@ -237,6 +241,11 @@ outcome are distinct. `ClientError` after publication retains the original opera
 resends, reopens, creates a replacement mutation ID or designates a browser automatically.
 Read `operation(originalId)` explicitly, without submitting the setter again. Unknown/pending
 receipts never trigger a write; current values do not establish original commit.
+
+`talk({operationId,clientId,enabled})` changes only the sending scope. It requires the same
+local designation as other mutations; `talkEnabled` in device summaries is configured policy,
+not live access. A changed revision ends old Sessions; exact repeats preserve them. After a
+self-toggle, explicitly reopen and read only the original receipt, as for self-rename.
 
 After self-rename, explicitly reopen a fresh verified Session using the still-live grant and read
 the original receipt. After a lost self-revoke acknowledgment, make one fresh read-only admission

@@ -523,6 +523,13 @@ fn line(reader: &std::sync::mpsc::Receiver<String>) -> Value {
 }
 #[test]
 fn pair_json_confirms_one_device_and_grant_survives_control_stop_restart() {
+    pair_json_lifecycle(false);
+}
+#[test]
+fn pair_json_explicit_policy_requires_a_current_owner_and_keeps_the_selected_grant() {
+    pair_json_lifecycle(true);
+}
+fn pair_json_lifecycle(explicit_policy: bool) {
     use ed25519_dalek::{Signer, SigningKey};
     use tmt_remote::{
         canonical::{self, Enrollment},
@@ -551,9 +558,13 @@ fn pair_json_confirms_one_device_and_grant_survives_control_stop_restart() {
     let address = descriptor["address"].as_str().unwrap().to_owned();
     let (origin, prefix) = address.split_at(address.find("/r/").unwrap());
     let socket = origin.strip_prefix("http://").unwrap().to_owned();
-    let mut pair = pilot
-        .command()
-        .args(["pair", "--json"])
+    let mut pair_command = pilot.command();
+    pair_command.args(["pair", "--json"]);
+    let selected_agent = "11111111-1111-4111-8111-111111111111";
+    if explicit_policy {
+        pair_command.args(["--talk", "--agents", selected_agent, "--hold"]);
+    }
+    let mut pair = pair_command
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .spawn()
@@ -569,6 +580,7 @@ fn pair_json_confirms_one_device_and_grant_survives_control_stop_restart() {
     });
     let offer = line(&events);
     assert_eq!(offer["event"], "offer");
+    assert_eq!(offer["ownerPolicyVersion"], 1);
     let d = &offer["descriptor"];
     let code = canonical::pairing_code(offer["code"].as_str().unwrap()).unwrap();
     let key = SigningKey::from_bytes(&[5; 32]);
@@ -641,6 +653,19 @@ fn pair_json_confirms_one_device_and_grant_survives_control_stop_restart() {
     let client_id = ended["clientId"].as_str().unwrap();
     assert_eq!(running["devices"][0]["clientId"], client_id);
     assert_eq!(running["devices"][0]["kind"], "cli");
+    assert_eq!(
+        running["devices"][0]["mode"],
+        if explicit_policy { "hold" } else { "direct" }
+    );
+    if explicit_policy {
+        assert_eq!(
+            serde_json::from_str::<Value>(running["devices"][0]["agents"].as_str().unwrap())
+                .unwrap(),
+            serde_json::json!([selected_agent])
+        );
+    } else {
+        assert_eq!(running["devices"][0]["agents"], "all");
+    }
     let (renamed, name) = devices(&pilot, &["rename", client_id, "Travel laptop", "--json"]);
     assert!(renamed);
     assert_eq!(name["device"]["name"], "Travel laptop");
@@ -2411,6 +2436,15 @@ fn control_reply(
     expected_request: Value,
     reply: Option<&str>,
 ) -> std::process::Output {
+    control_exchange(pilot, args, expected_request, reply, None)
+}
+fn control_exchange(
+    pilot: &Pilot,
+    args: &[&str],
+    expected_request: Value,
+    reply: Option<&str>,
+    expected_tail: Option<&str>,
+) -> std::process::Output {
     let socket = pilot.root.join("state/remote/control.sock");
     let listener = UnixListener::bind(&socket).unwrap();
     fs::set_permissions(&socket, fs::Permissions::from_mode(0o600)).unwrap();
@@ -2441,6 +2475,11 @@ fn control_reply(
             );
             if let Some(reply) = reply {
                 stream.write_all(reply.as_bytes()).unwrap();
+                if let Some(expected_tail) = expected_tail {
+                    let mut tail = String::new();
+                    stream.read_to_string(&mut tail).unwrap();
+                    assert_eq!(tail, expected_tail, "unexpected owner confirmation");
+                }
             } else {
                 let _ = finished.recv_timeout(Duration::from_secs(15));
             }
@@ -2454,6 +2493,36 @@ fn control_reply(
     assert!(before.elapsed() < Duration::from_secs(10));
     output
 }
+#[test]
+fn explicit_pair_policy_refuses_an_old_owner_before_exposing_or_confirming_its_offer() {
+    let pilot = Pilot::new();
+    tmt_remote::state::Layout::open(&pilot.root.join("state")).unwrap();
+    for extra in [vec!["--talk"], vec!["--talk", "--hold"]] {
+        let mut args = vec!["pair", "--json"];
+        args.extend(extra);
+        let output = control_exchange(
+            &pilot,
+            &args,
+            serde_json::json!({"op":"pair"}),
+            Some("{\"event\":\"offer\",\"link\":\"private-old-owner-link\"}\n"),
+            Some(""),
+        );
+        assert!(!output.status.success());
+        assert!(output.stderr.is_empty());
+        let answer: Value = serde_json::from_slice(&output.stdout).unwrap();
+        assert_eq!(answer["error"]["code"], "REMOTE_SERVE_OUTDATED");
+        assert_eq!(
+            answer["error"]["message"],
+            tmt_remote::control::outdated_serve().message
+        );
+        assert!(
+            !String::from_utf8(output.stdout)
+                .unwrap()
+                .contains("private-old-owner-link")
+        );
+    }
+}
+
 #[test]
 fn machine_status_is_root_local_and_never_initializes_a_stopped_machine() {
     let mut machines = Vec::new();

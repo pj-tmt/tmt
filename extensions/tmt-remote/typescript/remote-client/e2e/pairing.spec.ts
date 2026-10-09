@@ -446,7 +446,7 @@ for (const failure of ['SDK abort', 'offer abort', 'offer refused', 'offer malfo
 }
 
 test('a browser pairs, gets a door session and certifies only its own extension', async () => {
-  pair = spawn(BINARY, ['pair', '--json'], { env });
+  pair = spawn(BINARY, ['pair', '--json', '--talk'], { env });
   const events = lines(pair);
   const offer = await events.next();
   const link = offer.link as string;

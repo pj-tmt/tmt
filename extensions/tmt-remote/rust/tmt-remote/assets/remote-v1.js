@@ -345,12 +345,14 @@ var RefusalError = class extends Error {
 	retryAfterMs;
 	limit;
 	settingsUrl;
-	constructor(code, retryAfterMs, limit, settingsUrl) {
+	scope;
+	constructor(code, retryAfterMs, limit, settingsUrl, scope) {
 		super(`Remote operation refused: ${code}.`);
 		this.code = code;
 		this.retryAfterMs = retryAfterMs;
 		this.limit = limit;
 		this.settingsUrl = settingsUrl;
+		this.scope = scope;
 		this.name = "RefusalError";
 	}
 };
@@ -470,6 +472,8 @@ function remoteError(value, address) {
 	if (!Object.hasOwn(value, "error")) return void 0;
 	const error = record(value.error);
 	valid$1(typeof error.code === "string" && /^[A-Z][A-Z0-9_]{0,63}$/.test(error.code) && typeof error.message === "string");
+	const scope = error.scope;
+	valid$1(scope === void 0 || error.code === "REMOTE_SCOPE_DENIED" && scope === "talk");
 	const limit = error.limit;
 	valid$1(limit === void 0 || typeof limit === "number" && Number.isSafeInteger(limit) && limit > 0);
 	valid$1(error.code !== "REMOTE_SESSION_EVICTED" || limit !== void 0);
@@ -495,7 +499,7 @@ function remoteError(value, address) {
 		"REMOTE_SETTINGS_UNAVAILABLE",
 		"REMOTE_MANAGEMENT_CAPACITY"
 	].includes(error.code));
-	return new RefusalError(error.code, retry, limit, settingsUrl);
+	return new RefusalError(error.code, retry, limit, settingsUrl, scope);
 }
 function enqueue(channel, action) {
 	const pending = channel.tail.then(action);
@@ -686,7 +690,8 @@ function operations(session, options = {}) {
 					operationId,
 					reason: error.code,
 					...error.limit === void 0 ? {} : { limit: error.limit },
-					...error.settingsUrl === void 0 ? {} : { settingsUrl: error.settingsUrl }
+					...error.settingsUrl === void 0 ? {} : { settingsUrl: error.settingsUrl },
+					...error.scope === void 0 ? {} : { scope: error.scope }
 				};
 				if (error instanceof ClientError) throw new ClientError(error.code, error.message, operationId);
 				throw error;
@@ -702,7 +707,8 @@ function operations(session, options = {}) {
 					operationId,
 					reason: error.code,
 					...error.limit === void 0 ? {} : { limit: error.limit },
-					...error.settingsUrl === void 0 ? {} : { settingsUrl: error.settingsUrl }
+					...error.settingsUrl === void 0 ? {} : { settingsUrl: error.settingsUrl },
+					...error.scope === void 0 ? {} : { scope: error.scope }
 				};
 				if (error instanceof ClientError) throw new ClientError(error.code, error.message, operationId);
 				throw error;
@@ -757,6 +763,7 @@ function device(value, activity = false) {
 		"expiresAtMs",
 		"revision",
 		"revoked",
+		"talkEnabled",
 		...activity ? [
 			"thisBrowser",
 			"liveSessionCount",
@@ -771,7 +778,7 @@ function device(value, activity = false) {
 		"cli"
 	].includes(row.kind) && integer(row.issuedAtMs));
 	valid(row.expiresAtMs === null || integer(row.expiresAtMs));
-	valid(integer(row.revision) && row.revision > 0 && typeof row.revoked === "boolean");
+	valid(integer(row.revision) && row.revision > 0 && typeof row.revoked === "boolean" && typeof row.talkEnabled === "boolean");
 	if (activity) valid(typeof row.thisBrowser === "boolean" && integer(row.liveSessionCount) && (row.lastActivityAtMs === null || integer(row.lastActivityAtMs)));
 	return row;
 }
@@ -836,6 +843,7 @@ function management(session, options = {}) {
 						valid("device" in parsed.result && parsed.result.device.clientId === value.clientId);
 						if (operation === "remote.devices.rename") valid(parsed.result.device.name === value.name);
 						if (operation === "remote.devices.revoke") valid(parsed.result.device.revoked);
+						if (operation === "remote.devices.talk") valid(parsed.result.device.talkEnabled === value.enabled);
 					}
 				}
 				return parsed;
@@ -889,6 +897,10 @@ function management(session, options = {}) {
 		rename: (change) => {
 			input(UUID$1.test(change.clientId) && typeof change.name === "string" && change.name.trim().length > 0 && new TextEncoder().encode(change.name).length <= 64 && ![...change.name].some((char) => char.charCodeAt(0) < 32 || char.charCodeAt(0) === 127));
 			return mutate("remote.devices.rename", { ...change });
+		},
+		talk: (change) => {
+			input(UUID$1.test(change.clientId) && typeof change.enabled === "boolean");
+			return mutate("remote.devices.talk", { ...change });
 		},
 		revoke: (change) => {
 			input(UUID$1.test(change.clientId));

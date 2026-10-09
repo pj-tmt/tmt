@@ -209,3 +209,32 @@ test('signed phase-ambiguous failure preserves original outcome after a recorded
     }
   }
 });
+
+test('sending toggle checks the target and returned scope bit without changing other policy', async () => {
+  const { door, client } = await ready();
+  const id = crypto.randomUUID();
+  door.managementReply = (operation, input) => {
+    assert.equal(operation, 'remote.devices.talk');
+    assert.deepEqual(input, { operationId: id, clientId: door.clientId, enabled: false });
+    return {
+      operationId: id,
+      state: 'committed',
+      result: {
+        device: {
+          clientId: door.clientId,
+          name: 'Device',
+          kind: 'browser',
+          issuedAtMs: 1,
+          expiresAtMs: null,
+          revision: 2,
+          revoked: false,
+          talkEnabled: false,
+        },
+      },
+      sessionEnded: true,
+    };
+  };
+  const result = await client.talk({ operationId: id, clientId: door.clientId, enabled: false });
+  assert.equal(result.state, 'committed');
+  assert.equal(door.calls.length, 1);
+});

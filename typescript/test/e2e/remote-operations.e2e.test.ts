@@ -44,7 +44,7 @@ describe('Remote owner-device operations (#1055)', () => {
         const owner = new RemoteOwner(fixture);
         try {
           await owner.start();
-          const { device, paired } = await owner.pair();
+          const { device, paired } = await owner.pair(undefined, { talk: true });
           const session = await owner.session(device, paired);
           const operationId = randomUUID();
           const message = 'Direct Remote acceptance';
@@ -97,7 +97,7 @@ describe('Remote owner-device operations (#1055)', () => {
         const owner = new RemoteOwner(fixture);
         try {
           await owner.start();
-          const { device, paired } = await owner.pair();
+          const { device, paired } = await owner.pair(undefined, { talk: true });
           await owner.stop();
           owner.seedGrant(paired.clientId, { mode: 'hold' });
           await owner.start();
@@ -192,7 +192,7 @@ describe('Remote owner-device operations (#1055)', () => {
         const owner = new RemoteOwner(fixture);
         try {
           await owner.start();
-          const { device, paired } = await owner.pair();
+          const { device, paired } = await owner.pair(undefined, { talk: true });
           await owner.stop();
           owner.seedGrant(paired.clientId, { agents: [allowed] });
           await owner.start();
@@ -259,7 +259,7 @@ describe('Remote owner-device operations (#1055)', () => {
         const owner = new RemoteOwner(fixture);
         try {
           await owner.start();
-          const { device, paired } = await owner.pair();
+          const { device, paired } = await owner.pair(undefined, { talk: true });
           await owner.stop();
           owner.seedGrant(paired.clientId, { agents: [allowed] });
           await owner.start();
@@ -460,7 +460,7 @@ describe('Remote owner-device operations (#1055)', () => {
         );
         const id = identity.id;
         await owner.start();
-        const { device, paired } = await owner.pair();
+        const { device, paired } = await owner.pair(undefined, { talk: true });
         const session = await owner.session(device, paired);
         const operationId = randomUUID();
         const message = 'Remote channel delivery';
@@ -542,7 +542,7 @@ describe('Remote owner-device operations (#1055)', () => {
       const trace = installTmuxTrace(fixture);
       try {
         await owner.start();
-        const { device, paired } = await owner.pair();
+        const { device, paired } = await owner.pair(undefined, { talk: true });
         const session = await owner.session(device, paired);
         const before = requestAttempts(fixture);
         const coreBefore = owner.coreCalls();

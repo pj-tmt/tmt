@@ -564,8 +564,11 @@ else process.exitCode = exit.code ?? 1;
     );
     return request;
   }
-  async pair(device = new RemoteDevice()): Promise<{ device: RemoteDevice; paired: PairedDevice }> {
-    const owner = this.launch(['pair', '--json']);
+  async pair(
+    device = new RemoteDevice(),
+    options: { talk?: boolean } = {}
+  ): Promise<{ device: RemoteDevice; paired: PairedDevice }> {
+    const owner = this.launch(['pair', '--json', ...(options.talk ? ['--talk'] : [])]);
     try {
       const offer = await owner.event((event) => event.event === 'offer');
       const descriptor = object(offer.descriptor) as unknown as RemoteDescriptor;

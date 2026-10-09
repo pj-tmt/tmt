@@ -345,6 +345,7 @@ fn session(
     let link = format!("{}/pair#{}", door.door.origin, code.replace('-', ""));
     let opened = json!({
         "event": "offer",
+        "ownerPolicyVersion": 1,
         "link": link,
         "code": code,
         "descriptor": descriptor,
@@ -387,7 +388,21 @@ fn session(
         // The owner's answer, or a closed client, which cancels the offer.
         match poll_line(&mut stream, &mut buffer) {
             Ok(Some(answer)) => match answer.get("op").and_then(Value::as_str) {
-                Some("confirm") => pairing.confirm(&offer_id),
+                Some("confirm")
+                    if answer.as_object().is_some_and(|row| {
+                        row.keys()
+                            .all(|key| matches!(key.as_str(), "op" | "policy"))
+                    }) =>
+                {
+                    let policy = answer.get("policy").cloned().map_or_else(
+                        || Ok(crate::pairing::PairingPolicy::default()),
+                        serde_json::from_value,
+                    );
+                    match policy {
+                        Ok(policy) => pairing.confirm_with(&offer_id, policy),
+                        Err(_) => pairing.refuse(&offer_id),
+                    }
+                }
                 _ => pairing.refuse(&offer_id),
             },
             Ok(None) => {}
@@ -605,15 +620,18 @@ const LEGACY_UNSUPPORTED_MESSAGE: &str = "Unknown control operation.";
 /// Discovery operations postdate alpha.1, so a refusal as unsupported means the
 /// running serve is older than this client. It cannot be asked to stop, so the
 /// message sends the user to its terminal.
+pub fn outdated_serve() -> RemoteError {
+    RemoteError::new(
+        "REMOTE_SERVE_OUTDATED",
+        "The running tmt remote serve is older than this tmt remote and does not support this command. Stop it by hand (Ctrl-C in its terminal) and start it again.",
+    )
+}
 fn request_operation(remote_directory: &Path, op: &str) -> Result<Option<Value>, RemoteError> {
     request(remote_directory, &json!({ "op": op })).map_err(|error| {
-        let legacy = error.code == "REMOTE_INPUT_INVALID"
-            && error.message == LEGACY_UNSUPPORTED_MESSAGE;
+        let legacy =
+            error.code == "REMOTE_INPUT_INVALID" && error.message == LEGACY_UNSUPPORTED_MESSAGE;
         if error.code == UNSUPPORTED || legacy {
-            RemoteError::new(
-                "REMOTE_SERVE_OUTDATED",
-                "The running tmt remote serve is older than this tmt remote and does not support this command. Stop it by hand (Ctrl-C in its terminal) and start it again.",
-            )
+            outdated_serve()
         } else {
             error
         }
