@@ -4,7 +4,7 @@ import { createHash, createPublicKey, verify } from 'node:crypto';
 import { extCertSigningBytes } from '../src/canonical-bytes.js';
 import type { ExtCertificate } from '../src/device.js';
 import { appendFile, chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
-import { createServer, type Server } from 'node:net';
+import { createConnection, createServer, type Server, type Socket } from 'node:net';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline';
 import { fileURLToPath } from 'node:url';
@@ -168,6 +168,7 @@ async function colab(socket: string): Promise<Server> {
     connection.on('data', (chunk) => {
       head += chunk.toString('latin1');
       if (!head.includes('\r\n\r\n')) return;
+      connection.removeAllListeners('data');
       expect(head).not.toContain('tmt-session');
       if (/^upgrade: websocket$/im.test(head)) {
         const key = /^sec-websocket-key: (.*)$/im.exec(head)?.[1]?.trim();
@@ -175,7 +176,6 @@ async function colab(socket: string): Promise<Server> {
         const accept = createHash('sha1')
           .update(key + '258EAFA5-E914-47DA-95CA-C5AB0DC85B11')
           .digest('base64');
-        connection.removeAllListeners('data');
         connection.write(
           `HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: ${accept}\r\n\r\n`,
         );
@@ -197,6 +197,30 @@ async function colab(socket: string): Promise<Server> {
   await chmod(socket, 0o600);
   return server;
 }
+
+// A fragmented request can deliver more data after the fixture ends its one response.
+// Drive that ordering at the accepted real socket, without relying on packet coalescing.
+test('fixture Colab answers a fragmented HTTP request only once', async () => {
+  const accepted = new Promise<Socket>((resolve) => fixture.once('connection', resolve));
+  const client = createConnection(join(root, 'state/colab/door.sock'));
+  client.resume();
+  const connection = await accepted;
+  const closed = new Promise<void>((resolve) => connection.once('close', () => resolve()));
+  const errors: string[] = [];
+  connection.on('error', (error) => errors.push(error.message));
+  try {
+    connection.emit('data', Buffer.from('POST /fixture HTTP/1.1\r\ncontent-length: 4\r\n'));
+    expect(connection.writableEnded).toBe(false);
+    connection.emit('data', Buffer.from('\r\n'));
+    expect(connection.writableEnded).toBe(true);
+    connection.emit('data', Buffer.from('body'));
+    await closed;
+    expect(errors, 'HTTP body must not start a second fixture response').toEqual([]);
+    expect(connection.listenerCount('data')).toBe(0);
+  } finally {
+    client.destroy();
+  }
+});
 
 /** Resolves once the child has exited, including before this call. */
 function exited(child: ChildProcessWithoutNullStreams): Promise<unknown> {
