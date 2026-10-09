@@ -1803,23 +1803,23 @@ fn squad_may_use_the_neutral_invoke_leaf_but_not_core_process_adapters() {
 
 #[test]
 fn extension_serve_is_a_leaf_with_only_reviewed_executable_consumers() {
-    // Colab joins when it adopts the launcher.
-    let consumer = "tmt-remote";
-    assert!(
-        policy::dependency_violations(&package(
-            consumer,
-            vec![dependency("tmt-extension-serve", "normal", None, None)]
-        ))
-        .is_empty()
-    );
-    assert_exact(
-        &[syntax(
-            consumer,
-            "serve.rs",
-            "use tmt_extension_serve::launch;",
-        )],
-        &[],
-    );
+    for consumer in ["tmt-remote", "tmt-colab"] {
+        assert!(
+            policy::dependency_violations(&package(
+                consumer,
+                vec![dependency("tmt-extension-serve", "normal", None, None)]
+            ))
+            .is_empty()
+        );
+        assert_exact(
+            &[syntax(
+                consumer,
+                "serve.rs",
+                "use tmt_extension_serve::launch;",
+            )],
+            &[],
+        );
+    }
     for allowed in ["nix", "serde_json", "signal-hook"] {
         assert!(
             policy::dependency_violations(&package(

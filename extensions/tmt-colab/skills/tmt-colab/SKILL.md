@@ -42,17 +42,17 @@ skill path. Existing unmanaged skill conflicts need inspection, not a silent
 force. Reload the provider's skills after installation, or read the exact
 bundled instructions with `tmt colab skill`. It works without a server or checkout.
 
-Start one foreground process in a supervised terminal or task session:
+Start it in the background, so it outlives your task:
 
 ```sh
-tmt colab serve --json
+tmt colab serve --background --json
 ```
 
-Keep that process alive while the user uses the page. It attaches to an existing
-Remote door or starts one as its supervised child; do not start a second door.
-Stopping Colab stops only a door it started. `tmt remote status --json` inspects
-the running door; `tmt remote devices --json` lists paired devices without
-changing their grants.
+It prints one status line when ready; `tmt colab stop` ends it. Never keep a foreground
+process alive for it: it ends with your task, and Colab with it. Use `--foreground --json`
+only for a supervisor that owns the process. Serve attaches to a running Remote door or starts
+one; do not start a second. Stopping Colab stops only a door it started.
+`tmt remote status --json` inspects the door.
 
 If pairing is needed, ask the user to run `tmt remote pair`, open its link in the
 browser they intend to use, compare the four words with the terminal and confirm

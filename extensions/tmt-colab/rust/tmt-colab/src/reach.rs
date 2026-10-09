@@ -54,6 +54,14 @@ impl Reach {
     pub fn path(space: &str, page: &str) -> String {
         format!("x/colab/#space={space}&path=%2Fpages%2F{page}")
     }
+    /// Where a browser lands for a space: its only active page, else the space home. `serve`
+    /// and a rerun of it open the same place.
+    pub fn landing(space: &str, active: Option<&[String]>) -> String {
+        match active {
+            Some([only]) => Self::path(space, only),
+            _ => format!("x/colab/#space={space}"),
+        }
+    }
     /// The full link, only while a door runs.
     pub fn link(&self, path: &str) -> Option<String> {
         match &self.lookup {

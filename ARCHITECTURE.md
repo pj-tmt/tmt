@@ -601,7 +601,7 @@ core discovery or storage access.
   to Remote's validated `tmt-mount` root, resolving page-ID prefixes from its verified catalog (browser ambiguity by parent chrome).
   It stores ciphertext and never decodes Yjs.
 - **Dependency direction.** `tmt-colab` depends on `tmt-colab-model` (pure codecs and fixed
-  crypto), `tmt-extension-state`, `tmt-extension-objects` and `tmt-invoke`/`tmt-cli-style`; the browser
+  crypto), `tmt-extension-state`, `-objects`, `-serve` and `tmt-invoke`/`tmt-cli-style`; the browser
   depends on Remote's served SDK (`/sdk/remote-v1.js`). Never `tmt-core`, `tmt-adapters`,
   `tmt-remote` or Office; core is reached through `$TMT_EXECUTABLE api` and the fixed,
   bounded `identity show --json` command at CLI page create/write. Its optional caller

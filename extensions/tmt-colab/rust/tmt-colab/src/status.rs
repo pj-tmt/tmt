@@ -90,10 +90,7 @@ impl Status<'_> {
     }
     /// Where to send the browser: the page when the space has exactly one, else the space home.
     fn target_path(&self) -> String {
-        match self.pages.as_deref() {
-            Some([only]) => Reach::path(self.space, only),
-            _ => "x/colab/".into(),
-        }
+        Reach::landing(self.space, self.pages.as_deref())
     }
     /// The full link to open in a browser, only while a door runs.
     pub fn open_link(&self) -> Option<String> {

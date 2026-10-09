@@ -154,9 +154,9 @@ describe('CI area selection', () => {
       'rust/crates/tmt-extension-serve/src/lib.rs',
       'rust/crates/tmt-extension-serve/tests/handoff.rs',
     ];
-    for (const file of paths) expect(ownerOf(file)).toBe('tmt-remote');
+    for (const file of paths) expect(ownerOf(file)).toBe('extension-serve');
     for (const row of explainCiSelection(paths)) {
-      expect(row.owner).toBe('tmt-remote');
+      expect(row.owner).toBe('extension-serve');
       expect(row.rule).toBe('native-source');
       expect(selectCiAreas([row.path])).toEqual(
         selectCiAreas(['rust/crates/tmt-invoke/src/lib.rs'])

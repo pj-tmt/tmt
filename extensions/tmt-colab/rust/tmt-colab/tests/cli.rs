@@ -3,7 +3,7 @@ mod core_fixture;
 mod support;
 use nix::{
     errno::Errno,
-    sys::signal::{Signal, kill},
+    sys::signal::{Signal, kill, killpg},
     unistd::Pid,
 };
 use serde_json::{Value, json};
@@ -13,6 +13,7 @@ use std::{
     os::unix::{
         fs::PermissionsExt,
         net::{UnixListener, UnixStream},
+        process::CommandExt,
     },
     path::PathBuf,
     process::{Child, Command, Stdio},
@@ -2388,7 +2389,7 @@ fn serve_names_the_link_only_when_a_door_runs_and_never_prints_the_decoder_note(
             pilot.command()
         };
         let mut child = cmd
-            .arg("serve")
+            .args(["serve", "--foreground"])
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
             .spawn()
@@ -3115,7 +3116,7 @@ impl Serving {
         let child = pilot
             .command()
             .env("TMT_EXECUTABLE", core)
-            .arg("serve")
+            .args(["serve", "--foreground"])
             .args(args)
             .stdout(fs::File::create(&out).unwrap())
             .stderr(fs::File::create(&err).unwrap())
@@ -3286,7 +3287,7 @@ fn serve_in_an_installed_release_warns_once_when_a_newer_version_becomes_current
     let err = pilot.root.join("serve.err");
     let child = command
         .env("TMT_EXECUTABLE", pilot.remote_core(None, Serve::Fail))
-        .arg("serve")
+        .args(["serve", "--foreground"])
         .stdout(fs::File::create(&out).unwrap())
         .stderr(fs::File::create(&err).unwrap())
         .spawn()
@@ -3709,7 +3710,13 @@ fn serve_opens_the_space_home_only_when_told_or_allowed_and_says_so() {
         "{text}"
     );
     serving.stop(Signal::SIGTERM);
-    assert_eq!(pilot.opened(), vec![home.to_owned()]);
+    // The space home is the link that lands on the space, the same one a rerun prints.
+    let opened = pilot.opened();
+    assert_eq!(opened.len(), 1, "{opened:?}");
+    assert!(
+        opened[0].starts_with(&format!("{home}#space=")),
+        "{opened:?}"
+    );
 }
 #[test]
 fn serve_opens_the_single_page_and_the_setting_is_overridden_by_flags_only() {
@@ -4871,4 +4878,271 @@ fn skill_is_exact_embedded_bytes_after_relocation_without_core_or_state() {
     );
     // Only the copied executable exists: pure guidance neither discovers core nor initializes state.
     assert_eq!(fs::read_dir(&pilot.root).unwrap().count(), 1);
+}
+
+// --- Background serve (#2383): the launcher starts a detached worker and returns once it is ready.
+/// Stops a background serve a test started, even when an assertion failed first.
+struct Detached<'a>(&'a Pilot);
+impl Drop for Detached<'_> {
+    fn drop(&mut self) {
+        let _ = self.0.command().arg("stop").output();
+    }
+}
+/// One launcher invocation: `serve` with the arguments given, its output captured.
+fn launcher(pilot: &Pilot, core: &PathBuf, args: &[&str]) -> Command {
+    let mut command = pilot.command();
+    command
+        .env("TMT_EXECUTABLE", core)
+        .arg("serve")
+        .args(args)
+        .stdin(Stdio::null());
+    command
+}
+fn stdout_of(output: &std::process::Output) -> String {
+    String::from_utf8(output.stdout.clone()).unwrap()
+}
+fn stderr_of(output: &std::process::Output) -> String {
+    String::from_utf8(output.stderr.clone()).unwrap()
+}
+#[test]
+fn background_serve_returns_when_ready_and_stop_ends_what_it_started() {
+    let pilot = Pilot::new(None);
+    let _stop = Detached(&pilot);
+    let core = pilot.remote_core(Some(STOPPED), Serve::Hold);
+    let output = launcher(&pilot, &core, &["--no-open"]).output().unwrap();
+    assert!(output.status.success(), "{output:?}");
+    let text = squashed(&stdout_of(&output));
+    for wanted in [
+        "Colab is running in the background",
+        "LOCAL SPACE",
+        "(ready)",
+        "started · http://127.0.0.1:53253",
+        "tmt colab stop",
+        "tmt colab serve --foreground",
+    ] {
+        assert!(text.contains(wanted), "{wanted:?} missing from {text}");
+    }
+    assert!(!text.contains("Ctrl-C"), "{text}");
+    // The door the serve started runs, owned by the detached worker, after the launcher exited.
+    let door = pilot.serve_pid().unwrap();
+    assert_eq!(kill(door, None), Ok(()));
+    let stopped = pilot.command().arg("stop").output().unwrap();
+    assert!(stopped.status.success(), "{stopped:?}");
+    assert!(
+        stdout_of(&stopped).contains("Colab stopped, and the Remote door it started"),
+        "{stopped:?}"
+    );
+    assert_gone(door);
+    let again = pilot.command().args(["stop", "--json"]).output().unwrap();
+    assert_eq!(
+        serde_json::from_slice::<Value>(&again.stdout).unwrap()["state"],
+        "not-running"
+    );
+}
+#[test]
+fn background_serve_outlives_the_terminal_that_started_it() {
+    let pilot = Pilot::new(None);
+    let _stop = Detached(&pilot);
+    let core = pilot.remote_core(Some(STOPPED), Serve::Hold);
+    // The launcher leads its own process group, like a shell job; the worker must not stay in it.
+    let mut command = launcher(&pilot, &core, &["--no-open"]);
+    let mut launcher_process = command
+        .process_group(0)
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    assert!(launcher_process.wait().unwrap().success());
+    // A closing terminal hangs up the whole group.
+    let _ = killpg(Pid::from_raw(launcher_process.id() as i32), Signal::SIGHUP);
+    thread::sleep(Duration::from_millis(300));
+    let door = pilot.serve_pid().unwrap();
+    assert_eq!(kill(door, None), Ok(()), "the hang-up reached the door");
+    let stopped = pilot.command().arg("stop").output().unwrap();
+    assert!(
+        stdout_of(&stopped).contains("Colab stopped, and the Remote door it started"),
+        "the serve did not survive the terminal: {stopped:?}"
+    );
+    assert_gone(door);
+}
+#[test]
+fn background_json_prints_one_typed_result_and_bare_json_stays_foreground() {
+    let pilot = Pilot::new(None);
+    let _stop = Detached(&pilot);
+    let core = pilot.remote_core(Some(STOPPED), Serve::Hold);
+    let output = launcher(&pilot, &core, &["--background", "--json"])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "{output:?}");
+    assert!(output.stderr.is_empty(), "{}", stderr_of(&output));
+    let lines: Vec<_> = output
+        .stdout
+        .split(|b| *b == b'\n')
+        .filter(|l| !l.is_empty())
+        .collect();
+    assert_eq!(lines.len(), 1, "{}", stdout_of(&output));
+    let result: Value = serde_json::from_slice(lines[0]).unwrap();
+    assert_eq!(result["background"], true);
+    assert_eq!(result["state"], "mounted");
+    assert_eq!(result["door"], "started");
+    assert_eq!(result["opened"], false);
+    assert!(result["shortLink"].is_null() || result["shortLink"].is_string());
+    let stopped = pilot.command().args(["stop", "--json"]).output().unwrap();
+    assert_eq!(
+        serde_json::from_slice::<Value>(&stopped.stdout).unwrap()["state"],
+        "stopped"
+    );
+    // Bare --json is the foreground serve: it stays attached until signalled, with no `background` key.
+    let mut serving = Serving::start(
+        &pilot,
+        pilot.remote_core(Some(DOOR), Serve::Fail),
+        &["--json"],
+    );
+    assert!(serving.ready().get("background").is_none());
+    assert!(serving.running());
+    serving.stop(Signal::SIGTERM);
+}
+#[test]
+fn a_second_start_reports_the_running_serve_and_starts_nothing() {
+    let pilot = Pilot::new(None);
+    let _stop = Detached(&pilot);
+    let core = pilot.remote_core(Some(STOPPED), Serve::Hold);
+    let first = launcher(&pilot, &core, &["--no-open"]).output().unwrap();
+    assert!(first.status.success(), "{first:?}");
+    let door = pilot.serve_pid().unwrap();
+    // A person who reruns it gets the running page, not an error, and nothing starts. The door now
+    // answers that it runs, as the one the first serve started would.
+    let running = pilot.remote_core(Some(DOOR), Serve::Fail);
+    let human = launcher(&pilot, &running, &["--no-open"]).output().unwrap();
+    assert!(human.status.success(), "{human:?}");
+    let text = squashed(&stdout_of(&human));
+    assert!(text.contains("Colab is already running"), "{text}");
+    assert!(text.contains("http://127.0.0.1:53253"), "{text}");
+    assert!(text.contains("tmt colab stop"), "{text}");
+    assert!(!text.contains("background"), "{text}");
+    assert!(human.stderr.is_empty(), "{}", stderr_of(&human));
+    // The same running Colab shows the same link on first start and on rerun.
+    let open_row = |text: &str| {
+        text.lines()
+            .find(|line| line.starts_with("open "))
+            .unwrap_or_else(|| panic!("no open row in {text}"))
+            .to_owned()
+    };
+    assert_eq!(open_row(&squashed(&stdout_of(&first))), open_row(&text));
+    let opener = pilot.root.join("opened");
+    pilot.opener(0);
+    let opens = launcher(&pilot, &running, &["--open"]).output().unwrap();
+    assert!(opens.status.success(), "{opens:?}");
+    assert!(
+        fs::read_to_string(&opener)
+            .unwrap_or_default()
+            .contains("http://127.0.0.1:53253"),
+        "the rerun did not open the page under the usual settings"
+    );
+    let json = launcher(&pilot, &running, &["--background", "--json"])
+        .output()
+        .unwrap();
+    assert!(!json.status.success());
+    let error: Value = serde_json::from_slice(&json.stdout).unwrap();
+    assert_eq!(error["error"]["code"], "COLAB_ALREADY_SERVING");
+    // The first serve is untouched.
+    assert_eq!(kill(door, None), Ok(()));
+    assert_eq!(pilot.serve_pid().unwrap(), door);
+}
+#[test]
+fn concurrent_starts_leave_exactly_one_serve() {
+    let pilot = Pilot::new(None);
+    let _stop = Detached(&pilot);
+    let core = pilot.remote_core(Some(STOPPED), Serve::Hold);
+    let starts: Vec<_> = (0..2)
+        .map(|_| {
+            let mut command = launcher(&pilot, &core, &["--no-open", "--background", "--json"]);
+            thread::spawn(move || command.output().unwrap())
+        })
+        .collect();
+    let outputs: Vec<_> = starts.into_iter().map(|s| s.join().unwrap()).collect();
+    let started = outputs.iter().filter(|o| o.status.success()).count();
+    assert_eq!(started, 1, "{outputs:?}");
+    let refused = outputs.iter().find(|o| !o.status.success()).unwrap();
+    let error: Value = serde_json::from_slice(&refused.stdout).unwrap();
+    assert_eq!(error["error"]["code"], "COLAB_ALREADY_SERVING");
+    let door = pilot.serve_pid().unwrap();
+    let stopped = pilot.command().arg("stop").output().unwrap();
+    assert!(stdout_of(&stopped).contains("Colab stopped"), "{stopped:?}");
+    assert_gone(door);
+}
+#[test]
+fn a_failed_background_start_states_the_cause_and_the_next_step() {
+    let pilot = Pilot::new(None);
+    let _stop = Detached(&pilot);
+    let colab = pilot.root.join("selected").join("colab");
+    fs::create_dir_all(&colab).unwrap();
+    fs::set_permissions(&colab, fs::Permissions::from_mode(0o755)).unwrap();
+    let core = pilot.remote_core(Some(STOPPED), Serve::Hold);
+    let human = launcher(&pilot, &core, &["--no-open"]).output().unwrap();
+    assert!(!human.status.success());
+    let text = stderr_of(&human);
+    assert!(text.contains("0700 directory"), "{text}");
+    assert!(text.contains("tmt colab serve --foreground"), "{text}");
+    assert!(human.stdout.is_empty(), "{}", stdout_of(&human));
+    let json = launcher(&pilot, &core, &["--background", "--json"])
+        .output()
+        .unwrap();
+    let error: Value = serde_json::from_slice(&json.stdout).unwrap();
+    assert_eq!(error["error"]["code"], "COLAB_STATE_UNSAFE");
+    assert!(
+        pilot.serve_pid().is_none(),
+        "no door started for a refused state"
+    );
+}
+#[test]
+fn cancelling_a_launcher_before_the_handoff_leaves_nothing_running() {
+    let pilot = Pilot::new(None);
+    let _stop = Detached(&pilot);
+    // The door never prints its descriptor, so the worker is still starting when the launcher is
+    // told to stop.
+    let core = pilot.remote_core(Some(STOPPED), Serve::Silent);
+    let out = pilot.root.join("launcher.out");
+    let err = pilot.root.join("launcher.err");
+    let mut child = launcher(&pilot, &core, &["--no-open"])
+        .stdout(fs::File::create(&out).unwrap())
+        .stderr(fs::File::create(&err).unwrap())
+        .spawn()
+        .unwrap();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while pilot.serve_pid().is_none() {
+        assert!(Instant::now() < deadline, "the door never started");
+        thread::sleep(Duration::from_millis(20));
+    }
+    let door = pilot.serve_pid().unwrap();
+    kill(Pid::from_raw(child.id() as i32), Signal::SIGTERM).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(20);
+    let status = loop {
+        if let Some(status) = child.try_wait().unwrap() {
+            break status;
+        }
+        assert!(Instant::now() < deadline, "the launcher did not finish");
+        thread::sleep(Duration::from_millis(20));
+    };
+    assert!(!status.success());
+    let text = fs::read_to_string(&err).unwrap();
+    assert!(text.contains("cancelled"), "{text}");
+    assert!(fs::read_to_string(&out).unwrap().is_empty());
+    // The launcher returns only after the worker confirmed its cleanup.
+    assert_gone(door);
+    let stopped = pilot.command().args(["stop", "--json"]).output().unwrap();
+    assert_eq!(
+        serde_json::from_slice::<Value>(&stopped.stdout).unwrap()["state"],
+        "not-running"
+    );
+}
+#[test]
+fn foreground_serve_says_how_to_run_in_the_background_next_time() {
+    let pilot = Pilot::new(None);
+    let mut serving = Serving::start(&pilot, pilot.remote_core(Some(DOOR), Serve::Fail), &[]);
+    let text = squashed(&Serving::wait_for(&serving.out, "next time"));
+    assert!(text.contains("Ctrl-C"), "{text}");
+    assert!(text.contains("tmt colab serve"), "{text}");
+    assert!(!text.contains("running in the background"), "{text}");
+    serving.stop(Signal::SIGTERM);
 }

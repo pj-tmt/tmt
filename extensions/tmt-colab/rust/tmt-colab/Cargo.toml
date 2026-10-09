@@ -31,6 +31,7 @@ sha2.workspace = true
 signal-hook.workspace = true
 tmt-cli-style.workspace = true
 tmt-invoke.workspace = true
+tmt-extension-serve.workspace = true
 tmt-extension-state.workspace = true
 tmt-extension-objects.workspace = true
 yrs.workspace = true
