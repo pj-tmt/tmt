@@ -202,6 +202,11 @@ Comments, Chat, Source, Share and settings panels.
 
 The small input at a selection or an item: annotation, follow-up, quick reply.
 
+- Colab shows Annotate beside the selection's focus end only after the pointer is
+  released or keyboard selection finishes. C opens the same annotation view; ignore
+  text-entry targets, modifiers, repeat and IME confirmation. Alt+Enter remains available.
+  Opening captures the quote without publishing or sending.
+
 - The recipient is independent of the message. An admitted stable prior
   reply can supply the default; creation defaults require a reliable canonical binding.
   Unknown creation and ambiguity require explicit selection, never a name or sole-agent guess.

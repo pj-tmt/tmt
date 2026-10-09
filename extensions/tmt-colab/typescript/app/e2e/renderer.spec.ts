@@ -833,3 +833,138 @@ test('only IDs and quote selectors reach author code even when a caller supplies
   expect(observed).not.toContain(secret);
   await expect(frame.locator('[data-colab-thread]')).toHaveAttribute('title', 'Anchor quote');
 });
+
+for (const backward of [false, true])
+  test(`pointer selection publishes only after release, at its ${backward ? 'backward' : 'forward'} focus end`, async ({
+    page,
+  }) => {
+    await page.goto('/');
+    await mount(
+      page,
+      '<p id="quote" style="display:inline-block;font:16px monospace">Select these exact words</p>',
+    );
+    await expect(page.locator('#probe')).toHaveAttribute('data-state', 'ready');
+    const frame = page.frames().find((frame) => frame.url().endsWith('/renderer.html'))!;
+    const quote = frame.locator('#quote');
+    await quote.scrollIntoViewIfNeeded();
+    const box = (await quote.boundingBox())!;
+    const start = backward ? box.x + box.width - 1 : box.x + 1;
+    const end = backward ? box.x + 1 : box.x + box.width - 1;
+    await page.mouse.move(start, box.y + box.height / 2);
+    await page.mouse.down();
+    try {
+      await page.mouse.move(end, box.y + box.height / 2, { steps: 8 });
+      expect(await frame.evaluate(() => getSelection()!.toString())).toBe(
+        'Select these exact words',
+      );
+      await frame.evaluate(
+        () =>
+          new Promise<void>((resolve) =>
+            requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+          ),
+      );
+      await expect(page.locator('#probe')).not.toHaveAttribute('data-selection', /.+/);
+      await page.keyboard.press('c');
+      await expect(page.locator('#probe')).not.toHaveAttribute('data-annotates');
+    } finally {
+      await page.mouse.up();
+    }
+    await expect(page.locator('#probe')).toHaveAttribute(
+      'data-selection',
+      'Select these exact words',
+    );
+    const rectangle = JSON.parse((await page.locator('#probe').getAttribute('data-rectangle'))!);
+    const focus = await frame.evaluate(() => {
+      const selection = getSelection()!,
+        end = document.createRange();
+      end.setStart(selection.focusNode!, selection.focusOffset);
+      end.collapse(true);
+      const box = end.getBoundingClientRect();
+      return { x: box.x, y: box.y, width: box.width, height: box.height };
+    });
+    expect(rectangle).toEqual(focus);
+    // Starting another drag hides the previous affordance instead of retaining a stale quote.
+    await page.mouse.move(start, box.y + box.height / 2);
+    await page.mouse.down();
+    await expect(page.locator('#probe')).toHaveAttribute('data-selection', '');
+    await page.mouse.up();
+  });
+
+test('keyboard selection waits for key release; C and Alt+Enter keep the embed key guards', async ({
+  page,
+}) => {
+  await page.goto('/');
+  await mount(
+    page,
+    '<p id="quote" contenteditable>Select words</p><input id="edit"><textarea id="area"></textarea><div id="editable" contenteditable>Editable words</div>',
+  );
+  await expect(page.locator('#probe')).toHaveAttribute('data-state', 'ready');
+  const frame = page.frames().find((frame) => frame.url().endsWith('/renderer.html'))!;
+  await frame.locator('#quote').focus();
+  await frame
+    .locator('#quote')
+    .evaluate((node) => getSelection()!.setPosition(node.firstChild, node.textContent!.length));
+  await page.keyboard.down('Shift');
+  await page.keyboard.down('ArrowLeft');
+  await expect.poll(() => frame.evaluate(() => getSelection()!.toString())).toBe('s');
+  await frame.evaluate(
+    () =>
+      new Promise<void>((resolve) =>
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+      ),
+  );
+  await expect(page.locator('#probe')).not.toHaveAttribute('data-selection', /.+/);
+  await page.keyboard.up('ArrowLeft');
+  await page.keyboard.up('Shift');
+  await expect(page.locator('#probe')).toHaveAttribute('data-selection', 's');
+  // Editable author text supplies native keyboard selection without a browser caret-mode setting.
+  // End editing before exercising the single-key annotation shortcut.
+  await frame.locator('#quote').evaluate((node) => node.removeAttribute('contenteditable'));
+  for (const key of ['Shift+c', 'Alt+c', 'Control+c', 'Meta+c']) await page.keyboard.press(key);
+  await expect(page.locator('#probe')).not.toHaveAttribute('data-annotates');
+  // A trusted IME confirmation code on a non-editing target isolates that guard.
+  await frame.evaluate(() => {
+    document.addEventListener(
+      'keydown',
+      (event) => {
+        Object.assign(window, {
+          confirmationKey: { trusted: event.isTrusted, code: event.code, keyCode: event.keyCode },
+        });
+      },
+      { capture: true, once: true },
+    );
+  });
+  const client = await page.context().newCDPSession(page);
+  await client.send('Input.dispatchKeyEvent', {
+    type: 'rawKeyDown',
+    key: 'c',
+    code: 'KeyC',
+    windowsVirtualKeyCode: 229,
+  });
+  await client.send('Input.dispatchKeyEvent', {
+    type: 'keyUp',
+    key: 'c',
+    code: 'KeyC',
+    windowsVirtualKeyCode: 229,
+  });
+  await expect(page.locator('#probe')).not.toHaveAttribute('data-annotates');
+  expect(
+    await frame.evaluate(() => (window as unknown as { confirmationKey: unknown }).confirmationKey),
+  ).toEqual({ trusted: true, code: 'KeyC', keyCode: 229 });
+  await client.detach();
+  await page.keyboard.press('c');
+  await expect(page.locator('#probe')).toHaveAttribute('data-annotates', '1');
+  await page.keyboard.down('c');
+  await expect(page.locator('#probe')).toHaveAttribute('data-annotates', '2');
+  await page.keyboard.down('c');
+  await page.keyboard.up('c');
+  await expect(page.locator('#probe')).toHaveAttribute('data-annotates', '2');
+  await page.keyboard.press('Alt+Enter');
+  await expect(page.locator('#probe')).toHaveAttribute('data-annotates', '3');
+  for (const id of ['edit', 'area', 'editable']) {
+    await frame.locator(`#${id}`).focus();
+    await page.keyboard.press('c');
+    await page.keyboard.press('Alt+Enter');
+    await expect(page.locator('#probe')).toHaveAttribute('data-annotates', '3');
+  }
+});

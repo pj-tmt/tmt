@@ -609,8 +609,12 @@ for (const width of [1440, 390])
           const selection = node.ownerDocument.getSelection()!;
           selection.removeAllRanges();
           selection.addRange(range);
+          node.ownerDocument.defaultView!.focus();
         });
-      await page.getByTestId('selection-ask').click();
+      // The long selection ends below this viewport. C must open a bounded
+      // annotation without clicking an offscreen selection affordance.
+      await page.keyboard.press('c');
+      await expect(annotation).toBeVisible();
       await expect(annotation.locator('blockquote')).toHaveText(longQuote);
       const long = await record(annotation, 'long-quote');
       const history = annotation.locator('.conversation-messages');

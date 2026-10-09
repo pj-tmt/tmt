@@ -142,8 +142,11 @@
             return { points, spans, units, text: points.join('') };
           }
           let selected = JSON.stringify({ selector: null, rect: null });
+          let pointerSelecting = false,
+            keyboardSelecting = false,
+            selectionFrame;
           function capture() {
-            if (stopped) return;
+            if (stopped || pointerSelecting || keyboardSelecting) return;
             let selector = null,
               rect = null;
             try {
@@ -174,13 +177,27 @@
                   };
                 if (!validQuote(selector)) selector = null;
                 if (selector) {
-                  const box = range.getBoundingClientRect();
+                  // Place the affordance at the focus end, including backward selections.
+                  const end = document.createRange();
+                  end.setStart(selection.focusNode, selection.focusOffset);
+                  end.collapse(true);
+                  let box = end.getBoundingClientRect();
+                  if (!box.height) {
+                    const boxes = range.getClientRects();
+                    const forward =
+                      selection.anchorNode === range.startContainer &&
+                      selection.anchorOffset === range.startOffset;
+                    box = boxes[forward ? boxes.length - 1 : 0] ?? range.getBoundingClientRect();
+                  }
                   rect = { x: box.x, y: box.y, width: box.width, height: box.height };
                 }
               }
             } catch {
               selector = null;
             }
+            publishSelection(selector, rect);
+          }
+          function publishSelection(selector, rect) {
             const next = JSON.stringify({ selector, rect });
             if (next === selected) return;
             selected = next;
@@ -195,6 +212,33 @@
               '*',
             );
           }
+          const selectionChanged = () => {
+            if (stopped || pointerSelecting || keyboardSelecting || selectionFrame !== undefined)
+              return;
+            selectionFrame = requestAnimationFrame(() => {
+              selectionFrame = undefined;
+              capture();
+            });
+          };
+          const startSelection = (event) => {
+            if (!event.isTrusted || event.button !== 0) return;
+            pointerSelecting = true;
+            publishSelection(null, null);
+          };
+          const finishSelection = () => {
+            pointerSelecting = false;
+            selectionChanged();
+          };
+          const cancelSelection = () => {
+            pointerSelecting = false;
+            keyboardSelecting = false;
+            publishSelection(null, null);
+          };
+          const finishKeyboardSelection = () => {
+            if (!keyboardSelecting) return;
+            keyboardSelecting = false;
+            selectionChanged();
+          };
           function clear() {
             try {
               CSS.highlights?.delete('colab-comments');
@@ -424,7 +468,11 @@
                 attributeFilter: ['hidden'],
               });
               parent.postMessage({ type: 'colab.render.bound', renderId }, '*');
-              document.addEventListener('selectionchange', capture);
+              document.addEventListener('selectionchange', selectionChanged);
+              document.addEventListener('pointerdown', startSelection, true);
+              document.addEventListener('pointerup', finishSelection, true);
+              document.addEventListener('pointercancel', cancelSelection, true);
+              document.addEventListener('keyup', finishKeyboardSelection, true);
               document.addEventListener('click', anchor, true);
               sizeObserver.observe(document.documentElement);
               sizeObserver.observe(document.body);
@@ -432,12 +480,54 @@
             },
             { once: true },
           );
+          // Mirror only embed-colab's tiny key predicate: this opaque inline bootstrap
+          // cannot import the site package or fetch scripts through its no-network CSP.
+          const isColabShortcut = (event, editing) =>
+            !editing &&
+            !event.repeat &&
+            !event.isComposing &&
+            event.keyCode !== 229 &&
+            event.code === 'KeyC' &&
+            !event.altKey &&
+            !event.shiftKey &&
+            !event.ctrlKey &&
+            !event.metaKey;
           const annotate = (event) => {
+            const editing =
+              event.target instanceof HTMLElement &&
+              (event.target.isContentEditable ||
+                !!event.target.closest('input,textarea,select,[role="textbox"]'));
             if (
-              event.isTrusted &&
-              event.altKey &&
-              event.key === 'Enter' &&
-              !getSelection()?.isCollapsed
+              !event.isTrusted ||
+              event.defaultPrevented ||
+              event.isComposing ||
+              event.keyCode === 229
+            )
+              return;
+            if (
+              (event.shiftKey &&
+                [
+                  'ArrowLeft',
+                  'ArrowRight',
+                  'ArrowUp',
+                  'ArrowDown',
+                  'Home',
+                  'End',
+                  'PageUp',
+                  'PageDown',
+                ].includes(event.key)) ||
+              ((event.ctrlKey || event.metaKey) && event.code === 'KeyA')
+            ) {
+              keyboardSelecting = true;
+              publishSelection(null, null);
+              return;
+            }
+            if (
+              !pointerSelecting &&
+              !keyboardSelecting &&
+              !getSelection()?.isCollapsed &&
+              (isColabShortcut(event, editing) ||
+                (!editing && event.altKey && event.key === 'Enter'))
             ) {
               event.preventDefault();
               capture();
@@ -455,11 +545,16 @@
               stopped = true;
               clearTimeout(timer);
               clearTimeout(heightTimer);
+              cancelAnimationFrame(selectionFrame);
               sizeObserver.disconnect();
               observer.disconnect();
               port.close();
               clear();
-              document.removeEventListener('selectionchange', capture);
+              document.removeEventListener('selectionchange', selectionChanged);
+              document.removeEventListener('pointerdown', startSelection, true);
+              document.removeEventListener('pointerup', finishSelection, true);
+              document.removeEventListener('pointercancel', cancelSelection, true);
+              document.removeEventListener('keyup', finishKeyboardSelection, true);
               document.removeEventListener('click', anchor, true);
               document.removeEventListener('keydown', annotate);
               removeEventListener('resize', capture);

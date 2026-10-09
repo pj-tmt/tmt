@@ -64,6 +64,9 @@ HTML. Its local fragment-link offsets let the parent scroll the window below the
 header; fallback pages instead scroll to the target internally. Neither layout
 nor anchor reports grant a publication capability. Quote capture/resolution and
 the existing selection channel remain cosmetic and keep working after resize.
+Selection capture waits for pointer/keyboard release; the parent Annotate control follows
+its focus end. C and Alt+Enter request that same view outside text entry and IME;
+these bootstrap shortcuts never publish or send.
 Author backgrounds and widths belong to the page; parent theme tokens style
 chrome. `theme.ts` reads the parent's explicit root choice, otherwise the live OS
 preference; theme actions record Light/Dark or remove the explicit choice for System only on activation. `renderer.ts` subscribes
@@ -110,8 +113,9 @@ the known thread. Current renderer anchor positions locate marker-opened windows
 viewport dimensions clamp their square, shadow-free surface independently of
 document height. The shell fits its content without reserved history height and
 grows away from the same selection edge through first Send. At the viewport cap,
-only history scrolls; the field and Send remain visible. Its shared icon actions
-retain hover/keyboard tooltips; a long status title truncates before the fixed
+only history scrolls; the field and Send remain visible. An open annotation stays
+clamped inside the viewport even when its selection endpoint is offscreen.
+Its shared icon actions retain hover/keyboard tooltips; a long status title truncates before the fixed
 right-aligned controls; attachment metadata stays on that same header row.
 Header/composer stay in place while messages scroll, including
 an associated delayed reply to an earlier turn. Unrelated live publications keep

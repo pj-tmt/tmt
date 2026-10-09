@@ -1721,8 +1721,13 @@ plus an optional `rect:{x,y,width,height}` in frame viewport coordinates. Its fo
 numbers must be finite, at most 1,000,000 in absolute value, with nonnegative
 width/height. The parent clamps this cosmetic rectangle to the frame and visible
 window when positioning its Annotate control and input popover; it never treats geometry as authority.
-Legacy text-only messages supply no anchor. Alt+Enter can request the same view
-using exactly `type:"colab.render.annotate",renderId`; it cannot send. A trusted
+The bootstrap hides the affordance while a pointer drag or keyboard selection is in
+progress and captures after release (coalescing other selection changes at the next
+animation frame). Its rectangle follows the selection's focus end, including backward
+selections; layout updates refresh only completed selections. Legacy text-only messages
+supply no anchor. Unmodified, non-repeating C and the existing Alt+Enter request the same
+view outside input/textarea/select/contenteditable/textbox targets, with IME and keyCode
+229 guards, using exactly `type:"colab.render.annotate",renderId`; it cannot send. A trusted
 parent action captures the quote. Page-wide comments have null anchors.
 
 The parent highlight request on the bound MessagePort contains exactly

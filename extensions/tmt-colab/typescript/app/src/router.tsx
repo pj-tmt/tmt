@@ -110,14 +110,20 @@ function SelectionAnnotation({
         });
         return;
       }
-      const top = frame.top + Math.max(0, Math.min(frame.height, rectangle.y)),
-        bottom = frame.top + Math.max(0, Math.min(frame.height, rectangle.y + rectangle.height)),
+      const selectionTop = frame.top + Math.max(0, Math.min(frame.height, rectangle.y)),
+        selectionBottom =
+          frame.top + Math.max(0, Math.min(frame.height, rectangle.y + rectangle.height)),
         left = frame.left + Math.max(0, Math.min(frame.width, rectangle.x)),
         right = frame.left + Math.max(0, Math.min(frame.width, rectangle.x + rectangle.width));
-      if (bottom < inset || top > innerHeight) {
+      if (!expanded && (selectionBottom < inset || selectionTop > innerHeight)) {
         setPosition(null);
         return;
       }
+      // A completed selection can end outside the viewport. Its open draft still
+      // needs bounded history and a visible composer, including when opened by C.
+      const clampAnchor = (value: number) => Math.max(inset + 4, Math.min(innerHeight - 8, value));
+      const top = expanded ? clampAnchor(selectionTop) : selectionTop;
+      const bottom = expanded ? clampAnchor(selectionBottom) : selectionBottom;
       const beside = !expanded && right + width + 8 <= Math.min(frame.right, innerWidth - 8);
       const below = bottom + placementHeight + 8 <= innerHeight - 8;
       // Choose the edge using stable placement clearance, not the changing content
@@ -165,6 +171,7 @@ function SelectionAnnotation({
         <button
           className={`selection-ask ${ui.action}`}
           data-testid="selection-ask"
+          aria-keyshortcuts="c Alt+Enter"
           onPointerDown={(event) => event.preventDefault()}
           onClick={(event) => {
             if (event.isTrusted) open();

@@ -304,3 +304,81 @@ for (const selected of [false, true]) {
     expect((await run(page, 'proof')).sends).toHaveLength(1);
   });
 }
+
+for (const theme of ['light', 'dark'] as const)
+  test(`390px ${theme}: Annotate waits for drag release; C opens without sending and stays out of the composing field`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.emulateMedia({ colorScheme: theme });
+    await page.addInitScript((theme) => {
+      document.documentElement.dataset.theme = theme;
+    }, theme);
+    await page.goto('/');
+    await run(page, 'mount');
+    const frame = page.frameLocator('#ask-page-fixture iframe');
+    const quote = frame.locator('#selected');
+    await expect(quote).toHaveText('Exact selected text');
+    await quote.evaluate((node) => {
+      (node as HTMLElement).style.display = 'inline-block';
+    });
+    const box = (await quote.boundingBox())!;
+    await page.mouse.move(box.x + 1, box.y + box.height / 2);
+    await page.mouse.down();
+    try {
+      await page.mouse.move(box.x + box.width - 1, box.y + box.height / 2, { steps: 8 });
+      expect(await quote.evaluate(() => getSelection()!.toString())).toBe('Exact selected text');
+      await quote.evaluate(
+        () =>
+          new Promise<void>((resolve) =>
+            requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+          ),
+      );
+      await expect(page.getByTestId('selection-ask')).toBeHidden();
+    } finally {
+      await page.mouse.up();
+    }
+    const action = page.getByTestId('selection-ask');
+    await expect(action).toBeVisible();
+    const actionBox = (await action.boundingBox())!;
+    expect(actionBox.x).toBeGreaterThan(box.x + box.width);
+    expect(actionBox.x + actionBox.width).toBeLessThanOrEqual(390);
+    await page.screenshot({ path: capturePath(`selection-finished-390-${theme}.png`) });
+    await page.keyboard.press('c');
+    const input = page.getByRole('combobox', { name: 'Message', exact: true });
+    await expect(input).toBeFocused();
+    await expect(page.locator('.annotation-popover blockquote')).toHaveText('Exact selected text');
+    await expect(input).toHaveText('', { useInnerText: true });
+    expect((await run(page, 'proof')).sends).toEqual([]);
+    // Capture the opened annotation before the separate editing and IME controls type into it.
+    await page.screenshot({ path: capturePath(`selection-annotation-390-${theme}.png`) });
+    await input.press('c');
+    await expect(input).toHaveText('c', { useInnerText: true });
+    await page.evaluate(() => {
+      document.addEventListener(
+        'keydown',
+        (event) => {
+          Object.assign(window, {
+            composingKey: { trusted: event.isTrusted, composing: event.isComposing },
+          });
+        },
+        { capture: true, once: true },
+      );
+    });
+    const client = await page.context().newCDPSession(page);
+    await client.send('Input.imeSetComposition', {
+      text: 'c',
+      selectionStart: 1,
+      selectionEnd: 1,
+      replacementStart: 0,
+      replacementEnd: 1,
+    });
+    await page.keyboard.press('c');
+    expect(
+      await page.evaluate(() => (window as unknown as { composingKey: unknown }).composingKey),
+    ).toEqual({ trusted: true, composing: true });
+    await expect(input).toBeFocused();
+    await expect(page.locator('.annotation-popover')).toHaveCount(1);
+    expect((await run(page, 'proof')).sends).toEqual([]);
+    await client.detach();
+  });
