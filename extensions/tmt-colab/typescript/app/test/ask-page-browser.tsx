@@ -13,6 +13,7 @@ import {
 import type { FrozenAttachmentUpload } from '../src/attachment-channel.js';
 import type { DocumentFiles } from '../src/document-files.js';
 import { AttachmentReadError } from '../src/attachments.js';
+import { ExportBundle } from '../src/export.js';
 import type { QuoteSelector, ThreadView } from '../src/thread-records.js';
 import type { PageView, PageBinding } from '../src/transport.js';
 import { createAppRouter } from '../src/router.js';
@@ -83,6 +84,8 @@ export async function mount(
     drafts?: 'session' | 'failing';
     /** In-memory storage; a file name steers the outcome: `refuse`, `unknown`, `stale`. */
     attachments?: boolean;
+    /** An Export panel with one included attachment and one of each outcome that includes none. */
+    exportAttachments?: boolean;
   } = {},
 ) {
   root?.unmount();
@@ -439,7 +442,29 @@ export async function mount(
     },
     async edit() {},
     async export() {
-      throw new Error('Not used');
+      if (!options.exportAttachments) throw new Error('Not used');
+      const utf8 = (value: string) => new TextEncoder().encode(value);
+      const file = `attachments/${id(40)}`;
+      const info = (name: string, bytes: Uint8Array) => ({
+        name,
+        sizeBytes: bytes.length,
+        sha256: '0'.repeat(64),
+      });
+      const [html, note, manifest] = [utf8('<p>page</p>'), utf8('exported note'), utf8('{}')];
+      return new ExportBundle(
+        new Map([
+          ['page.html', html],
+          [file, note],
+          ['manifest.json', manifest],
+        ]),
+        [info('page.html', html), info(file, note), info('manifest.json', manifest)],
+        [
+          { attachmentId: id(40), filename: 'note.txt', state: 'included', file },
+          { attachmentId: id(41), filename: 'gone.bin', state: 'missing' },
+          { attachmentId: id(42), filename: 'revoked.bin', state: 'unavailable', reason: 'denied' },
+          { attachmentId: id(43), filename: 'huge.bin', state: 'unavailable', reason: 'too-large' },
+        ],
+      );
     },
     close() {},
   };

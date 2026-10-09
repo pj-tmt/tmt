@@ -350,7 +350,13 @@ export class AttachmentService implements AttachmentBinding {
               attachmentId: d.attachmentId,
               descriptorHash,
             },
-      ),
+      );
+    return this.read(selector);
+  }
+  /** The verified plaintext of one exact reference under the authority in force now. Failures
+   * are `AttachmentReadError`s; anything else is unavailable. */
+  async read(selector: attachment.AttachmentSelector) {
+    const c = await this.#channel(),
       owner = { snapshot: (epoch?: string, bound?: number) => c.attachmentSnapshot(epoch, bound) },
       deadline = this.#bound(READ_MS),
       admitted = await AdmittedAttachmentRead.capture(

@@ -2,14 +2,32 @@ import { readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { afterEach, expect, it, vi } from 'vite-plus/test';
 import { Downloads, prepareExport, type ExportView } from '../src/export.js';
+import type { ExportAttachment } from '../src/export-attachments.js';
 
 const fixture = JSON.parse(
   readFileSync(new URL('../../../contracts/vectors/export-v1.json', import.meta.url), 'utf8'),
 );
+/** The shared rows as gathered attachments: an included row carries its exact fixture bytes. */
+const gathered = (): ExportAttachment[] =>
+  structuredClone(fixture.input.attachments).map(
+    ({ sha256: _sha, file, ...row }: Record<string, unknown> & { file?: string }) =>
+      file === undefined
+        ? row
+        : {
+            ...row,
+            bytes: Uint8Array.from(Buffer.from(fixture.input.attachmentBytes[file], 'base64url')),
+          },
+  );
 const input = (): ExportView => {
-  const { signingKeys, ...rest } = structuredClone(fixture.input);
+  const {
+    signingKeys,
+    attachments: _rows,
+    attachmentBytes: _bytes,
+    ...rest
+  } = structuredClone(fixture.input);
   return {
     ...rest,
+    attachmentEntries: gathered(),
     statusWriters: Object.keys(signingKeys),
     signingKeys: Object.fromEntries(
       Object.entries(signingKeys as Record<string, string>).map(([writer, key]) => [
@@ -39,11 +57,30 @@ it('matches the shared native bundle byte for byte, including exact order and la
   expect(markdown).toEqual(utf8(fixture.conversationsMarkdown));
   expect(manifest).toEqual(utf8(fixture.manifestUtf8));
   expect(sha(manifest)).toBe(fixture.manifestSha256);
+  // Included attachments publish between the page files and the manifest, in listed order.
+  const included = fixture.input.attachments.filter((row: { file?: string }) => row.file);
+  expect(included.length).toBe(2);
+  const attachmentFiles = included.map((row: { file: string; sha256: string }) => {
+    const raw = Uint8Array.from(Buffer.from(fixture.input.attachmentBytes[row.file], 'base64url'));
+    expect(sha(raw)).toBe(row.sha256);
+    return { name: row.file, sizeBytes: raw.length, sha256: row.sha256 };
+  });
   expect(bundle.files).toEqual([
     { name: 'page.html', sizeBytes: html.length, sha256: sha(html) },
     { name: 'conversations.json', sizeBytes: json.length, sha256: sha(json) },
     { name: 'conversations.md', sizeBytes: markdown.length, sha256: sha(markdown) },
+    ...attachmentFiles,
     { name: 'manifest.json', sizeBytes: manifest.length, sha256: sha(manifest) },
+  ]);
+  for (const file of attachmentFiles)
+    expect(sha(await bytes(bundle.blob(file.name)))).toBe(file.sha256);
+  // Unavailable and missing entries disclose nothing: no file, no digest.
+  expect(bundle.attachments.filter((item) => item.file === undefined).map((i) => i.state)).toEqual([
+    'missing',
+    'unavailable',
+    'unavailable',
+    'unavailable',
+    'unavailable',
   ]);
   // Runtime key insertion order must not change the wire order.
   const reordered = input();
@@ -131,6 +168,7 @@ it('exports empty source/title without renderer HTML or unrelated fields', async
   value.title = '';
   value.own = {};
   value.signingKeys = {};
+  value.attachmentEntries = [];
   const bundle = await prepareExport(value);
   expect((await bytes(bundle.blob('page.html'))).length).toBe(0);
   const m = JSON.parse(await bundle.blob('manifest.json').text());
@@ -154,8 +192,10 @@ it('exports empty source/title without renderer HTML or unrelated fields', async
     'epoch',
     'plaintext',
     'discussions',
+    'attachments',
     'files',
   ]);
+  expect(m.attachments).toEqual([]);
   expect(m.plaintext).toBe(true);
   expect(m.discussions).toEqual({
     included: true,
@@ -247,4 +287,34 @@ it('omits unknown creation and latest labels and freezes known labels before has
   );
   expect(frozen.originalAuthor).toBe(fixture.input.originalAuthor);
   expect(frozen.publisherAgent).toBe(fixture.input.publisherAgent);
+});
+
+it('refuses attachment entries whose bytes, state or reason disagree before any download', async () => {
+  const [included, , missing, denied] = gathered();
+  const bad: ExportAttachment[][] = [
+    [{ ...included, bytes: included.bytes!.slice(1) }],
+    [{ ...included, bytes: undefined }],
+    [{ ...included, reason: 'denied' }],
+    [{ ...missing, bytes: new Uint8Array(7) }],
+    [{ ...missing, reason: 'denied' }],
+    [{ ...denied, reason: undefined }],
+    [included, included],
+    [{ ...included, attachmentId: 'not-an-id' }],
+  ];
+  for (const attachmentEntries of bad)
+    await expect(prepareExport({ ...input(), attachmentEntries })).rejects.toThrow();
+});
+
+it('copies attachment bytes before hashing and names an attachment download by its own filename', async () => {
+  const value = input();
+  const source = value.attachmentEntries.find((entry) => entry.bytes)!;
+  const frozen = source.bytes!.slice();
+  const pending = prepareExport(value);
+  source.bytes!.fill(0);
+  const bundle = await pending;
+  const file = `attachments/${source.attachmentId}`;
+  expect(await bytes(bundle.blob(file))).toEqual(frozen);
+  expect(bundle.downloadName(file)).toBe(source.filename);
+  expect(bundle.downloadName('page.html')).toBe('page.html');
+  expect(() => bundle.blob('attachments/00000000-0000-4000-8000-000000000023')).toThrow();
 });

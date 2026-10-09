@@ -2121,6 +2121,7 @@ test('parent export downloads exact frozen baseline files, ignores drafts and re
         format: 'tmt-colab-conversations',
         version: 1,
       },
+      attachments: [],
       files: [html, conversationsBytes, readingBytes].map((bytes, index) => ({
         name: ['page.html', 'conversations.json', 'conversations.md'][index],
         sizeBytes: bytes.length,

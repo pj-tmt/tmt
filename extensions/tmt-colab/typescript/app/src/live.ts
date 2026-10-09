@@ -18,6 +18,7 @@ import { Connection } from './connection.js';
 import { Writer } from './writer.js';
 import { SaveOutcomeUnknown, SaveTooLarge, settled, type SaveResult } from './save.js';
 import { prepareExport, hex, type ExportBundle } from './export.js';
+import { gatherAttachments } from './export-attachments.js';
 import { text } from './strings.js';
 import { RecoveryRequiredError } from './session-recovery.js';
 
@@ -519,9 +520,25 @@ export class Live implements PageBinding {
         epoch: a.epoch,
         membershipHead: { revision: a.head.revision.toString(), statementHash: hex(a.head.hash) },
         exportedAtMs: Date.now(),
+        // The page revision a document attachment is fenced by, taken with the same view.
+        revision: await c.objects.revision(),
       };
     });
-    return prepareExport(view);
+    const { attachments: document, revision, ...page } = view;
+    // Each attachment is read under the authority in force when its turn comes: a page that
+    // changed since this view lists the entry as unavailable, never as another version.
+    const attachments = await gatherAttachments(
+      {
+        spaceId: page.spaceId,
+        pageId: page.pageId,
+        epoch: page.epoch,
+        revision,
+        document: document ?? [],
+        own: page.own,
+      },
+      (selector) => this.discussion.attachments.read(selector),
+    );
+    return prepareExport({ ...page, attachmentEntries: attachments });
   }
   #statusSeen() {
     const deviceId = this.registration.deviceId;
