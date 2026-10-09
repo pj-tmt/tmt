@@ -415,3 +415,25 @@ test('render release, abort, destroy, navigation and timeout remove theme subscr
   await expect(page.locator('#theme-probe iframe')).toHaveCount(0);
   expect(await subscriptions()).toEqual({ observers: 0, media: 0 });
 });
+
+test('fixed-look CSS keeps its palette while Colab overwrites an author-pinned theme', async ({
+  page,
+}) => {
+  await page.emulateMedia({ colorScheme: 'light' });
+  const source = `<!doctype html><html data-theme="dark"><head><style>
+    :root { color-scheme: light; --paper: #fafafa; --ink: #343434; }
+    body { background: var(--paper); color: var(--ink); }
+    </style></head><body><h1>Review notes</h1>
+    <script>document.body.dataset.initialTheme = document.documentElement.dataset.theme;</script>
+    </body></html>`;
+  await mount(page, source);
+  const child = page.frameLocator('#layout-fixture iframe');
+  await expect(child.locator('body')).toHaveAttribute('data-initial-theme', 'light');
+  for (const theme of ['dark', 'light'] as const) {
+    await choose(page, theme);
+    await expect(child.locator('html')).toHaveAttribute('data-theme', theme);
+    await expect(child.locator('html')).toHaveCSS('color-scheme', 'light');
+    await expect(child.locator('body')).toHaveCSS('background-color', 'rgb(250, 250, 250)');
+    await expect(child.locator('body')).toHaveCSS('color', 'rgb(52, 52, 52)');
+  }
+});

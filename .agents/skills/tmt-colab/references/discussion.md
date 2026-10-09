@@ -92,7 +92,8 @@ owns record fields, limits, revision semantics and trust boundaries.
   3px ink rail. Delivery status follows the message body, left-aligned; the byline
   does not contain delivery state. Check again reuses the shared refresh icon action,
   with its accessible name, hover/focus tooltip and 44px mobile touch target;
-  Ask again stays text. Long labels wrap without hiding the actions.
+  Ask again uses a distinct paper-plane Send icon through the same shared action,
+  retaining its tooltip and 44px mobile target. Long labels wrap without hiding the actions.
   `components/message-text.tsx` and Lexical
   mention nodes share a cosmetic grey token style. Sent text marks only supplied
   bound recipient names; other `@text` remains plain. Display labels grant no routing

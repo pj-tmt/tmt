@@ -1693,6 +1693,11 @@ projection does not rewrite source, inject palettes, force author backgrounds or
 change the existing white canvas for unstyled pages. Author code may tamper with it;
 it grants no capability or truth about the page.
 
+For a fixed look, author CSS uses an unconditional palette and `color-scheme`,
+without theme-attribute or OS-media palette overrides. The bootstrap overwrites an
+author-pinned `<html data-theme>` with Colab's effective theme; the attribute is
+not an opt-out. Explicit author CSS colours/backgrounds still determine the page.
+
 The initial window handshake carries renderId and transfers a MessagePort;
 accept its reply only with `event.source === frame.contentWindow` and matching
 renderId. Highlight requests/results use that bound port; selections use the
