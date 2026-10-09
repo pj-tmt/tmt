@@ -19,6 +19,7 @@ import type { PageView, PageBinding } from '../src/transport.js';
 import { createAppRouter } from '../src/router.js';
 import type { DraftStore } from '../src/draft-store.js';
 import type { ComposerEdit } from '../src/components/message-composer-edit.js';
+import type { AgentDestination } from '../src/live-ask.js';
 import { fixtureAttempt } from './ask-browser-attempt.js';
 import { ThreadStatusCoordinator } from '../src/thread-status-coordinator.js';
 import { projectThreadPresentation } from '../src/thread-status-presentation.js';
@@ -82,6 +83,8 @@ export async function mount(
   options: {
     creator?: boolean;
     checking?: boolean;
+    /** Explicit admitted-directory presentation states; production discovery remains unchanged. */
+    agents?: AgentDestination[];
     drafts?: 'session' | 'failing';
     /** In-memory storage; a file name steers the outcome: `refuse`, `unknown`, `stale`. */
     attachments?: boolean;
@@ -118,12 +121,15 @@ export async function mount(
         await new Promise<void>((resolve) => {
           finishDirectory = resolve;
         });
-      return Array.from({ length: 5 }, (_, index) => ({
-        ...destination(),
-        agent: id(6 + index),
-        agentName: `Agent ${index + 1}`,
-        presence: index === 0 ? ('active' as const) : ('unknown' as const),
-      }));
+      return (
+        options.agents ??
+        Array.from({ length: 5 }, (_, index) => ({
+          ...destination(),
+          agent: id(6 + index),
+          agentName: `Agent ${index + 1}`,
+          presence: index === 0 ? ('active' as const) : ('unknown' as const),
+        }))
+      );
     },
     async prepare(input) {
       // The fixture routes by hash, so location.href is not the mounted page URL a real app has.

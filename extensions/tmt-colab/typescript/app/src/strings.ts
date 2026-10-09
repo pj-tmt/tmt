@@ -24,6 +24,17 @@ export const text = {
   authorAttributionNote:
     'Names are publisher-provided labels, not proof of identity or permission.',
   messageLabel: 'Message',
+  messageCreator: 'Creator',
+  messageMentionState: {
+    online: 'Online',
+    offline: 'Offline',
+    'not-found': 'Not found',
+    checking: 'Presence unavailable',
+    unknown: 'Presence unknown',
+  },
+  messageMentionDescription: (name: string, machine: string | undefined, state: string) =>
+    `${name}${machine ? ` · ${machine}` : ''} · ${state}`,
+  messageMentionRemove: (description: string) => `Remove mention: ${description}`,
   newMessages: 'New messages',
   annotationTitle: 'Annotate',
   annotationClose: 'Close annotation',

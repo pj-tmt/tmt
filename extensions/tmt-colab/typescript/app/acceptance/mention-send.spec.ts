@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { mkdirSync } from 'node:fs';
 import { pairBrowser, startDoor } from './harness/browser.js';
 import { createPage, freePort, openChat, openPage, run } from './harness/ask.js';
 import { until } from './harness/process.js';
@@ -14,7 +15,7 @@ test('visible mentions fan out one recorded Chat turn to live and offline saved 
     const created = createPage(
       world,
       'Mention routing',
-      '<p>One comment, several recipients.</p>',
+      '<h1>Mention routing</h1><p>Review this shared page with the creator or an offline saved agent.</p><h2>Delivery checks</h2><ul><li>One comment, several recipients.</li><li>Offline agents retain inbox delivery.</li></ul>',
       alpha.pane,
     );
     world.tmux(['kill-pane', '-t', offline.pane]);
@@ -24,6 +25,30 @@ test('visible mentions fan out one recorded Chat turn to live and offline saved 
     const panel = page.getByTestId('chat-panel');
     const input = panel.getByRole('combobox', { name: 'Message', exact: true });
     await expect(input).toHaveText(`@${alpha.name} `, { useInnerText: true });
+    const captures = process.env.COLAB_MENTION_NATIVE_CAPTURE_DIR;
+    async function capture(state: 'online' | 'offline') {
+      if (!captures) return;
+      mkdirSync(captures, { recursive: true });
+      const chip = input.locator('.message-mention');
+      await expect(chip).toHaveAttribute('data-state', state);
+      await expect(chip.locator('.message-mention-dot')).toHaveCSS('width', '8px');
+      await expect(chip.locator('.message-mention-dot')).toHaveCSS('height', '8px');
+      for (const width of [1440, 390]) {
+        await page.setViewportSize({ width, height: 844 });
+        for (const theme of ['light', 'dark']) {
+          await page.evaluate((theme) => (document.documentElement.dataset.theme = theme), theme);
+          await expect(chip).toBeInViewport();
+          await page.screenshot({ path: `${captures}/native-${width}-${theme}-${state}.png` });
+        }
+      }
+    }
+    await capture('online');
+    await input.getByRole('button', { name: /^Remove mention:/ }).press('Enter');
+    await expect(input.locator('.message-mention')).toHaveCount(0);
+    await expect(input).toHaveText(' ', { useInnerText: true });
+    expect(world.coreCalls().filter((call) => call.operation === 'dispatch.create')).toHaveLength(
+      0,
+    );
     await input.fill(
       `@${alpha.name} @${beta.name} @${alpha.name} @${offline.name} <script>Keep exact bytes.</script>`,
     );
@@ -69,6 +94,13 @@ test('visible mentions fan out one recorded Chat turn to live and offline saved 
     const plain = page
       .getByTestId('chat-panel')
       .getByRole('combobox', { name: 'Message', exact: true });
+    if (captures) {
+      await plain.fill('');
+      await plain.pressSequentially(`@${offline.name}`);
+      await expect(page.getByRole('listbox')).toBeVisible();
+      await plain.press('Enter');
+      await capture('offline');
+    }
     await plain.fill('@missing This is a comment.');
     await expect(panel.locator('.annotation-status-row [role=status]')).toHaveText(
       'No agent named @missing. This posts as a comment.',

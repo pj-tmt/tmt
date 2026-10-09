@@ -2,6 +2,7 @@ import { expect, it } from 'vite-plus/test';
 import { createEditor } from 'lexical';
 import {
   $messageText,
+  $messageMentions,
   $replaceMessage,
   fuzzyMessageCandidates,
   mentionQuery,
@@ -20,6 +21,25 @@ it('round-trips exact plaintext paragraphs including empty and trailing lines an
     editor.update(() => $replaceMessage(value), { discrete: true });
     expect(editor.getEditorState().read($messageText)).toBe(value);
   }
+});
+
+it('serializes atomic mentions as exact plaintext and UUID ranges without chip decoration', () => {
+  const editor = createEditor({ namespace: 'fixture', nodes: [MessageMentionNode] });
+  const value = '😀 @astra\n@Other agent done\n';
+  const mentions = [
+    { key: { machine: 'machine-a', agent: 'agent-a' }, range: { start: 3, end: 9 } },
+    { key: { machine: 'machine-b', agent: 'agent-b' }, range: { start: 10, end: 22 } },
+  ];
+  editor.update(() => $replaceMessage(value, mentions), { discrete: true });
+  editor.getEditorState().read(() => {
+    expect($messageText()).toBe(value);
+    expect($messageMentions()).toEqual(mentions);
+  });
+  editor.setEditorState(editor.parseEditorState(JSON.stringify(editor.getEditorState().toJSON())));
+  editor.getEditorState().read(() => {
+    expect($messageText()).toBe(value);
+    expect($messageMentions()).toEqual(mentions);
+  });
 });
 
 it('finds optional mention edits at the current UTF16 caret without routing ordinary text', () => {

@@ -1776,7 +1776,7 @@ Its placement is cosmetic; the captured quote
 selector owns the thread anchor. With the mention list closed, Enter sends,
 Shift+Enter inserts a newline, and Esc closes the input (an unsent draft is kept).
 While the list is open, its first available option is highlighted; Up/Down wrap,
-Home/End jump, and Enter or Tab inserts the highlighted agent without sending.
+Home/End jump, and Enter, Shift+Enter or Tab inserts the highlighted agent without sending.
 Esc closes only the list and keeps the text. Typing filters the options; no match
 closes the list. Clicking an option is equivalent to Enter. IME composition does
 not navigate, choose or send. There
@@ -1804,11 +1804,20 @@ Exact typed `@name` binds on whitespace, punctuation or Enter only when one curr
 directory entry matches; picked listbox options bind the same machine/agent UUID
 pair. Unknown names remain plaintext with "No agent named @name. This posts as a
 comment." Ambiguous names open the list and block Send until explicitly chosen or
-removed. Fuzzy matches never select a destination. Removing/editing a token removes
+removed. Fuzzy matches never select a destination. Removing/replacing a token removes
 its binding; repeated mentions of the same pair count once. A fresh untouched
-composer seeds the admitted `creationRecipient` only on a unique current UUID match.
+composer seeds the admitted `creationRecipient` regardless of presence. A unique current UUID
+match supplies its name; an absent/ambiguous entry or failed discovery uses the neutral
+`@Creator` label with that same UUID pair, never a publisher name. Initialization waits
+for the first directory result; typing first suppresses the default.
 Unknown provenance leaves it blank; publisher names and prior repliers never select
 recipients. A removed default is never reinserted during directory replacement.
+Bound mentions are atomic, square, flat chips: a solid online dot, muted offline
+state, or a dashed not-found border. Unknown/unavailable presence is labeled explicitly.
+Same-name agents include their machine name. Hover/focus exposes the full name,
+machine and state; the trailing remove action drops the binding without sending.
+Missing/ambiguous UUID entries block Send until replaced/removed. Renames retain
+the bound UUID pair and original message text. Chip decoration never enters the plaintext.
 
 One Send freezes exact text and context, records one comment through the existing
 own stream, then prepares and sends one independent Ask per distinct mentioned UUID

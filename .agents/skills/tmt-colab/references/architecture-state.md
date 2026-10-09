@@ -81,7 +81,9 @@ editor is a separate editing mode. Reader and recovery entries have no composer.
 machine/agent UUIDs with UTF16 mention ranges. Paragraphs serialize with one LF,
 retaining blank and trailing lines. Parent echoes preserve history/selection;
 explicit reset keys end a draft's editing lifetime. Mention-node identity follows
-edits and undo; editing/removing a token invalidates that binding. `mentionQuery`
+edits and undo; removing/replacing an atomic decorator chip invalidates its binding.
+`message-mention-chip.tsx` renders presence/removal from the composer's directory context;
+only the node's original token contributes to plaintext and UTF16 offsets. `mentionQuery`
 opens completion at `@` or full-width `＠` after non-address-like text, including CJK;
 `email@host` never routes. No Lexical document is persisted or sent as authority.
 

@@ -23,3 +23,54 @@
   clip-path: inset(50%);
   white-space: nowrap;
 }
+.message-mention-host {
+  display: inline;
+}
+.message-mention.message-mention-chip {
+  display: inline-flex;
+  align-items: center;
+  vertical-align: baseline;
+  max-width: 100%;
+  box-sizing: border-box;
+  gap: 4px;
+  padding: 0 2px 0 6px;
+  border: 1px solid var(--tmt-ui-color-edge);
+  border-radius: 0;
+  background: var(--tmt-ui-surface-sheet);
+  color: var(--tmt-ui-color-text);
+  line-height: 1.4;
+  --tmt-ui-host-icon-action-size: 24px;
+  --tmt-ui-header-icon-size: 12px;
+}
+.message-mention-name,
+.message-mention-machine {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.message-mention-machine {
+  flex-shrink: 1;
+  color: var(--tmt-ui-color-secondary);
+}
+.message-mention-dot {
+  width: 8px;
+  height: 8px;
+  flex-shrink: 0;
+  background: currentColor;
+}
+.message-mention-chip[data-state='offline'],
+.message-mention-chip[data-state='checking'],
+.message-mention-chip[data-state='unknown'] {
+  color: var(--tmt-ui-color-secondary);
+}
+.message-mention-chip[data-state='not-found'] {
+  border-style: dashed;
+}
+.message-mention-chip[data-state='not-found'] .message-mention-dot,
+.message-mention-chip[data-state='unknown'] .message-mention-dot,
+.message-mention-chip[data-state='checking'] .message-mention-dot {
+  box-sizing: border-box;
+  border: 1px solid currentColor;
+  background: transparent;
+}

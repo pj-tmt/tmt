@@ -6,7 +6,8 @@ import '../src/style.css';
 import { createRoot } from 'react-dom/client';
 import { useState } from 'react';
 import { MessageComposer, type ComposerEdit } from '../src/components/message-composer.js';
-import { mount } from './annotation-browser.js';
+import { mount, setAgents, setCreator, setSurface } from './annotation-browser.js';
+import { destination, id } from './ask-fixtures.js';
 
 if (!new URL(location.href).searchParams.has('field')) {
   mount('multi');
@@ -53,4 +54,26 @@ export function mountField() {
     );
   }
   createRoot(host).render(<FieldFixture />);
+}
+
+/** Presentation states use the real composer and send handler with a bounded dispatch double. */
+export function mountMentions(state: 'online' | 'offline' | 'not-found' | 'same-name') {
+  const agent = { ...destination(), agentName: 'astra', presence: 'active' as const };
+  setAgents(
+    state === 'not-found'
+      ? []
+      : state === 'same-name'
+        ? [agent, { ...agent, machine: id(12), machineName: 'Office desktop' }]
+        : [{ ...agent, presence: state === 'offline' ? 'offline' : 'active' }],
+  );
+  setCreator(true);
+  setSurface('chat');
+  mount('held');
+  const host = document.getElementById('annotation-fixture')!;
+  host.className = 'annotation-popover';
+  host.style.flexDirection = 'column';
+  host.style.left = '12px';
+  host.style.top = '80px';
+  host.style.minHeight = '0';
+  document.querySelector('[aria-label="Fixture position"]')?.remove();
 }
