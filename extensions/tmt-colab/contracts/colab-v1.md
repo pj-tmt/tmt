@@ -3241,7 +3241,7 @@ descriptor is swapped inside the baseline neither now nor later: its creation pr
 record of the new epoch and cannot exist before it.
 
 **Triggers and bounds.** One worker runs at serve start, after any management change, when an
-object channel is established, and a minute after an unfinished pass. A pass takes pages whose epoch
+object channel is established, and after an unfinished pass on a backoff that starts at a minute, doubles to an hour and starts over on any of the other triggers. A pass takes pages whose epoch
 is past 1, at most 4 attachments per page and 120 s per page; the rest wait for the next pass.
 Quota exhaustion, a lost channel, a crash or a serve stop leave the old reference, and the next pass
 resumes the slot's frozen transfer ID without a second upload. A page that moved meanwhile, an edit

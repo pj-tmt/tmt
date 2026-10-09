@@ -23,10 +23,29 @@ use std::{
 
 /// How often the worker looks for a reason to run.
 const TICK: Duration = Duration::from_secs(1);
-/// When an unfinished pass runs again.
+/// When an unfinished pass first runs again, and the longest it ever waits: a pass that keeps
+/// failing backs off instead of materializing every advanced page once a minute forever.
 const RETRY: Duration = Duration::from_secs(60);
+const RETRY_CAP: Duration = Duration::from_secs(3600);
 /// The most one page's pass may take.
 const PAGE_BUDGET: Duration = Duration::from_secs(120);
+
+/// The wait before the next retry of an unfinished pass: it doubles up to [`RETRY_CAP`] and starts
+/// over when something new happens (a nudge, a new channel, or a pass that finished).
+struct Backoff(Duration);
+impl Backoff {
+    fn new() -> Self {
+        Self(RETRY)
+    }
+    fn next(&mut self) -> Duration {
+        let wait = self.0;
+        self.0 = (self.0 * 2).min(RETRY_CAP);
+        wait
+    }
+    fn reset(&mut self) {
+        self.0 = RETRY;
+    }
+}
 
 struct Shared {
     due: Mutex<bool>,
@@ -95,6 +114,7 @@ fn work(
     let mut seen = objects.generation();
     let mut due = true;
     let mut retry_at: Option<Instant> = None;
+    let mut backoff = Backoff::new();
     while !shared.stop.load(Ordering::Acquire) {
         {
             let mut flag = locked(&shared.due);
@@ -105,12 +125,16 @@ fn work(
                     .unwrap_or_else(|poisoned| poisoned.into_inner())
                     .0;
             }
-            due |= std::mem::take(&mut *flag);
+            if std::mem::take(&mut *flag) {
+                due = true;
+                backoff.reset();
+            }
         }
         let generation = objects.generation();
         if generation != seen {
             seen = generation;
             due = true;
+            backoff.reset();
         }
         due |= retry_at.is_some_and(|at| Instant::now() >= at);
         // Without a channel there is nothing to upload through: stay due until one is established.
@@ -125,7 +149,9 @@ fn work(
             None => true,
         };
         if unfinished {
-            retry_at = Some(Instant::now() + RETRY);
+            retry_at = Some(Instant::now() + backoff.next());
+        } else {
+            backoff.reset();
         }
     }
 }
@@ -162,4 +188,18 @@ fn pass(
             .map_or(true, |pass| pass.waiting > 0);
     }
     Ok(unfinished)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_failing_pass_backs_off_to_the_cap_and_starts_over_when_something_new_happens() {
+        let mut backoff = Backoff::new();
+        let waits: Vec<u64> = (0..9).map(|_| backoff.next().as_secs()).collect();
+        assert_eq!(waits, [60, 120, 240, 480, 960, 1920, 3600, 3600, 3600]);
+        backoff.reset();
+        assert_eq!(backoff.next(), RETRY);
+    }
 }
