@@ -70,3 +70,84 @@ test('harness: an injected scenario failure still tears the world down', async (
   const { execFileSync } = await import('node:child_process');
   expect(execFileSync('/bin/ps', ['-axo', 'command='], { encoding: 'utf8' })).not.toContain(root);
 });
+
+// A test that times out is abandoned, not cancelled (#2327): its afterEach disposes the world
+// while the scenario may still be running. These cases drive that path without waiting for a
+// real Playwright timeout.
+const idle = ['-e', 'setInterval(() => {}, 1e6)'];
+const processes = async () =>
+  (await import('node:child_process')).execFileSync('/bin/ps', ['-axo', 'command='], {
+    encoding: 'utf8',
+  });
+
+test('harness: the timeout cleanup reports what a timed-out world leaked', async () => {
+  const { spawn } = await import('node:child_process');
+  let release = () => {};
+  const parked = new Promise<void>((resolve) => (release = resolve));
+  let root = '';
+  let stray: ReturnType<typeof spawn> | undefined;
+  const scenario = withWorld(async (world) => {
+    root = world.root;
+    stray = spawn(process.execPath, [...idle, world.root], { detached: true, stdio: 'ignore' });
+    await parked;
+  });
+  await expect.poll(() => root).not.toBe('');
+  try {
+    // What the afterEach of a timed-out test does: dispose and surface the leak report.
+    await expect(disposeActiveWorlds()).rejects.toThrow(/leaked[\s\S]*process remains/);
+  } finally {
+    process.kill(stray?.pid ?? 0, 'SIGKILL');
+    release();
+    await scenario.catch(() => {});
+  }
+  expect(fs.existsSync(root)).toBe(false);
+});
+
+test('harness: a scenario that outlives its dispose cannot add a child, a tmux call or a closer', async () => {
+  const { AcceptanceWorld } = await import('./harness/world.js');
+  const world = new AcceptanceWorld();
+  await world.start();
+  const root = world.root;
+  expect(await world.dispose()).toEqual([]);
+  expect(() => world.spawn('late', process.execPath, idle)).toThrow(/disposed/);
+  expect(() => world.tmux(['list-sessions'])).toThrow(/disposed/);
+  expect(() => world.onDispose(async () => {})).toThrow(/disposed/);
+  await expect(world.tmt(['--version'])).rejects.toThrow(/disposed/);
+  expect(fs.existsSync(root)).toBe(false);
+  expect(await processes()).not.toContain(root);
+});
+
+test('harness: a timeout in the middle of spawning leaves no child behind', async () => {
+  let root = '';
+  let spawned = () => {};
+  const first = new Promise<void>((resolve) => (spawned = resolve));
+  const scenario = withWorld(async (world) => {
+    root = world.root;
+    world.spawn('first', process.execPath, idle);
+    spawned();
+    // The abandoned scenario is still working when the cleanup runs.
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    world.spawn('second', process.execPath, idle);
+  });
+  await first;
+  await disposeActiveWorlds();
+  await expect(scenario).rejects.toThrow(/disposed/);
+  expect(fs.existsSync(root)).toBe(false);
+  expect(await processes()).not.toContain(root);
+});
+
+test('harness: a closer that never finishes is bounded and reported, and the rest is still torn down', async () => {
+  const { AcceptanceWorld } = await import('./harness/world.js');
+  const world = new AcceptanceWorld(undefined, { closerBoundMs: 300 });
+  await world.start();
+  world.spawn('kept', process.execPath, idle);
+  world.onDispose(() => new Promise<void>(() => {}));
+  const started = Date.now();
+  const leaks = await world.dispose();
+  expect(Date.now() - started).toBeLessThan(15_000);
+  expect(leaks).toEqual([expect.stringContaining('did not finish within 300 ms')]);
+  expect(fs.existsSync(world.root)).toBe(false);
+  const listing = await processes();
+  expect(listing).not.toContain(world.root);
+  expect(listing).not.toContain(` -L ${world.tmuxName}`);
+});

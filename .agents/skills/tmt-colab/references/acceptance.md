@@ -140,7 +140,11 @@ a stand-in. Assert the recipient's text equals the disclosed bytes captured on E
 `[remote: <device>]` line, and that no delivery state is shown (presence only).
 
 `withWorld` always disposes, and `test.afterEach(disposeActiveWorlds)` does too after a test
-timeout, so a timed-out case leaves no tmux server, process or root behind.
+timeout. Playwright abandons a timed-out scenario without cancelling it, so a disposed world
+refuses new children, tmux calls and closers (the scenario then fails on its own), each closer is
+bounded to 10 s, and `disposeActiveWorlds` throws the leak report instead of dropping it.
+`harness.spec.ts` drives those paths without a real timeout. A worker that Playwright kills
+outright (a hook timeout) can still leave a world behind; no hook can run then.
 
 `reader.spec.ts` (#1545) drives the read-only share link: the page, `share link add`/`reset` and `page write`
 are real owner commands, and each reader is an unpaired Chromium profile (`openReaderLink`) that
