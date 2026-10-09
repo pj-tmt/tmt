@@ -85,10 +85,12 @@ native reader needs CSS; Office product execution remains disabled.
 ## Cache ownership
 
 Rust dependency caches use the pinned `Swatinem/rust-cache` action with one
-main-only writer per key: workspace tests for shared dev dependencies, MSRV for
-its toolchain, and each runtime target for its own cache. These CI writers use the
+main-only writer per key: workspace tests for shared dev dependencies, process
+contracts for their existing dev/release builds under `native-process-rust`, MSRV
+for its toolchain, and each runtime target for its own cache. These CI writers use the
 shared seed-event classification (`verify=false`) and main ref. PRs, merge groups
-and other workers only restore. Dev debug information and incremental compilation
+and other workers only restore; the process cache is cold until its first main save.
+Dev debug information and incremental compilation
 are disabled in CI; release profiles keep their manifest policy.
 Release build and adapter cache ownership is described in [native release verification](native-release.md#cli-upgrade-proof).
 

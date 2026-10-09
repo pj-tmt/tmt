@@ -423,8 +423,8 @@ jobs:
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: rust
-          shared-key: native-rust
-          save-if: false
+          shared-key: native-process-rust
+          save-if: ${{ needs.changes.outputs.verify == 'false' && github.ref == 'refs/heads/main' }}
       - name: Set up Node.js and pnpm test tooling
         uses: ./.github/actions/setup-tooling
       - name: Install test dependencies
