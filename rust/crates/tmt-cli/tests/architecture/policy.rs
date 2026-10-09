@@ -270,6 +270,8 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
             "tmt-cli-style",
             "tmt-invoke",
             "tmt-extension-state",
+            // The shared background-startup handoff (#2383).
+            "tmt-extension-serve",
             // The page budget is gzipped bytes; a write measures the state the way a browser loads it.
             "flate2",
         ],

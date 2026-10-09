@@ -2333,6 +2333,22 @@ no write/agent authority; a bare unauthenticated upgrade rejects before effects.
 
 ### `serve` and the Remote door (#1584)
 
+**Modes (#2383).** Human `tmt colab serve` starts a detached worker and returns once the serve
+lock is held, `door.sock` is bound and the door is resolved (attached, started or local-only).
+It prints `Colab is running in the background`, the status rows and the page link, `tmt colab
+stop` and `--foreground`. `--foreground` keeps the process attached until Ctrl-C or SIGTERM and
+says how to run in the background next time. Bare `--json` is the foreground serve (supervisors
+keep owning the process they start); `--background --json` prints the same line plus
+`"background":true`. The launcher opens the page after the handoff, with the same settings and
+flags as before; the worker never opens it. The handoff lifecycle (exact self-exec worker, one
+startup deadline, no kill authority past the accept cutoff, no PID signals, the second-start
+rule) is written once in the
+[`tmt-extension-serve` crate docs](../../../rust/crates/tmt-extension-serve/src/lib.rs). Colab
+adds only its readiness record (the status rows and JSON line), the codes
+`COLAB_STARTUP_UNCONFIRMED`, `COLAB_STARTUP_CANCELLED`, `COLAB_ALREADY_SERVING` and
+`COLAB_READY_OUTPUT`, and a private bounded `colab/serve-error.json` for a failure after the
+handoff. A door the worker started stays the worker's and stops with it.
+
 `tmt colab serve` is the one command for browser access. After its socket is bound it
 learns the door only through Remote's public CLI, run through the invoking core executable
 with a bounded call each (three seconds, 16 KiB), never Remote's files:

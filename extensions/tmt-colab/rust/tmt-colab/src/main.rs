@@ -5,6 +5,7 @@ mod cli_threads;
 mod door;
 mod open;
 mod reach;
+mod serve;
 mod settings_cli;
 mod status;
 mod supervisor;
@@ -15,16 +16,12 @@ use serde_json::json;
 use std::{
     io::Write,
     process::ExitCode,
-    sync::{Arc, Mutex, atomic::AtomicBool},
+    sync::{Arc, atomic::AtomicBool},
 };
 use tmt_cli_style::{CommandSpec, Example, OutputModes, Route};
 use tmt_colab::{
-    Result,
-    assets::App,
-    core,
+    Result, core,
     keyring::{Keyring, Layout},
-    registration::Registration,
-    socket::{MountSocket, Tunnels},
     store::Store,
 };
 
@@ -79,13 +76,19 @@ fn grammar() -> Command {
     };
     const SERVE: CommandSpec = CommandSpec {
         name: "serve",
-        summary: "Serve a local space in the foreground",
-        examples: &[Example {
-            command: "tmt colab serve",
-            note: "Serve the space on its owner-only socket for tmt remote",
-        }],
+        summary: "Serve a local space in the background",
+        examples: &[
+            Example {
+                command: "tmt colab serve",
+                note: "Serve the space on its owner-only socket for tmt remote",
+            },
+            Example {
+                command: "tmt colab serve --foreground",
+                note: "Keep the serve attached to this terminal until Ctrl-C",
+            },
+        ],
         outputs: OutputModes::HumanAndJson,
-        details: "Listens only on <data root>/colab/door.sock. Attaches to a running Remote door, or starts tmt remote serve itself, and prints the state and the next step (pairing stays explicit: tmt remote pair).\nCtrl-C or SIGTERM closes the socket, its workers and tunnels, then stops a door it started; an attached door keeps running.",
+        details: "Human output starts in the background and returns once the space and the Remote door are ready; use tmt colab stop to end it.\n--foreground keeps the serve owned by this command until Ctrl-C or SIGTERM. Bare --json remains foreground; use --background --json to detach.\nListens only on <data root>/colab/door.sock. Attaches to a running Remote door, or starts tmt remote serve itself, and prints the state and the next step (pairing stays explicit: tmt remote pair).\nStopping closes the socket, its workers and tunnels, then stops a door it started; an attached door keeps running.",
     };
     const STOP: CommandSpec = CommandSpec {
         name: "stop",
@@ -202,15 +205,36 @@ fn grammar() -> Command {
             .arg(tmt_cli_style::version_arg(ArgAction::Version))
             .subcommand_required(true)
             .subcommand(open_args(
-                tmt_cli_style::command(&SERVE).arg(
-                    Arg::new("app-dir")
-                        .long("app-dir")
-                        .value_name("DIRECTORY")
-                        .value_parser(clap::value_parser!(std::path::PathBuf))
-                        .help(
-                            "Override embedded or checkout app bytes with an absolute build directory",
-                        ),
-                ),
+                tmt_cli_style::command(&SERVE)
+                    .arg(
+                        Arg::new("foreground")
+                            .long("foreground")
+                            .action(ArgAction::SetTrue)
+                            .conflicts_with("background")
+                            .help("Keep the serve owned by this command"),
+                    )
+                    .arg(
+                        Arg::new("background")
+                            .long("background")
+                            .action(ArgAction::SetTrue)
+                            .help("Detach after the private readiness handoff"),
+                    )
+                    .arg(
+                        Arg::new("worker")
+                            .long("worker")
+                            .hide(true)
+                            .action(ArgAction::SetTrue)
+                            .requires("foreground"),
+                    )
+                    .arg(
+                        Arg::new("app-dir")
+                            .long("app-dir")
+                            .value_name("DIRECTORY")
+                            .value_parser(clap::value_parser!(std::path::PathBuf))
+                            .help(
+                                "Override embedded or checkout app bytes with an absolute build directory",
+                            ),
+                    ),
             ))
             .subcommand(tmt_cli_style::command(&SKILL_COMMAND))
             .subcommand(tmt_cli_style::command(&STOP))
@@ -296,200 +320,36 @@ fn run(matches: &clap::ArgMatches) -> Result<()> {
         return Ok(());
     }
     let stop = Arc::new(AtomicBool::new(false));
-    let mut signals = Vec::new();
-    let result = (|| -> Result<()> {
-        for signal in [signal_hook::consts::SIGINT, signal_hook::consts::SIGTERM] {
-            signals.push(signal_hook::flag::register(signal, Arc::clone(&stop))?);
-        }
-        let root = core::data_root(&stop)?;
-        if command == "page" {
-            return page(&root, args);
-        }
-        if command == "threads" {
-            return cli_threads::run(&root, args);
-        }
-        if command == "attachment" {
-            return cli_attachments::run(&root, args);
-        }
-        let json_output = args.get_flag("json");
-        if command == "spaces" {
-            return spaces(&root, json_output);
-        }
-        if command == "settings" {
-            return settings_cli::run(&root, args, json_output);
-        }
-        if command == "stop" {
-            return stop_serving(&root, json_output);
-        }
-        if command == "export" {
-            return export(&root, args);
-        }
-        if command != "serve" {
-            return cli_management::run(command, args, &root, json_output);
-        }
-        let app = App::selected(
-            args.get_one::<std::path::PathBuf>("app-dir")
-                .map(|path| path.as_path()),
-        )?;
-        let layout = Layout::open(&root)?;
-        let _lock = layout.serve_lock()?;
-        let keyring = Keyring::open(&layout)?;
-        let mut output = tmt_cli_style::stream::stdout(json_output);
-        let store = Store::open(&layout)?;
-        let space_id = keyring.space_id.clone();
-        let (pages, all_pages) = open_pages(&store, &keyring);
-        let save_root = root.clone();
-        let registration = Arc::new(Mutex::new(
-            Registration::new(store, keyring, std::env::current_exe()?)?.with_save_source(
-                Arc::new(move || {
-                    tmt_colab::page::save::open_source(
-                        &save_root,
-                        tmt_colab::decoder::Config::new(std::env::current_exe()?),
-                    )
-                }),
-            ),
-        ));
-        let release = Arc::new(tmt_colab::serve_release::ServeRelease::new(
-            tmt_colab::serve_release::Running::detect(),
-        ));
-        let socket = MountSocket::bind(&layout, &space_id, Tunnels::PRODUCT)?
-            .with_registration(&layout, Arc::clone(&registration))?
-            .with_release(Arc::clone(&release))
-            .with_app(app);
-        // The socket is bound first, so a door started now mounts it as soon as it is ready.
-        let access = supervisor::Access::open(&stop);
-        let socket = socket
-            .with_door(match &access {
-                supervisor::Access::Attached(_) => "attached",
-                supervisor::Access::Started { .. } => "started",
-                supervisor::Access::Unavailable { .. } => "unavailable",
-            })
-            .with_object_discovery(|| match door::Door::lookup() {
-                door::Lookup::Running(door) => {
-                    let host = door.origin().strip_prefix("http://")?.to_owned();
-                    let mount = door.url("x/colab/").strip_prefix(door.origin())?.to_owned();
-                    Some((host, mount))
-                }
-                _ => None,
-            });
-        let pairing = match &access {
-            supervisor::Access::Unavailable { .. } => None,
-            _ => Some(door::Pairing::lookup()),
-        };
-        let mut status = status::Status {
-            space: &space_id,
-            socket: &socket.path,
-            access: &access,
-            pairing,
-            pages,
-            all_pages,
-            opened: false,
-        };
-        // Once the door is ready, open the page (or the space home) unless told or unable not to.
-        let mut open_warnings = Vec::new();
-        if let Some(link) = status.open_link() {
-            // The door is ready: unreadable settings are the defaults, never a failed serve.
-            let settings = tmt_colab::settings::read_or_default(&root);
-            let outcome = open::open_link(&link, open::flag(args), settings.open(), json_output);
-            status.opened = matches!(outcome, open::Outcome::Opened);
-            open_warnings.extend(open::describe(&outcome, &link).1);
-            if settings.malformed {
-                open_warnings.push(tmt_colab::settings::UNREADABLE.to_owned());
-            }
-        }
-        if json_output {
-            writeln!(output, "{}", status.json())?;
-        } else {
-            let terminal = output.terminal();
-            let rows = status.rows();
-            tmt_cli_style::detail::write(&mut output, terminal, "LOCAL SPACE", &rows)?;
-        }
-        if let (Some((what, hint)), false) = (access.warning(), json_output) {
-            let mut warning = tmt_cli_style::stream::stderr();
-            let terminal = warning.terminal();
-            tmt_cli_style::message::warning(&mut warning, terminal, what, hint)?;
-        }
-        for what in open_warnings.iter().filter(|_| !json_output) {
-            let mut warning = tmt_cli_style::stream::stderr();
-            let terminal = warning.terminal();
-            tmt_cli_style::message::warning(&mut warning, terminal, what, None)?;
-        }
-        output.flush()?;
-        drop(output);
-        // The watcher ends with the serve, however the socket loop was stopped.
-        let serving = Arc::new(AtomicBool::new(true));
-        let watcher = (!json_output).then(|| watch_release(&release, &serving));
-        let result = socket.run(&stop);
-        serving.store(false, std::sync::atomic::Ordering::Relaxed);
-        if let Some(watcher) = watcher {
-            let _ = watcher.join();
-        }
-        let closed = Arc::try_unwrap(registration)
-            .map_err(|_| "Registration worker retained.")?
-            .into_inner()
-            .map_err(|_| "Registration lock poisoned.")?
-            .close();
-        // The door Colab started stops after its own socket is closed.
-        drop(access);
-        result?;
-        closed
-    })();
-    for signal in signals {
-        signal_hook::low_level::unregister(signal);
+    let launcher = command == "serve" && serve::is_launcher(args);
+    let _signals = tmt_extension_serve::Signals::register(&stop, launcher)?;
+    let root = core::data_root(&stop)?;
+    if command == "page" {
+        return page(&root, args);
     }
-    result
+    if command == "threads" {
+        return cli_threads::run(&root, args);
+    }
+    if command == "attachment" {
+        return cli_attachments::run(&root, args);
+    }
+    let json_output = args.get_flag("json");
+    if command == "spaces" {
+        return spaces(&root, json_output);
+    }
+    if command == "settings" {
+        return settings_cli::run(&root, args, json_output);
+    }
+    if command == "stop" {
+        return stop_serving(&root, json_output);
+    }
+    if command == "export" {
+        return export(&root, args);
+    }
+    if command != "serve" {
+        return cli_management::run(command, args, &root, json_output);
+    }
+    serve::run(&root, args, &stop)
 }
-/// Tells the foreground user, once, when the installed release is no longer the one serving.
-/// The check reads only the install layout; it never restarts, signals or changes the serve.
-/// It runs until `serving` clears and a stop within a tenth of a second.
-fn watch_release(
-    release: &Arc<tmt_colab::serve_release::ServeRelease>,
-    serving: &Arc<AtomicBool>,
-) -> std::thread::JoinHandle<()> {
-    let (release, serving) = (Arc::clone(release), Arc::clone(serving));
-    std::thread::spawn(move || {
-        // Check at most every `PERIOD`, but notice a stop within a tenth of a second.
-        const PERIOD: u32 = 50;
-        let mut ticks = PERIOD;
-        while serving.load(std::sync::atomic::Ordering::Relaxed) {
-            if ticks >= PERIOD {
-                ticks = 0;
-                if let Some(stale) = release.fresh() {
-                    let mut warning = tmt_cli_style::stream::stderr();
-                    let terminal = warning.terminal();
-                    let _ = tmt_cli_style::message::warning(
-                        &mut warning,
-                        terminal,
-                        &tmt_colab::serve_release::restart_text(&stale),
-                        Some(tmt_colab::serve_release::RESTART_HINT),
-                    );
-                    return;
-                }
-            }
-            ticks += 1;
-            std::thread::sleep(std::time::Duration::from_millis(100));
-        }
-    })
-}
-/// Ids of the pages that are not archived, for the start-up status. A catalog that cannot be
-/// read is unknown, never a reason to refuse to serve.
-fn open_pages(store: &Store, keyring: &Keyring) -> (Option<Vec<String>>, Option<Vec<String>>) {
-    let Some(catalog) = tmt_colab::inspection::catalog(store, keyring).ok() else {
-        return (None, None);
-    };
-    let ids = |rows: &serde_json::Value, active: bool| -> Option<Vec<String>> {
-        rows.as_array()?
-            .iter()
-            .filter(|page| !active || page["archived"] != true)
-            .map(|page| page["pageId"].as_str().map(str::to_owned))
-            .collect()
-    };
-    (
-        ids(&catalog["pages"], true),
-        ids(&catalog["pageIds"], false),
-    )
-}
-
 /// How long a stop request waits for the serving process to release its lock: the door's grace
 /// period plus socket and worker shutdown.
 const STOP_WAIT: std::time::Duration = std::time::Duration::from_secs(10);
@@ -1082,10 +942,14 @@ fn main() -> ExitCode {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
             let cli_failure = error.downcast_ref::<cli_management::ManagementFault>();
-            let code = error_code(error.as_ref());
+            let start = error.downcast_ref::<serve::StartFault>();
+            let code =
+                start.map_or_else(|| error_code(error.as_ref()), |fault| fault.code.as_str());
             let schema = schema_fault(error.as_ref());
             let next = schema.and_then(tmt_colab::store::Fault::next);
-            let hint = schema.and_then(tmt_colab::store::Fault::hint);
+            let hint = start
+                .and_then(|fault| fault.hint.as_deref())
+                .or_else(|| schema.and_then(tmt_colab::store::Fault::hint));
             if json_output {
                 let mut value = cli_failure
                     .map(|e| e.correlation.clone())

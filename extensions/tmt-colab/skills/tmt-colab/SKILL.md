@@ -42,7 +42,8 @@ skill path. Existing unmanaged skill conflicts need inspection, not a silent
 force. Reload the provider's skills after installation, or read the exact
 bundled instructions with `tmt colab skill`. It works without a server or checkout.
 
-Start one foreground process in a supervised terminal or task session:
+A person at a terminal runs `tmt colab serve`: it detaches and prints the page link;
+`tmt colab stop` ends it. An agent starts one foreground process in a supervised session:
 
 ```sh
 tmt colab serve --json

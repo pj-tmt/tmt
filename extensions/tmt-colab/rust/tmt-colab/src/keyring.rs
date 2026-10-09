@@ -12,6 +12,7 @@ const FILES: &[&str] = &[
     "space.db",
     "settings.json",
     "settings.lock",
+    "serve-error.json",
 ];
 
 pub struct Layout {

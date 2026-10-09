@@ -2847,6 +2847,7 @@ dependencies = [
  "tmt-cli-style",
  "tmt-colab-model",
  "tmt-extension-objects",
+ "tmt-extension-serve",
  "tmt-extension-state",
  "tmt-invoke",
  "tmt-test-support",

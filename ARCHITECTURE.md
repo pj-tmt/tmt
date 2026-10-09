@@ -601,7 +601,7 @@ core discovery or storage access.
   to Remote's validated `tmt-mount` root, resolving page-ID prefixes from its verified catalog (browser ambiguity by parent chrome).
   It stores ciphertext and never decodes Yjs.
 - **Dependency direction.** `tmt-colab` depends on `tmt-colab-model` (pure codecs and fixed
-  crypto), `tmt-extension-state`, `tmt-extension-objects` and `tmt-invoke`/`tmt-cli-style`; the browser
+  crypto), `tmt-extension-state`, `-objects`, `-serve` and `tmt-invoke`/`tmt-cli-style`; the browser
   depends on Remote's served SDK (`/sdk/remote-v1.js`). Never `tmt-core`, `tmt-adapters`,
   `tmt-remote` or Office; core is reached through `$TMT_EXECUTABLE api` and the fixed,
   bounded `identity show --json` command at CLI page create/write. Its optional caller
@@ -625,7 +625,7 @@ core discovery or storage access.
   in its own process group, reading pairing from `tmt remote devices --json`. This optional
   edge (Colab → Remote) uses the public CLI only: no Remote state files and no crate
   dependency. Colab stops only a door it started, with its whole group, after closing its own
-  socket. `tmt colab stop` reaches the serving process through a root-local route on that same owner-only socket (no signals, no new surface).
+  socket. Bare `serve` detaches through `tmt-extension-serve`; `--foreground` stays attached. `tmt colab stop` reaches the serving process through a root-local route on that same owner-only socket (no signals, no new surface).
 - **Message editing.** The Lexical 0.52.0 plaintext/history composer follows the [editing boundary](.agents/skills/tmt-colab/references/architecture-state.md#message-editing-boundary). The parent records one comment and an Ask per distinct visible mention (up to 8); Ask again keeps the comment and uses a fresh operation after pair-marker/own-ledger checks. The editor grants no dispatch authority.
 - **Renderer invariant.** Parent chrome allows only self-hosted scripts and styles (no
   `unsafe-inline`). Author HTML runs only in `renderer.html` inside an opaque
