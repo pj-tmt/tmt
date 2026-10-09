@@ -120,7 +120,7 @@ describe('event-driven workspace recovery snapshots', () => {
             identity: { id: string; name: string };
             resume: { session: string; resumePendingAtMs: number };
           }>;
-        }>(['workspace', 'show', '--socket', fixture.socketPath]);
+        }>(['workspace', 'show', '--socket', fixture.socketPath], { outsideTmux: true });
         expect(result.code, result.stderr).toBe(0);
         expect(result.json!.snapshot).toEqual(synthetic);
         expect(result.json!.sessions).toEqual([
