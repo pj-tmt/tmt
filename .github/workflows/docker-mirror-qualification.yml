@@ -14,7 +14,7 @@ jobs:
   resolve:
     if: github.head_ref == 'infra-1/2409-mirror-qualification'
     strategy:
-      fail-fast: true
+      fail-fast: false
       matrix:
         include:
           - runner: ubuntu-24.04
@@ -91,12 +91,29 @@ jobs:
             echo 'Hub resolver fallback observed; qualification refused.' >&2
             exit 1
           fi
+      - name: Blackhole Hub endpoints for the container-driver proof
+        run: |
+          cp /etc/hosts "$RUNNER_TEMP/tmt-mirror-original-hosts"
+          printf '%s\n' '127.0.0.1 registry-1.docker.io auth.docker.io index.docker.io production.cloudflare.docker.com' | sudo tee -a /etc/hosts
+          cat /etc/hosts | tee evidence/blackholed-runner-hosts.txt
+          for host in registry-1.docker.io auth.docker.io index.docker.io production.cloudflare.docker.com; do
+            getent ahostsv4 "$host" | tee "evidence/$host-addresses.txt"
+            test "$(getent ahostsv4 "$host" | awk '{print $1}' | sort -u)" = 127.0.0.1
+          done
+          status=0
+          curl --noproxy '*' --silent --show-error --fail --connect-timeout 5 --max-time 10 \
+            https://registry-1.docker.io/v2/ > evidence/blackhole-curl.stdout 2> evidence/blackhole-curl.stderr || status=$?
+          cat evidence/blackhole-curl.stderr
+          echo "Hub blackhole negative control: curl exit=$status"
+          test "$status" = 7
       - name: Set up an independently mirrored BuildKit builder
         uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3.11.1
         with:
           version: v0.29.1
           cache-binary: false
-          driver-opts: image=mirror.gcr.io/moby/buildkit:buildx-stable-1@sha256:cec9f139f45e93c5c69c60f8b07cfad9f43f4ef6b6a6cd917527fea5ff2e3dea
+          driver-opts: |
+            network=host
+            image=mirror.gcr.io/moby/buildkit:buildx-stable-1@sha256:cec9f139f45e93c5c69c60f8b07cfad9f43f4ef6b6a6cd917527fea5ff2e3dea
           buildkitd-config-inline: |
             debug = true
             [registry."docker.io"]
@@ -105,6 +122,12 @@ jobs:
         env:
           PLATFORM: ${{ matrix.platform }}
         run: |
+          builder=$(docker ps --filter name=buildx_buildkit --format '{{.ID}}')
+          test "$(printf '%s\n' "$builder" | wc -l)" = 1
+          test "$(docker inspect --format '{{.HostConfig.NetworkMode}}' "$builder")" = host
+          docker exec "$builder" cat /etc/hosts | tee evidence/blackholed-builder-hosts.txt
+          # Prove the builder sees the blackhole; network=host alone is not assumed sufficient.
+          grep -Fx '127.0.0.1 registry-1.docker.io auth.docker.io index.docker.io production.cloudflare.docker.com' evidence/blackholed-builder-hosts.txt
           index=0
           while IFS= read -r image; do
             index=$((index + 1))
@@ -117,12 +140,19 @@ jobs:
           builder=$(docker ps --filter name=buildx_buildkit --format '{{.ID}}')
           test "$(printf '%s\n' "$builder" | wc -l)" = 1
           docker logs "$builder" > evidence/buildkit.log 2>&1
-          grep -E 'request.method=(GET|HEAD).*url="?https://mirror\.gcr\.io/.*manifests' evidence/buildkit.log
+          grep -E 'request.method=(GET|HEAD).*url="?https://mirror\.gcr\.io/.*manifests' evidence/buildkit.log || true
           if grep -E 'request.method=GET.*url="?https://(registry-1|index)\.docker\.io/.*manifests' evidence/buildkit.log; then
             echo 'Hub resolver fallback observed; qualification refused.' >&2
             exit 1
           fi
           df -h / | tee evidence/df-after.txt
+      - name: Restore runner hosts
+        if: always()
+        run: |
+          if test -f "$RUNNER_TEMP/tmt-mirror-original-hosts"; then
+            sudo cp "$RUNNER_TEMP/tmt-mirror-original-hosts" /etc/hosts
+            rm "$RUNNER_TEMP/tmt-mirror-original-hosts"
+          fi
       - name: Retain resolver evidence
         if: always()
         uses: actions/upload-artifact@v4
