@@ -540,7 +540,14 @@ fn default_directory_cutover_republishes_only_full_digest_verified_owned_sources
         let former = fs::canonicalize(former).unwrap();
         let current = former.parent().unwrap().join("tmt");
         let offered = skill("fixture-owner", "owned source");
-        install_owned(&env, &former, "fixture", &[offered.clone()], false).unwrap();
+        install_owned(
+            &env,
+            &former,
+            "fixture",
+            std::slice::from_ref(&offered),
+            false,
+        )
+        .unwrap();
         let target = root.join(&offered.name);
         let old = fs::read_link(&target).unwrap();
         fs::rename(&former, &current).unwrap();
