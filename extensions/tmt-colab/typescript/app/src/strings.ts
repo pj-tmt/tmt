@@ -15,6 +15,7 @@ export const text = {
   authorAttributionNote:
     'Names are publisher-provided labels, not proof of identity or permission.',
   messageLabel: 'Message',
+  newMessages: 'New messages',
   annotationTitle: 'Annotate',
   annotationClose: 'Close annotation',
   messagePlaceholder: 'Write a message…',

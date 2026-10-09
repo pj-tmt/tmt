@@ -1,15 +1,14 @@
 import { BrowserIconAction } from '@tmt/browser-ui/react';
 import { X } from 'lucide-react';
-import { ConversationWindow } from './components/conversation-window.js';
+import { ConversationWindow, conversationRecordKey } from './components/conversation-window.js';
 import { text } from './strings.js';
-import { useEffect, useRef } from 'react';
 import { AnnotationInput } from './annotation-input.js';
 import { AskPanel, type AskBinding, type PageAsk } from './ask-panel.js';
 import type { ComposerEdit } from './components/message-composer-edit.js';
 import type { CreationRecipient } from './fold-protocol.js';
 import { CommentExchange } from './thread-panel.js';
 import { isChatThread, type ThreadView } from './thread-records.js';
-import type { ThreadBinding } from './thread-store.js';
+import { conversationAsks, type ThreadBinding } from './thread-store.js';
 
 /** All chat history is page-visible; only this device's designated thread receives its next turn. */
 export function ChatPanel({
@@ -43,14 +42,25 @@ export function ChatPanel({
   unsaved?: boolean;
   close(): void;
 }) {
-  const history = useRef<HTMLDivElement>(null);
   const chats = threads.filter(isChatThread);
   const own = chats.find((thread) => thread.ref.writer === discussion?.deviceId);
   const legacy = asks.filter((ask) => !ask.thread);
-  useEffect(() => {
-    const node = history.current;
-    if (node) node.scrollTop = node.scrollHeight;
-  }, [threads, asks]);
+  const messageIds = [
+    ...chats.flatMap((thread) => [
+      ...thread.comments.map((comment) =>
+        conversationRecordKey('comment', comment.ref.writer, comment.messageId),
+      ),
+      ...conversationAsks(thread, asks, true)
+        .filter((record) => record.reply !== undefined)
+        .map((record) => conversationRecordKey('reply', record.writer, record.operationId)),
+    ]),
+    ...legacy.flatMap((record) => [
+      conversationRecordKey('ask', record.writer, record.operationId),
+      ...(record.reply !== undefined
+        ? [conversationRecordKey('reply', record.writer, record.operationId)]
+        : []),
+    ]),
+  ];
   return (
     <ConversationWindow
       className="chat-panel"
@@ -69,7 +79,8 @@ export function ChatPanel({
           }}
         />
       }
-      historyRef={history}
+      messageIds={messageIds}
+      ownWriter={discussion?.deviceId}
       historyClassName="chat-messages"
       notice={
         <>

@@ -49,7 +49,18 @@ owns record fields, limits, revision semantics and trust boundaries.
   Actor labels and clocks remain display assertions.
 - `components/conversation-window.tsx` owns one header, full-width history and bottom
   composer placement for Chat, anchored threads and new annotations. Window geometry
-  and scrolling remain caller-owned. `components/conversation-turn.tsx` owns their
+  remains caller-owned; this component owns scrolling for both surfaces.
+  It opens at the history bottom and follows new record identities while the reader
+  is within 24px of the bottom. Above that threshold, arrivals preserve the reading
+  position and show a politely announced "New messages" text action at the history's
+  bottom edge. Activating it or manually returning to the bottom clears it.
+  New comments from this device's writer always follow latest, before Remote delivery;
+  agent replies have separate identities and do not count as an own Send.
+  Cloned publications, edits and size changes are not arrivals. Size changes retain
+  following; reaching the bottom after resizing also clears pending state, including
+  when every message fits. The shared owner disconnects size observation on
+  unmount and retains composer focus, draft and caret. Hiding a focused jump action
+  returns focus to the named history region. `components/conversation-turn.tsx` owns their
   shared flat message markup: neutral 1px row rules, muted author/time and an agent
   3px ink rail. Status and trusted text actions share the meta line's right side;
   they wrap together at narrow widths. `components/message-text.tsx` and Lexical
@@ -62,9 +73,9 @@ owns record fields, limits, revision semantics and trust boundaries.
   conversation body, including the initial selection before a thread exists. The
   anchored layout fits its content and grows away from its selection edge up to
   the available viewport height before its messages scroll;
-  its header and parent composer stay stationary during message scrolling. First
-  open, new comment IDs and changed associated replies move that area to the
-  arrival. Unrelated cloned publications preserve a reader's history position.
+  its header and parent composer stay stationary during message scrolling.
+  It supplies comment and admitted reply identities to the shared scroll owner;
+  a delayed reply is an arrival, while editing an existing reply is not.
   A parent composer slot preserves the same input instance through first commit;
   existing writer-owned controls await the discussion binding with busy/error
   display and no notification or storage capability.

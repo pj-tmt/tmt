@@ -363,7 +363,11 @@ for (const width of [1440, 390]) {
       await page.evaluate(async (fixture) => (await import(fixture)).windowReply(24), fixture);
       await expect(thread.getByTestId('ask-reply')).toHaveText('Exact associated agent reply.');
       const messages = thread.locator('.thread-messages');
-      await expect(thread.getByTestId('ask-reply')).toBeInViewport({ ratio: 1 });
+      await expect
+        .poll(() =>
+          messages.evaluate((node) => node.scrollHeight - node.clientHeight - node.scrollTop),
+        )
+        .toBeLessThanOrEqual(1);
       expect(await messages.evaluate((node) => node.scrollHeight > node.clientHeight)).toBe(true);
       const header = thread.locator('.thread-bar');
       const headerBefore = (await header.boundingBox())!;
@@ -381,7 +385,10 @@ for (const width of [1440, 390]) {
       await page.screenshot({ path: `${captureDir}/window-${width}-${theme}-history.png` });
       await run(page, 'updateWindowReply');
       await expect(thread.getByTestId('ask-reply')).toHaveText('Updated associated agent reply.');
-      await expect(thread.getByTestId('ask-reply')).toBeInViewport({ ratio: 1 });
+      expect(await messages.evaluate((node) => node.scrollTop)).toBe(0);
+      await expect(thread.getByRole('button', { name: 'New messages', exact: true })).toHaveCount(
+        0,
+      );
       expect(await messages.evaluate((node) => node.clientHeight)).toBeGreaterThanOrEqual(240);
       await page.screenshot({ path: `${captureDir}/window-${width}-${theme}-reply.png` });
       await input.fill('@Agent 1 Exact unsent draft retained on collapse.');
@@ -397,7 +404,13 @@ for (const width of [1440, 390]) {
         useInnerText: true,
       });
       await expect(dialog.locator('.annotation-status-row')).toContainText('Asks @Agent 1.');
-      await expect(thread.getByTestId('ask-reply')).toBeInViewport({ ratio: 1 });
+      await expect
+        .poll(() =>
+          thread
+            .locator('.thread-messages')
+            .evaluate((node) => node.scrollHeight - node.clientHeight - node.scrollTop),
+        )
+        .toBeLessThanOrEqual(1);
       await expect(thread.locator('blockquote')).toHaveText('Exact selected text');
       await expect(page.locator('.page-drawer[open]')).toHaveCount(0);
       const box = (await dialog.boundingBox())!;

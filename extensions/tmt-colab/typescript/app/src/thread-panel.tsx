@@ -4,10 +4,10 @@ import { BrowserAction, BrowserIconAction } from '@tmt/browser-ui/react';
 import { MessageComposer } from './components/message-composer.js';
 import type { ComposerEdit } from './components/message-composer-edit.js';
 import { conversationAsks } from './thread-store.js';
-import { ConversationWindow } from './components/conversation-window.js';
+import { ConversationWindow, conversationRecordKey } from './components/conversation-window.js';
 import { MessageText } from './components/message-text.js';
 import { ConversationTurn } from './components/conversation-turn.js';
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { AskPanel, type AskBinding, type PageAsk } from './ask-panel.js';
 import { ActionMenu } from './components/action-menu.js';
 import type { ThreadBinding } from './thread-store.js';
@@ -338,63 +338,14 @@ export function ThreadWindow({
   // A resolved thread leaves the page's marker set, so its attachment is not
   // observed until Reopen restores the marker.
   const tracked = !!anchor && !thread?.resolved;
-  const history = useRef<HTMLDivElement>(null);
-  const previousComments = useRef<Set<string>>(undefined);
-  const previousReplies = useRef(new Map<string, string>());
-  const arrival = useRef<{ offset: number; scroll(): void }>(undefined);
-  useEffect(() => {
-    const node = history.current;
-    if (layout !== 'anchored' || !node) return;
-    const observer = new ResizeObserver(() => {
-      const target = arrival.current;
-      if (
-        target &&
-        (Math.abs(node.scrollTop - target.offset) < 1 ||
-          Math.abs(node.scrollTop - Math.max(0, node.scrollHeight - node.clientHeight)) < 1)
-      )
-        target.scroll();
-    });
-    observer.observe(node);
-    return () => observer.disconnect();
-  }, [layout]);
-  useEffect(() => {
-    const node = history.current;
-    if (layout !== 'anchored' || !node) return;
-    const comments = new Set(
-      thread?.comments.map((comment) => `${comment.ref.writer}:${comment.messageId}`),
-    );
-    const opened = previousComments.current === undefined;
-    const newComment = [...comments].some((id) => !previousComments.current?.has(id));
-    previousComments.current = comments;
-    const records = conversationAsks(thread, asks, true);
-    const changed = records.filter(
-      (record) =>
-        record.reply !== undefined &&
-        previousReplies.current.get(record.operationId) !== record.reply,
-    );
-    previousReplies.current = new Map(
-      records
-        .filter((record) => record.reply !== undefined)
-        .map((record) => [record.operationId, record.reply!]),
-    );
-    if (!opened && !newComment && !changed.length) return;
-    // A delayed answer may belong to an earlier turn. Scroll this message area,
-    // never the document, so that newly arrived answer is readable too.
-    const latest = changed.at(-1);
-    const reply =
-      latest &&
-      Array.from(node.querySelectorAll<HTMLElement>('[data-operation-id]'))
-        .find((entry) => entry.dataset.operationId === latest.operationId)
-        ?.querySelector<HTMLElement>('[data-testid="ask-reply"]');
-    const scroll = () => {
-      node.scrollTop = node.scrollHeight;
-      if (reply?.isConnected)
-        node.scrollTop +=
-          reply.getBoundingClientRect().bottom - node.getBoundingClientRect().bottom;
-      arrival.current = { offset: node.scrollTop, scroll };
-    };
-    scroll();
-  }, [thread, asks, layout]);
+  const messageIds = [
+    ...(thread?.comments.map((comment) =>
+      conversationRecordKey('comment', comment.ref.writer, comment.messageId),
+    ) ?? []),
+    ...conversationAsks(thread, asks, true)
+      .filter((record) => record.reply !== undefined)
+      .map((record) => conversationRecordKey('reply', record.writer, record.operationId)),
+  ];
   const [reattach, setReattach] = useState<QuoteSelector | null>(null);
   const action = (change: Parameters<ThreadBinding['updateThread']>[2]) => {
     if (!thread || !binding || busy || blocked) return;
@@ -507,7 +458,8 @@ export function ThreadWindow({
           </p>
         )
       }
-      historyRef={history}
+      messageIds={messageIds}
+      ownWriter={binding?.deviceId}
       historyClassName="thread-messages"
       composer={
         composer !== undefined

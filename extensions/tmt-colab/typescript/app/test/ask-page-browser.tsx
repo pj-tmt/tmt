@@ -561,3 +561,98 @@ export function updateWindowReply() {
   };
   emit();
 }
+
+/** Long admitted history for both conversation surfaces, with stable identities. */
+export function scrollHistory() {
+  const thread = current.threads![0];
+  const opening = thread.comments[0];
+  current = {
+    ...current,
+    threads: [
+      {
+        ...thread,
+        comments: Array.from({ length: 40 }, (_, index) => ({
+          ...opening,
+          messageId: id(100 + index),
+          ref: { writer: id(7), id: id(100 + index) },
+          senderDevice: id(7),
+          deviceName: 'Other browser',
+          body: `History turn ${index + 1}. Reading the shared page together.`,
+        })),
+      },
+    ],
+    asks: [],
+  };
+  emit();
+}
+
+/** Foreign comment or a newly admitted answer; never dispatches an Ask. */
+export function scrollArrival(kind: 'comment' | 'reply' = 'comment') {
+  const thread = current.threads![0];
+  const last = thread.comments.at(-1)!;
+  if (kind === 'comment') {
+    const messageId = crypto.randomUUID();
+    current = {
+      ...current,
+      threads: [
+        {
+          ...thread,
+          comments: [
+            ...thread.comments,
+            {
+              ...last,
+              messageId,
+              ref: { writer: id(7), id: messageId },
+              body: 'A new turn from another browser.',
+            },
+          ],
+        },
+      ],
+    };
+  } else {
+    current = {
+      ...current,
+      asks: [
+        ...current.asks!,
+        {
+          thread: thread.threadId,
+          messageIds: [last.messageId],
+          operationId: crypto.randomUUID(),
+          writer: last.ref.writer,
+          agent: id(6),
+          agentName: 'Atlas',
+          deviceName: last.deviceName,
+          issuedAt: Date.now(),
+          machine: id(5),
+          message: last.body,
+          state: 'accepted',
+          canTrack: true,
+          reply: 'A newly admitted answer.',
+        },
+      ],
+    };
+  }
+  emit();
+}
+
+/** Content growth is an edit, never a message identity arrival. */
+export function resizeHistory() {
+  const thread = current.threads![0];
+  current = {
+    ...current,
+    threads: [
+      {
+        ...thread,
+        comments: thread.comments.map((comment, index) =>
+          index === thread.comments.length - 1
+            ? {
+                ...comment,
+                body: `${comment.body}\n${'More detail in the same turn.\n'.repeat(60)}`,
+              }
+            : comment,
+        ),
+      },
+    ],
+  };
+  emit();
+}
