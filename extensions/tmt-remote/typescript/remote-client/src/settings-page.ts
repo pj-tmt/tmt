@@ -1,4 +1,5 @@
 import { management, reopenSession, RefusalError } from 'remote-browser-sdk';
+import { renderFirestore } from './firestore-page.js';
 import { ManagementPage, type PageIntent } from './management-page.js';
 
 function element<T extends HTMLElement>(id: string): T {
@@ -32,6 +33,7 @@ function commandNotice(target: HTMLElement, text: string): void {
 }
 
 function render(): void {
+  renderFirestore(element('firestore-content'), page.firestoreAccess, page.firestore);
   element('access').textContent = {
     checking: 'Checking current access…',
     live: 'Current browser access confirmed.',

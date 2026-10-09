@@ -87,7 +87,7 @@ const ROWS: [Row; 16] = [
         I::Project,
         R::AccessLost,
         "access-lost",
-        "TMT can no longer reach the Firebase project.",
+        "tmt can no longer reach the Firebase project.",
         Some(DEPLOY),
     ),
     row(

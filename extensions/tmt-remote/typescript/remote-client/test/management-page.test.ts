@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { test } from 'vite-plus/test';
 import { ManagementPage, type PageIntent } from '../src/management-page.js';
 import type { RemoteManagement, ManagementOutcome } from '../src/management.js';
@@ -12,9 +13,21 @@ function fixture() {
   let mutationError: unknown;
   let readError: unknown;
   let writable = true;
+  let firestoreError: unknown;
   const remote: RemoteManagement = {
-    async settings() {
+    async settings(options?: { firestore: true }) {
+      if (options && firestoreError) throw firestoreError;
       return {
+        firestoreLayers: [],
+        firestoreBudget: JSON.parse(
+          readFileSync(
+            new URL(
+              '../../../rust/tmt-remote/tests/fixtures/firestore_budget/limits-member.json',
+              import.meta.url,
+            ),
+            'utf8',
+          ),
+        ),
         settings: {
           open: true,
           source: 'default',
@@ -72,6 +85,9 @@ function fixture() {
     },
     failMutation: (error: unknown) => {
       mutationError = error;
+    },
+    failFirestore: (error: unknown) => {
+      firestoreError = error;
     },
     failRead: (error: unknown) => {
       readError = error;
@@ -302,4 +318,24 @@ test('unknown sending toggle keeps its frozen boolean and recovers only the orig
   await f.page.recover();
   await f.page.recover();
   assert.deepEqual(f.counts(), { effectCalls: 1, readCalls: 1, reopens: 1 });
+});
+
+test('optional Firestore failure clears evidence without losing access, original outcome or drafts', async () => {
+  const f = fixture();
+  await f.page.refresh();
+  assert.equal(f.page.firestoreAccess, 'confirmed');
+  assert.deepEqual(f.page.firestore!.firestoreLayers, []);
+  await f.page.submit(input());
+  const original = f.page.intent;
+  const outcome = f.page.outcome;
+  const notice = f.page.notice;
+  f.failFirestore(new RefusalError('REMOTE_INPUT_INVALID'));
+  await f.page.refresh();
+  assert.equal(f.page.access, 'live');
+  assert.equal(f.page.firestoreAccess, 'unconfirmed');
+  assert.equal(f.page.firestore, undefined);
+  assert.equal(f.page.intent, original);
+  assert.equal(f.page.outcome, outcome);
+  assert.equal(f.page.notice, notice);
+  assert.equal(f.counts().reopens, 0);
 });

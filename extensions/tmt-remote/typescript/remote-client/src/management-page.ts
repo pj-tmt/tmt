@@ -5,6 +5,7 @@ import type {
   SettingChange,
   SettingsView,
   DevicePage,
+  FirestoreSettingsView,
 } from './management.js';
 import { ClientError, RefusalError } from 'remote-browser-sdk';
 
@@ -16,6 +17,8 @@ export type PageIntent =
 export class ManagementPage {
   settings?: SettingsView;
   devices?: DevicePage;
+  firestore?: FirestoreSettingsView;
+  firestoreAccess: 'checking' | 'confirmed' | 'unconfirmed' = 'checking';
   intent?: Readonly<PageIntent>;
   outcome?: ManagementOutcome;
   access: 'checking' | 'live' | 'lost' | 'unconfirmed' = 'checking';
@@ -41,6 +44,8 @@ export class ManagementPage {
   }
   async refresh(cursor: string | null = this.cursor): Promise<void> {
     this.busy = true;
+    this.firestore = undefined;
+    this.firestoreAccess = 'checking';
     try {
       const settings = await this.client.settings();
       const devices = await this.client.devices({ cursor, limit: 25 });
@@ -50,7 +55,15 @@ export class ManagementPage {
       this.access = 'live';
       if (this.outcome) this.describeOutcome();
       else this.notice = settings.settings.warning ?? '';
+      // Optional observation cannot replace settings access or a frozen effect outcome.
+      try {
+        this.firestore = await this.client.settings({ firestore: true });
+        this.firestoreAccess = 'confirmed';
+      } catch {
+        this.firestoreAccess = 'unconfirmed';
+      }
     } catch (error) {
+      this.firestoreAccess = 'unconfirmed';
       this.access = accessRefused(error) ? 'lost' : 'unconfirmed';
       if (this.outcome) this.describeOutcome();
       else this.notice = 'Current access could not be confirmed. Use the local CLI.';

@@ -164,3 +164,9 @@ Declarations come from fixed public commands of enabled installed extensions. Co
 is not shipped yet, so its output is unavailable with no provider/record effect; fixture
 bytes are never a production fallback. Installed end-to-end proof waits for that command and
 separate owner authorization. Tier/quota and sharing readiness stay unknown after a deployment.
+
+The settings page's explicit Firestore read shares `StatusViews.layers`' evidence owner with
+Operations. Its bounded record snapshot happens outside live/Store locks, then the signed
+management owner revalidates the grant before disclosure. Empty-input settings reads and
+ordinary status retain their original exact shapes. No provider query or deployment is
+triggered by either projection.

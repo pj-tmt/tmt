@@ -549,3 +549,53 @@ fn sending_toggle_requires_designation_then_recovers_its_own_original_after_self
         "management never dispatches agent work"
     );
 }
+
+struct ReadinessLossAtSnapshot {
+    store: Arc<std::sync::Mutex<tmt_remote::store::Store>>,
+    sessions: Arc<tmt_remote::session::DoorSessions>,
+    client: String,
+    revoke: bool,
+}
+impl tmt_remote::readiness::FirestoreEvidenceSource for ReadinessLossAtSnapshot {
+    fn evidence(&self) -> Option<tmt_remote::readiness::FirestoreEvidence> {
+        // Both acquisitions must succeed here: the snapshot owns neither lock.
+        drop(self.store.try_lock().unwrap());
+        if self.revoke {
+            self.store.lock().unwrap().revoke(&self.client).unwrap();
+        } else {
+            self.sessions.shutdown();
+        }
+        Some(tmt_remote::readiness::FirestoreEvidence::unknown())
+    }
+}
+#[test]
+fn settings_snapshot_cannot_disclose_after_revoke_or_close() {
+    for revoke in [true, false] {
+        let owner = OwnerDoor::browser();
+        let core = core_fixture::Core::new();
+        let app = Arc::try_unwrap(app(&owner, &core))
+            .ok()
+            .unwrap()
+            .with_firestore(Arc::new(ReadinessLossAtSnapshot {
+                store: Arc::clone(&owner.store),
+                sessions: Arc::clone(&owner.sessions),
+                client: owner.grant.client_id.clone(),
+                revoke,
+            }));
+        let session = owner.open();
+        let refused = request(
+            &owner,
+            Arc::new(app),
+            &session,
+            1,
+            "remote.settings.show",
+            json!({"firestore":true}),
+        );
+        assert!(refused.get("firestoreLayers").is_none());
+        assert!(matches!(
+            refused["error"]["code"].as_str(),
+            Some("REMOTE_CLOSED" | "REMOTE_SESSION_ENDED")
+        ));
+        assert!(core.calls().is_empty());
+    }
+}

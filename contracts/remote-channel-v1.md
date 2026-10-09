@@ -583,7 +583,7 @@ requests use a fresh envelope ID; original-operation lookup never adopts or exec
 
 | Operation                     | Exact input                                                                                                      | Result                                                                 |
 | ----------------------------- | ---------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
-| `remote.settings.show`        | `{}`                                                                                                             | Settings view below                                                    |
+| `remote.settings.show`        | `{}` or `{firestore:true}`                                                                                       | Settings view below                                                    |
 | `remote.devices.list`         | `{cursor:null\|string,limit:integer}`                                                                            | Device page below; limit 1–50                                          |
 | `remote.settings.set`         | `{operationId,setting:"open",value:boolean}` or `{operationId,setting:"sessions-per-device",value:string\|null}` | Management outcome below                                               |
 | `remote.devices.rename`       | `{operationId,clientId,name}`                                                                                    | Management outcome; existing 1–64-byte nonblank/control-free name rule |
@@ -600,10 +600,18 @@ Warning is null or `settings.json could not be read; defaults apply`. Malformed/
 reports default effective values and sources with that warning. A save does not evict current
 Sessions; the existing Session opener applies the cap on the next open.
 
-The settings view is exactly `{settings,capabilities:{settingsWrite:boolean,devicesWrite:boolean},
-readOnlyReason:null|"local_cli_required"}`. Both write capabilities represent the current server
+The empty-input settings view is exactly
+`{settings,capabilities:{settingsWrite:boolean,devicesWrite:boolean},readOnlyReason:null|"local_cli_required"}`. Both write capabilities represent the current server
 admission, never authorization for a later effect. With no current designation they are false and
 the reason is `local_cli_required`.
+
+The only additional `remote.settings.show` input is exactly `{firestore:true}`. Its view adds
+exactly `firestoreLayers` and `firestoreBudget`, with the shapes and recorded-evidence limits
+of the [optional status projections](#local-cli-discovery). `{firestore:false}`, extra keys
+and every other input refuse as invalid. The snapshot uses the same recorded evidence as
+status, without provider I/O or the deployment writer lock, and retains live-grant admission
+before disclosure. The empty input and its result are unchanged; no new scope, operation,
+journal entry or management receipt is created.
 
 A device summary is exactly
 `{clientId,name,kind,issuedAtMs,expiresAtMs,revision,revoked,talkEnabled}`, where kind is `browser`,
@@ -706,11 +714,20 @@ framework, agent/held-work recovery exception or general recovery route exists.
 
 `GET /settings` serves the Remote-owned shared-presentation page with the existing page CSP,
 origin checks and no-store policy. `/sdk/settings-v1.js` imports `/sdk/remote-v1.js`; it does not
-embed another signer/channel implementation or add public SDK exports. The three sections are
-Browser opening, Session limit per device and Paired devices. Effective values, sources, warning
-and write capabilities come from admitted server reads. The shared package supplies checked CSS
+embed another signer/channel implementation. The sections are
+Browser opening, Session limit per device, Firestore and Paired devices. Effective values, sources,
+warning and write capabilities come from admitted server reads. The shared package supplies checked CSS
 and static presentation contracts; Remote owns host layout and native select controls. Shared
 presentation never supplies authority or management outcomes.
+
+The read-only Firestore section uses the signed opt-in settings view, showing the same recorded
+layer/prerequisite states and fixed next commands as `status --layers`. Any layer reporting
+`support: not-implemented` is shown only as not available in this release, without its other
+prerequisites or a command. Published free-plan limits are dated allowances, not actual usage
+or measured headroom; their guard thresholds do not create a usage warning. Missing evidence
+reports not configured without inventing layer verdicts. An unsupported, malformed or failed optional
+read clears stale Firestore evidence and reports unconfirmed setup without replacing current settings
+access, frozen management outcomes or drafts. Inspection never deploys, retries or repairs.
 
 An untouched unset/default cap remains unset; explicit off is unlimited and custom positive caps
 remain decimal text. The default option describes the missing key and does not invent a reset

@@ -754,9 +754,13 @@ fn foreground_with(
             Arc::clone(&store),
             Some(Arc::clone(&sessions)),
         ));
+        let firestore: Arc<dyn tmt_remote::readiness::FirestoreEvidenceSource> = Arc::new(
+            tmt_remote::deploy_record::DeployRecordEvidence::new(&layout),
+        );
         let operations = Arc::new(
             Operations::new(core, Arc::clone(stop), input_limit)
-                .with_management(Arc::clone(&devices)),
+                .with_management(Arc::clone(&devices))
+                .with_firestore(Arc::clone(&firestore)),
         );
         let routes = Routes::new(input_limit, machine.route_prefix.clone())?
             .with_pairing(Arc::clone(&pairing))
@@ -790,9 +794,7 @@ fn foreground_with(
             Arc::clone(stop),
             control::StatusViews {
                 objects: readiness,
-                layers: Arc::new(tmt_remote::deploy_record::DeployRecordEvidence::new(
-                    &layout,
-                )),
+                layers: firestore,
             },
         )?;
         let mut mounts = Mounts::with_extensions(

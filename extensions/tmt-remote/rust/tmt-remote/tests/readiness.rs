@@ -296,7 +296,7 @@ fn the_human_line_names_the_prerequisite_behind_the_layer_state() {
     });
     assert_eq!(
         off_first.what,
-        "Page sharing is not enabled. TMT can no longer reach the Firebase project."
+        "Page sharing is not enabled. tmt can no longer reach the Firebase project."
     );
     // With nothing definite, the first unknown names the layer.
     let unknowns = sharing(FirestoreEvidence {
@@ -588,4 +588,233 @@ fn recorded_prerequisites_never_guess_unfinished_steps_or_tier_and_quota() {
     assert_eq!(projected(complete)[0]["state"], "unknown");
     assert_eq!(complete.tier, FirestoreTier::Unknown);
     assert_eq!(complete.quota, Observed::Unknown);
+}
+
+/// The same signed HTTP lane the browser uses, with fixture-owned keys and sockets.
+fn settings_wire(
+    h: &Harness,
+    client: &str,
+    key: &ed25519_dalek::SigningKey,
+    session: &str,
+    sequence: usize,
+    operation: &str,
+    input: Value,
+) -> Value {
+    use ed25519_dalek::Signer;
+    use tmt_remote::{
+        canonical::{self, Envelope},
+        pairing::now_ms,
+        store::uuid_v4,
+    };
+    let id = uuid_v4().unwrap();
+    let sequence = sequence.to_string();
+    let now = now_ms().unwrap();
+    let payload = input.to_string();
+    let envelope = Envelope {
+        kind: if operation == "session.open" {
+            "control"
+        } else {
+            "request"
+        },
+        id: &id,
+        correlation_id: None,
+        machine_id: &h.machine_id,
+        window_id: &h.window_id,
+        client_id: client,
+        session_id: session,
+        sequence: &sequence,
+        timestamp_ms: now,
+        origin: &h.origin,
+        operation,
+        payload: payload.as_bytes(),
+    };
+    json!({"version":1,"profile":"local-v1","kind":envelope.kind,"id":id,"correlationId":null,
+      "machineId":h.machine_id,"windowId":h.window_id,"clientId":client,"sessionId":session,"sequence":sequence,
+      "timestampMs":now,"origin":h.origin,"operation":operation,"payload":canonical::base64url(payload.as_bytes()),
+      "signature":canonical::base64url(&key.sign(&canonical::envelope(&envelope).unwrap()).to_bytes())})
+}
+fn settings_http(h: &Harness, request: &Value) -> Value {
+    use std::io::Read;
+    use tmt_remote::{
+        canonical::{self, Envelope},
+        crypto,
+    };
+    let mut connection = std::net::TcpStream::connect(h.addr).unwrap();
+    connection
+        .set_read_timeout(Some(std::time::Duration::from_secs(10)))
+        .unwrap();
+    let body = request.to_string();
+    let action = if request["operation"] == "session.open" {
+        "session"
+    } else {
+        "append"
+    };
+    write!(connection,"POST {}/append HTTP/1.1\r\nHost: {}\r\nOrigin: {}\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{body}",h.prefix,h.addr,h.origin,body.len()).unwrap();
+    let mut reply = String::new();
+    connection.read_to_string(&mut reply).unwrap();
+    let (head, body) = reply.split_once("\r\n\r\n").unwrap();
+    assert!(head.starts_with("HTTP/1.1 200"), "{head}: {body}");
+    let reply: Value = serde_json::from_str(body).unwrap();
+    assert_eq!(reply["correlationId"], request["id"]);
+    let text = |key: &str| reply[key].as_str().unwrap();
+    let payload = canonical::base64url_decode(text("payload")).unwrap();
+    let envelope = Envelope {
+        kind: text("kind"),
+        id: text("id"),
+        correlation_id: reply["correlationId"].as_str(),
+        machine_id: text("machineId"),
+        window_id: text("windowId"),
+        client_id: text("clientId"),
+        session_id: text("sessionId"),
+        sequence: text("sequence"),
+        timestamp_ms: reply["timestampMs"].as_u64().unwrap(),
+        origin: text("origin"),
+        operation: text("operation"),
+        payload: &payload,
+    };
+    crypto::verify_signature(
+        &h.machine_public,
+        &canonical::envelope(&envelope).unwrap(),
+        &canonical::base64url_bytes(text("signature"), 64).unwrap(),
+    )
+    .unwrap();
+    if action == "session" {
+        return reply;
+    }
+    serde_json::from_slice(&payload).unwrap()
+}
+fn settings_device(h: &Harness) -> (String, ed25519_dalek::SigningKey, String) {
+    let device = door::Device::browser(h, 73);
+    let door::Offered {
+        mut owner,
+        code,
+        descriptor,
+        ..
+    } = door::open(h);
+    let submitted = door::submit(
+        h,
+        device.body(&descriptor, &code, &device.key),
+        Some(h.origin.clone()),
+    );
+    assert_eq!(owner.next()["event"], "candidate");
+    owner.answer("confirm");
+    let paired = owner.next();
+    assert_eq!(submitted.join().unwrap().0, 200);
+    let client = paired["clientId"].as_str().unwrap().to_owned();
+    let opened = settings_http(
+        h,
+        &settings_wire(
+            h,
+            &client,
+            &device.key,
+            "new",
+            0,
+            "session.open",
+            json!({"clientNonce":"11111111111111111111111111111111"}),
+        ),
+    );
+    (
+        client,
+        device.key,
+        opened["sessionId"].as_str().unwrap().to_owned(),
+    )
+}
+#[test]
+fn every_fixture_prerequisite_matches_control_and_signed_settings_on_real_sockets() {
+    for (label, evidence) in scenarios() {
+        let h = Harness::with_evidence(Timing::CONTRACT, FixtureEvidence::shared(evidence));
+        let (client, key, session) = settings_device(&h);
+        let view = settings_http(
+            &h,
+            &settings_wire(
+                &h,
+                &client,
+                &key,
+                &session,
+                1,
+                "remote.settings.show",
+                json!({"firestore":true}),
+            ),
+        );
+        assert_eq!(
+            view["firestoreLayers"],
+            raw_request(&h, &json!({"op":"status","layers":true}))["firestoreLayers"],
+            "{label}"
+        );
+        assert_eq!(view["firestoreLayers"], projected(evidence), "{label}");
+        assert_eq!(
+            view["firestoreBudget"],
+            tmt_remote::firestore_limits::member()
+        );
+        assert_eq!(view.as_object().unwrap().len(), 5);
+        let ordinary = settings_http(
+            &h,
+            &settings_wire(
+                &h,
+                &client,
+                &key,
+                &session,
+                2,
+                "remote.settings.show",
+                json!({}),
+            ),
+        );
+        assert_eq!(ordinary.as_object().unwrap().len(), 3);
+        for (i, input) in [
+            json!({"firestore":false}),
+            json!({"firestore":true,"extra":1}),
+            json!({"extra":1}),
+            json!(null),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let refused = settings_http(
+                &h,
+                &settings_wire(
+                    &h,
+                    &client,
+                    &key,
+                    &session,
+                    i + 3,
+                    "remote.settings.show",
+                    input,
+                ),
+            );
+            assert_eq!(refused["error"]["code"], "REMOTE_INPUT_INVALID");
+            assert!(refused.get("firestoreLayers").is_none());
+        }
+        assert!(h.core_calls().is_empty());
+        let store = rusqlite::Connection::open(h.root.join("remote/remote.db")).unwrap();
+        for table in ["entries", "operations", "management_receipts"] {
+            let count: i64 = store
+                .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |r| r.get(0))
+                .unwrap();
+            assert_eq!(count, 0, "{label}: {table}");
+        }
+        assert!(!h.root.join("remote/deploy.json").exists());
+        assert!(!h.root.join("remote/deploy.lock").exists());
+    }
+}
+
+#[test]
+fn unconfigured_signed_settings_remains_empty_and_ordinary_status_unchanged() {
+    let h = Harness::with_evidence(Timing::CONTRACT, std::sync::Arc::new(NotConfigured));
+    let (client, key, session) = settings_device(&h);
+    let ordinary = raw_request(&h, &json!({"op":"status"}));
+    let view = settings_http(
+        &h,
+        &settings_wire(
+            &h,
+            &client,
+            &key,
+            &session,
+            1,
+            "remote.settings.show",
+            json!({"firestore":true}),
+        ),
+    );
+    assert_eq!(view["firestoreLayers"], json!([]));
+    assert_eq!(raw_request(&h, &json!({"op":"status"})), ordinary);
+    assert!(h.core_calls().is_empty());
 }

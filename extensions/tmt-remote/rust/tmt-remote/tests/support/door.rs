@@ -34,6 +34,9 @@ use tmt_remote::{
     store::{Store, uuid_v4},
 };
 
+#[path = "core.rs"]
+pub mod core_fixture;
+
 static NEXT: AtomicUsize = AtomicUsize::new(0);
 pub struct Harness {
     pub root: PathBuf,
@@ -51,6 +54,7 @@ pub struct Harness {
     pub stop: Arc<AtomicBool>,
     pub door: Option<JoinHandle<()>>,
     pub _serving: Serving,
+    readiness_core: Option<core_fixture::Core>,
 }
 impl Harness {
     pub fn new(timing: Timing) -> Self {
@@ -58,17 +62,18 @@ impl Harness {
     }
     /// A serving door with a shared monotonic session clock.
     pub fn with_clock(timing: Timing, idle: Duration, clock: IdleClock) -> Self {
-        Self::build(timing, idle, clock, Arc::new(NotConfigured))
+        Self::build(timing, idle, clock, Arc::new(NotConfigured), false)
     }
     /// A serving door whose control socket answers `status --layers` from `layers`.
     pub fn with_evidence(timing: Timing, layers: Arc<dyn FirestoreEvidenceSource>) -> Self {
-        Self::build(timing, session::IDLE, Arc::new(Instant::now), layers)
+        Self::build(timing, session::IDLE, Arc::new(Instant::now), layers, true)
     }
     fn build(
         timing: Timing,
         idle: Duration,
         clock: IdleClock,
         layers: Arc<dyn FirestoreEvidenceSource>,
+        management: bool,
     ) -> Self {
         // Short absolute root: Unix socket paths are limited to about 100 bytes.
         let root = PathBuf::from(format!(
@@ -111,10 +116,21 @@ impl Harness {
             Arc::clone(&store),
             Some(Arc::clone(&sessions)),
         ));
-        let routes = Routes::new(1024, machine.route_prefix.clone())
+        let readiness_core = management.then(core_fixture::Core::new);
+        let mut routes = Routes::new(1024, machine.route_prefix.clone())
             .unwrap()
             .with_pairing(Arc::clone(&pairing))
             .with_sessions(Arc::clone(&sessions));
+        if let Some(core) = &readiness_core {
+            let operations = Arc::new(
+                Arc::try_unwrap(core.operations())
+                    .ok()
+                    .unwrap()
+                    .with_management(Arc::clone(&devices))
+                    .with_firestore(Arc::clone(&layers)),
+            );
+            routes = routes.with_operations(operations);
+        }
         let stop = Arc::new(AtomicBool::new(false));
         let control = Control::start_with_views(
             &serving,
@@ -168,10 +184,17 @@ impl Harness {
             stop,
             door: Some(door),
             _serving: serving,
+            readiness_core,
         }
     }
     pub fn post(&self, body: &str, origin: Option<&str>) -> (u16, Value) {
         post_to(self.addr, &self.prefix, body, origin)
+    }
+    pub fn core_calls(&self) -> Vec<Value> {
+        self.readiness_core
+            .as_ref()
+            .map(|core| core.calls())
+            .unwrap_or_default()
     }
     pub fn grants(&self) -> i64 {
         rusqlite::Connection::open(self.root.join("remote/remote.db"))
