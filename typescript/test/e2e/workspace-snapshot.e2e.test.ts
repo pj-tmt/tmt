@@ -92,9 +92,9 @@ describe('event-driven workspace recovery snapshots', () => {
       try {
         database
           .prepare(`INSERT INTO identity_session_preferences
-          (identity_id, remembered_harness, runtime_mode, provider_session_id, resume_pending_at_ms, channel)
-          VALUES (?, 'codex', 'independent', 'current-conversation', 2, 1)
-          ON CONFLICT(identity_id) DO UPDATE SET remembered_harness='codex', runtime_mode='independent',
+          (identity_id, preferred_harness, remembered_harness, runtime_mode, provider_session_id, resume_pending_at_ms, channel)
+          VALUES (?, 'codex', 'codex', 'independent', 'current-conversation', 2, 1)
+          ON CONFLICT(identity_id) DO UPDATE SET preferred_harness='codex', remembered_harness='codex', runtime_mode='independent',
           provider_session_id='current-conversation', resume_pending_at_ms=2, channel=1`)
           .run(bound.json!.id);
         const before = database
@@ -129,7 +129,7 @@ describe('event-driven workspace recovery snapshots', () => {
         ]);
         expect(result.json!.panes.find((pane) => pane.pane === fixture.pane)).toMatchObject({
           action: 'resumable',
-          identity: { id: bound.json!.id, name: 'Preview Current Name' },
+          identity: { id: bound.json!.id, name: 'Preview Current Name', channel: true },
           resume: { session: 'current-conversation', resumePendingAtMs: 2 },
         });
         expect(trace.commands()).toEqual(['list-sessions']);
