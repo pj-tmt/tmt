@@ -40,9 +40,12 @@ fn declaration(name: &str, artifact: &[u8]) -> Vec<u8> {
 }
 fn plan_of(extensions: &[(&str, &[u8])], physical_ttl: bool) -> Plan {
     let declarations: Vec<_> = extensions.iter().map(|(n, a)| declaration(n, a)).collect();
+    plan_from(extensions, &declarations, physical_ttl)
+}
+fn plan_from(extensions: &[(&str, &[u8])], declarations: &[Vec<u8>], physical_ttl: bool) -> Plan {
     let enabled: Vec<_> = extensions
         .iter()
-        .zip(&declarations)
+        .zip(declarations)
         .map(|((name, artifact), declaration)| Enabled {
             name,
             supplied: Some(Supplied {
@@ -470,4 +473,114 @@ fn the_plan_binds_the_fragments_it_verified() {
         .reason,
         RulesReason::ExtraFragment
     );
+}
+
+/// One log resource per entry: its collection, the fields indexed ascending (each one a
+/// single-field index config) and an optional TTL field.
+type Collections = Vec<(&'static str, Vec<String>, Option<&'static str>)>;
+fn declared_configs(name: &str, artifact: &[u8], collections: &Collections) -> Vec<u8> {
+    let resources: Vec<_> = collections
+        .iter()
+        .enumerate()
+        .map(|(n, (collection, fields, ttl))| {
+            json!({
+                "name": format!("res-{n}"),
+                "kind": "log",
+                "path": collection,
+                "limits": { "maxObjectBytes": 4096, "maxNamespaceBytes": 65536, "maxEntries": 16 },
+                "ttlField": ttl,
+                "indexes": fields.iter().map(|f| json!({"field": f, "direction": "asc"})).collect::<Vec<_>>(),
+            })
+        })
+        .collect();
+    serde_json::to_vec(&json!({
+        "version": 1, "extension": name, "backend": "firestore", "resources": resources,
+        "admission": { "artifact": "rules/x.rules", "digest": sha(artifact), "entryPoint": name },
+    }))
+    .unwrap()
+}
+fn fields(prefix: &str, count: usize) -> Vec<String> {
+    (0..count).map(|n| format!("{prefix}{n}")).collect()
+}
+fn compose_declared(
+    extensions: &[(&str, Collections)],
+    physical_ttl: bool,
+) -> Result<rules::Composed, RulesError> {
+    let artifact = fixture("notes.rules");
+    let declarations: Vec<_> = extensions
+        .iter()
+        .map(|(name, collections)| declared_configs(name, &artifact, collections))
+        .collect();
+    let named: Vec<_> = extensions
+        .iter()
+        .map(|(n, _)| (*n, artifact.as_slice()))
+        .collect();
+    let plan = plan_from(&named, &declarations, physical_ttl);
+    let fragments: Vec<_> = named
+        .iter()
+        .map(|(extension, source)| Fragment { extension, source })
+        .collect();
+    rules::compose(&plan, &fragments)
+}
+
+#[test]
+fn the_free_plan_allows_200_single_field_index_configs_and_no_more() {
+    let at = |configs: usize| {
+        // Four collections of at most 64 fields each, so the declaration bounds hold.
+        let per = configs.div_ceil(4);
+        let mut collections = Vec::new();
+        for (n, id) in ["alpha", "beta", "gamma", "delta"].into_iter().enumerate() {
+            let have = configs.saturating_sub(n * per).min(per);
+            collections.push((id, fields("f", have), None));
+        }
+        compose_declared(&[("notes", collections)], false)
+    };
+    assert!(at(200).is_ok());
+    let error = at(201).unwrap_err();
+    assert_eq!(
+        (error.reason, error.extension, error.offset),
+        (RulesReason::TooManyIndexConfigs, None, None)
+    );
+    assert_eq!(error.reason.code(), "too-many-index-configs");
+}
+
+#[test]
+fn index_configs_are_counted_after_extensions_share_a_collection_and_field() {
+    // 300 declared index entries but 200 distinct (collection, field) configs.
+    let one: Collections = vec![
+        ("shared", fields("f", 50), None),
+        ("other", fields("g", 50), None),
+        ("third", fields("h", 50), None),
+    ];
+    let two: Collections = vec![
+        ("shared", fields("f", 50), None),
+        ("other", fields("g", 50), None),
+        ("fourth", fields("i", 50), None),
+    ];
+    assert!(compose_declared(&[("notes", one.clone()), ("colab", two.clone())], false).is_ok());
+    // One more distinct field in the second extension makes 201.
+    let mut over = two;
+    over[2].1.push("extra".to_owned());
+    let error = compose_declared(&[("notes", one), ("colab", over)], false).unwrap_err();
+    assert_eq!(error.reason, RulesReason::TooManyIndexConfigs);
+}
+
+#[test]
+fn a_ttl_only_field_is_an_index_config_only_where_the_target_provisions_ttl() {
+    // 199 configs plus two TTL-only fields: with physical TTL each TTL field is a config
+    // (201); on Spark no TTL override is written, so they do not count (199).
+    let plan = |physical_ttl| {
+        let collections: Collections = vec![
+            ("alpha", fields("f", 64), Some("expiresA")),
+            ("beta", fields("f", 64), Some("expiresB")),
+            ("gamma", fields("f", 64), None),
+            ("delta", fields("f", 7), None),
+        ];
+        compose_declared(&[("notes", collections)], physical_ttl)
+    };
+    assert_eq!(
+        plan(true).unwrap_err().reason,
+        RulesReason::TooManyIndexConfigs
+    );
+    assert!(plan(false).is_ok());
 }
