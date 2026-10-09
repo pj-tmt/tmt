@@ -78,7 +78,7 @@ test('original author survives later publishing and owner reload and reads to a 
     const manifest = JSON.parse(readFileSync((await downloaded.path())!, 'utf8'));
     expect(manifest.originalAuthor).toBe(creator.name);
     expect(manifest.publisherAgent).toBe(publisher.name);
-    await page.getByRole('button', { name: 'Close export', exact: true }).click();
+    await page.locator('.page-drawer[data-panel="export"] .drawer-bar button').click();
     run(world, world.binaries.colab, ['share', 'mode', created.pageId, 'link', '--yes', '--json']);
     const link = JSON.parse(
       run(world, world.binaries.colab, ['share', 'link', 'add', created.pageId, '--yes', '--json']),

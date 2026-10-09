@@ -674,7 +674,7 @@ serving MUST NOT run Node or generate CSS. The same-origin `/assets/chrome.css` 
 uses `text/css; charset=utf-8`, including when the optional app build is absent. Shared
 presentation owns no routing, admission, page state or action/recovery capability.
 Guidance MUST render its recovery status/script only when the admitted app inventory
-actually contains `/assets/recovery.js`; without it, pairing/build guidance stays visible.
+actually contains `/assets/recovery.js`; without it, pairing/app-unavailable guidance stays visible.
 
 Vite output MUST use relative URLs beneath `/r/<prefix>/x/colab/`, with no
 third-party requests. The current app declares installed/system font fallbacks;

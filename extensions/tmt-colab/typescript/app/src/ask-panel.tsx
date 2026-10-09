@@ -166,9 +166,11 @@ export function AskPanel({
           ? text.askDeliveryAccepted
           : states[record.state];
     const agent = record.agentName || text.askAgentLabel;
+    const waitingForAgent =
+      ['dispatching', 'accepted'].includes(record.state) && !record.resultUnavailable;
     const deliveryState: { mark: ReactNode; tone: string; label: string } = timedOut
       ? { mark: <Clock />, tone: 'waiting', label: text.askNoReply(agent) }
-      : ['dispatching', 'accepted'].includes(record.state) && !record.resultUnavailable
+      : waitingForAgent
         ? { mark: <Clock />, tone: 'waiting', label: text.askWaiting(agent) }
         : record.state === 'held'
           ? { mark: <Pause />, tone: 'held', label: text.askApproval }
@@ -208,7 +210,9 @@ export function AskPanel({
             <span className="ask-state-mark" aria-hidden>
               {deliveryState.mark}
             </span>
-            {records.length > 1 ? `@${agent} · ` : ''}
+            {records.length > 1 && !timedOut && !waitingForAgent
+              ? text.askRecipientPrefix(agent)
+              : ''}
             {deliveryState.label}
           </span>
         </span>
@@ -277,7 +281,7 @@ export function AskPanel({
       <>
         {supporting && (
           <p className="ask-supporting">
-            {records.length > 1 ? `@${agent} · ` : ''}
+            {records.length > 1 ? text.askRecipientPrefix(agent) : ''}
             {supporting}
           </p>
         )}

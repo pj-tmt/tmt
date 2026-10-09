@@ -333,13 +333,10 @@ test('accepted recipients reach independent observation deadlines without redisp
   await expect(status).toHaveCount(2);
   const before = await run(page, 'proof');
   await page.clock.fastForward(60 * 60 * 1000 + 1);
-  await expect(status).toHaveText(['@alpha · No reply yet from alpha', '@beta · Waiting for beta']);
+  await expect(status).toHaveText(['No reply yet from alpha', 'Waiting for beta']);
   await expect(page.getByRole('button', { name: 'Check again', exact: true })).toHaveCount(2);
   await page.clock.fastForward(60 * 60 * 1000);
-  await expect(status).toHaveText([
-    '@alpha · No reply yet from alpha',
-    '@beta · No reply yet from beta',
-  ]);
+  await expect(status).toHaveText(['No reply yet from alpha', 'No reply yet from beta']);
   expect(await run(page, 'proof')).toEqual(before);
 });
 

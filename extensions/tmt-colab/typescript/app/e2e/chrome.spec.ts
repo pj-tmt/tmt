@@ -64,9 +64,14 @@ async function nativeScreen(page: Page, name: 'private' | 'owner') {
   await page.goto('/native-chrome/');
   await expect(page.locator('.guidance-card')).toBeVisible();
   if (name === 'owner') {
-    await expect(page.locator('.guidance-mark')).toHaveAttribute('fill', 'currentColor');
+    await expect(page.locator('.guidance-mark')).toHaveAttribute('fill', 'none');
+    await expect(page.locator('.tmt-ui-notice-mark')).toContainText('Update needed');
+    await expect(page.locator('.tmt-ui-notice-heading')).toHaveText(
+      'Update Colab to open this page',
+    );
     await expect(page.locator('.guidance-detail')).toContainText('You are signed in as Laptop.');
-    await expect(page.locator('.guidance-detail')).toContainText('Build the app:');
+    await expect(page.locator('.guidance-detail')).toContainText('tmt extension upgrade colab');
+    await expect(page.locator('.guidance-detail')).not.toContainText('Build the app:');
   } else {
     await expect(page.locator('.guidance-mark path')).toBeVisible();
   }
@@ -186,7 +191,7 @@ for (const width of [1440, 390, 320])
             expect(geometry, `${screen} state card`).toEqual(cardReference);
             const role =
               screen === 'rust-owner'
-                ? 'working'
+                ? 'waiting'
                 : screen.includes('opening') || screen === 'rust-private'
                   ? 'waiting'
                   : screen === 'reader-ended'
@@ -206,7 +211,7 @@ for (const width of [1440, 390, 320])
             await expect(card).toHaveCSS('border-radius', '0px');
             const stateWord =
               screen === 'rust-owner'
-                ? 'running'
+                ? 'Update needed'
                 : screen === 'rust-private'
                   ? 'waiting'
                   : screen.includes('opening')

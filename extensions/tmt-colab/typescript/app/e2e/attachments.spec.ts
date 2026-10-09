@@ -40,6 +40,51 @@ const note = (name: string) => ({
   buffer: Buffer.from(`bytes of ${name}`),
 });
 
+test('a narrow thread wraps a long filename while keeping attachment actions beside it', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 900 });
+  await mount(page);
+  const quote = page.frameLocator('#ask-page-fixture iframe').locator('#selected');
+  await quote.evaluate((node) => {
+    const selection = getSelection()!;
+    const range = document.createRange();
+    range.selectNodeContents(node);
+    selection.removeAllRanges();
+    selection.addRange(range);
+  });
+  await page.getByTestId('selection-ask').click();
+  await page.getByRole('combobox', { name: 'Message', exact: true }).fill('Review the image.');
+  await attach(page, [
+    {
+      name: 'a-very-long-image-filename-that-must-wrap-on-a-narrow-thread.png',
+      mimeType: 'image/png',
+      buffer: PNG,
+    },
+  ]);
+  await send(page).click();
+  const row = page.getByTestId('message-attachment');
+  await expect(row).toBeVisible();
+  const geometry = await row.evaluate((row) => {
+    const name = row.querySelector('.attachment-name')!;
+    const actions = row.querySelector('.attachment-actions')!.getBoundingClientRect();
+    const box = name.getBoundingClientRect();
+    return {
+      name: box.toJSON(),
+      actions: actions.toJSON(),
+      line: parseFloat(getComputedStyle(name).lineHeight),
+      width: row.clientWidth,
+      scroll: row.scrollWidth,
+    };
+  });
+  expect(geometry.name.height).toBeGreaterThan(geometry.line);
+  expect(geometry.actions.left).toBeGreaterThanOrEqual(geometry.name.right);
+  expect(geometry.actions.top).toBeLessThan(geometry.name.bottom);
+  expect(geometry.scroll).toBeLessThanOrEqual(geometry.width);
+  await row.getByRole('button', { name: text.attachmentPreview }).click();
+  await expect(row.locator('img')).toBeVisible();
+});
+
 test('choosing files makes local chips only; Send uploads them and the message shows them', async ({
   page,
 }) => {

@@ -16,6 +16,22 @@ const run = (file: string, mode = '--check') =>
 const starterFrom = (skill: string) =>
   skill.split(begin)[1].split(end)[0].split('```html\n')[1].split('```')[0];
 
+it('keeps dark secondary text distinct from body text and readable on page surfaces', () => {
+  const { color, surface } = JSON.parse(read(tokenFile)).browser;
+  const luminance = (hex: string) =>
+    [1, 3, 5].reduce((sum, offset, index) => {
+      const channel = parseInt(hex.slice(offset, offset + 2), 16) / 255;
+      const linear = channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4;
+      return sum + linear * [0.2126, 0.7152, 0.0722][index];
+    }, 0);
+  expect(color.secondary.dark).not.toBe(color.text.dark);
+  for (const background of [surface.paper.dark, surface.sheet.dark]) {
+    expect(
+      (luminance(color.secondary.dark) + 0.05) / (luminance(background) + 0.05),
+    ).toBeGreaterThanOrEqual(4.5);
+  }
+});
+
 it('ships a compact content-only starter with exact browser token roles and both themes', () => {
   const skill = read(skillFile);
   const starter = starterFrom(skill);
@@ -61,7 +77,7 @@ it('ships a compact content-only starter with exact browser token roles and both
     body: tokens.font.body.stack.replace(/^"[^"]+",\s*/, '').replaceAll('"', "'"),
     mono: tokens.font.mono.stack.replace(/^"[^"]+",\s*/, '').replaceAll('"', "'"),
     size: tokens.header['wordmark-size'],
-    heading: tokens.header['title-size'],
+    heading: '28px',
     rule: tokens.browser.metric['rule-width'],
     gap: tokens.browser.metric['notice-heading-gap'],
     'small-gap': tokens.browser.metric['eyebrow-gap'],
@@ -82,6 +98,9 @@ it('ships a compact content-only starter with exact browser token roles and both
     '*',
     'body',
     'h1,\n  h2,\n  h3',
+    'h1',
+    'h2',
+    'h3',
     'p,\n  ul,\n  ol,\n  table,\n  pre',
     'ul,\n  ol',
     'a',

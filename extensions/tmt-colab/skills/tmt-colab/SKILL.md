@@ -147,7 +147,7 @@ the theme follows the OS; outside Colab, the starter defaults to prefers-color-s
     --body: system-ui, -apple-system, 'Segoe UI', sans-serif;
     --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
     --size: 14px;
-    --heading: 16px;
+    --heading: 28px;
     --rule: 1px;
     --gap: 16px;
     --small-gap: 8px;
@@ -156,7 +156,7 @@ the theme follows the OS; outside Colab, the starter defaults to prefers-color-s
   @media (prefers-color-scheme: dark) {
     :root:not([data-theme='light']) {
       --ink: #b0b0b0;
-      --muted: #b0b0b0;
+      --muted: #909090;
       --paper: #080808;
       --sheet: #101010;
       --edge: #303030;
@@ -172,7 +172,7 @@ the theme follows the OS; outside Colab, the starter defaults to prefers-color-s
   }
   :root[data-theme='dark'] {
     --ink: #b0b0b0;
-    --muted: #b0b0b0;
+    --muted: #909090;
     --paper: #080808;
     --sheet: #101010;
     --edge: #303030;
@@ -193,8 +193,16 @@ the theme follows the OS; outside Colab, the starter defaults to prefers-color-s
   h2,
   h3 {
     margin: 0 0 var(--small-gap);
-    font-size: var(--heading);
     line-height: 1.2;
+  }
+  h1 {
+    font-size: var(--heading);
+  }
+  h2 {
+    font-size: 22px;
+  }
+  h3 {
+    font-size: 18px;
   }
   p,
   ul,

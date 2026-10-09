@@ -952,7 +952,7 @@ async function recoverySdk(context: BrowserContext) {
 }
 const privateGuidance = `<!doctype html><html lang="en"><h1>TMT Colab</h1>
 <p id="colab-recovery-status">Opening your paired browser…</p>
-<p id="colab-guidance" hidden>This colab space is private. Open it from a browser paired with tmt remote pair, or use a share link.</p>
+<p id="colab-guidance" hidden>This Colab space is private. Open it from a browser paired with tmt remote pair, or use a share link.</p>
 <script type="module" src="./assets/recovery.js"></script></html>`;
 
 test('paired guidance reopens once, reloads into the owner app and clears its recovery marker', async ({
@@ -2056,6 +2056,10 @@ test('parent export downloads exact frozen baseline files, ignores drafts and re
     'This creates an unencrypted copy of the page. Anyone with these files can read it.',
   );
   await expect(panel.getByRole('button', { name: 'Download page.html' })).toBeEnabled();
+  await expect(panel).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
+  await expect(panel.getByRole('button', { name: 'Download page.html' })).toHaveClass(
+    /tmt-ui-action/,
+  );
   await panel
     .getByRole('button', { name: 'Download page.html' })
     .evaluate((button: HTMLButtonElement) => button.click());
@@ -2068,7 +2072,9 @@ test('parent export downloads exact frozen baseline files, ignores drafts and re
   await page.setViewportSize({ width: 1280, height: 720 });
   async function download(name: string) {
     const pending = page.waitForEvent('download');
-    await panel.getByRole('button', { name: new RegExp(`Download ${name}`) }).click();
+    const action = panel.getByRole('button', { name: new RegExp(`Download ${name}`) });
+    await action.focus();
+    await action.press('Enter');
     const received = await pending;
     expect(received.suggestedFilename()).toBe(name);
     expect(await received.failure()).toBeNull();
@@ -2134,7 +2140,10 @@ test('parent export downloads exact frozen baseline files, ignores drafts and re
     page.evaluate(() => (window as unknown as { exportUrls: Set<string> }).exportUrls.size);
   await expect.poll(urlCount).toBe(0);
   await download('page.html');
-  await panel.getByRole('button', { name: 'Close export' }).click();
+  await expect(panel.getByRole('button', { name: 'Close export', exact: true })).toHaveCount(0);
+  const closeExport = page.locator('.page-drawer[data-panel="export"] .drawer-bar button');
+  await closeExport.focus();
+  await closeExport.press('Enter');
   await expect.poll(urlCount).toBe(0);
   await (await pageAction(page, 'Source')).click();
   await expect(page.getByRole('textbox', { name: 'Source', exact: true })).toHaveValue(
@@ -2170,7 +2179,7 @@ test('failed export preparation requests no files and closing clears pending pre
   await expect(panel.getByRole('status')).toContainText('Could not prepare');
   await expect(panel.getByRole('button', { name: 'Download page.html' })).toBeDisabled();
   expect(downloads).toBe(0);
-  await panel.getByRole('button', { name: 'Close export' }).click();
+  await page.locator('.page-drawer[data-panel="export"] .drawer-bar button').click();
   await page.evaluate(() => {
     const original = crypto.subtle.digest.bind(crypto.subtle);
     crypto.subtle.digest = async (...args) => {
@@ -2190,7 +2199,7 @@ test('failed export preparation requests no files and closing clears pending pre
       ),
     )
     .toBe('function');
-  await panel.getByRole('button', { name: 'Close export' }).click();
+  await page.locator('.page-drawer[data-panel="export"] .drawer-bar button').click();
   await page.evaluate(() =>
     (window as unknown as { releaseExportHash(): void }).releaseExportHash(),
   );
@@ -2198,7 +2207,7 @@ test('failed export preparation requests no files and closing clears pending pre
   expect(downloads).toBe(0);
   await (await pageAction(page, 'Export page')).click();
   await expect(panel.getByRole('button', { name: 'Download page.html' })).toBeEnabled();
-  await panel.getByRole('button', { name: 'Close export' }).click();
+  await page.locator('.page-drawer[data-panel="export"] .drawer-bar button').click();
   await page.getByRole('link', { name: 'Space home' }).click();
 });
 
