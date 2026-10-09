@@ -693,7 +693,7 @@ jobs:
           file: typescript/test/e2e/Dockerfile
           load: true
           tags: tmux-team-e2e:ci-${{ github.run_id }}-${{ github.job }}
-          build-args: TMT_NATIVE_BASE=ci-dependencies
+          build-args: TMT_NATIVE_BASE=ci-native-base
           cache-from: type=gha,version=2,scope=tmt-e2e-dependencies
       - name: Run Docker end-to-end tests
         working-directory: typescript

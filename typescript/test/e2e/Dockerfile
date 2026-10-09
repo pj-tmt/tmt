@@ -9,10 +9,14 @@ RUN curl --fail --location https://github.com/LukeMathWalker/cargo-chef/releases
 
 FROM ci-chef AS ci-planner
 WORKDIR /native/rust
-COPY . /native/
+COPY rust/ /native/rust/
+COPY extensions/tmt-office/rust/ /native/extensions/tmt-office/rust/
+COPY extensions/tmt-ops/rust/ /native/extensions/tmt-ops/rust/
+COPY extensions/tmt-remote/rust/ /native/extensions/tmt-remote/rust/
+COPY extensions/tmt-colab/rust/ /native/extensions/tmt-colab/rust/
 RUN cargo chef prepare --recipe-path /recipe.json
 
-FROM ci-chef AS ci-dependencies
+FROM ci-chef AS ci-cook
 WORKDIR /native/rust
 COPY --from=ci-planner /recipe.json /recipe.json
 ARG TMT_NATIVE_PROFILE=dev
@@ -27,6 +31,15 @@ RUN cargo chef cook --locked --recipe-path /recipe.json --examples -p tmt-adapte
     && cargo chef cook --locked --recipe-path /recipe.json --profile "$TMT_NATIVE_PROFILE" -p tmt-remote \
     && cargo chef cook --locked --recipe-path /recipe.json --profile test --tests -p tmt-adapters \
     && find target/debug/deps -maxdepth 1 -type f -perm -111 -regex '.*/tmt_adapters-[0-9a-f][0-9a-f]*' -delete
+
+# Export only reusable Cargo state; base image and planner never enter this scope.
+FROM scratch AS ci-dependencies
+COPY --link --from=ci-cook /native/rust/target/ /native/rust/target/
+COPY --link --from=ci-cook /usr/local/cargo/registry/ /usr/local/cargo/registry/
+
+FROM rust:1.97.0-bookworm@sha256:8fa55b2f3ddf97471ab6a767bfa3f37e6bad0986ba823e75fea57e2a2a5c3073 AS ci-native-base
+COPY --link --from=ci-dependencies /native/rust/target/ /native/rust/target/
+COPY --link --from=ci-dependencies /usr/local/cargo/registry/ /usr/local/cargo/registry/
 
 FROM ${TMT_NATIVE_BASE} AS native-tests
 WORKDIR /native/rust

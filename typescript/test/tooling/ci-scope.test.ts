@@ -2287,7 +2287,7 @@ describe('required CI gate', () => {
         !shard.includes('continue-on-error:') &&
         !shard.includes('if: always()') &&
         shard.includes('load: true') &&
-        shard.includes('build-args: TMT_NATIVE_BASE=ci-dependencies') &&
+        shard.includes('build-args: TMT_NATIVE_BASE=ci-native-base') &&
         shard.includes(
           'TMT_E2E_PREPARED_IMAGE: tmux-team-e2e:ci-${{ github.run_id }}-${{ github.job }}'
         ) &&
@@ -2344,6 +2344,9 @@ describe('required CI gate', () => {
     // Temporary proof exports runner-local only, changes real source, and refuses a real compiler error.
     const qualification = writer.split('\n  qualification:\n')[1];
     expect(qualification).toContain('type=local,dest=$cache,mode=min');
+    expect(qualification).toContain('max-parallel: 1');
+    expect(qualification).toContain('sample: [1, 2]');
+    expect(qualification).toContain('name: e2e-cache-qualification-${{ matrix.sample }}');
     expect(qualification).toContain('native warm-source-changed qual-warm');
     expect(qualification).toContain('native warm-unchanged qual-warm');
     expect(qualification).toContain('>> rust/crates/tmt-core/src/lib.rs');

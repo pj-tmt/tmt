@@ -383,7 +383,7 @@ it('isolates the checksum-pinned CI dependency recipe from real source and local
   const checksum = 'a3733ab416c3ffddd37914cd13919ca05fee1a1cf654f3016dcfe7f399d89cd1';
   const admitted = (source: string) => {
     const stages = source.split(/^FROM /m);
-    const dependencies = stages.find((part) => part.startsWith('ci-chef AS ci-dependencies\n'));
+    const dependencies = stages.find((part) => part.startsWith('ci-chef AS ci-cook\n'));
     const planner = stages.find((part) => part.startsWith('ci-chef AS ci-planner\n'));
     const native = stages.find((part) => part.startsWith('${TMT_NATIVE_BASE} AS native-tests\n'));
     return (
@@ -394,6 +394,10 @@ it('isolates the checksum-pinned CI dependency recipe from real source and local
       source.includes('/v0.1.77/cargo-chef-x86_64-unknown-linux-musl.tar.xz') &&
       source.includes(`echo '${checksum}  /tmp/chef.tar.xz' | sha256sum --check -`) &&
       planner?.includes('RUN cargo chef prepare --recipe-path /recipe.json') === true &&
+      !planner.includes('COPY . /native/') &&
+      crates.every((crate) =>
+        copiedAt(planner, crate.manifest, '/native/rust').includes(`/native/${crate.manifest}`)
+      ) &&
       dependencies?.match(/^COPY .*$/gm)?.join('\n') ===
         'COPY --from=ci-planner /recipe.json /recipe.json' &&
       dependencies.includes('ENV CARGO_PROFILE_DEV_DEBUG=0 CARGO_INCREMENTAL=0') &&
@@ -436,10 +440,53 @@ it('isolates the checksum-pinned CI dependency recipe from real source and local
   ).toBe(false);
   // The recipe includes Cargo.lock; a changed lock cannot reuse an old cook input.
   const planner = text.split(' AS ci-planner\n')[1].split('\nFROM ')[0];
-  expect(planner).toContain('COPY . /native/');
+  expect(planner).toContain('COPY rust/ /native/rust/');
+  expect(
+    admitted(text.replace('COPY extensions/tmt-ops/rust/ /native/extensions/tmt-ops/rust/\n', ''))
+  ).toBe(false);
   expect(readFileSync(path.join(root, '.dockerignore'), 'utf8')).not.toMatch(
     /^rust\/Cargo\.lock$/m
   );
+});
+
+it('exports only linked Cargo target and registry layers and reuses the pinned native base', () => {
+  const text = readFileSync(path.join(root, 'typescript/test/e2e/Dockerfile'), 'utf8');
+  const payload =
+    'COPY --link --from=ci-cook /native/rust/target/ /native/rust/target/\nCOPY --link --from=ci-cook /usr/local/cargo/registry/ /usr/local/cargo/registry/';
+  const bridge = payload.replaceAll('--from=ci-cook', '--from=ci-dependencies');
+  const base =
+    'rust:1.97.0-bookworm@sha256:8fa55b2f3ddf97471ab6a767bfa3f37e6bad0986ba823e75fea57e2a2a5c3073';
+  const admitted = (source: string) => {
+    const stage = (name: string) =>
+      source.split(/^FROM /m).find((part) => part.split('\n')[0].endsWith(` AS ${name}`));
+    return (
+      stage('ci-dependencies')?.trim() === `scratch AS ci-dependencies\n${payload}` &&
+      stage('ci-native-base')?.trim() === `${base} AS ci-native-base\n${bridge}`
+    );
+  };
+  expect(admitted(text)).toBe(true);
+  expect(
+    admitted(text.replace('FROM scratch AS ci-dependencies', 'FROM ci-cook AS ci-dependencies'))
+  ).toBe(false);
+  expect(admitted(text.replace(payload, payload + '\nCOPY --from=ci-cook /native/ /native/'))).toBe(
+    false
+  );
+  expect(
+    admitted(
+      text.replace(
+        'COPY --link --from=ci-cook /usr/local/cargo/registry/ /usr/local/cargo/registry/',
+        ''
+      )
+    )
+  ).toBe(false);
+  expect(
+    admitted(
+      text.replace(
+        'COPY --link --from=ci-dependencies /native/rust/target/ /native/rust/target/',
+        'COPY --link --from=ci-dependencies /native/rust/target/ /wrong/'
+      )
+    )
+  ).toBe(false);
 });
 
 it('removes only extensionless executable adapter dummies from the dependency layer', () => {
@@ -471,7 +518,7 @@ it('removes only extensionless executable adapter dummies from the dependency la
     const link = 'tmt_adapters-2222222222222222';
     symlinkSync('serde-0123456789abcdef', path.join(deps, link));
     const text = readFileSync(path.join(root, 'typescript/test/e2e/Dockerfile'), 'utf8');
-    const dependencies = text.split(' AS ci-dependencies\n')[1].split('\nFROM ')[0];
+    const dependencies = text.split(' AS ci-cook\n')[1].split('\nFROM ')[0];
     const command = dependencies.match(/&& (find target\/debug\/deps .* -delete)\n/)![1];
     const result = spawnSync('/bin/sh', ['-c', command], {
       cwd: directory,

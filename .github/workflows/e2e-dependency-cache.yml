@@ -47,6 +47,10 @@ jobs:
 
   qualification:
     if: github.event_name == 'pull_request' && github.head_ref == 'infra-1/2248-docker-dependency-cache'
+    strategy:
+      max-parallel: 1
+      matrix:
+        sample: [1, 2]
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -99,7 +103,7 @@ jobs:
             return "$status"
           }
           native baseline-cold qual-baseline
-          native candidate-cold qual-cold --build-arg TMT_NATIVE_BASE=ci-dependencies
+          native candidate-cold qual-cold --build-arg TMT_NATIVE_BASE=ci-native-base
           docker buildx build --builder qual-cold --progress plain \
             --file typescript/test/e2e/Dockerfile --target ci-dependencies \
             --cache-to "type=local,dest=$cache,mode=min" . \
@@ -110,18 +114,19 @@ jobs:
           blobs = list((root / 'blobs' / 'sha256').iterdir())
           print(json.dumps({'compressedBlobBytes': sum(p.stat().st_size for p in blobs),
                             'blobCount': len(blobs),
+                            'blobs': [{'digest': p.name, 'bytes': p.stat().st_size} for p in sorted(blobs)],
                             'indexSHA256': hashlib.sha256((root / 'index.json').read_bytes()).hexdigest()}))
           PY
           # Only source bytes change: the dependency recipe must still hit.
           printf '\n// #2248 dependency-cache qualification no-op.\n' >> rust/crates/tmt-core/src/lib.rs
           git diff -- rust/crates/tmt-core/src/lib.rs | tee "$evidence/no-op.patch"
-          native warm-source-changed qual-warm --build-arg TMT_NATIVE_BASE=ci-dependencies \
+          native warm-source-changed qual-warm --build-arg TMT_NATIVE_BASE=ci-native-base \
             --cache-from "type=local,src=$cache"
-          native warm-unchanged qual-warm --build-arg TMT_NATIVE_BASE=ci-dependencies \
+          native warm-unchanged qual-warm --build-arg TMT_NATIVE_BASE=ci-native-base \
             --cache-from "type=local,src=$cache"
           printf '\ncompile_error!("#2248 expected compile refusal");\n' >> rust/crates/tmt-cli/src/main.rs
           set +e
-          native compile-error qual-warm --build-arg TMT_NATIVE_BASE=ci-dependencies \
+          native compile-error qual-warm --build-arg TMT_NATIVE_BASE=ci-native-base \
             --cache-from "type=local,src=$cache"
           status=$?
           set -e
@@ -133,7 +138,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: e2e-cache-qualification
+          name: e2e-cache-qualification-${{ matrix.sample }}
           path: |
             ${{ runner.temp }}/e2e-cache-qualification
             ${{ runner.temp }}/e2e-cache-qualification.sha256
