@@ -441,9 +441,7 @@ it('isolates the checksum-pinned CI dependency recipe from real source and local
   // The recipe includes Cargo.lock; a changed lock cannot reuse an old cook input.
   const planner = text.split(' AS ci-planner\n')[1].split('\nFROM ')[0];
   expect(planner).toContain('COPY rust/ /native/rust/');
-  expect(
-    admitted(text.replace('COPY extensions/tmt-ops/rust/ /native/extensions/tmt-ops/rust/\n', ''))
-  ).toBe(false);
+  expect(admitted(text.replace('COPY rust/ /native/rust/\n', ''))).toBe(false);
   expect(readFileSync(path.join(root, '.dockerignore'), 'utf8')).not.toMatch(
     /^rust\/Cargo\.lock$/m
   );
