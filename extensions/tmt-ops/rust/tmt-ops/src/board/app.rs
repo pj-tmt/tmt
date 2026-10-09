@@ -645,6 +645,8 @@ pub struct App {
     /// Where the jobs half was last drawn, for the pointer; empty when absent.
     pub(super) jobs_area: std::cell::Cell<ratatui::layout::Rect>,
     pub(super) home_counters: RefCell<super::home::counters::Counters>,
+    /// Cell widths and row values that outlive a snapshot, so a refresh cannot move the layout.
+    pub(super) stable: RefCell<super::view::stable::Stable>,
     pub(super) meter: Option<super::meter::Meter>,
     meters: BTreeMap<String, super::meter::Meter>,
     usage_document: Option<Value>,

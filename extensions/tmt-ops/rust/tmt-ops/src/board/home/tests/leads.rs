@@ -233,3 +233,42 @@ fn a_newer_incoming_question_does_not_hide_the_leads_latest_submitted_reply() {
     );
     assert!(app.reply_hint());
 }
+
+#[test]
+fn a_lead_heading_keeps_its_cells_whether_the_age_is_missing_short_or_long() {
+    const DAY: u64 = 86_400_000;
+    // Time stands 999 days after the epoch, so `since_ms` picks the age shown.
+    crate::status::with_now_ms(999 * DAY + 1, || {
+        for width in [50, 80, 160] {
+            let mut cells = Vec::new();
+            for (since_ms, age) in [
+                (None, "–"),
+                (Some(999 * DAY - 120_000), "2m"),
+                (Some(1), "999d"),
+            ] {
+                let mut app = fixture();
+                app.home_leads.leads[0].exchange.as_mut().unwrap().since_ms = since_ms;
+                let screen = lines(&draw(&app, width, 40));
+                let rule = screen
+                    .iter()
+                    .position(|line| line.contains("leads ─"))
+                    .unwrap();
+                let line = screen[rule..]
+                    .iter()
+                    .find(|line| line.contains("lead-a"))
+                    .unwrap()
+                    .trim_end();
+                let chars: Vec<char> = line.chars().collect();
+                assert!(
+                    line.ends_with(age) || line.contains(&format!("{age} ")),
+                    "{age}: {line}"
+                );
+                cells.push((line.find("lead-a").unwrap(), chars.len()));
+            }
+            assert!(
+                cells.windows(2).all(|pair| pair[0] == pair[1]),
+                "{width}: the name and the end of the age stay put: {cells:?}"
+            );
+        }
+    });
+}

@@ -766,7 +766,9 @@ Squad tabs default to one grouped list with the lead first, its `lead` tag, then
 reported state: `◆` waits on you, `✗` blocked, `◐` review or testing, `●` working, `◌` idle.
 A row that reports no state shows the observed presence in its state cell (`online` or
 `offline`, muted); an offline member that still reports a state reads `<state> · offline`,
-and its name is dim. A bind or unbind shows on the next refresh. Waiting members (`◆`) come first, with the oldest questions first; other
+and its name is dim. A bind or unbind shows on the next refresh. A refresh moves no cell: model and age keep their place, a refresh that has not read them yet
+shows the last value dim (for up to ten minutes), and a column widens only when a longer value
+appears, until you resize or change tab. Below 40 columns the model and age are hidden. Waiting members (`◆`) come first, with the oldest questions first; other
 exchanges follow newest first, and members without exchanges sort by name.
 The lead stays first, and authored sections keep their positions. The lead's
 notes stay below the list; `n` hides or shows them.

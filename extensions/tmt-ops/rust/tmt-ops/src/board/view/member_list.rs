@@ -1,7 +1,10 @@
 //! One boxed-list scene serves HOME leads and squad members. Each caller supplies
 //! its row projection and owns scrolling/hit translation; the scene reports local
 //! row spans and shared-band reservations.
-use super::scene::{self, Key, Part, rule};
+use super::{
+    scene::{self, Key, Part, rule},
+    stable::Stable,
+};
 use crate::{
     board::{app::App, view::fit},
     look::Look,
@@ -12,7 +15,7 @@ use ratatui::{
     style::{Modifier, Style},
     text::Line,
 };
-use serde_json::json;
+use serde_json::{Value, json};
 use std::{ops::Range, sync::OnceLock};
 use tmt_cli_style::{Role, grid::Align, table::escape};
 use tmt_tui::{
@@ -22,6 +25,39 @@ use tmt_tui::{
 use unicode_width::UnicodeWidthStr;
 
 const FILE: &str = "squad.home.leads.xml";
+
+/// Cells of the age cell in a squad row: the widest relative age (`just now`,
+/// `999d ago`). The age is right-aligned, so a placeholder `–` ends where a value does.
+const AGE_CELLS: usize = 8;
+
+/// A box narrower than this shows no model or age: the name, state and focus keep the room.
+pub(in crate::board) const NARROW: usize = 40;
+
+/// The right-aligned age cell and its trailing space, `cells` wide before the space;
+/// no cells, no cell.
+pub(in crate::board) fn age_cell(age: &str, cells: usize) -> String {
+    if cells == 0 {
+        return String::new();
+    }
+    format!(
+        "{} ",
+        tmt_tui::text::fit_line(
+            age,
+            cells.min(usize::from(u16::MAX)) as u16,
+            tmt_tui::style::TextFlow::Truncate,
+            Align::Right
+        )
+    )
+}
+
+/// The left-aligned model cell and its gap, blank at the same width when the row has none.
+fn model_cell(model: &str, cells: usize) -> String {
+    if cells == 0 {
+        String::new()
+    } else {
+        format!("{}  ", fit(model, cells))
+    }
+}
 
 /// A boxed line is its two border cells around the content, with a filler that
 /// carries the line's base style. The squad column of a heading is the `md` step.
@@ -40,8 +76,8 @@ const MARKUP: &str = r#"<tmt-view version="1">
 <tmt-text id="squad" bind="lead.squad" token="muted" class="shrink-0" hide-below="md"/>
 <tmt-text id="fill" class="grow h-1"/>
 <tmt-repeat each="lead.focus" as="focus"><tmt-text id="focus-gap" class="shrink-0"> </tmt-text><tmt-text id="focus-word" bind="focus.word" token="text" class="shrink-0"/><tmt-text id="focus-suffix" bind="focus.suffix" token="muted" class="shrink-0"/><tmt-text id="focus-after-gap" class="shrink-0"> </tmt-text></tmt-repeat>
-<tmt-text id="model" bind="lead.model" token="muted" class="shrink-0"/>
-<tmt-text id="age" bind="lead.age" token="dim" class="shrink-0"/>
+<tmt-text id="model" bind="lead.model" token-bind="lead.model_role" class="shrink-0"/>
+<tmt-text id="age" bind="lead.age" token-bind="lead.age_role" class="shrink-0"/>
 <tmt-text id="right" bind="$.right" class="shrink-0"/>
 </tmt-row>
 <tmt-repeat each="lead.after" as="line"><tmt-row id-bind="line.id" class="w-full h-1"><tmt-text id="left" bind="$.left" class="shrink-0"/><tmt-text id="text" bind="line.text" token-bind="line.role" class="shrink-0"/><tmt-text id="fill" class="grow h-1"/><tmt-text id="right" bind="$.right" class="shrink-0"/></tmt-row></tmt-repeat>
@@ -84,6 +120,7 @@ fn schema() -> Schema {
                 ("state", Schema::Scalar),
                 ("state_role", Schema::Scalar),
                 ("model", Schema::Scalar),
+                ("model_role", Schema::Scalar),
                 ("separator", list(object(vec![("id", Schema::StableId)]))),
                 ("mark", Schema::Scalar),
                 ("mark_role", Schema::Scalar),
@@ -91,6 +128,7 @@ fn schema() -> Schema {
                 ("name_role", Schema::Scalar),
                 ("squad", Schema::Scalar),
                 ("age", Schema::Scalar),
+                ("age_role", Schema::Scalar),
                 (
                     "focus",
                     list(object(vec![
@@ -107,6 +145,50 @@ fn schema() -> Schema {
 fn template() -> &'static Template<()> {
     static TEMPLATE: OnceLock<Template<()>> = OnceLock::new();
     TEMPLATE.get_or_init(|| scene::compile(FILE, MARKUP, &schema()))
+}
+
+/// What a squad row shows for its model and age, with the layout-neutral facts
+/// the detail line needs.
+struct Reading {
+    model: String,
+    model_visible: bool,
+    model_carried: bool,
+    age: String,
+}
+
+fn reading(stable: &mut Stable, row: &Value, now: u64) -> Reading {
+    let full = row["fields"]["model"].as_str().unwrap_or_default();
+    let name = crate::source::model_name(full);
+    let model_visible = name == full
+        && crate::board::row_detail::uncut(name, 8, tmt_tui::style::TextFlow::Truncate);
+    let id = row["id"].as_str();
+    let model = stable.model(id, fit(name, 8).trim_end(), now);
+    let staleness = &row["staleness"];
+    let state = staleness["state"].as_str();
+    let since = matches!(state, Some("fresh" | "stale"))
+        .then(|| {
+            staleness["unchangedSinceMs"]
+                .as_u64()
+                .filter(|since| *since > 0 && *since <= now)
+                .or_else(|| {
+                    staleness["ageMs"]
+                        .as_u64()
+                        .map(|age| now.saturating_sub(age))
+                })
+        })
+        .flatten();
+    // A row the board did not observe, or could not (`unknown`), has no age to
+    // report; the last one read for it stands in. `disabled` has none.
+    let since = stable.since(id, since, matches!(state, None | Some("unknown")), now);
+    Reading {
+        model: model.value,
+        model_visible,
+        model_carried: model.carried,
+        age: since.value.map_or_else(
+            || "–".into(),
+            |since| tmt_cli_style::value::relative_time(now.saturating_sub(since)),
+        ),
+    }
 }
 
 /// The box's four border strings. `Outline` owns the flat glyphs; the section
@@ -326,6 +408,33 @@ pub(in crate::board) fn render_squad(frame: &mut ratatui::Frame, app: &App, area
             Some((index, text))
         })
     });
+    let width = usize::from(inner.width);
+    // Model and age come first: their cells are as wide as the tab has needed,
+    // and the name and state layout below depends on that width alone.
+    let readings: Vec<_> = {
+        let mut stable = app.stable.borrow_mut();
+        app.items()
+            .into_iter()
+            .filter_map(|item| match item {
+                Item::Row(_, row) => Some(reading(&mut stable, row, now)),
+                Item::Section(_) | Item::Rule(_) => None,
+            })
+            .collect()
+    };
+    let narrow = width < NARROW;
+    let model_cells = app.stable.borrow_mut().width(
+        "model",
+        readings
+            .iter()
+            .map(|reading| reading.model.width())
+            .max()
+            .unwrap_or(0),
+    );
+    let model_cells = if narrow { 0 } else { model_cells };
+    let age_cells = if narrow { 0 } else { AGE_CELLS };
+    let right = if model_cells == 0 { 0 } else { model_cells + 2 }
+        + if age_cells == 0 { 0 } else { age_cells + 1 };
+    let available = width.saturating_sub(3 + right);
     let mut before = Vec::new();
     let mut rows = Vec::new();
     for item in app.items() {
@@ -369,31 +478,11 @@ pub(in crate::board) fn render_squad(frame: &mut ratatui::Frame, app: &App, area
                 _ => (" ", Role::Text),
             }
         };
-        let model = row["fields"]["model"]
-            .as_str()
-            .map(crate::source::model_name)
-            .unwrap_or_default();
-        let full_model = row["fields"]["model"].as_str().unwrap_or_default();
-        let model_visible = model == full_model
-            && crate::board::row_detail::uncut(model, 8, tmt_tui::style::TextFlow::Truncate);
-        let model = fit(model, 8).trim_end().to_owned();
-        let age = row["staleness"]["unchangedSinceMs"]
-            .as_u64()
-            .filter(|since| *since > 0 && *since <= now)
-            .map(|since| now - since)
-            .or_else(|| row["staleness"]["ageMs"].as_u64())
-            .filter(|_| matches!(row["staleness"]["state"].as_str(), Some("fresh" | "stale")))
-            .map(tmt_cli_style::value::relative_time)
-            .unwrap_or_else(|| "–".into());
-        let width = usize::from(inner.width);
-        let right = format!("{}  {} ", model, age);
-        let available =
-            width.saturating_sub(3 + unicode_width::UnicodeWidthStr::width(right.as_str()));
+        let reading = &readings[index];
         let focus = crate::focus::pieces(row, now, available / 2);
         let focus_width = focus.as_array().unwrap().first().map_or(0, |piece| {
             piece["word"].as_str().unwrap().width() + piece["suffix"].as_str().unwrap().width() + 2
         });
-        let available = available.saturating_sub(focus_width);
         let tag = if origin == RowOrigin::Lead {
             "  lead"
         } else {
@@ -404,9 +493,13 @@ pub(in crate::board) fn render_squad(frame: &mut ratatui::Frame, app: &App, area
         } else {
             ""
         };
-        let name_width = available.saturating_sub(tag.len() + 3).min(26);
+        // The name takes at most half the row, so a focus always has room beside it.
+        let name_width = available
+            .saturating_sub(tag.len() + 3)
+            .min(26)
+            .min(available / 2);
         let name = fit(&escape(row["name"].as_str().unwrap_or("–")), name_width);
-        let state_width = available.saturating_sub(name_width + tag.len() + 2);
+        let state_width = available.saturating_sub(focus_width + name_width + tag.len() + 2);
         let mut after = vec![
             json!({"id":"task","text":format!("   {}",fit(&super::super::notes::sanitize(row["fields"]["task"].as_str().unwrap_or_default()),width.saturating_sub(3)).trim_end()),"role":"text"}),
         ];
@@ -431,10 +524,10 @@ pub(in crate::board) fn render_squad(frame: &mut ratatui::Frame, app: &App, area
         ) {
             visible.push("task");
         }
-        if model_visible {
+        if reading.model_visible {
             visible.push("model");
         }
-        if crate::focus::fitted(row, now, (available + focus_width) / 2).2 {
+        if crate::focus::fitted(row, now, available / 2).2 {
             visible.push("focus");
         }
         rows.push(json!({"focus": focus, "id": id(index), "before": std::mem::take(&mut before), "separator": [],
@@ -442,8 +535,9 @@ pub(in crate::board) fn render_squad(frame: &mut ratatui::Frame, app: &App, area
             "state": if state_width == 0 { String::new() } else { format!("  {}", fit(&escape(&state), state_width).trim_end()) },
             "state_role": if waits { "waiting" } else if observed { Role::Dim.name() } else { row["colors"]["state"].as_str().and_then(crate::look::role).unwrap_or(Role::Text).name() },
             "name_role": if offline { Role::Dim.name() } else { Role::Text.name() },
-            "squad": "", "model": if model.is_empty() { String::new() } else { format!("{model}  ") },
-            "age": format!("{age} "), "after": after, "detail":app.detail_value(index,&visible)}));
+            "squad": "", "model": model_cell(&reading.model, model_cells),
+            "model_role": if reading.model_carried { Role::Dim } else { Role::Muted }.name(),
+            "age": age_cell(&reading.age, age_cells), "age_role": Role::Dim.name(), "after": after, "detail":app.detail_value(index,&visible)}));
     }
     // A trailing rule/section is still meaningful when search hides all members.
     // Attach it as an unselectable tail after the last row, before the box closes.

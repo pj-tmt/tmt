@@ -12,6 +12,7 @@ mod replies;
 pub(in crate::board) mod row_paint;
 mod rows;
 pub(in crate::board) mod scene;
+pub(in crate::board) mod stable;
 mod tabs;
 pub(in crate::board) mod waiting;
 
@@ -69,6 +70,9 @@ pub(in crate::board) fn render_frame(
 ) {
     let look = app.look();
     app.input_band.set(None);
+    app.stable
+        .borrow_mut()
+        .begin(app.shown_tab().unwrap_or_default(), frame.area().width);
     app.hits.borrow_mut().clear();
     app.detail_more_hits.borrow_mut().clear();
     app.note_hits.borrow_mut().clear();

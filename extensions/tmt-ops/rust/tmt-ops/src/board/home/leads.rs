@@ -16,6 +16,9 @@ use ratatui::layout::Rect;
 use serde_json::{Value, json};
 use tmt_cli_style::{Role, table::escape};
 
+/// Cells of a lead heading's age (`45s`, `12m`, `3h`, `999d`).
+const AGE_CELLS: usize = 4;
+
 pub(super) struct Section<'a> {
     pub first: usize,
     pub entries: &'a [HomeEntry<'a>],
@@ -35,35 +38,42 @@ fn heading(lead: &Lead, width: u16, now: u64) -> Value {
         .as_ref()
         .and_then(|exchange| exchange.since_ms)
         .map_or_else(|| "–".into(), |at| crate::requests::age(now, at));
-    let age = fit(&age, inner.saturating_sub(4)).trim_end().to_owned();
-    let available = inner.saturating_sub(4 + unicode_width::UnicodeWidthStr::width(age.as_str()));
+    // The age cell is a fixed width, right-aligned: its text never moves the name.
+    let age_cells = if inner < member_list::NARROW {
+        0
+    } else {
+        AGE_CELLS
+    };
+    let available = inner.saturating_sub(3 + if age_cells == 0 { 0 } else { age_cells + 1 });
+    // The name takes at most half the heading, so a focus always has room beside it.
+    let name_width = (available / 2).min(24);
     let focus = crate::focus::pieces(&lead.row, now, available / 2);
     let focus_width = focus.as_array().unwrap().first().map_or(0, |piece| {
         unicode_width::UnicodeWidthStr::width(piece["word"].as_str().unwrap())
             + unicode_width::UnicodeWidthStr::width(piece["suffix"].as_str().unwrap())
             + 2
     });
-    let available = available.saturating_sub(focus_width);
-    let name_width = available.min(24);
+    let room = available.saturating_sub(focus_width);
     // Whether the squad column shows at all is the `md` step of the markup;
     // whether any room is left for it is a fit.
-    let squad = if available > name_width + 3 {
+    let squad = if room > name_width + 3 {
         format!(
             "   {}",
-            fit(&escape(&lead.squad), available - name_width - 3).trim_end()
+            fit(&escape(&lead.squad), room - name_width - 3).trim_end()
         )
     } else {
         String::new()
     };
     json!({
         "focus": focus,
-        "focus_visible": crate::focus::fitted(&lead.row, now, (available + focus_width) / 2).2,
+        "focus_visible": crate::focus::fitted(&lead.row, now, available / 2).2,
         "mark": format!(" {mark} "),
         "mark_role": role.name(),
         "name": fit(&escape(lead.name()), name_width),
         "name_role": Role::Text.name(),
         "squad": squad,
-        "age": format!("{age} "),
+        "age": member_list::age_cell(&age, age_cells),
+        "age_role": Role::Dim.name(),
     })
 }
 
@@ -109,6 +119,7 @@ pub(super) fn paint(
             for field in ["tag", "state", "model"] {
                 row[field] = json!("");
             }
+            row["model_role"] = json!(Role::Muted.name());
             row["state_role"] = json!("text");
             row["separator"] = json!([]);
             row["after"] = json!(after);

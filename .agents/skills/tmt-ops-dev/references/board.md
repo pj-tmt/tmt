@@ -68,6 +68,17 @@ and covered-hit removal. Ask-lead, settings, pickers and cron overlays stay squa
   member row draws it). Observed `presence` fills the state cell when no state is
   reported, appends `· offline` to a reported one, and sets the bound `name_role` (dim
   offline); HOME lead headings bind `Text`. The stored-display cache carries no presence.
+- `view::stable::Stable` (`App.stable`, begun per frame) owns what outlives a snapshot,
+  so a refresh moves no cell. Cell widths only grow while a tab stays open at one
+  terminal width (another tab starts over; a resize derives them again), and the last
+  model and age read for a row id stand in, dim, for up to ten minutes when a read has
+  none (an unobserved or `unknown` age; `disabled` clears it). `view::rows` takes the
+  `natural` of unsized grid columns and the row-end label reserve from it;
+  `member_list` takes the model cell (grow-only, at most 8) and the age cell (8 cells
+  right-aligned; HOME lead headings 4) from it, and below 40 cells shows neither. The
+  name takes at most half of the row, so a focus always has room beside it. Layout
+  reads no value as loaded now: placeholder, carried and fresh values share their cells
+  (`view/tests/layout_shift.rs`). The stored display is a separate inert preview.
 - Other named/custom views: `view::rows` prepares `row_paint::RowPaint` before replacing the immutable view's
   `Derived.grid`. Its key includes effective width, search and `Extra` (lead,
   clock-derived cron/request labels, sent feedback and input reservation). Failed
