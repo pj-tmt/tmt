@@ -1,0 +1,71 @@
+name: Configure the hosted Docker mirror
+description: Best-effort registry mirror for an ephemeral Linux CI daemon.
+runs:
+  using: composite
+  steps:
+    - name: Configure the hosted Docker mirror
+      if: runner.os == 'Linux'
+      continue-on-error: true
+      shell: bash
+      env:
+        DAEMON_CONFIG: /etc/docker/daemon.json
+      run: |
+        set -e
+        started=$SECONDS
+        work=$(mktemp -d)
+        changed=false
+        existed=false
+        finish() {
+          status=$?
+          if [ "$status" -ne 0 ]; then
+            echo "::warning::Docker mirror setup failed; retaining direct-pull fallback."
+            if [ "$changed" = true ]; then
+              if [ "$existed" = true ]; then
+                sudo cp "$work/original.json" "$DAEMON_CONFIG" || true
+              else
+                sudo rm -f "$DAEMON_CONFIG" || true
+              fi
+              sudo systemctl kill --kill-who=main --signal=HUP docker || true
+            fi
+          fi
+          rm -rf "$work"
+          echo "Docker mirror setup: $((SECONDS - started)) s; status=$status (best effort)."
+          exit 0
+        }
+        trap finish EXIT
+        if [ -e "$DAEMON_CONFIG" ] || [ -L "$DAEMON_CONFIG" ]; then
+          test -f "$DAEMON_CONFIG" && test ! -L "$DAEMON_CONFIG"
+          cp "$DAEMON_CONFIG" "$work/original.json"
+          existed=true
+        else
+          printf '{}\n' > "$work/original.json"
+        fi
+        python3 - "$work/original.json" "$work/mirror.json" <<'PY'
+        import json, sys
+        with open(sys.argv[1]) as stream:
+            config = json.load(stream)
+        if not isinstance(config, dict):
+            raise ValueError('Docker daemon configuration must be an object')
+        mirrors = config.get('registry-mirrors', [])
+        if not isinstance(mirrors, list) or not all(isinstance(item, str) for item in mirrors):
+            raise ValueError('Docker registry-mirrors must be strings')
+        config['registry-mirrors'] = ['https://mirror.gcr.io'] + [item for item in mirrors if item != 'https://mirror.gcr.io']
+        config['debug'] = True  # Throwaway qualification: resolver evidence, not a shipping default.
+        with open(sys.argv[2], 'w') as stream:
+            json.dump(config, stream)
+        PY
+        sudo dockerd --validate --config-file "$work/mirror.json"
+        changed=true
+        sudo install -m 0644 "$work/mirror.json" "$DAEMON_CONFIG"
+        sudo systemctl kill --kill-who=main --signal=HUP docker || true
+        mirrored() {
+          docker info --format '{{json .RegistryConfig.Mirrors}}' |
+            python3 -c 'import json,sys; sys.exit("https://mirror.gcr.io/" not in [s.rstrip("/")+"/" for s in json.load(sys.stdin)])'
+        }
+        if mirrored; then
+          echo 'Docker mirror setup: SIGHUP reload took effect.'
+        else
+          echo 'Docker mirror setup: reload not observed; trying hosted daemon restart.'
+          sudo systemctl restart docker
+          mirrored
+        fi

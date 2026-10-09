@@ -1,0 +1,131 @@
+name: Docker mirror qualification (throwaway)
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - .github/actions/setup-docker-mirror/action.yml
+      - .github/workflows/docker-mirror-qualification.yml
+
+permissions:
+  contents: read
+
+jobs:
+  resolve:
+    if: github.head_ref == 'infra-1/2409-mirror-qualification'
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            platform: linux/amd64
+          - runner: ubuntu-24.04-arm
+            platform: linux/arm64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Configure daemon mirror (best effort)
+        uses: ./.github/actions/setup-docker-mirror
+      - name: Compare mirror and Hub manifest availability
+        env:
+          PLATFORM: ${{ matrix.platform }}
+        run: |
+          mkdir -p evidence
+          date --utc --iso-8601=seconds > evidence/start.txt
+          python3 - <<'PY'
+          import pathlib, re
+          files = ['typescript/test/e2e/Dockerfile', 'typescript/test/native/artifact.Dockerfile', 'typescript/test/native/runtime.Dockerfile']
+          refs = set()
+          for file in files:
+              refs.update(re.findall(r'^FROM ((?:node|rust):\S+@sha256:[0-9a-f]{64})', pathlib.Path(file).read_text(), re.M))
+          assert len(refs) == 3, refs
+          pathlib.Path('evidence/refs.txt').write_text('\n'.join(sorted(refs)) + '\n')
+          PY
+          while IFS= read -r image; do
+            repository=${image%%:*}
+            digest=${image##*@}
+            record="$repository-${digest#sha256:}"
+            echo "Mirror probe $PLATFORM $image"
+            curl --silent --show-error --fail-with-body --max-time 60 \
+              -H 'Accept: application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.list.v2+json' \
+              -D "evidence/$record-mirror.headers" -o "evidence/$record-mirror.body" \
+              -w 'mirror status=%{http_code} seconds=%{time_total} url=%{url_effective}\n' \
+              "https://mirror.gcr.io/v2/library/$repository/manifests/$digest"
+            test "$(sha256sum "evidence/$record-mirror.body" | cut -d' ' -f1)" = "${digest#sha256:}"
+            # One read-only comparison, no retry. Hub degradation is observed, not assumed.
+            token=$(curl --silent --show-error --max-time 30 \
+              "https://auth.docker.io/token?service=registry.docker.io&scope=repository:library/$repository:pull" |
+              python3 -c 'import json,sys; print(json.load(sys.stdin).get("token", ""))') || token=
+            curl --silent --show-error --max-time 30 \
+              -H "Authorization: Bearer $token" \
+              -H 'Accept: application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.list.v2+json' \
+              -D "evidence/$record-hub.headers" -o "evidence/$record-hub.body" \
+              -w 'comparison-only Hub status=%{http_code} seconds=%{time_total}\n' \
+              "https://registry-1.docker.io/v2/library/$repository/manifests/$digest" || true
+          done < evidence/refs.txt
+      - name: Resolve pinned digests through the default Docker driver
+        env:
+          PLATFORM: ${{ matrix.platform }}
+        run: |
+          df -h / | tee evidence/df-before.txt
+          docker info > evidence/docker-info.txt
+          test "$(docker info --format '{{json .RegistryConfig.Mirrors}}' | grep -c mirror.gcr.io)" = 1
+          index=0
+          while IFS= read -r image; do
+            index=$((index + 1))
+            printf 'FROM %s\n' "$image" > evidence/Probe.Dockerfile
+            started=$SECONDS
+            docker build --pull --platform "$PLATFORM" --progress=plain \
+              --file evidence/Probe.Dockerfile --tag "tmt-mirror-probe:$index" . 2>&1 |
+              tee "evidence/default-$index.log"
+            echo "default $image elapsed=$((SECONDS - started)) s"
+            docker image rm "tmt-mirror-probe:$index"
+          done < evidence/refs.txt
+          sudo journalctl -u docker --since "$(cat evidence/start.txt)" --no-pager | tee evidence/daemon.log > /dev/null
+          grep -F mirror.gcr.io evidence/daemon.log
+          # Excludes the deliberately labelled curl comparison, which is not a resolver pull.
+          if grep -E '(Trying to pull.*https://(registry-1|index)\.docker\.io|request.method=GET.*url=https://(registry-1|index)\.docker\.io/.*manifests)' evidence/daemon.log; then
+            echo 'Hub resolver fallback observed; qualification refused.' >&2
+            exit 1
+          fi
+      - name: Set up an independently mirrored BuildKit builder
+        uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3.11.1
+        with:
+          version: v0.29.1
+          cache-binary: false
+          buildkitd-config-inline: |
+            debug = true
+            [registry."docker.io"]
+              mirrors = ["mirror.gcr.io"]
+      - name: Resolve the same pinned digests through docker-container
+        env:
+          PLATFORM: ${{ matrix.platform }}
+        run: |
+          index=0
+          while IFS= read -r image; do
+            index=$((index + 1))
+            printf 'FROM %s\n' "$image" > evidence/Probe.Dockerfile
+            started=$SECONDS
+            docker buildx build --pull --platform "$PLATFORM" --progress=plain \
+              --file evidence/Probe.Dockerfile . 2>&1 | tee "evidence/container-$index.log"
+            echo "container $image elapsed=$((SECONDS - started)) s"
+          done < evidence/refs.txt
+          builder=$(docker ps --filter name=buildx_buildkit --format '{{.ID}}')
+          test "$(printf '%s\n' "$builder" | wc -l)" = 1
+          docker logs "$builder" > evidence/buildkit.log 2>&1
+          grep -E 'request.method=(GET|HEAD).*url=https://mirror.gcr.io/.*manifests' evidence/buildkit.log
+          if grep -E 'request.method=GET.*url=https://(registry-1|index)\.docker\.io/.*manifests' evidence/buildkit.log; then
+            echo 'Hub resolver fallback observed; qualification refused.' >&2
+            exit 1
+          fi
+          df -h / | tee evidence/df-after.txt
+      - name: Retain resolver evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: docker-mirror-${{ matrix.platform == 'linux/amd64' && 'amd64' || 'arm64' }}-${{ github.run_id }}
+          path: evidence
+          if-no-files-found: error

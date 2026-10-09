@@ -682,6 +682,8 @@ jobs:
       - name: Install dependencies
         working-directory: typescript
         run: pnpm --filter tmt install --frozen-lockfile
+      - name: Configure the hosted Docker mirror
+        uses: ./.github/actions/setup-docker-mirror
       - name: Name exact native E2E dependencies
         id: e2e-dependency-key
         run: node typescript/scripts/e2e-dependency-cache.mjs key >> "$GITHUB_OUTPUT"
@@ -700,7 +702,18 @@ jobs:
           DEPENDENCY_ROOT: ${{ runner.temp }}/tmt-e2e-dependencies
         run: node typescript/scripts/e2e-dependency-cache.mjs admit "$DEPENDENCY_ROOT" "$DEPENDENCY_KEY" >> "$GITHUB_OUTPUT"
       - name: Set up Buildx only for an admitted archive
+        id: e2e-mirror-builder
+        continue-on-error: true
         if: steps.e2e-admission.outputs.usable == 'true'
+        uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3.11.1
+        with:
+          version: v0.29.1
+          buildkitd-config-inline: |
+            debug = true
+            [registry."docker.io"]
+              mirrors = ["mirror.gcr.io"]
+      - name: Fall back to the original Buildx setup
+        if: steps.e2e-admission.outputs.usable == 'true' && steps.e2e-mirror-builder.outcome == 'failure'
         uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3.11.1
         with:
           version: v0.29.1
@@ -909,6 +922,9 @@ jobs:
             --skill skills/tmt/SKILL.md
           echo "Verified native runtime in $((SECONDS - started)) s." | tee -a "$GITHUB_STEP_SUMMARY"
           VERIFY
+      - name: Configure the hosted Docker mirror
+        if: ${{ matrix.container }}
+        uses: ./.github/actions/setup-docker-mirror
       - name: Build the verification-only Alpine environment
         if: ${{ matrix.container }}
         run: docker build -f typescript/test/native/runtime.Dockerfile -t tmt-runtime-proof .
