@@ -6,25 +6,13 @@ use super::{
     metadata,
 };
 use crate::{
-    host::CallerEnvironment,
+    host::{CallerEnvironment, WorkspaceCapture},
     process::{CommandRunner, ancestry, runtime::observe_starts},
 };
 use std::{collections::BTreeMap, time::Instant};
-use tmt_core::{
-    endpoint::{BindingMarker, ServerEvidence},
-    host::HostKind,
-    workspace::*,
-};
+use tmt_core::{endpoint::ServerEvidence, host::HostKind, workspace::*};
 
 pub(super) const COMMAND_OPTION: &str = "@tmux-team.workspace-command";
-
-pub struct Capture {
-    pub snapshot: Snapshot,
-    pub evidence: Vec<(String, u64, Option<BindingMarker>)>,
-    pub binding_server: Option<ServerEvidence>,
-    pub starts: std::collections::HashMap<u64, tmt_core::endpoint::ProcessIncarnation>,
-    pub terminals: BTreeMap<String, String>,
-}
 
 impl<R: CommandRunner> Tmux<R> {
     pub fn workspace_capture(
@@ -33,7 +21,7 @@ impl<R: CommandRunner> Tmux<R> {
         expected: Option<&ServerEvidence>,
         caller: Option<&CallerEnvironment>,
         deadline: Instant,
-    ) -> Result<Capture, TmuxError> {
+    ) -> Result<WorkspaceCapture, TmuxError> {
         let format = [
             "#{@tmux-team.server-id}",
             "#{socket_path}",
@@ -87,7 +75,7 @@ impl<R: CommandRunner> Tmux<R> {
         let starts = observe_starts(&self.runner, &pids, deadline).map_err(|_| invalid())?;
         capture.snapshot.server.process = starts.get(&pids[0]).cloned().ok_or_else(invalid)?;
         if let Some(caller) = caller {
-            let chain = ancestry::chain(&self.runner, u64::from(caller.process_id), deadline)
+            let chain = ancestry::chain(&self.runner, caller.process_id, deadline)
                 .map_err(|_| invalid())?;
             let pane = caller
                 .pane
@@ -193,7 +181,7 @@ fn flag(value: &str) -> Result<bool, TmuxError> {
     }
 }
 
-fn parse(output: &str, socket: &str) -> Result<(Capture, Commands), TmuxError> {
+fn parse(output: &str, socket: &str) -> Result<(WorkspaceCapture, Commands), TmuxError> {
     let rows: Vec<Vec<&str>> = output
         .lines()
         .map(|row| row.split(SEPARATOR).collect())
@@ -229,8 +217,8 @@ fn parse(output: &str, socket: &str) -> Result<(Capture, Commands), TmuxError> {
         server_start_time: first[3].into(),
     });
     let mut sessions: BTreeMap<String, WorkspaceSession> = BTreeMap::new();
-    let mut windows: BTreeMap<String, Window> = BTreeMap::new();
-    let mut panes: BTreeMap<String, Pane> = BTreeMap::new();
+    let mut windows: BTreeMap<String, WorkspaceWindow> = BTreeMap::new();
+    let mut panes: BTreeMap<String, WorkspacePane> = BTreeMap::new();
     let mut evidence = BTreeMap::new();
     let mut commands = BTreeMap::new();
     let mut terminals = BTreeMap::new();
@@ -264,7 +252,7 @@ fn parse(output: &str, socket: &str) -> Result<(Capture, Commands), TmuxError> {
         } else {
             session.windows.push(link);
         }
-        let window = Window {
+        let window = WorkspaceWindow {
             id: row[6].into(),
             name: row[9].into(),
             layout: row[10].into(),
@@ -290,7 +278,7 @@ fn parse(output: &str, socket: &str) -> Result<(Capture, Commands), TmuxError> {
             }
             previous.active_pane = row[14].into();
         }
-        let pane = Pane {
+        let pane = WorkspacePane {
             id: row[14].into(),
             window: row[6].into(),
             index: number(row[15])?,
@@ -333,10 +321,10 @@ fn parse(output: &str, socket: &str) -> Result<(Capture, Commands), TmuxError> {
         session.windows.sort_by_key(|link| link.index);
     }
     Ok((
-        Capture {
-            snapshot: Snapshot {
+        WorkspaceCapture {
+            snapshot: WorkspaceSnapshot {
                 captured_at_ms: 0,
-                server: Server {
+                server: WorkspaceServer {
                     socket: socket.into(),
                     process,
                     id: server_id,

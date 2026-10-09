@@ -1,10 +1,10 @@
 use super::*;
 use tmt_core::{endpoint::ProcessIncarnation, workspace::*};
 
-fn sample() -> Snapshot {
-    Snapshot {
+fn sample() -> WorkspaceSnapshot {
+    WorkspaceSnapshot {
         captured_at_ms: 1,
-        server: Server {
+        server: WorkspaceServer {
             socket: "/tmp/example/socket".into(),
             process: ProcessIncarnation::new(10, "native-start").unwrap(),
             id: None,
@@ -18,7 +18,7 @@ fn sample() -> Snapshot {
                 active: true,
             }],
         }],
-        windows: vec![Window {
+        windows: vec![WorkspaceWindow {
             id: "@1".into(),
             name: "shell".into(),
             layout: "abc,80x24,0,0,1".into(),
@@ -27,7 +27,7 @@ fn sample() -> Snapshot {
             height: 24,
             active_pane: "%1".into(),
         }],
-        panes: vec![Pane {
+        panes: vec![WorkspacePane {
             id: "%1".into(),
             window: "@1".into(),
             index: 0,

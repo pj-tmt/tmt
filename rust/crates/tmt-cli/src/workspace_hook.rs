@@ -82,9 +82,54 @@ fn publish_then_capture(
 mod tests {
     use super::*;
     use std::{
+        fs,
+        path::PathBuf,
         sync::{Arc, Mutex, mpsc},
         time::Duration,
     };
+    use tmt_adapters::process::{
+        CommandError, CommandOutput, CommandRequest, CommandRunner, UnixCommandRunner,
+    };
+
+    struct CaptureDirectory(PathBuf);
+    impl CaptureDirectory {
+        fn new() -> Self {
+            let path =
+                std::env::temp_dir().join(format!("tmt-workspace-hook-{}", std::process::id()));
+            fs::create_dir(&path).unwrap();
+            Self(path)
+        }
+    }
+    impl Drop for CaptureDirectory {
+        fn drop(&mut self) {
+            fs::remove_dir_all(&self.0).unwrap();
+        }
+    }
+
+    #[derive(Clone)]
+    struct HeldTopology {
+        entered: mpsc::Sender<()>,
+        release: Arc<Mutex<mpsc::Receiver<()>>>,
+    }
+    impl CommandRunner for HeldTopology {
+        fn execute(&self, mut request: CommandRequest<'_>) -> Result<CommandOutput, CommandError> {
+            assert!(request.args.iter().any(|arg| arg == "list-panes"));
+            assert!(
+                request.deadline.saturating_duration_since(Instant::now())
+                    <= workspace::CAPTURE_BUDGET
+            );
+            self.entered.send(()).unwrap();
+            self.release
+                .lock()
+                .unwrap()
+                .recv_timeout(Duration::from_secs(5))
+                .unwrap();
+            // Return the existing owner's deadline failure without starting a
+            // process or changing the production capture/cleanup budgets.
+            request.deadline = Instant::now();
+            UnixCommandRunner.execute(request)
+        }
+    }
 
     struct Output(Arc<Mutex<(Vec<u8>, bool)>>);
     impl Write for Output {
@@ -99,19 +144,51 @@ mod tests {
     }
 
     #[test]
-    fn blocked_optional_capture_cannot_delay_context_publication() {
+    fn hung_list_panes_cannot_delay_context_publication_and_failure_stays_advisory() {
+        let directory = CaptureDirectory::new();
+        let paths = ConfigPaths::resolve(
+            &directory.0,
+            &directory.0,
+            Some(&directory.0.join("global")),
+            None,
+        );
+        let server = ServerEvidence {
+            host: HostKind::Tmux,
+            server_id: "3c94c4aa-33e1-4b37-978c-5e763f3d078c".into(),
+            socket_path: directory.0.join("socket").to_str().unwrap().into(),
+            server_pid: 10,
+            server_start_time: "native-start".into(),
+        };
+        let latest = paths
+            .workspace_directory(&server.socket_path)
+            .join("latest.json");
         let bytes = Arc::new(Mutex::new((Vec::new(), false)));
         let output = bytes.clone();
         let (entered, ready) = mpsc::channel();
         let (release, gate) = mpsc::channel();
+        let host = Host::for_server_with(
+            &server,
+            HeldTopology {
+                entered,
+                release: Arc::new(Mutex::new(gate)),
+            },
+        );
         let worker = std::thread::spawn(move || {
             publish_then_capture(
                 &mut Output(output),
                 "exact hook context",
                 Instant::now() + Duration::from_secs(2),
                 || {
-                    entered.send(()).unwrap();
-                    gate.recv().unwrap();
+                    assert!(
+                        workspace::capture_event(
+                            &paths,
+                            &host,
+                            Some(&server),
+                            None,
+                            Instant::now() + workspace::CAPTURE_BUDGET
+                        )
+                        .is_err()
+                    );
                 },
             )
         });
@@ -122,6 +199,7 @@ mod tests {
         );
         release.send(()).unwrap();
         worker.join().unwrap();
+        assert!(!latest.exists());
     }
 
     #[test]

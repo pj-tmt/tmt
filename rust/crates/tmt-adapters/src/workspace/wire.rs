@@ -99,7 +99,7 @@ pub fn decode_command(text: &str) -> Option<ExternalCommand> {
     command(&crate::json_document::parse(std::str::from_utf8(&bytes).ok()?).ok()?).ok()
 }
 
-pub fn encode(snapshot: &Snapshot) -> io::Result<Vec<u8>> {
+pub fn encode(snapshot: &WorkspaceSnapshot) -> io::Result<Vec<u8>> {
     let document = json!({
         "version": VERSION, "capturedAtMs": snapshot.captured_at_ms,
         "server": { "socket": snapshot.server.socket, "process": process_value(&snapshot.server.process), "id": snapshot.server.id },
@@ -114,7 +114,7 @@ pub fn encode(snapshot: &Snapshot) -> io::Result<Vec<u8>> {
     Ok(bytes)
 }
 
-pub fn decode(bytes: &[u8]) -> io::Result<Snapshot> {
+pub fn decode(bytes: &[u8]) -> io::Result<WorkspaceSnapshot> {
     if bytes.len() > MAX_BYTES {
         return Err(invalid());
     }
@@ -124,9 +124,9 @@ pub fn decode(bytes: &[u8]) -> io::Result<Snapshot> {
         return Err(invalid());
     }
     let server = document.get("server").ok_or_else(invalid)?;
-    let snapshot = Snapshot {
+    let snapshot = WorkspaceSnapshot {
         captured_at_ms: number(&document, "capturedAtMs")?,
-        server: Server {
+        server: WorkspaceServer {
             socket: text(server, "socket")?,
             process: process(server.get("process").ok_or_else(invalid)?)?,
             id: optional_text(server, "id")?,
@@ -156,7 +156,7 @@ pub fn decode(bytes: &[u8]) -> io::Result<Snapshot> {
         windows: array(&document, "windows")?
             .iter()
             .map(|value| {
-                Ok(Window {
+                Ok(WorkspaceWindow {
                     id: text(value, "id")?,
                     name: text(value, "name")?,
                     layout: text(value, "layout")?,
@@ -170,7 +170,7 @@ pub fn decode(bytes: &[u8]) -> io::Result<Snapshot> {
         panes: array(&document, "panes")?
             .iter()
             .map(|value| {
-                Ok(Pane {
+                Ok(WorkspacePane {
                     id: text(value, "id")?,
                     window: text(value, "window")?,
                     index: number(value, "index")?,
@@ -181,7 +181,7 @@ pub fn decode(bytes: &[u8]) -> io::Result<Snapshot> {
                     cwd: text(value, "cwd")?,
                     identity: match value.get("identity") {
                         Some(Value::Null) => None,
-                        Some(identity) => Some(Identity {
+                        Some(identity) => Some(WorkspaceIdentity {
                             id: text(identity, "id")?,
                             name: text(identity, "name")?,
                             lifetime: text(identity, "lifetime")?,
@@ -206,7 +206,7 @@ pub fn decode(bytes: &[u8]) -> io::Result<Snapshot> {
     Ok(snapshot)
 }
 
-fn validate(snapshot: &Snapshot) -> io::Result<()> {
+fn validate(snapshot: &WorkspaceSnapshot) -> io::Result<()> {
     if snapshot.is_consistent() {
         Ok(())
     } else {

@@ -1,9 +1,11 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
+import Database from 'better-sqlite3';
 import { describe, expect, it } from 'vite-plus/test';
 import { withE2EFixture, type E2EFixture } from './harness.js';
 import { writeExecutable } from '../support/executable-fixture.mjs';
+import { waitForFileContent } from './wait-for-file.js';
 
 type Snapshot = {
   version: number;
@@ -24,7 +26,14 @@ type Snapshot = {
   panes: Array<{
     id: string;
     cwd: string;
-    identity: null | { id: string; name: string; lifetime: string; binding: string };
+    identity: null | {
+      id: string;
+      name: string;
+      lifetime: string;
+      binding: string;
+      harness: string | null;
+      session: string | null;
+    };
     command: null | { argv: string[]; owner: { pid: number; start: string } };
   }>;
 };
@@ -38,6 +47,26 @@ const snapshotPath = (fixture: E2EFixture) =>
   );
 const readSnapshot = (fixture: E2EFixture) =>
   JSON.parse(fs.readFileSync(snapshotPath(fixture), 'utf8')) as Snapshot;
+
+function submitForeground(
+  fixture: E2EFixture,
+  pane: string,
+  args: readonly string[],
+  status: string,
+  environment: Record<string, string> = {}
+) {
+  const command = [
+    'env',
+    `TMUX_TEAM_HOME=${fixture.globalDir}`,
+    ...Object.entries(environment).map(([key, value]) => `${key}=${value}`),
+    fixture.executables.cli.executable,
+    ...args,
+  ]
+    .map(quote)
+    .join(' ');
+  fixture.tmux(['send-keys', '-t', pane, '-l', `${command}; printf '%s' "$?" > ${quote(status)}`]);
+  fixture.tmux(['send-keys', '-t', pane, 'Enter']);
+}
 
 describe('event-driven workspace recovery snapshots', () => {
   it('captures linked layouts and exact identities, then reflects committed unbind', async () => {
@@ -187,6 +216,165 @@ describe('event-driven workspace recovery snapshots', () => {
       expect(readSnapshot(fixture).panes.some((value) => value.command?.owner.pid === owner)).toBe(
         false
       );
+    });
+  });
+
+  it('captures launch and resume events and admits only session boundaries for hook capture', async () => {
+    await withE2EFixture(async (fixture) => {
+      const pane = fixture.createShellPane('snapshot-provider').pane;
+      const session = '33333333-3333-4333-8333-333333333333';
+      const scenario = path.join(fixture.root, 'provider-scenario.json');
+      const report = path.join(fixture.root, 'provider-report.json');
+      const checkpoint = path.join(fixture.root, 'provider-checkpoint');
+      const home = path.join(fixture.root, 'provider-home');
+      fs.mkdirSync(home);
+      const step = (event: string, source: string) => ({
+        // Inspect the admitted worker result independently of optional parent
+        // capture headroom. The Rust output test exercises its bounded host port.
+        args: ['__hook', 'claude', '--worker', '--work-budget-ms', '2000'],
+        input: {
+          hook_event_name: event,
+          session_id: session,
+          ...(event === 'SessionStart' ? { source } : { reason: source }),
+        },
+      });
+      const writeScenario = (source: string) => {
+        fs.writeFileSync(
+          scenario,
+          JSON.stringify([
+            { args: ['whoami', '--json'], checkpoint },
+            step('SessionStart', source),
+            { args: ['whoami', '--json'] },
+            step('UserPromptSubmit', ''),
+            step('Stop', ''),
+            step('SessionEnd', 'other'),
+          ])
+        );
+      };
+      writeExecutable(
+        path.join(fixture.wrapperDir, 'claude'),
+        `#!/bin/sh\nexec /opt/tmt-tests/claude ${quote(fixture.executables.cli.executable)} ${quote(scenario)} ${quote(report)}\n`
+      );
+      for (const [source, args] of [
+        ['startup', ['run', '-s', 'Snapshot Runner', 'claude']],
+        ['resume', ['resume', 'Snapshot Runner']],
+      ] as const) {
+        writeScenario(source);
+        fs.rmSync(checkpoint, { force: true });
+        fs.rmSync(report, { force: true });
+        const status = path.join(fixture.root, `${source}.status`);
+        submitForeground(fixture, pane, args, status, { HOME: home });
+        expect(
+          await waitForFileContent(checkpoint, { description: `${source} provider ready` })
+        ).toBe('ready');
+        // The scripted child holds before any CLI callback. Wait for the native
+        // launch admission independently, as the normal hook parent would do.
+        const db = new Database(path.join(fixture.globalDir, 'tmux-team.db'), { readonly: true });
+        try {
+          await fixture.waitFor(
+            () => {
+              const state = db
+                .prepare('SELECT runtime_state FROM bindings WHERE pane_id = ?')
+                .get(pane) as { runtime_state: string } | undefined;
+              return state?.runtime_state === 'running';
+            },
+            5000,
+            `${source} native launch admitted`
+          );
+        } finally {
+          db.close();
+        }
+        // No hook parent has captured yet: this is the pre-spawn launch event.
+        expect(
+          readSnapshot(fixture).panes.find((value) => value.id === pane)?.identity
+        ).toMatchObject({
+          name: 'Snapshot Runner',
+          lifetime: 'saved',
+          session: source === 'startup' ? null : session,
+        });
+        fs.writeFileSync(checkpoint, 'continue');
+        expect(
+          await waitForFileContent(status, {
+            // Six finite CLI calls run after the checkpoint, including four
+            // admitted workers with their existing two-second work budgets.
+            timeoutMs: 10_000,
+            description: `${source} provider exit`,
+          })
+        ).toBe('0');
+        const results = JSON.parse(fs.readFileSync(report, 'utf8')) as Array<{
+          code: number;
+          stdout: string;
+          stderr: string;
+        }>;
+        expect(results).toHaveLength(6);
+        expect(results.every((value) => value.code === 0 && value.stderr === '')).toBe(true);
+        const identity = JSON.parse(results[2].stdout);
+        expect(
+          JSON.parse(JSON.parse(results[1].stdout).context).hookSpecificOutput.additionalContext
+        ).toContain(identity.id);
+        expect(JSON.parse(results[5].stdout).context).toBe('');
+        for (const index of [1, 5]) {
+          expect(JSON.parse(results[index].stdout).workspace).toMatchObject({
+            socket: fixture.socketPath,
+            pid: fixture.serverPid,
+          });
+        }
+        for (const index of [3, 4]) {
+          expect(JSON.parse(results[index].stdout).workspace).toBeNull();
+        }
+        // Completion capture independently reflects the durable hook session.
+        expect(
+          readSnapshot(fixture).panes.find((value) => value.id === pane)?.identity
+        ).toMatchObject({
+          id: identity.id,
+          harness: 'claude',
+          session,
+        });
+      }
+    });
+  });
+
+  it('clears the exact external marker after failed exec and preserves the bound identity', async () => {
+    await withE2EFixture(async (fixture) => {
+      const pane = fixture.createShellPane('snapshot-exec-failure').pane;
+      const bound = await fixture.runJsonCli<{ id: string }>(['name', 'Snapshot Failure', '-s'], {
+        pane,
+      });
+      expect(bound.code, bound.stderr).toBe(0);
+      const directory = path.join(fixture.root, 'broken-extension');
+      fs.mkdirSync(directory);
+      writeExecutable(
+        path.join(directory, 'tmt-workspace-broken'),
+        '#!/nonexistent-workspace-interpreter\n'
+      );
+      // Absence cannot pass if marker preparation silently skipped: failed exec
+      // can clear only the exact marker it replaced this old value with.
+      fixture.tmux([
+        'set-option',
+        '-p',
+        '-t',
+        pane,
+        '@tmux-team.workspace-command',
+        'previous-dispatch',
+      ]);
+      const status = path.join(fixture.root, 'failed-exec.status');
+      submitForeground(fixture, pane, ['workspace-broken', 'literal argument'], status, {
+        PATH: `${directory}:${process.env.PATH}`,
+      });
+      expect(
+        await waitForFileContent(status, { description: 'failed extension exec settled' })
+      ).toBe('1');
+      expect(
+        fixture
+          .tmux(['show-options', '-p', '-qv', '-t', pane, '@tmux-team.workspace-command'])
+          .trim()
+      ).toBe('');
+      const recorded = readSnapshot(fixture).panes.find((value) => value.id === pane)!;
+      expect(recorded.command).toBeNull();
+      expect(recorded.identity).toMatchObject({ id: bound.json!.id, name: 'Snapshot Failure' });
+      expect((await fixture.runJsonCli(['whoami'], { pane })).json).toMatchObject({
+        id: bound.json!.id,
+      });
     });
   });
 });

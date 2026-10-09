@@ -12,16 +12,16 @@ pub const MAX_PANES: usize = 1024;
 pub const MAX_BYTES: usize = 1024 * 1024;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Snapshot {
+pub struct WorkspaceSnapshot {
     pub captured_at_ms: u64,
-    pub server: Server,
+    pub server: WorkspaceServer,
     pub sessions: Vec<WorkspaceSession>,
-    pub windows: Vec<Window>,
-    pub panes: Vec<Pane>,
+    pub windows: Vec<WorkspaceWindow>,
+    pub panes: Vec<WorkspacePane>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Server {
+pub struct WorkspaceServer {
     pub socket: String,
     pub process: ProcessIncarnation,
     pub id: Option<String>,
@@ -42,7 +42,7 @@ pub struct WindowLink {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Window {
+pub struct WorkspaceWindow {
     pub id: String,
     pub name: String,
     pub layout: String,
@@ -53,7 +53,7 @@ pub struct Window {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Pane {
+pub struct WorkspacePane {
     pub id: String,
     pub window: String,
     pub index: u64,
@@ -62,12 +62,12 @@ pub struct Pane {
     pub width: u64,
     pub height: u64,
     pub cwd: String,
-    pub identity: Option<Identity>,
+    pub identity: Option<WorkspaceIdentity>,
     pub command: Option<ExternalCommand>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Identity {
+pub struct WorkspaceIdentity {
     pub id: String,
     pub name: String,
     pub lifetime: String,
@@ -99,7 +99,7 @@ pub fn identity_for_pane(
     pid: u64,
     incarnation: Option<&str>,
     marker: Option<&BindingMarker>,
-) -> Option<Identity> {
+) -> Option<WorkspaceIdentity> {
     let marker = marker?;
     let record = records.iter().find(|record| {
         record.entry.binding.as_ref().is_some_and(|binding| {
@@ -109,7 +109,7 @@ pub fn identity_for_pane(
                 && binding
                     .pane_incarnation
                     .as_deref()
-                    .is_none_or(|expected| incarnation == Some(expected))
+                    .is_some_and(|expected| incarnation == Some(expected))
                 && binding.id == marker.binding_id
                 && binding.identity_id == marker.identity_id
                 && marker.server_id == server.server_id
@@ -119,7 +119,7 @@ pub fn identity_for_pane(
         })
     })?;
     let remembered = record.preferences.remembered.as_ref();
-    Some(Identity {
+    Some(WorkspaceIdentity {
         id: record.entry.identity.id.clone(),
         name: record.entry.identity.name.clone(),
         lifetime: record.entry.identity.lifetime.as_str().to_owned(),
@@ -144,110 +144,7 @@ pub fn hook_capture_allowed(remaining_ms: u64, capture_ms: u64, reserve_ms: u64)
     remaining_ms > capture_ms.saturating_add(reserve_ms)
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::{
-        binding::{Binding, session::BindingSessionState},
-        host::HostKind,
-        identity::{Identity as Stored, Lifetime},
-    };
-
-    #[test]
-    fn annotation_requires_marker_binding_server_and_native_pane_agreement() {
-        let server = ServerEvidence {
-            host: HostKind::Tmux,
-            server_id: "3c94c4aa-33e1-4b37-978c-5e763f3d078c".into(),
-            socket_path: "/socket".into(),
-            server_pid: 10,
-            server_start_time: "start".into(),
-        };
-        let identity = Stored {
-            id: "identity".into(),
-            name: "seat".into(),
-            canonical_name: "seat".into(),
-            lifetime: Lifetime::Saved,
-            created_at: "2026-10-08".into(),
-            updated_at: "2026-10-08".into(),
-        };
-        let binding = Binding {
-            id: "binding".into(),
-            identity_id: identity.id.clone(),
-            server: server.clone(),
-            pane_id: "%1".into(),
-            pane_pid: 20,
-            pane_incarnation: Some("pane-start".into()),
-            session: BindingSessionState::default(),
-        };
-        let marker = binding.marker(&identity);
-        let records = [StoredIdentity {
-            entry: BindingEntry {
-                identity,
-                binding: Some(binding),
-            },
-            preferences: SessionPreferences::default(),
-        }];
-        assert!(
-            identity_for_pane(
-                &records,
-                &server,
-                "%1",
-                20,
-                Some("pane-start"),
-                Some(&marker)
-            )
-            .is_some()
-        );
-        assert!(
-            identity_for_pane(
-                &records,
-                &server,
-                "%1",
-                20,
-                Some("reused-pid"),
-                Some(&marker)
-            )
-            .is_none()
-        );
-        assert!(identity_for_pane(&records, &server, "%1", 20, None, Some(&marker)).is_none());
-        assert!(identity_for_pane(&records, &server, "%1", 20, Some("pane-start"), None).is_none());
-        let mut changed = marker.clone();
-        changed.binding_id = "replacement".into();
-        assert!(
-            identity_for_pane(
-                &records,
-                &server,
-                "%1",
-                20,
-                Some("pane-start"),
-                Some(&changed)
-            )
-            .is_none()
-        );
-        let mut other = server;
-        other.server_start_time = "replacement".into();
-        assert!(
-            identity_for_pane(
-                &records,
-                &other,
-                "%1",
-                20,
-                Some("pane-start"),
-                Some(&marker)
-            )
-            .is_none()
-        );
-    }
-
-    #[test]
-    fn hook_capture_requires_strict_headroom_including_reserve() {
-        assert!(!hook_capture_allowed(1400, 1200, 200));
-        assert!(hook_capture_allowed(1401, 1200, 200));
-        assert!(!hook_capture_allowed(0, 1200, 200));
-    }
-}
-
-impl Snapshot {
+impl WorkspaceSnapshot {
     /// Check recovery structure without asserting any live identity authority.
     pub fn is_consistent(&self) -> bool {
         let snapshot = self;
@@ -299,5 +196,120 @@ impl Snapshot {
             return false;
         }
         true
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        binding::{Binding, session::BindingSessionState},
+        host::HostKind,
+        identity::{Identity as Stored, Lifetime},
+    };
+
+    #[test]
+    fn annotation_requires_marker_binding_server_and_native_pane_agreement() {
+        let server = ServerEvidence {
+            host: HostKind::Tmux,
+            server_id: "3c94c4aa-33e1-4b37-978c-5e763f3d078c".into(),
+            socket_path: "/socket".into(),
+            server_pid: 10,
+            server_start_time: "start".into(),
+        };
+        let identity = Stored {
+            id: "identity".into(),
+            name: "seat".into(),
+            canonical_name: "seat".into(),
+            lifetime: Lifetime::Saved,
+            created_at: "2026-10-08".into(),
+            updated_at: "2026-10-08".into(),
+        };
+        let binding = Binding {
+            id: "binding".into(),
+            identity_id: identity.id.clone(),
+            server: server.clone(),
+            pane_id: "%1".into(),
+            pane_pid: 20,
+            pane_incarnation: Some("pane-start".into()),
+            session: BindingSessionState::default(),
+        };
+        let marker = binding.marker(&identity);
+        let mut records = [StoredIdentity {
+            entry: BindingEntry {
+                identity,
+                binding: Some(binding),
+            },
+            preferences: SessionPreferences::default(),
+        }];
+        assert!(
+            identity_for_pane(
+                &records,
+                &server,
+                "%1",
+                20,
+                Some("pane-start"),
+                Some(&marker)
+            )
+            .is_some()
+        );
+        assert!(
+            identity_for_pane(
+                &records,
+                &server,
+                "%1",
+                20,
+                Some("reused-pid"),
+                Some(&marker)
+            )
+            .is_none()
+        );
+        assert!(identity_for_pane(&records, &server, "%1", 20, None, Some(&marker)).is_none());
+        assert!(identity_for_pane(&records, &server, "%1", 20, Some("pane-start"), None).is_none());
+        let mut changed = marker.clone();
+        changed.binding_id = "replacement".into();
+        assert!(
+            identity_for_pane(
+                &records,
+                &server,
+                "%1",
+                20,
+                Some("pane-start"),
+                Some(&changed)
+            )
+            .is_none()
+        );
+        let mut other = server.clone();
+        other.server_start_time = "replacement".into();
+        assert!(
+            identity_for_pane(
+                &records,
+                &other,
+                "%1",
+                20,
+                Some("pane-start"),
+                Some(&marker)
+            )
+            .is_none()
+        );
+        records[0].entry.binding.as_mut().unwrap().pane_incarnation = None;
+        assert!(
+            identity_for_pane(
+                &records,
+                &server,
+                "%1",
+                20,
+                Some("pane-start"),
+                Some(&marker)
+            )
+            .is_none()
+        );
+    }
+
+    #[test]
+    fn hook_capture_requires_strict_headroom_including_reserve() {
+        assert!(!hook_capture_allowed(1400, 1200, 200));
+        assert!(hook_capture_allowed(1401, 1200, 200));
+        assert!(!hook_capture_allowed(0, 1200, 200));
     }
 }

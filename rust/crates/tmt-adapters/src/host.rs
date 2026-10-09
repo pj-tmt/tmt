@@ -46,6 +46,15 @@ pub use crate::tmux::{
 pub(crate) use delivery::DeliveryCause;
 pub use delivery::{DeliveryError, DeliveryStage};
 
+/// Recovery topology and evidence returned by the optional host capture port.
+pub struct WorkspaceCapture {
+    pub snapshot: tmt_core::workspace::WorkspaceSnapshot,
+    pub evidence: Vec<(String, u64, Option<tmt_core::endpoint::BindingMarker>)>,
+    pub binding_server: Option<ServerEvidence>,
+    pub starts: std::collections::HashMap<u64, tmt_core::endpoint::ProcessIncarnation>,
+    pub terminals: BTreeMap<String, String>,
+}
+
 /// Invocation-owned observations; tests never mutate process-global variables.
 pub struct CallerEnvironment {
     /// `TMUX` and `TMUX_PANE`.
@@ -462,7 +471,7 @@ impl<R: CommandRunner> Host<R> {
         expected: Option<&ServerEvidence>,
         caller: Option<&CallerEnvironment>,
         deadline: Instant,
-    ) -> Result<Option<crate::tmux::WorkspaceCapture>, HostError> {
+    ) -> Result<Option<WorkspaceCapture>, HostError> {
         match self.primary {
             HostKind::Tmux => Ok(Some(
                 self.tmux

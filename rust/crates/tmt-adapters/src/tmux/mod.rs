@@ -11,7 +11,6 @@ mod transport;
 mod workspace;
 pub use binding::{BindingSession, PaneCosmetics, PaneRefresh};
 pub use focus::{ClientView, FocusError, Invoker};
-pub use workspace::Capture as WorkspaceCapture;
 
 #[cfg(test)]
 mod evidence_tests;

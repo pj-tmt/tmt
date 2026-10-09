@@ -18,7 +18,7 @@ use std::{
 };
 use tmt_core::{
     endpoint::ServerEvidence,
-    workspace::{ExternalCommand, MAX_BYTES, Snapshot, identity_for_pane},
+    workspace::{ExternalCommand, MAX_BYTES, WorkspaceSnapshot, identity_for_pane},
 };
 
 pub use wire::{decode, decode_command, encode, encode_command};
@@ -51,7 +51,7 @@ fn private_directory(path: &Path) -> io::Result<()> {
 pub fn publish_event(
     paths: &ConfigPaths,
     socket: &str,
-    capture: impl FnOnce() -> io::Result<Snapshot>,
+    capture: impl FnOnce() -> io::Result<WorkspaceSnapshot>,
 ) -> io::Result<bool> {
     if !(ConfigFiles {
         paths: paths.clone(),
@@ -76,10 +76,7 @@ pub fn publish_event(
             decode(&bytes)?;
         }
         Err(crate::bounded_file::FileReadError::Io(error))
-            if error.kind() == io::ErrorKind::NotFound =>
-        {
-            ()
-        }
+            if error.kind() == io::ErrorKind::NotFound => {}
         Err(error) => return Err(io::Error::other(error)),
     }
     let snapshot = capture()?;
@@ -171,16 +168,12 @@ impl DispatchMarker {
             .workspace_capture(&socket, None, Some(&caller), deadline)
             .ok()??;
         let pane_tty = capture.terminals.get(&pane)?.to_owned();
-        if !crate::process::terminal::foreground(&pane_tty, u64::from(caller.process_id)) {
+        if !crate::process::terminal::foreground(&pane_tty, caller.process_id) {
             return None;
         }
-        let owner = observe_starts(
-            &UnixCommandRunner,
-            &[u64::from(caller.process_id)],
-            deadline,
-        )
-        .ok()?
-        .remove(&u64::from(caller.process_id))?;
+        let owner = observe_starts(&UnixCommandRunner, &[caller.process_id], deadline)
+            .ok()?
+            .remove(&caller.process_id)?;
         let mut argv = vec!["tmt".to_owned(), name.to_owned()];
         argv.extend(
             args.iter()
@@ -231,7 +224,7 @@ impl DispatchMarker {
     }
 }
 
-fn annotate(paths: &ConfigPaths, capture: &mut crate::tmux::WorkspaceCapture) -> io::Result<()> {
+fn annotate(paths: &ConfigPaths, capture: &mut crate::host::WorkspaceCapture) -> io::Result<()> {
     let records = if paths.database.exists() {
         Storage::workspace_identities(&paths.database, &capture.snapshot.server.socket)
             .map_err(io::Error::other)?
