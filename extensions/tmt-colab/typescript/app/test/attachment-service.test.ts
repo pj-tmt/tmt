@@ -75,7 +75,7 @@ async function fixture(
   });
   const admission = {
     reader: undefined,
-    head: { revision: 1n },
+    head: { revision: 1n, hash: new Uint8Array(32) },
     root: {},
     space,
     page,
@@ -89,14 +89,17 @@ async function fixture(
     active: true,
     admission,
     attachmentObjects: channel,
-    attachmentSnapshot: async () => ({ revision: options.revision?.() ?? `v1:${hex(64)}` }),
+    attachmentSnapshot: async () => ({
+      admission,
+      revision: options.revision?.() ?? `v1:${hex(64)}`,
+    }),
   } as unknown as Connection;
   const service = new AttachmentService({
     connection: async () => connection,
     available: () => true,
     sharing: 'private',
   });
-  return { service, calls };
+  return { service, calls, admission };
 }
 const input = (size = 100 * 1024) => ({
   filename: 'notes.bin',
@@ -228,14 +231,30 @@ it('refuses before sealing when the backend cannot recover by original id or the
   expect(small.calls.map((c) => c.method)).toEqual(['config']);
 });
 
-it('publication refuses originals whose captured base is no longer the page revision', async () => {
+it('a message attachment is fenced by the membership head, not the page revision', async () => {
   let revision = `v1:${hex(64)}`;
-  const { service } = await fixture({ revision: () => revision });
+  const fx = await fixture({ revision: () => revision });
+  const { service, admission } = fx;
   const stored = await service.upload(input(10), { kind: 'message', messageId }, () => {});
+  // A foreign write moves the page revision: the fence does not, so it is not stale.
   revision = `v1:${'cd'.repeat(32)}`;
+  const moved = await service.publication([stored]).catch((e) => e);
+  expect(moved).not.toBeInstanceOf(AttachmentStaleError);
+  // A membership change does.
+  admission.head = { revision: 2n, hash: new Uint8Array(32) };
   const failure = await service.publication([stored]).catch((e) => e);
   expect(failure).toBeInstanceOf(AttachmentStaleError);
   expect(failure.attachmentIds).toEqual([stored.original.descriptor.attachmentId]);
+});
+
+it('the message fence is not a page revision and changes with epoch or membership hash', async () => {
+  const { service, admission } = await fixture();
+  const stored = await service.upload(input(10), { kind: 'message', messageId }, () => {});
+  expect(stored.original.base).toMatch(/^v1:[0-9a-f]{64}$/);
+  expect(stored.original.base).not.toBe(`v1:${hex(64)}`);
+  admission.head = { revision: 1n, hash: Uint8Array.from({ length: 32 }, () => 7) };
+  const hashMoved = await service.publication([stored]).catch((e) => e);
+  expect(hashMoved).toBeInstanceOf(AttachmentStaleError);
 });
 
 it('a status question that cannot be answered leaves the original unknown, not refused', async () => {

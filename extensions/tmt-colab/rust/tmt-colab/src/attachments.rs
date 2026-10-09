@@ -76,6 +76,42 @@ fn revision(key: &Keyring, page: &str, snapshot: &Snapshot) -> Result<String> {
         &snapshot.cuts,
     )
 }
+/// The base this descriptor's creation is fenced by now. A document attachment binds the
+/// source it was written against, so it needs the whole page revision; a message attachment
+/// binds only its writer and message, so it needs the membership head and epoch it was sealed
+/// under and nothing a foreign write can move.
+pub(crate) fn current_base(
+    key: &Keyring,
+    descriptor: &Descriptor,
+    snapshot: &Snapshot,
+) -> Result<String> {
+    match &descriptor.source {
+        Source::Document { .. } => revision(key, &descriptor.page, snapshot),
+        Source::Message { .. } => {
+            let head = &snapshot.authority.head;
+            Ok(tmt_colab_model::attachment::message_fence(
+                &key.space_id,
+                &descriptor.page,
+                &snapshot.epoch.to_string(),
+                &head.revision.to_string(),
+                &head.hash,
+                &descriptor.author_device,
+            )?)
+        }
+    }
+}
+/// `current_base` from a fresh owner-store snapshot, for rechecks after slow work.
+pub(crate) fn captured_base(
+    store: &Store,
+    key: &Keyring,
+    descriptor: &Descriptor,
+) -> Result<String> {
+    current_base(
+        key,
+        descriptor,
+        &Snapshot::capture(store, key, &descriptor.page)?,
+    )
+}
 fn descriptor_in(
     view: &View,
     selector: &AttachmentSelector,
@@ -368,7 +404,7 @@ pub(crate) fn check_upload_target(
     let snapshot = Snapshot::capture(&source.store, &source.keyring, &descriptor.page)?;
     if descriptor.epoch != snapshot.epoch.to_string()
         || descriptor.membership_revision != snapshot.authority.head.revision.to_string()
-        || revision(&source.keyring, &descriptor.page, &snapshot)? != base
+        || current_base(&source.keyring, descriptor, &snapshot)? != base
     {
         return Err(page::Fault::StaleBase.into());
     }
@@ -391,7 +427,7 @@ pub(crate) fn check_upload_target(
         _ => return Err(page::Fault::Denied.into()),
     }
     remaining(deadline)?;
-    if page::revision(&source.store, &source.keyring, &descriptor.page)? != base {
+    if captured_base(&source.store, &source.keyring, descriptor)? != base {
         return Err(page::Fault::StaleBase.into());
     }
     Ok(())
@@ -417,7 +453,7 @@ pub fn prepare_publication(
     descriptor.validate()?;
     remaining(deadline)?;
     let snapshot = Snapshot::capture(store, key, &descriptor.page)?;
-    let current_revision = revision(key, &descriptor.page, &snapshot)?;
+    let current_revision = current_base(key, descriptor, &snapshot)?;
     if current_revision != base
         || descriptor.space != key.space_id
         || descriptor.author_device != key.local_writer()?.0
@@ -442,7 +478,7 @@ pub fn prepare_publication(
         descriptor.open(&raw, &descriptor.context(), &snapshot.secret, &creator_key)?;
     plaintext.fill(0);
     remaining(deadline)?;
-    if page::revision(store, key, &descriptor.page)? != current_revision {
+    if captured_base(store, key, descriptor)? != current_revision {
         return Err(page::Fault::StaleBase.into());
     }
     let proof = AttachmentPublication {

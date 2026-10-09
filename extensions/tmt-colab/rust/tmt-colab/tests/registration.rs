@@ -1548,6 +1548,145 @@ fn authenticated_attachment_reads_survive_rotation_archive_and_reject_stale_disc
         )
         .is_err()
     );
+    // A message-source attachment is fenced by the membership head and epoch it was sealed
+    // under, not by the page revision: a foreign write while it uploads leaves it valid, and
+    // a document-source attachment (bound to the page revision) goes stale on the same write.
+    let own_context = object::Context {
+        namespace: "own".into(),
+        author_device: local_descriptor.author_device.clone(),
+        ..asset_context.clone()
+    };
+    let message_asset = object::seal(
+        &own_context,
+        &secret,
+        &local_signer,
+        b"message attachment bytes",
+    )
+    .unwrap();
+    let message_raw = message_asset.to_json().unwrap();
+    let message_descriptor = Descriptor {
+        namespace: "own".into(),
+        object_id: object::Header::decode(message_asset.header())
+            .unwrap()
+            .object_id,
+        source: Source::Message {
+            writer_id: local_descriptor.author_device.clone(),
+            message_id: MESSAGE.into(),
+            message_revision: "1".into(),
+        },
+        envelope_hash: hex(&message_asset.hash().unwrap()),
+        signature: values::encode_binary(message_asset.signature()),
+        payload_sha256: hex(&crypto::digest(&message_raw)),
+        payload_bytes: message_raw.len().to_string(),
+        plaintext_bytes: "24".into(),
+        attachment_id: "20000000-0000-4000-8000-000000000094".into(),
+        ..local_descriptor.clone()
+    };
+    message_descriptor.validate().unwrap();
+    let message_committed = Committed {
+        namespace: objects.namespace,
+        key: message_descriptor
+            .object_id
+            .as_bytes()
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|b| u8::from_str_radix(std::str::from_utf8(b).unwrap(), 16).unwrap())
+            .collect::<Vec<_>>()
+            .try_into()
+            .unwrap(),
+        raw: message_raw,
+        complete: true,
+    };
+    let fence = || {
+        let head = store
+            .owner_head(&key.space_id, &key.owner_public())
+            .unwrap()
+            .unwrap();
+        tmt_colab_model::attachment::message_fence(
+            &key.space_id,
+            PAGE,
+            "1",
+            &head.revision.to_string(),
+            &head.hash,
+            &message_descriptor.author_device,
+        )
+        .unwrap()
+    };
+    let mut prepare_message = |base: &str| {
+        attachments::prepare_publication(
+            &store,
+            &key,
+            attachments::PublicationIntent {
+                descriptor: &message_descriptor,
+                base,
+            },
+            &message_committed,
+            &mut decoder,
+            deadline(),
+            NOW,
+        )
+    };
+    let sealed_fence = fence();
+    assert!(
+        prepare_message(&current).is_err(),
+        "a page revision is never a fence"
+    );
+    prepare_message(&sealed_fence).unwrap();
+    // A foreign write: the page revision moves, the fence does not.
+    let moving = Doc::with_client_id(18533);
+    moving.get_or_insert_map("meta").insert(
+        &mut moving.transact_mut(),
+        "title",
+        Any::from_json("\"Moved by another writer\"").unwrap(),
+    );
+    let update = moving
+        .transact()
+        .encode_state_as_update_v1(&StateVector::default());
+    let write = object::seal(
+        &object::Context {
+            kind: "update".into(),
+            namespace: "content".into(),
+            stream_seq: "3".into(),
+            prev_hash: previous,
+            ..asset_context.clone()
+        },
+        &secret,
+        &SigningKey::from_bytes(&[10; 32]),
+        &update,
+    )
+    .unwrap();
+    let mut writer = Store::open(&f.layout).unwrap();
+    writer
+        .append(&StoredEnvelope {
+            scope: StreamScope {
+                page: PAGE,
+                epoch: 1,
+                stream: DEVICE,
+            },
+            namespace: Namespace::Content,
+            seq: 3,
+            previous,
+            hash: write.hash().unwrap(),
+            bytes: &write.to_json().unwrap(),
+        })
+        .unwrap();
+    assert_ne!(page::revision(&store, &key, PAGE).unwrap(), current);
+    assert_eq!(fence(), sealed_fence);
+    prepare_message(&sealed_fence).unwrap();
+    assert!(
+        attachments::prepare_publication(
+            &store,
+            &key,
+            intent(),
+            &committed,
+            &mut decoder,
+            deadline(),
+            NOW
+        )
+        .is_err(),
+        "a document attachment is stale once the page moved"
+    );
     let read =
         attachments::capture_root_local(&store, &key, PAGE, &selector(), &mut decoder, deadline())
             .unwrap();
@@ -1564,6 +1703,8 @@ fn authenticated_attachment_reads_survive_rotation_archive_and_reject_stale_disc
     // Actual revoked creator: original own proof is pinned in the old epoch;
     // the baseline carries the document descriptor unchanged into the new epoch.
     assert!(f.service().revoke(DEVICE, 2).unwrap());
+    // A membership change moves the message fence too.
+    assert_ne!(fence(), sealed_fence);
     assert!(read.disclose(&store, &key, &objects).is_err());
     let rotated =
         attachments::capture_root_local(&store, &key, PAGE, &selector(), &mut decoder, deadline())

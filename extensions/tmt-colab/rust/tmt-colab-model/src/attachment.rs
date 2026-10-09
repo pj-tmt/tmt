@@ -11,6 +11,42 @@ pub const MESSAGE_ATTACHMENTS: usize = 16;
 pub const DOCUMENT_ATTACHMENTS: usize = 128;
 pub const MANIFEST_BYTES: usize = DOCUMENT_ATTACHMENTS * DESCRIPTOR_BYTES + 1024;
 pub const REFERENCE_BYTES: usize = 2048;
+/// The base a message-source attachment is fenced by: the space, page and epoch it was sealed
+/// under, the membership head it was admitted by and its author. Unlike a page revision it
+/// covers no stream cut, so a foreign write while the upload runs leaves it valid, while a
+/// membership or epoch change does not. The label is distinct, so a page revision (the base
+/// of a document-source attachment) can never satisfy a fence or the reverse.
+pub fn message_fence(
+    space: &str,
+    page: &str,
+    epoch: &str,
+    membership_revision: &str,
+    membership_hash: &[u8; 32],
+    author: &str,
+) -> Result<String> {
+    values::space_id(space)?;
+    values::generated_id(page)?;
+    values::decimal(epoch, false)?;
+    values::decimal(membership_revision, false)?;
+    values::generated_id(author)?;
+    let digest = crypto::digest(&framing::frame(&[
+        b"tmt-colab-attachment-fence-v1",
+        b"1",
+        space.as_bytes(),
+        page.as_bytes(),
+        epoch.as_bytes(),
+        membership_revision.as_bytes(),
+        membership_hash,
+        author.as_bytes(),
+    ])?);
+    Ok(format!(
+        "v1:{}",
+        digest
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect::<String>()
+    ))
+}
 pub type DocumentAttachments = List<Descriptor, DOCUMENT_ATTACHMENTS>;
 pub type MessageAttachments = List<Descriptor, MESSAGE_ATTACHMENTS>;
 

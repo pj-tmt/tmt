@@ -9,6 +9,7 @@ import {
   text,
 } from '@tmt/colab-client';
 import type { Admission } from './admission.js';
+import type { AttachmentSnapshot } from './attachment-history.js';
 import type { Objects } from './objects.js';
 import type { PageView } from './transport.js';
 import type { OwnRecord } from './fold-protocol.js';
@@ -187,6 +188,26 @@ export class AdmittedAttachmentRead {
     }
   }
 }
+/** The base this descriptor's creation is fenced by in `snapshot`. A document attachment binds
+ * the source it was written against, so it needs the whole page revision; a message attachment
+ * binds only its writer and message, so it needs the membership head and epoch it was sealed
+ * under and nothing a foreign write can move. Mirrors native `current_base`. */
+export async function currentBase(
+  d: attachment.AttachmentDescriptor,
+  snapshot: AttachmentSnapshot,
+): Promise<string> {
+  if (d.source.kind === 'document') return snapshot.revision;
+  const a = snapshot.admission;
+  requireValue(a.head !== null);
+  return attachment.messageFence({
+    space: a.space,
+    page: a.page,
+    epoch: a.epoch,
+    membershipRevision: a.head.revision.toString(),
+    membershipHash: Uint8Array.from(a.head.hash),
+    author: d.authorDevice,
+  });
+}
 /** No submission/sealing here. The existing Writer prepares these immutable
  * own records only after the exact committed asset and captured base pass. */
 export async function prepareAttachmentPublication(
@@ -204,7 +225,7 @@ export async function prepareAttachmentPublication(
   requireValue(!a.reader);
   a.validatePage(sharing);
   requireValue(
-    current.revision === base &&
+    (await currentBase(d, current)) === base &&
       d.space === a.space &&
       d.page === a.page &&
       d.epoch === a.epoch &&
@@ -233,7 +254,9 @@ export async function prepareAttachmentPublication(
   const fresh = await owner.snapshot(undefined, deadline);
   remaining(deadline);
   a.validatePage(sharing);
-  requireValue(fresh.admission === a && fresh.revision === base && a.readRoot(d.epoch) === root);
+  requireValue(
+    fresh.admission === a && (await currentBase(d, fresh)) === base && a.readRoot(d.epoch) === root,
+  );
   const value = attachment.attachmentPublication({
     version: 1,
     kind: 'attachment-publication',

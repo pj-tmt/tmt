@@ -55,7 +55,10 @@ owns record fields, limits, revision semantics and trust boundaries.
   `message-attachments.tsx` are the trusted-click composer and message surfaces.
   `ThreadStore.create/createChat/reply` take the preallocated message ID and committed
   originals and write the proofs with the message in one batch; edit refuses a message that
-  has references. Checks: `test/attachment-{file,service,draft}.test.ts`, the
+  has references. A message attachment is fenced by `messageFence` (membership head, epoch,
+  author; `attachments.ts` `currentBase`), mirrored by native `message_fence`, so a foreign
+  write mid-upload never stales it. Checks: `test/attachment-{file,service,draft}.test.ts`,
+  `colab-client/test/attachment-fence.test.ts`, the
   attachment cases in `test/thread-records.test.ts`, `e2e/attachments.spec.ts` and the
   real-binary `acceptance/attachments.spec.ts`.
 - Page files (#1855): `document-files.ts` (`LiveDocumentFiles`, `PageBinding.files`) proves
