@@ -6,7 +6,7 @@ use std::{
     os::unix::net::UnixStream,
     sync::{
         Arc, Condvar, Mutex,
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
         mpsc,
     },
     thread::{self, JoinHandle},
@@ -426,6 +426,8 @@ fn callbacks(shared: &Arc<Shared>) {
 /// every handshake, independently of the untrusted offered Host/mount fields.
 pub(crate) struct ChannelOwner {
     stopped: AtomicBool,
+    /// How many channels this serve has established, so a waiter can tell a new one arrived.
+    started: AtomicU64,
     current: Mutex<Option<ObjectChannel>>,
     discover: Arc<dyn Fn() -> Option<(String, String)> + Send + Sync>,
 }
@@ -433,6 +435,7 @@ impl ChannelOwner {
     pub(crate) fn new(discover: Arc<dyn Fn() -> Option<(String, String)> + Send + Sync>) -> Self {
         Self {
             stopped: AtomicBool::new(false),
+            started: AtomicU64::new(0),
             current: Mutex::new(None),
             discover,
         }
@@ -529,7 +532,11 @@ impl ChannelOwner {
             drop(previous);
         }
         *current = Some(ObjectChannel::start(link, interrupt)?);
+        self.started.fetch_add(1, Ordering::Release);
         Ok(())
+    }
+    pub(crate) fn generation(&self) -> u64 {
+        self.started.load(Ordering::Acquire)
     }
     pub(crate) fn client(&self) -> Option<Client> {
         if self.stopped.load(Ordering::Acquire) {

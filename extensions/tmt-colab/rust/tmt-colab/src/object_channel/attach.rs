@@ -101,6 +101,22 @@ impl ChannelOwner {
         let result = run(&live, &mut slot, expected, &source, publisher, deadline);
         settle(slot, result)
     }
+    /// Sweep the slots nobody is going to finish, discarding the original of an aged started slot
+    /// before it goes. The callers wait only a few seconds, so the discards share one short budget;
+    /// a slot past it goes without one.
+    pub(crate) fn sweep_slots(
+        &self,
+        slots: &crate::attachments::slots::StagingSlots,
+        source: &page::save::SourceOpener,
+        now_ms: u64,
+    ) {
+        let until = Instant::now() + std::time::Duration::from_secs(1);
+        if let Ok(aged) = slots.sweep(now_ms) {
+            for aged in aged {
+                self.dispose_aged(aged, source, until);
+            }
+        }
+    }
     /// Discard the original of a slot past the backend's staging expiry, then dispose it. The
     /// discard is best effort and bounded by `deadline`: an original the backend already expired
     /// needs none, and once the budget is spent the slot goes without one.

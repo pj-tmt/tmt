@@ -13,6 +13,7 @@ use crate::{
     limits, management,
     object_channel::ChannelOwner,
     registration::{self, OwnerAdmission, Registration},
+    rekeyer::{Nudge, Rekeyer},
     serve_release::ServeRelease,
     store::Store,
     sync::{Progress, Server},
@@ -210,6 +211,16 @@ impl MountSocket {
         let active = Arc::new(Mutex::new(Vec::new()));
         let browser = Arc::new(self.browser.clone());
         let stopping = Arc::clone(&self.browser.control.stopping);
+        // The worker that re-seals attachments after an epoch advance (#2293).
+        let rekeyer = match (&self.registration, &self.sync, &self.slots) {
+            (Some(registration), Some(sync), Some(slots)) => Some(Rekeyer::start(
+                Arc::clone(&self.objects),
+                Arc::clone(slots),
+                Arc::clone(registration),
+                sync.clone(),
+            )?),
+            _ => None,
+        };
         let result = (|| -> Result<()> {
             // SIGTERM/SIGINT or a root-local stop request ends serving the same way.
             let halted = || stop.load(Ordering::Acquire) || stopping.load(Ordering::Acquire);
@@ -253,6 +264,7 @@ impl MountSocket {
                     let active = Arc::clone(&active);
                     let objects = Arc::clone(&self.objects);
                     let slots = self.slots.clone();
+                    let rekey = rekeyer.as_ref().map(Rekeyer::nudge);
                     let handle =
                         thread::Builder::new()
                             .name("colab-socket".into())
@@ -268,6 +280,7 @@ impl MountSocket {
                                         active: &active,
                                         objects: &objects,
                                         slots: slots.as_deref(),
+                                        rekey: rekey.as_ref(),
                                     },
                                 )
                             })?;
@@ -287,6 +300,9 @@ impl MountSocket {
         // End object correlations before joining peers that may be waiting for
         // a backend result. Their retained clients cannot prolong shutdown.
         self.objects.close();
+        if let Some(rekeyer) = rekeyer {
+            rekeyer.stop();
+        }
         let mut panicked = false;
         for worker in workers {
             panicked |= worker.handle.join().is_err();
@@ -330,6 +346,7 @@ struct MountedServices<'a> {
     active: &'a ActiveTunnels,
     objects: &'a ChannelOwner,
     slots: Option<&'a StagingSlots>,
+    rekey: Option<&'a Nudge>,
 }
 fn serve(
     mut socket: UnixStream,
@@ -344,6 +361,7 @@ fn serve(
         active,
         objects,
         slots,
+        rekey,
     } = services;
     let request = match acquire(&mut socket) {
         Ok(request) => request,
@@ -507,6 +525,10 @@ fn serve(
         };
         match result {
             Ok(bytes) => {
+                // A change may have advanced an epoch; the worker looks for attachments to re-seal.
+                if let Some(rekey) = rekey {
+                    rekey.now();
+                }
                 let _ = response_as(&mut socket, 200, &bytes, "application/json");
             }
             Err(code) => {
@@ -1007,12 +1029,7 @@ fn attach_stage(
     use crate::attachments::attach_ipc::{Staged, parse_stage, stage_reply};
     let (page, filename, media_type) = parse_stage(&request.body)?;
     let now = registration::now_ms()?;
-    // The caller waits only a few seconds for a slot, so the discards of aged originals share one
-    // short budget; a slot past it goes without one.
-    let until = Instant::now() + Duration::from_secs(1);
-    for aged in slots.sweep(now)? {
-        objects.dispose_aged(aged, source, until);
-    }
+    objects.sweep_slots(slots, source, now);
     {
         let view = source()?;
         crate::page::snapshot(&view.store, &view.keyring, &page, true)?;
@@ -1065,7 +1082,7 @@ fn attach_run(
     })
 }
 /// The serve's single writer, driven in process for a publication the serve itself prepared.
-struct ServePublish<'a>(&'a Server<OwnerAdmission>);
+pub(crate) struct ServePublish<'a>(pub(crate) &'a Server<OwnerAdmission>);
 impl crate::object_channel::attach::Publish for ServePublish<'_> {
     fn publish(
         &self,
