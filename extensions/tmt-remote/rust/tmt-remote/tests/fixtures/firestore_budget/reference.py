@@ -30,7 +30,7 @@ def append_row(n, w):
         "minFlushIntervalMs": -(-ACTIVE_S * 1000 // max(1, limit * WARN // 100)),
     }
 
-models = [(1, 1), (2, 1), (2, 2), (3, 2), (5, 3), (5, 5), (10, 4), (10, 10), (25, 5), (25, 25), (100, 10), (10_000, 10_000)]
+models = [(1, 1), (2, 1), (2, 2), (3, 2), (5, 3), (5, 5), (10, 4), (10, 10), (25, 5), (25, 25), (100, 10)]
 append = [append_row(n, w) for n, w in models]
 
 assess = []
@@ -41,6 +41,29 @@ for row in append:
             continue
         verdict = "refuse" if used >= row["refuseAt"] else "warn" if used >= row["warnAt"] else "ok"
         assess.append({"members": row["members"], "writers": row["writers"], "used": used, "verdict": verdict})
+
+def accepted(n, w):
+    """The free plan can host the page only if the guard can allow at least one append."""
+    rpa = WRITE_LOOKUPS + (n - 1) * (1 + READ_LOOKUPS)
+    share = min(READS // rpa, WRITES) // w
+    return share * REFUSE // 100 > 0
+
+def last_accepted(writers_of):
+    n = 1
+    while n < 10_000 and accepted(n + 1, writers_of(n + 1)):
+        n += 1
+    return n
+
+# The boundary: the largest page still accepted and the first one refused, for one writer
+# and for every member writing. Out-of-range models are separate (members/writers < 1,
+# writers > members, members > 10,000).
+hosting = []
+for label, writers_of in (("one writer", lambda n: 1), ("every member writes", lambda n: n)):
+    last = last_accepted(writers_of)
+    assert accepted(last, writers_of(last)) and not accepted(last + 1, writers_of(last + 1))
+    hosting.append({"case": label, "members": last, "writers": writers_of(last), "accepted": True})
+    hosting.append({"case": label, "members": last + 1, "writers": writers_of(last + 1), "accepted": False})
+hosting.append({"case": "10,000 members, all writing", "members": 10_000, "writers": 10_000, "accepted": accepted(10_000, 10_000)})
 
 pacific = []
 la = ZoneInfo("America/Los_Angeles")
@@ -65,4 +88,4 @@ for text in instants:
         "resetAtMs": int((reset - epoch).total_seconds() * 1000),
     })
 
-print(json.dumps({"append": append, "assess": assess, "pacific": pacific}, indent=1))
+print(json.dumps({"append": append, "assess": assess, "hosting": hosting, "pacific": pacific}, indent=1))

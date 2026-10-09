@@ -44,12 +44,11 @@ pessimistic figure; the optimistic column assumes dependents are cached.
 | 10  | 30                       | 1,666               | 4,166                    | 6.2 s                                   |
 | 25  | 75                       | 666                 | 1,851                    | 15.5 s                                  |
 
-Reads bind long before the 20,000 writes. Colab's 10 appends per second per device is only an
+The model covers one page and its appends only; the pool is project-wide, so several active pages, attachment chunks (#2165) and deletes are not in the guard, and the provider's `resource-exhausted` answer is the backstop for their sum. A page the free plan cannot host (its share is too small to allow one append, about 8,333 members with one writer, or 91 when every member writes) is refused when the model is built. Reads bind long before the 20,000 writes. Colab's 10 appends per second per device is only an
 upper bound: one device could spend the whole day in minutes, so the extension coalesces local
-updates into one sealed update per flush interval. A reconnect after 30 minutes re-reads the
-checkpoint and tail (about 211 documents). Presence is off in layer 1 (Colab, v1). Attachments are
+updates into one sealed update per flush interval. A reconnect after 30 minutes re-reads the checkpoint and the retained tail, at most 200 updates after the checkpoints that a write accepts (`colab-v1.md`, default limits). Presence is off in layer 1 (Colab, v1). Attachments are
 chunk documents: a 12 MiB payload is 24 documents at about 512 KiB (384 at 32 KiB); the chunk size
-is a #2165 parameter. Per page, steady state is about 10 MB at the checkpoint and tail budgets.
+is a #2165 parameter. Colab's page budget is 5,000,000 bytes gzipped and its write tail 4 MiB (`colab-v1.md`, default limits); storage per page follows from those, and attachments count fully.
 
 ## Storage without physical TTL
 

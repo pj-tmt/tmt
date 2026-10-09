@@ -120,17 +120,6 @@
    "warnAt": 11,
    "refuseAt": 14,
    "minFlushIntervalMs": 62069
-  },
-  {
-   "members": 10000,
-   "writers": 10000,
-   "readsPerAppend": 30000,
-   "optimisticReadsPerAppend": 10002,
-   "dailyAppendLimit": 1,
-   "share": 0,
-   "warnAt": 0,
-   "refuseAt": 0,
-   "minFlushIntervalMs": 7200000
   }
  ],
  "assess": [
@@ -529,18 +518,38 @@
    "writers": 10,
    "used": 15,
    "verdict": "refuse"
+  }
+ ],
+ "hosting": [
+  {
+   "case": "one writer",
+   "members": 8333,
+   "writers": 1,
+   "accepted": true
   },
   {
-   "members": 10000,
-   "writers": 10000,
-   "used": 0,
-   "verdict": "refuse"
+   "case": "one writer",
+   "members": 8334,
+   "writers": 1,
+   "accepted": false
   },
   {
+   "case": "every member writes",
+   "members": 91,
+   "writers": 91,
+   "accepted": true
+  },
+  {
+   "case": "every member writes",
+   "members": 92,
+   "writers": 92,
+   "accepted": false
+  },
+  {
+   "case": "10,000 members, all writing",
    "members": 10000,
    "writers": 10000,
-   "used": 1,
-   "verdict": "refuse"
+   "accepted": false
   }
  ],
  "pacific": [

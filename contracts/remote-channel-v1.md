@@ -1682,8 +1682,12 @@ allowance is the daily reads pool divided by that, capped by the writes pool, an
 divided by `writers`. Below 70% of the share an append is allowed, from 70% the client is warned, from 90% the append
 is refused; both are named constants in one table. The allowance also gives the minimum average interval at which an
 extension must flush coalesced updates. A client counts its own appends per US Pacific calendar day, because
-provider quotas reset at the next Pacific midnight. The quota numbers and their sources live in the Remote
-implementation guide with their dates, not in this contract.
+provider quotas reset at the next Pacific midnight. A page whose modeled share is too small for the guard to allow even one
+append is one the free plan cannot host: it is refused when the model is built, never as a recoverable pause that would
+end at the next reset and begin again. The model covers one page and its appends only: the quota pool is project-wide, so
+several active pages, attachment chunks and deletes are outside the guard, and the provider's `resource-exhausted` answer
+below is the backstop for their sum. The quota numbers and their sources live in the Remote implementation guide with
+their dates, not in this contract.
 
 A refusal by the guard is made before any effect: it is the error `REMOTE_BUDGET_EXHAUSTED` with `resetAtMs` and
 `retryAfterMs`, nothing was sent, and the same sealed update or original ID can be sent unchanged after the reset.

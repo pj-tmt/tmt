@@ -4,8 +4,8 @@
 use serde_json::Value;
 use std::fs;
 use tmt_remote::firestore_budget::{
-    BUDGET_EXHAUSTED, Decision, ExhaustedEvidence, ExhaustedOutcome, FREE_PLAN, InvalidModel,
-    Model, PacificDay, ProviderExhausted, REFUSE_PERCENT, Refusal, Usage, Verdict, WARN_PERCENT,
+    BUDGET_EXHAUSTED, Decision, ExhaustedEvidence, ExhaustedOutcome, Model, ModelError, PacificDay,
+    ProviderExhausted, READS_PER_DAY, REFUSE_PERCENT, Refusal, Usage, Verdict, WARN_PERCENT,
     classify_provider_exhausted, decide, pacific_day,
 };
 
@@ -97,18 +97,8 @@ fn a_hand_worked_row_and_the_named_thresholds() {
     // The writes pool (20,000) never binds before the reads pool for any accepted model.
     for members in [1, 2, 10, 100] {
         let m = Model::new(members, 1).unwrap();
-        assert!(m.daily_append_limit() * m.reads_per_append() <= FREE_PLAN.reads_per_day);
+        assert!(m.daily_append_limit() * m.reads_per_append() <= READS_PER_DAY);
     }
-    assert_eq!(
-        (
-            FREE_PLAN.reads_per_day,
-            FREE_PLAN.writes_per_day,
-            FREE_PLAN.deletes_per_day,
-            FREE_PLAN.stored_bytes,
-            FREE_PLAN.index_configs
-        ),
-        (50_000, 20_000, 20_000, 1 << 30, 200)
-    );
 }
 
 #[test]
@@ -116,11 +106,34 @@ fn impossible_models_are_refused() {
     for (members, writers) in [(0, 0), (1, 0), (0, 1), (2, 3), (10_001, 1)] {
         assert_eq!(
             Model::new(members, writers),
-            Err(InvalidModel),
+            Err(ModelError::OutOfRange),
             "{members} {writers}"
         );
     }
-    Model::new(10_000, 10_000).unwrap();
+}
+
+#[test]
+fn a_page_the_free_plan_cannot_host_is_refused_when_the_model_is_built() {
+    let vectors = vectors();
+    let rows = vectors["hosting"].as_array().unwrap();
+    assert!(rows.len() >= 5);
+    for row in rows {
+        let built = Model::new(
+            row["members"].as_u64().unwrap(),
+            row["writers"].as_u64().unwrap(),
+        );
+        if row["accepted"] == true {
+            let m = built.unwrap_or_else(|e| panic!("{row}: {e:?}"));
+            // Accepted means the guard can allow at least one append before it refuses.
+            assert!(m.refuse_at() >= 1 && m.assess(0) == Verdict::Ok, "{row}");
+        } else {
+            assert_eq!(built, Err(ModelError::FreePlanCannotHost), "{row}");
+        }
+    }
+    // Hand-checked for one writer: 3N reads per append, so 50,000 / 3N is 2 appends at N = 8,333.
+    assert!(
+        Model::new(8333, 1).is_ok() && Model::new(8334, 1) == Err(ModelError::FreePlanCannotHost)
+    );
 }
 
 const T: u64 = 1_800_000_000_000; // an instant in Pacific winter time

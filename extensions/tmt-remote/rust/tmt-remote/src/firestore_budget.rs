@@ -14,32 +14,11 @@
 //! <https://firebase.google.com/pricing>; Auth from
 //! <https://firebase.google.com/docs/auth/limits>. Limits change: recheck before relying on them.
 
-/// The Spark (no-cost) limits layer 1 must fit inside.
-pub struct FreePlan {
-    pub reads_per_day: u64,
-    pub writes_per_day: u64,
-    pub deletes_per_day: u64,
-    pub stored_bytes: u64,
-    pub egress_bytes_per_month: u64,
-    /// Hosting transfer per day (360 MB as printed on the pricing page).
-    pub hosting_bytes_per_day: u64,
-    /// Auth "Tier 1" daily active users on Spark; which sign-in methods are Tier 1 is not stated.
-    pub auth_daily_active_users: u64,
-    /// Composite indexes and, separately, single-field index configurations, without billing.
-    pub index_configs: usize,
-    pub document_bytes: u64,
-}
-pub const FREE_PLAN: FreePlan = FreePlan {
-    reads_per_day: 50_000,
-    writes_per_day: 20_000,
-    deletes_per_day: 20_000,
-    stored_bytes: 1 << 30,
-    egress_bytes_per_month: 10 << 30,
-    hosting_bytes_per_day: 360_000_000,
-    auth_daily_active_users: 3_000,
-    index_configs: 200,
-    document_bytes: 1 << 20,
-};
+/// Spark (no-cost) Firestore document reads per day. The other limits and their sources are in
+/// the reference guide's dated table, which is their only owner.
+pub const READS_PER_DAY: u64 = 50_000;
+/// Spark (no-cost) Firestore document writes per day.
+pub const WRITES_PER_DAY: u64 = 20_000;
 
 /// Rules dependent documents read when a client reads: the member projection or link-device
 /// enrollment, plus the page head (Colab's design).
@@ -59,7 +38,14 @@ pub const MAX_MEMBERS: u64 = 10_000;
 pub const BUDGET_EXHAUSTED: &str = "REMOTE_BUDGET_EXHAUSTED";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct InvalidModel;
+pub enum ModelError {
+    /// No members, no writers, more writers than members, or too many members.
+    OutOfRange,
+    /// The free plan cannot host the page: the modeled share is too small for the guard to
+    /// allow even one append. A page like that is refused here, when the model is built,
+    /// never as a pause that would end at the next reset and begin again.
+    FreePlanCannotHost,
+}
 /// One shared page: `members` have it open (every one is a listener), `writers` of them append.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Model {
@@ -67,12 +53,15 @@ pub struct Model {
     writers: u64,
 }
 impl Model {
-    pub fn new(members: u64, writers: u64) -> Result<Self, InvalidModel> {
-        if (1..=MAX_MEMBERS).contains(&members) && (1..=members).contains(&writers) {
-            Ok(Self { members, writers })
-        } else {
-            Err(InvalidModel)
+    pub fn new(members: u64, writers: u64) -> Result<Self, ModelError> {
+        if !((1..=MAX_MEMBERS).contains(&members) && (1..=members).contains(&writers)) {
+            return Err(ModelError::OutOfRange);
         }
+        let model = Self { members, writers };
+        if model.refuse_at() == 0 {
+            return Err(ModelError::FreePlanCannotHost);
+        }
+        Ok(model)
     }
     /// Reads one append costs the project, pessimistically: the writer's own Rules lookups,
     /// and for each of the other listeners the delivered document plus the Rules lookups
@@ -82,7 +71,7 @@ impl Model {
     }
     /// Appends per day the free plan allows this page if it were the project's only traffic.
     pub fn daily_append_limit(&self) -> u64 {
-        (FREE_PLAN.reads_per_day / self.reads_per_append()).min(FREE_PLAN.writes_per_day)
+        (READS_PER_DAY / self.reads_per_append()).min(WRITES_PER_DAY)
     }
     /// One client's modeled share of the page's daily allowance.
     pub fn share(&self) -> u64 {
