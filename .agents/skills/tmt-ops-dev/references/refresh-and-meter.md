@@ -20,6 +20,9 @@
   `board::changes` also watches.
 - Providers: the board hands each load's members to one fetcher thread that runs due provider
   work off the paint path and again at the shortest `every`.
+- Startup: `board::run` spawns the worker and requests the first tab before terminal
+  entry and its background-colour query, so acquisition and the stored-display offer
+  overlap that wait; events queue until the session loop reads them.
 - Squad enrichment: a squad tab publishes without its focus-policy read and reply-body
   reads. It applies the focus rows and bodies this worker already read (`Known`), so a
   reload never blinks them off. The first deferred job (`EnrichJob`) then makes one
@@ -130,16 +133,18 @@ A default-tab acquisition can have null `tab` on early stages; its total/milesto
 records identify the resolved tab. `deferred_pending` on the total/milestone records
 means existing enrichment, attention, history, cron or HOME exchanges remain scheduled.
 
-| Event         | Stage names / boundary                                                                                            |
-| ------------- | ----------------------------------------------------------------------------------------------------------------- |
-| `stage`       | `startup.Config::load`: initial config in `board::run`                                                            |
-| `stage`       | `Squad::list`, `Config::load`, `load`: `board::refresh::load` acquisition and total                               |
-| `stage`       | `observe::observe`, `observation.document`, `squad_view`: named squad acquisition (focus and bodies are deferred) |
-| `stage`       | `snapshot_cache_read`: the stored display offer after the inventory read                                          |
-| `stage`       | `snapshot_publish`: fresh event send; `snapshot_cache`: subsequent best-effort root/serialization/write           |
-| `stage`       | `all_view`: complete HOME base acquisition/projection                                                             |
-| `first_frame` | `draw`: first successful terminal draw, including a loading screen                                                |
-| `fresh_board` | `draw`: first successful draw after an accepted current-tab snapshot                                              |
+| Event          | Stage names / boundary                                                                                            |
+| -------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `stage`        | `startup.Config::load`: initial config in `board::run`                                                            |
+| `stage`        | `worker.caller`, `worker.Config::locate`: refresh-worker setup, overlapping terminal entry                        |
+| `stage`        | `Squad::list`, `Config::load`, `load`: `board::refresh::load` acquisition and total                               |
+| `stage`        | `observe::observe`, `observation.document`, `squad_view`: named squad acquisition (focus and bodies are deferred) |
+| `stage`        | `snapshot_cache_read`: the stored display offer after the inventory read                                          |
+| `stage`        | `snapshot_publish`: fresh event send; `snapshot_cache`: subsequent best-effort root/serialization/write           |
+| `stage`        | `all_view`: complete HOME base acquisition/projection                                                             |
+| `first_frame`  | `draw`: first successful terminal draw, including a loading screen                                                |
+| `cached_board` | `draw`: first successful draw showing a stored display, before any fresh board                                    |
+| `fresh_board`  | `draw`: first successful draw after an accepted current-tab snapshot                                              |
 
 Stage durations include their called work and stop before trace serialization;
 outer stages include enabled inner trace emission overhead. Failed Result stages

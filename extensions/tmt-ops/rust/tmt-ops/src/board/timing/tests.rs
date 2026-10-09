@@ -102,27 +102,30 @@ fn file_sink_appends_private_complete_records_and_rejects_symlinks() {
 fn milestones_require_accepted_current_snapshot_and_are_emitted_once() {
     let (trace, buffer) = Trace::buffer();
     let mut ui = Ui::new(trace.clone());
-    ui.drawn(Some("product"), true); // Cached/retained view alone is insufficient.
-    ui.drawn(Some("product"), true);
+    ui.drawn(Some("product"), true, false); // Retained view alone is insufficient.
+    ui.drawn(Some("product"), true, true); // A stored display is its own milestone.
+    ui.drawn(Some("product"), true, true);
     let mut load = trace.load(Some("product"), 2);
     load.partial = true;
     load.pending = true;
     ui.snapshot(Some(load.clone()), false); // Failed/not-current snapshot.
-    ui.drawn(Some("product"), true);
+    ui.drawn(Some("product"), true, false);
     ui.snapshot(Some(load.clone()), true);
-    ui.drawn(Some("infra"), true); // Switched before draw.
+    ui.drawn(Some("infra"), true, false); // Switched before draw.
     ui.snapshot(Some(load.clone()), true);
-    ui.drawn(Some("product"), false); // Still loading.
+    ui.drawn(Some("product"), false, false); // Still loading.
     ui.snapshot(Some(load), true);
-    ui.drawn(Some("product"), true);
-    ui.drawn(Some("product"), true);
+    ui.drawn(Some("product"), true, false);
+    ui.drawn(Some("product"), true, true);
     let records = records(&buffer);
-    assert_eq!(records.len(), 2);
+    assert_eq!(records.len(), 3);
     assert_eq!(records[0]["event"], "first_frame");
-    assert_eq!(records[1]["event"], "fresh_board");
-    assert_eq!(records[1]["generation"], 2);
-    assert_eq!(records[1]["status"], "partial");
-    assert_eq!(records[1]["deferred_pending"], true);
+    assert_eq!(records[1]["event"], "cached_board");
+    assert_eq!(records[1]["tab"], "product");
+    assert_eq!(records[2]["event"], "fresh_board");
+    assert_eq!(records[2]["generation"], 2);
+    assert_eq!(records[2]["status"], "partial");
+    assert_eq!(records[2]["deferred_pending"], true);
 }
 
 #[test]
