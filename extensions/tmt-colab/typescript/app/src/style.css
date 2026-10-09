@@ -905,14 +905,11 @@ footer {
   margin: 10px 2px;
 }
 .conversation-composer {
-  flex: 0 1 auto;
+  flex: 0 0 auto;
   min-height: 0;
   overflow: auto;
   border-top: 1px solid var(--c-rule);
   padding: 10px 14px;
-}
-.annotation-popover .conversation-composer {
-  flex-shrink: 0;
 }
 .ask-panel {
   margin: 0;
