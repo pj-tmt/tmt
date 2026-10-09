@@ -1229,7 +1229,7 @@ core discovery or storage access.
   edge (Colab → Remote) uses the public CLI only: no Remote state files and no crate
   dependency. Colab stops only a door it started, with its whole group, after closing its own
   socket. `tmt colab stop` reaches the serving process through a root-local route on that same owner-only socket (no signals, no new surface).
-- **Message editing.** The Lexical 0.52.0 plaintext/history composer follows the [editing boundary](.agents/skills/tmt-colab/references/architecture-state.md#message-editing-boundary). The parent records one comment and an Ask per distinct visible mention (up to eight); Ask again keeps the comment and uses a fresh operation after pair-marker/own-ledger checks ([discussion](extensions/tmt-colab/contracts/colab-v1.md#inline-annotation-conversations-1587)). The editor grants no dispatch authority.
+- **Message editing.** The Lexical 0.52.0 plaintext/history composer follows the [editing boundary](.agents/skills/tmt-colab/references/architecture-state.md#message-editing-boundary). The parent records one comment and an Ask per distinct visible mention (up to 8); Ask again keeps the comment and uses a fresh operation after pair-marker/own-ledger checks. The editor grants no dispatch authority.
 - **Renderer invariant.** Parent chrome allows only self-hosted scripts and styles (no
   `unsafe-inline`). Author HTML runs only in `renderer.html` inside an opaque
   `sandbox allow-scripts` frame whose own policy permits inline scripts and styles but no
