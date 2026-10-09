@@ -22,6 +22,7 @@ by `native-release-bundle.yml` for a draft and by the rehearsal before merge, so
 the first run of a packaging check. The rehearsal has no secrets, Environment, repository write
 access, tags or draft access. Cache behavior: the Rust dependency cache is saved by main only; the
 packaging-tools cache is saved on a miss in any run, including a pull request's own scope.
+Manifest assembly retries its required exact-key tool-cache restore once; a final miss or restore failure still fails verification and retains the failed-draft policy.
 
 **Release rehearsal.** `ci.yml` selects it on pull requests only, never in the merge group:
 `typescript/scripts/release-rehearsal.mjs select <base> <head>` rehearses every active product
