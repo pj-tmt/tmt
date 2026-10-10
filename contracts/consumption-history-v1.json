@@ -1,9 +1,9 @@
 {
-  "description": "Synthetic normalized observations; core and Squad share this vector. The 21000 ms sample is open and must not replace the included seed watermark. No provider transcript content.",
+  "description": "Synthetic normalized Codex observations; core and Ops share this vector. Three observations carry rate-limit windows. The 21000 ms sample is open and must not replace the included seed watermark. No provider transcript content.",
   "observations": [
     {
       "sampleAtMs": 6000,
-      "driver": "claude",
+      "driver": "codex",
       "session": "44444444-4444-4444-8444-444444444444",
       "consumption": {
         "inputTokens": 100,
@@ -18,7 +18,7 @@
     },
     {
       "sampleAtMs": 11000,
-      "driver": "claude",
+      "driver": "codex",
       "session": "44444444-4444-4444-8444-444444444444",
       "consumption": {
         "inputTokens": 110,
@@ -28,12 +28,22 @@
         "sequence": 2,
         "observedAtMs": 11000,
         "complete": true,
-        "gap": false
+        "gap": false,
+        "rateLimits": {
+          "observedAtMs": 10000,
+          "windows": [
+            {
+              "windowMinutes": 10080,
+              "usedPercent": 41.5,
+              "resetsAtMs": 90000000
+            }
+          ]
+        }
       }
     },
     {
       "sampleAtMs": 16000,
-      "driver": "claude",
+      "driver": "codex",
       "session": "44444444-4444-4444-8444-444444444444",
       "consumption": {
         "inputTokens": 114,
@@ -43,12 +53,22 @@
         "sequence": 3,
         "observedAtMs": 16000,
         "complete": true,
-        "gap": false
+        "gap": false,
+        "rateLimits": {
+          "observedAtMs": 15000,
+          "windows": [
+            {
+              "windowMinutes": 10080,
+              "usedPercent": 42.0,
+              "resetsAtMs": 90000000
+            }
+          ]
+        }
       }
     },
     {
       "sampleAtMs": 21000,
-      "driver": "claude",
+      "driver": "codex",
       "session": "44444444-4444-4444-8444-444444444444",
       "consumption": {
         "inputTokens": 120,
@@ -58,7 +78,17 @@
         "sequence": 4,
         "observedAtMs": 21000,
         "complete": true,
-        "gap": false
+        "gap": false,
+        "rateLimits": {
+          "observedAtMs": 20000,
+          "windows": [
+            {
+              "windowMinutes": 10080,
+              "usedPercent": 43.5,
+              "resetsAtMs": 90000000
+            }
+          ]
+        }
       }
     }
   ],
@@ -85,7 +115,7 @@
         "availableFromMs": 6000,
         "lastSampleAtMs": 16000,
         "latest": {
-          "driver": "claude",
+          "driver": "codex",
           "session": "44444444-4444-4444-8444-444444444444",
           "consumption": {
             "inputTokens": 114,
@@ -95,7 +125,17 @@
             "sequence": 3,
             "observedAtMs": 16000,
             "complete": true,
-            "gap": false
+            "gap": false,
+            "rateLimits": {
+              "observedAtMs": 15000,
+              "windows": [
+                {
+                  "windowMinutes": 10080,
+                  "usedPercent": 42.0,
+                  "resetsAtMs": 90000000
+                }
+              ]
+            }
           }
         },
         "windows": [
@@ -151,7 +191,7 @@
   },
   "nextLive": {
     "sampleAtMs": 21000,
-    "driver": "claude",
+    "driver": "codex",
     "session": "44444444-4444-4444-8444-444444444444",
     "consumption": {
       "inputTokens": 120,
@@ -161,7 +201,17 @@
       "sequence": 4,
       "observedAtMs": 21000,
       "complete": true,
-      "gap": false
+      "gap": false,
+      "rateLimits": {
+        "observedAtMs": 20000,
+        "windows": [
+          {
+            "windowMinutes": 10080,
+            "usedPercent": 43.5,
+            "resetsAtMs": 90000000
+          }
+        ]
+      }
     }
   },
   "expectedLiveDelta": {

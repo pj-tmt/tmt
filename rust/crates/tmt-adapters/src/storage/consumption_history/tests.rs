@@ -166,6 +166,7 @@ fn latest(input: u64, output: u64, sequence: u64, observed: u64) -> ConsumptionL
             cache_write_tokens: None,
             model_id: None,
             delta_by_model: None,
+            rate_limits: None,
             epoch: "33333333-3333-4333-8333-333333333333".into(),
             sequence,
             observed_at_ms: observed,

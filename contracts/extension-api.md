@@ -230,6 +230,18 @@ cacheWriteTokens?}`. It preserves model changes within a single read; it is
   Historical requests are not attributed on initial baseline. At most four
   distinct model IDs are retained per increment; unavailable evidence or the
   existing opaque-state size bound omits attribution while retaining totals.
+- `consumption.rateLimits` is `{observedAtMs,windows}` from the same newest accepted
+  Codex source line as the counters. It is absent for Claude, when that line carries
+  no limits and when any field is invalid (never partial). `observedAtMs` is that
+  line's own time, not the read time, so an idle session reports old limits as old.
+  `windows` has one or two `{windowMinutes,usedPercent,resetsAtMs}` entries in
+  strictly ascending `windowMinutes`: `usedPercent` (0–100) of the account's
+  allowance used in that window and `resetsAtMs` its UTC Unix millisecond reset.
+  The contract names no window; consumers choose one by length. Limits describe the
+  account, so seats on one account report the same windows: they are not a session
+  counter and are never summed. They are the first optional evidence omitted under
+  the existing opaque-state size bound. `latest.consumption` carries them; buckets
+  never do.
 - History buckets optionally add `cacheWriteTokens` and `byModel` with the same
   entry shape, containing **deltas for that bucket**, including all accepted
   model changes. Attribution is emitted only when it covers the whole counted
@@ -653,8 +665,8 @@ must use this public projection rather than inspect core state.
 
 Public `ls --json` also exposes the remembered driver's optional
 `resume.consumption`: cumulative completed-request input/output, cached input as
-a subset, optional cache-write and request/turn model attribution, epoch/sequence,
-observation time and explicit completeness/gap.
+a subset, optional cache-write and request/turn model attribution, optional Codex
+`rateLimits`, epoch/sequence, observation time and explicit completeness/gap.
 It is separate from `resume.usage` (context size). Consumers baseline on first,
 epoch-change, gap or decreasing-counter observations; absent evidence is
 unavailable. Counter times are not heartbeats. Foreground sampling can expose accepted

@@ -185,7 +185,15 @@ impl Document {
             if document.len() <= DriverState::MAXIMUM_BYTES {
                 return DriverState::new(CONSUMPTION_STATE_VERSION, &document).ok();
             }
-            // Attribution is optional: its size must never evict legacy counters.
+            // Optional evidence goes newest first, so a later addition never
+            // evicts what earlier documents already carried: limits, then
+            // attribution, then the cache-write counter.
+            consumption.value.rate_limits = None;
+            fields.insert("consumption".into(), consumption.document());
+            let document = Value::Object(fields.clone()).to_string();
+            if document.len() <= DriverState::MAXIMUM_BYTES {
+                return DriverState::new(CONSUMPTION_STATE_VERSION, &document).ok();
+            }
             consumption.value.delta_by_model = None;
             consumption.value.model_id = None;
             fields.insert("consumption".into(), consumption.document());
