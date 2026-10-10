@@ -50,7 +50,8 @@
         <p class="eyebrow tmt-ui-notice-eyebrow">Owner-device settings</p>
         <div class="tmt-ui-notice-mark">
           <span aria-hidden="true">◆</span>
-          <p id="access" role="status">Checking current access…</p>
+          <p id="access">Checking current access…</p>
+          <p id="access-announcement" class="screen-reader-status" role="status" aria-live="polite" aria-atomic="true"></p>
         </div>
         <p id="read-only">
           Read-only in this browser. Change Remote settings or manage devices with the local CLI.
@@ -158,7 +159,8 @@
         <div class="sheet-body tmt-ui-notice-body">
           <h2 id="firestore-title" class="tmt-ui-notice-heading">Firestore</h2>
           <p>Recorded setup, not a live Firebase check.</p>
-          <div id="firestore-content" role="status">Checking recorded Firestore setup…</div>
+          <p id="firestore-announcement" class="screen-reader-status" role="status" aria-live="polite" aria-atomic="true"></p>
+          <div id="firestore-content">Checking recorded Firestore setup…</div>
         </div>
       </section>
       <section class="sheet tmt-ui-notice" data-tone="review" aria-labelledby="devices-title">

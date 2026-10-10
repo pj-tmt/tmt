@@ -9,7 +9,9 @@ the submit listener. Failed initialization keeps pairing unavailable. Browser te
 hold SDK/offer readiness and verify early mouse/Enter produces no native submission
 or candidate, then explicit ready-state activation retains the same ceremony. They
 also check fragment stripping, secret-free request URLs, owner confirmation and
-retained device behavior.
+retained device behavior. Keyboard submission moves focus from the disappearing form to the
+named word-comparison region; success focuses Return to Remote only while focus still belongs
+to that transition. Intentional focus elsewhere is preserved.
 
 `Pages` embeds checked `design/browser-ui/generated/static.css` followed by
 Remote's `assets/pages.css` with compile-time `concat!(include_str!(...))`.
@@ -95,7 +97,9 @@ A >25-device scenario covers later-page drafts through refresh, another committe
 original-receipt recovery and guarded first/next navigation.
 Use `TMT_REMOTE_CAPTURE_DIR` for light/dark 1440/390 settings captures; 320 fit is asserted.
 Captures include loading/read-only/disabled reasons, drafts/focus, outcome/recovery and self-change
-states at 1440/390 light/dark and 320 fit. The capture index records the served state and provenance.
+states at 1440/390 light/dark and 320 fit. Refresh restores its initiating keyboard control
+only when the person has not moved elsewhere. Device forms and action names use the admitted
+device name, never an unsent draft. The capture index records the served state and provenance.
 
 The Firestore section is read-only: it explicitly requests the signed settings projection,
 sharing status's recorded layer evidence and dated published limits. Unsupported layers use
@@ -105,3 +109,7 @@ contains the wrapping budget table and its date, Pacific reset and local guard t
 An optional observation failure clears stale evidence without overwriting management access,
 original outcome or drafts. Fixtures cover every prerequisite; capture labels distinguish
 injected tier/quota from private recorded evidence and never claim provider acceptance.
+
+Unchanged access and Firestore projections do not repaint on unrelated draft input. Short polite
+slots announce only changed settled states; the layer lists, budget and Details stay outside
+those live regions. Presentation equality never suppresses signed reads or authority checks.

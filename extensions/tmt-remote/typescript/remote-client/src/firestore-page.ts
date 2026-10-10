@@ -42,11 +42,32 @@ function allowance(amount: number, bytes: boolean, period: string): string {
   }
   return `${written}${period ? ` per ${period}` : ''}`;
 }
+// This is presentation equality only: signed observations and their fences always run.
+const painted = new WeakMap<HTMLElement, string>();
 export function renderFirestore(
   target: HTMLElement,
   access: 'checking' | 'confirmed' | 'unconfirmed',
   view?: FirestoreSettingsView,
 ): void {
+  const projection = JSON.stringify([access, view]);
+  if (painted.get(target) === projection) return;
+  painted.set(target, projection);
+  const announcement = document.getElementById('firestore-announcement')!;
+  const summary =
+    access === 'checking'
+      ? ''
+      : access !== 'confirmed' || !view
+        ? 'Firestore setup could not be confirmed.'
+        : !view.firestoreLayers.length
+          ? 'Firestore is not configured.'
+          : view.firestoreLayers
+              .map(
+                (layer) =>
+                  `${firestoreTitles[layer.layer]}: ${layer.prerequisites.some((item) => item.item === 'support' && item.reason === 'not-implemented') ? 'Not available in this release' : states[layer.state][1]}.`,
+              )
+              .join(' ');
+  // A refresh may show checking, but repeats of the same settled state stay quiet.
+  if (summary && announcement.textContent !== summary) announcement.textContent = summary;
   target.replaceChildren();
   if (access !== 'confirmed' || !view) {
     target.append(

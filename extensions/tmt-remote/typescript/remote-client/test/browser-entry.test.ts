@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { test, vi } from 'vite-plus/test';
 import { landingPage, pairingPage } from '../src/browser.js';
 import { Door, paired } from './door.js';
+import { DeviceKey } from '../src/device.js';
 
 function request(result: unknown) {
   const pending: { result: unknown; onsuccess?: () => void } = { result };
@@ -506,3 +507,66 @@ test('Command block Copy actions have command-specific names and no trailing act
   assert.ok(!/<\/span\s*>\s*\./.test(html));
   assert.ok(html.includes('run this on it:'));
 });
+
+for (const ownsFocus of [true, false]) {
+  test(`pairing failure keeps visible focus without stealing it: ${ownsFocus}`, async () => {
+    const door = new Door();
+    let submit!: (event: Event) => void;
+    let fail!: () => void;
+    const generated = new Promise<never>((_, reject) => {
+      fail = () => reject(new Error('Fixture key failure'));
+    });
+    let finished!: () => void;
+    const blocked = new Promise<void>((resolve) => {
+      finished = resolve;
+    });
+    const other = {};
+    const button = { disabled: true };
+    const doc = {
+      readyState: 'complete',
+      activeElement: ownsFocus ? button : other,
+      getElementById: (id: string) => nodes[id],
+    };
+    const status = {
+      dataset: {},
+      set textContent(value: string) {
+        if (value.includes('Pairing did not complete')) finished();
+      },
+      focus: () => {
+        doc.activeElement = status;
+      },
+    };
+    const form = {
+      hidden: false,
+      contains: (node: unknown) => node === button,
+      querySelector: () => button,
+      addEventListener: (_: string, listener: (event: Event) => void) => {
+        submit = listener;
+      },
+    };
+    const nodes: Record<string, unknown> = {
+      pair: form,
+      status,
+      name: { value: 'Fixture' },
+      mark: { textContent: '' },
+      notice: { dataset: {} },
+      'state-label': { textContent: '' },
+      comparison: {},
+    };
+    vi.stubGlobal('document', doc);
+    vi.stubGlobal('fetch', async () => Response.json(door.descriptor));
+    const key = vi.spyOn(DeviceKey, 'generate').mockImplementation(() => generated);
+    try {
+      await pairingPage(door.link());
+      submit({ preventDefault() {} } as Event);
+      assert.equal(form.hidden, true);
+      assert.equal(doc.activeElement, ownsFocus ? status : other);
+      fail();
+      await blocked;
+      assert.equal(doc.activeElement, ownsFocus ? status : other);
+    } finally {
+      key.mockRestore();
+      vi.unstubAllGlobals();
+    }
+  });
+}

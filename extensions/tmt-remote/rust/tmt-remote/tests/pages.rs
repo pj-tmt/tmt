@@ -94,6 +94,12 @@ fn the_pairing_page_and_sdk_are_served_with_exact_types_and_policy() {
             .contains(r#"<link rel="stylesheet" href="/sdk/pages.css" />"#)
     );
     assert!(page.body.contains(r#"data-tmt-page="pair""#));
+    assert!(page.body.contains(r#"id="comparison" role="region""#));
+    assert!(page.body.contains(r#"aria-labelledby="words-label""#));
+    assert!(
+        page.body
+            .contains(r#"id="status" role="status" tabindex="-1""#)
+    );
     assert!(page.body.contains(r#"<script src="/sdk/pair.js">"#));
     assert!(page.body.contains(
         r#"<button class="tmt-ui-action" type="submit" aria-describedby="status" disabled>"#
@@ -587,6 +593,14 @@ fn settings_page_and_product_script_reuse_the_same_door_policy_and_sdk() {
             .contains("Recorded setup, not a live Firebase check.")
     );
     assert!(page.body.contains("id=\"firestore-content\""));
+    assert!(page.body.contains("id=\"access-announcement\""));
+    assert!(page.body.contains("id=\"firestore-announcement\""));
+    assert!(
+        !page
+            .body
+            .contains("id=\"firestore-content\" role=\"status\"")
+    );
+    assert!(!page.body.contains("id=\"access\" role=\"status\""));
     for origin in ["shared", "open", "sessions-per-device"] {
         assert!(page.body.contains(&format!("data-feedback=\"{origin}\"")));
     }
