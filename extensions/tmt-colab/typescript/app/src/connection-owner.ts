@@ -15,6 +15,34 @@ export function backoffMs(index: number, jitter: () => number = Math.random): nu
   return Math.round(base * (0.8 + 0.4 * jitter()));
 }
 
+/**
+ * One reconnect attempt's outcome for a page whose failure state lives with the caller: a
+ * successful reconnect clears it, and a failed or rejected one keeps the series going only while
+ * the page's current failure is still recoverable (a rejection leaves the failure unchanged).
+ */
+export function reconnectAttempt(page: {
+  reconnect(): Promise<boolean>;
+  /** The page's current failure, or null when it is connected. */
+  failure(): Error | null;
+  recovered(interrupted: Error | null): void;
+  recoverable(failure: Error | null): boolean;
+}): () => Promise<AttemptOutcome> {
+  return async () => {
+    const interrupted = page.failure();
+    try {
+      if (await page.reconnect()) {
+        page.recovered(interrupted);
+        return 'connected';
+      }
+    } catch {
+      return page.recoverable(page.failure()) ? 'retry' : 'ended';
+    }
+    // A fresh interruption is still recoverable; no new failure, or a terminal one, ends it.
+    const failure = page.failure();
+    return failure !== interrupted && page.recoverable(failure) ? 'retry' : 'ended';
+  };
+}
+
 export interface ConnectionOwnerOptions {
   /** One reconnect try: `retry` means the failure is still recoverable. */
   attempt(): Promise<AttemptOutcome>;

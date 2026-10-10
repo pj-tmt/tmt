@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vite-plus/test';
-import { backoffMs, ConnectionOwner, type AttemptOutcome } from '../src/connection-owner.js';
+import {
+  backoffMs,
+  ConnectionOwner,
+  reconnectAttempt,
+  type AttemptOutcome,
+} from '../src/connection-owner.js';
 
 const immediate = () => Promise.resolve();
 
@@ -82,5 +87,54 @@ describe('connection owner', () => {
     const first = subject.reconnect();
     expect(await subject.reconnect()).toBe('stopped');
     expect(await first).toBe('connected');
+  });
+});
+
+describe('reconnect attempt outcome', () => {
+  const recoverable = (failure: Error | null) => failure?.name === 'Recoverable';
+  const lost = Object.assign(new Error('lost'), { name: 'Recoverable' });
+  const make = (reconnect: () => Promise<boolean>, state: { failure: Error | null }) => {
+    const cleared: Array<Error | null> = [];
+    const attempt = reconnectAttempt({
+      reconnect,
+      failure: () => state.failure,
+      recovered: (interrupted) => cleared.push(interrupted),
+      recoverable,
+    });
+    return { attempt, cleared };
+  };
+
+  it('connects and reports the interruption it cleared', async () => {
+    const { attempt, cleared } = make(async () => true, { failure: lost });
+    expect(await attempt()).toBe('connected');
+    expect(cleared).toEqual([lost]);
+  });
+
+  it('retries after a failed reconnect that left a fresh recoverable failure', async () => {
+    const state = { failure: lost as Error | null };
+    const { attempt } = make(async () => {
+      state.failure = Object.assign(new Error('again'), { name: 'Recoverable' });
+      return false;
+    }, state);
+    expect(await attempt()).toBe('retry');
+  });
+
+  it('ends when a failed reconnect left no new failure or a terminal one', async () => {
+    expect(await make(async () => false, { failure: lost }).attempt()).toBe('ended');
+    const state = { failure: lost as Error | null };
+    const { attempt } = make(async () => {
+      state.failure = new Error('DENIED');
+      return false;
+    }, state);
+    expect(await attempt()).toBe('ended');
+  });
+
+  it('keeps retrying when the reconnect rejects while the page is still recoverable', async () => {
+    const rejected = make(async () => Promise.reject(new Error('boom')), { failure: lost });
+    expect(await rejected.attempt()).toBe('retry');
+    const terminal = make(async () => Promise.reject(new Error('boom')), {
+      failure: new Error('DENIED'),
+    });
+    expect(await terminal.attempt()).toBe('ended');
   });
 });

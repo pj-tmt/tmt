@@ -43,7 +43,7 @@ import { mountRenderer, MAX_RENDER_SOURCE_BYTES } from './renderer.js';
 import type { RenderState, SelectionRect } from './renderer.js';
 import { text } from './strings.js';
 import { getTheme, setThemeChoice, subscribeTheme } from './theme.js';
-import { ConnectionOwner } from './connection-owner.js';
+import { ConnectionOwner, reconnectAttempt } from './connection-owner.js';
 import { PageReopener, readmittable, ReadmitBudget, retryableReopen } from './readmit.js';
 import { FAILURE_CAUSES, terminalFailure } from './terminal-failure.js';
 import { buildWatch } from './app-build.js';
@@ -801,19 +801,15 @@ function Page() {
     const binding = snapshot.binding;
     if (!recoveryRequired || !binding?.reconnect) return;
     const owner = new ConnectionOwner({
-      attempt: async () => {
-        const interrupted = liveErrorRef.current;
-        if (await binding.reconnect?.()) {
+      attempt: reconnectAttempt({
+        reconnect: async () => (await binding.reconnect?.()) ?? false,
+        failure: () => liveErrorRef.current,
+        recovered: (interrupted) => {
           liveErrorRef.current = null;
           setLiveError((error) => (error === interrupted ? null : error));
-          return 'connected';
-        }
-        // A fresh interruption is still recoverable; no new failure, or a terminal one, ends it.
-        const failure = liveErrorRef.current;
-        return failure !== interrupted && failure instanceof RecoveryRequiredError
-          ? 'retry'
-          : 'ended';
-      },
+        },
+        recoverable: (failure) => failure instanceof RecoveryRequiredError,
+      }),
     });
     void owner.reconnect();
     return () => owner.stop();

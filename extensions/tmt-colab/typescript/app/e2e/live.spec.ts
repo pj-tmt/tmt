@@ -1278,16 +1278,18 @@ result:async()=>({state:'replied',requestId:'${requestId}',message:${JSON.string
   await expect(page.getByTestId('ask-reply')).toHaveText(reply);
   await page.getByRole('button', { name: 'Close Chat', exact: true }).click();
   // Explicit recovery before the door returns stays retryable and read-only.
+  const attemptsBefore = opens;
   pendingOpen = new Promise<void>((resolve) => {
     releaseOpen = resolve;
   });
-  const attemptsBefore = opens;
   await reconnect.click();
-  await expect.poll(() => opens).toBeGreaterThan(attemptsBefore - 1);
+  // The click is one open attempt; a silent attempt in flight shares it instead of adding another.
+  await expect.poll(() => opens).toBe(attemptsBefore + 1);
   const busyReconnect = page.getByRole('button', { name: 'Reconnecting…', exact: true });
   await expect(busyReconnect).toHaveAttribute('aria-busy', 'true');
   await expect(busyReconnect).toBeDisabled();
   await capture('recovery-busy');
+  expect(opens).toBe(attemptsBefore + 1);
   releaseOpen!();
   pendingOpen = undefined;
   await expect(reconnect).toBeEnabled();
