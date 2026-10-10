@@ -501,7 +501,7 @@ fn foreground_with(
                     )
                 ) {
                     object_warning(
-                        "attachments are unavailable until Colab reaches Remote's object channel",
+                        "attachments are unavailable: Colab couldn't connect to Remote's file transfer",
                     );
                 }
             }

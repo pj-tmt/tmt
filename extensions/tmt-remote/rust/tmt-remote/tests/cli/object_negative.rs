@@ -359,7 +359,7 @@ fn shipped_local_hung_setup_is_bounded_without_releasing_the_fixture() {
         let warning = fs::read_to_string(pilot.root.join("serve.stderr")).unwrap();
         assert!(
             warning.contains(
-                "attachments are unavailable until Colab reaches Remote's object channel"
+                "attachments are unavailable: Colab couldn't connect to Remote's file transfer"
             ),
             "{warning}"
         );
