@@ -235,7 +235,8 @@ A parent CLI released before Ops registration parses the candidate's upgrade pla
   candidate, materialized in a private invocation-owned directory. SHA-256 does not protect
   against a compromised release origin.
 - The candidate's `__native-install` owns inventory, companion policy, receipt creation and the
-  atomic publisher. Neither acquisition nor the parent holds the installation lock across the
+  atomic publisher. Candidate handoff, post-upgrade status and bootstrap CLI children
+  omit `GH_TOKEN` and `GITHUB_TOKEN`; the parent retains them. Neither acquisition nor the parent holds the installation lock across the
   child, and the parent never reads the candidate's inventory. Pre-activation failures keep the
   previous release; a reported post-activation failure keeps the active result; a missing report
   is uncertain and asks the user to inspect before retrying.

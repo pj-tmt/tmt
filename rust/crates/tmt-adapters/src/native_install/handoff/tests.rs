@@ -56,7 +56,10 @@ struct Runner<F> {
 }
 impl<F: Fn(CommandRequest<'_>) -> Result<CommandOutput, CommandError>> CommandRunner for Runner<F> {
     fn execute(&self, request: CommandRequest<'_>) -> Result<CommandOutput, CommandError> {
-        let candidate = PathBuf::from(request.program);
+        assert_eq!(request.program, "/usr/bin/env");
+        assert_eq!(&request.args[..4], ["-u", "GH_TOKEN", "-u", "GITHUB_TOKEN"]);
+        let candidate = PathBuf::from(&request.args[4]);
+        assert!(candidate.is_absolute());
         self.stages
             .borrow_mut()
             .push(candidate.parent().unwrap().parent().unwrap().to_owned());
@@ -632,7 +635,7 @@ fn pr_parent_probes_protocol_two_transfers_exact_admission_and_cleans_its_stagin
         stages: RefCell::new(Vec::new()),
         run: |command: CommandRequest<'_>| {
             *calls.borrow_mut() += 1;
-            assert_eq!(command.args[2], "2");
+            assert_eq!(command.args[7], "2");
             assert_eq!(command.max_output_bytes, PR_LIMIT);
             if command.input.is_empty() {
                 assert!(command.args.iter().any(|arg| arg == "--probe"));
@@ -711,4 +714,54 @@ fn pr_parent_probes_protocol_two_transfers_exact_admission_and_cleans_its_stagin
         Some(downloaded.provenance.clone())
     );
     assert_clean(&runner);
+}
+
+#[test]
+fn token_removal_keeps_the_real_parent_environment() {
+    // Isolate canaries in this parent process instead of mutating the test runner.
+    let args = [
+        "-i",
+        "GH_TOKEN=gh-canary",
+        "GITHUB_TOKEN=github-canary",
+        "KEEP=kept",
+        "/bin/sh",
+        "-c",
+        r#"/usr/bin/env -u GH_TOKEN -u GITHUB_TOKEN /usr/bin/env; printf 'parent=%s,%s\n' "$GH_TOKEN" "$GITHUB_TOKEN""#,
+    ].map(std::ffi::OsString::from);
+    let output = crate::process::UnixCommandRunner
+        .execute(CommandRequest {
+            program: std::ffi::OsStr::new("/usr/bin/env"),
+            args: &args,
+            input: &[],
+            deadline: Instant::now() + Duration::from_secs(10),
+            max_output_bytes: 1024,
+        })
+        .unwrap();
+    let text = std::str::from_utf8(&output.stdout).unwrap();
+    assert!(
+        !text
+            .lines()
+            .any(|line| line.starts_with("GH_TOKEN=") || line.starts_with("GITHUB_TOKEN="))
+    );
+    assert!(text.lines().any(|line| line == "KEEP=kept"));
+    assert!(
+        text.lines()
+            .any(|line| line == "parent=gh-canary,github-canary")
+    );
+    assert!(output.stderr.is_empty());
+}
+
+#[test]
+fn env_program_operand_refuses_assignment_paths_and_preserves_spaces() {
+    let error =
+        super::super::env_program_operand(std::path::Path::new("/tmp/a=b/tmt")).unwrap_err();
+    assert_eq!(
+        error,
+        "Cannot launch the updater child: executable path contains '=' and would be interpreted as an environment assignment."
+    );
+    let valid = std::path::Path::new("/tmp/a b/tmt");
+    assert_eq!(
+        super::super::env_program_operand(valid).unwrap(),
+        valid.as_os_str()
+    );
 }

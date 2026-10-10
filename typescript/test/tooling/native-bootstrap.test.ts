@@ -102,6 +102,9 @@ set -eu
 log="\${TMT_BOOTSTRAP_STUB_LOG:?}"
 command=\${1-}
 printf 'command=%s\\n' "$command" >> "$log"
+if [ "\${TMT_BOOTSTRAP_AUDIT_ENV-}" = 1 ]; then
+  printf 'tokens:%s=%s,%s\\n' "$command" "\${GH_TOKEN+x}" "\${GITHUB_TOKEN+x}" >> "$log"
+fi
 shift || true
 prefix=
 for argument do
@@ -187,6 +190,7 @@ async function runBootstrap(
     readonly interrupted?: boolean;
     readonly shortDownload?: boolean;
     readonly skillFailure?: boolean;
+    readonly auditTokenEnv?: boolean;
     readonly unsupportedPlatform?: boolean;
     readonly endpointOverride?: string;
     /** Run under a pseudo-terminal, as a person at a shell would. */
@@ -233,6 +237,9 @@ async function runBootstrap(
         ...(options.interrupted ? { TMT_BOOTSTRAP_INTERRUPT: '1' } : {}),
         ...(options.shortDownload ? { TMT_BOOTSTRAP_SHORT: '1' } : {}),
         ...(options.skillFailure ? { TMT_BOOTSTRAP_SKILL_FAILURE: '1' } : {}),
+        ...(options.auditTokenEnv
+          ? { TMT_BOOTSTRAP_AUDIT_ENV: '1', GH_TOKEN: 'gh-canary', GITHUB_TOKEN: 'github-canary' }
+          : {}),
         ...(options.endpointOverride
           ? { TMT_NATIVE_BOOTSTRAP_ENDPOINT: options.endpointOverride }
           : {}),
@@ -249,6 +256,45 @@ function expectCleanStage(stage: string): void {
 }
 
 describe('native curl bootstrap', () => {
+  it(
+    'removes inherited tokens from staged install, setup and skill children on success and failure',
+    { timeout: 20_000 },
+    async () => {
+      await withSandbox(async (sandbox) => {
+        const fixture = await createFixture(sandbox);
+        const script = await generateNativeBootstrap(
+          fixture.manifest,
+          path.dirname(fixture.archive)
+        );
+        const skill = await runBootstrap(sandbox, script, fixture, [], { auditTokenEnv: true });
+        expect(skill.result.status).toBe(0);
+        expect(skill.log).toContain('tokens:__native-install=,\n');
+        expect(skill.log).toContain('tokens:install=,\n');
+        expectCleanStage(skill.stage);
+        const setup = await runBootstrap(sandbox, script, fixture, [], {
+          auditTokenEnv: true,
+          terminal: true,
+        });
+        expect(setup.result.status).toBe(0);
+        expect(setup.log).toContain('tokens:setup=,\n');
+        expectCleanStage(setup.stage);
+        const failed = await runBootstrap(sandbox, script, fixture, [], {
+          auditTokenEnv: true,
+          skillFailure: true,
+        });
+        expect(failed.result.status).toBe(1);
+        expect(failed.log).toContain('tokens:install=,\n');
+        expect(failed.result.stderr).toContain('skill setup failed');
+        expectCleanStage(failed.stage);
+        for (const run of [skill, setup, failed]) {
+          expect(run.log).not.toMatch(/tokens:[^=]+=x|tokens:[^=]+=[^,]*,x/);
+          expect(run.log + run.result.stdout + run.result.stderr).not.toContain('gh-canary');
+          expect(run.log + run.result.stdout + run.result.stderr).not.toContain('github-canary');
+        }
+      });
+    }
+  );
+
   it('checks every archive in a multi-platform release before host selection', async () => {
     await withSandbox(async (sandbox) => {
       const targets = [

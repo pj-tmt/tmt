@@ -63,7 +63,7 @@ main() {
   set -- __native-install --archive "$stage/$archive" \
     --manifest "$stage/dist-manifest.json" --prefix "$prefix" --channel "$channel"
   if [ "$pin" = yes ]; then set -- "$@" --pin; fi
-  if "$stage/tmt" "$@"; then
+  if (unset GH_TOKEN GITHUB_TOKEN; exec "$stage/tmt" "$@"); then
     :
   else
     status=$?
@@ -87,13 +87,13 @@ main() {
   # the terminal because a piped installer's stdin is the script itself.
   # Elsewhere (CI, no terminal, --no-setup), install skills as before.
   if [ "$setup" = yes ] && [ "$skill" = yes ] && [ -z "${CI:-}" ] && interactive; then
-    if PATH="$prefix/bin:$PATH" "$prefix/bin/tmt" setup </dev/tty; then
+    if (unset GH_TOKEN GITHUB_TOKEN; PATH="$prefix/bin:$PATH" exec "$prefix/bin/tmt" setup) </dev/tty; then
       :
     else
       printf '%s\n' 'Setup did not finish; tmt is installed. Run tmt setup again when ready.' >&2
     fi
   elif [ "$skill" = yes ]; then
-    if ! "$prefix/bin/tmt" install; then
+    if ! (unset GH_TOKEN GITHUB_TOKEN; exec "$prefix/bin/tmt" install); then
       printf '%s\n' 'The native binary is installed, but skill setup failed. Inspect conflicts before explicitly running the new tmt install --force; it backs up conflicting links/content.' \
         'No data was migrated or deleted. Retry with the absolute new tmt path.' >&2
       return 1

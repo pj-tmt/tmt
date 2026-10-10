@@ -339,8 +339,15 @@ pub(super) fn upgrade(
         checkpoint()?;
         let probe = runner
             .execute(CommandRequest {
-                program: candidate.as_os_str(),
+                program: std::ffi::OsStr::new("/usr/bin/env"),
                 args: &[
+                    "-u".into(),
+                    "GH_TOKEN".into(),
+                    "-u".into(),
+                    "GITHUB_TOKEN".into(),
+                    super::env_program_operand(&candidate)
+                        .map_err(io::Error::other)?
+                        .to_owned(),
                     "__native-install".into(),
                     "--handoff-version".into(),
                     version.to_string().into(),
@@ -396,8 +403,15 @@ pub(super) fn upgrade(
             return Err(invalid("Installer handoff exceeds its bound."));
         }
         let result = runner.execute(CommandRequest {
-            program: candidate.as_os_str(),
+            program: std::ffi::OsStr::new("/usr/bin/env"),
             args: &[
+                "-u".into(),
+                "GH_TOKEN".into(),
+                "-u".into(),
+                "GITHUB_TOKEN".into(),
+                super::env_program_operand(&candidate)
+                    .map_err(io::Error::other)?
+                    .to_owned(),
                 "__native-install".into(),
                 "--handoff-version".into(),
                 version.to_string().into(),

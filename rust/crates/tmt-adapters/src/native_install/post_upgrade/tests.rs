@@ -48,6 +48,10 @@ impl CommandRunner for Status<'_> {
         assert_eq!(
             request.args,
             [
+                "-u",
+                "GH_TOKEN",
+                "-u",
+                "GITHUB_TOKEN",
                 "TMT_EXECUTABLE=/verified/core with spaces/tmt",
                 "/verified/release with spaces/tmt-remote",
                 "status",
