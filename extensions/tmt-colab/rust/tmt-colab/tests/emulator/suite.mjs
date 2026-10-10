@@ -141,6 +141,12 @@ test("spaces: first writer owns a space ID; no update, delete, transfer or forei
   assert.equal(await set(`spaces/${fresh}`, { space: fresh, owner: "squatter" }, NOBODY), 403, "sign-in required");
   assert.equal(await set(`spaces/${fresh}`, { space: fresh, owner: "squatter" }, as("squatter")), 200);
   assert.equal(await get(`spaces/${fresh}`, as("squatter")), 200);
+  for (const path of [budget.uidPath(fresh, "squatter"), budget.spacePath(fresh)]) {
+    const row = await budget.read(path);
+    assert.equal(row.chargedBytes, 768, "space data and both counter allocations");
+    assert.equal(row.entries, 3);
+    assert.equal(row.mutations, 1);
+  }
   assert.equal(await get(`spaces/${fresh}`, as("ownerA")), 403, "only the owner reads the row");
   // Taking over an existing space is an update, which no one may do.
   assert.equal(await set(`spaces/${T.A.space}`, { space: T.A.space, owner: "ownerB" }, as("ownerB")), 403);
@@ -737,4 +743,19 @@ test("budgets: windows reset rate only, and empty uid rows retain their allocati
   assert.equal(await remove(emptyPath, as("ownerA")), 200);
   assert.equal(await get(emptyPath, ADMIN), 404);
   assert.equal((await budget.read(budget.spacePath(t.space))).chargedBytes, space.chargedBytes);
+});
+
+// Multibyte fixture bytes are required to prove character counts cannot undercharge ciphertext.
+test("budgets: multibyte payloads cannot use an ASCII character charge", async () => {
+  await boot();
+  const t = T.A, writer = as(t.writer);
+  for (const [path, data] of [
+    [`log/${logId(t, 1, t.stream, 2)}`, entry(t, 2, { envelope: "\u00e9".repeat(32) })],
+    [`checkpoints/${chunkId(t, 1)}`, chunk(t, 1, { bytes: "\u20ac".repeat(32) })],
+  ]) {
+    const before = await budget.read(budget.uidPath(t.space, t.writer));
+    assert.equal(await set(path, data, writer), 403, "multibyte ciphertext refused even with matching character counts");
+    assert.equal(await get(path, ADMIN), 404);
+    assert.deepEqual(await budget.read(budget.uidPath(t.space, t.writer)), before);
+  }
 });

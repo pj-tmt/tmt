@@ -2797,8 +2797,8 @@ ciphertext, never authority; clients still verify every statement, chain and env
 
 **Atomic accounting.** Every data row freezes `quotaUid` and `quotaBytes` at creation.
 The allocation belongs to the authenticated creator, including owner writes. The charge is the
-stored `envelope.size() + 256` for log entries, `bytes.size() + 256` for checkpoint chunks, and
-256 for admission rows without a payload. These are Colab accounting bytes, not Firebase physical
+ASCII-only stored `envelope.size() + 256` for log entries, `bytes.size() + 256` for checkpoint chunks, and
+256 for admission rows without a payload. Payload admission enforces ASCII with a bounded character-class regex, so string character counts equal encoded bytes, including on expiry refresh. This preserves existing base64/encoded-ciphertext strings; clients still verify their cryptographic grammar. These are Colab accounting bytes, not Firebase physical
 storage or billing figures. The fixed 256 is an application overhead allowance.
 
 One commit contains exactly one charged data mutation plus its `uid-budgets/{space_uid}` and
