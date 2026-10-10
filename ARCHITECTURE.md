@@ -178,7 +178,7 @@ core command registration, option placement and rejection, and the help projecti
 each owner's parser turns its grammar into typed invocations and publishes through
 `tmt-command-output`. Hidden commands parse for internal workflows but never appear
 in help or completion. Handlers never search raw argv or reinterpret payload text
-as flags. JSON and human output use the same typed result and status contracts.
+as flags. Human/JSON share typed result/status contracts; [list](contracts/identity-status-v1.md#list-runtime-driver) owns runtime-driver proof.
 Command dispatch, help and completion rules are in the
 [extension surface reference](.agents/skills/tmt-core-runtime/references/extension-surface.md).
 

@@ -653,6 +653,12 @@ user runs `tmt extension hooks enable <name>`. Core then invokes the resolved
   databases or start services. Bounded bookkeeping in the extension's own
   private cache is allowed within the same deadline.
 
+The public `ls --json` identity rows optionally expose
+[`runningDriver`](identity-status-v1.md#list-runtime-driver) for a freshly observed
+Running runtime with a matching admitted session on the current active binding.
+Use that projection for current driver evidence; the existing `driver` may name a
+remembered harness. The linked contract owns presence and omission semantics.
+
 The public `ls --json` identity rows expose `session.activity`:
 `{"state":"unknown","sinceMs":null,"lastActivityMs":null,"providers":{}}`.
 Working/idle are the last admitted main-turn start/end from TMT's synchronous

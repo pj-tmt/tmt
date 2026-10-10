@@ -60,6 +60,26 @@ Read status in a batch for the identity directory, not one query per room/actor.
 Expiry rendering should schedule the next relevant deadline and resample when
 the page becomes visible, not add a continuous animation or per-actor poll loop.
 
+## List runtime driver
+
+Collection `tmt ls --json` (alias `tmt list --json`) identity rows optionally
+include `runningDriver`, a registered driver ID such as `"claude"` or `"codex"`.
+It appears only when the command's existing fresh runtime observation is Running,
+the row has the current active binding and live pane, and that binding's admitted
+provider session is disclosed and matches the identity's remembered session.
+The registered harness comes from those remembered coordinates. Otherwise the
+key is absent, never null: this includes Ended or Unknown runtime evidence,
+undisclosed or mismatched sessions, and historical, offline or unknown rows.
+
+This projection reuses the command's existing observations; it adds no probe,
+subprocess, PID, session ID or address disclosure. It does not depend on optional
+working/idle telemetry in `session.activity` and grants no dispatch authority.
+The existing `address`, `driver`, `resume`, `session.activity` and human output
+retain their semantics. In particular, `driver` follows the existing address
+projection and can name a remembered harness even after its process ends or
+while offline; it is not verified current runtime evidence. Named or direct-pane
+inspection and storage-only `identity ls` do not gain `runningDriver`.
+
 ## Verification
 
 Verify byte/control/duration boundaries, exact expiry and clock rollback, atomic
