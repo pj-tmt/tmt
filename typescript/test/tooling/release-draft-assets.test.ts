@@ -5,7 +5,7 @@ import { createHash } from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { afterAll, beforeAll, describe, expect, it } from 'vite-plus/test';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vite-plus/test';
 import {
   attachBundle,
   bundleFiles,
@@ -509,7 +509,110 @@ describe('ghApi', () => {
     const { seen, spawn } = runner(JSON.stringify([[draft('a')], [draft('b')]]));
     const api = ghApi({ repository: 'wkh237/tmt', spawn });
     expect(api.listReleases().map((release) => release.tag_name)).toEqual(['a', 'b']);
-    expect(seen[0]).toEqual(['api', '--paginate', '--slurp', 'repos/wkh237/tmt/releases']);
+    expect(seen).toEqual([['api', '--paginate', '--slurp', 'repos/wkh237/tmt/releases']]);
+  });
+
+  it.each(['nonzero exit', 'truncated JSON'])('retries %s then returns valid pages', (failure) => {
+    const waits: number[] = [];
+    const lines: string[] = [];
+    const writer = vi.spyOn(process.stderr, 'write').mockImplementation((line) => {
+      lines.push(String(line));
+      return true;
+    });
+    const spawn = vi
+      .fn()
+      .mockReturnValueOnce(
+        failure === 'nonzero exit'
+          ? { status: 1, stdout: '', stderr: 'unexpected end of JSON input' }
+          : { status: 0, stdout: '[[', stderr: '' }
+      )
+      .mockReturnValue({
+        status: 0,
+        stdout: JSON.stringify([[draft('a')], [draft('b')]]),
+        stderr: '',
+      });
+    try {
+      const api = ghApi({ repository: 'wkh237/tmt', spawn, sleep: (ms) => waits.push(ms) });
+      expect(api.listReleases().map((release) => release.tag_name)).toEqual(['a', 'b']);
+      expect(spawn.mock.calls).toEqual(
+        Array.from({ length: 2 }, () => [
+          'gh',
+          ['api', '--paginate', '--slurp', 'repos/wkh237/tmt/releases'],
+          { env: process.env, encoding: 'utf8', timeout: 60_000, maxBuffer: 64 * 1024 * 1024 },
+        ])
+      );
+      expect(waits).toEqual([1000]);
+      expect(lines).toHaveLength(1);
+      expect(lines[0]).toContain('Release listing attempt 1/3 failed: ');
+      expect(lines[0]).toContain('Retrying in 1000 ms.');
+      if (failure === 'nonzero exit') expect(lines[0]).toContain('unexpected end of JSON input');
+    } finally {
+      writer.mockRestore();
+    }
+  });
+
+  it('fails after three listing attempts with the last original error text', () => {
+    let calls = 0;
+    const waits: number[] = [];
+    const lines: string[] = [];
+    const writer = vi.spyOn(process.stderr, 'write').mockImplementation((line) => {
+      lines.push(String(line));
+      return true;
+    });
+    const spawn = vi.fn(() => ({ status: ++calls, stdout: '', stderr: `failure ${calls}` }));
+    try {
+      expect(() =>
+        ghApi({ repository: 'wkh237/tmt', spawn, sleep: (ms) => waits.push(ms) }).listReleases()
+      ).toThrow('gh api --paginate --slurp failed with 3: failure 3');
+      expect(spawn).toHaveBeenCalledTimes(3);
+      expect(waits).toEqual([1000, 2000]);
+      expect(lines).toEqual([
+        'Release listing attempt 1/3 failed: gh api --paginate --slurp failed with 1: failure 1\nRetrying in 1000 ms.\n',
+        'Release listing attempt 2/3 failed: gh api --paginate --slurp failed with 2: failure 2\nRetrying in 2000 ms.\n',
+      ]);
+    } finally {
+      writer.mockRestore();
+    }
+  });
+
+  it('preserves the final spawn error identity after three listing attempts', () => {
+    const error = new Error('spawn ETIMEDOUT');
+    const spawn = vi.fn(() => ({ error, status: null, stdout: '', stderr: '' }));
+    const writer = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
+    try {
+      let caught: unknown;
+      try {
+        ghApi({ repository: 'wkh237/tmt', spawn, sleep: () => {} }).listReleases();
+      } catch (failure) {
+        caught = failure;
+      }
+      expect(caught).toBe(error);
+      expect(spawn).toHaveBeenCalledTimes(3);
+    } finally {
+      writer.mockRestore();
+    }
+  });
+
+  it.each(['upload', 'deleteAsset'] as const)(
+    'does not retry a failed %s mutation',
+    (operation) => {
+      const spawn = vi.fn(() => ({ status: 1, stdout: '', stderr: 'HTTP 503' }));
+      const sleep = vi.fn();
+      const api = ghApi({ repository: 'wkh237/tmt', spawn, sleep });
+      expect(() =>
+        operation === 'upload' ? api.upload(draft('v1'), 'x', '/tmp/x') : api.deleteAsset(1)
+      ).toThrow('failed with 1: HTTP 503');
+      expect(spawn).toHaveBeenCalledTimes(1);
+      expect(sleep).not.toHaveBeenCalled();
+    }
+  );
+
+  it('does not retry invalid release data after a successful JSON read', () => {
+    const { seen, spawn } = runner('{}');
+    const sleep = vi.fn();
+    expect(() => ghApi({ repository: 'wkh237/tmt', spawn, sleep }).listReleases()).toThrow();
+    expect(seen).toHaveLength(1);
+    expect(sleep).not.toHaveBeenCalled();
   });
 
   it('uploads through the uploads host with the file as the body, and deletes by asset id', () => {

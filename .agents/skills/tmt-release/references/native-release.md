@@ -262,6 +262,8 @@ that predates the scripts fails the proof with that message and is proven by han
 Retries of pre-rename tags use the tag's own tooling; current tooling expects `skills/tmt/SKILL.md` in the release source.
 Asset acquisition by immutable GitHub id allows three attempts with 1/2 s backoff and the unchanged
 300 s per-call bound, logging earlier failures; staged-byte verification and local file errors are never retried.
+Paginated release listing GETs also allow three attempts with 1/2 s backoff for command or JSON parse failures,
+retaining the 60 s per-call bound and final error; upload and DELETE calls are never retried.
 Only x64-Apple verification dependency installs allow one extra attempt after the exact Node async-hook abort,
 with a 5 s wait, owned partial-module cleanup and visible attempt logs; other failures stay immediate,
 and the existing 600/780 s verification/proof job caps and failed-draft publication protections remain unchanged.
