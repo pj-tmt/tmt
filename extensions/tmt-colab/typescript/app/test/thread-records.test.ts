@@ -15,6 +15,7 @@ import { ThreadStore, commentForAsk } from '../src/thread-store.js';
 import {
   discussionKey,
   isChatThread,
+  nextSequence,
   readThreads,
   validateDiscussionRecord,
   type ThreadRecord,
@@ -676,4 +677,117 @@ it('a non-owner admitted device cannot publish a proposal decision', async () =>
     f.store.decideProposal({ writer: a, id: fixture.proposal.threadId }, 'approved'),
   ).rejects.toThrow();
   expect(f.batches).toEqual([]);
+});
+
+it('admits only canonical sequences and shares the comment order with native vectors', () => {
+  const key = discussionKey(fixture.comment);
+  expect(() => validateDiscussionRecord('messages', key, fixture.comment)).not.toThrow();
+  for (const sequence of fixture.sequenceCases.valid)
+    expect(() =>
+      validateDiscussionRecord('messages', key, { ...fixture.comment, sequence }),
+    ).not.toThrow();
+  for (const sequence of [...fixture.sequenceCases.invalid, ...fixture.sequenceCases.invalidTypes])
+    expect(() =>
+      validateDiscussionRecord('messages', key, { ...fixture.comment, sequence }),
+    ).toThrow();
+  const read = (own: OwnState) =>
+    readThreads(
+      own,
+      fixture.scope,
+      () => new Uint8Array(32),
+      () => true,
+    )[0].comments.map((comment) => comment.messageId);
+  for (const row of fixture.sequenceCases.orderCases) {
+    const records = row.comments.map(
+      (value: { writer: string; id: string; sequence?: string; at: string }) =>
+        ({
+          ...fixture.comment,
+          senderDevice: value.writer,
+          messageId: value.id,
+          at: value.at,
+          ...(value.sequence === undefined ? {} : { sequence: value.sequence }),
+        }) as CommentRecord,
+    );
+    // Insertion order is the stored key order; it must never decide.
+    for (const ordered of [records, [...records].reverse()]) {
+      const own: OwnState = {};
+      put(own, fixture.thread);
+      for (const record of ordered) put(own, record);
+      expect(read(own), row.name).toEqual(row.expected);
+    }
+  }
+});
+it('a comment keeps its sequence across edits and tombstones; a changed sequence drops the chain', () => {
+  const own: OwnState = {};
+  put(own, fixture.thread);
+  put(own, { ...fixture.comment, sequence: '4' });
+  const read = () =>
+    readThreads(
+      own,
+      fixture.scope,
+      () => new Uint8Array(32),
+      () => true,
+    )[0].comments;
+  put(own, { ...fixture.comment, sequence: '4', revision: '2', body: 'Edited' });
+  expect(read()[0]).toMatchObject({ revision: '2', sequence: '4' });
+  put(own, { ...fixture.comment, sequence: '4', revision: '3', body: '', deleted: true });
+  expect(read()[0]).toMatchObject({ revision: '3', sequence: '4', deleted: true });
+  put(own, { ...fixture.comment, sequence: '5', revision: '4', body: 'Moved', deleted: false });
+  expect(read()).toEqual([]);
+  delete own[b].messages[`${fixture.comment.messageId}:4`];
+  // Dropping the field in a later revision is also a change: absent reads as 0.
+  put(own, { ...fixture.comment, revision: '4', body: 'Unnumbered', deleted: false });
+  expect(read()).toEqual([]);
+});
+it('writes 1 + the highest sequence in the thread, tombstones included, and keeps it on edit', async () => {
+  const f = storeFixture();
+  const sequences = () =>
+    readThreads(
+      f.own,
+      fixture.scope,
+      () => new Uint8Array(32),
+      () => true,
+    )
+      .find((thread) => isChatThread(thread) && thread.ref.writer === a)!
+      .comments.map((comment) => [comment.body, comment.sequence]);
+  const origin = await f.store.createChat('first');
+  const second = await f.store.reply(origin.thread, 'second', '1');
+  f.device(b);
+  await f.store.reply(origin.thread, 'other device', '1');
+  f.device(a);
+  await f.store.deleteComment(second.message, '1');
+  await f.store.reply(origin.thread, 'after the tombstone', '1');
+  await f.store.edit(origin.message, '1', 'first, edited');
+  expect(nextSequence([{ sequence: '9007199254740991' }, {}])).toBe('9007199254740991');
+  expect(nextSequence([])).toBe('1');
+  expect(sequences()).toEqual([
+    ['first, edited', '1'],
+    ['', '2'],
+    ['other device', '3'],
+    ['after the tombstone', '4'],
+  ]);
+});
+it('shows consecutive comments in submission order, live and after a reload that folds key order', async () => {
+  const f = storeFixture();
+  const origin = await f.store.createChat('We will run the pilot');
+  const reply = await f.store.reply(origin.thread, 'The draft announcement', '1');
+  const bodies = (own: OwnState) =>
+    readThreads(
+      own,
+      fixture.scope,
+      () => new Uint8Array(32),
+      () => true,
+    )
+      .filter(isChatThread)[0]
+      .comments.map((comment) => comment.messageId);
+  expect(bodies(f.own)).toEqual([origin.message.id, reply.message.id]);
+  // A reload folds the stored records back in key order, which is not submission order: both
+  // orders of the same records read the same.
+  const stored = f.own[a].messages;
+  for (const keys of [Object.keys(stored), Object.keys(stored).reverse()]) {
+    const reloaded: OwnState = { [a]: roots() };
+    for (const key of keys) reloaded[a].messages[key] = stored[key];
+    reloaded[a].threads = structuredClone(f.own[a].threads);
+    expect(bodies(reloaded)).toEqual([origin.message.id, reply.message.id]);
+  }
 });

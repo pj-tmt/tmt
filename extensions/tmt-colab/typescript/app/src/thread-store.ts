@@ -9,6 +9,7 @@ import type { Connection } from './connection.js';
 import type { JsonValue, OwnRecord, OwnState } from './fold-protocol.js';
 import {
   discussionKey,
+  nextSequence,
   readThreads,
   validateDiscussionRecord,
   validateRef,
@@ -242,6 +243,7 @@ export class ThreadStore implements ThreadBinding {
             revision: '1',
             thread: { writer: this.deviceId, id: threadId },
             body,
+            sequence: '1',
             ...attached.list,
             deleted: false,
           },
@@ -266,7 +268,8 @@ export class ThreadStore implements ThreadBinding {
       messageId = attach?.messageId ?? crypto.randomUUID();
     let revision = '';
     await this.#exclusive(async (c) => {
-      revision = this.#thread(c, ref).revision;
+      const view = this.#thread(c, ref);
+      revision = view.revision;
       requireValue(expectedRevision === undefined || revision === expectedRevision);
       const attached = await this.#attached(attach);
       await this.#write(
@@ -278,6 +281,7 @@ export class ThreadStore implements ThreadBinding {
             revision: '1',
             thread: ref,
             body,
+            sequence: nextSequence(view.comments),
             ...attached.list,
             deleted: false,
           },

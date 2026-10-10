@@ -1,6 +1,8 @@
 //! Inert discussion record admission. Envelopes authenticate writers; no DOM,
 //! publication, signing or dispatch authority lives in this codec.
-use crate::limits::{COMMENT_BODY_BYTES, COMMENT_CONTEXT_BYTES, COMMENT_CONTEXT_POINTS};
+use crate::limits::{
+    COMMENT_BODY_BYTES, COMMENT_CONTEXT_BYTES, COMMENT_CONTEXT_POINTS, MAX_SEQUENCE,
+};
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 use tmt_colab_model::{Invalid, Result, attachment, bounded::List, values};
@@ -100,6 +102,8 @@ struct CommentRecord {
     message_id: String,
     thread: ThreadRef,
     body: String,
+    #[serde(default)]
+    sequence: Option<String>,
     #[serde(default, deserialize_with = "comment_attachments")]
     attachments: Option<attachment::MessageAttachments>,
 }
@@ -172,6 +176,8 @@ pub(crate) fn validate_record(root: &str, key: &str, value: &Value) -> Result<()
             }
         }
         Some("comment") => {
+            // An explicit null is not an absent field.
+            require(value.get("sequence").is_none_or(Value::is_string))?;
             let v: CommentRecord = serde_json::from_value(value.clone()).map_err(|_| Invalid)?;
             require(
                 root == "messages"
@@ -191,6 +197,9 @@ pub(crate) fn validate_record(root: &str, key: &str, value: &Value) -> Result<()
                 &v.device_name,
             )?;
             timestamp(&v.at)?;
+            if let Some(sequence) = &v.sequence {
+                require(values::decimal(sequence, false)? <= MAX_SEQUENCE)?;
+            }
             require(v.body.len() <= COMMENT_BODY_BYTES)?;
             let attachments = v.attachments.as_ref().map_or(&[][..], List::as_slice);
             attachment::validate_attachment_list(
@@ -212,6 +221,35 @@ pub(crate) fn validate_record(root: &str, key: &str, value: &Value) -> Result<()
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn comment_sequence_is_a_canonical_decimal_up_to_two_to_the_53_minus_1() {
+        let f: Value = serde_json::from_str(include_str!(
+            "../../../contracts/vectors/discussion-v1.json"
+        ))
+        .unwrap();
+        let comment = f["comment"].clone();
+        let key = format!("{}:1", comment["messageId"].as_str().unwrap());
+        validate_record("messages", &key, &comment).unwrap();
+        let cases = &f["sequenceCases"];
+        for valid in cases["valid"].as_array().unwrap() {
+            let mut value = comment.clone();
+            value["sequence"] = valid.clone();
+            validate_record("messages", &key, &value).unwrap();
+        }
+        for invalid in cases["invalid"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .chain(cases["invalidTypes"].as_array().unwrap())
+        {
+            let mut value = comment.clone();
+            value["sequence"] = invalid.clone();
+            assert!(
+                validate_record("messages", &key, &value).is_err(),
+                "{invalid}"
+            );
+        }
+    }
     #[test]
     fn proposal_bounds_are_unicode_points_and_utf8_bytes() {
         let f: Value = serde_json::from_str(include_str!(

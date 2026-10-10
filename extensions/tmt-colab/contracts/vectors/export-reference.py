@@ -78,9 +78,10 @@ def thread(writer, tid, revision, at, name, anchor=None, resolved=False, deleted
             "resolved": resolved}
 
 
-def comment(writer, mid, revision, at, name, thread_ref, body, deleted=False):
+def comment(writer, mid, revision, at, name, thread_ref, body, deleted=False, sequence=None):
     return {**scope("comment", writer, revision, at, name, deleted), "messageId": mid,
-            "thread": {"writer": thread_ref[0], "id": thread_ref[1]}, "body": body}
+            "thread": {"writer": thread_ref[0], "id": thread_ref[1]}, "body": body,
+            **({} if sequence is None else {"sequence": str(sequence)})}
 
 
 def put(root, record):
@@ -100,15 +101,27 @@ def fixture_own():
     anchor = {"exact": "Keep ``` fences & <b>exact</b>\n😀", "prefix": "before ", "suffix": " after"}
     put(own[W1]["threads"], thread(W1, T1, 1, 1791003800000, "Ben's `laptop`", anchor))
     put(own[W1]["threads"], thread(W1, T1, 2, 1791003900000, "Ben's `laptop`", anchor, resolved=True))
-    put(own[W1]["messages"], comment(W1, uid(3), 1, 1791003800000, "Ben's `laptop`", (W1, T1), "first draft"))
+    # Sequence order differs from writer/ID bytes and from `at`: W2's uid(16) is first, W1's edited
+    # uid(3) keeps its sequence 2, uid(20) and uid(41) tie at 3 and fall back to writer and ID bytes,
+    # and uid(40) predates the field so it reads as 0 and comes before all of them.
+    put(own[W1]["messages"], comment(W1, uid(3), 1, 1791003800000, "Ben's `laptop`", (W1, T1), "first draft",
+                                     sequence=2))
     put(own[W1]["messages"], comment(
         W1, uid(3), 2, 1791003850000, "Ben's `laptop`", (W1, T1),
-        "Keep ! and café exact\r\n```not a fence```\n````‮\u0000 end"))
-    put(own[W2]["messages"], comment(W2, uid(16), 1, 1791003860000, "Dev\nphone", (W1, T1), "Agreed — ✅"))
-    put(own[W2]["messages"], comment(W2, uid(20), 1, MAX_AT, "Dev\nphone", (W1, T1), "From the far future"))
+        "Keep ! and café exact\r\n```not a fence```\n````‮\u0000 end", sequence=2))
+    put(own[W1]["messages"], comment(W1, uid(40), 1, 1791003950000, "Ben's `laptop`", (W1, T1),
+                                     "written before sequences existed"))
+    put(own[W2]["messages"], comment(W2, uid(16), 1, 1791003860000, "Dev\nphone", (W1, T1), "Agreed — ✅",
+                                     sequence=1))
+    put(own[W2]["messages"], comment(W2, uid(20), 1, MAX_AT, "Dev\nphone", (W1, T1), "From the far future",
+                                     sequence=3))
+    put(own[W2]["messages"], comment(W2, uid(41), 1, 1791003810000, "Dev\nphone", (W1, T1), "Tied at sequence 3",
+                                     sequence=3))
     put(own[W2]["threads"], thread(W2, T2, 1, 1791003870000, "Dev\nphone"))
-    put(own[W2]["messages"], comment(W2, uid(21), 1, 1791003870000, "Dev\nphone", (W2, T2), "to be removed"))
-    put(own[W2]["messages"], comment(W2, uid(21), 2, 1791003880000, "Dev\nphone", (W2, T2), "", deleted=True))
+    put(own[W2]["messages"], comment(W2, uid(21), 1, 1791003870000, "Dev\nphone", (W2, T2), "to be removed",
+                                     sequence=1))
+    put(own[W2]["messages"], comment(W2, uid(21), 2, 1791003880000, "Dev\nphone", (W2, T2), "", deleted=True,
+                                     sequence=1))
     put(own[W2]["threads"], thread(W2, T3, 1, 1791003890000, "Dev\nphone"))
     put(own[W2]["threads"], thread(W2, T3, 2, 1791003895000, "Dev\nphone", deleted=True))
     # Never exported: a thread for another page, a writer without a historical key.
@@ -137,6 +150,7 @@ def fixture_own():
 # ---- projection (colab-v1 "Conversation export") --------------------------------------------
 
 DEVICE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$")
+MAX_SEQUENCE = 2**53 - 1
 DECIMAL = re.compile(r"^[1-9][0-9]*$")
 STATES = ["dispatching", "held", "accepted", "uncertain", "failed", "refused", "cancelled", "expired", "abandoned"]
 
@@ -172,18 +186,24 @@ def validate_discussion(root, key, r):
         ok(not r["deleted"] or r["anchor"] is None)
         ident = r["threadId"]
     else:
-        exact(r, scope_keys + ["messageId", "thread", "body"])
+        exact(r, scope_keys + ["messageId", "thread", "body"] + (["sequence"] if "sequence" in r else []))
         ok(root == "messages" and r["kind"] == "comment" and DEVICE.match(r["messageId"]))
         exact(r["thread"], ["writer", "id"])
         ok(DEVICE.match(r["thread"]["writer"]) and DEVICE.match(r["thread"]["id"]))
         ok(isinstance(r["body"], str) and utf8_len(r["body"]) <= 16384)
         ok(r["body"] == "" if r["deleted"] else r["body"] != "")
+        ok("sequence" not in r or (isinstance(r["sequence"], str) and re.match(r"^[1-9][0-9]*$", r["sequence"])
+                                   and int(r["sequence"]) <= MAX_SEQUENCE))
         ident = r["messageId"]
     ok(r["version"] == 1 and isinstance(r["deleted"], bool) and re.match(r"^[a-z2-7]{32}$", r["spaceId"]))
     ok(DEVICE.match(r["pageId"]) and DEVICE.match(r["senderDevice"]) and DECIMAL.match(r["epoch"]))
     ok(DECIMAL.match(r["revision"]) and utf8_len(r["deviceName"]) <= 128)
     ok(re.match(r"^(0|[1-9][0-9]*)$", r["at"]) and int(r["at"]) <= MAX_AT)
     ok(key == f"{ident}:{r['revision']}")
+
+
+def sequence_of(record):
+    return int(record.get("sequence", "0"))
 
 
 def latest(records):
@@ -195,7 +215,8 @@ def latest(records):
     for record in records[1:]:
         if int(record["revision"]) != int(previous["revision"]) + 1 or previous["deleted"]:
             return None
-        if record["kind"] == "comment" and previous["kind"] == "comment" and record["thread"] != previous["thread"]:
+        if record["kind"] == "comment" and previous["kind"] == "comment" and (
+                record["thread"] != previous["thread"] or sequence_of(record) != sequence_of(previous)):
             return None
         previous = record
     return previous
@@ -230,6 +251,7 @@ def project_threads(own, keys):
                     "deviceName": record["deviceName"], "at": record["at"], "comments": []}
             else:
                 comments.append(({"writer": writer, "id": record["messageId"], "revision": record["revision"],
+                                  "sequence": str(sequence_of(record)),
                                   "deleted": record["deleted"], "body": record["body"],
                                   "deviceName": record["deviceName"], "at": record["at"]},
                                  f"{record['thread']['writer']}:{record['thread']['id']}"))
@@ -238,8 +260,13 @@ def project_threads(own, keys):
             threads[target]["comments"].append(item)
     out = sorted(threads.values(), key=lambda t: f"{t['writer']}:{t['id']}")
     for t in out:
-        t["comments"].sort(key=lambda c: f"{c['writer']}:{c['id']}")
+        t["comments"].sort(key=comment_order)
     return out
+
+
+def comment_order(c):
+    """Lamport sequence, then writer and ID bytes; a timestamp never decides."""
+    return (int(c["sequence"]), c["writer"], c["id"])
 
 
 def decode_ask(signed):
@@ -399,7 +426,7 @@ def render_markdown(c):
                   f"- Started by: {code_span(t['deviceName'])} at {when(t['at'])}", ""]
         lines += ["Quoted text:", "", fence(t["anchor"]["exact"]), ""] if t["anchor"] else ["Quoted text: none", ""]
         for position, m in enumerate(
-                sorted(t["comments"], key=lambda m: (int(m["at"]), f"{m['writer']}:{m['id']}")), 1):
+                sorted(t["comments"], key=comment_order), 1):
             lines += [f"#### Comment {position}", "", f"- Comment ID: {m['writer']}:{m['id']}",
                       f"- By: {code_span(m['deviceName'])} at {when(m['at'])} (writer {m['writer']})",
                       f"- Revision: {m['revision']}", "", "Deleted." if m["deleted"] else fence(m["body"]), ""]

@@ -448,6 +448,71 @@ fn status_projection_matches_browser_literal_bytes_and_historical_scope_binding(
         );
     }
 }
+#[test]
+fn comments_follow_the_shared_sequence_order_whatever_the_stored_key_order() {
+    let fixture: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../../contracts/vectors/discussion-v1.json"
+    ))
+    .unwrap();
+    let scope = conversations::Capture {
+        space_id: fixture["scope"]["spaceId"].as_str().unwrap(),
+        page_id: fixture["scope"]["pageId"].as_str().unwrap(),
+        title: "Order vectors",
+        epoch: fixture["scope"]["epoch"].as_str().unwrap(),
+        head: conversations::Head {
+            revision: "1".into(),
+            statement_hash: "00".repeat(32),
+        },
+    };
+    let thread = &fixture["thread"];
+    let host = thread["senderDevice"].as_str().unwrap();
+    for row in fixture["sequenceCases"]["orderCases"].as_array().unwrap() {
+        let records: Vec<serde_json::Value> = row["comments"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|value| {
+                let mut record = fixture["comment"].clone();
+                record["senderDevice"] = value["writer"].clone();
+                record["messageId"] = value["id"].clone();
+                record["at"] = value["at"].clone();
+                if let Some(sequence) = value.get("sequence") {
+                    record["sequence"] = sequence.clone();
+                }
+                record
+            })
+            .collect();
+        let expected: Vec<&str> = row["expected"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|id| id.as_str().unwrap())
+            .collect();
+        let mut reversed = records.clone();
+        reversed.reverse();
+        for ordered in [records, reversed] {
+            let mut own = std::collections::BTreeMap::new();
+            let mut keys = std::collections::BTreeMap::new();
+            let roots =
+                || serde_json::json!({"threads":{},"messages":{},"intents":{},"replies":{}});
+            keys.insert(host.to_string(), [0; 32]);
+            let mut host_roots = roots();
+            host_roots["threads"][format!("{}:1", thread["threadId"].as_str().unwrap())] =
+                thread.clone();
+            own.insert(host.to_string(), host_roots);
+            for record in &ordered {
+                let writer = record["senderDevice"].as_str().unwrap();
+                keys.insert(writer.to_string(), [0; 32]);
+                let entry = own.entry(writer.to_string()).or_insert_with(roots);
+                entry["messages"][format!("{}:1", record["messageId"].as_str().unwrap())] =
+                    record.clone();
+            }
+            let result = conversations::threads(&scope, &own, &keys, &Default::default());
+            let ids: Vec<&str> = result[0].comments.iter().map(|c| c.id.as_str()).collect();
+            assert_eq!(ids, expected, "{}", row["name"]);
+        }
+    }
+}
 fn nested_bundle() -> Bundle {
     let names = [
         "page.html",

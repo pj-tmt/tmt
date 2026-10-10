@@ -111,9 +111,9 @@ test('browser and CLI export the same two-writer discussion and Ask conversation
       expect(conversations.threads).toHaveLength(1);
       const [thread] = conversations.threads;
       expect(thread.anchor.exact).toContain('exact quote');
-      expect(thread.comments.map((c: { body: string }) => c.body).sort()).toEqual(
-        [body, follow].sort(),
-      );
+      // The reply was written after its writer saw the opening comment: causal order, not key order.
+      expect(thread.comments.map((c: { body: string }) => c.body)).toEqual([body, follow]);
+      expect(thread.comments.map((c: { sequence: string }) => c.sequence)).toEqual(['1', '2']);
       expect(new Set(thread.comments.map((c: { writer: string }) => c.writer)).size).toBe(2);
       expect(new Set(thread.comments.map((c: { deviceName: string }) => c.deviceName))).toEqual(
         new Set(['export-author', 'export-replier']),

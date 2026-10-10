@@ -118,7 +118,16 @@ it('exports only verified, in-scope conversations and keeps display text from fo
     ),
   );
   expect(withoutW2.threads.map((thread: { id: string }) => thread.id.slice(-2))).toEqual(['02']);
-  expect(withoutW2.threads[0].comments).toHaveLength(1);
+  // Only Ben's two comments remain: the one written before sequences existed reads as 0.
+  expect(
+    withoutW2.threads[0].comments.map((comment: { id: string; sequence: string }) => [
+      comment.id.slice(-2),
+      comment.sequence,
+    ]),
+  ).toEqual([
+    ['40', '0'],
+    ['03', '2'],
+  ]);
   expect(withoutW2.asks).toHaveLength(1);
   const swapped = input();
   const [first, second] = Object.keys(swapped.signingKeys);
