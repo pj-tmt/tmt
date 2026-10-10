@@ -307,7 +307,11 @@ export class ThreadStore implements ThreadBinding {
     await this.#exclusive(async (c) => {
       const previous = this.#comment(c, ref);
       requireValue(previous.revision === revision);
-      const { ref: _ref, attachments, ...record } = previous;
+      // Mutate the admitted record, never its projection (which carries provenance).
+      const stored: unknown = this.options.own()[ref.writer]?.messages[`${ref.id}:${revision}`];
+      validateDiscussionRecord('messages', `${ref.id}:${revision}`, stored);
+      requireValue(stored.kind === 'comment');
+      const { attachments, ...record } = stored;
       // A descriptor binds its message revision, so an edit never carries one forward;
       // deletion drops the references and the bytes stay unreachable.
       requireValue(deleted || !attachments?.length);

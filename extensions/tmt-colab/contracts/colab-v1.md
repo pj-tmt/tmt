@@ -1004,10 +1004,10 @@ HTML is untrusted position data, never record, destination or activation authori
 A missing or duplicate placeholder leaves the authenticated proposal detached;
 a placeholder without a record supplies no proposal. The trusted parent draws the
 card from admitted records; labels and author HTML never choose a destination.
-The existing renderer channel carries only authenticated proposal IDs and integer
-heights clamped to 0–2000 px (at most 200 slots), scoped to the render ID and request
-ID. The iframe inserts a spacer with that minimum height immediately after exactly
-one matching live `tmt-proposal[data-id]`, and reports only ID/top pairs. Unknown,
+The shared inline renderer channel carries admitted proposal/question IDs and integer
+heights clamped to 0–2000 px (at most 250 slots: 200 proposals and 50 questions),
+scoped to the render ID and request ID. The iframe inserts a spacer with that minimum height immediately after exactly
+one matching live `tmt-proposal[data-id]` or `tmt-question[data-id]`, and reports only ID/top pairs. Unknown,
 missing or duplicate IDs receive no slot. Source replacement retires all slots;
 removed or moved spacers and inner-scroll fallback detach cards into Comments.
 Parent ResizeObserver measurement coalesces to one update per animation frame and
@@ -1917,6 +1917,63 @@ the parent sends bounded quote/tooltip data, never full records, keys or applica
 Detached threads retain their quote and require a fresh selection plus explicit
 parent confirmation to reattach. Re-resolve against every fresh render and epoch;
 absent own history is never recreated automatically.
+
+### Answer blocks
+
+An answer block is authored page HTML, not a new discussion record or CLI command:
+
+```html
+<tmt-question
+  data-id="10000000-0000-4000-8000-000000000001"
+  data-kind="single"
+  data-agent="Agent name"
+  data-other
+>
+  <p data-question>Which heading should we use?</p>
+  <span data-choice>Keep it</span>
+  <span data-choice>Change it</span>
+</tmt-question>
+```
+
+`data-id` is a canonical UUID used only for control identity. Kinds are `single`,
+`multiple`, `short` and `long`. The question has exactly one immediate
+`data-question` child; choices are immediate `data-choice` children. Whitespace
+normalizes as normal rendered quote text. At most 50 blocks, 20 distinct choices
+per block, 200 code points per question/choice and 64 per agent name are admitted.
+Duplicate IDs, nested blocks, empty text, control characters and invalid structures
+supply no controls. Choice kinds require choices; text kinds have neither choices
+nor `data-other`. Short answers allow 200 code points; long/Other text allows
+8192 UTF-8 bytes. The complete comment remains within the existing 16 KiB limit.
+
+The authored question remains the only visible title and selectable quote text;
+admitted author choice children are hidden while the trusted parent draws controls
+and current answer, with conversation history in an explicit disclosure. It resolves the untrusted
+agent name through the existing mention directory. A unique match preselects its
+bound identity; absent or ambiguous names use the normal recipient field. Send
+shows `to` and the visible recipient, or `thread only` for an ordinary comment.
+Question/choice text cannot add recipients. Only trusted explicit Send publishes
+one plain-text comment, `Answer to “<question>”: <answer>`, followed by page title
+and the visible recipient text, then attempts the existing Ask. Multiple choices
+retain authored order; Other uses `Other: <text>`. Delivery failure retains the
+comment and uses existing unadopted/uncertain retry rules; render, reload and sync
+never send.
+
+The renderer's existing text-map owner produces a normal QuoteSelector for the
+rendered question text and its surrounding context. The UUID never appears as a
+synthetic quote. Existing verified annotation threads whose selectors resolve
+inside that block are associated cosmetically; the frame cannot supply comments,
+answer state or recipients. Concurrent first answers may create sibling threads.
+The canonical thread prefers associated threads holding a nondeleted verified
+device answer, ordered by writer/thread identity; only when none has an answer
+does it use that identity order across all associated threads. Its latest device
+answer wins by Lamport/writer/message order, and later answers append there. An
+empty later sibling cannot displace an answered thread. Agent replies never mark
+Answered; sibling history stays visible.
+Removed markup leaves its ordinary annotation in Comments; removal of quote text
+detaches it through normal annotation resolution. Parent `inline-slots.ts` owns
+one proposal/question measurement batch, preserving sibling positions and focus.
+Agents read these ordinary annotations through `tmt colab threads PAGE --json`.
+Review sections and answer-count summaries are not implemented here.
 
 ### Inline annotation conversations (#1587)
 
@@ -2948,7 +3005,7 @@ remain unavailable. No schema, dependency or separate replay store is added.
 
 `tmt colab skill [<name>]` prints human-only guidance before core discovery or
 state access. Without a name it prints the embedded root `SKILL.md` exactly.
-Names are compile-time keys (`links`, `page-style`),
+Names are compile-time keys (`links`, `page-style`, `questions`),
 not paths; unknown names return `COLAB_INPUT_INVALID` and list the valid keys.
 Each root pointer names both `references/<name>.md` in the installed skill tree
 and the offline command. Authority, pairing, bearer-seed, user-only sharing,

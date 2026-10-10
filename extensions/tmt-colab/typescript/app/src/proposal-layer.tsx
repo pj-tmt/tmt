@@ -17,7 +17,6 @@ import { CommentExchange, resolvedLabel } from './thread-panel.js';
 import { presentationOf } from './thread-status-presentation.js';
 import type { ThreadView } from './thread-records.js';
 import type { PageSnapshot, PageView, PageBinding } from './transport.js';
-import type { RenderState, mountRenderer } from './renderer.js';
 import { text } from './strings.js';
 
 /** Parent-owned proposal presentation; the router wires admitted page and renderer ports. */
@@ -25,9 +24,6 @@ export function useProposalLayer({
   snapshot,
   view,
   binding,
-  renderer,
-  host,
-  state,
   discussionBlocked,
   recoveryRequired,
   statusCoordinator,
@@ -37,13 +33,12 @@ export function useProposalLayer({
   keepDraft,
   activeThread,
   setActiveThread,
+  slotPositions,
 }: {
+  slotPositions: { id: string; top: number }[];
   snapshot: PageSnapshot;
   view: PageView;
   binding: RefObject<PageBinding | undefined>;
-  renderer: RefObject<Awaited<ReturnType<typeof mountRenderer>> | null>;
-  host: RefObject<HTMLDivElement | null>;
-  state: RenderState | 'loading';
   discussionBlocked: boolean;
   recoveryRequired: boolean;
   statusCoordinator: PageBinding['status'];
@@ -54,10 +49,9 @@ export function useProposalLayer({
   activeThread: string | null;
   setActiveThread: Dispatch<SetStateAction<string | null>>;
 }) {
-  const [slotPositions, setSlotPositions] = useState<{ id: string; top: number }[]>([]);
   const [proposalStatusErrors, setProposalStatusErrors] = useState(new Set<string>());
   const [proposalOutcomes, setProposalOutcomes] = useState(new Map<string, ProposalOutcome>());
-  const proposalContext = useRef({ discussionBlocked, snapshot, view, binding, renderer, host });
+  const proposalContext = useRef({ discussionBlocked, snapshot, view, binding });
   const proposalActions = useMemo(() => {
     const pageId = snapshot.id;
     return new ProposalActions({
@@ -269,41 +263,8 @@ export function useProposalLayer({
     );
   }
   const proposals = (view.threads ?? []).filter((thread) => thread.proposal && !thread.deleted);
-  proposalContext.current = { discussionBlocked, snapshot, view, binding, renderer, host };
-  const proposalIdentity = proposals.map((t) => `${t.ref.writer}:${t.ref.id}`).join(',');
-  useEffect(() => {
-    if (state !== 'ready') return;
-    const nodes = [
-      ...(proposalContext.current.host.current?.parentElement?.querySelectorAll<HTMLElement>(
-        '[data-inline-proposal]',
-      ) ?? []),
-    ];
-    let frame: number | undefined;
-    let previous = '';
-    const measure = () => {
-      frame = undefined;
-      const heights = nodes.map((node) => ({
-        id: node.dataset.inlineProposal!,
-        height: Math.min(2000, Math.ceil(node.getBoundingClientRect().height)),
-      }));
-      const next = JSON.stringify(heights);
-      if (next !== previous) {
-        previous = next;
-        proposalContext.current.renderer.current?.slots(heights);
-      }
-    };
-    const observer = new ResizeObserver(() => {
-      if (frame === undefined) frame = requestAnimationFrame(measure);
-    });
-    nodes.forEach((node) => observer.observe(node));
-    measure();
-    return () => {
-      observer.disconnect();
-      if (frame !== undefined) cancelAnimationFrame(frame);
-    };
-  }, [state, view.source, proposalIdentity]);
+  proposalContext.current = { discussionBlocked, snapshot, view, binding };
   return {
-    onSlots: setSlotPositions,
     reopenProposal: (thread: ThreadView) => changeProposalStatus(thread, 'comments'),
     inline: (
       <>
@@ -315,6 +276,7 @@ export function useProposalLayer({
               <div
                 key={`${thread.ref.writer}:${thread.ref.id}`}
                 data-inline-proposal={thread.threadId}
+                data-inline-slot={thread.threadId}
                 className="proposal-inline"
                 data-detached={!slot || undefined}
                 style={{ top: slot?.top ?? 0 }}

@@ -17,19 +17,14 @@ import type { ComposerEdit } from './components/message-composer-edit.js';
 import type { CreationRecipient } from './fold-protocol.js';
 import { messageRecipient } from './message-recipient.js';
 import { text } from './strings.js';
-import { AskAgainAction, type AskAgainInput } from './ask-again.js';
+import { CommentSendFailures } from './comment-send-failures.js';
 import type { AskBinding, PageAsk } from './ask-panel.js';
 import type { ThreadBinding } from './thread-store.js';
 import { captureConversation } from './thread-store.js';
 import type { DiscussionRef, QuoteSelector, ThreadView } from './thread-records.js';
 
-export type MessageSendFailure = {
-  agent: string;
-  message: string;
-  uncertain: boolean;
-  recipient: { machine: string; agent: string };
-  input: AskAgainInput;
-};
+import { sendCommentAsks, type MessageSendFailure } from './comment-send.js';
+export type { MessageSendFailure } from './comment-send.js';
 
 /** One trusted input. Enter is the explicit effect; disclosure never prepares or sends an intent. */
 export function AnnotationInput({
@@ -215,43 +210,14 @@ export function AnnotationInput({
           ? await discussion.createChat(captured.value, attach)
           : await discussion.create(captured.value, captured.anchor, attach);
       files.committed();
-      for (const destination of captured.destinations) {
-        if (!binding) break;
-        const input: AskAgainInput = {
-          quote,
-          comment: captured.value,
-          title: captured.title,
-          url: captured.url,
-          context: { ...origin, conversation: captured.conversation },
-        };
-        const failure = {
-          agent: destination.agentName,
-          message: origin.message.id,
-          recipient: { machine: destination.machine, agent: destination.agent },
-          input,
-        };
-        let attempt: Awaited<ReturnType<AskBinding['prepare']>>;
-        try {
-          attempt = await binding.prepare({
-            ...input,
-            destination,
-          });
-        } catch {
-          // Failed preparation grants no authority to invent an Ask record or retry a sibling.
-          recordFailure({ ...failure, uncertain: false });
-          continue;
-        }
-        try {
-          const result = await attempt.send();
-          if (
-            result.adopted === false ||
-            (result.adopted === undefined && result.state === 'uncertain')
-          )
-            recordFailure({ ...failure, uncertain: result.adopted !== false });
-        } catch {
-          recordFailure({ ...failure, uncertain: true });
-        }
-      }
+      const failures = await sendCommentAsks(binding, origin, captured.destinations, {
+        quote,
+        comment: captured.value,
+        title: captured.title,
+        url: captured.url,
+        conversation: captured.conversation,
+      });
+      failures.forEach(recordFailure);
       clearDraft();
       committed(origin.thread);
     } catch (failure) {
@@ -390,39 +356,22 @@ export function AnnotationInput({
           }}
         />
       </div>
-      {failures.map((failure, index) => (
-        <div
-          role="status"
-          data-testid="recipient-failure"
-          data-message-id={failure.message}
-          key={index}
-        >
-          <p>
-            @{failure.agent} · {failure.uncertain ? text.askUnconfirmed : text.askNotDelivered}{' '}
-            {!failure.uncertain && (
-              <AskAgainAction
-                binding={binding}
-                blocked={blocked || busy || !!recorded}
-                input={failure.input}
-                recipient={failure.recipient}
-                retryOf={null}
-                settled={(outcome) => {
-                  setFailures((previous) =>
-                    outcome.adopted === true
-                      ? previous.filter((value) => value !== failure)
-                      : outcome.adopted === false
-                        ? previous
-                        : previous.map((value) =>
-                            value === failure ? { ...value, uncertain: true } : value,
-                          ),
-                  );
-                }}
-              />
-            )}
-          </p>
-          {failure.uncertain && <p className="ask-supporting">{text.askUncertain}</p>}
-        </div>
-      ))}
+      <CommentSendFailures
+        failures={failures}
+        binding={binding}
+        blocked={blocked || busy || !!recorded}
+        settled={(failure, outcome) =>
+          setFailures((previous) =>
+            outcome.adopted === true
+              ? previous.filter((value) => value !== failure)
+              : outcome.adopted === false
+                ? previous
+                : previous.map((value) =>
+                    value === failure ? { ...value, uncertain: true } : value,
+                  ),
+          )
+        }
+      />
       {error && <p role="alert">{error}</p>}
       {recorded && (chat || !thread) && (
         <BrowserAction

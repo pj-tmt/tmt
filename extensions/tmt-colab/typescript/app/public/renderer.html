@@ -29,6 +29,9 @@
             requestId = '',
             stopped = false,
             timer;
+          let questionBlocks = [],
+            questionThreads = [],
+            questionRequestId = '';
           let slots = [],
             slotRequestId = '';
           const spacers = new Map();
@@ -257,7 +260,9 @@
             if (stopped || !slotRequestId) return;
             const positions = [];
             for (const slot of slots) {
-              const matches = document.querySelectorAll(`tmt-proposal[data-id="${slot.id}"]`);
+              const matches = document.querySelectorAll(
+                `tmt-proposal[data-id="${slot.id}"],tmt-question[data-id="${slot.id}"]`,
+              );
               let spacer = spacers.get(slot.id);
               if (spacer && (!spacer.isConnected || spacer.previousElementSibling !== matches[0])) {
                 spacer.remove();
@@ -290,8 +295,107 @@
               slots: positions,
             });
           }
+          // The same normal quote owner resolves annotation and question anchors.
+          function quoteRange(map, selector, deadline) {
+            let offset = 0,
+              matches = 0,
+              selected = -1,
+              candidates = 0;
+            while ((offset = map.text.indexOf(selector.exact, offset)) >= 0) {
+              if (++candidates > 64 || performance.now() > deadline)
+                throw new Error('match budget');
+              if (
+                map.text.slice(0, offset).endsWith(selector.prefix) &&
+                map.text.slice(offset + selector.exact.length).startsWith(selector.suffix)
+              ) {
+                matches++;
+                selected = offset;
+              }
+              offset++;
+            }
+            if (performance.now() > deadline) throw new Error('match budget');
+            if (matches !== 1) return;
+            const start = map.units.indexOf(selected),
+              end = start + [...selector.exact].length - 1;
+            if (start < 0 || !map.spans[end]) return;
+            const a = map.spans[start],
+              b = map.spans[end],
+              range = document.createRange();
+            range.setStart(a.node, a.start);
+            range.setEnd(b.node, b.end);
+            return range;
+          }
+          function resolveQuestions() {
+            if (stopped || !questionRequestId) return;
+            const questions = [];
+            try {
+              // Parent-admitted choices render as trusted controls, not concatenated author labels.
+              // Keep the question itself visible and selectable for the normal quote owner.
+              for (const block of questionBlocks) {
+                const matches = document.querySelectorAll(`tmt-question[data-id="${block.id}"]`);
+                if (matches.length !== 1) continue;
+                for (const child of matches[0].children)
+                  if (child.hasAttribute('data-choice') && !child.hasAttribute('hidden'))
+                    child.setAttribute('hidden', '');
+              }
+              const map = collect(),
+                deadline = performance.now() + 20;
+              const threads = questionThreads.map((thread) => ({
+                id: thread.id,
+                range: quoteRange(map, thread.selector, deadline),
+              }));
+              for (const block of questionBlocks) {
+                if (performance.now() > deadline) throw new Error('question budget');
+                const matches = document.querySelectorAll(`tmt-question[data-id="${block.id}"]`);
+                if (matches.length !== 1) continue;
+                const element = matches[0],
+                  headings = [...element.children].filter((node) =>
+                    node.hasAttribute('data-question'),
+                  );
+                if (headings.length !== 1) continue;
+                const heading = headings[0];
+                const start = map.spans.findIndex((span) => heading.contains(span.node));
+                let end = start;
+                while (end >= 0 && end < map.spans.length && heading.contains(map.spans[end].node))
+                  end++;
+                if (start < 0 || end <= start) continue;
+                // Normalized whitespace at the edges is surrounding context, not question text.
+                let first = start,
+                  last = end;
+                while (map.points[first] === ' ') first++;
+                while (map.points[last - 1] === ' ') last--;
+                const selector = {
+                  exact: map.points.slice(first, last).join(''),
+                  prefix: map.points.slice(Math.max(0, first - 32), first).join(''),
+                  suffix: map.points.slice(last, last + 32).join(''),
+                };
+                if (!validQuote(selector) || selector.exact !== block.title) continue;
+                questions.push({
+                  id: block.id,
+                  selector,
+                  threads: threads
+                    .filter(
+                      (thread) =>
+                        thread.range &&
+                        element.contains(thread.range.startContainer) &&
+                        element.contains(thread.range.endContainer),
+                    )
+                    .map((thread) => thread.id),
+                });
+              }
+            } catch {
+              questions.length = 0;
+            }
+            port.postMessage({
+              type: 'colab.render.questions',
+              renderId,
+              requestId: questionRequestId,
+              questions,
+            });
+          }
           function resolve() {
             resolveSlots();
+            resolveQuestions();
             if (stopped || !requestId) return;
             clear();
             const resolved = [],
@@ -302,34 +406,8 @@
                 deadline = performance.now() + 20;
               for (const item of batch) {
                 if (performance.now() > deadline) throw new Error('match budget');
-                let offset = 0,
-                  matches = 0,
-                  selected = -1,
-                  candidates = 0;
-                while ((offset = map.text.indexOf(item.selector.exact, offset)) >= 0) {
-                  if (++candidates > 64 || performance.now() > deadline)
-                    throw new Error('match budget');
-                  if (
-                    map.text.slice(0, offset).endsWith(item.selector.prefix) &&
-                    map.text
-                      .slice(offset + item.selector.exact.length)
-                      .startsWith(item.selector.suffix)
-                  ) {
-                    matches++;
-                    selected = offset;
-                  }
-                  offset++;
-                }
-                if (performance.now() > deadline) throw new Error('match budget');
-                if (matches !== 1) continue;
-                const start = map.units.indexOf(selected),
-                  end = start + [...item.selector.exact].length - 1;
-                if (start < 0 || !map.spans[end]) continue;
-                const a = map.spans[start],
-                  b = map.spans[end],
-                  range = document.createRange();
-                range.setStart(a.node, a.start);
-                range.setEnd(b.node, b.end);
+                const range = quoteRange(map, item.selector, deadline);
+                if (!range) continue;
                 resolved.push(item.id);
                 // Empty ID is the unsaved composer's quote: resolve without drawing a marker.
                 if (item.id === '') continue;
@@ -412,6 +490,36 @@
           port.onmessage = (event) => {
             const v = event.data;
             if (
+              v?.type === 'colab.render.questions' &&
+              v.renderId === renderId &&
+              typeof v.requestId === 'string' &&
+              /^[0-9a-f-]{36}$/.test(v.requestId) &&
+              Array.isArray(v.blocks) &&
+              v.blocks.length <= 50 &&
+              v.blocks.every(
+                (block) =>
+                  block &&
+                  /^[0-9a-f-]{36}$/.test(block.id) &&
+                  typeof block.title === 'string' &&
+                  [...block.title].length <= 200,
+              ) &&
+              Array.isArray(v.threads) &&
+              v.threads.length <= 1000 &&
+              v.threads.every(
+                (thread) =>
+                  thread &&
+                  typeof thread.id === 'string' &&
+                  thread.id.length <= 73 &&
+                  validQuote(thread.selector),
+              )
+            ) {
+              questionBlocks = v.blocks;
+              questionThreads = v.threads;
+              questionRequestId = v.requestId;
+              resolveQuestions();
+              return;
+            }
+            if (
               v &&
               typeof v === 'object' &&
               !Array.isArray(v) &&
@@ -421,7 +529,7 @@
               typeof v.requestId === 'string' &&
               /^[0-9a-f-]{36}$/.test(v.requestId) &&
               Array.isArray(v.slots) &&
-              v.slots.length <= 200 &&
+              v.slots.length <= 250 &&
               new Set(v.slots.map((s) => s?.id)).size === v.slots.length &&
               v.slots.every(
                 (s) =>

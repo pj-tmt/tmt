@@ -103,6 +103,8 @@ export type DiscussionRecord =
   | ProposalDecisionRecord;
 // Proposal decisions share the admitted status path, not the resolution field.
 export interface CommentView extends CommentRecord {
+  /** Projection only: authenticated device provenance, never an author-supplied record field. */
+  readonly deviceAuthor?: boolean;
   ref: DiscussionRef;
 }
 export interface ThreadView extends ThreadRecord {
@@ -349,7 +351,12 @@ export function readThreads(
       if (record.kind === 'thread') {
         const ref = { writer, id: record.threadId };
         threads.set(refKey(ref), { ...record, ref, comments: [] });
-      } else comments.push({ ...record, ref: { writer, id: record.messageId } });
+      } else
+        comments.push({
+          ...record,
+          deviceAuthor: statusWriter(writer),
+          ref: { writer, id: record.messageId },
+        });
     }
   }
   for (const comment of comments) threads.get(refKey(comment.thread))?.comments.push(comment);

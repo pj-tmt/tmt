@@ -188,3 +188,5 @@ means placement is unconfirmed; missing/duplicate placeholders stay detached.
 HTML grants no authority. Resolve never notifies agents; Reopen keeps the decision.
 Trusted Approve/Decline saves the final decision, then sends one Ask; failure
 keeps it. Reload never sends. `--after` is deferred.
+
+Read [references/questions.md](references/questions.md) or `tmt colab skill questions` for answer-block markup and thread answers.

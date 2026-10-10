@@ -331,6 +331,8 @@ export async function mount(
     const comment: ThreadView['comments'][number] = {
       ...scope,
       kind: 'comment',
+      deviceAuthor: true,
+      sequence: String(thread.comments.length + 1),
       thread: thread.ref,
       body,
       messageId,
@@ -1158,5 +1160,98 @@ export function driverClient(options: {
       })
     : undefined;
   presentationClient = options.enabled ? presentationAsk : undefined;
+  emit();
+}
+
+/** Inert authored questions plus admitted thread projections; no publication proof. */
+export function question(
+  options: {
+    kind?: 'single' | 'multiple' | 'short' | 'long';
+    agent?: string;
+    title?: string;
+    choices?: string[];
+    other?: boolean;
+    placement?: 'inline' | 'duplicate' | 'nested';
+    mixed?: boolean;
+  } = {},
+) {
+  const escape = (value: string) =>
+    value.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('"', '&quot;');
+  const kind = options.kind ?? 'single';
+  const choices =
+    options.choices ?? (kind === 'single' || kind === 'multiple' ? ['Keep it', 'Change it'] : []);
+  const markup = `<tmt-question data-id="${id(90)}" data-kind="${kind}" data-agent="${escape(options.agent ?? 'Agent 1')}" ${options.other ? 'data-other' : ''}><p data-question>${escape(options.title ?? 'Which heading should we use?')}</p>${choices.map((choice) => `<span data-choice>${escape(choice)}</span>`).join('')}</tmt-question>`;
+  if (options.mixed) proposal('inline');
+  current = {
+    ...current,
+    source: `<style>body{margin:24px;font:16px/1.5 sans-serif}tmt-question,tmt-proposal{display:block}</style><h1>Project notes</h1><p>Before the question.</p>${options.placement === 'nested' ? `<tmt-question data-id="${id(91)}">${markup}</tmt-question>` : markup}${options.placement === 'duplicate' ? markup : ''}<p id="after-question">The page continues here.</p>${options.mixed ? `<tmt-proposal data-id="${id(81)}"></tmt-proposal><p id="after-proposal">After both controls.</p>` : ''}`,
+    threads: options.mixed ? current.threads : [],
+  };
+  emit();
+}
+
+/** Admitted answer Ask state attached to the same normal annotation turn. */
+export function questionAsk(state: PageAsk['state'] | 'replied') {
+  const thread = current.threads!.find((thread) => !thread.proposal)!;
+  const comment = thread.comments.at(-1)!;
+  current = {
+    ...current,
+    asks: [
+      {
+        thread: thread.threadId,
+        messageIds: [comment.messageId],
+        operationId: sends.sends[0].operationId,
+        writer: id(4),
+        message: comment.body,
+        agent: destination().agent,
+        agentName: destination().agentName,
+        deviceName: 'You',
+        machine: destination().machine,
+        issuedAt: Date.now(),
+        canTrack: true,
+        state: state === 'replied' ? 'accepted' : state,
+        ...(state === 'refused' ? { requestId: null, reason: 'REMOTE_SCOPE_DENIED' } : {}),
+        ...(state === 'replied' ? { reply: 'I read your answer in this thread.' } : {}),
+      },
+    ],
+  };
+  emit();
+}
+
+/** Two verified reader streams can create sibling normal annotations concurrently. */
+export function questionSibling(options: {
+  body: string;
+  sequence: string;
+  device?: boolean;
+  reverse?: boolean;
+  index?: number;
+  canonical?: boolean;
+  empty?: boolean;
+}) {
+  const first = current.threads!.find((thread) => !thread.proposal && thread.comments.length)!;
+  const threadId = id(92 + (options.index ?? 0) * 3),
+    writer = options.canonical ? id(2) : id(93 + (options.index ?? 0) * 3),
+    messageId = id(94 + (options.index ?? 0) * 3);
+  const sibling: ThreadView = {
+    ...first,
+    threadId,
+    ref: { writer, id: threadId },
+    comments: options.empty
+      ? []
+      : [
+          {
+            ...first.comments[0],
+            thread: { writer, id: threadId },
+            messageId,
+            ref: { writer, id: messageId },
+            body: options.body,
+            sequence: options.sequence,
+            deviceAuthor: options.device !== false,
+            deviceName: options.device === false ? 'Agent' : 'Other reader',
+          },
+        ],
+  };
+  const threads = [...current.threads!.filter((thread) => thread.ref.id !== threadId), sibling];
+  current = { ...current, threads: options.reverse ? threads.reverse() : threads };
   emit();
 }

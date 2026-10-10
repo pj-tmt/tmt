@@ -1256,3 +1256,50 @@ footer {
   margin-left: 6px;
   color: var(--conversation-driver-color);
 }
+
+.question-card {
+  background: var(--c-sheet);
+  color: var(--c-text);
+  border-top: 1px solid var(--c-rule);
+  border-bottom: 1px solid var(--c-rule);
+  padding: 16px;
+  max-height: 1900px;
+  overflow: auto;
+}
+.question-card fieldset {
+  border: 0;
+  padding: 0;
+  margin: 12px 0;
+}
+.question-card > .tmt-ui-action[data-variant='text'] {
+  padding-inline: 0;
+}
+.question-card fieldset label {
+  display: flex;
+  align-items: start;
+  gap: 8px;
+  margin: 8px 0;
+}
+.question-text {
+  display: grid;
+  gap: 6px;
+  margin: 12px 0;
+}
+.question-text input,
+.question-text textarea {
+  width: 100%;
+  box-sizing: border-box;
+  font: inherit;
+  color: inherit;
+  background: var(--c-sheet);
+  border: 1px solid var(--c-rule);
+  padding: 8px;
+}
+.question-state,
+.question-answer {
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+.question-history {
+  margin-top: 16px;
+}

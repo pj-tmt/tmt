@@ -19,6 +19,11 @@ export interface AnchorPosition {
   id: string;
   top: number;
 }
+export interface QuestionAnchor {
+  id: string;
+  selector: QuoteSelector;
+  threads: string[];
+}
 export type RenderState = 'ready' | 'navigation' | 'failed';
 export interface RenderSnapshot {
   readonly renderId: string;
@@ -56,11 +61,16 @@ export async function mountRenderer(
     /** Trusted chrome's fixed header inset; absent for standalone renderer probes. */
     viewportInset?(): number;
     onSlots?(slots: AnchorPosition[]): void;
+    onQuestions?(questions: QuestionAnchor[]): void;
   },
 ): Promise<{
   readonly snapshot: RenderSnapshot;
   highlight(anchors: { id: string; selector: QuoteSelector }[], draft?: QuoteSelector): void;
   slots(slots: { id: string; height: number }[]): void;
+  questions(
+    blocks: { id: string; title: string }[],
+    threads: { id: string; selector: QuoteSelector }[],
+  ): void;
   scrollAnchor(id: string): void;
   /** Cosmetic position already admitted from this render; never discussion authority. */
   anchorRectangle(id: string): SelectionRect | undefined;
@@ -95,6 +105,9 @@ export async function mountRenderer(
   let requestId = '';
   let anchors: { id: string; selector: QuoteSelector }[] = [];
   const positions = new Map<string, number>();
+  let questionRequestId = '';
+  let questionBlocks: { id: string; title: string }[] = [];
+  let questionThreads: { id: string; selector: QuoteSelector }[] = [];
   let slotRequestId = '';
   let slotHeights: { id: string; height: number }[] = [];
   let slotRounds = 0;
@@ -309,6 +322,46 @@ export async function mountRenderer(
   channel.port1.onmessage = (event: MessageEvent<unknown>) => {
     if (stopped || !ready) return;
     const value = event.data as Record<string, unknown> | null;
+    if (value?.type === 'colab.render.questions') {
+      if (
+        value.renderId !== snapshot.renderId ||
+        value.requestId !== questionRequestId ||
+        !Array.isArray(value.questions) ||
+        value.questions.length > questionBlocks.length
+      )
+        return;
+      const seen = new Set<string>();
+      const admittedThreads = new Set(questionThreads.map((thread) => thread.id));
+      const result: QuestionAnchor[] = [];
+      try {
+        for (const item of value.questions) {
+          const block = questionBlocks.find((block) => block.id === item?.id);
+          if (
+            !block ||
+            seen.has(item.id) ||
+            !Array.isArray(item.threads) ||
+            item.threads.length > questionThreads.length ||
+            item.threads.some(
+              (id: unknown) => typeof id !== 'string' || !admittedThreads.has(id),
+            ) ||
+            new Set(item.threads).size !== item.threads.length
+          )
+            return;
+          validateSelector(item.selector);
+          if (item.selector.exact !== block.title) return;
+          seen.add(item.id);
+          result.push({
+            id: item.id,
+            selector: structuredClone(item.selector),
+            threads: [...item.threads],
+          });
+        }
+      } catch {
+        return;
+      }
+      options.onQuestions?.(result);
+      return;
+    }
     if (
       value &&
       typeof value === 'object' &&
@@ -453,10 +506,45 @@ export async function mountRenderer(
     options.onAnchors?.([]);
     channel.port1.postMessage(message);
   };
+  const questions = (
+    blocks: { id: string; title: string }[],
+    threads: { id: string; selector: QuoteSelector }[],
+  ) => {
+    if (
+      stopped ||
+      blocks.length > 50 ||
+      threads.length > 1000 ||
+      new Set(blocks.map((block) => block.id)).size !== blocks.length ||
+      blocks.some(
+        (block) =>
+          !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(block.id) ||
+          [...block.title].length > 200,
+      ) ||
+      threads.some((thread) => typeof thread.id !== 'string' || thread.id.length > 73)
+    )
+      return;
+    for (const thread of threads) validateSelector(thread.selector);
+    questionBlocks = blocks.map(({ id, title }) => ({ id, title }));
+    questionThreads = threads.map(({ id, selector }) => ({
+      id,
+      selector: structuredClone(selector),
+    }));
+    questionRequestId = crypto.randomUUID();
+    const message = {
+      type: 'colab.render.questions',
+      renderId: snapshot.renderId,
+      requestId: questionRequestId,
+      blocks: questionBlocks,
+      threads: questionThreads,
+    };
+    options.onQuestions?.([]);
+    if (new TextEncoder().encode(JSON.stringify(message)).length > 256 * 1024) return;
+    channel.port1.postMessage(message);
+  };
   const slots = (input: { id: string; height: number }[]) => {
     if (
       stopped ||
-      input.length > 200 ||
+      input.length > 250 ||
       new Set(input.map((v) => v.id)).size !== input.length ||
       input.some(
         (v) =>
@@ -543,5 +631,5 @@ export async function mountRenderer(
       height: 20,
     };
   };
-  return { snapshot, highlight, slots, scrollAnchor, anchorRectangle, release, destroy };
+  return { snapshot, highlight, slots, questions, scrollAnchor, anchorRectangle, release, destroy };
 }
