@@ -618,6 +618,24 @@ fn settings_page_and_product_script_reuse_the_same_door_policy_and_sdk() {
     assert_eq!(script.body, include_str!("../assets/settings-v1.js"));
     assert!(script.body.contains("from \"/sdk/remote-v1.js\""));
     assert!(!script.body.contains("class DeviceKey"));
+    assert!(
+        script
+            .body
+            .contains("Check the original result above before making another change.")
+    );
+    assert!(script.body.contains(
+        "Browser change limit reached. Use the local CLI; do not retry or reset storage."
+    ));
+    assert!(
+        !script
+            .body
+            .contains("The original outcome is unknown. Read it before another change.")
+    );
+    assert!(
+        !script
+            .body
+            .contains("Browser management operation limit reached.")
+    );
     assert_eq!(
         get(&h, "/settings", "Origin: http://127.0.0.1:1\r\n").status,
         403

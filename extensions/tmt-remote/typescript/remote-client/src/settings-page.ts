@@ -119,7 +119,11 @@ function renderOutcome(): void {
         ? 'working'
         : 'blocked';
     original.textContent =
-      selected && page.intent ? `Original operation ${page.intent.input.operationId}` : '';
+      selected &&
+      page.intent &&
+      (page.outcome?.state === 'unknown' || page.outcome?.state === 'refused')
+        ? `Original operation ${page.intent.input.operationId}`
+        : '';
     original.hidden = !original.textContent;
     recover.hidden = !selected || !page.canRecover;
     recover.disabled = page.busy;
@@ -150,9 +154,9 @@ function render(): void {
     : !editable
       ? 'Changes are unavailable in this browser. Use the local CLI.'
       : page.outcome?.state === 'unknown'
-        ? 'The original outcome is unknown. Read it before another change.'
+        ? 'Check the original result above before making another change.'
         : page.outcome?.state === 'refused' && page.outcome.reason === 'REMOTE_MANAGEMENT_CAPACITY'
-          ? 'Browser management operation limit reached. Use the local CLI; do not retry or reset storage.'
+          ? 'Browser change limit reached. Use the local CLI; do not retry or reset storage.'
           : '';
   element('controls-reason').textContent = reason;
   element('controls-reason').hidden = !reason;
@@ -316,7 +320,14 @@ function render(): void {
       if (editable) name.removeAttribute('aria-describedby');
       else name.setAttribute('aria-describedby', 'read-only');
       const disabledReason = element(`device-reason-${device.clientId}`);
-      disabledReason.textContent = device.revoked ? 'This device is revoked.' : reason;
+      disabledReason.textContent =
+        page.outcome?.state === 'unknown' &&
+        page.intent?.kind !== 'setting' &&
+        page.intent?.input.clientId === device.clientId
+          ? ''
+          : device.revoked
+            ? 'This device is revoked.'
+            : reason;
       disabledReason.hidden = !disabledReason.textContent;
       for (const button of row.querySelectorAll<HTMLButtonElement>('form button')) {
         button.disabled = !page.writable || device.revoked;

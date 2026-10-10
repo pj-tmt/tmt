@@ -1937,7 +1937,7 @@ test('settings draft preserves authority, exact values, drafts and unknown self-
   );
   await name.press('Enter');
   expect(renameCalls).toBe(1);
-  const original = await page.locator('#original').textContent();
+  await expect(page.locator('#original')).toHaveText(/^Original operation [0-9a-f-]{36}$/);
   try {
     await page.click('#recover');
     await recovery.reached;
@@ -1952,7 +1952,8 @@ test('settings draft preserves authority, exact values, drafts and unknown self-
     if (recoveryHeld) await recoveryJoined.reached;
   }
   await expect(page.locator('#outcome')).toHaveAttribute('data-state', 'committed');
-  await expect(page.locator('#original')).toHaveText(original!);
+  await expect(page.locator('#original')).toBeEmpty();
+  await expect(page.locator('#original')).toBeHidden();
   await expect(name).toHaveValue('Unsent next name');
   expect(renameCalls).toBe(1);
   expect(opens).toBe(1);
@@ -2078,11 +2079,12 @@ test('settings pagination retains later-page drafts across refresh and guards na
   await page.selectOption('#opening', 'on');
   await page.click('#opening-form button');
   await expect(page.locator('#outcome')).toHaveAttribute('data-state', 'unknown');
-  const original = await page.locator('#original').textContent();
+  await expect(page.locator('#original')).toHaveText(/^Original operation [0-9a-f-]{36}$/);
   await page.click('#recover');
   await expect(page.locator('#opening-value')).toHaveText('On · settings.json');
   await expect(page.locator('#outcome')).toHaveAttribute('data-state', 'committed');
-  await expect(page.locator('#original')).toHaveText(original!);
+  await expect(page.locator('#original')).toBeEmpty();
+  await expect(page.locator('#original')).toBeHidden();
   await expect(name).toHaveValue('Unsent later-page name');
   expect(settingCalls).toBe(1);
   // Both directions refuse to discard a dirty UUID-bound form, keeping it focused.
@@ -2116,17 +2118,20 @@ test('settings pagination retains later-page drafts across refresh and guards na
   await target.locator('button[type=submit]').click();
   await expect(page.locator('#outcome')).toHaveAttribute('data-state', 'committed');
   await expect(target.locator('.device-summary')).toContainText('Reviewed device');
-  const retainedOriginal = await page.locator('#original').textContent();
+  await expect(page.locator('#original')).toBeEmpty();
+  await expect(page.locator('#original')).toBeHidden();
   await page.click('#more');
   await expect(page.locator('[data-feedback="shared"] [data-outcome-slot]')).toHaveText(
     'Device renamed.',
   );
   await expect(page.locator('[data-outcome-slot]').filter({ hasText: /.+/ })).toHaveCount(1);
-  await expect(page.locator('#original')).toHaveText(retainedOriginal!);
+  await expect(page.locator('#original')).toBeEmpty();
+  await expect(page.locator('#original')).toBeHidden();
   await page.click('#first');
   await expect(target.locator('[data-outcome-slot]')).toHaveText('Device renamed.');
   await expect(page.locator('[data-feedback="shared"] [data-outcome-slot]')).toBeEmpty();
-  await expect(page.locator('#original')).toHaveText(retainedOriginal!);
+  await expect(page.locator('#original')).toBeEmpty();
+  await expect(page.locator('#original')).toBeHidden();
   await captureState(
     page,
     'settings-other-device-renamed',
@@ -2163,7 +2168,9 @@ test('settings pagination retains later-page drafts across refresh and guards na
   await page.selectOption('#opening', 'off');
   await page.click('#opening-form button');
   await expect(page.locator('#outcome')).toHaveAttribute('data-state', 'refused');
-  await expect(page.locator('#controls-reason')).toContainText('operation limit reached');
+  await expect(page.locator('#controls-reason')).toHaveText(
+    'Browser change limit reached. Use the local CLI; do not retry or reset storage.',
+  );
   await expect(page.locator('#opening-form button')).toBeDisabled();
   await captureState(
     page,
@@ -2279,7 +2286,8 @@ test('committed signed management survives owned serve SIGKILL and fresh origina
   await expect(page.locator('#outcome')).toHaveAttribute('data-state', 'committed');
   await expect(page.locator('#opening-value')).toHaveText('Off · settings.json');
   await expect(page.locator('#opening')).toBeEnabled(); // designation survived process death.
-  await expect(page.locator('#original')).toHaveText(`Original operation ${originalId}`);
+  await expect(page.locator('#original')).toBeEmpty();
+  await expect(page.locator('#original')).toBeHidden();
   expect(effectCalls).toBe(1);
   expect(opens).toBe(1);
   const after = JSON.parse(
@@ -2806,6 +2814,8 @@ for (const [width, theme] of [
     await name.press('Enter');
     await expect(slot).toHaveText('Device renamed.');
     await expect(slot).toHaveAttribute('data-state', 'committed');
+    await expect(row.locator('[data-original]')).toBeEmpty();
+    await expect(row.locator('[data-original]')).toBeHidden();
     await expect(name).toBeFocused();
     await expect(row.locator('.device-summary')).toContainText('Renamed device');
     expect(
@@ -2886,6 +2896,12 @@ for (const [width, theme] of [
     await expect(name).toHaveValue('Unsent next draft');
     const originalId = writes.at(-1)!.input.operationId;
     await expect(page.locator('#original')).toHaveText(`Original operation ${originalId}`);
+    await expect(row.locator(`#device-reason-${targetId}`)).toBeEmpty();
+    await expect(row.locator(`#device-reason-${targetId}`)).toBeHidden();
+    for (const otherId of [clientId, '00000000-0000-4000-8000-000000000002'])
+      await expect(page.locator(`#device-reason-${otherId}`)).toHaveText(
+        'Check the original result above before making another change.',
+      );
     await expect(
       row.getByRole('button', { name: 'Check original result', exact: true }),
     ).toBeVisible();
