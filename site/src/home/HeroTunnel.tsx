@@ -1,116 +1,106 @@
+import { useStrings } from "../lang/useStrings";
 import "./hero-tunnel.css";
 
-const routes = [
-  "M130 156 C110 250 350 212 360 400",
-  "M380 226 C350 285 90 255 102 389",
-  "M112 390 C40 300 42 205 130 156",
-  "M360 400 C470 325 480 272 380 226",
-  "M102 420 C180 510 290 475 360 420",
-];
+function PortalRings({ vertical = false }: { vertical?: boolean }) {
+  return (
+    <g
+      transform={
+        vertical
+          ? "translate(80 152.75) rotate(90) scale(.8) translate(-245 -282)"
+          : "translate(130 80) scale(.8) translate(-245 -282)"
+      }
+    >
+      <ellipse cx="245" cy="282" rx="118" ry="66" />
+      <ellipse cx="245" cy="282" rx="86" ry="48" />
+      <ellipse cx="245" cy="282" rx="53" ry="30" />
+    </g>
+  );
+}
 
 /** Illustrative cross-harness exchange, not a live delivery indicator. */
 export function HeroTunnel() {
+  const { tunnel } = useStrings().landing;
+  const { handoff } = useStrings().home;
   return (
-    <div
-      className="hero-tunnel"
-      aria-label="Claude Code, Codex, Pi and Cursor exchange requests across terminals and machines"
-    >
-      <div className="tunnel-caption">DIFFERENT HARNESSES. YOUR OWN ENVIRONMENT.</div>
-      <svg className="tunnel-path" viewBox="0 0 480 560" aria-hidden="true">
-        <ellipse cx="245" cy="282" rx="118" ry="66" />
-        <ellipse cx="245" cy="282" rx="86" ry="48" />
-        <ellipse cx="245" cy="282" rx="53" ry="30" />
-        {routes.map((path, index) => (
-          <g key={path}>
-            <path d={path} className={index > 1 ? "tunnel-return" : ""} />
-            <circle
-              className={`tunnel-packet ${index % 2 ? "tunnel-reply" : ""}`}
-              r={index < 2 ? 4 : 3}
-            >
-              <animateMotion
-                dur={`${5 + index}s`}
-                begin={`${-index * 1.7}s`}
-                repeatCount="indefinite"
-                path={path}
-              />
-            </circle>
-          </g>
-        ))}
-      </svg>
-      <article className="tunnel-terminal terminal-reviewer">
-        <header>
-          <span>›_ Claude Code</span>
-          <span>01</span>
-        </header>
-        <div className="tunnel-environment">
-          <span>tmux</span>
-          <span>remote devbox</span>
-        </div>
-        <div className="tunnel-terminal-body">
-          <p className="tunnel-command">$ tmt this reviewer</p>
-          <p className="tunnel-label">↓ REQUEST FROM BUILDER</p>
-          <p>Review this patch?</p>
-        </div>
-      </article>
-      <article className="tunnel-terminal terminal-pi">
-        <header>
-          <span>›_ Pi agent</span>
-          <span>02</span>
-        </header>
-        <div className="tunnel-environment">
-          <span>Herdr</span>
-          <span>local</span>
-        </div>
-        <div className="tunnel-terminal-body">
-          <p>↗ Context shared</p>
-          <div className="tunnel-code-lines">
-            <i />
-            <i />
+    <figure className="hero-tunnel" aria-label={tunnel.label}>
+      <figcaption className="tunnel-caption">{tunnel.caption}</figcaption>
+      <div className="tunnel-scene">
+        <article className="tunnel-terminal terminal-builder">
+          <header>
+            <span className="tunnel-identity">{handoff.builder}</span>
+            <span>01</span>
+          </header>
+          <div className="tunnel-terminal-body">
+            <p className="tunnel-harness">Claude Code</p>
+            <p className="tunnel-context">~/project</p>
+            <p className="tunnel-prompt">
+              <span aria-hidden="true">❯ </span>
+              {tunnel.question}
+            </p>
+            <div className="tunnel-returned">
+              <p className="tunnel-status">
+                <span aria-hidden="true">← </span>
+                {handoff.reviewer}:
+              </p>
+              <p className="tunnel-answer">{tunnel.answer}</p>
+            </div>
+          </div>
+        </article>
+        <div className="tunnel-exchange">
+          <svg className="tunnel-portal" viewBox="0 0 160 260" aria-hidden="true">
+            <PortalRings vertical />
+          </svg>
+          <svg
+            className="tunnel-path tunnel-desktop-flow"
+            viewBox="0 0 160 260"
+            preserveAspectRatio="none"
+            aria-hidden="true"
+          >
+            <path className="tunnel-route" d="M0 132.5 H154" />
+            <path className="tunnel-route tunnel-return tunnel-return-wide" d="M160 173 H10" />
+            <path className="tunnel-route tunnel-return tunnel-return-narrow" d="M160 173 H14" />
+            <path className="tunnel-arrow" d="m147 127.5 7 5-7 5" />
+            <path className="tunnel-arrow tunnel-return-arrow" d="M17 168 l-7 5 7 5" />
+            <rect className="tunnel-packet" x="0" y="130.5" width="4" height="4" />
+            <rect className="tunnel-packet tunnel-reply" x="156" y="171" width="4" height="4" />
+          </svg>
+          <svg className="tunnel-path tunnel-mobile-flow" viewBox="0 0 260 160" aria-hidden="true">
+            <PortalRings />
+            <path className="tunnel-route" d="M110 0 V154" />
+            <path className="tunnel-route tunnel-return" d="M150 160 V10" />
+            <path className="tunnel-arrow" d="m105 149 5 5 5-5 M145 15 l5-5 5 5" />
+            <rect className="tunnel-packet" x="108" y="0" width="4" height="4" />
+            <rect className="tunnel-packet tunnel-reply" x="148" y="156" width="4" height="4" />
+          </svg>
+          <div className="tunnel-message tunnel-request-label">
+            <span>{handoff.request}</span>
+            <code>tmt talk</code>
+          </div>
+          <div className="tunnel-message tunnel-reply-label">
+            <span>{handoff.reply}</span>
+            <code>tmt reply</code>
           </div>
         </div>
-      </article>
-      <div className="tunnel-message">
-        <span>↗ request</span>
-        <span>↙ reply</span>
-      </div>
-      <article className="tunnel-terminal terminal-cursor">
-        <header>
-          <span>›_ Cursor</span>
-          <span>03</span>
-        </header>
-        <div className="tunnel-environment">
-          <span>terminal</span>
-          <span>another machine</span>
-        </div>
-        <div className="tunnel-terminal-body">
-          <p>✓ Checks passed</p>
-          <div className="tunnel-code-lines">
-            <i />
-            <i />
+        <article className="tunnel-terminal terminal-reviewer">
+          <header>
+            <span className="tunnel-identity">{handoff.reviewer}</span>
+            <span>02</span>
+          </header>
+          <div className="tunnel-terminal-body">
+            <p className="tunnel-harness">Codex</p>
+            <p className="tunnel-context">~/project</p>
+            <p className="tunnel-prompt">
+              <span aria-hidden="true">› </span>
+              {tunnel.received}
+            </p>
+            <p className="tunnel-status tunnel-submitted">
+              <span aria-hidden="true">↩ </span>
+              {tunnel.submitted}
+            </p>
           </div>
-        </div>
-      </article>
-      <article className="tunnel-terminal terminal-builder">
-        <header>
-          <span>›_ Codex</span>
-          <span>04</span>
-        </header>
-        <div className="tunnel-environment">
-          <span>iTerm</span>
-          <span>local laptop</span>
-        </div>
-        <div className="tunnel-terminal-body">
-          <p className="tunnel-command">$ tmt talk reviewer …</p>
-          <p className="tunnel-label">✓ REPLY RETURNED</p>
-          <p>Ready for the next step.</p>
-        </div>
-      </article>
-      <div className="tunnel-footnote">
-        <span>YOUR TERMINALS · YOUR CONTEXT</span>
-        <span className="tunnel-remote-note">
-          Illustrative exchange · remote via optional extension
-        </span>
+        </article>
       </div>
-    </div>
+      <p className="tunnel-footnote">{tunnel.note}</p>
+    </figure>
   );
 }
