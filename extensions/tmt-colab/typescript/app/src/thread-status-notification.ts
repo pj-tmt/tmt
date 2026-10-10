@@ -68,6 +68,7 @@ export function statusNotificationForAsk(
       thread.threadId,
       `Thread resolved by ${status.deviceName || 'a person'}.`,
       [],
+      captured.anchor?.exact ?? '',
     ),
   };
 }

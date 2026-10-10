@@ -46,10 +46,11 @@ def vector():
     # Exact controls/Unicode are intentional fixture data, not repository prose.
     message = ("Page: Shared page\nLink: https://example.test/p/00000000\n\nQuote:\n"
                "<script>untrusted()</script>\r\n😀\0\u202e\n\nComment:\nKeep ! and café exact")
-    # #2464: a message with files lists metadata only after its text. The name is quoted text.
+    # A message with files lists metadata only after its text, saying which comment they came
+    # with and where it sits (the page chat here). The name is quoted text.
     listed = ("Page: Shared page\nLink: https://example.test/p/00000000\n\nQuote:\n\n\nComment:\n"
-              "Summarize the file\n\nAttachments:\n"
-              "- 12345678 \"plan \\\"v2\\\"\\u202e.txt\" (text/plain, 12 bytes)\n"
+              "Summarize the file\n\nAttachments sent with this comment in the page chat:\n"
+              "- [1 of 1] 12345678 \"plan \\\"v2\\\"\\u202e.txt\" (text/plain, 12 bytes)\n"
               "Read one: tmt colab attachment read " + uid(1) + " <id>")
     return {"provenance": "Independent Python LP/SHA-256/cryptography Ed25519; RFC 8032 test 1 seed",
             **signed(message), "withAttachments": {"message": listed, **signed(listed)}}

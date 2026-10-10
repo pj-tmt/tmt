@@ -495,32 +495,49 @@ export function commentForAsk(threads: ThreadView[], context: CommentContext) {
     thread: thread.threadId,
     messageIds: [comment.messageId],
     quote: thread.anchor?.exact ?? '',
-    comment: `${comment.body}${attachmentBlock(comment, true)}`,
+    comment: messageText(comment, thread.anchor?.exact ?? '', true),
   };
 }
 
 // Invisible and direction-changing characters JSON quoting leaves as they are.
 const INVISIBLE = /[\u00ad\u200b-\u200f\u2028-\u202e\u2060-\u206f\ufeff]/g;
+/** JSON-quoted untrusted text with invisible characters escaped, so it cannot open a line or a
+ * section. */
+const inert = (value: string) =>
+  JSON.stringify(value).replace(
+    INVISIBLE,
+    (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, '0')}`,
+  );
+/** How much of the anchor's quoted text names where a comment sits; the Ask carries it whole. */
+const ANCHOR_CHARS = 60;
 /** What an agent is told about a message's files (#2464): name, type, size and a short ID,
- * never bytes. A name is untrusted text, so it is JSON-quoted with invisible characters
- * escaped and cannot open a line or a section. `read` adds the one command that fetches one. */
-export function attachmentBlock(comment: CommentView, read = false) {
+ * never bytes. A name is untrusted text, so it is quoted inert. Where a file sits is what the
+ * admitted records say and no more: it came with this comment (files carry no position inside
+ * the text), and the comment sits on the thread's quoted text, or in the page chat when the
+ * thread has no anchor. `read` adds the one command that fetches one. */
+export function attachmentBlock(comment: CommentView, read = false, anchor = '') {
   const files = comment.deleted ? [] : (comment.attachments ?? []);
   if (!files.length) return '';
-  const rows = files.map((file) => {
-    const name = JSON.stringify(file.filename).replace(
-      INVISIBLE,
-      (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, '0')}`,
-    );
-    return `- ${file.attachmentId.slice(0, 8)} ${name} (${file.mediaType}, ${file.plaintextBytes} bytes)`;
-  });
+  const chars = [...anchor];
+  const place = anchor
+    ? `on ${inert(chars.length > ANCHOR_CHARS ? `${chars.slice(0, ANCHOR_CHARS).join('')}…` : anchor)}`
+    : 'in the page chat';
+  const rows = files.map(
+    (file, index) =>
+      `- [${index + 1} of ${files.length}] ${file.attachmentId.slice(0, 8)} ${inert(file.filename)} (${file.mediaType}, ${file.plaintextBytes} bytes)`,
+  );
   return [
     '',
     '',
-    'Attachments:',
+    `Attachments sent with this comment ${place}:`,
     ...rows,
     ...(read ? [`Read one: tmt colab attachment read ${comment.pageId} <id>`] : []),
   ].join('\n');
+}
+/** A comment's text followed by its files; a message that is only files says so. */
+function messageText(comment: CommentView, anchor: string, read: boolean) {
+  const block = attachmentBlock(comment, read, anchor);
+  return `${comment.body === '' && block ? '(no text; only the attachments below)' : comment.body}${block}`;
 }
 
 /** Context comes only from the admitted discussion and verified Ask projections.
@@ -562,7 +579,13 @@ export function conversationForAsk(
   });
   return {
     ...current,
-    comment: conversationText(earlier, thread.threadId, current.comment, replies),
+    comment: conversationText(
+      earlier,
+      thread.threadId,
+      current.comment,
+      replies,
+      thread.anchor?.exact ?? '',
+    ),
   };
 }
 export function conversationText(
@@ -570,6 +593,7 @@ export function conversationText(
   threadId: string,
   body: string,
   asks: readonly PageAsk[],
+  anchor = '',
 ) {
   const blocks = earlier
     .filter((comment) => !comment.deleted)
@@ -581,7 +605,7 @@ export function conversationText(
           ask.reply !== undefined,
       );
       return [
-        `User (${comment.deviceName || comment.ref.writer}):\n${comment.body}${attachmentBlock(comment)}`,
+        `User (${comment.deviceName || comment.ref.writer}):\n${messageText(comment, anchor, false)}`,
         ...replies.map((ask) => `Agent (${ask.agentName}):\n${ask.reply}`),
       ].join('\n\n');
     });
