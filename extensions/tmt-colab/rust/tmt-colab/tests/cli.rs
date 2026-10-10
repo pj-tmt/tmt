@@ -1,6 +1,9 @@
 #[path = "support/core_fixture.rs"]
 mod core_fixture;
+#[path = "support/process.rs"]
+mod fixture_process;
 mod support;
+use fixture_process::{FixtureCommand, OwnedChild};
 use nix::{
     errno::Errno,
     sys::signal::{Signal, kill, killpg},
@@ -16,7 +19,7 @@ use std::{
         process::CommandExt,
     },
     path::PathBuf,
-    process::{Child, Command, Stdio},
+    process::{Command, Stdio},
     sync::atomic::{AtomicUsize, Ordering},
     thread::{self, JoinHandle},
     time::{Duration, Instant},
@@ -25,7 +28,7 @@ const BINARY: &str = env!("CARGO_BIN_EXE_tmt-colab");
 struct Pilot {
     root: PathBuf,
     response: String,
-    child: Option<Child>,
+    child: Option<OwnedChild>,
     reader: Option<JoinHandle<()>>,
 }
 fn quote(s: &str) -> String {
@@ -138,7 +141,8 @@ exec {core} "$@"
     }
     fn command(&self) -> Command {
         let mut cmd = Command::new(BINARY);
-        cmd.env_clear()
+        cmd.current_dir(&self.root)
+            .env_clear()
             // Automatic browser effects are opt-in in fixtures, never a host opener.
             .env("CI", "1")
             .env("HOME", &self.root)
@@ -199,7 +203,7 @@ exec {core} "$@"
                 .args(["serve", "--json"])
                 .stdout(Stdio::piped())
                 .stderr(Stdio::null())
-                .spawn()
+                .spawn_owned()
                 .unwrap(),
         );
         let pipe = self.child.as_mut().unwrap().stdout.take().unwrap();
@@ -241,15 +245,187 @@ exec {core} "$@"
 }
 impl Drop for Pilot {
     fn drop(&mut self) {
-        if let Some(mut child) = self.child.take() {
-            let _ = child.kill();
-            child.wait().unwrap();
-        }
+        drop(self.child.take());
+        fixture_process::clean_root(&self.root);
         if let Some(reader) = self.reader.take() {
             reader.join().unwrap();
         }
         fs::remove_dir_all(&self.root).unwrap();
     }
+}
+
+#[test]
+fn fixture_process_guard_reaps_the_whole_group_on_panic_and_early_error() {
+    for panic in [false, true] {
+        let pilot = Pilot::new(None);
+        let mut pids = None;
+        let result =
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| -> std::io::Result<()> {
+                let child = Command::new("/bin/sh")
+                    .args([
+                        "-c",
+                        "sleep 300 & echo $! > grandchild; trap 'wait; exit 0' TERM; wait",
+                    ])
+                    .current_dir(&pilot.root)
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::null())
+                    .spawn_owned()?;
+                Serving::wait_for(&pilot.root.join("grandchild"), "\n");
+                let grandchild = pid_file(&pilot, "grandchild");
+                pids = Some((Pid::from_raw(child.id() as i32), grandchild));
+                assert!(
+                    fixture_process::residents(&pilot.root)
+                        .unwrap()
+                        .contains(&grandchild)
+                );
+                if panic {
+                    panic!("fixture assertion unwind");
+                }
+                Err(std::io::Error::other("fixture early return"))
+            }));
+        assert!(if panic {
+            result.is_err()
+        } else {
+            matches!(result, Ok(Err(_)))
+        });
+        let (child, grandchild) = pids.unwrap();
+        assert_gone(child);
+        assert_gone(grandchild);
+        fixture_process::assert_empty(&pilot.root);
+    }
+}
+
+#[test]
+fn fixture_survivor_control_detects_a_removed_guard_without_harming_a_parallel_root() {
+    let pilot = Pilot::new(None);
+    let parallel = Pilot::new(None);
+    let mut other = Command::new("/bin/sleep")
+        .arg("300")
+        .current_dir(&parallel.root)
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn_owned()
+        .unwrap();
+    let child = Command::new("/bin/sleep")
+        .arg("300")
+        .current_dir(&pilot.root)
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn_owned()
+        .unwrap();
+    let pid = Pid::from_raw(child.id() as i32);
+    assert!(
+        fixture_process::residents(&pilot.root)
+            .unwrap()
+            .contains(&pid),
+        "the control process was not visible before guard removal"
+    );
+    // Remove the fixture guard, retaining a bare Child only for independent cleanup.
+    let mut unguarded = child.without_guard();
+    let failed = std::panic::catch_unwind(|| fixture_process::assert_empty(&pilot.root));
+    unguarded
+        .kill()
+        .expect("sensitivity control could not kill its own child");
+    unguarded
+        .wait()
+        .expect("sensitivity control could not reap its own child");
+    let error = failed.expect_err("removing the guard did not fail the survivor assertion");
+    let message = error
+        .downcast_ref::<String>()
+        .map(String::as_str)
+        .or_else(|| error.downcast_ref::<&str>().copied())
+        .unwrap_or("");
+    assert!(message.contains("surviving processes"), "{message}");
+    assert_gone(pid);
+    assert!(
+        other.try_wait().unwrap().is_none(),
+        "cleanup signalled a parallel fixture"
+    );
+    assert!(
+        !fixture_process::residents(&pilot.root)
+            .unwrap()
+            .contains(&Pid::from_raw(other.id() as i32))
+    );
+    drop(other);
+    fixture_process::assert_empty(&parallel.root);
+}
+
+#[test]
+fn fixture_guard_escalates_to_kill_when_term_is_ignored() {
+    let pilot = Pilot::new(None);
+    let child = Command::new("/bin/sh")
+        .args(["-c", "trap '' TERM; echo ready > ready; exec sleep 300"])
+        .current_dir(&pilot.root)
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn_owned()
+        .unwrap();
+    let pid = Pid::from_raw(child.id() as i32);
+    Serving::wait_for(&pilot.root.join("ready"), "ready");
+    // The ignored disposition survives exec: SIGTERM cannot finish this group.
+    drop(child);
+    assert_gone(pid);
+    fixture_process::assert_empty(&pilot.root);
+}
+
+#[test]
+fn fixture_serving_and_detached_guards_stop_real_workers_when_an_assertion_unwinds() {
+    for background in [false, true] {
+        let pilot = Pilot::new(None);
+        let mut door = None;
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let core = pilot.remote_core(Some(STOPPED), Serve::Wrapped);
+            if background {
+                let _stop = Detached(&pilot);
+                let output = launcher(&pilot, &core, &["--no-open"]).output().unwrap();
+                assert!(output.status.success(), "{output:?}");
+                door = Some((
+                    pid_file(&pilot, "serve.pid"),
+                    pid_file(&pilot, "serve.grandchild"),
+                ));
+                panic!("background fixture assertion unwind");
+            } else {
+                let serving = Serving::start(&pilot, core, &["--json"]);
+                assert_eq!(serving.ready()["state"], "mounted");
+                door = Some((
+                    pid_file(&pilot, "serve.pid"),
+                    pid_file(&pilot, "serve.grandchild"),
+                ));
+                panic!("foreground fixture assertion unwind");
+            }
+        }));
+        assert!(result.is_err());
+        let (remote, grandchild) = door.unwrap();
+        assert_gone(remote);
+        assert_gone(grandchild);
+        fixture_process::assert_empty(&pilot.root);
+    }
+}
+
+#[test]
+fn fixture_detached_stop_failure_cleans_the_worker_and_fails_the_test_loudly() {
+    let pilot = Pilot::new(None);
+    let core = pilot.remote_core(Some(STOPPED), Serve::Wrapped);
+    let output = launcher(&pilot, &core, &["--no-open"]).output().unwrap();
+    assert!(output.status.success(), "{output:?}");
+    let remote = pid_file(&pilot, "serve.pid");
+    let grandchild = pid_file(&pilot, "serve.grandchild");
+    // The owner stop cannot discover its storage root once its Core stand-in is unavailable.
+    fs::remove_file(pilot.root.join("core")).unwrap();
+    let failed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| drop(Detached(&pilot))));
+    let error = failed.expect_err("a failed detached stop was ignored");
+    let message = error
+        .downcast_ref::<String>()
+        .map(String::as_str)
+        .or_else(|| error.downcast_ref::<&str>().copied())
+        .unwrap_or("");
+    assert!(
+        message.contains("detached fixture stop failed"),
+        "{message}"
+    );
+    assert_gone(remote);
+    assert_gone(grandchild);
+    fixture_process::assert_empty(&pilot.root);
 }
 #[test]
 fn help_and_invalid_core_fail_without_creating_application_state() {
@@ -2173,7 +2349,7 @@ fn create_supports_empty_source_and_stdin_and_refuses_invalid_input_before_state
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
-        .spawn()
+        .spawn_owned()
         .unwrap();
     child
         .stdin
@@ -2528,7 +2704,7 @@ fn serve_names_the_link_only_when_a_door_runs_and_never_prints_the_decoder_note(
             .args(["serve", "--foreground"])
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
-            .spawn()
+            .spawn_owned()
             .unwrap();
         let mut reader = BufReader::new(child.stdout.take().unwrap());
         let mut text = String::new();
@@ -3241,7 +3417,7 @@ impl Pilot {
 }
 /// A running `tmt-colab serve` whose output goes to files, so no pipe end leaks to other tests.
 struct Serving {
-    child: Child,
+    child: OwnedChild,
     out: PathBuf,
     err: PathBuf,
 }
@@ -3256,7 +3432,7 @@ impl Serving {
             .args(args)
             .stdout(fs::File::create(&out).unwrap())
             .stderr(fs::File::create(&err).unwrap())
-            .spawn()
+            .spawn_owned()
             .unwrap();
         Self { child, out, err }
     }
@@ -3291,12 +3467,6 @@ impl Serving {
             assert!(Instant::now() < deadline, "serve did not stop");
             thread::sleep(Duration::from_millis(20));
         }
-    }
-}
-impl Drop for Serving {
-    fn drop(&mut self) {
-        let _ = self.child.kill();
-        let _ = self.child.wait();
     }
 }
 fn pid_file(pilot: &Pilot, name: &str) -> Pid {
@@ -3413,7 +3583,7 @@ fn serve_in_an_installed_release_warns_once_when_a_newer_version_becomes_current
     std::os::unix::fs::symlink("releases/old", &current).unwrap();
     let base = pilot.command();
     let mut command = Command::new(&exe);
-    command.env_clear();
+    command.current_dir(&pilot.root).env_clear();
     for (key, value) in base.get_envs() {
         if let Some(value) = value {
             command.env(key, value);
@@ -3426,7 +3596,7 @@ fn serve_in_an_installed_release_warns_once_when_a_newer_version_becomes_current
         .args(["serve", "--foreground"])
         .stdout(fs::File::create(&out).unwrap())
         .stderr(fs::File::create(&err).unwrap())
-        .spawn()
+        .spawn_owned()
         .unwrap();
     let mut serving = Serving { child, out, err };
     Serving::wait_for(&serving.out, "LOCAL SPACE");
@@ -3936,7 +4106,7 @@ fn page_create_opener_matrix_is_independent_of_terminal_and_json() {
                     }
                     let out = if tty {
                         let mut wrapped = Command::new("/usr/bin/script");
-                        wrapped.env_clear().envs(
+                        wrapped.current_dir(&pilot.root).env_clear().envs(
                             command
                                 .get_envs()
                                 .filter_map(|(name, value)| value.map(|v| (name, v))),
@@ -3960,7 +4130,7 @@ fn page_create_opener_matrix_is_independent_of_terminal_and_json() {
                             .stdin(Stdio::piped())
                             .stdout(Stdio::piped())
                             .stderr(Stdio::piped())
-                            .spawn()
+                            .spawn_owned()
                             .unwrap();
                         let input = child.stdin.take();
                         let output = child.wait_with_output().unwrap();
@@ -4850,7 +5020,7 @@ fn reading_settings_waits_for_a_setter_instead_of_seeing_a_half_written_file() {
         .command()
         .args(["settings", "--json"])
         .stdout(Stdio::piped())
-        .spawn()
+        .spawn_owned()
         .unwrap();
     thread::sleep(Duration::from_millis(400));
     assert!(
@@ -4875,7 +5045,7 @@ fn setting_waits_for_a_reader_that_holds_the_lock() {
         .command()
         .args(["settings", "open", "on", "--json"])
         .stdout(Stdio::piped())
-        .spawn()
+        .spawn_owned()
         .unwrap();
     thread::sleep(Duration::from_millis(400));
     assert!(
@@ -5166,7 +5336,27 @@ fn skill_is_exact_embedded_bytes_after_relocation_without_core_or_state() {
 struct Detached<'a>(&'a Pilot);
 impl Drop for Detached<'_> {
     fn drop(&mut self) {
-        let _ = self.0.command().arg("stop").output();
+        // A refused startup may have an intentionally unsafe state directory and no worker.
+        // Absence is proven by inspection; a stop we actually send must still succeed.
+        if fixture_process::residents(&self.0.root)
+            .as_ref()
+            .is_ok_and(|pids| pids.is_empty())
+        {
+            return;
+        }
+        let stopped = self
+            .0
+            .command()
+            .args(["stop", "--json"])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn_owned()
+            .and_then(|mut child| child.wait_until(Instant::now() + Duration::from_secs(20)));
+        fixture_process::clean_root(&self.0.root);
+        assert!(
+            stopped.as_ref().is_ok_and(|status| status.success()),
+            "detached fixture stop failed: {stopped:?}"
+        );
     }
 }
 /// One launcher invocation: `serve` with the arguments given, its output captured.
@@ -5231,7 +5421,7 @@ fn background_serve_outlives_the_terminal_that_started_it() {
         .process_group(0)
         .stdout(Stdio::null())
         .stderr(Stdio::null())
-        .spawn()
+        .spawn_owned()
         .unwrap();
     assert!(launcher_process.wait().unwrap().success());
     // A closing terminal hangs up the whole group.
@@ -5388,7 +5578,7 @@ fn cancelling_a_launcher_before_the_handoff_leaves_nothing_running() {
     let mut child = launcher(&pilot, &core, &["--no-open"])
         .stdout(fs::File::create(&out).unwrap())
         .stderr(fs::File::create(&err).unwrap())
-        .spawn()
+        .spawn_owned()
         .unwrap();
     let deadline = Instant::now() + Duration::from_secs(10);
     while pilot.serve_pid().is_none() {

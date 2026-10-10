@@ -68,6 +68,16 @@ embedded-success path; the ordinary build exercises `COLAB_UNAVAILABLE`.
 (cd typescript && corepack pnpm exec vp test run --config vitest.config.ts test/tooling/ci-scope.test.ts)
 ```
 
+Native CLI and page fixtures own spawned children through `tests/support/process.rs`.
+Each child starts a fresh group; cleanup sends SIGTERM, waits, escalates to SIGKILL
+and confirms absence before deleting its root. Detached serve cleanup uses the owner
+stop command, and a failed stop fails the test even after emergency cleanup. Root
+inspection checks argv, cwd and serve-lock holders within that exact fixture root;
+parallel roots do not match. Process inspection must be available (including macOS
+`ps`/`lsof`); unknown inspection fails rather than claiming cleanup. Run
+`cargo test --offline --locked -p tmt-colab --test cli fixture_` for panic, early-error,
+real worker and guard-removal sensitivity controls.
+
 Model crate: `cargo test --offline --locked -p tmt-colab-model` and its clippy, from
 `rust/`. Independent oracles (need Python `cryptography`; add `--write` only after
 reviewing changed bytes; Rust consumes the frozen vectors without Python):
