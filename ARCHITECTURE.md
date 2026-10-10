@@ -355,10 +355,8 @@ Detection never starts an agent. Module rules and name ownership:
 ### Provider channels
 
 `tmt-adapters::runtime::channel` is the provider-neutral port; drivers own exact-launch
-enrollment, transport and recovery. Global `experimental.channel` defaults false:
-launches use paste, explicit `--channel` refuses, and flagless resume preserves its
-remembered choice. Enabled launches retain the driver policy. Existing delivery
-prefers the channel and forbids paste
+enrollment, transport and recovery. Global `experimental.channel` defaults false.
+Delivery prefers the channel and forbids paste
 on enrolled or uncertain evidence; no receipt means no replay. Module gates:
 [provider channels](.agents/skills/tmt-core-runtime/references/hosts-drivers.md#provider-channels).
 The [Claude](contracts/claude-channel-v1.md) and [Codex](contracts/codex-channel-v1.md)

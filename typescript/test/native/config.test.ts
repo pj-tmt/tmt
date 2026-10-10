@@ -307,7 +307,7 @@ describe('native configuration process boundary', () => {
           const result = await runCli(sandbox, args);
           expect(result.status).toBe(1);
           expect(result.stderr.trim()).toBe(
-            'error: Message channels require experimental.channel=true.'
+            'error: Message channels require experimental.channel=true'
           );
           expect(fileSnapshot(sandbox.root)).toEqual(before);
         }

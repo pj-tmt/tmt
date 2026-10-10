@@ -287,7 +287,7 @@ describe('Codex native channel product routing', { concurrent: false }, () => {
       expect(events(refused, 'server-started')).toEqual([]);
       expect(records(f)).toEqual([]);
       expect(f.capture(100, refused.pane)).toContain(
-        'Message channels require experimental.channel=true.'
+        'Message channels require experimental.channel=true'
       );
       set(true);
       const first = start(f, 'Restart', true);

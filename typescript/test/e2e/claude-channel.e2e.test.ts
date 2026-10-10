@@ -378,7 +378,7 @@ describe('Claude channel delivery', { concurrent: false }, () => {
       ]);
       expect(refused.code).toBe(1);
       expect(refused.stderr.trim()).toBe(
-        'error: Message channels require experimental.channel=true.'
+        'error: Message channels require experimental.channel=true'
       );
       expect(channelFiles(fixture)).toEqual([]);
       set(true);
