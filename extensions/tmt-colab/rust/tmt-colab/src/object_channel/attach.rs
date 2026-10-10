@@ -348,7 +348,6 @@ pub(super) fn run(
                 &page_id,
                 &plaintext,
                 &slot.record.filename,
-                &slot.record.media_type,
                 deadline,
             )
         })();

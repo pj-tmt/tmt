@@ -153,6 +153,9 @@ ID, quoted untrusted name, type, size; never bytes). Fetch one with `tmt colab a
 private temp directory, never your working directory, and prints its `path`
 named by its verified type, for example `.png` or `.pdf`; unlisted types use `.bin`. Read that file, delete its
 directory when done, keep it private and never run it.
+Type comes from verified bytes: bounded PNG/JPEG/WebP, PDF magic or strict UTF-8 text;
+other bytes use `.bin`. Names and stored labels never choose it. Add a page file with
+`tmt colab attachment attach PAGE FILE --json`; there is no `--type` option.
 
 ## Read and change thread status
 

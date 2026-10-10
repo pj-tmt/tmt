@@ -126,8 +126,11 @@ Limits are the consumer limits above: 8 MiB per file, 16 per message, the backen
 `config` payload bound when lower, and filenames shortened to 255 UTF-8 bytes with
 control characters and path separators replaced. The stored media type is decided from
 the bytes, never the name or the browser's declared type: a PNG, JPEG or WebP whose header
-declares at most 16 million pixels is stored under its raster type, everything else
-(video bytes included) as `application/octet-stream`.
+declares at most 16 million pixels is stored under its raster type; a `%PDF-` prefix is
+`application/pdf`; nonempty valid UTF-8 without NUL or other C0 controls except tab, LF and CR
+is `text/plain`; everything else (video bytes included) is `application/octet-stream`.
+Text, including HTML-shaped text, and PDFs are download-only and never rendered as HTML or
+raster previews. The native and browser detectors share `vectors/attachment-media-type-v1.json`.
 
 On Send the browser allocates the message ID once, then for each chip seals the asset
 under that ID (message revision 1), freezes it with the message fence (the membership head, epoch and author; see [attachment-v1](attachment-v1.md)) as its base,
@@ -3642,11 +3645,11 @@ attachment into a new private UUID-named subdirectory of `--output` (default: th
 temporary directory, never the current directory, so an agent's checkout stays untouched),
 created the way export creates its directory: `attachment.<ext>` then
 `manifest.json` last, regular 0600 files in a 0700 directory, no symlinks, no replacement,
-only its own staging cleaned. The extension comes from the media type of the verified
-descriptor, which the serve names as the `Content-Type` of its reply, through an allow-list
-(`image/png` png, `image/jpeg` jpg, `image/gif` gif, `image/webp` webp, `application/pdf` pdf,
-`text/plain` txt, `text/markdown` md, `application/json` json, `text/csv` csv, `video/mp4` mp4);
-any other or malformed type, or a serve that names none, is `bin`. The author's file name never
+only its own staging cleaned. The CLI re-derives the media type from the verified plaintext
+using the byte rules above, including for older attachments with stale signed labels. The output
+manifest records that derived type, and the extension is `png`, `jpg`, `webp`, `pdf` or `txt` for
+the corresponding derived type; every other byte sequence is `bin`. Neither the descriptor label
+nor the serve's `Content-Type` can select the output extension. The author's file name never
 reaches the path. `--reference` is the exact `reference` of an export manifest row
 (at most 2 KiB). `<attachment>` is an attachment ID or a prefix of at least 8 hex characters (an
 Ask lists the first 8; `tmt colab threads --json` the full ID). The CLI resolves it in the verified
@@ -3676,18 +3679,20 @@ read has no effect, so it is never retried and any doubt is unavailable.
 
 ### Native attach command (#2291)
 
-`tmt colab attachment attach <page> <file> [--type <media-type>] [--json]` adds one file to a
+`tmt colab attachment attach <page> <file> [--json]` adds one file to a
 page's document attachments, authored by this data root's local writer; `attach <page> --resume
 <slot>` finishes an earlier attempt. Document attachments only: a message attachment needs a native
 message author, which does not exist yet. It needs the running serve, an established object channel
 and a page the local writer may edit now; an archived or deleted page refuses `COLAB_PAGE_INACTIVE`
 and a revoked writer `COLAB_DENIED`, before anything is staged. The file is a regular file of the
 caller opened without following a link, at most 8 MiB, checked before and while it streams. Its name
-is the label and `--type` (default from the extension, else `application/octet-stream`) an inert
-media-type label.
+is a display label only. The serve derives the sealed descriptor's type from the staged plaintext
+using the same raster/PDF/UTF-8 rules as the browser; no declared type or filename selects it.
+`--type` is refused. An existing staging slot's type label does not override byte detection when
+it is resumed.
 
 **Slot.** `POST /.tmt/colab/local/attachment-stage` with `{version:1,page,filename,mediaType}`
-opens a slot: a random 32-hex ID and a private 0700 directory under the serve's root, answered as
+opens a slot (`mediaType` is inert staging metadata, not the sealed type): a random 32-hex ID and a private 0700 directory under the serve's root, answered as
 `{slot,path}`; no route accepts a path. The CLI prints the slot to stderr, copies the file into
 `path` (create-new, 0600, bounded while streaming) and reports its SHA-256 to
 `POST /.tmt/colab/local/attachment-attach` with `{version:1,page,slot,sha256?}`. The serve re-hashes

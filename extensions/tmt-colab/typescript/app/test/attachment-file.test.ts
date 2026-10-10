@@ -1,3 +1,4 @@
+import corpus from '../../../contracts/vectors/attachment-media-type-v1.json';
 import { expect, it } from 'vite-plus/test';
 import {
   attachmentFilename,
@@ -155,12 +156,12 @@ it('reads the declared size of PNG, JPEG and each WebP form from the header only
   });
 });
 
-it('classifies by bytes, never by name, and treats every other file as an octet-stream', () => {
+it('classifies supported bytes without granting text or PDF a raster preview', () => {
   expect(storedMediaType(png(10, 10))).toBe('image/png');
   expect(
     storedMediaType(new TextEncoder().encode('<svg xmlns="http://www.w3.org/2000/svg"/>')),
-  ).toBe('application/octet-stream');
-  // Video bytes, PDF and plain text are download-only; so is anything truncated or zero-sized.
+  ).toBe('text/plain');
+  // Video and truncated or zero-sized rasters stay generic.
   expect(storedMediaType(Uint8Array.from([0, 0, 0, 0x18, ...ascii('ftypmp42')]))).toBe(
     'application/octet-stream',
   );
@@ -190,4 +191,13 @@ it('refuses by size and count before reading and sanitizes labels', () => {
   expect(new TextEncoder().encode(attachmentFilename('é'.repeat(300))).length).toBeLessThanOrEqual(
     255,
   );
+});
+
+it('agrees with the native detector on the shared byte-classification vector', () => {
+  for (const item of corpus.cases) {
+    const bytes = Uint8Array.from(item.hex.match(/../g) ?? [], (byte) => Number.parseInt(byte, 16));
+    expect(storedMediaType(bytes), item.name).toBe(item.mediaType);
+    if (!item.mediaType.startsWith('image/'))
+      expect(previewType(item.mediaType, bytes), item.name).toBeUndefined();
+  }
 });

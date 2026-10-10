@@ -2,7 +2,7 @@ import { attachment, text } from '@tmt/colab-client';
 
 /** Raster previews are bounded by the header-declared pixel count, before any decode. */
 export const PREVIEW_PIXELS = 16_000_000;
-/** The only type a generic file is stored and downloaded as. */
+/** The fallback when bytes do not identify a supported raster, PDF or UTF-8 text. */
 export const GENERIC_MEDIA_TYPE = 'application/octet-stream';
 export const RASTER_TYPES = ['image/png', 'image/jpeg', 'image/webp'] as const;
 export type RasterType = (typeof RASTER_TYPES)[number];
@@ -105,10 +105,20 @@ export function rasterHeader(bytes: Uint8Array): Raster | undefined {
     : undefined;
 }
 
-/** What the sealed descriptor records: a verified raster type, else the generic type.
+/** What the sealed descriptor records: a bounded raster, PDF magic, strict UTF-8 text, else generic.
  * A filename or the browser's declared type never decides this. */
 export function storedMediaType(bytes: Uint8Array): string {
-  return rasterHeader(bytes)?.type ?? GENERIC_MEDIA_TYPE;
+  const raster = rasterHeader(bytes);
+  if (raster) return raster.type;
+  if (tag(bytes, 0, '%PDF-')) return 'application/pdf';
+  if (bytes.length === 0 || bytes.some((byte) => byte < 0x20 && ![9, 10, 13].includes(byte)))
+    return GENERIC_MEDIA_TYPE;
+  try {
+    new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+    return 'text/plain';
+  } catch {
+    return GENERIC_MEDIA_TYPE;
+  }
 }
 
 /** Preview is offered only when the descriptor and the verified bytes agree. */

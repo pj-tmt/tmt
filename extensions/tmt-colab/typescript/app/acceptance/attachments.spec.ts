@@ -144,7 +144,7 @@ test('native attach lists a file for every device, reads back byte-equal, and re
       const added = colab(['attachment', 'attach', created.pageId, path.join(input, 'notes.txt')]);
       expect(added.attachment).toMatchObject({
         filename: 'notes.txt',
-        mediaType: 'text/plain',
+        mediaType: 'application/octet-stream',
         plaintextBytes: notes.length,
       });
       expect(Object.keys(slots())).toHaveLength(1);
@@ -181,7 +181,7 @@ test('native attach lists a file for every device, reads back byte-equal, and re
       ]);
       expect(sha(fs.readFileSync(read.path as string))).toBe(sha(notes));
 
-      // A picture takes its type from the extension and previews like a browser upload.
+      // A picture takes its type from its bytes and previews like a browser upload.
       colab(['attachment', 'attach', created.pageId, path.join(input, 'dot.png')]);
       await expect(rowsOn(second)).toHaveCount(2, { timeout: 30_000 });
       await expect(

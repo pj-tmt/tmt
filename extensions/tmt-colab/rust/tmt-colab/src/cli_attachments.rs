@@ -23,21 +23,16 @@ use tmt_colab_model::{attachment::AttachmentSelector, crypto};
 const DISCLOSURE: &str =
     "This writes an unencrypted copy of the file. Anyone with these files can read it.";
 
-/// The extension a verified media type earns the written file, so an agent can open it as what it
+/// The extension a byte-derived media type earns the written file, so an agent can open it as what it
 /// is. Only this allow-list is ever consulted: the author's file name and anything else about the
 /// attachment never reaches the path, and an unlisted type is `bin`.
 fn extension(media_type: &str) -> &'static str {
     match media_type {
         "image/png" => "png",
         "image/jpeg" => "jpg",
-        "image/gif" => "gif",
         "image/webp" => "webp",
         "application/pdf" => "pdf",
         "text/plain" => "txt",
-        "text/markdown" => "md",
-        "application/json" => "json",
-        "text/csv" => "csv",
-        "video/mp4" => "mp4",
         _ => "bin",
     }
 }
@@ -63,7 +58,7 @@ pub fn command() -> Command {
                 note: "Create a UUID-named directory holding attachment.<ext> and manifest.json",
             }],
             outputs: OutputModes::HumanAndJson,
-            details: "This writes an unencrypted copy of the file. Anyone with these files can read it.\nName the attachment by the ID a request or `tmt colab threads` lists (the first 8 or more hex characters are enough when they match one file), or with --reference. An ID that matches nothing live, or more than one file, reads as unavailable or invalid; use the full ID from `threads --json` to disambiguate. The reference file is the exact `reference` of an attachments entry in an export manifest, so a changed page or ended access reads as unavailable rather than another version. The running serve checks the reference against the current page, access and epoch, then verifies the bytes before they are written. Output is a new private UUID-named subdirectory of --output (default: the system temporary directory, never the current directory) with attachment.<ext> and manifest.json, created the way export does. The extension comes from the attachment's verified media type (png, jpg, gif, webp, pdf, txt, md, json, csv, mp4; anything else bin); the author's file name is never used. --json prints the written file as `path`; read that file, and delete its directory when you are done. The result lists the size and SHA-256, never the bytes. Requires tmt colab serve; nothing is read without it.",
+            details: "This writes an unencrypted copy of the file. Anyone with these files can read it.\nName the attachment by the ID a request or `tmt colab threads` lists (the first 8 or more hex characters are enough when they match one file), or with --reference. An ID that matches nothing live, or more than one file, reads as unavailable or invalid; use the full ID from `threads --json` to disambiguate. The reference file is the exact `reference` of an attachments entry in an export manifest, so a changed page or ended access reads as unavailable rather than another version. The running serve checks the reference against the current page, access and epoch, then verifies the bytes before they are written. Output is a new private UUID-named subdirectory of --output (default: the system temporary directory, never the current directory) with attachment.<ext> and manifest.json, created the way export does. The extension is detected from verified bytes (png, jpg, webp, pdf, txt; anything else bin); neither the author's file name nor a stored type label selects it. --json prints the written file as `path`; read that file, and delete its directory when you are done. The result lists the size and SHA-256, never the bytes. Requires tmt colab serve; nothing is read without it.",
         })
         .arg(crate::cli_grammar::page())
         .arg(
@@ -102,7 +97,7 @@ pub fn command() -> Command {
                 },
             ],
             outputs: OutputModes::HumanAndJson,
-            details: "Requires a running serve, an editable page and an established object channel.\nPair the browser with tmt remote pair, then open the page once to establish the channel.\nThe serve copies the file into a private slot, seals it with this device's writer key, uploads it and lists it on the page.\nThe type defaults from the file extension and is only a label. Files over 8 MiB are refused.\nIf the reply is lost, rerun with --resume SLOT using the printed slot. It checks the backend before sending and never uploads twice.\nIf the page changed after the file was sealed, the uploaded original and slot are discarded. Nothing is listed; run attach again for a new slot.\n--json prints the exact reference that attachment read takes.",
+            details: "Requires a running serve, an editable page and an established object channel.\nPair the browser with tmt remote pair, then open the page once to establish the channel.\nThe serve copies the file into a private slot, seals it with this device's writer key, uploads it and lists it on the page.\nThe type is detected from the bytes; the file name is only a label. Files over 8 MiB are refused.\nIf the reply is lost, rerun with --resume SLOT using the printed slot. It checks the backend before sending and never uploads twice.\nIf the page changed after the file was sealed, the uploaded original and slot are discarded. Nothing is listed; run attach again for a new slot.\n--json prints the exact reference that attachment read takes.",
         })
         .arg(crate::cli_grammar::page())
         .arg(
@@ -111,13 +106,6 @@ pub fn command() -> Command {
                 .value_name("file")
                 .value_parser(clap::value_parser!(PathBuf))
                 .required_unless_present("resume")
-                .conflicts_with("resume"),
-        )
-        .arg(
-            Arg::new("type")
-                .long("type")
-                .value_name("media-type")
-                .help("Label such as image/png; defaults from the file extension")
                 .conflicts_with("resume"),
         )
         .arg(
@@ -177,9 +165,9 @@ pub fn run(root: &Path, args: &ArgMatches) -> Result<()> {
             &[("disclosure", DISCLOSURE.into())],
         )?;
     }
-    let Verified { bytes, media_type } =
-        tmt_colab::attachments::ipc::read(&layout, &page, &reference)?;
-    let file_name = format!("attachment.{}", extension(&media_type));
+    let Verified { bytes, .. } = tmt_colab::attachments::ipc::read(&layout, &page, &reference)?;
+    let media_type = tmt_colab::attachments::media_type::stored_media_type(&bytes);
+    let file_name = format!("attachment.{}", extension(media_type));
     let sha256: String = crypto::digest(&bytes)
         .iter()
         .map(|byte| format!("{byte:02x}"))
@@ -265,11 +253,16 @@ fn attach(root: &Path, args: &ArgMatches) -> Result<()> {
         ),
         None => {
             let file = args.get_one::<PathBuf>("file").expect("required file");
-            let (name, kind) = labels(file, args.get_one::<String>("type"))?;
+            let name = filename(file)?;
             // Refuse a file that cannot be attached before any slot exists.
             let source = open_source(file)?;
-            let staged = tmt_colab::attachments::attach_ipc::stage(&layout, &page, &name, &kind)
-                .map_err(|error| explain(error, false))?;
+            let staged = tmt_colab::attachments::attach_ipc::stage(
+                &layout,
+                &page,
+                &name,
+                tmt_colab::attachments::media_type::GENERIC,
+            )
+            .map_err(|error| explain(error, false))?;
             // Named before the copy and the upload: every failure after this can be resumed.
             let mut notice = tmt_cli_style::stream::stderr();
             writeln!(
@@ -327,8 +320,8 @@ fn attach(root: &Path, args: &ArgMatches) -> Result<()> {
     }
     Ok(())
 }
-/// The label shown for a file and the type it is sent with. Neither grants a preview.
-fn labels(file: &Path, kind: Option<&String>) -> Result<(String, String)> {
+/// A display label only; the serve derives the type from the staged bytes.
+fn filename(file: &Path) -> Result<String> {
     let name = file
         .file_name()
         .and_then(|name| name.to_str())
@@ -339,35 +332,17 @@ fn labels(file: &Path, kind: Option<&String>) -> Result<(String, String)> {
             )
         })?
         .to_owned();
-    let kind = match kind {
-        Some(kind) => kind.clone(),
-        None => match file
-            .extension()
-            .and_then(|extension| extension.to_str())
-            .map(str::to_ascii_lowercase)
-            .as_deref()
-        {
-            Some("png") => "image/png",
-            Some("jpg" | "jpeg") => "image/jpeg",
-            Some("webp") => "image/webp",
-            Some("gif") => "image/gif",
-            Some("pdf") => "application/pdf",
-            Some("txt" | "log") => "text/plain",
-            Some("md") => "text/markdown",
-            Some("json") => "application/json",
-            Some("csv") => "text/csv",
-            Some("mp4") => "video/mp4",
-            _ => "application/octet-stream",
-        }
-        .to_owned(),
-    };
-    tmt_colab_model::attachment::validate_labels(&name, &kind).map_err(|_| {
+    tmt_colab_model::attachment::validate_labels(
+        &name,
+        tmt_colab::attachments::media_type::GENERIC,
+    )
+    .map_err(|_| {
         crate::cli_management::fail(
             "COLAB_INPUT_INVALID",
-            "The file name (at most 255 bytes, no control characters) or --type (like image/png) is not a valid attachment label.",
+            "The file name must fit in 255 bytes and contain no control characters.",
         )
     })?;
-    Ok((name, kind))
+    Ok(name)
 }
 /// The file to attach, opened without following a link: only a regular file within
 /// the size limit. Checked before any slot exists, and again as the bytes stream.
@@ -491,7 +466,7 @@ mod tests {
     use super::extension;
 
     #[test]
-    fn a_verified_media_type_names_the_extension_and_anything_else_is_bin() {
+    fn a_byte_derived_media_type_names_the_extension_and_anything_else_is_bin() {
         for (kind, ext) in [
             ("image/png", "png"),
             ("image/jpeg", "jpg"),
