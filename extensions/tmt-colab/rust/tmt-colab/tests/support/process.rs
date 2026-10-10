@@ -223,18 +223,19 @@ pub fn residents(root: &Path) -> Result<Vec<Pid>, String> {
         if pid == std::process::id() as i32 || !own_pids.contains(&pid) {
             continue;
         }
-        if let Ok(cwd) = fs::read_link(entry.path().join("cwd")) {
-            if below(cwd.to_str().unwrap(), &roots) {
-                pids.push(Pid::from_raw(pid));
-            }
+        if let Ok(cwd) = fs::read_link(entry.path().join("cwd"))
+            && below(cwd.to_str().unwrap(), &roots)
+        {
+            pids.push(Pid::from_raw(pid));
         }
         // A background worker owns this lock even if it no longer shares the launcher cwd.
         if let Ok(files) = fs::read_dir(entry.path().join("fd")) {
             for file in files.flatten() {
-                if let Ok(path) = fs::read_link(file.path()) {
-                    if path.ends_with("colab/serve.lock") && below(path.to_str().unwrap(), &roots) {
-                        pids.push(Pid::from_raw(pid));
-                    }
+                if let Ok(path) = fs::read_link(file.path())
+                    && path.ends_with("colab/serve.lock")
+                    && below(path.to_str().unwrap(), &roots)
+                {
+                    pids.push(Pid::from_raw(pid));
                 }
             }
         }
