@@ -47,6 +47,9 @@ async function mount(page: Page, source: string) {
         onAnchors: (resolved: string[]) => {
           host.dataset.resolved = JSON.stringify(resolved);
         },
+        onSlots: (slots: unknown[]) => {
+          host.dataset.slots = JSON.stringify(slots);
+        },
         onOpenThread: (id: string) => {
           host.dataset.opened = id;
         },
@@ -967,4 +970,71 @@ test('keyboard selection waits for key release; C and Alt+Enter keep the embed k
     await page.keyboard.press('Alt+Enter');
     await expect(page.locator('#probe')).toHaveAttribute('data-annotates', '3');
   }
+});
+
+test('proposal slots admit only bounded current unique geometry and cap convergence', async ({
+  page,
+}) => {
+  await page.goto('/');
+  await page.evaluate(() => {
+    const Original = MessageChannel;
+    Object.assign(window, {
+      MessageChannel: class extends Original {
+        constructor() {
+          super();
+          Object.assign(window, { slotPort: this.port1 });
+          const post = this.port1.postMessage.bind(this.port1);
+          this.port1.postMessage = (value: unknown) => {
+            Object.assign(window, { slotRequest: value });
+            post(value);
+          };
+        }
+      },
+    });
+  });
+  await mount(page, '<p>No placeholder</p>');
+  await expect(page.locator('#probe')).toHaveAttribute('data-state', 'ready');
+  const result = await page.evaluate(() => {
+    const w = window as unknown as {
+      probe: { handle: { slots(v: { id: string; height: number }[]): void } };
+      slotPort: MessagePort;
+      slotRequest: { renderId: string; requestId: string; slots: { height: number }[] };
+    };
+    const id = '80000000-0000-4000-8000-000000000001';
+    const reserve = () => w.probe.handle.slots([{ id, height: 99999 }]);
+    reserve();
+    const stale = w.slotRequest;
+    reserve();
+    const current = {
+      type: 'colab.render.slots',
+      renderId: w.slotRequest.renderId,
+      requestId: w.slotRequest.requestId,
+      slots: [{ id, top: 10 }],
+    };
+    const emit = (value: unknown) =>
+      w.slotPort.dispatchEvent(new MessageEvent('message', { data: value }));
+    const read = () => document.getElementById('probe')!.dataset.slots;
+    const rejected = [];
+    for (const value of [
+      { ...current, renderId: 'old' },
+      { ...current, requestId: stale.requestId },
+      { ...current, slots: [{ id: 'foreign', top: 2 }] },
+      { ...current, slots: [{ id, top: Infinity }] },
+      { ...current, slots: [{ id, top: -1 }] },
+      { ...current, slots: [current.slots[0], current.slots[0]] },
+      { ...current, extra: true },
+    ]) {
+      emit(value);
+      rejected.push(read());
+    }
+    const clamped = w.slotRequest.slots[0].height;
+    for (const top of [10, 20, 30, 40]) emit({ ...current, slots: [{ id, top }] });
+    const stopped = read();
+    emit({ ...current, slots: [] });
+    return { rejected, clamped, stopped, detached: read() };
+  });
+  expect(result.rejected).toEqual(Array(7).fill('[]'));
+  expect(result.clamped).toBe(2000);
+  expect(JSON.parse(result.stopped!)[0].top).toBe(30);
+  expect(result.detached).toBe('[]');
 });

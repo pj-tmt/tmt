@@ -52,7 +52,13 @@ owns record fields, limits, revision semantics and trust boundaries.
   cross-writer proposal bounds; `discussion::prepare_decision` checks finality against
   the same captured fold before the generic own writer freezes either edit. Proposal
   fields, causal ordering and recovery live in the contract above; no extra root,
-  store or dispatcher exists. Trusted proposal UI is a later #1773 slice.
+  store or dispatcher exists. `components/proposal-card.tsx` presents admitted cards; `proposal-actions.ts`
+  fences live decisions, publishes the final decision first, then the ordinary
+  decision comment and existing explicit Ask. Failed notification never rolls back
+  or resumes on reload. `renderer.ts` owns bounded cosmetic slot admission on the
+  existing channel; the iframe owns spacers only. Parent measurement reserves card
+  height, and vanished/duplicate slots or inner-scroll fallback detach to Comments.
+  Explicit trusted Send, Approve or Decline may dispatch; render/sync/recovery never do.
   Proposal creation requires canonical caller and machine provenance through bounded public observations; retained-ID placement recovery reuses authenticated proposal metadata. Creation may freeze an optional recipient hint from the existing bounded caller identity command and optional same-root Remote machine-status projection; it grants no authority, and absent creation provenance is never inferred from display labels or later state.
   Actor labels and clocks remain display assertions.
 - Recipient Ask again: `CommentExchange` supplies the original own comment and

@@ -72,6 +72,7 @@ export interface ThreadBinding {
     resolved: boolean,
     recipients?: readonly ThreadRecipient[],
   ): Promise<StatusChange>;
+  decideProposal?(thread: DiscussionRef, decision: 'approved' | 'declined'): Promise<void>;
   notificationFailed(
     status: ThreadStatusView,
     operationId: string,
@@ -389,11 +390,12 @@ export class ThreadStore implements ThreadBinding {
     });
     return result;
   }
-  /** Record-only final decision. Dispatch belongs to the later trusted UI action. */
+  /** Record-only final decision; the trusted parent action owns subsequent Ask. */
   async decideProposal(thread: DiscussionRef, decision: 'approved' | 'declined') {
     const captured = structuredClone(thread);
     await this.#exclusive(async (c) => {
       const view = this.#thread(c, captured);
+      requireValue(c.admission.ownerDevice(this.deviceId));
       requireValue(view.proposal !== undefined && view.decision === undefined);
       await this.#write([
         {

@@ -328,6 +328,7 @@ export type ThreadWindowProps = {
   blocked: boolean;
   observationUnavailable?: boolean;
   composer?: ReactNode;
+  proposal?: ReactNode;
   initialEdit?: ComposerEdit;
   onDraft?(edit: ComposerEdit): void;
   onBusy?(busy: boolean): void;
@@ -353,6 +354,7 @@ export function ThreadWindow({
   blocked,
   observationUnavailable,
   composer,
+  proposal,
   initialEdit,
   onDraft,
   onBusy,
@@ -513,6 +515,7 @@ export function ThreadWindow({
             )
       }
     >
+      {proposal}
       {anchor && <blockquote>{anchor.exact}</blockquote>}
       {tracked && anchorsChecked && !attached && (
         <p className="annotation-hint">{text.commentQuoteChanged}</p>
@@ -609,6 +612,7 @@ export function ThreadPanel({
   presentations,
   onStatusChange,
   onBusy,
+  renderProposal,
 }: {
   creationRecipient?: CreationRecipient;
   hideHeader?: boolean;
@@ -628,6 +632,7 @@ export function ThreadPanel({
   presentations?: readonly ThreadPresentation[];
   onStatusChange?(thread: ThreadView, resolved: boolean): Promise<ThreadStatusOutcome>;
   onBusy?(busy: boolean): void;
+  renderProposal?(thread: ThreadView): ReactNode;
 }) {
   const [compose, setCompose] = useState(false);
   const [now, setNow] = useState(0);
@@ -697,7 +702,9 @@ export function ThreadPanel({
                 }}
               >
                 <strong>
-                  {thread.deleted ? text.threadDeleted : (thread.anchor?.exact ?? 'Page comments')}
+                  {thread.deleted
+                    ? text.threadDeleted
+                    : (thread.proposal?.title ?? thread.anchor?.exact ?? 'Page comments')}
                 </strong>
                 <span>
                   {participants.join(', ')} ·{' '}
@@ -714,7 +721,8 @@ export function ThreadPanel({
               </button>
               {active === id && (
                 <ThreadWindow
-                  creationRecipient={creationRecipient}
+                  creationRecipient={thread.proposal?.proposer ?? creationRecipient}
+                  proposal={renderProposal?.(thread)}
                   thread={thread}
                   attached={resolved.includes(id)}
                   anchorsChecked={anchorsChecked}

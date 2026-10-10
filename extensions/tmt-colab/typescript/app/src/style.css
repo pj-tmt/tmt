@@ -1137,3 +1137,61 @@ body:has(.page-header-actions) {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+
+.proposal-inline {
+  position: absolute;
+  left: 0;
+  right: 0;
+  z-index: 1;
+  padding: 0 16px;
+}
+.proposal-inline[data-detached] {
+  visibility: hidden;
+  pointer-events: none;
+}
+.proposal-card {
+  border: 1px solid var(--c-rule);
+  background: var(--c-sheet);
+  color: var(--c-text);
+  padding: 16px;
+  max-height: 2000px;
+  overflow: auto;
+}
+.proposal-card header {
+  display: flex;
+  gap: 16px;
+  align-items: start;
+  justify-content: space-between;
+}
+.proposal-card strong {
+  overflow-wrap: anywhere;
+}
+.proposal-state {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+.proposal-state svg {
+  width: 16px;
+  height: 16px;
+}
+.proposal-state[data-state='approved'] {
+  color: var(--c-working);
+}
+.proposal-state[data-state='declined'] {
+  color: var(--c-blocked);
+}
+.proposal-author {
+  color: var(--c-muted);
+  font-size: 12px;
+}
+.proposal-body {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.proposal-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}

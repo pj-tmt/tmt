@@ -174,3 +174,10 @@ covers OS defaults, explicit choices, live updates, render bindings and cleanup
 without reload, plus the media-only CSS limit. Existing Ask,
 discussion, management and export scenarios verify the publication controls;
 run the [app/browser and real-binary acceptance gates](development.md).
+
+Proposal cards live in trusted parent chrome with a flat shared 1px edge and state
+mark plus word. The parent measures height; the one author iframe owns only inert
+spacers through the existing bounded renderer channel. Follow up reuses the
+anchored conversation/composer. Missing, duplicate or vanished slots and inner
+scroll fallback show the admitted proposal in Comments. Resolve folds the card;
+Reopen retains the final decision. No new token or surface variant is introduced.

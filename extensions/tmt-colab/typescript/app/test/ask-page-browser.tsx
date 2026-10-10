@@ -134,7 +134,14 @@ export async function mount(
     async prepare(input) {
       // The fixture routes by hash, so location.href is not the mounted page URL a real app has.
       const fixture = fixtureAttempt(
-        { ...selection(), ...input, url: pageLink() },
+        {
+          ...selection(),
+          ...input,
+          url: pageLink(),
+          ...(input.context
+            ? { thread: input.context.thread.id, messageIds: [input.context.message.id] }
+            : {}),
+        },
         input.destination,
       );
       if (preparing) await preparing;
@@ -270,6 +277,10 @@ export async function mount(
       resolved: _resolved,
       comments: _comments,
       ref: _ref,
+      proposal: _proposal,
+      decision: _decision,
+      status: _status,
+      notifications: _notifications,
       ...scope
     } = thread;
     const comment: ThreadView['comments'][number] = {
@@ -328,6 +339,40 @@ export async function mount(
     async setStatus(ref, _previous, resolved) {
       actions.push(`status:${resolved ? 'resolve' : 'reopen'}`);
       return { changed: true, status: setResolved(find(ref), resolved, 'person') };
+    },
+    async decideProposal(ref, decision) {
+      const thread = find(ref);
+      if (!ownerDevice || !thread.proposal || thread.deleted || thread.decision)
+        throw new Error('Decision unavailable');
+      actions.push(`decision:${decision}`);
+      const actionId = crypto.randomUUID();
+      current = {
+        ...current,
+        threads: current.threads!.map((value) =>
+          value === thread
+            ? {
+                ...value,
+                decision: {
+                  version: 1,
+                  kind: 'proposal-decision',
+                  spaceId: thread.spaceId,
+                  pageId: thread.pageId,
+                  epoch: thread.epoch,
+                  senderDevice: id(4),
+                  deviceName: 'You',
+                  revision: '1',
+                  deleted: false,
+                  at: String(Date.now()),
+                  actionId,
+                  thread: thread.ref,
+                  previous: null,
+                  decision,
+                },
+              }
+            : value,
+        ),
+      };
+      emit();
     },
     async notificationFailed() {
       throw new Error('Not used');
@@ -867,6 +912,80 @@ export function resizeHistory() {
               }
             : comment,
         ),
+      },
+    ],
+  };
+  emit();
+}
+
+/** Authenticated proposal projection double; author HTML carries only its inert ID. */
+export function proposal(placement: 'inline' | 'missing' | 'duplicate' = 'inline') {
+  const proposalId = id(81);
+  const placeholder = `<tmt-proposal data-id="${proposalId}"></tmt-proposal>`;
+  current = {
+    ...current,
+    source: `<style>body {margin:24px;font:16px/1.5 sans-serif} tmt-proposal {display:block}</style><h1>Project notes</h1><p>Before the proposal.</p>${placement === 'missing' ? '' : placeholder}${placement === 'duplicate' ? placeholder : ''}<p id="after-proposal">The page continues here.</p>`,
+    threads: [
+      {
+        version: 1,
+        kind: 'thread',
+        spaceId: selection().space,
+        pageId: id(1),
+        epoch: '1',
+        senderDevice: id(4),
+        deviceName: 'You',
+        threadId: proposalId,
+        revision: '1',
+        at: String(Date.now()),
+        anchor: null,
+        resolved: false,
+        deleted: false,
+        ref: { writer: id(4), id: proposalId },
+        comments: [],
+        proposal: {
+          proposalId,
+          title: 'Use a clearer project heading',
+          body: 'Change the heading to explain what the page contains. Keep the supporting notes below it.',
+          proposer: {
+            machineId: destination().machine,
+            agentId: destination().agent,
+            label: destination().agentName,
+          },
+        },
+      },
+    ],
+  };
+  emit();
+}
+
+/** Admitted own Ask projection for proposal delivery-state presentation cases. */
+export function proposalAsk(state: PageAsk['state'] | 'replied') {
+  const thread = current.threads!.find((thread) => thread.proposal)!;
+  const comment = thread.comments.at(-1)!;
+  current = {
+    ...current,
+    asks: [
+      {
+        thread: thread.threadId,
+        messageIds: [comment.messageId],
+        operationId: sends.sends[0].operationId,
+        writer: id(4),
+        message: comment.body,
+        agent: destination().agent,
+        agentName: destination().agentName,
+        deviceName: 'You',
+        machine: destination().machine,
+        issuedAt: Date.now(),
+        canTrack: true,
+        state: state === 'replied' ? 'accepted' : state,
+        ...(state === 'refused' ? { requestId: null, reason: 'REMOTE_SCOPE_DENIED' } : {}),
+        ...(state === 'replied'
+          ? {
+              reply:
+                'I will use the clearer heading.\n' +
+                'The supporting notes stay in place. '.repeat(12),
+            }
+          : {}),
       },
     ],
   };

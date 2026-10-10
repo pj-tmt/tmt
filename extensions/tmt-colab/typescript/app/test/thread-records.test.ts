@@ -176,6 +176,7 @@ it('projects revisions and terminal tombstones but rejects changed references, m
 function storeFixture() {
   let device = a,
     denied = false,
+    owner = true,
     failed = false;
   const own: OwnState = {},
     batches: OwnRecord[][] = [];
@@ -196,6 +197,7 @@ function storeFixture() {
       head: { revision: 1n },
       root: {},
       validatePage() {},
+      ownerDevice: () => owner,
       author() {
         if (denied) throw new Error('Denied');
       },
@@ -225,6 +227,9 @@ function storeFixture() {
     batches,
     device(value: string) {
       device = value;
+    },
+    nonOwner() {
+      owner = false;
     },
     deny() {
       denied = true;
@@ -661,4 +666,14 @@ it('refuses second proposal decisions under the admitted writer lock and preserv
   f.deny();
   await expect(f.store.decideProposal(thread, 'approved')).rejects.toThrow();
   expect(f.batches).toHaveLength(3);
+});
+
+it('a non-owner admitted device cannot publish a proposal decision', async () => {
+  const f = storeFixture();
+  put(f.own, fixture.proposal);
+  f.nonOwner();
+  await expect(
+    f.store.decideProposal({ writer: a, id: fixture.proposal.threadId }, 'approved'),
+  ).rejects.toThrow();
+  expect(f.batches).toEqual([]);
 });

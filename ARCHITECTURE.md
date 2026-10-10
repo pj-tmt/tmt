@@ -635,6 +635,13 @@ core discovery or storage access.
   author HTML and passes no application capability. Parent highlight messages carry only
   anchor IDs and quote selectors; discussion bodies and display labels never enter author code.
   This contains author code; page self-navigation can still leak a request. The parent projects the effective light/dark theme as root `data-theme` over the render-bound cosmetic port; details in [page-chrome](.agents/skills/tmt-colab/references/page-chrome.md).
+- **Proposal cards.** Authenticated discussion records supply parent-only cards.
+  The existing opaque renderer channel exchanges IDs/heights and cosmetic slot tops;
+  the iframe owns no record text or action capability. Parent trusted Approve/Decline
+  commits a final decision before the ordinary comment and existing browser-direct
+  Ask. Failed notification never rolls back or resumes automatically. The
+  [proposal contract](extensions/tmt-colab/contracts/colab-v1.md#own-stream-discussion-records-1427)
+  owns bounds, finality and detached fallback; no new store or Remote operation.
 - **Attachments.** Colab implements [descriptor/manifest/reference grammar and internal read/publication capture](extensions/tmt-colab/contracts/attachment-v1.md) with existing crypto, authenticated cuts and fold metadata.
   The mount-owned object adapter joins generation-scoped callbacks, original uploads, committed reads and detached history; root-local reads need an established channel.
   Remote owns backend/quota/origin; Colab owns crypto/admission. Remote declares Colab Local; snapshot/retained-reference persistence (#2299) remains planned in the [storage proposal](extensions/tmt-colab/contracts/storage-v1-proposal.md).

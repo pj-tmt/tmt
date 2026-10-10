@@ -1,7 +1,7 @@
 import { pageAction } from '../test/page-actions.js';
 import { expect, test, type Locator, type Page, type Route } from '@playwright/test';
 import { text } from '../src/strings.js';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { pairBrowser, restartColab, startDoor } from './harness/browser.js';
@@ -712,6 +712,122 @@ test('composer records plain annotations and replies without a recipient, then s
         .filter((call) => call.operation === 'dispatch.create')
         .map((call) => call.operationId),
     ).toEqual([operationId]);
+    expect(agent.received()).toHaveLength(1);
+    expect(world.coreCalls().filter((call) => call.operation === 'dispatch.create')).toHaveLength(
+      1,
+    );
+  });
+});
+
+test('proposal decisions notify the exact proposer once and survive resolution and reload', async () => {
+  await withWorld(async (world) => {
+    const door = await startDoor(world, await freePort());
+    const agent = await world.startAgent('proposal-agent', { gated: true });
+    const browser = await pairBrowser(world, 'proposal-author');
+    const created = createPage(
+      world,
+      'Proposal review',
+      '<h1>Project notes</h1><p>Review the heading.</p>',
+      agent.pane,
+    );
+    const added = JSON.parse(
+      run(
+        world,
+        world.binaries.colab,
+        [
+          'proposal',
+          'add',
+          created.pageId,
+          '--title',
+          'Use a clearer project heading',
+          '--body',
+          'Explain what this page contains.',
+          '--json',
+        ],
+        undefined,
+        agent.pane,
+      ),
+    );
+    const page = await openPage(door, browser, created);
+    const card = page.locator(
+      `.proposal-inline .proposal-card[data-proposal-id="${added.proposalId}"]`,
+    );
+    await expect(card).toBeVisible();
+    const captures = process.env.COLAB_PROPOSAL_NATIVE_CAPTURE_DIR;
+    async function capture(state: string) {
+      if (!captures) return;
+      mkdirSync(captures, { recursive: true });
+      for (const width of [1440, 390])
+        for (const theme of ['light', 'dark']) {
+          await page.setViewportSize({ width, height: 900 });
+          await page.evaluate((theme) => {
+            document.documentElement.dataset.theme = theme;
+          }, theme);
+          await expect(card).toBeVisible();
+          await page.screenshot({ path: `${captures}/${state}-${width}-${theme}.png` });
+        }
+    }
+    await capture('open');
+    await card.getByRole('button', { name: 'Approve', exact: true }).click();
+    await until(() => agent.received().length === 1, 'proposal decision notification');
+    await expect(card.locator('.proposal-state')).toHaveText('Approved');
+    const received = agent.received()[0];
+    const delivered = received.body as string;
+    expect(delivered).toContain('[remote: proposal-author]\nPage: Proposal review\nLink: ');
+    expect(delivered).toContain(
+      '\n\nQuote:\n\n\nComment:\nApproved: Use a clearer project heading',
+    );
+    await capture('approved-waiting');
+    writeFileSync(path.join(agent.gate, `${received.requestId}.release`), '');
+    await until(
+      () =>
+        agent.rows().some((row) => row.event === 'replied' && row.requestId === received.requestId),
+      'proposal correlated reply',
+    );
+    const reply = agent
+      .rows()
+      .find((row) => row.event === 'replied' && row.requestId === received.requestId)!
+      .body as string;
+    await expect(card.getByTestId('ask-reply')).toHaveText(reply);
+    await capture('approved-replied');
+    await card.getByRole('button', { name: 'Resolve', exact: true }).click();
+    await expect(card).toHaveAttribute('data-resolved', 'true');
+    await capture('resolved');
+    await card.getByRole('button', { name: 'Reopen', exact: true }).click();
+    await expect(card.locator('.proposal-state')).toHaveText('Approved');
+    await capture('reopened');
+    await page.reload();
+    await expect(card.locator('.proposal-state')).toHaveText('Approved');
+    await expect(card.getByTestId('ask-reply')).toHaveText(reply);
+    const rows = JSON.parse(
+      run(world, world.binaries.colab, ['proposal', 'ls', created.pageId, '--json']),
+    ).proposals;
+    const exported = JSON.parse(
+      run(world, world.binaries.colab, [
+        'export',
+        created.pageId,
+        '--dir',
+        path.join(world.root, 'proposal-export'),
+        '--json',
+      ]),
+    );
+    const conversation = JSON.parse(
+      readFileSync(path.join(exported.directory, 'conversations.json'), 'utf8'),
+    );
+    expect(conversation.asks).toHaveLength(1);
+    const ask = conversation.asks[0];
+    expect(ask.thread).toBe(added.proposalId);
+    expect(ask.messageIds).toEqual([rows[0].comments[0].id]);
+    expect(ask.requestId).toBe(received.requestId);
+    expect(delivered).toBe(`[remote: proposal-author]\n${ask.message}`);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].decision.decision).toBe('approved');
+    expect(rows[0].resolved).toBe(false);
+    expect(
+      rows[0].comments.filter(
+        (comment: { body: string }) => comment.body === 'Approved: Use a clearer project heading',
+      ),
+    ).toHaveLength(1);
     expect(agent.received()).toHaveLength(1);
     expect(world.coreCalls().filter((call) => call.operation === 'dispatch.create')).toHaveLength(
       1,
