@@ -248,6 +248,7 @@ fn lifecycle_callback(hooked: Vec<&'static str>) -> Command {
 pub(in crate::grammar) fn digest_hook(hooked: Vec<&'static str>) -> Command {
     lifecycle_callback(hooked)
         .name("__digest-hook")
+        .alias("__focus-hook")
         .mut_arg("activity-only", |arg| arg.conflicts_with("launch"))
         .about("Internal launch-admitted Digest continuation")
         .arg(Arg::new("launch").long("launch").hide(true))

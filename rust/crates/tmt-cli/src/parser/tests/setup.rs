@@ -21,6 +21,13 @@ fn digest_callback_is_hidden_and_does_not_enter_human_output_or_drift() {
         }
     );
     assert!(!crate::skill_reminder::eligible_for_drift(&parsed(&argv)));
+    let mut legacy = argv;
+    legacy[0] = "__focus-hook";
+    assert_eq!(parsed(&legacy).invocation, parsed(&argv).invocation);
+    assert!(!crate::skill_reminder::eligible_for_drift(&parsed(&legacy)));
+    let help = crate::grammar::grammar().render_long_help().to_string();
+    assert!(!help.contains("__digest-hook"));
+    assert!(!help.contains("__focus-hook"));
     assert!(
         crate::grammar::grammar()
             .find_subcommand("__digest-hook")
@@ -193,6 +200,10 @@ fn private_hook_worker_budget_is_typed_bounded_and_requires_worker() {
 
 #[test]
 fn stable_digest_callback_discovers_launch_without_coordinates() {
+    assert_eq!(
+        parsed(&["__focus-hook", "codex", "--discover-launch"]).invocation,
+        parsed(&["__digest-hook", "codex", "--discover-launch"]).invocation
+    );
     assert_eq!(
         parsed(&["__digest-hook", "codex", "--discover-launch"]).invocation,
         Invocation::DigestHook {
