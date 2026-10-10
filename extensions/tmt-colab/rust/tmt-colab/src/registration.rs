@@ -153,6 +153,13 @@ struct DeviceRegistration {
     outcome: Vec<u8>,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Revocation {
+    Unchanged,
+    Tombstoned,
+    MembershipChanged,
+}
+
 pub struct Registration {
     store: Store,
     keyring: Keyring,
@@ -522,6 +529,16 @@ impl Registration {
     /// Trusted remote consumer: known devices commit cuts/rotation and a tombstone;
     /// unknown IDs only tombstone. Equal/older or already-revoked events return false.
     pub fn revoke(&mut self, device_id: &str, grant_revision: u64) -> Result<bool> {
+        self.revoke_event(device_id, grant_revision)
+            .map(|effect| effect != Revocation::Unchanged)
+    }
+    /// Preserve the distinction between a registration tombstone and an owner transition:
+    /// only the latter can advance page epochs and leave attachments waiting for rekey.
+    pub(crate) fn revoke_event(
+        &mut self,
+        device_id: &str,
+        grant_revision: u64,
+    ) -> Result<Revocation> {
         values::generated_id(device_id)?;
         if grant_revision == 0 {
             return Err(crate::store::owner::OwnerFault::Invalid.into());
@@ -545,16 +562,25 @@ impl Registration {
                 },
             )?;
             if noop {
-                return Ok(false);
+                return Ok(Revocation::Unchanged);
             }
             if known {
-                return self.engine.remote_revoke(
-                    &mut self.store,
-                    &self.keyring,
-                    device_id,
-                    grant_revision,
-                    now,
-                );
+                return self
+                    .engine
+                    .remote_revoke(
+                        &mut self.store,
+                        &self.keyring,
+                        device_id,
+                        grant_revision,
+                        now,
+                    )
+                    .map(|changed| {
+                        if changed {
+                            Revocation::MembershipChanged
+                        } else {
+                            Revocation::Unchanged
+                        }
+                    });
             }
             match self.store.revoke_remote_device(
                 &self.keyring.space_id,
@@ -568,7 +594,15 @@ impl Registration {
                 {
                     continue;
                 }
-                other => return other,
+                other => {
+                    return other.map(|changed| {
+                        if changed {
+                            Revocation::Tombstoned
+                        } else {
+                            Revocation::Unchanged
+                        }
+                    });
+                }
             }
         }
         Err(crate::store::owner::OwnerFault::StaleHead.into())

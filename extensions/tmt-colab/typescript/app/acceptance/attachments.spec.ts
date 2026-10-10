@@ -1,12 +1,12 @@
 import { pageAction } from '../test/page-actions.js';
-import { spawn } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { expect, test, type Page } from '@playwright/test';
 import { openReaderLink, pairBrowser, startDoor } from './harness/browser.js';
-import { createPage, freePort, openChat, openPage, run } from './harness/ask.js';
+import { clientId, createPage, freePort, openChat, openPage, run } from './harness/ask.js';
 import { captureResponsive } from './harness/captures.js';
 import { until } from './harness/process.js';
 import { disposeActiveWorlds, withWorld } from './harness/with-world.js';
@@ -611,7 +611,7 @@ test('export and attachment read return the same bytes as the browser, and say w
   });
 });
 
-test('a native attachment is re-sealed under the new epoch after the page rotates and every device still reads the same bytes', async () => {
+test('revoking a device rekeys a native document attachment with one complete swap and exact browser and CLI bytes', async () => {
   test.setTimeout(240_000);
   await withWorld(async (world) => {
     const door = await startDoor(world, await freePort());
@@ -620,65 +620,199 @@ test('a native attachment is re-sealed under the new epoch after the page rotate
     const created = createPage(world, 'Rekey', '<h1>Rekey</h1>');
     const first = await openPage(door, author, created);
     const second = await openPage(door, viewer, created);
-    const colab = (args: string[]) =>
-      JSON.parse(run(world, world.binaries.colab, [...args, '--json'])) as Record<string, any>;
-    // Every slot record of the serve; a finished re-seal names the attachment it replaced.
-    const records = () => {
-      const found = fs
-        .readdirSync(world.dataRoot, { recursive: true, encoding: 'utf8' })
-        .filter((entry) => entry.endsWith('attach-slots'));
-      expect(found).toHaveLength(1);
-      const directory = path.join(world.dataRoot, found[0]!);
-      return fs
-        .readdirSync(directory)
-        .map((name) =>
-          JSON.parse(fs.readFileSync(path.join(directory, name, 'slot.json'), 'utf8')),
-        ) as { replaces?: string; doneMs?: number; sealed?: { descriptor: { epoch: string } } }[];
+    type Reference = {
+      kind: 'document-current';
+      attachmentId: string;
+      descriptorHash: string;
+      contentRevision: string;
     };
-    const input = fs.mkdtempSync(path.join(os.tmpdir(), 'colab-rekey-'));
+    type Row = {
+      attachmentId: string;
+      filename: string;
+      source: string;
+      state: string;
+      reference: Reference;
+      file?: string;
+    };
+    type Slot = {
+      replaces?: string;
+      doneMs?: number;
+      sealed?: { descriptor: { attachmentId: string; epoch: string; payloadSha256: string } };
+    };
+    const input = fs.mkdtempSync(path.join(world.root, 'rekey-'));
+    const exportPage = () => {
+      const result = JSON.parse(
+        run(world, world.binaries.colab, ['export', created.pageId, '--dir', input, '--json']),
+      ) as { directory: string };
+      const manifest = JSON.parse(
+        fs.readFileSync(path.join(result.directory, 'manifest.json'), 'utf8'),
+      ) as { epoch: string; attachments: Row[] };
+      return { ...manifest, directory: result.directory };
+    };
     try {
-      await expect(
-        first.frameLocator('iframe').getByRole('heading', { name: 'Rekey', exact: true }),
-      ).toBeVisible();
+      for (const page of [first, second]) {
+        await expect(
+          page.frameLocator('iframe').getByRole('heading', { name: 'Rekey', exact: true }),
+        ).toBeVisible();
+      }
       const notes = bytes(40 * 1024, 33);
       fs.writeFileSync(path.join(input, 'notes.txt'), notes);
-      const added = colab(['attachment', 'attach', created.pageId, path.join(input, 'notes.txt')]);
+      const added = JSON.parse(
+        run(world, world.binaries.colab, [
+          'attachment',
+          'attach',
+          created.pageId,
+          path.join(input, 'notes.txt'),
+          '--json',
+        ]),
+      ) as { attachment: { attachmentId: string; reference: Reference } };
       await openFiles(second);
       const rows = second
         .getByTestId('files-panel')
         .or(second.locator('dialog[data-panel=files]'))
         .getByTestId('file-row');
       await expect(rows).toHaveCount(1, { timeout: 30_000 });
-      const before = records().filter((record) => record.sealed)[0]!.sealed!.descriptor.epoch;
+      const before = exportPage();
+      expect(before.attachments).toHaveLength(1);
+      expect(before.attachments[0]).toMatchObject({
+        attachmentId: added.attachment.attachmentId,
+        source: 'document',
+        state: 'included',
+        reference: added.attachment.reference,
+      });
+      expect(fs.readFileSync(path.join(before.directory, before.attachments[0]!.file!))).toEqual(
+        notes,
+      );
 
-      // Widening keeps the epoch; the narrowing after it rotates it and commits first.
-      for (const mode of ['link', 'private']) {
-        colab(['share', 'mode', created.pageId, mode, '--yes']);
-      }
+      const paths = fs.readdirSync(world.dataRoot, { recursive: true, encoding: 'utf8' });
+      const slotDirectories = paths.filter((entry) => entry.endsWith('attach-slots'));
+      const databases = paths.filter((entry) => entry.endsWith('/space.db'));
+      expect(slotDirectories).toHaveLength(1);
+      expect(databases).toHaveLength(1);
+      const records = () => {
+        const directory = path.join(world.dataRoot, slotDirectories[0]!);
+        return fs
+          .readdirSync(directory)
+          .map(
+            (name) =>
+              JSON.parse(fs.readFileSync(path.join(directory, name, 'slot.json'), 'utf8')) as Slot,
+          );
+      };
+      const original = records().find(
+        (record) => record.sealed?.descriptor.attachmentId === added.attachment.attachmentId,
+      )!.sealed!.descriptor;
+      expect(original.epoch).toBe(before.epoch);
 
-      // The serve re-seals the file under the new epoch and swaps it in one write.
+      // Revoke an actually registered device through the real Remote door, rather than a
+      // sharing-mode toggle. Its callback narrows this page before the serve rekeys the file.
+      run(world, world.binaries.remote, [
+        'devices',
+        'revoke',
+        clientId(world, author.name),
+        '--json',
+      ]);
+
+      // Wait on the published reference, not on a staging record or a fixed delay. Every
+      // sampled snapshot must contain one complete old or new reference, never neither/both.
+      const observations: { epoch: string; reference: Reference }[] = [];
+      let after = before;
       await until(
-        () => records().some((record) => record.replaces && record.doneMs),
-        'the re-seal finished',
+        () => {
+          after = exportPage();
+          expect(after.attachments).toHaveLength(1);
+          const row = after.attachments[0]!;
+          expect(row).toMatchObject({ filename: 'notes.txt', source: 'document' });
+          expect(row.reference).toMatchObject({
+            kind: 'document-current',
+            attachmentId: row.attachmentId,
+          });
+          expect(row.reference.descriptorHash).toMatch(/^[a-f0-9]{64}$/);
+          expect(row.reference.contentRevision).toMatch(/^v1:/);
+          observations.push({ epoch: after.epoch, reference: row.reference });
+          return row.attachmentId !== added.attachment.attachmentId && row.state === 'included';
+        },
+        'the published document reference moved to the new epoch',
         90_000,
       );
-      const swapped = records().find((record) => record.replaces && record.doneMs)!;
+      expect(BigInt(after.epoch)).toBe(BigInt(before.epoch) + 1n);
+      const current = after.attachments[0]!;
+      expect(current.reference.descriptorHash).not.toBe(added.attachment.reference.descriptorHash);
+      expect(fs.readFileSync(path.join(after.directory, current.file!))).toEqual(notes);
+      await until(
+        () => records().some((record) => record.replaces && record.doneMs),
+        'the rekey slot settled',
+      );
+      const replacements = records().filter((record) => record.replaces);
+      expect(replacements).toHaveLength(1);
+      const swapped = replacements[0]!;
       expect(swapped.replaces).toBe(added.attachment.attachmentId);
-      expect(swapped.sealed!.descriptor.epoch).not.toBe(before);
-      // The rotation ended the viewer's session; opening the page again lists exactly one file,
-      // the re-sealed one.
+      expect(swapped.sealed!.descriptor).toMatchObject({
+        attachmentId: current.attachmentId,
+        epoch: after.epoch,
+      });
+      expect(swapped.sealed!.descriptor.payloadSha256).not.toBe(original.payloadSha256);
+      for (const observation of observations) {
+        const expected =
+          observation.reference.attachmentId === added.attachment.attachmentId
+            ? added.attachment.reference
+            : current.reference;
+        expect(observation.reference.attachmentId).toBe(expected.attachmentId);
+        expect(observation.reference.descriptorHash).toBe(expected.descriptorHash);
+      }
+
+      // Independent, read-only durable evidence: exactly one content update in the new epoch
+      // made the swap. Separate remove/add writes or repeated swaps cannot pass this check.
+      const swaps = () =>
+        Number(
+          execFileSync(
+            'sqlite3',
+            [
+              '-readonly',
+              path.join(world.dataRoot, databases[0]!),
+              `SELECT count(*) FROM receipts WHERE page='${created.pageId}' AND epoch='${after.epoch}' AND namespace='content'`,
+            ],
+            { encoding: 'utf8' },
+          ).trim(),
+        );
+      expect(swaps()).toBe(1);
+
+      // The surviving browser opens the new epoch and downloads the re-sealed object.
       await second.reload();
       await openFiles(second);
       await expect(rows).toHaveCount(1, { timeout: 30_000 });
+      await expect(rows.first()).not.toContainText(text.filesResealing);
       const download = second.waitForEvent('download', { timeout: 30_000 });
       await rows.first().getByRole('button', { name: text.attachmentDownload }).click();
       const saved = await download;
       expect(saved.suggestedFilename()).toBe('notes.txt');
-      expect(sha(fs.readFileSync((await saved.path())!))).toBe(sha(notes));
-      // Nothing waits any more: no further re-seal slot appears.
-      const finished = records().filter((record) => record.replaces).length;
-      await new Promise((resolve) => setTimeout(resolve, 3_000));
-      expect(records().filter((record) => record.replaces)).toHaveLength(finished);
+      expect(fs.readFileSync((await saved.path())!)).toEqual(notes);
+
+      // The CLI reads the same new reference byte for byte; the superseded one is stale.
+      const reference = path.join(input, 'reference.json');
+      fs.writeFileSync(reference, JSON.stringify(current.reference));
+      const readArgs = [
+        'attachment',
+        'read',
+        created.pageId,
+        '--reference',
+        reference,
+        '--output',
+        input,
+        '--json',
+      ];
+      const read = JSON.parse(run(world, world.binaries.colab, readArgs)) as { directory: string };
+      expect(fs.readFileSync(path.join(read.directory, 'attachment.bin'))).toEqual(notes);
+      fs.writeFileSync(reference, JSON.stringify(added.attachment.reference));
+      expect(() => run(world, world.binaries.colab, readArgs)).toThrow(/COLAB_STALE_BASE/);
+      const reopened = exportPage();
+      expect(reopened.attachments).toHaveLength(1);
+      expect(reopened.attachments[0]).toMatchObject({
+        attachmentId: current.attachmentId,
+        state: 'included',
+        reference: current.reference,
+      });
+      expect(swaps()).toBe(1);
+      expect(records().filter((record) => record.replaces)).toHaveLength(1);
     } finally {
       fs.rmSync(input, { recursive: true, force: true });
     }

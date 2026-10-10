@@ -87,9 +87,11 @@ file for a second paired device without a reload, downloads and reads back byte-
 killed after the serve sealed an 8 MiB file leaves the serve to finish while `--resume <slot>`
 returns the same attachment, once. Its refusals (missing, link, directory, oversized file, unknown
 page or slot, another page's slot, archived page) stage nothing; a finished slot holds only
-`slot.json`. The same spec rotates a page after a native attach (#2293): the serve re-seals the
-file under the new epoch (a finished slot names the attachment it replaced), the page still lists
-one file, and a reopened second device downloads the same bytes.
+`slot.json`. The same spec revokes a registered device after a native attach: it waits on the
+published document reference, checks a new epoch and attachment ID, and requires one complete
+reference in every sampled export. A read-only SQLite receipt count proves exactly one content
+update swapped the descriptor. The surviving browser and CLI read byte-identical files; the
+old reference is stale, and subsequent reads leave the single swap unchanged.
 
 `agent-status.spec.ts` reads the real admitted directory through the Agents drawer,
 checks its served asset hashes and CSP, and injects a labelled context-read refusal
