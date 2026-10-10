@@ -14,6 +14,13 @@
   box-shadow: none;
   overflow: hidden;
 }
+/* Clip the exposed drawer gutter without resizing the opaque author frame.
+   Its margin markers stay behind the drawer until the page edge is uncovered. */
+@media (min-width: 641px) {
+  body:has(.page-drawer[open]) .frame-host {
+    clip-path: inset(0 16px 0 0);
+  }
+}
 .page-drawer[open] {
   display: flex;
   flex-direction: column;
