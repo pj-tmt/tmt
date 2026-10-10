@@ -550,3 +550,68 @@ fn attachment_publications_survive_checkpoints_and_reject_mutation_or_wrong_root
         );
     }
 }
+
+#[test]
+fn real_child_keeps_proposal_decision_keys_immutable() {
+    let f = fixture();
+    let value = f["decisionCases"][0]["actions"][1].clone();
+    let key = format!("{}:proposal-decision", value["actionId"].as_str().unwrap());
+    let mut decoder = Decoder::with_config(support::decoder_config(
+        env!("CARGO_BIN_EXE_tmt-colab").into(),
+    ))
+    .unwrap();
+    for remove in [false, true] {
+        let doc = Doc::new();
+        for name in ["threads", "messages", "intents", "replies"] {
+            doc.get_or_insert_map(name);
+        }
+        let map = doc.get_or_insert_map("messages");
+        map.insert(
+            &mut doc.transact_mut(),
+            key.as_str(),
+            Any::from_json(&value.to_string()).unwrap(),
+        );
+        let baseline = doc
+            .transact()
+            .encode_state_as_update_v1(&StateVector::default());
+        let vector = doc.transact().state_vector();
+        if remove {
+            map.remove(&mut doc.transact_mut(), &key);
+        } else {
+            let mut changed = value.clone();
+            changed["decision"] = json!("declined");
+            map.insert(
+                &mut doc.transact_mut(),
+                key.as_str(),
+                Any::from_json(&changed.to_string()).unwrap(),
+            );
+        }
+        let tail = doc.transact().encode_state_as_update_v1(&vector);
+        assert!(
+            decoder
+                .decode(
+                    UpdateBatch {
+                        namespace: Namespace::Own,
+                        baseline: &baseline,
+                        updates: &[]
+                    },
+                    Role::Commenter,
+                    None
+                )
+                .is_ok()
+        );
+        assert!(
+            decoder
+                .decode(
+                    UpdateBatch {
+                        namespace: Namespace::Own,
+                        baseline: &baseline,
+                        updates: &[&tail]
+                    },
+                    Role::Commenter,
+                    None
+                )
+                .is_err()
+        );
+    }
+}

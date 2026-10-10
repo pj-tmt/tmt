@@ -1179,5 +1179,151 @@
       },
       "valid": false
     }
+  ],
+  "proposal": {
+    "version": 1,
+    "kind": "thread",
+    "spaceId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "pageId": "00000000-0000-4000-8000-000000000001",
+    "epoch": "1",
+    "senderDevice": "00000000-0000-4000-8000-000000000002",
+    "revision": "1",
+    "deleted": false,
+    "deviceName": "First browser",
+    "at": "1791072000000",
+    "threadId": "00000000-0000-4000-8000-000000000003",
+    "anchor": null,
+    "resolved": false,
+    "proposal": {
+      "proposalId": "00000000-0000-4000-8000-000000000003",
+      "title": "A proposal 🐈",
+      "body": "<script>inert text</script>\nReview the page.",
+      "proposer": {
+        "machineId": "40000000-0000-4000-8000-000000000001",
+        "agentId": "50000000-0000-1000-8000-000000000001",
+        "label": "Proposer"
+      }
+    }
+  },
+  "decisionCases": [
+    {
+      "name": "first causal decision survives descendant",
+      "actions": [
+        {
+          "version": 1,
+          "kind": "proposal-decision",
+          "spaceId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "pageId": "00000000-0000-4000-8000-000000000001",
+          "epoch": "1",
+          "senderDevice": "00000000-0000-4000-8000-000000000002",
+          "revision": "1",
+          "deleted": false,
+          "deviceName": "First browser",
+          "at": "0",
+          "actionId": "60000000-0000-4000-8000-000000000002",
+          "thread": {
+            "writer": "00000000-0000-4000-8000-000000000002",
+            "id": "00000000-0000-4000-8000-000000000003"
+          },
+          "previous": {
+            "writer": "00000000-0000-4000-8000-000000000002",
+            "id": "60000000-0000-4000-8000-000000000001"
+          },
+          "decision": "declined"
+        },
+        {
+          "version": 1,
+          "kind": "proposal-decision",
+          "spaceId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "pageId": "00000000-0000-4000-8000-000000000001",
+          "epoch": "1",
+          "senderDevice": "00000000-0000-4000-8000-000000000002",
+          "revision": "1",
+          "deleted": false,
+          "deviceName": "First browser",
+          "at": "1791072000000",
+          "actionId": "60000000-0000-4000-8000-000000000001",
+          "thread": {
+            "writer": "00000000-0000-4000-8000-000000000002",
+            "id": "00000000-0000-4000-8000-000000000003"
+          },
+          "previous": null,
+          "decision": "approved"
+        }
+      ],
+      "winner": "60000000-0000-4000-8000-000000000001"
+    },
+    {
+      "name": "concurrent roots use canonical IDs not clock",
+      "actions": [
+        {
+          "version": 1,
+          "kind": "proposal-decision",
+          "spaceId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "pageId": "00000000-0000-4000-8000-000000000001",
+          "epoch": "1",
+          "senderDevice": "70000000-0000-4000-8000-000000000001",
+          "revision": "1",
+          "deleted": false,
+          "deviceName": "First browser",
+          "at": "0",
+          "actionId": "60000000-0000-4000-8000-000000000003",
+          "thread": {
+            "writer": "00000000-0000-4000-8000-000000000002",
+            "id": "00000000-0000-4000-8000-000000000003"
+          },
+          "previous": null,
+          "decision": "declined"
+        },
+        {
+          "version": 1,
+          "kind": "proposal-decision",
+          "spaceId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "pageId": "00000000-0000-4000-8000-000000000001",
+          "epoch": "1",
+          "senderDevice": "00000000-0000-4000-8000-000000000002",
+          "revision": "1",
+          "deleted": false,
+          "deviceName": "First browser",
+          "at": "1791072000000",
+          "actionId": "60000000-0000-4000-8000-000000000001",
+          "thread": {
+            "writer": "00000000-0000-4000-8000-000000000002",
+            "id": "00000000-0000-4000-8000-000000000003"
+          },
+          "previous": null,
+          "decision": "approved"
+        }
+      ],
+      "winner": "60000000-0000-4000-8000-000000000001"
+    },
+    {
+      "name": "orphan stays inert",
+      "actions": [
+        {
+          "version": 1,
+          "kind": "proposal-decision",
+          "spaceId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "pageId": "00000000-0000-4000-8000-000000000001",
+          "epoch": "1",
+          "senderDevice": "00000000-0000-4000-8000-000000000002",
+          "revision": "1",
+          "deleted": false,
+          "deviceName": "First browser",
+          "at": "0",
+          "actionId": "60000000-0000-4000-8000-000000000002",
+          "thread": {
+            "writer": "00000000-0000-4000-8000-000000000002",
+            "id": "00000000-0000-4000-8000-000000000003"
+          },
+          "previous": {
+            "writer": "00000000-0000-4000-8000-000000000002",
+            "id": "60000000-0000-4000-8000-000000000001"
+          },
+          "decision": "declined"
+        }
+      ],
+      "winner": null
+    }
   ]
 }

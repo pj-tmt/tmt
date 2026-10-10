@@ -532,7 +532,7 @@ fn immutable_own_records(
             .ok_or(DecodeFault::Rejected)?;
         for (key, value) in map.iter(&txn) {
             if let Out::Any(Any::Map(fields)) = value
-                && matches!(fields.get("kind"), Some(Any::String(kind)) if matches!(kind.as_ref(), "thread" | "comment" | "thread-status" | "thread-notification" | "attachment-publication"))
+                && matches!(fields.get("kind"), Some(Any::String(kind)) if matches!(kind.as_ref(), "thread" | "comment" | "thread-status" | "thread-notification" | "proposal-decision" | "attachment-publication"))
             {
                 records.insert(
                     (root.into(), key.into()),

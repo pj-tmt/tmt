@@ -681,7 +681,8 @@ fn freeze(
         chain,
     })
 }
-pub(crate) fn fresh_id() -> Result<String> {
+/// Allocate a canonical random UUID for a retained publication or discussion ID.
+pub fn fresh_id() -> Result<String> {
     let mut bytes = [0u8; 16];
     getrandom::fill(&mut bytes)?;
     bytes[6] = (bytes[6] & 15) | 64;
