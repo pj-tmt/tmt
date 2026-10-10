@@ -208,8 +208,8 @@ try {
               c.strictJson(c.text(raw), jsonCap);
             } catch (error) {
               assert(
-                error instanceof Error && !(error instanceof RangeError),
-                'unbounded JSON refusal',
+                error instanceof Error && error.message === 'Invalid colab-v1 value or proof',
+                'JSON refusal changed',
               );
               refused = true;
             }

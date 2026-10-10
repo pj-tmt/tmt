@@ -7,6 +7,13 @@ export function strictJson(raw: Uint8Array, max: number, integerNumbers = false)
   const ws = () => {
     while ([' ', '\t', '\n', '\r'].includes(source[offset] ?? 'x')) offset++;
   };
+  const parse = (token: string): unknown => {
+    try {
+      return JSON.parse(token);
+    } catch {
+      requireValue(false);
+    }
+  };
   const string = (): string => {
     const start = offset;
     requireValue(source[offset++] === '"');
@@ -16,7 +23,8 @@ export function strictJson(raw: Uint8Array, max: number, integerNumbers = false)
       const next = source[offset++];
       if (next === '\\') offset++;
       else if (next === '"') {
-        const value: string = JSON.parse(source.slice(start, offset));
+        const value = parse(source.slice(start, offset));
+        requireValue(typeof value === 'string');
         text(value);
         return value;
       }
@@ -58,7 +66,7 @@ export function strictJson(raw: Uint8Array, max: number, integerNumbers = false)
     const start = offset;
     while (offset < source.length && !' \t\n\r,]}'.includes(source[offset])) offset++;
     const token = source.slice(start, offset);
-    const parsed: unknown = JSON.parse(token);
+    const parsed = parse(token);
     requireValue(typeof parsed !== 'number' || Number.isFinite(parsed));
     if (integerNumbers && typeof parsed === 'number')
       requireValue(Number.isSafeInteger(parsed) && parsed >= 0 && token === String(parsed));

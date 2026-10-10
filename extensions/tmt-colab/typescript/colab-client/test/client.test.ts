@@ -94,7 +94,7 @@ describe('colab browser values and immutable crypto', () => {
       '{"a":1,"\\u0061":2}',
       '1e' + '9'.repeat(1024 * 1024),
     ])
-      expect(() => c.strictJson(c.text(raw), max)).toThrow();
+      expect(() => c.strictJson(c.text(raw), max)).toThrow('Invalid colab-v1 value or proof');
     expect(c.strictJson(c.text('"\\uD83C\\uDF0D"'), max)).toBe('🌍');
     expect(c.strictJson(c.text('['.repeat(128) + '0' + ']'.repeat(128)), max)).toBeDefined();
     expect(() => c.strictJson(c.text('['.repeat(129) + '0' + ']'.repeat(129)), max)).toThrow(
