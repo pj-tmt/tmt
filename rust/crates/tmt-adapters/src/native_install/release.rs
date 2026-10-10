@@ -121,9 +121,8 @@ pub(super) fn discover_latest(
             POINTER_LIMIT,
             deadline,
         )
-        .map_err(|error| {
+        .inspect_err(|error| {
             missing_pointer = error.kind() == io::ErrorKind::NotFound;
-            error
         })?;
         let pointer: Value = super::pr_json::parse(&pointer.body, POINTER_LIMIT)?;
         let version = identity(&pointer, product, channel)?;

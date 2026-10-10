@@ -464,9 +464,12 @@ mod tests {
                 let mut calls = Vec::new();
                 let error = install_release_with(
                     product,
-                    &prefix,
-                    "aarch64-apple-darwin",
-                    channel,
+                    ReleaseInstallRequest {
+                        prefix: &prefix,
+                        target: "aarch64-apple-darwin",
+                        channel,
+                        exact: None,
+                    },
                     None,
                     || Ok(()),
                     |url, _, _, _| {
@@ -498,7 +501,7 @@ mod tests {
                         )
                     } else {
                         format!(
-                            "Could not check for {} updates on raw.githubusercontent.com: HTTPS resource was not found. Nothing was changed.",
+                            "Could not check for {} updates on raw.githubusercontent.com: Could not download release bytes from github.com: HTTPS resource was not found. Nothing was changed.",
                             product.as_str()
                         )
                     }

@@ -441,7 +441,12 @@ fn other_discovery_failures_preserve_the_original_cause() {
         assert_eq!(
             error.to_string(),
             format!(
-                "Could not check for cli updates on raw.githubusercontent.com: {cause}. Nothing was changed."
+                "Could not check for cli updates on raw.githubusercontent.com: {}{cause}. Nothing was changed.",
+                if at_pointer {
+                    ""
+                } else {
+                    "Could not download release bytes from github.com: "
+                }
             )
         );
         assert_eq!(
