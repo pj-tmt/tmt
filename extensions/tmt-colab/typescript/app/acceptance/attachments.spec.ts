@@ -559,8 +559,13 @@ test('export and attachment read return the same bytes as the browser, and say w
           out,
         ]);
       const result = read('notes.txt');
-      // The extension comes from the verified media type, never from the author's file name.
-      expect(path.extname(result.path as string)).toBe('.txt');
+      // The extension comes from the verified media type, never from the author's file name: the
+      // stored type is decided from the bytes, so arbitrary bytes named notes.txt read as .bin and
+      // a real PNG reads as .png.
+      expect(path.extname(result.path as string)).toBe('.bin');
+      const dot = read('dot.png');
+      expect(path.extname(dot.path as string)).toBe('.png');
+      expect(sha(fs.readFileSync(dot.path as string))).toBe(sha(picture.buffer));
       expect(sha(fs.readFileSync(result.path as string))).toBe(sha(notes.buffer));
       expect(JSON.stringify(result)).not.toContain(notes.buffer.toString('latin1').slice(0, 64));
       expect(fs.readdirSync(result.directory as string).sort()).toEqual(
