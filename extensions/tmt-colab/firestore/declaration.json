@@ -50,11 +50,27 @@
       "limits": { "maxObjectBytes": 65536, "maxNamespaceBytes": 67108864, "maxEntries": 1024 },
       "ttlField": "expiresAt",
       "indexes": []
+    },
+    {
+      "name": "uid-budgets",
+      "kind": "checkpoint",
+      "path": "uid-budgets",
+      "limits": { "maxObjectBytes": 4096, "maxNamespaceBytes": 4194304, "maxEntries": 1024 },
+      "ttlField": null,
+      "indexes": []
+    },
+    {
+      "name": "space-budgets",
+      "kind": "checkpoint",
+      "path": "space-budgets",
+      "limits": { "maxObjectBytes": 4096, "maxNamespaceBytes": 1048576, "maxEntries": 256 },
+      "ttlField": null,
+      "indexes": []
     }
   ],
   "admission": {
     "artifact": "firestore/admission.rules",
-    "digest": "58c7abe56fd73f8eb95d5f78cb386c7f21d67725637320a1d935b97987bec439",
+    "digest": "9a7d25d5f58b3ce1095303263e3bc0521fa3ba775ac1e51507b461a6e5364934",
     "entryPoint": "colabAdmitted"
   }
 }

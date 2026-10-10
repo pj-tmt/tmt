@@ -2746,6 +2746,8 @@ IDs, a missing `space` field and queries that omit a filter.
 | `members`       | checkpoint | `space_page_uid`                | who may read or write and in which role (`viewer`, `commenter`, `editor`, `bridge`)                                                                |
 | `log`           | log        | `space_page_epoch_stream_seq`   | one immutable encrypted envelope: `uid` (the writer), `hash`, `envelope`, `expiresAt`                                                              |
 | `checkpoints`   | checkpoint | `space_page_epoch_object_index` | one immutable 32 KiB chunk of an encrypted object: `uid` (the writer), `index` of `count` (at most 513)                                            |
+| `uid-budgets`   | checkpoint | `space_uid`                     | allocation and mutation counters for one authenticated uid in one space                                                                            |
+| `space-budgets` | checkpoint | `space`                         | aggregate allocation and mutation counters for one space                                                                                           |
 
 There is no `blob` resource and no presence resource: Awareness stores nothing on Firestore, and
 cloud attachments are #2165's. The admission collections are declared ordinary resources so the
@@ -2761,8 +2763,7 @@ ciphertext, never authority; clients still verify every statement, chain and env
 - _Append_ (`log`, `checkpoints`): create-only; `space`, `page` and `epoch` equal the page row
   (`state` is `open`); the writer's member row is not `viewer`; the ID equals the fields it is
   built from; the entry's `uid` is the writer's own; `seq` is at most 2^53−1 and the previous
-  `seq` of that stream exists and carries the same `uid` (`getAfter`, so a contiguous batch passes
-  and a gap or another writer's stream is refused); a checkpoint chunk after index 0 requires
+  `seq` of that stream exists and carries the same `uid` (`getAfter`; a gap or another writer's stream is refused); a checkpoint chunk after index 0 requires
   chunk 0 of its object to carry the same `uid`; the field set and sizes are exactly those
   declared; `expiresAt` is in the future and at most 365 days from the request, independent of the
   page deadline. Sequence zero and
@@ -2790,10 +2791,57 @@ ciphertext, never authority; clients still verify every statement, chain and env
   own `expiresAt` while its page is live. Clients drop it. Physical TTL is not provisioned
   (Remote records `not-provisioned`); expiry is enforced in Rules, and removal is cleanup.
 - Remote's current backend ceilings (12 MiB per object, 64 MiB and 1,024 entries per resource)
-  bound the declared limits; Rules cannot count entries, so they are the owner-approved plan's
-  numbers, not enforcement. Per-uid budgets are #2453. Page expiry is finite and at most
+  bound the declared limits; they are the owner-approved plan's numbers, not enforcement. The accounting counters below enforce separate uid and space caps, not per-resource limits. Page expiry is finite and at most
   `request.time + duration.value(365, 'd')` on create and update; entry create and owner expiry refresh enforce the same ceiling independently of
   the page deadline. The declaration digest covers these Rules without adding a declaration field.
+
+**Atomic accounting.** Every data row freezes `quotaUid` and `quotaBytes` at creation.
+The allocation belongs to the authenticated creator, including owner writes. The charge is the
+stored `envelope.size() + 256` for log entries, `bytes.size() + 256` for checkpoint chunks, and
+256 for admission rows without a payload. These are Colab accounting bytes, not Firebase physical
+storage or billing figures. The fixed 256 is an application overhead allowance.
+
+One commit contains exactly one charged data mutation plus its `uid-budgets/{space_uid}` and
+`space-budgets/{space}` writes. Their exact fields are `space`, `chargedBytes`, `entries`,
+`windowStart`, `mutations`, `targetKind`, `targetId`, `action`, `actor`; the uid row also has `uid`.
+Scope is immutable. The binding names the current authenticated actor and one declared target
+path. Each counter checks that target's actual before/after transition; the data rule requires
+the same binding and changed actor/space rate fields. Detached allocation, a substituted target,
+reused charges across multiple paths, unchanged-data updates and counter-only refunds refuse.
+#2452 coalesces compatible pending updates before sealing, then writes one sealed entry per commit;
+there is no multi-target accounting or shipped browser transport in this foundation.
+
+Caps are Rules constants: per `(space, uid)` 25 MiB, 2,000 resident documents and 120 mutations
+per 60 s; per space 250 MiB, 20,000 resident documents and 600 mutations per 60 s. Counter rows
+also occupy 256 accounting bytes and one document: a new uid row is charged to that uid and the
+space; the space counter is charged to the initial owner. Creating a space therefore allocates
+three rows and 768 bytes. New counters can arise only with an admitted data create, not from
+arbitrary signed-in uid allocation. The counters are non-TTL rows. Their fields cannot reset
+storage counts by time or accept writer-provided limits.
+
+Create adds the recorded charge and one document; immutable-size update/expiry refresh preserves
+resident counts but charges the actor's rate. Delete credits exactly the deleted path's original
+allocation uid and recorded charge, requiring that path to disappear in the same commit. An owner
+cleaning another uid's entry uses four writes: deletion, original uid storage credit (rate
+unchanged), owner rate charge and space counters. Ordinary mutations use three. All existing
+owner, expiry, epoch, role, stream and ciphertext immutability admission remains required.
+Repeated deletion and refund replay refuse. An empty uid counter can be retired only by the space
+owner, only at 256 bytes/one document and after its stored rate window expires; this credits
+only its own overhead to the space and charges the owner's and space's rates.
+
+Active windows preserve `windowStart` and increment `mutations` exactly once. Only after
+`request.time >= windowStart + duration.value(60, 's')` may a new window start at `request.time`
+with one mutation; bytes and documents do not reset. Atomic counter checks serialize competing
+writers, so two stale candidates cannot spend one remaining uid or space slot. A uid can read
+its own budget; the owner can read its space's budgets. Other uid budgets, aggregate counters
+and unscoped queries are not disclosed to members. The emulator's administrative fixture reads
+are not a production transaction API; #2452 owns the eventual write/refusal integration.
+
+These caps bound one uid and one space, not Sybil identities or a shared Firebase project's free
+quota. Creating fresh uids bypasses a uid cap but still consumes the same space cap, including
+counter overhead; creating fresh spaces bypasses that aggregate bound. Several spaces share the
+project's storage and daily-write quota, which these counters do not protect. Remote's declared
+resource planning bounds and client-side free-plan estimates are separate and unchanged.
 
 The Rules emulator suite (`tests/emulator/suite.mjs`, Docker image of the pinned firebase-tools,
 Java 21, no network inside) loads the composed golden, not the bare fragment. It has no skip path

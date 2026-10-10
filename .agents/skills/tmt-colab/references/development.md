@@ -156,7 +156,7 @@ CARGO_BUILD_JOBS=2 cargo run --offline --locked -p tmt-remote --example compose_
 Review the three outputs, copy them over `deploy-declaration-v1.{firestore.rules,firestore.indexes.json,plan.json}`,
 and run the oracle without `--write`, the Colab suites above and Remote's `deploy_vectors` test.
 
-`tests/emulator/suite.mjs` has no npm dependency and no skip path: it runs only under
+`tests/emulator/suite.mjs` uses `accounting.mjs` only as a test fixture: administrative reads build candidates, while caller-authenticated atomic commits prove accounting and admission. It has no npm dependency and no skip path: it runs only under
 `firebase emulators:exec --only firestore` (firebase-tools 15.29.0, Java 21, pins identical to Remote's). Run it
 locally in Docker in the booked slot: `scripts/dev-disk-check.sh` first (30 GiB free), one image tag per worktree,
 remove the image after the run (DEVELOPMENT's disk section). CI runs selected changes in the hosted Unit tests lane ([selection](../../tmt-release/references/ci-selection.md)); Docker network-none/read-only isolation remains local qualification only.

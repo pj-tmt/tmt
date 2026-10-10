@@ -8,6 +8,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
+import { accountingFixture } from "./accounting.mjs";
 
 const host = process.env.FIRESTORE_EMULATOR_HOST;
 assert.ok(host, "FIRESTORE_EMULATOR_HOST is unset: run under `firebase emulators:exec --only firestore`");
@@ -48,12 +49,9 @@ async function clear() {
   const response = await fetch(`http://${host}/emulator/v1/projects/${PROJECT}/databases/(default)/documents`, { method: "DELETE" });
   assert.equal(response.status, 200);
 }
-/** Writes a whole document: a create when the ID is new, an update when it exists. 200 admitted, 403 refused. */
-const set = async (path, data, headers) =>
-  (await fetch(`${documents}/${ROOT}/${path}`, { method: "PATCH", headers, body: JSON.stringify({ fields: fields(data) }) })).status;
-const remove = async (path, headers) => (await fetch(`${documents}/${ROOT}/${path}`, { method: "DELETE", headers })).status;
+const budget = accountingFixture({ documents, root: ROOT, admin: ADMIN, fields });
+const { set, remove, seed } = budget;
 const get = async (path, headers = NOBODY) => (await fetch(`${documents}/${ROOT}/${path}`, { headers })).status;
-const seed = async (path, data) => assert.equal(await set(path, data, ADMIN), 200, `seed ${path}`);
 /** A collection query with equality filters; Rules cannot read the query, so these must prove admission themselves. */
 async function list(collection, equal, headers) {
   const filter = (field, value) => ({ fieldFilter: { field: { fieldPath: field }, op: "EQUAL", value: typed(value) } });
@@ -191,7 +189,7 @@ test("retention: owners may choose up to 365 days; members and other tenants can
   assert.equal(await set(`pages/${sp(t)}`, page(new Date(Date.now() + DAY)), as("ownerA")), 200, "owner may shorten");
 });
 
-test("retention: a page refresh is one write and entries have an independent lifetime", async () => {
+test("retention: a page refresh changes one data row and entries have an independent lifetime", async () => {
   await boot();
   const t = T.A;
   const deadline = new Date(Date.now() + 365 * DAY);
@@ -235,7 +233,7 @@ test("retention: expiry-only refresh preserves ciphertext and every routing fiel
     assert.equal(await set(path, refreshed, as("ownerA")), 200, "owner refresh admitted");
     const response = await fetch(`${documents}/${ROOT}/${path}`, { headers: ADMIN });
     assert.equal(response.status, 200);
-    assert.deepEqual((await response.json()).fields, fields(refreshed), "exact stored bytes and fields");
+    assert.deepEqual((await response.json()).fields, fields({ ...refreshed, quotaUid: data.uid, quotaBytes: budget.charge(data) }), "exact stored bytes and fields, with immutable allocation metadata");
     assert.equal(await get(path, as("viewerA")), 200, "still readable");
   }
 });
@@ -374,11 +372,14 @@ test("log append: create-only, contiguous per stream, current epoch, writer role
   assert.equal(await remove(`log/${logId(t, 1, t.stream, 4)}`, writer), 403, "no delete");
   assert.equal(await remove(`log/${logId(t, 1, t.stream, 4)}`, as("ownerA")), 403, "no delete even by the owner (retention is #2454)");
 
-  // A batched append is judged on its final state: 1..n in one commit is contiguous.
+  // One commit has exactly one charged data target, even for contiguous entries.
   const batchStream = "20000000-0000-4000-8000-0000000000ff";
   const batch = (...seqs) => seqs.map((seq) => [`log/${logId(t, 1, batchStream, seq)}`, entry(t, seq, { stream: batchStream })]);
   assert.equal(await commit(batch(2, 3), writer), 403, "a batch with a gap before it");
-  assert.equal(await commit(batch(1, 2, 3), writer), 200, "a contiguous batch");
+  const candidates = await budget.prepare(...batch(1)[0], writer);
+  const extras = batch(2, 3).map(([path, data]) => budget.write(path, { ...data, quotaUid: t.writer, quotaBytes: budget.charge(data) }));
+  assert.equal(await budget.submit([...candidates, ...extras], writer), 403, "multi-path undercharge");
+  for (const [path, data] of batch(1, 2, 3)) assert.equal(await set(path, data, writer), 200, "single charged sequencing");
 });
 
 test("page lifecycle: archive freezes writes, epoch advance fences the old epoch, deletion and revoke deny at once", async () => {
@@ -512,9 +513,228 @@ test("checkpoint chunks: create-only, bounded, indexed, current epoch and writer
 test("the declaration lists exactly the collections the Rules read or write, and no blob resource", async () => {
   const declaration = JSON.parse(JSON.parse(readFileSync(new URL("deploy-declaration-v1.json", vectors), "utf8")).declaration);
   const declared = declaration.resources.map((resource) => resource.path).sort();
-  const matched = [...readFileSync(new URL("../../firestore/admission.rules", vectors), "utf8").matchAll(/^match \/([a-z]+)\/\{/gm)].map((m) => m[1]).sort();
+  const matched = [...readFileSync(new URL("../../firestore/admission.rules", vectors), "utf8").matchAll(/^match \/([a-z-]+)\/\{/gm)].map((m) => m[1]).sort();
   assert.deepEqual(declared, matched);
   assert.ok(!declaration.resources.some((resource) => resource.kind === "blob"));
-  const read = [...readFileSync(new URL("../../firestore/admission.rules", vectors), "utf8").matchAll(/ext\.(?:get|exists|existsAfter|getAfter)\(\/([a-z]+)\//g)].map((m) => m[1]);
+  const read = [...readFileSync(new URL("../../firestore/admission.rules", vectors), "utf8").matchAll(/ext\.(?:get|exists|existsAfter|getAfter)\(\/([a-z-]+)\//g)].map((m) => m[1]);
   for (const collection of read) assert.ok(declared.includes(collection), `${collection} is read but not declared`);
+});
+
+test("budgets: exact allocation, detached writes, binding substitution and multi-target refusal", async () => {
+  await boot();
+  const t = T.A,
+    writer = as(t.writer);
+  const path = `log/${logId(t, 1, t.stream, 2)}`,
+    data = entry(t, 2);
+  const uidBefore = await budget.read(budget.uidPath(t.space, t.writer));
+  const spaceBefore = await budget.read(budget.spacePath(t.space));
+  const writes = await budget.prepare(path, data, writer);
+  assert.equal(writes.length, 3);
+  assert.equal(await budget.submit(writes.slice(0, 1), writer), 403, "data alone is uncharged");
+  assert.equal(await budget.submit(writes.slice(1), writer), 403, "detached allocation");
+  for (const [index, field, value] of [
+    [0, "quotaBytes", 256],
+    [0, "quotaUid", "peerA"],
+    [1, "targetKind", "unknown"],
+    [1, "targetId", "missing"],
+    [2, "space", T.B.space],
+    [1, "chargedBytes", uidBefore.chargedBytes],
+    [2, "entries", spaceBefore.entries],
+  ]) {
+    const changed = structuredClone(writes);
+    changed[index].update.fields[field] = typed(value);
+    assert.equal(await budget.submit(changed, writer), 403, `substituted ${index}:${field}`);
+  }
+  assert.equal(await budget.submit(writes, writer), 200);
+  const row = await budget.read(path),
+    uid = await budget.read(budget.uidPath(t.space, t.writer));
+  const space = await budget.read(budget.spacePath(t.space));
+  assert.equal(row.quotaUid, t.writer);
+  assert.equal(row.quotaBytes, data.envelope.length + 256);
+  assert.equal(uid.chargedBytes, uidBefore.chargedBytes + data.envelope.length + 256);
+  assert.equal(uid.entries, uidBefore.entries + 1);
+  assert.equal(space.chargedBytes, spaceBefore.chargedBytes + data.envelope.length + 256);
+  assert.equal(space.entries, spaceBefore.entries + 1);
+  assert.equal(uid.mutations, 1, "expired window resets once");
+  assert.equal(space.mutations, 1);
+  assert.equal(
+    await budget.submit(writes, writer),
+    403,
+    "replaying the binding does not allocate again",
+  );
+  assert.equal(await get(budget.uidPath(t.space, t.writer), writer), 200);
+  assert.equal(await get(budget.uidPath(t.space, "peerA"), writer), 403);
+  assert.equal(
+    await get(budget.spacePath(t.space), writer),
+    403,
+    "tenant accounting metadata is owner-only",
+  );
+  assert.equal(await get(budget.spacePath(t.space), as("ownerA")), 200);
+  assert.equal(await get(budget.spacePath(t.space), as("ownerB")), 403);
+});
+
+test("budgets: uid and space bytes, documents and rates admit the exact cap and refuse one more", async () => {
+  const t = T.A,
+    writer = as(t.writer),
+    bytes = entry(t, 2).envelope.length + 256;
+  for (const [kind, field, cap, delta] of [
+    ["uid", "chargedBytes", 25 * 1024 * 1024, bytes],
+    ["uid", "entries", 2000, 1],
+    ["space", "chargedBytes", 250 * 1024 * 1024, bytes],
+    ["space", "entries", 20000, 1],
+    ["uid", "mutations", 120, 1],
+    ["space", "mutations", 600, 1],
+  ]) {
+    await boot();
+    const path = kind === "uid" ? budget.uidPath(t.space, t.writer) : budget.spacePath(t.space);
+    const row = await budget.read(path);
+    await budget.rawSet(path, {
+      ...row,
+      [field]: cap - delta,
+      ...(field === "mutations" ? { windowStart: new Date() } : {}),
+    });
+    assert.equal(
+      await set(`log/${logId(t, 1, t.stream, 2)}`, entry(t, 2), writer),
+      200,
+      `${kind}:${field} exact`,
+    );
+    assert.equal((await budget.read(path))[field], cap);
+    const before = await budget.read(path);
+    assert.equal(
+      await set(`log/${logId(t, 1, t.stream, 3)}`, entry(t, 3), writer),
+      403,
+      `${kind}:${field} over`,
+    );
+    assert.deepEqual(await budget.read(path), before, "refusal has no partial charge");
+    assert.equal(await get(`log/${logId(t, 1, t.stream, 3)}`, ADMIN), 404);
+  }
+});
+
+test("budgets: racing uids and spaces cannot spend one remaining slot twice", async () => {
+  const t = T.A;
+  for (const sameUid of [true, false]) {
+    await boot();
+    const first = as(t.writer),
+      second = as(sameUid ? t.writer : "peerA");
+    // Give the peer an established counter so this race is about exactly one data
+    // slot, not allocating a new budget row as well.
+    const peerStream = "20000000-0000-4000-8000-0000000000d1";
+    await seed(
+      `log/${logId(t, 1, peerStream, 1)}`,
+      entry(t, 1, { stream: peerStream, uid: "peerA" }),
+    );
+    const counterPath = sameUid ? budget.uidPath(t.space, t.writer) : budget.spacePath(t.space);
+    await budget.rawSet(counterPath, {
+      ...(await budget.read(counterPath)),
+      entries: sameUid ? 1999 : 19999,
+    });
+    const a = [`log/${logId(t, 1, t.stream, 2)}`, entry(t, 2)];
+    const stream = sameUid ? "20000000-0000-4000-8000-0000000000d2" : peerStream;
+    const b = [
+      `log/${logId(t, 1, stream, sameUid ? 1 : 2)}`,
+      entry(t, sameUid ? 1 : 2, { stream, uid: sameUid ? t.writer : "peerA" }),
+    ];
+    const candidates = await Promise.all([
+      budget.prepare(...a, first),
+      budget.prepare(...b, second),
+    ]);
+    const outcomes = await Promise.all([
+      budget.submit(candidates[0], first),
+      budget.submit(candidates[1], second),
+    ]);
+    assert.deepEqual(outcomes.sort(), [200, 403], sameUid ? "uid race" : "space race");
+    assert.equal((await budget.read(counterPath)).entries, sameUid ? 2000 : 20000);
+    assert.deepEqual((await Promise.all([get(a[0], ADMIN), get(b[0], ADMIN)])).sort(), [200, 404]);
+  }
+});
+
+test("budgets: owner cleanup credits the original uid, charges the actor and cannot replay a refund", async () => {
+  await boot();
+  const t = T.A,
+    owner = as("ownerA"),
+    path = `log/${logId(t, 1, t.stream, 1)}`;
+  await seed(path, entry(t, 1, { expiresAt: past }));
+  const originalPath = budget.uidPath(t.space, t.writer),
+    ownerPath = budget.uidPath(t.space, "ownerA");
+  const original = await budget.read(originalPath),
+    actor = await budget.read(ownerPath);
+  const space = await budget.read(budget.spacePath(t.space));
+  const writes = await budget.prepare(path, undefined, owner);
+  assert.equal(writes.length, 4);
+  assert.equal(await budget.submit(writes.slice(0, 3), owner), 403, "no credit omission");
+  const wrong = structuredClone(writes);
+  wrong[3].update.fields.chargedBytes = typed(original.chargedBytes - 1);
+  assert.equal(await budget.submit(wrong, owner), 403, "exact original charge only");
+  assert.equal(await budget.submit(writes, owner), 200);
+  const after = await budget.read(originalPath),
+    actorAfter = await budget.read(ownerPath);
+  assert.equal(after.chargedBytes, original.chargedBytes - entry(t, 1).envelope.length - 256);
+  assert.equal(after.entries, original.entries - 1);
+  assert.equal(after.mutations, original.mutations);
+  assert.equal(after.windowStart.getTime(), original.windowStart.getTime());
+  assert.equal(actorAfter.chargedBytes, actor.chargedBytes);
+  assert.equal(actorAfter.entries, actor.entries);
+  assert.equal(actorAfter.mutations, 1);
+  assert.equal(
+    (await budget.read(budget.spacePath(t.space))).chargedBytes,
+    space.chargedBytes - entry(t, 1).envelope.length - 256,
+  );
+  assert.equal(await budget.submit(writes, owner), 403, "no repeated refund");
+  assert.equal(await get(path, ADMIN), 404);
+});
+
+test("budgets: windows reset rate only, and empty uid rows retain their allocation until owner cleanup", async () => {
+  await boot();
+  const t = T.A,
+    writer = as(t.writer),
+    path = budget.uidPath(t.space, t.writer);
+  const before = await budget.read(path);
+  await budget.rawSet(path, { ...before, mutations: 120, windowStart: new Date() });
+  assert.equal(
+    await set(`log/${logId(t, 1, t.stream, 2)}`, entry(t, 2), writer),
+    403,
+    "no early reset",
+  );
+  await budget.rawSet(path, {
+    ...before,
+    mutations: 120,
+    windowStart: new Date(Date.now() - 61_000),
+  });
+  assert.equal(
+    await set(`log/${logId(t, 1, t.stream, 2)}`, entry(t, 2), writer),
+    200,
+    "time permits reset",
+  );
+  const after = await budget.read(path);
+  assert.equal(after.mutations, 1);
+  assert.equal(after.chargedBytes, before.chargedBytes + entry(t, 2).envelope.length + 256);
+  assert.equal(after.entries, before.entries + 1);
+  assert.equal(await remove(path, as("ownerA")), 403, "resident data prevents retirement");
+  const emptyPath = budget.uidPath(t.space, "retired");
+  await budget.rawSet(emptyPath, {
+    ...before,
+    uid: "retired",
+    chargedBytes: 256,
+    entries: 1,
+    windowStart: new Date(),
+  });
+  const space = await budget.read(budget.spacePath(t.space));
+  await budget.rawSet(budget.spacePath(t.space), {
+    ...space,
+    chargedBytes: space.chargedBytes + 256,
+    entries: space.entries + 1,
+  });
+  assert.equal(
+    await remove(emptyPath, as("ownerA")),
+    403,
+    "cannot reset an active rate window by removing its row",
+  );
+  await budget.rawSet(emptyPath, {
+    ...(await budget.read(emptyPath)),
+    windowStart: new Date(Date.now() - 61_000),
+  });
+  assert.equal(await remove(emptyPath, writer), 403, "only owner retires");
+  assert.equal(await remove(emptyPath, as("ownerA")), 200);
+  assert.equal(await get(emptyPath, ADMIN), 404);
+  assert.equal((await budget.read(budget.spacePath(t.space))).chargedBytes, space.chargedBytes);
 });
