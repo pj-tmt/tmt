@@ -665,4 +665,13 @@ fn optional_hosting_manifest_is_covered_by_the_exact_declaration_digest() {
     let old = fixture("colab-firestore.json");
     let old_plan = compose(FIRESTORE, &[colab(&old, &artifact)]).unwrap();
     assert_ne!(plan.digest(), old_plan.digest());
+    let mut with_csp: Value = serde_json::from_slice(&declaration).unwrap();
+    with_csp["hosting"]["files"][0]["csp"] = json!("default-src 'self'");
+    let csp_bytes = bytes(&with_csp);
+    let csp_plan = compose(FIRESTORE, &[colab(&csp_bytes, &artifact)]).unwrap();
+    assert_ne!(plan.digest(), csp_plan.digest());
+    assert_ne!(
+        plan.view().extensions[0].declaration_digest,
+        csp_plan.view().extensions[0].declaration_digest
+    );
 }

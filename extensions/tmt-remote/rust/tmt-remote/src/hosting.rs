@@ -3,7 +3,7 @@
 use crate::{deploy_plan::sha256_hex, limits, wire};
 use base64::{Engine, engine::general_purpose::STANDARD};
 use flate2::{Compression, GzBuilder};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::{Value, json};
 use std::{collections::BTreeMap, io::Write};
 
@@ -20,6 +20,15 @@ pub struct HostingFile {
     pub sha256: String,
     pub length: u64,
     pub content_type: String,
+    #[serde(
+        default,
+        deserialize_with = "optional_csp",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub csp: Option<String>,
+}
+fn optional_csp<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Option<String>, D::Error> {
+    String::deserialize(deserializer).map(Some)
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum HostingRefusal {
@@ -29,6 +38,7 @@ pub enum HostingRefusal {
     Reserved,
     Digest,
     ContentType,
+    Csp,
     FileSet,
     Collision,
     Entry,
@@ -64,6 +74,13 @@ impl HostingManifest {
             }
             if !content_type_ok(&file.content_type) {
                 return Err(HostingRefusal::ContentType);
+            }
+            if file.csp.as_ref().is_some_and(|csp| {
+                csp.is_empty()
+                    || csp.len() > limits::HOSTING_CSP_BYTES
+                    || !csp.bytes().all(|byte| (0x20..=0x7e).contains(&byte))
+            }) {
+                return Err(HostingRefusal::Csp);
             }
             total = total
                 .checked_add(file.length)
@@ -102,6 +119,7 @@ fn content_type_ok(value: &str) -> bool {
     matches!(
         value,
         "text/html"
+            | "text/plain"
             | "text/css"
             | "text/javascript"
             | "application/javascript"
@@ -115,6 +133,29 @@ fn content_type_ok(value: &str) -> bool {
             | "font/woff2"
     )
 }
+
+fn response_headers(file: &HostingFile) -> Value {
+    let content_type = if matches!(
+        file.content_type.as_str(),
+        "text/html"
+            | "text/css"
+            | "text/javascript"
+            | "application/javascript"
+            | "application/json"
+            | "text/plain"
+    ) {
+        format!("{}; charset=utf-8", file.content_type)
+    } else {
+        file.content_type.clone()
+    };
+    let mut headers = json!({"Content-Type":content_type,"X-Content-Type-Options":"nosniff",
+        "Cache-Control":"no-cache","Referrer-Policy":"no-referrer"});
+    if let Some(csp) = &file.csp {
+        headers["Content-Security-Policy"] = json!(csp);
+    }
+    headers
+}
+const SHORT_ROUTES: [&str; 2] = ["^/colab/?$", "^/(p|read)/[A-Za-z0-9_-]{4,64}$"];
 
 /// One captured extension reply, checked against the declaration before provider setup.
 pub struct HostingBundle {
@@ -241,6 +282,7 @@ pub fn compose(bundles: &[HostingBundle]) -> Result<Option<HostingComposition>, 
     {
         return Err(HostingRefusal::Entry);
     }
+    let shell_headers = response_headers(files["/index.html"].0);
     let mut transport = Vec::new();
     let mut compressed = BTreeMap::new();
     let mut headers = Vec::new();
@@ -261,14 +303,20 @@ pub fn compose(bundles: &[HostingBundle]) -> Result<Option<HostingComposition>, 
             gzip_length: gzip.len(),
             content_type: file.content_type.clone(),
         });
-        headers.push(json!({"glob":path,"headers":{"Content-Type":file.content_type,"X-Content-Type-Options":"nosniff","Cache-Control":"no-cache"}}));
+        headers.push(json!({"glob":path,"headers":response_headers(file)}));
         compressed.insert(path.clone(), gzip);
     }
+    // REST headers match the original request path, not the rewrite destination.
+    // The short entries therefore need the shell's exact headers on their own patterns.
+    for regex in SHORT_ROUTES {
+        headers.push(json!({"regex":regex,"headers":shell_headers}));
+    }
+    let rewrites: Vec<_> = SHORT_ROUTES
+        .iter()
+        .map(|regex| json!({"regex":regex,"path":"/index.html"}))
+        .collect();
     // Only public shell routes; reserved Firebase configuration is never rewritten.
-    let config = json!({"headers":headers,"rewrites":[
-        {"regex":"^/colab/?$","path":"/index.html"},
-        {"regex":"^/(p|read)/[A-Za-z0-9_-]{4,64}$","path":"/index.html"}
-    ]});
+    let config = json!({"headers":headers,"rewrites":rewrites});
     let digest = sha256_hex(
         &serde_json::to_vec(&json!({"files":transport,"config":config}))
             .expect("composition serializes"),
@@ -316,7 +364,6 @@ pub fn deployment_view(
     project: &str,
     deployment_id: &str,
     inventory: &HostingInventory,
-    selected_web_app: Option<&str>,
 ) -> Result<HostingDeploymentView, HostingRefusal> {
     if !crate::deploy_run::project_ok(project)
         || crate::canonical::uuid(deployment_id).is_err()
@@ -336,10 +383,9 @@ pub fn deployment_view(
     if apps.iter().any(|app| !valid_app(app)) || apps.windows(2).any(|pair| pair[0] == pair[1]) {
         return Err(HostingRefusal::Inventory);
     }
-    let web_app = match (selected_web_app, apps.as_slice()) {
-        (Some(selected), _) if apps.iter().any(|app| app == selected) => Some(selected.to_owned()),
-        (None, []) => None,
-        (None, [only]) => Some(only.clone()),
+    let web_app = match apps.as_slice() {
+        [] => None,
+        [only] => Some(only.clone()),
         _ => return Err(HostingRefusal::WebAppSelection),
     };
     let mut replaces = "none";

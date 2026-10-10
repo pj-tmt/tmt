@@ -149,3 +149,4 @@ pub const HOSTING_PATH_BYTES: usize = 1024;
 pub const HOSTING_BUNDLE_CALL: Duration = Duration::from_secs(30);
 pub const HOSTING_WEB_APPS: usize = 256;
 pub const HOSTING_CONFIG_BYTES: usize = 64 * 1024;
+pub const HOSTING_CSP_BYTES: usize = 2048;

@@ -1149,7 +1149,7 @@ fn frozen_hosting_plan_covers_content_and_foreign_release_but_cannot_run_rules_a
     let mut request = input(&plan, &body);
     request.live_rules = Some(b"foreign rules");
     let mut port = Fake::new(ACCOUNT);
-    let view = hosting::deployment_view(&content, request.project, ID, &inventory, None).unwrap();
+    let view = hosting::deployment_view(&content, request.project, ID, &inventory).unwrap();
     let preview = tmt_remote::deploy_command::execute_with_hosting(
         &request,
         &DeployCommandOptions::default(),
@@ -1187,8 +1187,7 @@ fn frozen_hosting_plan_covers_content_and_foreign_release_but_cannot_run_rules_a
     let prefix = &preview.json["planDigest"].as_str().unwrap()[..12];
     let saved = fs::read(root.remote().join("deploy.json")).unwrap();
     inventory.live.as_mut().unwrap().version = "version-2".into();
-    let changed =
-        hosting::deployment_view(&content, request.project, ID, &inventory, None).unwrap();
+    let changed = hosting::deployment_view(&content, request.project, ID, &inventory).unwrap();
     assert!(matches!(
         tmt_remote::deploy_command::execute_with_hosting(
             &request,

@@ -1,0 +1,44 @@
+{
+  "headers": [
+    {
+      "glob": "/index.html",
+      "headers": {
+        "Cache-Control": "no-cache",
+        "Content-Security-Policy": "default-src 'none'; script-src 'self'; style-src 'self'",
+        "Content-Type": "text/html; charset=utf-8",
+        "Referrer-Policy": "no-referrer",
+        "X-Content-Type-Options": "nosniff"
+      }
+    },
+    {
+      "regex": "^/colab/?$",
+      "headers": {
+        "Cache-Control": "no-cache",
+        "Content-Security-Policy": "default-src 'none'; script-src 'self'; style-src 'self'",
+        "Content-Type": "text/html; charset=utf-8",
+        "Referrer-Policy": "no-referrer",
+        "X-Content-Type-Options": "nosniff"
+      }
+    },
+    {
+      "regex": "^/(p|read)/[A-Za-z0-9_-]{4,64}$",
+      "headers": {
+        "Cache-Control": "no-cache",
+        "Content-Security-Policy": "default-src 'none'; script-src 'self'; style-src 'self'",
+        "Content-Type": "text/html; charset=utf-8",
+        "Referrer-Policy": "no-referrer",
+        "X-Content-Type-Options": "nosniff"
+      }
+    }
+  ],
+  "rewrites": [
+    {
+      "regex": "^/colab/?$",
+      "path": "/index.html"
+    },
+    {
+      "regex": "^/(p|read)/[A-Za-z0-9_-]{4,64}$",
+      "path": "/index.html"
+    }
+  ]
+}

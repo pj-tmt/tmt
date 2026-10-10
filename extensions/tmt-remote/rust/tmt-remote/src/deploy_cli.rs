@@ -185,7 +185,6 @@ fn execute_prepared(
                 &args.project,
                 &record.deployment_id,
                 &inventory,
-                None,
             )
             .map_err(|_| {
                 DeployCliError::Command(

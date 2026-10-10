@@ -152,7 +152,7 @@ fn site_creation_web_app_choice_and_foreign_fingerprint_are_named_in_the_plan() 
         web_apps: vec![],
         live: None,
     };
-    let planned = hosting::deployment_view(&content, "demo-remote-1", ID, &absent, None).unwrap();
+    let planned = hosting::deployment_view(&content, "demo-remote-1", ID, &absent).unwrap();
     assert!(planned.create_site && planned.create_web_app);
     assert_eq!(planned.public_url, "https://demo-remote-1.web.app");
     let mut inventory = HostingInventory {
@@ -161,7 +161,7 @@ fn site_creation_web_app_choice_and_foreign_fingerprint_are_named_in_the_plan() 
         live: None,
     };
     assert_eq!(
-        hosting::deployment_view(&content, "demo-remote-1", ID, &inventory, None)
+        hosting::deployment_view(&content, "demo-remote-1", ID, &inventory)
             .unwrap()
             .web_app
             .as_deref(),
@@ -169,22 +169,9 @@ fn site_creation_web_app_choice_and_foreign_fingerprint_are_named_in_the_plan() 
     );
     inventory.web_apps.push("1:123:web:def".into());
     assert!(matches!(
-        hosting::deployment_view(&content, "demo-remote-1", ID, &inventory, None),
+        hosting::deployment_view(&content, "demo-remote-1", ID, &inventory),
         Err(HostingRefusal::WebAppSelection)
     ));
-    assert_eq!(
-        hosting::deployment_view(
-            &content,
-            "demo-remote-1",
-            ID,
-            &inventory,
-            Some("1:123:web:def")
-        )
-        .unwrap()
-        .web_app
-        .as_deref(),
-        Some("1:123:web:def")
-    );
     inventory.web_apps.truncate(1);
     inventory.live = Some(HostingLiveRelease {
         version: "version-1".into(),
@@ -195,20 +182,19 @@ fn site_creation_web_app_choice_and_foreign_fingerprint_are_named_in_the_plan() 
         config: content.config().clone(),
     });
     assert_eq!(
-        hosting::deployment_view(&content, "demo-remote-1", ID, &inventory, None)
+        hosting::deployment_view(&content, "demo-remote-1", ID, &inventory)
             .unwrap()
             .replaces,
         "none"
     );
     inventory.live.as_mut().unwrap().deployment_id = None;
-    let foreign =
-        hosting::deployment_view(&content, "demo-remote-1", ID, &inventory, None).unwrap();
+    let foreign = hosting::deployment_view(&content, "demo-remote-1", ID, &inventory).unwrap();
     assert_eq!(foreign.replaces, "foreign");
     let fingerprint = foreign.replaced_fingerprint.unwrap();
     assert_eq!(fingerprint.len(), 64);
     inventory.live.as_mut().unwrap().config["cleanUrls"] = json!(true);
     assert_ne!(
-        hosting::deployment_view(&content, "demo-remote-1", ID, &inventory, None)
+        hosting::deployment_view(&content, "demo-remote-1", ID, &inventory)
             .unwrap()
             .replaced_fingerprint
             .unwrap(),
@@ -276,13 +262,145 @@ fn matching_labels_do_not_adopt_an_edited_release_and_foreign_order_is_canonical
             config: content.config().clone(),
         }),
     };
-    let first = hosting::deployment_view(&content, "demo-remote-1", ID, &inventory, None).unwrap();
+    let first = hosting::deployment_view(&content, "demo-remote-1", ID, &inventory).unwrap();
     assert_eq!(first.replaces, "foreign");
     inventory.live.as_mut().unwrap().files.reverse();
     assert_eq!(
-        hosting::deployment_view(&content, "demo-remote-1", ID, &inventory, None)
+        hosting::deployment_view(&content, "demo-remote-1", ID, &inventory)
             .unwrap()
             .replaced_fingerprint,
         first.replaced_fingerprint
     );
+}
+
+fn csp_bundle(csp: Option<&str>) -> HostingBundle {
+    let mut value = serde_json::to_value(manifest()).unwrap();
+    if let Some(csp) = csp {
+        value["files"][0]["csp"] = json!(csp);
+    }
+    let manifest = HostingManifest::parse(&value).unwrap();
+    HostingBundle::parse(&manifest, &serde_json::to_vec(&reply(&manifest)).unwrap()).unwrap()
+}
+#[test]
+fn csp_is_optional_printable_ascii_bounded_and_last_in_canonical_manifest_order() {
+    let base = serde_json::to_value(manifest()).unwrap();
+    assert!(base["files"][0].get("csp").is_none());
+    for csp in [
+        "",
+        "\r",
+        "\n",
+        "default-src 'self'\r\nX: yes",
+        "\t",
+        "\u{7f}",
+        "é",
+    ] {
+        let mut value = base.clone();
+        value["files"][0]["csp"] = json!(csp);
+        assert_eq!(
+            HostingManifest::parse(&value).unwrap_err(),
+            HostingRefusal::Csp,
+            "{csp:?}"
+        );
+    }
+    let mut value = base.clone();
+    value["files"][0]["csp"] = json!("x".repeat(2048));
+    HostingManifest::parse(&value).unwrap();
+    value["files"][0]["csp"] = json!("x".repeat(2049));
+    assert_eq!(
+        HostingManifest::parse(&value).unwrap_err(),
+        HostingRefusal::Csp
+    );
+    value["files"][0]["csp"] = Value::Null;
+    assert_eq!(
+        HostingManifest::parse(&value).unwrap_err(),
+        HostingRefusal::Shape
+    );
+    value["files"][0]["csp"] = json!("default-src 'self'");
+    let parsed = HostingManifest::parse(&value).unwrap();
+    assert_eq!(
+        serde_json::to_string(&parsed.files[0]).unwrap(),
+        format!(
+            "{{\"path\":\"/index.html\",\"sha256\":\"{}\",\"length\":5,\"contentType\":\"text/html\",\"csp\":\"default-src 'self'\"}}",
+            hash(b"hello")
+        )
+    );
+    assert_ne!(parsed.digest(), manifest().digest());
+}
+#[test]
+fn shell_csp_and_fixed_headers_match_short_routes_and_the_independent_config_golden() {
+    let policy = "default-src 'none'; script-src 'self'; style-src 'self'";
+    let composed = hosting::compose(&[csp_bundle(Some(policy))])
+        .unwrap()
+        .unwrap();
+    let golden: Value =
+        serde_json::from_str(include_str!("fixtures/hosting/serving-config.json")).unwrap();
+    assert_eq!(composed.config(), &golden);
+    let headers = composed.config()["headers"].as_array().unwrap();
+    assert_eq!(headers.len(), 3);
+    for route in &headers[1..] {
+        assert_eq!(route["headers"], headers[0]["headers"]);
+    }
+    assert_eq!(headers[0]["headers"]["Content-Security-Policy"], policy);
+    assert_eq!(headers[0]["headers"]["Referrer-Policy"], "no-referrer");
+    let absent = hosting::compose(&[csp_bundle(None)]).unwrap().unwrap();
+    assert!(
+        absent.config()["headers"][0]["headers"]
+            .get("Content-Security-Policy")
+            .is_none()
+    );
+    assert_ne!(composed.digest(), absent.digest());
+    let changed = hosting::compose(&[csp_bundle(Some("default-src 'self'"))])
+        .unwrap()
+        .unwrap();
+    assert_ne!(changed.digest(), composed.digest());
+    assert_eq!(changed.gzip("/index.html"), composed.gzip("/index.html"));
+}
+#[test]
+fn only_named_text_types_receive_utf8_and_every_file_has_the_fixed_referrer_policy() {
+    let types = [
+        ("text/html", true),
+        ("text/css", true),
+        ("text/javascript", true),
+        ("application/javascript", true),
+        ("application/json", true),
+        ("text/plain", true),
+        ("image/svg+xml", false),
+        ("image/png", false),
+        ("image/jpeg", false),
+        ("image/webp", false),
+        ("image/x-icon", false),
+        ("font/woff", false),
+        ("font/woff2", false),
+    ];
+    let mut listed = vec![
+        json!({"path":"/index.html","sha256":hash(b"hello"),"length":5,"contentType":"text/html"}),
+    ];
+    for (i, (ty, _)) in types.iter().enumerate() {
+        listed.push(
+            json!({"path":format!("/z{i:02}"),"sha256":hash(b"hello"),"length":5,"contentType":ty}),
+        );
+    }
+    let manifest = HostingManifest::parse(&json!({"version":1,"files":listed})).unwrap();
+    let reply = json!({"version":1,"manifestDigest":manifest.digest(),"files":manifest.files.iter().map(|f|json!({"path":f.path,"bytesBase64":STANDARD.encode(b"hello")})).collect::<Vec<_>>()});
+    let composed =
+        hosting::compose(&[
+            HostingBundle::parse(&manifest, &serde_json::to_vec(&reply).unwrap()).unwrap(),
+        ])
+        .unwrap()
+        .unwrap();
+    for (i, (ty, text)) in types.iter().enumerate() {
+        let rule = &composed.config()["headers"][i + 1];
+        assert_eq!(rule["glob"], format!("/z{i:02}"));
+        assert_eq!(
+            rule["headers"]["Content-Type"],
+            if *text {
+                format!("{ty}; charset=utf-8")
+            } else {
+                ty.to_string()
+            }
+        );
+        assert_eq!(rule["headers"]["Referrer-Policy"], "no-referrer");
+        assert!(rule["headers"].get("Content-Security-Policy").is_none());
+        assert_eq!(composed.files()[i + 1].content_type, *ty);
+    }
 }
