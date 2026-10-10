@@ -291,11 +291,13 @@ describe('Codex native channel product routing', { concurrent: false }, () => {
       );
       set(true);
       const first = start(f, 'Restart', true);
-      const { retained, recordBytes, original } = await (async () => {
+      const { retained, recordBytes, recordMode, original } = await (async () => {
         try {
           await ready(f, first);
           const [retained] = records(f);
           const recordBytes = fs.readFileSync(retained.file);
+          const recordMode = fs.statSync(retained.file).mode & 0o777;
+          expect(recordMode).toBe(0o600);
           const original = retained.record.ready.thread;
           sql(f, (db) =>
             db
@@ -306,7 +308,7 @@ describe('Codex native channel product routing', { concurrent: false }, () => {
           );
           set(false);
           expect((await f.runCli(['resume', 'Restart'], { pane: first.pane })).code).toBe(5);
-          return { retained, recordBytes, original };
+          return { retained, recordBytes, recordMode, original };
         } finally {
           await quit(first);
         }
@@ -321,7 +323,8 @@ describe('Codex native channel product routing', { concurrent: false }, () => {
         'original channel processes and lease ended'
       );
       // Keep ended evidence on disk; no product recovery or enrollment cleanup is needed.
-      fs.writeFileSync(retained.file, recordBytes);
+      fs.writeFileSync(retained.file, recordBytes, { mode: recordMode });
+      expect(fs.statSync(retained.file).mode & 0o777).toBe(recordMode);
       const preference = () =>
         JSON.stringify(
           sql(f, (db) =>
@@ -363,6 +366,7 @@ describe('Codex native channel product routing', { concurrent: false }, () => {
         );
         expect(writes(trace, plain.pane).length).toBeGreaterThan(0);
         expect(fs.readFileSync(retained.file)).toEqual(recordBytes);
+        expect(fs.statSync(retained.file).mode & 0o777).toBe(recordMode);
       } finally {
         await quit(plain);
       }
