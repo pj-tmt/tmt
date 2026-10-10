@@ -114,10 +114,10 @@ for a display-only label. There are at most three labels, in this order:
    round upward to whole seconds before unit formatting; numeric fields retain milliseconds.
 
 Interval display uses the largest exact unit among d/h/m/s/ms, so 300000 ms is
-`5m` and 1500 ms is `1500ms`. Choices are ordered Default, Auto, 1m, 5m, 10m,
-30m, 1h, saved custom duration, Off. The default label exposes its resolved value:
-`Default (Auto)`, `Default (5m)` or `Default (Off)`; its value is always `default`.
-A non-preset current custom duration is included as, for example, `20s (custom)`.
+`5m` and 1500 ms is `1500ms`. Choices are ordered Default, Auto, Every 1m, Every 5m, Every 10m,
+Every 30m, Every 1h, saved custom duration, Off. The default label exposes its resolved value:
+`Default (Auto)`, `Default (Every 5m)` or `Default (Off)`; its value is always `default`.
+A non-preset current custom duration is included as, for example, `Every 20s (custom)`.
 Saved custom values, when available, follow the preset choices without duplicates.
 The current choice is `default` for inheritance, including inherited auto; an
 explicit auto override selects `auto`. There is no flushCount choice or CLI flag.

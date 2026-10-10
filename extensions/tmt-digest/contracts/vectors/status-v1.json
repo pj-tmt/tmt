@@ -40,23 +40,23 @@
                       "value": "auto"
                     },
                     {
-                      "label": "1m",
+                      "label": "Every 1m",
                       "value": "1m"
                     },
                     {
-                      "label": "5m",
+                      "label": "Every 5m",
                       "value": "5m"
                     },
                     {
-                      "label": "10m",
+                      "label": "Every 10m",
                       "value": "10m"
                     },
                     {
-                      "label": "30m",
+                      "label": "Every 30m",
                       "value": "30m"
                     },
                     {
-                      "label": "1h",
+                      "label": "Every 1h",
                       "value": "1h"
                     },
                     {
@@ -103,23 +103,23 @@
                       "value": "auto"
                     },
                     {
-                      "label": "1m",
+                      "label": "Every 1m",
                       "value": "1m"
                     },
                     {
-                      "label": "5m",
+                      "label": "Every 5m",
                       "value": "5m"
                     },
                     {
-                      "label": "10m",
+                      "label": "Every 10m",
                       "value": "10m"
                     },
                     {
-                      "label": "30m",
+                      "label": "Every 30m",
                       "value": "30m"
                     },
                     {
-                      "label": "1h",
+                      "label": "Every 1h",
                       "value": "1h"
                     },
                     {
@@ -173,27 +173,27 @@
                       "value": "auto"
                     },
                     {
-                      "label": "1m",
+                      "label": "Every 1m",
                       "value": "1m"
                     },
                     {
-                      "label": "5m",
+                      "label": "Every 5m",
                       "value": "5m"
                     },
                     {
-                      "label": "10m",
+                      "label": "Every 10m",
                       "value": "10m"
                     },
                     {
-                      "label": "30m",
+                      "label": "Every 30m",
                       "value": "30m"
                     },
                     {
-                      "label": "1h",
+                      "label": "Every 1h",
                       "value": "1h"
                     },
                     {
-                      "label": "20s (custom)",
+                      "label": "Every 20s (custom)",
                       "value": "20s"
                     },
                     {
@@ -247,23 +247,23 @@
                       "value": "auto"
                     },
                     {
-                      "label": "1m",
+                      "label": "Every 1m",
                       "value": "1m"
                     },
                     {
-                      "label": "5m",
+                      "label": "Every 5m",
                       "value": "5m"
                     },
                     {
-                      "label": "10m",
+                      "label": "Every 10m",
                       "value": "10m"
                     },
                     {
-                      "label": "30m",
+                      "label": "Every 30m",
                       "value": "30m"
                     },
                     {
-                      "label": "1h",
+                      "label": "Every 1h",
                       "value": "1h"
                     },
                     {
@@ -317,23 +317,23 @@
                       "value": "auto"
                     },
                     {
-                      "label": "1m",
+                      "label": "Every 1m",
                       "value": "1m"
                     },
                     {
-                      "label": "5m",
+                      "label": "Every 5m",
                       "value": "5m"
                     },
                     {
-                      "label": "10m",
+                      "label": "Every 10m",
                       "value": "10m"
                     },
                     {
-                      "label": "30m",
+                      "label": "Every 30m",
                       "value": "30m"
                     },
                     {
-                      "label": "1h",
+                      "label": "Every 1h",
                       "value": "1h"
                     },
                     {
@@ -382,23 +382,23 @@
                       "value": "auto"
                     },
                     {
-                      "label": "1m",
+                      "label": "Every 1m",
                       "value": "1m"
                     },
                     {
-                      "label": "5m",
+                      "label": "Every 5m",
                       "value": "5m"
                     },
                     {
-                      "label": "10m",
+                      "label": "Every 10m",
                       "value": "10m"
                     },
                     {
-                      "label": "30m",
+                      "label": "Every 30m",
                       "value": "30m"
                     },
                     {
-                      "label": "1h",
+                      "label": "Every 1h",
                       "value": "1h"
                     },
                     {
@@ -447,23 +447,23 @@
                       "value": "auto"
                     },
                     {
-                      "label": "1m",
+                      "label": "Every 1m",
                       "value": "1m"
                     },
                     {
-                      "label": "5m",
+                      "label": "Every 5m",
                       "value": "5m"
                     },
                     {
-                      "label": "10m",
+                      "label": "Every 10m",
                       "value": "10m"
                     },
                     {
-                      "label": "30m",
+                      "label": "Every 30m",
                       "value": "30m"
                     },
                     {
-                      "label": "1h",
+                      "label": "Every 1h",
                       "value": "1h"
                     },
                     {
@@ -516,23 +516,23 @@
                       "value": "auto"
                     },
                     {
-                      "label": "1m",
+                      "label": "Every 1m",
                       "value": "1m"
                     },
                     {
-                      "label": "5m",
+                      "label": "Every 5m",
                       "value": "5m"
                     },
                     {
-                      "label": "10m",
+                      "label": "Every 10m",
                       "value": "10m"
                     },
                     {
-                      "label": "30m",
+                      "label": "Every 30m",
                       "value": "30m"
                     },
                     {
-                      "label": "1h",
+                      "label": "Every 1h",
                       "value": "1h"
                     },
                     {
@@ -591,7 +591,7 @@
                   "kind": "choose",
                   "options": [
                     {
-                      "label": "Default (5m)",
+                      "label": "Default (Every 5m)",
                       "value": "default"
                     },
                     {
@@ -599,23 +599,23 @@
                       "value": "auto"
                     },
                     {
-                      "label": "1m",
+                      "label": "Every 1m",
                       "value": "1m"
                     },
                     {
-                      "label": "5m",
+                      "label": "Every 5m",
                       "value": "5m"
                     },
                     {
-                      "label": "10m",
+                      "label": "Every 10m",
                       "value": "10m"
                     },
                     {
-                      "label": "30m",
+                      "label": "Every 30m",
                       "value": "30m"
                     },
                     {
-                      "label": "1h",
+                      "label": "Every 1h",
                       "value": "1h"
                     },
                     {
@@ -660,7 +660,7 @@
                   "kind": "choose",
                   "options": [
                     {
-                      "label": "Default (5m)",
+                      "label": "Default (Every 5m)",
                       "value": "default"
                     },
                     {
@@ -668,23 +668,23 @@
                       "value": "auto"
                     },
                     {
-                      "label": "1m",
+                      "label": "Every 1m",
                       "value": "1m"
                     },
                     {
-                      "label": "5m",
+                      "label": "Every 5m",
                       "value": "5m"
                     },
                     {
-                      "label": "10m",
+                      "label": "Every 10m",
                       "value": "10m"
                     },
                     {
-                      "label": "30m",
+                      "label": "Every 30m",
                       "value": "30m"
                     },
                     {
-                      "label": "1h",
+                      "label": "Every 1h",
                       "value": "1h"
                     },
                     {
@@ -732,7 +732,7 @@
         "argv": ["digest", "10000000-0000-4000-8000-000000000003", "{value}"],
         "options": [
           {
-            "label": "20s (custom)",
+            "label": "Every 20s (custom)",
             "value": "20s"
           }
         ],
@@ -795,7 +795,7 @@
         "argv": ["digest", "10000000-0000-4000-8000-000000000003", "mode={value}"],
         "options": [
           {
-            "label": "20s (custom)",
+            "label": "Every 20s (custom)",
             "value": "20s"
           }
         ],
@@ -814,7 +814,7 @@
         "argv": ["digest", "10000000-0000-4000-8000-000000000003", "20s"],
         "options": [
           {
-            "label": "20s (custom)",
+            "label": "Every 20s (custom)",
             "value": "20s"
           }
         ],
@@ -833,7 +833,7 @@
         "argv": ["digest", "10000000-0000-4000-8000-000000000003", "{value}", "{value}"],
         "options": [
           {
-            "label": "20s (custom)",
+            "label": "Every 20s (custom)",
             "value": "20s"
           }
         ],
@@ -852,7 +852,7 @@
         "argv": ["digest", "{member}", "{value}"],
         "options": [
           {
-            "label": "20s (custom)",
+            "label": "Every 20s (custom)",
             "value": "20s"
           }
         ],
