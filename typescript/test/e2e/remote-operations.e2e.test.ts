@@ -4,7 +4,12 @@ import { fileURLToPath } from 'node:url';
 import { writeExecutable } from '../support/executable-fixture.mjs';
 import { randomUUID } from 'node:crypto';
 import { describe, expect, it } from 'vite-plus/test';
-import { assertRemoteDeviceVectors, object, text } from '../support/remote-device.js';
+import {
+  assertRemoteDeviceVectors,
+  object,
+  text,
+  verifyResponse,
+} from '../support/remote-device.js';
 import { dispatchIntent, RemoteOwner } from '../support/remote-owner.js';
 import { expectJsonResult } from './cli-assertions.js';
 import { withE2EFixture, type E2EFixture } from './harness.js';
@@ -232,11 +237,20 @@ describe('Remote owner-device operations (#1055)', () => {
           await owner.start();
           // Fresh window, nonce, signature and timestamp: expiry is the only
           // changed authority, not a stale session or replayed request.
-          const expired = await owner.post('append', owner.opening(device, paired));
-          expect(expired.status).toBe(404);
-          expect(expired.rawBody).toBe('{}');
-          expect(expired.body).toEqual({});
+          const opening = owner.opening(device, paired);
+          const expired = await owner.post('append', opening);
+          expect(expired.status).toBe(200);
           expect(expired.headers['set-cookie']).toBeUndefined();
+          const proof = verifyResponse(expired.body, opening, paired);
+          expect(proof.envelope.sessionId).toBe('new');
+          expect(proof.envelope.sequence).toBe('1');
+          expect(proof.payload).toMatchObject({ error: { code: 'REMOTE_GRANT_EXPIRED' } });
+          // The authenticated proof reserves the nonce; replay remains opaque.
+          const replayed = await owner.post('append', opening);
+          expect(replayed.status).toBe(404);
+          expect(replayed.rawBody).toBe('{}');
+          expect(replayed.body).toEqual({});
+          expect(replayed.headers['set-cookie']).toBeUndefined();
           expect(owner.coreCalls().filter((call) => call.operation === 'dispatch.create')).toEqual(
             effects
           );
