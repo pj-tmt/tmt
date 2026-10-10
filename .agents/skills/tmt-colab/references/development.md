@@ -131,7 +131,8 @@ docker image rm "$tag"
 Sensitivity: a negative case must fail for the intended guard only, so each case sits next to a
 positive control that differs in that one condition. After changing a guard, remove it from a copy of the
 composed golden and confirm the suite fails (the suite was checked this way for the epoch fence, open state,
-retention bound, writer role, contiguity, writer-uid binding of streams and objects, ID binding, link secret and role, membership reads, list page
+retention bound, 365-day page ceiling, expiry-only refresh, expired-data cleanup, owner-only refresh,
+writer role, contiguity, writer-uid binding of streams and objects, ID binding, link secret and role, membership reads, list page
 expiry, space owner and owner-path rules).
 
 ## Run it

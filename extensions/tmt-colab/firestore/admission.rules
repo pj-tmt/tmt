@@ -9,21 +9,26 @@
 //
 // spaces/{space}: first writer owns it (an availability squat, never confidentiality or
 //   authority: clients verify the owner chain against the space ID). Never updated or deleted.
-// pages/{space_page}: the owner's admission row: current epoch, open or archived, expiry.
+// pages/{space_page}: owner admission, finite expiry at most 365 days from refresh.
+//   Client policy defaults to 30 days; owner overrides are 1 through 365 days.
 //   Deleting it denies every read and write of the page at once.
 // links/{space_page_link}: owner-written enrollment secret for a share link, unreadable by holders.
 // members/{space_page_uid}: who may read or write. The owner writes rows; a link holder creates
 //   its own row by equality with the link's secret (Rules cannot hash a join proof).
-// log/{space_page_epoch_stream_seq}: create-only encrypted envelope, contiguous per stream. A stream
+// log/{space_page_epoch_stream_seq}: immutable encrypted envelope, contiguous per stream. A stream
 //   belongs to the uid that wrote its first entry: seq 1 is safe because a stream ID is unknown until
 //   used, and every later entry needs its predecessor's uid to equal the writer's.
-// checkpoints/{space_page_epoch_object_index}: create-only chunk of an encrypted object, owned by the
+// checkpoints/{space_page_epoch_object_index}: immutable encrypted chunk, owned by the
 //   uid that wrote index 0 the same way, so no one can fill an object's later chunks with garbage.
 //
 // A list query is admitted by membership and the page's expiry only: Firestore cannot compare
 // a document's own expiresAt with request.time in a query, so a query may return an entry past
 // its own expiresAt while the page is still live. A single-document get also checks the
 // entry's expiresAt. Clients drop expired entries; physical removal is TTL and cleanup.
+// Entry expiry has its own 365-day ceiling, independent of the page deadline.
+// Refreshing the page needs one write; entries refresh only near their own expiry.
+// Owners may update only expiry, and delete expired entries or entries
+// of an expired/deleted page. Ciphertext and routing facts remain immutable.
 
 match /spaces/{space} {
   allow get: if request.auth != null && resource.data.owner == request.auth.uid;
@@ -49,6 +54,7 @@ match /pages/{id} {
     && request.resource.data.state in ['open', 'archived']
     && request.resource.data.expiresAt is timestamp
     && request.resource.data.expiresAt > request.time
+    && request.resource.data.expiresAt <= request.time + duration.value(365, 'd')
     && ext.get(/spaces/$(request.resource.data.space)).data.owner == request.auth.uid
     && (request.method == 'create' || request.resource.data.epoch >= resource.data.epoch);
   allow delete: if request.auth != null
@@ -124,10 +130,21 @@ match /log/{id} {
     && request.resource.data.expiresAt > request.time
     && ext.get(/pages/$(request.resource.data.space + '_' + request.resource.data.page)).data.state == 'open'
     && ext.get(/pages/$(request.resource.data.space + '_' + request.resource.data.page)).data.epoch == request.resource.data.epoch
-    && request.resource.data.expiresAt <= ext.get(/pages/$(request.resource.data.space + '_' + request.resource.data.page)).data.expiresAt
+    && request.resource.data.expiresAt <= request.time + duration.value(365, 'd')
     && ext.get(/members/$(request.resource.data.space + '_' + request.resource.data.page + '_' + request.auth.uid)).data.role != 'viewer'
     && (request.resource.data.seq == 1
       || ext.getAfter(/log/$(request.resource.data.space + '_' + request.resource.data.page + '_' + string(request.resource.data.epoch) + '_' + request.resource.data.stream + '_' + string(request.resource.data.seq - 1))).data.uid == request.auth.uid);
+  allow update: if request.auth != null
+    && ext.get(/spaces/$(resource.data.space)).data.owner == request.auth.uid
+    && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['expiresAt'])
+    && request.resource.data.expiresAt is timestamp
+    && request.resource.data.expiresAt > request.time
+    && request.resource.data.expiresAt <= request.time + duration.value(365, 'd');
+  allow delete: if request.auth != null
+    && ext.get(/spaces/$(resource.data.space)).data.owner == request.auth.uid
+    && (resource.data.expiresAt <= request.time
+      || !ext.exists(/pages/$(resource.data.space + '_' + resource.data.page))
+      || ext.get(/pages/$(resource.data.space + '_' + resource.data.page)).data.expiresAt <= request.time);
 }
 
 match /checkpoints/{id} {
@@ -158,8 +175,19 @@ match /checkpoints/{id} {
     && request.resource.data.expiresAt > request.time
     && ext.get(/pages/$(request.resource.data.space + '_' + request.resource.data.page)).data.state == 'open'
     && ext.get(/pages/$(request.resource.data.space + '_' + request.resource.data.page)).data.epoch == request.resource.data.epoch
-    && request.resource.data.expiresAt <= ext.get(/pages/$(request.resource.data.space + '_' + request.resource.data.page)).data.expiresAt
+    && request.resource.data.expiresAt <= request.time + duration.value(365, 'd')
     && ext.get(/members/$(request.resource.data.space + '_' + request.resource.data.page + '_' + request.auth.uid)).data.role != 'viewer'
     && (request.resource.data.index == 0
       || ext.getAfter(/checkpoints/$(request.resource.data.space + '_' + request.resource.data.page + '_' + string(request.resource.data.epoch) + '_' + request.resource.data.object + '_0')).data.uid == request.auth.uid);
+  allow update: if request.auth != null
+    && ext.get(/spaces/$(resource.data.space)).data.owner == request.auth.uid
+    && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['expiresAt'])
+    && request.resource.data.expiresAt is timestamp
+    && request.resource.data.expiresAt > request.time
+    && request.resource.data.expiresAt <= request.time + duration.value(365, 'd');
+  allow delete: if request.auth != null
+    && ext.get(/spaces/$(resource.data.space)).data.owner == request.auth.uid
+    && (resource.data.expiresAt <= request.time
+      || !ext.exists(/pages/$(resource.data.space + '_' + resource.data.page))
+      || ext.get(/pages/$(resource.data.space + '_' + resource.data.page)).data.expiresAt <= request.time);
 }
