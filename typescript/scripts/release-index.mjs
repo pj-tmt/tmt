@@ -1,6 +1,7 @@
 // Release records bind GitHub's real release identity to the already verified cargo-dist bytes.
 // Protected branch activation and bootstrap execution require the owner's authorization.
 import assert from 'node:assert/strict';
+import { retryReleaseRead } from './release-read-retry.mjs';
 import { spawnSync } from 'node:child_process';
 import { compareVersions } from './release-versions.mjs';
 import { createHash } from 'node:crypto';
@@ -254,7 +255,7 @@ function pointerOrder(currentBytes, wanted) {
 }
 
 /** Only captured-parent, non-force commits may update this already initialized branch. */
-export function updateReleaseIndex({ api, recordBytes, bootstrap = false }) {
+export function updateReleaseIndex({ api, recordBytes, bootstrap = false, sleep }) {
   const pointer = channelPointer(recordBytes, { bootstrap });
   const pointerPath = `channels/${pointer.product}/${pointer.channel}.json`;
   const recordPath = `records/${pointer.tag}.json`;
@@ -282,13 +283,30 @@ export function updateReleaseIndex({ api, recordBytes, bootstrap = false }) {
     const outcome = api.advance(commit);
     if (outcome === 'race') continue;
     assert.equal(outcome, 'updated', 'Unknown index update outcome');
-    const observed = api.readTip();
-    const readback = api.readFile(observed.sha, pointerPath, POINTER_LIMIT);
-    assert(readback !== null, 'Index pointer readback failed');
-    const observedOrder = pointerOrder(readback, pointer);
-    assert(
-      observedOrder > 0 || (observedOrder === 0 && Buffer.from(readback).equals(pointerBytes)),
-      'Index pointer readback bytes failed'
+    // Bounded re-read of an observed stale/absent pointer; writes are never retried here.
+    let staleFailure;
+    const observed = retryReleaseRead(
+      () => {
+        const tip = api.readTip();
+        const readback = api.readFile(tip.sha, pointerPath, POINTER_LIMIT);
+        const observedOrder = readback === null ? null : pointerOrder(readback, pointer);
+        if (observedOrder === null || observedOrder < 0) {
+          process.stderr.write(`Index pointer readback tip=${tip.sha} order=${observedOrder}\n`);
+          try {
+            assert(readback !== null, 'Index pointer readback failed');
+            assert(false, 'Index pointer readback bytes failed');
+          } catch (failure) {
+            staleFailure = failure;
+            throw failure;
+          }
+        }
+        assert(
+          observedOrder > 0 || Buffer.from(readback).equals(pointerBytes),
+          'Index pointer readback bytes failed'
+        );
+        return tip;
+      },
+      { label: 'Index pointer readback', sleep, retryIf: (failure) => failure === staleFailure }
     );
     if (bootstrap) {
       const bytes = api.readFile(observed.sha, recordPath, RECORD_LIMIT);

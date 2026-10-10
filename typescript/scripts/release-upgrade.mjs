@@ -42,7 +42,8 @@ import {
   upgradeSupportFloor,
 } from './native-release-policy.mjs';
 import { componentMap } from './ci-scope.mjs';
-import { ghApi, retryReleaseRead } from './release-draft-assets.mjs';
+import { ghApi } from './release-draft-assets.mjs';
+import { retryReleaseRead } from './release-read-retry.mjs';
 import { compareVersions, publishedReleases, versionOfTag } from './release-versions.mjs';
 
 /** The scripts a release's own commit must carry for the proof to run at that commit. */

@@ -6,6 +6,7 @@
 //   record-failure  upload verification-failed.json with the run URL
 // Publication is not done here: a draft that carries the bundle marker is complete, and
 // `release-publish.mjs` publishes it once the gates passed.
+import { retryReleaseRead } from './release-read-retry.mjs';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import {
@@ -244,29 +245,6 @@ export function readHold({ api, tag, download }) {
     ({ name }) => name === HOLD_ASSET
   );
   return marker ? JSON.parse(download(marker)) : null;
-}
-
-/** Retries only an acquisition read; validation and writes stay with the caller. */
-export function retryReleaseRead(
-  read,
-  {
-    label,
-    sleep = (milliseconds) =>
-      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, milliseconds),
-  }
-) {
-  for (let attempt = 1; ; attempt += 1) {
-    try {
-      return read();
-    } catch (failure) {
-      if (attempt === 3) throw failure;
-      const delay = 1000 * 2 ** (attempt - 1);
-      process.stderr.write(
-        `${label} attempt ${attempt}/3 failed: ${failure.message}\nRetrying in ${delay} ms.\n`
-      );
-      sleep(delay);
-    }
-  }
 }
 
 /**

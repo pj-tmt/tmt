@@ -65,6 +65,7 @@ export function updateReleaseIndex(input: {
   api: IndexApi;
   recordBytes: Buffer | string;
   bootstrap?: boolean;
+  sleep?: (milliseconds: number) => void;
 }): IndexResult;
 export function ghIndexApi(input: {
   repository: string;
