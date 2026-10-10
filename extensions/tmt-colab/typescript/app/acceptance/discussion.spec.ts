@@ -723,7 +723,7 @@ test('proposal decisions notify the exact proposer once and survive resolution a
   await withWorld(async (world) => {
     const door = await startDoor(world, await freePort());
     const agent = await world.startAgent('proposal-agent', { gated: true });
-    const browser = await pairBrowser(world, 'proposal-author');
+    const browser = await pairBrowser(world, 'proposal-author', { talk: true });
     const created = createPage(
       world,
       'Proposal review',
