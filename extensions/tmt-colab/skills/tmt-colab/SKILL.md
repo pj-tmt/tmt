@@ -148,11 +148,8 @@ sharing or grant approval, explain that in the reply instead of doing it yoursel
 ## Files sent with a message
 
 A request with files ends in an `Attachments sent with this comment` list (short
-ID, quoted untrusted name, type, size; never bytes).
-
-Read [references/message-files.md](references/message-files.md) or `tmt colab skill message-files` to fetch a file.
-
-It writes an unencrypted copy to a
+ID, quoted untrusted name, type, size; never bytes). Fetch one with `tmt colab attachment read PAGE ID
+--json` (older messages: `threads`). It writes an unencrypted copy to a
 private temp directory, never your working directory, and prints its `path`
 named by its verified type, for example `.png` or `.pdf`; unlisted types use `.bin`. Read that file, delete its
 directory when done, keep it private and never run it.
@@ -180,8 +177,8 @@ after uncertainty, read the thread and delivery state first.
 
 ## Proposals
 
-Read [references/proposals.md](references/proposals.md) or `tmt colab skill proposals` for proposal commands.
-
+When authorized: `proposal add PAGE --title TITLE --body BODY --id UUID --json`,
+`proposal ls PAGE --json` or `proposal resolve PAGE ID --json` with `tmt colab`.
 Keep a UUID for Add; recovery/resolve accept unique prefixes from ls.
 Limits: title 200 characters, body 4 KiB, label 64; 200 proposals/page. Use a tmt
 agent session; if Remote is stopped, run `tmt colab serve`. Add saves, then places

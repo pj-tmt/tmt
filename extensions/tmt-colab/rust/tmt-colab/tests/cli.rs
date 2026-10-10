@@ -5109,16 +5109,8 @@ fn skill_is_exact_embedded_bytes_after_relocation_without_core_or_state() {
             include_bytes!("../../../skills/tmt-colab/references/links.md").as_slice(),
         ),
         (
-            "message-files",
-            include_bytes!("../../../skills/tmt-colab/references/message-files.md").as_slice(),
-        ),
-        (
             "page-style",
             include_bytes!("../../../skills/tmt-colab/references/page-style.md").as_slice(),
-        ),
-        (
-            "proposals",
-            include_bytes!("../../../skills/tmt-colab/references/proposals.md").as_slice(),
         ),
     ] {
         let reference = invoke(&["skill", name]);
@@ -5130,6 +5122,8 @@ fn skill_is_exact_embedded_bytes_after_relocation_without_core_or_state() {
     }
     for name in [
         "unknown",
+        "message-files",
+        "proposals",
         "../page-style",
         "references/links.md",
         "/tmp/proposals",
@@ -5138,7 +5132,7 @@ fn skill_is_exact_embedded_bytes_after_relocation_without_core_or_state() {
         assert!(!refused.status.success(), "{name}");
         assert!(refused.stdout.is_empty());
         let message = String::from_utf8(refused.stderr).unwrap();
-        for valid in ["links", "message-files", "page-style", "proposals"] {
+        for valid in ["links", "page-style"] {
             assert!(message.contains(valid), "{message}");
         }
     }

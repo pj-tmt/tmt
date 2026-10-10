@@ -18,16 +18,8 @@ const SKILL_REFERENCES: &[(&str, &str)] = &[
         include_str!("../../../skills/tmt-colab/references/links.md"),
     ),
     (
-        "message-files",
-        include_str!("../../../skills/tmt-colab/references/message-files.md"),
-    ),
-    (
         "page-style",
         include_str!("../../../skills/tmt-colab/references/page-style.md"),
-    ),
-    (
-        "proposals",
-        include_str!("../../../skills/tmt-colab/references/proposals.md"),
     ),
 ];
 use clap::{Arg, ArgAction, Command};
