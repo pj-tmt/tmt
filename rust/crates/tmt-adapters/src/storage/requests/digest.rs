@@ -60,8 +60,20 @@ pub(super) fn hold(
     source: DigestSource,
     now: u64,
 ) -> Result<(), StorageError> {
-    db.execute("INSERT INTO focus_items(identity_id,request_id,kind,source,created_at_ms) VALUES(?1,?2,?3,?4,?5)
-        ON CONFLICT(identity_id,request_id,source) DO NOTHING",params![identity,request,kind.as_str(),source.as_str(),checked_now(now,"Digest item clock")?])
+    // Read the stored observation through its driver owner, without refreshing or
+    // doing process/filesystem I/O inside the canonical request transaction.
+    use tmt_core::binding::BindingRecords;
+    let preferences = crate::storage::bindings::BindingRows(db).session_preferences(identity)?;
+    let usage = preferences
+        .remembered
+        .as_ref()
+        .filter(|session| session.stale_at_ms.is_none() && session.resume_pending_at_ms.is_none())
+        .and_then(|session| {
+            crate::runtime::RuntimeRegistry::first_party().remembered_usage(session)
+        })
+        .filter(|usage| usage.observed_at_ms <= now);
+    db.execute("INSERT INTO focus_items(identity_id,request_id,kind,source,created_at_ms,context_tokens_at_arrival,context_observed_at_ms) VALUES(?1,?2,?3,?4,?5,?6,?7)
+        ON CONFLICT(identity_id,request_id,source) DO NOTHING",params![identity,request,kind.as_str(),source.as_str(),checked_now(now,"Digest item clock")?,usage.map(|u|u.tokens as i64),usage.map(|u|u.observed_at_ms as i64)])
         .map_err(|e|classify(e,"Hold digest item"))?;
     if source == DigestSource::Result {
         // These frames have no external attempt. Their canonical result hint
@@ -91,6 +103,56 @@ pub(super) fn inventory(
         params![identity,batch,checked_now(now,"Digest read clock")?,checked_i64(after,"Digest cursor")?],|r|Ok((rows::u64_at(r,0)?,rows::u64_at(r,1)?)))
         .map_err(|e|classify(e,"Read digest inventory"))
 }
+pub(super) fn counters(
+    db: &Connection,
+    identity: &str,
+) -> Result<tmt_core::request::digest::DigestCounters, StorageError> {
+    db.query_row(
+        "SELECT due_through_sequence,delivered_digests FROM digest_counters WHERE identity_id=?",
+        [identity],
+        |row| {
+            Ok(tmt_core::request::digest::DigestCounters {
+                due_through_sequence: rows::u64_at(row, 0)?,
+                delivered_digests: rows::u64_at(row, 1)?,
+            })
+        },
+    )
+    .optional()
+    .map(|value| value.unwrap_or_default())
+    .map_err(|e| classify(e, "Read digest counters"))
+}
+
+pub(super) fn mark_due(db: &Connection, identity: &str, through: u64) -> Result<(), StorageError> {
+    db.execute("INSERT INTO digest_counters(identity_id,due_through_sequence) VALUES(?1,?2)
+        ON CONFLICT(identity_id) DO UPDATE SET due_through_sequence=MAX(digest_counters.due_through_sequence,excluded.due_through_sequence)",
+        params![identity,checked_i64(through,"Digest due watermark")?]).map_err(|e| classify(e,"Mark held digest range due"))?;
+    Ok(())
+}
+
+pub(super) fn due_inventory(
+    db: &Connection,
+    identity: &str,
+    through: u64,
+    now: u64,
+) -> Result<(u64, u64), StorageError> {
+    db.query_row("SELECT COUNT(*),COALESCE(MAX(i.sequence),0) FROM focus_items i JOIN request_attempts a USING(request_id)
+        WHERE i.identity_id=?1 AND i.checklist_id IS NULL AND i.sequence<=?2 AND a.retention_expires_at_ms>?3",
+        params![identity,checked_i64(through,"Digest due watermark")?,checked_now(now,"Digest due clock")?],
+        |r| Ok((rows::u64_at(r,0)?,rows::u64_at(r,1)?))).map_err(|e| classify(e,"Read due digest inventory"))
+}
+
+pub(super) fn oldest_held(
+    db: &Connection,
+    identity: &str,
+    now: u64,
+) -> Result<Option<u64>, StorageError> {
+    db.query_row("SELECT MIN(i.created_at_ms) FROM focus_items i JOIN request_attempts a USING(request_id)
+        LEFT JOIN focus_checklists c ON c.id=i.checklist_id WHERE i.identity_id=?1 AND a.retention_expires_at_ms>?2
+        AND (i.checklist_id IS NULL OR c.state='claimed')", params![identity,checked_now(now,"Digest age clock")?],
+        |row| row.get::<_,Option<i64>>(0)?.map(|n| u64::try_from(n).map_err(|_| rusqlite::Error::InvalidQuery)).transpose())
+        .map_err(|e| classify(e,"Read oldest held digest timestamp"))
+}
+
 pub(super) fn items(
     db: &Connection,
     identity: &str,
@@ -99,7 +161,7 @@ pub(super) fn items(
     limit: u64,
     now: u64,
 ) -> Result<Vec<DigestItem>, StorageError> {
-    let mut q=db.prepare(&format!("SELECT i.sequence,i.request_id,i.kind,i.created_at_ms,i.checklist_id,i.source FROM focus_items i
+    let mut q=db.prepare(&format!("SELECT i.sequence,i.request_id,i.kind,i.created_at_ms,i.checklist_id,i.source,i.context_tokens_at_arrival,i.context_observed_at_ms FROM focus_items i
         JOIN request_attempts a USING(request_id) WHERE {ITEM_SCOPE} ORDER BY i.sequence LIMIT ?5"))
         .map_err(|e|classify(e,"Prepare digest checklist read"))?;
     q.query_map(
@@ -121,6 +183,14 @@ pub(super) fn items(
                 checklist_id: r.get(4)?,
                 source: DigestSource::parse(&r.get::<_, String>(5)?)
                     .ok_or(rusqlite::Error::InvalidQuery)?,
+                context_tokens_at_arrival: r
+                    .get::<_, Option<i64>>(6)?
+                    .map(|n| u64::try_from(n).map_err(|_| rusqlite::Error::InvalidQuery))
+                    .transpose()?,
+                context_observed_at_ms: r
+                    .get::<_, Option<i64>>(7)?
+                    .map(|n| u64::try_from(n).map_err(|_| rusqlite::Error::InvalidQuery))
+                    .transpose()?,
             })
         },
     )
@@ -183,6 +253,11 @@ pub(super) fn settle(
             StorageErrorCode::Unknown,
             "Digest checklist claim changed",
         ));
+    }
+    if state == DigestState::Delivered {
+        db.execute("INSERT INTO digest_counters(identity_id,delivered_digests) VALUES(?1,1)
+            ON CONFLICT(identity_id) DO UPDATE SET delivered_digests=digest_counters.delivered_digests+1", [&b.identity_id])
+            .map_err(|e| classify(e,"Count successful digest delivery"))?;
     }
     if state == DigestState::Unsent {
         db.execute(

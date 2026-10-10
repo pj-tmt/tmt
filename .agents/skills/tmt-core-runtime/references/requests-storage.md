@@ -208,8 +208,13 @@ checklist membership. Schema 49 adds policy, delivery metadata, held-reference a
 sealed-checklist tables, each with complete change-cursor coverage. Prompt/final
 owners and retention stay unchanged. Persisted `focus_*` table/index names remain
 internal storage spellings. `storage::requests::digest` owns bounded SQL,
-including empty settled-checklist pruning in existing request housekeeping;
-`api::digest` and the Digest adapter project the trusted local consumer seam.
+including empty settled-checklist pruning in existing request housekeeping.
+Schema 51 adds idle due-now watermarks, immutable arrival usage observations and
+successful-delivery counters that survive checklist cleanup. The adapter snapshots
+stored usage through its remembered driver's reader; no provider refresh or external
+I/O occurs in the holding transaction. `api::digest` and the Digest adapter project
+the trusted local consumer seam; the owning local API contract defines stats,
+legacy-counter provenance and the difference between idle and turn-boundary eligibility.
 
 The ordinary request wake and existing reply-frame/joined-fallback writer claims
 admit Digest before granting new external input. Owner UUID and urgent bypass only

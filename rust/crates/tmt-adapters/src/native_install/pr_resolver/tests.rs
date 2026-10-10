@@ -373,7 +373,7 @@ fn unknown_publisher_and_changed_workflow_never_search_old_success() {
 #[test]
 fn local_newer_than_candidate_and_unknown_latest_alpha_refuse() {
     let mut fixture = Fixture::new();
-    fixture.local = 51;
+    fixture.local = crate::storage::Storage::compiled_schema().version + 1;
     let error = fixture.download().err().unwrap();
     assert!(
         error
