@@ -306,9 +306,9 @@ CARGO_BUILD_JOBS=2 cargo test --locked -p tmt-cli parser::tests::native_install
 
 Process fixtures build CLI, Ops, Remote and Colab independently in the worktree's `rust/target`,
 then run `extension-install.test.ts` through the native test config; they use the built
-`tmt-remote` and `tmt-colab`, never a substitute CLI. A registered product with no published
-archive (inject empty refs or a tag without a release) must report `EXTENSION_RELEASE_UNAVAILABLE`
-("No published remote release yet") with no asset acquisition or prefix creation. Synthetic
+`tmt-remote` and `tmt-colab`, never a substitute CLI. A missing product/channel pointer must report
+"Could not check for <product> updates on raw.githubusercontent.com: <cause>. Nothing was changed."
+with no asset acquisition or prefix creation. Synthetic
 archives prove installer behavior, not published linkage or runtime versioning. Publish the
 supporting CLI alpha before testing a public install or upgrade.
 

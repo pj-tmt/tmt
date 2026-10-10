@@ -304,6 +304,8 @@ fn tls_material() -> (Arc<ServerConfig>, Vec<u8>) {
     let certified = generate_simple_self_signed(vec![
         "127.0.0.1".to_owned(),
         "api.github.com".to_owned(),
+        "raw.githubusercontent.com".to_owned(),
+        "github.com".to_owned(),
         "productionresultssa1.blob.core.windows.net".to_owned(),
         "objects.githubusercontent.com".to_owned(),
     ])
@@ -561,6 +563,8 @@ impl ureq::unversioned::resolver::Resolver for LocalResolver {
             uri.host(),
             Some(
                 "api.github.com"
+                    | "raw.githubusercontent.com"
+                    | "github.com"
                     | "objects.githubusercontent.com"
                     | "productionresultssa1.blob.core.windows.net"
             )
@@ -843,4 +847,52 @@ fn asset_status_does_not_trigger_api_policy_or_receive_token() {
     let requests = requests.lock().unwrap();
     assert_eq!(requests.len(), 1);
     assert!(!requests[0].to_ascii_lowercase().contains("authorization"));
+}
+
+#[test]
+fn normal_raw_and_download_hops_never_send_tokens_or_follow_api_redirects() {
+    for token in [None, Some("fixture-secret".to_owned())] {
+        for host in ["raw.githubusercontent.com", "github.com"] {
+            let (_server, mut client, requests) = scripted(vec![
+                Response::redirect("https://objects.githubusercontent.com/archive".into()),
+                Response::ok("native"),
+            ]);
+            client.token = token.clone();
+            assert_eq!(
+                client
+                    .get(
+                        &format!("https://{host}/release"),
+                        "application/octet-stream",
+                        64,
+                        Instant::now() + Duration::from_secs(2)
+                    )
+                    .unwrap()
+                    .body,
+                b"native"
+            );
+            let requests = requests.lock().unwrap();
+            assert_eq!(requests.len(), 2);
+            assert!(requests.iter().all(|request| {
+                !request.to_ascii_lowercase().contains("authorization")
+                    && !request.contains("fixture-secret")
+            }));
+        }
+        let (_server, mut client, requests) = scripted(vec![Response::redirect(
+            "https://api.github.com/release".into(),
+        )]);
+        client.token = token;
+        assert!(
+            client
+                .get(
+                    "https://raw.githubusercontent.com/release",
+                    "application/json",
+                    64,
+                    Instant::now() + Duration::from_secs(2)
+                )
+                .unwrap_err()
+                .to_string()
+                .contains("cannot redirect")
+        );
+        assert_eq!(requests.lock().unwrap().len(), 1);
+    }
 }

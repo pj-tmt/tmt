@@ -13,22 +13,7 @@ fn release_download()
 -> impl FnMut(&str, &str, usize, Instant) -> io::Result<crate::release_http::Response> {
     let (release, manifest, archive, _) =
         release::valid_fixture("1.2.4", "aarch64-apple-darwin", 42);
-    move |url, _, limit, deadline| {
-        assert!(deadline > Instant::now());
-        assert!(url.starts_with("https://api.github.com/repos/pj-tmt/tmt/"));
-        let bytes = if url.ends_with("/assets/421") {
-            manifest.clone()
-        } else if url.ends_with("/assets/422") {
-            archive.clone()
-        } else if url.ends_with("/tags/v1.2.4") {
-            serde_json::to_vec(&release).unwrap()
-        } else {
-            assert!(url.ends_with("?per_page=100&page=1"));
-            serde_json::to_vec(&serde_json::json!([{ "ref": format!("refs/tags/{}", release["tag_name"].as_str().unwrap()) }])).unwrap()
-        };
-        assert!(bytes.len() <= limit);
-        Ok(bytes.into())
-    }
+    release::indexed_download(release, manifest, archive)
 }
 
 fn assert_no_downloads(root: &Path) {
@@ -452,9 +437,9 @@ fn missing_release_preserves_active_files_without_staging() {
             calls += 1;
             assert_eq!(
                 url,
-                "https://api.github.com/repos/pj-tmt/tmt/git/matching-refs/tags/v?per_page=100&page=1"
+                "https://raw.githubusercontent.com/pj-tmt/tmt/release-index/channels/cli/stable.json"
             );
-            Ok(b"[]".to_vec().into())
+            Err(io::Error::new(io::ErrorKind::NotFound, "pointer missing"))
         },
     )
     .unwrap_err();
@@ -484,7 +469,6 @@ fn consent_selected_versions_upgrade_products_without_creating_pins() {
         let selected = "1.2.4".parse().unwrap();
         let (release, manifest, archive, _) =
             release::product_fixture(product, "1.2.4", target, 42);
-        let expected = format!("/tags/{}1.2.4", product.tag_prefix());
         let report = super::upgrade_product_with(
             product,
             UpgradeRequest {
@@ -496,17 +480,7 @@ fn consent_selected_versions_upgrade_products_without_creating_pins() {
             None,
             Some(&selected),
             || Ok(()),
-            |url, _, _, _| {
-                let bytes = if url.ends_with("/assets/421") {
-                    manifest.clone()
-                } else if url.ends_with("/assets/422") {
-                    archive.clone()
-                } else {
-                    assert!(url.ends_with(&expected));
-                    serde_json::to_vec(&release).unwrap()
-                };
-                Ok(bytes.into())
-            },
+            release::indexed_download(release, manifest, archive),
             crate::native_install::test_support::install_downloaded,
         )
         .unwrap();
@@ -557,7 +531,12 @@ fn rate_limit_failure_preserves_active_executable_receipt_and_has_no_staging() {
     )
     .unwrap_err();
     assert_eq!(calls, 1);
-    assert_eq!(error.to_string(), cause);
+    assert_eq!(
+        error.to_string(),
+        format!(
+            "Could not check for cli updates on raw.githubusercontent.com: {cause}. Nothing was changed."
+        )
+    );
     assert!(error.activated.is_none());
     assert_eq!(fs::read_link(layout.root.join("current")).unwrap(), current);
     assert_eq!(fs::read(&executable).unwrap(), old_executable);
@@ -567,4 +546,41 @@ fn rate_limit_failure_preserves_active_executable_receipt_and_has_no_staging() {
         fs::read_dir(layout.root.join("releases")).unwrap().count(),
         1
     );
+}
+
+#[test]
+fn stale_index_pointer_refuses_a_downgrade_without_changing_active_files() {
+    let (_directory, layout, _) = published_layout();
+    let original = fs::read_link(layout.root.join("current")).unwrap();
+    let executable = layout.root.join(&original).join("tmt");
+    let receipt = layout.root.join(&original).join("receipt.json");
+    let before = (fs::read(&executable).unwrap(), fs::read(&receipt).unwrap());
+    let (release, manifest, archive, _) =
+        release::valid_fixture("1.2.2", "aarch64-apple-darwin", 40);
+    let error = upgrade_with(
+        UpgradeRequest {
+            executable: &executable,
+            channel: None,
+            exact: None,
+            unpin: false,
+        },
+        || Ok(()),
+        release::indexed_download(release, manifest, archive),
+    )
+    .unwrap_err();
+    assert!(
+        error
+            .to_string()
+            .contains("does not permit a version downgrade")
+    );
+    assert!(error.activated.is_none());
+    assert_eq!(
+        fs::read_link(layout.root.join("current")).unwrap(),
+        original
+    );
+    assert_eq!(
+        (fs::read(&executable).unwrap(), fs::read(&receipt).unwrap()),
+        before
+    );
+    assert_no_downloads(&layout.root);
 }

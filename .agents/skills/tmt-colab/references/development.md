@@ -301,8 +301,8 @@ Colab is a released `native-release.yml` product (`tag tmt-colab-v<version>`,
 prerelease, `latest=false`): `release: true` with `initialVersion` `0.1.0-alpha.1`
 and `requiresCliSha` in `.github/components.json`, and `dist = true` in its Cargo
 package. Core registers Colab with the shared installer
-(`EXTENSION_RELEASE_UNAVAILABLE` until an archive exists; see the registration
-commands in the [release reference](../../tmt-release/references/native-release.md#remote-and-colab-installer-registration)).
+(see the registration commands and pointer-unavailable refusal in the
+[release reference](../../tmt-release/references/native-release.md#remote-and-colab-installer-registration)).
 
 `scripts/build-native-artifact.sh <target> colab` installs frozen dependencies with
 `corepack pnpm@10.33.0`, builds `@tmt/colab-app` (requires index, assets and a

@@ -2,7 +2,6 @@
 
 use std::{
     cell::Cell,
-    ffi::OsStr,
     io,
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
@@ -22,7 +21,7 @@ const TOKEN_LIMIT: usize = 16 * 1024;
 pub(crate) struct MissingAuth;
 impl std::fmt::Display for MissingAuth {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.write_str("PR channels require GitHub Actions read authentication: run gh auth login for github.com or supply GITHUB_TOKEN for this invocation.")
+        formatter.write_str("PR channels require GitHub Actions read authentication: supply GH_TOKEN or GITHUB_TOKEN for this invocation.")
     }
 }
 impl std::error::Error for MissingAuth {}
@@ -34,40 +33,32 @@ fn valid_token(token: &str) -> bool {
 }
 
 fn invocation_token(
-    existing: Option<String>,
-    deadline: Instant,
-    runner: &impl crate::process::CommandRunner,
-) -> io::Result<String> {
-    if let Some(token) = existing {
-        return valid_token(&token)
-            .then_some(token)
-            .ok_or_else(|| io::Error::other(MissingAuth));
-    }
-    let output = runner
-        .execute(crate::process::CommandRequest {
-            program: OsStr::new("gh"),
-            args: &[
-                "auth".into(),
-                "token".into(),
-                "--hostname".into(),
-                "github.com".into(),
-            ],
-            input: &[],
-            deadline: deadline.min(Instant::now() + Duration::from_secs(10)),
-            max_output_bytes: TOKEN_LIMIT,
+    gh_token: Option<String>,
+    github_token: Option<String>,
+) -> io::Result<Option<String>> {
+    let token = gh_token
+        .filter(|token| !token.is_empty())
+        .or_else(|| github_token.filter(|token| !token.is_empty()));
+    token
+        .map(|token| {
+            valid_token(&token)
+                .then_some(token)
+                .ok_or_else(|| io::Error::other(MissingAuth))
         })
-        .map_err(|_| io::Error::other(MissingAuth))?;
-    // Credential bytes and gh diagnostics never enter a durable/public error.
-    let token = std::str::from_utf8(&output.stdout)
-        .ok()
-        .map(|token| token.trim_end_matches(['\r', '\n']))
-        .filter(|token| valid_token(token))
-        .ok_or_else(|| io::Error::other(MissingAuth))?;
-    Ok(token.to_owned())
+        .transpose()
+}
+
+/// The sole environment-token policy; credentials are never acquired interactively.
+pub(crate) fn environment_token() -> io::Result<Option<String>> {
+    invocation_token(
+        std::env::var("GH_TOKEN").ok(),
+        std::env::var("GITHUB_TOKEN").ok(),
+    )
 }
 
 const ALLOWED_HOSTS: &[&str] = &[
     "api.github.com",
+    "raw.githubusercontent.com",
     "github.com",
     "release-assets.githubusercontent.com",
     "objects.githubusercontent.com",
@@ -102,12 +93,9 @@ pub(crate) struct Https {
 }
 
 impl Https {
-    pub(crate) fn authenticated(
-        deadline: Instant,
-        runner: &impl crate::process::CommandRunner,
-    ) -> io::Result<Self> {
+    pub(crate) fn authenticated() -> io::Result<Self> {
         let mut client = Self::new();
-        client.token = Some(invocation_token(client.token.take(), deadline, runner)?);
+        client.token = Some(environment_token()?.ok_or_else(|| io::Error::other(MissingAuth))?);
         Ok(client)
     }
     pub(crate) fn new() -> Self {
@@ -125,9 +113,7 @@ impl Https {
 
         Self {
             agent: Agent::new_with_config(config),
-            token: std::env::var("GITHUB_TOKEN")
-                .ok()
-                .filter(|token| !token.is_empty()),
+            token: None,
             waited: Cell::new(false),
             #[cfg(test)]
             wait: std::thread::sleep,
@@ -192,6 +178,7 @@ impl Https {
         let mut current = validate_url_with_loopback(url, self.allow_loopback)?;
         #[cfg(not(test))]
         let mut current = validate_url(url)?;
+        let api_origin = is_api(&current);
         let body_limit = bounded_body_limit(maximum)?;
 
         let mut redirects = 0;
@@ -275,6 +262,11 @@ impl Https {
                 let next = validate_url_inner(location, false, actions_redirects);
                 current =
                     next.map_err(|_| invalid_response("redirect location is not approved"))?;
+                if !api_origin && is_api(&current) {
+                    return Err(invalid_response(
+                        "release download cannot redirect to api.github.com",
+                    ));
+                }
                 redirects += 1;
                 continue;
             }
@@ -491,73 +483,37 @@ fn invalid_response(message: &'static str) -> io::Error {
 mod tests {
     use super::*;
 
-    struct TokenRunner {
-        calls: Cell<usize>,
-        output: &'static [u8],
-    }
-    impl crate::process::CommandRunner for TokenRunner {
-        fn execute(
-            &self,
-            request: crate::process::CommandRequest<'_>,
-        ) -> Result<crate::process::CommandOutput, crate::process::CommandError> {
-            self.calls.set(self.calls.get() + 1);
-            assert_eq!(request.program, OsStr::new("gh"));
-            assert_eq!(
-                request.args,
-                ["auth", "token", "--hostname", "github.com"].map(std::ffi::OsString::from)
-            );
-            assert!(request.input.is_empty());
-            assert_eq!(request.max_output_bytes, TOKEN_LIMIT);
-            Ok(crate::process::CommandOutput {
-                stdout: self.output.to_vec(),
-                stderr: b"private diagnostic".to_vec(),
-            })
-        }
+    #[test]
+    fn authentication_uses_only_environment_tokens_in_priority_order() {
+        assert_eq!(
+            invocation_token(Some("gh-token".into()), Some("github-token".into())).unwrap(),
+            Some("gh-token".into())
+        );
+        assert_eq!(
+            invocation_token(Some(String::new()), Some("github-token".into())).unwrap(),
+            Some("github-token".into())
+        );
+        assert_eq!(
+            invocation_token(None, Some("github-token".into())).unwrap(),
+            Some("github-token".into())
+        );
+        assert_eq!(invocation_token(None, None).unwrap(), None);
+        assert_eq!(
+            invocation_token(Some(String::new()), Some(String::new())).unwrap(),
+            None
+        );
     }
 
     #[test]
-    fn authentication_borrows_one_token_without_gh_when_supplied() {
-        let runner = TokenRunner {
-            calls: Cell::new(0),
-            output: b"gh-fixture-token\n",
-        };
-        let deadline = Instant::now() + Duration::from_secs(1);
-        assert_eq!(
-            invocation_token(Some("env-fixture-token".into()), deadline, &runner).unwrap(),
-            "env-fixture-token"
-        );
-        assert_eq!(runner.calls.get(), 0);
-        assert_eq!(
-            invocation_token(None, deadline, &runner).unwrap(),
-            "gh-fixture-token"
-        );
-        assert_eq!(runner.calls.get(), 1);
-    }
-
-    #[test]
-    fn missing_or_malformed_credentials_never_echo_private_bytes() {
-        for output in [
-            b"".as_slice(),
-            b"secret token\n",
-            b"\xffprivate-secret",
-            b"one\ntwo",
-        ] {
-            let runner = TokenRunner {
-                calls: Cell::new(0),
-                output,
-            };
-            let error = invocation_token(None, Instant::now() + Duration::from_secs(1), &runner)
-                .unwrap_err();
+    fn malformed_selected_credentials_never_echo_or_fall_back() {
+        for token in ["secret token", "secret\nheader", "one\r two"] {
+            let error =
+                invocation_token(Some(token.into()), Some("fallback-token".into())).unwrap_err();
             assert!(error.get_ref().unwrap().is::<MissingAuth>());
-            assert!(!error.to_string().contains("private-secret"));
-            assert!(!error.to_string().contains("private diagnostic"));
+            assert!(!error.to_string().contains(token));
         }
-        let runner = TokenRunner {
-            calls: Cell::new(0),
-            output: b"fallback-token",
-        };
-        assert!(invocation_token(Some("secret\nheader".into()), Instant::now(), &runner).is_err());
-        assert_eq!(runner.calls.get(), 0);
+        assert!(invocation_token(None, Some("secret\nheader".into())).is_err());
+        assert!(invocation_token(Some("x".repeat(TOKEN_LIMIT + 1)), None).is_err());
     }
 
     #[test]

@@ -401,8 +401,8 @@ current release. CLI self-upgrade delegates to the verified candidate under the
 compiled schema export and admission are owned by the [PR channel contract](contracts/native-pr-channel.md). The candidate then lets that CLI
 run the consented extension phase; there is no rollback or second installer.
 `tmt extension install|upgrade|rm|ls` is the public surface for extensions and
-requires consent. Acquisition, receipts, companions, skills trees, repair and the
-upgrade handoff are in the
+requires consent. Index discovery, receipts, companions, skills trees, repair and the
+handoff are in the
 [installer architecture reference](.agents/skills/tmt-core-runtime/references/install-architecture.md);
 build, publication and verification procedures are in the
 [tmt-release skill](.agents/skills/tmt-release/SKILL.md).
