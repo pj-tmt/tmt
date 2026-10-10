@@ -149,13 +149,17 @@ describe(
         );
         expect(probe.status).toBe('live');
         expect(probe.snapshot).toEqual({ server: actual.server, panes: actual.panes });
-        const mismatch = expectJsonResult(
+        const absentSocket = path.join(fixture.socketRoot, 'absent.sock');
+        expect(fs.existsSync(absentSocket)).toBe(false);
+        expect(fixture.serverProcessIsRunning()).toBe(true);
+        const unavailable = expectJsonResult(
           await fixture.runJsonCli<{ status: string }>(
-            ['probe', fixture.socketPath, String(fixture.serverPid + 1), pane],
+            ['probe', absentSocket, String(fixture.serverPid), pane],
             { outsideTmux: true, locale: 'C' }
           )
         );
-        expect(mismatch.status).toBe('unknown');
+        expect(unavailable.status).toBe('unknown');
+        expect(fixture.serverProcessIsRunning()).toBe(true);
         expect(fixture.tmux(['-u', 'show-options', '-p', '-v', '-t', pane, '@tmt.agent'])).toBe(
           `${raw}\n`
         );
