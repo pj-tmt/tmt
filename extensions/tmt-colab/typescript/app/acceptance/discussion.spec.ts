@@ -764,6 +764,17 @@ test('proposal decisions notify the exact proposer once and survive resolution a
             document.documentElement.dataset.theme = theme;
           }, theme);
           await expect(card).toBeVisible();
+          const spacer = page
+            .frameLocator('.frame-host iframe')
+            .locator('[data-colab-proposal-slot]');
+          await expect
+            .poll(async () => {
+              const reserved = await spacer.boundingBox();
+              const displayed = await card.boundingBox();
+              if (!reserved || !displayed) return false;
+              return reserved.height >= displayed.height && reserved.height - displayed.height <= 1;
+            })
+            .toBe(true);
           await page.screenshot({ path: `${captures}/${state}-${width}-${theme}.png` });
         }
     }
@@ -802,14 +813,10 @@ test('proposal decisions notify the exact proposer once and survive resolution a
     const rows = JSON.parse(
       run(world, world.binaries.colab, ['proposal', 'ls', created.pageId, '--json']),
     ).proposals;
+    const exportParent = path.join(world.root, 'proposal-export');
+    mkdirSync(exportParent, { mode: 0o700 });
     const exported = JSON.parse(
-      run(world, world.binaries.colab, [
-        'export',
-        created.pageId,
-        '--dir',
-        path.join(world.root, 'proposal-export'),
-        '--json',
-      ]),
+      run(world, world.binaries.colab, ['export', created.pageId, '--dir', exportParent, '--json']),
     );
     const conversation = JSON.parse(
       readFileSync(path.join(exported.directory, 'conversations.json'), 'utf8'),

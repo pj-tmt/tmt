@@ -48,8 +48,8 @@ export function AnnotationInput({
   thread?: ThreadView;
   asks: readonly PageAsk[];
   title: string;
-  /** Stable creation UUIDs from the admitted page projection, never a publisher label. */
-  creationRecipient?: CreationRecipient;
+  /** Admitted page/proposal UUIDs select the recipient; an optional label is display only. */
+  creationRecipient?: CreationRecipient & { label?: string };
   /** A draft kept from an earlier close of the same selection. */
   initialValue?: string;
   initialEdit?: ComposerEdit;
@@ -126,7 +126,7 @@ export function AnnotationInput({
     setEdit((previous) => {
       if (previous.value || previous.edited || !creationRecipient)
         return { ...previous, edited: previous.edited ?? false };
-      const token = `@${matches.length === 1 ? matches[0].agentName : text.messageCreator}`;
+      const token = `@${matches.length === 1 ? matches[0].agentName : (creationRecipient.label ?? text.messageCreator)}`;
       return {
         value: `${token} `,
         edited: false,

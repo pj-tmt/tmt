@@ -18,6 +18,19 @@ const captureDir = process.env.COLAB_PROPOSAL_CAPTURE_DIR;
 async function capture(page: Page, name: string) {
   if (!captureDir) return;
   mkdirSync(captureDir, { recursive: true });
+  const inline = page.locator('[data-inline-proposal]:not([data-detached])');
+  if (await inline.count()) {
+    const following = page.frameLocator('#ask-page-fixture iframe').locator('#after-proposal');
+    await expect
+      .poll(async () => {
+        const card = await inline.boundingBox();
+        const below = await following.boundingBox();
+        if (!card || !below) return false;
+        const gap = below.y - card.y - card.height;
+        return gap >= -1 && gap <= 32;
+      })
+      .toBe(true);
+  }
   await page.screenshot({ path: `${captureDir}/${name}.png` });
 }
 for (const width of [1440, 390])
@@ -133,6 +146,7 @@ for (const width of [1440, 390])
       await page.getByTestId('annotation-row').click();
       const card = page.locator('.page-drawer[data-panel="comments"][open] .proposal-card');
       await expect(card).toBeVisible();
+      await expect(page.getByRole('combobox')).toContainText('@Deterministic agent');
       await capture(page, `detached-${width}-${theme}`);
       await card.getByRole('button', { name: 'Approve', exact: true }).click();
       await expect(card.getByRole('alert')).toHaveText(
