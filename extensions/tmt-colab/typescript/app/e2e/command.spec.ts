@@ -31,7 +31,7 @@ test('verified bearer values copy exactly and remain selectable on clipboard den
   );
   await copy.click();
   await expect(block.getByRole('status')).toHaveText(
-    'Clipboard unavailable. Select and copy the displayed values.',
+    'Clipboard unavailable. Select and copy the displayed link.',
   );
   await page.getByLabel('Share link').evaluate((node: HTMLInputElement) => node.select());
   expect(

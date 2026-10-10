@@ -103,7 +103,7 @@ test('native sharing and lifecycle verification preserve Ask, page recovery and 
     await dialog.getByLabel('Keep forever').check();
     await dialog.getByRole('button', { name: 'Set retention', exact: true }).click();
     await dialog.getByRole('button', { name: 'Confirm set retention', exact: true }).click();
-    await expect(dialog.getByRole('status')).toContainText('Change verified');
+    await expect(dialog.locator('p[role=status]')).toContainText('Change verified');
     const forever = JSON.parse(
       run(world, world.binaries.colab, ['show', first.pageId, '--json']),
     ).page;
@@ -118,7 +118,7 @@ test('native sharing and lifecycle verification preserve Ask, page recovery and 
     dialog = await manage(page);
     await choose(dialog, 'Audience', 'Link');
     await dialog.getByRole('button', { name: 'Confirm make link' }).click();
-    await expect(dialog.getByRole('status')).toContainText('Change verified');
+    await expect(dialog.locator('p[role=status]')).toContainText('Change verified');
     await dialog.getByRole('button', { name: 'Manage another change' }).click();
     await dialog.getByRole('button', { name: 'Create link', exact: true }).click();
     await expect(dialog).toContainText('Shared links open read-only, whatever their role.');
@@ -164,7 +164,7 @@ test('native sharing and lifecycle verification preserve Ask, page recovery and 
     await dialog.getByRole('button', { name: 'Manage another change' }).click();
     await dialog.getByRole('button', { name: 'Reset link', exact: true }).click();
     await dialog.getByRole('button', { name: 'Confirm reset link' }).click();
-    await expect(dialog.getByRole('status')).toContainText('Change verified');
+    await expect(dialog.locator('p[role=status]')).toContainText('Change verified');
     const reset = new URL(await dialog.getByLabel('Share link', { exact: true }).inputValue());
     expect(reset.pathname.slice(6)).not.toBe(oldLink);
     expect(reset.origin).toBe(door.origin);
@@ -175,7 +175,7 @@ test('native sharing and lifecycle verification preserve Ask, page recovery and 
     await choose(dialog, 'Audience', 'Private');
     await expect(dialog).toContainText('links are revoked and affected pages rotate');
     await dialog.getByRole('button', { name: 'Confirm make private' }).click();
-    await expect(dialog.getByRole('status')).toContainText('Change verified');
+    await expect(dialog.locator('p[role=status]')).toContainText('Change verified');
     await dialog.getByRole('button', { name: 'Close', exact: true }).click();
     await expect(page.locator('iframe')).toBeVisible();
     await page.reload();
@@ -188,7 +188,7 @@ test('native sharing and lifecycle verification preserve Ask, page recovery and 
     dialog = await manage(page);
     await dialog.getByRole('button', { name: 'Archive page', exact: true }).click();
     await dialog.getByRole('button', { name: 'Confirm archive page' }).click();
-    await expect(dialog.getByRole('status')).toContainText('Change verified');
+    await expect(dialog.locator('p[role=status]')).toContainText('Change verified');
     // Navigate explicitly: the archived page has no editing route.
     await dialog.getByRole('button', { name: 'Close', exact: true }).click();
     await page.goto(`${door.address}/x/colab/`);
@@ -202,7 +202,7 @@ test('native sharing and lifecycle verification preserve Ask, page recovery and 
     await dialog.getByRole('button', { name: 'Delete page', exact: true }).click();
     await expect(dialog).toContainText('Copies already made cannot be recalled');
     await dialog.getByRole('button', { name: 'Confirm delete page' }).click();
-    await expect(dialog.getByRole('status')).toContainText('Deletion verified');
+    await expect(dialog.locator('p[role=status]')).toContainText('Deletion verified');
     await dialog.getByRole('button', { name: 'Close', exact: true }).click();
     await page.getByRole('button', { name: 'Show archived', exact: true }).click();
     const remaining = page.locator('ul.pages li').filter({ hasText: second.pageId });
@@ -255,7 +255,7 @@ test('member roles, shared/current joins and epoch advance admit the same owner 
       await dialog.getByLabel('Encryption public key').fill(key('x25519'));
       await dialog.getByRole('button', { name: 'Add member', exact: true }).click();
       await dialog.getByRole('button', { name: 'Confirm add member', exact: true }).click();
-      await expect(dialog.getByRole('status')).toContainText('Change verified');
+      await expect(dialog.locator('p[role=status]')).toContainText('Change verified');
       expect(detail().members.find((m: { id: string }) => m.id === id)).toMatchObject({
         role: 'viewer',
         pages: [created.pageId],
@@ -268,17 +268,17 @@ test('member roles, shared/current joins and epoch advance admit the same owner 
     expect(BigInt(detail().page.epoch)).toBe(initialEpoch);
     await choose(dialog, 'Member role', 'editor');
     await dialog.getByRole('button', { name: 'Confirm change member role' }).click();
-    await expect(dialog.getByRole('status')).toContainText('Change verified');
+    await expect(dialog.locator('p[role=status]')).toContainText('Change verified');
     expect(detail().members.find((m: { id: string }) => m.id === shared).role).toBe('editor');
     await dialog.getByRole('button', { name: 'Manage another change' }).click();
     await dialog.getByRole('button', { name: 'Remove member', exact: true }).click();
     await dialog.getByRole('button', { name: 'Confirm remove member' }).click();
-    await expect(dialog.getByRole('status')).toContainText('Change verified');
+    await expect(dialog.locator('p[role=status]')).toContainText('Change verified');
     expect(detail().members.find((m: { id: string }) => m.id === shared).revoked).toBe(true);
     await dialog.getByRole('button', { name: 'Manage another change' }).click();
     await choose(dialog, 'History mode', 'Current');
     await dialog.getByRole('button', { name: 'Confirm change history' }).click();
-    await expect(dialog.getByRole('status')).toContainText('Change verified');
+    await expect(dialog.locator('p[role=status]')).toContainText('Change verified');
     expect(detail().page.history).toBe('current');
     const beforeCurrent = BigInt(detail().page.epoch);
     await dialog.getByRole('button', { name: 'Manage another change' }).click();
@@ -286,7 +286,7 @@ test('member roles, shared/current joins and epoch advance admit the same owner 
     expect(BigInt(detail().page.epoch)).toBe(beforeCurrent + 1n);
     await dialog.getByRole('button', { name: 'Advance epoch', exact: true }).click();
     await dialog.getByRole('button', { name: 'Confirm advance epoch' }).click();
-    await expect(dialog.getByRole('status')).toContainText('Change verified');
+    await expect(dialog.locator('p[role=status]')).toContainText('Change verified');
     expect(BigInt(detail().page.epoch)).toBe(beforeCurrent + 2n);
     await dialog.getByRole('button', { name: 'Close', exact: true }).click();
     await page.reload();
@@ -336,7 +336,7 @@ test('a lost management reply permits only an explicit byte-identical retry of t
       BigInt(before.membershipHead.revision) + 1n,
     );
     await dialog.getByRole('button', { name: 'Retry exact request' }).click();
-    await expect(dialog.getByRole('status')).toContainText('Change verified');
+    await expect(dialog.locator('p[role=status]')).toContainText('Change verified');
     expect(bodies).toHaveLength(2);
     expect(bodies[1]).toBe(bodies[0]); // Includes original ID, signed framing, expiry and selected payload.
     expect(

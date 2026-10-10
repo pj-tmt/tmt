@@ -698,11 +698,8 @@ fn link_add_without_a_seed_file_generates_a_fresh_seed_and_prints_the_reader_lin
         .unwrap();
     assert!(human.status.success());
     let human = String::from_utf8(human.stdout).unwrap();
-    let line = human
-        .lines()
-        .find(|line| line.trim().starts_with("/read/"))
-        .unwrap()
-        .trim();
+    let at = human.find("/read/").unwrap();
+    let line = human[at..].lines().next().unwrap().trim();
     let (route, fragment) = line.split_once('#').unwrap();
     let id = route.strip_prefix("/read/").unwrap();
     tmt_colab_model::values::generated_id(id).unwrap();
