@@ -129,3 +129,51 @@ body {
   font: 12px/1.4 var(--f-body);
   white-space: normal;
 }
+
+/* Mounted pages and space home opt into the one-row attribution slots. */
+.tmt-ui-header:has(.colab-remote-attribution) .tmt-ui-mark {
+  display: none;
+}
+.colab-remote-attribution {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  color: var(--c-muted);
+  font: 11px var(--f-mono);
+}
+.colab-remote-label {
+  max-width: 20ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tmt-ui-header:has(.colab-remote-attribution) .tmt-ui-heading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.tmt-ui-header:has(.colab-remote-attribution) .tmt-ui-title {
+  min-width: 0;
+}
+.colab-header-divider {
+  flex: none;
+  color: var(--c-muted);
+}
+.tmt-ui-header:has(.colab-remote-attribution) .tmt-ui-caption {
+  max-width: 22ch;
+  min-width: 0;
+}
+@media (max-width: 900px) {
+  .tmt-ui-header:has(.colab-remote-attribution) .tmt-ui-caption {
+    display: none;
+  }
+}
+@media (max-width: 640px) {
+  .colab-remote-label {
+    display: none;
+  }
+  .tmt-ui-header:has(.colab-remote-attribution) {
+    gap: 6px;
+  }
+}

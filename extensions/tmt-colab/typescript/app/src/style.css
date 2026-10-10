@@ -137,19 +137,8 @@ footer {
 .page-main {
   min-height: 0;
 }
-/* Page chrome adds a second row on phones without changing other screen headers. */
-body:has(.page-header-actions) {
-  --page-header-extra: 0px;
-  --colab-header-height: calc(
-    var(--tmt-ui-header-height) + var(--colab-update-height) + var(--page-header-extra)
-  );
-  --page-bar-size: var(--colab-header-height);
-}
 .page {
   min-height: calc(100dvh - var(--colab-header-height));
-}
-.page .tmt-ui-header {
-  height: calc(var(--tmt-ui-header-height) + var(--page-header-extra));
 }
 /* Open header menus sit above selection controls and the update row. */
 .page .tmt-ui-header:has(.page-header-actions [role='menu']) {
@@ -163,14 +152,6 @@ body:has(.page-header-actions) {
 }
 .page-header-meta {
   min-width: 0;
-}
-.page-backend {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  color: var(--c-muted);
-  font: 11px var(--f-mono);
-  white-space: nowrap;
 }
 .page-sharing {
   flex-shrink: 0;
@@ -241,30 +222,6 @@ body:has(.page-header-actions) {
   margin-top: 24px;
 }
 @media (max-width: 640px) {
-  body:has(.page-header-actions) {
-    --page-header-extra: 34px;
-  }
-  .page .tmt-ui-header {
-    display: grid;
-    grid-template-columns: auto minmax(0, 1fr) auto;
-    grid-template-areas: 'brand heading heading' 'status status actions';
-    grid-template-rows: minmax(0, 1fr) 34px;
-    column-gap: 6px;
-    row-gap: 0;
-  }
-  .page .tmt-ui-brand {
-    grid-area: brand;
-  }
-  .page .tmt-ui-heading {
-    grid-area: heading;
-  }
-  .page .tmt-ui-status {
-    grid-area: status;
-    min-width: 0;
-  }
-  .page .tmt-ui-actions {
-    grid-area: actions;
-  }
   .page-header-actions .tmt-ui-icon-action-control {
     min-width: 28px;
     padding: 0 3px;
@@ -281,30 +238,9 @@ body:has(.page-header-actions) {
   .page-header-meta {
     gap: 4px;
   }
-  .page-backend {
-    font-size: 10px;
-  }
   .page-header-meta .chip {
     padding: 3px 5px;
     font-size: 10px;
-  }
-  body:has(.page-header-actions) .update-notice {
-    top: calc(env(safe-area-inset-top, 0px) + var(--tmt-ui-header-height) + 34px);
-  }
-}
-@media (max-width: 360px) {
-  body:has(.page-header-actions) {
-    --page-header-extra: 68px;
-  }
-  .page .tmt-ui-header {
-    grid-template-areas: 'brand heading heading' 'status status status' 'actions actions actions';
-    grid-template-rows: minmax(0, 1fr) 34px 34px;
-  }
-  .page .tmt-ui-actions {
-    justify-content: flex-end;
-  }
-  body:has(.page-header-actions) .update-notice {
-    top: calc(env(safe-area-inset-top, 0px) + var(--tmt-ui-header-height) + 68px);
   }
 }
 .canvas {

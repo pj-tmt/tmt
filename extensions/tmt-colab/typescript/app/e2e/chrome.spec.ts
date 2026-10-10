@@ -158,14 +158,19 @@ for (const width of [1440, 390, 320])
           }
           const current = await metrics(page);
           reference ??= current;
-          // The page adds rows for its environment/status and five controls on phones.
-          const extra = screen === 'page' && width <= 640 ? (width <= 360 ? 68 : 34) : 0;
-          expect(current, screen).toEqual(
-            extra ? { ...reference, height: reference.height + extra, gap: '0px 6px' } : reference,
-          );
+          // Attribution hosts fit one row; only their compact gap differs from defaults.
+          const compactAttribution =
+            (screen === 'page' ||
+              screen === 'pages' ||
+              screen === 'archived' ||
+              screen === 'empty') &&
+            width <= 640;
+          expect(current, screen).toEqual({
+            ...reference,
+            gap: compactAttribution ? '6px' : tokens.header.gap,
+          });
           expect(current.height).toBe(
-            parseFloat(width < 480 ? tokens.header['compact-height'] : tokens.header.height) +
-              extra,
+            parseFloat(width < 480 ? tokens.header['compact-height'] : tokens.header.height),
           );
           expect(current.title.size).toBe(tokens.header['title-size']);
           expect(current.wordmark.size).toBe(tokens.header['wordmark-size']);
@@ -343,7 +348,7 @@ for (const width of [1440, 390, 320])
 
 for (const width of [1440, 390, 320])
   for (const theme of ['light', 'dark'] as const)
-    test(`page header keeps environment, status and five icon actions: ${width}px ${theme}`, async ({
+    test(`page header keeps attribution, status and fitting icon actions: ${width}px ${theme}`, async ({
       page,
     }) => {
       await page.setViewportSize({ width, height: 800 });
@@ -357,8 +362,10 @@ for (const width of [1440, 390, 320])
         await (await import(path)).mount('page');
       });
       const header = page.locator('#chrome-fixture .tmt-ui-header');
-      await expect(header.locator('.page-backend')).toHaveText('local · Studio Mac');
-      await expect(header.locator('.page-backend')).toHaveAttribute('title', 'local · Studio Mac');
+      await expect(header.locator('.colab-remote-label')).toHaveText('local · Studio Mac');
+      await expect(
+        header.getByRole('group', { name: 'Remote: local · Studio Mac' }),
+      ).toHaveAttribute('title', 'Remote: local · Studio Mac');
       await expect(header.locator('.page-sharing')).toHaveText('Private · Live');
       expect(
         await header
@@ -366,7 +373,7 @@ for (const width of [1440, 390, 320])
           .evaluate((node) => node.scrollWidth <= node.clientWidth),
       ).toBe(true);
       const actions = header.getByRole('navigation', { name: 'Page actions' });
-      await expect(actions.getByRole('button')).toHaveCount(5);
+      await expect(actions.getByRole('button')).toHaveCount(width <= 640 ? 2 : 5);
       for (const button of await actions.getByRole('button').all()) {
         await expect(button).toBeInViewport();
         expect(await button.getAttribute('aria-label')).toBeTruthy();
@@ -378,6 +385,11 @@ for (const width of [1440, 390, 320])
       await more.click();
       const menu = actions.getByRole('menu');
       await expect(menu).toBeVisible();
+      if (width <= 640) {
+        for (const name of ['Agents', /^Files \(\d+\)$/, 'Source', 'Export page']) {
+          await expect(menu.getByRole('menuitem', { name, exact: true })).toBeVisible();
+        }
+      }
       await expect(menu).toHaveCSS('box-shadow', 'none');
       await expect(menu).toHaveCSS('border-top-width', '1px');
       await page.screenshot({ path: `/tmp/2314-${width}-${theme}-header-menu.png` });

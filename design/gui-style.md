@@ -91,13 +91,17 @@ shadcn manner (code copied into our package, not a themed dependency).
 
 ### Header
 
-The one sticky row on every screen: `tmt` mark · product word · rule · screen
-title on the left; status group, then light actions on the right.
+The one sticky row uses the shared header height. Colab owner pages and space home
+show neutral `◉ <machine> · <device>`, Colab, `/`, title and muted `by <name>`
+(original author only) on the left; the existing state chip and actions stay right.
+Attribution is display-only, with no switcher or menu. Full labels remain accessible.
+Hide author below 900 px, then attribution text below 640 px; keep the Remote mark,
+title and state chip. At 640 px and narrower, Discussion (count) and More remain;
+Agents, Files (count), Source and Export move into More. All retain their current
+authority and disabled states. The title truncates within the row. Reader and
+native guidance headers retain the shared default mark and caption layout.
 
-- States: actions overflow into the More menu below 1100 px; the status group
-  shows connection, audience and live state as mark plus word.
-- Rules: same height, type and order on every screen; a screen supplies only
-  its title, status items and actions (`header` tokens).
+- Primitive: shared Header; host-owned optional attribution and title-prefix slots.
 - Shipped as `ColabHeader` (`colab-header.tsx`). Basis: own.
 
 ### Product switcher

@@ -62,6 +62,23 @@ describe('presentation contracts', () => {
       renderToStaticMarkup(<BrowserHeader productLabel="Remote" title="Access" />),
     ).not.toContain('tmt-ui-caption');
   });
+  it('places optional host attribution before the brand and prefix before the title', () => {
+    const html = renderToStaticMarkup(
+      <BrowserHeader
+        productLabel="Colab"
+        title="Notes"
+        leading={<span>Remote label</span>}
+        headingPrefix={<span aria-hidden="true">/</span>}
+      />,
+    );
+    expect(html.indexOf('Remote label')).toBeLessThan(html.indexOf('tmt-ui-brand'));
+    expect(html.indexOf('>/</span>')).toBeLessThan(html.indexOf('<h1'));
+    expect(html.match(/<h1/g)).toHaveLength(1);
+    const defaults = renderToStaticMarkup(<BrowserHeader productLabel="Remote" title="Access" />);
+    expect(defaults).not.toContain('Remote label');
+    expect(defaults).not.toContain('>/</span>');
+    expect(defaults).toContain('tmt-ui-mark');
+  });
   it('keeps tone, announcement and visible state independently supplied', () => {
     const html = renderToStaticMarkup(
       <BrowserNotice

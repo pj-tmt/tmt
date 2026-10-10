@@ -11,6 +11,7 @@ export function ColabHeader({
   home,
   headerRef,
   status,
+  remote,
 }: {
   title: string;
   caption?: string;
@@ -18,10 +19,35 @@ export function ColabHeader({
   home?: (brand: ReactNode) => ReactNode;
   headerRef?: Ref<HTMLElement>;
   status?: ReactNode;
+  remote?: { deviceName?: string };
 }) {
+  const deviceName = remote?.deviceName?.trim();
+  const remoteLabel = deviceName ? `local · ${deviceName}` : 'local';
   return (
     <BrowserHeader
       productLabel={text.product}
+      leading={
+        remote === undefined ? undefined : (
+          <span
+            className="colab-remote-attribution"
+            role="group"
+            aria-label={text.remoteAttribution(remoteLabel)}
+            title={text.remoteAttribution(remoteLabel)}
+          >
+            <span aria-hidden="true">◉</span>
+            <span className="colab-remote-label" aria-hidden="true">
+              {remoteLabel}
+            </span>
+          </span>
+        )
+      }
+      headingPrefix={
+        remote === undefined ? undefined : (
+          <span className="colab-header-divider" aria-hidden="true">
+            /
+          </span>
+        )
+      }
       title={title}
       caption={caption}
       captionId={caption === undefined ? undefined : 'colab-header-caption'}

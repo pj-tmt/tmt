@@ -60,6 +60,16 @@ function PageHeaderIcon({
   );
 }
 
+const compactQuery = '(max-width: 640px)';
+function subscribeCompact(changed: () => void) {
+  const media = matchMedia(compactQuery);
+  media.addEventListener('change', changed);
+  return () => media.removeEventListener('change', changed);
+}
+function isCompact() {
+  return matchMedia(compactQuery).matches;
+}
+
 /** Page-local menus compose shared icon/tooltip presentation and the existing action-menu owner. */
 export function PageHeaderActions({
   active,
@@ -80,6 +90,7 @@ export function PageHeaderActions({
   canFiles: boolean;
   onSelect(action: PageHeaderAction): void;
 }) {
+  const compact = useSyncExternalStore(subscribeCompact, isCompact);
   const choice = useSyncExternalStore(subscribeTheme, getThemeChoice);
   return (
     <nav className="page-header-actions" aria-label={text.pageHeaderActions}>
@@ -95,42 +106,54 @@ export function PageHeaderActions({
         ]}
         onSelect={(key) => onSelect(key as 'chat' | 'comments')}
       />
-      <BrowserIconAction
-        type="button"
-        variant="text"
-        label={text.agentStatus}
-        icon={<PageHeaderIcon name="agents" />}
-        hasPopup="dialog"
-        expanded={active === 'agents'}
-        onActivate={(event) => {
-          if (event.isTrusted) onSelect('agents');
-        }}
-      />
-      <BrowserIconAction
-        type="button"
-        variant="text"
-        label={`${text.files} (${files})`}
-        icon={<PageHeaderIcon name="files" count={files} />}
-        hasPopup="dialog"
-        expanded={active === 'files'}
-        disabled={!canFiles}
-        onActivate={(event) => {
-          if (event.isTrusted) onSelect('files');
-        }}
-      />
-      <ActionMenu
-        label={text.sourceAndExport}
-        icon={<PageHeaderIcon name="source" />}
-        items={[
-          { key: 'source', label: text.source },
-          { key: 'export', label: text.export, disabled: !canExport },
-        ]}
-        onSelect={(key) => onSelect(key as 'source' | 'export')}
-      />
+      {!compact && (
+        <>
+          <BrowserIconAction
+            type="button"
+            variant="text"
+            label={text.agentStatus}
+            icon={<PageHeaderIcon name="agents" />}
+            hasPopup="dialog"
+            expanded={active === 'agents'}
+            onActivate={(event) => {
+              if (event.isTrusted) onSelect('agents');
+            }}
+          />
+          <BrowserIconAction
+            type="button"
+            variant="text"
+            label={`${text.files} (${files})`}
+            icon={<PageHeaderIcon name="files" count={files} />}
+            hasPopup="dialog"
+            expanded={active === 'files'}
+            disabled={!canFiles}
+            onActivate={(event) => {
+              if (event.isTrusted) onSelect('files');
+            }}
+          />
+          <ActionMenu
+            label={text.sourceAndExport}
+            icon={<PageHeaderIcon name="source" />}
+            items={[
+              { key: 'source', label: text.source },
+              { key: 'export', label: text.export, disabled: !canExport },
+            ]}
+            onSelect={(key) => onSelect(key as 'source' | 'export')}
+          />
+        </>
+      )}
       <ActionMenu
         label={text.more}
         icon={<PageHeaderIcon name="more" />}
         items={[
+          ...(compact
+            ? [
+                { key: 'agents', label: text.agentStatus },
+                { key: 'files', label: `${text.files} (${files})`, disabled: !canFiles },
+                { key: 'source', label: text.source },
+                { key: 'export', label: text.export, disabled: !canExport },
+              ]
+            : []),
           { key: 'manage', label: text.managePage, disabled: !canManage },
           ...(['light', 'dark', 'system'] as const).map((theme) => ({
             key: theme,
@@ -140,7 +163,15 @@ export function PageHeaderActions({
           { key: 'about', label: text.aboutPage },
         ]}
         onSelect={(key) => {
-          if (key === 'manage' || key === 'about') onSelect(key);
+          if (
+            key === 'manage' ||
+            key === 'about' ||
+            key === 'agents' ||
+            key === 'files' ||
+            key === 'source' ||
+            key === 'export'
+          )
+            onSelect(key);
           else setThemeChoice(key as ThemeChoice);
         }}
       />

@@ -12,8 +12,8 @@ visible state word and shadow-free presentation belong to that leaf; its
 metrics; `notice-card.css` retains product page positioning and inherited state-label type. Legacy product color/font
 variable names alias the shared browser roles rather than projecting another palette.
 
-Owner and ready reader headers show `By <name>` below the title only when an original
-author is recorded; with none there is no caption. `page-attribution.tsx` presents that
+Owner headers show muted `by <name>` next to the title; ready readers retain
+`By <name>` below it. Only the original author supplies the caption; with none it is absent. `page-attribution.tsx` presents that
 field (`Unknown author` when absent) and the independently optional latest publisher in
 About this page (Page information for read-only readers). These are escaped publisher-provided display labels, never identity,
 permissions or Ask recipient selection. Long captions truncate with the full label in the tooltip and attribution panel.
@@ -28,7 +28,7 @@ Signed-in app-unavailable guidance shows a waiting-colored Update needed state a
 asks the person to update Colab to open the page, preserving space/sign-in details and the user command.
 
 `router.tsx` retains one active Source, Comments, Chat, Agents, Files, Export, Manage or
-About overlay. `page-header-actions.tsx` owns the five visible icon entry points:
+About overlay. `page-header-actions.tsx` owns the desktop icon entry points:
 Discussion (combined pending count) opens Chat or Comments; Agents and Files (file count)
 open their panels; Source and export opens Source or Export page; More opens Manage
 page, Theme: Light/Dark/System, or About this page. Icons are centralized inline SVG;
@@ -40,12 +40,16 @@ selection controls. Local choice/action menus, native actions, Ask previews, rea
 information panels and management dialogs use the shared one-pixel edge roles
 without shadows; keyboard focus keeps its visible outline.
 Explicit theme choices are radio menu items.
-The display-only `local · <backendName>` environment slot (`local` when absent;
-truncated labels retain their full tooltip) and
-one sharing/live-state chip remain outside menus. At 390px, brand/title occupies the
-first row and metadata plus the same five controls the second; at 320px actions get a
-third row. Colab owns these extra header heights and update-notice offsets. Other
-screen headers retain the shared token height. No menu grants writer admission.
+Owner page and space-home headers use one shared-height row: neutral ◉ and the
+existing display-only `local · <backendName>` attribution (`local` when absent),
+Colab, `/`, title, then muted original author. Full attribution remains named and
+in a tooltip. Author hides below 900px before attribution text hides below 640px;
+the title truncates without changing its DOM copy. The chip remains outside menus
+and keeps its existing connection owner. At 640px and narrower, Discussion and More
+stay visible; Agents, Files (count), Source and Export move into More with the same
+handlers and disabled states. A single media-query observation selects those menu
+items; CSS owns fitting. Header, body and update-notice offsets use shared heights,
+including at 320px. Reader and guidance headers keep their defaults. No menu grants writer admission.
 The page index uses leaf List/Row presentation with newest-update-first ordering,
 then displayed title and page ID for ties. Active titles are links; archived titles
 remain plain text with their actions menu. Tab order is title then actions for
@@ -163,7 +167,7 @@ binding replacement; this presentation has no message or recovery capability.
 The read owner and typed failure boundary are defined in [Ask agent](ask-agent.md).
 
 `e2e/chrome.spec.ts` compares header and state-card dimensions, font metrics, state words/colors and window-scroll
-containment across every screen (including page-owned compact rows) at 1440/390/320 in light/dark, including responses
+containment across every screen (including the compact one-row page header) at 1440/390/320 in light/dark, including responses
 from the native no-app socket fixture. Short-screen midpoint checks add an inert
 scroll probe; their top captures show the natural notice layout.
 `e2e/layout.spec.ts` covers window-scrolled 1440/390 light/dark short/long captures,

@@ -2068,6 +2068,8 @@ the storage transaction completed. Source-editor text is outside this record.
 
 ### Page Chat (#1645)
 
+Owner page and space-home header presentation follows the [page-chrome reference](../../../.agents/skills/tmt-colab/references/page-chrome.md): one row with display-only Remote attribution before Colab, an original-author caption next to the title, and compact actions in More. The connection chip retains its existing owner; attribution never supplies connection state or authority.
+
 The header Chat action replaces the standalone Ask action. Chat opens a fixed right
 parent overlay (a full-screen mobile sheet) without resizing or reflowing the page.
 Messages scroll inside it; one shared plaintext message input remains at the bottom.

@@ -6,6 +6,8 @@ export interface BrowserHeaderProps {
   caption?: string;
   captionId?: string;
   brandLink?: (brand: ReactNode) => ReactNode;
+  leading?: ReactNode;
+  headingPrefix?: ReactNode;
   status?: ReactNode;
   actions?: ReactNode;
   headerRef?: Ref<HTMLElement>;
@@ -30,6 +32,8 @@ export function BrowserHeader({
   caption,
   captionId,
   brandLink,
+  leading,
+  headingPrefix,
   status,
   actions,
   headerRef,
@@ -49,8 +53,10 @@ export function BrowserHeader({
       ref={headerRef}
       {...(disclosure ? { [disclosure.attribute]: disclosure.open } : {})}
     >
+      {leading}
       <div className={c.brand}>{brandLink ? brandLink(brand) : brand}</div>
       <div className={c.heading}>
+        {headingPrefix}
         <h1
           className={c.title}
           title={title}
