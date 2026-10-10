@@ -4367,6 +4367,46 @@ function liveOps(sandbox: Sandbox, prefix: string, tmux: (args: string[]) => str
   throw new Error(`No live Ops executable in test-owned pane ${pane}`);
 }
 
+/**
+ * Replaces the lease a running former-board fixture renews every 50 ms with an
+ * altered copy and returns it once the fixture provably leaves it alone. The
+ * replacement is atomic, so the fixture never reads a torn file. A renewal that
+ * read the old lease before the replacement can still publish over it, so the
+ * change is applied again until two ticks have passed over it unchanged: the
+ * fixture's loop is sequential, and a renewal that does not hold the lease
+ * publishes nothing.
+ */
+async function alterRenewedLease(
+  leasePath: string,
+  proof: string,
+  alter: (lease: Record<string, unknown>) => void
+): Promise<Record<string, unknown>> {
+  const ticks = proof.replace(/\.json$/, '.ticks');
+  const ticked = () => {
+    try {
+      return Number(readFileSync(ticks, 'utf8')) || 0;
+    } catch {
+      return 0;
+    }
+  };
+  for (let attempt = 0; attempt < 10; attempt++) {
+    const altered = JSON.parse(readFileSync(leasePath, 'utf8')) as Record<string, unknown>;
+    alter(altered);
+    const before = ticked();
+    const replacement = `${leasePath}.altered`;
+    writeFileSync(replacement, JSON.stringify(altered));
+    renameSync(replacement, leasePath);
+    await vi.waitFor(() => expect(ticked()).toBeGreaterThanOrEqual(before + 2), {
+      timeout: 5000,
+      interval: 10,
+    });
+    if (JSON.stringify(JSON.parse(readFileSync(leasePath, 'utf8'))) === JSON.stringify(altered)) {
+      return altered;
+    }
+  }
+  throw new Error('the former-board fixture kept renewing over the altered lease');
+}
+
 async function withBoardSwitch<T>(body: (fixture: SwitchFixture) => Promise<T>): Promise<T> {
   return withSandbox(async (sandbox) => {
     const found = spawnSync('/usr/bin/which', ['tmux'], { encoding: 'utf8' });
@@ -4645,10 +4685,10 @@ describe('verified former-board switching', () => {
         );
         const pane = fixture.tmux(['new-window', '-d', '-P', '-F', '#{pane_id}', 'exec /bin/sh']);
         const leasePath = path.join(fixture.dataRoot, 'squad', 'cron', 'clock.json');
-        const lease = JSON.parse(readFileSync(leasePath, 'utf8'));
-        if (failure === 'wrong pane') lease.pane = pane;
-        else lease.sinceMs = 0;
-        writeFileSync(leasePath, JSON.stringify(lease));
+        const lease = await alterRenewedLease(leasePath, former.proof, (held) => {
+          if (failure === 'wrong pane') held.pane = pane;
+          else held.sinceMs = 0;
+        });
         const refused = await runCli(
           fixture.sandbox,
           ['ops', 'migration', 'switch', '--yes', '--json'],
