@@ -442,6 +442,37 @@ test('trusted sharing confirms narrowing, retries frozen bytes and exposes a new
   const dialog = page.getByRole('dialog');
   const audience = dialog.getByRole('combobox', { name: /^Audience/ });
   await expect(audience).toBeVisible();
+  const managementBody = dialog.locator('.management-dialog-body');
+  const closeManagement = dialog.getByRole('button', { name: 'Close', exact: true });
+  const originalViewport = page.viewportSize()!;
+  const scrollCaptures = process.env.COLAB_MANAGE_SCROLL_CAPTURE_DIR;
+  if (scrollCaptures) await mkdir(scrollCaptures, { recursive: true });
+  for (const [width, theme] of [
+    [1440, 'light'],
+    [390, 'dark'],
+  ] as const) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.evaluate((value) => (document.documentElement.dataset.theme = value), theme);
+    await managementBody.evaluate((node) => (node.scrollTop = 0));
+    await expect(closeManagement).toBeInViewport({ ratio: 1 });
+    const closeAtTop = await closeManagement.boundingBox();
+    if (scrollCaptures)
+      await page.screenshot({ path: `${scrollCaptures}/manage-top-${width}-${theme}.png` });
+    await managementBody.evaluate((node) => (node.scrollTop = node.scrollHeight));
+    expect(await managementBody.evaluate((node) => node.scrollTop)).toBeGreaterThan(0);
+    await expect(closeManagement).toBeInViewport({ ratio: 1 });
+    expect(await closeManagement.boundingBox()).toEqual(closeAtTop);
+    expect(await dialog.evaluate((node) => node.scrollTop)).toBe(0);
+    if (scrollCaptures)
+      await page.screenshot({ path: `${scrollCaptures}/manage-bottom-${width}-${theme}.png` });
+    // The visible action must actually close the scrolled dialog and restore its trigger.
+    await closeManagement.click();
+    await expect(dialog).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Manage page' })).toBeFocused();
+    await page.getByRole('button', { name: 'Manage page' }).click();
+    await expect(audience).toBeVisible();
+  }
+  await page.setViewportSize(originalViewport);
   await expect(dialog.locator('select')).toHaveCount(0);
   await audience.click();
   const menu = dialog.getByRole('listbox', { name: 'Audience' });

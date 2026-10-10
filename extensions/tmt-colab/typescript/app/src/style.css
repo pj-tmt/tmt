@@ -614,11 +614,26 @@ body:has(.page-header-actions) {
 .management-dialog {
   width: min(720px, calc(100% - 32px));
   max-height: 85vh;
-  padding: 24px;
+  padding: 0;
+  overflow: hidden;
   background: var(--c-paper);
   color: var(--c-text);
   border: var(--tmt-ui-rule-width) solid var(--tmt-ui-color-edge);
   box-shadow: none;
+}
+.management-dialog[open] {
+  display: flex;
+  flex-direction: column;
+}
+.management-dialog > .dialog-bar {
+  flex-shrink: 0;
+  padding: 24px 24px 0;
+  border-bottom: 1px solid var(--c-rule);
+}
+.management-dialog-body {
+  min-height: 0;
+  overflow: auto;
+  padding: 0 24px 24px;
 }
 .management-dialog::backdrop {
   background: #0008;

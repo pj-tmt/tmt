@@ -1,5 +1,6 @@
 import { pageAction } from '../test/page-actions.js';
 import { generateKeyPairSync, randomUUID } from 'node:crypto';
+import { mkdirSync } from 'node:fs';
 import { expect, test, type Locator, type Page } from '@playwright/test';
 import { pairBrowser, startDoor } from './harness/browser.js';
 import { createPage, freePort, openPage, composeChat, run } from './harness/ask.js';
@@ -76,6 +77,27 @@ test('native sharing and lifecycle verification preserve Ask, page recovery and 
     await page.setViewportSize({ width: 390, height: 844 });
     await page.screenshot({ path: testInfo.outputPath('management-mobile.png'), fullPage: true });
     expect(await dialog.evaluate((node) => node.scrollWidth <= node.clientWidth)).toBe(true);
+    const scrollCaptures = process.env.COLAB_MANAGE_SCROLL_CAPTURE_DIR;
+    if (scrollCaptures) {
+      mkdirSync(scrollCaptures, { recursive: true });
+      const body = dialog.locator('.management-dialog-body');
+      const close = dialog.getByRole('button', { name: 'Close', exact: true });
+      for (const [width, theme] of [
+        [1440, 'light'],
+        [390, 'dark'],
+      ] as const) {
+        await page.setViewportSize({ width, height: 900 });
+        await page.evaluate((value) => (document.documentElement.dataset.theme = value), theme);
+        await body.evaluate((node) => (node.scrollTop = 0));
+        await expect(close).toBeInViewport({ ratio: 1 });
+        await page.screenshot({ path: `${scrollCaptures}/manage-top-${width}-${theme}.png` });
+        await body.evaluate((node) => (node.scrollTop = node.scrollHeight));
+        expect(await body.evaluate((node) => node.scrollTop)).toBeGreaterThan(0);
+        await expect(close).toBeInViewport({ ratio: 1 });
+        await page.screenshot({ path: `${scrollCaptures}/manage-bottom-${width}-${theme}.png` });
+      }
+      await body.evaluate((node) => (node.scrollTop = 0));
+    }
     await page.setViewportSize({ width: 1280, height: 900 });
 
     await dialog.getByLabel('Keep forever').check();
