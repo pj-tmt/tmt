@@ -14,7 +14,10 @@ const PANE_PID: &str = "654";
 #[test]
 fn workspace_plan_reads_only_session_names_on_the_exact_socket() {
     let runner = crate::scripted_runner::ScriptedRunner::default();
-    runner.push_output(b"one\ntwo\n".to_vec(), Vec::new());
+    runner.push_output(
+        format!("0{0}one\n0{0}two\n", evidence::SEPARATOR).into_bytes(),
+        Vec::new(),
+    );
     let tmux = super::Tmux::new(runner);
     assert_eq!(
         tmux.workspace_session_names(
@@ -28,7 +31,14 @@ fn workspace_plan_reads_only_session_names_on_the_exact_socket() {
     assert_eq!(calls.len(), 1);
     assert_eq!(
         calls[0].args,
-        ["-S", SOCKET, "list-sessions", "-F", "#{session_name}"]
+        [
+            "-u",
+            "-S",
+            SOCKET,
+            "list-sessions",
+            "-F",
+            &super::workspace::session_name_format()
+        ]
     );
 }
 
@@ -661,4 +671,46 @@ fn suggested_names_are_registered_drivers_matched_as_whole_words() {
 
 fn tmt_core_driver_name() -> &'static str {
     crate::drivers::Registry::builtin().names()[0]
+}
+
+#[test]
+fn session_name_reader_preserves_unicode_and_refuses_unsupported_framing() {
+    let separator = evidence::SEPARATOR;
+    assert_eq!(
+        super::workspace::session_names(&format!(
+            "0{separator}日本語 café\n0{separator}literal{separator}name\n"
+        ))
+        .unwrap(),
+        ["日本語 café".to_owned(), format!("literal{separator}name")]
+    );
+    assert!(super::workspace::session_names("").unwrap().is_empty());
+    for output in [
+        format!("1{separator}prefix\n0{separator}forged\n"),
+        format!("0{separator}tab\tname\n"),
+        format!("0{separator}carriage\r\n"),
+        format!("0{separator}\u{fffd}\n"),
+        format!("0{separator}\n"),
+        format!("unknown{separator}name\n"),
+        "unframed\n".into(),
+    ] {
+        assert!(
+            super::workspace::session_names(&output).is_err(),
+            "{output:?}"
+        );
+        let runner = crate::scripted_runner::ScriptedRunner::default();
+        runner.push_output(output.into_bytes(), Vec::new());
+        let tmux = super::Tmux::new(runner);
+        assert!(
+            tmux.workspace_session_names(
+                SOCKET,
+                std::time::Instant::now() + std::time::Duration::from_secs(1)
+            )
+            .is_err()
+        );
+        assert_eq!(
+            tmux.runner.calls.borrow().len(),
+            1,
+            "refusal performs no effects"
+        );
+    }
 }

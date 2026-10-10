@@ -26,7 +26,7 @@ fn assert_deadlines_and_cap(runner: &ScriptedRunner, expected_cap: usize, starte
 
 fn assert_socket(calls: &[crate::scripted_runner::Invocation]) {
     for call in calls {
-        assert_eq!(&call.args[..2], ["-S", SOCKET]);
+        assert_eq!(&call.args[..3], ["-u", "-S", SOCKET]);
     }
 }
 
@@ -48,15 +48,21 @@ fn send_pastes_the_text_as_given_with_an_explicit_socket_owned_buffer_and_one_en
     let calls = tmux.runner.calls.borrow();
     assert_eq!(calls.len(), 3);
     assert_socket(&calls);
-    assert_eq!(&calls[0].args[..4], ["-S", SOCKET, "set-buffer", "-b"]);
+    assert_eq!(
+        &calls[0].args[..5],
+        ["-u", "-S", SOCKET, "set-buffer", "-b"]
+    );
     // The transport adds only the final newline; the `!` policy is core's.
-    assert_eq!(&calls[0].args[5..], ["--", "if (!ready)!\n尾\n"]);
-    assert_eq!(&calls[1].args[..4], ["-S", SOCKET, "paste-buffer", "-b"]);
-    assert_eq!(calls[1].args[4], calls[0].args[4]);
-    assert_eq!(&calls[1].args[5..], ["-d", "-t", PANE, "-p"]);
+    assert_eq!(&calls[0].args[6..], ["--", "if (!ready)!\n尾\n"]);
+    assert_eq!(
+        &calls[1].args[..5],
+        ["-u", "-S", SOCKET, "paste-buffer", "-b"]
+    );
+    assert_eq!(calls[1].args[5], calls[0].args[5]);
+    assert_eq!(&calls[1].args[6..], ["-d", "-t", PANE, "-p"]);
     assert_eq!(
         &calls[2].args[..],
-        ["-S", SOCKET, "send-keys", "-t", PANE, "Enter"]
+        ["-u", "-S", SOCKET, "send-keys", "-t", PANE, "Enter"]
     );
     assert_eq!(*waited.borrow(), [Duration::from_millis(731)]);
     drop(calls);
@@ -74,10 +80,10 @@ fn send_assigns_unique_buffer_names_across_messages() {
         .unwrap();
 
     let calls = tmux.runner.calls.borrow();
-    assert_ne!(calls[0].args[4], calls[3].args[4]);
-    assert!(calls[0].args[4].starts_with("tmt-"));
-    assert_eq!(calls[1].args[4], calls[0].args[4]);
-    assert_eq!(calls[4].args[4], calls[3].args[4]);
+    assert_ne!(calls[0].args[5], calls[3].args[5]);
+    assert!(calls[0].args[5].starts_with("tmt-"));
+    assert_eq!(calls[1].args[5], calls[0].args[5]);
+    assert_eq!(calls[4].args[5], calls[3].args[5]);
 }
 
 #[test]
@@ -101,24 +107,25 @@ fn set_buffer_failure_has_one_literal_fallback_with_the_same_payload() {
     let calls = tmux.runner.calls.borrow();
     assert_eq!(calls.len(), 4);
     assert_socket(&calls);
-    assert_eq!(calls[0].args[2], "set-buffer");
+    assert_eq!(calls[0].args[3], "set-buffer");
     assert_eq!(
         &calls[1].args[..],
         [
+            "-u",
             "-S",
             SOCKET,
             "delete-buffer",
             "-b",
-            calls[0].args[4].as_str()
+            calls[0].args[5].as_str()
         ]
     );
     assert_eq!(
-        &calls[2].args[2..],
+        &calls[2].args[3..],
         ["send-keys", "-l", "-t", PANE, "--", "-n weird!\nLine\n"]
     );
     assert_eq!(
         &calls[3].args[..],
-        ["-S", SOCKET, "send-keys", "-t", PANE, "Enter"]
+        ["-u", "-S", SOCKET, "send-keys", "-t", PANE, "Enter"]
     );
     assert_eq!(calls[2].args.last(), calls[0].args.last());
     assert_eq!(*waited.borrow(), [Duration::from_millis(17)]);
@@ -167,7 +174,7 @@ fn paste_failure_preserves_primary_uncertainty_and_never_replays() {
     );
     let calls = tmux.runner.calls.borrow();
     assert_eq!(calls.len(), 3);
-    assert_eq!(calls[2].args[2], "delete-buffer");
+    assert_eq!(calls[2].args[3], "delete-buffer");
 }
 
 #[test]
@@ -325,7 +332,17 @@ fn capture_uses_explicit_socket_preserves_complete_output_and_replaces_invalid_u
     assert_eq!(calls.len(), 1);
     assert_eq!(
         &calls[0].args[..],
-        ["-S", SOCKET, "capture-pane", "-t", PANE, "-p", "-S", "-0"]
+        [
+            "-u",
+            "-S",
+            SOCKET,
+            "capture-pane",
+            "-t",
+            PANE,
+            "-p",
+            "-S",
+            "-0"
+        ]
     );
     drop(calls);
     assert_deadlines_and_cap(&tmux.runner, 4 * 1024 * 1024, started);
@@ -358,6 +375,7 @@ fn capture_accepts_maximum_lines_and_a_complete_four_mib_body() {
     assert_eq!(
         &calls[0].args[..],
         [
+            "-u",
             "-S",
             SOCKET,
             "capture-pane",

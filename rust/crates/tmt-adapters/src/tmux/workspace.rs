@@ -60,7 +60,7 @@ impl<R: CommandRunner> Tmux<R> {
                 socket.into(),
                 "list-sessions".into(),
                 "-F".into(),
-                "#{session_name}".into(),
+                session_name_format(),
             ],
             deadline,
             MAX_BYTES,
@@ -235,13 +235,27 @@ fn flag(value: &str) -> Result<bool, TmuxError> {
     }
 }
 
+// Flag controls on the server before a literal name can break newline framing.
+pub(super) fn session_name_format() -> String {
+    format!("#{{m/r:[[:cntrl:]],#{{session_name}}}}{SEPARATOR}#{{session_name}}")
+}
+
 pub(super) fn session_names(output: &str) -> Result<Vec<String>, TmuxError> {
-    let names: Vec<String> = output.lines().map(str::to_owned).collect();
-    if names.len() > MAX_PANES
-        || names
-            .iter()
-            .any(|name| name.is_empty() || name.contains(['\0', '\u{fffd}']))
-    {
+    let names = output
+        .split_terminator('\n')
+        .map(|row| {
+            let (controls, name) = row.split_once(SEPARATOR).ok_or_else(invalid)?;
+            if controls != "0"
+                || name.is_empty()
+                || name.contains('\u{fffd}')
+                || name.chars().any(char::is_control)
+            {
+                return Err(invalid());
+            }
+            Ok(name.to_owned())
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    if names.len() > MAX_PANES {
         return Err(invalid());
     }
     Ok(names)

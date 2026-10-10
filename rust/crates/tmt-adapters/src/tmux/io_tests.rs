@@ -65,7 +65,10 @@ fn complete_caller_evidence_uses_one_small_query_without_ancestry() {
     let calls = tmux.runner.calls.borrow();
     assert_eq!(calls.len(), 1);
     assert_eq!(calls[0].program, "tmux");
-    assert_eq!(&calls[0].args[..4], ["display-message", "-p", "-t", "%9"]);
+    assert_eq!(
+        &calls[0].args[..5],
+        ["-u", "display-message", "-p", "-t", "%9"]
+    );
     assert_eq!(calls[0].max_output_bytes, 4096);
 }
 
@@ -84,10 +87,10 @@ fn marked_pane_uses_only_the_selected_server_and_returns_frozen_evidence() {
     assert_eq!(target.pane_id, "%9");
     assert_eq!(target.pane_pid, 900);
     let calls = tmux.runner.calls.borrow();
-    assert_eq!(&calls[0].args[..2], ["-S", "/tmp/private.sock"]);
-    assert_eq!(&calls[1].args[..2], ["-S", "/tmp/private.sock"]);
+    assert_eq!(&calls[0].args[..3], ["-u", "-S", "/tmp/private.sock"]);
+    assert_eq!(&calls[1].args[..3], ["-u", "-S", "/tmp/private.sock"]);
     assert_eq!(
-        &calls[1].args[2..7],
+        &calls[1].args[3..8],
         ["list-panes", "-a", "-f", "#{pane_marked}", "-F"]
     );
     assert!(calls.iter().all(|call| call.program == "tmux"));
@@ -265,7 +268,7 @@ fn partial_caller_evidence_cannot_override_explicit_socket_or_pane() {
         let calls = tmux.runner.calls.borrow();
         assert_eq!(calls.len(), 3);
         if environment.tmux.is_some() {
-            assert_eq!(&calls[2].args[..2], ["-S", "/different.sock"]);
+            assert_eq!(&calls[2].args[..3], ["-u", "-S", "/different.sock"]);
         }
     }
 }
@@ -368,7 +371,7 @@ fn explicit_socket_metadata_updates_preserve_opaque_data_and_never_fall_back() {
     let calls = tmux.runner.calls.borrow();
     assert_eq!(calls.len(), 2);
     for call in calls.iter() {
-        assert_eq!(&call.args[..2], ["-S", "/foreign/socket"]);
+        assert_eq!(&call.args[..3], ["-u", "-S", "/foreign/socket"]);
     }
     let written: serde_json::Value = serde_json::from_str(calls[1].args.last().unwrap()).unwrap();
     assert_eq!(written["opaque"], serde_json::json!({"keep": true}));
@@ -386,7 +389,7 @@ fn explicit_socket_metadata_updates_preserve_opaque_data_and_never_fall_back() {
     );
     let calls = tmux.runner.calls.borrow();
     assert_eq!(calls.len(), 1);
-    assert_eq!(&calls[0].args[..2], ["-S", "/foreign/socket"]);
+    assert_eq!(&calls[0].args[..3], ["-u", "-S", "/foreign/socket"]);
 }
 
 #[test]
@@ -447,7 +450,7 @@ fn empty_scope_reads_server_only_and_never_enumerates_panes() {
     assert_eq!(snapshot.server.server_id, SERVER_ID);
     let calls = tmux.runner.calls.borrow();
     assert_eq!(calls.len(), 2);
-    assert_eq!(calls[1].args[0], "display-message");
+    assert_eq!(calls[1].args[1], "display-message");
     assert!(
         calls
             .iter()
@@ -536,8 +539,9 @@ fn server_id_adopts_the_winner_after_a_refused_set() {
     assert_eq!(calls.len(), 3);
     assert_eq!(calls[0].args, calls[2].args);
     assert_eq!(
-        &calls[1].args[..6],
+        &calls[1].args[..7],
         [
+            "-u",
             "-S",
             "/tmp/private.sock",
             "set-option",
@@ -546,7 +550,7 @@ fn server_id_adopts_the_winner_after_a_refused_set() {
             SERVER_ID_OPTION
         ]
     );
-    assert!(valid_server_id(&calls[1].args[6]));
+    assert!(valid_server_id(&calls[1].args[7]));
     assert!(calls.iter().all(|call| call.deadline == deadline));
 }
 
@@ -713,4 +717,49 @@ fn missing_target_exit_does_not_hide_failed_cleanup() {
             .unwrap_err()
             .cleanup_failed()
     );
+}
+
+#[test]
+fn utf8_is_one_client_flag_for_bootstrap_and_keeps_command_local_unset() {
+    let tmux = Tmux::new(ScriptedRunner::new([Ok(""), Ok("")]));
+    let deadline = Instant::now() + Duration::from_secs(1);
+    let bootstrap = [
+        "-S",
+        "/tmp/selected",
+        "-f",
+        "/dev/null",
+        "new-session",
+        "-d",
+        "-s",
+        "first",
+    ];
+    let unset = [
+        "-S",
+        "/tmp/selected",
+        "set-option",
+        "-p",
+        "-u",
+        "-t",
+        "%9",
+        "@tmt.badge",
+    ];
+    for args in [bootstrap.as_slice(), unset.as_slice()] {
+        tmux.execute(
+            args.iter().map(|arg| (*arg).into()).collect(),
+            OperationOptions {
+                deadline: Some(deadline),
+                ..Default::default()
+            },
+            TmuxFailure::Command,
+        )
+        .unwrap();
+    }
+    let calls = tmux.runner.calls.borrow();
+    for (call, original) in calls.iter().zip([bootstrap.as_slice(), unset.as_slice()]) {
+        assert_eq!(call.args[0], "-u");
+        assert_eq!(call.args[1..], *original);
+        assert_eq!(call.deadline, deadline);
+    }
+    assert_eq!(calls[0].args.iter().filter(|arg| *arg == "-u").count(), 1);
+    assert_eq!(calls[1].args.iter().filter(|arg| *arg == "-u").count(), 2);
 }

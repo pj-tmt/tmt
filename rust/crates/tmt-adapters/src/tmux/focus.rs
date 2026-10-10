@@ -261,9 +261,9 @@ mod tests {
         );
         let calls = tmux.runner.calls.borrow();
         let args: Vec<Vec<String>> = calls.iter().map(|call| call.args.clone()).collect();
-        assert_eq!(args[1][2..6], ["display-message", "-p", "-t", "%2"]);
+        assert_eq!(args[1][3..7], ["display-message", "-p", "-t", "%2"]);
         assert_eq!(
-            args[3][2..],
+            args[3][3..],
             [
                 "switch-client",
                 "-c",
@@ -282,7 +282,7 @@ mod tests {
         );
         assert!(
             args.iter()
-                .all(|call| call[..2] == ["-S", "/tmp/tmt-focus.sock"])
+                .all(|call| call[..3] == ["-u", "-S", "/tmp/tmt-focus.sock"])
         );
         for forbidden in ["send-keys", "paste-buffer", "set-buffer"] {
             assert!(!args.iter().flatten().any(|arg| arg == forbidden));
@@ -311,8 +311,8 @@ mod tests {
         );
         let calls = tmux.runner.calls.borrow();
         assert_eq!(calls.len(), 2);
-        assert_eq!(calls[0].args[2], "display-message");
-        assert_eq!(calls[1].args[2], "list-clients");
+        assert_eq!(calls[0].args[3], "display-message");
+        assert_eq!(calls[1].args[3], "list-clients");
 
         let runner = ScriptedRunner::default();
         runner.push_output(b"$1\n".to_vec(), Vec::new());
@@ -438,7 +438,7 @@ mod tests {
             .focus_pane(&popup, "%5", OperationOptions::default())
             .unwrap();
         assert_eq!(before.pane.as_deref(), Some("%0"));
-        assert_eq!(tmux.runner.calls.borrow()[3].args[4], "/dev/ttys023");
+        assert_eq!(tmux.runner.calls.borrow()[3].args[5], "/dev/ttys023");
 
         // Without a usable TMUX session either, nothing is guessed.
         let runner = ScriptedRunner::default();

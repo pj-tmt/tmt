@@ -7,7 +7,7 @@ import { readRealTmuxCli, releaseRealTmuxCli, spawnRealTmuxCli } from './real-tm
 
 interface Snapshot {
   server: { serverId: string; socketPath: string; serverPid: number; serverStartTime: string };
-  panes: { id: string; panePid: number; target: string; marker: unknown }[];
+  panes: { id: string; panePid: number; target: string; cwd: string; marker: unknown }[];
 }
 
 interface Counted {
@@ -88,6 +88,79 @@ describe(
         );
         expect(outside.pane).toBeNull();
         expect(outside.commandCount).toBeGreaterThan(1);
+      }, fixtureOptions());
+    });
+
+    it('preserves endpoint and marker bytes outside tmux under the C locale', async () => {
+      await withE2EFixture(async (fixture) => {
+        const session = '日本語 café';
+        const cwd = path.join(fixture.workspace, '雪 λ');
+        fs.mkdirSync(cwd);
+        const pane = fixture
+          .tmux([
+            '-u',
+            'new-session',
+            '-d',
+            '-P',
+            '-F',
+            '#{pane_id}',
+            '-s',
+            session,
+            '-n',
+            '窓 café',
+            '-c',
+            cwd,
+            'sleep',
+            '300',
+          ])
+          .trim();
+        const baseline = expectJsonResult(
+          await fixture.runJsonCli<Snapshot>(['snapshot'], {
+            outsideTmux: true,
+            locale: 'C.UTF-8',
+          })
+        );
+        const endpoint = baseline.panes.find((value) => value.id === pane)!;
+        expect(endpoint).toMatchObject({ target: `${session}:0.0`, cwd });
+        const marker = {
+          name: '名前 雪',
+          canonicalName: '名前 雪',
+          identityId: 'identity-utf8',
+          bindingId: 'binding-utf8',
+          serverId: baseline.server.serverId,
+          panePid: endpoint.panePid,
+        };
+        const raw = JSON.stringify({ version: 1, foreign: 'preserve λ', globalIdentity: marker });
+        fixture.tmux(['set-option', '-p', '-t', pane, '@tmt.agent', raw]);
+        const globalBefore = fixture.tmux(['-u', 'show-options', '-g']);
+        const actual = expectJsonResult(
+          await fixture.runJsonCli<Snapshot>(['snapshot', pane], {
+            outsideTmux: true,
+            locale: 'C',
+          })
+        );
+        expect(actual.server).toEqual(baseline.server);
+        expect(actual.panes).toEqual([{ ...endpoint, marker }]);
+        const probe = expectJsonResult(
+          await fixture.runJsonCli<{ status: string; snapshot: Snapshot }>(
+            ['probe', fixture.socketPath, String(fixture.serverPid), pane],
+            { outsideTmux: true, locale: 'C' }
+          )
+        );
+        expect(probe.status).toBe('live');
+        expect(probe.snapshot).toEqual({ server: actual.server, panes: actual.panes });
+        const mismatch = expectJsonResult(
+          await fixture.runJsonCli<{ status: string }>(
+            ['probe', fixture.socketPath, String(fixture.serverPid + 1), pane],
+            { outsideTmux: true, locale: 'C' }
+          )
+        );
+        expect(mismatch.status).toBe('unknown');
+        expect(fixture.tmux(['-u', 'show-options', '-p', '-v', '-t', pane, '@tmt.agent'])).toBe(
+          `${raw}\n`
+        );
+        expect(fixture.tmux(['-u', 'show-options', '-g'])).toBe(globalBefore);
+        expect(fs.existsSync(path.join(fixture.globalDir, 'tmux-team.db'))).toBe(false);
       }, fixtureOptions());
     });
 

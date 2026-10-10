@@ -381,10 +381,18 @@ mod tests {
         let calls = tmux.runner.commands.calls.borrow();
         assert_eq!(calls.len(), 2);
         assert_eq!(
-            &calls[0].args[..6],
-            ["-S", "/private/selected.sock", "if-shell", "-F", "-t", "%9"]
+            &calls[0].args[..7],
+            [
+                "-u",
+                "-S",
+                "/private/selected.sock",
+                "if-shell",
+                "-F",
+                "-t",
+                "%9"
+            ]
         );
-        let fence = &calls[0].args[6];
+        let fence = &calls[0].args[7];
         for key in [
             OLD_AGENT,
             OLD_SERVER,

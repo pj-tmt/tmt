@@ -122,91 +122,100 @@ describe('current-server diagnostic routing', { concurrent: false }, () => {
     }, inputLog);
   });
 
-  it('keeps UTF-8 capture byte-identical and classifies real socket denial under a foreign locale', async () => {
-    const fixtures: E2EFixture[] = [];
-    await withE2EFixture(async (fixture) => {
-      fixtures.push(fixture);
-      const marker = 'UTF-8: 日本語 café 🦀';
-      await seedDiagnostic(fixture, marker);
-      const baseline = await fixture.runJsonCli<Capture>(['check', fixture.pane, '0']);
-      expect(baseline.code).toBe(0);
-      expect(baseline.json?.output).toContain(marker);
-      const before = durableState(fixture);
-      await withSandbox(async (sandbox) => {
-        // Pin the owned socket across the root/nobody UID change; -L selects
-        // a different tmux UID directory for each effective user.
-        const wrapperDir = path.join(sandbox.cwd, 'bin');
-        fs.mkdirSync(wrapperDir);
-        writeExecutable(
-          path.join(wrapperDir, 'tmux'),
-          '#!/bin/sh\nexec "$TMT_TEST_REAL_TMUX" -S "$TMT_TEST_SOCKET" "$@"\n'
-        );
-        const env = {
-          ...sandbox.env,
-          PATH: `${wrapperDir}${path.delimiter}${sandbox.env.PATH}`,
-          TMT_TEST_REAL_TMUX: fixture.tmuxPath,
-          TMT_TEST_SOCKET: fixture.socketPath,
-          TMUX: `${fixture.socketPath},${fixture.serverPid},0`,
-          TMUX_PANE: fixture.pane,
-          LANG: 'fr_FR.UTF-8',
-          LC_ALL: 'fr_FR.UTF-8',
-        };
-        const selected = { ...sandbox, env };
-        const captured = await runCli(selected, ['check', fixture.pane, '0', '--json']);
-        expect(captured.status).toBe(0);
-        expect(captured.stderr).toBe('');
-        expect(Buffer.from(JSON.parse(captured.stdout).output, 'utf8')).toEqual(
-          Buffer.from(baseline.json!.output, 'utf8')
-        );
-        const missing = await runCli(selected, ['check', '%999999', '--json']);
-        expect(missing.status).toBe(3);
-        expectError(missing, 'PANE_NOT_FOUND');
-        // Root can bypass socket mode bits. In the isolated Docker fixture only,
-        // run the refusal as nobody so OS permission evidence is exercised.
-        const unprivileged = process.getuid!() === 0;
-        for (const directory of [sandbox.root, sandbox.globalDir, fixture.root, fixture.socketRoot])
-          fs.chmodSync(directory, 0o755);
-        const socketMode = fs.statSync(fixture.socketPath).mode & 0o777;
-        fs.chmodSync(fixture.socketPath, 0o000);
-        try {
-          const denied = await runCli(
-            {
-              ...selected,
-              cli: unprivileged
-                ? {
-                    executable: '/usr/bin/setpriv',
-                    args: [
-                      '--reuid=65534',
-                      '--regid=65534',
-                      '--clear-groups',
-                      sandbox.cli.executable,
-                      ...sandbox.cli.args,
-                    ],
-                  }
-                : sandbox.cli,
-            },
-            ['name', 'DeniedSocket', '--json']
+  it.each(['C', 'fr_FR.UTF-8'])(
+    'keeps UTF-8 capture byte-identical and classifies real socket denial under locale %s',
+    async (locale) => {
+      const fixtures: E2EFixture[] = [];
+      await withE2EFixture(async (fixture) => {
+        fixtures.push(fixture);
+        const marker = 'UTF-8: 日本語 café 🦀';
+        await seedDiagnostic(fixture, marker);
+        const baseline = await fixture.runJsonCli<Capture>(['check', fixture.pane, '0']);
+        expect(baseline.code).toBe(0);
+        expect(baseline.json?.output).toContain(marker);
+        const before = durableState(fixture);
+        await withSandbox(async (sandbox) => {
+          // Pin the owned socket across the root/nobody UID change; -L selects
+          // a different tmux UID directory for each effective user.
+          const wrapperDir = path.join(sandbox.cwd, 'bin');
+          fs.mkdirSync(wrapperDir);
+          writeExecutable(
+            path.join(wrapperDir, 'tmux'),
+            '#!/bin/sh\nexec "$TMT_TEST_REAL_TMUX" -S "$TMT_TEST_SOCKET" "$@"\n'
           );
-          expect(denied.status, JSON.stringify(denied)).toBe(1);
-          expect(denied.stderr).toBe('');
-          expectError(denied, 'TMUX_PERMISSION_DENIED');
-        } finally {
-          fs.chmodSync(fixture.socketPath, socketMode);
-        }
-        expect(durableState(fixture)).toEqual(before);
-        const recovered = await runCli(selected, ['check', fixture.pane, '0', '--json']);
-        expect(recovered.status).toBe(0);
-        expect(Buffer.from(JSON.parse(recovered.stdout).output, 'utf8')).toEqual(
-          Buffer.from(baseline.json!.output, 'utf8')
-        );
-      });
-    }, inputLog);
-    for (const fixture of fixtures) {
-      expect(fs.existsSync(fixture.socketRoot)).toBe(false);
-      expect(fixture.serverProcessIsRunning()).toBe(false);
-      expect(fixture.mockProcessIsRunning()).toBe(false);
+          const env = {
+            ...sandbox.env,
+            PATH: `${wrapperDir}${path.delimiter}${sandbox.env.PATH}`,
+            TMT_TEST_REAL_TMUX: fixture.tmuxPath,
+            TMT_TEST_SOCKET: fixture.socketPath,
+            TMUX: `${fixture.socketPath},${fixture.serverPid},0`,
+            TMUX_PANE: fixture.pane,
+            LANG: locale,
+            LC_ALL: locale,
+          };
+          const selected = { ...sandbox, env };
+          const outside = { ...selected, env: { ...env, TMUX: undefined, TMUX_PANE: undefined } };
+          const captured = await runCli(outside, ['check', fixture.pane, '0', '--json']);
+          expect(captured.status).toBe(0);
+          expect(captured.stderr).toBe('');
+          expect(Buffer.from(JSON.parse(captured.stdout).output, 'utf8')).toEqual(
+            Buffer.from(baseline.json!.output, 'utf8')
+          );
+          const missing = await runCli(outside, ['check', '%999999', '--json']);
+          expect(missing.status).toBe(3);
+          expectError(missing, 'PANE_NOT_FOUND');
+          // Root can bypass socket mode bits. In the isolated Docker fixture only,
+          // run the refusal as nobody so OS permission evidence is exercised.
+          const unprivileged = process.getuid!() === 0;
+          for (const directory of [
+            sandbox.root,
+            sandbox.globalDir,
+            fixture.root,
+            fixture.socketRoot,
+          ])
+            fs.chmodSync(directory, 0o755);
+          const socketMode = fs.statSync(fixture.socketPath).mode & 0o777;
+          fs.chmodSync(fixture.socketPath, 0o000);
+          try {
+            const denied = await runCli(
+              {
+                ...selected,
+                cli: unprivileged
+                  ? {
+                      executable: '/usr/bin/setpriv',
+                      args: [
+                        '--reuid=65534',
+                        '--regid=65534',
+                        '--clear-groups',
+                        sandbox.cli.executable,
+                        ...sandbox.cli.args,
+                      ],
+                    }
+                  : sandbox.cli,
+              },
+              ['name', 'DeniedSocket', '--json']
+            );
+            expect(denied.status, JSON.stringify(denied)).toBe(1);
+            expect(denied.stderr).toBe('');
+            expectError(denied, 'TMUX_PERMISSION_DENIED');
+          } finally {
+            fs.chmodSync(fixture.socketPath, socketMode);
+          }
+          expect(durableState(fixture)).toEqual(before);
+          const recovered = await runCli(outside, ['check', fixture.pane, '0', '--json']);
+          expect(recovered.status).toBe(0);
+          expect(Buffer.from(JSON.parse(recovered.stdout).output, 'utf8')).toEqual(
+            Buffer.from(baseline.json!.output, 'utf8')
+          );
+        });
+      }, inputLog);
+      for (const fixture of fixtures) {
+        expect(fs.existsSync(fixture.socketRoot)).toBe(false);
+        expect(fixture.serverProcessIsRunning()).toBe(false);
+        expect(fixture.mockProcessIsRunning()).toBe(false);
+      }
     }
-  });
+  );
 
   it.each([false, true])(
     'does not route to an equal pane ID on a foreign server (copied UUID: %s)',
