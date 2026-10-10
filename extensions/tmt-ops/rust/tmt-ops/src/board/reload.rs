@@ -209,6 +209,17 @@ impl Watch {
     /// Writes the snapshot and replaces this process with the launcher. The caller
     /// has restored the terminal; this returns only when the restart failed.
     pub fn restart(&self, resume: &Resume, now_ms: u64) -> SquadError {
+        self.restart_with(resume, now_ms, Launcher::exec)
+    }
+
+    /// `restart` with the process replacement supplied, so a test can fail it without
+    /// a real `exec`: a failed `exec` leaves SIGPIPE at its default for the whole process.
+    fn restart_with(
+        &self,
+        resume: &Resume,
+        now_ms: u64,
+        exec: impl FnOnce(&Launcher) -> io::Error,
+    ) -> SquadError {
         let Some(launcher) = &self.launcher else {
             return SquadError::new(
                 "SQUAD_RELOAD_FAILED",
@@ -221,7 +232,7 @@ impl Watch {
         if let Some(directory) = directory {
             let _ = resume.write(directory, pid, now_ms);
         }
-        let error = launcher.exec();
+        let error = exec(launcher);
         if let Some(directory) = directory {
             Resume::discard(directory, pid);
         }
@@ -428,7 +439,9 @@ mod tests {
             picks: None,
             search: String::new(),
         };
-        let error = Watch::over(&root.join("gone"), &state, 1_000).restart(&resume, 5_000);
+        let error =
+            Watch::over(&root.join("gone"), &state, 1_000)
+                .restart_with(&resume, 5_000, |_| io::Error::from(io::ErrorKind::NotFound));
         assert_eq!(error.code, "SQUAD_RELOAD_FAILED");
         assert!(
             error.message.contains("could not restart"),

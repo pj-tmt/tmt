@@ -45,7 +45,8 @@ of replacing its prompt, notice or hints. `session` then returns `Ok(None)` with
 `board::resume::Resume` to `reload/resume-<pid>.json` (0600, version, pid and
 freshness checked, size-bounded, never through a symlink) and `exec`s the launcher,
 so the pid is kept; a failed `exec` discards the snapshot and returns
-`SQUAD_RELOAD_FAILED`. The new process takes the snapshot once at start and
+`SQUAD_RELOAD_FAILED`. A failed `exec` also resets SIGPIPE to its default for the
+whole process, so tests drive `restart_with` with an injected failure, never a real `exec`. The new process takes the snapshot once at start and
 `App::carry` applies it on the first fresh view of that tab (`carry.rs`): selection
 by `RowTarget` identity, never by index, a vanished row falling back to the normal
 start, and the snapshot dropped if that view fails. The snapshot holds view state
