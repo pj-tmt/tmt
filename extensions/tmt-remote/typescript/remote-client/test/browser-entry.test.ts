@@ -71,6 +71,23 @@ async function fixture(mode = 'success') {
     'copy-unreadable-pair',
   ])
     nodes.set(id, { textContent: '', hidden: false, dataset: {}, addEventListener: () => {} });
+  const statusChildren: { textContent: string; tagName?: string; className?: string }[] = [];
+  const status = nodes.get('status')!;
+  let statusText = '';
+  Object.defineProperty(status, 'textContent', {
+    get: () =>
+      statusChildren.length ? statusChildren.map((node) => node.textContent).join('') : statusText,
+    set: (value: string) => {
+      statusText = value;
+      statusChildren.length = 0;
+    },
+  });
+  Object.assign(status, {
+    replaceChildren: (...children: typeof statusChildren) => {
+      statusText = '';
+      statusChildren.splice(0, statusChildren.length, ...children);
+    },
+  });
   const button = {
     disabled: true,
     isConnected: true,
@@ -79,6 +96,12 @@ async function fixture(mode = 'success') {
     },
   };
   vi.stubGlobal('document', {
+    createElement: (tag: string) => ({
+      tagName: tag.toUpperCase(),
+      className: '',
+      textContent: '',
+    }),
+    createTextNode: (textContent: string) => ({ textContent }),
     readyState: 'complete',
     getElementById: (id: string) => (id === 'check' ? button : nodes.get(id)),
   });
@@ -108,14 +131,19 @@ async function fixture(mode = 'success') {
     const operation = JSON.parse(init!.body as string).operation;
     if (operation === 'session.open') {
       admissions++;
-      if (mode === 'revoked-proof' || mode === 'expired-proof') {
+      if (['revoked-proof', 'expired-proof', 'ended-proof'].includes(mode)) {
         door.mutate = (reply) => {
           reply.sessionId = 'new';
           reply.sequence = '1';
         };
         return door.response(JSON.parse(init!.body as string), {
           error: {
-            code: mode === 'revoked-proof' ? 'REMOTE_DEVICE_REVOKED' : 'REMOTE_GRANT_EXPIRED',
+            code:
+              mode === 'revoked-proof'
+                ? 'REMOTE_DEVICE_REVOKED'
+                : mode === 'expired-proof'
+                  ? 'REMOTE_GRANT_EXPIRED'
+                  : 'REMOTE_SESSION_ENDED',
             message: 'Authority ended.',
           },
         });
@@ -150,6 +178,7 @@ async function fixture(mode = 'success') {
     door.tamper.signature = mode === 'unverified';
     if (['REMOTE_CLOSED', 'REMOTE_GRANT_CHANGED', 'REMOTE_SERVE_STOPPED'].includes(mode))
       door.error = { code: mode, message: 'ended' };
+    if (mode === 'ended-proof') door.error = { code: 'REMOTE_SESSION_ENDED', message: 'ended' };
     if (mode === 'signed-refusal')
       door.error = { code: 'REMOTE_SESSION_EVICTED', message: 'ended', limit: 4 };
     return door.fetch(url, init);
@@ -167,6 +196,7 @@ async function fixture(mode = 'success') {
   }
   return {
     reached,
+    statusChildren,
     device,
     nodes,
     button,
@@ -588,15 +618,36 @@ for (const ownsFocus of [true, false]) {
   });
 }
 
-for (const mode of ['revoked-proof', 'expired-proof']) {
-  test(`entry ${mode} reuses the existing refused copy without an operation call`, async () => {
+for (const mode of ['revoked-proof', 'expired-proof', 'ended-proof', 'signed-refusal']) {
+  test(`entry ${mode} names only the verified refusal evidence without changing actions`, async () => {
     const f = await fixture(mode);
     try {
       await landingPage();
       assert.equal(f.nodes.get('state-label')!.textContent, 'Not accepted');
       assert.equal(f.nodes.get('steps-refused')!.hidden, false);
+      const authorityEnded = mode === 'revoked-proof' || mode === 'expired-proof';
+      assert.equal(
+        f.nodes.get('status')!.textContent,
+        authorityEnded
+          ? 'This pairing was removed or has expired. To use Remote here, run tmt remote pair on the machine.'
+          : "This browser's session ended. Choose Check again, or open your app from its link to start a new one.",
+      );
+      assert.equal(f.button.disabled, false);
+      assert.equal((f.button as { hidden?: boolean }).hidden, false);
+      assert.deepEqual(
+        f.statusChildren
+          .filter((node) => node.tagName === 'CODE')
+          .map((node) => ({
+            text: node.textContent,
+            className: node.className,
+          })),
+        authorityEnded ? [{ text: 'tmt remote pair', className: 'tmt-ui-code' }] : [],
+      );
       assert.deepEqual(f.counts(), { mounts: 1, admissions: 1 });
-      assert.equal(f.door.calls.length, 0);
+      assert.deepEqual(
+        f.door.calls.map((call) => call.envelope.operation),
+        mode === 'signed-refusal' ? ['capabilities'] : [],
+      );
     } finally {
       vi.unstubAllGlobals();
     }

@@ -350,7 +350,10 @@ export async function landingPage(): Promise<void> {
     ['unconfirmed', 'status'],
     ['unreadable', 'pair'],
   ] as const;
-  const render = (state: EntryState, validated = false): void => {
+  const render = (state: EntryState, validated = false, refusalCode?: string): void => {
+    const authorityEnded = ['REMOTE_DEVICE_REVOKED', 'REMOTE_GRANT_EXPIRED'].includes(
+      refusalCode ?? '',
+    );
     const copy = {
       missing: ['○', 'Not paired', 'Pair this browser with your machine', ''],
       checking: [
@@ -375,7 +378,9 @@ export async function landingPage(): Promise<void> {
         '×',
         'Not accepted',
         "Remote didn't accept this browser",
-        'The pairing may have been removed on the machine.',
+        authorityEnded
+          ? 'This pairing was removed or has expired. To use Remote here, run tmt remote pair on the machine.'
+          : "This browser's session ended. Choose Check again, or open your app from its link to start a new one.",
       ],
       unconfirmed: [
         '×',
@@ -404,6 +409,17 @@ export async function landingPage(): Promise<void> {
     element('heading').textContent = copy[2]!;
     element('status').textContent =
       state === 'checking' && !validated ? "Reading this browser's pairing." : copy[3]!;
+    if (state === 'refused' && authorityEnded) {
+      const command = document.createElement('code');
+      command.className = 'tmt-ui-code';
+      command.textContent = 'tmt remote pair';
+      const [before, after] = copy[3]!.split(command.textContent);
+      element('status').replaceChildren(
+        document.createTextNode(before!),
+        command,
+        document.createTextNode(after!),
+      );
+    }
     for (const name of ['missing', 'different', 'refused', 'unconfirmed', 'unreadable'])
       element(`steps-${name}`).hidden = name !== state;
     element('status').hidden = state === 'missing';
@@ -542,7 +558,11 @@ export async function landingPage(): Promise<void> {
           'REMOTE_GRANT_EXPIRED',
         ].includes(error.code);
       session = undefined;
-      render(verifiedRefusal ? 'refused' : 'unconfirmed');
+      render(
+        verifiedRefusal ? 'refused' : 'unconfirmed',
+        false,
+        error instanceof RefusalError ? error.code : undefined,
+      );
     } finally {
       if (currentPage() && restoreFocus && !button.hidden) button.focus();
     }
