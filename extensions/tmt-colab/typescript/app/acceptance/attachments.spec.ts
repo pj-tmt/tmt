@@ -88,7 +88,7 @@ test('files attached in Chat reach a second paired device, preview and download 
         if (file === picture) {
           await row(file.name).getByRole('button').click();
           await second
-            .getByRole('dialog')
+            .locator('.attachment-viewer')
             .getByRole('button', { name: text.attachmentDownload })
             .click();
         } else
