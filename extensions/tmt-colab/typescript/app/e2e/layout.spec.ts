@@ -1,6 +1,7 @@
 import { pageAction } from '../test/page-actions.js';
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
+import { mkdirSync } from 'node:fs';
 
 function source(long: boolean) {
   return `<!doctype html><style>
@@ -233,3 +234,94 @@ for (const width of [1440, 390])
     await expect(actions.getByRole('menu')).toHaveCount(0);
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);
   });
+
+for (const width of [1440, 390])
+  for (const theme of ['light', 'dark'] as const) {
+    test(`drawer edge ${width}px ${theme}: margin marker is covered without resizing the page`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await page.emulateMedia({ colorScheme: theme });
+      await page.addInitScript((theme) => {
+        document.documentElement.dataset.theme = theme;
+      }, theme);
+      await page.goto('/');
+      await page.evaluate(async () => {
+        const path = '/test/ask-page-browser.tsx';
+        const fixture = await import(path);
+        await fixture.mount();
+        fixture.conversation({
+          surface: 'thread',
+          state: 'replied',
+          message: 'Review this point.',
+        });
+      });
+      const frame = page.locator('#ask-page-fixture iframe');
+      const marker = page.frameLocator('#ask-page-fixture iframe').locator('[data-colab-thread]');
+      await expect(marker).toBeVisible();
+      const before = await frame.boundingBox();
+      const scroll = await page.evaluate(() => window.scrollY);
+      await (await pageAction(page, 'Comments')).click();
+      const drawer = page.locator('.page-drawer[data-panel=comments][open]');
+      await expect(drawer).toBeVisible();
+      if (width > 640) {
+        const edge = (await drawer.boundingBox())!;
+        expect(edge.x + edge.width).toBe(width);
+        expect(edge.y + edge.height).toBe(900);
+        expect(edge.y).toBe(56);
+        await expect(page.locator('.frame-host:visible')).toHaveCSS('clip-path', 'none');
+      }
+      const capture = process.env.COLAB_DRAWER_CAPTURE_DIR;
+      if (capture) {
+        mkdirSync(capture, { recursive: true });
+        await page.screenshot({ path: `${capture}/comments-${width}-${theme}.png` });
+      }
+      expect((await frame.boundingBox())?.width).toBe(before?.width);
+      expect((await frame.boundingBox())?.height).toBe(before?.height);
+      expect(await page.evaluate(() => window.scrollY)).toBe(scroll);
+      const box = (await marker.boundingBox())!;
+      const exposed = { x: box.x + box.width - 2, y: box.y + box.height / 2 };
+      const frameAt = () =>
+        page.evaluate(({ x, y }) => document.elementFromPoint(x, y)?.tagName === 'IFRAME', exposed);
+      // The desktop drawer covers the page edge; the mobile modal covers the page.
+      await expect.poll(frameAt).toBe(false);
+      await drawer.getByRole('button', { name: 'Close Comments', exact: true }).click();
+      await expect(drawer).not.toBeVisible();
+      await expect.poll(frameAt).toBe(true);
+      await marker.click();
+      await expect(page.getByTestId('comment-thread')).toBeVisible();
+    });
+    test(`export actions ${width}px ${theme}: shared downloads and one close`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await page.emulateMedia({ colorScheme: theme });
+      await page.addInitScript((theme) => {
+        document.documentElement.dataset.theme = theme;
+      }, theme);
+      await page.goto('/');
+      await page.evaluate(async () => {
+        const path = '/test/ask-page-browser.tsx';
+        await (await import(path)).mount({ exportAttachments: true });
+      });
+      await (await pageAction(page, 'Export page')).click();
+      const drawer = page.locator('.page-drawer[data-panel=export][open]');
+      await expect(drawer).toBeVisible();
+      for (const name of ['page.html', 'conversations.json', 'conversations.md', 'manifest.json']) {
+        const action = drawer.getByRole('button', { name: `Download ${name}`, exact: true });
+        await expect(action).toBeEnabled();
+        await expect(action).toHaveClass(/tmt-ui-action/);
+        await expect(action).toHaveAttribute('data-variant', 'primary');
+        await expect(action).toHaveCSS('border-top-width', '1px');
+      }
+      await expect(drawer.getByRole('button', { name: /^Close/ })).toHaveCount(1);
+      const capture = process.env.COLAB_DRAWER_CAPTURE_DIR;
+      if (capture) {
+        mkdirSync(capture, { recursive: true });
+        await page.screenshot({ path: `${capture}/export-${width}-${theme}.png` });
+      }
+      const pending = page.waitForEvent('download');
+      await drawer.getByRole('button', { name: 'Download page.html', exact: true }).click();
+      expect((await pending).suggestedFilename()).toBe('page.html');
+      await drawer.getByRole('button', { name: 'Close Export page', exact: true }).click();
+      await expect(drawer).not.toBeVisible();
+    });
+  }
