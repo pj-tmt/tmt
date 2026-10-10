@@ -1,7 +1,12 @@
 #[path = "support/core_fixture.rs"]
 mod core_fixture;
+#[path = "support/process.rs"]
+// This consumer owns stdin writers; the CLI consumer also uses serving wait methods.
+#[allow(dead_code)]
+mod fixture_process;
 mod support;
 use ed25519_dalek::{Signer, SigningKey};
+use fixture_process::FixtureCommand;
 use serde_json::{Value, json};
 use std::{
     fs,
@@ -251,6 +256,7 @@ impl Fixture {
 }
 impl Drop for Fixture {
     fn drop(&mut self) {
+        fixture_process::clean_root(&self.root);
         if !self.retain_diagnostic {
             fs::remove_dir_all(&self.root).unwrap();
         }
@@ -485,7 +491,7 @@ fn cli_raw_json_stdin_invalid_capacity_and_lifecycle_refusal() {
         ])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .spawn()
+        .spawn_owned()
         .unwrap();
     let source = format!("{}\r\n\0", "stdin".repeat(4096));
     child
