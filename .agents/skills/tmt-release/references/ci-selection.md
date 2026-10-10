@@ -34,10 +34,12 @@ contexts must succeed. Held-draft recovery belongs to
   Reject empty Remote test discovery before execution. Office product verification
   is retired for every event, independently of its parked release attribution.
 
-The Remote Firestore Rules emulator suite runs as selected steps inside the `Unit tests` job (no new
-required context, no Docker): `remote_firestore` is true only for the suite, its fixtures, `rules.rs` or
-`ci.yml`, all full native scope, so the job always runs when it is selected. The steps use the hosted Temurin
-21 (`JAVA_HOME_21_X64`) and the pinned firebase-tools, with a step timeout and no retry or cache.
+The Remote and Colab Firestore Rules emulator suites run as selected steps inside `Unit tests` (no new
+required context, no Docker). `remote_firestore` selects Remote's suite, fixtures, `rules.rs` or `ci.yml`;
+`colab_firestore` selects Colab's `firestore/`, `deploy-declaration-*` vectors, emulator suite or `ci.yml`.
+All selected inputs require full native scope so the job runs. Shared setup uses hosted Temurin 21
+(`JAVA_HOME_21_X64`), Node 22.23.2 and firebase-tools 15.29.0 once; selected suites run sequentially in
+localhost demo projects, fail closed and retain their step bounds without retry or cache.
 
 ## Worker gates
 

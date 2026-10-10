@@ -46,6 +46,7 @@ jobs:
       release_rehearsal: ${{ steps.rehearsal.outputs.release_rehearsal || 'false' }}
       release_rehearsal_products: ${{ steps.rehearsal.outputs.release_rehearsal_products || '[]' }}
       remote_firestore: ${{ steps.scope.outputs.remote_firestore || steps.queue.outputs.remote_firestore || 'false' }}
+      colab_firestore: ${{ steps.scope.outputs.colab_firestore || steps.queue.outputs.colab_firestore || 'false' }}
       scoped_native_tests: ${{ steps.scope.outputs.scoped_native_tests || steps.queue.outputs.scoped_native_tests }}
       e2e_shard_1: ${{ steps.scope.outputs.e2e_shard_1 || steps.queue.outputs.e2e_shard_1 }}
       e2e_shard_2: ${{ steps.scope.outputs.e2e_shard_2 || steps.queue.outputs.e2e_shard_2 }}
@@ -648,23 +649,32 @@ jobs:
         with:
           name: native-caller-fixture-x86_64-unknown-linux-musl
           path: rust/target/debug/examples
-      # Remote Firestore Rules emulator suite: selected paths only (ci-scope remote_firestore).
+      # Firestore Rules emulator suites: selected paths only (ci-scope remote_firestore/colab_firestore).
       # The tool pins mirror extensions/tmt-office/typescript/services/office/Dockerfile.
       - name: Select the hosted Temurin 21 for the Rules emulator
-        if: needs.changes.outputs.remote_firestore == 'true'
+        if: needs.changes.outputs.remote_firestore == 'true' || needs.changes.outputs.colab_firestore == 'true'
         run: |
           test -n "$JAVA_HOME_21_X64"
           printf 'JAVA_HOME=%s\n' "$JAVA_HOME_21_X64" >> "$GITHUB_ENV"
           printf '%s\n' "$JAVA_HOME_21_X64/bin" >> "$GITHUB_PATH"
           "$JAVA_HOME_21_X64/bin/java" -version
+      - name: Install the pinned Firestore Rules emulator tools
+        if: needs.changes.outputs.remote_firestore == 'true' || needs.changes.outputs.colab_firestore == 'true'
+        run: npm install --global firebase-tools@15.29.0
       - name: Run the Remote Firestore Rules emulator suite
         if: needs.changes.outputs.remote_firestore == 'true'
         timeout-minutes: 8
         run: |
-          npm install --global firebase-tools@15.29.0
           firebase emulators:exec --only firestore --project demo-tmt-remote \
             --config extensions/tmt-remote/rust/tmt-remote/tests/emulator/firebase.json --non-interactive \
             'node --test extensions/tmt-remote/rust/tmt-remote/tests/emulator/suite.mjs'
+      - name: Run the Colab Firestore Rules emulator suite
+        if: needs.changes.outputs.colab_firestore == 'true'
+        timeout-minutes: 8
+        run: |
+          firebase emulators:exec --only firestore --project demo-tmt-colab \
+            --config extensions/tmt-colab/rust/tmt-colab/tests/emulator/firebase.json --non-interactive \
+            'node --test extensions/tmt-colab/rust/tmt-colab/tests/emulator/suite.mjs'
       - name: Run retained developer tooling tests
         working-directory: typescript
         # The deleted TypeScript source coverage denominator is not Rust coverage.

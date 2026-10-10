@@ -36,6 +36,7 @@ import {
   selectOfficeBrowser,
   selectColabApp,
   selectRemoteFirestore,
+  selectColabFirestore,
   selectColabHarness,
   selectNativeNotices,
 } from '../../scripts/ci-scope.mjs';
@@ -1207,6 +1208,7 @@ describe('CI diff and command integration', () => {
         native_scope: 'ops',
         native_notices: 'false',
         remote_firestore: 'false',
+        colab_firestore: 'false',
         scoped_native_tests:
           'ops.test.ts extension-install.test.ts extension-upgrade-proof.test.ts uninstall.test.ts',
         e2e_shard_1: 'ops.e2e.test.ts ops-reminder.e2e.test.ts',
@@ -1230,6 +1232,22 @@ describe('CI diff and command integration', () => {
       const rulesOutput = capture();
       runCiScope([remoteHead, rulesHead], { cwd: root, stdout: rulesOutput, stderr: capture() });
       expect(outputs(rulesOutput.text())).toEqual({ ...full, remote_firestore: 'true' });
+      const colabRulesDir = 'extensions/tmt-colab/firestore';
+      mkdirSync(path.join(root, colabRulesDir), { recursive: true });
+      writeFileSync(path.join(root, colabRulesDir, 'admission.rules'), '// Colab Rules\n');
+      const colabRulesHead = commit();
+      const colabRulesOutput = capture();
+      const colabRulesLog = capture();
+      runCiScope([rulesHead, colabRulesHead], {
+        cwd: root,
+        stdout: colabRulesOutput,
+        stderr: colabRulesLog,
+      });
+      expect(outputs(colabRulesOutput.text())).toEqual({ ...full, colab_firestore: 'true' });
+      expect(colabRulesLog.text()).toContain(
+        'Colab Firestore Rules emulator selection (Unit tests job): true.'
+      );
+
       const officePath = path.join(root, 'extensions/tmt-office/docs/fixture.md');
       mkdirSync(path.dirname(officePath), { recursive: true });
       writeFileSync(officePath, 'Office fixture\n');
@@ -1399,13 +1417,23 @@ describe('CI diff and command integration', () => {
     const ci = read('.github/workflows/ci.yml');
     const job = ci.slice(ci.indexOf('\n  unit-tests:'), ci.indexOf('\n  # The Docker E2E suite'));
     const steps = job.slice(
-      job.indexOf('# Remote Firestore Rules emulator suite'),
+      job.indexOf('# Firestore Rules emulator suites'),
       job.indexOf('- name: Run retained developer tooling tests')
     );
     expect(ci).toContain(
       "      remote_firestore: ${{ steps.scope.outputs.remote_firestore || steps.queue.outputs.remote_firestore || 'false' }}"
     );
-    expect(steps.match(/if: needs\.changes\.outputs\.remote_firestore == 'true'/g)).toHaveLength(2);
+    expect(
+      steps.match(
+        /if: needs\.changes\.outputs\.remote_firestore == 'true' \|\| needs\.changes\.outputs\.colab_firestore == 'true'/g
+      )
+    ).toHaveLength(2);
+    expect(
+      steps.match(/^        if: needs\.changes\.outputs\.remote_firestore == 'true'$/gm)
+    ).toHaveLength(1);
+    expect(
+      steps.match(/^        if: needs\.changes\.outputs\.colab_firestore == 'true'$/gm)
+    ).toHaveLength(1);
     expect(steps).toContain('timeout-minutes: 8');
     expect(steps).toContain('test -n "$JAVA_HOME_21_X64"');
     expect(steps).toContain('"$JAVA_HOME_21_X64/bin/java" -version');
@@ -1418,6 +1446,7 @@ describe('CI diff and command integration', () => {
     for (const file of [
       'extensions/tmt-office/typescript/services/office/Dockerfile',
       'extensions/tmt-remote/rust/tmt-remote/tests/emulator/Dockerfile',
+      'extensions/tmt-colab/rust/tmt-colab/tests/emulator/Dockerfile',
     ]) {
       expect(read(file)).toContain(pin);
     }
@@ -1427,6 +1456,73 @@ describe('CI diff and command integration', () => {
       read('extensions/tmt-remote/rust/tmt-remote/tests/emulator/Dockerfile').match(javaImage)?.[0]
     ).toBe(
       read('extensions/tmt-office/typescript/services/office/Dockerfile').match(javaImage)?.[0]
+    );
+  });
+
+  it.each([
+    'extensions/tmt-colab/firestore/admission.rules',
+    'extensions/tmt-colab/firestore/declaration.json',
+    'extensions/tmt-colab/contracts/vectors/deploy-declaration-v1.json',
+    'extensions/tmt-colab/contracts/vectors/deploy-declaration-v1.firestore.rules',
+    'extensions/tmt-colab/contracts/vectors/deploy-declaration-reference.py',
+    'extensions/tmt-colab/rust/tmt-colab/tests/emulator/suite.mjs',
+    'extensions/tmt-colab/rust/tmt-colab/tests/emulator/firebase.json',
+    'extensions/tmt-colab/rust/tmt-colab/tests/emulator/Dockerfile',
+    '.github/workflows/ci.yml',
+  ])('selects the Colab Firestore Rules emulator steps for %s', (file) => {
+    expect(selectColabFirestore([file])).toBe(true);
+    expect(selectColabFirestore(['DEVELOPMENT.md', file])).toBe(true);
+    expect(selectNativeScope([file])).toBe('full');
+  });
+
+  it.each([
+    'extensions/tmt-colab/firestore-other/admission.rules',
+    'extensions/tmt-colab/contracts/vectors/other.json',
+    'extensions/tmt-colab/contracts/vectors/deploy-declaration.json',
+    'extensions/tmt-colab/rust/tmt-colab/tests/emulator-other/suite.mjs',
+    'extensions/tmt-colab/rust/tmt-colab/src/main.rs',
+    'extensions/tmt-colab/typescript/colab-client/src/index.ts',
+    'extensions/tmt-remote/rust/tmt-remote/src/rules.rs',
+    'DEVELOPMENT.md',
+    'unknown/input',
+  ])('does not select the Colab Firestore Rules emulator steps for %s', (file) => {
+    expect(selectColabFirestore([file])).toBe(false);
+  });
+
+  it('keeps Colab emulator execution selected, pinned and fail closed in Unit tests', () => {
+    expect(selectColabFirestore([])).toBe(false);
+    const read = (file: string) =>
+      readFileSync(new URL(`../../../${file}`, import.meta.url), 'utf8');
+    const ci = read('.github/workflows/ci.yml');
+    const job = ci.slice(ci.indexOf('\n  unit-tests:'), ci.indexOf('\n  # The Docker E2E suite'));
+    expect(ci).toContain(
+      "      colab_firestore: ${{ steps.scope.outputs.colab_firestore || steps.queue.outputs.colab_firestore || 'false' }}"
+    );
+    expect(job).toContain(
+      "if: needs.changes.outputs.verify == 'true' && needs.changes.outputs.native_scope == 'full'"
+    );
+    expect(job).toContain('timeout-minutes: 15');
+    const steps = job.slice(
+      job.indexOf('# Firestore Rules emulator suites'),
+      job.indexOf('- name: Run retained developer tooling tests')
+    );
+    expect(steps.match(/npm install --global firebase-tools@15\.29\.0/g)).toHaveLength(1);
+    const colab = steps.slice(
+      steps.indexOf('- name: Run the Colab Firestore Rules emulator suite')
+    );
+    expect(colab).toContain("if: needs.changes.outputs.colab_firestore == 'true'");
+    expect(colab).toContain('timeout-minutes: 8');
+    expect(colab).toContain('firebase emulators:exec --only firestore --project demo-tmt-colab');
+    expect(colab).toContain(
+      '--config extensions/tmt-colab/rust/tmt-colab/tests/emulator/firebase.json --non-interactive'
+    );
+    expect(colab).toContain(
+      "'node --test extensions/tmt-colab/rust/tmt-colab/tests/emulator/suite.mjs'"
+    );
+    expect(steps).not.toMatch(/continue-on-error|\|\| true|docker |secrets\./);
+    expect(read('.github/actions/setup-tooling/action.yml')).toContain('default: 22.23.2');
+    expect(read('extensions/tmt-colab/rust/tmt-colab/tests/emulator/Dockerfile')).toContain(
+      'node:22.23.2-'
     );
   });
 
@@ -1558,6 +1654,12 @@ describe('CI diff and command integration', () => {
         expect(fallback.outputs).toEqual({ ...full, native_notices: 'true' });
         expect(fallback.evidence).toContain('diff unreadable; using full verification');
       }
+      const colabRules = commit('extensions/tmt-colab/firestore/admission.rules', '// rules');
+      const colabQueue = select(['merge-group', colabRules]);
+      expect(colabQueue.outputs).toMatchObject({ native_scope: 'full', colab_firestore: 'true' });
+      expect(colabQueue.outputs).toEqual(select([base, colabRules]).outputs);
+      expect(select(['full']).outputs.colab_firestore).toBe('false');
+      expect(select(['seed']).outputs.colab_firestore).toBe('false');
       // The earlier queued workspace change selects native, even when HEADGREEN's last tip is site-only.
       git(['checkout', '--quiet', '--detach', base]);
       mkdirSync(path.join(root, 'rust'), { recursive: true });

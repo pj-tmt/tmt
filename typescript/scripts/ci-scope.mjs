@@ -510,6 +510,22 @@ export function selectRemoteFirestore(paths) {
   );
 }
 
+// Colab uses the same hosted emulator lane and full-native Unit tests gate as Remote.
+const COLAB_FIRESTORE_ROOTS = [
+  'extensions/tmt-colab/firestore',
+  'extensions/tmt-colab/rust/tmt-colab/tests/emulator',
+];
+
+/** Admission sources, composed declaration vectors, suite or CI wiring changed. */
+export function selectColabFirestore(paths) {
+  return paths.some(
+    (path) =>
+      path === '.github/workflows/ci.yml' ||
+      path.startsWith('extensions/tmt-colab/contracts/vectors/deploy-declaration-') ||
+      COLAB_FIRESTORE_ROOTS.some((root) => within(root, path))
+  );
+}
+
 /**
  * How much of the native work a change needs. `none`: nothing native is selected.
  * A component name (only `ops` declares `scopedChecks`): every path that selects
@@ -774,6 +790,7 @@ export function runCiScope(args, { cwd, stdout, stderr, summaryFile }) {
   const colabApp = !queue && !seed && !full && selectColabApp(selection.paths);
   const nativeNotices = !seed && (full || selectNativeNotices(selection.paths));
   const remoteFirestore = !seed && !full && selectRemoteFirestore(selection.paths);
+  const colabFirestore = !seed && !full && selectColabFirestore(selection.paths);
   const evidence =
     (full || seed || fallback
       ? `### CI selection\n\n${fallback ?? (full ? 'Weekly/manual retained-product verification; Office retired.' : 'Main cache seed; Office product verification is retired.')}\n`
@@ -782,7 +799,8 @@ export function runCiScope(args, { cwd, stdout, stderr, summaryFile }) {
     `\nColab browser PR selection (client, model, vectors or harness workflow): ${colabHarness}.\n` +
     `\nColab app component suite PR selection (app, client, browser UI, workflow or lockfile): ${colabApp}.\n` +
     `\nNative dependency notices selection: ${nativeNotices}.\n` +
-    `\nRemote Firestore Rules emulator selection (Unit tests job): ${remoteFirestore}.\n`;
+    `\nRemote Firestore Rules emulator selection (Unit tests job): ${remoteFirestore}.\n` +
+    `\nColab Firestore Rules emulator selection (Unit tests job): ${colabFirestore}.\n`;
   stderr.write(evidence);
   if (summaryFile) appendFileSync(summaryFile, evidence);
   const { areas, nativeScope } = selection;
@@ -795,6 +813,7 @@ export function runCiScope(args, { cwd, stdout, stderr, summaryFile }) {
       `colab_app=${colabApp}\n` +
       `native_notices=${nativeNotices}\n` +
       `remote_firestore=${remoteFirestore}\n` +
+      `colab_firestore=${colabFirestore}\n` +
       `native_scope=${nativeScope}\n` +
       `scoped_native_tests=${checks.nativeTests.join(' ')}\n` +
       `e2e_shard_1=${firstShard.join(' ')}\n` +
