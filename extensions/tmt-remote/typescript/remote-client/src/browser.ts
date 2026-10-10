@@ -117,8 +117,12 @@ async function paired(signal?: AbortSignal): Promise<{ record: Stored; key: Devi
   return { record, key: await DeviceKey.fromHandle(record.handle, record.publicKey) };
 }
 
-/** Reopen this browser's door session for the running remote; no owner step. */
 const admissions = new WeakMap<Session, Promise<Session>>();
+/**
+ * Reopen this browser's door session for the running remote; no owner step.
+ * The first caller's signal governs a coalesced bounded series; joined callers' signals are ignored.
+ * A signal without bounded retry selects one typed attempt, bounded by the caller's cancellation.
+ */
 export function reopenSession(
   previous?: Session,
   options?: ReopenSessionOptions,

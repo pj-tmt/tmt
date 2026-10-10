@@ -326,8 +326,10 @@ code-bearing link in this browser, compare its words with the terminal and confi
 `reopenSession(previous, { retry: 'bounded', signal })` extends the same trusted admission
 owner as the unchanged one-shot `reopenSession(previous)`. It coalesces callers for that
 previous verified Session, attempts at most four opens within 20 seconds (four seconds per
-attempt), and backs off 250/500/1000 ms plus bounded jitter. The connection owner's signal
-cancels the joined series. Colab owns reconnecting/connected/ended, reattaches the returned
+attempt), and backs off 250/500/1000 ms plus bounded jitter. The first caller's signal governs
+the coalesced series; a joined caller's own signal is ignored. Passing `{ signal }` without
+`retry: 'bounded'` selects one typed attempt, caller-bounded by cancellation; it adds no SDK
+deadline or retry. Colab owns reconnecting/connected/ended, reattaches the returned
 Session, and retains drafts, threads and original operation IDs. The SDK never retries a send.
 A lost reply is recovered by observing the original ID after admission, not a new effect.
 
