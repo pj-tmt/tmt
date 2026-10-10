@@ -109,143 +109,7 @@ sharing. Do not delete the original to clear a limit.
 
 ## Page look
 
-Use the TMT browser style: square, flat, shadow-free surfaces; neutral greys;
-system fonts; and a mark plus a word for every state (for example, "◆ Waiting"),
-never colour alone. Keep content full-width and
-narrow-friendly. Start with the inline content styles below, never the browser
-leaf's whole static.css.
-
-Colab already shows the brand, page title and actions. Do not add a site header,
-navigation, product mark or wordmark, or any sticky or fixed bar. Begin with the
-content; the user sees one Colab header.
-
-Colab sets root data-theme (light or dark) before scripts and on live changes,
-overwriting any author-pinned value. Use the starter's explicit data-theme selectors to
-follow Colab. CSS keyed only on prefers-color-scheme follows the OS.
-
-For a fixed look, use one unconditional :root palette and color-scheme; remove
-the starter's data-theme and prefers-color-scheme overrides. Author CSS owns
-colours and backgrounds. Outside Colab, the starter follows the OS.
-
-<!-- BEGIN generated page style -->
-
-```html
-<style>
-  :root {
-    --ink: #343434;
-    --muted: #626262;
-    --paper: #fafafa;
-    --sheet: #ffffff;
-    --edge: #d0d0d0;
-    --body: system-ui, -apple-system, 'Segoe UI', sans-serif;
-    --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
-    --size: 14px;
-    --heading: 28px;
-    --rule: 1px;
-    --gap: 16px;
-    --small-gap: 8px;
-    color-scheme: light dark;
-  }
-  @media (prefers-color-scheme: dark) {
-    :root:not([data-theme='light']) {
-      --ink: #b0b0b0;
-      --muted: #909090;
-      --paper: #080808;
-      --sheet: #101010;
-      --edge: #303030;
-    }
-  }
-  :root[data-theme='light'] {
-    --ink: #343434;
-    --muted: #626262;
-    --paper: #fafafa;
-    --sheet: #ffffff;
-    --edge: #d0d0d0;
-    color-scheme: light;
-  }
-  :root[data-theme='dark'] {
-    --ink: #b0b0b0;
-    --muted: #909090;
-    --paper: #080808;
-    --sheet: #101010;
-    --edge: #303030;
-    color-scheme: dark;
-  }
-  * {
-    box-sizing: border-box;
-  }
-  body {
-    margin: 0;
-    padding: var(--gap);
-    background: var(--paper);
-    color: var(--ink);
-    font: var(--size)/1.5 var(--body);
-    overflow-wrap: anywhere;
-  }
-  h1,
-  h2,
-  h3 {
-    margin: 0 0 var(--small-gap);
-    line-height: 1.2;
-  }
-  h1 {
-    font-size: var(--heading);
-  }
-  h2 {
-    font-size: 22px;
-  }
-  h3 {
-    font-size: 18px;
-  }
-  p,
-  ul,
-  ol,
-  table,
-  pre {
-    margin: 0 0 var(--gap);
-  }
-  ul,
-  ol {
-    padding-left: calc(var(--gap) * 2);
-  }
-  a {
-    color: inherit;
-    text-decoration: underline;
-  }
-  table {
-    width: 100%;
-    border-collapse: collapse;
-  }
-  th,
-  td {
-    padding: var(--small-gap);
-    border-bottom: var(--rule) solid var(--edge);
-    text-align: left;
-    vertical-align: top;
-  }
-  code,
-  pre {
-    font-family: var(--mono);
-  }
-  pre {
-    padding: var(--gap);
-    background: var(--sheet);
-    border: var(--rule) solid var(--edge);
-    white-space: pre-wrap;
-  }
-  section {
-    margin: 0 0 var(--gap);
-    padding: var(--gap);
-    background: var(--sheet);
-    border: var(--rule) solid var(--edge);
-  }
-  .muted {
-    color: var(--muted);
-  }
-</style>
-```
-
-<!-- END generated page style -->
+Read [references/page-style.md](references/page-style.md) or `tmt colab skill page-style` before styling a page.
 
 ## HTML that renders
 
@@ -266,17 +130,11 @@ request with the incoming command from the wake notice, for example:
 tmt x show REQUEST --incoming --identity YOUR_IDENTITY --json
 ```
 
-Annotation/Chat links use `/p/SHORT`. Every CLI page argument accepts a full UUID
-or a lowercase UUID-shaped prefix of at least eight characters. The CLI resolves
-it against the verified owner catalog, including retained deleted IDs, and returns
-full `pageId` values. If `COLAB_PAGE_AMBIGUOUS` lists candidates, ask which page is
-meant; if deleted or missing, report that instead of guessing a different page.
+Read [references/links.md](references/links.md) or `tmt colab skill links` for page links and ID resolution.
+
 Sharing/deletion require `--yes`; keep full IDs and frozen operation/revision
 values for explicit retries.
 
-Older links use `#space=SPACE&path=%2Fpages%2FPAGE`. Decode the `path` fragment
-value; the page ID follows `/pages/`. If the requested work needs the page, read
-it through `tmt colab page read`; retain its revision for changes.
 Do the authorized work, then submit one reply with `x show`'s receipt:
 
 ```sh

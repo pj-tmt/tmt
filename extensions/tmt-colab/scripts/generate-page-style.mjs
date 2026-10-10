@@ -120,7 +120,7 @@ ${themed('dark', '    ')}
 `;
 const begin = '<!-- BEGIN generated page style -->';
 const end = '<!-- END generated page style -->';
-const output = new URL('../skills/tmt-colab/SKILL.md', import.meta.url);
+const output = new URL('../skills/tmt-colab/references/page-style.md', import.meta.url);
 const skill = await readFile(output, 'utf8');
 const start = skill.indexOf(begin);
 const finish = skill.indexOf(end);
@@ -130,7 +130,7 @@ if (
   skill.indexOf(begin, start + begin.length) !== -1 ||
   skill.indexOf(end, finish + end.length) !== -1
 )
-  throw new Error('Expected one ordered generated page style region in SKILL.md');
+  throw new Error('Expected one ordered generated page style region in references/page-style.md');
 const generated = `${begin}\n\n\`\`\`html\n${starter}\`\`\`\n\n${end}`;
 const updated = skill.slice(0, start) + generated + skill.slice(finish + end.length);
 if (
@@ -138,7 +138,7 @@ if (
   Buffer.byteLength(updated) > 12_000 ||
   updated.split('\n').length - 1 > 500
 ) {
-  throw new Error('Page style or SKILL.md exceeds its compactness budget');
+  throw new Error('Page style reference exceeds its compactness budget');
 }
 if (mode === '--write') await writeFile(output, updated, 'utf8');
 else if (skill !== updated)

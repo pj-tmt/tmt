@@ -9,7 +9,11 @@ import {
 import { writeExecutable } from '../support/executable-fixture.mjs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { describe, expect, it } from 'vite-plus/test';
+import { describe, expect, it, vi } from 'vite-plus/test';
+import childProcess from 'node:child_process';
+import { syncBuiltinESMExports } from 'node:module';
+
+vi.mock('../../scripts/colab-runtime-proof.mjs', () => ({ verifyColabApp: vi.fn() }));
 import { runCli, withSandbox } from '../support/cli-process.js';
 
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -26,6 +30,11 @@ const { assertMacOsArchitecture, nativeHostTarget, verifyNativeRuntime } = (awai
   ) => void;
   verifyNativeRuntime: (options: {
     executable: string;
+    product?: 'colab';
+    colabSkill?: string;
+    colabReferences?: Record<string, string>;
+    colabApp?: string;
+    notices?: string;
     target: string;
     version: string;
     skill: string;
@@ -112,6 +121,63 @@ describe('native runtime proof boundary', () => {
       expect(broken.status).toBe(1);
       expect(broken.stderr).toContain('ERR_MODULE_NOT_FOUND');
       expect(broken.stderr).not.toContain('--executable is required');
+    });
+  });
+
+  it('compares archive reference bytes with embedded output and rejects drift, missing and unknown references', async () => {
+    await withSandbox(async (sandbox) => {
+      const executable = path.join(sandbox.root, 'colab-archive');
+      writeExecutable(executable, '#!/bin/sh\nexit 99\n', 0o755);
+      const skill = 'Read `tmt colab skill page-style`.\n';
+      const embedded = 'Exact shipped reference bytes\n';
+      const calls: string[][] = [];
+      const inspect = vi.spyOn(childProcess, 'spawnSync').mockImplementation(((command, args) => {
+        const words = args as string[];
+        let stdout = '';
+        if (command === executable) {
+          calls.push(words);
+          stdout = words.length === 1 ? skill : embedded;
+        } else if (command === '/usr/bin/xcrun') {
+          stdout = `/mock/${words[1]}\n`;
+        } else if (command === '/mock/lipo') {
+          stdout = process.arch === 'arm64' ? 'arm64\n' : 'x86_64\n';
+        } else if (command === '/mock/otool') {
+          stdout = `${executable}:\n\t/usr/lib/libSystem.B.dylib (compatibility version 1.0.0)\n`;
+        } else {
+          expect(String(command)).toMatch(/readelf$/);
+        }
+        return { pid: 0, status: 0, signal: null, stdout, stderr: '', output: [null, stdout, ''] };
+      }) as typeof childProcess.spawnSync);
+      syncBuiltinESMExports();
+      const prove = (references: Record<string, string>) =>
+        verifyNativeRuntime({
+          executable,
+          target: nativeHostTarget(),
+          version: '0.1.0',
+          product: 'colab',
+          colabSkill: skill,
+          colabReferences: references,
+          colabApp: sandbox.root,
+          notices: '',
+          skill: '',
+          inboxSkill: '',
+          profileContent: '',
+          subject: 'Colab archive fixture',
+        });
+      try {
+        await prove({ 'page-style': embedded });
+        expect(calls).toEqual([['skill'], ['skill', 'page-style']]);
+        await expect(prove({ 'page-style': embedded + 'drift' })).rejects.toThrow(
+          'embedded skill reference mismatch: page-style'
+        );
+        await expect(prove({})).rejects.toThrow('missing skill reference: page-style');
+        await expect(prove({ 'page-style': embedded, unknown: embedded })).rejects.toThrow(
+          'unknown skill reference: unknown'
+        );
+      } finally {
+        inspect.mockRestore();
+        syncBuiltinESMExports();
+      }
     });
   });
 

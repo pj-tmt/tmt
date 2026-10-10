@@ -5102,12 +5102,44 @@ fn skill_is_exact_embedded_bytes_after_relocation_without_core_or_state() {
         include_bytes!("../../../skills/tmt-colab/SKILL.md")
     );
     let skill = std::str::from_utf8(&output.stdout).unwrap();
-    let page_look = skill.split_once("## Page look\n").unwrap().1;
-    let (page_look, _) = page_look.split_once("## HTML that renders\n").unwrap();
-    assert!(page_look.contains("Colab already shows the brand, page title and actions."));
-    assert!(page_look.contains("<style>"));
-    assert!(page_look.contains("@media (prefers-color-scheme: dark)"));
-    assert!(output.stdout.len() <= 12_000);
+    assert!(output.stdout.len() <= 10_000);
+    for (name, expected) in [
+        (
+            "links",
+            include_bytes!("../../../skills/tmt-colab/references/links.md").as_slice(),
+        ),
+        (
+            "page-style",
+            include_bytes!("../../../skills/tmt-colab/references/page-style.md").as_slice(),
+        ),
+    ] {
+        let reference = invoke(&["skill", name]);
+        assert!(reference.status.success(), "{reference:?}");
+        assert!(reference.stderr.is_empty());
+        assert_eq!(reference.stdout, expected, "reference {name}");
+        assert!(skill.contains(&format!("references/{name}.md")));
+        assert!(skill.contains(&format!("tmt colab skill {name}")));
+    }
+    for name in [
+        "unknown",
+        "message-files",
+        "proposals",
+        "../page-style",
+        "references/links.md",
+        "/tmp/proposals",
+    ] {
+        let refused = invoke(&["skill", name]);
+        assert!(!refused.status.success(), "{name}");
+        assert!(refused.stdout.is_empty());
+        let message = String::from_utf8(refused.stderr).unwrap();
+        for valid in ["links", "page-style"] {
+            assert!(message.contains(valid), "{message}");
+        }
+    }
+    let refused = invoke(&["skill", "unknown", "--json"]);
+    assert!(!refused.status.success());
+    let error: Value = serde_json::from_slice(&refused.stdout).unwrap();
+    assert_eq!(error["error"]["code"], "COLAB_INPUT_INVALID");
     assert!(skill.lines().count() <= 500);
     for args in [["skill", "--help"], ["help", "skill"]] {
         let help = invoke(&args);
