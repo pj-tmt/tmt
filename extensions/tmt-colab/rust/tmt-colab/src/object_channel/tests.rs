@@ -11,7 +11,7 @@ use std::time::Duration;
 use tmt_extension_objects::Checkpoint;
 use tmt_extension_objects::{
     AdmitInput, Budgets, Bytes32, Chunk, ConfigInput, Decision, Disclosure, Expect, Offer,
-    Operation, Policy, ReadInput, ResultFrame, Success, accept, initiate,
+    Operation, Policy, ReadInput, ResultFrame, Success, accept, negotiate,
 };
 const HOST: &str = "127.0.0.1:51234";
 const MOUNT: &str = "/r/fixture/x/colab/";
@@ -20,33 +20,39 @@ fn limit() -> Instant {
     Instant::now() + Duration::from_secs(3)
 }
 fn pair() -> (ObjectChannel, Bus) {
-    let (remote, extension) = UnixStream::pair().unwrap();
-    let interrupt = extension.try_clone().unwrap();
-    let acceptor = thread::spawn(move || {
-        let link = accept(
-            extension,
-            &Expect {
+    let mut accepted = None;
+    let link = negotiate(limit(), || {
+        let (remote, extension) = UnixStream::pair().unwrap();
+        let interrupt = extension.try_clone().unwrap();
+        assert!(
+            accepted.is_none(),
+            "a supported v2 fixture must not fall back"
+        );
+        accepted = Some(thread::spawn(move || {
+            let link = accept(
+                extension,
+                &Expect {
+                    host: HOST.into(),
+                    mount: MOUNT.into(),
+                },
+                &Budgets::contract(),
+                limit(),
+            )
+            .unwrap();
+            ObjectChannel::start(link, interrupt).unwrap()
+        }));
+        Ok((
+            remote,
+            Offer {
                 host: HOST.into(),
                 mount: MOUNT.into(),
+                generation: Uuid4::parse(GENERATION).unwrap(),
             },
-            &Budgets::contract(),
-            limit(),
-        )
-        .unwrap();
-        ObjectChannel::start(link, interrupt).unwrap()
-    });
-    let link = initiate(
-        remote,
-        &Offer {
-            host: HOST.into(),
-            mount: MOUNT.into(),
-            generation: Uuid4::parse(GENERATION).unwrap(),
-        },
-        limit(),
-    )
+        ))
+    })
     .unwrap();
     (
-        acceptor.join().unwrap(),
+        accepted.unwrap().join().unwrap(),
         Bus::start(link, Budgets::contract(), Caps::contract(), None).unwrap(),
     )
 }
@@ -547,37 +553,49 @@ fn owned_generation(
     generation: &str,
 ) -> std::result::Result<Bus, Fault> {
     use std::io::Read;
-    let (remote, mut extension) = UnixStream::pair().unwrap();
-    let acceptor = thread::spawn(move || {
-        extension
-            .set_read_timeout(Some(Duration::from_secs(3)))
-            .unwrap();
-        let mut head = Vec::new();
-        while !head.ends_with(b"\r\n\r\n") {
-            let mut byte = [0];
-            extension.read_exact(&mut byte).unwrap();
-            head.push(byte[0]);
-            assert!(head.len() <= 8192);
-        }
-        owner.accept(extension, &head, &[], limit())
+    let mut acceptors = Vec::new();
+    let result = negotiate(limit(), || {
+        let (remote, mut extension) = UnixStream::pair().unwrap();
+        let owner = owner.clone();
+        acceptors.push(thread::spawn(move || {
+            extension
+                .set_read_timeout(Some(Duration::from_secs(3)))
+                .unwrap();
+            let mut head = Vec::new();
+            while !head.ends_with(b"\r\n\r\n") {
+                let mut byte = [0];
+                extension.read_exact(&mut byte).unwrap();
+                head.push(byte[0]);
+                assert!(head.len() <= 8192);
+            }
+            owner.accept(extension, &head, &[], limit())
+        }));
+        Ok((
+            remote,
+            Offer {
+                host: host.into(),
+                mount: mount.into(),
+                generation: Uuid4::parse(generation).unwrap(),
+            },
+        ))
     });
-    let result = initiate(
-        remote,
-        &Offer {
-            host: host.into(),
-            mount: mount.into(),
-            generation: Uuid4::parse(generation).unwrap(),
-        },
-        limit(),
-    );
-    let accepted = acceptor.join().unwrap();
+    let accepted: Vec<_> = acceptors
+        .into_iter()
+        .map(|worker| worker.join().unwrap())
+        .collect();
     match result {
         Ok(link) => {
-            accepted.unwrap();
+            assert_eq!(accepted.len(), 1, "supported v2 needs one connection");
+            assert!(accepted[0].is_ok());
             Bus::start(link, Budgets::contract(), Caps::contract(), None)
         }
         Err(fault) => {
-            assert!(accepted.is_err());
+            assert_eq!(
+                accepted.len(),
+                2,
+                "pre-reply refusal permits one fresh v1 fallback"
+            );
+            assert!(accepted.iter().all(|result| result.is_err()));
             Err(fault)
         }
     }
@@ -611,7 +629,7 @@ fn routed_owner_refreshes_discovery_and_joins_replaced_generations() {
     assert!(first.recv(Some(limit())).is_err());
     let successor = owner.client().unwrap();
     assert_ne!(retained.generation(), successor.generation());
-    assert_eq!(discoveries.load(Ordering::SeqCst), 3);
+    assert_eq!(discoveries.load(Ordering::SeqCst), 4);
     owner.close();
     assert!(!successor.standing(Origin::LocalExtension));
     assert!(second.recv(Some(limit())).is_err());
@@ -649,16 +667,18 @@ impl ObjectMountFixture {
         }
     }
     fn remote(&self, host: &str, generation: &str) -> std::result::Result<Bus, Fault> {
-        let stream = UnixStream::connect(&self.path).unwrap();
-        let link = initiate(
-            stream,
-            &Offer {
-                host: host.into(),
-                mount: MOUNT.into(),
-                generation: Uuid4::parse(generation).unwrap(),
-            },
-            limit(),
-        )?;
+        let link = negotiate(limit(), || {
+            let stream =
+                UnixStream::connect(&self.path).map_err(|error| Fault::Io(error.kind()))?;
+            Ok((
+                stream,
+                Offer {
+                    host: host.into(),
+                    mount: MOUNT.into(),
+                    generation: Uuid4::parse(generation).unwrap(),
+                },
+            ))
+        })?;
         Bus::start(link, Budgets::contract(), Caps::contract(), None)
     }
     fn finish(&mut self) {
