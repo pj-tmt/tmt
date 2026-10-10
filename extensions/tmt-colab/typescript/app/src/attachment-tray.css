@@ -46,34 +46,102 @@
 }
 .message-attachments {
   margin: 6px 0 0;
+  min-width: 0;
+}
+.attachment-images,
+.attachment-files {
+  margin: 0;
   padding: 0;
   list-style: none;
 }
-.message-attachment {
+.attachment-images {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 4px;
+  max-width: 360px;
+}
+.attachment-images.single {
+  display: block;
+}
+.message-image {
+  min-width: 0;
+}
+.attachment-thumbnail {
+  box-sizing: border-box;
+  display: grid;
+  place-items: center;
+  width: 100%;
+  aspect-ratio: 1;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: var(--c-sheet);
+  color: var(--c-muted);
+  cursor: pointer;
+  overflow: hidden;
+  font: inherit;
+}
+.attachment-thumbnail img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.attachment-thumbnail.single {
+  width: fit-content;
+  max-width: 200px;
+  max-height: 120px;
+  aspect-ratio: auto;
+  min-width: 40px;
+  min-height: 40px;
+}
+.attachment-thumbnail.single img {
+  width: auto;
+  height: auto;
+  max-width: 200px;
+  max-height: 120px;
+  object-fit: contain;
+}
+.attachment-thumbnail:focus-visible {
+  outline: 2px solid var(--c-accent);
+  outline-offset: 2px;
+}
+.attachment-more {
+  font-size: 20px;
+}
+.attachment-files {
+  display: grid;
+  gap: 4px;
+  margin-top: 4px;
+}
+.message-file {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr) auto;
   align-items: center;
-  gap: 2px 8px;
+  gap: 8px;
   padding: 4px 0;
   font-size: 13px;
 }
-.message-attachment .attachment-actions {
-  margin-inline-start: 0;
-  white-space: nowrap;
-  grid-column: 3;
-  grid-row: 1;
+.attachment-type {
+  display: grid;
+  place-items: center;
+  height: 40px;
+  background: var(--c-sheet);
+  color: var(--c-muted);
+  font-size: 10px;
+  overflow: hidden;
 }
-.message-attachment .attachment-state,
-.message-attachment .attachment-preview {
+.message-file .attachment-name {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.message-file .attachment-state {
   grid-column: 1 / -1;
 }
 .attachment-preview {
   flex: 1 0 100%;
-}
-.message-attachment img {
-  display: block;
-  max-width: 100%;
-  max-height: 320px;
 }
 .files-panel {
   display: flex;

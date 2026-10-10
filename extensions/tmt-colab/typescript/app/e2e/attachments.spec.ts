@@ -1,46 +1,23 @@
-import { pageAction } from '../test/page-actions.js';
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test } from '@playwright/test';
 import { text } from '../src/strings.js';
-import { annotationInput } from '../acceptance/harness/ask.js';
+import {
+  fixture,
+  PNG,
+  mount,
+  actions,
+  threads,
+  openChat,
+  attach,
+  send,
+} from '../test/attachment-page.js';
 
-const fixture = '/test/ask-page-browser.tsx';
-// A 1x1 PNG: a real raster the parent may preview.
-const PNG = Buffer.from(
-  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/q842iQAAAABJRU5ErkJggg==',
-  'base64',
-);
-
-async function mount(page: Page) {
-  await page.goto('/');
-  await page.evaluate(async ({ fixture }) => (await import(fixture)).mount({ attachments: true }), {
-    fixture,
-  });
-  await expect(page.locator('#ask-page-fixture .status')).toContainText('Live');
-}
-const actions = async (page: Page): Promise<string[]> =>
-  page.evaluate(async (path) => (await import(path)).proof().actions, fixture);
-const threads = async (page: Page) =>
-  page.evaluate(async (path) => (await import(path)).discussionProof(), fixture);
-async function openChat(page: Page) {
-  const host = page.locator('#ask-page-fixture');
-  const toggle = await pageAction(host, 'Chat');
-  await toggle.click();
-  const panel = page.getByTestId('chat-panel');
-  return { panel, input: await annotationInput(panel, 'Agent 1') };
-}
-async function attach(page: Page, files: { name: string; mimeType: string; buffer: Buffer }[]) {
-  const chooser = page.waitForEvent('filechooser');
-  await page.getByRole('button', { name: text.attachFiles }).click();
-  await (await chooser).setFiles(files);
-}
-const send = (page: Page) => page.getByRole('button', { name: text.askSend, exact: true });
 const note = (name: string) => ({
   name,
   mimeType: 'text/plain',
   buffer: Buffer.from(`bytes of ${name}`),
 });
 
-test('a narrow thread wraps a long filename while keeping attachment actions beside it', async ({
+test('a narrow thread thumbnail aligns with the message and keeps a long filename in its accessible label', async ({
   page,
 }) => {
   await page.setViewportSize({ width: 390, height: 900 });
@@ -66,23 +43,24 @@ test('a narrow thread wraps a long filename while keeping attachment actions bes
   const row = page.getByTestId('message-attachment');
   await expect(row).toBeVisible();
   const geometry = await row.evaluate((row) => {
-    const name = row.querySelector('.attachment-name')!;
-    const actions = row.querySelector('.attachment-actions')!.getBoundingClientRect();
-    const box = name.getBoundingClientRect();
+    const image = row.querySelector('button')!.getBoundingClientRect();
+    const body = row
+      .closest('.conversation-body')!
+      .querySelector('.comment-body')!
+      .getBoundingClientRect();
     return {
-      name: box.toJSON(),
-      actions: actions.toJSON(),
-      line: parseFloat(getComputedStyle(name).lineHeight),
+      left: Math.abs(image.left - body.left),
       width: row.clientWidth,
       scroll: row.scrollWidth,
     };
   });
-  expect(geometry.name.height).toBeGreaterThan(geometry.line);
-  expect(geometry.actions.left).toBeGreaterThanOrEqual(geometry.name.right);
-  expect(geometry.actions.top).toBeLessThan(geometry.name.bottom);
+  expect(geometry.left).toBeLessThanOrEqual(1);
   expect(geometry.scroll).toBeLessThanOrEqual(geometry.width);
-  await row.getByRole('button', { name: text.attachmentPreview }).click();
   await expect(row.locator('img')).toBeVisible();
+  await row.getByRole('button', { name: /Preview a-very-long-image-filename/ }).click();
+  await expect(
+    page.getByRole('dialog', { name: /a-very-long-image-filename/ }).locator('img'),
+  ).toBeVisible();
 });
 
 test('choosing files makes local chips only; Send uploads them and the message shows them', async ({
@@ -100,7 +78,7 @@ test('choosing files makes local chips only; Send uploads them and the message s
   await expect(input).toHaveText('Two files for you', { useInnerText: true });
   await send(page).click();
   await expect(panel.getByTestId('message-attachment')).toHaveCount(2);
-  expect(await actions(page)).toEqual([
+  expect((await actions(page)).filter((action) => !action.startsWith('attach:open'))).toEqual([
     'attach:upload:notes.txt',
     'attach:upload:shot.png',
     'message:Two files for you:2',
@@ -109,7 +87,7 @@ test('choosing files makes local chips only; Send uploads them and the message s
   await expect(input).toHaveText('', { useInnerText: true });
 });
 
-test('a raster previews from a data URL on click; any file downloads its exact bytes and URLs are revoked', async ({
+test('a visible raster previews from a data URL; any file downloads its exact bytes and URLs are revoked', async ({
   page,
 }) => {
   await page.addInitScript(() => {
@@ -135,27 +113,22 @@ test('a raster previews from a data URL on click; any file downloads its exact b
   await send(page).click();
   const entries = panel.getByTestId('message-attachment');
   await expect(entries).toHaveCount(2);
-  // Nothing opened by rendering the message.
-  expect((await actions(page)).filter((a) => a.startsWith('attach:open'))).toEqual([]);
-  expect(await entries.nth(0).locator('button').allTextContents()).toEqual([
-    text.attachmentDownload,
+  const png = entries.filter({ has: page.getByRole('button', { name: 'Preview shot.png' }) });
+  const notes = entries.filter({ hasText: 'notes.txt' });
+  // Only the visible raster reads automatically; the generic file still needs a click.
+  await expect(png.locator('img')).toHaveAttribute('src', /^data:image\/png;base64,/);
+  expect((await actions(page)).filter((a) => a.startsWith('attach:open'))).toEqual([
+    'attach:open:shot.png:1',
   ]);
-  expect(await entries.nth(1).locator('button').allTextContents()).toEqual([
-    text.attachmentPreview,
-    text.attachmentDownload,
-  ]);
-
-  const png = entries.nth(1);
-  await png.getByRole('button', { name: text.attachmentPreview }).click();
-  const image = png.locator('img');
-  await expect(image).toHaveAttribute('src', /^data:image\/png;base64,/);
-  await expect(image).toHaveAttribute('alt', 'shot.png');
-  await expect(image).toHaveJSProperty('complete', true);
-  await png.getByRole('button', { name: text.attachmentHidePreview }).click();
-  await expect(image).toHaveCount(0);
+  await expect(png.locator('img')).toHaveAttribute('alt', 'shot.png');
+  await expect(png.locator('img')).toHaveJSProperty('complete', true);
+  await png.getByRole('button', { name: 'Preview shot.png' }).click();
+  await expect(page.locator('.attachment-viewer').locator('img')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(png.getByRole('button')).toBeFocused();
 
   const download = page.waitForEvent('download');
-  await entries.nth(0).getByRole('button', { name: text.attachmentDownload }).click();
+  await notes.getByRole('button', { name: text.attachmentDownload }).click();
   const saved = await download;
   expect(saved.suggestedFilename()).toBe('notes.txt');
   const path = await saved.path();
@@ -338,22 +311,28 @@ for (const width of [1440, 390])
       await shot('chips-refused');
       await panel.getByRole('button', { name: text.attachRemove }).last().click();
       await send(page).click();
-      const png = panel.getByTestId('message-attachment').nth(1);
-      await png.getByRole('button', { name: text.attachmentPreview }).click();
+      const png = panel
+        .getByTestId('message-attachment')
+        .filter({ has: page.getByRole('button', { name: 'Preview shot.png' }) });
       await expect(png.locator('img')).toBeVisible();
       await shot('message-preview');
     });
 
-test('an epoch or admission change disposes a shown message preview', async ({ page }) => {
+test('an epoch or admission change disposes and rereads the visible thumbnail', async ({
+  page,
+}) => {
   await mount(page);
   const { panel, input } = await openChat(page);
   await input.fill('Look');
   await attach(page, [{ name: 'shot.png', mimeType: 'image/png', buffer: PNG }]);
   await send(page).click();
   const png = panel.getByTestId('message-attachment');
-  await png.getByRole('button', { name: text.attachmentPreview }).click();
   await expect(png.locator('img')).toBeVisible();
   await page.evaluate(async (path) => (await import(path)).advanceDisclosure(), fixture);
-  await expect(png.locator('img')).toHaveCount(0);
-  await expect(png.getByRole('button', { name: text.attachmentPreview })).toBeVisible();
+  await expect
+    .poll(
+      async () => (await actions(page)).filter((a) => a.startsWith('attach:open:shot.png')).length,
+    )
+    .toBe(2);
+  await expect(png.locator('img')).toBeVisible();
 });

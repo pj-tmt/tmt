@@ -106,27 +106,29 @@ test('annotation attachments: PNG, JPEG and WebP preview, video is download-only
     const rows = thread.getByTestId('message-attachment');
     await expect(rows).toHaveCount(4, { timeout: 60_000 });
     for (const file of files) {
-      const row = rows.filter({ hasText: file.name });
       const previewable = file.mimeType.startsWith('image/');
-      await expect(row.getByRole('button', { name: text.attachmentPreview })).toHaveCount(
-        previewable ? 1 : 0,
-      );
+      const row = previewable
+        ? rows.filter({
+            has: second.getByRole('button', { name: `Preview ${file.name}`, exact: true }),
+          })
+        : rows.filter({ hasText: file.name });
       if (previewable) {
-        await row.getByRole('button', { name: text.attachmentPreview }).click();
         await expect(row.locator('img')).toHaveAttribute(
           'src',
           new RegExp(`^data:${file.mimeType};base64,`),
         );
-        // The browser decodes the preview: it is a real picture, not just a well-formed URL.
         await expect
           .poll(() => row.locator('img').evaluate((img: HTMLImageElement) => img.naturalWidth))
           .toBeGreaterThan(0);
-      }
+        await row.getByRole('button').click();
+      } else await expect(row.locator('img')).toHaveCount(0);
       const download = second.waitForEvent('download');
-      await row.getByRole('button', { name: text.attachmentDownload }).click();
+      const surface = previewable ? second.getByRole('dialog', { name: file.name }) : row;
+      await surface.getByRole('button', { name: text.attachmentDownload }).click();
       const saved = await download;
       expect(saved.suggestedFilename()).toBe(file.name);
       expect(sha(fs.readFileSync((await saved.path())!))).toBe(sha(file.buffer));
+      if (previewable) await second.keyboard.press('Escape');
     }
     await captureResponsive(second, 'thread-attachments');
     // Nothing embeds active content or video, and attachments left the policy as it was.

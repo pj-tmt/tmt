@@ -78,7 +78,11 @@ owns record fields, limits, revision semantics and trust boundaries.
   `ThreadStore.attachments`) owns seal, begin/part/commit, status resume, discard, the
   publication records and the admitted read; `attachment-draft.ts` is one composer's chip
   state machine (no effect before Send, no automatic retry); `attachment-tray.tsx` and
-  `message-attachments.tsx` are the trusted-click composer and message surfaces.
+  `message-attachments.tsx` own composer controls and visible message tiles respectively.
+  `attachment-raster.ts` rechecks bounded raster bytes before data-URL conversion;
+  `attachment-preview.tsx` owns the modal viewer and return focus. Message thumbnails
+  retain display URLs only for their live binding/scope/reference; hidden overflow images
+  are read only when selected.
   `ThreadStore.create/createChat/reply` take the preallocated message ID and committed
   originals and write the proofs with the message in one batch; edit refuses a message that
   has references. A message attachment is fenced by `messageFence` (membership head, epoch,
@@ -91,7 +95,7 @@ owns record fields, limits, revision semantics and trust boundaries.
   with `AttachmentService.publication(stored, source)` then saves the typed change through
   `Live.edit`; `files-panel.tsx` holds the writer panel and the shared `FilesList` rows (also
   the read-only reader list via `ReaderSession.attachments`); `attachment-opener.ts` is the
-  shared trusted-click open hook. Checks: `test/document-files.test.ts`,
+  shared scoped serial read owner; Files enter only on a trusted click. Checks: `test/document-files.test.ts`,
   `e2e/files-panel.spec.ts` and the Files case of `acceptance/attachments.spec.ts`.
 - `components/conversation-window.tsx` owns one header, full-width history and bottom
   composer placement for Chat, anchored threads and new annotations. Window geometry

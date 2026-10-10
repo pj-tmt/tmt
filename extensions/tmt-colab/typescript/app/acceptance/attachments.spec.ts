@@ -72,29 +72,34 @@ test('files attached in Chat reach a second paired device, preview and download 
         await expect(there.getByTestId('message-attachment')).toHaveCount(3, { timeout: 30_000 });
       }
       const rows = there.getByTestId('message-attachment');
-      const row = (name: string) => rows.filter({ hasText: name });
-
-      // Only the raster offers a preview, shown from a data URL after an explicit click.
-      await expect(
-        row('clip.mp4').getByRole('button', { name: text.attachmentPreview }),
-      ).toHaveCount(0);
-      await expect(
-        row('notes.txt').getByRole('button', { name: text.attachmentPreview }),
-      ).toHaveCount(0);
-      await row('dot.png').getByRole('button', { name: text.attachmentPreview }).click();
+      const row = (name: string) =>
+        rows.filter({ has: second.getByRole('button', { name: `Preview ${name}`, exact: true }) });
+      // Visible raster tiles use the same admitted read; non-images remain click-only.
+      await expect(rows.filter({ hasText: 'clip.mp4' }).locator('img')).toHaveCount(0);
+      await expect(rows.filter({ hasText: 'notes.txt' }).locator('img')).toHaveCount(0);
       await expect(row('dot.png').locator('img')).toHaveAttribute(
         'src',
         /^data:image\/png;base64,/,
       );
       await expect(there.locator('video, audio, object, embed')).toHaveCount(0);
       if (!reloaded) await captureResponsive(second, 'chat-attachments');
-
       for (const file of [notes, clip, picture]) {
         const download = second.waitForEvent('download');
-        await row(file.name).getByRole('button', { name: text.attachmentDownload }).click();
+        if (file === picture) {
+          await row(file.name).getByRole('button').click();
+          await second
+            .getByRole('dialog')
+            .getByRole('button', { name: text.attachmentDownload })
+            .click();
+        } else
+          await rows
+            .filter({ hasText: file.name })
+            .getByRole('button', { name: text.attachmentDownload })
+            .click();
         const saved = await download;
         expect(saved.suggestedFilename()).toBe(file.name);
         expect(sha(fs.readFileSync((await saved.path())!))).toBe(sha(file.buffer));
+        if (file === picture) await second.keyboard.press('Escape');
       }
     }
   });
