@@ -1998,7 +1998,8 @@ read. Missing declarations are unavailable, never substituted. Colab's
 `tmt colab deploy-declaration --json` command shipped in #2516 with compiled-in immutable bytes;
 its [declaration section](../extensions/tmt-colab/contracts/colab-v1.md#firestore-deployment-declaration)
 owns that contract. Installed end-to-end acceptance and real-project proof (#2166) still require
-separate owner authorization; no cloud relay, connector, Auth or transport is shipped. The adapter
+separate owner authorization; no cloud relay, machine connector, browser sign-in or Firestore transport is shipped (deploy
+provisions only the project, Rules, sign-in providers and Hosting). The adapter
 resolves firebase-tools from
 the installed `firebase` executable's realpath and Node from its supported launcher; both
 that embedded helper and declaration children start in a fixed neutral cwd. It uses a
