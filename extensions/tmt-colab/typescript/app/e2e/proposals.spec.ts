@@ -143,7 +143,7 @@ test('Follow up retains focus while the renderer replies to its new height', asy
   await expect
     .poll(() =>
       frame.evaluate(() =>
-        (window as Window & { pendingSlotReplies(): number }).pendingSlotReplies(),
+        (window as unknown as { pendingSlotReplies(): number }).pendingSlotReplies(),
       ),
     )
     .toBeGreaterThan(0);
@@ -153,7 +153,7 @@ test('Follow up retains focus while the renderer replies to its new height', asy
   await page.keyboard.type('A follow-up without another click.');
   await expect(composer).toContainText('A follow-up without another click.');
   await frame.evaluate(() =>
-    (window as Window & { releaseSlotReplies(): void }).releaseSlotReplies(),
+    (window as unknown as { releaseSlotReplies(): void }).releaseSlotReplies(),
   );
   await expect(composer).toBeFocused();
   expect((await run(page, 'proof')).sends).toHaveLength(0);
