@@ -231,7 +231,16 @@ if (configIndex >= 0) {
       if (process.env.MOCK_AUTOREPLY === '1' && reply) {
         execPeer(
           ['reply', reply[1], '--receipt', reply[2], '--message', 'channel-ok', '--json'],
-          (error) => log({ event: 'reply', ok: error === null })
+          (error, stdout, stderr) =>
+            log({
+              event: 'reply',
+              ok: error === null,
+              requestId: reply[1],
+              status: error === null ? 0 : (error.code ?? null),
+              signal: error?.signal ?? null,
+              stderr,
+              stdout,
+            })
         );
       }
       const wake = /\breq_[0-9a-f-]{36}\b/.exec(content);
