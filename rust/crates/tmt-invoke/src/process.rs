@@ -50,11 +50,13 @@ pub(crate) fn invoke(
         }
         command = command.cwd(directory);
     }
-    if let EnvironmentPolicy::ClearAllowlist(names) = request.launch.environment {
-        command = command
+    command = match request.launch.environment {
+        EnvironmentPolicy::Inherit => command,
+        EnvironmentPolicy::InheritWith(values) => command.env_extend(values.iter().cloned()),
+        EnvironmentPolicy::ClearAllowlist(names) => command
             .env_clear()
-            .env_extend(std::env::vars_os().filter(|(name, _)| names.contains(name)));
-    }
+            .env_extend(std::env::vars_os().filter(|(name, _)| names.contains(name))),
+    };
     if request.launch.process_group == ProcessGroup::New {
         command = command.setpgid();
     }

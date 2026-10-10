@@ -14,6 +14,7 @@ use std::{
 const TIMEOUT: Duration = Duration::from_secs(15);
 // Above `tmt api`'s own advertised output bound, so its errors stay readable.
 const OUTPUT_LIMIT: usize = 16 * 1024 * 1024;
+const CONFIG_LOOKUP: &str = "TMT_OPS_CONFIG_LOOKUP";
 
 /// A squad or passed-through core failure. Core codes are never renamed.
 /// `message` is the whole text `--json` reports; human output shows it as
@@ -163,6 +164,21 @@ impl Core {
         self.call(&argv, b"")
     }
 
+    /// Bootstrap discovery alone carries the marker through indirect Core launchers.
+    pub(crate) fn config_show(&self) -> Result<Value, SquadError> {
+        if std::env::var_os(CONFIG_LOOKUP).is_some() {
+            return Err(unavailable(
+                "Core configuration lookup reentered Ops; select the Core tmt executable.",
+            ));
+        }
+        let overlay = [(CONFIG_LOOKUP.into(), "1".into())];
+        self.call_with_environment(
+            &["config".into(), "show".into(), "--json".into()],
+            b"",
+            tmt_invoke::EnvironmentPolicy::InheritWith(&overlay),
+        )
+    }
+
     /// Like [`Core::json`], with operands after `--` so text that starts with
     /// `-` is never read as an option.
     pub fn json_with_operands(
@@ -183,17 +199,32 @@ impl Core {
     }
 
     fn call(&self, argv: &[OsString], input: &[u8]) -> Result<Value, SquadError> {
+        self.call_with_environment(argv, input, tmt_invoke::EnvironmentPolicy::Inherit)
+    }
+
+    fn call_with_environment(
+        &self,
+        argv: &[OsString],
+        input: &[u8],
+        environment: tmt_invoke::EnvironmentPolicy<'_>,
+    ) -> Result<Value, SquadError> {
         let result = match self.deadline {
-            Some(deadline) => {
-                runner::run_inherited(&self.executable, argv, input, deadline, OUTPUT_LIMIT)
-            }
-            None => runner::run_cancellable(
+            Some(deadline) => runner::run_inherited(
+                &self.executable,
+                argv,
+                input,
+                deadline,
+                OUTPUT_LIMIT,
+                environment,
+            ),
+            None => runner::run_cancellable_with_environment(
                 &self.executable,
                 argv,
                 input,
                 TIMEOUT,
                 OUTPUT_LIMIT,
                 self.cancellation.as_ref(),
+                environment,
             ),
         };
         let finished = result.map_err(|error| {

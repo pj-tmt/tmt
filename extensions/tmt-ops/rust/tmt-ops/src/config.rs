@@ -879,7 +879,7 @@ impl Config {
     /// The file lives next to the global config that `tmt config show` reports,
     /// so TMT alone owns path discovery. A missing file is an empty document.
     pub fn load(core: &Core) -> Result<Self, SquadError> {
-        let shown = core.json(&["config", "show"])?;
+        let shown = core.config_show()?;
         let path = crate::migration::paths(core, Some(&shown))?.config;
         let _migration = crate::migration::config_write_guard(&path)?;
         let mut config = Self::read(path)?;

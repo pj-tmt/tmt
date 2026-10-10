@@ -51,6 +51,9 @@ pub enum EnvironmentPolicy<'a> {
     /// Preserve the caller's complete environment.
     #[default]
     Inherit,
+    /// Inherit the environment and replace or add these child-only values.
+    /// Names and values retain their OS bytes; the caller's environment is unchanged.
+    InheritWith(&'a [(OsString, OsString)]),
     /// Clear the environment and copy only these named variables from the caller.
     /// Missing names stay absent; values are not interpreted or converted to UTF-8.
     ClearAllowlist(&'a [OsString]),

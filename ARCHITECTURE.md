@@ -156,9 +156,9 @@ permits only XML parsing, borrowed JSON, shared style, private Taffy and Ratatui
 core, adapters, CLI or extension behavior. Ops is its sole reviewed consumer;
 new consumers/dependencies go to tmt-lead. See the [`tmt-tui` skill](.agents/skills/tmt-tui/SKILL.md).
 
-`rust/crates/tmt-invoke` owns neutral executable discovery, bounded waited byte
-capture and the shared browser-opening policy, discovery and launch. It takes plain
-inputs and has no TMT dependencies; Colab and Remote own CLI interaction and presentation.
+`rust/crates/tmt-invoke` owns executable discovery, bounded byte capture, child-only
+environment overlays and browser launch. It has no TMT dependencies; callers own
+command selection, interaction and presentation.
 
 `rust/crates/tmt-cli/tests/architecture.rs` owns the syntactic module/dependency guard;
 [Development](DEVELOPMENT.md#architecture-guard) owns its checks. It supplements behavior review.
