@@ -168,7 +168,8 @@ borderless Rows and HOME panes add no footer focus text. Selection persists when
 another pane receives keys. Input/read, search and every existing overlay/menu
 retain their footer ownership; notice, selected-link and error precedence is unchanged.
 Footer hint keys use bold Accent with Muted labels and two-space separators;
-NO_COLOR keeps the key bold, and settings dim both parts. `t talk` remains at footer rank 1; `v view` appears only for an expanded selected row with a reply. Write and ask-lead
+NO_COLOR keeps the key bold. While an overlay or menu is open (`App::modal_open`) the
+base key hints are blank, since it draws its own; notices and errors stay, dim under settings. `t talk` remains at footer rank 1; `v view` appears only for an expanded selected row with a reply. Write and ask-lead
 remain bound and discoverable in help/menus, without default footer hints.
 
 ## Composition, folds and scrolling

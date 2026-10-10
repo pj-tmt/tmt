@@ -348,6 +348,9 @@ pub(super) fn render(frame: &mut Frame, app: &App, footer: Rect, look: crate::lo
         ))
     } else if let Some(error) = &app.error {
         Line::from(Span::styled(error.as_str(), look.role(Role::Blocked)))
+    } else if app.modal_open() {
+        // Notices and errors above stay; the base key hints would misname the keys.
+        Line::default()
     } else {
         hint_line(&hints(app, usize::from(footer.width)), look)
     };

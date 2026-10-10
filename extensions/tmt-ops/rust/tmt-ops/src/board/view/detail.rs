@@ -241,10 +241,6 @@ fn render_lead(frame: &mut Frame, app: &App, area: Rect, row: &Value) {
             look.role(Role::Dim),
         ));
     }
-    lines.push(Line::styled(
-        "notes below · replies at right",
-        look.role(Role::Dim),
-    ));
     let mut wrapped = vec![heading];
     wrapped.extend(lines.into_iter().flat_map(|line| {
         let style = line.style;
