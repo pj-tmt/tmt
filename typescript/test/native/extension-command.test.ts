@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, realpathSync } from 'node:fs';
+import { existsSync, mkdirSync, realpathSync, symlinkSync } from 'node:fs';
 import { writeExecutable } from '../support/executable-fixture.mjs';
 import path from 'node:path';
 import { describe, expect, it } from 'vite-plus/test';
@@ -14,6 +14,33 @@ function extension(sandbox: Sandbox, name: string, script: string): string {
 }
 
 describe('PATH extension command contract', () => {
+  it('forwards nested help and alias tails verbatim and keeps missing-extension error mode', async () => {
+    await withSandbox(async (sandbox) => {
+      sandbox.env.TMT_AGENT = '1';
+      sandbox.env.BROWSER = '/usr/bin/true';
+      const file = extension(sandbox, 'example', 'printf "%s\\n" "$@"; exit 23');
+      symlinkSync(file, path.join(path.dirname(file), 'tmt-alias'));
+      for (const name of ['example', 'alias']) {
+        for (const tail of [[], ['child'], ['child', '--json', '--', 'two words', '']]) {
+          const result = await runCli(sandbox, ['help', name, ...tail]);
+          expect(result.status).toBe(23);
+          expect(result.stdout).toBe([...tail, '--help'].join('\n') + '\n');
+          expect(result.stderr).toBe('');
+        }
+      }
+      const absent = await runCli(sandbox, ['help', 'no-installed-extension', 'child', '--json']);
+      expect(absent.status).toBe(1);
+      expect(absent.stderr).toBe('');
+      expect(JSON.parse(absent.stdout)).toMatchObject({
+        error: {
+          code: 'USAGE_ERROR',
+          message: expect.stringContaining("Unknown command 'no-installed-extension' after tmt"),
+        },
+      });
+      expect(existsSync(sandbox.database)).toBe(false);
+    });
+  });
+
   it('reserves mv and rename before PATH dispatch and preserves the identity UUID', async () => {
     await withSandbox(async (sandbox) => {
       for (const name of ['mv', 'rename']) {
