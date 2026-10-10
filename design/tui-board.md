@@ -84,6 +84,31 @@ fallback. Do not claim escape-free live terminal output: cursor, erase,
 alternate-screen and mouse control remain protocol. No decorative blink or
 pulse is needed; loading and observed-meter animation retain their own lifecycle.
 
+### Supplied row labels and digest chooser
+
+A supplied label group replaces the Core policy chip, never accompanies it. Its
+muted source name leads the labels (`digest Auto · 3 held`); join labels with
+`·` with one space on each side; never show the source alone. Keep the name, whole state word, source
+plus first label, count, timing, then task, in that priority order. Drop trailing
+labels whole; show no chip when the source plus first label does not fit. The
+[Digest label contract](../extensions/tmt-digest/contracts/digest-v1.md#labels)
+owns wording, units, states and supplier option order; Ops renders them rather
+than recalculating them.
+
+`▾` after the mode identifies its clickable choice. Click it or use the effective
+`i` binding to open the centered `<member> digest` action menu after admission.
+Mark the current option with `(current)`, retain supplier order and put `Custom…`
+last. Custom opens `<member> digest · Enter sets, Esc cancels` with the hint
+`A duration such as 20s, 10m or 1h; empty goes back to the default.`
+
+Keep outcome notices explicit: success is `Digest for <member>: <value>.`, rejection
+is `Digest for <member> was not changed: <value> was not accepted.`, and a lost
+answer retains its error followed by `Digest for <member> may or may not have
+changed.` Invalid input says `That is not a value digest can take; nothing
+changed.` Escape in the Custom input says `Digest not changed.`; Escape in the
+choice menu only dismisses it, without that notice. None of these notices implies
+an automatic retry.
+
 ## Frame and view composition
 
 Tabs identify HOME (`@all`), leads or the shown named/custom squad. A requested
