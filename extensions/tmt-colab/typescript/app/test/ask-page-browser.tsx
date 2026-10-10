@@ -1033,6 +1033,7 @@ export function mixedProposals() {
     threadId: id(91),
     ref: { writer: base.ref.writer, id: id(91) },
     proposal: undefined,
+    deviceName: base.proposal!.proposer.label,
     anchor: { exact: 'Review the supporting notes.', prefix: '', suffix: '' },
   };
   const chat = {

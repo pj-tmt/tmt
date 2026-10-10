@@ -1391,6 +1391,7 @@ function Page() {
           </p>
         )}
         <ThreadPanel
+          reopenProposal={proposalLayer.reopenProposal}
           creationRecipient={view.creationRecipient}
           hideHeader
           renderProposal={proposalLayer.renderProposal}

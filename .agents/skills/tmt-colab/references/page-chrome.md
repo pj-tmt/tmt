@@ -183,7 +183,9 @@ Resolve/Reopen muted text at the right end. Follow up opens the shared composer
 inside the card below its history; Send, Escape and Cancel close it. Proposal
 cards have no anchored window or Delete thread action. Missing, duplicate or
 vanished slots and inner-scroll fallback show the admitted proposal in Comments. Resolve folds a proposal
-to one title/state/Reopen row; Reopen restores its body and history while retaining
+on the page; in Comments it uses a plain row with full muted title, author/time,
+Proposal · Resolved state and Reopen. All proposal list rows prefix their state
+with Proposal, and resolved marks match ordinary threads. Reopen restores history while retaining
 the final decision. Comments offers Proposals only alongside the mixed list. The
 single header count uses `openThreadCount` for undecided unresolved proposals plus
 unresolved ordinary annotations, excluding Chat/deleted records and decided

@@ -269,9 +269,14 @@ for (const [width, theme] of [
     }
     await (await pageAction(page.locator('#ask-page-fixture'), 'Comments')).click();
     const panel = page.locator('.page-drawer[data-panel="comments"][open]');
-    await expect(panel.getByTestId('annotation-row')).toHaveCount(3);
+    await expect(panel.getByTestId('annotation-row')).toHaveCount(4);
     await expect(panel).toContainText('Review the supporting notes.');
-    const folded = panel.locator('.proposal-card[data-resolved]');
+    for (const row of await panel.getByTestId('annotation-row').all())
+      await expect(row).toContainText('Deterministic agent ·');
+    await expect(
+      panel.getByTestId('thread-row-status').filter({ hasText: 'Proposal · Approved' }),
+    ).toHaveCount(1);
+    const folded = panel.locator('.annotation-list-item[data-resolved]');
     await expect(folded).toContainText('Confirm the page audience');
     await expect(folded.locator('.proposal-author, .proposal-body, .proposal-actions')).toHaveCount(
       0,
@@ -283,15 +288,12 @@ for (const [width, theme] of [
     await expect(filter).toHaveAttribute('aria-pressed', 'false');
     await filter.click();
     await expect(filter).toHaveAttribute('aria-pressed', 'true');
-    await expect(panel.getByTestId('annotation-row')).toHaveCount(2);
+    await expect(panel.getByTestId('annotation-row')).toHaveCount(3);
     await expect(panel).not.toContainText('Review the supporting notes.');
     await expect(header).toHaveAccessibleName('Discussion (2)');
     if (captureDir)
       await page.screenshot({ path: `${captureDir}/proposals-filter-${width}-${theme}.png` });
-    const foldedTitle = folded.getByRole('button', {
-      name: 'Confirm the page audience',
-      exact: true,
-    });
+    const foldedTitle = folded.getByTestId('annotation-row');
     await foldedTitle.click();
     await expect(foldedTitle).toHaveAttribute('aria-expanded', 'true');
     await expect(folded.locator('.proposal-body')).toBeVisible();
@@ -312,8 +314,12 @@ for (const [width, theme] of [
     await expect(approved.locator('.proposal-state')).toHaveText('Approved');
     await approved.getByRole('button', { name: 'Resolve', exact: true }).click();
     await expect(header).toHaveAccessibleName('Discussion (3)');
-    await expect(approved.locator('.proposal-body')).toHaveCount(0);
-    await approved.getByRole('button', { name: 'Reopen', exact: true }).click();
+    await expect(approved).toHaveCount(0);
+    await row
+      .locator('..')
+      .locator('..')
+      .getByRole('button', { name: 'Reopen', exact: true })
+      .click();
     await expect(approved.locator('.proposal-state')).toHaveText('Approved');
     await expect(header).toHaveAccessibleName('Discussion (3)');
     expect((await run(page, 'proof')).sends).toHaveLength(0);
@@ -329,13 +335,15 @@ test('folded proposal keeps agent resolution unseen until its history is opened'
   await run(page, 'agentResolves');
   await (await pageAction(page.locator('#ask-page-fixture'), 'Comments')).click();
   const panel = page.locator('.page-drawer[data-panel="comments"][open]');
-  const folded = panel.locator('.proposal-card[data-resolved]');
-  await expect(folded.locator('.proposal-state')).toHaveText('Resolved by Atlas · New');
+  const folded = panel.locator('.annotation-list-item[data-resolved]');
+  await expect(folded.getByTestId('thread-row-status')).toHaveText(
+    'Proposal · Resolved by Atlas · New',
+  );
   expect(await run(page, 'seenProof')).toBe(0);
   await panel.getByRole('button', { name: 'Proposals only', exact: true }).click();
   expect(await run(page, 'seenProof')).toBe(0);
-  await folded.getByRole('button', { name: 'Use a clearer project heading', exact: true }).click();
-  await expect(folded.locator('.proposal-state')).toHaveText('Resolved by Atlas');
+  await folded.getByTestId('annotation-row').click();
+  await expect(folded.getByTestId('thread-row-status')).toHaveText('Proposal · Resolved by Atlas');
   await expect(folded.locator('.proposal-body')).toBeVisible();
   expect(await run(page, 'seenProof')).toBe(1);
   expect((await run(page, 'proof')).sends).toHaveLength(0);

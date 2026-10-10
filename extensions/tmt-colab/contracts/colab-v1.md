@@ -999,7 +999,11 @@ failure for explicit recovery after the composer closes; signed Ask outcomes own
 recovery once admitted. Proposals expose no Delete thread action.
 Resolve folds the proposal to one line with its title, retained decision/resolved
 mark and Reopen action; body, author and conversation history return on Reopen.
-In Comments, opening the folded title discloses that retained history without
+In Comments, resolved proposals use the same plain row as other threads: full
+muted title, author/time, Proposal · Resolved state and Reopen. Proposal rows
+prefix their Open/Approved/Declined/Resolved state with Proposal; annotations do
+not. Resolved cards and rows use the ordinary resolved-thread mark, never the
+Open mark. Opening the resolved row discloses retained history without
 reopening the proposal or changing the pending count. This explicit opening
 acknowledges a locally unseen resolution; rendering or filtering does not.
 Comments mixes proposals with ordinary annotations and offers a Proposals only

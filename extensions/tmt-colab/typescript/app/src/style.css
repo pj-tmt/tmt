@@ -1242,3 +1242,26 @@ body:has(.page-header-actions) {
   font-weight: 600;
   text-align: left;
 }
+
+.annotation-row-controls {
+  display: flex;
+  align-items: end;
+  gap: 8px;
+}
+.annotation-row-controls .annotation-row {
+  flex: 1;
+  min-width: 0;
+}
+.annotation-row[data-resolved] strong {
+  display: block;
+  overflow: visible;
+  overflow-wrap: anywhere;
+  color: var(--c-muted);
+}
+.proposal-row-reopen {
+  flex: none;
+  margin-bottom: 14px;
+}
+.proposal-row-reopen .tmt-ui-action {
+  color: var(--c-muted);
+}

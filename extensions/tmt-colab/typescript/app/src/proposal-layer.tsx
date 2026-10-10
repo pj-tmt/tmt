@@ -92,6 +92,17 @@ export function useProposalLayer({
     binding.current?.markThreadStatusSeen?.(thread.ref);
     setProposalComposer({ id, key: crypto.randomUUID(), location });
   }
+  function changeProposalStatus(thread: ThreadView, location: 'inline' | 'comments') {
+    if (!statusCoordinator) return;
+    const id = `${thread.ref.writer}:${thread.ref.id}`;
+    setProposalStatusErrors(previous => new Set([...previous].filter(value => value !== id)));
+    void statusCoordinator.change(thread, !thread.resolved).then(() => {
+      if (location === 'comments') setActiveThread(previous => thread.resolved ? id : previous === id ? null : previous);
+    }).catch(() => {
+      setProposalStatusErrors(previous => new Set(previous).add(id));
+      if (location === 'comments') setActiveThread(id);
+    });
+  }
   function proposalCard(
     thread: ThreadView,
     detached = false,
@@ -126,21 +137,7 @@ export function useProposalLayer({
         canDecide={!!status?.controllable && !!snapshot.binding?.discussion?.decideProposal}
         decide={(decision) => void proposalActions.decide(id, decision)}
         followUp={() => followUpProposal(thread, location)}
-        resolve={
-          status?.controllable && statusCoordinator
-            ? () => {
-                setProposalStatusErrors(
-                  (previous) => new Set([...previous].filter((value) => value !== id)),
-                );
-                void statusCoordinator
-                  .change(thread, !thread.resolved)
-                  .then(() => {
-                    if (location === 'comments') setActiveThread(previous => thread.resolved ? id : previous === id ? null : previous);
-                  })
-                  .catch(() => setProposalStatusErrors((previous) => new Set(previous).add(id)));
-              }
-            : undefined
-        }
+        resolve={status?.controllable && statusCoordinator ? () => changeProposalStatus(thread, location) : undefined}
         composer={
           proposalComposer?.id === id &&
           proposalComposer.location === location && (
@@ -287,6 +284,7 @@ export function useProposalLayer({
   }, [state, view.source, proposalIdentity]);
   return {
     onSlots: setSlotPositions,
+    reopenProposal: (thread: ThreadView) => changeProposalStatus(thread, 'comments'),
     inline: (
       <>
         {proposals

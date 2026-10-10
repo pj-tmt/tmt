@@ -610,6 +610,7 @@ export function ThreadPanel({
   onStatusChange,
   onBusy,
   renderProposal,
+  reopenProposal,
 }: {
   creationRecipient?: CreationRecipient;
   hideHeader?: boolean;
@@ -630,6 +631,7 @@ export function ThreadPanel({
   onStatusChange?(thread: ThreadView, resolved: boolean): Promise<ThreadStatusOutcome>;
   onBusy?(busy: boolean): void;
   renderProposal?(thread: ThreadView): ReactNode;
+  reopenProposal?(thread: ThreadView): void;
 }) {
   const [compose, setCompose] = useState(false);
   const [proposalsOnly, setProposalsOnly] = useState(false);
@@ -683,6 +685,7 @@ export function ThreadPanel({
           const id = `${thread.ref.writer}:${thread.threadId}`;
           const participants = [
             ...new Set([
+              thread.proposal?.proposer.label || thread.deviceName || text.commentDevice,
               ...thread.comments
                 .filter((value) => !value.deleted)
                 .map((value) => value.deviceName || text.commentDevice),
@@ -693,66 +696,82 @@ export function ThreadPanel({
           ];
           const at = Number(thread.comments.at(-1)?.at ?? thread.at);
           const status = presentationOf(presentations, thread.ref)?.status;
-          if (thread.proposal && thread.resolved && renderProposal)
-            return (
-              <section className="annotation-list-item" key={id}>
-                {renderProposal(thread)}
-              </section>
-            );
           return (
-            <section className="annotation-list-item" key={id}>
-              <button
-                className="annotation-row"
-                data-testid="annotation-row"
-                data-thread-id={thread.threadId}
-                title={Array.from(
-                  (
-                    thread.comments.find(
-                      (value) => !value.deleted && value.ref.writer === thread.ref.writer,
-                    ) ?? thread.comments.find((value) => !value.deleted)
-                  )?.body.split('\n')[0] ?? '',
-                )
-                  .slice(0, 32)
-                  .join('')}
-                aria-expanded={active === id}
-                onClick={(event) => {
-                  if (event.isTrusted) select(thread.ref);
-                }}
-              >
-                <strong>
-                  {thread.deleted
-                    ? text.threadDeleted
-                    : (thread.proposal?.title ?? thread.anchor?.exact ?? 'Page comments')}
-                </strong>
-                <span>
-                  {participants.join(', ')} ·{' '}
-                  <time dateTime={new Date(at).toISOString()}>{relativeTime(at, now)}</time>
-                </span>
-                <span data-testid="thread-row-status" data-unseen={status?.unseen || undefined}>
-                  {thread.resolved ? (
-                    <CircleCheck aria-hidden />
-                  ) : thread.proposal && thread.decision ? (
-                    thread.decision.decision === 'approved' ? (
-                      <Check aria-hidden />
+            <section
+              className="annotation-list-item"
+              data-resolved={thread.resolved || undefined}
+              key={id}
+            >
+              <div className="annotation-row-controls">
+                <button
+                  className="annotation-row"
+                  data-testid="annotation-row"
+                  data-thread-id={thread.threadId}
+                  data-resolved={thread.resolved || undefined}
+                  title={Array.from(
+                    (
+                      thread.comments.find(
+                        (value) => !value.deleted && value.ref.writer === thread.ref.writer,
+                      ) ?? thread.comments.find((value) => !value.deleted)
+                    )?.body.split('\n')[0] ?? '',
+                  )
+                    .slice(0, 32)
+                    .join('')}
+                  aria-expanded={active === id}
+                  onClick={(event) => {
+                    if (event.isTrusted)
+                      select(thread.proposal && active === id ? null : thread.ref);
+                  }}
+                >
+                  <strong>
+                    {thread.deleted
+                      ? text.threadDeleted
+                      : (thread.proposal?.title ?? thread.anchor?.exact ?? 'Page comments')}
+                  </strong>
+                  <span>
+                    {participants.join(', ')} ·{' '}
+                    <time dateTime={new Date(at).toISOString()}>{relativeTime(at, now)}</time>
+                  </span>
+                  <span data-testid="thread-row-status" data-unseen={status?.unseen || undefined}>
+                    {thread.resolved ? (
+                      <CircleCheck aria-hidden />
+                    ) : thread.proposal && thread.decision ? (
+                      thread.decision.decision === 'approved' ? (
+                        <Check aria-hidden />
+                      ) : (
+                        <X aria-hidden />
+                      )
                     ) : (
-                      <X aria-hidden />
-                    )
-                  ) : (
-                    <CircleDot aria-hidden />
-                  )}
-                  {thread.resolved
-                    ? resolvedLabel(status)
-                    : thread.proposal && thread.decision
-                      ? thread.decision.decision === 'approved'
-                        ? text.proposalApproved
-                        : text.proposalDeclined
-                      : text.threadOpen}
-                  {status?.unseen ? ` · ${text.threadUnseen}` : ''}
-                  {thread.anchor && !thread.resolved && !resolved.includes(id)
-                    ? ` · ${text.commentDetached}`
-                    : ''}
-                </span>
-              </button>
+                      <CircleDot aria-hidden />
+                    )}
+                    {thread.proposal ? `${text.proposalOpen} · ` : ''}
+                    {thread.resolved
+                      ? resolvedLabel(status)
+                      : thread.proposal && thread.decision
+                        ? thread.decision.decision === 'approved'
+                          ? text.proposalApproved
+                          : text.proposalDeclined
+                        : text.threadOpen}
+                    {status?.unseen ? ` · ${text.threadUnseen}` : ''}
+                    {thread.anchor && !thread.resolved && !resolved.includes(id)
+                      ? ` · ${text.commentDetached}`
+                      : ''}
+                  </span>
+                </button>
+                {thread.proposal && thread.resolved && status?.controllable && reopenProposal && (
+                  <span className="proposal-row-reopen">
+                    <BrowserAction
+                      type="button"
+                      variant="text"
+                      label={text.threadReopen}
+                      disabled={blocked}
+                      onActivate={(event) => {
+                        if (event.isTrusted) reopenProposal(thread);
+                      }}
+                    />
+                  </span>
+                )}
+              </div>
               {active === id &&
                 (thread.proposal ? (
                   renderProposal?.(thread)

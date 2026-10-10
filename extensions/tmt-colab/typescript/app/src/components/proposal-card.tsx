@@ -1,5 +1,5 @@
 import { BrowserAction } from '@tmt/browser-ui/react';
-import { Check, CircleDot, X } from 'lucide-react';
+import { Check, CircleCheck, CircleDot, X } from 'lucide-react';
 import type { ReactNode } from 'react';
 import type { ThreadView } from '../thread-records.js';
 import type { ProposalOutcome } from '../proposal-actions.js';
@@ -71,7 +71,9 @@ export function ProposalCard({
           data-unseen={unseen || undefined}
           title={thread.resolved ? resolvedLabel : undefined}
         >
-          {decision === 'approved' ? (
+          {thread.resolved ? (
+            <CircleCheck aria-hidden />
+          ) : decision === 'approved' ? (
             <Check aria-hidden />
           ) : decision === 'declined' ? (
             <X aria-hidden />
