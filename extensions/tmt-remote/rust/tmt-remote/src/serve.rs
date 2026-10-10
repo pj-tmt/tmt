@@ -500,10 +500,9 @@ fn foreground_with(
                         std::io::ErrorKind::NotFound | std::io::ErrorKind::ConnectionRefused
                     )
                 ) {
-                    object_warning(&format!(
-                        "Object channel unavailable for {}: {:?}",
-                        failure.extension, failure.error
-                    ));
+                    object_warning(
+                        "attachments are unavailable until Colab reaches Remote's object channel",
+                    );
                 }
             }
         }
