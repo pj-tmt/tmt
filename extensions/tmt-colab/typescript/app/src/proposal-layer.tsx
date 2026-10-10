@@ -276,6 +276,7 @@ export function useProposalLayer({
               <div
                 key={`${thread.ref.writer}:${thread.ref.id}`}
                 data-inline-proposal={thread.threadId}
+                data-theme="light"
                 data-inline-slot={thread.threadId}
                 className="proposal-inline"
                 data-detached={!slot || undefined}

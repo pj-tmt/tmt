@@ -54,6 +54,7 @@ export function useQuestionLayer({
             <div
               key={question.id}
               data-inline-question={question.id}
+              data-theme="light"
               data-inline-slot={question.id}
               className="proposal-inline question-inline"
               data-detached={!slot || undefined}

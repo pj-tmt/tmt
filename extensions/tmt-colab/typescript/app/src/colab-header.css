@@ -1,5 +1,6 @@
 /* Colab owns viewport placement and metric inputs; browser-ui owns presentation. */
-:root {
+:root,
+.proposal-inline {
   --c-text: var(--tmt-ui-color-text);
   --c-muted: var(--tmt-ui-color-secondary);
   --c-accent: var(--tmt-ui-color-link);

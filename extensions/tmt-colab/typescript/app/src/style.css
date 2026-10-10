@@ -380,7 +380,8 @@ footer {
   gap: 6px;
 }
 .annotation-compose .tmt-ui-action[data-variant='primary']:not(:disabled),
-.proposal-approve .tmt-ui-action:not(:disabled) {
+.proposal-approve .tmt-ui-action:not(:disabled),
+.proposal-inline .question-card > .tmt-ui-action[data-variant='primary']:not(:disabled) {
   color: var(--c-paper);
   background: var(--c-text);
   border-color: var(--c-text);
@@ -1091,12 +1092,23 @@ footer {
   overflow-wrap: anywhere;
 }
 
+/* In-page controls use the leaf light palette, independent of chrome and author CSS. */
 .proposal-inline {
+  color-scheme: light;
   position: absolute;
   left: 0;
   right: 0;
   z-index: 1;
   padding: 0 16px;
+}
+.proposal-inline .proposal-card,
+.proposal-inline .question-card {
+  border: 1px solid var(--tmt-ui-color-edge);
+  border-radius: 0;
+  box-shadow: none;
+}
+.proposal-inline :focus-visible {
+  outline-color: var(--tmt-ui-color-focus);
 }
 .proposal-inline[data-detached] {
   visibility: hidden;

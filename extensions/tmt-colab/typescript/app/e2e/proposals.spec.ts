@@ -216,6 +216,15 @@ for (const width of [1440, 390])
       await page.getByTestId('annotation-row').click();
       const card = page.locator('.page-drawer[data-panel="comments"][open] .proposal-card');
       await expect(card).toBeVisible();
+      // The same card in Comments continues to follow the app chrome theme.
+      await expect(card).toHaveCSS(
+        'background-color',
+        theme === 'dark' ? 'rgb(16, 16, 16)' : 'rgb(255, 255, 255)',
+      );
+      await expect(card).toHaveCSS(
+        'color',
+        theme === 'dark' ? 'rgb(176, 176, 176)' : 'rgb(52, 52, 52)',
+      );
       await card.getByRole('button', { name: 'Follow up', exact: true }).click();
       await expect(card.getByRole('combobox')).toContainText('@Deterministic agent');
       await card.getByRole('button', { name: 'Cancel', exact: true }).click();
