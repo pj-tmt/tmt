@@ -41,7 +41,7 @@ Read the repository guidance before planning work:
    ordering through the existing child-process owner. Native CLI scenarios use
    the shared sandbox runner's native ancestry and input connection isolation,
    documented in DEVELOPMENT.
-   Isolated worlds set `TMT_AGENT=1` and `BROWSER` to a no-op to suppress automatic opens (#2518); pass `--no-open` or `--json` where supported.
+   Isolated worlds must set `TMT_AGENT=1` and `BROWSER` to a no-op to suppress automatic opens (#2518); pass `--no-open` or `--json` where supported.
    Keep direct runtime-caller positive controls fenced rather than adding
    scenario skips or production guard overrides.
    Rust executable-fixture changes follow the focused checks'
