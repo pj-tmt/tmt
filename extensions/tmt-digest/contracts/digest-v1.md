@@ -47,12 +47,12 @@ No skill or managed installation is shipped by this settings surface.
 
 ## Status document
 
-This section defines the proposed `tmt digest status --json` reader contract for
-phase 2; the help-only/settings surface above does not yet produce it. The frozen
-[status vectors](vectors/status-v1.json) let consumers build against the contract
-before the status writer ships. Ops and insight call the extension once for all
-agents; they do not read Digest TOML/history or Core storage. Digest uses public
-Core identity/stat operations in batches, never one subprocess per member.
+`tmt digest status --json` produces this phase-2 reader contract. The frozen
+[status vectors](vectors/status-v1.json) pin its ready-made labels and actions.
+Ops and insight call the extension once for all agents; they do not read Digest
+TOML/history or Core storage. Digest reads public Core identities once and stats
+in batches of at most 256, never one subprocess per member. Core calls share a
+15-second command deadline; unavailable stats retain known rows with null evidence.
 
 A successful document has `version: 1`, `observedAtMs` (snapshot assembly time),
 and `members`, with one row per identity from public Core identity listing,
