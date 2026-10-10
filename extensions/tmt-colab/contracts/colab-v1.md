@@ -2708,6 +2708,29 @@ The Rules emulator suite (`tests/emulator/suite.mjs`, Docker image of the pinned
 Java 21, no network inside) loads the composed golden, not the bare fragment. It has no skip path
 and runs locally; see [references/development.md](../../../.agents/skills/tmt-colab/references/development.md#firestore-rules-emulator).
 
+### `tmt colab hosting-bundle --json` (#2487)
+
+This public release command reads the separate hosted inventory embedded in its running
+executable. It accepts no digest argument, discovers no core, opens no state, and uses no
+network or runtime app-directory fallback. An executable without a hosted inventory exits 1
+with `COLAB_UNAVAILABLE`; the ordinary native app bundle does not satisfy it.
+
+Success is one JSON object with exactly `{version:1,manifestDigest,files}`. `files` is a
+path-sorted list of exactly `{path,bytesBase64}`; bytes use canonical standard Base64.
+`manifestDigest` is lowercase SHA-256 of the canonical manifest JSON with top-level field
+order `version,files` and file field order `path,sha256,length,contentType,csp`. Manifest
+version is 1, length counts decoded bytes, contentType is bare, and every file carries CSP.
+The build snapshots the manifest and bundle together, preserves the renderer CSP, and
+copies Remote's built SDK byte-for-byte to `/colab/sdk/remote-v1.js` with a digest check.
+Colab's own paths are below `/colab/`; unsafe paths, SDK overrides and growth reaching
+50% of Remote's v1 file-count, per-file or total-byte cap fail the build.
+
+The build pipeline and command are implemented independently of the deployment declaration.
+The hosted entry, its exact Firebase connect origins, short-route glue, declaration field,
+golden vector and emulator smoke remain the dependent slice of #2487 after #2397 and the
+Remote Firebase SDK surface. This command does not claim that ordinary releases currently
+contain a working hosted entry.
+
 ### `tmt colab stop` (#1594)
 
 `tmt colab stop [--json]` asks the serving process of this data root to shut down. It never

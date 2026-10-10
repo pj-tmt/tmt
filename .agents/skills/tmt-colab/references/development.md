@@ -28,6 +28,31 @@ the expected canonical tree via `--skills extensions/tmt-colab/skills`; a raw
 executable smoke does not establish that the tree ships. Shared release prepare
 verification derives this argument from `shipsSkills(product)`.
 
+## Hosted bundle build (#2487)
+
+`tmt colab hosting-bundle --json` reads only the executable's embedded hosted inventory,
+without core discovery, storage, or network. Ordinary builds embed none and return
+`COLAB_UNAVAILABLE`; `TMT_COLAB_APP_DIR` and native `--app-dir` do not supply hosted bytes.
+
+The build-only `TMT_COLAB_HOSTING_DIR` selects an absolute, separate hosted distribution.
+Its files are published below `/colab/`; `index.html` and `THIRD-PARTY-NOTICES.txt` are
+required. The generator copies Remote's existing built output
+`extensions/tmt-remote/rust/tmt-remote/assets/remote-v1.js` to `/colab/sdk/remote-v1.js`,
+checking its copied SHA-256 against that output. The input tree cannot override this path.
+Files and directories must be real, with supported bare content types. The build rejects
+inventory reaching 128 files, 2 MiB per file, or 8 MiB total (50% of Remote's v1 caps).
+Every manifest file carries the existing native CSP; a renderer entry retains its existing
+renderer CSP. Runtime bytes and the canonical manifest are immutable Cargo snapshots.
+
+This pipeline does not supply hosted sign-in/join glue or the deployment declaration's
+hosting field. Those wait for #2397 and Remote's Firebase SDK surface; only their exact
+Firebase connect origins may be added when that entry is implemented. A synthetic build
+fixture proves the wire inventory and command without claiming a working hosted entry.
+
+Focused checks: `cargo +1.97.0 test --offline --locked -p tmt-colab --test build_hosting --test hosting`
+from `rust/`. Run `hosting` again with a separate explicit hosted fixture to exercise the
+embedded-success path; the ordinary build exercises `COLAB_UNAVAILABLE`.
+
 ## Package gates
 
 ```bash

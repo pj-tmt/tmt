@@ -223,6 +223,18 @@ fn canonical_generated_pipeline_rejects_drift_and_app_declarations() {
     let assets =
         fs::read_to_string(repository.join("extensions/tmt-colab/rust/tmt-colab/build/assets.rs"))
             .unwrap();
+    let hosting =
+        fs::read_to_string(repository.join("extensions/tmt-colab/rust/tmt-colab/build/hosting.rs"))
+            .unwrap();
+    fixture.write(&format!("{crate_dir}/build/hosting.rs"), &hosting);
+    fixture.write(
+        &format!("{crate_dir}/src/browser_policy.rs"),
+        "pub const POLICY: &str = \"policy\";\n",
+    );
+    fixture.write(
+        &format!("{crate_dir}/src/hosting.rs"),
+        "include!(concat!(env!(\"OUT_DIR\"), \"/colab_hosting.rs\"));\n",
+    );
     fixture.write(&format!("{crate_dir}/build.rs"), &build);
     fixture.write(&format!("{crate_dir}/build/assets.rs"), &assets);
     fixture.write(
@@ -233,13 +245,18 @@ fn canonical_generated_pipeline_rejects_drift_and_app_declarations() {
         &format!("{crate_dir}/src/assets.rs"),
         "include!(concat!(env!(\"OUT_DIR\"), \"/colab_assets.rs\"));\n",
     );
-    fixture.write("scripts/build-native-artifact.sh", &format!("TMT_COLAB_APP_DIR=\"$repo/{app}/dist\"\nexport TMT_COLAB_APP_DIR\ncorepack pnpm@10.33.0 --filter @tmt/colab-app --fail-if-no-match build 1>&2\n"));
+    fixture.write("scripts/build-native-artifact.sh", &format!("unset TMT_COLAB_HOSTING_DIR\nTMT_COLAB_APP_DIR=\"$repo/{app}/dist\"\nexport TMT_COLAB_APP_DIR\ncorepack pnpm@10.33.0 --filter @tmt/colab-app --fail-if-no-match build 1>&2\n"));
     fixture.metadata["packages"][0]["targets"].as_array_mut().unwrap().push(json!({"kind":["custom-build"],"src_path":fixture.root.join(format!("{crate_dir}/build.rs"))}));
     fixture.map["components"]["product"]["generatedInputs"] = json!([{
         "includeSite":format!("{crate_dir}/src/assets.rs"), "expression":"concat!(env!(\"OUT_DIR\"), \"/colab_assets.rs\")",
         "generator":format!("{crate_dir}/build/assets.rs"), "generatorBlob":"8a934c2344d9d0be29bee61d4a054213c2c8b109", "buildScript":format!("{crate_dir}/build.rs"),
         "variable":"TMT_COLAB_APP_DIR", "inputDirectory":format!("{app}/dist"), "packageRoot":app,
         "releaseScript":"scripts/build-native-artifact.sh", "reason":"Canonical pipeline"
+    }, {
+        "includeSite":format!("{crate_dir}/src/hosting.rs"), "expression":"concat!(env!(\"OUT_DIR\"), \"/colab_hosting.rs\")",
+        "generator":format!("{crate_dir}/build/hosting.rs"), "generatorBlob":"975d744396c0737f9c5425be3fd5af9aed80b8dd", "buildScript":format!("{crate_dir}/build.rs"),
+        "variable":"TMT_COLAB_HOSTING_DIR", "inputDirectory":format!("{app}/dist-hosted"), "packageRoot":app,
+        "releaseScript":"scripts/build-native-artifact.sh", "reason":"Explicit hosted input excluded from native releases"
     }]);
     fixture.check().unwrap();
     fixture.write(
@@ -275,6 +292,33 @@ fn canonical_generated_pipeline_rejects_drift_and_app_declarations() {
     fixture.write(&format!("{crate_dir}/build.rs"), &build);
     let release =
         fs::read_to_string(fixture.root.join("scripts/build-native-artifact.sh")).unwrap();
+    for changed in [
+        release.replace("unset TMT_COLAB_HOSTING_DIR\n", ""),
+        format!(
+            "{}unset TMT_COLAB_HOSTING_DIR\n",
+            release.replace("unset TMT_COLAB_HOSTING_DIR\n", "")
+        ),
+    ] {
+        fixture.write("scripts/build-native-artifact.sh", &changed);
+        assert!(
+            fixture
+                .check()
+                .unwrap_err()
+                .contains("hosted release exclusion drift")
+        );
+    }
+    fixture.write("scripts/build-native-artifact.sh", &release);
+    fixture.write(
+        &format!("{crate_dir}/build/hosting.rs"),
+        &format!("{hosting}\nfn undeclared_generator() {{}}\n"),
+    );
+    assert!(
+        fixture
+            .check()
+            .unwrap_err()
+            .contains("asset generator drift")
+    );
+    fixture.write(&format!("{crate_dir}/build/hosting.rs"), &hosting);
     fixture.write(
         "scripts/build-native-artifact.sh",
         &release.replace("/dist\"", "/other\""),
@@ -288,6 +332,8 @@ fn canonical_generated_pipeline_rejects_drift_and_app_declarations() {
     fixture.write("scripts/build-native-artifact.sh", &release);
     fixture.check().unwrap();
     for root in [
+        "extensions/tmt-remote/rust/tmt-remote/assets".to_owned(),
+        format!("{app}/dist-hosted"),
         app.to_owned(),
         format!("{app}/dist"),
         format!("{app}/dist/assets"),

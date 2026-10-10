@@ -160,6 +160,18 @@
           "packageRoot": "extensions/tmt-colab/typescript/app",
           "releaseScript": "scripts/build-native-artifact.sh",
           "reason": "The canonical release script builds the app and pins this directory before Cargo generates immutable asset snapshots."
+        },
+        {
+          "includeSite": "extensions/tmt-colab/rust/tmt-colab/src/hosting.rs",
+          "expression": "concat!(env!(\"OUT_DIR\"), \"/colab_hosting.rs\")",
+          "generator": "extensions/tmt-colab/rust/tmt-colab/build/hosting.rs",
+          "generatorBlob": "975d744396c0737f9c5425be3fd5af9aed80b8dd",
+          "buildScript": "extensions/tmt-colab/rust/tmt-colab/build.rs",
+          "variable": "TMT_COLAB_HOSTING_DIR",
+          "inputDirectory": "extensions/tmt-colab/typescript/app/dist-hosted",
+          "packageRoot": "extensions/tmt-colab/typescript/app",
+          "releaseScript": "scripts/build-native-artifact.sh",
+          "reason": "Hosted inventory is an explicit developer build input; native releases unset it until the reviewed hosted entry pipeline is available."
         }
       ],
       "release": true,

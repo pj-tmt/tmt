@@ -485,6 +485,41 @@ describe('component map', () => {
     return () => parseComponentMap(JSON.stringify(value));
   };
 
+  it('admits the canonical two-generator map and retains single-generator maps', () => {
+    expect(
+      map.components
+        .find((component) => component.name === 'tmt-colab')!
+        .generatedInputs.map((entry) => entry.variable)
+    ).toEqual(['TMT_COLAB_APP_DIR', 'TMT_COLAB_HOSTING_DIR']);
+    const single = JSON.parse(mapText);
+    single.components['tmt-colab'].generatedInputs.pop();
+    expect(
+      parseComponentMap(JSON.stringify(single)).components.find(
+        (component) => component.name === 'tmt-colab'
+      )!.generatedInputs
+    ).toHaveLength(1);
+  });
+
+  it.each(['reversed', 'variable', 'generator', 'includeSite', 'third'])(
+    'rejects %s generated-input drift',
+    (drift) => {
+      expect(
+        invalid((value) => {
+          const entries = value.components['tmt-colab'].generatedInputs;
+          if (drift === 'reversed') entries.reverse();
+          else if (drift === 'third')
+            entries.push({
+              ...entries[1],
+              variable: 'TMT_COLAB_Z_DIR',
+              generator: 'extensions/extra/build.rs',
+              includeSite: 'extensions/extra/src.rs',
+            });
+          else entries[1][drift] = entries[0][drift];
+        })
+      ).toThrow('permits at most two canonical generators in ascending variable order');
+    }
+  );
+
   it('every workflow Node version-file input names a tracked repository file', () => {
     const files = tracked();
     for (const workflow of files.filter((file) =>

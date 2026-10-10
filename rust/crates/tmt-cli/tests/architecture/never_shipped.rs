@@ -326,11 +326,27 @@ fn generator(
     let release = declared_path(root, entry, "releaseScript")?;
     let variable = text(entry, "variable")?;
     text(entry, "reason")?;
-    if site != crate_dir.join("src/assets.rs")
-        || generated != crate_dir.join("build/assets.rs")
+    let hosted = variable == "TMT_COLAB_HOSTING_DIR";
+    let (include_site, generator_file, input_directory, output_file) = if hosted {
+        (
+            "src/hosting.rs",
+            "build/hosting.rs",
+            "dist-hosted",
+            "/colab_hosting.rs",
+        )
+    } else {
+        (
+            "src/assets.rs",
+            "build/assets.rs",
+            "dist",
+            "/colab_assets.rs",
+        )
+    };
+    if site != crate_dir.join(include_site)
+        || generated != crate_dir.join(generator_file)
         || build != crate_dir.join("build.rs")
-        || variable != "TMT_COLAB_APP_DIR"
-        || directory != package.join("dist")
+        || (!hosted && variable != "TMT_COLAB_APP_DIR")
+        || directory != package.join(input_directory)
         || release != root.join("scripts/build-native-artifact.sh")
         || !package.join("package.json").is_file()
     {
@@ -339,11 +355,18 @@ fn generator(
     for input in [&site, &generated, &build, &directory, &package, &release] {
         protect(declarations, input)?;
     }
+    if hosted {
+        protect(declarations, &crate_dir.join("src/browser_policy.rs"))?;
+        protect(
+            declarations,
+            &root.join("extensions/tmt-remote/rust/tmt-remote/assets/remote-v1.js"),
+        )?;
+    }
     let expression = text(entry, "expression")?
         .parse::<TokenStream>()
         .map_err(|e| e.to_string())?
         .to_string();
-    let expected = "concat!(env!(\"OUT_DIR\"), \"/colab_assets.rs\")"
+    let expected = format!("concat!(env!(\"OUT_DIR\"), {output_file:?})")
         .parse::<TokenStream>()
         .unwrap()
         .to_string();
@@ -351,33 +374,60 @@ fn generator(
         return Err("unsupported generated include expression".into());
     }
     let script = fs::read_to_string(&release).map_err(|e| e.to_string())?;
-    let pin = format!("{variable}=\"$repo/{}\"", relative(root, &directory)?);
-    let assignments: Vec<_> = script
-        .lines()
-        .map(str::trim)
-        .filter(|line| line.starts_with(&format!("{variable}=")))
-        .collect();
-    if assignments != [pin.as_str()]
-        || script
-            .lines()
-            .map(str::trim)
-            .filter(|line| *line == format!("export {variable}"))
-            .count()
-            != 1
-        || script
-            .lines()
-            .map(str::trim)
-            .filter(|line| {
-                *line
-                    == "corepack pnpm@10.33.0 --filter @tmt/colab-app --fail-if-no-match build 1>&2"
-            })
-            .count()
-            != 1
+    let lines: Vec<_> = script.lines().map(str::trim).collect();
+    let reset = lines
+        .iter()
+        .position(|line| *line == "unset TMT_COLAB_HOSTING_DIR");
+    let export = lines
+        .iter()
+        .position(|line| *line == "export TMT_COLAB_APP_DIR");
+    let product_block = lines
+        .iter()
+        .position(|line| line.starts_with("if [ \"$product\" ="));
+    if lines
+        .iter()
+        .filter(|line| **line == "unset TMT_COLAB_HOSTING_DIR")
+        .count()
+        != 1
+        || reset
+            .zip(export)
+            .is_none_or(|(reset, export)| reset >= export)
+        || product_block.is_some_and(|block| reset.is_none_or(|reset| reset >= block))
+        || lines.iter().any(|line| {
+            line.starts_with("TMT_COLAB_HOSTING_DIR=") || *line == "export TMT_COLAB_HOSTING_DIR"
+        })
     {
-        return Err("canonical release directory pin drift".into());
+        return Err("canonical hosted release exclusion drift".into());
+    }
+    if !hosted {
+        let pin = format!("{variable}=\"$repo/{}\"", relative(root, &directory)?);
+        let assignments: Vec<_> = script
+            .lines()
+            .map(str::trim)
+            .filter(|line| line.starts_with(&format!("{variable}=")))
+            .collect();
+        if assignments != [pin.as_str()]
+            || script
+                .lines()
+                .map(str::trim)
+                .filter(|line| *line == format!("export {variable}"))
+                .count()
+                != 1
+            || script
+                .lines()
+                .map(str::trim)
+                .filter(|line| {
+                    *line
+                        == "corepack pnpm@10.33.0 --filter @tmt/colab-app --fail-if-no-match build 1>&2"
+                })
+                .count()
+                != 1
+        {
+            return Err("canonical release directory pin drift".into());
+        }
     }
     // One deliberately exact, small forwarding owner. New variables/calls require reviewed proof.
-    let expected_build = "#[path = \"src/app_inventory.rs\"]\nmod app_inventory;\n#[path = \"build/assets.rs\"]\nmod assets;\n\nfn main() {\n    println!(\"cargo:rerun-if-env-changed=TMT_COLAB_APP_DIR\");\n    let output =\n        std::path::PathBuf::from(std::env::var_os(\"OUT_DIR\").expect(\"Cargo supplies OUT_DIR\"));\n    let directory = std::env::var_os(\"TMT_COLAB_APP_DIR\").map(std::path::PathBuf::from);\n    let inputs = assets::generate(directory.as_deref(), &output)\n        .unwrap_or_else(|error| panic!(\"Colab app build is unavailable: {error}\"));\n    for input in inputs {\n        println!(\"cargo:rerun-if-changed={}\", input.display());\n    }\n}\n";
+    let expected_build = "#[path = \"src/app_inventory.rs\"]\nmod app_inventory;\n#[path = \"build/assets.rs\"]\nmod assets;\n#[path = \"src/browser_policy.rs\"]\nmod browser_policy;\n#[path = \"build/hosting.rs\"]\nmod hosting;\n\nfn main() {\n    println!(\"cargo:rerun-if-env-changed=TMT_COLAB_APP_DIR\");\n    println!(\"cargo:rerun-if-env-changed=TMT_COLAB_HOSTING_DIR\");\n    let output =\n        std::path::PathBuf::from(std::env::var_os(\"OUT_DIR\").expect(\"Cargo supplies OUT_DIR\"));\n    let directory = std::env::var_os(\"TMT_COLAB_APP_DIR\").map(std::path::PathBuf::from);\n    let inputs = assets::generate(directory.as_deref(), &output)\n        .unwrap_or_else(|error| panic!(\"Colab app build is unavailable: {error}\"));\n    for input in inputs {\n        println!(\"cargo:rerun-if-changed={}\", input.display());\n    }\n    let hosted = std::env::var_os(\"TMT_COLAB_HOSTING_DIR\").map(std::path::PathBuf::from);\n    let sdk = std::path::Path::new(env!(\"CARGO_MANIFEST_DIR\"))\n        .join(\"../../../tmt-remote/rust/tmt-remote/assets/remote-v1.js\");\n    let inputs = hosting::generate(hosted.as_deref(), &sdk, &output)\n        .unwrap_or_else(|error| panic!(\"Colab hosted build is unavailable: {error}\"));\n    for input in inputs {\n        println!(\"cargo:rerun-if-changed={}\", input.display());\n    }\n}\n";
     if fs::read_to_string(&build).map_err(|e| e.to_string())? != expected_build {
         return Err("canonical generator forwarding drift".into());
     }
@@ -859,8 +909,12 @@ fn check_map(root: &Path, metadata: &Value, map: &Value) -> GuardResult<()> {
         if roots.is_empty() && generated.is_empty() {
             continue;
         }
-        if generated.len() > 1 {
-            return Err("only one canonical generator is permitted".into());
+        if generated.len() > 2
+            || (generated.len() == 2
+                && (text(&generated[0], "variable")? != "TMT_COLAB_APP_DIR"
+                    || text(&generated[1], "variable")? != "TMT_COLAB_HOSTING_DIR"))
+        {
+            return Err("only the canonical native and hosted generators are permitted".into());
         }
         let package_name = text(component, "package")?;
         let matches: Vec<_> = packages
@@ -960,9 +1014,9 @@ fn check_map(root: &Path, metadata: &Value, map: &Value) -> GuardResult<()> {
             protect(&declarations, &extension.join("skills"))?;
         }
         let allowed = generated
-            .first()
+            .iter()
             .map(|entry| generator(&root, entry, crate_dir, &declarations))
-            .transpose()?;
+            .collect::<GuardResult<Vec<_>>>()?;
         let mut files = Vec::new();
         rust_files(crate_dir, &declarations, &mut files)?;
         files.sort();
@@ -974,7 +1028,7 @@ fn check_map(root: &Path, metadata: &Value, map: &Value) -> GuardResult<()> {
                 exception_parent(exception, &files)?;
             }
         }
-        let mut dynamic = 0;
+        let mut dynamic = BTreeSet::new();
         for file in &files {
             let source = fs::read_to_string(file).map_err(|e| e.to_string())?;
             let syntax =
@@ -984,11 +1038,13 @@ fn check_map(root: &Path, metadata: &Value, map: &Value) -> GuardResult<()> {
             for reference in references.values {
                 let Some(name) = reference.target else {
                     if reference.kind == "include"
-                        && allowed.as_ref().is_some_and(|(site, expression)| {
+                        && allowed.iter().any(|(site, expression)| {
                             site == file && expression == &reference.expression
                         })
                     {
-                        dynamic += 1;
+                        if !dynamic.insert((file.clone(), reference.expression)) {
+                            return Err("missing or repeated canonical dynamic include".into());
+                        }
                         continue;
                     }
                     return Err(format!(
@@ -1023,7 +1079,7 @@ fn check_map(root: &Path, metadata: &Value, map: &Value) -> GuardResult<()> {
                 }
             }
         }
-        if dynamic != usize::from(allowed.is_some()) {
+        if dynamic.len() != allowed.len() {
             return Err("missing or repeated canonical dynamic include".into());
         }
         for declaration in &declarations {

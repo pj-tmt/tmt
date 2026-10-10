@@ -127,7 +127,15 @@ function parseGenerated(name, value) {
       reason: reason(entry.reason, label),
     };
   });
-  if (entries.length > 1) throw new Error(`${label} permits only one canonical generator.`);
+  if (
+    entries.length > 2 ||
+    entries.some((entry, index) => index > 0 && entries[index - 1].variable >= entry.variable) ||
+    new Set(entries.map((entry) => entry.generator)).size !== entries.length ||
+    new Set(entries.map((entry) => entry.includeSite)).size !== entries.length
+  )
+    throw new Error(
+      `${label} permits at most two canonical generators in ascending variable order.`
+    );
   return entries;
 }
 

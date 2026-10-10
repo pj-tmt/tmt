@@ -75,6 +75,16 @@ fn grammar() -> Command {
         outputs: OutputModes::Human,
         details: "Prints the canonical skill bytes without core discovery, storage access or a running server. Install through tmt extension install colab --skills; this command only reads the embedded instructions.",
     };
+    const HOSTING_BUNDLE: CommandSpec = CommandSpec {
+        name: "hosting-bundle",
+        summary: "Print the hosted bundle embedded in this executable",
+        examples: &[Example {
+            command: "tmt colab hosting-bundle --json",
+            note: "Read the public release bundle for Remote deployment",
+        }],
+        outputs: OutputModes::Json,
+        details: "Returns the versioned public hosted inventory from this executable only. Uses no core discovery, local app override, storage, or network. An executable built without a hosted inventory returns COLAB_UNAVAILABLE.",
+    };
     const SERVE: CommandSpec = CommandSpec {
         name: "serve",
         summary: "Serve a local space in the background",
@@ -263,6 +273,9 @@ fn grammar() -> Command {
                             .help("Output one JSON document"),
                     ),
             )
+            .subcommand(tmt_cli_style::command(&HOSTING_BUNDLE).arg(
+                Arg::new("json").long("json").action(ArgAction::SetTrue).help("Print the versioned bundle as JSON"),
+            ))
             .subcommand(tmt_cli_style::command(&STOP))
             .subcommand(open_args(
                 tmt_cli_style::command(&OPEN).arg(cli_grammar::page().required(false)),
@@ -348,6 +361,13 @@ fn run(matches: &clap::ArgMatches) -> Result<()> {
     }
     if command == "deploy-declaration" {
         return tmt_colab::deploy_declaration::run();
+    }
+    if command == "hosting-bundle" {
+        let mut output = tmt_cli_style::stream::stdout(true);
+        output.write_all(tmt_colab::hosting::bundle()?)?;
+        output.write_all(b"\n")?;
+        output.flush()?;
+        return Ok(());
     }
     let stop = Arc::new(AtomicBool::new(false));
     let launcher = command == "serve" && serve::is_launcher(args);

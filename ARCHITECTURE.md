@@ -587,6 +587,10 @@ Colab (`extensions/tmt-colab/`: `tmt-colab`, `tmt-colab-model`, `@tmt/colab-clie
 canonical agent skill. Its archive carries `skills/` from `extensions/tmt-colab/skills` for the existing
 opt-in extension skill installer; `tmt colab skill` reads those same embedded bytes without
 core discovery or storage access.
+The separate `hosting-bundle --json` command reads its embedded hosted inventory before core
+discovery. Colab's build snapshots its manifest and public bytes with a digest-checked Remote SDK copy.
+Without hosted inventory it refuses with `COLAB_UNAVAILABLE`; runtime has no native app or checkout fallback.
+Hosted entry glue and declaration integration remain planned in #2487.
 [colab-v1](extensions/tmt-colab/contracts/colab-v1.md) is the normative contract; the
 [tmt-colab skill](.agents/skills/tmt-colab/SKILL.md) holds module knowledge and procedures.
 
