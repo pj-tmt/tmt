@@ -183,7 +183,6 @@ export const text = {
   threadUnseen: 'New',
   threadNotNotified: (names: string) => `Not notified: ${names}`,
   threadClose: 'Close thread',
-  threadDelete: 'Delete thread',
   conversationAgent: 'agent',
   reconnect: 'Reconnect',
   disconnected: 'Disconnected',
