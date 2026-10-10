@@ -470,7 +470,6 @@ for (const phase of ['SDK import', 'offer response']) {
         'This browser is paired. You can close this page.',
       );
       await captureState(page, 'pair-paired', 'Success word/mark and ordinary return link');
-      await page.keyboard.press('Tab');
       await expect(page.getByRole('link', { name: 'Return to Remote and connect' })).toBeFocused();
       await captureState(
         page,
@@ -1062,7 +1061,7 @@ test('browser pages consume shared presentation in both schemes and fit desktop 
         expect(candidate.event).toBe('candidate');
         await expect(page.locator('#words')).toHaveText((candidate.words as string[]).join(' '));
         await expect(page.locator('#status')).toHaveAttribute('data-state', 'waiting');
-        await expect(page.locator('.words-label')).toHaveText('Words');
+        await expect(page.locator('.words-label')).toHaveText('Words to compare');
         await expect(page.locator('#status')).toHaveText(
           'Waiting for confirmation in your terminal. Compare these words and confirm only if they match.',
         );
