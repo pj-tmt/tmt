@@ -800,12 +800,19 @@ describe('release bundle pipeline (native-release-bundle.yml)', () => {
     expect(job(prepare, 'verify')).toContain('needs: assemble');
   });
 
-  it('qualifies every artifact by the draft tag, so drafts of one run do not collide', () => {
+  it('qualifies release artifacts by the draft tag and emits tagless CLI reports only', () => {
     const names = [
       ...(prepare + bundle).matchAll(/^ {10}(?:name|pattern): (native-[^\n]+)$/gm),
     ].map(([, name]) => name);
     expect(names.length).toBeGreaterThanOrEqual(5);
-    for (const name of names) expect(name, name).toMatch(/\$\{\{ inputs\.tag( \|\| 'main')? \}\}/);
+    for (const name of names) {
+      if (name === 'native-pr-rc-verify-cli-${{ matrix.target }}-main') {
+        const reports = job(prepare, 'verify').slice(
+          job(prepare, 'verify').indexOf('      - name: Capture the final CLI preparation report')
+        );
+        expect(reports.match(/if: inputs.product == 'cli' && inputs.tag == ''/g)).toHaveLength(2);
+      } else expect(name, name).toMatch(/\$\{\{ inputs\.tag( \|\| 'main')? \}\}/);
+    }
   });
 
   it('asserts that the draft tag is the version its commit declares', () => {
@@ -2051,7 +2058,8 @@ describe('protected-main opt-in PR release candidates', () => {
       verification.indexOf('Recheck version-only source after this stage')
     );
     expect(verification).toContain('node typescript/scripts/pr-rc-coordinator.mjs report');
-    expect(verification).toContain('native-pr-rc-verify-cli-${{ matrix.target }}');
+    expect(verification).toContain('native-pr-rc-verify-cli-${{ matrix.target }}-main');
+    expect(verification.match(/if: inputs.product == 'cli' && inputs.tag == ''/g)).toHaveLength(2);
     expect(producer).toContain('retention-days: 3');
     expect(producer).toContain('compression-level: 0');
     expect(producer).toContain('RETURNED_ARTIFACT_ID: ${{ steps.payload.outputs.artifact-id }}');

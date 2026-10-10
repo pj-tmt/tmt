@@ -433,7 +433,7 @@ jobs:
           phase: verify
 
       - name: Capture the final CLI preparation report
-        if: inputs.product == 'cli'
+        if: inputs.product == 'cli' && inputs.tag == ''
         env:
           SOURCE_ROOT: ${{ github.workspace }}/release-source
           BUNDLE_DIRECTORY: ${{ github.workspace }}/release-source/target/distrib
@@ -443,10 +443,10 @@ jobs:
         working-directory: ${{ github.workspace }}
         run: node typescript/scripts/pr-rc-coordinator.mjs report
       - name: Retain the matching-host verification report
-        if: inputs.product == 'cli'
+        if: inputs.product == 'cli' && inputs.tag == ''
         uses: actions/upload-artifact@v4
         with:
-          name: native-pr-rc-verify-cli-${{ matrix.target }}-${{ inputs.tag || 'main' }}
+          name: native-pr-rc-verify-cli-${{ matrix.target }}-main
           path: ${{ runner.temp }}/report.json
           if-no-files-found: error
           retention-days: 3

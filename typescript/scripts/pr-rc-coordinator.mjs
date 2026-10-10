@@ -129,7 +129,6 @@ export function validatePRRCEligibility(
   for (const event of events)
     assert(
       positive(event.id) &&
-        event.label.id === labels[0].id &&
         /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$/.test(event.created_at) &&
         Number.isSafeInteger(Date.parse(event.created_at)),
       'Invalid opt-in event.'

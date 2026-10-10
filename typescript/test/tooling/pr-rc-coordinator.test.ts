@@ -48,7 +48,7 @@ function observation() {
       {
         id: 55,
         event: 'labeled',
-        label: { id: 44, name: 'rc-build' },
+        label: { color: '1d76db', name: 'rc-build' },
         created_at: '2026-10-10T09:00:00Z',
       },
     ],
@@ -227,6 +227,28 @@ describe('trusted main PR RC producer', () => {
     } finally {
       f.cleanup();
     }
+  });
+
+  it('accepts the real labeled-event shape without a label ID and retains the pull label ID', () => {
+    // issues/2503/timeline, event 32935095574; only the opt-in name is adapted.
+    const event = {
+      created_at: '2026-10-10T09:32:18Z',
+      event: 'labeled',
+      id: 32935095574,
+      label: { color: '1d76db', name: 'colab-acceptance' },
+    };
+    const o = observation();
+    o.timeline = [{ ...event, label: { ...event.label, name: 'rc-build' } }];
+    expect(validatePRRCEligibility(o, identity, now)).toEqual({
+      label: 'rc-build',
+      label_id: 44,
+      enabled_event_id: event.id,
+      enabled_at_ms: Date.parse(event.created_at),
+    });
+    o.timeline = [event];
+    expect(() => validatePRRCEligibility(o, identity, now)).toThrow(
+      'Missing or duplicate opt-in events'
+    );
   });
 
   it.each([

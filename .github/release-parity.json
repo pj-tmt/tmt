@@ -203,7 +203,7 @@
           "name:Capture the final CLI preparation report",
           "name:Retain the matching-host verification report"
         ],
-        "sha256": "e517f81903b8a156249c5f396d2f3fa8244dc0cc598feec68474d382bd4e6ea8",
+        "sha256": "828afd10a5d6b8c786cd214f039f28143fc05f5afd87386fa008d7087b50d818",
         "preMerge": [
           {
             "workflow": "ci.yml",
