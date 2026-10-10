@@ -838,7 +838,15 @@ impl MaterializationInput {
                 }
             }
             if proposals.len() > crate::limits::PAGE_PROPOSALS {
-                return Err(OwnerFault::Capacity.into());
+                return Err(OwnerFault::too_large(
+                    page,
+                    format!(
+                        "it retains {} proposals, more than the maximum {}",
+                        proposals.len(),
+                        crate::limits::PAGE_PROPOSALS
+                    ),
+                )
+                .into());
             }
             if writer == local_writer {
                 local_own_update = Some(decoded.merged);

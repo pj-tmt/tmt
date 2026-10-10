@@ -19,12 +19,7 @@ pub struct View {
     #[serde(flatten)]
     pub conversations: Conversations,
 }
-pub(crate) fn project(
-    key: &Keyring,
-    page: &str,
-    snapshot: &Snapshot,
-    folded: &Folded,
-) -> Conversations {
+fn project(key: &Keyring, page: &str, snapshot: &Snapshot, folded: &Folded) -> Conversations {
     Conversations::project(
         conversations::Capture {
             space_id: &key.space_id,
@@ -87,6 +82,28 @@ pub fn prepare_proposal(
     }
     if proposal.proposal_id == writer {
         return Err(Fault::Invalid.into());
+    }
+    let mut proposals = std::collections::BTreeSet::new();
+    for (owner, roots) in &folded.own {
+        if let Some(threads) = roots["threads"].as_object() {
+            for value in threads.values() {
+                if value["kind"] == "thread"
+                    && let Some(id) = value["proposal"]["proposalId"].as_str()
+                {
+                    proposals.insert((owner, id));
+                }
+            }
+        }
+    }
+    if proposals.len() >= crate::limits::PAGE_PROPOSALS {
+        return Err(crate::store::owner::OwnerFault::too_large_to_edit(
+            page,
+            format!(
+                "it already retains the maximum {} proposals",
+                crate::limits::PAGE_PROPOSALS
+            ),
+        )
+        .into());
     }
     let record = serde_json::json!({
         "version":1,"kind":"thread","spaceId":key.space_id,"pageId":page,
@@ -189,4 +206,57 @@ pub fn prepare_status(
     let publication =
         page::freeze_own_records(key, page, &snapshot, &folded, &records, decoder, now)?;
     Ok(Some((publication, action)))
+}
+
+/// Final decision preparation uses the same captured admission and revision as
+/// publication. The generic own writer does not interpret discussion policy.
+pub struct DecisionEdit<'a> {
+    pub thread: &'a Reference,
+    pub decision: &'a str,
+}
+pub fn prepare_decision(
+    store: &Store,
+    key: &Keyring,
+    page: &str,
+    edit: DecisionEdit<'_>,
+    decoder: &mut Decoder,
+    now: u64,
+) -> Result<page::FrozenPublication> {
+    let snapshot = page::snapshot(store, key, page, true)?;
+    let (writer, _, _) = key.local_writer()?;
+    if snapshot.authority.revoked_devices.contains(&writer) {
+        return Err(Fault::Denied.into());
+    }
+    let folded = snapshot.materialize(key, page, decoder)?;
+    let view = project(key, page, &snapshot, &folded);
+    let target = view
+        .threads
+        .iter()
+        .find(|row| row.writer == edit.thread.writer && row.id == edit.thread.id)
+        .ok_or(Fault::Invalid)?;
+    if target.deleted || target.proposal.is_none() || target.decision.is_some() {
+        return Err(Fault::Invalid.into());
+    }
+    let action = crate::threads::status::Decision {
+        version: 1,
+        kind: "proposal-decision".into(),
+        space_id: key.space_id.clone(),
+        page_id: page.into(),
+        epoch: snapshot.epoch.to_string(),
+        sender_device: writer,
+        revision: "1".into(),
+        deleted: false,
+        device_name: "Local CLI".into(),
+        at: now.to_string(),
+        action_id: page::fresh_id()?,
+        thread: edit.thread.clone(),
+        previous: None,
+        decision: edit.decision.into(),
+    };
+    let records = [OwnRecord {
+        root: "messages".into(),
+        key: format!("{}:proposal-decision", action.action_id),
+        value: serde_json::to_value(action)?,
+    }];
+    page::freeze_own_records(key, page, &snapshot, &folded, &records, decoder, now)
 }

@@ -32,27 +32,36 @@ macro_rules! command_spec {
     };
 }
 pub fn command() -> Command {
-    command_spec!("proposal","Add, list or resolve page proposals","tmt colab proposal ls 10000000-0000-4000-8000-000000000001 --json","Authenticated discussion records; labels are display text. Append placement only. Decisions and resolution are independent. Agent commands never dispatch notifications.")
+    command_spec!("proposal","Add, list or resolve page proposals","tmt colab proposal ls 10000000-0000-4000-8000-000000000001 --json","Proposals are checklist items an agent adds to a page for the person to approve, decline or follow up on. They are added at the end of the page. Deciding does not resolve a proposal, and these commands never notify agents.")
         .mut_arg("json",|arg|arg.global(true)).subcommand_required(true)
-        .subcommand(command_spec!("add","Publish a proposal and append its placeholder","tmt colab proposal add 10000000-0000-4000-8000-000000000001 --title 'Review this' --body 'Please review the page.'","Publishes the record first, then appends through the page revision fence. --id retains a UUID for recovery: read ls and the page before repeating; retry only the missing step. A partial or uncertain result includes proposalId and placed:false. New records require canonical caller and running Remote machine provenance. --after is not supported in this slice.")
+        .subcommand(command_spec!("add","Add a proposal at the end of a page","tmt colab proposal add 10000000-0000-4000-8000-000000000001 --title 'Review this' --body 'Please review the page.'","Saves the proposal, then adds its place at the end of the page. If the command stops partway, it prints the proposal ID: run `tmt colab proposal ls PAGE` to check, then rerun add with `--id <ID>` to finish only the missing step.")
             .arg(crate::cli_grammar::page()).arg(Arg::new("title").long("title").required(true)).arg(Arg::new("body").long("body").required(true))
-            .arg(Arg::new("id").long("id").help("Retained proposal UUID for explicit recovery").value_parser(|v:&str|tmt_colab_model::values::generated_id(v).map(|_|v.to_owned()).map_err(|e|e.to_string()))))
-        .subcommand(command_spec!("ls","Read authenticated proposals","tmt colab proposal ls 10000000-0000-4000-8000-000000000001 --json","Includes retained decision and independent resolution. Does not inspect HTML for authority or publish anything.").alias("list").arg(crate::cli_grammar::page()))
-        .subcommand(command_spec!("resolve","Resolve a live proposal without notifying agents","tmt colab proposal resolve 10000000-0000-4000-8000-000000000001 20000000-0000-4000-8000-000000000001","Uses existing owner-device admission. Already resolved is a no-op; absent, ambiguous or deleted proposals are refused.").arg(crate::cli_grammar::page()).arg(Arg::new("id").required(true).index(2).value_parser(|v:&str|tmt_colab_model::values::generated_id(v).map(|_|v.to_owned()).map_err(|e|e.to_string()))))
+            .arg(Arg::new("id").long("id").help("Finish an interrupted add with this proposal ID").value_parser(|v:&str|tmt_colab_model::values::generated_id(v).map(|_|v.to_owned()).map_err(|e|e.to_string()))))
+        .subcommand(command_spec!("ls","List a page's proposals","tmt colab proposal ls 10000000-0000-4000-8000-000000000001 --json","Shows each proposal's decision and whether it is resolved. Reads only; changes nothing.").alias("list").arg(crate::cli_grammar::page()))
+        .subcommand(command_spec!("resolve","Mark a proposal resolved","tmt colab proposal resolve 10000000-0000-4000-8000-000000000001 20000000-0000-4000-8000-000000000001","Does not notify agents. Resolving one that is already resolved is not an error. Unknown or deleted proposals are refused.").arg(crate::cli_grammar::page()).arg(Arg::new("id").required(true).index(2).value_parser(|v:&str|tmt_colab_model::values::generated_id(v).map(|_|v.to_owned()).map_err(|e|e.to_string()))))
 }
 #[derive(Debug)]
 pub struct RecoveryFault {
     pub correlation: Value,
     pub cause: Box<dyn std::error::Error + Send + Sync>,
+    pub saved: bool,
 }
 impl std::fmt::Display for RecoveryFault {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "Proposal {}: {}. Retain this ID; read the proposal and page before explicit recovery with --id. Placement is not confirmed.",
-            self.correlation["proposalId"].as_str().unwrap_or(""),
-            self.cause
-        )
+        let id = self.correlation["proposalId"].as_str().unwrap_or("");
+        if self.saved {
+            write!(
+                f,
+                "Proposal {id} was saved, but its place on the page is not confirmed. {} Run `tmt colab proposal ls PAGE`, then rerun add with `--id {id}`.",
+                self.cause
+            )
+        } else {
+            write!(
+                f,
+                "{} Proposal ID: {id}. Run `tmt colab proposal ls PAGE` to check, then rerun add with `--id {id}` to finish only the missing step.",
+                self.cause
+            )
+        }
     }
 }
 impl std::error::Error for RecoveryFault {}
@@ -97,10 +106,10 @@ fn add(
     let title = args.get_one::<String>("title").unwrap();
     let body = args.get_one::<String>("body").unwrap();
     let proposal = if matching.is_empty() {
-        let caller = core::caller_snapshot().ok_or("Canonical caller identity is unavailable")?;
+        let caller = core::caller_snapshot().ok_or("Could not tell which agent is running this command. Run it from an agent session started through tmt.")?;
         let machine_id = crate::door::creation_observation()
             .machine_id
-            .ok_or("Canonical Remote machine provenance is unavailable; start the Remote door")?;
+            .ok_or("Remote is not running. Start it with `tmt colab serve`, then try again.")?;
         Proposal {
             proposal_id: proposal_id.into(),
             title: title.clone(),
@@ -109,7 +118,7 @@ fn add(
                 machine_id,
                 agent_id: caller
                     .agent_id
-                    .ok_or("Canonical caller agent UUID is unavailable")?,
+                    .ok_or("Could not tell which agent is running this command. Run it from an agent session started through tmt.")?,
                 label: caller.name,
             },
         }
@@ -119,7 +128,7 @@ fn add(
         }
         let retained = matching[0].proposal.as_ref().unwrap();
         if retained.title != *title || retained.body != *body {
-            return Err("Retained proposal metadata differs; refusing recovery".into());
+            return Err(format!("Proposal {proposal_id} already exists with a different title or body. Nothing was changed.").into());
         }
         retained.clone()
     };
@@ -138,8 +147,20 @@ fn add(
         .iter()
         .any(|t| !t.deleted && t.proposal.as_ref() == Some(&proposal))
     {
-        return Err("Proposal record readback did not confirm publication".into());
+        return Err(format!("Could not confirm the proposal was saved. Run `tmt colab proposal ls PAGE`; if it is missing, rerun add with `--id {proposal_id}`.").into());
     }
+    place(layout,key,id,decoder,proposal_id,current).map_err(|cause|RecoveryFault {
+        correlation:json!({"spaceId":key.space_id,"pageId":id,"proposalId":proposal_id,"placed":false}),cause,saved:true,
+    }.into())
+}
+fn place(
+    layout: &Layout,
+    key: &Keyring,
+    id: &str,
+    decoder: &mut Decoder,
+    proposal_id: &str,
+    current: page::Page,
+) -> Result<bool> {
     let placeholder = format!("<tmt-proposal data-id=\"{proposal_id}\"></tmt-proposal>");
     match current.source.matches(&placeholder).count() {
         1 => return Ok(true),
@@ -181,6 +202,7 @@ pub fn run(root: &Path, args: &ArgMatches) -> Result<()> {
     store.close()?;
     let mut decoder = Decoder::new(std::env::current_exe()?)?;
     let mut output = tmt_cli_style::stream::stdout(args.get_flag("json"));
+    let mut rows = vec![("page", id.clone())];
     let value = match mode {
         "add" => {
             let proposal_id = args
@@ -192,11 +214,21 @@ pub fn run(root: &Path, args: &ArgMatches) -> Result<()> {
                 json!({"spaceId":key.space_id,"pageId":id,"proposalId":proposal_id,"placed":false});
             let placed =
                 add(&layout, &key, &id, args, &mut decoder, &proposal_id).map_err(|cause| {
-                    RecoveryFault {
-                        correlation: correlation.clone(),
-                        cause,
+                    if cause.is::<RecoveryFault>() {
+                        cause
+                    } else {
+                        Box::new(RecoveryFault {
+                            correlation: correlation.clone(),
+                            cause,
+                            saved: false,
+                        }) as Box<dyn std::error::Error + Send + Sync>
                     }
                 })?;
+            rows.push(("proposal", proposal_id.clone()));
+            rows.push(("placed", if placed { "yes" } else { "no" }.into()));
+            if !placed {
+                rows.push(("next",format!("Run `tmt colab proposal ls {id}` to check, then finish with `proposal add --id {proposal_id}`.")));
+            }
             json!({"spaceId":key.space_id,"pageId":id,"proposalId":proposal_id,"placed":placed})
         }
         "ls" => {
@@ -207,6 +239,35 @@ pub fn run(root: &Path, args: &ArgMatches) -> Result<()> {
                 .into_iter()
                 .filter(|t| t.proposal.is_some())
                 .collect();
+            let ids: Vec<_> = proposals
+                .iter()
+                .map(|t| t.proposal.as_ref().unwrap().proposal_id.clone())
+                .collect();
+            for thread in &proposals {
+                let proposal = thread.proposal.as_ref().unwrap();
+                rows.push((
+                    "proposal",
+                    format!(
+                        "{} · {} · {} · {}",
+                        tmt_colab::short_links::shortest_id(&proposal.proposal_id, &ids),
+                        proposal.title,
+                        thread
+                            .decision
+                            .as_ref()
+                            .map_or("open", |d| d.decision.as_str()),
+                        if thread.deleted {
+                            "deleted"
+                        } else if thread.resolved {
+                            "resolved"
+                        } else {
+                            "not resolved"
+                        }
+                    ),
+                ));
+            }
+            if proposals.is_empty() {
+                rows.push(("proposals", "none".into()));
+            }
             json!({"spaceId":key.space_id,"pageId":id,"epoch":view.conversations.epoch,"revision":view.revision,"proposals":proposals})
         }
         "resolve" => {
@@ -247,6 +308,16 @@ pub fn run(root: &Path, args: &ArgMatches) -> Result<()> {
                     crate::publish_write(&layout, &key, &id, &frozen, &mut decoder, now()?)?;
                 page::publication_receipt(frozen.job(), &published.record)?;
             }
+            rows.push(("proposal", proposal_id.clone()));
+            rows.push((
+                "status",
+                if changed {
+                    "resolved"
+                } else {
+                    "already resolved"
+                }
+                .into(),
+            ));
             json!({"spaceId":key.space_id,"pageId":id,"proposalId":proposal_id,"resolved":true,"changed":changed})
         }
         _ => unreachable!(),
@@ -255,15 +326,7 @@ pub fn run(root: &Path, args: &ArgMatches) -> Result<()> {
         writeln!(output, "{value}")?;
     } else {
         let terminal = output.terminal();
-        tmt_cli_style::detail::write(
-            &mut output,
-            terminal,
-            "PAGE PROPOSALS",
-            &[
-                ("page", id),
-                ("result", serde_json::to_string_pretty(&value)?),
-            ],
-        )?;
+        tmt_cli_style::detail::write(&mut output, terminal, "PAGE PROPOSALS", &rows)?;
     }
     Ok(())
 }

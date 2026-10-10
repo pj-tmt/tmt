@@ -488,51 +488,6 @@ pub(crate) fn freeze_own_records(
     now: u64,
 ) -> Result<FrozenPublication> {
     use crate::decoder::UpdateBatch;
-    // Validate cross-writer limits and final decisions against the same captured
-    // materialization that supplies the publication's revision fence.
-    let view = crate::discussion::project(key, page, s, folded);
-    let (writer, _, _) = key.local_writer()?;
-    let mut proposals = std::collections::BTreeSet::new();
-    for (owner, roots) in &folded.own {
-        if let Some(threads) = roots["threads"].as_object() {
-            for value in threads.values() {
-                if value["kind"] == "thread"
-                    && let Some(id) = value["proposal"]["proposalId"].as_str()
-                {
-                    proposals.insert((owner.clone(), id.to_owned()));
-                }
-            }
-        }
-    }
-    let mut decisions = std::collections::BTreeSet::new();
-    for record in records {
-        crate::threads::validate_record(&record.root, &record.key, &record.value)?;
-        if record.value["kind"] == "thread"
-            && let Some(id) = record.value["proposal"]["proposalId"].as_str()
-        {
-            proposals.insert((writer.clone(), id.to_owned()));
-        }
-        if record.value["kind"] == "proposal-decision" {
-            let action: crate::threads::status::Decision =
-                serde_json::from_value(record.value.clone())?;
-            let target = view
-                .threads
-                .iter()
-                .find(|row| row.writer == action.thread.writer && row.id == action.thread.id)
-                .ok_or(Fault::Invalid)?;
-            if target.deleted
-                || target.proposal.is_none()
-                || target.decision.is_some()
-                || action.previous.is_some()
-                || !decisions.insert((action.thread.writer, action.thread.id))
-            {
-                return Err(Fault::Invalid.into());
-            }
-        }
-    }
-    if proposals.len() > crate::limits::PAGE_PROPOSALS {
-        return Err(Fault::Invalid.into());
-    }
     let updates: Vec<&[u8]> = folded
         .local_own_update
         .as_ref()

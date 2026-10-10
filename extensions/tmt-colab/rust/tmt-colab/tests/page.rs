@@ -4110,6 +4110,27 @@ fn proposals_are_complete_before_placement_and_recover_by_id_without_notificatio
         serde_json::from_slice::<Value>(&first.stdout).unwrap()["placed"],
         true
     );
+    let human = f
+        .command()
+        .args([
+            "proposal",
+            "add",
+            PAGE,
+            "--id",
+            &proposal.proposal_id,
+            "--title",
+            &proposal.title,
+            "--body",
+            &proposal.body,
+        ])
+        .output()
+        .unwrap();
+    assert!(human.status.success());
+    let shown = String::from_utf8(human.stdout).unwrap();
+    assert!(
+        shown.contains(&proposal.proposal_id) && shown.contains("placed") && shown.contains("yes")
+    );
+    assert!(!shown.contains("spaceId") && !shown.contains("{\""));
     let after = f.read();
     let second = run(&f);
     assert!(second.status.success());
@@ -4127,6 +4148,15 @@ fn proposals_are_complete_before_placement_and_recover_by_id_without_notificatio
     assert!(listed.status.success());
     let rows: Value = serde_json::from_slice(&listed.stdout).unwrap();
     assert_eq!(rows["proposals"].as_array().unwrap().len(), 1);
+    let human = f.command().args(["proposal", "ls", PAGE]).output().unwrap();
+    assert!(human.status.success());
+    let shown = String::from_utf8(human.stdout).unwrap();
+    assert!(
+        shown.contains("90000000")
+            && shown.contains(&proposal.title)
+            && shown.contains("open")
+            && shown.contains("not resolved")
+    );
     for expected in [true, false] {
         let output = f
             .command()
@@ -4143,6 +4173,17 @@ fn proposals_are_complete_before_placement_and_recover_by_id_without_notificatio
             expected
         );
     }
+    let human = f
+        .command()
+        .args(["proposal", "resolve", PAGE, &proposal.proposal_id])
+        .output()
+        .unwrap();
+    assert!(human.status.success());
+    assert!(
+        String::from_utf8(human.stdout)
+            .unwrap()
+            .contains("already resolved")
+    );
     let view = discussion::read(&f.store, &f.key, PAGE, &mut f.decoder()).unwrap();
     assert!(view.conversations.threads[0].resolved);
     assert!(
@@ -4176,7 +4217,6 @@ fn proposals_are_complete_before_placement_and_recover_by_id_without_notificatio
 #[test]
 fn proposal_decision_is_final_and_resolution_remains_independent() {
     use tmt_colab::{
-        decoder::OwnRecord,
         discussion,
         threads::{Proposal, Proposer},
     };
@@ -4197,31 +4237,32 @@ fn proposal_decision_is_final_and_resolution_remains_independent() {
             .unwrap();
     f.commit(&frozen, NOW).unwrap();
     let view = discussion::read(&f.store, &f.key, PAGE, &mut f.decoder()).unwrap();
-    let writer = &view.conversations.threads[0].writer;
-    let mut action = json!({"version":1,"kind":"proposal-decision","spaceId":f.key.space_id,"pageId":PAGE,"epoch":view.conversations.epoch,"senderDevice":writer,"revision":"1","deleted":false,"deviceName":"Local CLI","at":NOW.to_string(),"actionId":"80000000-0000-4000-8000-000000000001","thread":{"writer":writer,"id":proposal.proposal_id},"previous":null,"decision":"approved"});
-    let record = |action: &Value| OwnRecord {
-        root: "messages".into(),
-        key: format!("{}:proposal-decision", action["actionId"].as_str().unwrap()),
-        value: action.clone(),
+    let reference = tmt_colab::threads::status::Reference {
+        writer: view.conversations.threads[0].writer.clone(),
+        id: proposal.proposal_id.clone(),
     };
-    let frozen = page::prepare_own_records(
+    let frozen = discussion::prepare_decision(
         &f.store,
         &f.key,
         PAGE,
-        &[record(&action)],
+        discussion::DecisionEdit {
+            thread: &reference,
+            decision: "approved",
+        },
         &mut f.decoder(),
         NOW,
     )
     .unwrap();
     f.commit(&frozen, NOW).unwrap();
-    action["actionId"] = json!("80000000-0000-4000-8000-000000000002");
-    action["decision"] = json!("declined");
     assert!(
-        page::prepare_own_records(
+        discussion::prepare_decision(
             &f.store,
             &f.key,
             PAGE,
-            &[record(&action)],
+            discussion::DecisionEdit {
+                thread: &reference,
+                decision: "declined"
+            },
             &mut f.decoder(),
             NOW
         )
@@ -4379,9 +4420,36 @@ fn proposal_capacity_refuses_a_new_record_before_publication() {
     );
     let before = f.read().revision;
     proposal.proposal_id = "90000000-0000-4000-8000-000000000201".into();
-    assert!(
+    let fault =
         discussion::prepare_proposal(&f.store, &f.key, PAGE, &proposal, &mut f.decoder(), NOW)
-            .is_err()
+            .err()
+            .unwrap();
+    assert!(
+        matches!(fault.downcast_ref::<tmt_colab::store::owner::OwnerFault>(),Some(tmt_colab::store::owner::OwnerFault::PageCapacity(c)) if c.edit)
     );
+    assert!(fault.to_string().contains("maximum 200 proposals"));
     assert_eq!(f.read().revision, before);
+    // Raw own publications do not interpret discussion policy; the read fold
+    // still rejects authenticated state beyond the same page limit.
+    let mut over = records[0].clone();
+    over.key = format!("{}:1", proposal.proposal_id);
+    over.value["threadId"] = json!(proposal.proposal_id);
+    over.value["proposal"] = serde_json::to_value(&proposal).unwrap();
+    let frozen =
+        page::prepare_own_records(&f.store, &f.key, PAGE, &[over], &mut f.decoder(), NOW).unwrap();
+    f.commit(&frozen, NOW).unwrap();
+    let output = f
+        .command()
+        .args(["proposal", "ls", PAGE, "--json"])
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    let error: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(error["error"]["code"], "COLAB_CAPACITY");
+    assert!(
+        error["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("maximum 200")
+    );
 }
