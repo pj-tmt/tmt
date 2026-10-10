@@ -116,7 +116,8 @@ for (const reader of [false, true]) {
         .evaluate((node) => node.ownerDocument.defaultView!.scrollY),
     ).toBeGreaterThan(0);
     await page.setViewportSize({ width: 390, height: 700 });
-    await expect.poll(async () => (await frame.boundingBox())?.height).toBe(reader ? 652 : 618);
+    await expect(page.locator('.tmt-ui-header:visible')).toHaveCSS('height', '48px');
+    await expect.poll(async () => (await frame.boundingBox())?.height).toBe(652);
     await expect(frame).toHaveAttribute('data-scroll-mode', 'frame');
   });
 }
