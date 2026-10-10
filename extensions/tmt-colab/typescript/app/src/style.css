@@ -1355,3 +1355,21 @@ footer {
   background: var(--c-sheet);
   font-size: 12px;
 }
+
+/* The creator preference owns the action row; recipient status stays in its hint line. */
+.annotation-status-row[data-creator-toggle] {
+  flex-wrap: wrap;
+}
+.annotation-status-row[data-creator-toggle] > .annotation-hint {
+  order: 2;
+  flex-basis: 100%;
+}
+.creator-toggle {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+.creator-toggle > button {
+  max-width: 100%;
+  text-align: start;
+  white-space: normal;
+}

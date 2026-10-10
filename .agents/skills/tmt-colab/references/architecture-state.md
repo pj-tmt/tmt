@@ -95,7 +95,9 @@ opens completion at `@` or full-width `＠` after non-address-like text, includi
 `email@host` never routes. No Lexical document is persisted or sent as authority.
 
 `AnnotationInput` owns the draft, trusted action, current content/Ask admission and
-immutable one-comment send capture. `message-recipient.ts` resolves exact typed names
+immutable one-comment send capture. The page-owned `creator-default.tsx` preference
+shares admitted defaults across composers; mention-node provenance is editing-only
+and the unchanged encrypted v1 draft format restores mentions as manual. `message-recipient.ts` resolves exact typed names
 and distinct UUID pairs for presentation only; LiveAsk re-admits each frozen Ask.
 The [browser discussion contract](../../../../extensions/tmt-colab/contracts/colab-v1.md#inline-annotation-conversations-1587)
 owns default-creator lookup, typed/picked binding, eight-recipient fan-out, offline

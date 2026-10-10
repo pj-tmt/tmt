@@ -82,3 +82,30 @@ it('matches complete multiword names before shorter prefixes without fuzzy routi
   expect(decide({ value: '@alpha beta, note' }, [a, full]).agents).toEqual([full]);
   expect(decide({ value: '@alp note' }).agents).toEqual([]);
 });
+
+it('creator provenance grants no admission and every bound UUID is still revalidated', () => {
+  const edit: ComposerEdit = {
+    value: '@alpha Explain',
+    mentions: [
+      {
+        key: { machine: a.machine, agent: a.agent },
+        range: { start: 0, end: 6 },
+        defaultCreator: true,
+      },
+    ],
+  };
+  expect(decide(edit)).toMatchObject({ allowed: true, agents: [a] });
+  for (const destinations of [
+    [],
+    [b],
+    [a, a],
+    [{ ...a, online: 'offline' as AgentDestination['online'] }],
+  ]) {
+    expect(decide(edit, destinations)).toMatchObject({
+      allowed: false,
+      agents: [],
+      unavailable: ['alpha'],
+    });
+  }
+  expect(messageRecipient({ writable: false, edit, destinations: [a] }).allowed).toBe(false);
+});

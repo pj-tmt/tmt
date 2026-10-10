@@ -39,6 +39,7 @@ export const text = {
   authorAttributionNote:
     'Names are publisher-provided labels, not proof of identity or permission.',
   messageLabel: 'Message',
+  messageCreatorToggle: (name: string) => `Send to @${name}`,
   messageCreator: 'Creator',
   messageMentionState: {
     online: 'Online',

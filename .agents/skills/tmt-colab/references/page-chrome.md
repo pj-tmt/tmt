@@ -112,6 +112,11 @@ Export downloads use the shared Action inside the drawer, with its header provid
 `RichInput` editing boundary and `BrowserField`. The caller owns popup ARIA and
 message policy; the shared input owns focus, caret/IME and editor history. Its
 optional accessory is inside the input below text at the shared text left edge.
+The creator toggle belongs to the shared message action row, with Send on the right
+and recipient status in its hint line. It uses the leaf toggle-button semantics,
+with a full accessible label and a compact recipient label at 640px and below.
+Its preference is shared by this page/viewer device's Chat, annotations and replies;
+the accessory slot remains presentation-only and separate from recipient ownership.
 `PageDrawer` retains dialog modality and focus; Chat supplies its shared
 `ConversationWindow` header and close action instead of a duplicate drawer header.
 Close uses `BrowserIconAction`; its tooltip and focus presentation belong to the leaf.

@@ -20,6 +20,7 @@ import {
   $messageMentions,
   $messageText,
   $replaceMessage,
+  $setDefaultCreator,
   $selectMessageRange,
   fuzzyMessageCandidates,
   mentionQuery,
@@ -82,6 +83,16 @@ function MessageField(props: MessageComposerProps) {
   const setOpen = useCallback((open: boolean) => {
     setSuggestions((previous) => (previous.open === open ? previous : { ...previous, open }));
   }, []);
+  const preferenceRevision = useRef(props.creatorDefault?.revision ?? 0);
+  useEffect(() => {
+    const preference = props.creatorDefault;
+    if (!preference || props.disabled || preferenceRevision.current === preference.revision) return;
+    preferenceRevision.current = preference.revision;
+    editor.update(() => $setDefaultCreator(preference.key, preference.label, preference.enabled), {
+      tag: HISTORY_PUSH_TAG,
+      discrete: true,
+    });
+  }, [editor, props.creatorDefault, props.disabled]);
   const candidates = fuzzyMessageCandidates(props.candidates ?? [], query?.query ?? '');
   const options = candidates.map((agent) => ({
     value: `${agent.machine}:${agent.agent}`,
