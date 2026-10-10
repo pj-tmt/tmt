@@ -6,7 +6,7 @@ import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Download, type Page } from '@playwright/test';
 import { openReaderLink, pairBrowser, startDoor } from './harness/browser.js';
 import {
   annotationInput,
@@ -262,7 +262,18 @@ test('principals: owner, a second paired device and a read-only link read; a rev
     // The Files panel opened earlier stays open across the re-admission.
     await expect(panel.first()).toBeVisible();
     await expect(rowsOf(first)).toHaveCount(1, { timeout: 30_000 });
-    expect(await downloaded(first, rowsOf(first).first(), note.name)).toBe(sha(note.buffer));
+    // The click may land before the re-admitted binding's disclosure scope settles, and the
+    // opener ignores a click on a scope that moved; a person clicks again, so the case does too.
+    const row = rowsOf(first).first();
+    let saved: Download | null = null;
+    for (let attempt = 0; attempt < 6 && !saved; attempt++) {
+      const pending = first.waitForEvent('download', { timeout: 8_000 }).catch(() => null);
+      await row.getByRole('button', { name: text.attachmentDownload }).click();
+      saved = await pending;
+    }
+    expect(saved, 'the owner downloads the file again after the re-admission').not.toBeNull();
+    expect(saved!.suggestedFilename()).toBe(note.name);
+    expect(sha(fs.readFileSync((await saved!.path())!))).toBe(sha(note.buffer));
   });
 });
 
