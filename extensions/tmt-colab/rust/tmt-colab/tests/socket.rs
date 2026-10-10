@@ -90,6 +90,14 @@ impl Running {
         app: Option<tmt_colab::assets::App>,
         release: Option<Arc<tmt_colab::serve_release::ServeRelease>>,
     ) -> Self {
+        Self::start_with_rekey_probe(tunnels, app, release, None)
+    }
+    fn start_with_rekey_probe(
+        tunnels: Tunnels,
+        app: Option<tmt_colab::assets::App>,
+        release: Option<Arc<tmt_colab::serve_release::ServeRelease>>,
+        rekey_probe: Option<std::sync::mpsc::Sender<()>>,
+    ) -> Self {
         // Short absolute root: Unix socket paths are limited to about 100 bytes.
         let root = PathBuf::from(format!(
             "/tmp/tmt-1039-colab-{}-{}",
@@ -105,6 +113,7 @@ impl Running {
         let save_gate: SaveGate = Arc::default();
         let gate = Arc::clone(&save_gate);
         let save_root = root.clone();
+        let observes_rekey = rekey_probe.is_some();
         let mut registration = Registration::with_decoder_config(
             store,
             key,
@@ -112,6 +121,11 @@ impl Running {
         )
         .unwrap()
         .with_save_source(Arc::new(move || {
+            if std::thread::current().name() == Some("colab-rekey")
+                && let Some(probe) = &rekey_probe
+            {
+                probe.send(()).unwrap();
+            }
             if let Some((entered, release)) = gate.lock().unwrap().take() {
                 entered.send(()).unwrap();
                 release.recv_timeout(Duration::from_secs(30)).unwrap();
@@ -135,6 +149,13 @@ impl Running {
         let socket = match release {
             Some(release) => socket.with_release(release),
             None => socket,
+        };
+        let socket = if observes_rekey {
+            socket.with_object_discovery(|| {
+                Some(("127.0.0.1:51234".into(), "/r/fixture/x/colab/".into()))
+            })
+        } else {
+            socket
         };
         let path = socket.path.clone();
         assert_eq!(
@@ -881,6 +902,123 @@ fn two_owner_tabs_append_broadcast_retry_and_catch_up_over_mounted_socket_twice(
             );
         }
     }
+}
+
+#[test]
+fn device_revoke_wakes_the_running_rekey_worker_but_rename_and_own_updates_do_not() {
+    use tmt_colab::{
+        decoder::{Decoder, OwnRecord},
+        page,
+        publication::Outcome,
+    };
+    use tmt_extension_objects::{Budgets, Bus, Caps, Offer, Uuid4, initiate};
+    let (probe, passes) = std::sync::mpsc::channel();
+    let server = Running::start_with_rekey_probe(Tunnels::PRODUCT, None, None, Some(probe));
+    let layout = Layout::existing(&server.root).unwrap().unwrap();
+    let key = Keyring::read(&layout).unwrap();
+    let db = server.oracle();
+    db.execute(
+        "INSERT INTO epoch_secrets VALUES (?,?,?)",
+        rusqlite::params![PAGE, format!("{:020}", 1), [8u8; 32].as_slice()],
+    )
+    .unwrap();
+    let content = prepare_write(&layout, &key, "source survives callback revoke");
+    let published = page::ipc::publish(&layout, &key, &content)
+        .unwrap()
+        .unwrap();
+    assert!(matches!(
+        published.record.outcome,
+        Outcome::Committed { count: 1, .. }
+    ));
+
+    // Keep a real object channel established throughout: its first generation starts one pass.
+    let link = initiate(
+        server.connect(),
+        &Offer {
+            host: "127.0.0.1:51234".into(),
+            mount: "/r/fixture/x/colab/".into(),
+            generation: Uuid4::parse("40000000-0000-4000-8000-000000000001").unwrap(),
+        },
+        Instant::now() + Duration::from_secs(3),
+    )
+    .unwrap();
+    let _objects = Bus::start(link, Budgets::contract(), Caps::contract(), None).unwrap();
+    passes
+        .recv_timeout(Duration::from_secs(10))
+        .expect("initial channel pass");
+    let no_pass = || {
+        assert_eq!(
+            passes.recv_timeout(Duration::from_secs(2)),
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout),
+            "an event without an epoch advance started a rekey pass",
+        )
+    };
+    no_pass();
+
+    let rename = json!({"type":"device.renamed","deviceId":DEVICE,"grantRevision":2,"name":"Renamed browser"});
+    assert!(
+        server
+            .event(
+                "/.tmt/remote/device-events",
+                "tmt-device-event: 1\r\n",
+                &rename.to_string()
+            )
+            .starts_with("HTTP/1.1 200")
+    );
+    no_pass();
+
+    // Comments arrive on the own sync stream, rather than the device-event callback.
+    let mut decoder = Decoder::with_config(support::decoder_config(
+        env!("CARGO_BIN_EXE_tmt-colab").into(),
+    ))
+    .unwrap();
+    let stream = &content.job().manifest.stream_id;
+    let message = "40000000-0000-4000-8000-000000000002";
+    let comment = json!({"version":1,"kind":"comment","spaceId":key.space_id,"pageId":PAGE,
+        "epoch":"1","senderDevice":stream,"revision":"1","deleted":false,
+        "deviceName":"Local CLI","at":now().to_string(),"messageId":message,
+        "thread":{"writer":DEVICE,"id":DEVICE},"body":"An ordinary comment"});
+    let store = Store::read(&layout).unwrap();
+    let own = page::prepare_own_records(
+        &store,
+        &key,
+        PAGE,
+        &[OwnRecord {
+            root: "messages".into(),
+            key: format!("{message}:1"),
+            value: comment,
+        }],
+        &mut decoder,
+        now(),
+    )
+    .unwrap();
+    store.close().unwrap();
+    let published = page::ipc::publish(&layout, &key, &own).unwrap().unwrap();
+    assert!(matches!(
+        published.record.outcome,
+        Outcome::Committed { count: 1, .. }
+    ));
+    no_pass();
+
+    let before = rotation_rows(&db);
+    let revoke = json!({"type":"device.revoked","deviceId":DEVICE,"grantRevision":3});
+    assert!(
+        server
+            .event(
+                "/.tmt/remote/device-events",
+                "tmt-device-event: 1\r\n",
+                &revoke.to_string()
+            )
+            .starts_with("HTTP/1.1 200")
+    );
+    assert_ne!(
+        rotation_rows(&db),
+        before,
+        "the callback did not advance an epoch"
+    );
+    passes
+        .recv_timeout(Duration::from_secs(10))
+        .expect("callback revoke must wake the existing worker without a serve restart");
 }
 
 #[test]

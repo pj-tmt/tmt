@@ -391,7 +391,13 @@ fn serve(
                 apply_event(&request.body, sync, active)
             };
         let (status, text) = match result {
-            Ok(()) => (200, "OK"),
+            Ok(changed) => {
+                // Only an owner transition can advance epochs; rename/replay/tombstone cannot.
+                if changed && let Some(rekey) = rekey {
+                    rekey.now();
+                }
+                (200, "OK")
+            }
             Err(code) => (code.status(), code.text()),
         };
         let _ = response(&mut socket, status, text.as_bytes(), false);
@@ -959,7 +965,7 @@ fn apply_event(
     body: &[u8],
     server: Option<&Server<OwnerAdmission>>,
     active: &ActiveTunnels,
-) -> std::result::Result<(), registration::Code> {
+) -> std::result::Result<bool, registration::Code> {
     use registration::Code;
     let event: DeviceEvent = serde_json::from_slice(body).map_err(|_| Code::Invalid)?;
     let (device, revision) = match &event {
@@ -981,7 +987,7 @@ fn apply_event(
             return Err(Code::Invalid);
         }
         // Colab owns no remote presentation state or rename effects.
-        return Ok(());
+        return Ok(false);
     }
     let mut result = Err(Code::Unavailable);
     server
@@ -991,13 +997,13 @@ fn apply_event(
                 // Lock the handles before committing so a poisoned registry cannot
                 // acknowledge a tombstone whose tunnels were left open.
                 let mut handles = active.lock().map_err(|_| Code::Unavailable)?;
-                let changed = admission
+                let effect = admission
                     .0
                     .lock()
                     .map_err(|_| Code::Unavailable)?
-                    .revoke(device, revision)
+                    .revoke_event(device, revision)
                     .map_err(|_| Code::Unavailable)?;
-                if changed {
+                if effect != registration::Revocation::Unchanged {
                     handles.retain(|(id, socket)| {
                         if id != device {
                             return true;
@@ -1006,7 +1012,7 @@ fn apply_event(
                         false
                     });
                 }
-                Ok(())
+                Ok(effect == registration::Revocation::MembershipChanged)
             })();
         })
         .map_err(|_| Code::Unavailable)?;
