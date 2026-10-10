@@ -7,6 +7,7 @@ mod chrome;
 pub mod control;
 pub mod core;
 pub mod decoder;
+pub mod deploy_declaration;
 pub mod discussion;
 pub mod export;
 pub mod fold;

@@ -123,3 +123,12 @@ envelope bytes, nested signature inputs and digests, all outcome variants and pr
 local write/status DTOs. Rust consumes the frozen vectors without Python; running the
 oracle checks them, and `--write` regenerates after review. These pure codec vectors do
 not establish transaction, authority, route, Save/CLI or recovery admission.
+
+`deploy-declaration-reference.py` (stdlib only) independently rebuilds the
+`tmt colab deploy-declaration --json` line from `../../firestore/declaration.json` and
+`admission.rules`: it pins `admission.digest` and compares `deploy-declaration-v1.json`, which the
+native command must print byte for byte. `deploy-declaration-v1.{firestore.rules,firestore.indexes.json,plan.json}`
+are the composed goldens Remote's `compose_firestore` example writes from it; Remote's mirror test
+and the Rules emulator suite read them. Run the oracle without `--write` to verify, and with
+`--write` after a reviewed source edit (then regenerate the goldens, see the colab skill's
+Firestore Rules emulator section).

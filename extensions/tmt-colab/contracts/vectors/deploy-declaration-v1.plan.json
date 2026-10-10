@@ -1,0 +1,105 @@
+{
+  "version": 1,
+  "planDigest": "c60de3b6f2a126ef3b962d3b45c41bf7e9b96c2d33ca01a34de85638ca137b27",
+  "declarationDigest": "35dbe0243752e57aefead4e97095687993c7b1ea1b6a4d82b989aa5278aa495a",
+  "artifactDigest": "9366c4877569a4e5bec507b1adad91fa600b212858154336fbe3bd4742b69270",
+  "plan": {
+    "version": 1,
+    "profile": "sharing",
+    "backend": "firestore",
+    "capabilities": {
+      "physicalTtl": false
+    },
+    "extensions": [
+      {
+        "name": "colab",
+        "declarationDigest": "35dbe0243752e57aefead4e97095687993c7b1ea1b6a4d82b989aa5278aa495a",
+        "admission": {
+          "artifactDigest": "9366c4877569a4e5bec507b1adad91fa600b212858154336fbe3bd4742b69270",
+          "entryPoint": "colabAdmitted"
+        },
+        "resources": [
+          {
+            "name": "checkpoints",
+            "kind": "checkpoint",
+            "path": "x/colab/checkpoints",
+            "limits": {
+              "maxObjectBytes": 65536,
+              "maxNamespaceBytes": 67108864,
+              "maxEntries": 1024
+            },
+            "ttlField": "expiresAt",
+            "ttl": "not-provisioned",
+            "indexes": []
+          },
+          {
+            "name": "links",
+            "kind": "checkpoint",
+            "path": "x/colab/links",
+            "limits": {
+              "maxObjectBytes": 4096,
+              "maxNamespaceBytes": 4194304,
+              "maxEntries": 1024
+            },
+            "ttlField": null,
+            "ttl": "none",
+            "indexes": []
+          },
+          {
+            "name": "log",
+            "kind": "log",
+            "path": "x/colab/log",
+            "limits": {
+              "maxObjectBytes": 393216,
+              "maxNamespaceBytes": 67108864,
+              "maxEntries": 1024
+            },
+            "ttlField": "expiresAt",
+            "ttl": "not-provisioned",
+            "indexes": []
+          },
+          {
+            "name": "members",
+            "kind": "checkpoint",
+            "path": "x/colab/members",
+            "limits": {
+              "maxObjectBytes": 4096,
+              "maxNamespaceBytes": 4194304,
+              "maxEntries": 1024
+            },
+            "ttlField": null,
+            "ttl": "none",
+            "indexes": []
+          },
+          {
+            "name": "pages",
+            "kind": "checkpoint",
+            "path": "x/colab/pages",
+            "limits": {
+              "maxObjectBytes": 4096,
+              "maxNamespaceBytes": 4194304,
+              "maxEntries": 1024
+            },
+            "ttlField": null,
+            "ttl": "none",
+            "indexes": []
+          },
+          {
+            "name": "spaces",
+            "kind": "checkpoint",
+            "path": "x/colab/spaces",
+            "limits": {
+              "maxObjectBytes": 4096,
+              "maxNamespaceBytes": 1048576,
+              "maxEntries": 256
+            },
+            "ttlField": null,
+            "ttl": "none",
+            "indexes": []
+          }
+        ]
+      }
+    ],
+    "unavailable": []
+  }
+}

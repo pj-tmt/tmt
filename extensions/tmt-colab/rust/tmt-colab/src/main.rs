@@ -95,6 +95,16 @@ fn grammar() -> Command {
         outputs: OutputModes::HumanAndJson,
         details: "Human output starts in the background and returns once the space and the Remote door are ready; use tmt colab stop to end it.\n--foreground keeps the serve owned by this command until Ctrl-C or SIGTERM. Bare --json remains foreground; use --background --json to detach.\nRunning it again while it serves shows the running page and opens it per your settings; --json reports COLAB_ALREADY_SERVING.\nListens only on <data root>/colab/door.sock. Attaches to a running Remote door, or starts tmt remote serve itself, and prints the state and the next step (pairing for page access stays explicit: tmt remote pair; sending to agents requires tmt remote pair --talk or enabling sending in Remote settings).\nStopping closes the socket, its workers and tunnels, then stops a door it started; an attached door keeps running.",
     };
+    const DEPLOY_DECLARATION: CommandSpec = CommandSpec {
+        name: "deploy-declaration",
+        summary: "Print Colab's Firestore backend declaration",
+        examples: &[Example {
+            command: "tmt colab deploy-declaration --json",
+            note: "Read the declaration and admission Rules compiled into this executable",
+        }],
+        outputs: OutputModes::Json,
+        details: "For tmt remote deploy firestore, which runs it through the installed tmt. One strict JSON object, a pure function of this executable: it reads no Colab state, network or provider and changes nothing.",
+    };
     const STOP: CommandSpec = CommandSpec {
         name: "stop",
         summary: "Stop the running tmt colab serve",
@@ -242,6 +252,17 @@ fn grammar() -> Command {
                     ),
             ))
             .subcommand(tmt_cli_style::command(&SKILL_COMMAND))
+            .subcommand(
+                tmt_cli_style::command(&DEPLOY_DECLARATION)
+                    .hide(true)
+                    .arg(
+                        Arg::new("json")
+                            .long("json")
+                            .required(true)
+                            .action(ArgAction::SetTrue)
+                            .help("Output one JSON document"),
+                    ),
+            )
             .subcommand(tmt_cli_style::command(&STOP))
             .subcommand(open_args(
                 tmt_cli_style::command(&OPEN).arg(cli_grammar::page().required(false)),
@@ -324,6 +345,9 @@ fn run(matches: &clap::ArgMatches) -> Result<()> {
         output.write_all(SKILL.as_bytes())?;
         output.flush()?;
         return Ok(());
+    }
+    if command == "deploy-declaration" {
+        return tmt_colab::deploy_declaration::run();
     }
     let stop = Arc::new(AtomicBool::new(false));
     let launcher = command == "serve" && serve::is_launcher(args);
