@@ -328,7 +328,25 @@ fn the_rules_touch_exactly_the_declared_collections() {
         "ext.existsAfter(/",
     ] {
         for part in artifact.split(call).skip(1) {
-            reads.insert(part.split('/').next().unwrap().to_owned());
+            let collection = part.split('/').next().unwrap();
+            if collection == "$(request.resource.data.targetKind)" {
+                // The reciprocal accounting lookup is confined to this declared
+                // collection allow-list; emulator negatives exercise substitution.
+                let targets = [
+                    "spaces",
+                    "pages",
+                    "links",
+                    "members",
+                    "log",
+                    "checkpoints",
+                    "uid-budgets",
+                ];
+                let literal = targets.map(|target| format!("'{target}'")).join(", ");
+                assert!(artifact.contains(&format!("targetKind in [{literal}]")));
+                reads.extend(targets.map(str::to_owned));
+            } else {
+                reads.insert(collection.to_owned());
+            }
         }
     }
     assert!(
