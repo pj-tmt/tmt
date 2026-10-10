@@ -194,10 +194,8 @@ test('principals: owner, a second paired device and a read-only link read; a rev
         .filter({ hasText: note.name }),
     ).toHaveCount(1, { timeout: 30_000 });
     await captureResponsive(first, 'export');
-    await first
-      .getByRole('region', { name: 'Export page' })
-      .getByRole('button', { name: 'Close export' })
-      .click();
+    // The drawer's own close control: it sits in the dialog header, outside the export region.
+    await first.getByRole('button', { name: 'Close Export page', exact: true }).click();
     await openFiles(first);
 
     // Owner, second paired device and the read-only link all read the same bytes.
