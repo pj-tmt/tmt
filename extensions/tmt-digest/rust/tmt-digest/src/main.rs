@@ -8,6 +8,8 @@ mod tick;
 use clap::error::ErrorKind;
 use std::{ffi::OsString, io::Write, process::ExitCode};
 
+const SKILL: &str = include_str!("../../../skills/tmt-digest/SKILL.md");
+
 fn main() -> ExitCode {
     let mut words: Vec<OsString> = std::env::args_os().skip(1).collect();
     if words.is_empty() || words == [OsString::from("help")] {
@@ -25,6 +27,16 @@ fn main() -> ExitCode {
             }
         }
         Ok(matches) => {
+            if matches.subcommand_name() == Some("skill") {
+                let mut output = tmt_cli_style::stream::stdout(false);
+                return match output
+                    .write_all(SKILL.as_bytes())
+                    .and_then(|()| output.flush())
+                {
+                    Ok(()) => ExitCode::SUCCESS,
+                    Err(_) => ExitCode::FAILURE,
+                };
+            }
             if matches.subcommand_name() == Some("tick") {
                 return match tick::execute() {
                     Ok(()) => ExitCode::SUCCESS,

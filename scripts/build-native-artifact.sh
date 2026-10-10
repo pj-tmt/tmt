@@ -8,12 +8,12 @@ case "${1:-}" in
   --rust-notices-only) notices_only=true; frontend_notices=false; shift ;;
 esac
 if [ "$#" -lt 1 ] || [ "$#" -gt 2 ]; then
-  printf '%s\n' 'Usage: scripts/build-native-artifact.sh [--notices-only|--rust-notices-only] <cargo-dist target> [cli|office|ops|driver-herdr|remote|colab]' >&2
+  printf '%s\n' 'Usage: scripts/build-native-artifact.sh [--notices-only|--rust-notices-only] <cargo-dist target> [cli|office|ops|driver-herdr|remote|colab|digest]' >&2
   exit 2
 fi
 target=$1
 product=${2:-cli}
-case "$product" in cli|office|ops|driver-herdr|remote|colab) ;; *) printf '%s\n' 'Unknown native product.' >&2; exit 2 ;; esac
+case "$product" in cli|office|ops|driver-herdr|remote|colab|digest) ;; *) printf '%s\n' 'Unknown native product.' >&2; exit 2 ;; esac
 repo=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd -P)
 # Native releases do not inherit a developer-hosted Colab inventory.
 unset TMT_COLAB_HOSTING_DIR

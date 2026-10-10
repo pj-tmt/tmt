@@ -16,7 +16,7 @@ const targets = [
   'aarch64-unknown-linux-musl',
   'x86_64-unknown-linux-musl',
 ];
-const products = ['cli', 'ops', 'colab', 'remote', 'driver-herdr'];
+const products = ['cli', 'digest', 'ops', 'colab', 'remote', 'driver-herdr'];
 
 afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
@@ -121,7 +121,12 @@ describe('native dependency notice verification', () => {
     map.components['driver-herdr'].release = false;
     writeFileSync(file, JSON.stringify(map));
     const results = verifyNativeNotices(root, { report: () => {} });
-    expect([...new Set(results.map(({ product }) => product))]).toEqual(['cli', 'colab', 'remote']);
+    expect([...new Set(results.map(({ product }) => product))]).toEqual([
+      'cli',
+      'digest',
+      'colab',
+      'remote',
+    ]);
   });
 
   it('refuses empty product discovery and unknown active product policies', () => {

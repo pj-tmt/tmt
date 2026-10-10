@@ -79,6 +79,7 @@ const executable = {
   office: 'tmt-office',
   ops: 'tmt-ops',
   squad: 'tmt-squad',
+  digest: 'tmt-digest',
   remote: 'tmt-remote',
   colab: 'tmt-colab',
   'driver-herdr': 'tmt-driver-herdr',
@@ -167,6 +168,10 @@ await withNativeArtifact(values.archive, metadata, async (artifactRoot) => {
       values.product === 'squad'
         ? fs.readFileSync(path.join(values.skills, 'tmt-squad', 'SKILL.md'), 'utf8')
         : undefined,
+    digestSkill:
+      values.product === 'digest'
+        ? fs.readFileSync(path.join(values.skills, 'tmt-digest/SKILL.md'), 'utf8')
+        : undefined,
     colabSkill:
       values.product === 'colab'
         ? fs.readFileSync(path.join(values.skills, 'tmt-colab', 'SKILL.md'), 'utf8')
@@ -209,6 +214,8 @@ await withNativeArtifact(values.archive, metadata, async (artifactRoot) => {
         office: 'linkage, exact Office handshake, no application state',
         ops: 'linkage, version, exact skills tree, no application state',
         squad: 'linkage, version, exact skills tree, no application state',
+        digest:
+          'linkage, version, root/tick help, exact skills tree and embedded skill, no application state',
         'driver-herdr': 'linkage, exact capabilities/version, no application state',
         colab:
           'linkage, version, exact skills tree and embedded skill, relocated embedded app/assets and combined notices, socket cleanup',

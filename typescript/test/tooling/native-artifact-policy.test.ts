@@ -17,7 +17,7 @@ const { selectNativeArtifact, withNativeArtifact } = (await import(
     manifestFile: string,
     archiveFile: string,
     target: string,
-    product?: 'cli' | 'office' | 'ops' | 'squad' | 'remote' | 'colab' | 'driver-herdr',
+    product?: 'cli' | 'office' | 'ops' | 'squad' | 'remote' | 'colab' | 'digest' | 'driver-herdr',
     options?: { readonly release?: boolean }
   ) => NativeArtifact;
   withNativeArtifact: <T>(
@@ -34,7 +34,7 @@ const { shipsSkills } = (await import(
 const REQUIRED_FILES = ['tmt', 'LICENSE', 'NATIVE-INSTALL.md', 'THIRD-PARTY-NOTICES.txt'];
 /** Product::companions(): executables a product's archive carries beside its own. */
 const COMPANIONS: Record<
-  'cli' | 'office' | 'ops' | 'squad' | 'remote' | 'colab' | 'driver-herdr',
+  'cli' | 'office' | 'ops' | 'squad' | 'remote' | 'colab' | 'digest' | 'driver-herdr',
   readonly string[]
 > = {
   cli: ['tmt-driver-herdr'],
@@ -43,6 +43,7 @@ const COMPANIONS: Record<
   squad: [],
   remote: [],
   colab: [],
+  digest: [],
   'driver-herdr': [],
 };
 const TARGET = 'aarch64-apple-darwin';
@@ -56,7 +57,15 @@ interface NativeArtifact {
 }
 
 interface ArchiveOptions {
-  readonly product?: 'cli' | 'office' | 'ops' | 'squad' | 'remote' | 'colab' | 'driver-herdr';
+  readonly product?:
+    | 'cli'
+    | 'office'
+    | 'ops'
+    | 'squad'
+    | 'remote'
+    | 'colab'
+    | 'digest'
+    | 'driver-herdr';
   /** Files under `skills/`, by path relative to it. */
   readonly skills?: Record<string, string>;
   /** Whether the manifest declares the `skills` asset (default: component skills declaration). */
@@ -106,6 +115,7 @@ async function createArchiveFixture(
     squad: 'tmt-squad',
     remote: 'tmt-remote',
     colab: 'tmt-colab',
+    digest: 'tmt-digest',
     'driver-herdr': 'tmt-driver-herdr',
   }[options.product ?? 'cli'];
   const companions = COMPANIONS[options.product ?? 'cli'];
@@ -222,7 +232,7 @@ describe('native artifact policy', () => {
             `tmt-${product}`,
           ]);
         });
-        for (const other of ['cli', 'office', 'ops', 'remote', 'colab'] as const) {
+        for (const other of ['cli', 'office', 'ops', 'remote', 'colab', 'digest'] as const) {
           if (other === product) continue;
           expect(() =>
             selectNativeArtifact(artifact.manifestFile, artifact.archiveFile, TARGET, other)
@@ -274,7 +284,7 @@ describe('native artifact policy', () => {
       expect(predating.metadata).not.toHaveProperty('skills');
     });
   });
-  it.each(['ops', 'colab'] as const)(
+  it.each(['ops', 'colab', 'digest'] as const)(
     'verifies a %s archive with its declared skills tree and rejects missing or malformed trees',
     async (product) => {
       await withSandbox(async (sandbox) => {

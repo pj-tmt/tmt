@@ -42,8 +42,13 @@
       ]
     },
     "digest": {
+      "package": "tmt-digest",
+      "skills": true,
       "owns": ["extensions/tmt-digest"],
-      "release": false
+      "release": true,
+      "bootstrapSha": "e2aedb34b75ee551252a53174a0c377da27e12a9",
+      "initialVersion": "0.1.0-alpha.1",
+      "requiresCliSha": "506abd65febb889144bfb84cbadf1932cc90f995"
     },
     "office": {
       "package": "tmt-office",

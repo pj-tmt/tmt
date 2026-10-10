@@ -409,6 +409,7 @@ describe('extension objects leaf attribution', () => {
     'tmt-cli': 'rust/crates/tmt-cli',
     'tmt-remote': 'extensions/tmt-remote/rust/tmt-remote',
     'tmt-colab': 'extensions/tmt-colab/rust/tmt-colab',
+    'tmt-digest': 'extensions/tmt-digest/rust/tmt-digest',
     'tmt-office': 'extensions/tmt-office/rust/tmt-office',
     'tmt-ops': 'stubs/tmt-ops',
     'tmt-driver-herdr': 'rust/crates/tmt-driver-herdr',

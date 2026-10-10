@@ -77,7 +77,7 @@ describe('native release publication policy', () => {
       )
     ).toThrow('Ambiguous or missing');
   });
-  it.each(['cli', 'ops', 'squad', 'office', 'driver-herdr', 'remote', 'colab'])(
+  it.each(['cli', 'ops', 'squad', 'office', 'driver-herdr', 'remote', 'colab', 'digest'])(
     'gates %s through the component release policy',
     (product) => {
       const result = spawnSync(
@@ -108,7 +108,7 @@ describe('native release publication policy', () => {
       prerelease: false,
       latest: true,
     });
-    for (const product of ['office', 'ops', 'squad', 'driver-herdr', 'remote', 'colab'])
+    for (const product of ['office', 'ops', 'squad', 'driver-herdr', 'remote', 'colab', 'digest'])
       expect(upgradeSupportFloor(product)).toBeNull();
     expect(() => upgradeSupportFloor('unknown')).toThrow('Unknown native product');
   });
@@ -122,7 +122,15 @@ describe('native release publication policy', () => {
   });
   it('makes only the CLI the latest release', () => {
     expect(releaseFlags('cli')).toEqual(['--latest=true']);
-    for (const extension of ['office', 'ops', 'squad', 'driver-herdr', 'remote', 'colab']) {
+    for (const extension of [
+      'office',
+      'ops',
+      'squad',
+      'driver-herdr',
+      'remote',
+      'colab',
+      'digest',
+    ]) {
       expect(releasePolicy(extension).latest).toBe(false);
       expect(releaseFlags(extension)).toContain('--latest=false');
     }
@@ -136,10 +144,9 @@ describe('native release publication policy', () => {
     // same table. Change them together; neither side reads the other.
     expect(
       Object.fromEntries(
-        ['cli', 'office', 'ops', 'squad', 'driver-herdr', 'remote', 'colab'].map((product) => [
-          product,
-          releasePolicy(product).prerelease,
-        ])
+        ['cli', 'office', 'ops', 'squad', 'driver-herdr', 'remote', 'colab', 'digest'].map(
+          (product) => [product, releasePolicy(product).prerelease]
+        )
       )
     ).toEqual({
       cli: false,
@@ -149,16 +156,33 @@ describe('native release publication policy', () => {
       'driver-herdr': true,
       remote: true,
       colab: true,
+      digest: true,
     });
     expect(releaseFlags('cli')).not.toContain('--prerelease');
-    for (const extension of ['office', 'ops', 'squad', 'driver-herdr', 'remote', 'colab']) {
+    for (const extension of [
+      'office',
+      'ops',
+      'squad',
+      'driver-herdr',
+      'remote',
+      'colab',
+      'digest',
+    ]) {
       expect(releaseFlags(extension)).toContain('--prerelease');
     }
   });
 
   it('publishes a draft with every flag explicit, since each draft starts with component publication policy', () => {
     expect(publishFlags('cli')).toEqual(['--draft=false', '--prerelease=false', '--latest=true']);
-    for (const extension of ['office', 'ops', 'squad', 'driver-herdr', 'remote', 'colab']) {
+    for (const extension of [
+      'office',
+      'ops',
+      'squad',
+      'driver-herdr',
+      'remote',
+      'colab',
+      'digest',
+    ]) {
       expect(publishFlags(extension)).toEqual([
         '--draft=false',
         '--prerelease=true',
@@ -177,6 +201,7 @@ describe('native release publication policy', () => {
       'tmt-driver-herdr-v99.0.0-alpha.1',
       'tmt-remote-v0.1.0-alpha.1',
       'tmt-colab-v0.1.0-alpha.1',
+      'tmt-digest-v0.1.0-alpha.1',
       'install',
       'vnext',
     ]) {
@@ -191,6 +216,7 @@ describe('native release publication policy', () => {
     expect(productOfTag('tmt-squad-v0.1.0-alpha.2')).toBe('squad');
     expect(productOfTag('tmt-driver-herdr-v0.1.0-alpha.1')).toBe('driver-herdr');
     expect(productOfTag('tmt-colab-v0.1.0-alpha.1')).toBe('colab');
+    expect(productOfTag('tmt-digest-v0.1.0-alpha.1')).toBe('digest');
     for (const tag of [
       'install',
       'vnext',

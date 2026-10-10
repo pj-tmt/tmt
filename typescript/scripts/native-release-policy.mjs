@@ -23,6 +23,7 @@ const PRODUCTS = {
   'driver-herdr': { tagPrefix: 'tmt-driver-herdr-v', prerelease: true, latest: false },
   remote: { tagPrefix: 'tmt-remote-v', prerelease: true, latest: false },
   colab: { tagPrefix: 'tmt-colab-v', prerelease: true, latest: false },
+  digest: { tagPrefix: 'tmt-digest-v', prerelease: true, latest: false },
 };
 
 /** Component identities retain their ownership names; native workflows use product keys. */

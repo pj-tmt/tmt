@@ -218,6 +218,7 @@ export async function verifyNativeRuntime({
   officeSkill,
   opsSkill,
   squadSkill,
+  digestSkill,
   colabSkill,
   colabReferences = {},
   profileContent,
@@ -242,13 +243,23 @@ export async function verifyNativeRuntime({
     const emptyPath = path.join(root, 'empty-path');
     for (const directory of [home, cwd, emptyPath]) fs.mkdirSync(directory);
     // An allowlist avoids ambient provider, tmux, loader and runtime overrides.
-    const env = { HOME: home, XDG_CONFIG_HOME: xdg, PATH: emptyPath, LANG: 'C', TMPDIR: root };
+    const env = {
+      HOME: home,
+      XDG_CONFIG_HOME: xdg,
+      PATH: emptyPath,
+      LANG: 'C',
+      TMPDIR: root,
+      TMT_AGENT: '1',
+      BROWSER: '/usr/bin/true',
+    };
     assertMacOsArchitecture(executable, target, { cwd, env });
     verifyLinkage(executable, cwd, env, subject);
 
     const run = (args) => runPackedCommand(executable, args, { cwd, env });
     assert(
-      ['cli', 'office', 'ops', 'squad', 'driver-herdr', 'remote', 'colab'].includes(product),
+      ['cli', 'office', 'ops', 'squad', 'digest', 'driver-herdr', 'remote', 'colab'].includes(
+        product
+      ),
       'Unknown native runtime product'
     );
     const proveHerdr = (driver, expectedVersion) => {
@@ -268,6 +279,28 @@ export async function verifyNativeRuntime({
       assert(!fs.existsSync(xdg), 'Driver probe must not initialize config state');
       assert.deepEqual(fs.readdirSync(home), [], 'Driver probe must not create home state');
       assert.deepEqual(fs.readdirSync(cwd), [], 'Driver probe must not create workspace state');
+      return;
+    }
+    if (product === 'digest') {
+      assert.equal(
+        typeof digestSkill,
+        'string',
+        'Digest runtime proof requires the canonical skill'
+      );
+      assert.equal(run(['--version']), `digest ${version}\n`, `${subject} version mismatch`);
+      const help = run(['--help']);
+      assert.match(help, /Usage: tmt digest /, `${subject} root help mismatch`);
+      for (const command of ['tick', 'skill'])
+        assert(new RegExp(`^ {2}${command} +`, 'm').test(help), `${subject} missing ${command}`);
+      assert.match(
+        run(['tick', '--help']),
+        /Usage: tmt digest tick/,
+        `${subject} tick help mismatch`
+      );
+      assert.equal(run(['skill']), digestSkill, `${subject} embedded Digest skill mismatch`);
+      assert(!fs.existsSync(xdg), 'Digest probes must not initialize config state');
+      assert.deepEqual(fs.readdirSync(home), [], 'Digest probes must not create home state');
+      assert.deepEqual(fs.readdirSync(cwd), [], 'Digest probes must not create workspace state');
       return;
     }
     if (product === 'remote') {
