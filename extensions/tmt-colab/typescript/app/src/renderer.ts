@@ -55,10 +55,12 @@ export async function mountRenderer(
     onAnchors?(resolved: string[], checked?: boolean): void;
     /** Trusted chrome's fixed header inset; absent for standalone renderer probes. */
     viewportInset?(): number;
+    onSlots?(slots: AnchorPosition[]): void;
   },
 ): Promise<{
   readonly snapshot: RenderSnapshot;
   highlight(anchors: { id: string; selector: QuoteSelector }[], draft?: QuoteSelector): void;
+  slots(slots: { id: string; height: number }[]): void;
   scrollAnchor(id: string): void;
   /** Cosmetic position already admitted from this render; never discussion authority. */
   anchorRectangle(id: string): SelectionRect | undefined;
@@ -93,6 +95,11 @@ export async function mountRenderer(
   let requestId = '';
   let anchors: { id: string; selector: QuoteSelector }[] = [];
   const positions = new Map<string, number>();
+  let slotRequestId = '';
+  let slotHeights: { id: string; height: number }[] = [];
+  let slotRounds = 0;
+  let slotPositions = '';
+  let lastSlots: AnchorPosition[] = [];
   const inset = () => Math.max(0, Math.min(window.innerHeight, options.viewportInset?.() ?? 0));
   const viewportHeight = () => Math.max(1, window.innerHeight - inset());
   let reportedHeight = 0,
@@ -109,6 +116,7 @@ export async function mountRenderer(
   frame.style.height = `${lastHeight}px`;
   const fallback = () => {
     innerScroll = true;
+    options.onSlots?.([]);
     pendingHeight = undefined;
     clearTimeout(heightTimer);
     heightTimer = undefined;
@@ -122,6 +130,7 @@ export async function mountRenderer(
     });
   };
   const resize = () => {
+    slotRounds = 0;
     lastHeight = innerScroll ? viewportHeight() : Math.max(viewportHeight(), reportedHeight);
     growthReports = 0;
     frame.style.height = `${lastHeight}px`;
@@ -155,6 +164,7 @@ export async function mountRenderer(
     if (stopped) return;
     stopped = true;
     stopTheme();
+    options.onSlots?.([]);
     clearTimeout(deadline);
     clearTimeout(heightTimer);
     window.removeEventListener('resize', resize);
@@ -303,6 +313,61 @@ export async function mountRenderer(
       value &&
       typeof value === 'object' &&
       !Array.isArray(value) &&
+      value.type === 'colab.render.slots'
+    ) {
+      if (
+        innerScroll ||
+        Object.keys(value).length !== 4 ||
+        value.renderId !== snapshot.renderId ||
+        value.requestId !== slotRequestId ||
+        !Array.isArray(value.slots) ||
+        value.slots.length > slotHeights.length
+      )
+        return;
+      const admitted = new Set(slotHeights.map(({ id }) => id));
+      const seen = new Set<string>();
+      const next: AnchorPosition[] = [];
+      for (const slot of value.slots) {
+        if (
+          !slot ||
+          typeof slot !== 'object' ||
+          Array.isArray(slot) ||
+          Object.keys(slot).length !== 2 ||
+          typeof slot.id !== 'string' ||
+          !admitted.has(slot.id) ||
+          seen.has(slot.id) ||
+          typeof slot.top !== 'number' ||
+          !Number.isFinite(slot.top) ||
+          slot.top < 0 ||
+          slot.top > MAX_RENDER_HEIGHT
+        )
+          return;
+        seen.add(slot.id);
+        next.push({ id: slot.id, top: slot.top });
+      }
+      // A disappeared slot is detached even after the convergence budget is used.
+      if (next.length === 0) {
+        lastSlots = [];
+        options.onSlots?.([]);
+        return;
+      }
+      const serialized = JSON.stringify(next);
+      if (serialized === slotPositions) return;
+      if (slotRounds >= 3) {
+        lastSlots = lastSlots.filter((slot) => seen.has(slot.id));
+        options.onSlots?.(lastSlots);
+        return;
+      }
+      slotRounds++;
+      slotPositions = serialized;
+      lastSlots = next;
+      options.onSlots?.(next);
+      return;
+    }
+    if (
+      value &&
+      typeof value === 'object' &&
+      !Array.isArray(value) &&
       Object.keys(value).length === 4 &&
       value.type === 'colab.render.open-thread' &&
       value.renderId === snapshot.renderId &&
@@ -388,6 +453,38 @@ export async function mountRenderer(
     options.onAnchors?.([]);
     channel.port1.postMessage(message);
   };
+  const slots = (input: { id: string; height: number }[]) => {
+    if (
+      stopped ||
+      input.length > 200 ||
+      new Set(input.map((v) => v.id)).size !== input.length ||
+      input.some(
+        (v) =>
+          !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(v.id) ||
+          !Number.isFinite(v.height),
+      )
+    )
+      return;
+    slotHeights = input.map(({ id, height }) => ({
+      id,
+      height: Math.min(2000, Math.max(0, Math.ceil(height))),
+    }));
+    slotRequestId = crypto.randomUUID();
+    slotRounds = 0;
+    slotPositions = '';
+    // Height changes retain admitted placement and focused controls until the
+    // renderer confirms a slot vanished. A request alone is not detachment.
+    lastSlots = lastSlots.filter(
+      (slot) => !innerScroll && slotHeights.some(({ id }) => id === slot.id),
+    );
+    options.onSlots?.(lastSlots);
+    channel.port1.postMessage({
+      type: 'colab.render.slots',
+      renderId: snapshot.renderId,
+      requestId: slotRequestId,
+      slots: innerScroll ? [] : slotHeights,
+    });
+  };
   const deadline = setTimeout(() => stop('failed'), 5000);
   window.addEventListener('message', bound);
   window.addEventListener('resize', resize);
@@ -446,5 +543,5 @@ export async function mountRenderer(
       height: 20,
     };
   };
-  return { snapshot, highlight, scrollAnchor, anchorRectangle, release, destroy };
+  return { snapshot, highlight, slots, scrollAnchor, anchorRectangle, release, destroy };
 }

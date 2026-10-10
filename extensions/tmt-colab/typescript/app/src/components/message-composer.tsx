@@ -72,8 +72,11 @@ function MessageField(props: MessageComposerProps) {
   const reset = useRef(props.resetKey);
   useEffect(() => {
     // Lexical sets the caret; DOM focus must also leave the sandboxed renderer.
-    if (props.autoFocus)
-      editor.focus(() => editor.getRootElement()?.focus({ preventScroll: true }));
+    if (!props.autoFocus) return;
+    // The inline composer can mount before Lexical attaches its editable root.
+    return editor.registerRootListener((root) => {
+      if (root) editor.focus(() => root.focus({ preventScroll: true }));
+    });
   }, [editor, props.autoFocus]);
   const candidates = fuzzyMessageCandidates(props.candidates ?? [], query?.query ?? '');
   const options = candidates.map((agent) => ({

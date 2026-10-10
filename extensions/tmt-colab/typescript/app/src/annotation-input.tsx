@@ -23,6 +23,14 @@ import type { ThreadBinding } from './thread-store.js';
 import { captureConversation } from './thread-store.js';
 import type { DiscussionRef, QuoteSelector, ThreadView } from './thread-records.js';
 
+export type MessageSendFailure = {
+  agent: string;
+  message: string;
+  uncertain: boolean;
+  recipient: { machine: string; agent: string };
+  input: AskAgainInput;
+};
+
 /** One trusted input. Enter is the explicit effect; disclosure never prepares or sends an intent. */
 export function AnnotationInput({
   binding,
@@ -36,9 +44,11 @@ export function AnnotationInput({
   initialEdit,
   onDraft,
   onBusy,
+  onFailure,
   blocked,
   recoveryRequired = false,
   cancel,
+  showCancel = false,
   committed,
   chat = false,
 }: {
@@ -48,8 +58,8 @@ export function AnnotationInput({
   thread?: ThreadView;
   asks: readonly PageAsk[];
   title: string;
-  /** Stable creation UUIDs from the admitted page projection, never a publisher label. */
-  creationRecipient?: CreationRecipient;
+  /** Admitted page/proposal UUIDs select the recipient; an optional label is display only. */
+  creationRecipient?: CreationRecipient & { label?: string };
   /** A draft kept from an earlier close of the same selection. */
   initialValue?: string;
   initialEdit?: ComposerEdit;
@@ -57,10 +67,13 @@ export function AnnotationInput({
   onDraft?(value: string, edit: ComposerEdit): void;
   /** Reports a send in flight, which nothing outside may interrupt. */
   onBusy?(busy: boolean): void;
+  /** A closing owner retains delivery recovery outside the composer. */
+  onFailure?(failure: MessageSendFailure): void;
   blocked: boolean;
   /** Recovery keeps local editing available; blocked still fences every publish. */
   recoveryRequired?: boolean;
   cancel(): void;
+  showCancel?: boolean;
   committed(ref: DiscussionRef): void;
   chat?: boolean;
 }) {
@@ -68,15 +81,11 @@ export function AnnotationInput({
   const value = edit.value;
   const statusId = useId();
   const initialized = useRef(initialEdit !== undefined || !!initialValue);
-  const [failures, setFailures] = useState<
-    {
-      agent: string;
-      message: string;
-      uncertain: boolean;
-      recipient: { machine: string; agent: string };
-      input: AskAgainInput;
-    }[]
-  >([]);
+  const [failures, setFailures] = useState<MessageSendFailure[]>([]);
+  function recordFailure(failure: MessageSendFailure) {
+    if (onFailure) onFailure(failure);
+    else setFailures((previous) => [...previous, failure]);
+  }
   const [resetKey, setResetKey] = useState(0);
   const [busy, setBusy] = useState(false);
   const sending = useRef(false);
@@ -126,7 +135,7 @@ export function AnnotationInput({
     setEdit((previous) => {
       if (previous.value || previous.edited || !creationRecipient)
         return { ...previous, edited: previous.edited ?? false };
-      const token = `@${matches.length === 1 ? matches[0].agentName : text.messageCreator}`;
+      const token = `@${matches.length === 1 ? matches[0].agentName : (creationRecipient.label ?? text.messageCreator)}`;
       return {
         value: `${token} `,
         edited: false,
@@ -229,7 +238,7 @@ export function AnnotationInput({
           });
         } catch {
           // Failed preparation grants no authority to invent an Ask record or retry a sibling.
-          setFailures((previous) => [...previous, { ...failure, uncertain: false }]);
+          recordFailure({ ...failure, uncertain: false });
           continue;
         }
         try {
@@ -238,15 +247,9 @@ export function AnnotationInput({
             result.adopted === false ||
             (result.adopted === undefined && result.state === 'uncertain')
           )
-            setFailures((previous) => [
-              ...previous,
-              {
-                ...failure,
-                uncertain: result.adopted !== false,
-              },
-            ]);
+            recordFailure({ ...failure, uncertain: result.adopted !== false });
         } catch {
-          setFailures((previous) => [...previous, { ...failure, uncertain: true }]);
+          recordFailure({ ...failure, uncertain: true });
         }
       }
       clearDraft();
@@ -356,6 +359,17 @@ export function AnnotationInput({
               }}
             />
           </span>
+        )}
+        {showCancel && (
+          <BrowserAction
+            type="button"
+            variant="text"
+            label={text.commentCancel}
+            disabled={busy}
+            onActivate={(event) => {
+              if (event.isTrusted && !sending.current) cancel();
+            }}
+          />
         )}
         <BrowserAction
           type="button"

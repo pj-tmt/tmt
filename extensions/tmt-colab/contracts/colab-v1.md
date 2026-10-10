@@ -967,8 +967,37 @@ placeholder step, and a stale page base refuses placement. One exact generated
 placeholder confirms placement; multiple copies stay detached and are left alone.
 HTML is untrusted position data, never record, destination or activation authority.
 A missing or duplicate placeholder leaves the authenticated proposal detached;
-a placeholder without a record supplies no proposal. Trusted card rendering and
-decision dispatch are later #1773 slices; this slice adds data, queries and CLI only.
+a placeholder without a record supplies no proposal. The trusted parent draws the
+card from admitted records; labels and author HTML never choose a destination.
+The existing renderer channel carries only authenticated proposal IDs and integer
+heights clamped to 0–2000 px (at most 200 slots), scoped to the render ID and request
+ID. The iframe inserts a spacer with that minimum height immediately after exactly
+one matching live `tmt-proposal[data-id]`, and reports only ID/top pairs. Unknown,
+missing or duplicate IDs receive no slot. Source replacement retires all slots;
+removed or moved spacers and inner-scroll fallback detach cards into Comments.
+Parent ResizeObserver measurement coalesces to one update per animation frame and
+only sends changed integer heights. Height requests retain admitted positions and
+composer focus until a valid reply detaches a slot. Cosmetic top convergence stops after three
+changing rounds per trigger until the next trigger. Malformed, duplicate, stale
+or over-budget reports are ignored; geometry grants no publication, dispatch or
+focus authority.
+
+Approve/Decline is an explicit trusted parent activation. An in-flight fence and
+live proposal/finality admission precede decision publication. The immutable
+decision is the commit point. Within the same activation, the parent publishes
+`Approved: <title>` or `Declined: <title>` as an ordinary comment and prepares and
+sends the existing Ask with that real thread/comment correlation, frozen page
+link and the proposer's exact machine/agent UUID pair. Current directory admission
+still applies; names never select another agent. Failure retains the decision and
+shows existing Ask failure, held or uncertain state. Recovery is an explicit
+existing Ask recheck or resend; reload, sync and rendering never resume sending,
+roll back the decision or create another automatic request. Follow up opens the
+shared composer inside the card under its history, pre-addressed to that UUID
+pair; Send remains explicit. Send, Escape and Cancel close that composer without
+opening an anchored thread window. The card retains any unrecorded delivery
+failure for explicit recovery after the composer closes; signed Ask outcomes own
+recovery once admitted. Proposals expose no Delete thread action.
+Resolve folds the card; Reopen retains the decision. Combined pending count/filter and `--after` placement remain later slices.
 
 `proposal ls PAGE` reads authenticated proposal threads, their retained decision and
 independent resolved state. Human rows print the shortest unique UUID prefix (at least
@@ -1057,8 +1086,8 @@ Agent CLI Resolve and Reopen have no recipients and never create an Ask or dispa
 Ask on a comment rechecks its unambiguous verified writer, thread/message IDs and
 revisions in the parent. It freezes stored quote/body and the real IDs in the
 existing signed Ask input. Later edits or deletion do not alter a prepared excerpt.
-Comment actions only publish discussion; explicit Send remains the sole Remote
-dispatch action. Standalone asks retain their existing panel and framing.
+Ordinary comment actions only publish discussion. An explicit trusted Send,
+Approve or Decline activation may dispatch through the existing Ask path. Standalone asks retain their existing panel and framing.
 
 ### Current-view baseline and history modes
 
@@ -1500,7 +1529,8 @@ Session, including across later generic ENDED reads or opaque socket close.
 Registration rebuilds both the RemoteClient and page AskControllers with the new
 shared Session; old-session attempts cannot dispatch, and recovery reads the original IDs.
 
-Only explicit Send in trusted parent chrome dispatches agent work. Comments,
+Only an explicit trusted Send, Approve or Decline activation in parent chrome
+dispatches agent work. Ordinary comment publication,
 sync, replay, compaction, reload and renderer messages MUST NOT dispatch. Ask
 agent uses the same send path for annotation turns and page Chat. On explicit Enter,
 the parent freezes the admitted quote/comment, page title, canonical mounted HTTP(S)

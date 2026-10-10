@@ -93,7 +93,8 @@ Each is `(cd rust && cargo test --offline --locked -p tmt-colab <selector>)`:
   must see exactly `Deadline`, confirmed cleanup and a recorded PID gone.
 - Decoder load proof: compile first, repeat the affected decoder, transition and
   socket tests under at most two owned CPU burners (180 s per run, terminated and
-  reaped on every exit), `CARGO_BUILD_JOBS=2` and a private `CARGO_TARGET_DIR`; keep
+  reaped on every exit), `CARGO_BUILD_JOBS=2` and that worktree’s `rust/target` (never an external
+  `CARGO_TARGET_DIR`, per DEVELOPMENT); keep
   logs outside the repository; no Docker or release builds.
 - On macOS the decoder reports `memory limit unavailable`; only Linux enforces the
   child address-space limit.

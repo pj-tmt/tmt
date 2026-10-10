@@ -89,7 +89,7 @@ export async function fixtureAttempt(
       state = { state: 'preparing' };
       pending = controller.send(preview, options.retryOf).then((view) => {
         state = { state: view.state };
-        return state;
+        return { ...state, adopted: true };
       });
       return pending;
     },

@@ -16,6 +16,17 @@ function humanSize(bytes: number): string {
 const reconnectCommand = 'tmt remote pair';
 
 export const text = {
+  proposalOpen: 'Proposal',
+  proposalApproved: 'Approved',
+  proposalDeclined: 'Declined',
+  proposalApprove: 'Approve',
+  proposalDecline: 'Decline',
+  proposalFollowUp: 'Follow up',
+  proposalSaving: 'Saving decision…',
+  proposalNotifyFailed:
+    'Decision saved. The proposer could not be notified. Use Follow up to send a message.',
+  proposalDecisionUnconfirmed: 'Could not confirm the decision. Check again before continuing.',
+
   unknownPageTitle: 'Untitled page',
   originalAuthor: 'Original author',
   byAuthor: (name: string) => `By ${name}`,

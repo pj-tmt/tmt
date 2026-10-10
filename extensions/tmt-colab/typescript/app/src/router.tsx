@@ -32,6 +32,7 @@ import {
 import type { PageSummary, PageView, PageTransport } from './transport.js';
 import { orderPages, pageTitle, pageUpdate } from './page-index.js';
 import { AnnotationInput } from './annotation-input.js';
+import { useProposalLayer } from './proposal-layer.js';
 import { ThreadPanel, ThreadWindow } from './thread-panel.js';
 import { presentationOf } from './thread-status-presentation.js';
 import { isStatusThread, openThreadCount } from './thread-status-view.js';
@@ -753,7 +754,7 @@ function Page() {
   const currentRectangle = useRef<SelectionRect | null>(null);
   const [annotation, setAnnotation] = useState<{
     key: string;
-    selector: QuoteSelector;
+    selector: QuoteSelector | null;
     rectangle: SelectionRect;
     thread?: DiscussionRef;
     /** Text kept from an earlier close of this selection or thread. */
@@ -950,6 +951,21 @@ function Page() {
   // Author loading does not block discussion: sends use the captured quote.
   const discussionBlocked = !!liveError || state === 'failed' || state === 'navigation';
   const host = useRef<HTMLDivElement>(null);
+  const proposalLayer = useProposalLayer({
+    snapshot,
+    view,
+    binding,
+    renderer,
+    host,
+    state,
+    discussionBlocked,
+    recoveryRequired,
+    statusCoordinator,
+    otherBusy: () => annotationBusy.current || statusBusy.current,
+    closeAnnotation: () => closeRef.current(false),
+    draft: (key) => drafts.current.get(key),
+    keepDraft,
+  });
   useEffect(() => {
     const controller = new AbortController();
     if (liveError) {
@@ -965,6 +981,7 @@ function Page() {
     void mountRenderer(host.current!, view.source, {
       signal: controller.signal,
       onState: setState,
+      onSlots: proposalLayer.onSlots,
       viewportInset: () =>
         (toolbar.current?.offsetHeight ?? 0) + (toolbar.current?.getBoundingClientRect().top ?? 0),
       onSelection: (_value, quote, rect) => {
@@ -1003,7 +1020,7 @@ function Page() {
       controller.abort();
       renderer.current = null;
     };
-  }, [view.source, liveError]);
+  }, [view.source, liveError, proposalLayer.onSlots]);
   useEffect(() => {
     if (state !== 'ready') return;
     renderer.current?.highlight(
@@ -1018,7 +1035,7 @@ function Page() {
             ]
           : [],
       ),
-      annotation?.selector,
+      annotation?.selector ?? undefined,
     );
   }, [state, view.threads, annotation]);
   return (
@@ -1136,6 +1153,7 @@ function Page() {
       <div className="workspace">
         <div className="canvas">
           <div className="frame-host" ref={host} />
+          {proposalLayer.inline}
           {(state === 'navigation' || state === 'failed') && (
             <NoticeCard
               state={recoveryRequired ? 'waiting' : 'blocked'}
@@ -1235,7 +1253,7 @@ function Page() {
               >
                 <ThreadWindow
                   thread={annotationThread}
-                  anchor={annotation.selector}
+                  anchor={annotation.selector ?? undefined}
                   layout="anchored"
                   attached={resolved.includes(
                     annotation.thread ? `${annotation.thread.writer}:${annotation.thread.id}` : '',
@@ -1274,7 +1292,9 @@ function Page() {
                       {draftsUnsaved && <p className="annotation-hint">{text.draftsNotSaved}</p>}
                       {annotationThread && <p className="annotation-reply-label">Reply</p>}
                       <AnnotationInput
-                        creationRecipient={view.creationRecipient}
+                        creationRecipient={
+                          annotationThread?.proposal?.proposer ?? view.creationRecipient
+                        }
                         binding={snapshot.binding.ask}
                         discussion={snapshot.binding.discussion}
                         anchor={annotationThread ? annotationThread.anchor : annotation.selector}
@@ -1371,6 +1391,7 @@ function Page() {
         <ThreadPanel
           creationRecipient={view.creationRecipient}
           hideHeader
+          renderProposal={proposalLayer.renderProposal}
           key={`discussion:${snapshot.id}:${draftsReady}`}
           threads={(view.threads ?? []).filter((thread) => !isChatThread(thread))}
           resolved={resolved}

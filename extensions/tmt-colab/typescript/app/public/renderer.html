@@ -29,6 +29,10 @@
             requestId = '',
             stopped = false,
             timer;
+          let slots = [],
+            slotRequestId = '';
+          const spacers = new Map();
+          const vanished = new Set();
           let heightTimer,
             height = 0,
             innerScroll = false;
@@ -249,7 +253,45 @@
             markers = undefined;
             anchorRanges.clear();
           }
+          function resolveSlots() {
+            if (stopped || !slotRequestId) return;
+            const positions = [];
+            for (const slot of slots) {
+              const matches = document.querySelectorAll(`tmt-proposal[data-id="${slot.id}"]`);
+              let spacer = spacers.get(slot.id);
+              if (spacer && (!spacer.isConnected || spacer.previousElementSibling !== matches[0])) {
+                spacer.remove();
+                spacers.delete(slot.id);
+                vanished.add(slot.id);
+              }
+              if (innerScroll || matches.length !== 1 || vanished.has(slot.id)) {
+                spacer?.remove();
+                spacers.delete(slot.id);
+                continue;
+              }
+              if (!spacer) {
+                spacer = document.createElement('div');
+                spacer.dataset.colabProposalSlot = '';
+                spacer.setAttribute('aria-hidden', 'true');
+                matches[0].after(spacer);
+                spacers.set(slot.id, spacer);
+              }
+              const height = `${slot.height}px`;
+              if (spacer.style.minHeight !== height) spacer.style.minHeight = height;
+              spacer.style.display = 'block';
+              const top = spacer.getBoundingClientRect().top + scrollY;
+              if (Number.isFinite(top) && top >= 0 && top <= 1000000)
+                positions.push({ id: slot.id, top });
+            }
+            port.postMessage({
+              type: 'colab.render.slots',
+              renderId,
+              requestId: slotRequestId,
+              slots: positions,
+            });
+          }
           function resolve() {
+            resolveSlots();
             if (stopped || !requestId) return;
             clear();
             const resolved = [],
@@ -373,6 +415,43 @@
               v &&
               typeof v === 'object' &&
               !Array.isArray(v) &&
+              Object.keys(v).length === 4 &&
+              v.type === 'colab.render.slots' &&
+              v.renderId === renderId &&
+              typeof v.requestId === 'string' &&
+              /^[0-9a-f-]{36}$/.test(v.requestId) &&
+              Array.isArray(v.slots) &&
+              v.slots.length <= 200 &&
+              new Set(v.slots.map((s) => s?.id)).size === v.slots.length &&
+              v.slots.every(
+                (s) =>
+                  s &&
+                  typeof s === 'object' &&
+                  !Array.isArray(s) &&
+                  Object.keys(s).length === 2 &&
+                  typeof s.id === 'string' &&
+                  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(s.id) &&
+                  Number.isInteger(s.height) &&
+                  s.height >= 0 &&
+                  s.height <= 2000,
+              )
+            ) {
+              for (const [id, spacer] of spacers)
+                if (!v.slots.some((s) => s.id === id)) {
+                  spacer.remove();
+                  spacers.delete(id);
+                  vanished.delete(id);
+                }
+              slots = v.slots;
+              slotRequestId = v.requestId;
+              resolveSlots();
+              scheduleHeight();
+              return;
+            }
+            if (
+              v &&
+              typeof v === 'object' &&
+              !Array.isArray(v) &&
               Object.keys(v).length === 3 &&
               v.type === 'colab.render.theme' &&
               v.renderId === renderId &&
@@ -391,6 +470,7 @@
               v.mode === 'frame'
             ) {
               innerScroll = true;
+              resolveSlots();
               return;
             }
             if (
@@ -447,6 +527,9 @@
                   !layer?.contains(m.target) &&
                   !markers?.contains(m.target) &&
                   !(
+                    m.target instanceof Element && m.target.hasAttribute('data-colab-proposal-slot')
+                  ) &&
+                  !(
                     m.type === 'childList' &&
                     [...m.addedNodes, ...m.removedNodes].every(
                       (n) => n.nodeType === 1 && n.hasAttribute('data-colab-highlight'),
@@ -465,7 +548,7 @@
                 childList: true,
                 characterData: true,
                 attributes: true,
-                attributeFilter: ['hidden'],
+                attributeFilter: ['hidden', 'data-id', 'style', 'class'],
               });
               parent.postMessage({ type: 'colab.render.bound', renderId }, '*');
               document.addEventListener('selectionchange', selectionChanged);
