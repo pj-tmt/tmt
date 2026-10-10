@@ -34,6 +34,7 @@ struct ListedRow {
     /// The existing `resume` JSON projection, kept byte for byte.
     resume: Option<serde_json::Value>,
     activity: serde_json::Value,
+    running_driver: Option<String>,
 }
 
 struct ResolvedPane {
@@ -523,11 +524,18 @@ fn operation(
                         runtime,
                         &registry,
                     );
+                    let running_driver = presentation::running_driver(
+                        &row,
+                        preferences.remembered.as_ref(),
+                        runtime,
+                        &registry,
+                    );
                     Ok(ListedRow {
                         presence: row,
                         remembered: preferences.remembered,
                         resume,
                         activity,
+                        running_driver,
                     })
                 })
                 .collect::<Result<Vec<_>, Failure>>()?;

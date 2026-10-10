@@ -97,6 +97,7 @@ fn row(
         },
         remembered,
         resume: None,
+        running_driver: None,
     }
 }
 
@@ -354,6 +355,147 @@ fn json_rows_gain_address_driver_and_activity() {
     );
     assert_eq!(document["identities"][6]["address"], "tmux:%31");
     assert_eq!(document["identities"][3]["address"], Value::Null);
+}
+
+fn running_row(driver: &str, session: &str) -> ListedRow {
+    let mut row = row(
+        "worker",
+        Lifetime::Saved,
+        Some((
+            pane("%1", driver, "/tmp"),
+            binding(RuntimeState::Running, Some(session)),
+        )),
+        Some(remembered(driver, session, false)),
+    );
+    row.presence.binding.as_mut().unwrap().identity_id = row.presence.identity.id.clone();
+    row
+}
+
+/// Exercise the projection with the command's already-observed runtime, while
+/// comparing every existing JSON field before and after the additive field.
+fn running_document(mut row: ListedRow, runtime: RuntimeState) -> Value {
+    let baseline = document(&Report::Listed {
+        rows: vec![ListedRow {
+            presence: row.presence.clone(),
+            remembered: row.remembered.clone(),
+            resume: row.resume.clone(),
+            activity: row.activity.clone(),
+            running_driver: None,
+        }],
+        scope: ListScope::default(),
+    });
+    row.running_driver = running_driver(
+        &row.presence,
+        row.remembered.as_ref(),
+        runtime,
+        &tmt_adapters::runtime::RuntimeRegistry::first_party(),
+    );
+    let projected = document(&Report::Listed {
+        rows: vec![row],
+        scope: ListScope::default(),
+    });
+    let mut existing = projected.clone();
+    existing["identities"][0]
+        .as_object_mut()
+        .unwrap()
+        .remove("runningDriver");
+    assert_eq!(existing, baseline, "existing list fields must not change");
+    projected["identities"][0].clone()
+}
+
+#[test]
+fn running_driver_needs_no_activity_telemetry_or_stored_running_claim() {
+    for (driver, session) in [("claude", CLAUDE), ("codex", CODEX)] {
+        for stored in [
+            RuntimeState::Running,
+            RuntimeState::Unknown,
+            RuntimeState::Ended,
+        ] {
+            let mut row = running_row(driver, session);
+            row.presence.binding.as_mut().unwrap().session.state = stored;
+            let value = running_document(row, RuntimeState::Running);
+            assert_eq!(value["runningDriver"], driver);
+            assert_eq!(value["session"]["activity"]["state"], "unknown");
+        }
+    }
+}
+
+#[test]
+fn ls_and_list_json_select_the_same_collection_projection() {
+    let parse =
+        |command: &str| crate::parser::parse_core(&[command.into(), "--json".into()]).unwrap();
+    let ls = parse("ls");
+    let list = parse("list");
+    assert_eq!(ls.invocation, list.invocation);
+    assert!(ls.mode.json && list.mode.json);
+    assert_eq!(
+        ls.invocation,
+        crate::invocation::Invocation::List {
+            target: None,
+            room: None,
+            scope: ListScope::default(),
+        }
+    );
+}
+
+#[test]
+fn ended_or_stopped_runtime_in_a_live_owned_pane_omits_running_driver() {
+    // A remembered, stored-Running session can still name the old driver after
+    // the process ends, or while stopped-process evidence is Unknown.
+    for runtime in [RuntimeState::Ended, RuntimeState::Unknown] {
+        let value = running_document(running_row("codex", CODEX), runtime);
+        assert_eq!(value["presence"], "active");
+        assert_eq!(value["driver"], "codex");
+        assert_eq!(value["address"], format!("codex:{CODEX}"));
+        assert!(value.get("runningDriver").is_none());
+    }
+}
+
+#[test]
+fn missing_mismatched_and_historical_evidence_omits_running_driver() {
+    type RowChange = fn(&mut ListedRow);
+    let cases: &[(&str, RowChange)] = &[
+        ("undisclosed", |row| {
+            row.presence
+                .binding
+                .as_mut()
+                .unwrap()
+                .session
+                .key
+                .as_mut()
+                .unwrap()
+                .provider_session = None
+        }),
+        ("unadmitted", |row| {
+            row.presence.binding.as_mut().unwrap().session.key = None
+        }),
+        ("mismatched", |row| {
+            row.remembered.as_mut().unwrap().provider_session =
+                ProviderSessionId::new("other-session").unwrap()
+        }),
+        ("not remembered", |row| row.remembered = None),
+        ("unregistered", |row| {
+            row.remembered.as_mut().unwrap().harness = HarnessId::new("unregistered").unwrap()
+        }),
+        ("offline historical binding", |row| {
+            row.presence.presence = Presence::Offline
+        }),
+        ("unknown presence", |row| {
+            row.presence.presence = Presence::Unknown
+        }),
+        ("no current binding", |row| row.presence.binding = None),
+        ("no live pane", |row| row.presence.pane = None),
+    ];
+    for (label, change) in cases {
+        let mut row = running_row("codex", CODEX);
+        change(&mut row);
+        assert!(
+            running_document(row, RuntimeState::Running)
+                .get("runningDriver")
+                .is_none(),
+            "{label}"
+        );
+    }
 }
 
 #[test]

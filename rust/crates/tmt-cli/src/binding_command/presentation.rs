@@ -100,6 +100,9 @@ pub(super) fn document(report: &Report) -> Value {
             if let Some(resume) = &row.resume {
                 value["resume"] = resume.clone();
             }
+            if let Some(driver) = &row.running_driver {
+                value["runningDriver"] = driver.clone().into();
+            }
             with_address(value, address(&row.presence, row.remembered.as_ref()))
         }).collect::<Vec<_>>()}),
         Report::Named {
@@ -119,6 +122,26 @@ pub(super) fn document(report: &Report) -> Value {
         } => json!({"target": target,
             "identity": identity.as_ref().map(identity_document), "pane": pane_document(pane)}),
     }
+}
+
+/// Fresh runtime evidence and the admitted session identify a running driver;
+/// the address may still name a remembered driver after its process ends.
+pub(super) fn running_driver(
+    row: &IdentityPresence,
+    remembered: Option<&RememberedSession>,
+    runtime: RuntimeState,
+    registry: &tmt_adapters::runtime::RuntimeRegistry,
+) -> Option<String> {
+    if row.presence != Presence::Active || row.pane.is_none() || runtime != RuntimeState::Running {
+        return None;
+    }
+    let remembered = remembered?;
+    let key = row.binding.as_ref()?.session.key.as_ref()?;
+    if key.provider_session.as_ref() != Some(&remembered.provider_session) {
+        return None;
+    }
+    registry.lifecycle(&remembered.harness)?;
+    Some(remembered.harness.as_str().into())
 }
 
 /// Additive `address`/`driver` keys, full values; existing keys keep their order.
