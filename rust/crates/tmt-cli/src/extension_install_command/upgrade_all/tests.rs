@@ -158,3 +158,66 @@ fn root_upgrade_keeps_ops_switch_summary_and_deferred_recovery_command() {
             .is_none()
     );
 }
+
+#[test]
+fn public_upgrade_all_composition_preserves_stable_and_alpha_selections() {
+    // Composition coverage only: published HTTP acquisition is proved by the adapter tests.
+    for (old, selected) in [("1.2.3", "1.2.4"), ("1.2.3-alpha.1", "1.2.4-alpha.2")] {
+        let mut applied = Vec::new();
+        let pending = INSTALLABLE_EXTENSIONS
+            .iter()
+            .map(|&product| (product, old.into(), selected.into()))
+            .collect();
+        let rows = settle(
+            vec![],
+            pending,
+            |_| Ok(true),
+            |product, version| {
+                applied.push((product, version.to_owned()));
+                Ok(Some((
+                    json!({"changed":true,"version":version}),
+                    super::super::Human::plain(String::new()),
+                )))
+            },
+        );
+        assert_eq!(
+            applied,
+            INSTALLABLE_EXTENSIONS
+                .iter()
+                .map(|&product| (product, selected.to_owned()))
+                .collect::<Vec<_>>()
+        );
+        assert!(
+            rows.iter()
+                .all(|row| row["status"] == "changed" && row["version"] == selected)
+        );
+    }
+}
+
+#[test]
+fn ordinary_extension_list_is_local_observation_without_update_discovery() {
+    let root = std::env::temp_dir().join(format!(
+        "tmt-public-list-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    std::fs::create_dir(&root).unwrap();
+    let result = crate::extension_install_command::listing(
+        &root,
+        false,
+        root.join("empty-path").as_os_str(),
+    );
+    std::fs::remove_dir_all(&root).unwrap();
+    let (document, _) = result.unwrap();
+    assert!(
+        document["extensions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|row| row.get("update").is_none()),
+        "extension list without --check is local-only"
+    );
+}

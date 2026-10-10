@@ -100,7 +100,9 @@ fn injected_release(
 ) -> impl FnMut(&str, &str, usize, Instant) -> io::Result<crate::release_http::Response> {
     assert_eq!(release["tag_name"], format!("v{version}"));
     let routes = super::release::indexed_routes(&release, &manifest, &archive);
+    let network = super::release::PublishedNetwork::default();
     move |url, accept, maximum, deadline| {
+        network.record(url);
         assert!(deadline > Instant::now());
         let bytes = routes
             .get(url)
@@ -382,5 +384,101 @@ fn cargo_dist_upgrade_refreshes_real_artifacts_and_preserves_conflicts() {
             "skill-content transition: skipped (old and candidate text are identical); \
              candidate-byte equality, bundled replacement and idempotence passed"
         );
+    }
+}
+
+#[test]
+fn extension_upgrade_preserves_receipt_and_state_on_public_acquisition_failures() {
+    for (old, new, channel) in [
+        ("1.2.3", "1.2.4", Channel::Stable),
+        ("1.2.3-alpha.1", "1.2.4-alpha.2", Channel::Alpha),
+    ] {
+        for defect in [None, Some("pointer"), Some("archive")] {
+            let directory = TestDirectory::new();
+            let prefix = directory.path.join("prefix");
+            let product = crate::native_install::Product::Ops;
+            let target = "aarch64-apple-darwin";
+            let (_, manifest, archive, name) =
+                super::release::product_fixture(product, old, target, 41);
+            let artifact =
+                artifact::acquire_bytes(product, &manifest, &name, &archive, target).unwrap();
+            let mut state = super::super::test_support::state(old, None);
+            state.channel = channel;
+            let receipt = super::super::receipt::Receipt::new(&artifact, state);
+            let layout = Layout::open_product(&prefix, product).unwrap();
+            {
+                let _lock = crate::file_lock::exclusive(&layout.root.join("install.lock")).unwrap();
+                layout
+                    .publish(&artifact, &receipt, None, None, &mut || Ok(()))
+                    .unwrap();
+            }
+            let executable = layout
+                .root
+                .join("releases")
+                .join(receipt.id.to_string())
+                .join(product.executable());
+            let sentinel = prefix.join("application-state");
+            fs::write(&sentinel, b"untouched").unwrap();
+            let receipt_path = executable.parent().unwrap().join("receipt.json");
+            let before = fs::read(&receipt_path).unwrap();
+            let (release, manifest, archive, _) =
+                super::release::product_fixture(product, new, target, 42);
+            let routes = super::release::indexed_routes(&release, &manifest, &archive);
+            let network = super::release::PublishedNetwork::default();
+            let result = upgrade_product_with(
+                product,
+                UpgradeRequest {
+                    executable: &executable,
+                    channel: None,
+                    exact: None,
+                    unpin: false,
+                },
+                None,
+                None,
+                || Ok(()),
+                |url, _, _, _| {
+                    network.record(url);
+                    if (defect == Some("pointer") && url.contains("/channels/"))
+                        || (defect == Some("archive") && url.ends_with(".tar.gz"))
+                    {
+                        return Err(io::Error::new(
+                            io::ErrorKind::NotFound,
+                            "fixture unavailable",
+                        ));
+                    }
+                    Ok(routes
+                        .get(url)
+                        .expect("canonical extension upgrade URL")
+                        .clone()
+                        .into())
+                },
+                install_cli,
+            );
+            if defect.is_some() {
+                assert!(result.is_err());
+                assert_eq!(
+                    layout.current().unwrap().unwrap().id,
+                    receipt.id,
+                    "extension upgrade failure preserves receipt"
+                );
+                assert_eq!(fs::read(&receipt_path).unwrap(), before);
+                assert_eq!(
+                    fs::read(&executable).unwrap(),
+                    artifact.files[product.executable()]
+                );
+            } else {
+                assert_eq!(result.unwrap().state.version.to_string(), new);
+                assert_eq!(
+                    network.hosts(),
+                    [
+                        "raw.githubusercontent.com",
+                        "github.com",
+                        "github.com",
+                        "github.com"
+                    ]
+                );
+            }
+            assert_eq!(fs::read(sentinel).unwrap(), b"untouched");
+        }
     }
 }

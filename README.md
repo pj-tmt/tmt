@@ -11,6 +11,8 @@ curl -fsSL https://github.com/pj-tmt/tmt/releases/latest/download/install.sh | s
 
 Then run `tmt --help` or `tmt learn`.
 
+Installing and upgrading need no GitHub token. The first upgrade from an older release may still call the GitHub API.
+
 ## License
 
 [MIT](LICENSE)

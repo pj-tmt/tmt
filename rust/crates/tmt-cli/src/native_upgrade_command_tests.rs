@@ -249,3 +249,37 @@ fn skill_failure_is_a_warning_with_partial_publication_and_the_cause() {
     let report = super::skill_outcome(Ok(json!({"refreshed":[],"skipped":[],"conflicts":[]})));
     assert_eq!(report["status"], "current");
 }
+
+#[test]
+fn public_root_upgrade_composition_retains_cli_and_extension_versions_in_both_channels() {
+    // Composition-only evidence; the adapter acquisition controls record network hosts.
+    for version in ["1.2.4", "1.2.4-alpha.2"] {
+        let report = UpgradeReport {
+            installation: native_install::InstallReport {
+                executable: "/managed/bin/tmt".into(),
+                active_executable: "/managed/releases/new/tmt".into(),
+                version: version.into(),
+                changed: true,
+            },
+            state: tmt_core::native_install::InstalledVersion {
+                version: version.parse().unwrap(),
+                channel: if version.contains('-') {
+                    Channel::Alpha
+                } else {
+                    Channel::Stable
+                },
+                pinned_version: None,
+            },
+            skipped_pinned: false,
+        };
+        let rows = product_rows(
+            Some(&report),
+            None,
+            vec![json!({"product":"ops","status":"changed","version":version})],
+        );
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0]["product"], "cli");
+        assert_eq!(rows[1]["product"], "ops");
+        assert!(rows.iter().all(|row| row["version"] == version));
+    }
+}

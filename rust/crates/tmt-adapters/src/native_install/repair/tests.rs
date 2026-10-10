@@ -5,6 +5,7 @@ use std::{
     collections::BTreeMap,
     os::unix::fs::{PermissionsExt, symlink},
 };
+use tmt_core::native_install::Channel;
 
 const TARGET: &str = "aarch64-apple-darwin";
 struct Fixture {
@@ -14,16 +15,28 @@ struct Fixture {
     metadata: Vec<u8>,
     manifest: Vec<u8>,
     archive: Vec<u8>,
+    version: String,
+    network: release::PublishedNetwork,
 }
 impl Fixture {
     fn new(pinned: bool) -> Self {
+        Self::in_channel(pinned, Channel::Stable)
+    }
+    fn in_channel(pinned: bool, channel: Channel) -> Self {
+        let version = if channel == Channel::Stable {
+            "1.2.3"
+        } else {
+            "1.2.3-alpha.1"
+        };
         let directory = TestDirectory::new();
         let layout = Layout::open_product(&directory.path.join("prefix"), Product::Ops).unwrap();
         let (release, manifest, archive, name) =
-            release::product_fixture(Product::Ops, "1.2.3", TARGET, 42);
+            release::product_fixture(Product::Ops, version, TARGET, 42);
         let artifact =
             artifact::acquire_bytes(Product::Ops, &manifest, &name, &archive, TARGET).unwrap();
-        let mut receipt = Receipt::new(&artifact, state("1.2.3", pinned.then_some("1.2.3")));
+        let mut installed = state(version, pinned.then_some(version));
+        installed.channel = channel;
+        let mut receipt = Receipt::new(&artifact, installed);
         receipt.provenance = Some(
             GitHubProvenance {
                 release_id: 42,
@@ -48,16 +61,22 @@ impl Fixture {
                 .1,
             manifest,
             archive,
+            version: version.to_owned(),
+            network: release::PublishedNetwork::default(),
         }
     }
     fn download(&self, url: &str) -> io::Result<Vec<u8>> {
+        self.network.record(url);
         if url.ends_with("/dist-manifest.json") {
             Ok(self.manifest.clone())
         } else if url.ends_with("/tmt-ops-aarch64-apple-darwin.tar.gz") {
             Ok(self.archive.clone())
         } else {
             assert!(
-                url.ends_with("/tmt-ops-v1.2.3/tmt-release-record.json"),
+                url.ends_with(&format!(
+                    "/tmt-ops-v{}/tmt-release-record.json",
+                    self.version
+                )),
                 "repair selects exact version: {url}"
             );
             Ok(self.metadata.clone())
@@ -477,4 +496,49 @@ fn concurrent_repair_installs_preserve_the_winner_and_clean_losing_staging() {
             .to_string_lossy()
             .starts_with(".current-")
     }));
+}
+
+#[test]
+fn repair_uses_only_published_hosts_and_preserves_state_on_acquisition_failure() {
+    for channel in [Channel::Stable, Channel::Alpha] {
+        for fail in [false, true] {
+            let fixture = Fixture::in_channel(false, channel);
+            fs::write(fixture.old.join("tmt-ops"), b"damaged").unwrap();
+            let sentinel = fixture.layout.prefix.join("application-state");
+            fs::write(&sentinel, b"untouched").unwrap();
+            let before = tree(&fixture.layout.prefix);
+            let result = repair_with(
+                Product::Ops,
+                &fixture.layout.prefix,
+                None,
+                || Ok(()),
+                |url, _, _, _| {
+                    if fail && url.ends_with(".tar.gz") {
+                        fixture.network.record(url);
+                        return Err(io::Error::new(
+                            io::ErrorKind::NotFound,
+                            "archive unavailable",
+                        ));
+                    }
+                    fixture.download(url).map(Into::into)
+                },
+            );
+            assert_eq!(
+                fixture.network.hosts(),
+                ["github.com", "github.com", "github.com"],
+                "repair exact installed version never reads a channel pointer"
+            );
+            if fail {
+                assert!(result.is_err());
+                assert_eq!(
+                    tree(&fixture.layout.prefix),
+                    before,
+                    "failed repair preserves receipt, damaged payload and state"
+                );
+            } else {
+                assert_eq!(result.unwrap().installation.version, fixture.version);
+            }
+            assert_eq!(fs::read(&sentinel).unwrap(), b"untouched");
+        }
+    }
 }

@@ -11,6 +11,24 @@ use tmt_core::content_digest::sha256;
 use tmt_core::native_install::{Channel, Product};
 const TARGET: &str = "aarch64-apple-darwin";
 const MANIFEST_NAME: &str = "dist-manifest.json";
+/// Test-owned network recorder shared by normal release acquisition fixtures.
+#[derive(Clone, Default)]
+pub(in crate::native_install) struct PublishedNetwork(std::rc::Rc<std::cell::RefCell<Vec<String>>>);
+impl PublishedNetwork {
+    pub(in crate::native_install) fn record(&self, url: &str) {
+        let uri: ureq::http::Uri = url.parse().expect("fixture request must be a URL");
+        let host = uri.host().expect("fixture request must have a host");
+        self.0.borrow_mut().push(host.to_owned());
+        assert_ne!(
+            host, "api.github.com",
+            "normal published command requested API: {url}"
+        );
+    }
+    pub(in crate::native_install) fn hosts(&self) -> Vec<String> {
+        self.0.borrow().clone()
+    }
+}
+
 fn deadline() -> Instant {
     Instant::now() + Duration::from_secs(5)
 }
@@ -199,11 +217,9 @@ pub(in crate::native_install) fn indexed_download(
     archive: Vec<u8>,
 ) -> impl FnMut(&str, &str, usize, Instant) -> io::Result<crate::release_http::Response> {
     let routes = indexed_routes(&release, &manifest, &archive);
+    let network = PublishedNetwork::default();
     move |url, _, maximum, deadline| {
-        assert!(
-            !url.contains("api.github.com"),
-            "normal release must never reach the API: {url}"
-        );
+        network.record(url);
         assert!(deadline > Instant::now());
         let bytes = routes
             .get(url)
@@ -217,6 +233,7 @@ pub(in crate::native_install) fn indexed_download(
 struct Fixture {
     routes: BTreeMap<String, Vec<u8>>,
     calls: Vec<String>,
+    network: PublishedNetwork,
 }
 impl Fixture {
     fn new(product: Product, version: &str) -> Self {
@@ -224,6 +241,7 @@ impl Fixture {
         Self {
             routes: indexed_routes(&release, &manifest, &archive),
             calls: vec![],
+            network: PublishedNetwork::default(),
         }
     }
     fn get(
@@ -233,7 +251,7 @@ impl Fixture {
         _: usize,
         _: Instant,
     ) -> io::Result<crate::release_http::Response> {
-        assert!(!url.contains("api.github.com"));
+        self.network.record(url);
         self.calls.push(url.into());
         self.routes
             .get(url)
@@ -301,6 +319,16 @@ fn each_product_and_channel_reads_one_pointer_without_api_fallback() {
             let result = fixture.run(product, channel, None).unwrap();
             assert_eq!(result.version.to_string(), version);
             assert_eq!(fixture.calls.len(), 4);
+            assert_eq!(
+                fixture.network.hosts(),
+                [
+                    "raw.githubusercontent.com",
+                    "github.com",
+                    "github.com",
+                    "github.com"
+                ],
+                "published install/upgrade acquisition for {product:?}/{channel:?}"
+            );
             assert_eq!(
                 fixture
                     .calls
@@ -572,5 +600,36 @@ fn canonical_versions_reject_non_alpha_and_unsafe_or_noncanonical_numbers() {
             super::canonical_version(version).unwrap().to_string(),
             version
         );
+    }
+}
+
+#[test]
+fn extension_check_discovery_records_only_pointer_and_record_hosts() {
+    for product in [
+        Product::Ops,
+        Product::Remote,
+        Product::Colab,
+        Product::Digest,
+    ] {
+        for (version, channel) in [
+            ("1.2.4", Channel::Stable),
+            ("1.2.4-alpha.2", Channel::Alpha),
+        ] {
+            let mut fixture = Fixture::new(product, version);
+            let (_, latest) =
+                super::discover_latest(product, channel, deadline(), &mut |u, a, l, d| {
+                    fixture.get(u, a, l, d)
+                })
+                .unwrap();
+            assert_eq!(
+                latest.to_string(),
+                version,
+                "extension list --check / upgrade --all planning acquisition"
+            );
+            assert_eq!(
+                fixture.network.hosts(),
+                ["raw.githubusercontent.com", "github.com"]
+            );
+        }
     }
 }
