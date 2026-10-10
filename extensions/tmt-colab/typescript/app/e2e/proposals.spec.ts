@@ -171,7 +171,7 @@ for (const width of [1440, 390])
       await capture(page, `detached-${width}-${theme}`);
       await card.getByRole('button', { name: 'Approve', exact: true }).click();
       await expect(card.getByRole('alert')).toHaveText(
-        'Decision saved. The proposer could not be notified.',
+        'Decision saved. The proposer could not be notified. Use Follow up to send a message.',
       );
       await expect(card.locator('.proposal-state')).toHaveText('Approved');
       await capture(page, `unavailable-${width}-${theme}`);
