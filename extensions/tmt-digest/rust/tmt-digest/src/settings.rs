@@ -186,7 +186,7 @@ impl DigestConfig {
             document,
         })
     }
-    pub fn effective(&self, id: &str) -> Result<Mode, Error> {
+    pub fn member_setting(&self, id: &str) -> Result<MemberSetting, Error> {
         match self
             .document
             .get("members")
@@ -194,9 +194,22 @@ impl DigestConfig {
             .and_then(|row| row.get("mode"))
             .and_then(Item::as_str)
         {
-            Some(text) => Mode::parse(text),
-            None => Ok(self.default.clone()),
+            Some(text) => Mode::parse(text).map(MemberSetting::Override),
+            None => Ok(MemberSetting::Default),
         }
+    }
+    pub fn effective(&self, id: &str) -> Result<Mode, Error> {
+        match self.member_setting(id)? {
+            MemberSetting::Default => Ok(self.default.clone()),
+            MemberSetting::Override(mode) => Ok(mode),
+        }
+    }
+    pub fn set_at_ms(&self, id: &str) -> Option<i64> {
+        self.document
+            .get("members")
+            .and_then(|members| members.get(id))
+            .and_then(|row| row.get("setAtMs"))
+            .and_then(Item::as_integer)
     }
     fn edit(
         &mut self,

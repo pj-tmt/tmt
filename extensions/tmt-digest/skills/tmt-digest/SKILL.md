@@ -41,8 +41,12 @@ Ticks renew interval holds. If ticks stop, the hold lapses after the greater of 
 
 Successful ticks print nothing. Invalid settings, unavailable Core and delivery errors produce a nonzero exit. Do not replay a delivery after an uncertain outcome; Core retains its claim and settlement state.
 
+## Read status
+
+`tmt digest status --json` returns one read-only document for all saved identities, with resolved modes, held-message counts and ready-made labels. Unavailable stats stay unknown; savings are unavailable in phase 2. It does not tick, deliver messages or change settings.
+
 ## Inspect help and the skill
 
-Use `tmt digest --help`, `tmt digest tick --help` and `tmt digest skill`. The skill command prints the bundled instructions without Core discovery or storage access.
+Use `tmt digest --help`, `tmt digest tick --help`, `tmt digest status --help` and `tmt digest skill`. The skill command prints the bundled instructions without Core discovery or storage access.
 
 Install the official extension through `tmt extension install digest --skills`. Ask the user before installing. Use the managed extension upgrade path, `tmt extension upgrade digest`; do not overwrite a command managed by another installer.

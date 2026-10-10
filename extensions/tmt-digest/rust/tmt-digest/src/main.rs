@@ -3,6 +3,7 @@
 mod core;
 mod grammar;
 mod settings;
+mod status;
 mod tick;
 
 use clap::error::ErrorKind;
@@ -27,6 +28,25 @@ fn main() -> ExitCode {
             }
         }
         Ok(matches) => {
+            if matches.subcommand_name() == Some("status") {
+                let result = status::execute();
+                let successful = result.is_ok();
+                let document = match result {
+                    Ok(document) => document,
+                    Err(error) => {
+                        serde_json::json!({"version":1,"error":{"code":error.code,"message":error.message}})
+                    }
+                };
+                let mut output = tmt_cli_style::stream::stdout(true);
+                return match serde_json::to_writer(&mut output, &document)
+                    .map_err(std::io::Error::other)
+                    .and_then(|()| output.write_all(b"\n"))
+                    .and_then(|()| output.flush())
+                {
+                    Ok(()) if successful => ExitCode::SUCCESS,
+                    _ => ExitCode::FAILURE,
+                };
+            }
             if matches.subcommand_name() == Some("skill") {
                 let mut output = tmt_cli_style::stream::stdout(false);
                 return match output

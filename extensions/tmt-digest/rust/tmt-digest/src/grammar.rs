@@ -46,6 +46,17 @@ const SKILL: CommandSpec = CommandSpec {
     details: "Prints the exact bundled skill without Core discovery or storage access.",
 };
 
+const STATUS: CommandSpec = CommandSpec {
+    name: "status",
+    summary: "Read digest settings, held messages and labels for all members",
+    examples: &[Example {
+        command: "tmt digest status --json",
+        note: "Read one status document without changing settings or delivering messages",
+    }],
+    outputs: OutputModes::Json,
+    details: "Reads Core identities and held-message stats in batches. Unavailable stats stay unknown; savings are unavailable in phase 2. This command does not tick or deliver messages.",
+};
+
 pub fn command() -> Command {
     tmt_cli_style::command(&ROOT)
         .bin_name("tmt digest")
@@ -53,6 +64,15 @@ pub fn command() -> Command {
         .subcommand_negates_reqs(true)
         .subcommand(tmt_cli_style::command(&TICK))
         .subcommand(tmt_cli_style::command(&SKILL))
+        .subcommand(
+            tmt_cli_style::command(&STATUS).arg(
+                Arg::new("json")
+                    .long("json")
+                    .required(true)
+                    .action(ArgAction::SetTrue)
+                    .help("Output one JSON document"),
+            ),
+        )
         .arg(tmt_cli_style::version_arg(ArgAction::Version))
         .arg(
             Arg::new("member")

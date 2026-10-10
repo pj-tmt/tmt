@@ -154,8 +154,8 @@
             "settingValue": "20s",
             "heldCount": 3,
             "statsObservedAtMs": 1791629999000,
-            "nextSendAtMs": 1791630020000,
-            "timeToSendMs": 20000,
+            "nextSendAtMs": 1791630019000,
+            "timeToSendMs": 19000,
             "savings": null,
             "labels": [
               {
@@ -211,7 +211,7 @@
                 "action": null
               },
               {
-                "text": "In 20s",
+                "text": "In 19s",
                 "colorClass": "muted",
                 "action": null
               }
