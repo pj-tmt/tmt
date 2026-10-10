@@ -9,6 +9,21 @@ pub fn flag(args: &clap::ArgMatches) -> Flag {
     }
 }
 
+/// How an explicit `tmt colab open` request decides: it opens even without a terminal or with the
+/// open setting off, but, like every browser handoff, never under an agent (`TMT_AGENT`) unless
+/// `--open` asks for it. `--no-open` always wins.
+pub fn explicit_flag(args: &clap::ArgMatches, agent: bool) -> Flag {
+    explicit(flag(args), agent)
+}
+
+fn explicit(flag: Flag, agent: bool) -> Flag {
+    match flag {
+        Flag::Unset if agent => Flag::NoOpen,
+        Flag::Unset => Flag::Open,
+        other => other,
+    }
+}
+
 pub fn open_link(link: &str, flag: Flag, setting: bool, json: bool) -> Outcome {
     tmt_invoke::open::open_link(
         link,
@@ -37,5 +52,24 @@ pub fn describe(outcome: &Outcome, link: &str) -> (String, Option<String>) {
                 "Could not open the browser ({why}); the link is above"
             )),
         ),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn an_explicit_open_prints_the_link_under_an_agent_unless_open_is_passed() {
+        assert_eq!(explicit(Flag::Unset, true), Flag::NoOpen);
+        assert_eq!(explicit(Flag::Open, true), Flag::Open);
+        assert_eq!(explicit(Flag::NoOpen, true), Flag::NoOpen);
+    }
+
+    #[test]
+    fn an_explicit_open_outside_an_agent_opens_unless_no_open_is_passed() {
+        assert_eq!(explicit(Flag::Unset, false), Flag::Open);
+        assert_eq!(explicit(Flag::Open, false), Flag::Open);
+        assert_eq!(explicit(Flag::NoOpen, false), Flag::NoOpen);
     }
 }

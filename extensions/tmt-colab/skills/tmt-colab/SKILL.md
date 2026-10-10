@@ -69,9 +69,9 @@ to the Remote door. `paired: false` and `next` mean user-only pairing, never an 
 `tmt colab show PAGE --json` shows the page and its link.
 
 When asked to open a page, run `tmt colab open PAGE`; omit PAGE for space home.
-It opens from noninteractive terminals even with automatic-open off, requires
-existing Colab/Remote services and never starts or pairs them. `--json` and
-`--no-open` suppress opening. Open browsers only on request.
+It opens even with automatic-open off, but as an agent it only prints the link unless
+you pass `--open`. It never starts or pairs services. `--json` and `--no-open` suppress
+opening. Open browsers only on request.
 
 ## Read before writing
 

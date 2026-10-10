@@ -44,6 +44,9 @@ socket paths are limited to about 100 bytes:
 - private HOME and XDG roots, and a private tmux server reached only through a `-L` wrapper
   on `PATH` (the tmux `TMUX` session value has no `$` prefix, or `tmt name` cannot find its
   pane);
+- an agent environment (`TMT_AGENT=1`, `BROWSER`) with stand-in `open`, `xdg-open` and `wslview`
+  first on `PATH` that only append to `opener.log`; `dispose()` fails the run if that log
+  exists, so no command in a world can reach the host browser;
 - the real `tmt-remote` door with the real `tmt-colab` mounted, started by `startDoor`;
 - one Chromium profile per paired device (`pairBrowser`: the real `pair --json` ceremony), so
   two viewers have separate keys, IndexedDB and cookies;
