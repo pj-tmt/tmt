@@ -153,5 +153,5 @@ Follow the [layout procedure](.agents/skills/tmt-layout/SKILL.md) when adding or
 - Verify observable behavior and durable state, not only exit codes, log echoes, snapshots, or test counts.
 - Include representative success, failure, cleanup, and lifecycle cases for the changed behavior.
 - Prefer deterministic readiness signals and bounded polling over fixed sleeps.
-- Treat false positives, leaked processes, leaked tmux servers, and non-isolated state as test failures.
+- Treat false positives, leaked processes, leaked tmux servers, non-isolated state, and any test that opens the host browser or touches the host tmux server or stores as test failures.
 - Run the repository checks relevant to every changed layer and report the exact commands and results.
