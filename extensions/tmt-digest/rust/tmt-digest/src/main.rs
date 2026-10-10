@@ -3,6 +3,7 @@
 mod core;
 mod grammar;
 mod settings;
+mod tick;
 
 use clap::error::ErrorKind;
 use std::{ffi::OsString, io::Write, process::ExitCode};
@@ -24,6 +25,12 @@ fn main() -> ExitCode {
             }
         }
         Ok(matches) => {
+            if matches.subcommand_name() == Some("tick") {
+                return match tick::execute() {
+                    Ok(()) => ExitCode::SUCCESS,
+                    Err(error) => report_error(error),
+                };
+            }
             let Some(member) = matches.get_one::<String>("member") else {
                 return print_help(&grammar::command().render_help());
             };
@@ -39,20 +46,22 @@ fn main() -> ExitCode {
                         Err(_) => ExitCode::FAILURE,
                     }
                 }
-                Err(error) => {
-                    let mut output = tmt_cli_style::stream::stderr();
-                    let terminal = output.terminal();
-                    let _ = tmt_cli_style::message::error(
-                        &mut output,
-                        terminal,
-                        &format!("{} ({})", error.message, error.code),
-                        None,
-                    );
-                    ExitCode::FAILURE
-                }
+                Err(error) => report_error(error),
             }
         }
     }
+}
+
+fn report_error(error: core::Error) -> ExitCode {
+    let mut output = tmt_cli_style::stream::stderr();
+    let terminal = output.terminal();
+    let _ = tmt_cli_style::message::error(
+        &mut output,
+        terminal,
+        &format!("{} ({})", error.message, error.code),
+        None,
+    );
+    ExitCode::FAILURE
 }
 
 fn print_help(help: &clap::builder::StyledStr) -> ExitCode {

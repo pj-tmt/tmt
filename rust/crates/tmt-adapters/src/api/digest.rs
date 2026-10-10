@@ -8,6 +8,7 @@ use crate::{
 };
 use serde::Deserialize;
 use serde_json::{Value, json};
+use std::time::Duration;
 use tmt_core::{
     limits::MAX_JS_SAFE_INTEGER,
     request::{
@@ -21,6 +22,7 @@ pub enum Operation {
     Show(Vec<String>),
     Stats(Vec<String>),
     Due(String),
+    Flush(String),
     Read {
         identity: String,
         checklist: Option<String>,
@@ -137,10 +139,14 @@ pub(super) fn decode(operation: &str, input: &[u8]) -> Result<Request, Fault> {
                 Operation::Show(v.identities)
             }
         }
-        "digest.checklist.dueNow" => {
+        "digest.checklist.dueNow" | "digest.checklist.flush" => {
             let v: Due = serde_json::from_slice(input).map_err(|_| invalid())?;
             uuid(&v.identity_id)?;
-            Operation::Due(v.identity_id)
+            if operation.ends_with(".flush") {
+                Operation::Flush(v.identity_id)
+            } else {
+                Operation::Due(v.identity_id)
+            }
         }
         "digest.checklist.read" => {
             let v: Read = serde_json::from_slice(input).map_err(|_| invalid())?;
@@ -194,7 +200,11 @@ fn view(value: &DigestPolicyView) -> Value {
     let policy = value.policy.as_ref();
     json!({"identityId":policy.map(|p|p.identity_id.as_str()),"revision":policy.map_or(0,|p|p.revision),"active":policy.is_some_and(|p|p.active(value.observed_at_ms)),"digestUntilMs":policy.map_or(0,|p|p.until_ms),"remainingMs":policy.map_or(0,|p|p.remaining_ms(value.observed_at_ms)),"heldCount":value.held_count,"activeChecklist":value.active_checklist.as_ref().map(digest::checklist_value),"ownerIdentityId":policy.map(|p|p.owner_identity_id.as_str()),"setterIdentityId":policy.map(|p|p.setter_identity_id.as_str())})
 }
-pub(super) fn execute(storage: &mut Storage, operation: Operation) -> Result<Vec<u8>, Fault> {
+pub(super) fn execute(
+    storage: &mut Storage,
+    operation: Operation,
+    delay: Duration,
+) -> Result<Vec<u8>, Fault> {
     let document = match operation {
         Operation::Write(input) => view(
             &RequestService::new(&mut *storage, wall_time_ms)
@@ -212,6 +222,22 @@ pub(super) fn execute(storage: &mut Storage, operation: Operation) -> Result<Vec
                 .make_digest_due(&identity)
                 .map_err(error)?;
             json!({"identityId":identity,"heldCount":due.held_count,"throughSequence":due.through_sequence})
+        }
+        Operation::Flush(identity) => {
+            let stats = RequestService::new(&mut *storage, wall_time_ms)
+                .digest_stats(std::slice::from_ref(&identity))
+                .map_err(error)?;
+            let state = if stats[0].due_count == 0 {
+                "nothing_due"
+            } else {
+                match digest::flush_idle(storage, &identity, delay).map_err(error)? {
+                    None => "not_idle",
+                    Some(DigestState::Delivered) => "delivered",
+                    Some(DigestState::Uncertain | DigestState::Claimed) => "uncertain",
+                    Some(DigestState::Unsent) => "unavailable",
+                }
+            };
+            json!({"identityId":identity,"state":state})
         }
         Operation::Stats(ids) => {
             let stats = RequestService::new(storage, wall_time_ms)
@@ -289,3 +315,6 @@ fn error(error: RequestError<StorageError>) -> Fault {
         _ => Fault::unavailable(),
     }
 }
+
+#[cfg(test)]
+mod tests;

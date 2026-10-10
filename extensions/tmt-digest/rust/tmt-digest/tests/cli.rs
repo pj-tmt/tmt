@@ -54,7 +54,7 @@ fn help_routes_agree_without_core_or_state() {
     let help = String::from_utf8(expected.stdout).unwrap();
     assert!(help.contains("Usage: tmt digest"));
     assert!(help.contains("default to remove it"));
-    assert!(help.contains("not yet delivered on a schedule"));
+    assert!(help.contains("Run tmt digest tick once a minute"));
     assert!(help.contains("Examples:"));
     for words in [&[][..], &["-h"][..], &["help"][..]] {
         let result = sandbox.run(words);
@@ -78,12 +78,7 @@ fn version_is_source_version_and_behavior_is_refused_without_state() {
                 .contains(env!("CARGO_PKG_VERSION"))
         );
     }
-    for words in [
-        &["tick"][..],
-        &["--"][..],
-        &["--json"][..],
-        &["help", "tick"][..],
-    ] {
+    for words in [&["--"][..], &["--json"][..], &["tick", "--json"][..]] {
         let result = sandbox.run(words);
         assert_eq!(result.status.code(), Some(2));
         assert!(result.stdout.is_empty());
