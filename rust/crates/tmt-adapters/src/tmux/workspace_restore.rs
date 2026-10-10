@@ -1,4 +1,4 @@
-//! Layout-only effects. Saved IDs never become live targets.
+//! Workspace recovery effects. Saved IDs never become live targets.
 
 use super::{Tmux, TmuxError, TmuxFailure};
 use crate::{
@@ -58,13 +58,87 @@ struct Restore<'a, R> {
     windows: HashMap<usize, String>,
     panes: HashMap<String, String>,
     outcome: LayoutRestore,
+    revival_panes: &'a [String],
 }
 
 impl<R: CommandRunner> Tmux<R> {
+    /// Replace only the idle shell created for this invocation's revival phase.
+    /// Literal multi-argument tmux startup bypasses the shell and never types input.
+    pub fn workspace_start_pane(
+        &self,
+        snapshot: &tmt_core::workspace::WorkspaceSnapshot,
+        layout: &LayoutRestore,
+        pane: &RestoredPane,
+        argv: &[String],
+        deadline: Instant,
+    ) -> Result<(), TmuxError> {
+        let socket = snapshot.server.socket.as_str();
+        let cwd = &snapshot
+            .panes
+            .iter()
+            .find(|saved| saved.id == pane.recorded)
+            .ok_or_else(invalid)?
+            .cwd;
+        let shell = pane.shell.as_ref().ok_or_else(invalid)?;
+        let (server, native_start) = layout.server.as_ref().ok_or_else(invalid)?;
+        if argv.len() < 2 || argv.iter().any(|arg| arg.contains('\0')) {
+            return Err(invalid());
+        }
+        let restore = Restore {
+            tmux: self,
+            socket,
+            deadline,
+            fence: Some(Fence {
+                server: server.clone(),
+                native_start: *native_start,
+            }),
+            windows: HashMap::new(),
+            panes: HashMap::new(),
+            outcome: LayoutRestore::default(),
+            revival_panes: &[],
+        };
+        if restore.live(shell.pid())? != *shell {
+            return Err(invalid());
+        }
+        let output = restore.run(vec![
+            "display-message".into(),
+            "-p".into(),
+            "-t".into(),
+            pane.native.clone(),
+            "#{pane_tty}".into(),
+        ])?;
+        if !crate::process::terminal::foreground(output.trim_end_matches('\n'), shell.pid()) {
+            return Err(invalid());
+        }
+        let checks = [
+            format!("#{{==:#{{pane_id}},{}}}", pane.native),
+            format!("#{{==:#{{pane_pid}},{}}}", shell.pid()),
+            "#{==:#{pane_current_command},sh}".into(),
+            format!(
+                "#{{==:#{{pane_start_command}},{}}}",
+                BOOTSTRAP_COMMAND.join(" ")
+            ),
+        ];
+        let mut args = vec![
+            "respawn-pane".into(),
+            "-k".into(),
+            "-t".into(),
+            pane.native.clone(),
+            "-c".into(),
+            format_literal(cwd),
+        ];
+        // tmux expands startup formats; protect literal hashes independently of
+        // the nested command lexer's byte quoting.
+        args.extend(argv.iter().map(|word| format_literal(word)));
+        restore.guard(Some(&pane.native), &checks, args)?;
+        Ok(())
+    }
+
     pub fn workspace_restore_layout(
         &self,
         snapshot: &WorkspaceSnapshot,
         deadline: Instant,
+        revival_panes: &[String],
     ) -> Result<LayoutRestore, TmuxError> {
         // Validate all saved layouts, including skipped ones, before even host reads.
         layout_creation(snapshot, &[]).map_err(|_| invalid())?;
@@ -82,6 +156,7 @@ impl<R: CommandRunner> Tmux<R> {
             windows: HashMap::new(),
             panes: HashMap::new(),
             outcome: LayoutRestore::default(),
+            revival_panes,
         };
         let (names, starting) = if absent {
             (Vec::new(), true)
@@ -181,6 +256,9 @@ impl<R: CommandRunner> Tmux<R> {
             }
             restore.outcome.sessions.push(record);
         }
+        restore.outcome.server = restore
+            .fence
+            .map(|fence| (fence.server, fence.native_start));
         Ok(restore.outcome)
     }
 }
@@ -329,9 +407,9 @@ impl<R: CommandRunner> Restore<'_, R> {
             "-c".into(),
             cwd,
         ];
-        if seed.is_none() {
-            // User panes inherit tmux defaults. Only the removable bootstrap
-            // has a fixed command whose exact startup is checked again below.
+        if seed.is_none() || self.revival_panes.contains(&first.panes[0].id) {
+            // Ordinary panes inherit tmux defaults. Revival and bootstrap shells
+            // have fixed startup checked before replacement or removal.
             args.extend(BOOTSTRAP_COMMAND.map(str::to_owned));
         }
         let starting = self.fence.is_none();
@@ -398,23 +476,23 @@ impl<R: CommandRunner> Restore<'_, R> {
             }
             if link.create {
                 let saved_window = &plan.windows[link.window];
-                let output = self.guard(
-                    Some(&created.pane),
-                    &[],
-                    vec![
-                        "new-window".into(),
-                        "-d".into(),
-                        "-P".into(),
-                        "-F".into(),
-                        created_format(),
-                        "-t".into(),
-                        format!("{}:{}", created.session, link.index),
-                        "-n".into(),
-                        format_literal(&saved_window.window.name),
-                        "-c".into(),
-                        format_literal(&saved_window.panes[0].cwd),
-                    ],
-                )?;
+                let mut args = vec![
+                    "new-window".into(),
+                    "-d".into(),
+                    "-P".into(),
+                    "-F".into(),
+                    created_format(),
+                    "-t".into(),
+                    format!("{}:{}", created.session, link.index),
+                    "-n".into(),
+                    format_literal(&saved_window.window.name),
+                    "-c".into(),
+                    format_literal(&saved_window.panes[0].cwd),
+                ];
+                if self.revival_panes.contains(&saved_window.panes[0].id) {
+                    args.extend(BOOTSTRAP_COMMAND.map(str::to_owned));
+                }
+                let output = self.guard(Some(&created.pane), &[], args)?;
                 let new = self.created(&output)?;
                 if new.session != created.session {
                     return Err(invalid());
@@ -462,7 +540,7 @@ impl<R: CommandRunner> Restore<'_, R> {
             recorded: saved.window.id.clone(),
             native: created.window.clone(),
         });
-        self.remember_pane(&saved.panes[0].id, &created.pane);
+        self.remember_pane(&saved.panes[0].id, created);
         self.verify_cwd(&created.pane, &saved.panes[0].cwd)?;
         self.guard(
             Some(&created.pane),
@@ -513,33 +591,37 @@ impl<R: CommandRunner> Restore<'_, R> {
                 .iter()
                 .find(|pane| pane.id == old)
                 .ok_or_else(invalid)?;
+            let mut args = vec![
+                "split-window".into(),
+                "-d".into(),
+                "-P".into(),
+                "-F".into(),
+                created_format(),
+                match split.axis {
+                    WorkspaceSplitAxis::Horizontal => "-h",
+                    WorkspaceSplitAxis::Vertical => "-v",
+                }
+                .into(),
+                "-l".into(),
+                split.remaining_extent.to_string(),
+                "-t".into(),
+                target.clone(),
+                "-c".into(),
+                format_literal(&pane.cwd),
+            ];
+            if self.revival_panes.contains(&pane.id) {
+                args.extend(BOOTSTRAP_COMMAND.map(str::to_owned));
+            }
             let output = self.guard(
                 Some(&target),
                 &[format!("#{{==:#{{window_id}},{}}}", created.window)],
-                vec![
-                    "split-window".into(),
-                    "-d".into(),
-                    "-P".into(),
-                    "-F".into(),
-                    created_format(),
-                    match split.axis {
-                        WorkspaceSplitAxis::Horizontal => "-h",
-                        WorkspaceSplitAxis::Vertical => "-v",
-                    }
-                    .into(),
-                    "-l".into(),
-                    split.remaining_extent.to_string(),
-                    "-t".into(),
-                    target.clone(),
-                    "-c".into(),
-                    format_literal(&pane.cwd),
-                ],
+                args,
             )?;
             let new = self.created(&output)?;
             if new.window != created.window {
                 return Err(invalid());
             }
-            self.remember_pane(&old, &new.pane);
+            self.remember_pane(&old, &new);
             self.verify_cwd(&new.pane, &pane.cwd)?;
         }
         self.guard(
@@ -597,11 +679,16 @@ impl<R: CommandRunner> Restore<'_, R> {
         Ok(())
     }
 
-    fn remember_pane(&mut self, old: &str, new: &str) {
-        self.panes.insert(old.into(), new.into());
+    fn remember_pane(&mut self, old: &str, new: &Created) {
+        self.panes.insert(old.into(), new.pane.clone());
         self.outcome.panes.push(RestoredPane {
             recorded: old.into(),
-            native: new.into(),
+            native: new.pane.clone(),
+            shell: self
+                .revival_panes
+                .iter()
+                .any(|pane| pane == old)
+                .then(|| new.process.clone()),
         });
     }
 

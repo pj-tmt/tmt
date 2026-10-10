@@ -10,9 +10,10 @@ pub(in crate::grammar) fn workspace() -> Command {
         "Preview this server's snapshot" => "tmt workspace show",
         "Select a snapshot after its server is gone" => "tmt workspace show --socket /tmp/workspace.sock --json",
     ])).arg(socket()))
-    .subcommand(storage(spec!("restore", "Restore missing sessions as ordinary shells", details = "Creates layout only, including after reboot. Existing sessions are skipped whole. Failures retain partial creations. Only an invocation-owned unused bootstrap shell may be removed after linking and fresh verification.", [
-        "Restore layout after its server is gone" => "tmt workspace restore --layout-only --socket /tmp/workspace.sock",
-    ])).arg(socket()).arg(Arg::new("layout-only").long("layout-only").required(true).action(ArgAction::SetTrue).help("Create layout and shells without reviving identities or recorded commands")))
+    .subcommand(storage(spec!("restore", "Restore layout, remembered agents and TMT commands", details = "Existing sessions are skipped whole. Agents use tmt resume; missing or stale sessions need you. Recorded TMT commands restart with their arguments. Failures retain partial creations. Use workspace show to preview.", [
+        "Restore the workspace after its server is gone" => "tmt workspace restore --socket /tmp/workspace.sock",
+        "Restore only the layout" => "tmt workspace restore --layout-only --socket /tmp/workspace.sock",
+    ])).arg(socket()).arg(Arg::new("layout-only").long("layout-only").action(ArgAction::SetTrue).help("Create layout and shells without reviving identities or recorded commands")))
 }
 
 fn socket() -> Arg {

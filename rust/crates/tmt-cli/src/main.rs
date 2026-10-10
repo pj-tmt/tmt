@@ -109,8 +109,12 @@ fn execute(parsed: invocation::Parsed) -> io::Result<u8> {
     if let Invocation::WorkspaceShow { socket } = &parsed.invocation {
         return workspace_show_command::execute(socket.as_deref(), parsed.mode);
     }
-    if let Invocation::WorkspaceRestore { socket } = &parsed.invocation {
-        return workspace_restore_command::execute(socket.as_deref(), parsed.mode);
+    if let Invocation::WorkspaceRestore {
+        socket,
+        layout_only,
+    } = &parsed.invocation
+    {
+        return workspace_restore_command::execute(socket.as_deref(), *layout_only, parsed.mode);
     }
     // The updater's frozen skill-refresh protocol owns its own path admission
     // and output. Driver registration would discover configuration first and
@@ -221,8 +225,11 @@ fn dispatch(parsed: invocation::Parsed) -> io::Result<u8> {
         Invocation::Config(request) => {
             return config_command::execute(request, parsed.mode);
         }
-        Invocation::WorkspaceRestore { socket } => {
-            return workspace_restore_command::execute(socket.as_deref(), parsed.mode);
+        Invocation::WorkspaceRestore {
+            socket,
+            layout_only,
+        } => {
+            return workspace_restore_command::execute(socket.as_deref(), layout_only, parsed.mode);
         }
         Invocation::WorkspaceShow { socket } => {
             return workspace_show_command::execute(socket.as_deref(), parsed.mode);

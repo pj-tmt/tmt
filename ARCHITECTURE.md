@@ -234,9 +234,10 @@ bindings (`identity`, `ls`, `add`, `name`/`this`, `marked`, `whoami`, `unbind`,
 `workspace`); `focus`; local extension interfaces (`api`, `mcp`); native
 installation (`upgrade`/`update`, `uninstall`, `extension`, `driver`); and the
 frozen `office` facade. Hidden internal commands are not a public surface.
-Workspace recovery keeps pure geometry validation in Core, bounded snapshot IO
-and native-fenced layout creation in adapters, and result presentation in the CLI;
-its layout-only command never grants identity or provider-launch authority.
+Workspace recovery keeps pure geometry in Core, snapshot IO and native-fenced
+creation in adapters, and CLI composition/output. Layout-only grants no launch
+authority; full restore starts only created panes via ordinary resume and external
+dispatch, preserving their admission policy.
 Output uses one typed result for human and JSON projections; `identity show`
 without a name uses the shared verified-caller selector and never falls back to
 a working directory, active pane or sole identity.
