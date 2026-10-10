@@ -1,7 +1,6 @@
 import { createContext, useEffect, useState } from 'react';
 import { ReadRefusedError, SessionEndedError } from './ask-remote.js';
-import type { AgentDestination } from './live-ask.js';
-import type { AskBinding } from './ask-panel.js';
+import type { AgentDestination, AgentDirectoryObservation } from './live-ask.js';
 import type { RunningDriver } from './ask-remote.js';
 
 /** What a composer knows about the agents it can ask. `ready` with no agents is a real answer;
@@ -69,7 +68,7 @@ export function runningDriverFor(
 /** Page/binding, admission and new-operation changes invalidate the previous read immediately.
  * No polling, retained driver history, recovery or Ask admission occurs here. */
 export function useAgentPresentation(
-  binding: Pick<AskBinding, 'observeDestinations'> | undefined,
+  binding: { observeDestinations?(): Promise<AgentDirectoryObservation> } | undefined,
   page: string,
   admitted: boolean,
   operations: string,
