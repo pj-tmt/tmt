@@ -31,6 +31,12 @@ function commandNotice(target: HTMLElement, text: string): void {
   }
 }
 
+function capacityCopy(refusal?: InstanceType<typeof RefusalError>): string | undefined {
+  return refusal?.code === 'REMOTE_SESSION_LIMIT'
+    ? `This device already has ${refusal.limit} open sessions, the limit. Close another Remote tab, or change the limit with tmt remote settings sessions-per-device <n> (or off).`
+    : undefined;
+}
+
 function openingChanged(): boolean {
   return !!page.settings && (opening.value === 'on') !== page.settings.settings.open;
 }
@@ -133,19 +139,24 @@ function renderOutcome(): void {
 
 function render(): void {
   renderFirestore(element('firestore-content'), page.firestoreAccess, page.firestore);
-  const access = {
-    checking: 'Checking current access…',
-    live: 'Current browser access confirmed.',
-    lost: 'Current browser access refused.',
-    unconfirmed: 'Current browser access unconfirmed.',
-  }[page.access];
+  const capacity = capacityCopy(page.accessRefusal);
+  const access =
+    capacity ??
+    {
+      checking: 'Checking current access…',
+      live: 'Current browser access confirmed.',
+      lost: 'Current browser access refused.',
+      unconfirmed: 'Current browser access unconfirmed.',
+    }[page.access];
   if (element('access').textContent !== access) element('access').textContent = access;
-  const announcement = {
-    checking: '',
-    live: 'Browser access confirmed',
-    lost: 'Access ended',
-    unconfirmed: 'Access unconfirmed',
-  }[page.access];
+  const announcement =
+    capacity ??
+    {
+      checking: '',
+      live: 'Browser access confirmed',
+      lost: 'Access ended',
+      unconfirmed: 'Access unconfirmed',
+    }[page.access];
   if (announcement && element('access-announcement').textContent !== announcement)
     element('access-announcement').textContent = announcement;
   const editable = page.access === 'live' && page.settings?.capabilities.settingsWrite === true;
@@ -158,15 +169,18 @@ function render(): void {
       : page.access === 'checking'
         ? 'waiting'
         : 'blocked';
-  const reason = page.busy
-    ? 'A request is in progress. Wait for its outcome.'
-    : !editable
-      ? 'Changes are unavailable in this browser. Use the local CLI.'
-      : page.outcome?.state === 'unknown'
-        ? 'Another change is still unconfirmed. Check its original result first.'
-        : page.outcome?.state === 'refused' && page.outcome.reason === 'REMOTE_MANAGEMENT_CAPACITY'
-          ? 'Browser change limit reached. Use the local CLI; do not retry or reset storage.'
-          : '';
+  const reason =
+    capacity ??
+    (page.busy
+      ? 'A request is in progress. Wait for its outcome.'
+      : !editable
+        ? 'Changes are unavailable in this browser. Use the local CLI.'
+        : page.outcome?.state === 'unknown'
+          ? 'Another change is still unconfirmed. Check its original result first.'
+          : page.outcome?.state === 'refused' &&
+              page.outcome.reason === 'REMOTE_MANAGEMENT_CAPACITY'
+            ? 'Browser change limit reached. Use the local CLI; do not retry or reset storage.'
+            : '');
   element('controls-reason').textContent = reason;
   element('controls-reason').hidden = !reason;
   for (const button of document.querySelectorAll<HTMLButtonElement>('button')) {
@@ -474,15 +488,12 @@ for (const button of document.querySelectorAll<HTMLButtonElement>('[data-recover
 try {
   let session = await reopenSession();
   page = new ManagementPage(management(session), async () => {
-    session = await reopenSession(session);
+    session = await reopenSession(session, { retry: 'bounded' });
     return management(session);
   });
   await run(() => refreshView());
 } catch (error) {
-  const capacity =
-    error instanceof RefusalError && error.code === 'REMOTE_SESSION_LIMIT'
-      ? `This device already has ${error.limit} open sessions, the limit. Close another Remote tab, or change the limit with tmt remote settings sessions-per-device <n> (or off).`
-      : undefined;
+  const capacity = capacityCopy(error instanceof RefusalError ? error : undefined);
   const ended =
     error instanceof RefusalError &&
     [

@@ -79,7 +79,7 @@ so only one bounded page of forms is retained. The separately generated
 `settings-v1.js` imports the single served public SDK, without another key/channel owner.
 Both generated modules must pass rebuild byte equality. The owning
 [management protocol](../../../../contracts/remote-channel-v1.md#remote-settings-page)
-defines default/source, capacity and one-attempt live-grant recovery behavior.
+defines default/source, capacity and bounded live-grant admission behavior.
 
 The existing Chromium pairing fixture also exercises the actual settings page: designated/
 read-only values, exact custom cap/off/default source, role removal, retained drafts/caret,

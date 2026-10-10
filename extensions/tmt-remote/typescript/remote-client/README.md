@@ -301,16 +301,12 @@ owns presentation, while Remote owns layout, native selects and control state. A
 cap is not saved as explicit 8; there is no invented reset setter. Draft text and original
 intent remain separate, including after unknown outcome or refreshed reads.
 
-The page explicitly calls `reopenSession(previousSession)` for original-outcome recovery.
-It binds to the existing paired identity and trust pins, never a separately persisted old key.
-Before any descriptor read or admission, the stored machine pin must be a 32-byte Uint8Array
-matching every byte of the verified prior Session pin. Invalid or replaced pins produce
-`REMOTE_SESSION_ENDED` without network access.
-There is one fresh admission attempt. An HTTP refusal with an unchanged current trusted door
-descriptor is current-access refusal; a changed/stale/malformed/unavailable descriptor or
-transport/unverified reply is unconfirmed. Neither establishes committed revoke or permanent
-grant loss. A descriptor recheck is another read, never another admission/mutation. Existing
-no-argument reopen behavior is unchanged.
+The settings page uses [bounded browser re-admission](#bounded-browser-re-admission) once
+per refresh after a verified grant-change or ended/evicted Session read, then retries only reads.
+Original-outcome recovery uses the same admission owner, then reads only the original ID;
+no mutation is resent. The existing paired identity and prior Session trust pins remain required.
+Drafts and the retained outcome stay separate from current-access failures. Verified revoked or
+expired access prevents further refresh admission until reload or re-pair.
 
 The settings page retains the current device page during value/effect/recovery refreshes.
 First/next navigation focuses an unsent device name and refuses to leave until that name is saved

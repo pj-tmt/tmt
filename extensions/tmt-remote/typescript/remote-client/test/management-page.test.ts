@@ -4,11 +4,13 @@ import { test } from 'vite-plus/test';
 import { ManagementPage, type PageIntent } from '../src/management-page.js';
 import type { RemoteManagement, ManagementOutcome } from '../src/management.js';
 import { ClientError, RefusalError } from '../src/operations.js';
+import { ReopenSessionError } from '../src/session-reopen.js';
 function fixture() {
   let effectCalls = 0;
   let readCalls = 0;
   let reopens = 0;
   let failOpen: unknown;
+  let openGate: Promise<void> | undefined;
   let result: ManagementOutcome | undefined;
   let mutationError: unknown;
   let readError: unknown;
@@ -72,6 +74,7 @@ function fixture() {
   };
   const page = new ManagementPage(remote, async () => {
     reopens++;
+    if (openGate) await openGate;
     if (failOpen) throw failOpen;
     return remote;
   });
@@ -81,6 +84,9 @@ function fixture() {
     counts: () => ({ effectCalls, readCalls, reopens }),
     setResult: (value: ManagementOutcome) => {
       result = value;
+    },
+    holdOpen: (gate: Promise<void>) => {
+      openGate = gate;
     },
     failOpen: (error: unknown) => {
       failOpen = error;
@@ -142,11 +148,7 @@ test('unknown freezes original intent, blocks fresh mutations and recovers by or
   assert.equal(f.page.outcome!.state, 'committed');
   assert.deepEqual(f.counts(), { effectCalls: 1, readCalls: 1, reopens: 1 });
 });
-for (const code of [
-  'REMOTE_SESSION_ENDED',
-  'REMOTE_DEVICE_REVOKED',
-  'REMOTE_GRANT_EXPIRED',
-] as const) {
+for (const code of ['REMOTE_DEVICE_REVOKED', 'REMOTE_GRANT_EXPIRED'] as const) {
   test(`fresh admission ${code} reports access loss without settling the unknown original`, async () => {
     const f = fixture();
     await f.page.refresh();
@@ -222,9 +224,11 @@ for (const state of ['unknown', 'committed'] as const) {
         assert.equal(f.page.writable, false);
         assert.equal(f.page.intent, original);
         assert.equal(f.page.outcome, outcome);
+        await f.page.recover();
+        assert.equal(f.counts().reopens, 0, 'busy refresh excludes original recovery');
         reject(
           access === 'lost'
-            ? new RefusalError('REMOTE_SESSION_ENDED')
+            ? new RefusalError('REMOTE_DEVICE_REVOKED')
             : new ClientError('transport_failure', 'Unconfirmed refresh.'),
         );
         await refresh;
@@ -239,7 +243,11 @@ for (const state of ['unknown', 'committed'] as const) {
             ? 'This change could not be confirmed. Check its original result before making another change.'
             : 'Session limit saved. Applies to new sessions. This session ended. Use the local CLI to continue.',
         );
-        assert.deepEqual(f.counts(), { effectCalls: 1, readCalls: 0, reopens: 0 });
+        assert.deepEqual(f.counts(), {
+          effectCalls: 1,
+          readCalls: 0,
+          reopens: 0,
+        });
       });
     }
   }
@@ -248,7 +256,7 @@ for (const state of ['unknown', 'committed'] as const) {
 test('failed refresh without an original keeps current-access guidance', async () => {
   const f = fixture();
   f.remote.settings = async () => {
-    throw new RefusalError('REMOTE_SESSION_ENDED');
+    throw new RefusalError('REMOTE_DEVICE_REVOKED');
   };
   await f.page.refresh();
   assert.equal(f.page.access, 'lost');
@@ -279,7 +287,13 @@ test('capacity refusal names local CLI and acknowledged self-change remains comm
     sessionEnded: true,
   });
   await acknowledged.page.submit(next);
-  acknowledged.failOpen(new RefusalError('REMOTE_SESSION_ENDED'));
+  acknowledged.failOpen(
+    new ReopenSessionError(
+      'revoked',
+      'admission-refused',
+      new RefusalError('REMOTE_DEVICE_REVOKED'),
+    ),
+  );
   await acknowledged.page.recover();
   assert.equal(acknowledged.page.access, 'lost');
   assert.equal(acknowledged.page.outcome!.state, 'committed');
@@ -527,3 +541,125 @@ for (const code of ['REMOTE_CLOSED', 'REMOTE_GRANT_CHANGED', 'REMOTE_SERVE_STOPP
     assert.equal(f.counts().effectCalls, 1);
   });
 }
+
+for (const step of ['settings', 'devices'] as const) {
+  for (const code of [
+    'REMOTE_GRANT_CHANGED',
+    'REMOTE_SESSION_ENDED',
+    'REMOTE_SESSION_EVICTED',
+  ] as const) {
+    test(`refresh ${step} ${code} silently reopens once and retries only reads`, async () => {
+      const f = fixture();
+      await f.page.refresh();
+      await f.page.submit(input());
+      const intent = f.page.intent;
+      const outcome = f.page.outcome;
+      let attempts = 0;
+      if (step === 'settings') {
+        const original = f.remote.settings.bind(f.remote);
+        f.remote.settings = (async (options?: { firestore: true }) => {
+          if (++attempts === 1) throw new RefusalError(code);
+          return options ? original(options) : original();
+        }) as RemoteManagement['settings'];
+      } else {
+        const original = f.remote.devices.bind(f.remote);
+        f.remote.devices = async (input) => {
+          if (++attempts === 1) throw new RefusalError(code);
+          return original(input);
+        };
+      }
+      await f.page.refresh();
+      assert.equal(f.page.access, 'live');
+      assert.equal(attempts, 2);
+      assert.equal(f.page.intent, intent);
+      assert.equal(f.page.outcome, outcome);
+      assert.equal(f.page.writable, false);
+      assert.deepEqual(f.counts(), { effectCalls: 1, readCalls: 0, reopens: 1 });
+    });
+  }
+}
+
+test('a failed retry cannot loop and keeps the requested device cursor', async () => {
+  const f = fixture();
+  const cursors: unknown[] = [];
+  f.remote.devices = async ({ cursor }) => {
+    cursors.push(cursor);
+    throw new RefusalError('REMOTE_SESSION_ENDED');
+  };
+  await f.page.refresh('same-cursor');
+  assert.deepEqual(cursors, ['same-cursor', 'same-cursor']);
+  assert.equal(f.page.access, 'unconfirmed');
+  assert.equal(f.counts().reopens, 1);
+});
+for (const reason of [
+  'revoked',
+  'expired',
+  'capacity',
+  'mismatch',
+  'unpaired',
+  'transient',
+  'unreachable',
+  'unconfirmed',
+] as const) {
+  test(`refresh bounded admission ${reason} preserves its evidence and never retries a terminal state`, async () => {
+    const f = fixture();
+    await f.page.refresh();
+    await f.page.submit(input());
+    const intent = f.page.intent,
+      outcome = f.page.outcome;
+    f.remote.settings = async () => {
+      throw new RefusalError('REMOTE_GRANT_CHANGED');
+    };
+    const cause = new RefusalError(
+      reason === 'capacity'
+        ? 'REMOTE_SESSION_LIMIT'
+        : reason === 'revoked'
+          ? 'REMOTE_DEVICE_REVOKED'
+          : 'REMOTE_GRANT_EXPIRED',
+      undefined,
+      8,
+    );
+    f.failOpen(
+      new ReopenSessionError(
+        reason,
+        'admission-refused',
+        ['revoked', 'expired', 'capacity'].includes(reason) ? cause : undefined,
+      ),
+    );
+    await f.page.refresh();
+    assert.equal(f.page.access, ['revoked', 'expired'].includes(reason) ? 'lost' : 'unconfirmed');
+    assert.equal(
+      f.page.accessRefusal,
+      ['revoked', 'expired', 'capacity'].includes(reason) ? cause : undefined,
+    );
+    assert.equal(f.page.intent, intent);
+    assert.equal(f.page.outcome, outcome);
+    assert.equal(f.page.writable, false);
+    if (['revoked', 'expired'].includes(reason)) await f.page.refresh();
+    assert.deepEqual(f.counts(), { effectCalls: 1, readCalls: 0, reopens: 1 });
+  });
+}
+test('busy recovery excludes refresh and a second recovery without a second opener', async () => {
+  const f = fixture();
+  await f.page.refresh();
+  await f.page.submit(input());
+  const intent = f.page.intent;
+  f.setResult(f.page.outcome!);
+  let release!: () => void;
+  f.holdOpen(
+    new Promise<void>((resolve) => {
+      release = resolve;
+    }),
+  );
+  const pending = f.page.recover();
+  await f.page.refresh();
+  await f.page.recover();
+  assert.equal(f.page.busy, true);
+  assert.equal(f.counts().reopens, 1);
+  release();
+  await pending;
+  assert.equal(f.page.intent, intent);
+  assert.equal(f.page.outcome!.state, 'unknown');
+  assert.equal(f.page.writable, false);
+  assert.deepEqual(f.counts(), { effectCalls: 1, readCalls: 1, reopens: 1 });
+});

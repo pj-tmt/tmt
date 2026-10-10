@@ -1,4 +1,4 @@
-import { ClientError, RefusalError, budget, management, reopenSession } from "/sdk/remote-v1.js";
+import { ClientError, RefusalError, ReopenSessionError, budget, management, reopenSession } from "/sdk/remote-v1.js";
 //#region src/firestore.ts
 var firestoreTitles = {
 	sharing: "Page sharing",
@@ -185,6 +185,7 @@ var ManagementPage = class {
 	intent;
 	outcome;
 	access = "checking";
+	accessRefusal;
 	busy = false;
 	notice = "";
 	freshAttempted = false;
@@ -201,11 +202,13 @@ var ManagementPage = class {
 		return this.access === "live" && this.settings?.capabilities.settingsWrite === true && !this.busy && this.outcome?.state !== "unknown" && !(this.outcome?.state === "refused" && this.outcome.reason === "REMOTE_MANAGEMENT_CAPACITY");
 	}
 	async refresh(cursor = this.cursor) {
+		if (this.busy || this.access === "lost") return;
 		this.busy = true;
+		this.accessRefusal = void 0;
 		this.firestoreRead = void 0;
 		this.firestore = void 0;
 		this.firestoreAccess = "checking";
-		try {
+		const read = async () => {
 			const settings = await this.client.settings();
 			const devices = await this.client.devices({
 				cursor,
@@ -217,9 +220,22 @@ var ManagementPage = class {
 			this.access = "live";
 			if (this.outcome) this.describeOutcome();
 			else this.notice = settings.settings.warning ?? "";
+		};
+		try {
+			try {
+				await read();
+			} catch (error) {
+				if (!(error instanceof RefusalError) || ![
+					"REMOTE_GRANT_CHANGED",
+					"REMOTE_SESSION_ENDED",
+					"REMOTE_SESSION_EVICTED"
+				].includes(error.code)) throw error;
+				this.client = await this.reopen();
+				await read();
+			}
 		} catch (error) {
 			this.firestoreAccess = "unconfirmed";
-			this.access = accessRefused(error) ? "lost" : "unconfirmed";
+			this.failedAccess(error);
 			if (this.outcome) this.describeOutcome();
 			else this.notice = "Current access could not be confirmed. Use the local CLI.";
 		} finally {
@@ -274,6 +290,7 @@ var ManagementPage = class {
 	async recover() {
 		if (!this.intent || this.busy || this.freshAttempted) return;
 		this.freshAttempted = true;
+		this.accessRefusal = void 0;
 		this.busy = true;
 		try {
 			this.client = await this.reopen();
@@ -285,11 +302,15 @@ var ManagementPage = class {
 				this.describeOutcome();
 			}
 		} catch (error) {
-			this.access = accessRefused(error) ? "lost" : "unconfirmed";
+			this.failedAccess(error);
 			this.describeOutcome();
 		} finally {
 			this.busy = false;
 		}
+	}
+	failedAccess(error) {
+		this.accessRefusal = error instanceof ReopenSessionError && error.cause instanceof RefusalError ? error.cause : error instanceof RefusalError ? error : void 0;
+		this.access = accessRefused(error) ? "lost" : "unconfirmed";
 	}
 	get canRecover() {
 		return !!this.intent && !this.busy && !this.freshAttempted && (this.outcome?.state === "unknown" || this.access !== "live");
@@ -304,12 +325,8 @@ var ManagementPage = class {
 	}
 };
 function accessRefused(error) {
-	return error instanceof RefusalError && [
-		"REMOTE_SESSION_ENDED",
-		"REMOTE_SESSION_EVICTED",
-		"REMOTE_DEVICE_REVOKED",
-		"REMOTE_GRANT_EXPIRED"
-	].includes(error.code);
+	if (error instanceof ReopenSessionError) return error.reason === "revoked" || error.reason === "expired";
+	return error instanceof RefusalError && ["REMOTE_DEVICE_REVOKED", "REMOTE_GRANT_EXPIRED"].includes(error.code);
 }
 //#endregion
 //#region src/settings-page.ts
@@ -337,6 +354,9 @@ function commandNotice(target, text) {
 		code.textContent = part;
 		target.append(code);
 	} else target.append(document.createTextNode(part));
+}
+function capacityCopy(refusal) {
+	return refusal?.code === "REMOTE_SESSION_LIMIT" ? `This device already has ${refusal.limit} open sessions, the limit. Close another Remote tab, or change the limit with tmt remote settings sessions-per-device <n> (or off).` : void 0;
 }
 function openingChanged() {
 	return !!page.settings && opening.value === "on" !== page.settings.settings.open;
@@ -414,14 +434,15 @@ function renderOutcome() {
 }
 function render() {
 	renderFirestore(element("firestore-content"), page.firestoreAccess, page.firestore);
-	const access = {
+	const capacity = capacityCopy(page.accessRefusal);
+	const access = capacity ?? {
 		checking: "Checking current access…",
 		live: "Current browser access confirmed.",
 		lost: "Current browser access refused.",
 		unconfirmed: "Current browser access unconfirmed."
 	}[page.access];
 	if (element("access").textContent !== access) element("access").textContent = access;
-	const announcement = {
+	const announcement = capacity ?? {
 		checking: "",
 		live: "Browser access confirmed",
 		lost: "Access ended",
@@ -431,7 +452,7 @@ function render() {
 	const editable = page.access === "live" && page.settings?.capabilities.settingsWrite === true;
 	element("read-only").hidden = editable;
 	element("access-notice").dataset.tone = page.access === "live" ? editable ? "working" : "review" : page.access === "checking" ? "waiting" : "blocked";
-	const reason = page.busy ? "A request is in progress. Wait for its outcome." : !editable ? "Changes are unavailable in this browser. Use the local CLI." : page.outcome?.state === "unknown" ? "Another change is still unconfirmed. Check its original result first." : page.outcome?.state === "refused" && page.outcome.reason === "REMOTE_MANAGEMENT_CAPACITY" ? "Browser change limit reached. Use the local CLI; do not retry or reset storage." : "";
+	const reason = capacity ?? (page.busy ? "A request is in progress. Wait for its outcome." : !editable ? "Changes are unavailable in this browser. Use the local CLI." : page.outcome?.state === "unknown" ? "Another change is still unconfirmed. Check its original result first." : page.outcome?.state === "refused" && page.outcome.reason === "REMOTE_MANAGEMENT_CAPACITY" ? "Browser change limit reached. Use the local CLI; do not retry or reset storage." : "");
 	element("controls-reason").textContent = reason;
 	element("controls-reason").hidden = !reason;
 	for (const button of document.querySelectorAll("button")) {
@@ -693,12 +714,12 @@ for (const button of document.querySelectorAll("[data-recover]")) button.addEven
 try {
 	let session = await reopenSession();
 	page = new ManagementPage(management(session), async () => {
-		session = await reopenSession(session);
+		session = await reopenSession(session, { retry: "bounded" });
 		return management(session);
 	});
 	await run(() => refreshView());
 } catch (error) {
-	const capacity = error instanceof RefusalError && error.code === "REMOTE_SESSION_LIMIT" ? `This device already has ${error.limit} open sessions, the limit. Close another Remote tab, or change the limit with tmt remote settings sessions-per-device <n> (or off).` : void 0;
+	const capacity = capacityCopy(error instanceof RefusalError ? error : void 0);
 	const ended = error instanceof RefusalError && [
 		"REMOTE_DEVICE_REVOKED",
 		"REMOTE_GRANT_EXPIRED",

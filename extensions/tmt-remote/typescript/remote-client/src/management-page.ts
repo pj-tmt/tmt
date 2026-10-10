@@ -7,7 +7,7 @@ import type {
   DevicePage,
   FirestoreSettingsView,
 } from './management.js';
-import { ClientError, RefusalError } from 'remote-browser-sdk';
+import { ClientError, RefusalError, ReopenSessionError } from 'remote-browser-sdk';
 
 export type PageIntent =
   | { kind: 'setting'; input: SettingChange }
@@ -22,6 +22,7 @@ export class ManagementPage {
   intent?: Readonly<PageIntent>;
   outcome?: ManagementOutcome;
   access: 'checking' | 'live' | 'lost' | 'unconfirmed' = 'checking';
+  accessRefusal?: InstanceType<typeof RefusalError>;
   busy = false;
   notice = '';
   private freshAttempted = false;
@@ -44,11 +45,13 @@ export class ManagementPage {
     );
   }
   async refresh(cursor: string | null = this.cursor): Promise<void> {
+    if (this.busy || this.access === 'lost') return;
     this.busy = true;
+    this.accessRefusal = undefined;
     this.firestoreRead = undefined;
     this.firestore = undefined;
     this.firestoreAccess = 'checking';
-    try {
+    const read = async () => {
       const settings = await this.client.settings();
       const devices = await this.client.devices({ cursor, limit: 25 });
       this.settings = settings;
@@ -57,9 +60,24 @@ export class ManagementPage {
       this.access = 'live';
       if (this.outcome) this.describeOutcome();
       else this.notice = settings.settings.warning ?? '';
+    };
+    try {
+      try {
+        await read();
+      } catch (error) {
+        if (
+          !(error instanceof RefusalError) ||
+          !['REMOTE_GRANT_CHANGED', 'REMOTE_SESSION_ENDED', 'REMOTE_SESSION_EVICTED'].includes(
+            error.code,
+          )
+        )
+          throw error;
+        this.client = await this.reopen();
+        await read();
+      }
     } catch (error) {
       this.firestoreAccess = 'unconfirmed';
-      this.access = accessRefused(error) ? 'lost' : 'unconfirmed';
+      this.failedAccess(error);
       if (this.outcome) this.describeOutcome();
       else this.notice = 'Current access could not be confirmed. Use the local CLI.';
     } finally {
@@ -135,6 +153,7 @@ export class ManagementPage {
   async recover(): Promise<void> {
     if (!this.intent || this.busy || this.freshAttempted) return;
     this.freshAttempted = true;
+    this.accessRefusal = undefined;
     this.busy = true;
     try {
       this.client = await this.reopen();
@@ -146,11 +165,20 @@ export class ManagementPage {
         this.describeOutcome();
       }
     } catch (error) {
-      this.access = accessRefused(error) ? 'lost' : 'unconfirmed';
+      this.failedAccess(error);
       this.describeOutcome();
     } finally {
       this.busy = false;
     }
+  }
+  private failedAccess(error: unknown): void {
+    this.accessRefusal =
+      error instanceof ReopenSessionError && error.cause instanceof RefusalError
+        ? error.cause
+        : error instanceof RefusalError
+          ? error
+          : undefined;
+    this.access = accessRefused(error) ? 'lost' : 'unconfirmed';
   }
   get canRecover(): boolean {
     return (
@@ -192,13 +220,10 @@ export class ManagementPage {
 }
 
 function accessRefused(error: unknown): boolean {
+  if (error instanceof ReopenSessionError)
+    return error.reason === 'revoked' || error.reason === 'expired';
   return (
     error instanceof RefusalError &&
-    [
-      'REMOTE_SESSION_ENDED',
-      'REMOTE_SESSION_EVICTED',
-      'REMOTE_DEVICE_REVOKED',
-      'REMOTE_GRANT_EXPIRED',
-    ].includes(error.code)
+    ['REMOTE_DEVICE_REVOKED', 'REMOTE_GRANT_EXPIRED'].includes(error.code)
   );
 }
