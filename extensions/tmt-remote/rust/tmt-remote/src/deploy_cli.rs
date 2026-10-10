@@ -15,7 +15,6 @@ pub struct FirestoreArgs {
     pub region: String,
     pub sign_in: Vec<SignInProvider>,
     pub authorize: Option<String>,
-    pub replace_rules: Option<String>,
     pub json: bool,
 }
 #[derive(Debug)]
@@ -59,7 +58,7 @@ pub fn command() -> Command {
         name: "firestore", summary: "Plan or explicitly authorize Firestore sharing deployment",
         examples: &[tmt_cli_style::Example { command: "tmt remote deploy firestore --project <project-id> --region <region> --sign-in anonymous --json", note: "Read the exact plan without changing your Firebase project" }],
         outputs: tmt_cli_style::OutputModes::HumanAndJson,
-        details: "Needs the Firebase CLI and your own firebase login. Without --authorize it only prints the plan. To deploy, pass --authorize with the first 12 or more characters of the plan digest; signing in alone never deploys. --replace-rules also needs --authorize and the full digest of the existing Rules shown in the plan. Uses Firebase's free Spark plan; no paid features are set up.",
+        details: "Needs the Firebase CLI and your own firebase login. Without --authorize it only prints the plan. To deploy, pass --authorize with the first 12 or more characters of the plan digest; signing in alone never deploys. The plan names any live Rules it will replace; authorizing that plan allows the destructive replacement. One Remote home deploys to one project and region. Uses Firebase's free Spark plan; no paid features are set up.",
     })
         .arg(Arg::new("project").long("project").required(true))
         .arg(Arg::new("region").long("region").required(true))
@@ -72,17 +71,10 @@ pub fn command() -> Command {
                 .value_parser(["anonymous", "google.com"]),
         )
         .arg(Arg::new("authorize").long("authorize"))
-        .arg(Arg::new("replace-rules").long("replace-rules"))
 }
 pub fn arguments(matches: &ArgMatches) -> Result<FirestoreArgs, DeployCliError> {
     let authorize = matches.get_one::<String>("authorize").cloned();
-    let replace_rules = matches.get_one::<String>("replace-rules").cloned();
-    if replace_rules.is_some() && authorize.is_none()
-        || authorize.as_ref().is_some_and(|s| !digest(s, 12))
-        || replace_rules
-            .as_ref()
-            .is_some_and(|s| s.len() != 64 || !digest(s, 64))
-    {
+    if authorize.as_ref().is_some_and(|s| !digest(s, 12)) {
         return Err(DeployCliError::Usage);
     }
     let sign_in = matches
@@ -105,7 +97,6 @@ pub fn arguments(matches: &ArgMatches) -> Result<FirestoreArgs, DeployCliError> 
             .clone(),
         sign_in,
         authorize,
-        replace_rules,
         json: matches.get_flag("json"),
     })
 }
@@ -130,10 +121,11 @@ pub fn execute<P: FirestoreCommandPort>(
     if let Some(output) = unavailable(&discovered) {
         return Ok(output);
     }
+    let layout = layout_factory()?;
+    let mut store = DeployRecordStore::open_for_target(&layout, &args.project, &args.region)
+        .map_err(DeployCliError::Local)?;
     let mut provider = provider_factory()?;
     provider.login().map_err(DeployCliError::Setup)?;
-    let layout = layout_factory()?;
-    let mut store = DeployRecordStore::open(&layout).map_err(DeployCliError::Local)?;
     let path = layout.directory.join("deploy.json");
     let mut output = execute_prepared(args, &discovered, &mut provider, &mut store, now()?, &path)?;
     if output.json["record"]["run"]["state"] == "partial" {
@@ -179,7 +171,6 @@ fn execute_prepared(
         },
         &DeployCommandOptions {
             authorize: args.authorize.as_deref(),
-            replace_rules: args.replace_rules.as_deref(),
         },
         store,
         provider,

@@ -104,7 +104,7 @@ fn fresh() -> DeployPlan {
     Inputs::new().prepare(&extension_plan(true)).unwrap()
 }
 fn authorized(plan: &DeployPlan) -> tmt_remote::deploy_run::Authorization {
-    authorize(plan, &plan.digest()[..16], None).unwrap()
+    authorize(plan, &plan.digest()[..16]).unwrap()
 }
 fn go(
     plan: &DeployPlan,
@@ -269,27 +269,27 @@ fn authorization_names_the_digest_and_the_replaced_rules() {
     let plan = fresh();
     for typed in ["", "abc", &plan.digest()[..11], &"0".repeat(16)] {
         assert_eq!(
-            authorize(&plan, typed, None).unwrap_err(),
+            authorize(&plan, typed).unwrap_err(),
             DeployRefusal::AuthorizationStale,
             "{typed:?}"
         );
     }
-    assert!(authorize(&plan, &plan.digest()[..12], None).is_ok());
-    assert!(authorize(&plan, plan.digest(), None).is_ok());
+    assert!(authorize(&plan, &plan.digest()[..12]).is_ok());
+    assert!(authorize(&plan, plan.digest()).is_ok());
 
     let mut inputs = Inputs::new();
     inputs.live = Some(deploy_fixture("foreign.rules"));
     let foreign = inputs.prepare(&extension_plan(true)).unwrap();
     let replaced = foreign.view().rules.replaced_digest.clone().unwrap();
+    assert_eq!(replaced, sha256(inputs.live.as_deref().unwrap()));
+    assert!(authorize(&foreign, foreign.digest()).is_ok());
+    inputs.live = Some([inputs.live.as_deref().unwrap(), b"\n"].concat());
+    let changed = inputs.prepare(&extension_plan(true)).unwrap();
+    assert_ne!(foreign.digest(), changed.digest());
     assert_eq!(
-        authorize(&foreign, foreign.digest(), None).unwrap_err(),
-        DeployRefusal::ReplaceRulesRequired
+        authorize(&changed, foreign.digest()).unwrap_err(),
+        DeployRefusal::AuthorizationStale
     );
-    assert_eq!(
-        authorize(&foreign, foreign.digest(), Some(&"0".repeat(64))).unwrap_err(),
-        DeployRefusal::ReplaceRulesRequired
-    );
-    assert!(authorize(&foreign, foreign.digest(), Some(&replaced)).is_ok());
 }
 
 /// An earlier, untouched release of this deployment: its marker names the digest of its body.
@@ -362,11 +362,12 @@ fn rules_edited_after_publishing_are_replaced_only_with_their_digest() {
     inputs.live = Some(live.clone());
     let plan = inputs.prepare(&extension_plan(true)).unwrap();
     assert_eq!(plan.view().rules.replaces, "foreign");
+    assert_ne!(plan.digest(), fresh().digest());
     assert_eq!(
-        authorize(&plan, plan.digest(), None).unwrap_err(),
-        DeployRefusal::ReplaceRulesRequired
+        authorize(&plan, fresh().digest()).unwrap_err(),
+        DeployRefusal::AuthorizationStale
     );
-    let authorization = authorize(&plan, plan.digest(), Some(&sha256(&live))).unwrap();
+    let authorization = authorize(&plan, plan.digest()).unwrap();
     let mut fake = Fake::new(ACCOUNT);
     fake.rules = Some(live);
     let mut sink = Mem::default();
@@ -594,13 +595,16 @@ fn drift_found_on_a_finished_plan_withdraws_the_binding_when_rules_are_applied()
     let plan = fresh();
     let earlier = earlier_release(DEPLOYMENT, b"rules_version = '2';\n// first release\n");
     let foreign = deploy_fixture("foreign.rules");
-    for (drifted, replace) in [(earlier, None), (foreign.clone(), Some(sha256(&foreign)))] {
+    for drifted in [earlier, foreign] {
         let mut fake = Fake::new(ACCOUNT);
         let mut sink = Mem::default();
         let done = go(&plan, &mut fake, &mut sink, DeployRecord::new(DEPLOYMENT)).unwrap();
+        let mut inputs = Inputs::new();
+        inputs.live = Some(drifted.clone());
+        let plan = inputs.prepare(&extension_plan(true)).unwrap();
         fake.rules = Some(drifted);
         fake.faults.insert("rules".into(), When::BeforeEffect);
-        let authorization = authorize(&plan, plan.digest(), replace.as_deref()).unwrap();
+        let authorization = authorize(&plan, plan.digest()).unwrap();
         let partial = run(&plan, &authorization, done, &mut fake, &mut sink, 2).unwrap();
         assert!(partial.run.as_ref().unwrap().rules_attempted);
         assert_eq!(partial.usable_binding(), None);
@@ -669,8 +673,7 @@ fn foreign_rules_are_replaced_only_with_their_digest_and_never_by_a_race() {
     let mut inputs = Inputs::new();
     inputs.live = Some(deploy_fixture("foreign.rules"));
     let plan = inputs.prepare(&extension_plan(true)).unwrap();
-    let replaced = plan.view().rules.replaced_digest.clone().unwrap();
-    let authorization = authorize(&plan, plan.digest(), Some(&replaced)).unwrap();
+    let authorization = authorize(&plan, plan.digest()).unwrap();
 
     let mut fake = Fake::new(ACCOUNT);
     fake.rules = Some(deploy_fixture("foreign.rules"));
@@ -835,8 +838,10 @@ fn building_indexes_and_a_failed_read_back_never_publish_a_binding() {
         .find(|(id, _)| id == "rules")
         .unwrap();
     assert_eq!(rules.1, StepState::Failed(DeployFault::RulesForeign));
-    let digest = sha256(&deploy_fixture("foreign.rules"));
-    let authorization = authorize(&plan, plan.digest(), Some(&digest)).unwrap();
+    let mut inputs = Inputs::new();
+    inputs.live = fake.rules.clone();
+    let plan = inputs.prepare(&extension_plan(true)).unwrap();
+    let authorization = authorize(&plan, plan.digest()).unwrap();
     let record = run(&plan, &authorization, record, &mut fake, &mut sink, 2).unwrap();
     assert_eq!(record.run.as_ref().unwrap().state, RunState::Complete);
     assert_eq!(fake.rules.as_deref(), Some(plan.deployed_rules()));

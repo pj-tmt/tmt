@@ -42,6 +42,17 @@ fn help_and_invalid_authorization_do_not_invoke_core_or_provider() {
             ],
         ]
         .concat(),
+        [
+            ARGS.as_slice(),
+            &[
+                "--authorize",
+                "aaaaaaaaaaaa",
+                "--replace-rules",
+                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "--json",
+            ],
+        ]
+        .concat(),
         [ARGS.as_slice(), &["--authorize", "abc", "--json"]].concat(),
     ] {
         let out = base(&root).args(&words).output().unwrap();
@@ -51,6 +62,13 @@ fn help_and_invalid_authorization_do_not_invoke_core_or_provider() {
                 String::from_utf8(out.stdout)
                     .unwrap()
                     .contains("signing in alone never deploys")
+            );
+        } else if words.contains(&"--replace-rules") {
+            assert!(!out.status.success());
+            assert!(out.stdout.is_empty());
+            assert!(
+                String::from_utf8_lossy(&out.stderr)
+                    .contains("unexpected argument '--replace-rules'")
             );
         } else {
             assert!(!out.status.success());
@@ -197,6 +215,9 @@ fn available_binary_plan_is_read_only_and_authorization_completes_the_saved_orig
     assert!(preview["record"]["run"].is_null());
     assert!(preview["record"]["binding"].is_null());
     let before = fs::read(root.remote().join("deploy.json")).unwrap();
+    let draft_document: serde_json::Value = serde_json::from_slice(&before).unwrap();
+    assert_eq!(draft_document["version"], 1);
+    assert!(draft_document.get("target").is_none());
     let calls = fs::read_to_string(package.join("calls.jsonl")).unwrap();
     assert!(
         calls.lines().all(
@@ -226,6 +247,38 @@ fn available_binary_plan_is_read_only_and_authorization_completes_the_saved_orig
     let saved: serde_json::Value =
         serde_json::from_slice(&fs::read(root.remote().join("deploy.json")).unwrap()).unwrap();
     assert_eq!(saved["record"], done["record"]);
+    let before = fs::read(root.remote().join("deploy.json")).unwrap();
+    let calls = fs::read_to_string(package.join("calls.jsonl")).unwrap();
+    // Even with no installed Firebase tool on PATH, a retained target conflict is
+    // the refusal: no login, inventory or provider process is reached.
+    for (project, region) in [
+        ("demo-remote-2", "asia-east1"),
+        ("demo-remote-1", "us-central1"),
+    ] {
+        let mut words = ARGS.to_vec();
+        words[3] = project;
+        words[5] = region;
+        let out = base(&root).args(words).arg("--json").output().unwrap();
+        assert!(!out.status.success());
+        assert!(out.stderr.is_empty());
+        let reply: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+        assert_eq!(reply["error"]["code"], "REMOTE_DEPLOY_PROJECT_CONFLICT");
+        let message = reply["error"]["message"].as_str().unwrap();
+        assert!(message.contains(&root.remote().join("deploy.json").display().to_string()));
+        assert!(message.contains("nothing else is deleted"));
+        assert_eq!(
+            message,
+            format!(
+                "This Remote home deploys to demo-remote-1 (asia-east1), not {project} ({region}). To move it, remove '{}'; nothing else is deleted. The old project's Rules stay until a new plan, authorized from any home, replaces them.",
+                root.layout().directory.join("deploy.json").display()
+            )
+        );
+        assert_eq!(fs::read(root.remote().join("deploy.json")).unwrap(), before);
+        assert_eq!(
+            fs::read_to_string(package.join("calls.jsonl")).unwrap(),
+            calls
+        );
+    }
     let methods: Vec<_> = fs::read_to_string(package.join("calls.jsonl"))
         .unwrap()
         .lines()
@@ -243,7 +296,7 @@ fn available_binary_plan_is_read_only_and_authorization_completes_the_saved_orig
     );
 }
 #[test]
-fn available_binary_reports_missing_tool_and_missing_login_before_opening_record() {
+fn available_binary_reports_missing_tool_and_missing_login_without_creating_a_plan_identity() {
     for (mode, code, message) in [
         (
             "no-tool",
@@ -268,7 +321,14 @@ fn available_binary_reports_missing_tool_and_missing_login_before_opening_record
         assert_eq!(reply["error"]["message"], message);
         assert!(out.stderr.is_empty());
         assert!(!String::from_utf8_lossy(&out.stdout).contains("TOKEN_CANARY"));
-        assert!(!root.remote().exists());
+        // The target preflight takes the local writer lock before tool/login setup;
+        // no valid plan exists yet, so neither identity nor target is published.
+        assert!(!root.remote().join("deploy.json").exists());
+        assert!(
+            tmt_remote::deploy_record::read(&root.layout())
+                .unwrap()
+                .is_none()
+        );
         assert!(!root.0.join("firebase-tools/calls.jsonl").exists());
     }
 }

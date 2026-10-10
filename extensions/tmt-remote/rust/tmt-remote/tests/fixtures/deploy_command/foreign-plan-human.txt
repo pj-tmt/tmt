@@ -1,0 +1,29 @@
+Firestore sharing plan
+Account: owner@example.test
+Project: demo-remote-1
+Deployment: 3f2b8c1e-5d4a-4e7b-9c1d-2a6f8e0b4c11
+Database: (default) (standard), asia-east1
+Sign-in: anonymous, google.com
+Rules: d84fe141967e (replaces the live Rules)
+Index configs: 3
+Roles: none created
+TTL: not set up
+Plan digest: 86936265fedf
+DESTRUCTIVE: Replace the live Rules for project demo-remote-1. This affects every tenant using its Rules.
+Existing Rules fingerprint: 3885192ce357
+Authorizing plan 86936265fedf allows this replacement.
+Extensions and resources:
+colab (declaration 514e860548d9)
+  Admission: colabAdmitted (artifact f055b672317c)
+  page-blob: blob at x/colab/attachments/default/blobs; object 12 MiB, namespace 64 MiB, entries 256, TTL: none
+  page-checkpoint: checkpoint at x/colab/checkpoints; object 4 MiB, namespace 32 MiB, entries 64, TTL: not set up
+    Index: epoch desc
+  page-log: log at x/colab/log; object 256 KiB, namespace 16 MiB, entries 1024, TTL: not set up
+    Index: expiresAt asc
+    Index: sequence asc
+  presence: awareness at x/colab/presence; object 4 KiB, namespace 64 KiB, entries 64, TTL: none
+notes (declaration 7fd3251ea3ac)
+  Admission: notesAdmitted (artifact abbe87356770)
+  note-log: log at x/notes/log; object 64 KiB, namespace 1 MiB, entries 512, TTL: none
+Not authorized; nothing changed in your Firebase project.
+To deploy this plan and replace the live Rules, run the same command with --authorize 86936265fedf

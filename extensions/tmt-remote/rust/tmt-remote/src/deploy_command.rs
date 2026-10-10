@@ -25,7 +25,6 @@ pub struct DeployCommandInput<'a> {
 #[derive(Default)]
 pub struct DeployCommandOptions<'a> {
     pub authorize: Option<&'a str>,
-    pub replace_rules: Option<&'a str>,
 }
 #[derive(Debug)]
 pub enum DeployCommandError {
@@ -53,6 +52,7 @@ pub fn execute(
     port: &mut dyn DeployPort,
     now_ms: u64,
 ) -> Result<DeployCommandOutput, DeployCommandError> {
+    store.check_target(input.project, input.location)?;
     let record = store.load_or_draft()?;
     let account = port
         .account()
@@ -77,17 +77,13 @@ pub fn execute(
     .map_err(DeployCommandError::Refused)?;
     let record = match options.authorize {
         None => {
-            if options.replace_rules.is_some() {
-                return Err(DeployCommandError::Refused(
-                    DeployRefusal::AuthorizationStale,
-                ));
-            }
             store.persist(&record)?;
             record
         }
         Some(typed) => {
-            let authorization = deploy_run::authorize(&plan, typed, options.replace_rules)
-                .map_err(DeployCommandError::Refused)?;
+            let authorization =
+                deploy_run::authorize(&plan, typed).map_err(DeployCommandError::Refused)?;
+            store.bind_target(input.project, input.location)?;
             deploy_run::run(&plan, &authorization, record, port, store, now_ms)
                 .map_err(DeployCommandError::Run)?
         }
@@ -107,6 +103,8 @@ pub fn execute(
         &plan.view().rules.digest[..12],
         if plan.view().rules.replaces == "none" {
             "no existing Rules"
+        } else if plan.view().rules.replaces == "foreign" {
+            "replaces the live Rules"
         } else {
             &plan.view().rules.replaces
         },
@@ -114,9 +112,14 @@ pub fn execute(
         &plan.digest()[..12]
     );
     if let Some(replaced) = &plan.view().rules.replaced_digest {
-        writeln!(human, "Existing Rules digest: {replaced}\nTo replace these Rules, run the same command with --authorize {} --replace-rules {replaced}", &plan.digest()[..12]).expect("String write");
+        writeln!(human, "DESTRUCTIVE: Replace the live Rules for project {}. This affects every tenant using its Rules.\nExisting Rules fingerprint: {}\nAuthorizing plan {} allows this replacement.", input.project, &replaced[..12], &plan.digest()[..12]).expect("String write");
     }
-    for item in &plan.view().destructive {
+    for item in plan
+        .view()
+        .destructive
+        .iter()
+        .filter(|item| !item.starts_with("replaces-rules:"))
+    {
         writeln!(human, "Destructive change: {item}").expect("String write");
     }
     human.push_str("Extensions and resources:\n");
@@ -169,7 +172,7 @@ pub fn execute(
     if authorized {
         describe_record(&mut human, &record);
     } else {
-        writeln!(human, "Not authorized; nothing changed in your Firebase project.\nTo deploy this plan, run the same command with --authorize {}", &plan.digest()[..12]).expect("String write");
+        writeln!(human, "Not authorized; nothing changed in your Firebase project.\nTo deploy this plan{}, run the same command with --authorize {}", if plan.view().rules.replaced_digest.is_some() { " and replace the live Rules" } else { "" }, &plan.digest()[..12]).expect("String write");
     }
     Ok(DeployCommandOutput { json, human })
 }

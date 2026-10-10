@@ -192,7 +192,6 @@ fn stale_short_changed_account_and_foreign_authorizations_have_zero_effects() {
                 &request,
                 &DeployCommandOptions {
                     authorize: Some(typed),
-                    replace_rules: None
                 },
                 &mut store,
                 &mut port,
@@ -209,7 +208,6 @@ fn stale_short_changed_account_and_foreign_authorizations_have_zero_effects() {
             &request,
             &DeployCommandOptions {
                 authorize: Some(digest),
-                replace_rules: None
             },
             &mut store,
             &mut port,
@@ -234,30 +232,54 @@ fn stale_short_changed_account_and_foreign_authorizations_have_zero_effects() {
         execute(
             &request,
             &DeployCommandOptions {
-                authorize: preview.json["planDigest"].as_str(),
-                replace_rules: None
+                authorize: Some(digest),
             },
             &mut store,
             &mut port,
             2
         ),
         Err(DeployCommandError::Refused(
-            DeployRefusal::ReplaceRulesRequired
+            DeployRefusal::AuthorizationStale
         ))
     ));
     assert!(port.calls.is_empty());
     assert!(port.effects.is_empty());
+    assert_eq!(
+        preview.human.as_bytes(),
+        fixture("deploy_command", "foreign-plan-human.txt")
+    );
     let replaced = preview.json["plan"]["rules"]["replacedDigest"]
         .as_str()
         .unwrap();
     assert_eq!(replaced.len(), 64);
+    assert_eq!(
+        preview.json["plan"]["destructive"],
+        serde_json::json!([format!("replaces-rules:{replaced}")])
+    );
+    assert!(!preview.human.contains(replaced));
+    assert!(
+        !preview
+            .human
+            .contains("Destructive change: replaces-rules:")
+    );
+    assert!(preview.human.contains("(replaces the live Rules)"));
+    assert!(preview.human.contains(&format!(
+        "To deploy this plan and replace the live Rules, run the same command with --authorize {}",
+        &preview.json["planDigest"].as_str().unwrap()[..12]
+    )));
+
     assert!(
         preview
             .human
-            .contains(&format!("Existing Rules digest: {replaced}"))
+            .contains(&format!("Existing Rules fingerprint: {}", &replaced[..12]))
+    );
+    assert!(
+        preview
+            .human
+            .contains("DESTRUCTIVE: Replace the live Rules for project demo-remote-1.")
     );
     assert!(preview.human.contains(&format!(
-        "--authorize {} --replace-rules {replaced}",
+        "Authorizing plan {} allows this replacement.",
         &preview.json["planDigest"].as_str().unwrap()[..12]
     )));
     port.rules = Some(foreign.clone());
@@ -265,7 +287,6 @@ fn stale_short_changed_account_and_foreign_authorizations_have_zero_effects() {
         &request_for_foreign(&plan, &body, &foreign),
         &DeployCommandOptions {
             authorize: preview.json["planDigest"].as_str(),
-            replace_rules: Some(replaced),
         },
         &mut store,
         &mut port,
@@ -318,7 +339,7 @@ fn every_interrupted_save_reloads_the_same_original_and_never_duplicates_provide
         },
     )
     .unwrap();
-    let authorization = deploy_run::authorize(&plan, plan.digest(), None).unwrap();
+    let authorization = deploy_run::authorize(&plan, plan.digest()).unwrap();
     let mut baseline = deploy_port::Mem::default();
     let mut port = Fake::new(ACCOUNT);
     deploy_run::run(
@@ -394,7 +415,6 @@ fn lost_effect_returns_unknown_and_same_authorization_observes_before_resuming()
     .unwrap();
     let opts = DeployCommandOptions {
         authorize: preview.json["planDigest"].as_str(),
-        replace_rules: None,
     };
     port.faults.insert("rules".into(), When::AfterEffectUnknown);
     let out = execute(&request, &opts, &mut store, &mut port, 2).unwrap();
@@ -444,7 +464,6 @@ fn every_provider_failure_keeps_real_file_partial_and_only_a_successful_resume_b
             .unwrap();
             let opts = DeployCommandOptions {
                 authorize: preview.json["planDigest"].as_str(),
-                replace_rules: None,
             };
             port.faults.insert(step.into(), when);
             let out = execute(&request, &opts, &mut store, &mut port, 2).unwrap();
@@ -499,7 +518,6 @@ fn old_open_reader_sees_the_draft_while_new_readers_see_the_verified_binding() {
         &request,
         &DeployCommandOptions {
             authorize: preview.json["planDigest"].as_str(),
-            replace_rules: None,
         },
         &mut store,
         &mut port,
@@ -539,7 +557,6 @@ fn existing_binding_survives_pre_rules_failure_but_not_a_possible_new_rules_effe
         &request,
         &DeployCommandOptions {
             authorize: preview.json["planDigest"].as_str(),
-            replace_rules: None,
         },
         &mut store,
         &mut port,
@@ -561,7 +578,6 @@ fn existing_binding_survives_pre_rules_failure_but_not_a_possible_new_rules_effe
     .unwrap();
     let opts = DeployCommandOptions {
         authorize: preview.json["planDigest"].as_str(),
-        replace_rules: None,
     };
     port.observe_faults
         .insert("database".into(), deploy_run::DeployProviderError::Unknown);
@@ -602,7 +618,6 @@ fn owner_action_and_building_are_reported_without_a_usable_binding() {
     .unwrap();
     let opts = DeployCommandOptions {
         authorize: preview.json["planDigest"].as_str(),
-        replace_rules: None,
     };
     port.owner_pending.insert(
         "sign-in:google.com".into(),
@@ -717,7 +732,9 @@ mod cli_composition {
             "anonymous",
         ];
         words.extend_from_slice(extra);
-        let matches = deploy_cli::command().try_get_matches_from(words).unwrap();
+        let matches = deploy_cli::command()
+            .try_get_matches_from(words)
+            .map_err(|_| DeployCliError::Usage)?;
         deploy_cli::arguments(&matches)
     }
     #[test]
@@ -839,6 +856,17 @@ mod cli_composition {
                 .human
                 .contains("Nothing changed in your Firebase project.")
         );
+        let before = fs::read(root.remote().join("deploy.json")).unwrap();
+        let calls = provider.1;
+        let mut conflicting = args(&[]).unwrap();
+        conflicting.project = "demo-remote-2".into();
+        assert!(matches!(deploy_cli::execute(
+            &conflicting, &mut source, &["colab"],
+            || -> Result<&mut DeployCliProvider, DeployCliError> { panic!("partial target must fence provider setup") },
+            || Ok(root.layout()), || Ok(3),
+        ), Err(DeployCliError::Local(e)) if e.code == "REMOTE_DEPLOY_PROJECT_CONFLICT"));
+        assert_eq!(fs::read(root.remote().join("deploy.json")).unwrap(), before);
+        assert_eq!(provider.1, calls);
         let done = deploy_cli::execute(
             &opts,
             &mut source,
@@ -850,6 +878,212 @@ mod cli_composition {
         .unwrap();
         assert_eq!(done.json["record"]["run"]["state"], "complete");
         assert_eq!(provider.0.effects_of("rules"), 1);
-        assert_eq!(source.0, 3);
+        assert_eq!(source.0, 4);
     }
+    #[test]
+    fn plan_only_a_then_plan_and_authorize_b_binds_only_b() {
+        let root = Root::new();
+        let mut source = DeployCliSource(0, true);
+        let mut provider = DeployCliProvider(deploy_port::Fake::new(ACCOUNT), 0);
+        let request_a = args(&[]).unwrap();
+        let plan_a = deploy_cli::execute(
+            &request_a,
+            &mut source,
+            &["colab"],
+            || Ok(&mut provider),
+            || Ok(root.layout()),
+            || Ok(1),
+        )
+        .unwrap();
+        let path = root.remote().join("deploy.json");
+        let draft: serde_json::Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+        assert_eq!(draft["version"], 1);
+        assert!(draft.get("target").is_none());
+        let mut request_b = args(&[]).unwrap();
+        request_b.project = "demo-remote-2".into();
+        request_b.region = "us-central1".into();
+        let plan_b = deploy_cli::execute(
+            &request_b,
+            &mut source,
+            &["colab"],
+            || Ok(&mut provider),
+            || Ok(root.layout()),
+            || Ok(2),
+        )
+        .unwrap();
+        assert_eq!(
+            plan_a.json["record"]["deploymentId"],
+            plan_b.json["record"]["deploymentId"]
+        );
+        assert_ne!(plan_a.json["planDigest"], plan_b.json["planDigest"]);
+        assert_eq!(
+            fs::read(&path).unwrap(),
+            serde_json::to_vec(&draft).unwrap()
+        );
+        assert!(provider.0.effects.is_empty());
+        request_b.authorize = Some(plan_b.json["planDigest"].as_str().unwrap()[..12].to_owned());
+        let done = deploy_cli::execute(
+            &request_b,
+            &mut source,
+            &["colab"],
+            || Ok(&mut provider),
+            || Ok(root.layout()),
+            || Ok(3),
+        )
+        .unwrap();
+        assert_eq!(done.json["record"]["run"]["state"], "complete");
+        let bound: serde_json::Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+        assert_eq!(bound["version"], 2);
+        assert_eq!(
+            bound["target"],
+            serde_json::json!({"project":"demo-remote-2", "region":"us-central1"})
+        );
+    }
+    #[test]
+    fn retained_target_conflict_precedes_provider_creation_and_preserves_the_record() {
+        let root = Root::new();
+        let mut source = DeployCliSource(0, true);
+        let mut provider = DeployCliProvider(deploy_port::Fake::new(ACCOUNT), 0);
+        let request = args(&[]).unwrap();
+        let preview = deploy_cli::execute(
+            &request,
+            &mut source,
+            &["colab"],
+            || Ok(&mut provider),
+            || Ok(root.layout()),
+            || Ok(1),
+        )
+        .unwrap();
+        let digest = preview.json["planDigest"].as_str().unwrap();
+        deploy_cli::execute(
+            &args(&["--authorize", &digest[..12]]).unwrap(),
+            &mut source,
+            &["colab"],
+            || Ok(&mut provider),
+            || Ok(root.layout()),
+            || Ok(2),
+        )
+        .unwrap();
+        let path = root.remote().join("deploy.json");
+        let before = fs::read(&path).unwrap();
+        for region in [false, true] {
+            let mut changed = args(&[]).unwrap();
+            if region {
+                changed.region = "us-central1".into();
+            } else {
+                changed.project = "demo-remote-2".into();
+            }
+            let result = deploy_cli::execute(
+                &changed,
+                &mut source,
+                &["colab"],
+                || -> Result<&mut DeployCliProvider, DeployCliError> {
+                    panic!("conflicting target must refuse before provider creation")
+                },
+                || Ok(root.layout()),
+                || Ok(2),
+            );
+            assert!(
+                matches!(result, Err(DeployCliError::Local(e)) if e.code == "REMOTE_DEPLOY_PROJECT_CONFLICT")
+            );
+            assert_eq!(fs::read(&path).unwrap(), before);
+        }
+        assert!(!provider.0.effects.is_empty());
+    }
+}
+
+#[test]
+fn a_second_home_sees_the_first_homes_rules_as_foreign_and_must_authorize_its_own_plan() {
+    let first = Root::new();
+    let first_layout = first.layout();
+    let mut first_store = DeployRecordStore::open(&first_layout).unwrap();
+    let extensions = plan();
+    let body = fixture("deploy_run", "rules-body.rules");
+    let mut provider = Fake::new(ACCOUNT);
+    let request = input(&extensions, &body);
+    let first_plan = execute(
+        &request,
+        &DeployCommandOptions::default(),
+        &mut first_store,
+        &mut provider,
+        1,
+    )
+    .unwrap();
+    let first_done = execute(
+        &request,
+        &DeployCommandOptions {
+            authorize: first_plan.json["planDigest"].as_str(),
+        },
+        &mut first_store,
+        &mut provider,
+        2,
+    )
+    .unwrap();
+    assert_eq!(first_done.json["record"]["run"]["state"], "complete");
+    let first_bytes = fs::read(first.remote().join("deploy.json")).unwrap();
+    let live = provider.rules.clone().unwrap();
+    let effects = provider.effects.clone();
+    let second = Root::new();
+    let second_layout = second.layout();
+    let mut second_store = DeployRecordStore::open(&second_layout).unwrap();
+    let second_request = request_for_foreign(&extensions, &body, &live);
+    let takeover = execute(
+        &second_request,
+        &DeployCommandOptions::default(),
+        &mut second_store,
+        &mut provider,
+        3,
+    )
+    .unwrap();
+    assert_ne!(
+        first_plan.json["record"]["deploymentId"],
+        takeover.json["record"]["deploymentId"]
+    );
+    assert_eq!(takeover.json["plan"]["rules"]["replaces"], "foreign");
+    assert_eq!(
+        takeover.json["plan"]["rules"]["replacedDigest"]
+            .as_str()
+            .unwrap()
+            .len(),
+        64
+    );
+    assert!(
+        takeover
+            .human
+            .contains("DESTRUCTIVE: Replace the live Rules")
+    );
+    assert!(takeover.human.contains("This affects every tenant"));
+    assert_eq!(provider.effects, effects);
+    assert!(matches!(
+        execute(
+            &second_request,
+            &DeployCommandOptions {
+                authorize: first_plan.json["planDigest"].as_str()
+            },
+            &mut second_store,
+            &mut provider,
+            4
+        ),
+        Err(DeployCommandError::Refused(
+            DeployRefusal::AuthorizationStale
+        ))
+    ));
+    assert_eq!(provider.effects, effects);
+    let authorized = execute(
+        &second_request,
+        &DeployCommandOptions {
+            authorize: takeover.json["planDigest"].as_str(),
+        },
+        &mut second_store,
+        &mut provider,
+        5,
+    )
+    .unwrap();
+    assert_eq!(authorized.json["record"]["run"]["state"], "complete");
+    assert_eq!(provider.effects_of("rules"), 2);
+    assert_eq!(
+        fs::read(first.remote().join("deploy.json")).unwrap(),
+        first_bytes
+    );
+    assert_ne!(provider.rules.as_ref().unwrap(), &live);
 }

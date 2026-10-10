@@ -98,6 +98,7 @@ fn unsafe_oversized_malformed_or_future_record_is_never_reset_or_replaced() {
     for bytes in [
         b"{".to_vec(),
         b"{\"version\":2,\"record\":{}}".to_vec(),
+        b"{\"version\":3,\"record\":{}}".to_vec(),
         vec![b' '; tmt_remote::limits::DEPLOY_RECORD_BYTES + 1],
         b"{\"version\":1,\"version\":1,\"record\":{}}".to_vec(),
     ] {
@@ -153,4 +154,99 @@ fn an_existing_original_cannot_be_replaced_by_a_new_deployment_identity() {
             .is_err()
     );
     assert_eq!(fs::read(root.remote().join("deploy.json")).unwrap(), before);
+}
+
+#[test]
+fn target_binds_atomically_and_conflict_preserves_record_and_staging() {
+    let root = Root::new();
+    let layout = root.layout();
+    let original = DeployRecord::new(ID);
+    let mut writer =
+        DeployRecordStore::open_for_target(&layout, "demo-remote-1", "asia-east1").unwrap();
+    writer.bind_target("demo-remote-1", "asia-east1").unwrap();
+    assert!(deploy_record::read(&layout).unwrap().is_none());
+    writer.persist(&original).unwrap();
+    let path = root.remote().join("deploy.json");
+    let before = fs::read(&path).unwrap();
+    let value: serde_json::Value = serde_json::from_slice(&before).unwrap();
+    assert_eq!(value["version"], 2);
+    assert_eq!(
+        value["target"],
+        serde_json::json!({"project":"demo-remote-1","region":"asia-east1"})
+    );
+    assert_eq!(
+        deploy_record::read(&layout).unwrap(),
+        Some(original.clone())
+    );
+    drop(writer);
+    let staged = root.remote().join(format!(".deploy-{ID}"));
+    fs::write(&staged, b"keep on conflict").unwrap();
+    fs::set_permissions(&staged, fs::Permissions::from_mode(0o600)).unwrap();
+    for (project, region) in [
+        ("demo-remote-2", "asia-east1"),
+        ("demo-remote-1", "us-central1"),
+    ] {
+        assert!(
+            matches!(DeployRecordStore::open_for_target(&layout, project, region), Err(e) if e.code == "REMOTE_DEPLOY_PROJECT_CONFLICT")
+        );
+        assert_eq!(fs::read(&path).unwrap(), before);
+        assert_eq!(fs::read(&staged).unwrap(), b"keep on conflict");
+    }
+    let mut reopened =
+        DeployRecordStore::open_for_target(&layout, "demo-remote-1", "asia-east1").unwrap();
+    reopened.persist(&original).unwrap();
+    assert_eq!(fs::read(&path).unwrap(), before);
+    assert!(!staged.exists());
+}
+
+#[test]
+fn every_v1_record_is_unbound_and_read_does_not_convert_or_infer_a_target() {
+    for complete in [false, true] {
+        let root = Root::new();
+        let layout = root.layout();
+        let mut original = DeployRecord::new(ID);
+        if complete {
+            // A historical binding is not enough to infer a region or target.
+            original.binding = Some(tmt_remote::deploy_run::DeployBinding {
+                project: "demo-old-project".into(),
+                plan_digest: "a".repeat(64),
+                completed_at_ms: 1,
+            });
+            original.run = Some(tmt_remote::deploy_run::Run {
+                plan_digest: "a".repeat(64),
+                account: "owner@example.test".into(),
+                authorized_at_ms: 1,
+                state: tmt_remote::deploy_run::RunState::Complete,
+                rules_attempted: true,
+                steps: vec![tmt_remote::deploy_run::StepRecord {
+                    id: "verify".into(),
+                    state: tmt_remote::deploy_run::StepState::Done,
+                }],
+            });
+        }
+        let mut writer = DeployRecordStore::open(&layout).unwrap();
+        writer.persist(&original).unwrap();
+        drop(writer);
+        let path = root.remote().join("deploy.json");
+        let before = fs::read(&path).unwrap();
+        assert_eq!(
+            deploy_record::read(&layout).unwrap(),
+            Some(original.clone())
+        );
+        let mut writer =
+            DeployRecordStore::open_for_target(&layout, "demo-new-project", "asia-east1").unwrap();
+        assert_eq!(fs::read(&path).unwrap(), before);
+        writer
+            .bind_target("demo-new-project", "asia-east1")
+            .unwrap();
+        assert_eq!(fs::read(&path).unwrap(), before);
+        writer.persist(&original).unwrap();
+        let bound: serde_json::Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+        assert_eq!(bound["version"], 2);
+        assert_eq!(bound["target"]["project"], "demo-new-project");
+        assert_eq!(
+            bound["record"],
+            serde_json::from_slice::<serde_json::Value>(&before).unwrap()["record"]
+        );
+    }
 }
