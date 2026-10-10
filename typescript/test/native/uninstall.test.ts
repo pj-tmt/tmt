@@ -5,6 +5,7 @@ import {
   readFileSync,
   readdirSync,
   readlinkSync,
+  realpathSync,
   rmSync,
   symlinkSync,
   writeFileSync,
@@ -45,11 +46,15 @@ describe('tmt uninstall on a disposable HOME and prefix', () => {
           { deadlineMs: INSTALL_BUDGET_MS }
         );
         expect(result.status, result.stdout + result.stderr).toBe(0);
-        expect(parseWholeStdout(result).removed).toEqual(
-          expect.arrayContaining([
-            path.join(prefix, 'bin/tmt-squad'),
-            path.join(prefix, 'lib/tmt-squad'),
-          ])
+        // Removed entries no longer exist; resolve their surviving parent directories.
+        const canonicalPath = (removed: string) =>
+          path.join(realpathSync(path.dirname(removed)), path.basename(removed));
+        expect((parseWholeStdout(result).removed as string[]).map(canonicalPath)).toEqual(
+          expect.arrayContaining(
+            [path.join(prefix, 'bin/tmt-squad'), path.join(prefix, 'lib/tmt-squad')].map(
+              canonicalPath
+            )
+          )
         );
         expect(parseWholeStdout(result).data).toEqual({ path: sandbox.globalDir, deleted: purge });
         expect(existsSync(path.join(prefix, 'lib/tmt-squad'))).toBe(false);
