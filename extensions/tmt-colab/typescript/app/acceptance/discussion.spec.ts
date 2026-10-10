@@ -856,3 +856,66 @@ test('proposal decisions notify the exact proposer once and survive resolution a
     );
   });
 });
+
+test('answer blocks publish verified normal annotations and keep changes and agent replies in one thread', async () => {
+  await withWorld(async (world) => {
+    const door = await startDoor(world, await freePort());
+    const agent = await world.startAgent('answer-agent', { gated: true });
+    const browser = await pairBrowser(world, 'answer-reader', { talk: true });
+    const created = createPage(
+      world,
+      'Question review',
+      '<h1>Project notes</h1><p>Before the question.</p><tmt-question data-id="10000000-0000-4000-8000-000000000090" data-kind="single" data-agent="answer-agent"><p data-question>Which heading should we use?</p><span data-choice>Keep it</span><span data-choice>Change it</span></tmt-question><p>The page continues here.</p>',
+      agent.pane,
+    );
+    const page = await openPage(door, browser, created);
+    const card = page.locator('.question-card');
+    await expect(
+      card.getByRole('button', { name: 'Send answer · to @answer-agent', exact: true }),
+    ).toBeVisible();
+    await card.getByLabel('Keep it', { exact: true }).check();
+    await card.getByRole('button', { name: /^Send answer/ }).click();
+    await expect(card.locator('.question-state')).toContainText('answered');
+    await until(() => agent.received().length === 1, 'first question answer');
+    const first = agent.received()[0];
+    expect(first.identityId).toBe(agent.id);
+    expect(first.message).toContain('Quote:\nWhich heading should we use?');
+    expect(first.message).toContain(
+      'Answer to “Which heading should we use?”: Keep it\nPage: Question review\n@answer-agent',
+    );
+    writeFileSync(path.join(agent.gate, `${first.requestId}.release`), '');
+    await until(
+      () =>
+        agent.rows().some((row) => row.event === 'replied' && row.requestId === first.requestId),
+      'question correlated reply',
+    );
+    const reply = agent
+      .rows()
+      .find((row) => row.event === 'replied' && row.requestId === first.requestId)!.body as string;
+    await card.locator('summary').click();
+    await expect(card.getByTestId('ask-reply')).toHaveText(reply);
+    const threads = () =>
+      JSON.parse(run(world, world.binaries.colab, ['threads', created.pageId, '--json'])).threads;
+    const initial = threads();
+    expect(initial).toHaveLength(1);
+    expect(initial[0].anchor.exact).toBe('Which heading should we use?');
+    await card.getByRole('button', { name: 'Change answer', exact: true }).click();
+    await card.getByLabel('Change it', { exact: true }).check();
+    await card.getByRole('button', { name: /^Send answer/ }).click();
+    await until(() => agent.received().length === 2, 'changed question answer');
+    await expect(card.locator('.question-answer')).toContainText('Change it');
+    const changed = threads();
+    expect(changed).toHaveLength(1);
+    expect(changed[0].id).toBe(initial[0].id);
+    expect(changed[0].comments).toHaveLength(2);
+    await page.reload();
+    await expect(card.locator('.question-answer')).toContainText('Change it');
+    await expect(card.getByRole('button', { name: 'Change answer', exact: true })).toBeEnabled();
+    expect(agent.received()).toHaveLength(2);
+    const captures = process.env.COLAB_QUESTION_NATIVE_CAPTURE_DIR;
+    if (captures) {
+      mkdirSync(captures, { recursive: true });
+      await page.screenshot({ path: `${captures}/question-native-reloaded.png` });
+    }
+  });
+});

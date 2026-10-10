@@ -53,7 +53,8 @@ owns record fields, limits, revision semantics and trust boundaries.
   the same captured fold before the generic own writer freezes either edit. Proposal
   fields, causal ordering and recovery live in the contract above; no extra root,
   store or dispatcher exists. `proposal-layer.tsx` owns proposal state, card/composer
-  rendering and slot measurement; `router.tsx` only wires the layer. `components/proposal-card.tsx`
+  rendering; `inline-slots.ts` owns the shared proposal/question measurement batch;
+  `router.tsx` only wires these layers. `components/proposal-card.tsx`
   presents admitted cards; `proposal-actions.ts`
   fences live decisions, publishes the final decision first, then the ordinary
   decision comment and existing explicit Ask. Failed notification never rolls back
@@ -68,6 +69,17 @@ owns record fields, limits, revision semantics and trust boundaries.
   presentation only. Resolved proposal cards fold to a title/state/Reopen row;
   reopening restores retained metadata/history without changing a final decision.
   Actor labels and clocks remain display assertions.
+- Answer blocks: `questions.ts` validates inert authored structure and fixed plain-text
+  answers; `question-layer.tsx` associates verified ordinary annotations by the
+  renderer's existing normal quote resolver. `components/question-card.tsx` owns
+  trusted controls, visible recipient selection and explicit comment-first Send.
+  Latest device provenance is projected by `readThreads`, never stored in a record;
+  edits read admitted records rather than copying projection metadata. Agent replies
+  cannot supply Answered. The earliest verified writer/thread is canonical: its
+  latest answer wins, siblings supply a fallback only until it has an answer, and
+  later answers append there. `comment-send.ts` and
+  `comment-send-failures.tsx` share annotation/answer preparation and explicit retry
+  behavior. Grammar and bounds live in [Answer blocks](../../../../extensions/tmt-colab/contracts/colab-v1.md#answer-blocks).
 - Recipient Ask again: `CommentExchange` supplies the original own comment and
   preceding conversation to the shared `ask-again.tsx` action; `AnnotationInput`
   retains only authoritative pre-adoption failures for its current send capture.
@@ -189,7 +201,10 @@ device.` once per failure and keeps the in-tab draft. Resolve/Reopen is the pare
   first-line labels stay in parent chrome. Selection rectangles and anchor offsets are bounded cosmetic
   claims; normal anchor navigation scrolls the window. Ports/observers clear on teardown.
 
-Verification: `test/thread-records.test.ts` and native `tests/discussion.rs`
+Verification: `test/questions.test.ts` checks answer bounds and verified Lamport selection;
+`e2e/questions.spec.ts` checks kinds, normal anchors, changes, recipient isolation,
+concurrent readers, retained delivery failures and shared slot/theme captures.
+`test/thread-records.test.ts` and native `tests/discussion.rs`
 consume `contracts/vectors/discussion-v1.json`, including causal and status-export byte
 vectors. `test/thread-status.test.ts` and native `export::tests` pin the effective status
 and provenance; native `tests/page.rs` checks agent status publication, shared content/own

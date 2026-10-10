@@ -15,7 +15,7 @@ import { ColabHeader } from './colab-header.js';
 import { PageAttribution } from './page-attribution.js';
 import { NoticeCard } from './notice-card.js';
 import { RetentionHint } from './retention-hint.js';
-import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { createPortal } from 'react-dom';
 import {
   createHashHistory,
@@ -33,6 +33,9 @@ import type { PageSummary, PageView, PageTransport } from './transport.js';
 import { orderPages, pageTitle, pageUpdate } from './page-index.js';
 import { AnnotationInput } from './annotation-input.js';
 import { useProposalLayer } from './proposal-layer.js';
+import { useQuestionLayer } from './question-layer.js';
+import { useInlineSlots } from './inline-slots.js';
+import { readQuestions } from './questions.js';
 import { ReplyAnnouncer } from './reply-announcer.js';
 import { ThreadPanel, ThreadWindow } from './thread-panel.js';
 import { presentationOf } from './thread-status-presentation.js';
@@ -1020,13 +1023,31 @@ function Page() {
   // Author loading does not block discussion: sends use the captured quote.
   const discussionBlocked = !!liveError || state === 'failed' || state === 'navigation';
   const host = useRef<HTMLDivElement>(null);
-  const proposalLayer = useProposalLayer({
-    snapshot,
-    view,
-    binding,
+  const questions = useMemo(() => readQuestions(view.source), [view.source]);
+  const inlineSlots = useInlineSlots({
     renderer,
     host,
     state,
+    source: view.source,
+    identity: `${(view.threads ?? [])
+      .filter((thread) => thread.proposal && !thread.deleted)
+      .map((thread) => thread.threadId)
+      .join(',')}|${questions.map((question) => question.id).join(',')}`,
+  });
+  const questionLayer = useQuestionLayer({
+    questions,
+    snapshot,
+    view,
+    renderer,
+    state,
+    slots: inlineSlots.positions,
+    blocked: discussionBlocked,
+  });
+  const proposalLayer = useProposalLayer({
+    slotPositions: inlineSlots.positions,
+    snapshot,
+    view,
+    binding,
     discussionBlocked,
     recoveryRequired,
     statusCoordinator,
@@ -1052,7 +1073,8 @@ function Page() {
     void mountRenderer(host.current!, view.source, {
       signal: controller.signal,
       onState: setState,
-      onSlots: proposalLayer.onSlots,
+      onSlots: inlineSlots.onSlots,
+      onQuestions: questionLayer.onQuestions,
       viewportInset: () =>
         (toolbar.current?.offsetHeight ?? 0) + (toolbar.current?.getBoundingClientRect().top ?? 0),
       onSelection: (_value, quote, rect) => {
@@ -1091,7 +1113,7 @@ function Page() {
       controller.abort();
       renderer.current = null;
     };
-  }, [view.source, liveError, proposalLayer.onSlots]);
+  }, [view.source, liveError, inlineSlots.onSlots, questionLayer.onQuestions]);
   useEffect(() => {
     if (state !== 'ready') return;
     renderer.current?.highlight(
@@ -1226,6 +1248,7 @@ function Page() {
         <div className="canvas">
           <div className="frame-host" ref={host} />
           {proposalLayer.inline}
+          {questionLayer.inline}
           {(state === 'navigation' || state === 'failed') && (
             <NoticeCard
               state={recoveryRequired ? 'waiting' : 'blocked'}

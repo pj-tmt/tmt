@@ -5275,6 +5275,10 @@ fn skill_is_exact_embedded_bytes_after_relocation_without_core_or_state() {
     assert!(output.stdout.len() <= 10_000);
     for (name, expected) in [
         (
+            "questions",
+            include_bytes!("../../../skills/tmt-colab/references/questions.md").as_slice(),
+        ),
+        (
             "links",
             include_bytes!("../../../skills/tmt-colab/references/links.md").as_slice(),
         ),
@@ -5302,7 +5306,7 @@ fn skill_is_exact_embedded_bytes_after_relocation_without_core_or_state() {
         assert!(!refused.status.success(), "{name}");
         assert!(refused.stdout.is_empty());
         let message = String::from_utf8(refused.stderr).unwrap();
-        for valid in ["links", "page-style"] {
+        for valid in ["links", "page-style", "questions"] {
             assert!(message.contains(valid), "{message}");
         }
     }
