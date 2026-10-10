@@ -90,11 +90,51 @@ describe('release rehearsal selection', () => {
   });
 
   it.each([
+    'rust/crates/tmt-adapters/src/native_install/mod.rs',
+    'rust/crates/tmt-adapters/src/native_install/upgrade_artifact_tests.rs',
+    'rust/crates/tmt-adapters/src/native_install/post_upgrade/skills.rs',
+    'rust/crates/tmt-adapters/src/skill_installation/refresh.rs',
+    'rust/crates/tmt-adapters/src/skill_installation/refresh_tests.rs',
+    'rust/crates/tmt-cli/src/native_upgrade_command.rs',
+    'rust/crates/tmt-cli/src/native_upgrade_command_tests.rs',
+    'rust/crates/tmt-cli/src/native_upgrade_command/extensions/tests.rs',
+  ])('rehearses only CLI for the upgrade-proof owner %s', (changed) => {
+    expect(select(changed)).toEqual(['cli']);
+  });
+
+  it('unions upgrade proof with an extension manifest and keeps shared inputs conservative', () => {
+    const upgrade = 'rust/crates/tmt-adapters/src/native_install/upgrade_artifact_tests.rs';
+    expect(select(upgrade, 'extensions/tmt-colab/rust/tmt-colab/Cargo.toml')).toEqual([
+      'cli',
+      'colab',
+    ]);
+    expect(select(upgrade, 'rust/Cargo.lock')).toEqual(all);
+  });
+
+  it('does not activate a blocked CLI through an upgrade path', () => {
+    const blocked = {
+      ...map,
+      components: map.components.map((component) =>
+        component.name === 'cli' ? { ...component, release: false } : component
+      ),
+    };
+    expect(
+      selectReleaseRehearsal(['rust/crates/tmt-cli/src/native_upgrade_command.rs'], blocked)
+    ).toEqual([]);
+  });
+
+  it.each([
     // Bundled frontend sources are checked by their own jobs; alone they never select a rehearsal.
     'extensions/tmt-colab/typescript/app/src/main.ts',
     'extensions/tmt-colab/typescript/colab-client/src/index.ts',
     'extensions/tmt-office/typescript/apps/office/src/App.tsx',
     'rust/crates/tmt-cli/src/main.rs',
+    'rust/crates/tmt-cli/src/native_upgrade_command.rs.backup',
+    'rust/crates/tmt-cli/src/native_upgrade_command_other/tests.rs',
+    'rust/crates/tmt-adapters/src/native_install_other/mod.rs',
+    'rust/crates/tmt-adapters/src/skill_installation_other/refresh.rs',
+    'rust/crates/tmt-adapters/src/process.rs',
+    'extensions/tmt-colab/rust/tmt-colab/src/main.rs',
     'docs/guide.md',
     'site/src/index.md',
     'typescript/test/tooling/ci-scope.test.ts',
@@ -159,6 +199,9 @@ describe('selection from a real git diff', () => {
     expect(diffRepository(['extensions/tmt-colab/typescript/app/src/main.ts'])).toBe(
       'release_rehearsal=false\nrelease_rehearsal_products=[]\n'
     );
+    expect(
+      diffRepository(['rust/crates/tmt-adapters/src/native_install/upgrade_artifact_tests.rs'])
+    ).toBe('release_rehearsal=true\nrelease_rehearsal_products=["cli"]\n');
     expect(diffRepository(['extensions/tmt-remote/rust/Cargo.toml'])).toBe(
       'release_rehearsal=true\nrelease_rehearsal_products=["remote"]\n'
     );

@@ -30,9 +30,11 @@ Manifest assembly retries its required exact-key tool-cache restore once; a fina
 shared release input changes (lockfiles, workspace/toolchain/notice/dist configuration, the
 component map and parity manifest, packaging and verification scripts, the prepare, bundle,
 upgrade and rehearsal workflows and their local actions, and Cargo manifests under `rust/`), and
-only the owning products for an extension Cargo manifest. Bundled-frontend source edits and
-ordinary source changes never select it; their own jobs cover them, and a frontend-only change
-that needs packaging proof uses `release-rehearsal.yml` by dispatch. `Native package matrix`
+only the owning products for an extension Cargo manifest. Native-install and managed-skill
+installation modules, plus the CLI native-upgrade command and its tests, select CLI only for the
+existing real-archive upgrade proof. Other ordinary source and bundled-frontend edits never
+select it; their own jobs cover them, and a frontend-only change that needs packaging proof uses
+`release-rehearsal.yml` by dispatch. `Native package matrix`
 requires a selected rehearsal to succeed and an unselected one to be skipped.
 `release-rehearsal.yml` runs every active product nightly on main (and by dispatch); a red run is
 the triage evidence. Publishing stays in `native-release-bundle.yml` (`check`, the `prepare` call,
