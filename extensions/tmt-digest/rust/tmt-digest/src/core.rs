@@ -26,8 +26,18 @@ impl From<std::io::Error> for Error {
     }
 }
 
-pub struct Core(PathBuf);
+pub struct Core {
+    program: PathBuf,
+    deadline: Option<Instant>,
+}
 impl Core {
+    #[cfg(test)]
+    pub fn fixture(program: PathBuf) -> Self {
+        Self {
+            program,
+            deadline: None,
+        }
+    }
     pub fn discover() -> Result<Self, Error> {
         let path = tmt_invoke::invoking_tmt()
             .map_err(|error| Error::new("CORE_UNAVAILABLE", error.to_string()))?;
@@ -48,7 +58,14 @@ impl Core {
                 "TMT_EXECUTABLE selects Digest itself",
             ));
         }
-        Ok(Self(path))
+        Ok(Self {
+            program: path,
+            deadline: None,
+        })
+    }
+    pub fn until(mut self, deadline: Instant) -> Self {
+        self.deadline = Some(deadline);
+        self
     }
     pub fn json(&self, words: &[&str]) -> Result<Value, Error> {
         let args: Vec<OsString> = words
@@ -57,12 +74,23 @@ impl Core {
             .chain(["--json"])
             .map(Into::into)
             .collect();
+        self.capture(&args, &[])
+    }
+    pub fn api(&self, operation: &str, input: Value) -> Result<Value, Error> {
+        let bytes = serde_json::to_vec(&serde_json::json!({
+            "version": 1, "operation": operation, "input": input,
+        }))
+        .map_err(|error| Error::new("DIGEST_INPUT_INVALID", error.to_string()))?;
+        self.capture(&[OsString::from("api")], &bytes)
+    }
+    fn capture(&self, args: &[OsString], input: &[u8]) -> Result<Value, Error> {
+        let deadline = Instant::now() + Duration::from_secs(15);
         let output = tmt_invoke::invoke(
             tmt_invoke::Request {
-                program: &self.0,
-                args: &args,
-                input: &[],
-                deadline: Instant::now() + Duration::from_secs(15),
+                program: &self.program,
+                args,
+                input,
+                deadline: self.deadline.map_or(deadline, |end| end.min(deadline)),
                 max_stream_bytes: 1024 * 1024,
                 launch: Default::default(),
             },

@@ -121,6 +121,16 @@ pub struct DigestConfig {
     document: DocumentMut,
 }
 impl DigestConfig {
+    pub fn load(path: &Path) -> Result<Self, Error> {
+        Self::parse(&read(path)?)
+    }
+    pub fn setter(&self, id: &str) -> Option<&str> {
+        self.document
+            .get("members")
+            .and_then(|members| members.get(id))
+            .and_then(|row| row.get("setByIdentityId"))
+            .and_then(Item::as_str)
+    }
     pub fn parse(bytes: &[u8]) -> Result<Self, Error> {
         let text = std::str::from_utf8(bytes).map_err(|_| invalid("digest.toml must be UTF-8"))?;
         let document = text

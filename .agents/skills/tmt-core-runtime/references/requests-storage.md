@@ -219,8 +219,9 @@ legacy-counter provenance and the difference between idle and turn-boundary elig
 The ordinary request wake and existing reply-frame/joined-fallback writer claims
 admit Digest before granting new external input. Owner UUID and urgent bypass only
 this gate. Existing explicit inbox publication remains pull-only. A provider owns
-turn/launch admission; talk/check uses fresh matching live idle evidence and the
-ordinary channel-first delivery owner. There is no Digest timer, detached worker,
+turn/launch admission; talk/check and the UUID-pinned `digest.checklist.flush` API
+use fresh matching live idle evidence and the ordinary channel-first delivery owner.
+There is no Core Digest timer, detached worker,
 cadence or scheduler. Definite unsent settlement releases only the sealed members;
 claimed/uncertain effects never become replay leases. Canonical contracts:
 [Digest delivery](../../../../contracts/request-response-v1.md#digest-delivery-windows),
