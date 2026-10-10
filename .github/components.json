@@ -22,6 +22,7 @@
       "excludes": [
         "extensions/tmt-office",
         "extensions/tmt-ops",
+        "extensions/tmt-digest",
         "extensions/tmt-remote",
         "extensions/tmt-colab",
         "rust/crates/tmt-tui",
@@ -39,6 +40,10 @@
           "reason": "Repository development references, outside the canonical CLI and product skill bundles."
         }
       ]
+    },
+    "digest": {
+      "owns": ["extensions/tmt-digest"],
+      "release": false
     },
     "office": {
       "package": "tmt-office",

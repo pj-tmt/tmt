@@ -409,6 +409,8 @@ upgrade handoff are in the
 build, publication and verification procedures are in the
 [tmt-release skill](.agents/skills/tmt-release/SKILL.md).
 
+Digest owns `extensions/tmt-digest`: an unpublished help-only workspace binary; settings and ticks follow in #2148/#2150, activation in #2510.
+
 ## Ops extension
 
 `extensions/tmt-ops/rust/tmt-ops` builds optional `tmt-ops`, reached through
