@@ -331,6 +331,25 @@ pub trait RequestRecords {
         after: u64,
         now_ms: u64,
     ) -> Result<(u64, u64), Self::Error>;
+    fn digest_counters(&self, identity_id: &str) -> Result<digest::DigestCounters, Self::Error>;
+    fn mark_digest_due(
+        &mut self,
+        identity_id: &str,
+        through_sequence: u64,
+    ) -> Result<(), Self::Error>;
+    /// Unsealed retained items at or below the eligibility watermark.
+    fn digest_due_inventory(
+        &self,
+        identity_id: &str,
+        through_sequence: u64,
+        now_ms: u64,
+    ) -> Result<(u64, u64), Self::Error>;
+    /// Oldest retained item still pending or in the active claim.
+    fn digest_oldest_held(
+        &self,
+        identity_id: &str,
+        now_ms: u64,
+    ) -> Result<Option<u64>, Self::Error>;
     fn digest_items(
         &self,
         identity_id: &str,

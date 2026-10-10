@@ -30,6 +30,8 @@ describe('native Digest held delivery and checklist seam', () => {
         'checklist.read',
         'checklist.claim',
         'checklist.settle',
+        'checklist.dueNow',
+        'stats.show',
       ];
       const discovery = await api(sandbox, 'capabilities', {});
       expect(discovery.status).toBe(0);
@@ -487,6 +489,148 @@ describe('native Digest held delivery and checklist seam', () => {
         (await api(sandbox, 'digest.policy.show', { identities: [target] })).body.policies[0]
           .heldCount
       ).toBe(1);
+    });
+  });
+});
+
+describe('native Digest due-now and durable stats', () => {
+  it('adds eligibility without changing policy and counts only successful settlements', async () => {
+    await withSandbox(async (sandbox) => {
+      const target = await identity(sandbox, 'Worker');
+      const owner = await identity(sandbox, 'Owner');
+      await identity(sandbox, 'Sender');
+      const untilMs = Date.now() + 600_000;
+      expect(
+        (
+          await api(sandbox, 'digest.policy.set', {
+            identityId: target,
+            ownerIdentityId: owner,
+            setterIdentityId: owner,
+            expectedRevision: 0,
+            untilMs,
+          })
+        ).status
+      ).toBe(0);
+      const hold = async (text: string) => {
+        const sent = await runCli(sandbox, [
+          'talk',
+          'Worker',
+          text,
+          '--identity',
+          'Sender',
+          '--json',
+        ]);
+        expect(sent.status).toBe(0);
+        expect(JSON.parse(sent.stdout)).toMatchObject({ digest: true, status: 'queued' });
+        return JSON.parse(sent.stdout).requestId;
+      };
+      const first = await hold('First');
+      const before = (await api(sandbox, 'digest.stats.show', { identities: [target] })).body
+        .stats[0];
+      expect(before).toMatchObject({
+        identityId: target,
+        heldCount: 1,
+        deliveredDigests: 0,
+        dueCount: 0,
+        nextEligibleAtMs: untilMs,
+      });
+      expect(before.oldestHeldAgeMs).toBeGreaterThanOrEqual(0);
+      const due = await api(sandbox, 'digest.checklist.dueNow', { identityId: target });
+      expect(due.status).toBe(0);
+      expect(due.body).toMatchObject({ identityId: target, heldCount: 1 });
+      const observedAtMs = Date.now();
+      const receiver = new Database(sandbox.database);
+      try {
+        receiver
+          .prepare(
+            "INSERT INTO identity_session_preferences(identity_id,remembered_harness,runtime_mode,provider_session_id,driver_state_version,driver_state) VALUES(?,'claude','default','arrival-session',2,?)"
+          )
+          .run(target, JSON.stringify({ usage: { tokens: 182340, observedAtMs } }));
+      } finally {
+        receiver.close();
+      }
+      const later = await hold('Later');
+      const changedUsage = new Database(sandbox.database);
+      try {
+        changedUsage
+          .prepare(
+            'UPDATE identity_session_preferences SET driver_state=NULL,driver_state_version=NULL WHERE identity_id=?'
+          )
+          .run(target);
+      } finally {
+        changedUsage.close();
+      }
+      const after = (await api(sandbox, 'digest.stats.show', { identities: [target] })).body
+        .stats[0];
+      expect(after).toMatchObject({ heldCount: 2, dueCount: 1, deliveredDigests: 0 });
+      expect(after.nextEligibleAtMs).toBe(after.observedAtMs);
+      const pending = (await api(sandbox, 'digest.checklist.read', { identityId: target })).body;
+      expect(pending.items.map((item: { requestId: string }) => item.requestId)).toEqual([
+        first,
+        later,
+      ]);
+      expect(pending.items[0]).not.toHaveProperty('contextTokensAtArrival');
+      expect(pending.items[0]).not.toHaveProperty('contextObservedAtMs');
+      expect(pending.items[1]).toMatchObject({
+        contextTokensAtArrival: 182340,
+        contextObservedAtMs: observedAtMs,
+      });
+      expect(
+        (await api(sandbox, 'digest.policy.show', { identities: [target] })).body.policies[0]
+      ).toMatchObject({ revision: 1, active: true, digestUntilMs: untilMs });
+      // Provider-admitted turn boundaries retain their existing broader eligibility.
+      const claim = (
+        await api(sandbox, 'digest.checklist.claim', {
+          identityId: target,
+          opportunity: 'turn_boundary',
+        })
+      ).body;
+      expect(claim.claimed).toBe(true);
+      expect(claim.page.total).toBe(2);
+      const settle = {
+        identityId: target,
+        checklistId: claim.checklist.checklistId,
+        attemptToken: claim.checklist.attemptToken,
+        outcome: 'delivered',
+      };
+      expect((await api(sandbox, 'digest.checklist.settle', settle)).body.changed).toBe(true);
+      expect((await api(sandbox, 'digest.checklist.settle', settle)).body.changed).toBe(false);
+      expect(
+        (await api(sandbox, 'digest.stats.show', { identities: [target] })).body.stats[0]
+      ).toMatchObject({
+        heldCount: 0,
+        oldestHeldAgeMs: null,
+        deliveredDigests: 1,
+        dueCount: 0,
+        nextEligibleAtMs: null,
+      });
+      const db = new Database(sandbox.database, { readonly: true });
+      try {
+        expect(
+          db
+            .prepare(
+              'SELECT due_through_sequence,delivered_digests FROM digest_counters WHERE identity_id=?'
+            )
+            .get(target)
+        ).toEqual({ due_through_sequence: due.body.throughSequence, delivered_digests: 1 });
+      } finally {
+        db.close();
+      }
+    });
+  });
+  it('refuses malformed due-now and stats requests before creating storage', async () => {
+    await withSandbox(async (sandbox) => {
+      for (const [operation, input] of [
+        ['digest.checklist.dueNow', { identityId: 'invalid' }],
+        ['digest.checklist.dueNow', { identityId: randomUUID(), intervalMs: 1000 }],
+        ['digest.stats.show', { identities: [] }],
+        ['digest.stats.show', { identities: [randomUUID()], refresh: true }],
+      ] as const) {
+        const refused = await api(sandbox, operation, input);
+        expect(refused.status).toBe(1);
+        expect(refused.body.error.code).toBe('API_INPUT_INVALID');
+      }
+      expect(existsSync(sandbox.database)).toBe(false);
     });
   });
 });

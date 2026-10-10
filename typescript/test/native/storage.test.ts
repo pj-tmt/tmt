@@ -114,6 +114,10 @@ function expectNativeSchema(
     { version: 48, name: 'retain originator withdrawal of unanswered requests' },
     { version: 49, name: 'hold focus delivery and seal ordered checklists' },
     { version: 50, name: 'retain consumption cache-write and per-turn model attribution' },
+    {
+      version: 51,
+      name: 'retain digest due ranges, arrival context and successful delivery counters',
+    },
   ];
   expect(migrated.migrations.slice(8)).toEqual(additions);
   expect(migrated.tables.map(({ name }) => name)).toEqual(
@@ -151,6 +155,7 @@ function expectNativeSchema(
       'focus_policies',
       'focus_items',
       'focus_checklists',
+      'digest_counters',
       'reply_notice_batches',
       'reply_notices',
     ].sort()
@@ -191,6 +196,7 @@ function expectNativeSchema(
       ],
     ],
     ['identity_status', ['identity_id', 'activity', 'mood', 'updated_at_ms', 'expires_at_ms']],
+    ['digest_counters', ['identity_id', 'due_through_sequence', 'delivered_digests']],
     [
       'office_local_worlds',
       [
@@ -237,6 +243,16 @@ function expectNativeSchema(
     const resource = table(migrated, name);
     expect(resource.rows).toEqual([]);
     expect(resource.columns.map((column) => column.name)).toEqual(columns);
+  }
+  for (const name of ['context_tokens_at_arrival', 'context_observed_at_ms']) {
+    expect(
+      table(migrated, 'focus_items').columns.find((column) => column.name === name)
+    ).toMatchObject({
+      name,
+      type: 'INTEGER',
+      notnull: 0,
+      dflt_value: null,
+    });
   }
   const snapshots = table(migrated, 'office_whiteboard_snapshots');
   const images = table(migrated, 'office_whiteboard_snapshot_images');

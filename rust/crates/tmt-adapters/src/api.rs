@@ -32,6 +32,8 @@ const OPS: &[&str] = &[
     "digest.policy.set",
     "digest.policy.clear",
     "digest.policy.show",
+    "digest.checklist.dueNow",
+    "digest.stats.show",
     "digest.checklist.read",
     "digest.checklist.claim",
     "digest.checklist.settle",
