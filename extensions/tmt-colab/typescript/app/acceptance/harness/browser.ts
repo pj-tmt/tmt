@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import type { OwnedProcess } from './process.js';
 import type { AcceptanceWorld } from './world.js';
-import { clientId, run } from './ask.js';
+import { run } from './ask.js';
 
 export interface Door {
   /** `http://127.0.0.1:<port>/r/<prefix>`, the machine's route prefix. */
@@ -110,9 +110,10 @@ async function closeContext(context: BrowserContext, stage: (name: string) => vo
 
 /**
  * Pair a fresh Chromium profile as a device through the real door: the owner
- * side runs `pair --json` (with `--talk` only for sending), the browser opens the link, both sides show the same
- * four words and the owner confirms. Each device owns its own profile, so two
- * viewers have separate keys, IndexedDB and door cookies.
+ * side runs `pair --json` for page access (`--talk` explicitly enables sending),
+ * the browser opens the link, both sides show the same four words and the owner
+ * confirms. Bare pairing is checked read-only against the resulting device grant.
+ * Each device owns its own profile, with separate keys, IndexedDB and door cookies.
  */
 export async function pairBrowser(
   world: AcceptanceWorld,
@@ -138,24 +139,18 @@ export async function pairBrowser(
   const candidate = await pair.event((value) => value.event === 'candidate');
   await expect(page.locator('#words')).toHaveText((candidate.words as string[]).join(' '));
   pair.child.stdin.write('confirm\n');
-  await pair.event((value) => value.reason === 'paired');
+  const paired = await pair.event((value) => value.reason === 'paired');
   await expect(page.locator('#status')).toHaveText(
     'This browser is paired. You can close this page.',
   );
   await pair.exited;
   if (!options.talk) {
-    // PR-A keeps the old sending default until PR-B. Use the real owner toggle
-    // so read-only fixtures already prove that policy; after PR-B this is a no-op.
-    const changed = JSON.parse(
-      run(world, world.binaries.remote, [
-        'devices',
-        'talk',
-        clientId(world, name),
-        'off',
-        '--json',
-      ]),
-    ) as { device: { scopes: string[] } };
-    expect(changed.device.scopes).not.toContain('talk');
+    const listing = JSON.parse(run(world, world.binaries.remote, ['devices', '--json'])) as {
+      devices: { clientId: string; scopes: string[] }[];
+    };
+    const device = listing.devices.find((item) => item.clientId === paired.clientId);
+    expect(device).toBeDefined();
+    expect(device!.scopes).not.toContain('talk');
   }
   return { name, context, page, profile };
 }
