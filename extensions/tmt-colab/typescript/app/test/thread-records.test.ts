@@ -877,7 +877,7 @@ it("lists a live comment's files in the conversation export by name only and lea
     },
   ]);
   expect(JSON.stringify(Object.keys(listed))).toBe(
-    '["writer","id","revision","deleted","body","deviceName","at","attachments"]',
+    '["writer","id","revision","sequence","deleted","body","deviceName","at","attachments"]',
   );
   expect(comments.find((comment) => comment.id === plain.message.id)).not.toHaveProperty(
     'attachments',
