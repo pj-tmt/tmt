@@ -80,9 +80,11 @@ export function BrowserIconAction({
     <>
       <span
         className={c.iconAction}
-        onPointerEnter={() => {
-          setHovered(true);
-          setDismissed(false);
+        onPointerMove={() => {
+          if (!hovered) {
+            setHovered(true);
+            setDismissed(false);
+          }
         }}
         onPointerLeave={() => setHovered(false)}
       >

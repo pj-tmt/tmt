@@ -229,15 +229,21 @@ async function run() {
     'Ready text icon has a fill',
   );
   await act(() => button.dispatchEvent(new PointerEvent('pointerover', { bubbles: true })));
-  check(tooltip.matches(':popover-open'), 'Pointer entry did not show the tooltip');
+  check(!tooltip.matches(':popover-open'), 'Layout-only entry opened the tooltip');
+  await act(() => button.dispatchEvent(new PointerEvent('pointermove', { bubbles: true })));
+  check(tooltip.matches(':popover-open'), 'Pointer movement did not show the tooltip');
   check(tooltip.getAttribute('aria-hidden') === 'true', 'Tooltip duplicates the accessible name');
   check(!button.hasAttribute('aria-describedby'), 'Label was announced twice');
   check(getComputedStyle(tooltip).pointerEvents === 'none', 'Tooltip intercepts pointer actions');
   await act(() => button.click());
   check(!tooltip.matches(':popover-open'), 'Activation left the tooltip over the next action');
+  await act(() => button.dispatchEvent(new PointerEvent('pointermove', { bubbles: true })));
+  check(!tooltip.matches(':popover-open'), 'Movement before leaving undid click dismissal');
   await act(() => button.dispatchEvent(new PointerEvent('pointerout', { bubbles: true })));
   await act(() => button.dispatchEvent(new PointerEvent('pointerover', { bubbles: true })));
-  check(tooltip.matches(':popover-open'), 'Fresh pointer entry did not restore activation help');
+  check(!tooltip.matches(':popover-open'), 'Entry alone restored dismissed activation help');
+  await act(() => button.dispatchEvent(new PointerEvent('pointermove', { bubbles: true })));
+  check(tooltip.matches(':popover-open'), 'Fresh pointer movement did not restore activation help');
   await act(() =>
     button.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })),
   );
@@ -251,7 +257,9 @@ async function run() {
   check(parentEscapes === 2, 'Closed tooltip swallowed parent Escape');
   await act(() => button.dispatchEvent(new PointerEvent('pointerout', { bubbles: true })));
   await act(() => button.dispatchEvent(new PointerEvent('pointerover', { bubbles: true })));
-  check(tooltip.matches(':popover-open'), 'Pointer return did not reopen the tooltip');
+  check(!tooltip.matches(':popover-open'), 'Entry alone restored Escape-dismissed help');
+  await act(() => button.dispatchEvent(new PointerEvent('pointermove', { bubbles: true })));
+  check(tooltip.matches(':popover-open'), 'Pointer return and movement did not reopen the tooltip');
   await act(() => root.render(null));
   check(!tooltip.isConnected, 'Tooltip survived component removal');
   await act(() =>

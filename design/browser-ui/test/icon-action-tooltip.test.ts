@@ -146,3 +146,49 @@ it('leaves tooltip placement and Escape with the host while disclosure is expand
     place.mockRestore();
   }
 });
+
+it.each([false, true])(
+  'opens only on movement and keeps dismissal until leaving (menu=%s)',
+  (menu) => {
+    const hover = vi.fn();
+    const dismiss = vi.fn();
+    const render = (hovered: boolean, dismissed: boolean) => {
+      hooks.refs = [{ current: null }, { current: null }];
+      hooks.states = [
+        [hovered, hover],
+        [false, vi.fn()],
+        [dismissed, dismiss],
+      ];
+      const props = {
+        type: 'button' as const,
+        label: 'Details',
+        variant: 'text' as const,
+        icon: '+',
+        onActivate: vi.fn(),
+      };
+      const action = menu
+        ? BrowserIconAction({ ...props, expanded: false, controls: 'host-menu', hasPopup: 'menu' })
+        : BrowserIconAction(props);
+      return action.props.children[0].props;
+    };
+    // A layout-only entry has no opening handler for either action variant.
+    const initial = render(false, false);
+    expect(initial.onPointerEnter).toBeUndefined();
+    expect(hooks.effect!()).toBeUndefined();
+    expect(hover).not.toHaveBeenCalled();
+    initial.onPointerMove();
+    expect(hover).toHaveBeenLastCalledWith(true);
+    expect(dismiss).toHaveBeenLastCalledWith(false);
+    hover.mockClear();
+    dismiss.mockClear();
+    // Click/Escape dismissal survives movement inside the same hovered action.
+    const dismissed = render(true, true);
+    dismissed.onPointerMove();
+    expect(hover).not.toHaveBeenCalled();
+    expect(dismiss).not.toHaveBeenCalled();
+    dismissed.onPointerLeave();
+    expect(hover).toHaveBeenLastCalledWith(false);
+    render(false, true).onPointerMove();
+    expect(dismiss).toHaveBeenLastCalledWith(false);
+  },
+);
