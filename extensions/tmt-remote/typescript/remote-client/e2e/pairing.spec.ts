@@ -1088,8 +1088,8 @@ test('browser pages consume shared presentation in both schemes and fit desktop 
             position: 'fixed',
             rule: '1px',
             background: tokenRgb('surface', 'sheet', colorScheme),
-            markViewBox: '0 0 200 200',
-            markPaths: 6,
+            markViewBox: '0 0 96 96',
+            markPaths: 1,
             wordmarkText: 'Remote',
             headings: 1,
           });
