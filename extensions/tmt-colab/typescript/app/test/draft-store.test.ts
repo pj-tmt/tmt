@@ -229,3 +229,48 @@ it('learns what is already stored so clearing it is written', async () => {
   await session.flush();
   expect(apply).toHaveBeenCalledTimes(1);
 });
+
+it('persists v1 mention bytes without creator provenance and restores them as manual', async () => {
+  const draft: ComposerEdit = {
+    value: '@agent text',
+    edited: true,
+    mentions: [
+      {
+        key: { machine: 'machine', agent: 'agent' },
+        range: { start: 0, end: 6 },
+        defaultCreator: true,
+      },
+    ],
+  };
+  expect(await store().apply('page', new Map([['chat', draft]]))).toBe(true);
+  expect((await store().load('page'))?.get('chat')).toEqual({
+    ...draft,
+    mentions: [
+      {
+        key: { machine: 'machine', agent: 'agent' },
+        range: { start: 0, end: 6 },
+      },
+    ],
+  });
+  const { open } = await import('../src/local-seal.js');
+  const bytes = await open(
+    await draftKey('device'),
+    ['tmt-colab-drafts-v1', 'space', 'device', 'page'],
+    stored.get(RECORD) as { nonce: string; ciphertext: string },
+    3 * 1024 * 1024,
+  );
+  expect(JSON.parse(new TextDecoder().decode(bytes))).toEqual({
+    v: 1,
+    drafts: [
+      {
+        target: 'chat',
+        edit: {
+          value: '@agent text',
+          edited: true,
+          mentions: [{ key: { machine: 'machine', agent: 'agent' }, range: { start: 0, end: 6 } }],
+        },
+      },
+    ],
+  });
+  expect(draft.mentions?.[0].defaultCreator).toBe(true);
+});

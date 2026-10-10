@@ -5,6 +5,8 @@ import { MessageComposer } from '../src/components/message-composer.js';
 import type { ThreadView } from '../src/thread-records.js';
 import { useEffect, useState } from 'react';
 import type { AgentDestination } from '../src/live-ask.js';
+import { CreatorDefaultProvider } from '../src/creator-default.js';
+import type { ComposerEdit } from '../src/components/message-composer-edit.js';
 import { AnnotationInput } from '../src/annotation-input.js';
 import { AskPanel, type AskBinding, type PageAsk } from '../src/ask-panel.js';
 import { ReadRefusedError } from '../src/ask-remote.js';
@@ -18,6 +20,11 @@ let preparations = 0;
 let closes = 0;
 let commits = 0;
 let draft = '';
+let draftEdit: ComposerEdit | undefined;
+let talk = true;
+export function setTalk(value: boolean) {
+  talk = value;
+}
 let captured: unknown[] = [];
 /** What the next directory read does: answer, fail, or wait until released. */
 let directoryMode: 'ok' | 'fail' | 'refuse' | 'park' = 'ok';
@@ -28,14 +35,34 @@ let reconnect: (() => void) | undefined;
 let creator: { machineId: string; agentId: string } | undefined;
 let customAgents: AgentDestination[] | undefined;
 let allSends: RemoteDouble['sends'] = [];
+let preferenceScope: string | undefined;
+let initialEdit: ComposerEdit | undefined;
+let pendingWrite: (() => void) | undefined;
+let waitForWrite: Promise<void> | undefined;
+export function holdWrite() {
+  waitForWrite = new Promise<void>((resolve) => {
+    pendingWrite = resolve;
+  });
+}
+export function releaseWrite() {
+  pendingWrite?.();
+  waitForWrite = undefined;
+  pendingWrite = undefined;
+}
+export function setPreferenceScope(scope: string | undefined) {
+  preferenceScope = scope;
+}
+export function setInitialEdit(edit: ComposerEdit | undefined) {
+  initialEdit = edit;
+}
 export function setCreator(value: boolean) {
   creator = value ? { machineId: destination().machine, agentId: destination().agent } : undefined;
 }
 export function setAgents(value: AgentDestination[]) {
   customAgents = value;
 }
-let surface: 'annotation' | 'reply' | 'chat' = 'annotation';
-export function setSurface(next: 'annotation' | 'reply' | 'chat') {
+let surface: 'annotation' | 'reply' | 'chat' | 'linked' = 'annotation';
+export function setSurface(next: 'annotation' | 'reply' | 'chat' | 'linked') {
   surface = next;
 }
 export function setDirectory(mode: 'ok' | 'fail' | 'refuse' | 'park') {
@@ -95,6 +122,7 @@ export function mount(
     },
     async create(body, anchor) {
       writes++;
+      await waitForWrite;
       captured.push({ body, anchor });
       if (mode === 'write-failure') throw new Error('Write refused');
       return {
@@ -223,37 +251,49 @@ export function mount(
     useEffect(() => {
       reconnect = () => setBinding(makeBinding());
     });
+    const composer = !cancelled && (
+      <AnnotationInput
+        creationRecipient={creator}
+        initialEdit={initialEdit}
+        binding={talk ? binding : undefined}
+        discussion={discussion}
+        chat={surface === 'chat'}
+        thread={surface === 'reply' ? replyThread : undefined}
+        anchor={surface === 'chat' ? null : { exact: 'Selected text', prefix: '', suffix: '' }}
+        asks={records}
+        title="Annotated page"
+        blocked={false}
+        onDraft={(value, edit) => {
+          draft = value;
+          draftEdit = edit;
+        }}
+        cancel={() => {
+          closes++;
+          setCancelled(true);
+        }}
+        committed={() => {
+          commits++;
+        }}
+      />
+    );
     return (
       <>
-        {!cancelled && (
-          <AnnotationInput
-            creationRecipient={creator}
-            binding={binding}
-            discussion={discussion}
-            chat={surface === 'chat'}
-            thread={surface === 'reply' ? replyThread : undefined}
-            anchor={surface === 'chat' ? null : { exact: 'Selected text', prefix: '', suffix: '' }}
-            asks={records}
-            title="Annotated page"
-            blocked={false}
-            onDraft={(value) => {
-              draft = value;
-            }}
-            cancel={() => {
-              closes++;
-              setCancelled(true);
-            }}
-            committed={() => {
-              commits++;
-            }}
-          />
-        )}
+        {composer}
+        {surface === 'linked' && composer}
         <AskPanel inline records={records} binding={binding} blocked={false} />
       </>
     );
   }
   root = createRoot(host);
-  root.render(<Fixture />);
+  root.render(
+    preferenceScope ? (
+      <CreatorDefaultProvider scope={preferenceScope}>
+        <Fixture />
+      </CreatorDefaultProvider>
+    ) : (
+      <Fixture />
+    ),
+  );
 }
 export function proof() {
   return { writes, preparations, closes, commits, sends: allSends };
@@ -263,7 +303,7 @@ export function directoryProof() {
 }
 
 export function editingProof() {
-  return { draft, captured };
+  return { draft, edit: draftEdit, captured };
 }
 
 let statusCalls = 0;

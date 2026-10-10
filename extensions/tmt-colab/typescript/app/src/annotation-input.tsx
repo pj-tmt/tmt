@@ -8,6 +8,7 @@ import {
   type ClipboardEvent,
   type DragEvent,
 } from 'react';
+import { CreatorToggle, useCreatorDefault } from './creator-default.js';
 import { AttachmentDraft } from './attachment-draft.js';
 import { AttachmentStaleError } from './attachment-service.js';
 import { AttachButton, AttachmentChips } from './attachment-tray.js';
@@ -74,6 +75,7 @@ export function AnnotationInput({
 }) {
   const [edit, setEdit] = useState<ComposerEdit>(initialEdit ?? { value: initialValue ?? '' });
   const value = edit.value;
+  const creatorPreference = useCreatorDefault();
   const statusId = useId();
   const initialized = useRef(initialEdit !== undefined || !!initialValue);
   const [failures, setFailures] = useState<MessageSendFailure[]>([]);
@@ -116,33 +118,42 @@ export function AnnotationInput({
     onDraft?.(value, edit);
   }, [value, edit]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => onBusy?.(busy), [busy]); // eslint-disable-line react-hooks/exhaustive-deps
+  const creatorMatches =
+    creationRecipient && agents
+      ? agents.filter(
+          (agent) =>
+            agent.machine === creationRecipient.machineId &&
+            agent.agent === creationRecipient.agentId,
+        )
+      : [];
+  const creator =
+    binding && creatorMatches.length === 1 && creatorMatches[0].online === 'online'
+      ? creatorMatches[0]
+      : undefined;
+  function freshEdit(): ComposerEdit {
+    if (!creator || !creatorPreference.enabled) return { value: '', edited: false };
+    const token = `@${creator.agentName}`;
+    return {
+      value: `${token} `,
+      edited: false,
+      mentions: [
+        {
+          key: { machine: creator.machine, agent: creator.agent },
+          range: { start: 0, end: token.length },
+          defaultCreator: true,
+        },
+      ],
+    };
+  }
   useEffect(() => {
     if (initialized.current || directory.state === 'loading') return;
     initialized.current = true;
-    const matches =
-      creationRecipient && directory.state === 'ready'
-        ? directory.agents.filter(
-            (agent) =>
-              agent.machine === creationRecipient.machineId &&
-              agent.agent === creationRecipient.agentId,
-          )
-        : [];
-    setEdit((previous) => {
-      if (previous.value || previous.edited || !creationRecipient)
-        return { ...previous, edited: previous.edited ?? false };
-      const token = `@${matches.length === 1 ? matches[0].agentName : (creationRecipient.label ?? text.messageCreator)}`;
-      return {
-        value: `${token} `,
-        edited: false,
-        mentions: [
-          {
-            key: { machine: creationRecipient.machineId, agent: creationRecipient.agentId },
-            range: { start: 0, end: token.length },
-          },
-        ],
-      };
-    });
-  }, [directory, creationRecipient]);
+    setEdit((previous) =>
+      previous.value || previous.edited
+        ? { ...previous, edited: previous.edited ?? false }
+        : freshEdit(),
+    );
+  }, [directory, creationRecipient, creatorPreference.enabled]); // eslint-disable-line react-hooks/exhaustive-deps
   const decide = (current: ComposerEdit) =>
     messageRecipient({
       writable: !blocked && !!discussion,
@@ -167,9 +178,11 @@ export function AnnotationInput({
             : agents?.length === 0
               ? text.messageAgentsEmpty
               : text.messageComment;
+  const nextDraft = useRef(freshEdit);
+  nextDraft.current = freshEdit;
   function clearDraft() {
     initialized.current = true;
-    setEdit({ value: '', edited: true });
+    setEdit(nextDraft.current());
     setResetKey((key) => key + 1);
   }
   async function send(current: ComposerEdit = edit) {
@@ -263,12 +276,32 @@ export function AnnotationInput({
         edit={edit}
         onChange={(next) => {
           initialized.current = true;
-          setEdit({ ...next, edited: true });
+          // A toggle-added chip plus whitespace is still only a default seed. Manual
+          // chips and nonblank body edits remain deliberately edited drafts.
+          const remainder = next.mentions
+            ?.filter((mention) => mention.defaultCreator)
+            .reduceRight(
+              (body, mention) => body.slice(0, mention.range.start) + body.slice(mention.range.end),
+              next.value,
+            );
+          const seedOnly =
+            next.mentions?.some((mention) => mention.defaultCreator) && !remainder?.trim();
+          setEdit({ ...next, edited: !seedOnly });
           setError(undefined);
         }}
         label={text.messageLabel}
         placeholder={text.messagePlaceholder}
         candidates={agents}
+        creatorDefault={
+          creator
+            ? {
+                key: { machine: creator.machine, agent: creator.agent },
+                label: creator.agentName,
+                enabled: creatorPreference.enabled,
+                revision: creatorPreference.revision,
+              }
+            : undefined
+        }
         describedBy={statusId}
         resetKey={resetKey}
         autoFocus
@@ -282,7 +315,8 @@ export function AnnotationInput({
         }}
       />
       {discussion?.attachments && <AttachmentChips draft={files} disabled={!attachable} />}
-      <div className="annotation-status-row">
+      <div className="annotation-status-row" data-creator-toggle={!!creator || undefined}>
+        {creator && <CreatorToggle name={creator.agentName} preference={creatorPreference} />}
         {discussion?.attachments && <AttachButton draft={files} disabled={!attachable} />}
         <p id={statusId} role="status" className="annotation-hint">
           {busy

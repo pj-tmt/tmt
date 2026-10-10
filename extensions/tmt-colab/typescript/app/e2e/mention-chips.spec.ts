@@ -45,7 +45,12 @@ for (const width of [1440, 390])
         const toggle = await pageAction(app, 'Chat');
         await toggle.click();
         const chip = page.getByTestId('chat-panel').locator('.message-mention');
-        await expect(chip).toHaveAttribute('data-state', state === 'same-name' ? 'online' : state);
+        if (state === 'not-found') await expect(chip).toHaveCount(0);
+        else
+          await expect(chip).toHaveAttribute(
+            'data-state',
+            state === 'same-name' ? 'online' : state,
+          );
         await page.screenshot({ path: `${captures}/page-${width}-${theme}-${state}.png` });
       }
     });
@@ -211,7 +216,7 @@ test('same-name choices keep the chosen machine UUID; chip controls do not enter
   });
 });
 
-test('a failed first directory read seeds only the admitted creator key and explicit retry restores admission', async ({
+test('a failed first directory read seeds nothing; retry admits the toggle without rewriting a typed draft', async ({
   page,
 }) => {
   await page.goto(fixture);
@@ -227,15 +232,22 @@ test('a failed first directory read seeds only the admitted creator key and expl
     module.mount();
   });
   const input = page.getByRole('combobox', { name: 'Message', exact: true });
-  await expect(input.locator('.message-mention-name')).toHaveText('@Creator');
+  await expect(input.locator('.message-mention')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Send to @astra', exact: true })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Send', exact: true })).toBeDisabled();
-  await input.press('Enter');
+  await input.pressSequentially('Kept draft');
   expect(await proof(page)).toMatchObject({ writes: 0, preparations: 0, sends: [] });
   await page.evaluate(async () => {
     const path = '/test/annotation-browser.tsx';
     (await import(path)).setDirectory('ok');
   });
   await page.getByRole('button', { name: 'Try again', exact: true }).click();
+  const toggle = page.getByRole('button', { name: 'Send to @astra', exact: true });
+  await expect(toggle).toBeVisible();
+  await expect(input).toHaveText('Kept draft', { useInnerText: true });
+  await expect(input.locator('.message-mention')).toHaveCount(0);
+  await toggle.click();
+  await toggle.click();
   await expect(input.locator('.message-mention')).toHaveAttribute('data-state', 'online');
   await expect(input.locator('.message-mention')).toHaveAttribute(
     'title',
@@ -244,7 +256,7 @@ test('a failed first directory read seeds only the admitted creator key and expl
   await page.getByRole('button', { name: 'Send', exact: true }).click();
   await expect.poll(async () => (await proof(page)).preparations).toBe(1);
   expect((await proof(page)).captured[1]).toMatchObject({
-    comment: '@Creator ',
+    comment: '@astra Kept draft',
     destination: { agentName: 'astra' },
   });
 });

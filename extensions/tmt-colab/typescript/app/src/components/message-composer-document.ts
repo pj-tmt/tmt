@@ -3,6 +3,7 @@ import {
   $createParagraphNode,
   $createRangeSelection,
   $getSelection,
+  $getNodeByKey,
   $isElementNode,
   $isRangeSelection,
   $setSelection,
@@ -21,27 +22,40 @@ import { resolveMessageMentions } from '../message-recipient.js';
 import type { AgentDestination } from '../live-ask.js';
 import type { ComposerEdit, RecipientKey } from './message-composer-edit.js';
 
-type SerializedMention = Spread<{ recipient: RecipientKey; token: string }, SerializedLexicalNode>;
+type SerializedMention = Spread<
+  { recipient: RecipientKey; token: string; defaultCreator?: true },
+  SerializedLexicalNode
+>;
 
 /** Editing tokens only; the parent revalidates their UUID keys before every Send. */
 export class MessageMentionNode extends DecoratorNode<ReactNode> {
   __recipient: RecipientKey;
   __token: string;
+  __defaultCreator: boolean;
   static getType() {
     return 'message-mention';
   }
   static clone(node: MessageMentionNode) {
-    return new MessageMentionNode(node.__token, node.__recipient, node.__key);
+    return new MessageMentionNode(
+      node.__token,
+      node.__recipient,
+      node.__key,
+      node.__defaultCreator,
+    );
   }
-  constructor(token: string, recipient: RecipientKey, key?: NodeKey) {
+  constructor(token: string, recipient: RecipientKey, key?: NodeKey, defaultCreator = false) {
     super(key);
     this.__recipient = recipient;
     this.__token = token;
+    this.__defaultCreator = defaultCreator;
   }
   static importJSON(serialized: SerializedMention) {
-    return new MessageMentionNode(serialized.token, serialized.recipient).updateFromJSON(
-      serialized,
-    );
+    return new MessageMentionNode(
+      serialized.token,
+      serialized.recipient,
+      undefined,
+      serialized.defaultCreator === true,
+    ).updateFromJSON(serialized);
   }
   exportJSON(): SerializedMention {
     return {
@@ -49,6 +63,7 @@ export class MessageMentionNode extends DecoratorNode<ReactNode> {
       type: 'message-mention',
       recipient: this.__recipient,
       token: this.__token,
+      ...(this.__defaultCreator ? { defaultCreator: true as const } : {}),
     };
   }
   createDOM() {
@@ -91,7 +106,14 @@ export function $replaceMessage(value: string, mentions: ComposerEdit['mentions'
         end = mention.range.end - offset;
       if (start < cursor || end <= start || end > line.length) continue;
       if (start > cursor) paragraph.append($createTextNode(line.slice(cursor, start)));
-      paragraph.append(new MessageMentionNode(line.slice(start, end), mention.key));
+      paragraph.append(
+        new MessageMentionNode(
+          line.slice(start, end),
+          mention.key,
+          undefined,
+          mention.defaultCreator === true,
+        ),
+      );
       cursor = end;
     }
     if (cursor < line.length) paragraph.append($createTextNode(line.slice(cursor)));
@@ -110,6 +132,7 @@ export function $messageMentions(): NonNullable<ComposerEdit['mentions']> {
       if (node instanceof MessageMentionNode)
         mentions.push({
           key: node.__recipient,
+          ...(node.__defaultCreator ? { defaultCreator: true as const } : {}),
           range: { start: offset, end: offset + node.getTextContentSize() },
         });
       offset += node.getTextContentSize();
@@ -123,6 +146,43 @@ export function $messageMentions(): NonNullable<ComposerEdit['mentions']> {
       visit(node);
     });
   return mentions;
+}
+
+/** A preference transition edits only its own atomic token, preserving all surrounding text. */
+export function $setDefaultCreator(key: RecipientKey, label: string, enabled: boolean) {
+  const root = $getRoot();
+  const selection = $getSelection()?.clone();
+  const nodes: MessageMentionNode[] = [];
+  function visit(node: LexicalNode) {
+    if (
+      node instanceof MessageMentionNode &&
+      node.__recipient.machine === key.machine &&
+      node.__recipient.agent === key.agent
+    )
+      nodes.push(node);
+    else if ($isElementNode(node)) node.getChildren().forEach(visit);
+  }
+  visit(root);
+  if (enabled && !nodes.length) {
+    const first = root.getFirstChild();
+    const paragraph = $isElementNode(first) ? first : $createParagraphNode();
+    if (!first) root.append(paragraph);
+    const mention = new MessageMentionNode(`@${label}`, key, undefined, true);
+    const space = $createTextNode(' ');
+    const head = paragraph.getFirstChild();
+    if (head) {
+      head.insertBefore(mention);
+      head.insertBefore(space);
+    } else paragraph.append(mention, space);
+  } else if (!enabled) {
+    for (const node of nodes) if (node.__defaultCreator) node.remove();
+  }
+  if (
+    $isRangeSelection(selection) &&
+    $getNodeByKey(selection.anchor.key)?.isAttached() &&
+    $getNodeByKey(selection.focus.key)?.isAttached()
+  )
+    $setSelection(selection);
 }
 
 /** Replace only newly completed tokens, keeping the caret, surrounding nodes and history. */

@@ -4,6 +4,7 @@ import {
   $messageText,
   $messageMentions,
   $replaceMessage,
+  $setDefaultCreator,
   fuzzyMessageCandidates,
   mentionQuery,
   MessageMentionNode,
@@ -75,4 +76,35 @@ it('fuzzy matching is stable, searches machine names, and never treats matches a
   ]);
   expect(fuzzyMessageCandidates(candidates, 'laptop')).toEqual([candidates[0]]);
   expect(fuzzyMessageCandidates(candidates, 'zzz')).toEqual([]);
+});
+
+it('default provenance follows node/history serialization and off never removes a manual mention', () => {
+  const editor = createEditor({ namespace: 'fixture', nodes: [MessageMentionNode] });
+  const key = { machine: 'machine', agent: 'agent' };
+  editor.update(
+    () => {
+      $replaceMessage('Body\nsecond');
+      $setDefaultCreator(key, 'creator', true);
+    },
+    { discrete: true },
+  );
+  editor.getEditorState().read(() => {
+    expect($messageText()).toBe('@creator Body\nsecond');
+    expect($messageMentions()[0].defaultCreator).toBe(true);
+  });
+  editor.setEditorState(editor.parseEditorState(JSON.stringify(editor.getEditorState().toJSON())));
+  editor.update(() => $setDefaultCreator(key, 'creator', false), { discrete: true });
+  expect(editor.getEditorState().read($messageText)).toBe(' Body\nsecond');
+  editor.update(
+    () => {
+      $replaceMessage('@creator Body', [{ key, range: { start: 0, end: 8 } }]);
+      $setDefaultCreator(key, 'creator', true);
+      $setDefaultCreator(key, 'creator', false);
+    },
+    { discrete: true },
+  );
+  editor.getEditorState().read(() => {
+    expect($messageText()).toBe('@creator Body');
+    expect($messageMentions()).toEqual([{ key, range: { start: 0, end: 8 } }]);
+  });
 });

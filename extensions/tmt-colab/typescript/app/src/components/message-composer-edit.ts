@@ -6,7 +6,7 @@ export type { RecipientKey } from '../message-recipient.js';
 export type ComposerEdit = {
   value: string;
   /** Intact editing tokens; the parent revalidates every key against the current directory. */
-  mentions?: { key: RecipientKey; range: { start: number; end: number } }[];
+  mentions?: { key: RecipientKey; range: { start: number; end: number }; defaultCreator?: true }[];
   /** False for an untouched creator seed; edited/restored blanks retain a removed default. */
   edited?: boolean;
 };
@@ -21,6 +21,8 @@ export type MessageComposerProps = {
   disabled: boolean;
   autoFocus?: boolean;
   candidates?: readonly AgentDestination[];
+  /** Explicit page preference transitions only; fresh defaults remain parent-owned. */
+  creatorDefault?: { key: RecipientKey; label: string; enabled: boolean; revision: number };
   describedBy?: string;
   /** An intentional parent replacement starts a fresh editing/history lifetime. */
   resetKey?: string | number;

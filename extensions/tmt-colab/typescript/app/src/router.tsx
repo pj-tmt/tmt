@@ -58,6 +58,7 @@ import { AgentStatusPanel } from './agent-status-panel.js';
 import { AgentPresentation, useAgentPresentation } from './agent-directory.js';
 import { ChatPanel } from './chat-panel.js';
 import { FilesPanel } from './files-panel.js';
+import { CreatorDefaultProvider } from './creator-default.js';
 import { DraftSession } from './draft-store.js';
 import { CHAT_DRAFT, SavedDrafts, savedDrafts } from './saved-drafts.js';
 import { isChatThread } from './thread-records.js';
@@ -321,7 +322,7 @@ function TerminalFailure({ error }: { error: Error }) {
   );
 }
 
-const root = createRootRouteWithContext<{ transport: PageTransport }>()({
+const root = createRootRouteWithContext<{ transport: PageTransport; space?: string }>()({
   component: Shell,
   errorComponent: ({ error }) => (
     <>
@@ -718,7 +719,7 @@ function Home() {
   );
 }
 function Page() {
-  const { transport } = root.useRouteContext();
+  const { transport, space } = root.useRouteContext();
   const loaded = page.useLoaderData();
   // A reopened binding replaces the loaded snapshot until the route loads a newer one.
   const [reopened, setReopened] = useState<{
@@ -1703,7 +1704,16 @@ function Page() {
       </PageDrawer>
     </section>
   );
-  return <AgentPresentation value={agents}>{content}</AgentPresentation>;
+  const creatorScope = JSON.stringify([
+    space ?? '',
+    snapshot.id,
+    loaded.binding?.discussion?.deviceId ?? '',
+  ]);
+  return (
+    <CreatorDefaultProvider key={creatorScope} scope={creatorScope}>
+      <AgentPresentation value={agents}>{content}</AgentPresentation>
+    </CreatorDefaultProvider>
+  );
 }
 export function createAppRouter(transport: PageTransport, space?: string) {
   const history = space
@@ -1727,7 +1737,7 @@ export function createAppRouter(transport: PageTransport, space?: string) {
   const router = createRouter({
     routeTree: root.addChildren([home, page, shortPage, blocked]),
     history,
-    context: { transport },
+    context: { transport, space },
   });
   router.subscribe('onResolved', () => void buildWatch.check());
   return router;

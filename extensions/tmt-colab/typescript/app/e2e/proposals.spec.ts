@@ -217,7 +217,10 @@ for (const width of [1440, 390])
       const card = page.locator('.page-drawer[data-panel="comments"][open] .proposal-card');
       await expect(card).toBeVisible();
       await card.getByRole('button', { name: 'Follow up', exact: true }).click();
-      await expect(card.getByRole('combobox')).toContainText('@Deterministic agent');
+      await expect(card.getByRole('combobox')).toHaveText('', { useInnerText: true });
+      await expect(card.locator('.message-mention-chip')).toHaveCount(0);
+      await expect(card.locator('.creator-toggle')).toHaveCount(0);
+      await expect(card.getByRole('button', { name: 'Send', exact: true })).toBeDisabled();
       await card.getByRole('button', { name: 'Cancel', exact: true }).click();
       await capture(page, `detached-${width}-${theme}`);
       await card.getByRole('button', { name: 'Approve', exact: true }).click();

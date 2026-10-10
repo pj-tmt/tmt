@@ -141,7 +141,20 @@ export class LocalDraftStore implements DraftStore {
         for (const [target, edit] of changes) {
           // An update moves to the newest position so the oldest is the one dropped.
           drafts.delete(target);
-          if (edit !== null) drafts.set(target, validEdit(edit));
+          if (edit !== null)
+            drafts.set(
+              target,
+              validEdit({
+                ...edit,
+                ...(edit.mentions
+                  ? {
+                      mentions: edit.mentions.map(
+                        ({ defaultCreator: _defaultCreator, ...mention }) => mention,
+                      ),
+                    }
+                  : {}),
+              }),
+            );
         }
         const sealed = await seal(
           await draftKey(this.device),

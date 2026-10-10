@@ -6,7 +6,7 @@ import '../src/style.css';
 import { createRoot } from 'react-dom/client';
 import { useState } from 'react';
 import { MessageComposer, type ComposerEdit } from '../src/components/message-composer.js';
-import { mount, setAgents, setCreator, setSurface } from './annotation-browser.js';
+import { mount, setAgents, setCreator, setSurface, setInitialEdit } from './annotation-browser.js';
 import { destination, id } from './ask-fixtures.js';
 
 if (!new URL(location.href).searchParams.has('field')) {
@@ -65,6 +65,21 @@ export function mountMentions(state: 'online' | 'offline' | 'not-found' | 'same-
       : state === 'same-name'
         ? [agent, { ...agent, machine: id(12), machineName: 'Office desktop' }]
         : [{ ...agent, presence: state === 'offline' ? 'offline' : 'active' }],
+  );
+  // A previously bound draft can outlive directory admission; never fabricate a fresh missing default.
+  setInitialEdit(
+    state === 'not-found'
+      ? {
+          value: '@Creator ',
+          edited: true,
+          mentions: [
+            {
+              key: { machine: agent.machine, agent: agent.agent },
+              range: { start: 0, end: 8 },
+            },
+          ],
+        }
+      : undefined,
   );
   setCreator(true);
   setSurface('chat');

@@ -2035,13 +2035,18 @@ directory entry matches; picked listbox options bind the same machine/agent UUID
 pair. Unknown names remain plaintext with "No agent named @name. This posts as a
 comment." Ambiguous names open the list and block Send until explicitly chosen or
 removed. Fuzzy matches never select a destination. Removing/replacing a token removes
-its binding; repeated mentions of the same pair count once. A fresh untouched
-composer seeds the admitted `creationRecipient` regardless of presence. A unique current UUID
-match supplies its name; an absent/ambiguous entry or failed discovery uses the neutral
-`@Creator` label with that same UUID pair, never a publisher name. Initialization waits
-for the first directory result; typing first suppresses the default.
-Unknown provenance leaves it blank; publisher names and prior repliers never select
-recipients. A removed default is never reinserted during directory replacement.
+its binding; repeated mentions of the same pair count once. Each fresh message in
+Chat, an annotation or a reply seeds the admitted
+`creationRecipient` when the page/viewer-device creator toggle is on (the default).
+Only one current admitted UUID match supplies a chip and name; missing/ambiguous
+admission or disabled talk hides the toggle and seeds nothing. Initialization waits
+for the first directory result; typing first suppresses the default. Removing a
+chip suppresses it for that message only, never reseeding during directory replacement.
+An explicit on adds a missing creator chip to the open draft; off removes only a
+proven default-added chip, preserving manually typed/picked mentions and surrounding
+text. The preference is a storage-safe, device-local convenience, never authority.
+Provenance stays in editing/page memory and is stripped from the unchanged encrypted
+v1 draft format; restored unknown-provenance mentions count as manual.
 Bound mentions are atomic, square, flat chips: a solid online dot, muted offline
 state, or a dashed not-found border. Unknown/unavailable presence is labeled explicitly.
 Same-name agents include their machine name. Hover/focus exposes the full name,
