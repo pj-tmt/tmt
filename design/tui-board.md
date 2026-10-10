@@ -18,7 +18,8 @@ above examples.
 
 Use the resolved terminal theme and its neutral text, dim, muted and selection
 roles. Group member rows, HOME leads and body panes with horizontal rules and
-blank side margins. Keep the existing measured title, fold controls, inner area
+blank side margins, one rule per boundary: a heading's rule replaces the box top
+under it, and a pane above the cron heading ends on that rule. Keep the existing measured title, fold controls, inner area
 and hit regions when a side wall is visually absent. Do not add decorative boxes
 around each field, shadows, gradients or a colored background for each state.
 
@@ -92,21 +93,21 @@ creates neither membership nor a new send audience.
 Keep the factory views and user-authored pane trees. Their fold thresholds are
 layout behavior, not new styling breakpoints.
 
-| View    | Composition                                                      | Width/fold behavior                                    |
-| ------- | ---------------------------------------------------------------- | ------------------------------------------------------ |
-| HOME    | Counts, needs-you/blocked, grouped leads, audience, cron, squads | One stream; full-width squad table at every width      |
-| leads   | Grouped lead headings and admitted preview/read bands            | Existing stream and clipped row hits                   |
-| members | Lead, members rule and member/task list; lead notes below        | Default grouped list; notes can be hidden/shown        |
-| team    | Rows with detail/replies beside them and notes below             | Detail/replies fold below 100 cells                    |
-| focus   | Rows with initially folded detail/replies/notes                  | Manual folds retain session state                      |
-| notes   | Rows beside lead notes; detail/replies folded                    | Existing pane tree and note/link focus                 |
-| detail  | Rows above detail/replies; notes folded                          | Replies fold below 100 cells                           |
-| wide    | Rows, detail/replies and notes in three columns                  | Detail/replies fold below 180 cells                    |
-| custom  | Authored sections, cells, splits and tabs                        | Preserve configured geometry and duplicate occurrences |
+| View    | Composition                                               | Width/fold behavior                                    |
+| ------- | --------------------------------------------------------- | ------------------------------------------------------ |
+| HOME    | Counts, blocked, grouped leads, audience, cron, squads    | One stream; full-width squad table at every width      |
+| leads   | Grouped lead headings and admitted preview/read bands     | Existing stream and clipped row hits                   |
+| members | Lead, members rule and member/task list; lead notes below | Default grouped list; notes can be hidden/shown        |
+| team    | Rows with detail/replies beside them and notes below      | Detail/replies fold below 100 cells                    |
+| focus   | Rows with initially folded detail/replies/notes           | Manual folds retain session state                      |
+| notes   | Rows beside lead notes; detail/replies folded             | Existing pane tree and note/link focus                 |
+| detail  | Rows above detail/replies; notes folded                   | Replies fold below 100 cells                           |
+| wide    | Rows, detail/replies and notes in three columns           | Detail/replies fold below 180 cells                    |
+| custom  | Authored sections, cells, splits and tabs                 | Preserve configured geometry and duplicate occurrences |
 
 HOME is the built-in `@all` board, not another aggregate member grid. Public
 `ls --tab all` is a separate listing projection. Named squad tabs start at the
-lead row; the members rule is not selectable. HOME chooses an admitted attention,
+lead row; the members rule is not selectable. HOME chooses an admitted blocked,
 lead or squad row; the cron heading is not an initial member selection.
 
 ### HOME usage row
