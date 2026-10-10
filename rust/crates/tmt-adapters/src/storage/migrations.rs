@@ -623,9 +623,7 @@ fn validate_history(connection: &Connection) -> Result<usize, StorageError> {
             )));
         }
         let Some(definition) = MIGRATIONS.get(count) else {
-            return Err(incompatible(format!(
-                "Database requires unsupported migration version {version}"
-            )));
+            return Err(StorageError::newer_schema(version));
         };
         if definition.name != name {
             return Err(incompatible(format!(

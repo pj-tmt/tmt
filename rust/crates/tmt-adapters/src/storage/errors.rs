@@ -34,6 +34,7 @@ pub struct StorageError {
     pub migration_version: Option<u32>,
     pub retryable: bool,
     cause: Option<Box<dyn Error + Send + Sync>>,
+    newer_schema: bool,
 }
 
 impl StorageError {
@@ -44,7 +45,22 @@ impl StorageError {
             migration_version: None,
             retryable: code == StorageErrorCode::Busy,
             cause: None,
+            newer_schema: false,
         }
+    }
+
+    /// The known migration prefix is valid but the next version is unsupported.
+    /// Other incompatible histories must not be treated as a newer schema.
+    pub fn is_newer_schema(&self) -> bool {
+        self.newer_schema
+    }
+
+    pub(crate) fn newer_schema(version: i64) -> Self {
+        let mut error = incompatible(format!(
+            "Database requires unsupported migration version {version}"
+        ));
+        error.newer_schema = true;
+        error
     }
 
     pub fn caused_by(mut self, cause: impl Error + Send + Sync + 'static) -> Self {

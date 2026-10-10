@@ -127,6 +127,11 @@ fn migrate_with_now<R: CommandRunner>(
         Ok(hints)
     })();
     result.unwrap_or_else(|error| {
+        // The activated CLI may already have migrated beyond this old updater.
+        // That supplies no evidence that a pane needs cosmetic rebinding.
+        if error.is_newer_schema() {
+            return Vec::new();
+        }
         vec![format!(
             "Pane option cutover unavailable: {error}; rebind affected panes with tmt this <name>"
         )]
@@ -200,6 +205,98 @@ mod tests {
         Storage::open(&path).unwrap().close().unwrap();
         assert!(migrate(&path, &CallerEnvironment::current(), &NoHost).is_empty());
     }
+    #[test]
+    fn future_schema_has_no_hint_or_host_work_and_preserves_state() {
+        let root = Directory::new();
+        let path = root.0.join("state.db");
+        forty_bindings(&path);
+        let connection = rusqlite::Connection::open(&path).unwrap();
+        connection.execute_batch(
+            "INSERT INTO _migrations SELECT MAX(version) + 1, 'future migration', 'now' FROM _migrations;",
+        ).unwrap();
+        // A logical dump includes binding rows and migration history, without
+        // depending on WAL/checkpoint file layout.
+        let snapshot = || {
+            [
+                "SELECT * FROM _migrations ORDER BY version",
+                "SELECT * FROM bindings ORDER BY id",
+            ]
+            .map(|sql| {
+                let mut statement = connection.prepare(sql).unwrap();
+                let columns = statement.column_count();
+                statement
+                    .query_map([], |row| {
+                        (0..columns)
+                            .map(|index| row.get::<_, rusqlite::types::Value>(index))
+                            .collect::<Result<Vec<_>, _>>()
+                    })
+                    .unwrap()
+                    .collect::<Result<Vec<_>, _>>()
+                    .unwrap()
+            })
+        };
+        let before = snapshot();
+        let error = match Storage::open_hook(&path, Instant::now() + STORAGE_BUDGET) {
+            Err(error) => error,
+            Ok(_) => panic!("future schema must remain unsupported"),
+        };
+        assert!(error.is_newer_schema());
+        assert_eq!(
+            error.code,
+            tmt_adapters::storage::StorageErrorCode::IncompatibleSchema
+        );
+        assert_eq!(error.migration_version, None);
+        assert!(!error.retryable);
+        assert!(migrate(&path, &CallerEnvironment::current(), &NoHost).is_empty());
+        assert_eq!(snapshot(), before);
+    }
+
+    #[test]
+    fn invalid_and_incomplete_histories_keep_the_unavailable_hint() {
+        for (sql, reason) in [
+            (
+                "DELETE FROM _migrations WHERE version = (SELECT MAX(version) FROM _migrations)",
+                "Database requires migration before context can be read",
+            ),
+            (
+                "INSERT INTO _migrations SELECT MAX(version) + 2, 'gap', 'now' FROM _migrations",
+                "Migration history is not contiguous at version",
+            ),
+            (
+                "UPDATE _migrations SET name = 'changed' WHERE version = 1",
+                "Migration 1 has changed",
+            ),
+        ] {
+            let root = Directory::new();
+            let path = root.0.join("state.db");
+            Storage::open(&path).unwrap().close().unwrap();
+            let connection = rusqlite::Connection::open(&path).unwrap();
+            connection.execute_batch(sql).unwrap();
+            let error = match Storage::open_hook(&path, Instant::now() + STORAGE_BUDGET) {
+                Err(error) => error,
+                Ok(_) => panic!("invalid history must remain unsupported"),
+            };
+            assert!(!error.is_newer_schema());
+            let hints = migrate(&path, &CallerEnvironment::current(), &NoHost);
+            assert_eq!(hints.len(), 1);
+            assert!(hints[0].starts_with("Pane option cutover unavailable: "));
+            assert!(hints[0].contains(reason), "{hints:?}");
+            assert!(hints[0].ends_with("; rebind affected panes with tmt this <name>"));
+        }
+    }
+
+    #[test]
+    fn corrupt_database_keeps_the_unavailable_hint_without_host_work() {
+        let root = Directory::new();
+        let path = root.0.join("state.db");
+        std::fs::write(&path, b"not a SQLite database").unwrap();
+        let hints = migrate(&path, &CallerEnvironment::current(), &NoHost);
+        assert_eq!(hints.len(), 1);
+        assert!(hints[0].starts_with("Pane option cutover unavailable: "));
+        assert!(hints[0].ends_with("; rebind affected panes with tmt this <name>"));
+        assert_eq!(std::fs::read(&path).unwrap(), b"not a SQLite database");
+    }
+
     fn forty_bindings(database: &Path) -> Vec<tmt_core::binding::BindingEntry> {
         use tmt_core::{
             binding::BindingEntry,
